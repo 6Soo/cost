@@ -75,6 +75,10 @@ const OVERSEAS_FOOD_THRESHOLD = 100000;
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('비용처리')
     .addItem('정산 실행 (미분류만)', 'runReconciliation')
+    .addSeparator()
+    .addItem('메일 미리보기 (변경 없음/로그)', 'dryRunIngest')
+    .addItem('메일 수집 (메일수집 탭 기록)', 'ingestPaymentEmails')
+    .addSeparator()
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
     .addToUi();

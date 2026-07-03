@@ -140,6 +140,34 @@ const PARSERS = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// 미리보기(안전) — 라벨/시트 변경 없이 파서 결과만 로그로 출력.
+// Apps Script 편집기에서 dryRunIngest 실행 → '실행 로그(Ctrl+Enter)' 확인.
+// 파서 검증·튜닝용이라 몇 번을 돌려도 부작용 없음.
+// ─────────────────────────────────────────────────────────────
+function dryRunIngest() {
+  const threads = GmailApp.search(GMAIL_CFG.QUERY, 0, 30);
+  let seen = 0, parsed = 0, skipped = 0;
+  Logger.log('쿼리: %s  (스레드 %s개)', GMAIL_CFG.QUERY, threads.length);
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (gm) {
+      const m = {
+        id: gm.getId(), from: gm.getFrom(), subject: gm.getSubject(),
+        date: Utilities.formatDate(gm.getDate(), 'Asia/Seoul', 'yyyy-MM-dd'),
+        body: gm.getPlainBody(),
+      };
+      seen++;
+      const parser = PARSERS.find(function (p) { return p.match(m); });
+      const rec = parser ? parser.parse(m) : null;
+      if (rec) { parsed++; } else { skipped++; }
+      Logger.log('· [%s] %s (%s)\n    → %s',
+        parser ? parser.id : '매칭파서없음', m.subject, m.from,
+        rec ? JSON.stringify(rec) : '스킵(비결제/미매칭)');
+    });
+  });
+  Logger.log('요약: 메시지 %s개 / 파싱 %s / 스킵 %s (변경사항 없음)', seen, parsed, skipped);
+}
+
+// ─────────────────────────────────────────────────────────────
 // 메인
 // ─────────────────────────────────────────────────────────────
 function ingestPaymentEmails() {
