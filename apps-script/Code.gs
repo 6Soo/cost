@@ -34,9 +34,11 @@ const CONFIG = {
   CARD_PROFILES: {
     // 본인(김주형): 기타비용 위주, 큰 금액은 항공료에 국한 → 미상 대액은 여비교통비로.
     '3820': { owner: '김주형', kind: 'etc', bigAccount: '여비교통비', bigThreshold: 300000 },
-    // 대표가이드: 숙박비 등 여행성 위주. 카드 뒷4자리 확인 후 아래 슬롯 활성화.
-    // '____': { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
+    // (추후) 가이드별로 카드가 하나씩 생기면 뒷4자리로 등록. 성향은 travel:
+    // '1234': { owner: '가이드A', kind: 'travel', travelAccount: '숙박비' },
   },
+  // 위 표에 없는 카드의 기본 성향. 현재는 3820 외 전부 대표가이드(여행성)이므로 travel.
+  DEFAULT_CARD_PROFILE: { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
 };
 
 const KW = {
@@ -197,7 +199,7 @@ function classify(rec, kb, emailIdx, trips, rules) {
 
   if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) return { status: 'CANCEL' };
 
-  const profile = CONFIG.CARD_PROFILES[rec.last4];   // 카드 주인 성향(있으면) — 마지막 fallback에서만 사용
+  const profile = CONFIG.CARD_PROFILES[rec.last4] || CONFIG.DEFAULT_CARD_PROFILE;  // 카드 주인 성향 — 마지막 fallback에서만 사용
 
   // 0순위: 사람이 확정한 영구 규칙 (학습 결과). 두 번 묻지 않기 위함.
   const ruled = rules && rules[normMerchant(rec.merchant)];
