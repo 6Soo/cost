@@ -28,7 +28,15 @@ const CONFIG = {
                   '계정과목', '결제일', '국내/해외', '통화', '현지금액', '상태', '출처'],
 
   COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', NONE: '#ffffff' },
-  DOMESTIC_OWNER_CARD: '3820',  // 김주형(참고용). 여행/기타 판정은 날짜 기반이 우선.
+
+  // 카드 주인별 분류 성향(prior). key = 카드 뒷4자리.
+  // 강한 신호(날짜·키워드·메일매칭)가 모두 빠졌을 때만 적용되는 '기본값'이다 — 확정 분류를 덮지 않는다.
+  CARD_PROFILES: {
+    // 본인(김주형): 기타비용 위주, 큰 금액은 항공료에 국한 → 미상 대액은 여비교통비로.
+    '3820': { owner: '김주형', kind: 'etc', bigAccount: '여비교통비', bigThreshold: 300000 },
+    // 대표가이드: 숙박비 등 여행성 위주. 카드 뒷4자리 확인 후 아래 슬롯 활성화.
+    // '____': { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
+  },
 };
 
 const KW = {
@@ -189,6 +197,8 @@ function classify(rec, kb, emailIdx, trips, rules) {
 
   if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) return { status: 'CANCEL' };
 
+  const profile = CONFIG.CARD_PROFILES[rec.last4];   // 카드 주인 성향(있으면) — 마지막 fallback에서만 사용
+
   // 0순위: 사람이 확정한 영구 규칙 (학습 결과). 두 번 묻지 않기 위함.
   const ruled = rules && rules[normMerchant(rec.merchant)];
 
@@ -238,6 +248,19 @@ function classify(rec, kb, emailIdx, trips, rules) {
     return { status: 'HOLD', reason: '온라인결제(PG/페이) — KICC·페이 메일 매칭 필요' };
   }
   if (rec.bizCat && BIZCAT_ETC[rec.bizCat]) return { status: 'CONFIRM', account: BIZCAT_ETC[rec.bizCat], tripName: CONFIG.ETC_TAB };
+
+  // 카드 주인 성향(prior) — 위의 강한 신호가 모두 빠진 '미상' 건에만 적용되는 기본값.
+  if (profile) {
+    // 본인 카드: 기타비용 위주이고 큰 금액은 항공료뿐 → 미상 대액은 여비교통비로 확정.
+    if (profile.kind === 'etc' && profile.bigAccount && rec.krw >= profile.bigThreshold) {
+      return route({ status: 'CONFIRM', account: profile.bigAccount, note: '성향:' + (profile.owner || '') + '/대액' }, rec, trips);
+    }
+    // 여행성 카드(대표가이드 등): 기타로 오분류하지 않고, 여행 귀속을 사람이 확인하도록 보류.
+    if (profile.kind === 'travel') {
+      return { status: 'HOLD', reason: '여행 귀속 확인 — ' + (profile.owner || '') + ' 카드(여행성). 해당 여행 탭 생성/날짜 확인' };
+    }
+  }
+
   return { status: 'HOLD', reason: '기타비용 미상 업종 — 회의비/복리후생비/소모품비 확인' };
 }
 // 여행건에 목적지 탭 지정
