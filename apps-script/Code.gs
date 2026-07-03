@@ -1,10 +1,10 @@
 /**
  * 숲길여행 비용처리 자동화 — Apps Script 엔진 (단일 계정 kkokkohero6 실행)
  *
- * 진입점: onOpen() 메뉴 → runReconciliation() 이 2·3·4단계 수행(멱등).
- * RAW 3개 시트는 서로 다른 3개 포맷이며 detectFormat() 으로 자동 감지한다.
- *
- * 열 인덱스는 실제 샘플(2026 데이터) 기준. 헤더 행 수만 시트별로 확인해 맞추면 됨.
+ * 구조: 진행 장부는 여행별 탭(출발일_지역, 예: 0630_오제)으로 구성.
+ *  - 각 카드건의 '실사용일'이 속한 여행 탭을 찾아 그 탭의 비교본 '{탭}_C'(오른쪽)에 기록.
+ *  - 어떤 여행 기간에도 안 걸리는 국내건 = 기타비용 → '기타비용_C' 탭.
+ * 진입점: onOpen() 메뉴 → runReconciliation() (멱등: RAW 흰색 행만 처리).
  */
 
 const CONFIG = {
@@ -14,23 +14,23 @@ const CONFIG = {
     { id: '1SiOftobiUJSxSdvBEKL9AmxgQkjzkzDjs2O_8SBoyh4', sheetName: null },
   ],
   LEARN_LEDGER:  { id: '1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8', sheetName: null },
-  TARGET_LEDGER: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: null },
-  STAGING:       { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' },
+  TARGET_LEDGER_ID: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', // 여행별 탭이 있는 진행 장부
+  STAGING: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' },
 
-  HEADER_ROWS: 1, // 시트에 헤더가 없으면 0 (샘플엔 헤더 없이 데이터부터인 것으로 보임 → 확인)
+  HEADER_ROWS: 1,               // RAW 시트 헤더 행 수(없으면 0)
+  TRIP_WINDOW_DAYS: 7,          // 출발일부터 여행 기간(3~5일 + 버퍼)
+  ETC_TAB: '기타비용',          // 비여행 국내건 버킷 → '기타비용_C'
+  RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
+  REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
 
-  // 장부(원장) 출력 열 — 완료장부 계승(적요=용도_날짜, 예약번호 조인) + 명시적 계정/실사용일 추가.
-  // 필수(본질): 거래일자·계정과목·적요·금액·가맹점. 나머지는 부가.
-  LEDGER_HEADER: ['거래일자', '결제일', '계정과목', '적요', '금액', '가맹점', '예약번호',
-                  '여행/프로젝트', '결제수단', '국내/해외', '통화', '현지금액', '상태', '출처'],
+  // 비교탭 열(_C). 앞 6개는 수기 장부와 나란히 비교되도록 유사 배치.
+  LEDGER_HEADER: ['거래일자', '거래처', '적요', '결제수단', '금액', '예약번호',
+                  '계정과목', '결제일', '국내/해외', '통화', '현지금액', '상태', '출처'],
 
   COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', NONE: '#ffffff' },
-
-  // 국내 카드 소유자(마지막 4자리). ※ 사용자가 말한 '3320'은 실제 데이터상 '3820'으로 보임 → 확인.
-  DOMESTIC_OWNER_CARD: '3820', // 김주형(김*형)
+  DOMESTIC_OWNER_CARD: '3820',  // 김주형(참고용). 여행/기타 판정은 날짜 기반이 우선.
 };
 
-// 분류 키워드
 const KW = {
   TRANSPORT: ['TOYOTA', 'RENT', 'ENEOS', 'HERTZ', 'TAXI', 'PARKING', 'SHELL', 'ESSO',
               'TOLL', 'EXPRESSWAY', 'JR', 'RAIL', 'TATEYAMA', 'KUROBE', 'MINITZ',
@@ -46,23 +46,17 @@ const KW = {
               '네이버페이', '카카오페이', 'NAVERPAY', 'KAKAOPAY'],
 };
 
-// 국내 '기타비용'(3820 김주형·비여행): 업종 → 표준(IFRS) 계정과목
-const BIZCAT_ETC = {
-  '커피/음료전문점': '회의비',
-  '휴게음식점': '복리후생비',
-  '일반음식점': '복리후생비',
-  '한식': '복리후생비', '중식': '복리후생비', '일식': '복리후생비', '양식': '복리후생비',
-  '슈퍼마켓': '소모품비',
-  '편의점': '소모품비',
-  '용역서비스업': '지급수수료',
-};
-// 국내 '여행'(그 외 카드·아슬란): 업종 → 여행 세부 계정
+// 여행 세부 계정 (여행건)
 const BIZCAT_TRAVEL = {
-  '커피/음료전문점': '식비',
-  '휴게음식점': '식비', '일반음식점': '식비',
+  '커피/음료전문점': '식비', '휴게음식점': '식비', '일반음식점': '식비',
   '한식': '식비', '중식': '식비', '일식': '식비', '양식': '식비',
-  '슈퍼마켓': '식비', '편의점': '식비',
-  '주유소': '교통비', '용역서비스업': '교통비',
+  '슈퍼마켓': '식비', '편의점': '식비', '주유소': '교통비', '용역서비스업': '교통비',
+};
+// 기타비용(비여행 국내) 표준(IFRS) 계정
+const BIZCAT_ETC = {
+  '커피/음료전문점': '회의비', '휴게음식점': '복리후생비', '일반음식점': '복리후생비',
+  '한식': '복리후생비', '중식': '복리후생비', '일식': '복리후생비', '양식': '복리후생비',
+  '슈퍼마켓': '소모품비', '편의점': '소모품비', '용역서비스업': '지급수수료',
 };
 
 const OVERSEAS_FOOD_THRESHOLD = 100000;
@@ -71,23 +65,26 @@ const OVERSEAS_FOOD_THRESHOLD = 100000;
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('비용처리')
     .addItem('정산 실행 (미분류만)', 'runReconciliation')
+    .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
     .addToUi();
 }
 
 // ─────────────────────────────────────────────────────────────
-// 메인 — 멱등: 흰색(미분류) 행만 처리
+// 메인 — 멱등: 흰색(미분류) 행만 처리, 여행 탭별 _C 로 라우팅
 // ─────────────────────────────────────────────────────────────
 function runReconciliation() {
+  const ledgerSS = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
   const kb = buildKnowledgeBase();
-  const ledger = openSheet(CONFIG.TARGET_LEDGER);
-  ensureLedgerHeader(ledger);
-  const existing = loadLedgerKeys(ledger);
-  const emailIdx = loadEmailIndex();          // 메일수집 스테이징(있으면) 인덱스
+  const rules = loadRules(ledgerSS);
+  const trips = buildTrips(ledgerSS);
+  const emailIdx = loadEmailIndex();
+  const targets = {};          // tabName → {sheet, keys:Set}
+  const holds = {};            // distinct 패턴 → 학습대기 후보
   const stats = { done: 0, cancel: 0, hold: 0 };
 
   CONFIG.RAW_SOURCES.forEach(function (src) {
-    const sh = openSheet(src);
+    const sh = openFirst(src);
     if (!sh) return;
     const rng = sh.getDataRange();
     const values = rng.getValues();
@@ -98,39 +95,69 @@ function runReconciliation() {
       const rec = parseRaw(values[r]);
       if (!rec || (!rec.merchant && !rec.krw)) continue;
 
-      const v = classify(rec, kb, emailIdx);
+      const v = classify(rec, kb, emailIdx, trips, rules);
 
       if (v.status === 'CANCEL') {
-        setRowColor(sh, r + 1, CONFIG.COLOR.CANCEL);
-        stats.cancel++;
+        setRowColor(sh, r + 1, CONFIG.COLOR.CANCEL); stats.cancel++;
       } else if (v.status === 'CONFIRM') {
-        const key = makeKey(rec.useDate, rec.merchant, rec.krw);
-        if (!existing.has(key)) { appendToLedger(ledger, rec, v); existing.add(key); }
-        setRowColor(sh, r + 1, CONFIG.COLOR.DONE);
-        stats.done++;
+        const t = getTarget(targets, ledgerSS, v.tripName);
+        const key = makeKey(v.useDateOverride || rec.useDate, rec.merchant, rec.krw);
+        if (!t.keys.has(key)) { appendToLedger(t.sheet, rec, v); t.keys.add(key); }
+        setRowColor(sh, r + 1, CONFIG.COLOR.DONE); stats.done++;
       } else {
         noteCell(sh, r + 1, v.reason);
+        const hk = normMerchant(rec.merchant) + '|' + (rec.bizCat || '');
+        if (!holds[hk]) holds[hk] = { merchant: rec.merchant, bizCat: rec.bizCat || '',
+                                      date: rec.useDate, reason: v.reason };
         stats.hold++;
       }
     }
   });
 
-  toast('정산 완료 — 확정 ' + stats.done + ' / 취소 ' + stats.cancel + ' / 보류 ' + stats.hold);
+  flushReview(ledgerSS, holds);
+  toast('정산 완료 — 확정 ' + stats.done + ' / 취소 ' + stats.cancel +
+        ' / 보류 ' + stats.hold + ' (학습대기 탭 확인)');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 여행 탭 모델
+// ─────────────────────────────────────────────────────────────
+function buildTrips(ss) {
+  const trips = [];
+  ss.getSheets().forEach(function (sh) {
+    const name = sh.getName();
+    if (/_C$/.test(name)) return;                       // 비교본 제외
+    const m = name.match(/^(\d{2})(\d{2})_(.+)$/);       // 출발일_지역
+    if (!m) return;
+    trips.push({ name: name, mm: +m[1], dd: +m[2], region: m[3] });
+  });
+  return trips;
+}
+// 실사용일이 속한 여행(가장 늦게 시작한 매칭 여행). 연도는 카드건 연도 기준(연초 wrap 고려).
+function findTrip(trips, useDate) {
+  const d = ymd(useDate); if (!d) return null;
+  let best = null, bestStart = -1;
+  trips.forEach(function (t) {
+    [d.y, d.y - 1].forEach(function (yr) {
+      const start = Date.UTC(yr, t.mm - 1, t.dd);
+      const end = start + CONFIG.TRIP_WINDOW_DAYS * 86400000;
+      const cur = Date.UTC(d.y, d.m - 1, d.d);
+      if (cur >= start && cur <= end && start > bestStart) { best = t; bestStart = start; }
+    });
+  });
+  return best;
 }
 
 // ─────────────────────────────────────────────────────────────
 // RAW 포맷 자동 감지 + 정규화
-//   반환: {postDate, useDate, time, card, last4, user, merchant, bizCat,
-//          country, currency, foreign, rate, krw, saleType, overseas, format}
 // ─────────────────────────────────────────────────────────────
 function detectFormat(row) {
   const c = row.map(function (x) { return String(x == null ? '' : x).trim(); });
-  if (/^\d{1,2}:\d{2}/.test(c[2])) return 'DOMESTIC';                 // 3열=시각
-  if (['JPY','USD','KRW','EUR'].indexOf((c[10] || '').toUpperCase()) >= 0) return 'OVERSEAS_A'; // 11열=통화
-  if (/^\d+$/.test(c[0]) && /\d{4}-\*/.test(c[3] || '')) return 'OVERSEAS_B'; // 1열=순번,4열=카드
+  if (/^\d{1,2}:\d{2}/.test(c[2])) return 'DOMESTIC';
+  if (['JPY', 'USD', 'KRW', 'EUR'].indexOf((c[10] || '').toUpperCase()) >= 0) return 'OVERSEAS_A';
+  if (/^\d+$/.test(c[0]) && /\d{4}-\*/.test(c[3] || '')) return 'OVERSEAS_B';
   return 'UNKNOWN';
 }
-
 function parseRaw(row) {
   const c = row.map(function (x) { return String(x == null ? '' : x).trim(); });
   const fmt = detectFormat(row);
@@ -146,9 +173,7 @@ function parseRaw(row) {
   } else if (fmt === 'OVERSEAS_B') {
     rec = { useDate: c[1], card: c[3], merchant: c[7], krw: num(c[5]),
             postDate: c[14], currency: 'KRW', bizCat: '', overseas: true };
-  } else {
-    return null;
-  }
+  } else { return null; }
   rec.format = fmt;
   rec.last4 = digits(rec.card).slice(-4);
   rec.useDate = normDate(rec.useDate);
@@ -157,151 +182,239 @@ function parseRaw(row) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2단계 — 분류
+// 2단계 — 분류 (+ 여행 라우팅)
 // ─────────────────────────────────────────────────────────────
-function classify(rec, kb, emailIdx) {
+function classify(rec, kb, emailIdx, trips, rules) {
   const name = (rec.merchant || '').toUpperCase();
 
-  // 매출취소/환불
   if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) return { status: 'CANCEL' };
 
-  // OTA(숙박) → 예약번호/금액으로 메일 매칭(실사용일), 실패 시 보류
+  // 0순위: 사람이 확정한 영구 규칙 (학습 결과). 두 번 묻지 않기 위함.
+  const ruled = rules && rules[normMerchant(rec.merchant)];
+
+  // OTA(숙박/항공) → 메일 매칭으로 실사용일·예약번호 확보 (계정은 규칙>메일추정)
   if (hasKw(name, KW.OTA)) {
     const hit = emailIdx && matchEmail(emailIdx, rec);
-    if (hit && hit.useDate) return { status: 'CONFIRM', account: hit.item === '항공권' ? '여비교통비' : '숙박비',
-                                     useDateOverride: hit.useDate, bookingNo: hit.bookingNo, note: 'OTA:' + hit.source };
-    return { status: 'HOLD', reason: 'OTA 실사용시기 확인 필요(트립/아고다/부킹) — 메일 매칭 대기' };
+    if (hit && hit.useDate) {
+      const acct = (ruled && ruled.account) || (hit.item === '항공권' ? '여비교통비' : '숙박비');
+      return route({ status: 'CONFIRM', account: acct, useDateOverride: hit.useDate,
+                     bookingNo: hit.bookingNo, note: 'OTA:' + hit.source }, rec, trips);
+    }
+    return { status: 'HOLD', reason: 'OTA 실사용시기 확인 필요 — 메일 매칭 대기' };
   }
 
-  // 학습맵(과거 확정) 우선
+  // 규칙 적중 → 즉시 확정 (구분: 기타면 ETC 탭, 아니면 날짜로 여행 라우팅)
+  if (ruled && ruled.account) {
+    if (/기타/.test(ruled.kind)) return { status: 'CONFIRM', account: ruled.account, tripName: CONFIG.ETC_TAB };
+    return route({ status: 'CONFIRM', account: ruled.account }, rec, trips);
+  }
+
   const learned = kb[normMerchant(rec.merchant)];
-  if (learned) return { status: 'CONFIRM', account: learned };
+  if (learned) return route({ status: 'CONFIRM', account: learned }, rec, trips);
 
-  // 항공권(직접 항공사/여행사)
-  if (hasKw(name, KW.AIR)) return { status: 'CONFIRM', account: '여비교통비' };
+  if (hasKw(name, KW.AIR)) return route({ status: 'CONFIRM', account: '여비교통비' }, rec, trips);
 
-  if (rec.overseas) {
-    // 해외는 항상 여행경비
-    if (hasKw(name, KW.LODGING))   return { status: 'CONFIRM', account: '숙박비' };
-    if (hasKw(name, KW.TRANSPORT)) return { status: 'CONFIRM', account: '교통비' };
-    if (hasKw(name, KW.ADMISSION)) return { status: 'CONFIRM', account: '입장료' };
-    if (hasKw(name, KW.FOOD_AREA)) return { status: 'CONFIRM', account: '식비' };
-    if (rec.krw <= OVERSEAS_FOOD_THRESHOLD) return { status: 'CONFIRM', account: '식비' };
-    return { status: 'HOLD', reason: '해외 10만원 초과 미상 가맹점 — 수동 확인' };
+  const trip = findTrip(trips, rec.useDate);
+  const isTravel = rec.overseas || !!trip;
+
+  if (isTravel) {
+    let account;
+    if (hasKw(name, KW.LODGING)) account = '숙박비';
+    else if (hasKw(name, KW.TRANSPORT)) account = '교통비';
+    else if (hasKw(name, KW.ADMISSION)) account = '입장료';
+    else if (hasKw(name, KW.FOOD_AREA)) account = '식비';
+    else if (rec.bizCat && BIZCAT_TRAVEL[rec.bizCat]) account = BIZCAT_TRAVEL[rec.bizCat];
+    else if (!rec.overseas) account = '식비';                       // 국내여행 기본
+    else if (rec.krw <= OVERSEAS_FOOD_THRESHOLD) account = '식비';  // 해외 소액 기본
+    else return { status: 'HOLD', reason: '해외 10만원 초과 미상 가맹점 — 수동 확인' };
+    return route({ status: 'CONFIRM', account: account }, rec, trips, trip);
   }
 
-  // ── 국내: 온라인결제(PG/페이) → 메일 매칭 ──
+  // 비여행 국내 = 기타비용
   if (hasKw(name, KW.PG) || (rec.bizCat && /전자상거래|PG/.test(rec.bizCat))) {
     const hit = emailIdx && matchEmail(emailIdx, rec);
-    if (hit) return { status: 'CONFIRM', account: hit.account || '여비교통비', note: '메일:' + hit.source,
-                      bookingNo: hit.bookingNo, project: hit.item };
+    if (hit) return { status: 'CONFIRM', account: hit.account || '여비교통비', tripName: CONFIG.ETC_TAB,
+                      note: '메일:' + hit.source, bookingNo: hit.bookingNo, project: hit.item };
     return { status: 'HOLD', reason: '온라인결제(PG/페이) — KICC·페이 메일 매칭 필요' };
   }
-
-  // ── 국내: 기타비용(3820 김주형) vs 국내여행(그 외 카드) ──
-  const isTravel = rec.last4 !== CONFIG.DOMESTIC_OWNER_CARD;
-  if (hasKw(name, KW.TRANSPORT)) return { status: 'CONFIRM', account: '교통비' };
-  const map = isTravel ? BIZCAT_TRAVEL : BIZCAT_ETC;
-  if (rec.bizCat && map[rec.bizCat]) return { status: 'CONFIRM', account: map[rec.bizCat] };
-  if (isTravel) return { status: 'CONFIRM', account: '식비' };           // 국내여행 기본 식비
-  return { status: 'HOLD', reason: '3820 미상 업종 — 회의비/복리후생비/소모품비 확인' }; // 기타비용은 확인
+  if (rec.bizCat && BIZCAT_ETC[rec.bizCat]) return { status: 'CONFIRM', account: BIZCAT_ETC[rec.bizCat], tripName: CONFIG.ETC_TAB };
+  return { status: 'HOLD', reason: '기타비용 미상 업종 — 회의비/복리후생비/소모품비 확인' };
+}
+// 여행건에 목적지 탭 지정
+function route(v, rec, trips, trip) {
+  const t = trip || findTrip(trips, v.useDateOverride || rec.useDate);
+  v.tripName = t ? t.name : (rec.overseas ? '여행_미매칭' : CONFIG.ETC_TAB);
+  if (t) v.project = t.region;
+  return v;
 }
 
 // ─────────────────────────────────────────────────────────────
-// 학습 — 완료 장부에서 가맹점→계정과목
+// 학습 — 완료 장부 가맹점→계정과목
 // ─────────────────────────────────────────────────────────────
 function buildKnowledgeBase() {
   const cached = PropertiesService.getScriptProperties().getProperty('KB');
   return cached ? JSON.parse(cached) : rebuildKnowledgeBase();
 }
 function rebuildKnowledgeBase() {
-  const sh = openSheet(CONFIG.LEARN_LEDGER);
   const kb = {};
-  if (sh) {
+  const ss = SpreadsheetApp.openById(CONFIG.LEARN_LEDGER.id);
+  ss.getSheets().forEach(function (sh) {
+    if (/_C$/.test(sh.getName())) return;
     const values = sh.getDataRange().getValues();
-    const head = values[0].map(String);
-    const mi = idxOf(head, ['가맹점', '적요', '가맹점명']);
-    const ai = idxOf(head, ['계정과목', '계정']);
-    for (let r = 1; r < values.length; r++) {
-      const m = values[r][mi], a = values[r][ai];
-      if (m && a) kb[normMerchant(m)] = String(a).trim();
-    }
-  }
+    values.forEach(function (row) {
+      // 완료장부: 거래처 + 적요(용도) 패턴에서 학습
+      const merchant = row.filter(function (x) { return /[A-Za-z가-힣]/.test(String(x)); })[1];
+      const memo = String(row.join(' '));
+      const acct = memoToAccount(memo);
+      if (merchant && acct) kb[normMerchant(merchant)] = acct;
+    });
+  });
   PropertiesService.getScriptProperties().setProperty('KB', JSON.stringify(kb));
   return kb;
 }
+function memoToAccount(memo) {
+  if (/숙박/.test(memo)) return '숙박비';
+  if (/항공/.test(memo)) return '여비교통비';
+  if (/교통/.test(memo)) return '교통비';
+  if (/입장/.test(memo)) return '입장료';
+  if (/식비/.test(memo)) return '식비';
+  return '';
+}
 
 // ─────────────────────────────────────────────────────────────
-// 3단계 — 장부 전기
+// 학습 루프 — 분류규칙(영구) + 학습대기(사람이 1회 판단)
 // ─────────────────────────────────────────────────────────────
-function ensureLedgerHeader(ledger) {
-  if (ledger.getLastRow() === 0) ledger.appendRow(CONFIG.LEDGER_HEADER);
+const RULES_HEADER = ['가맹점', '계정과목', '구분(여행/기타)', '비고'];
+const REVIEW_HEADER = ['가맹점', '업종', '예시일자', '보류사유', '계정과목(입력)', '구분(여행/기타)'];
+
+function loadRules(ss) {
+  const map = {};
+  const sh = ss.getSheetByName(CONFIG.RULES_TAB);
+  if (!sh) return map;
+  const v = sh.getDataRange().getValues();
+  for (let r = 1; r < v.length; r++) {
+    const key = normMerchant(v[r][0]);
+    if (key && v[r][1]) map[key] = { account: String(v[r][1]).trim(), kind: String(v[r][2] || '').trim() };
+  }
+  return map;
 }
-function appendToLedger(ledger, rec, v) {
+
+// HOLD distinct 패턴을 학습대기 탭에 축적(중복 제외)
+function flushReview(ss, holds) {
+  const keys = Object.keys(holds);
+  if (!keys.length) return;
+  const sh = ensureTab(ss, CONFIG.REVIEW_TAB, REVIEW_HEADER);
+  const rules = loadRules(ss);
+  const existing = new Set();
+  const cur = sh.getDataRange().getValues();
+  for (let r = 1; r < cur.length; r++) existing.add(normMerchant(cur[r][0]));
+  keys.forEach(function (k) {
+    const h = holds[k];
+    const nm = normMerchant(h.merchant);
+    if (existing.has(nm) || rules[nm]) return;           // 이미 대기중이거나 규칙 있음 → skip
+    sh.appendRow([h.merchant, h.bizCat, h.date, h.reason, '', '']);
+    existing.add(nm);
+  });
+}
+
+// 학습대기에서 계정 채워진 행 → 분류규칙으로 승격(그 후 자동 분류)
+function promoteReviewToRules() {
+  const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  const rv = ss.getSheetByName(CONFIG.REVIEW_TAB);
+  if (!rv) { toast('학습대기 탭이 없습니다.'); return; }
+  const rules = ensureTab(ss, CONFIG.RULES_TAB, RULES_HEADER);
+  const v = rv.getDataRange().getValues();
+  let promoted = 0;
+  const remain = [REVIEW_HEADER];
+  for (let r = 1; r < v.length; r++) {
+    const merchant = v[r][0], account = String(v[r][4] || '').trim(), kind = String(v[r][5] || '').trim();
+    if (account) { rules.appendRow([merchant, account, kind, '학습:' + new Date().toISOString().slice(0, 10)]); promoted++; }
+    else remain.push(v[r]);                               // 아직 미입력 → 대기 유지
+  }
+  rv.clearContents();
+  rv.getRange(1, 1, remain.length, REVIEW_HEADER.length).setValues(remain);
+  PropertiesService.getScriptProperties().deleteProperty('KB'); // 규칙 반영 후 캐시 무효화
+  toast(promoted + '건 규칙 반영 완료. 다음 정산부터 자동 분류됩니다.');
+}
+
+function ensureTab(ss, name, header) {
+  let sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(header); sh.getRange(1, 1, 1, header.length).setFontWeight('bold'); }
+  return sh;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 3단계 — _C 탭 전기
+// ─────────────────────────────────────────────────────────────
+function getTarget(cache, ss, tripName) {
+  if (cache[tripName]) return cache[tripName];
+  const sheet = getOrCreateCompareTab(ss, tripName);
+  cache[tripName] = { sheet: sheet, keys: loadKeys(sheet) };
+  return cache[tripName];
+}
+function getOrCreateCompareTab(ss, tripName) {
+  const cName = tripName + '_C';
+  let c = ss.getSheetByName(cName);
+  if (!c) {
+    const orig = ss.getSheetByName(tripName);
+    c = orig ? ss.insertSheet(cName, orig.getIndex()) : ss.insertSheet(cName); // orig 바로 오른쪽
+    c.appendRow(CONFIG.LEDGER_HEADER);
+    c.getRange(1, 1, 1, CONFIG.LEDGER_HEADER.length).setFontWeight('bold');
+  }
+  return c;
+}
+function appendToLedger(sheet, rec, v) {
   const useDate = v.useDateOverride || rec.useDate;
-  ledger.appendRow([
-    useDate,                                      // 거래일자(실사용)
-    rec.postDate || rec.useDate,                  // 결제일
-    v.account,                                    // 계정과목
-    makeMemo(v.account, useDate, v.note),         // 적요 (용도_MMDD 형식)
-    rec.krw,                                      // 금액(원)
-    rec.merchant,                                 // 가맹점
-    v.bookingNo || '',                            // 예약번호(OTA 조인키)
-    v.project || '',                              // 여행/프로젝트
-    rec.last4 + (rec.user ? '/' + rec.user : ''), // 결제수단
-    rec.overseas ? '해외' : '국내',               // 국내/해외
-    rec.currency || 'KRW',                        // 통화
-    rec.foreign || '',                            // 현지금액
-    '기록완료',                                   // 상태
-    rec.format || '',                             // 출처(포맷)
+  sheet.appendRow([
+    useDate,                                       // 거래일자(실사용)
+    rec.merchant,                                  // 거래처
+    makeMemo(v.account, useDate, v.note),          // 적요 (용도_MMDD)
+    rec.last4 + (rec.user ? '/' + rec.user : ''),  // 결제수단
+    rec.krw,                                       // 금액
+    v.bookingNo || '',                             // 예약번호
+    v.account,                                     // 계정과목
+    rec.postDate || rec.useDate,                   // 결제일
+    rec.overseas ? '해외' : '국내',                // 국내/해외
+    rec.currency || 'KRW',                         // 통화
+    rec.foreign || '',                             // 현지금액
+    '기록완료',                                    // 상태
+    rec.format || '',                              // 출처
   ]);
 }
-// 완료장부 계승: 용도 접두 + 실사용일(MMDD). 예: 숙박_0705, 식비, 교통비
 const ACCOUNT_MEMO = { '숙박비': '숙박', '여비교통비': '항공', '교통비': '교통', '식비': '식비', '입장료': '입장료' };
 function makeMemo(account, useDate, note) {
   const base = ACCOUNT_MEMO[account] || account;
-  const mmdd = (String(useDate).match(/\d{4}-(\d{2})-(\d{2})/) || [])[0] ?
-               String(useDate).slice(5).replace('-', '') : '';
-  return base + (mmdd ? '_' + mmdd : '') + (note ? ' [' + note + ']' : '');
+  const s = String(useDate);
+  const mmdd = /\d{4}-\d{2}-\d{2}/.test(s) ? '_' + s.slice(5).replace('-', '') : '';
+  return base + mmdd + (note ? ' [' + note + ']' : '');
 }
-function loadLedgerKeys(ledger) {
+function loadKeys(sheet) {
   const set = new Set();
-  const values = ledger.getDataRange().getValues();
-  const head = values[0] ? values[0].map(String) : [];
-  const di = idxOf(head, ['거래일자']), mi = idxOf(head, ['가맹점']), ki = idxOf(head, ['금액']);
-  for (let r = 1; r < values.length; r++) {
-    set.add(makeKey(values[r][di], values[r][mi], values[r][ki]));
-  }
+  const values = sheet.getDataRange().getValues();
+  for (let r = 1; r < values.length; r++) set.add(makeKey(values[r][0], values[r][1], values[r][4]));
   return set;
 }
 
 // ─────────────────────────────────────────────────────────────
-// 메일 스테이징 매칭 (있을 때만)
+// 메일 스테이징 매칭
 // ─────────────────────────────────────────────────────────────
 function loadEmailIndex() {
   const ss = SpreadsheetApp.openById(CONFIG.STAGING.id);
   const sh = ss.getSheetByName(CONFIG.STAGING.sheetName);
   if (!sh || sh.getLastRow() < 2) return null;
   const values = sh.getDataRange().getValues();
-  const head = values[0].map(String);
-  const col = {};
-  head.forEach(function (h, i) { col[h] = i; });
+  const col = {}; values[0].forEach(function (h, i) { col[h] = i; });
   const rows = [];
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
-    rows.push({
-      source: row[col.source], type: row[col.type],
-      useDate: normDate(row[col.useDate]), merchant: row[col.merchant],
-      item: row[col.item], amount: num(row[col.amount]), account: row[col.account],
-      bookingNo: String(row[col.bookingNo] || ''),
-    });
+    rows.push({ source: row[col.source], type: row[col.type], useDate: normDate(row[col.useDate]),
+                merchant: row[col.merchant], item: row[col.item], amount: num(row[col.amount]),
+                account: row[col.account], bookingNo: String(row[col.bookingNo] || '') });
   }
   return rows;
 }
-// 매칭: 금액 근접(±1%). 트립 호텔은 원화라 금액 일치가 강함(아고다 JPY는 약함 → 추후 예약번호 보강).
 function matchEmail(index, rec) {
-  const amt = Math.round(rec.krw);
-  let best = null;
+  const amt = Math.round(rec.krw); let best = null;
   index.forEach(function (e) {
     if (e.type === 'refund') return;
     const ea = Math.round(Math.abs(e.amount));
@@ -313,7 +426,7 @@ function matchEmail(index, rec) {
 // ─────────────────────────────────────────────────────────────
 // 헬퍼
 // ─────────────────────────────────────────────────────────────
-function openSheet(ref) {
+function openFirst(ref) {
   const ss = SpreadsheetApp.openById(ref.id);
   return ref.sheetName ? ss.getSheetByName(ref.sheetName) : ss.getSheets()[0];
 }
@@ -322,16 +435,18 @@ function normMerchant(s) { return String(s || '').toUpperCase().replace(/\s+/g, 
 function hasKw(name, list) { return list.some(function (k) { return name.indexOf(k.toUpperCase()) >= 0; }); }
 function num(v) { if (typeof v === 'number') return v; return Number(String(v || '').replace(/[^0-9.-]/g, '')) || 0; }
 function digits(s) { return String(s || '').replace(/\D/g, ''); }
-function idxOf(head, names) {
-  for (let i = 0; i < head.length; i++) for (let n = 0; n < names.length; n++)
-    if (String(head[i]).indexOf(names[n]) >= 0) return i;
-  return -1;
-}
 function normDate(d) {
   if (d instanceof Date) return Utilities.formatDate(d, 'Asia/Seoul', 'yyyy-MM-dd');
   const s = String(d || '').trim();
-  const m = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-  return m ? m[1] + '-' + pad(m[2]) + '-' + pad(m[3]) : s;
+  let m = s.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (m) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+  m = s.match(/^(\d{2})[.\-\/](\d{1,2})[.\-\/](\d{1,2})$/);         // 26.04.27 → 2026-04-27
+  if (m) return '20' + m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+  return s;
+}
+function ymd(s) {
+  const m = String(s || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
 }
 function pad(n) { return ('0' + n).slice(-2); }
 function isWhite(hex) { const h = String(hex || '').toLowerCase(); return h === '' || h === '#ffffff' || h === '#fff' || h === 'white'; }
