@@ -195,11 +195,11 @@ function getOrCreateLabel_(name) {
 }
 
 // ── 파싱 유틸 ──
+// 참고: num()·digits()·pad() 는 Code.gs 에 단일 정의. Apps Script 는 프로젝트 내
+// 모든 .gs 가 전역 스코프를 공유하므로 여기서 재선언하지 않는다(중복 선언 방지).
 function firstGroup(t, re) { const m = String(t || '').match(re); return m ? m[1].trim() : ''; }
 function after(t, re) { const m = String(t || '').match(re); return m ? m[1] : ''; }
 function line(t, re) { const m = String(t || '').match(re); return m ? m[1].replace(/\t/g, ' ').trim() : ''; }
-function digits(s) { return String(s || '').replace(/\D/g, ''); }
-function num(s) { return Number(String(s || '').replace(/[^0-9.-]/g, '')) || 0; }
 function won(t, re) { const m = String(t || '').match(re); return m ? num(m[1]) : 0; }
 function kdate(t, re) {
   const g = firstGroup(t, re); const m = g.match(/([0-9]{4})년\s*([0-9]{1,2})월\s*([0-9]{1,2})일/);
@@ -212,4 +212,3 @@ function endate(t, re) {
   const m = g.match(/([A-Za-z]+)\s+([0-9]{1,2}),\s*([0-9]{4})/);
   return m && M[m[1]] ? m[3] + '-' + pad(M[m[1]]) + '-' + pad(m[2]) : '';
 }
-function pad(n) { return ('0' + n).slice(-2); }
