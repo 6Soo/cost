@@ -107,11 +107,21 @@ function runReconciliation() {
     for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
       if (!isWhite(bg[r][0])) continue;
       const rec = parseRaw(values[r]);
-      if (!rec || (!rec.merchant && !rec.krw)) continue;
+      // (R2-5) 포맷 미인식 행을 조용히 넘기지 않는다 — 카드사 양식이 바뀌면
+      // 누락이 소리 없이 발생하던 문제. 내용이 있는 행이면 노트로 표시.
+      if (!rec) {
+        if (values[r].join('').trim()) noteCell(sh, r + 1, '포맷 미인식(UNKNOWN) — 카드사 다운로드 양식 변경 여부 확인');
+        continue;
+      }
+      if (!rec.merchant && !rec.krw) continue;
 
       const v = classify(rec, kb, emailIdx, trips, rules);
 
       if (v.status === 'CANCEL') {
+        // (R2-5) 취소 반대분개: 이미 _C 탭에 전기된 원거래가 있으면 음수 한 줄을 같은 탭에 기록.
+        // (과거엔 색만 바꿔 장부에 취소가 반영되지 않았다. design.md '반대분개 또는 제외' 구현)
+        const revTab = postReversal(ledgerSS, rec);
+        if (revTab) noteCell(sh, r + 1, '취소 — ' + revTab + ' 탭에 반대분개 기록');
         setRowColor(sh, r + 1, CONFIG.COLOR.CANCEL); stats.cancel++;
       } else if (v.status === 'CONFIRM') {
         const t = getTarget(targets, ledgerSS, v.tripName);
@@ -249,8 +259,16 @@ function classify(rec, kb, emailIdx, trips, rules) {
   // 비여행 국내 = 기타비용
   if (hasKw(name, KW.PG) || (rec.bizCat && /전자상거래|PG/.test(rec.bizCat))) {
     const hit = emailIdx && matchEmail(emailIdx, rec);
-    if (hit) return { status: 'CONFIRM', account: hit.account || '여비교통비', tripName: CONFIG.ETC_TAB,
-                      note: '메일:' + hit.source, bookingNo: hit.bookingNo, project: hit.item };
+    // (R2-5) 메일이 계정과목을 못 주면 '여비교통비'로 강제하지 않고 보류한다.
+    // KICC 파서는 account를 채우지 않으므로 과거엔 PG 결제가 일괄 여비교통비로 오분류될 수 있었다.
+    if (hit && hit.account) {
+      return { status: 'CONFIRM', account: hit.account, tripName: CONFIG.ETC_TAB,
+               note: '메일:' + hit.source, bookingNo: hit.bookingNo, project: hit.item };
+    }
+    if (hit) {
+      return { status: 'HOLD', reason: '온라인결제 메일 매칭됨(' + hit.source +
+               (hit.item ? '/' + hit.item : '') + ') — 계정과목만 확인해 학습대기에 입력' };
+    }
     return { status: 'HOLD', reason: '온라인결제(PG/페이) — KICC·페이 메일 매칭 필요' };
   }
   if (rec.bizCat && BIZCAT_ETC[rec.bizCat]) return { status: 'CONFIRM', account: BIZCAT_ETC[rec.bizCat], tripName: CONFIG.ETC_TAB };
@@ -417,6 +435,34 @@ function makeMemo(account, useDate, note) {
   const mmdd = /\d{4}-\d{2}-\d{2}/.test(s) ? '_' + s.slice(5).replace('-', '') : '';
   return base + mmdd + (note ? ' [' + note + ']' : '');
 }
+// (R2-5) 취소 건 반대분개 — 전 _C 탭에서 같은 가맹점·같은 금액(양수)으로 전기된
+// 원거래를 찾아, 그 탭에 음수 금액 한 줄을 덧붙인다. 못 찾으면 null(색 표시만).
+// 멱등성: 취소 행 자체가 CANCEL 색으로 칠해져 재처리되지 않는다.
+function postReversal(ledgerSS, rec) {
+  const posAmt = Math.abs(rec.krw);
+  if (!posAmt) return null;
+  const merchant = normMerchant(rec.merchant);
+  const sheets = ledgerSS.getSheets().filter(function (sh) { return /_C$/.test(sh.getName()); });
+  for (let i = 0; i < sheets.length; i++) {
+    const sh = sheets[i];
+    if (sh.getLastRow() < 2) continue;
+    const values = sh.getDataRange().getValues();
+    for (let r = 1; r < values.length; r++) {
+      if (normMerchant(values[r][1]) !== merchant) continue;
+      if (num(values[r][4]) !== posAmt) continue;   // 양수 원거래만
+      sh.appendRow([
+        rec.useDate, rec.merchant, '취소 반대분개',
+        rec.last4 + (rec.user ? '/' + rec.user : ''),
+        -posAmt, '', values[r][6] /* 원거래와 같은 계정과목 */,
+        rec.postDate || rec.useDate, rec.overseas ? '해외' : '국내',
+        rec.currency || 'KRW', '', '취소반영', rec.format || '',
+      ]);
+      return sh.getName();
+    }
+  }
+  return null;
+}
+
 function loadKeys(sheet) {
   const set = new Set();
   const values = sheet.getDataRange().getValues();
@@ -437,19 +483,42 @@ function loadEmailIndex() {
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
     rows.push({ source: row[col.source], type: row[col.type], useDate: normDate(row[col.useDate]),
+                paidDate: normDate(row[col.paidDate]),   // (R2-5) 결제일 근접 매칭용
                 merchant: row[col.merchant], item: row[col.item], amount: num(row[col.amount]),
                 account: row[col.account], bookingNo: String(row[col.bookingNo] || '') });
   }
   return rows;
 }
+// (R2-5) 금액 단독 매칭의 오매칭 방지 보강:
+//  1) 결제일 근접(±3일) 조건 — 메일 수신일(paidDate) ≈ 예약 결제 시점이므로
+//     카드 이용일(useDate)과 3일 넘게 벌어지면 동일 금액대 다른 결제로 간주.
+//     (실사용일 useDate가 아니라 '결제 시점'끼리 비교 — OTA 선결제 특성 보존)
+//  2) 같은 메일의 중복 매칭 금지(_used) — 한 메일은 카드 건 하나에만.
+//  3) 후보가 여럿이면 결제일이 가장 가까운 메일 채택.
 function matchEmail(index, rec) {
-  const amt = Math.round(rec.krw); let best = null;
+  const amt = Math.round(rec.krw);
+  const recPay = dateMs(rec.useDate);   // 카드 '이용일' = 결제 발생일
+  let best = null, bestDiff = Infinity;
   index.forEach(function (e) {
-    if (e.type === 'refund') return;
+    if (e.type === 'refund' || e._used) return;
     const ea = Math.round(Math.abs(e.amount));
-    if (ea > 0 && Math.abs(ea - amt) <= Math.max(2, amt * 0.01)) best = best || e;
+    if (!(ea > 0 && Math.abs(ea - amt) <= Math.max(2, amt * 0.01))) return;
+    const ePay = dateMs(e.paidDate);
+    let diff = 0;
+    if (recPay != null && ePay != null) {
+      diff = Math.abs(ePay - recPay) / 86400000;
+      if (diff > 3) return;   // 결제일 3일 초과 이격 → 다른 결제
+    }
+    if (diff < bestDiff) { best = e; bestDiff = diff; }
   });
+  if (best) best._used = true;
   return best;
+}
+function dateMs(v) {
+  const s = normDate(v);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(String(s || ''))) return null;
+  const t = new Date(String(s).slice(0, 10) + 'T00:00:00Z').getTime();
+  return isNaN(t) ? null : t;
 }
 
 // ─────────────────────────────────────────────────────────────
