@@ -61,7 +61,18 @@ const PARSERS = [
     id: 'trip_flight',
     match: function (m) { return /kr_flt_noreply@trip\.com/i.test(m.from); },
     parse: function (m) {
-      if (!/발권되었습니다|예약 확정/.test(m.body + m.subject)) return null;
+      const t = m.subject + '\n' + m.body;
+      // 환불(취소) — '기존 결제 수단으로 400106원 환불' / '환불 금액은 400106원'
+      if (/환불 완료|환불 요청|취소 요청 접수/.test(t)) {
+        const amt = won(t, /([0-9,]+)\s*원\s*환불/) || won(t, /환불[^0-9]{0,20}([0-9,]+)\s*원/);
+        return {
+          source: 'trip_flight', type: 'refund',
+          bookingNo: digits(after(m.body, /예약번호\s*([0-9​‌‍\s]+)/)),
+          merchant: '항공권', item: '항공권 환불',
+          currency: 'KRW', amount: -amt, paidDate: m.date, account: '여비교통비',
+        };
+      }
+      if (!/발권되었습니다|예약 확정/.test(t)) return null;
       return {
         source: 'trip_flight',
         type: 'charge',
@@ -111,7 +122,8 @@ const PARSERS = [
         type: 'charge',
         merchant: line(m.body, /상\s*호\s*(.+)/) || line(m.body, /상호\s*(.+)/),
         item: line(m.body, /상품명\s*(.+)/),
-        paidDate: kdatetime(m.body, /결제일시\s*([0-9]{4}년\s*[0-9]{2}월\s*[0-9]{2}일)/),
+        // 결제일시가 '2026/06/28' 슬래시 또는 '2026년 06월 28일' 둘 다 지원
+        paidDate: ymd2(firstGroup(m.body, /결제일시\s*([0-9]{4}[.\-\/][0-9]{1,2}[.\-\/][0-9]{1,2}|[0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/)),
         currency: 'KRW',
         amount: won(m.body, /상품금액\s*([0-9,]+)\s*원/),
         bookingNo: line(m.body, /승인번호\s*([0-9]+)/),
@@ -120,20 +132,32 @@ const PARSERS = [
     },
   },
 
-  // ── Booking.com (샘플 확보 후 확정) ──
+  // ── Booking.com (실제 샘플 반영) ──
+  //  · noreply-payments@booking.com = 영수증(금액 O)   · noreply@booking.com = 예약확정(금액 X)
+  //  · property.booking.com·평가하기·"새로운 메시지" = 노이즈 → 스킵
   {
     id: 'booking',
     match: function (m) { return /booking\.com/i.test(m.from); },
     parse: function (m) {
+      const t = m.subject + '\n' + m.body;
+      if (/평가하기|후기|Rate\s|review/i.test(m.subject)) return null;         // 후기요청 스킵
+      if (/property\.booking\.com/i.test(m.from) || /새로운 메시지|메시지가 있습니다|메시지를 보냈/.test(m.subject)) return null; // 숙소 메시지 스킵
+
+      const isReceipt = /noreply-payments@booking\.com/i.test(m.from) || /영수증|receipt/i.test(m.subject);
+      const mo = money(t, /결제된?\s*금액/);
       return {
         source: 'booking',
-        type: /cancel|refund|취소|환불/i.test(m.body) ? 'refund' : 'charge',
-        merchant: firstGroup(m.body, /(?:호텔|Property|Hotel)[:\s]+(.+)/i),
-        useDate: kdate(m.body, /체크인[:\s]*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/) ||
-                 endate(m.body, /Check-?in\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
+        type: /환불|취소|refund|cancel/i.test(t) ? 'refund' : 'charge',
+        bookingNo: firstGroup(t, /예약\s*번호[:\s]*([0-9]{6,})/) || firstGroup(t, /booking\s*(?:number|id)[:\s]*([0-9]{6,})/i),
+        merchant: firstGroup(t, /숙소\s*이름\s*[\r\n]+\s*(.+)/) ||
+                  firstGroup(m.subject, /[!\s]\s*([A-Za-z].*?)\s*예약이 확정/) ||
+                  firstGroup(t, /(?:숙소명|Hotel|Property)[:\s]+(.+)/i),
         item: '숙박',
+        useDate: ymd2(firstGroup(t, /체크인[:\s]*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/)) ||
+                 endate(t, /Check-?in\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
+        currency: mo.currency || 'KRW',
+        amount: isReceipt ? mo.amount : 0,   // 영수증만 금액, 확정메일은 카드매칭
         paidDate: m.date,
-        amount: 0,
       };
     },
   },
@@ -234,6 +258,23 @@ function kdate(t, re) {
   return m ? m[1] + '-' + pad(m[2]) + '-' + pad(m[3]) : '';
 }
 function kdatetime(t, re) { return kdate(t, re); }
+// 년월일·슬래시·점·하이픈 날짜를 yyyy-MM-dd로. (HTML메일은 값이 다음 줄에 오므로 라벨 뒤 \s* 로 넘어감)
+function ymd2(g) {
+  const s = String(g || '');
+  let m = s.match(/([0-9]{4})년\s*([0-9]{1,2})월\s*([0-9]{1,2})일/);
+  if (m) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+  m = s.match(/([0-9]{4})[.\-\/]\s*([0-9]{1,2})[.\-\/]\s*([0-9]{1,2})/);
+  return m ? m[1] + '-' + pad(m[2]) + '-' + pad(m[3]) : '';
+}
+// 라벨 뒤 60자 안에서 통화기호(¥/₩/$)·숫자 추출. Booking '결제된 금액 ¥73,800' 등.
+function money(t, labelRe) {
+  const s = String(t || ''); const m = s.match(labelRe);
+  if (!m) return { amount: 0, currency: '' };
+  const seg = s.slice(m.index, m.index + 60);
+  const cur = /¥|JPY/i.test(seg) ? 'JPY' : /₩|KRW|원/.test(seg) ? 'KRW' : /\$|USD/i.test(seg) ? 'USD' : '';
+  const n = seg.match(/([0-9][0-9,]{2,})/);
+  return { amount: n ? num(n[1]) : 0, currency: cur };
+}
 function endate(t, re) {
   const g = firstGroup(t, re);
   const M = { January:1,February:2,March:3,April:4,May:5,June:6,July:7,August:8,September:9,October:10,November:11,December:12 };
