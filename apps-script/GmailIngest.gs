@@ -89,24 +89,49 @@ const PARSERS = [
     },
   },
 
-  // ── Agoda (영문, 확정 / 환불) ──
+  // ── Agoda (한/영/일 자동번역 혼재) — 예약번호·숙소·체크인일 추출(금액은 대개 없음→카드매칭) ──
   {
     id: 'agoda',
     match: function (m) { return /agoda\.com/i.test(m.from); },
     parse: function (m) {
-      const isRefund = /refund/i.test(m.body);
-      const cur = firstGroup(m.body, /(?:refund in the amount of|Total(?:\s*Price)?)\s*([A-Z]{3})/i) || 'JPY';
-      const amt = num(firstGroup(m.body, /(?:amount of|Total(?:\s*Price)?)\s*[A-Z]{3}\s*([0-9,\.]+)/i));
+      const t = m.subject + '\n' + m.body;
+      const isRefund = /환불|refunded|refund of|refund in the amount/i.test(t);   // '취소 정책' 문구는 환불로 안 봄
+      const mo = money(t, /(?:Total\s*Price|Total|amount of|결제.{0,4}금액|합계|금액|料金)/i);
+      const curCode = firstGroup(t, /\b(JPY|KRW|USD|EUR)\b/);
       return {
         source: 'agoda',
         type: isRefund ? 'refund' : 'charge',
-        bookingNo: firstGroup(m.body, /booking ID\s*([0-9]+)/i) || firstGroup(m.subject, /Booking ID\s*([0-9]+)/i),
-        merchant: firstGroup(m.body, /Hotel:\s*(.+)/i),
+        bookingNo: firstGroup(t, /(?:booking\s*id|예약\s*번호|予約番号)\s*[:：]?\s*([0-9]{6,})/i) ||
+                   digits(firstGroup(t, /ID[:：]\s*([0-9]{6,})/i)),
+        merchant: firstGroup(t, /(?:숙소명|호텔명|Hotel|宿泊施設名)\s*[:：]\s*(.+)/i),
         item: '숙박',
-        useDate: endate(m.body, /Arrival:\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i) ||
-                 endate(m.subject, /Check in\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
-        currency: cur,
-        amount: isRefund ? -amt : amt,
+        // 체크인: 한국어 '2026년 6월 25일' 또는 영문/일문 'June 25, 2026'
+        useDate: ymd2(firstGroup(t, /(?:체크인|arrival|check[\s-]?in|チェックイン)[^0-9]{0,6}([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/i)) ||
+                 endate(t, /(?:체크인|arrival|check[\s-]?in|チェックイン)[^A-Za-z0-9]{0,6}([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
+        currency: mo.currency || curCode || 'JPY',
+        amount: isRefund ? -mo.amount : mo.amount,
+        paidDate: m.date,
+      };
+    },
+  },
+
+  // ── 트립닷컴 렌터카 교통위반 벌금 (금액은 첨부 PDF → 카드 결제분과 매칭 대기) ──
+  {
+    id: 'trip_fine',
+    match: function (m) { return /tcarservice\.trip\.com/i.test(m.from) || /traffic fine/i.test(m.subject); },
+    parse: function (m) {
+      const t = m.subject + '\n' + m.body;
+      const od = t.match(/Date of Offence[:：]?\s*([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4})/i);   // DD/MM/YYYY
+      return {
+        source: 'trip_fine',
+        type: 'charge',
+        merchant: firstGroup(t, /租车公司名称[:：]\s*(.+)/) || firstGroup(t, /(Avis Budget Group|Budget|Avis)/i) || '렌터카(벌금)',
+        item: '렌터카 교통위반 벌금',
+        bookingNo: firstGroup(t, /Rental Agreement Number[:：]?\s*([A-Za-z0-9]+)/i),
+        useDate: od ? od[3] + '-' + pad(od[2]) + '-' + pad(od[1]) : '',
+        currency: 'KRW',
+        amount: 0,               // 벌금액은 첨부 PDF에만 → 카드 결제분 도착 시 수동 매칭(보류)
+        account: '여비교통비',
         paidDate: m.date,
       };
     },
