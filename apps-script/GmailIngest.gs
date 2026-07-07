@@ -303,7 +303,7 @@ function ingestPaymentEmails() {
     thread.addLabel(doneLabel);
   });
 
-  SpreadsheetApp.getActiveSpreadsheet().toast('메일 수집 ' + added + '건 (스킵 ' + skipped + ')', '비용처리', 6);
+  toast('메일 수집 ' + added + '건 (스킵 ' + skipped + ')');   // Code.gs의 null-safe toast 재사용
 }
 
 // ── 스테이징 ──

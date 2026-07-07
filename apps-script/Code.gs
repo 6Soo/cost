@@ -550,4 +550,8 @@ function pad(n) { return ('0' + n).slice(-2); }
 function isWhite(hex) { const h = String(hex || '').toLowerCase(); return h === '' || h === '#ffffff' || h === '#fff' || h === 'white'; }
 function setRowColor(sh, rowNum, color) { sh.getRange(rowNum, 1, 1, sh.getLastColumn()).setBackground(color); }
 function noteCell(sh, rowNum, text) { sh.getRange(rowNum, 1).setNote(text); }
-function toast(msg) { SpreadsheetApp.getActiveSpreadsheet().toast(msg, '비용처리', 8); }
+function toast(msg) {
+  // 독립형(standalone) 프로젝트에선 getActiveSpreadsheet()가 null → 대상 장부를 열어서 알림.
+  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  if (ss) ss.toast(msg, '비용처리', 8); else Logger.log(msg);
+}
