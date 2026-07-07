@@ -56,7 +56,8 @@
 | `easypay_noreturn@easypay.co.kr` KICC | ✅ 상호·상품·금액·**슬래시 날짜(2026/06/28)** |
 | booking.com | ✅ **영수증(예약번호·통화¥/₩·금액) + 확정메일. 후기요청/숙소메시지 스킵** |
 | `tcarservice.trip.com` 렌터카 벌금 | ✅ 벌금 노티스 캡처(위반일·렌탈계약번호). 금액은 첨부PDF→**카드결제분과 수동 매칭 보류** |
-| 네이버페이 / 카카오페이 | ⏳ 샘플 확보 후 파서 추가 (실메일 대량은 트립/아고다/부킹/KICC) |
+| `naverpayadmin_noreply@navercorp.com` 네이버페이 | ✅ **본인 3820 스트림**: 온라인(결제처·상품)·오프라인(가맹점명) 금액·일자·결제번호. 자동결제 등록/해지 스킵 |
+| `kakaocorp.com` 카카오페이 | ✅ 구독결제(톡클라우드 등) 상품·금액·결제수단 |
 
 ## 지금까지의 실제 진행 (사용자 액션)
 - ✅ hanmail(`kkokko-hero@hanmail.net`) → Gmail **POP3 가져오기 성공**
@@ -64,8 +65,10 @@
   - 실패 원인이었던 것: **SSL 체크박스** 꺼짐 → 켜서 해결.
 
 ## 다음 세션이 할 일 (우선순위 순)
-1. **Gmail 필터**: `from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR naver.com OR kakao.com)`
+1. **Gmail 필터**: `from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR navercorp.com OR kakaocorp.com)`
    → 라벨 `결제데이터`, **"기존 대화에도 적용" 체크**(POP로 들어온 과거메일 태깅). 파서 쿼리가 `label:결제데이터`.
+   ⚠️ **네이버페이=`navercorp.com`, 카카오=`kakaocorp.com`**(naver.com/kakao.com 아님!). 기존 필터가 이걸 놓쳐
+   네이버페이 결제메일 다수가 아직 `결제데이터` 라벨 없음 → 필터에 두 도메인 추가하고 과거분 소급 적용 필요.
 2. **Daum 자동전달** 켜기(앞으로 오는 3820 메일 실시간).
 3. **STEP 1: Apps Script 설치** (`docs/setup.md`) → 첫 `정산 실행`을 **복사본/새 탭에서 검증**.
 4. **미완 파서 채우기**: 사용자에게 booking / 네이버페이 / 카카오페이 샘플메일(발신자+제목+본문) 1통씩 받기.

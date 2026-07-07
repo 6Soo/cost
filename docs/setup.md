@@ -17,9 +17,11 @@
    - `3820` = 본인(kkokko-hero) 유입, `아슬란` = 대표가이드 계정 유입.
 2. Gmail 검색창 **필터 만들기** — 아래 발신자에 `결제데이터` 자동 부여:
    ```
-   from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR naver.com OR kakao.com)
+   from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR navercorp.com OR kakaocorp.com)
    ```
    → "필터 만들기" → **라벨 적용: 결제데이터** 체크.
+   > ⚠️ 네이버페이는 `naverpayadmin_noreply@**navercorp.com**`, 카카오는 `**kakaocorp.com**`에서 발송(naver.com/kakao.com 아님).
+   >   기존 필터가 `naver.com`이면 네이버페이 결제메일이 라벨 안 붙으니 위처럼 `navercorp.com`으로 잡고 **"기존 대화에도 적용"** 체크.
 3. `3820`(본인 hanmail 유입) 식별 필터: 검색 `to:kkokko-hero@hanmail.net`
    → 필터 만들기 → 라벨 `결제데이터` + `3820`.
 4. `아슬란`(대표가이드 계정 유입) 식별 필터: 검색 `to:(대표가이드 한메일주소)`

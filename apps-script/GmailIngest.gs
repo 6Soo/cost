@@ -194,6 +194,54 @@ const PARSERS = [
       };
     },
   },
+
+  // ── 네이버페이 (본인 3820 간편결제 스트림) — 온라인/오프라인 두 레이아웃 ──
+  //  · '자동결제 등록/해지'는 결제 아님 → 스킵.  값이 HTML표라 라벨 뒤 \s* 로 다음 줄 값을 잡는다.
+  {
+    id: 'naverpay',
+    match: function (m) { return /naverpayadmin_noreply@navercorp\.com/i.test(m.from) || /\[네이버페이\]/.test(m.subject); },
+    parse: function (m) {
+      if (/자동결제\s*(등록|해지)|정기결제\s*(등록|해지)/.test(m.subject)) return null;   // 등록/해지 알림 스킵
+      if (!/결제하신 내역|결제\s*완료|결제완료/.test(m.subject + m.body)) return null;
+      const isCancel = /취소|환불/.test(m.subject);
+      const amt = won(m.body, /최종결제금액\s*([0-9,]+)\s*원/) ||
+                  won(m.body, /주문금액\s*([0-9,]+)\s*원/) ||
+                  won(m.body, /총\s*결제\s*금액\s*([0-9,]+)\s*원/);
+      return {
+        source: 'naverpay',
+        type: isCancel ? 'refund' : 'charge',
+        merchant: firstGroup(m.body, /(?:결제처|가맹점명)\s*(.+)/),
+        item: firstGroup(m.body, /(?:상품정보|주문상품|상품명)\s*(.+)/),
+        paidDate: ymd2(firstGroup(m.body, /결제일자\s*([0-9]{4}[.\-\/][0-9]{1,2}[.\-\/][0-9]{1,2})/)),
+        currency: 'KRW',
+        amount: isCancel ? -amt : amt,
+        bookingNo: firstGroup(m.body, /결제번호\s*([0-9]{6,}[A-Z0-9]*)/),
+        card: '',
+      };
+    },
+  },
+
+  // ── 카카오페이 (kakaocorp 구독결제 등) ──
+  {
+    id: 'kakaopay',
+    match: function (m) { return /@kakaocorp\.com/i.test(m.from) && /카카오페이|결제금액/.test(m.body); },
+    parse: function (m) {
+      if (!/결제금액|구독이 완료/.test(m.body)) return null;
+      const isCancel = /취소|해지|환불/.test(m.subject);
+      const name = firstGroup(m.body, /상품명\s*(.+)/);
+      return {
+        source: 'kakaopay',
+        type: isCancel ? 'refund' : 'charge',
+        merchant: name || '카카오',
+        item: name,
+        paidDate: m.date,
+        currency: 'KRW',
+        amount: (isCancel ? -1 : 1) * won(m.body, /결제금액\s*([0-9,]+)\s*원/),
+        bookingNo: '',
+        card: firstGroup(m.body, /결제수단\s*(.+)/),
+      };
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────
