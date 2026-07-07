@@ -109,7 +109,7 @@ const PARSERS = [
         item: '숙박',
         // 체크인: 한국어 '2026년 6월 25일' 또는 영문/일문 'June 25, 2026'
         useDate: ymd2(firstGroup(t, /(?:체크인|arrival|check[\s-]?in|チェックイン)[^0-9]{0,6}([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/i)) ||
-                 endate(t, /(?:체크인|arrival|check[\s-]?in|チェックイン)[^A-Za-z0-9]{0,6}([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
+                 endate(t, /(?:체크인|arrival|check[\s-]?in|チェックイン)[^A-Za-z0-9]{0,6}((?:[A-Za-z]+ [0-9]{1,2},? [0-9]{4})|(?:[0-9]{1,2} [A-Za-z]+ [0-9]{4}))/i),
         currency: mo.currency || curCode || 'JPY',
         amount: isRefund ? -mo.amount : mo.amount,
         paidDate: m.date,
@@ -359,6 +359,8 @@ function money(t, labelRe) {
 function endate(t, re) {
   const g = firstGroup(t, re);
   const M = { January:1,February:2,March:3,April:4,May:5,June:6,July:7,August:8,September:9,October:10,November:11,December:12 };
-  const m = g.match(/([A-Za-z]+)\s+([0-9]{1,2}),\s*([0-9]{4})/);
-  return m && M[m[1]] ? m[3] + '-' + pad(M[m[1]]) + '-' + pad(m[2]) : '';
+  let m = g.match(/([A-Za-z]+)\s+([0-9]{1,2}),?\s*([0-9]{4})/);   // July 8, 2026
+  if (m && M[m[1]]) return m[3] + '-' + pad(M[m[1]]) + '-' + pad(m[2]);
+  m = g.match(/([0-9]{1,2})\s+([A-Za-z]+)\s+([0-9]{4})/);         // 8 July 2026 (영국식)
+  return m && M[m[2]] ? m[3] + '-' + pad(M[m[2]]) + '-' + pad(m[1]) : '';
 }
