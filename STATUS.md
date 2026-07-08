@@ -58,6 +58,7 @@
 | `tcarservice.trip.com` 렌터카 벌금 | ✅ 벌금 노티스 캡처(위반일·렌탈계약번호). 금액은 첨부PDF→**카드결제분과 수동 매칭 보류** |
 | `naverpayadmin_noreply@navercorp.com` 네이버페이 | ✅ **본인 3820 스트림**: 온라인(결제처·상품)·오프라인(가맹점명) 금액·일자·결제번호. 자동결제 등록/해지 스킵 |
 | `kakaocorp.com` 카카오페이 | ✅ 구독결제(톡클라우드 등) 상품·금액·결제수단 |
+| `bill-mail.tosspayments.com` 토스페이먼츠 | ✅ 결제/부분취소: 판매자·상품·금액·결제일·승인번호·카드 (대표가이드 skyticket 항공 등) |
 
 ## 지금까지의 실제 진행 (사용자 액션)
 - ✅ hanmail(`kkokko-hero@hanmail.net`) → Gmail **POP3 가져오기 성공**
@@ -65,7 +66,7 @@
   - 실패 원인이었던 것: **SSL 체크박스** 꺼짐 → 켜서 해결.
 
 ## 다음 세션이 할 일 (우선순위 순)
-1. **Gmail 필터**: `from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR navercorp.com OR kakaocorp.com)`
+1. **Gmail 필터**: `from:(trip.com OR agoda.com OR easypay.co.kr OR booking.com OR navercorp.com OR kakaocorp.com OR tosspayments.com)`
    → 라벨 `결제데이터`, **"기존 대화에도 적용" 체크**(POP로 들어온 과거메일 태깅). 파서 쿼리가 `label:결제데이터`.
    ⚠️ **네이버페이=`navercorp.com`, 카카오=`kakaocorp.com`**(naver.com/kakao.com 아님!). 기존 필터가 이걸 놓쳐
    네이버페이 결제메일 다수가 아직 `결제데이터` 라벨 없음 → 필터에 두 도메인 추가하고 과거분 소급 적용 필요.

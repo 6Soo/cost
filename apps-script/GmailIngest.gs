@@ -221,6 +221,29 @@ const PARSERS = [
     },
   },
 
+  // ── 토스페이먼츠 (bill@bill-mail.tosspayments.com) — 결제/부분취소. 대표가이드 skyticket 항공 등 ──
+  {
+    id: 'toss',
+    match: function (m) { return /tosspayments\.com/i.test(m.from) || /토스페이먼츠/.test(m.body); },
+    parse: function (m) {
+      if (!/결제금액/.test(m.body)) return null;
+      const isCancel = /취소/.test(m.subject) || /부분취소되었|취소되었어요/.test(m.body);
+      const full = won(m.body, /결제금액\s*([0-9,]+)\s*원/);
+      const cancelAmt = won(m.body, /(?:부분취소금액|취소금액)\s*([0-9,]+)\s*원/);
+      return {
+        source: 'toss',
+        type: isCancel ? 'refund' : 'charge',
+        merchant: firstGroup(m.body, /판매자\s*(.+)/),
+        item: firstGroup(m.body, /구매상품\s*(.+)/),
+        paidDate: ymd2(firstGroup(m.body, /결제일시\s*([0-9]{4}[.\-\/][0-9]{1,2}[.\-\/][0-9]{1,2})/)),
+        currency: 'KRW',
+        amount: isCancel ? -(cancelAmt || full) : full,
+        bookingNo: firstGroup(m.body, /승인번호\s*([0-9]+)/),
+        card: firstGroup(m.body, /결제카드\s*(.+)/),
+      };
+    },
+  },
+
   // ── 카카오페이 (kakaocorp 구독결제 등) ──
   {
     id: 'kakaopay',
