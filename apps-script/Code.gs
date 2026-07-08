@@ -19,13 +19,13 @@ const CONFIG = {
 
   HEADER_ROWS: 1,               // RAW 시트 헤더 행 수(없으면 0)
   TRIP_WINDOW_DAYS: 7,          // 출발일부터 여행 기간(3~5일 + 버퍼)
-  ETC_TAB: '기타비용',          // 비여행 국내건 버킷 → '기타비용_C'
+  ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명) → '2분기_기타비용_C'. 분기 바뀌면 갱신.
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
   REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
 
-  // 비교탭 열(_C). 앞 6개는 수기 장부와 나란히 비교되도록 유사 배치.
-  LEDGER_HEADER: ['거래일자', '거래처', '적요', '결제수단', '금액', '예약번호',
-                  '계정과목', '결제일', '국내/해외', '통화', '현지금액', '상태', '출처'],
+  // 비교탭(_C) 열 — 실제 장부의 '지출 내용' 형식과 나란히 비교되도록 동일 배치.
+  //  앞 5개(거래일자·항목·내용·증빙유형·금액)가 장부 지출 섹션과 1:1. 뒤 2개는 참고용.
+  LEDGER_HEADER: ['거래일자', '항목', '내용', '증빙유형', '금액', '예약번호', '비고'],
 
   COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', NONE: '#ffffff' },
 
@@ -151,9 +151,10 @@ function buildTrips(ss) {
   ss.getSheets().forEach(function (sh) {
     const name = sh.getName();
     if (/_C$/.test(name)) return;                       // 비교본 제외
-    const m = name.match(/^(\d{2})(\d{2})_(.+)$/);       // 출발일_지역
-    if (!m) return;
-    trips.push({ name: name, mm: +m[1], dd: +m[2], region: m[3] });
+    let m = name.match(/^(\d{2})(\d{2})_(.+)$/);         // 0625_아키타 (출발일_지역)
+    if (m) { trips.push({ name: name, mm: +m[1], dd: +m[2], region: m[3], windowDays: CONFIG.TRIP_WINDOW_DAYS }); return; }
+    m = name.match(/^(\d{1,2})월_(.+)$/);                // 5월_유럽 · 10월_도고 (월 단위)
+    if (m) { trips.push({ name: name, mm: +m[1], dd: 1, region: m[2], windowDays: 31 }); return; }
   });
   return trips;
 }
@@ -164,7 +165,7 @@ function findTrip(trips, useDate) {
   trips.forEach(function (t) {
     [d.y, d.y - 1].forEach(function (yr) {
       const start = Date.UTC(yr, t.mm - 1, t.dd);
-      const end = start + CONFIG.TRIP_WINDOW_DAYS * 86400000;
+      const end = start + (t.windowDays || CONFIG.TRIP_WINDOW_DAYS) * 86400000;
       const cur = Date.UTC(d.y, d.m - 1, d.d);
       if (cur >= start && cur <= end && start > bestStart) { best = t; bestStart = start; }
     });
@@ -412,20 +413,17 @@ function getOrCreateCompareTab(ss, tripName) {
 }
 function appendToLedger(sheet, rec, v) {
   const useDate = v.useDateOverride || rec.useDate;
+  // 실제 장부 '지출 내용' 형식: 거래일자 | 항목(거래처) | 내용(계정과목) | 증빙유형 | 금액
+  const note = [v.note, rec.overseas ? ((rec.currency || '') + ' ' + (rec.foreign || '')).trim() : '',
+                rec.format].filter(Boolean).join(' · ');
   sheet.appendRow([
-    useDate,                                       // 거래일자(실사용)
-    rec.merchant,                                  // 거래처
-    makeMemo(v.account, useDate, v.note),          // 적요 (용도_MMDD)
-    rec.last4 + (rec.user ? '/' + rec.user : ''),  // 결제수단
+    useDate,                                       // 거래일자(실사용일)
+    rec.merchant,                                  // 항목(거래처)
+    v.account,                                     // 내용(계정과목)
+    rec.last4 + (rec.user ? '/' + rec.user : ''),  // 증빙유형(카드 뒷4자리 — 국민/하나 등은 사람이 확인)
     rec.krw,                                       // 금액
-    v.bookingNo || '',                             // 예약번호
-    v.account,                                     // 계정과목
-    rec.postDate || rec.useDate,                   // 결제일
-    rec.overseas ? '해외' : '국내',                // 국내/해외
-    rec.currency || 'KRW',                         // 통화
-    rec.foreign || '',                             // 현지금액
-    '기록완료',                                    // 상태
-    rec.format || '',                              // 출처
+    v.bookingNo || '',                             // 예약번호(참고)
+    note,                                          // 비고(메일출처·해외통화·RAW포맷)
   ]);
 }
 const ACCOUNT_MEMO = { '숙박비': '숙박', '여비교통비': '항공', '교통비': '교통', '식비': '식비', '입장료': '입장료' };
