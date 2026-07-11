@@ -446,14 +446,17 @@ function postReversal(ledgerSS, rec) {
     if (sh.getLastRow() < 2) continue;
     const values = sh.getDataRange().getValues();
     for (let r = 1; r < values.length; r++) {
-      if (normMerchant(values[r][1]) !== merchant) continue;
-      if (num(values[r][4]) !== posAmt) continue;   // 양수 원거래만
+      if (normMerchant(values[r][1]) !== merchant) continue;   // 항목(거래처) 일치
+      if (num(values[r][4]) !== posAmt) continue;              // 금액(양수 원거래)만
+      // 새 7열 형식: 거래일자·항목·내용(원거래 계정과목 승계)·증빙유형·금액(음수)·예약번호·비고
       sh.appendRow([
-        rec.useDate, rec.merchant, '취소 반대분개',
+        rec.useDate,
+        rec.merchant,
+        values[r][2],                                          // 내용 = 원거래 계정과목(2열)
         rec.last4 + (rec.user ? '/' + rec.user : ''),
-        -posAmt, '', values[r][6] /* 원거래와 같은 계정과목 */,
-        rec.postDate || rec.useDate, rec.overseas ? '해외' : '국내',
-        rec.currency || 'KRW', '', '취소반영', rec.format || '',
+        -posAmt,
+        '',
+        '취소 반대분개 · ' + (rec.format || ''),
       ]);
       return sh.getName();
     }
