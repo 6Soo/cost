@@ -81,7 +81,21 @@ function onOpen() {
     .addSeparator()
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
+    .addSeparator()
+    .addItem('RAW 색·노트 초기화 (재처리용)', 'resetRawColors')
     .addToUi();
+}
+
+// RAW 3시트의 배경색·노트를 전부 지움 → 다음 정산에서 전량 재처리(테스트/재실행용).
+function resetRawColors() {
+  CONFIG.RAW_SOURCES.forEach(function (src) {
+    const sh = openFirst(src);
+    if (!sh) return;
+    const rng = sh.getDataRange();
+    rng.setBackground(CONFIG.COLOR.NONE);
+    rng.clearNote();
+  });
+  toast('RAW 색·노트 초기화 완료 — 다음 정산에서 전량 재처리됩니다.');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -93,49 +107,61 @@ function runReconciliation() {
   const rules = loadRules(ledgerSS);
   const trips = buildTrips(ledgerSS);
   const emailIdx = loadEmailIndex();
-  const targets = {};          // tabName → {sheet, keys:Set}
+  const targets = {};          // tabName → {sheet, keys:Set, rows:[]}
   const holds = {};            // distinct 패턴 → 학습대기 후보
   const stats = { done: 0, cancel: 0, hold: 0 };
 
+  // 성능: 행마다 색칠/노트/전기하면 6분 제한 초과 → 시트당 '한 번에' 읽고 쓴다(배치).
   CONFIG.RAW_SOURCES.forEach(function (src) {
     const sh = openFirst(src);
     if (!sh) return;
     const rng = sh.getDataRange();
     const values = rng.getValues();
-    const bg = rng.getBackgrounds();
+    const bg = rng.getBackgrounds();                          // 1 read
+    const notes = sh.getRange(1, 1, values.length, 1).getNotes();  // 1 read (A열 노트)
+    let touched = false;
 
     for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
       if (!isWhite(bg[r][0])) continue;
       const rec = parseRaw(values[r]);
-      // (R2-5) 포맷 미인식 행을 조용히 넘기지 않는다 — 카드사 양식이 바뀌면
-      // 누락이 소리 없이 발생하던 문제. 내용이 있는 행이면 노트로 표시.
       if (!rec) {
-        if (values[r].join('').trim()) noteCell(sh, r + 1, '포맷 미인식(UNKNOWN) — 카드사 다운로드 양식 변경 여부 확인');
+        if (values[r].join('').trim()) { notes[r][0] = '포맷 미인식(UNKNOWN) — 카드사 다운로드 양식 변경 여부 확인'; touched = true; }
         continue;
       }
       if (!rec.merchant && !rec.krw) continue;
+      touched = true;
 
       const v = classify(rec, kb, emailIdx, trips, rules);
 
       if (v.status === 'CANCEL') {
-        // (R2-5) 취소 반대분개: 이미 _C 탭에 전기된 원거래가 있으면 음수 한 줄을 같은 탭에 기록.
-        // (과거엔 색만 바꿔 장부에 취소가 반영되지 않았다. design.md '반대분개 또는 제외' 구현)
-        const revTab = postReversal(ledgerSS, rec);
-        if (revTab) noteCell(sh, r + 1, '취소 — ' + revTab + ' 탭에 반대분개 기록');
-        setRowColor(sh, r + 1, CONFIG.COLOR.CANCEL); stats.cancel++;
+        for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.CANCEL;
+        stats.cancel++;
       } else if (v.status === 'CONFIRM') {
         const t = getTarget(targets, ledgerSS, v.tripName);
         const key = makeKey(v.useDateOverride || rec.useDate, rec.merchant, rec.krw);
-        if (!t.keys.has(key)) { appendToLedger(t.sheet, rec, v); t.keys.add(key); }
-        setRowColor(sh, r + 1, CONFIG.COLOR.DONE); stats.done++;
+        if (!t.keys.has(key)) { t.rows.push(buildLedgerRow(rec, v)); t.keys.add(key); }
+        for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.DONE;
+        stats.done++;
       } else {
-        noteCell(sh, r + 1, v.reason);
+        notes[r][0] = v.reason;
         const hk = normMerchant(rec.merchant) + '|' + (rec.bizCat || '');
         if (!holds[hk]) holds[hk] = { merchant: rec.merchant, bizCat: rec.bizCat || '',
                                       date: rec.useDate, reason: v.reason };
         stats.hold++;
       }
     }
+    if (touched) {
+      rng.setBackgrounds(bg);                                 // 1 write
+      sh.getRange(1, 1, values.length, 1).setNotes(notes);    // 1 write
+    }
+  });
+
+  // 전기: 탭별로 모아서 한 번에 setValues (append 반복 금지)
+  Object.keys(targets).forEach(function (tab) {
+    const t = targets[tab];
+    if (!t.rows.length) return;
+    const start = t.sheet.getLastRow() + 1;
+    t.sheet.getRange(start, 1, t.rows.length, CONFIG.LEDGER_HEADER.length).setValues(t.rows);
   });
 
   flushReview(ledgerSS, holds);
@@ -188,7 +214,8 @@ function parseRaw(row) {
   const fmt = detectFormat(row);
   let rec;
   if (fmt === 'OVERSEAS_A') {
-    rec = { postDate: c[0], useDate: c[1], card: c[4], user: c[5], saleType: c[6],
+    // 해외 명세는 '승인일'(c[1]) 컬럼이 비어 있고 날짜는 '매입일'(c[0])에만 있음 → 매입일을 이용일로.
+    rec = { postDate: c[0], useDate: c[0], card: c[4], user: c[5], saleType: c[6],
             merchant: c[7], country: c[8], currency: c[10], foreign: num(c[11]),
             rate: num(c[13]), krw: num(c[16]), bizCat: '', overseas: true };
   } else if (fmt === 'DOMESTIC') {
@@ -397,8 +424,23 @@ function ensureTab(ss, name, header) {
 function getTarget(cache, ss, tripName) {
   if (cache[tripName]) return cache[tripName];
   const sheet = getOrCreateCompareTab(ss, tripName);
-  cache[tripName] = { sheet: sheet, keys: loadKeys(sheet) };
+  cache[tripName] = { sheet: sheet, keys: loadKeys(sheet), rows: [] };
   return cache[tripName];
+}
+// 전기 한 줄(배열) 생성 — 실제 장부 '지출 내용' 형식.
+function buildLedgerRow(rec, v) {
+  const useDate = v.useDateOverride || rec.useDate;
+  const note = [v.note, rec.overseas ? ((rec.currency || '') + ' ' + (rec.foreign || '')).trim() : '',
+                rec.format].filter(Boolean).join(' · ');
+  return [
+    useDate,                                       // 거래일자(실사용일)
+    rec.merchant,                                  // 항목(거래처)
+    v.account,                                     // 내용(계정과목)
+    rec.last4 + (rec.user ? '/' + rec.user : ''),  // 증빙유형
+    rec.krw,                                       // 금액
+    v.bookingNo || '',                             // 예약번호
+    note,                                          // 비고
+  ];
 }
 function getOrCreateCompareTab(ss, tripName) {
   const cName = tripName + '_C';
@@ -411,21 +453,7 @@ function getOrCreateCompareTab(ss, tripName) {
   }
   return c;
 }
-function appendToLedger(sheet, rec, v) {
-  const useDate = v.useDateOverride || rec.useDate;
-  // 실제 장부 '지출 내용' 형식: 거래일자 | 항목(거래처) | 내용(계정과목) | 증빙유형 | 금액
-  const note = [v.note, rec.overseas ? ((rec.currency || '') + ' ' + (rec.foreign || '')).trim() : '',
-                rec.format].filter(Boolean).join(' · ');
-  sheet.appendRow([
-    useDate,                                       // 거래일자(실사용일)
-    rec.merchant,                                  // 항목(거래처)
-    v.account,                                     // 내용(계정과목)
-    rec.last4 + (rec.user ? '/' + rec.user : ''),  // 증빙유형(카드 뒷4자리 — 국민/하나 등은 사람이 확인)
-    rec.krw,                                       // 금액
-    v.bookingNo || '',                             // 예약번호(참고)
-    note,                                          // 비고(메일출처·해외통화·RAW포맷)
-  ]);
-}
+function appendToLedger(sheet, rec, v) { sheet.appendRow(buildLedgerRow(rec, v)); }
 const ACCOUNT_MEMO = { '숙박비': '숙박', '여비교통비': '항공', '교통비': '교통', '식비': '식비', '입장료': '입장료' };
 function makeMemo(account, useDate, note) {
   const base = ACCOUNT_MEMO[account] || account;
