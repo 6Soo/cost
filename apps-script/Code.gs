@@ -23,6 +23,7 @@ const CONFIG = {
   TRIP_YEAR: 2026,              // 여행 탭(MMDD_지역·M월_지역)의 기본 연도. 탭명에 'YYYY_' 접두가 있으면 그 연도 우선.
                                 //  이 연도와 '다른 연도' 카드건은 해당 탭에 안 들어감(2025 비용이 2026 여행탭에 섞이는 것 방지).
   DATE_TOL_DAYS: 4,             // 승인일/이용일/매입일 차이 허용(장부 대조·점검의 날짜 매칭 여유)
+  AI_MODEL: 'gemini-2.0-flash', // 미상 가맹점 추론용 Gemini 모델. 스크립트 속성 GEMINI_API_KEY 필요(없으면 자동 생략).
   OTA_DATE_TOL_DAYS: 60,        // OTA 선결제 특례 — 카드 결제일과 장부(체크인일)가 수주~수개월 벌어질 수 있음
   ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명) → '2분기_기타비용_C'. 분기 바뀌면 갱신.
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
@@ -394,6 +395,7 @@ function runReconciliation() {
   const ledgerSS = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
   const kb = buildKnowledgeBase();
   const rules = loadRules(ledgerSS);
+  aiPrepassRules(ledgerSS, kb, rules);   // 사전에 없는 가맹점 → Gemini 일괄 추론(키 있을 때만) → rules에 반영
   const trips = buildTrips(ledgerSS);
   const emailIdx = loadEmailIndex();
   const targets = {};          // tabName → {sheet, mode, sec, existing, rows:[]}
@@ -644,6 +646,91 @@ function route(v, rec, trips, trip) {
   }
   v.tripName = rec.overseas ? '여행_미매칭' : CONFIG.ETC_TAB;
   return v;
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI 가맹점 추론 — 사전(키워드)에 없는 가맹점을 Gemini에게 일괄로 물어 분류.
+//  "가맹점명을 검색해서 추론"의 실전 구현: 모델이 상호명(로마자 일본어·유럽권 포함)의 정체를 안다.
+//  결과는 '분류규칙' 탭에 영구 저장(비고 AI:날짜) → 같은 가맹점은 평생 1번만 조회. 키 없으면 조용히 생략.
+//  설정: https://aistudio.google.com/apikey 에서 무료 키 발급 →
+//        Apps Script 편집기 ⚙프로젝트 설정 → 스크립트 속성 → GEMINI_API_KEY 추가.
+// ─────────────────────────────────────────────────────────────
+function aiKey() { return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY'); }
+
+// items: [{merchant, country, hint}] → { 정규화가맹점명: 계정과목 }
+function aiClassifyMerchants(items) {
+  const key = aiKey(); if (!key || !items.length) return {};
+  const list = items.map(function (it, i) {
+    return (i + 1) + '. ' + it.merchant + (it.country ? ' [' + it.country + ']' : '') + (it.hint ? ' (' + it.hint + ')' : '');
+  }).join('\n');
+  const prompt =
+    '아래는 단체여행사 법인카드 명세의 가맹점명 목록이다(일본 로마자 표기·유럽 상호 포함). ' +
+    '각 가맹점이 실제로 무엇인지(체인·상호·업종) 아는 대로 추론해 반드시 다음 중 하나로 분류하라:\n' +
+    '식비(식당·카페·이자카야·마트·편의점·시장), 숙박비(호텔·료칸·펜션·민박), ' +
+    '교통비(렌터카·주유·철도·버스·페리·주차·고속도로·곤돌라·리프트), 입장료(관광지·온천시설·박물관·정원·사찰), ' +
+    '여비교통비(항공사·항공권 발권), 미상(정말 알 수 없을 때만).\n' +
+    '설명 없이 JSON 배열만 출력: [{"n":1,"account":"식비"},{"n":2,"account":"숙박비"}]\n\n' + list;
+  const res = UrlFetchApp.fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/' + CONFIG.AI_MODEL + ':generateContent?key=' + key,
+    { method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }],
+                                generationConfig: { temperature: 0 } }) });
+  if (res.getResponseCode() !== 200) { Logger.log('AI 호출 실패: ' + res.getContentText().slice(0, 300)); return {}; }
+  try {
+    const text = JSON.parse(res.getContentText()).candidates[0].content.parts[0].text;
+    const arr = JSON.parse(text.replace(/^```(json)?\s*|```\s*$/g, '').trim());
+    const VALID = { '식비': 1, '숙박비': 1, '교통비': 1, '입장료': 1, '여비교통비': 1 };
+    const out = {};
+    arr.forEach(function (o) {
+      const it = items[o.n - 1];
+      if (it && VALID[o.account]) out[normMerchant(it.merchant)] = o.account;
+    });
+    return out;
+  } catch (e) { Logger.log('AI 응답 파싱 실패: ' + e); return {}; }
+}
+
+// 정산 전 프리패스 — 흰(미처리) 행에서 사전·규칙·학습맵 어디에도 없는 가맹점을 모아
+//  Gemini로 일괄 분류하고 '분류규칙'에 저장 + 이번 정산의 rules 맵에 즉시 반영.
+function aiPrepassRules(ledgerSS, kb, rules) {
+  if (!aiKey()) return;                                    // 키 없으면 사전 추론만으로 진행
+  const seen = {}, cand = [];
+  CONFIG.RAW_SOURCES.forEach(function (src) {
+    const sh = openFirst(src); if (!sh) return;
+    const rng = sh.getDataRange();
+    const values = rng.getValues();
+    const bg = rng.getBackgrounds();
+    for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
+      if (!rowIsWhite(bg[r])) continue;
+      const rec = parseRaw(values[r]);
+      if (!rec || !rec.merchant || rec.krw < 0) continue;
+      const dy = ymd(rec.useDate);
+      if (dy && dy.y < CONFIG.TRIP_YEAR && !isBookingLike(rec)) continue;   // 과년도 일반건은 어차피 범위외
+      const nm = normMerchant(rec.merchant);
+      if (seen[nm] || rules[nm] || kb[nm]) continue;
+      const up = rec.merchant.toUpperCase();
+      if (hasKw(up, KW.OTA) || hasKw(up, KW.AIR) || hasKw(up, KW.LODGING) || hasKw(up, KW.TRANSPORT) ||
+          hasKw(up, KW.ADMISSION) || hasKw(up, KW.FOOD_AREA) || hasKw(up, KW.PG)) continue;  // 사전이 이미 앎
+      if (!rec.overseas && rec.bizCat && (BIZCAT_TRAVEL[rec.bizCat] || BIZCAT_ETC[rec.bizCat])) continue; // 업종으로 해결됨
+      seen[nm] = 1;
+      cand.push({ merchant: rec.merchant, country: rec.country || (rec.overseas ? '해외' : '국내'), hint: rec.bizCat || '' });
+    }
+  });
+  if (!cand.length) return;
+  const sheet = ensureTab(ledgerSS, CONFIG.RULES_TAB, RULES_HEADER);
+  let learned = 0;
+  const rows = [];
+  for (let i = 0; i < cand.length && i < 300; i += 60) {   // 60개씩 배치, 회당 최대 300 가맹점(시간 보호)
+    const map = aiClassifyMerchants(cand.slice(i, i + 60));
+    cand.slice(i, i + 60).forEach(function (c) {
+      const nm = normMerchant(c.merchant), acct = map[nm];
+      if (!acct) return;
+      rules[nm] = { account: acct, kind: '여행' };
+      rows.push([c.merchant, acct, '여행', 'AI:' + today()]);
+      learned++;
+    });
+  }
+  if (rows.length) sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, RULES_HEADER.length).setValues(rows);
+  Logger.log('AI 가맹점 분류: 후보 ' + cand.length + '개 중 ' + learned + '건 규칙 추가(분류규칙 탭, 비고 AI)');
 }
 
 // ─────────────────────────────────────────────────────────────
