@@ -22,6 +22,7 @@ const CONFIG = {
   TRIP_YEAR: 2026,              // 여행 탭(MMDD_지역·M월_지역)의 기본 연도. 탭명에 'YYYY_' 접두가 있으면 그 연도 우선.
                                 //  이 연도와 '다른 연도' 카드건은 해당 탭에 안 들어감(2025 비용이 2026 여행탭에 섞이는 것 방지).
   DATE_TOL_DAYS: 4,             // 승인일/이용일/매입일 차이 허용(장부 대조·점검의 날짜 매칭 여유)
+  OTA_DATE_TOL_DAYS: 60,        // OTA 선결제 특례 — 카드 결제일과 장부(체크인일)가 수주~수개월 벌어질 수 있음
   ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명) → '2분기_기타비용_C'. 분기 바뀌면 갱신.
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
   REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
@@ -96,6 +97,23 @@ function onOpen() {
 //  금액만으로 매칭하면 같은 금액의 다른 결제가 오매칭됨 → 금액을 1차 게이트로 두되
 //  '날짜(±허용)·가맹점·카드' 중 최소 1개가 보강돼야 매칭으로 인정한다.
 // ─────────────────────────────────────────────────────────────
+// OTA 브랜드 정규화 — 카드 명세엔 "AGODA COMPANY PTE"·"TRIP.COM", 장부/메일엔 "아고다"·호텔명 등
+//  표기가 들쑥날쑥 → 양쪽을 브랜드 토큰으로 환원해 비교. (호텔명으로 적힌 수기 건은 메일 브릿지로 해결)
+const OTA_BRANDS = [
+  { key: 'TRIPCOM', pats: ['TRIP.COM', 'TRIP COM', 'TRIPCOM', '트립닷컴', '트립'] },
+  { key: 'AGODA',   pats: ['AGODA', '아고다'] },
+  { key: 'BOOKING', pats: ['BOOKING', '부킹'] },
+  { key: 'MYTRIP',  pats: ['MYTRIP', '마이트립'] },
+];
+function otaBrand(name) {
+  const n = normMerchant(name);
+  if (!n) return '';
+  for (let i = 0; i < OTA_BRANDS.length; i++) {
+    if (OTA_BRANDS[i].pats.some(function (p) { return n.indexOf(p) >= 0; })) return OTA_BRANDS[i].key;
+  }
+  return '';
+}
+
 // 한 장부 탭의 '지출 내용' 섹션에서 지출행을 구조화해 뽑는다(수입 섹션·총금액 행 제외).
 //  헤더는 '증빙유형'+'금액'이 함께 있는 행으로 감지 → 컬럼을 이름으로 매핑(수기/자동 배치 차이 흡수).
 function extractLedgerRecords(sheet) {
@@ -108,7 +126,8 @@ function extractLedgerRecords(sheet) {
   if (hdr < 0) return [];                                 // 지출 섹션 없음
   const H = v[hdr].map(function (x) { return String(x); });
   const find = function (kw) { return H.findIndex(function (h) { return h.indexOf(kw) >= 0; }); };
-  const ci = { date: find('거래일자'), item: find('항목'), acct: find('내용'), card: find('증빙유형'), amt: find('금액') };
+  const ci = { date: find('거래일자'), item: find('항목'), acct: find('내용'), card: find('증빙유형'),
+               amt: find('금액'), book: find('예약번호') };
   if (ci.amt < 0) return [];
   const out = [];
   for (let r = hdr + 1; r < v.length; r++) {
@@ -120,19 +139,29 @@ function extractLedgerRecords(sheet) {
       merchant: ci.item >= 0 ? String(v[r][ci.item] || '') : '',
       card: ci.card >= 0 ? digits(v[r][ci.card]).slice(-4) : '',
       amount: amt,
+      bookingNo: ci.book >= 0 ? digits(v[r][ci.book]) : '',
     });
   }
   return out;
 }
-// 두 지출 레코드가 '동일 결제'인가 — 금액 일치(필수) + (날짜 근접|가맹점 유사|카드 일치) 중 1개 이상.
+// 두 지출 레코드가 '동일 결제'인가. 매칭되면 근거 문자열, 아니면 '' 반환.
+//  ① 예약번호 일치 → 즉시 확정(최강 신호).
+//  ② 금액 일치(필수 게이트) + (날짜 ±4일 | 가맹점 유사/OTA 동일브랜드 | 카드 일치) 중 1개 이상.
+//  ③ OTA 특례: 한쪽이라도 OTA 브랜드면 결제일↔체크인일이 수주 벌어짐 → 날짜 허용폭을 60일로 완화한 '추정' 매칭.
 function recordsMatch(a, b) {
-  if (Math.round(Math.abs(a.amount)) !== Math.round(Math.abs(b.amount))) return false;  // 금액 게이트
-  let signals = 0;
+  if (a.bookingNo && b.bookingNo && a.bookingNo === b.bookingNo) return '예약번호';
+  if (Math.round(Math.abs(a.amount)) !== Math.round(Math.abs(b.amount))) return '';  // 금액 게이트
+  const brandA = otaBrand(a.merchant), brandB = otaBrand(b.merchant);
+  const sig = [];
   const da = dateMs(a.date), db = dateMs(b.date);
-  if (da != null && db != null && Math.abs(da - db) / 86400000 <= CONFIG.DATE_TOL_DAYS) signals++;  // 승인/이용/매입 차이 허용
-  if (merchantSimilar(a.merchant, b.merchant)) signals++;
-  if (a.card && b.card && a.card === b.card) signals++;
-  return signals >= 1;
+  const dayDiff = (da != null && db != null) ? Math.abs(da - db) / 86400000 : null;
+  if (dayDiff != null && dayDiff <= CONFIG.DATE_TOL_DAYS) sig.push('날짜');          // 승인/이용/매입 차이 허용
+  if ((brandA && brandA === brandB) || merchantSimilar(a.merchant, b.merchant)) sig.push('가맹점');
+  if (a.card && b.card && a.card === b.card) sig.push('카드');
+  if (sig.length) return '금액+' + sig.join('+');
+  // OTA 특례 — 가맹점(호텔명 vs OTA명)·카드(수기엔 미기재)가 다 어긋나도, 금액 일치 + 60일 내면 추정.
+  if ((brandA || brandB) && (dayDiff == null || dayDiff <= CONFIG.OTA_DATE_TOL_DAYS)) return '금액+OTA(추정)';
+  return '';
 }
 function merchantSimilar(a, b) {
   const A = normMerchant(a).replace(/[^0-9A-Z가-힣ぁ-んァ-ヶ一-龯]/g, '');
@@ -163,7 +192,8 @@ function pruneCompareTabs() {
     const keep = [values[0]];                             // 헤더 유지
     for (let r = 1; r < values.length; r++) {
       const rec = { date: normDate(values[r][0]), merchant: String(values[r][1] || ''),
-                    card: digits(values[r][3]).slice(-4), amount: num(values[r][4]) };
+                    card: digits(values[r][3]).slice(-4), amount: num(values[r][4]),
+                    bookingNo: digits(values[r][5]) };
       let matched = -1;
       for (let i = 0; i < manual.length; i++) {
         if (!used[i] && recordsMatch(rec, manual[i])) { matched = i; break; }
@@ -185,9 +215,10 @@ function pruneCompareTabs() {
 //  → '미기록'이 0이 되면 내 이용내역이 전부 장부로 옮겨진 것.
 // ─────────────────────────────────────────────────────────────
 const AUDIT_TAB = '정산_점검';
-const AUDIT_HEADER = ['카드', '이용일', '가맹점', '금액', '상태', '발견위치', 'RAW색', '비고'];
+const AUDIT_HEADER = ['카드', '이용일', '가맹점', '금액', '상태', '발견위치', '매칭근거', 'RAW색', '비고'];
 function auditCoverage() {
   const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  const emailIdx = loadEmailIndex();   // OTA 브릿지용 — 카드 OTA건에 호텔명·체크인일·예약번호 보강
   // 1) 장부에 이미 기록된 지출 인덱스 (수기 + 자동 _C 모두). 금액(절대값)→레코드[].
   const index = {};
   const skip = { }; skip[CONFIG.STAGING.sheetName] = 1; skip[CONFIG.RULES_TAB] = 1; skip[CONFIG.REVIEW_TAB] = 1; skip[AUDIT_TAB] = 1;
@@ -212,24 +243,44 @@ function auditCoverage() {
     for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
       if (!values[r].join('').trim()) continue;
       const rec = parseRaw(values[r]);
-      if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', colorName(bg[r][0]), '카드사 양식 확인']); continue; }
+      if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', '', colorName(bg[r][0]), '카드사 양식 확인']); continue; }
       if (!rec.merchant && !rec.krw) continue;
       total++;
       const rawColor = colorName(bg[r][0]);
       if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) {
-        cancel++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '취소', '', rawColor, '반대분개 대상']); continue;
+        cancel++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '취소', '', '', rawColor, '반대분개 대상']); continue;
       }
       const cand = index[Math.round(Math.abs(rec.krw))] || [];
-      const rrec = { date: rec.useDate, merchant: rec.merchant, card: rec.last4, amount: rec.krw };
-      let hit = null;
-      for (let i = 0; i < cand.length; i++) { if (recordsMatch(rrec, cand[i])) { hit = cand[i]; break; } }
-      if (hit) { covered++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '기록됨', hit.tab + '(' + hit.kind + ')', rawColor, '']); }
-      else {
+      // 카드 원본 그대로의 레코드 + (OTA면) 메일 브릿지로 보강한 레코드 — 둘 다로 시도.
+      //  OTA는 카드엔 "AGODA…"·결제일, 장부엔 호텔명·체크인일이라 원본끼리는 안 맞는 게 정상.
+      //  메일수집에서 같은 금액·근접 결제일의 메일을 찾으면 호텔명/체크인일/예약번호를 얻어 정확 매칭 가능.
+      const tries = [{ date: rec.useDate, merchant: rec.merchant, card: rec.last4, amount: rec.krw, bookingNo: '' }];
+      let bridged = '';
+      if (otaBrand(rec.merchant) && emailIdx) {
+        const eh = matchEmail(emailIdx, rec);
+        if (eh) {
+          tries.unshift({ date: eh.useDate || rec.useDate, merchant: String(eh.merchant || ''),
+                          card: rec.last4, amount: rec.krw, bookingNo: digits(eh.bookingNo) });
+          bridged = '메일브릿지(' + (eh.source || '') + ')';
+        }
+      }
+      let hit = null, how = '';
+      for (let ti = 0; ti < tries.length && !hit; ti++) {
+        for (let i = 0; i < cand.length; i++) {
+          const m = recordsMatch(tries[ti], cand[i]);
+          if (m) { hit = cand[i]; how = (ti === 0 && bridged ? bridged + '→' : '') + m; break; }
+        }
+      }
+      if (hit) {
+        covered++;
+        const status = /추정/.test(how) ? '기록됨(추정)' : '기록됨';
+        report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, status, hit.tab + '(' + hit.kind + ')', how, rawColor, '']);
+      } else {
         uncovered++;
         const why = isWhite(bg[r][0]) ? '아직 정산 안 됨(흰색) — 정산 실행 필요'
                  : rawColor === '완료' ? '완료색인데 장부에 없음 — 삭제됐거나 위치 확인'
                  : '전기 누락 — 수동 확인';
-        report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '미기록', '', rawColor, why]);
+        report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '미기록', '', bridged || '', rawColor, why]);
       }
     }
   });
@@ -237,7 +288,7 @@ function auditCoverage() {
   report.sort(function (a, b) { return (a[4] === '미기록' ? 0 : 1) - (b[4] === '미기록' ? 0 : 1); }); // 미기록 먼저
   const sheet = ensureTab(ss, AUDIT_TAB, AUDIT_HEADER);
   sheet.clearContents();
-  const summary = ['요약', '총 ' + total, '기록됨 ' + covered, '미기록 ' + uncovered, '취소 ' + cancel, '미인식 ' + unknown, '갱신 ' + today(), ''];
+  const summary = ['요약', '총 ' + total, '기록됨 ' + covered, '미기록 ' + uncovered, '취소 ' + cancel, '미인식 ' + unknown, '갱신 ' + today(), '', ''];
   const out = [summary, AUDIT_HEADER].concat(report);
   sheet.getRange(1, 1, out.length, AUDIT_HEADER.length).setValues(out);
   sheet.getRange(1, 1, 1, AUDIT_HEADER.length).setFontWeight('bold');
