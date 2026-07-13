@@ -845,7 +845,11 @@ function isWhite(hex) { const h = String(hex || '').toLowerCase(); return h === 
 function setRowColor(sh, rowNum, color) { sh.getRange(rowNum, 1, 1, sh.getLastColumn()).setBackground(color); }
 function noteCell(sh, rowNum, text) { sh.getRange(rowNum, 1).setNote(text); }
 function toast(msg) {
-  // 독립형(standalone) 프로젝트에선 getActiveSpreadsheet()가 null → 대상 장부를 열어서 알림.
-  const ss = SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
-  if (ss) ss.toast(msg, '비용처리', 8); else Logger.log(msg);
+  // 편집기에서 실행하면(독립형) 토스트 팝업을 못 띄움 → 실행 로그에 출력.
+  //  시트 메뉴에서 실행될 때만 우측 하단 팝업 시도.
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (ss) { ss.toast(msg, '비용처리', 8); return; }
+  } catch (e) {}
+  Logger.log(msg);
 }
