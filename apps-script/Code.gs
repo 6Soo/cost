@@ -1,10 +1,11 @@
 /**
  * 숲길여행 비용처리 자동화 — Apps Script 엔진 (단일 계정 kkokkohero6 실행)
  *
- * 구조: 진행 장부는 여행별 탭(출발일_지역, 예: 0630_오제)으로 구성.
- *  - 각 카드건의 '실사용일'이 속한 여행 탭을 찾아 그 탭의 비교본 '{탭}_C'(오른쪽)에 기록.
- *  - 어떤 여행 기간에도 안 걸리는 국내건 = 기타비용 → '기타비용_C' 탭.
- * 진입점: onOpen() 메뉴 → runReconciliation() (멱등: RAW 흰색 행만 처리).
+ * 작업 흐름(사람 방식 그대로):
+ *  ① 카드 이용내역(RAW) 파싱 → 분류 → 실사용일이 속한 **실제 여행탭의 '지출 내용' 섹션에 직접 기록**.
+ *  ② RAW 행 초록 색칠 = 실탭 기록 완료 확인. (애매한 건은 색 없이 HOLD → 학습대기)
+ *  - 어떤 여행 기간에도 안 걸리는 국내건 = 기타비용 탭, 매칭 실패 해외건 = '여행_미매칭' 탭.
+ * 진입점: onOpen() 메뉴 → runReconciliation() (멱등: RAW 흰색 행만 처리 + 실탭 중복 대조).
  */
 
 const CONFIG = {
@@ -27,8 +28,8 @@ const CONFIG = {
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
   REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
 
-  // 비교탭(_C) 열 — 실제 장부의 '지출 내용' 형식과 나란히 비교되도록 동일 배치.
-  //  앞 5개(거래일자·항목·내용·증빙유형·금액)가 장부 지출 섹션과 1:1. 뒤 2개는 참고용.
+  // 전기 행 형식 — 실제 장부 '지출 내용' 섹션과 1:1(앞 5개). 실탭엔 앞 5열만 쓰고
+  //  예약번호·비고는 셀 노트로 보존. 실탭이 없는 버킷(여행_미매칭 등)은 7열 그대로 기록.
   LEDGER_HEADER: ['거래일자', '항목', '내용', '증빙유형', '금액', '예약번호', '비고'],
 
   COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', NONE: '#ffffff' },
@@ -86,8 +87,10 @@ function onOpen() {
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
     .addSeparator()
-    .addItem('비교탭 정리 (수기와 대조: 이미 있는 건 제거)', 'pruneCompareTabs')
     .addItem('정산 점검 (내 카드내역 전부 장부에 있나 대조)', 'auditCoverage')
+    .addSeparator()
+    .addItem('비교탭(_C) 정리 — 수기와 대조해 중복 제거 (과거 방식 잔재)', 'pruneCompareTabs')
+    .addItem('비교탭(_C) 전체 삭제 (과거 방식 잔재)', 'deleteCompareTabs')
     .addItem('RAW 색·노트 초기화 (재처리용)', 'resetRawColors')
     .addToUi();
 }
@@ -225,7 +228,7 @@ function auditCoverage() {
   ss.getSheets().forEach(function (sh) {
     const name = sh.getName();
     if (skip[name]) return;
-    const kind = /_C$/.test(name) ? '자동' : '수기';
+    const kind = /_C$/.test(name) ? '_C(구방식)' : '장부';
     extractLedgerRecords(sh).forEach(function (rec) {
       rec.tab = name; rec.kind = kind;
       const k = Math.round(Math.abs(rec.amount));
@@ -332,7 +335,7 @@ function runReconciliation() {
   const rules = loadRules(ledgerSS);
   const trips = buildTrips(ledgerSS);
   const emailIdx = loadEmailIndex();
-  const targets = {};          // tabName → {sheet, keys:Set, rows:[]}
+  const targets = {};          // tabName → {sheet, mode, sec, existing, rows:[]}
   const holds = {};            // distinct 패턴 → 학습대기 후보
   const stats = { done: 0, cancel: 0, hold: 0 };
 
@@ -363,10 +366,21 @@ function runReconciliation() {
         stats.cancel++;
       } else if (v.status === 'CONFIRM') {
         const t = getTarget(targets, ledgerSS, v.tripName);
-        const key = makeKey(v.useDateOverride || rec.useDate, rec.merchant, rec.krw);
-        if (!t.keys.has(key)) { t.rows.push(buildLedgerRow(rec, v)); t.keys.add(key); }
-        for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.DONE;
-        stats.done++;
+        if (t.mode === 'none') {
+          // 실탭은 있는데 지출 섹션 헤더를 못 찾음 — 임의 위치에 쓰면 장부를 망치므로 보류.
+          notes[r][0] = '전기 보류 — "' + v.tripName + '" 탭에서 지출 섹션(증빙유형·금액 헤더)을 못 찾음';
+          stats.hold++;
+        } else {
+          const row7 = buildLedgerRow(rec, v);
+          const cand = { date: row7[0], merchant: String(row7[1] || ''), card: rec.last4,
+                         amount: rec.krw, bookingNo: digits(row7[5]) };
+          // 이미 실탭에 있으면(수기 선기록 등) 다시 안 쓰고 색만 완료 처리 — 초록 = '장부에 있음' 보장.
+          const dup = t.existing.some(function (e) { return recordsMatch(cand, e); }) ||
+                      t.rows.some(function (q) { return recordsMatch(cand, q.cand); });
+          if (!dup) t.rows.push({ row7: row7, cand: cand });
+          for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.DONE;
+          stats.done++;
+        }
       } else {
         notes[r][0] = v.reason;
         const hk = normMerchant(rec.merchant) + '|' + (rec.bizCat || '');
@@ -381,13 +395,8 @@ function runReconciliation() {
     }
   });
 
-  // 전기: 탭별로 모아서 한 번에 setValues (append 반복 금지)
-  Object.keys(targets).forEach(function (tab) {
-    const t = targets[tab];
-    if (!t.rows.length) return;
-    const start = t.sheet.getLastRow() + 1;
-    t.sheet.getRange(start, 1, t.rows.length, CONFIG.LEDGER_HEADER.length).setValues(t.rows);
-  });
+  // 전기: 탭별로 모아서 실탭에 한 번에 기록 (append 반복 금지)
+  Object.keys(targets).forEach(function (tab) { flushTarget(targets[tab]); });
 
   flushReview(ledgerSS, holds);
   toast('정산 완료 — 확정 ' + stats.done + ' / 취소 ' + stats.cancel +
@@ -649,13 +658,75 @@ function ensureTab(ss, name, header) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 3단계 — _C 탭 전기
+// 3단계 — 실탭 직접 전기 (사람이 하던 '여행탭에 분류 복사' 그대로)
 // ─────────────────────────────────────────────────────────────
-function getTarget(cache, ss, tripName) {
-  if (cache[tripName]) return cache[tripName];
-  const sheet = getOrCreateCompareTab(ss, tripName);
-  cache[tripName] = { sheet: sheet, keys: loadKeys(sheet), rows: [] };
-  return cache[tripName];
+// 실탭에서 '지출 내용' 헤더행·컬럼 위치·총 금액 행을 찾는다. (0-기준 인덱스)
+function findExpenseSection(sheet) {
+  const v = sheet.getDataRange().getValues();
+  let hdr = -1;
+  for (let r = 0; r < v.length; r++) {
+    const has = function (kw) { return v[r].some(function (x) { return String(x).indexOf(kw) >= 0; }); };
+    if (has('증빙유형') && has('금액')) { hdr = r; break; }
+  }
+  if (hdr < 0) return null;
+  const H = v[hdr].map(function (x) { return String(x); });
+  const find = function (kw) { return H.findIndex(function (h) { return h.indexOf(kw) >= 0; }); };
+  const ci = { date: find('거래일자'), item: find('항목'), acct: find('내용'), card: find('증빙유형'), amt: find('금액') };
+  if (ci.amt < 0) return null;
+  let sumRow = -1, lastData = hdr;
+  for (let r = hdr + 1; r < v.length; r++) {
+    if (v[r].some(function (x) { return /총\s*금액|합\s*계/.test(String(x)); })) { sumRow = r; break; }
+    if (String(v[r].join('')).trim()) lastData = r;
+  }
+  return { hdr: hdr, ci: ci, sumRow: sumRow, lastData: lastData };
+}
+// 전기 대상 탭 정보를 로드(캐시). 실탭이 있으면 지출 섹션에 직접, 없으면(여행_미매칭 등) 7열 시트 생성.
+function getTarget(cache, ss, tabName) {
+  if (cache[tabName]) return cache[tabName];
+  let sheet = ss.getSheetByName(tabName);
+  let t;
+  if (!sheet) {
+    sheet = ss.insertSheet(tabName);
+    sheet.appendRow(CONFIG.LEDGER_HEADER);
+    sheet.getRange(1, 1, 1, CONFIG.LEDGER_HEADER.length).setFontWeight('bold');
+    t = { sheet: sheet, mode: 'plain', existing: [], rows: [] };
+  } else {
+    const sec = findExpenseSection(sheet);
+    if (!sec) t = { sheet: sheet, mode: 'none', existing: [], rows: [] };          // 지출 섹션 못 찾음 → 전기 보류
+    else t = { sheet: sheet, mode: 'section', sec: sec, existing: extractLedgerRecords(sheet), rows: [] };
+  }
+  cache[tabName] = t;
+  return t;
+}
+// 모아둔 행을 실탭에 한 번에 기록.
+//  - section: '총 금액' 합계 범위가 자동 확장되도록 마지막 데이터행 '앞'에 삽입(데이터 없으면 합계행 앞).
+//  - 예약번호·비고는 실탭에 열이 없으므로 '항목' 셀 노트로 보존('자동 전기' 표식 겸용).
+function flushTarget(t) {
+  const n = t.rows.length;
+  if (!n || t.mode === 'none') return;
+  if (t.mode === 'plain') {
+    const start = t.sheet.getLastRow() + 1;
+    t.sheet.getRange(start, 1, n, CONFIG.LEDGER_HEADER.length)
+      .setValues(t.rows.map(function (q) { return q.row7; }));
+    return;
+  }
+  const sec = t.sec;
+  let at;                                                   // 1-기준 삽입 위치
+  if (sec.sumRow >= 0 && sec.lastData > sec.hdr) at = sec.lastData + 1;   // 마지막 데이터행 앞(합계 범위 내부)
+  else if (sec.sumRow >= 0) at = sec.sumRow + 1;                          // 섹션 비어 있음 → 합계행 앞
+  else at = Math.max(t.sheet.getLastRow(), sec.lastData + 1) + 1;         // 합계행 없음 → 섹션 끝에 덧붙임
+  if (sec.sumRow >= 0) t.sheet.insertRowsBefore(at, n);
+  const ci = sec.ci;
+  const put = function (col, idx) {
+    if (col < 0) return;
+    t.sheet.getRange(at, col + 1, n, 1).setValues(t.rows.map(function (q) { return [q.row7[idx]]; }));
+  };
+  put(ci.date, 0); put(ci.item, 1); put(ci.acct, 2); put(ci.card, 3); put(ci.amt, 4);
+  if (ci.item >= 0) {
+    t.sheet.getRange(at, ci.item + 1, n, 1).setNotes(t.rows.map(function (q) {
+      return [['자동 전기', q.row7[5] ? '예약번호 ' + q.row7[5] : '', q.row7[6] || ''].filter(Boolean).join(' · ')];
+    }));
+  }
 }
 // 전기 한 줄(배열) 생성 — 실제 장부 '지출 내용' 형식.
 function buildLedgerRow(rec, v) {
@@ -672,61 +743,15 @@ function buildLedgerRow(rec, v) {
     note,                                          // 비고
   ];
 }
-function getOrCreateCompareTab(ss, tripName) {
-  const cName = tripName + '_C';
-  let c = ss.getSheetByName(cName);
-  if (!c) {
-    const orig = ss.getSheetByName(tripName);
-    c = orig ? ss.insertSheet(cName, orig.getIndex()) : ss.insertSheet(cName); // orig 바로 오른쪽
-    c.appendRow(CONFIG.LEDGER_HEADER);
-    c.getRange(1, 1, 1, CONFIG.LEDGER_HEADER.length).setFontWeight('bold');
-  }
-  return c;
-}
-function appendToLedger(sheet, rec, v) { sheet.appendRow(buildLedgerRow(rec, v)); }
-const ACCOUNT_MEMO = { '숙박비': '숙박', '여비교통비': '항공', '교통비': '교통', '식비': '식비', '입장료': '입장료' };
-function makeMemo(account, useDate, note) {
-  const base = ACCOUNT_MEMO[account] || account;
-  const s = String(useDate);
-  const mmdd = /\d{4}-\d{2}-\d{2}/.test(s) ? '_' + s.slice(5).replace('-', '') : '';
-  return base + mmdd + (note ? ' [' + note + ']' : '');
-}
-// (R2-5) 취소 건 반대분개 — 전 _C 탭에서 같은 가맹점·같은 금액(양수)으로 전기된
-// 원거래를 찾아, 그 탭에 음수 금액 한 줄을 덧붙인다. 못 찾으면 null(색 표시만).
-// 멱등성: 취소 행 자체가 CANCEL 색으로 칠해져 재처리되지 않는다.
-function postReversal(ledgerSS, rec) {
-  const posAmt = Math.abs(rec.krw);
-  if (!posAmt) return null;
-  const merchant = normMerchant(rec.merchant);
-  const sheets = ledgerSS.getSheets().filter(function (sh) { return /_C$/.test(sh.getName()); });
-  for (let i = 0; i < sheets.length; i++) {
-    const sh = sheets[i];
-    if (sh.getLastRow() < 2) continue;
-    const values = sh.getDataRange().getValues();
-    for (let r = 1; r < values.length; r++) {
-      if (normMerchant(values[r][1]) !== merchant) continue;   // 항목(거래처) 일치
-      if (num(values[r][4]) !== posAmt) continue;              // 금액(양수 원거래)만
-      // 새 7열 형식: 거래일자·항목·내용(원거래 계정과목 승계)·증빙유형·금액(음수)·예약번호·비고
-      sh.appendRow([
-        rec.useDate,
-        rec.merchant,
-        values[r][2],                                          // 내용 = 원거래 계정과목(2열)
-        rec.last4 + (rec.user ? '/' + rec.user : ''),
-        -posAmt,
-        '',
-        '취소 반대분개 · ' + (rec.format || ''),
-      ]);
-      return sh.getName();
-    }
-  }
-  return null;
-}
-
-function loadKeys(sheet) {
-  const set = new Set();
-  const values = sheet.getDataRange().getValues();
-  for (let r = 1; r < values.length; r++) set.add(makeKey(values[r][0], values[r][1], values[r][4]));
-  return set;
+// 과거 방식의 잔재인 _C 비교탭을 한 번에 삭제(실탭 직접 전기로 전환 후 정리용).
+//  삭제 전 '비교탭 정리'로 수기와 대조해 남은 신규분이 없는지 확인 권장.
+function deleteCompareTabs() {
+  const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  let n = 0;
+  ss.getSheets().forEach(function (sh) {
+    if (/_C$/.test(sh.getName())) { ss.deleteSheet(sh); n++; }
+  });
+  toast('_C 비교탭 ' + n + '개 삭제 완료.');
 }
 
 // ─────────────────────────────────────────────────────────────
