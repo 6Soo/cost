@@ -19,6 +19,9 @@ const CONFIG = {
 
   HEADER_ROWS: 1,               // RAW 시트 헤더 행 수(없으면 0)
   TRIP_WINDOW_DAYS: 7,          // 출발일부터 여행 기간(3~5일 + 버퍼)
+  TRIP_YEAR: 2026,              // 여행 탭(MMDD_지역·M월_지역)의 기본 연도. 탭명에 'YYYY_' 접두가 있으면 그 연도 우선.
+                                //  이 연도와 '다른 연도' 카드건은 해당 탭에 안 들어감(2025 비용이 2026 여행탭에 섞이는 것 방지).
+  DATE_TOL_DAYS: 4,             // 승인일/이용일/매입일 차이 허용(장부 대조·점검의 날짜 매칭 여유)
   ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명) → '2분기_기타비용_C'. 분기 바뀌면 갱신.
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
   REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
@@ -82,8 +85,179 @@ function onOpen() {
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
     .addSeparator()
+    .addItem('비교탭 정리 (수기와 대조: 이미 있는 건 제거)', 'pruneCompareTabs')
+    .addItem('정산 점검 (내 카드내역 전부 장부에 있나 대조)', 'auditCoverage')
     .addItem('RAW 색·노트 초기화 (재처리용)', 'resetRawColors')
     .addToUi();
+}
+
+// ─────────────────────────────────────────────────────────────
+// 장부 지출행 추출 + 포괄 매칭 (수기탭·_C탭·기타비용탭 공통)
+//  금액만으로 매칭하면 같은 금액의 다른 결제가 오매칭됨 → 금액을 1차 게이트로 두되
+//  '날짜(±허용)·가맹점·카드' 중 최소 1개가 보강돼야 매칭으로 인정한다.
+// ─────────────────────────────────────────────────────────────
+// 한 장부 탭의 '지출 내용' 섹션에서 지출행을 구조화해 뽑는다(수입 섹션·총금액 행 제외).
+//  헤더는 '증빙유형'+'금액'이 함께 있는 행으로 감지 → 컬럼을 이름으로 매핑(수기/자동 배치 차이 흡수).
+function extractLedgerRecords(sheet) {
+  const v = sheet.getDataRange().getValues();
+  let hdr = -1;
+  for (let r = 0; r < v.length; r++) {
+    const has = function (kw) { return v[r].some(function (x) { return String(x).indexOf(kw) >= 0; }); };
+    if (has('증빙유형') && has('금액')) { hdr = r; break; }
+  }
+  if (hdr < 0) return [];                                 // 지출 섹션 없음
+  const H = v[hdr].map(function (x) { return String(x); });
+  const find = function (kw) { return H.findIndex(function (h) { return h.indexOf(kw) >= 0; }); };
+  const ci = { date: find('거래일자'), item: find('항목'), acct: find('내용'), card: find('증빙유형'), amt: find('금액') };
+  if (ci.amt < 0) return [];
+  const out = [];
+  for (let r = hdr + 1; r < v.length; r++) {
+    if (v[r].some(function (x) { return /총\s*금액|합\s*계/.test(String(x)); })) break;   // 소계/총계 도달 → 종료
+    const amt = num(v[r][ci.amt]);
+    if (!amt) continue;
+    out.push({
+      date: normDate(ci.date >= 0 ? v[r][ci.date] : ''),
+      merchant: ci.item >= 0 ? String(v[r][ci.item] || '') : '',
+      card: ci.card >= 0 ? digits(v[r][ci.card]).slice(-4) : '',
+      amount: amt,
+    });
+  }
+  return out;
+}
+// 두 지출 레코드가 '동일 결제'인가 — 금액 일치(필수) + (날짜 근접|가맹점 유사|카드 일치) 중 1개 이상.
+function recordsMatch(a, b) {
+  if (Math.round(Math.abs(a.amount)) !== Math.round(Math.abs(b.amount))) return false;  // 금액 게이트
+  let signals = 0;
+  const da = dateMs(a.date), db = dateMs(b.date);
+  if (da != null && db != null && Math.abs(da - db) / 86400000 <= CONFIG.DATE_TOL_DAYS) signals++;  // 승인/이용/매입 차이 허용
+  if (merchantSimilar(a.merchant, b.merchant)) signals++;
+  if (a.card && b.card && a.card === b.card) signals++;
+  return signals >= 1;
+}
+function merchantSimilar(a, b) {
+  const A = normMerchant(a).replace(/[^0-9A-Z가-힣ぁ-んァ-ヶ一-龯]/g, '');
+  const B = normMerchant(b).replace(/[^0-9A-Z가-힣ぁ-んァ-ヶ一-龯]/g, '');
+  if (!A || !B) return false;
+  if (A === B) return true;
+  const s = A.length < B.length ? A : B, l = A.length < B.length ? B : A;
+  if (s.length >= 3 && l.indexOf(s) >= 0) return true;        // 짧은 쪽이 긴 쪽에 포함
+  return s.length >= 4 && l.slice(0, 4) === s.slice(0, 4);    // 앞 4글자 공유
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4단계 — 비교탭 정리: {탭}_C 를 수기 {탭}의 '지출 내용'과 포괄 대조.
+//  이미 수기 장부에 있는 건(금액+날짜/가맹점/카드 매칭)은 _C에서 제거 → _C엔 '아직 안 적은 것'만 남김.
+//  같은 수기행은 한 번만 소진(한 _C행 제거에 재사용 금지). 사람이 최종 확인 전제.
+// ─────────────────────────────────────────────────────────────
+function pruneCompareTabs() {
+  const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  let removed = 0, tabs = 0;
+  ss.getSheets().forEach(function (cSheet) {
+    const cName = cSheet.getName();
+    if (!/_C$/.test(cName)) return;
+    const base = ss.getSheetByName(cName.slice(0, -2));   // '_C' 떼면 원본 여행탭
+    if (!base || cSheet.getLastRow() < 2) return;
+    const manual = extractLedgerRecords(base);            // 수기 지출행
+    const used = manual.map(function () { return false; });
+    const values = cSheet.getDataRange().getValues();
+    const keep = [values[0]];                             // 헤더 유지
+    for (let r = 1; r < values.length; r++) {
+      const rec = { date: normDate(values[r][0]), merchant: String(values[r][1] || ''),
+                    card: digits(values[r][3]).slice(-4), amount: num(values[r][4]) };
+      let matched = -1;
+      for (let i = 0; i < manual.length; i++) {
+        if (!used[i] && recordsMatch(rec, manual[i])) { matched = i; break; }
+      }
+      if (matched >= 0) { used[matched] = true; removed++; continue; }   // 이미 수기에 있음 → 제거
+      keep.push(values[r]);
+    }
+    cSheet.clearContents();
+    cSheet.getRange(1, 1, keep.length, CONFIG.LEDGER_HEADER.length).setValues(keep);
+    tabs++;
+  });
+  toast('비교탭 정리 완료 — 이미 수기에 있는 ' + removed + '건 제거, ' + tabs + '개 _C 갱신.');
+}
+
+// ─────────────────────────────────────────────────────────────
+// 정산 점검(완전성 감사) — 내 카드내역(RAW) 전부가 장부 어딘가에 기록됐는지 대조.
+//  장부(수기탭 + _C탭 + 기타비용)를 금액→레코드 인덱스로 만들고, RAW 전 건을 포괄 매칭.
+//  결과를 '정산_점검' 탭에 리포트: 기록됨(발견 위치) / 미기록(누락!) / 취소 / 미인식.
+//  → '미기록'이 0이 되면 내 이용내역이 전부 장부로 옮겨진 것.
+// ─────────────────────────────────────────────────────────────
+const AUDIT_TAB = '정산_점검';
+const AUDIT_HEADER = ['카드', '이용일', '가맹점', '금액', '상태', '발견위치', 'RAW색', '비고'];
+function auditCoverage() {
+  const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  // 1) 장부에 이미 기록된 지출 인덱스 (수기 + 자동 _C 모두). 금액(절대값)→레코드[].
+  const index = {};
+  const skip = { }; skip[CONFIG.STAGING.sheetName] = 1; skip[CONFIG.RULES_TAB] = 1; skip[CONFIG.REVIEW_TAB] = 1; skip[AUDIT_TAB] = 1;
+  ss.getSheets().forEach(function (sh) {
+    const name = sh.getName();
+    if (skip[name]) return;
+    const kind = /_C$/.test(name) ? '자동' : '수기';
+    extractLedgerRecords(sh).forEach(function (rec) {
+      rec.tab = name; rec.kind = kind;
+      const k = Math.round(Math.abs(rec.amount));
+      (index[k] = index[k] || []).push(rec);
+    });
+  });
+  // 2) RAW 전 건을 인덱스와 대조
+  const report = [];
+  let total = 0, covered = 0, uncovered = 0, cancel = 0, unknown = 0;
+  CONFIG.RAW_SOURCES.forEach(function (src) {
+    const sh = openFirst(src); if (!sh) return;
+    const rng = sh.getDataRange();
+    const values = rng.getValues();
+    const bg = rng.getBackgrounds();
+    for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
+      if (!values[r].join('').trim()) continue;
+      const rec = parseRaw(values[r]);
+      if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', colorName(bg[r][0]), '카드사 양식 확인']); continue; }
+      if (!rec.merchant && !rec.krw) continue;
+      total++;
+      const rawColor = colorName(bg[r][0]);
+      if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) {
+        cancel++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '취소', '', rawColor, '반대분개 대상']); continue;
+      }
+      const cand = index[Math.round(Math.abs(rec.krw))] || [];
+      const rrec = { date: rec.useDate, merchant: rec.merchant, card: rec.last4, amount: rec.krw };
+      let hit = null;
+      for (let i = 0; i < cand.length; i++) { if (recordsMatch(rrec, cand[i])) { hit = cand[i]; break; } }
+      if (hit) { covered++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '기록됨', hit.tab + '(' + hit.kind + ')', rawColor, '']); }
+      else {
+        uncovered++;
+        const why = isWhite(bg[r][0]) ? '아직 정산 안 됨(흰색) — 정산 실행 필요'
+                 : rawColor === '완료' ? '완료색인데 장부에 없음 — 삭제됐거나 위치 확인'
+                 : '전기 누락 — 수동 확인';
+        report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '미기록', '', rawColor, why]);
+      }
+    }
+  });
+  // 3) '정산_점검' 탭에 요약 + 상세 기록(미기록은 빨강 강조)
+  report.sort(function (a, b) { return (a[4] === '미기록' ? 0 : 1) - (b[4] === '미기록' ? 0 : 1); }); // 미기록 먼저
+  const sheet = ensureTab(ss, AUDIT_TAB, AUDIT_HEADER);
+  sheet.clearContents();
+  const summary = ['요약', '총 ' + total, '기록됨 ' + covered, '미기록 ' + uncovered, '취소 ' + cancel, '미인식 ' + unknown, '갱신 ' + today(), ''];
+  const out = [summary, AUDIT_HEADER].concat(report);
+  sheet.getRange(1, 1, out.length, AUDIT_HEADER.length).setValues(out);
+  sheet.getRange(1, 1, 1, AUDIT_HEADER.length).setFontWeight('bold');
+  sheet.getRange(2, 1, 1, AUDIT_HEADER.length).setFontWeight('bold');
+  // 미기록 행 빨강
+  const bgs = report.map(function (row) {
+    const c = row[4] === '미기록' ? '#f4cccc' : (row[4] === '미인식' ? '#fff2cc' : '#ffffff');
+    return AUDIT_HEADER.map(function () { return c; });
+  });
+  if (bgs.length) sheet.getRange(3, 1, bgs.length, AUDIT_HEADER.length).setBackgrounds(bgs);
+  toast('정산 점검 완료 — 총 ' + total + ' / 기록됨 ' + covered + ' / 미기록 ' + uncovered +
+        ' / 취소 ' + cancel + ' / 미인식 ' + unknown + ' ("' + AUDIT_TAB + '" 탭 확인)');
+}
+// RAW 배경색 → 사람이 읽는 상태명
+function colorName(hex) {
+  const h = String(hex || '').toLowerCase();
+  if (h === '' || h === '#ffffff' || h === '#fff' || h === 'white') return '흰(미처리)';
+  if (h === CONFIG.COLOR.DONE.toLowerCase()) return '완료';
+  if (h === CONFIG.COLOR.CANCEL.toLowerCase()) return '취소';
+  return hex;
 }
 
 // RAW 3시트의 배경색·노트를 전부 지움 → 다음 정산에서 전량 재처리(테스트/재실행용).
@@ -177,24 +351,29 @@ function buildTrips(ss) {
   ss.getSheets().forEach(function (sh) {
     const name = sh.getName();
     if (/_C$/.test(name)) return;                       // 비교본 제외
-    let m = name.match(/^(\d{2})(\d{2})_(.+)$/);         // 0625_아키타 (출발일_지역)
-    if (m) { trips.push({ name: name, mm: +m[1], dd: +m[2], region: m[3], windowDays: CONFIG.TRIP_WINDOW_DAYS }); return; }
-    m = name.match(/^(\d{1,2})월_(.+)$/);                // 5월_유럽 · 10월_도고 (월 단위)
-    if (m) { trips.push({ name: name, mm: +m[1], dd: 1, region: m[2], windowDays: 31 }); return; }
+    // 탭명에 'YYYY_' 접두가 있으면 그 연도를, 없으면 CONFIG.TRIP_YEAR(현재 2026)를 여행 연도로.
+    let year = CONFIG.TRIP_YEAR, rest = name;
+    const ym = name.match(/^(\d{4})_(.+)$/);             // 2026_0630_오제 · 2025_5월_유럽 (연도 명시)
+    if (ym) { year = +ym[1]; rest = ym[2]; }
+    let m = rest.match(/^(\d{2})(\d{2})_(.+)$/);         // 0625_아키타 (출발일_지역)
+    if (m) { trips.push({ name: name, year: year, mm: +m[1], dd: +m[2], region: m[3], windowDays: CONFIG.TRIP_WINDOW_DAYS }); return; }
+    m = rest.match(/^(\d{1,2})월_(.+)$/);                // 5월_유럽 · 10월_도고 (월 단위)
+    if (m) { trips.push({ name: name, year: year, mm: +m[1], dd: 1, region: m[2], windowDays: 31 }); return; }
   });
   return trips;
 }
-// 실사용일이 속한 여행(가장 늦게 시작한 매칭 여행). 연도는 카드건 연도 기준(연초 wrap 고려).
+// 실사용일이 속한 여행(가장 늦게 시작한 매칭 여행).
+//  연도 일치 필수 — 여행 탭은 특정 연도(2026)의 여행이므로 '다른 연도' 카드건은 매칭하지 않는다.
+//  (월만 같고 연도가 다른 2025 비용이 2026 여행탭에 섞여 들어가던 문제 차단.)
 function findTrip(trips, useDate) {
   const d = ymd(useDate); if (!d) return null;
   let best = null, bestStart = -1;
   trips.forEach(function (t) {
-    [d.y, d.y - 1].forEach(function (yr) {
-      const start = Date.UTC(yr, t.mm - 1, t.dd);
-      const end = start + (t.windowDays || CONFIG.TRIP_WINDOW_DAYS) * 86400000;
-      const cur = Date.UTC(d.y, d.m - 1, d.d);
-      if (cur >= start && cur <= end && start > bestStart) { best = t; bestStart = start; }
-    });
+    if (t.year !== d.y) return;                         // 카드건 연도 ≠ 여행 연도 → 스킵
+    const start = Date.UTC(t.year, t.mm - 1, t.dd);
+    const end = start + (t.windowDays || CONFIG.TRIP_WINDOW_DAYS) * 86400000;
+    const cur = Date.UTC(d.y, d.m - 1, d.d);
+    if (cur >= start && cur <= end && start > bestStart) { best = t; bestStart = start; }
   });
   return best;
 }
@@ -576,6 +755,7 @@ function ymd(s) {
   return m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
 }
 function pad(n) { return ('0' + n).slice(-2); }
+function today() { return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'); }
 function isWhite(hex) { const h = String(hex || '').toLowerCase(); return h === '' || h === '#ffffff' || h === '#fff' || h === 'white'; }
 function setRowColor(sh, rowNum, color) { sh.getRange(rowNum, 1, 1, sh.getLastColumn()).setBackground(color); }
 function noteCell(sh, rowNum, text) { sh.getRange(rowNum, 1).setNote(text); }
