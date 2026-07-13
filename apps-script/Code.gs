@@ -32,7 +32,8 @@ const CONFIG = {
   //  예약번호·비고는 셀 노트로 보존. 실탭이 없는 버킷(여행_미매칭 등)은 7열 그대로 기록.
   LEDGER_HEADER: ['거래일자', '항목', '내용', '증빙유형', '금액', '예약번호', '비고'],
 
-  COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', NONE: '#ffffff' },
+  COLOR: { DONE: '#d9ead3', CANCEL: '#f4cccc', SKIP: '#efefef', NONE: '#ffffff' },
+  // SKIP(회색) = 과년도(TRIP_YEAR 이전) 일반 지출 — 이번 정리 대상 아님 표시.
 
   // 카드 주인별 분류 성향(prior). key = 카드 뒷4자리.
   // 강한 신호(날짜·키워드·메일매칭)가 모두 빠졌을 때만 적용되는 '기본값'이다 — 확정 분류를 덮지 않는다.
@@ -46,17 +47,41 @@ const CONFIG = {
   DEFAULT_CARD_PROFILE: { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
 };
 
+// 가맹점명 추론 사전 — 카드 명세의 로마자 표기(일본: HOTERU/SHOKUDO 등, 유럽: RISTORANTE/PEAGE 등)까지 포함.
+//  분류 순서는 classify() 참고: LODGING → TRANSPORT → ADMISSION → FOOD 순이라 'BUSINESS HOTEL'은 숙박으로 먼저 잡힘.
 const KW = {
   TRANSPORT: ['TOYOTA', 'RENT', 'ENEOS', 'HERTZ', 'TAXI', 'PARKING', 'SHELL', 'ESSO',
               'TOLL', 'EXPRESSWAY', 'JR', 'RAIL', 'TATEYAMA', 'KUROBE', 'MINITZ',
-              '렌트', '렌터카', '주유'],
+              '렌트', '렌터카', '주유',
+              // 로프웨이·곤돌라·리프트 등 산악 교통
+              'GONDOLA', 'LIFT', 'ROPEWAY', 'CABLE', 'FUNICULAR',
+              // 일본 철도·공항철도
+              'KEISEI', 'SKYLINE', 'SHINKANSEN', 'KINTETSU', 'ODAKYU', 'METRO',
+              // 렌터카 체인
+              'AVIS', 'EUROPCAR', 'SIXT', 'BY CAR', 'NIPPON RENT', 'TIMES CAR', 'ORIX',
+              // 유럽 주유·고속도로
+              'AGIP', 'TOTAL', 'STAZ.SERV', 'AUTOSTRADE', 'AUTOROUTE', 'PEAGE', 'APRR', 'AREA ',
+              'FERRY', 'TRAGHETTI'],
   AIR:       ['대한항공', 'KOREAN AIR', '아시아나', 'ASIANA', '제주항공', 'JEJU AIR',
-              '진에어', 'JIN AIR', '마이트립', 'MYTRIP', 'NIPPON TRAVEL', '항공'],
+              '진에어', 'JIN AIR', '마이트립', 'MYTRIP', 'NIPPON TRAVEL', '항공',
+              'A.N.A', 'ANA AIR', 'AIRLINE', 'AIRWAYS', 'PEACH AVIATION', 'SKYMARK', 'SKYTICKET',
+              'LUFTHANSA', 'AIR FRANCE', 'KLM', 'EMIRATES', 'QATAR', 'TURKISH AIR'],
   LODGING:   ['HOTEL', 'INN', 'ROUTE-INN', 'TOYOKO', 'RESORT', 'RYOKAN', 'HOSTEL', 'ONSE',
-              'ホテル', '호텔', '료칸', '민박', '亀の井', '칸'],
-  OTA:       ['AGODA', 'BOOKING', 'TRIP.COM', '트립닷컴', '부킹', '아고다', '마이트립'],
-  FOOD_AREA: ['SERVICE AREA', 'MICHINOEKI', 'SEVENELEVEN', 'APITA', 'MARKET', '휴게'],
-  ADMISSION: ['NATADERA', 'PARK', '입장', 'MUSEUM', 'ZOO'],
+              'ホテル', '호텔', '료칸', '민박', '亀の井', '칸',
+              // 로마자 일본어·기타 숙박 표기
+              'HOTERU', 'PENSION', 'LODGE', 'GUEST HOUSE', 'MINSHUKU', 'B&B', 'AUBERGE',
+              'RAKUTEN'],   // 라쿠텐트래블(숙박 OTA — 메일 파서 없으므로 숙박비 직행)
+  OTA:       ['AGODA', 'BOOKING', 'TRIP.COM', '트립닷컴', '부킹', '아고다', '마이트립', 'EXPEDIA', 'AIRBNB'],
+  FOOD_AREA: ['SERVICE AREA', 'MICHINOEKI', 'SEVENELEVEN', 'APITA', 'MARKET', '휴게',
+              // 로마자 일본어 식당·마트
+              'SHOKUDO', 'IZAKAYA', 'SUSHI', 'RAMEN', 'UDON', 'SOBA', 'YAKINIKU', 'WASHOKU',
+              'ICHIBA', 'GASUTO', 'SAIZERIYA', 'MATSUYA', 'YOSHINOYA', 'SUKIYA', 'COCOICHI',
+              'LAWSON', 'FAMILYMART', 'KONBINI',
+              // 서양권 식당·마트
+              'RESTAURANT', 'RISTORANTE', 'TRATTORIA', 'OSTERIA', 'PIZZERIA', 'BRASSERIE',
+              'BOULANGERIE', 'CAFE', 'COFFEE', 'SUPER U', 'CARREFOUR', 'LIDL', 'MONOPRIX', 'COOP'],
+  ADMISSION: ['NATADERA', 'PARK', '입장', 'MUSEUM', 'ZOO', 'VIEWLAND', 'MUSEE', 'AQUARIUM',
+              'ONSEN', 'CASTLE', 'CASTELLO', 'GARDEN', 'SHRINE', 'TEMPLE'],
   PG:        ['KCP', '결제대행', '전자상거래', 'PG', 'INICIS', '이니시스', 'NICE', '나이스',
               '네이버페이', '카카오페이', 'NAVERPAY', 'KAKAOPAY'],
 };
@@ -89,9 +114,10 @@ function onOpen() {
     .addSeparator()
     .addItem('정산 점검 (내 카드내역 전부 장부에 있나 대조)', 'auditCoverage')
     .addSeparator()
+    .addItem('정산 롤백 (자동 전기 전부 회수 — 수기 행 보존)', 'rollbackAutoPostings')
     .addItem('비교탭(_C) 정리 — 수기와 대조해 중복 제거 (과거 방식 잔재)', 'pruneCompareTabs')
     .addItem('비교탭(_C) 전체 삭제 (과거 방식 잔재)', 'deleteCompareTabs')
-    .addItem('RAW 색·노트 초기화 (재처리용)', 'resetRawColors')
+    .addItem('엔진 색 초기화 — 재처리용 (수동 표시는 보존)', 'resetRawColors')
     .addToUi();
 }
 
@@ -237,7 +263,7 @@ function auditCoverage() {
   });
   // 2) RAW 전 건을 인덱스와 대조
   const report = [];
-  let total = 0, covered = 0, uncovered = 0, cancel = 0, unknown = 0;
+  let total = 0, covered = 0, uncovered = 0, cancel = 0, unknown = 0, scopeOut = 0;
   CONFIG.RAW_SOURCES.forEach(function (src) {
     const sh = openFirst(src); if (!sh) return;
     const rng = sh.getDataRange();
@@ -248,6 +274,13 @@ function auditCoverage() {
       const rec = parseRaw(values[r]);
       if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', '', colorName(rowColor(bg[r])), '카드사 양식 확인']); continue; }
       if (!rec.merchant && !rec.krw) continue;
+      // 과년도 건은 이번 정리(TRIP_YEAR) 대상 아님 — '미기록'으로 세지 않고 범위외로 분리.
+      const dy = ymd(rec.useDate);
+      if (dy && dy.y < CONFIG.TRIP_YEAR && !isBookingLike(rec)) {
+        scopeOut++;
+        report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '범위외(' + dy.y + ')', '', '', colorName(rowColor(bg[r])), CONFIG.TRIP_YEAR + '년 정리 대상 아님']);
+        continue;
+      }
       total++;
       const rawColor = colorName(rowColor(bg[r]));
       if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) {
@@ -292,7 +325,7 @@ function auditCoverage() {
   report.sort(function (a, b) { return (a[4] === '미기록' ? 0 : 1) - (b[4] === '미기록' ? 0 : 1); }); // 미기록 먼저
   const sheet = ensureTab(ss, AUDIT_TAB, AUDIT_HEADER);
   sheet.clearContents();
-  const summary = ['요약', '총 ' + total, '기록됨 ' + covered, '미기록 ' + uncovered, '취소 ' + cancel, '미인식 ' + unknown, '갱신 ' + today(), '', ''];
+  const summary = ['요약', '총 ' + total, '기록됨 ' + covered, '미기록 ' + uncovered, '취소 ' + cancel, '미인식 ' + unknown, '범위외 ' + scopeOut, '갱신 ' + today(), ''];
   const out = [summary, AUDIT_HEADER].concat(report);
   sheet.getRange(1, 1, out.length, AUDIT_HEADER.length).setValues(out);
   sheet.getRange(1, 1, 1, AUDIT_HEADER.length).setFontWeight('bold');
@@ -318,19 +351,40 @@ function colorName(hex) {
   if (h === '' || h === '#ffffff' || h === '#fff' || h === 'white') return '흰(미처리)';
   if (h === CONFIG.COLOR.DONE.toLowerCase()) return '완료';
   if (h === CONFIG.COLOR.CANCEL.toLowerCase()) return '취소';
+  if (h === CONFIG.COLOR.SKIP.toLowerCase()) return '범위외(과년도)';
   return '수동표시(' + hex + ')';   // 엔진 색이 아닌 것 = 사용자가 직접 칠한 표시
 }
+function isEngineColor(hex) {
+  const h = String(hex || '').toLowerCase();
+  return h === CONFIG.COLOR.DONE.toLowerCase() || h === CONFIG.COLOR.CANCEL.toLowerCase() ||
+         h === CONFIG.COLOR.SKIP.toLowerCase();
+}
+// 숙박/항공/OTA 결제 여부 — 과년도(2025) 건이라도 다음 해 여행의 선결제일 수 있어 계속 추적한다.
+function isBookingLike(rec) {
+  const name = (rec.merchant || '').toUpperCase();
+  return hasKw(name, KW.OTA) || hasKw(name, KW.AIR) || hasKw(name, KW.LODGING);
+}
 
-// RAW 3시트의 배경색·노트를 전부 지움 → 다음 정산에서 전량 재처리(테스트/재실행용).
+// 카드내역 시트에서 '엔진이 칠한 색(초록/빨강/회색)'만 지움 → 다음 정산에서 재처리.
+//  사용자가 직접 칠한 수동 표시(주황/청록 등)와 그 행의 노트는 보존한다.
 function resetRawColors() {
   CONFIG.RAW_SOURCES.forEach(function (src) {
     const sh = openFirst(src);
     if (!sh) return;
     const rng = sh.getDataRange();
-    rng.setBackground(CONFIG.COLOR.NONE);
-    rng.clearNote();
+    const bg = rng.getBackgrounds();
+    const notes = sh.getRange(1, 1, bg.length, 1).getNotes();
+    for (let r = 0; r < bg.length; r++) {
+      const c0 = rowColor(bg[r]);
+      if (!c0) { notes[r][0] = ''; continue; }            // 흰 행: 엔진의 보류 노트만 청소
+      if (!isEngineColor(c0)) continue;                    // 수동 표시 행: 색·노트 보존
+      for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.NONE;
+      notes[r][0] = '';
+    }
+    rng.setBackgrounds(bg);
+    sh.getRange(1, 1, bg.length, 1).setNotes(notes);
   });
-  toast('RAW 색·노트 초기화 완료 — 다음 정산에서 전량 재처리됩니다.');
+  toast('엔진 색(초록/빨강/회색)만 초기화 완료 — 수동 표시는 보존. 다음 정산에서 재처리됩니다.');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -344,7 +398,7 @@ function runReconciliation() {
   const emailIdx = loadEmailIndex();
   const targets = {};          // tabName → {sheet, mode, sec, existing, rows:[]}
   const holds = {};            // distinct 패턴 → 학습대기 후보
-  const stats = { done: 0, cancel: 0, hold: 0 };
+  const stats = { done: 0, cancel: 0, hold: 0, skip: 0 };
 
   // 성능: 행마다 색칠/노트/전기하면 6분 제한 초과 → 시트당 '한 번에' 읽고 쓴다(배치).
   CONFIG.RAW_SOURCES.forEach(function (src) {
@@ -367,6 +421,15 @@ function runReconciliation() {
       }
       if (!rec.merchant && !rec.krw) continue;
       touched = true;
+
+      // 과년도(TRIP_YEAR 이전) 건: 숙박/항공/OTA(다음 해 여행 선결제 가능)만 계속 추적하고,
+      //  나머지는 이번 정리 대상이 아니므로 회색(범위외) 표시 후 제외 — 미매칭·기타비용에 안 쌓는다.
+      const dy = ymd(rec.useDate);
+      if (dy && dy.y < CONFIG.TRIP_YEAR && !isBookingLike(rec)) {
+        for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.SKIP;
+        stats.skip++;
+        continue;
+      }
 
       const v = classify(rec, kb, emailIdx, trips, rules);
 
@@ -394,7 +457,7 @@ function runReconciliation() {
         notes[r][0] = v.reason;
         const hk = normMerchant(rec.merchant) + '|' + (rec.bizCat || '');
         if (!holds[hk]) holds[hk] = { merchant: rec.merchant, bizCat: rec.bizCat || '',
-                                      date: rec.useDate, reason: v.reason };
+                                      date: rec.useDate, krw: rec.krw, reason: v.reason };
         stats.hold++;
       }
     }
@@ -408,8 +471,8 @@ function runReconciliation() {
   Object.keys(targets).forEach(function (tab) { flushTarget(targets[tab]); });
 
   flushReview(ledgerSS, holds);
-  toast('정산 완료 — 확정 ' + stats.done + ' / 취소 ' + stats.cancel +
-        ' / 보류 ' + stats.hold + ' (학습대기 탭 확인)');
+  toast('정산 완료 — 확정 ' + stats.done + ' / 취소 ' + stats.cancel + ' / 보류 ' + stats.hold +
+        ' / 범위외(과년도) ' + stats.skip + ' (학습대기 탭 확인)');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -422,7 +485,8 @@ function buildTrips(ss) {
     if (/_C$/.test(name)) return;                       // 비교본 제외
     // 탭명에 'YYYY_' 접두가 있으면 그 연도를, 없으면 CONFIG.TRIP_YEAR(현재 2026)를 여행 연도로.
     let year = CONFIG.TRIP_YEAR, rest = name;
-    const ym = name.match(/^(\d{4})_(.+)$/);             // 2026_0630_오제 · 2025_5월_유럽 (연도 명시)
+    // 연도 접두는 '20xx'만 인정 — 0620_묘코 같은 MMDD 탭을 연도로 오인하면 여행탭 전체가 누락된다(실제 버그).
+    const ym = name.match(/^(20\d{2})_(.+)$/);           // 2026_0630_오제 · 2025_5월_유럽 (연도 명시)
     if (ym) { year = +ym[1]; rest = ym[2]; }
     let m = rest.match(/^(\d{2})(\d{2})_(.+)$/);         // 0625_아키타 (출발일_지역)
     if (m) { trips.push({ name: name, year: year, mm: +m[1], dd: +m[2], region: m[3], windowDays: CONFIG.TRIP_WINDOW_DAYS }); return; }
@@ -566,8 +630,14 @@ function classify(rec, kb, emailIdx, trips, rules) {
 // 여행건에 목적지 탭 지정
 function route(v, rec, trips, trip) {
   const t = trip || findTrip(trips, v.useDateOverride || rec.useDate);
-  v.tripName = t ? t.name : (rec.overseas ? '여행_미매칭' : CONFIG.ETC_TAB);
-  if (t) v.project = t.region;
+  if (t) { v.tripName = t.name; v.project = t.region; return v; }
+  // 여행탭을 못 찾음 — 과년도(TRIP_YEAR 이전) 결제는 미매칭에 쌓지 않고 보류.
+  //  (2025년에 결제한 2026년 여행 숙박/항공 선결제인지 사람이 확인)
+  const d = ymd(v.useDateOverride || rec.useDate);
+  if (d && d.y < CONFIG.TRIP_YEAR) {
+    return { status: 'HOLD', reason: d.y + '년 결제 — ' + CONFIG.TRIP_YEAR + '년 여행 선결제(숙박/항공)면 해당 여행탭 확인' };
+  }
+  v.tripName = rec.overseas ? '여행_미매칭' : CONFIG.ETC_TAB;
   return v;
 }
 
@@ -608,7 +678,7 @@ function memoToAccount(memo) {
 // 학습 루프 — 분류규칙(영구) + 학습대기(사람이 1회 판단)
 // ─────────────────────────────────────────────────────────────
 const RULES_HEADER = ['가맹점', '계정과목', '구분(여행/기타)', '비고'];
-const REVIEW_HEADER = ['가맹점', '업종', '예시일자', '보류사유', '계정과목(입력)', '구분(여행/기타)'];
+const REVIEW_HEADER = ['가맹점', '업종', '예시일자', '금액(예시)', '보류사유', '계정과목(입력)', '구분(여행/기타)'];
 
 function loadRules(ss) {
   const map = {};
@@ -635,7 +705,7 @@ function flushReview(ss, holds) {
     const h = holds[k];
     const nm = normMerchant(h.merchant);
     if (existing.has(nm) || rules[nm]) return;           // 이미 대기중이거나 규칙 있음 → skip
-    sh.appendRow([h.merchant, h.bizCat, h.date, h.reason, '', '']);
+    sh.appendRow([h.merchant, h.bizCat, h.date, h.krw || '', h.reason, '', '']);
     existing.add(nm);
   });
 }
@@ -650,7 +720,7 @@ function promoteReviewToRules() {
   let promoted = 0;
   const remain = [REVIEW_HEADER];
   for (let r = 1; r < v.length; r++) {
-    const merchant = v[r][0], account = String(v[r][4] || '').trim(), kind = String(v[r][5] || '').trim();
+    const merchant = v[r][0], account = String(v[r][5] || '').trim(), kind = String(v[r][6] || '').trim();
     if (account) { rules.appendRow([merchant, account, kind, '학습:' + new Date().toISOString().slice(0, 10)]); promoted++; }
     else remain.push(v[r]);                               // 아직 미입력 → 대기 유지
   }
@@ -752,6 +822,32 @@ function buildLedgerRow(rec, v) {
     note,                                          // 비고
   ];
 }
+// 정산 롤백 — 엔진이 실탭에 넣은 행('자동 전기' 노트 표식)을 전부 삭제하고 처음 상태로.
+//  수기 행(노트 없음)은 절대 건드리지 않는다. 여행_미매칭 탭 삭제, 학습대기 리셋, 엔진 색 초기화까지.
+//  오분류 발견 시 이걸로 되돌리고 → 코드/규칙 고친 뒤 → 정산 실행을 다시 돌리면 된다.
+function rollbackAutoPostings() {
+  const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  let removed = 0;
+  ss.getSheets().forEach(function (sh) {
+    const name = sh.getName();
+    if (name === '여행_미매칭') { ss.deleteSheet(sh); return; }          // 엔진 생성 탭 → 통째 삭제
+    if (name === CONFIG.REVIEW_TAB) {                                    // 학습대기 → 새 형식으로 리셋
+      sh.clear(); sh.appendRow(REVIEW_HEADER);
+      sh.getRange(1, 1, 1, REVIEW_HEADER.length).setFontWeight('bold');
+      return;
+    }
+    if (sh.getLastRow() < 1) return;
+    const notes = sh.getDataRange().getNotes();
+    for (let r = notes.length - 1; r >= 0; r--) {                        // 아래부터 지워야 행번호 안 밀림
+      if (notes[r].some(function (n) { return String(n).indexOf('자동 전기') === 0; })) {
+        sh.deleteRow(r + 1); removed++;
+      }
+    }
+  });
+  resetRawColors();
+  toast('롤백 완료 — 자동 전기 행 ' + removed + '개 삭제, 여행_미매칭 탭 제거, 학습대기 리셋, 엔진 색 초기화.');
+}
+
 // 과거 방식의 잔재인 _C 비교탭을 한 번에 삭제(실탭 직접 전기로 전환 후 정리용).
 //  삭제 전 '비교탭 정리'로 수기와 대조해 남은 신규분이 없는지 확인 권장.
 function deleteCompareTabs() {
