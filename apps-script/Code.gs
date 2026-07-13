@@ -449,7 +449,7 @@ function runReconciliation() {
           // 이미 실탭에 있으면(수기 선기록 등) 다시 안 쓰고 색만 완료 처리 — 초록 = '장부에 있음' 보장.
           const dup = t.existing.some(function (e) { return recordsMatch(cand, e); }) ||
                       t.rows.some(function (q) { return recordsMatch(cand, q.cand); });
-          if (!dup) t.rows.push({ row7: row7, cand: cand });
+          if (!dup) t.rows.push({ row7: row7, cand: cand, uncertain: !!v.uncertain });
           for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.DONE;
           stats.done++;
         }
@@ -584,7 +584,10 @@ function classify(rec, kb, emailIdx, trips, rules) {
   const isTravel = rec.overseas || !!trip;
 
   if (isTravel) {
-    let account;
+    // 여행 지출은 학습대기로 보내지 않는다 — 해외 가맹점은 수백 개가 일회성이라 학습이 무의미.
+    //  사전(키워드/업종)으로 추정하고, 사전에 없으면 식비로 기본 추정하되 '미상' 표시(노란 셀)로 사람이 훑게 한다.
+    //  (단체 투어 특성상 미상 건 대부분은 단체식사 = 식비. 고액이면 표시가 더 눈에 띄게.)
+    let account, uncertain = false, unote = '';
     if (hasKw(name, KW.LODGING)) account = '숙박비';
     else if (hasKw(name, KW.TRANSPORT)) account = '교통비';
     else if (hasKw(name, KW.ADMISSION)) account = '입장료';
@@ -592,8 +595,10 @@ function classify(rec, kb, emailIdx, trips, rules) {
     else if (rec.bizCat && BIZCAT_TRAVEL[rec.bizCat]) account = BIZCAT_TRAVEL[rec.bizCat];
     else if (!rec.overseas) account = '식비';                       // 국내여행 기본
     else if (rec.krw <= OVERSEAS_FOOD_THRESHOLD) account = '식비';  // 해외 소액 기본
-    else return { status: 'HOLD', reason: '해외 10만원 초과 미상 가맹점 — 수동 확인' };
-    return route({ status: 'CONFIRM', account: account }, rec, trips, trip);
+    else { account = '식비'; uncertain = true;                      // 해외 고액 미상 — 그래도 기록하고 표시만
+           unote = '고액 미상 — 단체식사/현지숙박/전세버스 중 확인'; }
+    return route({ status: 'CONFIRM', account: account, uncertain: uncertain,
+                   note: unote || undefined }, rec, trips, trip);
   }
 
   // 비여행 국내 = 기타비용
@@ -787,6 +792,9 @@ function flushTarget(t) {
     const start = t.sheet.getLastRow() + 1;
     t.sheet.getRange(start, 1, n, CONFIG.LEDGER_HEADER.length)
       .setValues(t.rows.map(function (q) { return q.row7; }));
+    t.rows.forEach(function (q, i) {                       // 미상 추정은 내용(3열)만 노랗게
+      if (q.uncertain) t.sheet.getRange(start + i, 3).setBackground('#fff2cc');
+    });
     return;
   }
   const sec = t.sec;
@@ -805,6 +813,12 @@ function flushTarget(t) {
     t.sheet.getRange(at, ci.item + 1, n, 1).setNotes(t.rows.map(function (q) {
       return [['자동 전기', q.row7[5] ? '예약번호 ' + q.row7[5] : '', q.row7[6] || ''].filter(Boolean).join(' · ')];
     }));
+  }
+  // 자신 없는 추정(미상→식비 등)은 '내용' 셀만 노랗게 — 사람이 여행탭에서 노란 셀만 훑으면 됨.
+  if (ci.acct >= 0) {
+    t.rows.forEach(function (q, i) {
+      if (q.uncertain) t.sheet.getRange(at + i, ci.acct + 1).setBackground('#fff2cc');
+    });
   }
 }
 // 전기 한 줄(배열) 생성 — 실제 장부 '지출 내용' 형식.
