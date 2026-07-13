@@ -246,10 +246,10 @@ function auditCoverage() {
     for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
       if (!values[r].join('').trim()) continue;
       const rec = parseRaw(values[r]);
-      if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', '', colorName(bg[r][0]), '카드사 양식 확인']); continue; }
+      if (!rec) { unknown++; report.push(['', '', '(포맷 미인식 행)', '', '미인식', '', '', colorName(rowColor(bg[r])), '카드사 양식 확인']); continue; }
       if (!rec.merchant && !rec.krw) continue;
       total++;
-      const rawColor = colorName(bg[r][0]);
+      const rawColor = colorName(rowColor(bg[r]));
       if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) {
         cancel++; report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '취소', '', '', rawColor, '반대분개 대상']); continue;
       }
@@ -280,8 +280,9 @@ function auditCoverage() {
         report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, status, hit.tab + '(' + hit.kind + ')', how, rawColor, '']);
       } else {
         uncovered++;
-        const why = isWhite(bg[r][0]) ? '아직 정산 안 됨(흰색) — 정산 실행 필요'
+        const why = rowIsWhite(bg[r]) ? '아직 정산 안 됨(흰색) — 정산 실행 필요'
                  : rawColor === '완료' ? '완료색인데 장부에 없음 — 삭제됐거나 위치 확인'
+                 : /수동표시/.test(rawColor) ? '수동 표시된 행인데 장부 매칭 실패 — 표기 차이(가맹점명 등)일 수 있음, 눈으로 확인'
                  : '전기 누락 — 수동 확인';
         report.push([rec.last4, rec.useDate, rec.merchant, rec.krw, '미기록', '', bridged || '', rawColor, why]);
       }
@@ -305,13 +306,19 @@ function auditCoverage() {
   toast('정산 점검 완료 — 총 ' + total + ' / 기록됨 ' + covered + ' / 미기록 ' + uncovered +
         ' / 취소 ' + cancel + ' / 미인식 ' + unknown + ' ("' + AUDIT_TAB + '" 탭 확인)');
 }
-// RAW 배경색 → 사람이 읽는 상태명
+// 행 배경색 배열에서 '그 행의 색'을 얻는다 — 첫 번째 비흰색 셀(수작업 표시가 오른쪽 열에만 있어도 인식).
+function rowColor(bgRow) {
+  for (let c = 0; c < bgRow.length; c++) { if (!isWhite(bgRow[c])) return bgRow[c]; }
+  return '';
+}
+function rowIsWhite(bgRow) { return rowColor(bgRow) === ''; }
+// 배경색 → 사람이 읽는 상태명
 function colorName(hex) {
   const h = String(hex || '').toLowerCase();
   if (h === '' || h === '#ffffff' || h === '#fff' || h === 'white') return '흰(미처리)';
   if (h === CONFIG.COLOR.DONE.toLowerCase()) return '완료';
   if (h === CONFIG.COLOR.CANCEL.toLowerCase()) return '취소';
-  return hex;
+  return '수동표시(' + hex + ')';   // 엔진 색이 아닌 것 = 사용자가 직접 칠한 표시
 }
 
 // RAW 3시트의 배경색·노트를 전부 지움 → 다음 정산에서 전량 재처리(테스트/재실행용).
@@ -350,7 +357,9 @@ function runReconciliation() {
     let touched = false;
 
     for (let r = CONFIG.HEADER_ROWS; r < values.length; r++) {
-      if (!isWhite(bg[r][0])) continue;
+      // 행 어디든 색이 하나라도 있으면 '처리 완료'로 간주하고 건너뜀.
+      //  (사용자가 수작업 시절 V열 등 오른쪽에만 주황/청록으로 표시해둔 행 포함 — 덮어쓰지 않고 존중)
+      if (!rowIsWhite(bg[r])) continue;
       const rec = parseRaw(values[r]);
       if (!rec) {
         if (values[r].join('').trim()) { notes[r][0] = '포맷 미인식(UNKNOWN) — 카드사 다운로드 양식 변경 여부 확인'; touched = true; }
