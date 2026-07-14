@@ -12,6 +12,9 @@ const GMAIL_CFG = {
   STAGING: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' },
   MAX_THREADS: 100,            // 한 배치 스레드 수
   TIME_BUDGET_MS: 300000,      // 실행 예산 5분(6분 제한 안전마진) — 초과 전까지 배치 반복
+  // 수집 대상 기간 하한(yyyy/MM/dd). 현재 분기 작업엔 2026년만 필요(과거는 대부분 노이즈).
+  //  과거 backlog까지 필요하면 날짜를 낮추거나 '' 로 비운다. (메일점검은 이 값과 무관하게 전체를 센다)
+  SINCE: '2026/01/01',
 };
 
 // 결제/예약 메일 발신자(도메인·주소). '결제데이터' 라벨 필터가 최근 유입분을 놓쳐도(관측됨)
@@ -36,7 +39,25 @@ const MAIL_ACCOUNTS = ['kew2000@daum.net', 'kkokko-hero@hanmail.net'];
 function senderQuery_(extra) {
   const senders = PAY_SENDERS.map(function (s) { return '(' + s.q + ')'; }).join(' OR ');
   const accts = MAIL_ACCOUNTS.map(function (a) { return 'to:' + a; }).join(' OR ');
-  return '{' + senders + '} {' + accts + '}' + (extra ? ' ' + extra : '');
+  const since = GMAIL_CFG.SINCE ? ' after:' + GMAIL_CFG.SINCE : '';
+  return '{' + senders + '} {' + accts + '}' + since + (extra ? ' ' + extra : '');
+}
+
+// 무인 드레인 — 10분마다 '메일 수집'을 자동 실행해 backlog를 사람 없이 소진.
+//  메일점검에서 미처리 0 되면 removeDrainTrigger()로 해제. (중복 등록 방지 후 재생성)
+function setupDrainTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'ingestPaymentEmails') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('ingestPaymentEmails').timeBased().everyMinutes(10).create();
+  toast('자동 수집 트리거 등록(10분마다). 미처리 0 되면 "자동 수집 해제" 실행하세요.');
+}
+function removeDrainTrigger() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'ingestPaymentEmails') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  toast('자동 수집 트리거 ' + n + '개 해제.');
 }
 
 // 스테이징 시트 헤더 순서

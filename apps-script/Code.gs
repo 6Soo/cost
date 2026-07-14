@@ -110,6 +110,8 @@ function onOpen() {
     .addItem('메일 미리보기 (변경 없음/로그)', 'dryRunIngest')
     .addItem('메일 수집 (메일수집 탭 기록)', 'ingestPaymentEmails')
     .addItem('메일 점검 (유입·파싱 커버리지 대조)', 'auditMailCoverage')
+    .addItem('자동 수집 켜기 (10분마다 backlog 소진)', 'setupDrainTrigger')
+    .addItem('자동 수집 해제', 'removeDrainTrigger')
     .addSeparator()
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
