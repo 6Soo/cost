@@ -377,6 +377,7 @@ function auditMailCoverage() {
   const acctsQ = '{' + MAIL_ACCOUNTS.map(function (a) { return 'to:' + a; }).join(' OR ') + '}';
   let r = 1;
   const write = function (vals, bold) {
+    if (!vals || !vals.length) { r++; return; }          // 빈 스페이서 행 — 범위 0열 방지
     sh.getRange(r, 1, 1, vals.length).setValues([vals]);
     if (bold) sh.getRange(r, 1, 1, vals.length).setFontWeight('bold');
     r++;
