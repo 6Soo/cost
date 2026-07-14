@@ -8,11 +8,36 @@
  */
 
 const GMAIL_CFG = {
-  QUERY: 'label:결제데이터 -label:처리완료',
   DONE_LABEL: '처리완료',
-  STAGING: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' }, // TODO 확정
-  MAX_THREADS: 100,
+  STAGING: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' },
+  MAX_THREADS: 100,            // 한 배치 스레드 수
+  TIME_BUDGET_MS: 300000,      // 실행 예산 5분(6분 제한 안전마진) — 초과 전까지 배치 반복
 };
+
+// 결제/예약 메일 발신자(도메인·주소). '결제데이터' 라벨 필터가 최근 유입분을 놓쳐도(관측됨)
+//  이 발신자 검색은 라벨과 무관하게 직접 잡는다. 대표가이드(kew2000)·본인(kkokko-hero) 계정 모두 커버.
+const PAY_SENDERS = [
+  { group: '트립닷컴',   q: 'from:trip.com' },
+  { group: '부킹닷컴',   q: 'from:booking.com' },
+  { group: '아고다',     q: 'from:(agoda.com OR agoda-messaging.com OR agoda-emails.com)' },
+  { group: '클룩',       q: 'from:klook.com' },
+  { group: '라쿠텐/자란',q: 'from:(rakuten.com OR jalan.net)' },
+  { group: '스카이티켓', q: 'from:skyticket.com' },
+  { group: '항공사',     q: 'from:(koreanair.com OR vietnamairlines.com OR volotea.com OR skyscanner.com OR flyasiana.com OR jejuair.net OR jinair.com OR eastarjet.com)' },
+  { group: 'KICC이지페이',q: 'from:easypay.co.kr' },
+  { group: 'PG(KCP/NICE)',q: 'from:(kcp.co.kr OR nicepg.co.kr OR inicis.com OR nspay.co.kr)' },
+  { group: '네이버/카카오/토스/페이코', q: 'from:(navercorp.com OR kakaocorp.com OR tosspayments.com OR payco.com)' },
+  { group: '카드사',     q: 'from:(hanacard.co.kr OR kbcard.com OR shinhancard.com)' },
+];
+// 수집 대상 계정(라벨 아님, 실제 수신주소). 새 대표가이드 계정이 늘면 여기 추가.
+const MAIL_ACCOUNTS = ['kew2000@daum.net', 'kkokko-hero@hanmail.net'];
+
+// 발신자 OR 계정 조합 검색식. 파서가 실제 매칭할 대상만 좁혀 스캔한다.
+function senderQuery_(extra) {
+  const senders = PAY_SENDERS.map(function (s) { return '(' + s.q + ')'; }).join(' OR ');
+  const accts = MAIL_ACCOUNTS.map(function (a) { return 'to:' + a; }).join(' OR ');
+  return '{' + senders + '} {' + accts + '}' + (extra ? ' ' + extra : '');
+}
 
 // 스테이징 시트 헤더 순서
 const STAGING_COLS = ['source', 'type', 'paidDate', 'useDate', 'merchant', 'item',
@@ -273,9 +298,10 @@ const PARSERS = [
 // 파서 검증·튜닝용이라 몇 번을 돌려도 부작용 없음.
 // ─────────────────────────────────────────────────────────────
 function dryRunIngest() {
-  const threads = GmailApp.search(GMAIL_CFG.QUERY, 0, 30);
+  const q = senderQuery_('-label:' + GMAIL_CFG.DONE_LABEL);
+  const threads = GmailApp.search(q, 0, 30);
   let seen = 0, parsed = 0, skipped = 0;
-  Logger.log('쿼리: %s  (스레드 %s개)', GMAIL_CFG.QUERY, threads.length);
+  Logger.log('쿼리: %s  (스레드 %s개)', q, threads.length);
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (gm) {
       const m = {
@@ -302,32 +328,133 @@ function ingestPaymentEmails() {
   const sheet = openStaging_();
   const seen = loadSeenMessageIds_(sheet);
   const doneLabel = getOrCreateLabel_(GMAIL_CFG.DONE_LABEL);
-  const threads = GmailApp.search(GMAIL_CFG.QUERY, 0, GMAIL_CFG.MAX_THREADS);
-  let added = 0, skipped = 0;
+  const q = senderQuery_('-label:' + GMAIL_CFG.DONE_LABEL);   // 라벨 무관 발신자 검색 + 미처리분만
+  const start = new Date().getTime();
+  let added = 0, skipped = 0, batches = 0, threadsDone = 0;
 
-  threads.forEach(function (thread) {
-    thread.getMessages().forEach(function (gm) {
-      const m = {
-        id: gm.getId(),
-        from: gm.getFrom(),
-        subject: gm.getSubject(),
-        date: Utilities.formatDate(gm.getDate(), 'Asia/Seoul', 'yyyy-MM-dd'),
-        body: gm.getPlainBody(),
-      };
-      if (seen.has(m.id)) return;
-      const parser = PARSERS.find(function (p) { return p.match(m); });
-      if (!parser) { skipped++; return; }
-      const partial = parser.parse(m);
-      if (!partial) { skipped++; return; }     // 알림/비결제 스킵
-      appendStaging_(sheet, Object.assign({ amount: 0, currency: 'KRW' }, partial, { messageId: m.id }));
-      seen.add(m.id);
-      added++;
+  // backlog가 수년치라 한 번에 못 끝냄 → 시간 예산 안에서 배치(100스레드)를 반복.
+  //  각 배치는 처리 후 '처리완료' 라벨을 붙여 다음 검색에서 제외(멱등/증분).
+  while (new Date().getTime() - start < GMAIL_CFG.TIME_BUDGET_MS) {
+    const threads = GmailApp.search(q, 0, GMAIL_CFG.MAX_THREADS);
+    if (!threads.length) break;                              // 미처리분 소진
+    threads.forEach(function (thread) {
+      thread.getMessages().forEach(function (gm) {
+        const m = {
+          id: gm.getId(), from: gm.getFrom(), subject: gm.getSubject(),
+          date: Utilities.formatDate(gm.getDate(), 'Asia/Seoul', 'yyyy-MM-dd'),
+          body: gm.getPlainBody(),
+        };
+        if (seen.has(m.id)) return;
+        const parser = PARSERS.find(function (p) { return p.match(m); });
+        if (!parser) { skipped++; return; }
+        const partial = parser.parse(m);
+        if (!partial) { skipped++; return; }     // 알림/비결제 스킵
+        appendStaging_(sheet, Object.assign({ amount: 0, currency: 'KRW' }, partial, { messageId: m.id }));
+        seen.add(m.id);
+        added++;
+      });
+      thread.addLabel(doneLabel);
+      threadsDone++;
     });
-    thread.addLabel(doneLabel);
-  });
+    batches++;
+  }
 
-  toast('메일 수집 ' + added + '건 (스킵 ' + skipped + ')');   // Code.gs의 null-safe toast 재사용
+  const drained = GmailApp.search(q, 0, 1).length === 0;
+  toast('메일 수집 ' + added + '건 (스킵 ' + skipped + ') · 스레드 ' + threadsDone +
+        ' / ' + batches + '배치' + (drained ? ' · 전량 완료' : ' · 남음(다시 실행)'));
 }
+
+// ─────────────────────────────────────────────────────────────
+// 메일 점검(커버리지 감사) — 결제 메일이 Gmail에 충분히 유입됐고 파이프라인에 도달했는지 대조.
+//  '메일점검' 탭에: 발신자 그룹별 [총 스레드 · 처리완료(파싱시도) · 미처리], 계정별 유입 범위·건수,
+//  월별 유입건수(빈 달 = backlog 누락 신호), '메일수집' 실제 기록수를 리포트.
+//  → 미처리>0이면 '메일 수집'을 (전량 완료 뜰 때까지) 재실행하면 됨.
+// ─────────────────────────────────────────────────────────────
+function auditMailCoverage() {
+  const ss = SpreadsheetApp.openById(GMAIL_CFG.STAGING.id);
+  const sh = ensureTab_(ss, '메일점검');
+  sh.clearContents();
+  const acctsQ = '{' + MAIL_ACCOUNTS.map(function (a) { return 'to:' + a; }).join(' OR ') + '}';
+  let r = 1;
+  const write = function (vals, bold) {
+    sh.getRange(r, 1, 1, vals.length).setValues([vals]);
+    if (bold) sh.getRange(r, 1, 1, vals.length).setFontWeight('bold');
+    r++;
+  };
+
+  write(['메일 점검 — 생성 ' + today_()], true);
+  write([]);
+  // 1) 계정별 유입 범위(가장 오래된/최신) + 총 건수
+  write(['① 계정별 유입', '총 스레드', '가장 오래된', '가장 최신', '처리완료', '미처리'], true);
+  MAIL_ACCOUNTS.forEach(function (a) {
+    const base = 'to:' + a + ' {' + PAY_SENDERS.map(function (s) { return '(' + s.q + ')'; }).join(' OR ') + '}';
+    const tot = gcount_(base);
+    const done = gcount_(base + ' label:' + GMAIL_CFG.DONE_LABEL);
+    const oldest = edge_(base, true), newest = edge_(base, false);
+    write([a, tot.label, oldest, newest, done.label, (tot.n - done.n) + (tot.capped ? '+' : '')]);
+  });
+  write([]);
+  // 2) 발신자 그룹별 커버리지(두 계정 합산)
+  write(['② 발신자 그룹', '총 스레드', '처리완료(파싱시도)', '미처리', '판정'], true);
+  PAY_SENDERS.forEach(function (s) {
+    const base = '(' + s.q + ') ' + acctsQ;
+    const tot = gcount_(base);
+    const done = gcount_(base + ' label:' + GMAIL_CFG.DONE_LABEL);
+    const pend = tot.n - done.n;
+    const verdict = tot.n === 0 ? '유입 없음(발신주소 확인)' : pend > 0 ? '미처리 ' + pend + '건 — 수집 재실행' : '완료';
+    write([s.group, tot.label, done.label, pend + (tot.capped ? '+' : ''), verdict]);
+  });
+  write([]);
+  // 3) 월별 유입(최근 24개월) — 빈 달은 backlog 누락 신호
+  write(['③ 월별 유입(결제발신자, 두 계정 합산)', '스레드'], true);
+  const now = new Date();
+  const baseAll = '{' + PAY_SENDERS.map(function (s) { return '(' + s.q + ')'; }).join(' OR ') + '} ' + acctsQ;
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d2 = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const q = baseAll + ' after:' + ymdSlash_(d) + ' before:' + ymdSlash_(d2);
+    const c = gcount_(q);
+    write([ym_(d), c.label]);
+  }
+  write([]);
+  // 4) '메일수집' 실제 기록수
+  const stg = ss.getSheetByName(GMAIL_CFG.STAGING.sheetName);
+  const stgN = stg ? Math.max(0, stg.getLastRow() - 1) : 0;
+  write(['④ 메일수집 탭 기록수', stgN + '건 (파서가 결제로 인식·구조화한 건. 알림·중복 제외라 총 유입보다 훨씬 적은 게 정상)'], true);
+  sh.setColumnWidth(1, 260); for (let c = 2; c <= 6; c++) sh.setColumnWidth(c, 130);
+  toast('메일 점검 완료 — "메일점검" 탭 확인. 미처리>0인 그룹은 "메일 수집" 재실행.');
+}
+
+// 검색 결과 개수(페이지네이션, cap 상한). {n, capped, label} 반환.
+function gcount_(q, cap) {
+  cap = cap || 5000;
+  let n = 0, start = 0, page;
+  do { page = GmailApp.search(q, start, 500); n += page.length; start += page.length; }
+  while (page.length === 500 && start < cap);
+  const capped = page.length === 500 && start >= cap;
+  return { n: n, capped: capped, label: n + (capped ? '+' : '') };
+}
+// 가장 오래된/최신 스레드 날짜. GmailApp은 최신순 → oldest는 마지막 페이지에서.
+function edge_(q, oldest) {
+  if (oldest) {
+    const c = gcount_(q, 5000);
+    if (!c.n) return '';
+    const idx = Math.max(0, c.n - 1);
+    const pg = GmailApp.search(q, Math.floor(idx / 500) * 500, 500);
+    const t = pg[pg.length - 1];
+    return t ? Utilities.formatDate(t.getLastMessageDate(), 'Asia/Seoul', 'yyyy-MM-dd') : '';
+  }
+  const pg = GmailApp.search(q, 0, 1);
+  return pg.length ? Utilities.formatDate(pg[0].getLastMessageDate(), 'Asia/Seoul', 'yyyy-MM-dd') : '';
+}
+function ensureTab_(ss, name) {
+  let sh = ss.getSheetByName(name);
+  if (!sh) sh = ss.insertSheet(name);
+  return sh;
+}
+function ymdSlash_(d) { return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate(); }
+function ym_(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
+function today_() { return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd'); }
 
 // ── 스테이징 ──
 function openStaging_() {

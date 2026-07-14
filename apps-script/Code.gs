@@ -109,6 +109,7 @@ function onOpen() {
     .addSeparator()
     .addItem('메일 미리보기 (변경 없음/로그)', 'dryRunIngest')
     .addItem('메일 수집 (메일수집 탭 기록)', 'ingestPaymentEmails')
+    .addItem('메일 점검 (유입·파싱 커버리지 대조)', 'auditMailCoverage')
     .addSeparator()
     .addItem('학습대기 → 규칙 반영', 'promoteReviewToRules')
     .addItem('학습맵 다시 만들기', 'rebuildKnowledgeBase')
