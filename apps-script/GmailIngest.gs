@@ -35,12 +35,14 @@ const PAY_SENDERS = [
 // 수집 대상 계정(라벨 아님, 실제 수신주소). 새 대표가이드 계정이 늘면 여기 추가.
 const MAIL_ACCOUNTS = ['kew2000@daum.net', 'kkokko-hero@hanmail.net'];
 
-// 발신자 OR 계정 조합 검색식. 파서가 실제 매칭할 대상만 좁혀 스캔한다.
+// 계정 수신분 전체 검색식.
+//  kew2000@daum.net 등 전달계정은 다음(Daum) 메일함 규칙에서 이미 1차 선별된 메일만
+//  Gmail로 넘어오므로, 여기서 발신자 화이트리스트를 또 걸면 이중필터로 누락이 생긴다.
+//  → 발신자 조건 없이 계정 수신 전체를 파싱한다(사용자 지시, 2026-07-15).
 function senderQuery_(extra) {
-  const senders = PAY_SENDERS.map(function (s) { return '(' + s.q + ')'; }).join(' OR ');
   const accts = MAIL_ACCOUNTS.map(function (a) { return 'to:' + a; }).join(' OR ');
   const since = GMAIL_CFG.SINCE ? ' after:' + GMAIL_CFG.SINCE : '';
-  return '{' + senders + '} {' + accts + '}' + since + (extra ? ' ' + extra : '');
+  return '{' + accts + '}' + since + (extra ? ' ' + extra : '');
 }
 
 // 무인 드레인 — 10분마다 '메일 수집'을 자동 실행해 backlog를 사람 없이 소진.
@@ -308,6 +310,34 @@ const PARSERS = [
         amount: (isCancel ? -1 : 1) * won(m.body, /결제금액\s*([0-9,]+)\s*원/),
         bookingNo: '',
         card: firstGroup(m.body, /결제수단\s*(.+)/),
+      };
+    },
+  },
+
+  // ── 범용 폴백 (반드시 마지막) ──
+  //  전달계정 메일은 다음(Daum)에서 이미 선별됐으므로 매칭 파서가 없어도 버리지 않는다.
+  //  금액·예약번호·취소여부를 휴리스틱으로 뽑고, 실패해도 제목·발신자를 기록해 누락 0을 보장.
+  {
+    id: 'generic',
+    match: function () { return true; },
+    parse: function (m) {
+      const isCancel = /취소|환불|refund|cancel/i.test(m.subject);
+      const krw = won(m.body, /(?:결제|승인|합계|총)\s*(?:금액|요금)?[^\d\-]{0,12}([0-9][0-9,]{2,})\s*원/) ||
+                  won(m.body, /(?:KRW|₩)\s*([0-9][0-9,]{2,})/);
+      const jpy = won(m.body, /(?:JPY|¥|￥)\s*([0-9][0-9,]{2,})/);
+      const book = firstGroup(m.subject + '\n' + m.body,
+        /(?:예약\s*번호|주문\s*번호|승인\s*번호|booking\s*(?:id|number)|reservation)\s*[:#]?\s*([A-Z0-9\-]{6,20})/i);
+      const senderName = (m.from.match(/^"?([^"<]+?)"?\s*</) || [,''])[1].trim();
+      return {
+        source: 'generic',
+        type: isCancel ? 'refund' : 'charge',
+        merchant: senderName || m.from,
+        item: (m.subject || '').slice(0, 80),
+        paidDate: m.date,
+        currency: jpy && !krw ? 'JPY' : 'KRW',
+        amount: (isCancel ? -1 : 1) * (krw || jpy || 0),
+        bookingNo: book || '',
+        card: '',
       };
     },
   },
