@@ -53,7 +53,7 @@ function collectBookingPins() {
           }
         }
         // 영문 포맷 보조
-        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)[^\d]{0,20}(\d{10,19})[\s\S]{0,2000}?PIN\s*(?:code)?[^\d]{0,20}(\d{4})/gi;
+        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)?\s*[:#]?\s*(\d{10,19})[\s\S]{0,2000}?PIN\s*(?:code)?\s*[:#]?\s*(\d{4})/gi;
         while ((m = re2.exec(body)) !== null) {
           if (!found[m[1]]) {
             found[m[1]] = { pin: m[2], hotel: subj.slice(0, 40),
