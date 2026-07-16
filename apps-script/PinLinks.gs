@@ -36,7 +36,7 @@ function collectBookingPins() {
         const body = gm.getPlainBody() || '';
         const subj = gm.getSubject() || '';
         // 본문에서 예약번호·PIN 쌍 추출 (여러 예약이 한 메일에 있을 수 있어 블록 단위로)
-        const re = /예약\s*번호[^\d]{0,20}(\d{10})[\s\S]{0,300}?PIN[^\d]{0,20}(\d{4})/g;
+        const re = /예약\s*번호[^\d]{0,20}(\d{10,19})[\s\S]{0,300}?PIN[^\d]{0,20}(\d{4})/g;
         let m;
         while ((m = re.exec(body)) !== null) {
           if (!found[m[1]]) {
@@ -45,7 +45,7 @@ function collectBookingPins() {
           }
         }
         // 영문 포맷 보조
-        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)[^\d]{0,20}(\d{10})[\s\S]{0,300}?PIN\s*(?:code)?[^\d]{0,20}(\d{4})/gi;
+        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)[^\d]{0,20}(\d{10,19})[\s\S]{0,300}?PIN\s*(?:code)?[^\d]{0,20}(\d{4})/gi;
         while ((m = re2.exec(body)) !== null) {
           if (!found[m[1]]) {
             found[m[1]] = { pin: m[2], hotel: subj.slice(0, 40),
@@ -69,7 +69,10 @@ function collectBookingPins() {
     const url = 'https://secure.booking.com/mybooking.html?bn=' + no + '&pincode=' + f.pin + '&lang=ko';
     return [no, f.pin, '=HYPERLINK("' + url + '","예약 열기")', f.hotel, f.date, ''];
   });
-  if (rows.length) sh.getRange(2, 1, rows.length, 6).setValues(rows);
+  if (rows.length) {
+    sh.getRange(2, 1, rows.length, 2).setNumberFormat('@');   // 예약번호·PIN 텍스트 고정(.0 방지)
+    sh.getRange(2, 1, rows.length, 6).setValues(rows);
+  }
   sh.setFrozenRows(1);
   Logger.log('부킹 예약 %s건의 PIN 수집 완료 → %s 탭', rows.length, PIN_CFG.SHEET);
 }
@@ -95,8 +98,9 @@ function applyPinLinks(spreadsheetId) {
     if (col < 0) return;
     for (let i = 1; i < vals.length; i++) {
       const no = String(vals[i][col] || '').trim();
-      if (/^\d{10}$/.test(no) && pins[no]) {
-        const url = 'https://secure.booking.com/mybooking.html?bn=' + no + '&pincode=' + pins[no] + '&lang=ko';
+      if (/^\d{10,19}$/.test(no.replace(/\.0$/,'')) && pins[no.replace(/\.0$/,'')]) {
+        const clean = no.replace(/\.0$/,'');
+        const url = 'https://secure.booking.com/mybooking.html?bn=' + clean + '&pincode=' + pins[clean] + '&lang=ko';
         sh.getRange(i + 1, col + 1)
           .setRichTextValue(SpreadsheetApp.newRichTextValue().setText(no).setLinkUrl(url).build());
         applied++;
