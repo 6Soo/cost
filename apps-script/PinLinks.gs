@@ -36,7 +36,7 @@ function collectBookingPins() {
         const body = gm.getPlainBody() || '';
         const subj = gm.getSubject() || '';
         // 본문에서 예약번호·PIN 쌍 추출 (여러 예약이 한 메일에 있을 수 있어 블록 단위로)
-        const re = /예약\s*번호[^\d]{0,20}(\d{10,19})[\s\S]{0,300}?PIN[^\d]{0,20}(\d{4})/g;
+        const re = /예약\s*번호[^\d]{0,20}(\d{10,19})[\s\S]{0,2000}?PIN[^\d]{0,20}(\d{4})/g;
         let m;
         while ((m = re.exec(body)) !== null) {
           if (!found[m[1]]) {
@@ -44,8 +44,16 @@ function collectBookingPins() {
                             date: Utilities.formatDate(gm.getDate(), 'Asia/Seoul', 'yyyy-MM-dd') };
           }
         }
+        // PIN이 번호보다 앞에 오는 템플릿 보조
+        const re3 = /PIN[^\d]{0,20}(\d{4})[\s\S]{0,2000}?예약\s*번호[^\d]{0,20}(\d{10,19})/g;
+        while ((m = re3.exec(body)) !== null) {
+          if (!found[m[2]]) {
+            found[m[2]] = { pin: m[1], hotel: subj.replace(/\[.*?\]\s*/g, '').slice(0, 40),
+                            date: Utilities.formatDate(gm.getDate(), 'Asia/Seoul', 'yyyy-MM-dd') };
+          }
+        }
         // 영문 포맷 보조
-        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)[^\d]{0,20}(\d{10,19})[\s\S]{0,300}?PIN\s*(?:code)?[^\d]{0,20}(\d{4})/gi;
+        const re2 = /(?:confirmation|booking)\s*(?:number|no\.?)[^\d]{0,20}(\d{10,19})[\s\S]{0,2000}?PIN\s*(?:code)?[^\d]{0,20}(\d{4})/gi;
         while ((m = re2.exec(body)) !== null) {
           if (!found[m[1]]) {
             found[m[1]] = { pin: m[2], hotel: subj.slice(0, 40),
