@@ -25,11 +25,13 @@ def detect(rows):
     return None
 
 def norm(rows, src, today):
-    out=[]
+    out=[]; occ={}   # 승인번호 없는 거래의 파일내 등장순번(정상 동일거래 다중도 보존 + 재업로드 멱등)
     def emit(카드사,c4,구분,승,매,가맹,krw,fx,cur,ap,cx):
         ap=re.sub(r'\.0$','',str(ap)).lstrip('0')
         if ap: key=f'{카드사}|{c4}|A{ap}|{"취소" if cx else "정상"}|{abs(krw)}'
-        else:  key=f'{카드사}|{c4}|{승 or 매}|{abs(krw) or fx}|{mk(가맹)}|{"취소" if cx else "정상"}'
+        else:
+            base=f'{카드사}|{c4}|{승 or 매}|{abs(krw) or fx}|{mk(가맹)}|{"취소" if cx else "정상"}'
+            occ[base]=occ.get(base,0)+1; key=f'{base}#{occ[base]}'
         out.append(dict(거래키=key,카드사=카드사,카드4=c4,구분=구분,승인일=승,매입일=매,가맹점=가맹,원화금액=krw,
             현지금액=fx,통화=cur,승인번호=ap,취소여부='취소' if cx else '정상',출처=src,적재일=today,기록여부='N',워크북참조='',비고=''))
     if src=='기업승인':
