@@ -9,6 +9,10 @@ FIELDS=['거래키','카드사','카드4','구분','승인일','매입일','가�
 def rn(x):
     try:return round(float(str(x).replace(',','').replace('원','').strip()))
     except:return 0
+def fdec(x):   # 현지금액(외화)은 소수 보존: 159.99 GEL 8.83 등. 정수 반올림 금지.
+    try:
+        v=round(float(str(x).replace(',','').strip()),2); return int(v) if v==int(v) else v
+    except:return 0
 def d10(s):
     m=re.search(r'(\d{4})[.\-](\d\d)[.\-](\d\d)',str(s)); return f'{m.group(1)}-{m.group(2)}-{m.group(3)}' if m else ''
 def mk(m): return re.sub(r'[^A-Z0-9가-힣]','',str(m).upper())[:10]
@@ -38,7 +42,7 @@ def norm(rows, src, today):
         for r in rows:
             if len(r)>13 and re.match(r'\d{4}-\d\d-\d\d',r[2] or ''):
                 cx=(r[0]=='취소또는할인'); cur='JPY' if 'JPY' in (r[7] or '') else ''
-                emit('기업',r[3][-4:],'해외' if r[0]=='외화' else '국내',r[2][:10],'',r[5],rn(r[6])*(-1 if cx else 1),rn((r[7] or '').split()[0] if r[7] else 0),cur,r[13],cx)
+                emit('기업',r[3][-4:],'해외' if r[0]=='외화' else '국내',r[2][:10],'',r[5],rn(r[6])*(-1 if cx else 1),fdec((r[7] or '').split()[0] if r[7] else 0),cur,r[13],cx)
     elif src=='하나승인':
         for r in rows[6:]:
             if r and r[0] and r[0]!='NO' and '-' in (r[3] or ''):
@@ -52,7 +56,7 @@ def norm(rows, src, today):
     elif src=='국민해외매입':
         for r in rows[1:]:
             if len(r)>12 and re.match(r'\d{4}\.\d\d',r[0] or ''):
-                emit('국민',r[4][-4:],'해외','',d10(r[0]),r[7],0,rn(r[11]),r[10],'',r[6]=='취소매출')
+                emit('국민',r[4][-4:],'해외','',d10(r[0]),r[7],0,fdec(r[11]),r[10],'',r[6]=='취소매출')
     return out
 
 PRESERVE={'거래키','기록여부','워크북참조'}   # 병합해도 절대 안 덮는 필드(기록상태 보존)
