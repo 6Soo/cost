@@ -91,6 +91,47 @@ for t in sorted(set(mbooks)|set(wbooks)):
             issues.append(('B-워크북만중복', '-', t, f"예약{b} 워크북 {w}회(수기 0회)"))
 print(f"(정보) 예약번호 미표기·환율차로 매칭 못한 수기건: {len(info)}건 — 금액 기준 존재 확인됨")
 
+# ── C. 카드표기 상충: 카드사 데이터와 매칭된 수기행의 카드열이 다른 표기(영수증/타카드)인 경우 ──
+#    실사례 HAN-0498/0499: 하나카드 raw와 1:1 대응하는데 수기 카드열이 '영수증'(111행은 날짜도 하루 오기)
+COK={'HAN':'하나','KBD':'국민','KBO':'국민','CORP':'기업'}
+for r in v14:
+    tg=re.match(r'수기(\d+)행', r['note'] or '')
+    if not tg: continue
+    exp=COK.get(r['src'])
+    if not exp: continue
+    mrow=man_by.get(r['bucket'],{}).get(tg.group(1))
+    if not mrow: continue
+    mc=(mrow.get('card') or '').strip()
+    if not mc or exp in mc: continue
+    mcd=re.sub(r'\.0$','',mc)
+    if mcd.isdigit():
+        # 카드열에 끝4자리 기재 관행(8835=국민, 4595=하나, 4971=기업 등) → card4와 대조
+        r4=re.sub(r'\.0$','',(r.get('card4') or ''))
+        if r4 and mcd[-4:]==r4[-4:]: continue
+    issues.append(('C-카드표기상충', r['uid'], r['bucket'],
+        f"수기{tg.group(1)}행 카드열 '{mc}' vs 카드사 데이터 {exp}({r['src']}) — 수기 카드열 확인 필요"))
+
+# ── D. 장부 붙여넣기 중복 의심: 동일 (탭,가맹,금액)이 원기재(단축날짜)+붙여넣기(연도날짜) 양쪽에 있고
+#    카드 raw 동일금액 건수가 그보다 적으면 같은 지출의 이중 기재 ──
+sys.path.insert(0,'.')
+try:
+    from cardindex import build_cards
+    card_amt=Counter(abs(c['krw']) for c in build_cards())
+except Exception:
+    card_amt=Counter()
+def mkn(m): return re.sub(r'[^A-Z0-9가-힣]','',(m or '').upper())[:12]
+mgrp=defaultdict(list)
+for m in man:
+    a=abs(i(m['amount']))
+    if a: mgrp[(nt(m['tab']), mkn(m['item']), a)].append(m)
+for (t,mm,a),grp in mgrp.items():
+    if len(grp)<2: continue
+    fmts={'full' if re.match(r'20\d{2}[.\-]', (g['date'] or '')) else 'short' for g in grp}
+    if len(fmts)==2 and card_amt.get(a,0)<len(grp):
+        rows_=','.join(g['row'] for g in grp)
+        issues.append(('D-장부중복의심', '-', t,
+            f"{mm[:14]} {a:,} 수기 {len(grp)}행(행 {rows_}: 원기재+붙여넣기 혼재) vs 카드 raw {card_amt.get(a,0)}건 — 이중기재 의심"))
+
 by=Counter(k for k,_,_,_ in issues)
 print(f"태그검증 {tagged}행 / 이슈 {len(issues)}건: {dict(by)}")
 for k,u,t,msg in issues:
