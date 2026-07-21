@@ -41,8 +41,10 @@ const CONFIG = {
   CARD_PROFILES: {
     // 본인(김주형): 기타비용 위주, 큰 금액은 항공료에 국한 → 미상 대액은 여비교통비로.
     '3820': { owner: '김주형', kind: 'etc', bigAccount: '여비교통비', bigThreshold: 300000 },
-    // (추후) 가이드별로 카드가 하나씩 생기면 뒷4자리로 등록. 성향은 travel:
-    // '1234': { owner: '가이드A', kind: 'travel', travelAccount: '숙박비' },
+    // 대장(가이드) 지급카드 — 사용내역은 여행탭이 아니라 '대장_이름' 전용 탭으로 분리(2026-07-21 규칙).
+    '5836': { owner: '현수',    kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_현수' },
+    '4813': { owner: '바로바로', kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_바로바로' },
+    '8831': { owner: '엘레나',  kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_엘레나' },
   },
   // 위 표에 없는 카드의 기본 성향. 현재는 3820 외 전부 대표가이드(여행성)이므로 travel.
   DEFAULT_CARD_PROFILE: { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
@@ -562,6 +564,12 @@ function classify(rec, kb, emailIdx, trips, rules) {
 
   // 0순위: 사람이 확정한 영구 규칙 (학습 결과). 두 번 묻지 않기 위함.
   const ruled = rules && rules[normMerchant(rec.merchant)];
+
+  // 대장(가이드) 지급카드: 사용내역은 대장 전용 탭으로 직행(카드기명 규칙, 계정은 영구규칙 우선)
+  if (profile.leaderTab) {
+    const acct = (ruled && ruled.account) || profile.travelAccount || '숙박비';
+    return { status: 'CONFIRM', account: acct, tripName: profile.leaderTab, note: '대장카드:' + profile.owner };
+  }
 
   // OTA(숙박/항공) → 메일 매칭으로 실사용일·예약번호 확보 (계정은 규칙>메일추정)
   if (hasKw(name, KW.OTA)) {
