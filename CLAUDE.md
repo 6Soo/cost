@@ -23,7 +23,8 @@ Opus가 최종 확정한다.**
 **기술적 실체(불변):** Gemini는 Claude Agent 시스템에 못 앉는 순수 텍스트 API라 파일·git·bash
 접근이 없다. "Gemini 서브에이전트"의 실체 = (a) 저비용 Sonnet(최소 추론) 래퍼 에이전트가
 `tools/gemini.mjs --model=gemini-3.6-flash`로 프롬프트를 보내고 (b) 받은 코드/텍스트를 그 래퍼가
-파일에 적용·커밋하는 구조. 토큰 절약은 '내용 생성'을 Gemini로 옮기는 데서 나온다. 메인 세션
-모델은 사람이 `/model`로 선택(Claude가 스스로 전환 불가). 키는 GEMINI_API_KEY(리포 루트 .env
-자동 로드), 클라우드 세션은 명령 앞에 `NODE_USE_ENV_PROXY=1`. GLM 브리지 `tools/llm-bridge.mjs`는
-유지하되 기본 경로에서 제외.
+파일에 적용·커밋하는 구조. **래퍼 실행 모델은 항상 sonnet 최저 effort**(예외: 맥락 거의 없는
+1회성 짧은 호출은 메인 세션이 직접 처리해도 무방). 토큰 절약은 '내용 생성'을 Gemini로 옮기는
+데서 나온다. 메인 세션 모델은 사람이 `/model`로 선택(Claude가 스스로 전환 불가). 키는
+GEMINI_API_KEY(리포 루트 .env 자동 로드), 클라우드 세션은 명령 앞에 `NODE_USE_ENV_PROXY=1`.
+GLM 브리지 `tools/llm-bridge.mjs`는 유지하되 기본 경로에서 제외.
