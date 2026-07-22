@@ -13,7 +13,7 @@ from collections import defaultdict, Counter
 
 APRIL=['0404_에히메','0408_교토','0413_나가센도','0417_아오모리','0420_오사카','0424_알펜루트']
 TPL='매출자료 양식_rev'
-OUT='매출확인자료_4월_rev_v1.xlsx'
+OUT='매출확인자료_4월_rev_v2.xlsx'
 
 SUR=set('김이박최정강조윤장임한오서신권황안송전홍유고문양손배백허남심노하곽성차주우구민류나진지엄채원천방공현함변염여추도소석선설마길연위표명기반라왕금옥육인맹제모탁국어은편용예경봉사부엽')
 def hangul(t): return bool(t) and all('가'<=ch<='힣' for ch in t)
@@ -94,7 +94,7 @@ def evid_of(tab, evi, amt):
 
 # ── 데이터 적재 ──
 inc_all=json.load(open('/tmp/april_inc.json'))
-wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v68.xlsx')
+wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v69.xlsx')
 def load_exp(tab):
     sv=wb68[tab]; out=[]
     for r in range(2,400):
@@ -125,14 +125,16 @@ def copy_cell(tc, oc, keep_value=True):
 def build_tab(tab):
     inc=build_income(inc_all.get(tab,[]))
     exp=load_exp(tab)
-    si=max(INC_E-INC_S+1, len(inc))
-    se=max(EXP_E-EXP_S+1, len(exp))
+    # 여백 슬롯 삭제(사용자 지시 2026-07-22): 데이터 행수만큼만 — 공란 색칠행 금지.
+    # 0행(오사카 수입 미기재)도 1행은 유지(SUM 범위 성립 + 미기재임이 눈에 보이도록).
+    si=max(1, len(inc))
+    se=max(1, len(exp))
     ws=out.create_sheet(tab)
     # 행 매핑 구성: (출력행, 템플릿행, 값복사여부)
     rmap=[]
     for r in range(1, INC_S): rmap.append((r, r, True))
     for j in range(si):
-        t = INC_S+j if j < (INC_E-INC_S) else (INC_E if j==si-1 else INC_S+1)
+        t = INC_E if j==si-1 else (INC_S+j if j < (INC_E-INC_S) else INC_S+1)
         rmap.append((INC_S+j, t, False))
     ta=INC_S+si
     rmap.append((ta, TOTA, True))
@@ -141,7 +143,7 @@ def build_tab(tab):
     hdr=ta+3; rmap.append((hdr, HDR, True))
     es=hdr+1
     for j in range(se):
-        t = EXP_S+j if j < (EXP_E-EXP_S) else (EXP_E if j==se-1 else EXP_S+1)
+        t = EXP_E if j==se-1 else (EXP_S+j if j < (EXP_E-EXP_S) else EXP_S+1)
         rmap.append((es+j, t, False))
     tb=es+se
     for off,t in enumerate(range(TOTB, tpl.max_row+1)):

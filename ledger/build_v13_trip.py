@@ -162,6 +162,9 @@ for r in man:
     #   ★경계 공백 실측(에히메 아고다 2건 332,038): 승인 3/31(Q1)+수기 기재 4/1 → 구가정(기재일<4/1만 추가)에서 누락.
     cm=None
     if is_card(r['card']):
+        # ★끝4자리 카드열(8835 등)을 발급사로 변환해 매칭 확장하는 시도는 2026-07-22 기각:
+        #   ±2% 퍼지 매칭이 THB 거래(유럽 Adria)·동일금액 APA 4건 중 2건 등 오매칭 양산 실측.
+        #   금액 변경 없는 명칭 카드열(국민/하나/기업)만 매칭 — 끝4자리 무일자 건은 수기 그대로 두고 보고.
         cm=card_match(abs(a), {'국민':'국민','하나':'하나','기업':'기업'}.get(r['card'],''), want_cx=(a<0))
         if sd and sd>='2026-04-01':
             # 구제 조건: 매칭 카드가 Q1 승인 + 수기 기재일과 근접(±14일)일 때만(경계 케이스).
@@ -201,7 +204,8 @@ for r in man:
     row={k:'' for k in FN}
     mr=manrow(r)
     rowtag='수기%s행 | '%mr if mr else ''
-    row.update(uid='TRIP-%04d'%n, src=src, use_date=sd or d10(r['date']), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
+    # 날짜 fallback: 수기 기재일이 깨졌으면(에히메 55행 '25.0' 실측) 매칭 카드 승인일 사용
+    row.update(uid='TRIP-%04d'%n, src=src, use_date=sd or d10(r['date']) or (cm.get('use','') if cm else ''), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
         merchant=r['item'], country=country, currency=cur or ('KRW' if is_card(r['card']) else ''), foreign=fx or '0',
         krw=str(cardcell), vat='0.0', status=('취소' if cancel else '정상'), extra='', bucket=r['tab'], account=acct,
         cancel=str(cancel), cost_type='여행원가', vat_tag=vat_tag, confidence='상',
