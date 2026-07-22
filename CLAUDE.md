@@ -30,5 +30,6 @@ GLM/Gemini로 옮기는 데서 나오는 것이지, 조율 자체를 없애는 �
 연결 필요, 무료로 쓰려면 --model=gemini-3-flash-preview 또는 gemini-3.6-flash) ·
 `tools/llm-bridge.mjs --provider=glm|kimi|grok`(GLM은 무료 등급 확인됨 glm-4.7-flash, Kimi·Grok는
 키는 있으나 잔액 충전 필요). 키는 리포 루트 .env에서 자동 로드(GEMINI_API_KEY·GLM_API_KEY 등).
-클라우드 세션에서는 명령 앞에 `NODE_USE_ENV_PROXY=1` 필요. 상세 배경·실측 이력은 foresttour
+클라우드 세션에서는 명령 앞에 `NODE_USE_ENV_PROXY=1` 필요. ▸ 래퍼 실행 모델은 항상 sonnet 최저 effort(예외: 맥락 거의 없는 1회성 짧은 호출은 메인 세션 직접 처리 무방).
+상세 배경·실측 이력은 foresttour
 리포 CLAUDE.md 참조.
