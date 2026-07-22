@@ -1,21 +1,34 @@
 # -*- coding: utf-8 -*-
-"""매출자료 양식_rev 구조로 0404_에히메 탭 데모 작성 (사용자 지시 2026-07-22):
-  수입: B거래일자 C이름 D닉네임 E예약금 F잔금 G추가금 H금액(원)=SUM(E:G)
-  지출: B거래일자 C항목 D내용 E기간 F예약번호 G증빙유형 H금액(원)
-  규칙4: OTA 확인 항공/숙박/렌터카 → 내용='항공/숙박/렌트'(+인명 등 부가토큰 유지), 기간='0405_0406'
-  수입 병합규칙(보수적): 같은 이름이 정확히 {예약금1+잔금1}일 때만 1행 병합, 그 외 기록대로 개별 행.
-  '전액'은 잔금 열(완납), 닉네임은 비움(현 이름 필드에 닉네임 혼재 — 분리 판단은 대표님)."""
-import openpyxl, re
-from openpyxl.styles import Border, Side, Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
+"""에히메 rev 데모 v3 — 서식 무접촉 원칙:
+  Drive에서 받은 실물 장부(ledger_latest.xlsx)의 '매출자료 양식_rev' 시트를 통째로 복제하고
+  셀 '값'만 주입한다(폰트·배경·테두리·병합·열폭·행높이 일절 손대지 않음 → 파괴 불가능).
+  · '전액' 입금 → 추가금(G) 열 (사용자 확정 2026-07-22)
+  · 닉네임 분리(세글자 성씨이름 외 전부 닉네임), 증빙 현금·영수증→현지통화
+  · B열은 템플릿이 날짜 셀(yyyy-mm-dd) — 실제 date 값으로 기입
+  · H(금액원)=SUM(E:G) 행수식 주입(값 수준), 합계 수식 C42/C96/C98은 템플릿 내장분 그대로"""
+import openpyxl, re, datetime
+from collections import defaultdict, Counter
 
-BLUE=PatternFill('solid', fgColor='DEEAF6'); PEACH=PatternFill('solid', fgColor='FBE4D5')
-YELL=PatternFill('solid', fgColor='FFFF00')
-THIN=Border(*[Side(style='thin')]*4)
-MED=Border(*[Side(style='medium')]*4)
-F=lambda **k: Font(name='Malgun Gothic', **k)
+SUR=set('김이박최정강조윤장임한오서신권황안송전홍유고문양손배백허남심노하곽성차주우구민류나진지엄채원천방공현함변염여추도소석선설마길연위표명기반라왕금옥육인맹제모탁국어은편용예경봉사부엽')
+def hangul(t): return bool(t) and all('가'<=ch<='힣' for ch in t)
+def is_name(t): return len(t)==3 and hangul(t) and t[0] in SUR
+def split_name(s):
+    s=s.strip(); toks=s.split()
+    if len(toks)>1:
+        names=[t for t in toks if is_name(t)]
+        if names: return names[0], ' '.join(t for t in toks if t!=names[0])
+        return '', s
+    t=s
+    if is_name(t): return t, ''
+    if hangul(t) and len(t)>3:
+        if is_name(t[-3:]): return t[-3:], t[:-3]
+        if is_name(t[:3]):  return t[:3],  t[3:]
+    return '', t
 
-# ── 수입(최신 수기, 25행 원기재) ──
+def d(s):
+    m=re.match(r'^(\d\d)\.(\d\d)\.(\d\d)$', s)
+    return datetime.date(2000+int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
 INC=[('25.11.22','엽정숙','예약금',380000),('26.03.21','엽정숙','예약금',500000),
      ('25.12.28','클로버박정숙','예약금',380000),('26.03.24','클로버박정숙','잔금',200000),
      ('25.11.22','오종구','예약금',380000),('25.11.22','이종미','예약금',380000),
@@ -27,114 +40,91 @@ INC=[('25.11.22','엽정숙','예약금',380000),('26.03.21','엽정숙','예약
      ('25.11.23','고팡 김원복','예약금',380000),('25.11.23','김정화','예약금',380000),
      ('26.03.21','김원복','잔금',1000000),('25.11.22','김효정','예약금',380000),
      ('26.03.21','김효정','잔금',500000)]
-# 병합: 이름별 {예약금1,잔금1}만
-from collections import defaultdict, Counter
+parsed=[(x[0],)+split_name(x[1])+(x[2],x[3]) for x in INC]
 groups=defaultdict(list)
-for row in INC: groups[row[1]].append(row)
-inc_rows=[]  # (거래일자, 이름, 예약금, 잔금, 추가금)
-done=set()
-for d,nm,kind,amt in INC:
-    if nm in done: continue
-    g=groups[nm]; kinds=Counter(k for _,_,k,_ in g)
-    if kinds=={'예약금':1,'잔금':1}:
-        dep=next(x for x in g if x[2]=='예약금'); bal=next(x for x in g if x[2]=='잔금')
-        inc_rows.append((dep[0],nm,dep[3],bal[3],None)); done.add(nm)
-    else:
-        for d2,_,k2,a2 in g:
-            if k2=='예약금': inc_rows.append((d2,nm,a2,None,None))
-            elif k2=='잔금': inc_rows.append((d2,nm,None,a2,None))
-            else: inc_rows.append((d2,nm,None,a2,None))   # 전액→잔금 열(완납)
-        done.add(nm)
+for row in parsed: groups[row[1] or row[2]].append(row)
+# 1인 1행: 예약금/잔금/추가금 열별로 값 수집 — 다건이면 '=a+b' 수식(사용자 지시: 계산값 말고 수식으로)
+def cellv(amts):
+    if not amts: return None
+    if len(amts)==1: return amts[0]
+    return '='+'+'.join(str(a) for a in amts)
+inc_rows=[]; done=set()
+for row in parsed:
+    key=row[1] or row[2]
+    if key in done: continue
+    g=groups[key]
+    dep=[x[4] for x in g if x[3]=='예약금']
+    bal=[x[4] for x in g if x[3]=='잔금']
+    ext=[x[4] for x in g if x[3] not in ('예약금','잔금')]   # 전액→추가금(G)
+    first=min(g, key=lambda x: x[0])
+    nm=next((x[1] for x in g if x[1]),'')
+    nk=next((x[2] for x in g if x[2]),'')
+    inc_rows.append((first[0], nm or None, nk or None, cellv(dep), cellv(bal), cellv(ext)))
+    done.add(key)
 
-# ── 지출: v65 워크북 에히메 시트에서 변환 ──
 def split_content(s):
-    s=str(s)
+    s=str(s); cat_map={'렌터카':'렌트','료칸':'숙박'}
     m=re.match(r'^(숙박|항공|렌터카|렌트|료칸)(?:_(.*))?$', s)
-    cat_map={'렌터카':'렌트','료칸':'숙박'}
     if not m:
-        if s in ('항공료',): return '항공',''
-        if s in ('숙박비',): return '숙박',''
-        return s,''
+        return ('항공','') if s=='항공료' else (('숙박','') if s=='숙박비' else (s,''))
     cat=cat_map.get(m.group(1), m.group(1)); rest=m.group(2) or ''
     pm=re.match(r'^(\d{4}(?:_\d{4})?)(?:_(.*))?$', rest)
-    if pm:
-        period=pm.group(1); extra=pm.group(2)
-        return (cat+('_'+extra if extra else '')), period
+    if pm: return (cat+('_'+pm.group(2) if pm.group(2) else '')), pm.group(1)
     return (cat+('_'+rest if rest else '')), ''
 
-src=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v65.xlsx')
+import json
+LEDGER_EVID={int(k):v for k,v in json.load(open('/tmp/ehime_evid.json')).items()}
+CASHLIKE={'현금/기타','현금','영수증','현지통화'}
+src=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v67.xlsx')
 sv=src['0404_에히메']
 exp_rows=[]
 for r in range(2,200):
-    d=sv.cell(r,2).value; item=sv.cell(r,3).value; cont=sv.cell(r,4).value
+    dt=sv.cell(r,2).value; item=sv.cell(r,3).value; cont=sv.cell(r,4).value
     amt=sv.cell(r,5).value; evi=sv.cell(r,6).value; book=sv.cell(r,7).value
-    if d=='합계' or (item is None and cont is None and amt is None): break
+    if dt=='합계' or (item is None and cont is None and amt is None): break
     content,period=split_content(cont)
-    exp_rows.append((d or '', str(item or '').strip(), content, period, str(book or ''), evi or '', amt))
+    evi=str(evi or '')
+    if evi in CASHLIKE:
+        # 포인트 결제는 수기 원기재의 사이트명(제주항공 등)이 증빙 — 현금성만 '현지통화'
+        orig=LEDGER_EVID.get(int(round(amt)) if isinstance(amt,(int,float)) else -1)
+        evi = orig if (orig and orig not in CASHLIKE) else '영수증'
+    exp_rows.append((d(str(dt or '')), str(item or '').strip(), content, period, str(book or ''), evi, amt))
+assert len(inc_rows)<=34 and len(exp_rows)<=50
 
-# ── 시트 생성 ──
-wb=openpyxl.Workbook(); ws=wb.active; ws.title='0404_에히메'
-for L,w in (('A',3),('B',12),('C',20),('D',24),('E',13),('F',17),('G',12),('H',13)):
-    ws.column_dimensions[L].width=w
+# ── 실물 템플릿 복제 + 값 주입 ──
+wb=openpyxl.load_workbook('ledger_latest.xlsx', rich_text=True)
+for n in list(wb.sheetnames):
+    if n!='매출자료 양식_rev': del wb[n]
+ws=wb['매출자료 양식_rev']; ws.title='0404_에히메'
 
-ws['B2']='㈜숲길여행'; ws['B2'].font=F(sz=12,b=True); ws['B2'].border=MED
-c=ws['C2']; c.value='2026년 4월 매출 확인자료_에히메_0404_0407'; c.font=F(sz=14,b=True)
-ws['D4']='작성일자 :'; ws['D4'].font=F(sz=12,b=True)
-ws['E4']='26.07.22'; ws['E4'].font=F(sz=12,b=True)
-ws['G4']='담당자 :'; ws['G4'].font=F(sz=12,b=True)
-ws['H4']='김주형'; ws['H4'].font=F(sz=11,b=True)
+before={}   # 서식 무접촉 검증용 스냅샷
+def snap(cell): return (cell.font.name, cell.font.sz, cell.font.b,
+                        cell.fill.patternType, cell.fill.fgColor.rgb if cell.fill.patternType else None)
+for rr in range(1,101):
+    for cc in range(1,9): before[(rr,cc)]=snap(ws.cell(rr,cc))
 
-r=6
-ws.cell(r,2,'수입 내용').font=F(sz=12,b=True)
-for cc in range(2,9): ws.cell(r,cc).fill=BLUE; ws.cell(r,cc).border=MED
-r+=1
-for cc,h in zip(range(2,9),['거래일자','이름','닉네임','예약금','잔금','추가금','금액(원)']):
-    x=ws.cell(r,cc,h); x.fill=BLUE; x.font=F(sz=11,b=True); x.border=THIN
-    x.alignment=Alignment(horizontal='center')
-inc_start=r+1
-for row in inc_rows:
-    r+=1
-    d,nm,dep,bal,ext=row
-    vals=[d,nm,None,dep,bal,ext,f'=SUM(E{r}:G{r})']
-    for cc,v in zip(range(2,9),vals):
-        x=ws.cell(r,cc,v); x.fill=BLUE; x.border=THIN; x.font=F(sz=11,b=True)
-        if cc in (5,6,7,8): x.number_format='#,##0'; x.alignment=Alignment(horizontal='right')
-        else: x.alignment=Alignment(horizontal='center')
-inc_end=r
-r+=1
-ws.cell(r,2,'총 금액 (A)').font=F(sz=11,b=True)
-ws.cell(r,2).fill=YELL; ws.cell(r,2).border=MED
-tA=ws.cell(r,8,f'=SUM(H{inc_start}:H{inc_end})'); tA.font=F(sz=11,b=True); tA.number_format='#,##0'
-tA.border=MED; rowA=r
-
-r+=2
-ws.cell(r,2,'지출 내용').font=F(sz=12,b=True)
-for cc in range(2,9): ws.cell(r,cc).fill=PEACH; ws.cell(r,cc).border=MED
-r+=1
-for cc,h in zip(range(2,9),['거래일자','항목','내용','기간','예약번호','증빙유형','금액(원)']):
-    x=ws.cell(r,cc,h); x.fill=PEACH; x.font=F(sz=11,b=True); x.border=THIN
-    x.alignment=Alignment(horizontal='center')
-exp_start=r+1
-for row in exp_rows:
-    r+=1
+ws['C2']='2026년 4월 매출 확인자료_에히메_0404_0407'
+ws['E4']='26.07.22'
+for i,row in enumerate(inc_rows):
+    r=8+i
+    dt,nm,nk,dep,bal,ext=row
+    for cc,v in zip(range(2,9),[d(dt),nm or None,nk or None,dep,bal,ext,f'=SUM(E{r}:G{r})']):
+        ws.cell(r,cc).value=v
+for i,row in enumerate(exp_rows):
+    r=46+i
     for cc,v in zip(range(2,9),row):
-        x=ws.cell(r,cc,v if v!='' else None); x.fill=PEACH; x.border=THIN; x.font=F(sz=11)
-        if cc==8: x.number_format='#,##0'; x.alignment=Alignment(horizontal='right')
-        elif cc==3: x.alignment=Alignment(horizontal='left')
-        else: x.alignment=Alignment(horizontal='center')
-exp_end=r
-r+=1
-ws.cell(r,2,'총 금액 (B)').font=F(sz=11,b=True)
-ws.cell(r,2).fill=YELL; ws.cell(r,2).border=MED
-tB=ws.cell(r,8,f'=SUM(H{exp_start}:H{exp_end})'); tB.font=F(sz=11,b=True); tB.number_format='#,##0'
-tB.border=MED; rowB=r
-r+=1
-ws.cell(r,2,'(A)-(B) 회사수익인식').font=F(sz=11,b=True)
-ws.cell(r,2).fill=YELL; ws.cell(r,2).border=MED
-tC=ws.cell(r,8,f'=H{rowA}-H{rowB}'); tC.font=F(sz=11,b=True); tC.number_format='#,##0'; tC.border=MED
-r+=1
-ws.cell(r,3,'A와 B 합계 잘 확인하기 !!').font=F(sz=11,b=True,color='FF0000')
+        if cc==6 and v not in ('',None):
+            # 예약번호: 텍스트 서식('@')+문자열 — 구글시트 어포스트로피 이스케이프 방지, 16자리 정밀도 보존
+            ws.cell(r,cc).number_format='@'
+            ws.cell(r,cc).value=str(v)
+        else:
+            ws.cell(r,cc).value=(v if v not in ('',None) else None)
 
-assert not ws.merged_cells.ranges
-wb.save('0404_에히메_rev.xlsx')
-print(f'저장: 수입 {len(inc_rows)}행(원기재 {len(INC)}행 중 예약금+잔금 쌍 병합), 지출 {len(exp_rows)}행, 병합 0')
+after={}
+for rr in range(1,101):
+    for cc in range(1,9): after[(rr,cc)]=snap(ws.cell(rr,cc))
+diff=[k for k in before if before[k]!=after[k]]
+assert not diff, f'서식 변경 감지: {diff[:5]}'
+
+wb.save('0404_에히메_rev3.xlsx')
+print(f'저장: 수입 {len(inc_rows)}행, 지출 {len(exp_rows)}행 | 서식 변경 0 (스냅샷 대조), 병합 {len(ws.merged_cells.ranges)}개 원본 그대로')
