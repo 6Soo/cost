@@ -44,7 +44,8 @@ const CONFIG = {
     // 대장(가이드) 지급카드 — 사용내역은 여행탭이 아니라 '대장_이름' 전용 탭으로 분리(2026-07-21 규칙).
     '5836': { owner: '현수',    kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_현수' },
     '4813': { owner: '바로바로', kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_바로바로' },
-    '8831': { owner: '엘레나',  kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_엘레나' },
+    // 8831은 2026-07에 엘레나에게 전달 — 7/1 이전 사용분은 일반 여행탭(대장 구분 없음), 이후만 대장 탭(2026-07-22 규칙).
+    '8831': { owner: '엘레나',  kind: 'travel', travelAccount: '숙박비', leaderTab: '대장_엘레나', leaderSince: '2026-07-01' },
   },
   // 위 표에 없는 카드의 기본 성향. 현재는 3820 외 전부 대표가이드(여행성)이므로 travel.
   DEFAULT_CARD_PROFILE: { owner: '대표가이드', kind: 'travel', travelAccount: '숙박비' },
@@ -565,8 +566,9 @@ function classify(rec, kb, emailIdx, trips, rules) {
   // 0순위: 사람이 확정한 영구 규칙 (학습 결과). 두 번 묻지 않기 위함.
   const ruled = rules && rules[normMerchant(rec.merchant)];
 
-  // 대장(가이드) 지급카드: 사용내역은 대장 전용 탭으로 직행(카드기명 규칙, 계정은 영구규칙 우선)
-  if (profile.leaderTab) {
+  // 대장(가이드) 지급카드: 사용내역은 대장 전용 탭으로 직행(카드기명 규칙, 계정은 영구규칙 우선).
+  // leaderSince(카드 전달일) 이전 사용분은 대장 구분 없이 일반 분류(예: 8831은 2026-07 엘레나 전달 — 그 전은 여행탭).
+  if (profile.leaderTab && (!profile.leaderSince || (rec.useDate && rec.useDate >= profile.leaderSince))) {
     const acct = (ruled && ruled.account) || profile.travelAccount || '숙박비';
     return { status: 'CONFIRM', account: acct, tripName: profile.leaderTab, note: '대장카드:' + profile.owner };
   }
