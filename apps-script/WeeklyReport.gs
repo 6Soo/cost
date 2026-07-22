@@ -54,17 +54,23 @@ function fetchStats_(props) {
   }
 }
 
-// 진행 장부의 _C 탭별 지출 합계 (금액 = 5열, 음수 반대분개 포함 합산)
+// 여행탭(실탭) '지출 내용' 섹션 합계 — 2026-07-13 실탭 직접 전기 전환 이후의 현행 방식.
+//  (예전엔 {탭}_C 비교탭에 자동전기했으나 지금은 실탭에 바로 기록되고 _C는 정리 대상이라,
+//   _C만 찾던 예전 코드로는 deleteCompareTabs() 실행 후 전 투어 지출이 0/공백으로 나왔다.)
 function sumLedgerExpenses_() {
-  const out = {};   // 탭명(뒤 _C 제거) → 합계
+  const out = {};   // 탭명 → 지출 섹션 합계
   const ss = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
+  const skip = {};
+  [CONFIG.STAGING.sheetName, CONFIG.RULES_TAB, CONFIG.REVIEW_TAB, AUDIT_TAB, '메일점검', 'BookingPIN']
+    .forEach(function (n) { skip[n] = true; });
   ss.getSheets().forEach(function (sh) {
     const name = sh.getName();
-    if (!/_C$/.test(name) || sh.getLastRow() < 2) return;
-    const values = sh.getDataRange().getValues();
+    if (skip[name] || /_C$/.test(name) || sh.getLastRow() < 2) return;
+    const recs = extractLedgerRecords(sh);   // Code.gs 전역 함수 — 지출 섹션만 파싱
+    if (!recs.length) return;
     let sum = 0;
-    for (let r = 1; r < values.length; r++) sum += num(values[r][4]);
-    out[name.replace(/_C$/, '')] = sum;
+    recs.forEach(function (r) { sum += r.amount; });
+    out[name] = sum;
   });
   return out;
 }
@@ -111,7 +117,7 @@ function renderReportHtml_(rows, stats) {
   const fmt = function (n) { return n == null ? '—' : Number(n).toLocaleString('ko-KR'); };
   let html = '<div style="font-family:sans-serif">';
   html += '<h2 style="margin:0 0 4px">숲길여행 주간 리포트</h2>';
-  html += '<p style="color:#666;margin:0 0 12px;font-size:13px">추정 매출은 가격표×입금상태 기반(실입금 아님) · 지출은 자동 전기(_C) 합계';
+  html += '<p style="color:#666;margin:0 0 12px;font-size:13px">추정 매출은 가격표×입금상태 기반(실입금 아님) · 지출은 여행탭 지출 섹션 합계';
   if (stats && stats.repeat_customer_rate_pct != null) {
     html += ' · 재방문 고객 비율 <b>' + stats.repeat_customer_rate_pct + '%</b>';
   }

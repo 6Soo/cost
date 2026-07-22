@@ -385,9 +385,13 @@ function ingestPaymentEmails() {
 
   // backlog가 수년치라 한 번에 못 끝냄 → 시간 예산 안에서 배치(100스레드)를 반복.
   //  각 배치는 처리 후 '처리완료' 라벨을 붙여 다음 검색에서 제외(멱등/증분).
+  //  배치 내 파싱 결과는 모았다가 한 번에 쓴 뒤에만 라벨을 붙인다(쓰기 먼저 → 라벨 나중) —
+  //  6분 제한으로 중간에 죽어도 "쓰였는데 라벨 없음"만 생기고(다음 실행에 seen dedup 후 재라벨),
+  //  "라벨 붙었는데 유실"은 없다. 건별 appendRow보다 훨씬 빨라 타임아웃 여유도 늘어난다.
   while (new Date().getTime() - start < GMAIL_CFG.TIME_BUDGET_MS) {
     const threads = GmailApp.search(q, 0, GMAIL_CFG.MAX_THREADS);
     if (!threads.length) break;                              // 미처리분 소진
+    const pageRows = [];
     threads.forEach(function (thread) {
       thread.getMessages().forEach(function (gm) {
         const m = {
@@ -400,13 +404,13 @@ function ingestPaymentEmails() {
         if (!parser) { skipped++; return; }
         const partial = parser.parse(m);
         if (!partial) { skipped++; return; }     // 알림/비결제 스킵
-        appendStaging_(sheet, Object.assign({ amount: 0, currency: 'KRW' }, partial, { messageId: m.id }));
+        pageRows.push(Object.assign({ amount: 0, currency: 'KRW' }, partial, { messageId: m.id }));
         seen.add(m.id);
         added++;
       });
-      thread.addLabel(doneLabel);
-      threadsDone++;
     });
+    if (pageRows.length) appendStagingBatch_(sheet, pageRows);
+    threads.forEach(function (thread) { thread.addLabel(doneLabel); threadsDone++; });
     batches++;
   }
 
@@ -515,8 +519,12 @@ function openStaging_() {
   if (!sh) { sh = ss.insertSheet(GMAIL_CFG.STAGING.sheetName); sh.appendRow(STAGING_COLS); }
   return sh;
 }
-function appendStaging_(sh, rec) {
-  sh.appendRow(STAGING_COLS.map(function (c) { return rec[c] != null ? rec[c] : ''; }));
+// 배치 전체를 한 번에 씀 — 건별 appendRow는 100건당 I/O 왕복이 100번이라 6분 제한을 갉아먹는다.
+function appendStagingBatch_(sh, recs) {
+  const rows = recs.map(function (rec) {
+    return STAGING_COLS.map(function (c) { return rec[c] != null ? rec[c] : ''; });
+  });
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, STAGING_COLS.length).setValues(rows);
 }
 function loadSeenMessageIds_(sh) {
   const set = new Set();
@@ -561,8 +569,14 @@ function money(t, labelRe) {
 function endate(t, re) {
   const g = firstGroup(t, re);
   const M = { January:1,February:2,March:3,April:4,May:5,June:6,July:7,August:8,September:9,October:10,November:11,December:12 };
-  let m = g.match(/([A-Za-z]+)\s+([0-9]{1,2}),?\s*([0-9]{4})/);   // July 8, 2026
-  if (m && M[m[1]]) return m[3] + '-' + pad(M[m[1]]) + '-' + pad(m[2]);
-  m = g.match(/([0-9]{1,2})\s+([A-Za-z]+)\s+([0-9]{4})/);         // 8 July 2026 (영국식)
-  return m && M[m[2]] ? m[3] + '-' + pad(M[m[2]]) + '-' + pad(m[1]) : '';
+  // 정식 월명 우선 조회, 없으면(Jun/Jul 등 3글자 축약) 앞 3글자 접두 일치로 재조회.
+  const monthNum = function (name) {
+    if (M[name]) return M[name];
+    const key = Object.keys(M).find(function (k) { return k.slice(0, 3).toLowerCase() === String(name || '').slice(0, 3).toLowerCase(); });
+    return key ? M[key] : 0;
+  };
+  let m = g.match(/([A-Za-z]+)\s+([0-9]{1,2}),?\s*([0-9]{4})/);   // July 8, 2026 / Jul 8, 2026
+  if (m && monthNum(m[1])) return m[3] + '-' + pad(monthNum(m[1])) + '-' + pad(m[2]);
+  m = g.match(/([0-9]{1,2})\s+([A-Za-z]+)\s+([0-9]{4})/);         // 8 July 2026 / 8 Jul 2026 (영국식)
+  return m && monthNum(m[2]) ? m[3] + '-' + pad(monthNum(m[2])) + '-' + pad(m[1]) : '';
 }

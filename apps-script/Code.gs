@@ -25,7 +25,7 @@ const CONFIG = {
   DATE_TOL_DAYS: 4,             // 승인일/이용일/매입일 차이 허용(장부 대조·점검의 날짜 매칭 여유)
   AI_MODEL: 'gemini-2.0-flash', // 미상 가맹점 추론용 Gemini 모델. 스크립트 속성 GEMINI_API_KEY 필요(없으면 자동 생략).
   OTA_DATE_TOL_DAYS: 60,        // OTA 선결제 특례 — 카드 결제일과 장부(체크인일)가 수주~수개월 벌어질 수 있음
-  ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명) → '2분기_기타비용_C'. 분기 바뀌면 갱신.
+  ETC_TAB: '2분기_기타비용',    // 비여행 국내건 버킷(실제 장부 탭명, 실탭에 직접 전기). 분기 바뀌면 갱신.
   RULES_TAB: '분류규칙',        // 영구 학습 규칙 (가맹점→계정과목)
   REVIEW_TAB: '학습대기',       // HOLD된 distinct 패턴 → 사람이 1회 판단
 
@@ -193,8 +193,18 @@ function recordsMatch(a, b) {
   if (a.card && b.card && a.card === b.card) sig.push('카드');
   if (sig.length) return '금액+' + sig.join('+');
   // OTA 특례 — 가맹점(호텔명 vs OTA명)·카드(수기엔 미기재)가 다 어긋나도, 금액 일치 + 60일 내면 추정.
-  if ((brandA || brandB) && (dayDiff == null || dayDiff <= CONFIG.OTA_DATE_TOL_DAYS)) return '금액+OTA(추정)';
+  if ((brandA || brandB) && dayDiff != null && dayDiff <= CONFIG.OTA_DATE_TOL_DAYS) return '금액+OTA(추정)';
   return '';
+}
+// 후보 목록에서 이미 소진(_used)되지 않은 첫 매칭을 찾는다. 찾으면 그 자리에서 소진시키지 않고
+//  {item, how}만 반환 — 실제로 '중복'으로 인정할지(호출부의 문맥별 게이트)는 호출부가 결정한다.
+function findDupMatch(cand, list, pluck) {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i]._used) continue;
+    const how = recordsMatch(cand, pluck(list[i]));
+    if (how) return { item: list[i], how: how };
+  }
+  return null;
 }
 function merchantSimilar(a, b) {
   const A = normMerchant(a).replace(/[^0-9A-Z가-힣ぁ-んァ-ヶ一-龯]/g, '');
@@ -299,6 +309,7 @@ function auditCoverage() {
       if (otaBrand(rec.merchant) && emailIdx) {
         const eh = matchEmail(emailIdx, rec);
         if (eh) {
+          eh._used = true;   // 이 점검에서 실제로 힌트로 소비함 — 다른 행이 같은 메일을 재사용하지 않게
           tries.unshift({ date: eh.useDate || rec.useDate, merchant: String(eh.merchant || ''),
                           card: rec.last4, amount: rec.krw, bookingNo: digits(eh.bookingNo) });
           bridged = '메일브릿지(' + (eh.source || '') + ')';
@@ -392,7 +403,7 @@ function resetRawColors() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 메인 — 멱등: 흰색(미분류) 행만 처리, 여행 탭별 _C 로 라우팅
+// 메인 — 멱등: 흰색(미분류) 행만 처리, 실사용일이 속한 실제 여행탭에 직접 라우팅
 // ─────────────────────────────────────────────────────────────
 function runReconciliation() {
   const ledgerSS = SpreadsheetApp.openById(CONFIG.TARGET_LEDGER_ID);
@@ -452,9 +463,14 @@ function runReconciliation() {
           const cand = { date: row7[0], merchant: String(row7[1] || ''), card: rec.last4,
                          amount: rec.krw, bookingNo: digits(row7[5]) };
           // 이미 실탭에 있으면(수기 선기록 등) 다시 안 쓰고 색만 완료 처리 — 초록 = '장부에 있음' 보장.
-          const dup = t.existing.some(function (e) { return recordsMatch(cand, e); }) ||
-                      t.rows.some(function (q) { return recordsMatch(cand, q.cand); });
-          if (!dup) t.rows.push({ row7: row7, cand: cand, uncertain: !!v.uncertain });
+          //  단, 매칭된 기존 레코드는 한 번 소진되면 재사용 금지(동일 카드·동일 금액 반복 결제가
+          //  전부 '이미 기록됨'으로 오판되는 것 방지). '기타비용' 버킷은 무관한 지출이 섞이는
+          //  곳이라 날짜 근거 없는 매칭(금액+카드/가맹점 단독)은 인정하지 않는다(날짜·OTA추정만 인정).
+          const hit = findDupMatch(cand, t.existing, function (e) { return e; }) ||
+                      findDupMatch(cand, t.rows, function (q) { return q.cand; });
+          const dup = !!hit && (v.tripName !== CONFIG.ETC_TAB || /날짜|OTA/.test(hit.how));
+          if (dup) hit.item._used = true;
+          if (!dup) t.rows.push({ row7: row7, cand: cand, uncertain: !!v.uncertain, _used: false });
           for (let c = 0; c < bg[r].length; c++) bg[r][c] = CONFIG.COLOR.DONE;
           stats.done++;
         }
@@ -567,6 +583,7 @@ function classify(rec, kb, emailIdx, trips, rules) {
   if (hasKw(name, KW.OTA)) {
     const hit = emailIdx && matchEmail(emailIdx, rec);
     if (hit && hit.useDate) {
+      hit._used = true;   // 실제로 이 건에 소비 확정된 시점에만 소진(매칭 실패해도 남는 후보 보호)
       const acct = (ruled && ruled.account) || (hit.item === '항공권' ? '여비교통비' : '숙박비');
       return route({ status: 'CONFIRM', account: acct, useDateOverride: hit.useDate,
                      bookingNo: hit.bookingNo, note: 'OTA:' + hit.source }, rec, trips);
@@ -583,7 +600,7 @@ function classify(rec, kb, emailIdx, trips, rules) {
   const learned = kb[normMerchant(rec.merchant)];
   if (learned) return route({ status: 'CONFIRM', account: learned }, rec, trips);
 
-  if (hasKw(name, KW.AIR)) return route({ status: 'CONFIRM', account: '여비교통비' }, rec, trips);
+  if (hasKw(name, KW.AIR)) return route({ status: 'CONFIRM', account: '여비교통비', air: true }, rec, trips);
 
   const trip = findTrip(trips, rec.useDate);
   const isTravel = rec.overseas || !!trip;
@@ -612,6 +629,7 @@ function classify(rec, kb, emailIdx, trips, rules) {
     // (R2-5) 메일이 계정과목을 못 주면 '여비교통비'로 강제하지 않고 보류한다.
     // KICC 파서는 account를 채우지 않으므로 과거엔 PG 결제가 일괄 여비교통비로 오분류될 수 있었다.
     if (hit && hit.account) {
+      hit._used = true;   // 실제로 이 건에 소비 확정된 시점에만 소진
       return { status: 'CONFIRM', account: hit.account, tripName: CONFIG.ETC_TAB,
                note: '메일:' + hit.source, bookingNo: hit.bookingNo, project: hit.item };
     }
@@ -646,6 +664,12 @@ function route(v, rec, trips, trip) {
   const d = ymd(v.useDateOverride || rec.useDate);
   if (d && d.y < CONFIG.TRIP_YEAR) {
     return { status: 'HOLD', reason: d.y + '년 결제 — ' + CONFIG.TRIP_YEAR + '년 여행 선결제(숙박/항공)면 해당 여행탭 확인' };
+  }
+  // 항공권은 출발 수개월 전에 결제되는 게 정상이라 여행탭이 아직 없을 수 있다.
+  //  이때 국내결제라고 '기타비용'에 조용히 흡수시키면, 나중에 여행탭이 생겨도 자동 재배치가 없어
+  //  대장 항공비가 여행 원가에서 누락된 채 굳어진다 — 사람이 귀속을 확인하도록 보류한다.
+  if (v.air) {
+    return { status: 'HOLD', reason: '항공권 결제 — 귀속 여행탭 확인(여행탭 미생성이거나 탑승일이 기간 밖)' };
   }
   v.tripName = rec.overseas ? '여행_미매칭' : CONFIG.ETC_TAB;
   return v;
@@ -978,6 +1002,7 @@ function loadEmailIndex() {
     rows.push({ source: row[col.source], type: row[col.type], useDate: normDate(row[col.useDate]),
                 paidDate: normDate(row[col.paidDate]),   // (R2-5) 결제일 근접 매칭용
                 merchant: row[col.merchant], item: row[col.item], amount: num(row[col.amount]),
+                currency: String(row[col.currency] || 'KRW'),   // 통화 다르면 원화 카드건과 비교 무의미(matchEmail에서 필터)
                 account: row[col.account], bookingNo: String(row[col.bookingNo] || '') });
   }
   return rows;
@@ -986,25 +1011,35 @@ function loadEmailIndex() {
 //  1) 결제일 근접(±3일) 조건 — 메일 수신일(paidDate) ≈ 예약 결제 시점이므로
 //     카드 이용일(useDate)과 3일 넘게 벌어지면 동일 금액대 다른 결제로 간주.
 //     (실사용일 useDate가 아니라 '결제 시점'끼리 비교 — OTA 선결제 특성 보존)
-//  2) 같은 메일의 중복 매칭 금지(_used) — 한 메일은 카드 건 하나에만.
-//  3) 후보가 여럿이면 결제일이 가장 가까운 메일 채택.
+//  2) 통화가 다르면(아고다 JPY 등) 원화 카드금액과 비교 자체가 무의미 → 후보에서 제외.
+//  3) 카드건이 OTA 가맹점(트립닷컴/아고다/부킹 등)이면 OTA 파서가 만든 메일만,
+//     아니면(PG/페이) 비-OTA 파서 메일만 후보로 인정 — 서로 다른 결제 흐름이 섞이지 않게.
+//  4) 원화는 반올림 오차(±2원)만 허용 — 1% 같은 비율 오차는 금액이 클수록 오매칭 폭을 키운다.
+//  5) 같은 메일의 재사용 금지(_used, 호출부에서 실제 확정 시점에만 표시)는 한 메일이 카드 건 하나에만.
+//  6) 후보가 여럿이면 결제일이 가장 가까운 메일 채택. 날짜 정보가 아예 없는 후보는
+//     날짜로 확인된 후보보다 항상 낮은 우선순위로 둔다(무정보가 실측을 이기지 않도록).
+const OTA_EMAIL_SOURCES = { trip_hotel: 1, trip_flight: 1, agoda: 1, booking: 1 };
 function matchEmail(index, rec) {
   const amt = Math.round(rec.krw);
   const recPay = dateMs(rec.useDate);   // 카드 '이용일' = 결제 발생일
+  const isOtaRec = !!otaBrand(rec.merchant);
   let best = null, bestDiff = Infinity;
   index.forEach(function (e) {
     if (e.type === 'refund' || e._used) return;
+    if (e.currency && e.currency !== 'KRW') return;                        // 통화 다름 → 비교 불가
+    if (isOtaRec !== !!OTA_EMAIL_SOURCES[e.source]) return;                 // OTA건은 OTA메일만, PG건은 비OTA메일만
     const ea = Math.round(Math.abs(e.amount));
-    if (!(ea > 0 && Math.abs(ea - amt) <= Math.max(2, amt * 0.01))) return;
+    if (!(ea > 0 && Math.abs(ea - amt) <= 2)) return;                      // 원화 반올림 오차만 허용
     const ePay = dateMs(e.paidDate);
-    let diff = 0;
+    let diff;
     if (recPay != null && ePay != null) {
       diff = Math.abs(ePay - recPay) / 86400000;
       if (diff > 3) return;   // 결제일 3일 초과 이격 → 다른 결제
+    } else {
+      diff = 3.5;   // 날짜 미상 — 날짜로 확인된 후보에게 항상 밀림
     }
     if (diff < bestDiff) { best = e; bestDiff = diff; }
   });
-  if (best) best._used = true;
   return best;
 }
 function dateMs(v) {
