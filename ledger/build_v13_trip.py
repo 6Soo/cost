@@ -12,25 +12,32 @@ def load(f):
     wb=openpyxl.load_workbook('newcard/conv/%s.xlsx'%f,read_only=True); ws=wb[wb.sheetnames[0]]
     return [[('' if c is None else str(c)) for c in r] for r in ws.iter_rows(values_only=True)]
 
+def d10(s):
+    s=str(s).replace('.','-')
+    m=re.search(r'(\d{2,4})-(\d{2})-(\d{2})',s)
+    if not m: return ''
+    y=m.group(1);  y='20'+y if len(y)==2 else y
+    return '%s-%s-%s'%(y,m.group(2),m.group(3))
+
 # ---- 통합 카드 인덱스 (정상+취소, 금액→상세) ----
 cards=[]
 for r in load('E')[1:]:
     if len(r)>16 and i(r[16]):
-        cards.append(dict(co='국민',c4=r[4][-4:],amt=i(r[16]),mer=r[7],fx=r[11],cur=r[10],sub='해외',src='KBO',cx=(r[6]=='취소매출'),appr=''))
+        cards.append(dict(co='국민',use=d10(r[1]) or d10(r[0]),c4=r[4][-4:],amt=i(r[16]),mer=r[7],fx=r[11],cur=r[10],sub='해외',src='KBO',cx=(r[6]=='취소매출'),appr=''))
 for r in load('F')[1:]:
     if len(r)>15 and i(r[11]):
         _m=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r[15]).strip())
         _ap,_og=(_m.group(1),_m.group(2)) if _m else (re.sub(r'\D','',r[15]),'')
-        cards.append(dict(co='국민',c4=r[5][-4:],amt=abs(i(r[11])),mer=r[7],fx='',cur='',sub='국내',src='KBD',cx=(i(r[11])<0),appr=_ap,orig=_og))
+        cards.append(dict(co='국민',use=d10(r[1]),c4=r[5][-4:],amt=abs(i(r[11])),mer=r[7],fx='',cur='',sub='국내',src='KBD',cx=(i(r[11])<0),appr=_ap,orig=_og))
 for f in ('G','H'):
     for r in load(f)[6:]:
         if len(r)>14 and r[0] and r[0]!='NO' and i(r[5]):
             gu='해외' if '해외' in (r[11] or '') else '국내'
-            cards.append(dict(co='하나',c4=r[3][-4:],amt=i(r[14]) or i(r[5]),mer=r[7],fx='',cur='',sub=gu,src='HAN',cx=(i(r[6])!=0),appr=re.sub(r'\D','',r[4])))
+            cards.append(dict(co='하나',use=d10(r[1]),c4=r[3][-4:],amt=i(r[14]) or i(r[5]),mer=r[7],fx='',cur='',sub=gu,src='HAN',cx=(i(r[6])!=0),appr=re.sub(r'\D','',r[4])))
 for r in load('A_20260720'):
     if len(r)>13 and i(r[6]):
         gu='해외' if r[1].startswith('해외') else '국내'
-        cards.append(dict(co='기업',c4=r[3][-4:],amt=i(r[6]),mer=r[5],fx=(r[7] or '').split()[0] if r[7] else '',cur='JPY' if 'JPY' in (r[7] or '') else '',sub=gu,src='CORP',cx=(r[0]=='취소또는할인'),appr=re.sub(r'\D','',r[13])))
+        cards.append(dict(co='기업',use=str(r[2])[:10],c4=r[3][-4:],amt=i(r[6]),mer=r[5],fx=(r[7] or '').split()[0] if r[7] else '',cur='JPY' if 'JPY' in (r[7] or '') else '',sub=gu,src='CORP',cx=(r[0]=='취소또는할인'),appr=re.sub(r'\D','',r[13])))
 byamt=defaultdict(list)
 for c in cards: byamt[(c['amt'],c['cx'])].append(c)
 amts=sorted(set(a for a,_ in byamt))
@@ -110,12 +117,7 @@ def is_q2(tab):
     if m: return 4<=int(m.group(1))<=6
     if mm: return 4<=int(mm.group(1))<=6
     return False
-def d10(s):
-    s=str(s).replace('.','-')
-    m=re.search(r'(\d{2,4})-(\d{2})-(\d{2})',s)
-    if not m: return ''
-    y=m.group(1);  y='20'+y if len(y)==2 else y
-    return '%s-%s-%s'%(y,m.group(2),m.group(3))
+
 def account_of(item,desc):
     s=(desc or '')+' '+(item or '')
     if '항공' in s or '航空' in s: return '항공료'
@@ -161,8 +163,20 @@ for r in man:
     cm=None
     if is_card(r['card']):
         cm=card_match(abs(a), {'국민':'국민','하나':'하나','기업':'기업'}.get(r['card'],''), want_cx=(a<0))
-        if sd and sd>='2026-04-01' and not cm:
-            continue   # 카드 매칭 불가 = base(승인-Q2)에 이미 존재
+        if sd and sd>='2026-04-01':
+            # 구제 조건: 매칭 카드가 Q1 승인 + 수기 기재일과 근접(±14일)일 때만(경계 케이스).
+            # ★근접 제한 없으면 동액 우연일치 원거리 카드(작년 카카오T 10,500가 커피빈 4/4에 매칭)로
+            #   가짜 구제→①B dedup이 진짜 현금건(HIMESO)까지 오인 제거하는 2차 사고 실측(2026-07-22).
+            import datetime as _dt
+            def _dd(x,y):
+                try:
+                    return abs((_dt.date.fromisoformat(x)-_dt.date.fromisoformat(y)).days)
+                except Exception:
+                    return 9999
+            near = cm and cm.get('use') and cm['use']<'2026-04-01' and _dd(cm['use'], sd)<=14
+            if not near:
+                if cm: _used_card.discard(id(cm))   # 오매칭 소비 롤백
+                continue   # base(승인-Q2)에 이미 존재
     # === 미포함(Q1 선결제 or 현금) → 추가 ===
     n+=1
     acct=account_of(r['item'],r['desc'])

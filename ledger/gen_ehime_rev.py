@@ -75,7 +75,7 @@ def split_content(s):
 import json
 LEDGER_EVID={int(k):v for k,v in json.load(open('/tmp/ehime_evid.json')).items()}
 CASHLIKE={'현금/기타','현금','영수증','현지통화'}
-src=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v67.xlsx')
+src=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v68.xlsx')
 sv=src['0404_에히메']
 exp_rows=[]
 for r in range(2,200):
@@ -83,13 +83,13 @@ for r in range(2,200):
     amt=sv.cell(r,5).value; evi=sv.cell(r,6).value; book=sv.cell(r,7).value
     if dt=='합계' or (item is None and cont is None and amt is None): break
     content,period=split_content(cont)
-    evi=str(evi or '')
+    evi=re.sub(r'_\d{4}$','',str(evi or ''))   # 카드번호 병기 폐기(사용자 2026-07-22): 국민/하나/기업으로 간소화
     if evi in CASHLIKE:
         # 포인트 결제는 수기 원기재의 사이트명(제주항공 등)이 증빙 — 현금성만 '현지통화'
         orig=LEDGER_EVID.get(int(round(amt)) if isinstance(amt,(int,float)) else -1)
         evi = orig if (orig and orig not in CASHLIKE) else '영수증'
     exp_rows.append((d(str(dt or '')), str(item or '').strip(), content, period, str(book or ''), evi, amt))
-assert len(inc_rows)<=34 and len(exp_rows)<=50
+assert len(inc_rows)<=23 and len(exp_rows)<=50
 
 # ── 실물 템플릿 복제 + 값 주입 ──
 wb=openpyxl.load_workbook('ledger_latest.xlsx', rich_text=True)
@@ -106,12 +106,12 @@ for rr in range(1,101):
 ws['C2']='2026년 4월 매출 확인자료_에히메_0404_0407'
 ws['E4']='26.07.22'
 for i,row in enumerate(inc_rows):
-    r=8+i
+    r=8+i   # 수입 슬롯 8~30
     dt,nm,nk,dep,bal,ext=row
     for cc,v in zip(range(2,9),[d(dt),nm or None,nk or None,dep,bal,ext,f'=SUM(E{r}:G{r})']):
         ws.cell(r,cc).value=v
 for i,row in enumerate(exp_rows):
-    r=46+i
+    r=35+i   # 지출 슬롯 35~84
     for cc,v in zip(range(2,9),row):
         if cc==6 and v not in ('',None):
             # 예약번호: 텍스트 서식('@')+문자열 — 구글시트 어포스트로피 이스케이프 방지, 16자리 정밀도 보존
