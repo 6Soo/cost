@@ -204,8 +204,12 @@ for r in man:
     row={k:'' for k in FN}
     mr=manrow(r)
     rowtag='수기%s행 | '%mr if mr else ''
+    # 예약번호→체크인일 오버라이드(2026-07-22 사용자 확정서 제공): 무일자 6건 — 현지결제 APA/카즈베기는
+    #   체크인=결제일, 아드리아는 선결제라 체크인일 대용. 확정서 금액은 수기값과 일치 확인됨.
+    BOOK_DATE={'1721756989':'2026-04-26','1721757952':'2026-04-26','1721758806':'2026-04-26','1721761805':'2026-04-26',
+               '1715820607':'2026-05-10','1717093956':'2026-05-15'}
     # 날짜 fallback: 수기 기재일이 깨졌으면(에히메 55행 '25.0' 실측) 매칭 카드 승인일 사용
-    row.update(uid='TRIP-%04d'%n, src=src, use_date=sd or d10(r['date']) or (cm.get('use','') if cm else ''), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
+    row.update(uid='TRIP-%04d'%n, src=src, use_date=BOOK_DATE.get(book, sd or d10(r['date']) or (cm.get('use','') if cm else '')), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
         merchant=r['item'], country=country, currency=cur or ('KRW' if is_card(r['card']) else ''), foreign=fx or '0',
         krw=str(cardcell), vat='0.0', status=('취소' if cancel else '정상'), extra='', bucket=r['tab'], account=acct,
         cancel=str(cancel), cost_type='여행원가', vat_tag=vat_tag, confidence='상',
