@@ -82,6 +82,12 @@ def main(files, today='2026-07-20'):
         rows=load(f); src=detect(rows)
         if not src: print(f'  ⚠ 형식판별 실패: {f}'); continue
         recs=norm(rows,src,today); a=m2=s=0
+        # ★가드(2026-07-22 신설): 원화 열이 있어야 할 카드소스가 전부 원화0이면 파싱 열매핑 오류 —
+        #   국민 해외분 원화를 0으로 하드코딩해 1,679건 유실했던 버그 재발 방지. 전건0이면 즉시 중단.
+        krwsum=sum(abs(rn(r['원화금액'])) for r in recs)
+        if recs and krwsum==0 and src!='__none__':
+            raise SystemExit(f'✗ 적재중단 [{src}] {os.path.basename(f)}: {len(recs)}건 전부 원화금액=0 — '
+                             f'열 매핑 오류 의심(원본에 총결제금액/승인금액 열 확인 요망). norm() 파서 점검 필요.')
         for r in recs:
             ex=index.get(r['거래키'])
             if ex is None:                      # 없는 건 → 채워넣기
