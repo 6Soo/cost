@@ -28,6 +28,23 @@ def clean_name(s):   # 항목명 정리(2026-07-23): 카드명세 [가맹][도�
     name = seg[0] if seg else s
     return re.sub(r'\s+', ' ', name).strip()
 
+# 예약번호→(호텔명, 숙박기간) 보강(2026-07-23 사용자 지적 "예약번호 있는데 왜 호텔·기간 없나"):
+#   수기장부가 generic '트립닷컴/숙박비'로만 입력한 건을, 트립닷컴 확정메일(Gmail)로 호텔·기간 복원.
+BOOKING_INFO = {
+    '1400823535413714': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535405415': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535398160': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535395178': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535402604': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535393192': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823576116533': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823576120634': ('트립닷컴_하시다테 베이 호텔', '숙박_0410_0411'),
+    '1400823535037213': ('⚠트립닷컴_토요코인 오키나와나하(2월·교토아님)', '숙박_0218_0220'),
+}
+def booking_of(note):
+    m = re.search(r'예약\s*(\d{10,19})', note or '')
+    return m.group(1) if m else ''
+
 rows = list(csv.DictReader(open('classified_v14.csv', encoding='utf-8')))
 # 검증 픽스 적용
 if os.path.exists('fixes_ALREADY_APPLIED.json'):
@@ -346,6 +363,9 @@ def detail_sheet(title, xs):
                 '증빙유형': evid_col(x), '금액': round(x['krw_f']),
                 '원가구분': x['cost_type'], '부가세': x['vat_tag'], '확신': x['confidence'],
                 '예약번호': bno, '근거(AI)': clean_disp(x['note']), 'uid': x['uid']}
+        _bi = BOOKING_INFO.get(booking_of(x.get('note', '')))   # 예약번호로 호텔명·기간 보강(generic 트립닷컴 건)
+        if _bi:
+            vals['항목'] = _bi[0]; vals['내용'] = _bi[1]
         for k, cc in COL.items():
             c = ws.cell(row=r, column=cc, value=vals[k]); c.border = THIN
             if k == '금액': c.number_format = '#,##0'
