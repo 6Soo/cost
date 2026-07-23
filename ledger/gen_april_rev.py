@@ -13,7 +13,7 @@ from collections import defaultdict, Counter
 
 APRIL=['0404_에히메','0408_교토','0413_나가센도','0417_아오모리','0420_오사카','0424_알펜루트']
 TPL='매출자료 양식_rev'
-OUT='매출확인자료_4월_rev_v6.xlsx'
+OUT='매출확인자료_4월_rev_v7.xlsx'
 
 SUR=set('김이박최정강조윤장임한오서신권황안송전홍유고문양손배백허남심노하곽성차주우구민류나진지엄채원천방공현함변염여추도소석선설마길연위표명기반라왕금옥육인맹제모탁국어은편용예경봉사부엽')
 def hangul(t): return bool(t) and all('가'<=ch<='힣' for ch in t)
