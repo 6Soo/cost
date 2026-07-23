@@ -4,9 +4,9 @@
 import openpyxl
 from copy import copy
 
-OUT='매출확인자료_2분기_통합_v1.xlsx'
-SRC=[('매출확인자료_4월_rev_v5.xlsx', None),           # None=전 시트
-     ('매출확인자료_5-6월_rev_v1.xlsx', None)]
+OUT='매출확인자료_2분기_통합_v2.xlsx'
+SRC=[('매출확인자료_4월_rev_v6.xlsx', None),           # None=전 시트
+     ('매출확인자료_5-6월_rev_v2.xlsx', None)]
 LEDGER=('ledger_latest.xlsx', ['2분기_기타비용'])
 
 def copy_sheet(src_ws, dst_ws, max_r=None, max_c=None):

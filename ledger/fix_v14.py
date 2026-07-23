@@ -72,11 +72,15 @@ def desc_core(note):
     d=re.sub(r'예약[A-Za-z0-9]+','',d)                              # 예약번호 제거
     d=re.sub(r'\d{4}_\d{4}|\d{6,}|\d{4}','',d)                     # 날짜·번호 제거
     return re.sub(r'[\s_]','',d)                                    # 공백 제거→사람이름 핵심
+def bookno_t(note):   # ★예약번호(다객실 동일가 유일 식별) — dedup 키에 포함해 다른 예약 오제거 방지
+    m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})(?![0-9])', note or '')
+    return m.group(1) if m else ''
 seen_key=set(); kept2=[]; dd=0; ddtot=0
 for t in sorted(kept, key=lambda z:z['uid']):
     core=desc_core(t['note']); a=abs(i(t['krw'])); cx=str(t.get('cancel')).lower() in ('true','1')
-    key=(t['bucket'], a, cx, core)
-    if core and key in seen_key:      # 동탭·동액·동일 사람/예약 = 중복입력
+    bk=bookno_t(t['note'])
+    key=(t['bucket'], a, cx, core, bk)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
+    if (core or bk) and key in seen_key:      # 동탭·동액·동일 사람+동일예약 = 진짜 중복입력만 제거
         dd+=1; ddtot+=i(t['krw']); continue
     seen_key.add(key); kept2.append(t)
 print('①B 수기 중복입력 dedup:', dd,'건 제거 (순액', format(ddtot,'+,'),')')
