@@ -37,10 +37,10 @@ try:
     BOOKING_INFO = {k: (v['label'], v['period']) for k, v in _BI.items()}
 except FileNotFoundError:
     BOOKING_INFO = {}
-# 오키나와 2월건이 교토탭 오배치 — 경고표시 유지(사용자 확인 대상)
+# 오키나와 2월건: 1분기 누락분을 2분기로 이연 처리(2026-07-23 사용자 확정 "그대로 두자")
 if '1400823535037213' in BOOKING_INFO:
     _p = BOOKING_INFO['1400823535037213'][1]
-    BOOKING_INFO['1400823535037213'] = ('⚠트립닷컴_토요코인 오키나와나하(2월·교토아님)', _p)
+    BOOKING_INFO['1400823535037213'] = ('트립닷컴_토요코인 오키나와나하(1분기 이연)', _p)
 def booking_of(note):
     m = re.search(r'예약\s*(\d{10,19})', note or '')
     return m.group(1) if m else ''
