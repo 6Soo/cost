@@ -13,7 +13,7 @@ from collections import defaultdict, Counter
 
 APRIL=['0501_부산','5월_유럽','0613_북해도','0616_레분토&리시리','0620_묘코','0625_아키타','0630_오제']
 TPL='매출자료 양식_rev'
-OUT='매출확인자료_5-6월_rev_v4.xlsx'
+OUT='매출확인자료_5-6월_rev_v5.xlsx'
 
 SUR=set('김이박최정강조윤장임한오서신권황안송전홍유고문양손배백허남심노하곽성차주우구민류나진지엄채원천방공현함변염여추도소석선설마길연위표명기반라왕금옥육인맹제모탁국어은편용예경봉사부엽')
 def hangul(t): return bool(t) and all('가'<=ch<='힣' for ch in t)
@@ -106,7 +106,7 @@ def evid_of(tab, evi, amt):
 
 # ── 데이터 적재 ──
 inc_all=json.load(open('/tmp/mayjun_inc.json'))
-wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v75.xlsx')
+wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v76.xlsx')
 def load_exp(tab):
     sv=wb68[tab]; out=[]
     for r in range(2,400):

@@ -320,10 +320,16 @@ for r in allrows:
             r['account']=p['account']; inh2+=1
 print('⑦f 취소 계정승계(승인번호 페어):', inh2)
 
-# ⑦e 카드이용대금 이체(정산성) 제외 — 회사카드 실결제와 이중계상(사용자 확정 "전자=제외")
+# ⑦e 카드이용대금 이체: 회사카드(국민/하나/기업) 정산분만 제외(실결제와 이중계상, 사용자 확정 "전자=제외").
+#    ★외부인(가이드 등) 개인카드 정산은 우리 카드데이터에 원거래가 없어 이중계상이 아닌 실비용 — 유지
+#    (2026-07-23 사용자 지적: 전용진 4,280,000은 우리 국민/하나/기업에 원거래 0건인 개인카드 정산인데 오제외됨).
+def _is_company_cardpay(r):
+    if '카드이용대금' not in (r.get('note') or ''): return False
+    blob=(r.get('merchant') or '')+' '+(r.get('note') or '')
+    return bool(re.search(r'국민|하나|기업|신한|삼성|비씨|\d{4}', r.get('merchant') or ''))
 before=len(allrows)
-allrows=[r for r in allrows if '카드이용대금' not in (r['note'] or '')]
-print('⑦e 카드이용대금 정산성 이체 제외:', before-len(allrows),'건')
+allrows=[r for r in allrows if not _is_company_cardpay(r)]
+print('⑦e 회사카드 카드이용대금 정산성 이체 제외:', before-len(allrows),'건 (외부 개인카드 정산은 유지)')
 
 # ⑦k 기업 승인취소 무청구 교정(엔진 전면 재점검 발견): A파일 '취소또는할인' 승인번호가 워크북에 양수로 반영된 4건
 #    (CORP-2011 아고다 1,160,562·CORP-2043 11,595·CORP-2006 356,158·CORP-2005 356,418 = +1,884,733 과대).
