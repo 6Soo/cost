@@ -20,6 +20,9 @@ def num(s):
     try: return float(s)
     except: return 0.0
 
+def clean_name(s):   # 항목명 공백 정리(2026-07-23): 카드 컬럼 패딩 제거 — 앞뒤 strip + 연속공백 1칸
+    return re.sub(r'\s+', ' ', str(s or '')).strip()
+
 rows = list(csv.DictReader(open('classified_v14.csv', encoding='utf-8')))
 # 검증 픽스 적용
 if os.path.exists('fixes_ALREADY_APPLIED.json'):
@@ -334,7 +337,7 @@ def detail_sheet(title, xs):
     def writerow(x, fill=None):
         r = ri[0]
         bno, url = booking_deeplink(x['merchant'], x.get('note', ''))
-        vals = {'거래일자': ledger_date(x['use_date']), '항목': x['merchant'], '내용': contents_col(x),
+        vals = {'거래일자': ledger_date(x['use_date']), '항목': clean_name(x['merchant']), '내용': contents_col(x),
                 '증빙유형': evid_col(x), '금액': round(x['krw_f']),
                 '원가구분': x['cost_type'], '부가세': x['vat_tag'], '확신': x['confidence'],
                 '예약번호': bno, '근거(AI)': clean_disp(x['note']), 'uid': x['uid']}
@@ -407,7 +410,7 @@ ri = 2
 need = [x for x in rows if x['confidence'] == '하' or x['bucket'] == '여행_미배정']
 for x in sorted(need, key=lambda z: -abs(z['krw_f'])):
     _b,_u=booking_deeplink(x['merchant'],x.get('note',''))
-    put(ws, ri, [x['use_date'], x['merchant'], contents_col(x), x['card4'], round(x['krw_f']),
+    put(ws, ri, [x['use_date'], clean_name(x['merchant']), contents_col(x), x['card4'], round(x['krw_f']),
                  x['cost_type'], x['vat_tag'], x['confidence'], _b, clean_disp(x['note']), x['uid']])
     if _u: c=ws.cell(row=ri,column=9); c.hyperlink=_u; c.font=LINK_FONT
     ri += 1
