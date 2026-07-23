@@ -122,6 +122,8 @@ function onOpen() {
     .addItem('비교탭(_C) 정리 — 수기와 대조해 중복 제거 (과거 방식 잔재)', 'pruneCompareTabs')
     .addItem('비교탭(_C) 전체 삭제 (과거 방식 잔재)', 'deleteCompareTabs')
     .addItem('엔진 색 초기화 — 재처리용 (수동 표시는 보존)', 'resetRawColors')
+    .addSeparator()
+    .addItem('입금 동기화 — 수입 내용 → 대장 명단 입금상태', 'syncPaymentsToLeader')
     .addToUi();
 }
 
