@@ -9,6 +9,10 @@
 
 const GMAIL_CFG = {
   DONE_LABEL: '처리완료',
+  // ★자동 수집 마스터 스위치(2026-07-22 사용자 지시로 기본 OFF): false면 10분 트리거가 firing해도
+  //  아무것도 안 긁고 즉시 종료 → '메일수집' 탭이 자동으로 안 불어남(비용 파이프라인은 이 탭 미사용).
+  //  다시 켜려면 여기를 true로 바꿔 재배포 후 시트메뉴 '자동 수집 켜기' 실행. 수동 '메일 수집'은 항상 동작.
+  AUTO_DRAIN: false,
   STAGING: { id: '1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU', sheetName: '메일수집' },
   MAX_THREADS: 100,            // 한 배치 스레드 수
   TIME_BUDGET_MS: 300000,      // 실행 예산 5분(6분 제한 안전마진) — 초과 전까지 배치 반복
@@ -48,6 +52,10 @@ function senderQuery_(extra) {
 // 무인 드레인 — 10분마다 '메일 수집'을 자동 실행해 backlog를 사람 없이 소진.
 //  메일점검에서 미처리 0 되면 removeDrainTrigger()로 해제. (중복 등록 방지 후 재생성)
 function setupDrainTrigger() {
+  if (!GMAIL_CFG.AUTO_DRAIN) {   // 마스터 스위치 OFF면 트리거 생성 거부(오작동 방지)
+    toast('AUTO_DRAIN=false 상태 — 자동 수집이 꺼져 있습니다. 켜려면 GMAIL_CFG.AUTO_DRAIN=true로 바꿔 재배포하세요.');
+    return;
+  }
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'ingestPaymentEmails') ScriptApp.deleteTrigger(t);
   });
@@ -375,7 +383,12 @@ function dryRunIngest() {
 // ─────────────────────────────────────────────────────────────
 // 메인
 // ─────────────────────────────────────────────────────────────
-function ingestPaymentEmails() {
+function ingestPaymentEmails(e) {
+  // 자동(시간)트리거 발화이고 AUTO_DRAIN=false면 아무것도 안 하고 종료. 수동 메뉴실행(e 없음)은 정상 동작.
+  if (e && e.triggerUid && !GMAIL_CFG.AUTO_DRAIN) {
+    console.log('AUTO_DRAIN=false — 자동 수집 트리거 무시(수동 실행만 허용).');
+    return;
+  }
   const sheet = openStaging_();
   const seen = loadSeenMessageIds_(sheet);
   const doneLabel = getOrCreateLabel_(GMAIL_CFG.DONE_LABEL);
