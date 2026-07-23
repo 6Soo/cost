@@ -20,8 +20,13 @@ def num(s):
     try: return float(s)
     except: return 0.0
 
-def clean_name(s):   # 항목명 공백 정리(2026-07-23): 카드 컬럼 패딩 제거 — 앞뒤 strip + 연속공백 1칸
-    return re.sub(r'\s+', ' ', str(s or '')).strip()
+def clean_name(s):   # 항목명 정리(2026-07-23): 카드명세 [가맹][도시][국가]가 2칸+ 패딩으로 구분 →
+    # 첫 세그먼트(가맹점명)만 남김. 도시·국가 꼬리표 제거(하나/기업의 'Tokyo JP'는 실위치 아닌
+    # 매입사 등록지 아티팩트 — 레분섬 KAFUKA·도고온천이 전부 Tokyo로 찍힘, 유지 시 오정보).
+    s = str(s or '')
+    seg = re.split(r'\s{2,}', s.strip())
+    name = seg[0] if seg else s
+    return re.sub(r'\s+', ' ', name).strip()
 
 rows = list(csv.DictReader(open('classified_v14.csv', encoding='utf-8')))
 # 검증 픽스 적용
