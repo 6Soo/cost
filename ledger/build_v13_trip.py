@@ -208,6 +208,10 @@ for r in man:
     #   체크인=결제일, 아드리아는 선결제라 체크인일 대용. 확정서 금액은 수기값과 일치 확인됨.
     BOOK_DATE={'1721756989':'2026-04-26','1721757952':'2026-04-26','1721758806':'2026-04-26','1721761805':'2026-04-26',
                '1715820607':'2026-05-10','1717093956':'2026-05-15'}
+    # APA 가나자와 4건 금액교체(2026-07-22 사용자 확정): 편의환율 604,800→실제 카드 총결제 2,287,848÷4=571,962.
+    #   (카드는 JPY241,920 1건 합산청구, 4행 균등배분. 대표님 다른 국민해외건과 총결제금액 기준 통일.)
+    BOOK_KRW={'1721756989':571962,'1721757952':571962,'1721758806':571962,'1721761805':571962}
+    if book in BOOK_KRW: cardcell = BOOK_KRW[book] if a>=0 else -BOOK_KRW[book]
     # 날짜 fallback: 수기 기재일이 깨졌으면(에히메 55행 '25.0' 실측) 매칭 카드 승인일 사용
     row.update(uid='TRIP-%04d'%n, src=src, use_date=BOOK_DATE.get(book, sd or d10(r['date']) or (cm.get('use','') if cm else '')), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
         merchant=r['item'], country=country, currency=cur or ('KRW' if is_card(r['card']) else ''), foreign=fx or '0',
