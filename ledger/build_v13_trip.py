@@ -249,6 +249,39 @@ def manrow(r):
     except: return ''
     hit=rowidx.get((normtab(r['tab']), r['date'], r['item'], a))
     return hit.pop(0) if hit else ''
+
+# ★2026-07-24 '미입력추정(수기장부 없음)' 잔존태그 일반화 재검증(사용자 "기간 문제 아직도 안고쳤네"
+# 로 AGODA EN RESORT 3건이 재발견됨 — 확인해보니 patch_v14.py의 CONFIRMED_BOOK은 UID 4개짜리
+# 하드코딩 화이트리스트라 이번처럼 다른 UID가 같은 클래스로 또 걸리면 못 잡는다). base(cls)가
+# 만들어진 시점엔 수기장부에 없어서 "미입력추정"으로 찍혔지만, 그 뒤 원장이 갱신돼 지금은 수기
+# 장부에 tab+날짜+가맹명+금액이 정확히 일치하는 행이 있는 케이스를 전수 재검증해 하드코딩 없이
+# 일반적으로 태그를 해제한다(날짜는 원장 표기가 '26.06.24'/'2026.06.24' 등 탭마다 달라 d10()으로
+# 정규화한 별도 인덱스를 쓴다 — rowidx는 원본 문자열 그대로라 이 재검증엔 못 씀).
+rowidx_norm={}
+try:
+    for r4 in csv.DictReader(open('data/manual_v4.csv',encoding='utf-8')):
+        try: a4=round(float(r4['amount']))
+        except: continue
+        rowidx_norm.setdefault((normtab(r4['tab']), d10(r4['date']), r4['item'].strip(), a4), []).append(r4)
+except FileNotFoundError:
+    pass
+def _period_of(desc):
+    m=re.search(r'(\d{4}_\d{4})', desc or '')
+    return m.group(1) if m else ''
+_stale_fixed=0
+for _r in cls:
+    if '미입력추정(수기장부 없음)' not in (_r['note'] or ''): continue
+    try: _amt=round(abs(float(str(_r['krw']).replace(',','') or 0)))
+    except: continue
+    _hit=rowidx_norm.get((normtab(_r['bucket']), _r['use_date'], (_r['merchant'] or '').strip(), _amt))
+    if not _hit: continue
+    _m4=_hit.pop(0)
+    _stale_fixed+=1
+    _per=_period_of(_m4.get('desc',''))
+    _r['note']=re.sub(r'\s*\|?\s*미입력추정\(수기장부 없음\)', '', _r['note']).strip(' |') \
+        + ' | ⇄원장 재확인(수기%s행'%_m4['row'] + (', 기간%s'%_per if _per else '') + ')'
+if _stale_fixed:
+    print('★ 미입력추정 잔존태그 일반 재검증: %d건 해제(원장 갱신 반영, 하드코딩 없이 tab+날짜+가맹+금액 대조)'%_stale_fixed)
 def is_q2(tab):
     m=re.match(r'(\d{2})(\d{2})',tab or ''); mm=re.match(r'(\d+)월',tab or '')
     if m: return 4<=int(m.group(1))<=6

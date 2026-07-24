@@ -83,6 +83,16 @@ if 'HAN-3385' in by_uid:
     check('HAN-3385(AVIS) 금액 392,606(실캡처액)으로 교정', float(by_uid['HAN-3385']['krw']) == 392606,
           by_uid['HAN-3385']['krw'])
 
+print('== 미입력추정 잔존태그 일반 재검증 회귀(2026-07-24 사용자 "기간 문제 아직도 안고쳤네" 지적) ==')
+# CONFIRMED_BOOK(patch_v14.py)이 UID 4개짜리 하드코딩이라 AGODA EN RESORT 3건(KBO-0363/4/5)처럼
+# 같은 클래스가 다시 걸려도 못 잡던 것을, build_v13_trip.py에 tab+날짜+가맹+금액 일반 재검증을
+# 추가해 하드코딩 없이 해제되게 했다. 원장 자체에 기간(E열)이 없어 기간은 못 채웠지만 최소한
+# "수기장부 없음"이라는 잘못된 진단은 없어야 한다.
+for uid in ('KBO-0363', 'KBO-0364', 'KBO-0365'):
+    if uid in by_uid:
+        check(f'{uid}(AGODA EN RESORT) 미입력추정 태그 해제', '미입력' not in (by_uid[uid]['note'] or ''),
+              by_uid[uid]['note'])
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
