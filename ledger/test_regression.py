@@ -70,6 +70,19 @@ if 'TRIP-0094' in by_uid and 'KBD-0777' in by_uid:
 else:
     check('트래블로버 2건 둘 다 보존', False, f"TRIP-0094={'TRIP-0094' in by_uid}, KBD-0777={'KBD-0777' in by_uid}")
 
+print('== 유럽 렌터카 만료 사전승인 홀드 유령 회귀(2026-07-24 사용자 "왜 수기미기재라고 하는지" 지적) ==')
+# HERTZ·SICILY BY CAR·AVIS BUDGET·LOONG AGE 4건이 5월_유럽 수기장부에 분명히 있는데도
+# 카드사용내역_미배정(수기미기재)으로 잘못 뜬 원인: 같은 승인번호로 진짜 캡처된 레코드가 따로
+# 있는 '미매입' 홀드(만료된 사전승인, 실체0)가 base 선매칭을 가로채 진짜 캡처건을 고아로 만듦.
+GHOST_HOLD_MERCHANTS = ['HERTZ INTERNATIONAL FRAN', 'SICILY BY CAR', 'AVIS BUDGET PARIS GARE D', 'LOONG AGE']
+for m in GHOST_HOLD_MERCHANTS:
+    hit = [r for r in rows if m in r['merchant'] and r['bucket'] == '카드사용내역_미배정']
+    check(f'{m} 카드사용내역_미배정에 없음(만료 홀드/리버설 유령 제외됨)', not hit,
+          [(r['uid'], r['krw']) for r in hit])
+if 'HAN-3385' in by_uid:
+    check('HAN-3385(AVIS) 금액 392,606(실캡처액)으로 교정', float(by_uid['HAN-3385']['krw']) == 392606,
+          by_uid['HAN-3385']['krw'])
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
@@ -84,8 +97,8 @@ for bucket, amt, label in DUP_WATCH:
 
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 318_134_680
-EXPECTED_ROWS = 1819
+EXPECTED_TOTAL = 317_760_836
+EXPECTED_ROWS = 1818
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')

@@ -53,7 +53,13 @@ cards=[]
 _rows=load_named('E'); _n0=len(cards)
 for r in _rows:
     if i(r['총결제금액']):
-        cards.append(dict(co='국민',use=d10(r['승인일']) or d10(r['매입일']),c4=r['카드번호'][-4:],amt=i(r['총결제금액']),mer=r['가맹점명'],fx=r['현지이용금액'],cur=r['통화코드'],sub='해외',src='KBO',cx=(r['결제방법']=='취소매출'),appr=''))
+        # ★2026-07-24 LOONG AGE 실측 발견: '결제방법'=='취소매출' 문자열만 취소로 인식해서
+        #   '리버설-일시불매출'(리버설 취소)이 정상매출로 오분류됐다 — byamt에 정상건과 동일 버킷
+        #   (금액,False)으로 섞여 base 선매칭이 원거래 대신 리버설 레코드를 오배정, 진짜 원거래가
+        #   고아로 남아 카드사용내역_미배정에 유령 재등장(MISC-0003, LOONG AGE 421,101 이미 KBO-2818/
+        #   2833로 순액0 상쇄된 건인데 또 나타남).
+        cx=(r['결제방법']=='취소매출' or '리버설' in (r['결제방법'] or ''))
+        cards.append(dict(co='국민',use=d10(r['승인일']) or d10(r['매입일']),c4=r['카드번호'][-4:],amt=i(r['총결제금액']),mer=r['가맹점명'],fx=r['현지이용금액'],cur=r['통화코드'],sub='해외',src='KBO',cx=cx,appr=''))
 _report('E(국민해외)', len(_rows), cards[_n0:])
 _rows=load_named('F'); _n0=len(cards)
 for r in _rows:
@@ -72,7 +78,7 @@ for f in ('G','H'):
             #   카드사용내역_미배정에 가짜 비용누락으로 잡힌다(H파일 89건 7,753,748원·G파일 2건 454,176원 실측).
             if r['상태']=='승인취소': continue
             gu='해외' if '해외' in (r['이용구분'] or '') else '국내'
-            cards.append(dict(co='하나',use=d10(r['이용일']),c4=r['카드번호'][-4:],amt=i(r['매입금액']) or i(r['승인금액']),mer=r['가맹점명'],fx='',cur='',sub=gu,src='HAN',cx=(i(r['승인취소금액'])!=0),appr=re.sub(r'\D','',r['승인번호'])))
+            cards.append(dict(co='하나',use=d10(r['이용일']),c4=r['카드번호'][-4:],amt=i(r['매입금액']) or i(r['승인금액']),mer=r['가맹점명'],fx='',cur='',sub=gu,src='HAN',cx=(i(r['승인취소금액'])!=0),appr=re.sub(r'\D','',r['승인번호']),mae=str(r['매입'] or '')))
     # ★불변조건 체크(2026-07-24, "2번 적용"): G/H 원본 자체에 승인/매입/승인취소 건수가 요약돼 있다
     #   (row1~3). 승인건수-승인취소건수=매입 대상 건수와 실제 편입건수를 대조 — 조용히 안 맞으면
     #   사람이 스프레드시트를 열기 전에 여기서 먼저 경고한다.
@@ -94,6 +100,25 @@ for f in ('G','H'):
         else:
             print('✓ %s 불변조건 통과: 원본 승인건수=편입건수=%d건'%(f,_got))
     _report('%s(하나)'%f, len(_rows), cards[_n0:])
+
+# ★2026-07-24 실측 발견(유럽 렌터카 3건 2,158,325원 — HERTZ·SICILY BY CAR·AVIS BUDGET): '미매입'
+#   상태로 남은 승인은 사전승인 홀드가 나중에 다른 매입(무승인 매입 등)으로 대체·정산된 잔재로,
+#   실제 재무영향은 0인 유령이다(같은 승인번호로 진짜 캡처된 레코드가 별도로 존재하는 경우에 한함
+#   — 전수조사 결과 이 조건에 맞는 건 정확히 이 3건뿐, 캡처 대응이 없는 나머지 13건 751,797원의
+#   '미매입'은 그대로 실거래로 유지). base 선매칭(_by_appr)이 승인번호만 보고 금액검증 없이 아무거나
+#   고르다 이 홀드를 base로 오배정하고, 진짜 캡처건이 고아로 남아 카드사용내역_미배정에 유령
+#   재등장하던 버그(HERTZ MISC-0007·SICILY MISC-0006·AVIS MISC-0005) — 매칭 대상에서 원천 배제한다.
+_appr_captured=set()
+for c in cards:
+    if c.get('appr') and c.get('mae') in ('매입','무승인 매입'):
+        _appr_captured.add((c['co'],c['appr']))
+_ghosts=0
+for c in cards:
+    if c.get('appr') and str(c.get('mae') or '').startswith('미매입') and (c['co'],c['appr']) in _appr_captured:
+        c['ghost']=True; _ghosts+=1
+        print('  ⚠ 만료 사전승인 홀드(실제캡처 별도존재, 실체0) 제외: %s %s %s원'%(c['mer'][:24], c['use'], format(c['amt'],',')))
+if _ghosts: print('만료 사전승인 홀드 %d건 매칭대상 제외'%_ghosts)
+
 _rawA=load('A_20260720'); _n0=len(cards)
 for raw in _rawA:
     r=dict(zip(A_COLS,raw))
@@ -102,7 +127,9 @@ for raw in _rawA:
         cards.append(dict(co='기업',use=r['일시'][:10],c4=r['카드번호'][-4:],amt=i(r['승인금액']),mer=r['가맹점명'],fx=(r['현지금액표기'] or '').split()[0] if r['현지금액표기'] else '',cur='JPY' if 'JPY' in (r['현지금액표기'] or '') else '',sub=gu,src='CORP',cx=(r['통화구분']=='취소또는할인'),appr=re.sub(r'\D','',r['승인번호'])))
 _report('A(기업)', len(_rawA), cards[_n0:])
 byamt=defaultdict(list)
-for c in cards: byamt[(c['amt'],c['cx'])].append(c)
+for c in cards:
+    if c.get('ghost'): continue
+    byamt[(c['amt'],c['cx'])].append(c)
 amts=sorted(set(a for a,_ in byamt))
 _used_card=set()   # 소비형: 한 카드 레코드는 한 수기행에만 배정(같은 승인 재사용·도용 방지)
 KEYWORDS=[('AGODA','아고다'),('BOOKING','부킹'),('BKG','부킹'),('TRIP.COM','트립닷컴'),('트립','트립닷컴'),
@@ -142,6 +169,18 @@ def issuer_of(card_field):
 # ---- 기존 워크북 (classified_v12) ----
 FN=['uid','src','use_date','post_date','card4','user','merchant','biz','country','currency','foreign','krw','vat','tax_type','status','biz_no','extra','bucket','account','cancel','cost_type','vat_tag','confidence','note','tax_conf','appr','orig_appr']
 cls=list(csv.DictReader(open('data/classified_v12.csv',encoding='utf-8')))
+# ★2026-07-24 AVIS BUDGET(파리 역 렌터카) 금액교정: HAN-3385가 base 구축 당시 "추정"으로 표기한
+#   366,794원(appr 00107633, 06-06 이용)은 실제로는 미매입 상태로 남은 사전승인 홀드였고, 같은
+#   승인번호로 06-10에 무승인 매입(실제 캡처)된 392,606원이 진짜 최종 정산액이다(원본 재대조로 확인).
+#   366,794는 위 '만료 사전승인 홀드' 로직으로 매칭대상에서 빠지므로, base에 이미 박제된 HAN-3385의
+#   금액 자체를 최종 캡처액으로 교정하지 않으면 진짜 정산액(392,606)이 통째로 미반영된다.
+APPR_KRW_FIX={('HAN','00107633'):392606}
+for _r in cls:
+    _fixk=APPR_KRW_FIX.get((_r['src'], _r.get('appr','')))
+    if _fixk:
+        print('  ⚠ base 금액교정(2026-07-24, AVIS 사전승인홀드→실캡처액 대체): %s %s → %s'%(_r['uid'], _r['krw'], _fixk))
+        _r['krw']=str(_fixk)
+        _r['note']=(_r['note'] or '')+' | 금액교정 366,794(미매입 사전승인 홀드)→392,606(무승인 매입 실캡처, appr00107633 06-10 대조)'
 # 내가 v52에서 여행_미배정에 둔 ¥7,439(KBO-9002)는 수기(0417_아오모리)로 통합되므로 base에서 제거
 cls=[r for r in cls if r['uid']!='KBO-9002']
 # 2026-07-24 개칭: base(classified_v12)에 옛 이름 '여행_미배정'으로 박제된 행(카드 실체는 있으나
@@ -154,7 +193,7 @@ for _r in cls:
 _co_of={'KBD':'국민','KBO':'국민','HAN':'하나','CORP':'기업'}
 _by_appr={}
 for c in cards:
-    if c.get('appr'): _by_appr.setdefault((c['co'],c['appr']),c)
+    if c.get('appr') and not c.get('ghost'): _by_appr.setdefault((c['co'],c['appr']),c)
 for _b in cls:
     _co=_co_of.get(_b['src'],'')
     if not _co: continue
@@ -333,7 +372,7 @@ for r in man:
 _mi=0; misc=[]; misctot=0; miscissuer=Counter()
 _ISS={'KBO':'국민','KBD':'국민','HAN':'하나','CORP':'기업'}
 for c in cards:
-    if id(c) in _used_card: continue
+    if id(c) in _used_card or c.get('ghost'): continue
     u=c.get('use') or ''
     if not ('2026-04-01'<=u<='2026-06-30'): continue   # Q2 승인만(Q1 선결제 미매칭은 여기 제외 — 대응 여행탭 불명)
     _mi+=1
@@ -356,7 +395,7 @@ new += misc
 # ── 대사 게이트 (사용자 "왜 계속 누락"): Q2 승인 카드가 base·수기·미배정 어디에도 없으면 누락 → 경고 ──
 #   ★1순위 목표 검증 게이트: 카드사용내역_미배정=0건이 이상적. 지금은 위 옵션①로 전량 격리해 가시화만 함
 #   (사용자가 자동귀속을 기각했으므로 0으로 만드는 건 대표님의 개별 배정 확인이 필요).
-_lost=[c for c in cards if id(c) not in _used_card and '2026-04-01'<=(c.get('use') or '')<='2026-06-30']
+_lost=[c for c in cards if id(c) not in _used_card and not c.get('ghost') and '2026-04-01'<=(c.get('use') or '')<='2026-06-30']
 if _lost:
     print('⚠️ 대사 실패: Q2 승인 카드 %d건이 어디에도 편입 안 됨(누락):'%len(_lost))
     for c in _lost[:20]: print('   ', c['co'], c['use'], format(c['amt'],','), (c['mer'] or '')[:24])
