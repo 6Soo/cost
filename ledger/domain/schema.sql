@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 );
 
 INSERT OR IGNORE INTO schema_versions(version) VALUES (1);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (2);
 
 -- 원천은 불변이다. 같은 파일의 같은 행을 다시 해석하더라도 원문은 이 계층에 남는다.
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -66,6 +67,30 @@ CREATE TABLE IF NOT EXISTS transaction_sources (
     PRIMARY KEY(transaction_id, source_record_id)
 );
 
+-- payment_transactions는 현재 투영이고, 실제 결제 사실 변경 이력은 이 표에
+-- append-only로 보존한다. 같은 transaction/version을 수정하거나 덮어쓰지 않는다.
+CREATE TABLE IF NOT EXISTS payment_transaction_versions (
+    id INTEGER PRIMARY KEY,
+    transaction_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    record_version INTEGER NOT NULL CHECK(record_version > 0),
+    source_record_id INTEGER NOT NULL REFERENCES source_records(id),
+    payment_method_id INTEGER REFERENCES payment_methods(id),
+    source_system TEXT NOT NULL,
+    occurred_on TEXT,
+    posted_on TEXT,
+    merchant TEXT NOT NULL DEFAULT '',
+    business_category TEXT,
+    country TEXT,
+    currency TEXT,
+    foreign_amount TEXT,
+    amount_krw INTEGER NOT NULL,
+    approval_number TEXT,
+    transaction_type TEXT NOT NULL
+        CHECK(transaction_type IN ('purchase', 'cancellation', 'refund', 'adjustment')),
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(transaction_id, record_version)
+);
+
 -- 취소/환불의 원승인 관계. 상대 거래가 아직 없더라도 참조값은 보존한다.
 CREATE TABLE IF NOT EXISTS transaction_relations (
     id INTEGER PRIMARY KEY,
@@ -75,6 +100,11 @@ CREATE TABLE IF NOT EXISTS transaction_relations (
     reference_value TEXT,
     match_method TEXT NOT NULL,
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    relation_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(relation_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     UNIQUE(transaction_id, relation_type, reference_value)
 );
 
@@ -97,7 +127,10 @@ CREATE TABLE IF NOT EXISTS payment_booking_links (
     relation_type TEXT NOT NULL DEFAULT 'pays_for',
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     link_status TEXT NOT NULL DEFAULT 'legacy'
-        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected')),
+        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     PRIMARY KEY(payment_id, booking_id, relation_type)
 );
 
@@ -126,7 +159,10 @@ CREATE TABLE IF NOT EXISTS booking_target_links (
     target_id INTEGER NOT NULL REFERENCES allocation_targets(id),
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     link_status TEXT NOT NULL DEFAULT 'legacy'
-        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected')),
+        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     PRIMARY KEY(booking_id, target_id)
 );
 
@@ -196,6 +232,8 @@ CREATE TABLE IF NOT EXISTS cost_allocations (
 CREATE INDEX IF NOT EXISTS allocation_plans_by_payment ON allocation_plans(payment_id);
 CREATE INDEX IF NOT EXISTS allocations_by_plan ON cost_allocations(plan_id);
 CREATE INDEX IF NOT EXISTS allocations_by_target ON cost_allocations(target_id);
+CREATE INDEX IF NOT EXISTS payment_versions_by_transaction
+ON payment_transaction_versions(transaction_id, record_version);
 
 -- 장부는 확정된 배분을 소비하는 출력이다. 원천·판정과 독립적으로 롤백/재생성한다.
 CREATE TABLE IF NOT EXISTS journal_entries (
@@ -216,6 +254,21 @@ CREATE VIEW IF NOT EXISTS current_classification_decisions AS
 SELECT *
 FROM classification_decisions
 WHERE superseded_by_id IS NULL;
+
+CREATE VIEW IF NOT EXISTS current_payment_booking_links AS
+SELECT *
+FROM payment_booking_links
+WHERE link_status NOT IN ('rejected', 'superseded');
+
+CREATE VIEW IF NOT EXISTS current_booking_target_links AS
+SELECT *
+FROM booking_target_links
+WHERE link_status NOT IN ('rejected', 'superseded');
+
+CREATE VIEW IF NOT EXISTS current_transaction_relations AS
+SELECT *
+FROM transaction_relations
+WHERE relation_status NOT IN ('rejected', 'superseded');
 
 CREATE VIEW IF NOT EXISTS current_cost_allocations AS
 SELECT

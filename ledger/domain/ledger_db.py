@@ -10,6 +10,7 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -21,7 +22,17 @@ from typing import Iterable
 
 HERE = Path(__file__).resolve().parent
 LEDGER_DIR = HERE.parent
-DEFAULT_DB = LEDGER_DIR / "data" / "ledger_v2.db"
+def default_db_path() -> Path:
+    configured = os.environ.get("COST_LEDGER_DB")
+    if configured:
+        return Path(configured).expanduser()
+    local_root = os.environ.get("LOCALAPPDATA")
+    if local_root:
+        return Path(local_root) / "SoopgilTravel" / "cost" / "ledger_v2.db"
+    return Path.home() / ".local" / "share" / "soopgil-cost" / "ledger_v2.db"
+
+
+DEFAULT_DB = default_db_path()
 DEFAULT_CSV = LEDGER_DIR / "data" / "classified_v14.csv"
 DEFAULT_TRIPS = LEDGER_DIR / "data" / "trips.json"
 DEFAULT_BOOKINGS = LEDGER_DIR / "data" / "booking_info.json"
@@ -220,9 +231,17 @@ def upsert_payment(
     db: sqlite3.Connection,
     row: dict[str, str],
     method_id: int,
+    source_record_id: int,
 ) -> int:
     amount = parse_int(row.get("krw"))
-    transaction_type = "cancellation" if is_true(row.get("cancel")) or amount < 0 else "purchase"
+    if amount < 0:
+        transaction_type = "refund"
+    elif is_true(row.get("cancel")):
+        transaction_type = "cancellation"
+    elif amount == 0:
+        transaction_type = "adjustment"
+    else:
+        transaction_type = "purchase"
     values = (
         row["uid"],
         method_id,
@@ -242,14 +261,23 @@ def upsert_payment(
         """
         SELECT payment_method_id, source_system, occurred_on, posted_on, merchant,
                business_category, country, currency, foreign_amount, amount_krw,
-               approval_number, transaction_type
+               approval_number, transaction_type, record_version
         FROM payment_transactions WHERE external_key=?
         """,
         (row["uid"],),
     ).fetchone()
+    if (
+        existing is not None
+        and amount < 0
+        and existing["transaction_type"] in {"cancellation", "refund"}
+    ):
+        # Preserve the previously resolved semantic type while comparing raw
+        # card facts. The relation pass below will append a new version only
+        # when the original/refund amounts change that conclusion.
+        values = values[:-1] + (existing["transaction_type"],)
     comparable = values[1:]
     if existing is None:
-        db.execute(
+        payment_id = int(db.execute(
             """
             INSERT INTO payment_transactions(
                 external_key, payment_method_id, source_system, occurred_on, posted_on,
@@ -258,8 +286,16 @@ def upsert_payment(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
+        ).lastrowid)
+        record_version = 1
+    elif tuple(existing[:-1]) != comparable:
+        payment_id = int(
+            db.execute(
+                "SELECT id FROM payment_transactions WHERE external_key=?",
+                (row["uid"],),
+            ).fetchone()[0]
         )
-    elif tuple(existing) != comparable:
+        record_version = int(existing["record_version"]) + 1
         db.execute(
             """
             UPDATE payment_transactions SET
@@ -271,9 +307,26 @@ def upsert_payment(
             """,
             comparable + (row["uid"],),
         )
-    return int(
-        db.execute("SELECT id FROM payment_transactions WHERE external_key=?", (row["uid"],)).fetchone()[0]
+    else:
+        return int(
+            db.execute(
+                "SELECT id FROM payment_transactions WHERE external_key=?",
+                (row["uid"],),
+            ).fetchone()[0]
+        )
+
+    db.execute(
+        """
+        INSERT INTO payment_transaction_versions(
+            transaction_id, record_version, source_record_id, payment_method_id,
+            source_system, occurred_on, posted_on, merchant, business_category,
+            country, currency, foreign_amount, amount_krw, approval_number,
+            transaction_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (payment_id, record_version, source_record_id) + comparable,
     )
+    return payment_id
 
 
 def ensure_trip(
@@ -590,6 +643,33 @@ def import_legacy(
                 (str(csv_path.resolve()), digest),
             ).lastrowid
         )
+        # classified_v14 is a complete snapshot. End only legacy-derived links
+        # before rebuilding the current projection; confirmed/proposed links
+        # from later evidence remain untouched.
+        db.execute(
+            """
+            UPDATE payment_booking_links
+            SET link_status='superseded', superseded_by_document_id=?
+            WHERE link_status='legacy'
+            """,
+            (document_id,),
+        )
+        db.execute(
+            """
+            UPDATE booking_target_links
+            SET link_status='superseded', superseded_by_document_id=?
+            WHERE link_status='legacy'
+            """,
+            (document_id,),
+        )
+        db.execute(
+            """
+            UPDATE transaction_relations
+            SET relation_status='superseded', superseded_by_document_id=?
+            WHERE relation_status='legacy'
+            """,
+            (document_id,),
+        )
 
         imported_payment_ids: list[int] = []
         approval_lookup: dict[tuple[str, str], int] = {}
@@ -611,7 +691,7 @@ def import_legacy(
                 ).lastrowid
             )
             method_id = upsert_payment_method(db, row)
-            payment_id = upsert_payment(db, row, method_id)
+            payment_id = upsert_payment(db, row, method_id, source_record_id)
             imported_payment_ids.append(payment_id)
             db.execute(
                 """
@@ -623,11 +703,15 @@ def import_legacy(
 
             issuer = ISSUER_BY_SOURCE.get(row.get("src", ""), row.get("src", ""))
             approval = re.sub(r"\D", "", row.get("appr", ""))
-            if approval and not is_true(row.get("cancel")):
+            if approval and parse_int(row.get("krw")) > 0 and not is_true(row.get("cancel")):
                 approval_lookup[(issuer, approval)] = payment_id
             original = re.sub(r"\D", "", row.get("orig_appr", ""))
             if original:
                 pending_relations.append((payment_id, issuer, original))
+            elif parse_int(row.get("krw")) < 0:
+                pending_relations.append(
+                    (payment_id, issuer, f"missing:{row['uid']}")
+                )
 
             confidence_label = row.get("confidence") or "하"
             confidence = CONFIDENCE.get(confidence_label, 0.3)
@@ -709,20 +793,39 @@ def import_legacy(
                 db.execute(
                     """
                     INSERT INTO payment_booking_links(
-                        payment_id, booking_id, relation_type, confidence, link_status
-                    ) VALUES (?, ?, 'pays_for', ?, 'legacy')
+                        payment_id, booking_id, relation_type, confidence, link_status,
+                        first_seen_document_id, last_seen_document_id
+                    ) VALUES (?, ?, 'pays_for', ?, 'legacy', ?, ?)
                     ON CONFLICT(payment_id, booking_id, relation_type) DO UPDATE SET
-                        confidence=excluded.confidence
+                        confidence=excluded.confidence,
+                        link_status='legacy',
+                        first_seen_document_id=COALESCE(
+                            payment_booking_links.first_seen_document_id,
+                            excluded.first_seen_document_id
+                        ),
+                        last_seen_document_id=excluded.last_seen_document_id,
+                        superseded_by_document_id=NULL
                     """,
-                    (payment_id, booking_id, confidence),
+                    (payment_id, booking_id, confidence, document_id, document_id),
                 )
                 db.execute(
                     """
-                    INSERT INTO booking_target_links(booking_id, target_id, confidence, link_status)
-                    VALUES (?, ?, ?, 'legacy')
-                    ON CONFLICT(booking_id, target_id) DO UPDATE SET confidence=excluded.confidence
+                    INSERT INTO booking_target_links(
+                        booking_id, target_id, confidence, link_status,
+                        first_seen_document_id, last_seen_document_id
+                    )
+                    VALUES (?, ?, ?, 'legacy', ?, ?)
+                    ON CONFLICT(booking_id, target_id) DO UPDATE SET
+                        confidence=excluded.confidence,
+                        link_status='legacy',
+                        first_seen_document_id=COALESCE(
+                            booking_target_links.first_seen_document_id,
+                            excluded.first_seen_document_id
+                        ),
+                        last_seen_document_id=excluded.last_seen_document_id,
+                        superseded_by_document_id=NULL
                     """,
-                    (booking_id, target_id, confidence),
+                    (booking_id, target_id, confidence, document_id, document_id),
                 )
 
             allocation_booking_id = linked_bookings[0] if len(linked_bookings) == 1 else None
@@ -737,26 +840,115 @@ def import_legacy(
             )
 
         for transaction_id, issuer, original in pending_relations:
-            related_id = approval_lookup.get((issuer, original))
+            has_original_reference = not original.startswith("missing:")
+            related_id = (
+                approval_lookup.get((issuer, original))
+                if has_original_reference else None
+            )
             if related_id == transaction_id:
                 related_id = None
+            refund_amount = int(
+                db.execute(
+                    "SELECT amount_krw FROM payment_transactions WHERE id=?",
+                    (transaction_id,),
+                ).fetchone()[0]
+            )
+            original_amount = (
+                int(
+                    db.execute(
+                        "SELECT amount_krw FROM payment_transactions WHERE id=?",
+                        (related_id,),
+                    ).fetchone()[0]
+                )
+                if related_id is not None else None
+            )
+            is_full_cancellation = (
+                original_amount is not None
+                and refund_amount < 0
+                and abs(refund_amount) == abs(original_amount)
+            )
+            relation_type = "cancels" if is_full_cancellation else "refunds"
+            transaction_type = "cancellation" if is_full_cancellation else "refund"
+            current_type = str(
+                db.execute(
+                    "SELECT transaction_type FROM payment_transactions WHERE id=?",
+                    (transaction_id,),
+                ).fetchone()[0]
+            )
+            if current_type != transaction_type:
+                latest_source_record_id = int(
+                    db.execute(
+                        """
+                        SELECT source_record_id
+                        FROM payment_transaction_versions
+                        WHERE transaction_id=?
+                        ORDER BY record_version DESC
+                        LIMIT 1
+                        """,
+                        (transaction_id,),
+                    ).fetchone()[0]
+                )
+                db.execute(
+                    """
+                    UPDATE payment_transactions
+                    SET transaction_type=?, record_version=record_version+1,
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE id=?
+                    """,
+                    (transaction_type, transaction_id),
+                )
+                db.execute(
+                    """
+                    INSERT INTO payment_transaction_versions(
+                        transaction_id, record_version, source_record_id,
+                        payment_method_id, source_system, occurred_on, posted_on,
+                        merchant, business_category, country, currency,
+                        foreign_amount, amount_krw, approval_number,
+                        transaction_type
+                    )
+                    SELECT
+                        id, record_version, ?, payment_method_id, source_system,
+                        occurred_on, posted_on, merchant, business_category,
+                        country, currency, foreign_amount, amount_krw,
+                        approval_number, transaction_type
+                    FROM payment_transactions
+                    WHERE id=?
+                    """,
+                    (latest_source_record_id, transaction_id),
+                )
             db.execute(
-                """
+                f"""
                 INSERT INTO transaction_relations(
                     transaction_id, related_transaction_id, relation_type,
-                    reference_value, match_method, confidence
-                ) VALUES (?, ?, 'cancels', ?, ?, ?)
+                    reference_value, match_method, confidence, relation_status,
+                    first_seen_document_id, last_seen_document_id
+                ) VALUES (?, ?, '{relation_type}', ?, ?, ?, 'legacy', ?, ?)
                 ON CONFLICT(transaction_id, relation_type, reference_value) DO UPDATE SET
                     related_transaction_id=excluded.related_transaction_id,
                     match_method=excluded.match_method,
-                    confidence=excluded.confidence
+                    confidence=excluded.confidence,
+                    relation_status='legacy',
+                    first_seen_document_id=COALESCE(
+                        transaction_relations.first_seen_document_id,
+                        excluded.first_seen_document_id
+                    ),
+                    last_seen_document_id=excluded.last_seen_document_id,
+                    superseded_by_document_id=NULL
                 """,
                 (
                     transaction_id,
                     related_id,
                     original,
-                    "issuer+original_approval" if related_id else "unresolved_original_approval",
-                    1.0 if related_id else 0.5,
+                    (
+                        "issuer+original_approval"
+                        if related_id
+                        else "unresolved_original_approval"
+                        if has_original_reference
+                        else "missing_original_reference"
+                    ),
+                    1.0 if related_id else 0.5 if has_original_reference else 0.2,
+                    document_id,
+                    document_id,
                 ),
             )
 
@@ -831,6 +1023,9 @@ def validation_report(
         "source_documents": scalar(db, "SELECT COUNT(*) FROM source_documents"),
         "source_records": scalar(db, "SELECT COUNT(*) FROM source_records"),
         "transactions": transaction_count,
+        "transaction_versions": scalar(
+            db, "SELECT COUNT(*) FROM payment_transaction_versions"
+        ),
         "transaction_total_krw": transaction_total,
         "bookings": scalar(db, "SELECT COUNT(*) FROM bookings"),
         "trips": scalar(db, "SELECT COUNT(*) FROM trips"),
@@ -839,10 +1034,28 @@ def validation_report(
         "allocation_total_krw": allocation_total,
         "allocation_mismatches": mismatches,
         "current_decisions": scalar(db, "SELECT COUNT(*) FROM current_classification_decisions"),
-        "transaction_relations": scalar(db, "SELECT COUNT(*) FROM transaction_relations"),
+        "transaction_relations": scalar(
+            db,
+            """
+            SELECT COUNT(*) FROM transaction_relations
+            WHERE relation_status NOT IN ('rejected', 'superseded')
+            """,
+        ),
         "resolved_transaction_relations": scalar(
             db,
-            "SELECT COUNT(*) FROM transaction_relations WHERE related_transaction_id IS NOT NULL",
+            """
+            SELECT COUNT(*) FROM transaction_relations
+            WHERE related_transaction_id IS NOT NULL
+              AND relation_status NOT IN ('rejected', 'superseded')
+            """,
+        ),
+        "superseded_payment_booking_links": scalar(
+            db,
+            "SELECT COUNT(*) FROM payment_booking_links WHERE link_status='superseded'",
+        ),
+        "superseded_booking_target_links": scalar(
+            db,
+            "SELECT COUNT(*) FROM booking_target_links WHERE link_status='superseded'",
         ),
     }
     report["valid"] = (
@@ -892,7 +1105,11 @@ def review_report(db: sqlite3.Connection) -> dict[str, int]:
         ),
         "unresolved_transaction_relations": scalar(
             db,
-            "SELECT COUNT(*) FROM transaction_relations WHERE related_transaction_id IS NULL",
+            """
+            SELECT COUNT(*) FROM transaction_relations
+            WHERE related_transaction_id IS NULL
+              AND relation_status NOT IN ('rejected', 'superseded')
+            """,
         ),
         "unknown_booking_providers": scalar(
             db,
@@ -904,7 +1121,7 @@ def review_report(db: sqlite3.Connection) -> dict[str, int]:
             SELECT COUNT(*) FROM (
                 SELECT booking_id
                 FROM booking_target_links
-                WHERE link_status <> 'rejected'
+                WHERE link_status NOT IN ('rejected', 'superseded')
                 GROUP BY booking_id
                 HAVING COUNT(DISTINCT target_id) > 1
             )
@@ -957,7 +1174,7 @@ booking_context AS (
         GROUP_CONCAT(DISTINCT b.provider) AS booking_providers
     FROM payment_booking_links pbl
     JOIN bookings b ON b.id=pbl.booking_id
-    WHERE pbl.link_status <> 'rejected'
+    WHERE pbl.link_status NOT IN ('rejected', 'superseded')
     GROUP BY pbl.payment_id
 ),
 allocation_context AS (
@@ -1106,6 +1323,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
         LEFT JOIN booking_context bc ON bc.payment_id=p.id
         LEFT JOIN allocation_context ac ON ac.payment_id=p.id
         WHERE r.related_transaction_id IS NULL
+          AND r.relation_status NOT IN ('rejected', 'superseded')
         ORDER BY r.id
         """
     ).fetchall()
@@ -1124,7 +1342,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
                 p.amount_krw
             FROM payment_booking_links pbl
             JOIN payment_transactions p ON p.id=pbl.payment_id
-            WHERE pbl.link_status <> 'rejected'
+            WHERE pbl.link_status NOT IN ('rejected', 'superseded')
         ),
         payment_context AS (
             SELECT
@@ -1147,7 +1365,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
             FROM payment_booking_links pbl
             JOIN current_classification_decisions d
               ON d.target_type='payment' AND d.target_id=pbl.payment_id
-            WHERE pbl.link_status <> 'rejected'
+            WHERE pbl.link_status NOT IN ('rejected', 'superseded')
             GROUP BY pbl.booking_id
         ),
         target_context AS (
@@ -1156,7 +1374,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
                 GROUP_CONCAT(DISTINCT t.code) AS allocation_targets
             FROM booking_target_links btl
             JOIN allocation_targets t ON t.id=btl.target_id
-            WHERE btl.link_status <> 'rejected'
+            WHERE btl.link_status NOT IN ('rejected', 'superseded')
             GROUP BY btl.booking_id
         )
         SELECT
@@ -1189,7 +1407,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
         WITH conflicted AS (
             SELECT booking_id
             FROM booking_target_links
-            WHERE link_status <> 'rejected'
+            WHERE link_status NOT IN ('rejected', 'superseded')
             GROUP BY booking_id
             HAVING COUNT(DISTINCT target_id) > 1
         ),
@@ -1202,7 +1420,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
                 p.amount_krw
             FROM payment_booking_links pbl
             JOIN payment_transactions p ON p.id=pbl.payment_id
-            WHERE pbl.link_status <> 'rejected'
+            WHERE pbl.link_status NOT IN ('rejected', 'superseded')
         ),
         payment_context AS (
             SELECT
@@ -1225,7 +1443,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
             FROM payment_booking_links pbl
             JOIN current_classification_decisions d
               ON d.target_type='payment' AND d.target_id=pbl.payment_id
-            WHERE pbl.link_status <> 'rejected'
+            WHERE pbl.link_status NOT IN ('rejected', 'superseded')
             GROUP BY pbl.booking_id
         ),
         target_context AS (
@@ -1234,7 +1452,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
                 GROUP_CONCAT(DISTINCT t.code) AS allocation_targets
             FROM booking_target_links btl
             JOIN allocation_targets t ON t.id=btl.target_id
-            WHERE btl.link_status <> 'rejected'
+            WHERE btl.link_status NOT IN ('rejected', 'superseded')
             GROUP BY btl.booking_id
         )
         SELECT
