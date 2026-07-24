@@ -186,15 +186,25 @@ for r in allrows:
         pos_key[(r['bucket'],abs(i(r['krw'])))]+=1
 # 같은 탭·같은 예약(desc핵심) 양수 존재 = 부분환불(원거래가 다른 금액으로 이미 있음) → 그대로 둠(정당 차감), 팬텀탐색 대상 아님
 pos_desc=defaultdict(list)
+pos_datemer=defaultdict(list)
 for r in allrows:
     if str(r.get('cancel')).lower() not in ('true','1') and i(r['krw'])>0:
         c=desc_core(r['note']) if r['uid'].startswith(('TRIP-','ORIG-')) else ''
         if c: pos_desc[(r['bucket'],c)].append(r)
+        if r.get('use_date') and r.get('merchant'):
+            pos_datemer[(r['bucket'], r['use_date'], r['merchant'])].append(r)
 paired=[]; pn=0; drop_uids=set(); unresolved=[]; partial=0
 for r in kept:
     if str(r.get('cancel')).lower() in ('true','1') and pos_key.get((r['bucket'],abs(i(r['krw']))),0)==0:
         rc=desc_core(r['note'])
-        if rc and pos_desc.get((r['bucket'],rc)):
+        # ★2026-07-24 사용자 지적(트립닷컴_니가타 -519,200 소실) 실측: 취소행의 수기 내용이
+        #   원거래보다 부실할 수 있다(원거래엔 "항공_지광수 임경자_0630_0704", 취소엔 그냥 "항공"만
+        #   있어서 desc_core가 서로 달라짐 — "지광수임경자" ≠ "항공") → 정상적인 부분환불인데도
+        #   desc_core 불일치로 원거래 탐색을 못 걸었다. 같은 탭·같은 날짜·같은 가맹명(글자 그대로
+        #   일치)의 양수건이 있으면 desc_core가 달라도 부분환불로 인정한다(날짜+가맹명 완전일치는
+        #   desc_core보다 강한 신호).
+        dm_hit = pos_datemer.get((r['bucket'], r.get('use_date'), r.get('merchant')))
+        if (rc and pos_desc.get((r['bucket'],rc))) or dm_hit:
             partial+=1; continue   # 부분환불: 원거래(다른 금액)가 이미 존재 → 손대지 않고 차감 유지
         a=abs(i(r['krw'])); co=CO.get(r['src'],''); rb=brand(r['merchant'])
         cand=[c for c in cards if not c['cancel'] and abs(c['krw'])==a and c['co']==co]

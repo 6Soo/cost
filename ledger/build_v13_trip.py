@@ -146,8 +146,21 @@ def card_match(a, co, want_cx=False, item=None):
         lo,hi=a*0.98,a*1.02
         cand=[c for x in amts if lo<=x<=hi for c in byamt.get((x,want_cx),[])]
     pool=[c for c in cand if c['co']==co and id(c) not in _used_card]
+    cross=False
+    if not pool and item:
+        # ★2026-07-24 사용자 지시("하나카드에서도 확인했어?"): 수기장부의 카드사 표기가 오기일 수
+        #   있다(실측: 트립닷컴_니가타 699,200원이 원장엔 "국민"으로 적혀있었지만 실제로는 하나카드
+        #   appr13328907로 결제됨 — 다른 탭 옆줄엔 같은 사람 예약이 '트립코인'으로 적혀있어 카드열
+        #   자체가 안 믿을 만한 필드였음). 지정 카드사에서 못 찾으면 금액(±동일/근사)+가맹명 키워드가
+        #   맞는 다른 카드사도 확인한다 — 단 키워드 없이 순수 금액만으로 타사까지 폴백하면 서로 다른
+        #   사람의 우연히 같은 금액인 거래를 훔칠 위험이 커서, 키워드 일치가 있을 때만 허용한다.
+        other=[c for c in cand if c['co']!=co and id(c) not in _used_card]
+        ikw=_kw_of(item)
+        if ikw and other:
+            kw_other=[c for c in other if _kw_of(c['mer']) & ikw]
+            if kw_other: pool=kw_other; cross=True
     if not pool: return None
-    if item:
+    if item and not cross:
         ikw=_kw_of(item)
         if ikw:
             kw_pool=[c for c in pool if _kw_of(c['mer']) & ikw]
@@ -374,6 +387,11 @@ for r in man:
             cardcell = cm['amt'] if a>=0 else -cm['amt']
             fx=cm['fx']; cur=cm['cur']; ap=cm.get('appr','')
             if cm['sub']=='국내': country='KR'
+            # ★타사 폴백 매칭 시(수기 카드열 오기) 실제 카드사로 표기 교정 — 원장 오기를 note에
+            #   그대로 베끼면 감사흔적이 틀린 카드사를 가리키게 된다(실측: 트립닷컴_니가타 699,200
+            #   원장="국민" 표기이나 실결제는 하나카드).
+            if cm.get('co') and cm['co']!=issuer:
+                issuer=cm['co']; src=cm.get('src') or src
             # ★규칙(사용자 확정): 환불→원거래 연결은 '승인번호' 기준. 국민국내=괄호형 원승인, 하나=동일행 승인번호.
             if a<0: oap=cm.get('orig','') or (ap if cm.get('src')=='HAN' else '')
         percard[issuer]+=1

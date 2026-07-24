@@ -107,6 +107,20 @@ coffee = [r for r in rows if '커피빈코리아 인천공항탑숭동105GATE' i
 check('커피빈코리아 10,500원 1건만 존재(중복 유령매칭 없음)', len(coffee) == 1,
       [(r['uid'], r['appr']) for r in coffee])
 
+print('== 트립닷컴_니가타 타사(하나) 카드 확인 + 부분환불 보존 회귀(2026-07-24 사용자 지적) ==')
+# 원장(0630_오제 48행)엔 카드사가 "국민"으로 적혀있었지만 실제로는 하나카드(appr13328907)로
+# 결제된 699,200원 건 — 국민에서만 찾다 실패해 OTA_미배정으로 격리되고 있었다. 지정 카드사에서
+# 못 찾으면 가맹명 키워드가 맞는 다른 카드사도 확인하도록 card_match()에 추가.
+# 짝인 -519,200 취소(49행)는 desc_core가 서로 달라(원거래엔 이름 있고 취소엔 없음) 부분환불로
+# 인식 못 하고 삭제되던 것도 같은탭+같은날짜+같은가맹명 완전일치를 추가로 인정해 보존.
+niigata_pos = [r for r in rows if r['merchant']=='트립닷컴_니가타' and r['use_date']=='2026-01-15' and abs(float(r['krw'] or 0)-699200)<1]
+check('트립닷컴_니가타 699,200원(하나카드 appr13328907) 0630_오제로 정상 배치',
+      len(niigata_pos)==1 and niigata_pos[0]['bucket']=='0630_오제' and niigata_pos[0]['appr']=='13328907',
+      [(r['uid'], r['bucket'], r['appr']) for r in niigata_pos])
+niigata_neg = [r for r in rows if r['merchant']=='트립닷컴_니가타' and r['use_date']=='2026-01-15' and abs(float(r['krw'] or 0)+519200)<1]
+check('트립닷컴_니가타 -519,200원 취소 보존(부분환불로 인정, 삭제 안 됨)', len(niigata_neg)==1,
+      [(r['uid'], r['bucket']) for r in niigata_neg])
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
@@ -121,8 +135,8 @@ for bucket, amt, label in DUP_WATCH:
 
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 315_775_667
-EXPECTED_ROWS = 1802
+EXPECTED_TOTAL = 316_368_653
+EXPECTED_ROWS = 1808
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')
