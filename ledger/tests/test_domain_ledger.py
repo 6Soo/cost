@@ -16,6 +16,10 @@ from ledger.domain.ledger_db import (
     LEDGER_DIR,
     REVIEW_QUEUE_METRICS,
     append_change_event,
+    apply_p1_confidence_rules,
+    apply_p3_unassigned_review,
+    apply_p4_provider_rules,
+    apply_p5_quality_audit,
     apply_change_log,
     build_review_snapshot,
     card_event_fingerprint,
@@ -143,6 +147,10 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
             db = connect(first_db_path)
             try:
                 import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                apply_p1_confidence_rules(db)
+                apply_p3_unassigned_review(db)
+                apply_p4_provider_rules(db)
+                apply_p5_quality_audit(db)
                 payment = db.execute(
                     """
                     SELECT external_key FROM payment_transactions
@@ -354,6 +362,12 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         ).fetchone()[0]
         self.assertGreater(missing_reference, 0)
 
+    def test_every_unlinked_refund_has_an_explicit_resolution_reason(self) -> None:
+        report = validation_report(self.db)
+        self.assertEqual(report["unexplained_transaction_relations"], 0)
+        self.assertGreater(report["outside_window_transaction_relations"], 0)
+        self.assertGreater(report["insufficient_evidence_transaction_relations"], 0)
+
     def test_changed_snapshot_versions_facts_and_supersedes_removed_booking_link(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -431,6 +445,30 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["engine_isolated_payments"], 11)
         self.assertEqual(report["engine_isolated_amount_krw"], 1_478_413)
         self.assertGreater(report["high_confidence_with_uncertain_rationale"], 0)
+
+    def test_p1_confidence_rules_version_conflicts_and_clear_the_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "p1.db")
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                result = apply_p1_confidence_rules(db)
+                self.assertEqual(result["remaining_high_confidence_uncertain"], 0)
+                self.assertEqual(
+                    review_report(db)["high_confidence_with_uncertain_rationale"],
+                    0,
+                )
+                self.assertTrue(validation_report(db)["valid"])
+                self.assertGreater(
+                    db.execute(
+                        """
+                        SELECT COUNT(*) FROM classification_decisions
+                        WHERE superseded_by_id IS NOT NULL
+                        """
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                db.close()
 
     def test_review_details_reproduce_every_queue_count_and_amount(self) -> None:
         report = review_report(self.db)

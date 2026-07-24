@@ -71,6 +71,45 @@ CREATE TABLE IF NOT EXISTS transaction_sources (
     PRIMARY KEY(transaction_id, source_record_id)
 );
 
+-- P6 직접 적재 원천. legacy classified CSV를 거치지 않고 카드·수기·OTA 구조화
+-- 레코드를 멱등 저장하며 원문 전체나 개인정보는 넣지 않는다.
+CREATE TABLE IF NOT EXISTS direct_source_records (
+    id INTEGER PRIMARY KEY,
+    source_kind TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    redaction_version TEXT,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_kind, source_key, source_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS direct_card_events (
+    source_record_id INTEGER PRIMARY KEY REFERENCES direct_source_records(id),
+    card_event_id TEXT NOT NULL,
+    generator_version TEXT NOT NULL,
+    identity_status TEXT NOT NULL
+        CHECK(identity_status IN ('unique', 'collision', 'legacy_fallback')),
+    source_system TEXT NOT NULL,
+    amount_krw INTEGER NOT NULL,
+    approval_number TEXT,
+    occurred_on TEXT,
+    merchant TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS direct_normalized_payments (
+    source_record_id INTEGER PRIMARY KEY REFERENCES direct_source_records(id),
+    card_event_id TEXT NOT NULL,
+    amount_krw INTEGER NOT NULL,
+    transaction_type TEXT NOT NULL
+        CHECK(transaction_type IN ('purchase', 'cancellation', 'refund', 'adjustment')),
+    normalization_version TEXT NOT NULL,
+    normalized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS direct_card_events_by_identity
+ON direct_card_events(card_event_id);
+
 -- 카드 이벤트의 안정 식별자는 legacy UID 및 비교용 fingerprint와 분리한다.
 -- 구조 정보가 부족해 같은 키가 나온 경우 자동 병합하지 않고 collision 상태로 보존한다.
 CREATE TABLE IF NOT EXISTS card_event_identities (
@@ -123,6 +162,8 @@ CREATE TABLE IF NOT EXISTS transaction_relations (
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     relation_status TEXT NOT NULL DEFAULT 'legacy'
         CHECK(relation_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    resolution_code TEXT,
+    rationale TEXT,
     first_seen_document_id INTEGER REFERENCES source_documents(id),
     last_seen_document_id INTEGER REFERENCES source_documents(id),
     superseded_by_document_id INTEGER REFERENCES source_documents(id),
@@ -173,6 +214,17 @@ CREATE TABLE IF NOT EXISTS booking_identifiers (
 
 CREATE INDEX IF NOT EXISTS booking_identifiers_by_value
 ON booking_identifiers(identifier);
+
+CREATE TABLE IF NOT EXISTS booking_provider_reviews (
+    booking_id INTEGER PRIMARY KEY REFERENCES bookings(id),
+    proposed_provider TEXT NOT NULL,
+    review_status TEXT NOT NULL
+        CHECK(review_status IN ('confirmed', 'needs_review')),
+    reason_code TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 -- 월일만 확인된 기간을 임의의 2026년 날짜로 확정하지 않는다.
 CREATE TABLE IF NOT EXISTS booking_service_period_evidence (
@@ -319,6 +371,34 @@ CREATE TABLE IF NOT EXISTS cost_allocations (
     booking_id INTEGER REFERENCES bookings(id),
     target_id INTEGER NOT NULL REFERENCES allocation_targets(id),
     amount_krw INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS allocation_review_cases (
+    payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    outcome TEXT NOT NULL
+        CHECK(outcome IN ('trip', 'overhead', 'cancellation_settlement', 'insufficient_evidence')),
+    reason_code TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    review_status TEXT NOT NULL
+        CHECK(review_status IN ('confirmed', 'needs_review')),
+    rule_id TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_quality_audits (
+    payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    audit_type TEXT NOT NULL
+        CHECK(audit_type IN ('low_confidence', 'zero_amount')),
+    category TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    recognition_amount_krw INTEGER,
+    posting_eligibility TEXT NOT NULL
+        CHECK(posting_eligibility IN ('allowed', 'blocked', 'not_applicable')),
+    audit_status TEXT NOT NULL
+        CHECK(audit_status IN ('confirmed', 'needs_review')),
+    rule_id TEXT NOT NULL,
+    audited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(payment_id, audit_type)
 );
 
 CREATE INDEX IF NOT EXISTS allocation_plans_by_payment ON allocation_plans(payment_id);
