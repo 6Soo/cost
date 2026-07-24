@@ -257,7 +257,9 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
 - `docs/CODEX_CLOUD_HANDOFF.md`를 신설해 PR #8/#9 전체 변경, v2 아키텍처,
   하나카드 승인·취소 복원, 검증값, 재현 명령, 보안·OAuth 조건을 한 문서로 정리했다.
 - `AGENTS.md` 시작 순서에 Cloud 인계서를 추가했다.
-- PR #8과 #9는 순서대로 `main`에 병합하고 병합된 브랜치를 삭제한다.
+- PR #8과 #9는 순서대로 `main`에 병합 완료했다. merge commit은 각각
+  `2882af5`, `7cf6070`이며 `feat/domain-separated-ledger-model`,
+  `codex/pr8-plan-hardening` 원격 브랜치를 삭제했다.
 - PR #7은 최신 원장·워크북 파이프라인 변경 17개가 있는 별도 계보다. v2의
   “승인·취소 모두 보존” 원칙과 PR #7의 과거 “승인취소 스킵” 구현을 조정해야 하므로
   자동 병합·삭제하지 않는다.
