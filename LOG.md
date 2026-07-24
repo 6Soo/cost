@@ -111,3 +111,98 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
   Claude 세션 안에서만 성립한다(Antigravity·Gemini CLI 등에는 해당 오케스트레이션 계층이 없음).
 - 다른 에이전트에서는 `tools/llm-bridge.mjs`·`tools/gemini.mjs`를 **직접 셸로 호출**해 저비용 모델을 쓰는
   방식으로 대체하라(위임 자동화는 없음).
+
+---
+
+## 2026-07-25 세션 핸드오프 — 비용분류 도메인 모델 v2 기반 구축
+
+### 0. 한 줄 요약
+결제 한 행에 원천·예약·여행귀속·계정·증빙·신뢰도를 모두 넣던 구조를 해소하기 위해
+`feat/domain-separated-ledger-model` 브랜치에서 SQLite 기반 도메인 분리 모델을 병렬 구축했다.
+기존 v14/v76 산출 경로는 변경하지 않았다.
+
+### 1. 구현
+- `ledger/domain/schema.sql`: 원천, 결제, 취소관계, 예약, 여행, 배분대상, 근거, 판정,
+  버전형 배분계획, 장부전기를 독립 테이블로 분리.
+- `ledger/domain/ledger_db.py`: DB 초기화, `classified_v14.csv` 멱등 이관, 합계 불변식 검증,
+  분류 품질 검토 리포트 CLI.
+- `allocation_plans`: 한 결제를 여러 예약·여행으로 나누는 1:N 배분을 plan 단위로 버전 관리.
+- `ledger/tests/test_domain_ledger.py`: 기존 정본 이관, 멱등성, 도메인 경계, 취소·예약 관계,
+  1:N 배분, 외래키, 검토 리포트 총 7개 테스트.
+- `docs/비용분류_도메인모델_v2.md`: 설계·실행법·전환 게이트 문서화.
+- 지시사항 원장에 P16(결제 도메인 분리·병렬검증 후 전환) 추가.
+
+### 2. 이관 검증
+- 원천 1,705행 → 결제 1,705건 → 활성 배분 1,705건.
+- 결제합 = 배분합 = **310,719,899원**, 결제별 배분 차이 0.
+- 예약 371건, 여행 34건, 배분대상 30개, 독립 판정 8,525건.
+- 취소/환불 관계 58건 중 원거래 연결 51건, 미연결 7건.
+- 테스트 7개 전부 통과.
+
+### 3. 새 모델이 드러낸 기존 분류 품질 이슈
+- 현재 `여행_미배정` 실제값은 **19건 2,734,540원**.
+- 기존 핸드오프의 **11건 1,478,413원**은 v13이 생성한 `MISC-*` 집합이며,
+  이 중 1건은 이후 `취소환불`로 이동했다. 따라서 “현재 미배정”과 “신규 격리 생성분”은 다른 지표다.
+- 금액 0원 결제 9건, 원거래 미연결 7건, 공급자 미확정 예약 112건.
+- `confidence=상`이지만 근거 문구에 `추정·유사·불명·확인 필요`가 있는 결제 **196건**.
+- 저신뢰 결제 87건. 이 항목들이 다음 재분류 우선 검토 큐다.
+
+### 4. 실행
+```bash
+python3 ledger/domain/ledger_db.py import-legacy
+python3 ledger/domain/ledger_db.py validate
+python3 ledger/domain/ledger_db.py review-report
+python3 -m unittest discover -s ledger/tests -p 'test_*.py'
+```
+기본 DB `ledger/data/ledger_v2.db`는 로컬 생성물이며 gitignore 대상이다.
+
+### 5. 다음 단계
+1. 196건의 “상 신뢰도/추정 근거”를 규칙별로 묶어 실제 검토 큐와 재판정 명령 구현.
+2. 미연결 취소 7건과 provider 미확정 예약 112건의 연결 규칙 보강.
+3. 카드·메일·수기 원본을 `classified_v14` 경유 없이 각 source adapter로 직접 적재.
+4. v2 배분 결과로 기존 워크북을 생성하는 read-only 어댑터를 만들고 여행별·계정별 회귀 대조.
+5. 전환 게이트 통과 전에는 기존 v14/v76을 정본으로 유지.
+
+---
+
+## 2026-07-25 세션 핸드오프 — v2 정합성 개선 P0 검토 기반 구현
+
+### 0. 한 줄 요약
+정합성 개선 작업의 첫 단계(P0)로 집계 리포트의 모든 품질 지표를 행 단위로
+재현하고, 실행 간 추가·해소·잔존 건과 v14 회귀 합계를 비교할 수 있는
+`review-snapshot` 명령을 구현했다.
+
+### 1. 구현
+- `ledger/domain/ledger_db.py`
+  - 8개 상세 검토 큐: 미배정, 엔진 격리, 0원, 취소관계 미연결,
+    공급자 미확정, 예약 복수귀속, 고신뢰/불확실 근거, 저신뢰.
+  - 모든 큐에 자연키와 결제·예약·배분대상·현재 판정·규칙·신뢰도·근거 문맥 포함.
+  - 입력 원천 SHA-256, 규칙 버전 `p0-v1`, semantic SHA-256을 가진 기준선 manifest 생성.
+  - 배분대상·여행·계정별 건수/금액 회귀 기준 생성.
+  - `--compare-to` 이전 스냅샷 대비 추가·해소·잔존 자연키를 `diff.json`으로 생성.
+- `ledger/tests/test_domain_ledger.py`
+  - 집계-상세 건수/금액 일치, 자연키 유일성, 회귀 총액, 반복 실행 안정성,
+    CSV/manifest/diff 산출 검증 추가. 전체 10개 테스트 통과.
+- `ledger/README.md`, `docs/비용분류_v2_정합성개선_실행계획.md`
+  - 실행법과 산출 구조를 기록하고 P0 완료 표시.
+
+### 2. 검증 결과
+- 상세 큐 건수: 미배정 19, 엔진 격리 11, 0원 9, 미연결 취소 7,
+  공급자 미확정 112, 복수귀속 0, 고신뢰/불확실 196, 저신뢰 87.
+- 미배정 상세합 2,734,540원, 엔진 격리 상세합 1,478,413원으로 기존 집계와 일치.
+- 동일 DB 반복 실행 semantic SHA-256 일치, 비교 결과 added/resolved 전부 0.
+- 배분대상별 합계와 계정별 합계가 각각 결제 총액 310,719,899원과 일치.
+
+### 3. 실행
+```bash
+python3 ledger/domain/ledger_db.py review-snapshot \
+  --output ledger/data/review-snapshots/baseline
+
+python3 ledger/domain/ledger_db.py review-snapshot \
+  --output ledger/data/review-snapshots/after-p1 \
+  --compare-to ledger/data/review-snapshots/baseline
+```
+
+### 4. 다음 단계
+P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별로 묶고,
+상 신뢰도 허용조건을 충족하지 않는 판정을 `needs_review`로 새 버전 생성한다.
