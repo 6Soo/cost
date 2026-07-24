@@ -47,10 +47,14 @@ for uid in CONFIRMED_UIDS:
               by_uid[uid]['note'])
 
 print('== 트립닷컴_하시다테 베이 호텔(예약1400823535413714) 배치 회귀 ==')
-if 'TRIP-0016' in by_uid:
-    r = by_uid['TRIP-0016']
+# ★UID는 처리순서 기반이라 원장 갱신(탭 추가 등)으로 번호가 밀릴 수 있다 — 예약번호로 찾는다(고정 UID 가정 금지).
+_hit = [r for r in rows if '1400823535413714' in (r['note'] or '')]
+if _hit:
+    r = _hit[0]
     check('0408_교토 탭 유지', r['bucket'] == '0408_교토', r['bucket'])
-    check('예약번호 note 보존', '1400823535413714' in (r['note'] or ''))
+    check('예약번호 note 보존', True)
+else:
+    check('예약번호 note 보존', False, '1400823535413714를 가진 행을 못 찾음')
 
 print('== 0413_나가센도 고마가네 다객실 동일가 dedup 오제거 회귀(2026-07-24 사용자 지적) ==')
 # 예약번호도 없고 desc_core도 같아("숙박") 구분자가 전혀 없는 다객실 동일가 항목(62,496원 2건,
@@ -93,6 +97,16 @@ for uid in ('KBO-0363', 'KBO-0364', 'KBO-0365'):
         check(f'{uid}(AGODA EN RESORT) 미입력추정 태그 해제', '미입력' not in (by_uid[uid]['note'] or ''),
               by_uid[uid]['note'])
 
+print('== 커피빈코리아 원장 중복입력 → 무관가맹 폴백 오매칭 회귀(2026-07-24 사용자 지적) ==')
+# 원장(0404_에히메)에 (주)커피빈코리아 인천공항탑숭동105GATE앞점 10,500원이 실수로 두 번 입력돼
+# 있었는데, 진짜 카드(appr30098411)는 base가 이미 선점해서 두 번째 수기행이 완전히 무관한 다른
+# 가맹(appr30085136, 7개월 전 카카오T택시)으로 우연히 같은 금액이라는 이유만으로 폴백매칭되던
+# 버그 — card_match에 "완전동일 가맹명의 진짜 레코드가 어딘가 이미 존재하면 다른 가맹으로의
+# 금액폴백을 거부"하는 안전장치 추가.
+coffee = [r for r in rows if '커피빈코리아 인천공항탑숭동105GATE' in r['merchant'] and r['bucket'] == '0404_에히메']
+check('커피빈코리아 10,500원 1건만 존재(중복 유령매칭 없음)', len(coffee) == 1,
+      [(r['uid'], r['appr']) for r in coffee])
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
@@ -107,8 +121,8 @@ for bucket, amt, label in DUP_WATCH:
 
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 317_760_836
-EXPECTED_ROWS = 1818
+EXPECTED_TOTAL = 315_775_667
+EXPECTED_ROWS = 1802
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')

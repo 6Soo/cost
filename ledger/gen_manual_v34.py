@@ -80,11 +80,21 @@ def extract_tab(ws, tab):
                          book=book or ''))
     return out
 
+DUP_TAB_RE = re.compile(r'\s*\(\d+\)\s*$')
+
 def main():
     wb = openpyxl.load_workbook(LEDGER, data_only=True)
     all_rows = []
     for tab in wb.sheetnames:
         if not TRIP_TAB_RE.match(tab):
+            continue
+        # ★2026-07-24 발견(사용자가 rev 산출물을 확정탭에 그대로 붙여넣으면서 시트명이 겹쳐
+        #   Google Sheets가 자동으로 "탭명 (1)"을 만듦 — 0413_나가센도 (1)에 이어 이번엔
+        #   0417_아오모리 (1)·0424_알펜루트 (1)·0501_부산 (1)·5월_유럽 (1)·0613_북해도 (1)·
+        #   0620_묘코 (1)·0630_오제 (1) 7개나 동시 발생). 이건 새 여행탭이 아니라 내가 만든
+        #   rev 산출물의 사본이므로 수기장부로 취급하면 안 된다 — 전부 이중계상으로 직결.
+        if DUP_TAB_RE.search(tab):
+            print('  ⚠ %-20s 스킵 — rev 붙여넣기로 생긴 중복 탭(원본 아님)' % tab, file=sys.stderr)
             continue
         rows = extract_tab(wb[tab], tab)
         all_rows.extend(rows)

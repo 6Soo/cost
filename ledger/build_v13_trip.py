@@ -153,6 +153,16 @@ def card_match(a, co, want_cx=False, item=None):
             kw_pool=[c for c in pool if _kw_of(c['mer']) & ikw]
             if kw_pool: pool=kw_pool   # 키워드 일치 후보가 있으면 그쪽만 우선(2순위 적용)
     best=min(pool,key=lambda c:abs(c['amt']-a))
+    # ★2026-07-24 커피빈코리아 원장 중복입력 실측 발견: 진짜 카드(글자 그대로 가맹명 일치)는 이미
+    #   base가 선점했는데, 원장에 같은 항목이 실수로 두 번 적혀있어 두 번째 수기행이 무관한 다른
+    #   가맹(우연히 같은 금액, 7개월 전 택시)으로 폴백 매칭되던 버그. "완전히 같은 이름의 진짜
+    #   레코드가 어딘가(이미 선점됐어도) 존재한다"는 게 확증될 때만 차단한다 — 글자 그대로 완전
+    #   일치만 보므로(퍼지매칭 아님) 원장표기≠카드가맹명인 정상 매칭(트립닷컴/아고다 등, 대다수)은
+    #   전혀 건드리지 않는다. (참고: 처음엔 부분문자열 유사도로 폭넓게 걸었다가 445건이 잘못
+    #   차단돼 즉시 롤백 — 완전일치로만 좁힌 버전.)
+    if item and best['mer']!=item:
+        if any(c['mer']==item and c['amt']==a and c['co']==co and id(c)!=id(best) for c in cards):
+            return None
     _used_card.add(id(best))
     return best
 def issuer_of(card_field):
