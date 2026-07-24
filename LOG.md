@@ -73,6 +73,17 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
 `/tmp/mayjun_inc.json`·`/tmp/mayjun_evid.json`을 읽는다. 핸드오프용 사본을 `ledger/data/`에 뒀으니
 실행 전 `cp ledger/data/april_inc.json /tmp/`(4개) 하거나 스크립트 경로를 상대경로로 바꿔라.
 
+### 3.1 [2026-07-24 추가발견] 정본화 직후 발생했던 회귀 — 수정 완료
+저장소 정본화(위 §1) 당시 데이터는 `ledger/data/`로 옮겼는데 후속 스크립트 4개
+(`build_workbook_v76.py`·`gen_april_rev.py`·`gen_mayjun_rev.py`·`consolidate_2q.py`)는
+실수로 `ledger/` 루트에 남겨뒀다. 이 스크립트들은 상대경로로 파일을 여는데, `build_workbook_v76.py`는
+`booking_info.json`이 없으면 **경고 없이 조용히 빈 딕셔너리로 대체**하는 코드가 있어 — 스크립트·데이터
+위치가 어긋난 채 실행하면 예약번호→호텔명·기간 보강(예: "트립닷컴_하시다테 베이 호텔/숙박_0410_0411"이
+"트립닷컴"으로 조용히 퇴화)이 통째로 사라지는 회귀가 있었다. **조치**: 스크립트 4개를 `ledger/data/`로
+이동(§4 레시피와 실제 위치 일치) + `booking_info.json`·`booking_pins.json`·`trip_flight_links.json`
+누락 시 ⚠경고 출력 추가(조용한 실패 방지). 전체 파이프라인 재실행으로 1,705행/310,719,899원, 워크북
+전탭합 315,972,035 재현 확인함.
+
 ### 5. 미결·다음 할 일
 - **산출물 최종 전달**: 사용자가 "출력하라" 지시하면 위 rev·통합본을 전달(현재 보류). 엔진은 이미 이 산출물 기준으로 재생성 완료.
 - **`여행_미배정` 11건 대표 검토**: 옵션①로 격리한 미매칭 실카드(LOONG AGE 421,101·SICILY BY CAR 584,193·

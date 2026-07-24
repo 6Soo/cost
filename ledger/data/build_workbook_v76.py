@@ -36,6 +36,7 @@ try:
     _BI = _bj.load(open('booking_info.json', encoding='utf-8'))
     BOOKING_INFO = {k: (v['label'], v['period']) for k, v in _BI.items()}
 except FileNotFoundError:
+    print('⚠ booking_info.json 없음 — 예약번호→호텔명·기간 보강 전부 스킵됨(트립닷컴 등 generic 표기 잔존)')
     BOOKING_INFO = {}
 # 오키나와 2월건: 1분기 누락분을 2분기로 이연 처리(2026-07-23 사용자 확정 "그대로 두자")
 if '1400823535037213' in BOOKING_INFO:
@@ -97,10 +98,12 @@ import json as _json
 try:
     BOOKING_PINS = _json.load(open('booking_pins.json', encoding='utf-8'))
 except FileNotFoundError:
+    print('⚠ booking_pins.json 없음 — 예약코드 고정핀 스킵됨')
     BOOKING_PINS = {}
 try:
     TRIP_FLIGHT = _json.load(open('trip_flight_links.json', encoding='utf-8'))
 except FileNotFoundError:
+    print('⚠ trip_flight_links.json 없음 — 항공권↔여행탭 연결 스킵됨')
     TRIP_FLIGHT = {}
 
 # 수기장부 내용(desc) 사전 — 매칭건의 내용 열을 수기 표기('숙박_0405_0406')로 복원
