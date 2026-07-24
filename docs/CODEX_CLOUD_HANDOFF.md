@@ -109,8 +109,13 @@ Windows에서는 `/tmp/...`를 `$env:TEMP` 아래 경로로 바꾼다. 기존 DB
 
 ## 6. GitHub와 브랜치 상태
 
-이번 인계 작업은 PR #8과 PR #9를 순서대로 `main`에 병합한 뒤 두 병합 브랜치를
-삭제하는 것을 목표로 한다.
+PR #8과 PR #9는 순서대로 `main`에 병합했으며 두 병합 브랜치는 삭제했다.
+
+- PR #8 merge commit: `2882af5bb1695d4ce2911270bfd892931534fbcf`
+- PR #9 merge commit: `7cf607023799bd2ffcb7e8bdb97b117761d1a624`
+- 삭제된 원격 브랜치:
+  - `feat/domain-separated-ledger-model`
+  - `codex/pr8-plan-hardening`
 
 별도 보존 대상:
 
