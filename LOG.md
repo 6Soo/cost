@@ -162,3 +162,47 @@ python3 -m unittest discover -s ledger/tests -p 'test_*.py'
 3. 카드·메일·수기 원본을 `classified_v14` 경유 없이 각 source adapter로 직접 적재.
 4. v2 배분 결과로 기존 워크북을 생성하는 read-only 어댑터를 만들고 여행별·계정별 회귀 대조.
 5. 전환 게이트 통과 전에는 기존 v14/v76을 정본으로 유지.
+
+---
+
+## 2026-07-25 세션 핸드오프 — v2 정합성 개선 P0 검토 기반 구현
+
+### 0. 한 줄 요약
+정합성 개선 작업의 첫 단계(P0)로 집계 리포트의 모든 품질 지표를 행 단위로
+재현하고, 실행 간 추가·해소·잔존 건과 v14 회귀 합계를 비교할 수 있는
+`review-snapshot` 명령을 구현했다.
+
+### 1. 구현
+- `ledger/domain/ledger_db.py`
+  - 8개 상세 검토 큐: 미배정, 엔진 격리, 0원, 취소관계 미연결,
+    공급자 미확정, 예약 복수귀속, 고신뢰/불확실 근거, 저신뢰.
+  - 모든 큐에 자연키와 결제·예약·배분대상·현재 판정·규칙·신뢰도·근거 문맥 포함.
+  - 입력 원천 SHA-256, 규칙 버전 `p0-v1`, semantic SHA-256을 가진 기준선 manifest 생성.
+  - 배분대상·여행·계정별 건수/금액 회귀 기준 생성.
+  - `--compare-to` 이전 스냅샷 대비 추가·해소·잔존 자연키를 `diff.json`으로 생성.
+- `ledger/tests/test_domain_ledger.py`
+  - 집계-상세 건수/금액 일치, 자연키 유일성, 회귀 총액, 반복 실행 안정성,
+    CSV/manifest/diff 산출 검증 추가. 전체 10개 테스트 통과.
+- `ledger/README.md`, `docs/비용분류_v2_정합성개선_실행계획.md`
+  - 실행법과 산출 구조를 기록하고 P0 완료 표시.
+
+### 2. 검증 결과
+- 상세 큐 건수: 미배정 19, 엔진 격리 11, 0원 9, 미연결 취소 7,
+  공급자 미확정 112, 복수귀속 0, 고신뢰/불확실 196, 저신뢰 87.
+- 미배정 상세합 2,734,540원, 엔진 격리 상세합 1,478,413원으로 기존 집계와 일치.
+- 동일 DB 반복 실행 semantic SHA-256 일치, 비교 결과 added/resolved 전부 0.
+- 배분대상별 합계와 계정별 합계가 각각 결제 총액 310,719,899원과 일치.
+
+### 3. 실행
+```bash
+python3 ledger/domain/ledger_db.py review-snapshot \
+  --output ledger/data/review-snapshots/baseline
+
+python3 ledger/domain/ledger_db.py review-snapshot \
+  --output ledger/data/review-snapshots/after-p1 \
+  --compare-to ledger/data/review-snapshots/baseline
+```
+
+### 4. 다음 단계
+P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별로 묶고,
+상 신뢰도 허용조건을 충족하지 않는 판정을 `needs_review`로 새 버전 생성한다.

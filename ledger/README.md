@@ -35,6 +35,31 @@ python3 link_workbook.py                   # 기록여부 갱신
 python3 domain/ledger_db.py import-legacy
 python3 domain/ledger_db.py validate
 python3 domain/ledger_db.py review-report
+python3 domain/ledger_db.py review-snapshot \
+  --output data/review-snapshots/baseline
+```
+
+`review-snapshot`은 집계값에 대응하는 8개 상세 검토 큐 CSV, 입력 원천 해시,
+요약 지표와 배분대상·여행·계정별 회귀 합계를 생성한다. 이전 스냅샷과 비교하면
+큐별 추가·해소·잔존 거래를 `diff.json`으로 확인할 수 있다.
+
+```bash
+python3 domain/ledger_db.py review-snapshot \
+  --output data/review-snapshots/after-p1 \
+  --compare-to data/review-snapshots/baseline
+```
+
+산출 구조:
+
+```text
+data/review-snapshots/baseline/
+├── manifest.json
+├── summary.json
+├── regression_totals.json
+└── queues/
+    ├── unassigned.csv
+    ├── unresolved_transaction_relations.csv
+    └── ...
 ```
 
 스키마는 `domain/schema.sql`, 설계와 전환 게이트는

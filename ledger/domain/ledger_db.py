@@ -14,7 +14,7 @@ import re
 import sqlite3
 import sys
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -26,6 +26,42 @@ DEFAULT_CSV = LEDGER_DIR / "data" / "classified_v14.csv"
 DEFAULT_TRIPS = LEDGER_DIR / "data" / "trips.json"
 DEFAULT_BOOKINGS = LEDGER_DIR / "data" / "booking_info.json"
 SCHEMA = HERE / "schema.sql"
+REVIEW_RULE_VERSION = "p0-v1"
+
+REVIEW_DETAIL_FIELDS = [
+    "entity_type",
+    "entity_key",
+    "payment_external_key",
+    "occurred_on",
+    "merchant",
+    "amount_krw",
+    "review_amount_krw",
+    "transaction_type",
+    "approval_number",
+    "booking_numbers",
+    "booking_providers",
+    "allocation_targets",
+    "decision_values",
+    "decision_rule_ids",
+    "decision_confidence_labels",
+    "decision_min_confidence",
+    "decision_rationales",
+    "relation_type",
+    "relation_reference",
+    "relation_match_method",
+    "relation_confidence",
+]
+
+REVIEW_QUEUE_METRICS = {
+    "unassigned": "unassigned_payments",
+    "engine_isolated": "engine_isolated_payments",
+    "zero_amount": "zero_amount_payments",
+    "unresolved_transaction_relations": "unresolved_transaction_relations",
+    "unknown_booking_providers": "unknown_booking_providers",
+    "bookings_linked_to_multiple_targets": "bookings_linked_to_multiple_targets",
+    "high_confidence_uncertain_rationale": "high_confidence_with_uncertain_rationale",
+    "low_confidence": "low_confidence_payments",
+}
 
 BOOKING_RE = re.compile(r"예약\s*([0-9]{6,19}|[A-Z0-9]{5,7})(?![0-9])")
 TRIP_CODE_RE = re.compile(r"^(?:(\d{2})(\d{2})|(\d{1,2})월)_(.+)$")
@@ -901,6 +937,542 @@ def review_report(db: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+PAYMENT_REVIEW_CONTEXT = """
+WITH decision_context AS (
+    SELECT
+        target_id AS payment_id,
+        GROUP_CONCAT(DISTINCT dimension || '=' || value) AS decision_values,
+        GROUP_CONCAT(DISTINCT COALESCE(rule_id, '')) AS decision_rule_ids,
+        GROUP_CONCAT(DISTINCT COALESCE(confidence_label, '')) AS decision_confidence_labels,
+        MIN(confidence) AS decision_min_confidence,
+        GROUP_CONCAT(DISTINCT COALESCE(rationale, '')) AS decision_rationales
+    FROM current_classification_decisions
+    WHERE target_type='payment'
+    GROUP BY target_id
+),
+booking_context AS (
+    SELECT
+        pbl.payment_id,
+        GROUP_CONCAT(DISTINCT b.booking_number) AS booking_numbers,
+        GROUP_CONCAT(DISTINCT b.provider) AS booking_providers
+    FROM payment_booking_links pbl
+    JOIN bookings b ON b.id=pbl.booking_id
+    WHERE pbl.link_status <> 'rejected'
+    GROUP BY pbl.payment_id
+),
+allocation_context AS (
+    SELECT
+        a.payment_id,
+        GROUP_CONCAT(DISTINCT t.code) AS allocation_targets
+    FROM current_cost_allocations a
+    JOIN allocation_targets t ON t.id=a.target_id
+    GROUP BY a.payment_id
+)
+"""
+
+
+def _detail_row(row: sqlite3.Row, **overrides: object) -> dict[str, object]:
+    values = {field: "" for field in REVIEW_DETAIL_FIELDS}
+    for field in REVIEW_DETAIL_FIELDS:
+        if field in row.keys() and row[field] is not None:
+            values[field] = row[field]
+    values.update(overrides)
+    return values
+
+
+def _payment_review_rows(
+    db: sqlite3.Connection,
+    predicate: str,
+    review_amount_sql: str = "p.amount_krw",
+) -> list[dict[str, object]]:
+    rows = db.execute(
+        PAYMENT_REVIEW_CONTEXT
+        + f"""
+        SELECT
+            'payment' AS entity_type,
+            p.external_key AS entity_key,
+            p.external_key AS payment_external_key,
+            p.occurred_on,
+            p.merchant,
+            p.amount_krw,
+            {review_amount_sql} AS review_amount_krw,
+            p.transaction_type,
+            p.approval_number,
+            bc.booking_numbers,
+            bc.booking_providers,
+            ac.allocation_targets,
+            dc.decision_values,
+            dc.decision_rule_ids,
+            dc.decision_confidence_labels,
+            dc.decision_min_confidence,
+            dc.decision_rationales
+        FROM payment_transactions p
+        LEFT JOIN decision_context dc ON dc.payment_id=p.id
+        LEFT JOIN booking_context bc ON bc.payment_id=p.id
+        LEFT JOIN allocation_context ac ON ac.payment_id=p.id
+        WHERE {predicate}
+        ORDER BY p.external_key
+        """
+    ).fetchall()
+    return [_detail_row(row) for row in rows]
+
+
+def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]:
+    """집계 리포트의 각 품질 지표를 행 단위 검토 큐로 반환한다."""
+    queues: dict[str, list[dict[str, object]]] = {
+        "unassigned": _payment_review_rows(
+            db,
+            """
+            EXISTS (
+                SELECT 1
+                FROM current_cost_allocations a
+                JOIN allocation_targets t ON t.id=a.target_id
+                WHERE a.payment_id=p.id AND t.target_type='unassigned'
+            )
+            """,
+            """
+            (
+                SELECT COALESCE(SUM(a.amount_krw), 0)
+                FROM current_cost_allocations a
+                JOIN allocation_targets t ON t.id=a.target_id
+                WHERE a.payment_id=p.id AND t.target_type='unassigned'
+            )
+            """,
+        ),
+        "engine_isolated": _payment_review_rows(db, "p.external_key LIKE 'MISC-%'"),
+        "zero_amount": _payment_review_rows(db, "p.amount_krw=0"),
+        "high_confidence_uncertain_rationale": _payment_review_rows(
+            db,
+            """
+            EXISTS (
+                SELECT 1
+                FROM current_classification_decisions d
+                WHERE d.target_type='payment'
+                  AND d.target_id=p.id
+                  AND d.confidence_label='상'
+                  AND (
+                      d.rationale LIKE '%추정%'
+                      OR d.rationale LIKE '%유사%'
+                      OR d.rationale LIKE '%불명%'
+                      OR d.rationale LIKE '%확인 필요%'
+                      OR d.rationale LIKE '%검토요망%'
+                  )
+            )
+            """,
+        ),
+        "low_confidence": _payment_review_rows(
+            db,
+            """
+            EXISTS (
+                SELECT 1
+                FROM current_classification_decisions d
+                WHERE d.target_type='payment'
+                  AND d.target_id=p.id
+                  AND d.confidence <= 0.3
+            )
+            """,
+        ),
+    }
+
+    relation_rows = db.execute(
+        PAYMENT_REVIEW_CONTEXT
+        + """
+        SELECT
+            'transaction_relation' AS entity_type,
+            p.external_key || ':' || r.relation_type || ':' ||
+                COALESCE(r.reference_value, '') AS entity_key,
+            p.external_key AS payment_external_key,
+            p.occurred_on,
+            p.merchant,
+            p.amount_krw,
+            p.amount_krw AS review_amount_krw,
+            p.transaction_type,
+            p.approval_number,
+            bc.booking_numbers,
+            bc.booking_providers,
+            ac.allocation_targets,
+            dc.decision_values,
+            dc.decision_rule_ids,
+            dc.decision_confidence_labels,
+            dc.decision_min_confidence,
+            dc.decision_rationales,
+            r.relation_type,
+            r.reference_value AS relation_reference,
+            r.match_method AS relation_match_method,
+            r.confidence AS relation_confidence
+        FROM transaction_relations r
+        JOIN payment_transactions p ON p.id=r.transaction_id
+        LEFT JOIN decision_context dc ON dc.payment_id=p.id
+        LEFT JOIN booking_context bc ON bc.payment_id=p.id
+        LEFT JOIN allocation_context ac ON ac.payment_id=p.id
+        WHERE r.related_transaction_id IS NULL
+        ORDER BY r.id
+        """
+    ).fetchall()
+    queues["unresolved_transaction_relations"] = [
+        _detail_row(row) for row in relation_rows
+    ]
+
+    booking_rows = db.execute(
+        """
+        WITH payment_rows AS (
+            SELECT DISTINCT
+                pbl.booking_id,
+                p.id AS payment_id,
+                p.external_key,
+                p.merchant,
+                p.amount_krw
+            FROM payment_booking_links pbl
+            JOIN payment_transactions p ON p.id=pbl.payment_id
+            WHERE pbl.link_status <> 'rejected'
+        ),
+        payment_context AS (
+            SELECT
+                booking_id,
+                GROUP_CONCAT(DISTINCT external_key) AS payment_external_keys,
+                GROUP_CONCAT(DISTINCT merchant) AS merchants,
+                COALESCE(SUM(amount_krw), 0) AS amount_krw
+            FROM payment_rows
+            GROUP BY booking_id
+        ),
+        decision_context AS (
+            SELECT
+                pbl.booking_id,
+                GROUP_CONCAT(DISTINCT d.dimension || '=' || d.value) AS decision_values,
+                GROUP_CONCAT(DISTINCT COALESCE(d.rule_id, '')) AS decision_rule_ids,
+                GROUP_CONCAT(DISTINCT COALESCE(d.confidence_label, ''))
+                    AS decision_confidence_labels,
+                MIN(d.confidence) AS decision_min_confidence,
+                GROUP_CONCAT(DISTINCT COALESCE(d.rationale, '')) AS decision_rationales
+            FROM payment_booking_links pbl
+            JOIN current_classification_decisions d
+              ON d.target_type='payment' AND d.target_id=pbl.payment_id
+            WHERE pbl.link_status <> 'rejected'
+            GROUP BY pbl.booking_id
+        ),
+        target_context AS (
+            SELECT
+                btl.booking_id,
+                GROUP_CONCAT(DISTINCT t.code) AS allocation_targets
+            FROM booking_target_links btl
+            JOIN allocation_targets t ON t.id=btl.target_id
+            WHERE btl.link_status <> 'rejected'
+            GROUP BY btl.booking_id
+        )
+        SELECT
+            'booking' AS entity_type,
+            b.provider || ':' || b.booking_number AS entity_key,
+            pc.payment_external_keys AS payment_external_key,
+            pc.merchants AS merchant,
+            pc.amount_krw,
+            pc.amount_krw AS review_amount_krw,
+            b.booking_number AS booking_numbers,
+            b.provider AS booking_providers,
+            tc.allocation_targets,
+            dc.decision_values,
+            dc.decision_rule_ids,
+            dc.decision_confidence_labels,
+            dc.decision_min_confidence,
+            dc.decision_rationales
+        FROM bookings b
+        LEFT JOIN payment_context pc ON pc.booking_id=b.id
+        LEFT JOIN decision_context dc ON dc.booking_id=b.id
+        LEFT JOIN target_context tc ON tc.booking_id=b.id
+        WHERE b.provider='unknown'
+        ORDER BY b.booking_number
+        """
+    ).fetchall()
+    queues["unknown_booking_providers"] = [_detail_row(row) for row in booking_rows]
+
+    multi_target_rows = db.execute(
+        """
+        WITH conflicted AS (
+            SELECT booking_id
+            FROM booking_target_links
+            WHERE link_status <> 'rejected'
+            GROUP BY booking_id
+            HAVING COUNT(DISTINCT target_id) > 1
+        ),
+        payment_rows AS (
+            SELECT DISTINCT
+                pbl.booking_id,
+                p.id AS payment_id,
+                p.external_key,
+                p.merchant,
+                p.amount_krw
+            FROM payment_booking_links pbl
+            JOIN payment_transactions p ON p.id=pbl.payment_id
+            WHERE pbl.link_status <> 'rejected'
+        ),
+        payment_context AS (
+            SELECT
+                booking_id,
+                GROUP_CONCAT(DISTINCT external_key) AS payment_external_keys,
+                GROUP_CONCAT(DISTINCT merchant) AS merchants,
+                COALESCE(SUM(amount_krw), 0) AS amount_krw
+            FROM payment_rows
+            GROUP BY booking_id
+        ),
+        decision_context AS (
+            SELECT
+                pbl.booking_id,
+                GROUP_CONCAT(DISTINCT d.dimension || '=' || d.value) AS decision_values,
+                GROUP_CONCAT(DISTINCT COALESCE(d.rule_id, '')) AS decision_rule_ids,
+                GROUP_CONCAT(DISTINCT COALESCE(d.confidence_label, ''))
+                    AS decision_confidence_labels,
+                MIN(d.confidence) AS decision_min_confidence,
+                GROUP_CONCAT(DISTINCT COALESCE(d.rationale, '')) AS decision_rationales
+            FROM payment_booking_links pbl
+            JOIN current_classification_decisions d
+              ON d.target_type='payment' AND d.target_id=pbl.payment_id
+            WHERE pbl.link_status <> 'rejected'
+            GROUP BY pbl.booking_id
+        ),
+        target_context AS (
+            SELECT
+                btl.booking_id,
+                GROUP_CONCAT(DISTINCT t.code) AS allocation_targets
+            FROM booking_target_links btl
+            JOIN allocation_targets t ON t.id=btl.target_id
+            WHERE btl.link_status <> 'rejected'
+            GROUP BY btl.booking_id
+        )
+        SELECT
+            'booking' AS entity_type,
+            b.provider || ':' || b.booking_number AS entity_key,
+            pc.payment_external_keys AS payment_external_key,
+            pc.merchants AS merchant,
+            pc.amount_krw,
+            pc.amount_krw AS review_amount_krw,
+            b.booking_number AS booking_numbers,
+            b.provider AS booking_providers,
+            tc.allocation_targets,
+            dc.decision_values,
+            dc.decision_rule_ids,
+            dc.decision_confidence_labels,
+            dc.decision_min_confidence,
+            dc.decision_rationales
+        FROM conflicted c
+        JOIN bookings b ON b.id=c.booking_id
+        LEFT JOIN payment_context pc ON pc.booking_id=b.id
+        LEFT JOIN decision_context dc ON dc.booking_id=b.id
+        LEFT JOIN target_context tc ON tc.booking_id=b.id
+        ORDER BY b.provider, b.booking_number
+        """
+    ).fetchall()
+    queues["bookings_linked_to_multiple_targets"] = [
+        _detail_row(row) for row in multi_target_rows
+    ]
+
+    return {name: queues[name] for name in REVIEW_QUEUE_METRICS}
+
+
+def regression_totals(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]:
+    """legacy v14 이관값의 배분대상·여행·계정별 회귀 기준을 만든다."""
+    targets = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT
+                t.code AS key,
+                t.target_type AS type,
+                COUNT(DISTINCT a.payment_id) AS payments,
+                SUM(a.amount_krw) AS amount_krw
+            FROM current_cost_allocations a
+            JOIN allocation_targets t ON t.id=a.target_id
+            GROUP BY t.id
+            ORDER BY t.target_type, t.code
+            """
+        ).fetchall()
+    ]
+    trips = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT
+                t.code AS key,
+                COUNT(DISTINCT a.payment_id) AS payments,
+                SUM(a.amount_krw) AS amount_krw
+            FROM current_cost_allocations a
+            JOIN allocation_targets t ON t.id=a.target_id
+            WHERE t.target_type='trip'
+            GROUP BY t.id
+            ORDER BY t.code
+            """
+        ).fetchall()
+    ]
+    accounts = [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT
+                d.value AS key,
+                COUNT(DISTINCT p.id) AS payments,
+                SUM(p.amount_krw) AS amount_krw
+            FROM current_classification_decisions d
+            JOIN payment_transactions p ON p.id=d.target_id
+            WHERE d.target_type='payment' AND d.dimension='expense_type'
+            GROUP BY d.value
+            ORDER BY d.value
+            """
+        ).fetchall()
+    ]
+    return {
+        "allocation_targets": targets,
+        "trips": trips,
+        "accounts": accounts,
+    }
+
+
+def _snapshot_inputs(db: sqlite3.Connection) -> list[dict[str, object]]:
+    return [
+        dict(row)
+        for row in db.execute(
+            """
+            SELECT source_kind, path, sha256, imported_at
+            FROM source_documents
+            ORDER BY id
+            """
+        ).fetchall()
+    ]
+
+
+def build_review_snapshot(db: sqlite3.Connection) -> dict[str, object]:
+    summary = review_report(db)
+    queues = review_details(db)
+    totals = regression_totals(db)
+    inputs = _snapshot_inputs(db)
+    queue_keys = {
+        name: [str(row["entity_key"]) for row in rows]
+        for name, rows in queues.items()
+    }
+    semantic_payload = {
+        "rule_version": REVIEW_RULE_VERSION,
+        "inputs": [
+            {
+                "source_kind": item["source_kind"],
+                "sha256": item["sha256"],
+            }
+            for item in inputs
+        ],
+        "summary": summary,
+        "regression_totals": totals,
+        "queues": queues,
+    }
+    semantic_json = json.dumps(
+        semantic_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return {
+        "format_version": 1,
+        "rule_version": REVIEW_RULE_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "semantic_sha256": hashlib.sha256(semantic_json.encode("utf-8")).hexdigest(),
+        "inputs": inputs,
+        "summary": summary,
+        "regression_totals": totals,
+        "queue_keys": queue_keys,
+        "queues": queues,
+    }
+
+
+def compare_review_snapshots(
+    current: dict[str, object],
+    previous_manifest: dict[str, object],
+) -> dict[str, object]:
+    current_keys = current["queue_keys"]
+    previous_keys = previous_manifest.get("queue_keys", {})
+    queue_names = sorted(set(current_keys) | set(previous_keys))
+    queues: dict[str, dict[str, object]] = {}
+    for name in queue_names:
+        now = set(current_keys.get(name, []))
+        before = set(previous_keys.get(name, []))
+        added = sorted(now - before)
+        resolved = sorted(before - now)
+        remaining = sorted(now & before)
+        queues[name] = {
+            "added_count": len(added),
+            "added": added,
+            "resolved_count": len(resolved),
+            "resolved": resolved,
+            "remaining_count": len(remaining),
+            "remaining": remaining,
+        }
+    return {
+        "previous_semantic_sha256": previous_manifest.get("semantic_sha256"),
+        "current_semantic_sha256": current["semantic_sha256"],
+        "unchanged": (
+            previous_manifest.get("semantic_sha256") == current["semantic_sha256"]
+        ),
+        "queues": queues,
+    }
+
+
+def _load_snapshot_manifest(path: Path) -> dict[str, object]:
+    manifest_path = path / "manifest.json" if path.is_dir() else path
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def write_review_snapshot(
+    db: sqlite3.Connection,
+    output_dir: Path,
+    compare_to: Path | None = None,
+) -> dict[str, object]:
+    snapshot = build_review_snapshot(db)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    queues_dir = output_dir / "queues"
+    queues_dir.mkdir(parents=True, exist_ok=True)
+
+    for name, rows in snapshot["queues"].items():
+        with (queues_dir / f"{name}.csv").open("w", encoding="utf-8-sig", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=REVIEW_DETAIL_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
+
+    manifest = {key: value for key, value in snapshot.items() if key != "queues"}
+    (output_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "summary.json").write_text(
+        json.dumps(snapshot["summary"], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "regression_totals.json").write_text(
+        json.dumps(snapshot["regression_totals"], ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    diff = None
+    if compare_to is not None:
+        diff = compare_review_snapshots(snapshot, _load_snapshot_manifest(compare_to))
+        (output_dir / "diff.json").write_text(
+            json.dumps(diff, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    diff_summary = None
+    if diff is not None:
+        diff_summary = {
+            "unchanged": diff["unchanged"],
+            "queues": {
+                name: {
+                    "added_count": values["added_count"],
+                    "resolved_count": values["resolved_count"],
+                    "remaining_count": values["remaining_count"],
+                }
+                for name, values in diff["queues"].items()
+            },
+        }
+    return {
+        "output_dir": str(output_dir),
+        "semantic_sha256": snapshot["semantic_sha256"],
+        "summary": snapshot["summary"],
+        "diff": diff_summary,
+    }
+
+
 def print_stats(stats: ImportStats) -> None:
     state = "기존 스냅샷 재사용" if stats.repeated_snapshot else "이관 완료"
     print(
@@ -924,6 +1496,16 @@ def cli(argv: list[str] | None = None) -> int:
 
     sub.add_parser("validate", help="결제=배분 합계와 참조 무결성을 검사한다.")
     sub.add_parser("review-report", help="미배정·근거충돌 등 분류 품질 검토 큐를 출력한다.")
+    snapshot = sub.add_parser(
+        "review-snapshot",
+        help="상세 검토 큐 CSV와 회귀 기준 스냅샷을 생성한다.",
+    )
+    snapshot.add_argument("--output", type=Path, required=True)
+    snapshot.add_argument(
+        "--compare-to",
+        type=Path,
+        help="이전 스냅샷 디렉터리 또는 manifest.json과 추가·해소·잔존 건을 비교한다.",
+    )
 
     args = parser.parse_args(argv)
     db = connect(args.db)
@@ -946,6 +1528,11 @@ def cli(argv: list[str] | None = None) -> int:
         if args.command == "review-report":
             initialize(db)
             print(json.dumps(review_report(db), ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "review-snapshot":
+            initialize(db)
+            result = write_review_snapshot(db, args.output, args.compare_to)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0
     finally:
         db.close()

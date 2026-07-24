@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +11,17 @@ from ledger.domain.ledger_db import (
     DEFAULT_BOOKINGS,
     DEFAULT_CSV,
     DEFAULT_TRIPS,
+    REVIEW_QUEUE_METRICS,
+    build_review_snapshot,
+    compare_review_snapshots,
     connect,
     import_legacy,
     replace_allocation_plan,
+    review_details,
     review_report,
+    regression_totals,
     validation_report,
+    write_review_snapshot,
 )
 
 
@@ -90,6 +98,82 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         self.assertEqual(report["engine_isolated_payments"], 11)
         self.assertEqual(report["engine_isolated_amount_krw"], 1_478_413)
         self.assertGreater(report["high_confidence_with_uncertain_rationale"], 0)
+
+    def test_review_details_reproduce_every_queue_count_and_amount(self) -> None:
+        report = review_report(self.db)
+        queues = review_details(self.db)
+        self.assertEqual(set(queues), set(REVIEW_QUEUE_METRICS))
+        for queue_name, metric_name in REVIEW_QUEUE_METRICS.items():
+            self.assertEqual(
+                len(queues[queue_name]),
+                report[metric_name],
+                queue_name,
+            )
+            entity_keys = [row["entity_key"] for row in queues[queue_name]]
+            self.assertEqual(len(entity_keys), len(set(entity_keys)), queue_name)
+
+        self.assertEqual(
+            sum(row["review_amount_krw"] for row in queues["unassigned"]),
+            report["unassigned_amount_krw"],
+        )
+        self.assertEqual(
+            sum(row["review_amount_krw"] for row in queues["engine_isolated"]),
+            report["engine_isolated_amount_krw"],
+        )
+        sample = queues["high_confidence_uncertain_rationale"][0]
+        self.assertTrue(sample["payment_external_key"])
+        self.assertTrue(sample["decision_values"])
+        self.assertTrue(sample["decision_rule_ids"])
+        self.assertTrue(sample["allocation_targets"])
+        booking_sample = queues["unknown_booking_providers"][0]
+        self.assertTrue(booking_sample["payment_external_key"])
+        self.assertTrue(booking_sample["decision_values"])
+        self.assertTrue(booking_sample["decision_rationales"])
+        self.assertTrue(booking_sample["booking_numbers"])
+
+    def test_regression_totals_preserve_target_and_account_totals(self) -> None:
+        totals = regression_totals(self.db)
+        transaction_total = validation_report(self.db)["transaction_total_krw"]
+        self.assertEqual(
+            sum(row["amount_krw"] for row in totals["allocation_targets"]),
+            transaction_total,
+        )
+        self.assertEqual(
+            sum(row["amount_krw"] for row in totals["accounts"]),
+            transaction_total,
+        )
+        self.assertGreater(len(totals["trips"]), 0)
+
+    def test_review_snapshot_is_repeatable_and_writes_diffable_artifacts(self) -> None:
+        first = build_review_snapshot(self.db)
+        repeated = build_review_snapshot(self.db)
+        self.assertEqual(first["semantic_sha256"], repeated["semantic_sha256"])
+        diff = compare_review_snapshots(repeated, first)
+        self.assertTrue(diff["unchanged"])
+        for values in diff["queues"].values():
+            self.assertEqual(values["added_count"], 0)
+            self.assertEqual(values["resolved_count"], 0)
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            first_dir = root / "first"
+            repeated_dir = root / "repeated"
+            write_review_snapshot(self.db, first_dir)
+            result = write_review_snapshot(self.db, repeated_dir, first_dir)
+            self.assertTrue(result["diff"]["unchanged"])
+            manifest = json.loads(
+                (first_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["semantic_sha256"], first["semantic_sha256"])
+            self.assertTrue(manifest["inputs"][0]["sha256"])
+            with (first_dir / "queues" / "unassigned.csv").open(
+                encoding="utf-8-sig",
+                newline="",
+            ) as stream:
+                self.assertEqual(
+                    len(list(csv.DictReader(stream))),
+                    review_report(self.db)["unassigned_payments"],
+                )
 
     def test_foreign_keys_are_clean(self) -> None:
         violations = self.db.execute("PRAGMA foreign_key_check").fetchall()
