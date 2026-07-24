@@ -42,7 +42,14 @@ byamt=defaultdict(list)
 for c in cards: byamt[(c['amt'],c['cx'])].append(c)
 amts=sorted(set(a for a,_ in byamt))
 _used_card=set()   # 소비형: 한 카드 레코드는 한 수기행에만 배정(같은 승인 재사용·도용 방지)
-def card_match(a, co, want_cx=False):
+KEYWORDS=[('AGODA','아고다'),('BOOKING','부킹'),('BKG','부킹'),('TRIP.COM','트립닷컴'),('트립','트립닷컴'),
+          ('MERCURE','머큐르'),('HOTEL','호텔'),('료칸','ryokan')]
+def _kw_of(s):
+    u=(s or '').upper()
+    return {k for k,ko in KEYWORDS if k in u or ko in (s or '')}
+def card_match(a, co, want_cx=False, item=None):
+    # ★매칭 우선순위(2026-07-24 사용자 확정): 1순위 예약번호(호출부에서 book_in/bookidx로 별도 처리),
+    #   2순위 금액+항목 키워드 일부일치(agoda/트립닷컴 등) — 동일금액 후보가 여럿일 때 키워드로 소거.
     # ★부호(취소여부) 일치 + 카드사 일치 필수(타사 폴백 금지) + 소비형(1카드=1행).
     cand=byamt.get((a,want_cx),[])
     if not cand:
@@ -50,15 +57,35 @@ def card_match(a, co, want_cx=False):
         cand=[c for x in amts if lo<=x<=hi for c in byamt.get((x,want_cx),[])]
     pool=[c for c in cand if c['co']==co and id(c) not in _used_card]
     if not pool: return None
+    if item:
+        ikw=_kw_of(item)
+        if ikw:
+            kw_pool=[c for c in pool if _kw_of(c['mer']) & ikw]
+            if kw_pool: pool=kw_pool   # 키워드 일치 후보가 있으면 그쪽만 우선(2순위 적용)
     best=min(pool,key=lambda c:abs(c['amt']-a))
     _used_card.add(id(best))
     return best
+def issuer_of(card_field):
+    # 원장 카드열이 발급사명(국민/하나/기업)이 아니라 카드번호 뒷4자리(8835 등)로 적힌 경우도 매핑
+    # (2026-07-24 발견: 이 매핑이 없어 AGODA APA 4건 등이 card_match 자체를 못 태워 하드코딩 오버라이드로
+    #  우회하던 버그 — 근본교정: src_of()와 동일 규칙으로 발급사 판별).
+    c=(card_field or '').strip()
+    if c in ('국민','하나','기업'): return c
+    if re.match(r'8835|3804|3820|4886|8895|0906', c): return '국민'
+    if re.match(r'4595|5483|3923|4140|4336', c): return '하나'
+    if re.match(r'4971|4985|8972', c): return '기업'
+    return ''
 
 # ---- 기존 워크북 (classified_v12) ----
 FN=['uid','src','use_date','post_date','card4','user','merchant','biz','country','currency','foreign','krw','vat','tax_type','status','biz_no','extra','bucket','account','cancel','cost_type','vat_tag','confidence','note','tax_conf','appr','orig_appr']
 cls=list(csv.DictReader(open('data/classified_v12.csv',encoding='utf-8')))
 # 내가 v52에서 여행_미배정에 둔 ¥7,439(KBO-9002)는 수기(0417_아오모리)로 통합되므로 base에서 제거
 cls=[r for r in cls if r['uid']!='KBO-9002']
+# 2026-07-24 개칭: base(classified_v12)에 옛 이름 '여행_미배정'으로 박제된 행(카드 실체는 있으나
+#   여행탭 미확정) 8건도 신규 명명(카드사용내역_미배정)으로 정규화 — 전부 카드/PG 실결제건(수기 없음)이라
+#   OTA_미배정이 아니라 카드사용내역_미배정이 맞다.
+for _r in cls:
+    if _r['bucket']=='여행_미배정': _r['bucket']='카드사용내역_미배정'
 # ★base 선소비: base가 이미 대응하는 카드 레코드를 _used_card에 등록(승인번호 우선, 없으면 카드사+금액+부호 첫 건).
 #   부산 하나건처럼 base가 이미 ⇄수기 매칭한 거래를 TRIP이 또 추가(appr 도용·이중계상)하는 것 방지.
 _co_of={'KBD':'국민','KBO':'국민','HAN':'하나','CORP':'기업'}
@@ -144,7 +171,15 @@ def src_of(card,item,acct):
 CARDSET={'국민','하나','기업'}
 def is_card(cd): return cd in CARDSET or bool(re.match(r'\d{4}',cd or ''))
 
-new=[]; n=0; addtot=0; cashtot=0
+# 예약번호→체크인일 오버라이드(2026-07-22 사용자 확정서 제공): 무일자 6건 — 현지결제 APA/카즈베기는
+#   체크인=결제일, 아드리아는 선결제라 체크인일 대용. 확정서 금액은 수기값과 일치 확인됨.
+BOOK_DATE={'1721756989':'2026-04-26','1721757952':'2026-04-26','1721758806':'2026-04-26','1721761805':'2026-04-26',
+           '1715820607':'2026-05-10','1717093956':'2026-05-15'}
+# APA 가나자와 4건 금액교체(2026-07-22 사용자 확정): 편의환율 604,800→실제 카드 총결제 2,287,848÷4=571,962.
+#   (카드는 JPY241,920 1건 합산청구, 4행 균등배분. 대표님 다른 국민해외건과 총결제금액 기준 통일.)
+BOOK_KRW={'1721756989':571962,'1721757952':571962,'1721758806':571962,'1721761805':571962}
+
+new=[]; n=0; addtot=0; cashtot=0; ota_mi=0
 percard=Counter(); pertab=defaultdict(float)
 for r in man:
     if not is_q2(r['tab']): continue
@@ -165,7 +200,7 @@ for r in man:
         # ★끝4자리 카드열(8835 등)을 발급사로 변환해 매칭 확장하는 시도는 2026-07-22 기각:
         #   ±2% 퍼지 매칭이 THB 거래(유럽 Adria)·동일금액 APA 4건 중 2건 등 오매칭 양산 실측.
         #   금액 변경 없는 명칭 카드열(국민/하나/기업)만 매칭 — 끝4자리 무일자 건은 수기 그대로 두고 보고.
-        cm=card_match(abs(a), {'국민':'국민','하나':'하나','기업':'기업'}.get(r['card'],''), want_cx=(a<0))
+        cm=card_match(abs(a), issuer_of(r['card']), want_cx=(a<0), item=r['item'])
         if sd and sd>='2026-04-01' and a>=0:
             # ★2026-07-23 사용자 "Q2필터 없애버려": 선결제는 승인이 수개월~1년 전일 수 있음(예: mercure 승인 2월·여행 6월).
             #   14일 근접창 제거 — 매칭 카드가 Q2 이전(<4/1) 승인이면 승인일 간격 무제한으로 선결제 인정·편입.
@@ -199,26 +234,31 @@ for r in man:
     row={k:'' for k in FN}
     mr=manrow(r)
     rowtag='수기%s행 | '%mr if mr else ''
-    # 예약번호→체크인일 오버라이드(2026-07-22 사용자 확정서 제공): 무일자 6건 — 현지결제 APA/카즈베기는
-    #   체크인=결제일, 아드리아는 선결제라 체크인일 대용. 확정서 금액은 수기값과 일치 확인됨.
-    BOOK_DATE={'1721756989':'2026-04-26','1721757952':'2026-04-26','1721758806':'2026-04-26','1721761805':'2026-04-26',
-               '1715820607':'2026-05-10','1717093956':'2026-05-15'}
-    # APA 가나자와 4건 금액교체(2026-07-22 사용자 확정): 편의환율 604,800→실제 카드 총결제 2,287,848÷4=571,962.
-    #   (카드는 JPY241,920 1건 합산청구, 4행 균등배분. 대표님 다른 국민해외건과 총결제금액 기준 통일.)
-    BOOK_KRW={'1721756989':571962,'1721757952':571962,'1721758806':571962,'1721761805':571962}
     if book in BOOK_KRW: cardcell = BOOK_KRW[book] if a>=0 else -BOOK_KRW[book]
+    # ── OTA_미배정 (2026-07-24 사용자 지시 ③): 수기장부가 카드결제로 표기했는데 실카드 데이터에서
+    #   매칭이 안 되는 건 — 예약번호(1순위)·금액+항목키워드(2순위) 재대조로도 실카드를 못 찾은 잔여만 해당.
+    #   BOOK_KRW 확정 오버라이드가 있는 건은 실체가 이미 확정된 것이므로 제외.
+    ota_gap = is_card(r['card']) and not cm and book not in BOOK_KRW
+    bucket = 'OTA_미배정' if ota_gap else r['tab']
+    note = ('%s수기장부 선결제 반영(%s) | %s%s'%(rowtag, issuer, r['desc'], ' 예약'+book if book else '')
+            if not ota_gap else
+            '⚠OTA_미배정: 수기장부 %s결제 표기(%s)이나 실카드 매칭 실패(예약번호·금액+키워드 재대조 후에도) | %s | %s%s'
+            %(issuer, r['tab'], rowtag.rstrip('| ') or '수기', r['desc'], ' 예약'+book if book else ''))
+    if ota_gap: ota_mi+=1
     # 날짜 fallback: 수기 기재일이 깨졌으면(에히메 55행 '25.0' 실측) 매칭 카드 승인일 사용
     row.update(uid='TRIP-%04d'%n, src=src, use_date=BOOK_DATE.get(book, sd or d10(r['date']) or (cm.get('use','') if cm else '')), post_date='', card4=(r['card'] if re.match(r'\d{4}',r['card'] or '') else ''),
         merchant=r['item'], country=country, currency=cur or ('KRW' if is_card(r['card']) else ''), foreign=fx or '0',
-        krw=str(cardcell), vat='0.0', status=('취소' if cancel else '정상'), extra='', bucket=r['tab'], account=acct,
-        cancel=str(cancel), cost_type='여행원가', vat_tag=vat_tag, confidence='상',
-        note='%s수기장부 선결제 반영(%s) | %s%s'%(rowtag, issuer, r['desc'], ' 예약'+book if book else ''),
-        tax_conf='상', appr=(ap if not cancel else ''), orig_appr=oap)
-    new.append(row); addtot+=cardcell; pertab[r['tab']]+=cardcell
+        krw=str(cardcell), vat='0.0', status=('취소' if cancel else '정상'), extra='', bucket=bucket, account=acct,
+        cancel=str(cancel), cost_type='여행원가', vat_tag=vat_tag, confidence=('하' if ota_gap else '상'),
+        note=note, tax_conf=('하' if ota_gap else '상'), appr=(ap if not cancel else ''), orig_appr=oap)
+    new.append(row); addtot+=cardcell
+    if not ota_gap: pertab[r['tab']]+=cardcell
 
-# ── 옵션① (사용자 2026-07-23 "1번으로 가야해"): 미매칭 실카드 → 여행_미배정 ──
+# ── 옵션① (사용자 2026-07-23 "1번으로 가야해", 2026-07-24 "카드사용내역_미배정"으로 개칭) ──
 #   base(classified_v12)·수기매칭 어디에서도 소비 안 된 카드 = 워크북 어디에도 없는 실결제(진에어30k 등 누락 근본원인).
-#   Q2 승인(2026-04~06)만 대상. 날짜근접 자동귀속은 하지 않고(사용자가 ②를 기각) 여행_미배정에 담아 대표님 검토.
+#   ★이 레포 1순위 목표(사용자 확정 2026-07-24): 모든 카드사용내역은 반드시 어느 탭엔가 배정돼야 한다 —
+#     "카드사용내역_미배정"은 곧 비용 누락이므로 이 건수·금액을 0으로 수렴시키는 게 최우선.
+#   Q2 승인(2026-04~06)만 대상. 날짜근접 자동귀속은 하지 않고(사용자가 ②를 기각) 별도 탭에 담아 대표님 검토.
 _mi=0; misc=[]; misctot=0; miscissuer=Counter()
 _ISS={'KBO':'국민','KBD':'국민','HAN':'하나','CORP':'기업'}
 for c in cards:
@@ -233,21 +273,24 @@ for c in cards:
     row.update(uid='MISC-%04d'%_mi, src=c['src'], use_date=u, post_date='',
         card4=c.get('c4',''), merchant=c['mer'], country=('KR' if c['sub']=='국내' else '해외'),
         currency=c['cur'] or 'KRW', foreign=c['fx'] or '0', krw=str(amt), vat='0.0',
-        status=('취소' if c['cx'] else '정상'), bucket='여행_미배정', account=acct,
+        status=('취소' if c['cx'] else '정상'), bucket='카드사용내역_미배정', account=acct,
         cancel=str(c['cx']), cost_type='여행원가', vat_tag='불공제_해외', confidence='하',
-        note='⚠수기 미기재 실카드결제(%s) — 대표님 검토요망: 여행탭 귀속/판관비 판정 필요'%issuer,
+        note='⚠카드사용내역_미배정(비용 누락 가능): 수기 미기재 실카드결제(%s) — 대표님 검토요망: 여행탭 귀속/판관비 판정 필요'%issuer,
         tax_conf='하', appr=c.get('appr',''), orig_appr='')
     misc.append(row); misctot+=amt; _used_card.add(id(c))
-print('옵션① 미매칭 Q2 실카드 → 여행_미배정: %d건 %s (합 %s)'%(_mi, dict(miscissuer), format(misctot,'+,')))
+print('옵션① 미매칭 Q2 실카드 → 카드사용내역_미배정(=비용누락 후보): %d건 %s (합 %s)'%(_mi, dict(miscissuer), format(misctot,'+,')))
+print('OTA_미배정(수기 카드표기·실카드 매칭실패): %d건'%ota_mi)
 new += misc
 
 # ── 대사 게이트 (사용자 "왜 계속 누락"): Q2 승인 카드가 base·수기·미배정 어디에도 없으면 누락 → 경고 ──
+#   ★1순위 목표 검증 게이트: 카드사용내역_미배정=0건이 이상적. 지금은 위 옵션①로 전량 격리해 가시화만 함
+#   (사용자가 자동귀속을 기각했으므로 0으로 만드는 건 대표님의 개별 배정 확인이 필요).
 _lost=[c for c in cards if id(c) not in _used_card and '2026-04-01'<=(c.get('use') or '')<='2026-06-30']
 if _lost:
     print('⚠️ 대사 실패: Q2 승인 카드 %d건이 어디에도 편입 안 됨(누락):'%len(_lost))
     for c in _lost[:20]: print('   ', c['co'], c['use'], format(c['amt'],','), (c['mer'] or '')[:24])
 else:
-    print('✓ 대사 통과: 모든 Q2 승인 카드가 base·수기·여행_미배정에 편입(누락 0)')
+    print('✓ 대사 통과: 모든 Q2 승인 카드가 base·수기·카드사용내역_미배정에 편입(누락 0)')
 
 out=cls+new
 with open('data/classified_v13.csv','w',encoding='utf-8',newline='') as f:

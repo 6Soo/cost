@@ -84,7 +84,6 @@ manual_amt = {t: Counter(v) for t, v in manual_rows.items()}
 import os as _os
 MATCHED = json.load(open('matched_fresh.json' if _os.path.exists('matched_fresh.json') else 'matched_uids.json', encoding='utf-8'))  # ★최신 수기 기준 매칭(P8) — gen_matched.py가 매 파이프라인마다 재생성
 BOOK_FILL = PatternFill('solid', fgColor='FCE5CD')  # 수기 미매칭(주황)
-MERGE_FILL = PatternFill('solid', fgColor='DEEAF6')  # 수기장부 병합건(연파랑)
 LINK_FONT = Font(color='0563C1', underline='single')
 SRC_BASE = {'KBD': 1, 'KBO': 1106, 'HAN': 2986, 'CORP': 2000}
 SRC_NAME = {'KBD': '국민', 'KBO': '국민해외', 'HAN': '하나', 'CORP': '기업카드'}
@@ -250,7 +249,7 @@ for tab in trip_order:
     if note: ws.cell(row=row_i, column=5).fill = WARN_FILL
     tot['inc'] += inc; tot['ai'] += ai; tot['man'] += man; tot['margin'] += margin
     row_i += 1
-for extra_b in ['기타비용', '여행_미배정', '취소환불']:
+for extra_b in ['기타비용', 'OTA_미배정', '카드사용내역_미배정', '취소환불']:
     xs = by_bucket.get(extra_b, [])
     if not xs: continue
     ai = sum(x['krw_f'] for x in xs)
@@ -339,18 +338,14 @@ def detail_sheet(title, xs):
         if mm2:
             return _re.sub(r'[\s()]', '', mm2.group(1))[:14]
         return None
-    matched, merges, unmatched, cancels = [], [], [], []
-    def _is_merge(z):
-        # 병합건 = 수기 '일부기입'을 카드로 보완한 행만(사용자 정의).
-        # TRIP 선결제 반영은 수기 완전기입의 이관이므로 완전기입(상단). ORIG(원거래 복원)·수기병합 태그만 병합.
-        n = z.get('note', '') or ''
-        return '수기병합' in n or '원거래 복원' in n or '카드보완' in n
+    # 2026-07-24 사용자 지시 ①: "수기병합필요" 3단계 분류 폐지. 카드 배정 여부만 본다(완전/미배정) —
+    #   수기 일부기입을 카드로 보완한 행("수기병합")도 이미 카드로 확정 배정된 것이므로 완전기입과 동일 취급.
+    matched, unmatched, cancels = [], [], []
     for x in sorted(xs, key=lambda z: (z['use_date'], z['uid'])):
         st = MATCHED.get(x['uid'], 'nomanual')
         if st == 'cancel' or x['cancel_b'] or x['krw_f'] < 0: cancels.append(x)
         elif st == 'unmatched': unmatched.append(x)
-        elif _is_merge(x): merges.append(x)          # 수기 일부기입+카드보완 → 병합건(중단)
-        else: matched.append(x)   # matched / nomanual → 완전기입(상단)
+        else: matched.append(x)   # matched / nomanual / 수기병합 → 전부 완전기입(배정완료)
     cancel_by_appr, cancel_by_item, cancel_by_key = {}, {}, {}
     for c in cancels:
         oa = (c.get('orig_appr') or '').strip()
@@ -402,13 +397,6 @@ def detail_sheet(title, xs):
             consumed.add(id(c))
             writerow(c, BAD_FILL)
     for x in matched: emit_with_cancel(x)
-    if merges:
-        r = ri[0]
-        ws.cell(row=r, column=2, value='▼ 수기장부 병합건 — 수기 일부기입분을 카드로 보완(날짜·계정) ▼')
-        for c in range(1, LAST_COL + 1): ws.cell(row=r, column=c).fill = MERGE_FILL
-        ws.cell(row=r, column=2).font = Font(bold=True, color='1F4E5F')
-        ri[0] += 1
-        for x in merges: emit_with_cancel(x, MERGE_FILL)
     if unmatched:
         r = ri[0]
         ws.cell(row=r, column=2, value='▼ 수기장부 미입력 추정 — 데이터행을 선택해 장부(v8 구조)에 그대로 붙여넣기: B날짜 C항목 D내용 E금액 F증빙 G예약번호 ▼')
@@ -430,7 +418,7 @@ def detail_sheet(title, xs):
     r = ri[0]
     ws.cell(row=r, column=2, value='합계').font = Font(bold=True)
     cc = ws.cell(row=r, column=COL['금액'], value=f'=SUM(E2:E{r-1})'); cc.font = Font(bold=True); cc.number_format = '#,##0'
-    ws.cell(row=r, column=COL['근거(AI)'], value=f'{len(matched)}완전/{len(merges)}병합/{len(unmatched)}미입력')
+    ws.cell(row=r, column=COL['근거(AI)'], value=f'{len(matched)}완전/{len(unmatched)}미입력')
     TAB_TOTALS.append((ws.title, r))   # 검증 시트 총합 함수용
     # (v63~) 셀 병합 없음 — 장부도 v6부터 무병합.
     for col, w in [('B', 12), ('C', 20), ('D', 16), ('E', 13), ('F', 11), ('G', 15),
@@ -440,14 +428,14 @@ def detail_sheet(title, xs):
 for tab in trip_order:
     if by_bucket.get(tab): detail_sheet(tab, by_bucket[tab])
 _leader_tabs = sorted(b for b in by_bucket if b.startswith('대장_'))   # 대장 지급카드 전용 탭(카드기명 규칙)
-for b in _leader_tabs + ['기타비용', '여행_미배정', '취소환불', '전기예약_환불']:
+for b in _leader_tabs + ['기타비용', 'OTA_미배정', '카드사용내역_미배정', '취소환불', '전기예약_환불']:
     if by_bucket.get(b): detail_sheet(b, by_bucket[b])
 
 # ── 5. 확인필요 (확신 하 + vat 확인 + cost_type 확인)
 ws = wb.create_sheet('확인필요')
 ws.append(DETAIL_HDR); style_header(ws, len(DETAIL_HDR))
 ri = 2
-need = [x for x in rows if x['confidence'] == '하' or x['bucket'] == '여행_미배정']
+need = [x for x in rows if x['confidence'] == '하' or x['bucket'] in ('OTA_미배정', '카드사용내역_미배정')]
 for x in sorted(need, key=lambda z: -abs(z['krw_f'])):
     _b,_u=booking_deeplink(x['merchant'],x.get('note',''))
     put(ws, ri, [x['use_date'], clean_name(x['merchant']), contents_col(x), x['card4'], round(x['krw_f']),
