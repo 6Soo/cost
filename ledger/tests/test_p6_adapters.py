@@ -19,6 +19,7 @@ from ledger.domain.ledger_db import (
     connect,
     import_legacy,
     initialize,
+    resolve_hana_split_cancellations,
     validation_report,
 )
 from ledger.domain.v2_workbook_adapter import (
@@ -35,6 +36,7 @@ class P6AdapterIntegrationTest(unittest.TestCase):
             try:
                 initialize(db)
                 import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                resolve_hana_split_cancellations(db)
                 apply_p1_confidence_rules(db)
                 apply_p3_unassigned_review(db)
                 apply_p4_provider_rules(db)
@@ -55,11 +57,32 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                 self.assertEqual(second["cards"]["inserted"], 0)
                 self.assertEqual(second["manual"]["inserted"], 0)
                 self.assertEqual(second["ota"]["inserted"], 0)
+                split_hana = db.execute(
+                    """
+                    SELECT
+                        source_record_id,
+                        SUM(CASE WHEN event_role='approval'
+                                 AND amount_krw>0 THEN 1 ELSE 0 END) AS approvals,
+                        SUM(CASE WHEN event_role='cancellation'
+                                 AND amount_krw<0 THEN 1 ELSE 0 END) AS cancellations
+                    FROM direct_normalized_payments
+                    WHERE event_role<>'single'
+                    GROUP BY source_record_id
+                    """
+                ).fetchall()
+                self.assertGreater(len(split_hana), 0)
+                self.assertTrue(
+                    all(
+                        int(row["approvals"]) == 1
+                        and int(row["cancellations"]) == 1
+                        for row in split_hana
+                    )
+                )
 
                 output = root / "parallel.xlsx"
                 workbook_result = export_parallel_workbook(db, output)
                 self.assertEqual(workbook_result["rows"], 1833)
-                self.assertEqual(workbook_result["amount_krw"], 320_115_617)
+                self.assertEqual(workbook_result["amount_krw"], 320_752_342)
                 workbook = openpyxl.load_workbook(output, read_only=True)
                 self.assertEqual(
                     sum(max(0, sheet.max_row - 1) for sheet in workbook.worksheets),

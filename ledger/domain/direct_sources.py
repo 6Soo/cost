@@ -83,6 +83,9 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
             "currency": card.get("cur", ""),
             "foreign": card.get("fx", ""),
             "krw": card.get("krw", 0),
+            "approval_amount": card.get("approval_amount", 0),
+            "cancel_amount": card.get("cancel_amount", 0),
+            "purchase_amount": card.get("purchase_amount", 0),
             "cancel": card.get("cancel", False),
             "status": card.get("status", ""),
         }
@@ -123,30 +126,69 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 normalized["merchant"],
             ),
         )
-        amount = int(normalized["krw"])
-        transaction_type = (
-            "refund"
-            if amount < 0
-            else "cancellation"
-            if normalized["cancel"]
-            else "adjustment"
-            if amount == 0
-            else "purchase"
-        )
-        db.execute(
-            """
-            INSERT INTO direct_normalized_payments(
-                source_record_id, card_event_id, amount_krw,
-                transaction_type, normalization_version
-            ) VALUES (?, ?, ?, ?, 'direct-card-v1')
-            ON CONFLICT(source_record_id) DO UPDATE SET
-                card_event_id=excluded.card_event_id,
-                amount_krw=excluded.amount_krw,
-                transaction_type=excluded.transaction_type,
-                normalization_version=excluded.normalization_version
-            """,
-            (source_id, identity.card_event_id, amount, transaction_type),
-        )
+        approval_amount = int(normalized["approval_amount"])
+        cancel_amount = int(normalized["cancel_amount"])
+        if normalized["src"] == "HAN" and cancel_amount:
+            approval_row = dict(normalized)
+            approval_row.update(
+                krw=abs(approval_amount),
+                cancel=False,
+                raw_record_id=f"{normalized['raw_record_id']}:approval",
+            )
+            cancellation_row = dict(normalized)
+            cancellation_row.update(
+                krw=-abs(cancel_amount),
+                cancel=True,
+                raw_record_id=f"{normalized['raw_record_id']}:cancellation",
+            )
+            components = [
+                (
+                    "approval",
+                    stable_card_event_identity(approval_row),
+                    abs(approval_amount),
+                    "purchase",
+                ),
+                (
+                    "cancellation",
+                    stable_card_event_identity(cancellation_row),
+                    -abs(cancel_amount),
+                    "cancellation",
+                ),
+            ]
+        else:
+            amount = int(normalized["krw"])
+            transaction_type = (
+                "refund"
+                if amount < 0
+                else "cancellation"
+                if normalized["cancel"]
+                else "adjustment"
+                if amount == 0
+                else "purchase"
+            )
+            components = [("single", identity, amount, transaction_type)]
+
+        for role, component_identity, amount, transaction_type in components:
+            db.execute(
+                """
+                INSERT INTO direct_normalized_payments(
+                    source_record_id, event_role, card_event_id, amount_krw,
+                    transaction_type, normalization_version
+                ) VALUES (?, ?, ?, ?, ?, 'direct-card-v2')
+                ON CONFLICT(source_record_id, event_role) DO UPDATE SET
+                    card_event_id=excluded.card_event_id,
+                    amount_krw=excluded.amount_krw,
+                    transaction_type=excluded.transaction_type,
+                    normalization_version=excluded.normalization_version
+                """,
+                (
+                    source_id,
+                    role,
+                    component_identity.card_event_id,
+                    amount,
+                    transaction_type,
+                ),
+            )
         identities.setdefault(identity.card_event_id, []).append(source_id)
 
     for event_id, source_ids in identities.items():

@@ -23,12 +23,34 @@ def build_gate_report(db_path: Path, baseline: Path) -> dict[str, object]:
         direct_payments = int(
             db.execute("SELECT COUNT(*) FROM direct_normalized_payments").fetchone()[0]
         )
+        expected_direct_payments = int(
+            db.execute(
+                """
+                SELECT COUNT(*) + COALESCE(SUM(
+                    CASE
+                      WHEN json_extract(payload_json, '$.src')='HAN'
+                       AND CAST(json_extract(payload_json, '$.cancel_amount') AS INTEGER)<>0
+                      THEN 1 ELSE 0
+                    END
+                ), 0)
+                FROM direct_source_records
+                WHERE source_kind='card_raw'
+                """
+            ).fetchone()[0]
+        )
         gates = [
             {
                 "gate": 1,
                 "name": "direct_card_source_count",
-                "passed": direct_sources == direct_payments and direct_sources > 0,
-                "actual": {"source_records": direct_sources, "normalized": direct_payments},
+                "passed": (
+                    expected_direct_payments == direct_payments
+                    and direct_sources > 0
+                ),
+                "actual": {
+                    "source_records": direct_sources,
+                    "expected_events": expected_direct_payments,
+                    "normalized": direct_payments,
+                },
             },
             {
                 "gate": 2,

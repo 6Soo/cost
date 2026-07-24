@@ -138,6 +138,18 @@ def regression_report(
 ) -> dict[str, object]:
     baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     current = regression_totals(db)
+    hana_legacy_correction = int(
+        db.execute(
+            """
+            SELECT COALESCE(SUM(ABS(refund.amount_krw)), 0)
+            FROM transaction_relations relation
+            JOIN payment_transactions refund
+              ON refund.id=relation.transaction_id
+            WHERE relation.match_method='hana_same_raw_row_approval_cancel'
+              AND relation.relation_status='confirmed'
+            """
+        ).fetchone()[0]
+    )
     sections: dict[str, list[dict[str, object]]] = {}
     for section in ("allocation_targets", "accounts"):
         before = {str(row["key"]): row for row in baseline[section]}
@@ -155,6 +167,18 @@ def regression_report(
                 and abs(new - old) == 18_755
                 else "v2_error"
             )
+            difference = new - old
+            if section == "allocation_targets" and abs(difference) == 18_755:
+                classification = "intended_improvement"
+            elif (
+                section == "allocation_targets"
+                and difference == hana_legacy_correction - 18_755
+            ):
+                classification = (
+                    "legacy_error_correction_and_intended_improvement"
+                )
+            elif section == "accounts" and difference == hana_legacy_correction:
+                classification = "legacy_error_correction"
             differences.append(
                 {
                     "key": key,
@@ -173,6 +197,7 @@ def regression_report(
     )
     return {
         "differences": sections,
+        "hana_legacy_correction_krw": hana_legacy_correction,
         "unexplained_differences": unexplained,
     }
 

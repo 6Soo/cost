@@ -98,13 +98,17 @@ CREATE TABLE IF NOT EXISTS direct_card_events (
 );
 
 CREATE TABLE IF NOT EXISTS direct_normalized_payments (
-    source_record_id INTEGER PRIMARY KEY REFERENCES direct_source_records(id),
+    id INTEGER PRIMARY KEY,
+    source_record_id INTEGER NOT NULL REFERENCES direct_source_records(id),
+    event_role TEXT NOT NULL DEFAULT 'single'
+        CHECK(event_role IN ('single', 'approval', 'cancellation')),
     card_event_id TEXT NOT NULL,
     amount_krw INTEGER NOT NULL,
     transaction_type TEXT NOT NULL
         CHECK(transaction_type IN ('purchase', 'cancellation', 'refund', 'adjustment')),
     normalization_version TEXT NOT NULL,
-    normalized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    normalized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_record_id, event_role)
 );
 
 CREATE INDEX IF NOT EXISTS direct_card_events_by_identity

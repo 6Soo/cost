@@ -28,6 +28,7 @@ from ledger.domain.ledger_db import (
     connect,
     import_legacy,
     replace_allocation_plan,
+    resolve_hana_split_cancellations,
     review_details,
     review_report,
     regression_totals,
@@ -147,6 +148,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
             db = connect(first_db_path)
             try:
                 import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                resolve_hana_split_cancellations(db)
                 apply_p1_confidence_rules(db)
                 apply_p3_unassigned_review(db)
                 apply_p4_provider_rules(db)
@@ -245,6 +247,41 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
                 self.assertEqual(link["link_status"], "confirmed")
             finally:
                 rebuilt.close()
+
+    def test_hana_same_row_approval_and_cancellation_are_both_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "hana.db")
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                result = resolve_hana_split_cancellations(db)
+                self.assertEqual(result["resolved_pairs"], 4)
+                self.assertEqual(result["remaining_hana_split_candidates"], 0)
+                pairs = db.execute(
+                    """
+                    SELECT original.amount_krw AS approval_amount,
+                           refund.amount_krw AS cancellation_amount,
+                           relation.relation_status
+                    FROM transaction_relations relation
+                    JOIN payment_transactions refund
+                      ON refund.id=relation.transaction_id
+                    JOIN payment_transactions original
+                      ON original.id=relation.related_transaction_id
+                    WHERE relation.match_method='hana_same_raw_row_approval_cancel'
+                    ORDER BY refund.id
+                    """
+                ).fetchall()
+                self.assertEqual(len(pairs), 4)
+                self.assertTrue(
+                    all(
+                        int(pair["approval_amount"])
+                        == -int(pair["cancellation_amount"])
+                        and pair["relation_status"] == "confirmed"
+                        for pair in pairs
+                    )
+                )
+                self.assertTrue(validation_report(db)["valid"])
+            finally:
+                db.close()
 
     def test_tampered_change_log_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:

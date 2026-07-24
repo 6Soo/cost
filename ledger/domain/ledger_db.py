@@ -148,6 +148,18 @@ def initialize(db: sqlite3.Connection) -> None:
                 "DB를 직접 수정하지 말고 `python -m ledger.domain.ledger_db "
                 "rebuild`로 불변 원천에서 재생성하세요."
             )
+    if "direct_normalized_payments" in existing_tables:
+        direct_columns = {
+            str(row["name"])
+            for row in db.execute(
+                "PRAGMA table_info(direct_normalized_payments)"
+            ).fetchall()
+        }
+        if "event_role" not in direct_columns:
+            raise RuntimeError(
+                "기존 직접 적재 DB는 승인·취소 분리 스키마와 호환되지 않습니다. "
+                "`python -m ledger.domain.ledger_db rebuild`로 불변 원천에서 재생성하세요."
+            )
     db.executescript(SCHEMA.read_text(encoding="utf-8"))
     db.commit()
 
@@ -2215,6 +2227,223 @@ def apply_p1_confidence_rules(db: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def resolve_hana_split_cancellations(db: sqlite3.Connection) -> dict[str, int]:
+    """하나 RAW 한 행이 legacy에서 `0원 원행 + 음수 MISC`로 갈라진 경우를 복원한다.
+
+    원행은 승인금액의 purchase, MISC 행은 같은 승인번호의 cancellation으로 보존하고
+    두 행을 명시적으로 연결한다. 기존 버전과 미연결 관계는 삭제하지 않고 supersede한다.
+    """
+    pairs = db.execute(
+        """
+        SELECT
+            original.id AS original_id,
+            original.external_key AS original_key,
+            refund.id AS refund_id,
+            refund.external_key AS refund_key,
+            refund.amount_krw AS refund_amount,
+            original.approval_number,
+            allocation.target_id,
+            allocation.booking_id,
+            decision.id AS allocation_decision_id,
+            decision.value AS allocation_code
+        FROM payment_transactions original
+        JOIN payment_transactions refund
+          ON refund.source_system='HAN'
+         AND original.source_system='HAN'
+         AND refund.approval_number=original.approval_number
+         AND refund.id<>original.id
+         AND refund.amount_krw < 0
+        JOIN current_cost_allocations allocation
+          ON allocation.payment_id=original.id
+        JOIN current_classification_decisions decision
+          ON decision.target_type='payment'
+         AND decision.target_id=original.id
+         AND decision.dimension='allocation_target'
+        WHERE original.amount_krw=0
+          AND original.approval_number IS NOT NULL
+          AND original.approval_number<>''
+          AND refund.external_key LIKE 'MISC-%'
+        ORDER BY original.id
+        """
+    ).fetchall()
+    resolved = 0
+    with db:
+        for pair in pairs:
+            original_id = int(pair["original_id"])
+            refund_id = int(pair["refund_id"])
+            approval_amount = abs(int(pair["refund_amount"]))
+            latest_source = int(
+                db.execute(
+                    """
+                    SELECT source_record_id
+                    FROM payment_transaction_versions
+                    WHERE transaction_id=?
+                    ORDER BY record_version DESC LIMIT 1
+                    """,
+                    (original_id,),
+                ).fetchone()[0]
+            )
+            db.execute(
+                """
+                UPDATE payment_transactions
+                SET amount_krw=?, transaction_type='purchase',
+                    record_version=record_version+1,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (approval_amount, original_id),
+            )
+            db.execute(
+                """
+                INSERT INTO payment_transaction_versions(
+                    transaction_id, record_version, source_record_id,
+                    source_event_id, identity_fingerprint,
+                    payment_method_id, source_system, occurred_on, posted_on,
+                    merchant, business_category, country, currency,
+                    foreign_amount, amount_krw, approval_number,
+                    transaction_type
+                )
+                SELECT
+                    id, record_version, ?, source_event_id, identity_fingerprint,
+                    payment_method_id, source_system, occurred_on, posted_on,
+                    merchant, business_category, country, currency,
+                    foreign_amount, amount_krw, approval_number,
+                    transaction_type
+                FROM payment_transactions WHERE id=?
+                """,
+                (latest_source, original_id),
+            )
+
+            replace_allocation_plan(
+                db,
+                original_id,
+                [
+                    AllocationItem(
+                        target_id=int(pair["target_id"]),
+                        amount_krw=approval_amount,
+                        booking_id=(
+                            int(pair["booking_id"])
+                            if pair["booking_id"] is not None
+                            else None
+                        ),
+                    )
+                ],
+                status="confirmed",
+                confidence=1.0,
+                source_decision_id=int(pair["allocation_decision_id"]),
+            )
+            refund_decision = replace_decision(
+                db,
+                "payment",
+                refund_id,
+                "allocation_target",
+                str(pair["allocation_code"]),
+                1.0,
+                "상",
+                "하나카드 RAW 동일 행·동일 승인번호의 승인취소금액",
+                None,
+                decision_status="confirmed",
+                rule_id="p2:hana_same_row_approval_cancellation",
+            )
+            original_dimensions = db.execute(
+                """
+                SELECT dimension, value
+                FROM current_classification_decisions
+                WHERE target_type='payment'
+                  AND target_id=?
+                  AND dimension IN (
+                      'expense_type', 'cost_nature', 'vat_treatment'
+                  )
+                """,
+                (original_id,),
+            ).fetchall()
+            for dimension in original_dimensions:
+                replace_decision(
+                    db,
+                    "payment",
+                    refund_id,
+                    str(dimension["dimension"]),
+                    str(dimension["value"]),
+                    1.0,
+                    "상",
+                    "하나카드 동일 RAW 행의 승인 거래 분류를 취소 이벤트에 승계",
+                    None,
+                    decision_status="confirmed",
+                    rule_id="p2:hana_same_row_approval_cancellation",
+                )
+            replace_allocation_plan(
+                db,
+                refund_id,
+                [
+                    AllocationItem(
+                        target_id=int(pair["target_id"]),
+                        amount_krw=int(pair["refund_amount"]),
+                        booking_id=(
+                            int(pair["booking_id"])
+                            if pair["booking_id"] is not None
+                            else None
+                        ),
+                    )
+                ],
+                status="confirmed",
+                confidence=1.0,
+                source_decision_id=refund_decision,
+            )
+            db.execute(
+                """
+                UPDATE transaction_relations
+                SET relation_status='superseded',
+                    resolution_code='superseded_by_hana_raw_pair',
+                    rationale='하나카드 RAW 동일 행 구조로 재연결'
+                WHERE transaction_id=?
+                  AND related_transaction_id IS NULL
+                  AND relation_status NOT IN ('rejected', 'superseded')
+                """,
+                (refund_id,),
+            )
+            reference = f"hana:{pair['approval_number']}:same-row"
+            db.execute(
+                """
+                INSERT INTO transaction_relations(
+                    transaction_id, related_transaction_id, relation_type,
+                    reference_value, match_method, confidence, relation_status,
+                    resolution_code, rationale
+                ) VALUES (?, ?, 'cancels', ?,
+                          'hana_same_raw_row_approval_cancel', 1.0, 'confirmed',
+                          'original_linked',
+                          '하나카드 동일 RAW 행의 승인금액과 승인취소금액')
+                ON CONFLICT(transaction_id, relation_type, reference_value)
+                DO UPDATE SET
+                    related_transaction_id=excluded.related_transaction_id,
+                    match_method=excluded.match_method,
+                    confidence=excluded.confidence,
+                    relation_status='confirmed',
+                    resolution_code='original_linked',
+                    rationale=excluded.rationale,
+                    superseded_by_document_id=NULL
+                """,
+                (refund_id, original_id, reference),
+            )
+            resolved += 1
+    return {
+        "resolved_pairs": resolved,
+        "remaining_hana_split_candidates": scalar(
+            db,
+            """
+            SELECT COUNT(*)
+            FROM payment_transactions original
+            JOIN payment_transactions refund
+              ON refund.source_system='HAN'
+             AND original.source_system='HAN'
+             AND refund.approval_number=original.approval_number
+             AND refund.amount_krw<0
+             AND refund.external_key LIKE 'MISC-%'
+            WHERE original.amount_krw=0
+            """,
+        ),
+    }
+
+
 def apply_p3_unassigned_review(db: sqlite3.Connection) -> dict[str, int]:
     """미배정 결제를 삭제 없이 네 가지 검토 결과로 설명하고 확정 건만 재배분한다."""
     rows = db.execute(
@@ -2639,6 +2868,7 @@ def rebuild_database(
     db = connect(temporary)
     try:
         stats = import_legacy(db, csv_path, trips_path, bookings_path)
+        p2_hana_result = resolve_hana_split_cancellations(db)
         p1_result = apply_p1_confidence_rules(db)
         p3_result = apply_p3_unassigned_review(db)
         p4_result = apply_p4_provider_rules(db)
@@ -2647,6 +2877,10 @@ def rebuild_database(
         report = validation_report(db)
         if not report["valid"]:
             raise ValueError("재생성 DB 정합성 검증에 실패했습니다.")
+        corrected_amount_krw = scalar(
+            db,
+            "SELECT COALESCE(SUM(amount_krw), 0) FROM payment_transactions",
+        )
         semantic_sha256 = build_review_snapshot(db)["semantic_sha256"]
         db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except Exception:
@@ -2665,8 +2899,9 @@ def rebuild_database(
     return {
         "db": str(destination),
         "transactions": stats.transactions,
-        "amount_krw": stats.amount_krw,
+        "amount_krw": corrected_amount_krw,
         "applied_changes": applied_changes,
+        "p2_hana_split_cancellations": p2_hana_result,
         "p1_confidence_rules": p1_result,
         "p3_unassigned_review": p3_result,
         "p4_provider_rules": p4_result,

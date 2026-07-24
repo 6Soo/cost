@@ -8,7 +8,8 @@
       "passed": true,
       "actual": {
         "source_records": 5237,
-        "normalized": 5237
+        "expected_events": 5328,
+        "normalized": 5328
       }
     },
     {
@@ -16,8 +17,8 @@
       "name": "payment_allocation_total",
       "passed": true,
       "actual": {
-        "payments": 320115617,
-        "allocations": 320115617
+        "payments": 320752342,
+        "allocations": 320752342
       }
     },
     {
@@ -32,7 +33,7 @@
       "passed": true,
       "actual": {
         "outside_window": 10,
-        "insufficient_evidence": 5,
+        "insufficient_evidence": 1,
         "unexplained": 0
       }
     },
@@ -65,13 +66,22 @@
             {
               "key": "여행_미배정",
               "before": 2734540,
-              "after": 2715785,
-              "difference": -18755,
-              "classification": "intended_improvement"
+              "after": 3352510,
+              "difference": 617970,
+              "classification": "legacy_error_correction_and_intended_improvement"
             }
           ],
-          "accounts": []
+          "accounts": [
+            {
+              "key": "숙박비",
+              "before": 175096484,
+              "after": 175733209,
+              "difference": 636725,
+              "classification": "legacy_error_correction"
+            }
+          ]
         },
+        "hana_legacy_correction_krw": 636725,
         "unexplained_differences": 0
       }
     }
