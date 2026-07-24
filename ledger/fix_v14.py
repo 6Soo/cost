@@ -75,6 +75,12 @@ def desc_core(note):
 def bookno_t(note):   # ★예약번호(다객실 동일가 유일 식별) — dedup 키에 포함해 다른 예약 오제거 방지
     m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})(?![0-9])', note or '')
     return m.group(1) if m else ''
+def srcrow_t(note):   # ★2026-07-24 발견(0413_나가센도 고마가네 실측): 예약번호도 없고 desc_core도 같은
+    # 다객실 동일가 건(같은 날짜·같은 항목·같은 금액인데 물리적으로 다른 수기행)이 desc_core만으로
+    # 동일키가 돼 오제거됐다("숙박" 하나로 뭉침 — 62,496원 2건 중 1건 소실). 수기 원본 행번호(유일
+    # 물리 식별자)를 키에 포함해, 예약번호도 desc도 구분 안 되는 다객실건은 행번호로 갈라 보존한다.
+    m=re.search(r'수기(\d+)행', note or '')
+    return m.group(1) if m else ''
 seen_key=set(); kept2=[]; dd=0; ddtot=0
 for t in sorted(kept, key=lambda z:z['uid']):
     # ★영수증/현금/이체(MAN, 비카드)는 수기장부가 마스터(2026-07-23 사용자 확정 "영수증은 수기가 마스터"):
@@ -83,8 +89,9 @@ for t in sorted(kept, key=lambda z:z['uid']):
         kept2.append(t); continue
     core=desc_core(t['note']); a=abs(i(t['krw'])); cx=str(t.get('cancel')).lower() in ('true','1')
     bk=bookno_t(t['note'])
-    key=(t['bucket'], a, cx, core, bk)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
-    if (core or bk) and key in seen_key:      # 동탭·동액·동일 사람+동일예약 = 진짜 중복입력만 제거
+    sr=srcrow_t(t['note']) if not bk else ''   # 예약번호가 있으면 행번호 불필요(예약번호가 이미 유일키)
+    key=(t['bucket'], a, cx, core, bk, sr)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
+    if (core or bk) and key in seen_key:      # 동탭·동액·동일 사람+동일예약+동일수기행 = 진짜 중복입력만 제거
         dd+=1; ddtot+=i(t['krw']); continue
     seen_key.add(key); kept2.append(t)
 print('①B 수기 중복입력 dedup:', dd,'건 제거 (순액', format(ddtot,'+,'),')')

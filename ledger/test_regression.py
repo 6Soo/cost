@@ -52,6 +52,15 @@ if 'TRIP-0016' in by_uid:
     check('0408_교토 탭 유지', r['bucket'] == '0408_교토', r['bucket'])
     check('예약번호 note 보존', '1400823535413714' in (r['note'] or ''))
 
+print('== 0413_나가센도 고마가네 다객실 동일가 dedup 오제거 회귀(2026-07-24 사용자 지적) ==')
+# 예약번호도 없고 desc_core도 같아("숙박") 구분자가 전혀 없는 다객실 동일가 항목(62,496원 2건,
+# 수기29·30행)이 ①B dedup에서 "동일 중복"으로 오판돼 1건 삭제됐었다 — 수기 원본 행번호를 키에
+# 포함해 물리적으로 다른 행은 절대 안 지우게 고쳤다.
+komagane = [r for r in rows if r['bucket'] == '0413_나가센도' and r['merchant'] == '트립닷컴_고마가네'
+            and abs(float(r['krw'] or 0) - 62496) < 1]
+check('고마가네 62,496원 2건 모두 보존(다객실 동일가, 예약번호 없음)', len(komagane) == 2,
+      [(r['uid'], r['note']) for r in komagane])
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
@@ -66,8 +75,8 @@ for bucket, amt, label in DUP_WATCH:
 
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 309_470_903
-EXPECTED_ROWS = 1683
+EXPECTED_TOTAL = 310_547_377
+EXPECTED_ROWS = 1687
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')

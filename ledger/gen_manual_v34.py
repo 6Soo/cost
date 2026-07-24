@@ -60,7 +60,12 @@ def extract_tab(ws, tab):
     for r in range(start + 1, ws.max_row + 1):
         cells = [ws.cell(r, c).value for c in range(1, 20)]
         if layout == 'A':
-            date, item, desc, book_c, card, amt = cells[1], cells[2], cells[3], cells[5], cells[6], cells[7]
+            # ★2026-07-24 발견(0413_나가센도 실측): E열(기간, 예: '0414_0415')을 안 읽고 D열(내용,
+            # 예: '숙박')만 desc로 써서 기간 정보가 통째로 유실됐었다(24건 중 6건만 살아남음).
+            # Layout B 관례(desc='숙박_MMDD_MMDD')와 맞춰 D_E로 합성한다.
+            date, d_col, period, book_c, card, amt = cells[1], cells[3], cells[4], cells[5], cells[6], cells[7]
+            item = cells[2]
+            desc = ('%s_%s' % (d_col, period)) if (d_col and period) else (period or d_col or '')
             book = str(int(book_c)) if isinstance(book_c, (int, float)) else (str(book_c).strip() if book_c else None)
         else:
             date, item, desc, card, amt = cells[1], cells[3], cells[5], cells[7], cells[8]
