@@ -134,6 +134,12 @@ def ledger_desc(x):
             return out
         m3 = re.search(r'체크인\s*(\d{1,2})/(\d{1,2})', n)
         if m3: return '숙박_%02d%02d' % (int(m3.group(1)), int(m3.group(2)))
+        # ★2026-07-24 발견: "메일확정 | [OTA] 예약NNN 호텔명 YYYY-MM-DD | ..." 형식은 '체크인' 라벨이
+        #   없어 위 정규식이 못 잡음(무쓰그랜드호텔 등). "메일확정"은 보통 자기 세그먼트 단독이고 날짜는
+        #   다음 세그먼트(호텔명 뒤)에 있으므로, 세그먼트 단위가 아니라 노트 전체에서 첫 YYYY-MM-DD를 찾는다.
+        if '메일확정' in n:
+            m4 = re.search(r'(\d{4})-(\d{2})-(\d{2})', n)
+            if m4: return '숙박_' + m4.group(2) + m4.group(3)
     return ''
 
 def contents_col(x):
@@ -386,13 +392,18 @@ def detail_sheet(title, xs):
         if x['confidence'] == '하': ws.cell(row=r, column=COL['확신']).fill = WARN_FILL
         ri[0] += 1
     consumed = set()
-    def emit_with_cancel(x, fill=None):
-        writerow(x, fill)
+    def cancel_pool_of(x):
+        # 2026-07-24 버그수정: 이전엔 emit_with_cancel(matched행 전용)에만 있어 unmatched행(수기미확정건)은
+        # appr(승인번호) 기준 페어링을 못 받고 브랜드+금액(cancel_by_key)만 썼다 — 승인번호 페어가 있는데도
+        # 상태='unmatched'인 매출행(RESIDHOTEL 무쓰그랜드 예 KBD-0783)의 짝(KBD-0782)이 안 붙던 원인.
         pool = list(cancel_by_appr.get((x.get('appr') or '').strip(), [])) if x.get('appr') else []
         it = _manitem(x)
         if it: pool += cancel_by_item.get(it, [])
         pool += cancel_by_key.get((_brand(x['merchant']), round(abs(x['krw_f']))), [])
-        for c in pool:
+        return pool
+    def emit_with_cancel(x, fill=None):
+        writerow(x, fill)
+        for c in cancel_pool_of(x):
             if id(c) in consumed or c is x: continue
             consumed.add(id(c))
             writerow(c, BAD_FILL)
@@ -408,8 +419,7 @@ def detail_sheet(title, xs):
             # ★미입력 데이터행은 무채색(대표님 장부 스타일과 동일) — 색은 위 구분줄에만.
             #   "전체 붙여넣기" 한 번으로 서식 충돌·병합 해제 없이 그대로 정착하도록.
             writerow(xx, None)
-            emit_leftover = cancel_by_key.get((_brand(x['merchant']), round(abs(x['krw_f']))), [])
-            for c in emit_leftover:
+            for c in cancel_pool_of(x):
                 if id(c) in consumed or c is x: continue
                 consumed.add(id(c)); writerow(c, None)
     for c in cancels:

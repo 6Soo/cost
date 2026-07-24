@@ -32,6 +32,11 @@ for r in load('F')[1:]:
 for f in ('G','H'):
     for r in load(f)[6:]:
         if len(r)>14 and r[0] and r[0]!='NO' and i(r[5]):
+            # ★2026-07-24 RESIDHOTEL 실측 발견: 상태='승인취소'는 매입 자체가 안 된(미매입) 승인 취소 —
+            #   실청구 0(전액상쇄, "매출취소"와 다름: 저건 매입 후 진짜 환불). 이 상태를 무시하고
+            #   매입금액(0)→승인금액 폴백(or)을 적용하면 실체없는 "-178,948원 취소" 유령거래가 생겨
+            #   카드사용내역_미배정에 가짜 비용누락으로 잡힌다(H파일 89건 7,753,748원·G파일 2건 454,176원 실측).
+            if len(r)>17 and r[17]=='승인취소': continue
             gu='해외' if '해외' in (r[11] or '') else '국내'
             cards.append(dict(co='하나',use=d10(r[1]),c4=r[3][-4:],amt=i(r[14]) or i(r[5]),mer=r[7],fx='',cur='',sub=gu,src='HAN',cx=(i(r[6])!=0),appr=re.sub(r'\D','',r[4])))
 for r in load('A_20260720'):
