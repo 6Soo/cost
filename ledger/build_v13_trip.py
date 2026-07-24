@@ -19,30 +19,88 @@ def d10(s):
     y=m.group(1);  y='20'+y if len(y)==2 else y
     return '%s-%s-%s'%(y,m.group(2),m.group(3))
 
+# ---- 스키마 기반 로딩(2026-07-24, 사용자 지시 "1번 적용") ----
+# 컬럼 인덱스(r[5] 등)로 원본을 읽으면 양식이 미세하게 바뀌어도 에러 없이 엉뚱한 값을 읽어
+# "유령 데이터"를 만든다(승인취소 유령거래 사례). 헤더를 실제로 검증한 뒤 이름으로 접근한다 —
+# 헤더가 어긋나면 조용히 넘어가지 말고 즉시 실패(assert)한다.
+SCHEMAS={
+ 'E':(0,['매입일','승인일','부서번호','부서명','카드번호','이용자명','결제방법','가맹점명','이용국가','도시명','통화코드','현지이용금액','미화환산금액','적용환율','결제원금','수수료','총결제금액']),
+ 'F':(0,['매입일','승인일','승인시간','부서번호','부서명','카드번호','이용자명','가맹점명','업종명','결제방법','할부개월수','승인금액','부가세','승인구분','승인방식','승인번호','상태','과세유형','가맹점상태','가맹점번호','가맹점사업자등록번호','대표자성명','가맹점주소','가맹점전화번호']),
+ 'G':(5,['NO','이용일','이용시간','카드번호','승인번호','승인금액','승인취소금액','가맹점명','업종명','가맹점번호','가맹점사업자번호','이용구분','할부기간','매입','매입금액','매출취소금액','매입일','상태','부가세','하위몰정보']),
+ 'H':(5,['NO','이용일','이용시간','카드번호','승인번호','승인금액','승인취소금액','가맹점명','업종명','가맹점번호','가맹점사업자번호','이용구분','할부기간','매입','매입금액','매출취소금액','매입일','상태','부가세','하위몰정보']),
+}
+def _norm(h): return re.sub(r'\s+','',h)
+def load_named(f):
+    hr,cols=SCHEMAS[f]
+    raw=load(f)
+    got=[_norm(h) for h in raw[hr][:len(cols)]]
+    assert got==cols, ('%s 헤더가 예상과 다르다 — 양식 변경 가능성, 컬럼 매핑 재검증 필요.\n예상: %s\n실제: %s'%(f,cols,got))
+    return [dict(zip(cols,r)) for r in raw[hr+1:]]
+# A_20260720(기업카드)는 원본 자체에 헤더 행이 없다 — 실제 헤더 검증은 불가하지만, 매직넘버
+# 대신 이름 있는 상수로 위치를 문서화해둔다(향후 헤더 있는 포맷으로 바뀌면 이 매핑부터 재검증).
+A_COLS=['통화구분','국내해외','일시','카드번호','카드명','가맹점명','승인금액','현지금액표기',
+        '카드명2','결제방법','할부','미상1','미상2','승인번호','미상3','미상4','미상5','매입일','만료일','사업자번호']
+
+# ★일괄 가시화 헬퍼(2026-07-24 "2번 적용"): 조용히 걸러지는 행이 있어도 로그에 찍혀야
+#   사람이 스프레드시트를 열기 전에 이상 유무를 알 수 있다(전 소스에 ground-truth 요약행이
+#   있는 건 아니라 G/H처럼 assert는 못 걸어도, 최소한 스캔/편입 건수·합계는 항상 남긴다).
+def _report(src, scanned, kept):
+    amt=sum(c['amt']*(-1 if c['cx'] else 1) for c in kept)
+    print('  %s: 원본 %d행 스캔 → %d건 편입(순액 %s)'%(src, scanned, len(kept), format(amt,',')))
+
 # ---- 통합 카드 인덱스 (정상+취소, 금액→상세) ----
 cards=[]
-for r in load('E')[1:]:
-    if len(r)>16 and i(r[16]):
-        cards.append(dict(co='국민',use=d10(r[1]) or d10(r[0]),c4=r[4][-4:],amt=i(r[16]),mer=r[7],fx=r[11],cur=r[10],sub='해외',src='KBO',cx=(r[6]=='취소매출'),appr=''))
-for r in load('F')[1:]:
-    if len(r)>15 and i(r[11]):
-        _m=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r[15]).strip())
-        _ap,_og=(_m.group(1),_m.group(2)) if _m else (re.sub(r'\D','',r[15]),'')
-        cards.append(dict(co='국민',use=d10(r[1]),c4=r[5][-4:],amt=abs(i(r[11])),mer=r[7],fx='',cur='',sub='국내',src='KBD',cx=(i(r[11])<0),appr=_ap,orig=_og))
+_rows=load_named('E'); _n0=len(cards)
+for r in _rows:
+    if i(r['총결제금액']):
+        cards.append(dict(co='국민',use=d10(r['승인일']) or d10(r['매입일']),c4=r['카드번호'][-4:],amt=i(r['총결제금액']),mer=r['가맹점명'],fx=r['현지이용금액'],cur=r['통화코드'],sub='해외',src='KBO',cx=(r['결제방법']=='취소매출'),appr=''))
+_report('E(국민해외)', len(_rows), cards[_n0:])
+_rows=load_named('F'); _n0=len(cards)
+for r in _rows:
+    if i(r['승인금액']):
+        _m=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r['승인번호']).strip())
+        _ap,_og=(_m.group(1),_m.group(2)) if _m else (re.sub(r'\D','',r['승인번호']),'')
+        cards.append(dict(co='국민',use=d10(r['승인일']),c4=r['카드번호'][-4:],amt=abs(i(r['승인금액'])),mer=r['가맹점명'],fx='',cur='',sub='국내',src='KBD',cx=(i(r['승인금액'])<0),appr=_ap,orig=_og))
+_report('F(국민국내)', len(_rows), cards[_n0:])
 for f in ('G','H'):
-    for r in load(f)[6:]:
-        if len(r)>14 and r[0] and r[0]!='NO' and i(r[5]):
+    _n0=len(cards); _rows=load_named(f)
+    for r in _rows:
+        if r['NO'] and r['NO']!='NO' and i(r['승인금액']):
             # ★2026-07-24 RESIDHOTEL 실측 발견: 상태='승인취소'는 매입 자체가 안 된(미매입) 승인 취소 —
             #   실청구 0(전액상쇄, "매출취소"와 다름: 저건 매입 후 진짜 환불). 이 상태를 무시하고
             #   매입금액(0)→승인금액 폴백(or)을 적용하면 실체없는 "-178,948원 취소" 유령거래가 생겨
             #   카드사용내역_미배정에 가짜 비용누락으로 잡힌다(H파일 89건 7,753,748원·G파일 2건 454,176원 실측).
-            if len(r)>17 and r[17]=='승인취소': continue
-            gu='해외' if '해외' in (r[11] or '') else '국내'
-            cards.append(dict(co='하나',use=d10(r[1]),c4=r[3][-4:],amt=i(r[14]) or i(r[5]),mer=r[7],fx='',cur='',sub=gu,src='HAN',cx=(i(r[6])!=0),appr=re.sub(r'\D','',r[4])))
-for r in load('A_20260720'):
-    if len(r)>13 and i(r[6]):
-        gu='해외' if r[1].startswith('해외') else '국내'
-        cards.append(dict(co='기업',use=str(r[2])[:10],c4=r[3][-4:],amt=i(r[6]),mer=r[5],fx=(r[7] or '').split()[0] if r[7] else '',cur='JPY' if 'JPY' in (r[7] or '') else '',sub=gu,src='CORP',cx=(r[0]=='취소또는할인'),appr=re.sub(r'\D','',r[13])))
+            if r['상태']=='승인취소': continue
+            gu='해외' if '해외' in (r['이용구분'] or '') else '국내'
+            cards.append(dict(co='하나',use=d10(r['이용일']),c4=r['카드번호'][-4:],amt=i(r['매입금액']) or i(r['승인금액']),mer=r['가맹점명'],fx='',cur='',sub=gu,src='HAN',cx=(i(r['승인취소금액'])!=0),appr=re.sub(r'\D','',r['승인번호'])))
+    # ★불변조건 체크(2026-07-24, "2번 적용"): G/H 원본 자체에 승인/매입/승인취소 건수가 요약돼 있다
+    #   (row1~3). 승인건수-승인취소건수=매입 대상 건수와 실제 편입건수를 대조 — 조용히 안 맞으면
+    #   사람이 스프레드시트를 열기 전에 여기서 먼저 경고한다.
+    _raw=load(f); _sumrow=lambda label: next((c for row in _raw[:4] for j,c in enumerate(row) if isinstance(c,str) and label in c and j+1<len(row)), None)
+    def _cnt(label):
+        for row in _raw[:4]:
+            for j,c in enumerate(row):
+                if isinstance(c,str) and label in c and j+1<len(row):
+                    m=re.search(r'[\d,]+', str(row[j+1]))
+                    if m: return int(m.group().replace(',',''))
+        return None
+    # ★실측 확인(2026-07-24): 원본 "승인건수"는 이미 승인취소(상태='승인취소')를 제외한 수치다
+    #   (정상+매출취소만 포함) — 승인건수-승인취소건수가 아니라 승인건수 자체가 기대 편입건수.
+    _appr_cnt=_cnt('승인\n건수') or _cnt('승인건수')
+    _got=len(cards)-_n0
+    if _appr_cnt is not None:
+        if _got!=_appr_cnt:
+            print('⚠️ 불변조건 위반: %s 원본 승인건수=%d인데 실제 편입 %d건(차이 %+d) — 원본 재확인 필요'%(f,_appr_cnt,_got,_got-_appr_cnt))
+        else:
+            print('✓ %s 불변조건 통과: 원본 승인건수=편입건수=%d건'%(f,_got))
+    _report('%s(하나)'%f, len(_rows), cards[_n0:])
+_rawA=load('A_20260720'); _n0=len(cards)
+for raw in _rawA:
+    r=dict(zip(A_COLS,raw))
+    if i(r['승인금액']):
+        gu='해외' if r['국내해외'].startswith('해외') else '국내'
+        cards.append(dict(co='기업',use=r['일시'][:10],c4=r['카드번호'][-4:],amt=i(r['승인금액']),mer=r['가맹점명'],fx=(r['현지금액표기'] or '').split()[0] if r['현지금액표기'] else '',cur='JPY' if 'JPY' in (r['현지금액표기'] or '') else '',sub=gu,src='CORP',cx=(r['통화구분']=='취소또는할인'),appr=re.sub(r'\D','',r['승인번호'])))
+_report('A(기업)', len(_rawA), cards[_n0:])
 byamt=defaultdict(list)
 for c in cards: byamt[(c['amt'],c['cx'])].append(c)
 amts=sorted(set(a for a,_ in byamt))
