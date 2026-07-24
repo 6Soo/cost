@@ -1,3 +1,6 @@
 .env
 __pycache__/
 *.pyc
+ledger/data/*.db
+ledger/data/*.db-shm
+ledger/data/*.db-wal

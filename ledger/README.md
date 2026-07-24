@@ -25,3 +25,17 @@ python3 link_workbook.py                   # 기록여부 갱신
 - 있는 건(같은 거래키, 새 필드 있음) → 병합(빈 필드 보강, 기록여부 보존)
 - 같은 건(변화 없음) → 버림
 일자가 겹쳐 재업로드해도 중복 자동 제외(멱등).
+
+## 도메인 분리형 원장 v2
+
+기존 `classified_v14.csv`는 호환용 산출 정본으로 유지하되, 결제 원천과
+예약·여행귀속·분류판정·장부전기를 분리한 SQLite 모델을 병렬 구축 중이다.
+
+```bash
+python3 domain/ledger_db.py import-legacy
+python3 domain/ledger_db.py validate
+python3 domain/ledger_db.py review-report
+```
+
+스키마는 `domain/schema.sql`, 설계와 전환 게이트는
+`../docs/비용분류_도메인모델_v2.md`를 참고한다.
