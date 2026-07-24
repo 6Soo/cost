@@ -119,6 +119,24 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def initialize(db: sqlite3.Connection) -> None:
+    existing_tables = {
+        str(row["name"])
+        for row in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if "payment_transactions" in existing_tables:
+        payment_columns = {
+            str(row["name"])
+            for row in db.execute("PRAGMA table_info(payment_transactions)").fetchall()
+        }
+        required_columns = {"source_event_id", "identity_fingerprint"}
+        if not required_columns.issubset(payment_columns):
+            raise RuntimeError(
+                "기존 v2 DB 스키마는 현재 코드와 호환되지 않습니다. "
+                "DB를 직접 수정하지 말고 `python -m ledger.domain.ledger_db "
+                "rebuild`로 불변 원천에서 재생성하세요."
+            )
     db.executescript(SCHEMA.read_text(encoding="utf-8"))
     db.commit()
 
@@ -227,6 +245,23 @@ def upsert_payment_method(db: sqlite3.Connection, row: dict[str, str]) -> int:
     return int(db.execute("SELECT id FROM payment_methods WHERE method_key=?", (key,)).fetchone()[0])
 
 
+def card_event_fingerprint(row: dict[str, str]) -> str:
+    """Stable, non-unique review fingerprint; it never authorizes deduplication."""
+    payload = {
+        "source": row.get("src") or "UNKNOWN",
+        "card4": re.sub(r"\D", "", row.get("card4") or ""),
+        "approval": re.sub(r"\D", "", row.get("appr") or ""),
+        "occurred_on": row.get("use_date") or "",
+        "posted_on": row.get("post_date") or "",
+        "merchant": re.sub(r"\s+", " ", row.get("merchant") or "").strip().upper(),
+        "currency": (row.get("currency") or "").upper(),
+        "foreign_amount": row.get("foreign") or "",
+        "amount_krw": parse_int(row.get("krw")),
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def upsert_payment(
     db: sqlite3.Connection,
     row: dict[str, str],
@@ -244,6 +279,8 @@ def upsert_payment(
         transaction_type = "purchase"
     values = (
         row["uid"],
+        row.get("source_event_id") or row["uid"],
+        card_event_fingerprint(row),
         method_id,
         row.get("src") or "UNKNOWN",
         row.get("use_date") or None,
@@ -259,7 +296,8 @@ def upsert_payment(
     )
     existing = db.execute(
         """
-        SELECT payment_method_id, source_system, occurred_on, posted_on, merchant,
+        SELECT source_event_id, identity_fingerprint, payment_method_id,
+               source_system, occurred_on, posted_on, merchant,
                business_category, country, currency, foreign_amount, amount_krw,
                approval_number, transaction_type, record_version
         FROM payment_transactions WHERE external_key=?
@@ -280,10 +318,11 @@ def upsert_payment(
         payment_id = int(db.execute(
             """
             INSERT INTO payment_transactions(
-                external_key, payment_method_id, source_system, occurred_on, posted_on,
+                external_key, source_event_id, identity_fingerprint,
+                payment_method_id, source_system, occurred_on, posted_on,
                 merchant, business_category, country, currency, foreign_amount,
                 amount_krw, approval_number, transaction_type
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             values,
         ).lastrowid)
@@ -299,6 +338,7 @@ def upsert_payment(
         db.execute(
             """
             UPDATE payment_transactions SET
+                source_event_id=?, identity_fingerprint=?,
                 payment_method_id=?, source_system=?, occurred_on=?, posted_on=?,
                 merchant=?, business_category=?, country=?, currency=?, foreign_amount=?,
                 amount_krw=?, approval_number=?, transaction_type=?,
@@ -318,11 +358,12 @@ def upsert_payment(
     db.execute(
         """
         INSERT INTO payment_transaction_versions(
-            transaction_id, record_version, source_record_id, payment_method_id,
+            transaction_id, record_version, source_record_id,
+            source_event_id, identity_fingerprint, payment_method_id,
             source_system, occurred_on, posted_on, merchant, business_category,
             country, currency, foreign_amount, amount_krw, approval_number,
             transaction_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (payment_id, record_version, source_record_id) + comparable,
     )
@@ -443,10 +484,14 @@ def replace_decision(
     confidence_label: str,
     rationale: str,
     evidence_id: int | None,
+    *,
+    decision_status: str = "legacy",
+    rule_id: str = "legacy_v14_import",
 ) -> int:
     previous = db.execute(
         """
-        SELECT id, value, confidence, confidence_label, rationale
+        SELECT id, value, confidence, confidence_label, rationale,
+               decision_status, rule_id
         FROM classification_decisions
         WHERE target_type=? AND target_id=? AND dimension=?
           AND superseded_by_id IS NULL AND decision_status <> 'superseded'
@@ -458,7 +503,16 @@ def replace_decision(
         previous["confidence"],
         previous["confidence_label"],
         previous["rationale"],
-    ) == (value, confidence, confidence_label, rationale):
+        previous["decision_status"],
+        previous["rule_id"],
+    ) == (
+        value,
+        confidence,
+        confidence_label,
+        rationale,
+        decision_status,
+        rule_id,
+    ):
         decision_id = int(previous["id"])
     else:
         if previous:
@@ -471,7 +525,7 @@ def replace_decision(
             INSERT INTO classification_decisions(
                 target_type, target_id, dimension, value, confidence, confidence_label,
                 decision_status, rule_id, rationale
-            ) VALUES (?, ?, ?, ?, ?, ?, 'legacy', 'legacy_v14_import', ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 target_type_name,
@@ -480,6 +534,8 @@ def replace_decision(
                 value or "미정",
                 confidence,
                 confidence_label or None,
+                decision_status,
+                rule_id,
                 rationale or None,
             ),
         )
@@ -498,6 +554,250 @@ def replace_decision(
             (decision_id, evidence_id),
         )
     return decision_id
+
+
+SENSITIVE_KEYS = {
+    "pin", "password", "birth", "birthdate", "dob", "phone", "email",
+    "passport", "생년월일", "전화번호", "연락처", "이메일", "여권",
+}
+
+
+def redact_sensitive_payload(value: object) -> object:
+    """Remove authentication and high-risk personal data before persistence."""
+    if isinstance(value, dict):
+        redacted: dict[str, object] = {}
+        for key, item in value.items():
+            normalized = re.sub(r"[^0-9a-z가-힣]", "", str(key).lower())
+            if any(token in normalized for token in SENSITIVE_KEYS):
+                redacted[str(key)] = "[REDACTED]"
+            else:
+                redacted[str(key)] = redact_sensitive_payload(item)
+        return redacted
+    if isinstance(value, list):
+        return [redact_sensitive_payload(item) for item in value]
+    if isinstance(value, str):
+        text = re.sub(
+            r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+            "[REDACTED_EMAIL]",
+            value,
+        )
+        text = re.sub(
+            r"(?i)(PIN\s*(?:번호)?\s*[:：]?\s*)\d{3,12}",
+            r"\1[REDACTED]",
+            text,
+        )
+        text = re.sub(
+            r"(?<!\d)(?:\+?82[-.\s]?)?0?1[016789][-\s]?\d{3,4}[-\s]?\d{4}(?!\d)",
+            "[REDACTED_PHONE]",
+            text,
+        )
+        return text
+    return value
+
+
+def canonical_change_event(event: dict[str, object]) -> dict[str, object]:
+    required = {"event_type", "target_type", "target_key", "payload"}
+    missing = sorted(required - set(event))
+    if missing:
+        raise ValueError(f"변경 이벤트 필수값 누락: {', '.join(missing)}")
+    clean = redact_sensitive_payload({
+        "event_type": str(event["event_type"]),
+        "target_type": str(event["target_type"]),
+        "target_key": str(event["target_key"]),
+        "payload": event["payload"],
+        "actor": str(event.get("actor") or "User"),
+    })
+    semantic = json.dumps(
+        clean,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    clean["event_id"] = hashlib.sha256(semantic.encode("utf-8")).hexdigest()
+    clean["recorded_at"] = str(
+        event.get("recorded_at") or datetime.now(timezone.utc).isoformat()
+    )
+    return clean
+
+
+def append_change_event(path: Path, event: dict[str, object]) -> dict[str, object]:
+    """Append a sanitized semantic event once; the JSONL file is the source of truth."""
+    normalized = canonical_change_event(event)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    continue
+                existing = json.loads(line)
+                if existing.get("event_id") == normalized["event_id"]:
+                    return existing
+    with path.open("a", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    return normalized
+
+
+def _apply_classification_change(
+    db: sqlite3.Connection,
+    target_type_name: str,
+    target_key: str,
+    payload: dict[str, object],
+) -> None:
+    if target_type_name != "payment":
+        raise ValueError("현재 변경 원장은 payment 분류판정만 지원합니다.")
+    row = db.execute(
+        "SELECT id FROM payment_transactions WHERE external_key=?",
+        (target_key,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"결제 이벤트를 찾을 수 없습니다: {target_key}")
+    replace_decision(
+        db,
+        "payment",
+        int(row["id"]),
+        str(payload["dimension"]),
+        str(payload["value"]),
+        float(payload.get("confidence", 1.0)),
+        str(payload.get("confidence_label") or "상"),
+        str(payload.get("rationale") or ""),
+        None,
+        decision_status=str(payload.get("status") or "confirmed"),
+        rule_id=str(payload.get("rule_id") or "manual_change_log"),
+    )
+
+
+def _apply_payment_booking_change(
+    db: sqlite3.Connection,
+    target_key: str,
+    payload: dict[str, object],
+) -> None:
+    payment = db.execute(
+        "SELECT id FROM payment_transactions WHERE external_key=?",
+        (target_key,),
+    ).fetchone()
+    if payment is None:
+        raise ValueError(f"결제 이벤트를 찾을 수 없습니다: {target_key}")
+    provider = str(payload.get("provider") or "unknown")
+    booking_number = str(payload["booking_number"])
+    product = str(payload.get("product_type") or "unknown")
+    db.execute(
+        """
+        INSERT INTO bookings(provider, booking_number, product_type, label)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(provider, booking_number) DO UPDATE SET
+            product_type=CASE
+                WHEN bookings.product_type='unknown' THEN excluded.product_type
+                ELSE bookings.product_type
+            END,
+            label=COALESCE(excluded.label, bookings.label)
+        """,
+        (provider, booking_number, product, payload.get("label")),
+    )
+    booking_id = int(
+        db.execute(
+            "SELECT id FROM bookings WHERE provider=? AND booking_number=?",
+            (provider, booking_number),
+        ).fetchone()[0]
+    )
+    relation_type = str(payload.get("relation_type") or "pays_for")
+    status = str(payload.get("status") or "confirmed")
+    if status not in {"proposed", "confirmed", "rejected", "superseded"}:
+        raise ValueError(f"지원하지 않는 예약 연결 상태: {status}")
+    db.execute(
+        """
+        INSERT INTO payment_booking_links(
+            payment_id, booking_id, relation_type, confidence, link_status
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(payment_id, booking_id, relation_type) DO UPDATE SET
+            confidence=excluded.confidence,
+            link_status=excluded.link_status
+        """,
+        (
+            int(payment["id"]),
+            booking_id,
+            relation_type,
+            float(payload.get("confidence", 1.0)),
+            status,
+        ),
+    )
+
+
+def apply_change_log(db: sqlite3.Connection, path: Path) -> int:
+    """Apply unapplied JSONL events transactionally and idempotently."""
+    initialize(db)
+    if not path.exists():
+        return 0
+    applied = 0
+    with db, path.open(encoding="utf-8") as stream:
+        for line_number, line in enumerate(stream, start=1):
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            raw_semantic = {
+                "event_type": str(event.get("event_type") or ""),
+                "target_type": str(event.get("target_type") or ""),
+                "target_key": str(event.get("target_key") or ""),
+                "payload": event.get("payload"),
+                "actor": str(event.get("actor") or "User"),
+            }
+            if redact_sensitive_payload(raw_semantic) != raw_semantic:
+                raise ValueError(
+                    f"변경 이벤트에 저장 금지 민감정보가 있습니다: "
+                    f"{path}:{line_number}"
+                )
+            normalized = canonical_change_event(event)
+            event_id = str(event.get("event_id") or "")
+            if not event_id or event_id != normalized["event_id"]:
+                raise ValueError(
+                    f"변경 이벤트 무결성 오류(내용 또는 event_id 변조): "
+                    f"{path}:{line_number}"
+                )
+            event = normalized
+            if db.execute(
+                "SELECT 1 FROM ledger_change_events WHERE event_id=?",
+                (event_id,),
+            ).fetchone():
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                raise ValueError(f"변경 이벤트 payload 오류: {path}:{line_number}")
+            event_type = str(event["event_type"])
+            if event_type == "classification_decision":
+                _apply_classification_change(
+                    db,
+                    str(event["target_type"]),
+                    str(event["target_key"]),
+                    payload,
+                )
+            elif event_type == "payment_booking_link":
+                _apply_payment_booking_change(
+                    db,
+                    str(event["target_key"]),
+                    payload,
+                )
+            else:
+                raise ValueError(f"지원하지 않는 변경 이벤트: {event_type}")
+            db.execute(
+                """
+                INSERT INTO ledger_change_events(
+                    event_id, event_type, target_type, target_key,
+                    payload_json, actor, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_id,
+                    event_type,
+                    str(event["target_type"]),
+                    str(event["target_key"]),
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                    str(event.get("actor") or "User"),
+                    str(event["recorded_at"]),
+                ),
+            )
+            applied += 1
+    return applied
 
 
 def replace_allocation_plan(
@@ -901,13 +1201,15 @@ def import_legacy(
                     """
                     INSERT INTO payment_transaction_versions(
                         transaction_id, record_version, source_record_id,
+                        source_event_id, identity_fingerprint,
                         payment_method_id, source_system, occurred_on, posted_on,
                         merchant, business_category, country, currency,
                         foreign_amount, amount_krw, approval_number,
                         transaction_type
                     )
                     SELECT
-                        id, record_version, ?, payment_method_id, source_system,
+                        id, record_version, ?, source_event_id, identity_fingerprint,
+                        payment_method_id, source_system,
                         occurred_on, posted_on, merchant, business_category,
                         country, currency, foreign_amount, amount_krw,
                         approval_number, transaction_type
@@ -1691,6 +1993,50 @@ def write_review_snapshot(
     }
 
 
+def rebuild_database(
+    destination: Path,
+    csv_path: Path = DEFAULT_CSV,
+    trips_path: Path = DEFAULT_TRIPS,
+    bookings_path: Path = DEFAULT_BOOKINGS,
+    change_log: Path | None = None,
+) -> dict[str, object]:
+    """Atomically rebuild the projection DB from immutable inputs and changes."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    token = hashlib.sha256(
+        f"{destination}:{datetime.now(timezone.utc).isoformat()}".encode("utf-8")
+    ).hexdigest()[:12]
+    temporary = destination.with_name(f".{destination.name}.{token}.rebuild")
+    db = connect(temporary)
+    try:
+        stats = import_legacy(db, csv_path, trips_path, bookings_path)
+        applied_changes = apply_change_log(db, change_log) if change_log else 0
+        report = validation_report(db)
+        if not report["valid"]:
+            raise ValueError("재생성 DB 정합성 검증에 실패했습니다.")
+        semantic_sha256 = build_review_snapshot(db)["semantic_sha256"]
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        db.close()
+        temporary.unlink(missing_ok=True)
+        temporary.with_name(temporary.name + "-wal").unlink(missing_ok=True)
+        temporary.with_name(temporary.name + "-shm").unlink(missing_ok=True)
+        raise
+    else:
+        db.close()
+    destination.with_name(destination.name + "-wal").unlink(missing_ok=True)
+    destination.with_name(destination.name + "-shm").unlink(missing_ok=True)
+    os.replace(temporary, destination)
+    temporary.with_name(temporary.name + "-wal").unlink(missing_ok=True)
+    temporary.with_name(temporary.name + "-shm").unlink(missing_ok=True)
+    return {
+        "db": str(destination),
+        "transactions": stats.transactions,
+        "amount_krw": stats.amount_krw,
+        "applied_changes": applied_changes,
+        "semantic_sha256": semantic_sha256,
+    }
+
+
 def print_stats(stats: ImportStats) -> None:
     state = "기존 스냅샷 재사용" if stats.repeated_snapshot else "이관 완료"
     print(
@@ -1724,8 +2070,42 @@ def cli(argv: list[str] | None = None) -> int:
         type=Path,
         help="이전 스냅샷 디렉터리 또는 manifest.json과 추가·해소·잔존 건을 비교한다.",
     )
+    change_apply = sub.add_parser(
+        "apply-changes",
+        help="append-only JSONL 변경 원장을 현재 DB에 멱등 적용한다.",
+    )
+    change_apply.add_argument("--log", type=Path, required=True)
+    change_record = sub.add_parser(
+        "record-change",
+        help="JSON 변경 이벤트를 민감정보 제거 후 변경 원장에 추가한다.",
+    )
+    change_record.add_argument("--log", type=Path, required=True)
+    change_record.add_argument("--event", type=Path, required=True)
+    rebuild = sub.add_parser(
+        "rebuild",
+        help="불변 원천과 변경 원장으로 DB를 원자적으로 재생성한다.",
+    )
+    rebuild.add_argument("--csv", type=Path, default=DEFAULT_CSV)
+    rebuild.add_argument("--trips", type=Path, default=DEFAULT_TRIPS)
+    rebuild.add_argument("--bookings", type=Path, default=DEFAULT_BOOKINGS)
+    rebuild.add_argument("--change-log", type=Path)
 
     args = parser.parse_args(argv)
+    if args.command == "record-change":
+        event = json.loads(args.event.read_text(encoding="utf-8"))
+        result = append_change_event(args.log, event)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "rebuild":
+        result = rebuild_database(
+            args.db,
+            args.csv,
+            args.trips,
+            args.bookings,
+            args.change_log,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
     db = connect(args.db)
     try:
         if args.command == "init":
@@ -1751,6 +2131,10 @@ def cli(argv: list[str] | None = None) -> int:
             initialize(db)
             result = write_review_snapshot(db, args.output, args.compare_to)
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "apply-changes":
+            applied = apply_change_log(db, args.log)
+            print(json.dumps({"applied_changes": applied}, ensure_ascii=False, indent=2))
             return 0
     finally:
         db.close()

@@ -15,7 +15,11 @@ from ledger.domain.ledger_db import (
     DEFAULT_TRIPS,
     LEDGER_DIR,
     REVIEW_QUEUE_METRICS,
+    append_change_event,
+    apply_change_log,
     build_review_snapshot,
+    card_event_fingerprint,
+    canonical_change_event,
     compare_review_snapshots,
     connect,
     import_legacy,
@@ -23,6 +27,8 @@ from ledger.domain.ledger_db import (
     review_details,
     review_report,
     regression_totals,
+    rebuild_database,
+    redact_sensitive_payload,
     validation_report,
     write_review_snapshot,
 )
@@ -97,6 +103,216 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
                 "legacy_status",
             },
         )
+
+    def test_card_event_fingerprint_is_stable_but_not_a_dedup_key(self) -> None:
+        row = {
+            "src": "KBD",
+            "card4": "9800",
+            "appr": "12345678",
+            "use_date": "2026-07-25",
+            "post_date": "2026-07-26",
+            "merchant": "TRIP.COM",
+            "currency": "KRW",
+            "foreign": "0",
+            "krw": "100000",
+        }
+        self.assertEqual(card_event_fingerprint(row), card_event_fingerprint(dict(row)))
+        changed = dict(row, appr="12345679")
+        self.assertNotEqual(card_event_fingerprint(row), card_event_fingerprint(changed))
+
+    def test_sensitive_change_payload_is_redacted(self) -> None:
+        redacted = redact_sensitive_payload({
+            "pin": "2468",
+            "email": "person@example.com",
+            "note": "PIN번호: 1357 / 010-1234-5678",
+            "booking_number": "1400111111111111",
+        })
+        serialized = json.dumps(redacted, ensure_ascii=False)
+        self.assertNotIn("2468", serialized)
+        self.assertNotIn("1357", serialized)
+        self.assertNotIn("person@example.com", serialized)
+        self.assertNotIn("010-1234-5678", serialized)
+        self.assertIn("1400111111111111", serialized)
+
+    def test_change_log_is_idempotent_and_rebuilds_current_state(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            first_db_path = root / "first.db"
+            rebuilt_db_path = root / "rebuilt.db"
+            change_log = root / "ledger_changes.jsonl"
+            db = connect(first_db_path)
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                payment = db.execute(
+                    """
+                    SELECT external_key FROM payment_transactions
+                    WHERE amount_krw > 0 ORDER BY id LIMIT 1
+                    """
+                ).fetchone()["external_key"]
+                decision_event = {
+                    "event_type": "classification_decision",
+                    "target_type": "payment",
+                    "target_key": payment,
+                    "actor": "tester",
+                    "payload": {
+                        "dimension": "expense_type",
+                        "value": "숙박비",
+                        "confidence": 1.0,
+                        "confidence_label": "상",
+                        "status": "confirmed",
+                        "rule_id": "manual_verified",
+                        "rationale": "확정 person@example.com PIN번호: 2468",
+                    },
+                }
+                booking_event = {
+                    "event_type": "payment_booking_link",
+                    "target_type": "payment",
+                    "target_key": payment,
+                    "actor": "tester",
+                    "payload": {
+                        "provider": "trip.com",
+                        "booking_number": "1400999999999999",
+                        "product_type": "lodging",
+                        "status": "confirmed",
+                    },
+                }
+                first_event = append_change_event(change_log, decision_event)
+                first_recorded_at = first_event["recorded_at"]
+                self.assertEqual(
+                    first_event["event_id"],
+                    append_change_event(change_log, decision_event)["event_id"],
+                )
+                self.assertEqual(
+                    append_change_event(change_log, decision_event)["recorded_at"],
+                    first_recorded_at,
+                )
+                append_change_event(change_log, booking_event)
+                log_text = change_log.read_text(encoding="utf-8")
+                self.assertNotIn("person@example.com", log_text)
+                self.assertNotIn("2468", log_text)
+                self.assertEqual(len(log_text.splitlines()), 2)
+
+                self.assertEqual(apply_change_log(db, change_log), 2)
+                self.assertEqual(apply_change_log(db, change_log), 0)
+                first_hash = build_review_snapshot(db)["semantic_sha256"]
+            finally:
+                db.close()
+
+            result = rebuild_database(
+                rebuilt_db_path,
+                DEFAULT_CSV,
+                DEFAULT_TRIPS,
+                DEFAULT_BOOKINGS,
+                change_log,
+            )
+            self.assertEqual(result["applied_changes"], 2)
+            rebuilt = connect(rebuilt_db_path)
+            try:
+                self.assertEqual(
+                    build_review_snapshot(rebuilt)["semantic_sha256"],
+                    first_hash,
+                )
+                decision = rebuilt.execute(
+                    """
+                    SELECT decision_status, rule_id
+                    FROM current_classification_decisions d
+                    JOIN payment_transactions p ON p.id=d.target_id
+                    WHERE d.target_type='payment'
+                      AND p.external_key=?
+                      AND d.dimension='expense_type'
+                    """,
+                    (payment,),
+                ).fetchone()
+                self.assertEqual(tuple(decision), ("confirmed", "manual_verified"))
+                link = rebuilt.execute(
+                    """
+                    SELECT pbl.link_status
+                    FROM current_payment_booking_links pbl
+                    JOIN payment_transactions p ON p.id=pbl.payment_id
+                    JOIN bookings b ON b.id=pbl.booking_id
+                    WHERE p.external_key=? AND b.booking_number='1400999999999999'
+                    """,
+                    (payment,),
+                ).fetchone()
+                self.assertEqual(link["link_status"], "confirmed")
+            finally:
+                rebuilt.close()
+
+    def test_tampered_change_log_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            change_log = root / "ledger_changes.jsonl"
+            db = connect(root / "ledger.db")
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                payment = db.execute(
+                    "SELECT external_key FROM payment_transactions ORDER BY id LIMIT 1"
+                ).fetchone()["external_key"]
+                append_change_event(change_log, {
+                    "event_type": "classification_decision",
+                    "target_type": "payment",
+                    "target_key": payment,
+                    "payload": {
+                        "dimension": "expense_type",
+                        "value": "숙박비",
+                    },
+                })
+                tampered = change_log.read_text(encoding="utf-8").replace(
+                    '"숙박비"', '"항공료"'
+                )
+                change_log.write_text(tampered, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "무결성 오류"):
+                    apply_change_log(db, change_log)
+            finally:
+                db.close()
+
+    def test_change_log_with_unsanitized_sensitive_data_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            change_log = root / "ledger_changes.jsonl"
+            db = connect(root / "ledger.db")
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                payment = db.execute(
+                    "SELECT external_key FROM payment_transactions ORDER BY id LIMIT 1"
+                ).fetchone()["external_key"]
+                event = canonical_change_event({
+                    "event_type": "classification_decision",
+                    "target_type": "payment",
+                    "target_key": payment,
+                    "payload": {
+                        "dimension": "expense_type",
+                        "value": "숙박비",
+                    },
+                })
+                event["payload"]["rationale"] = "PIN번호: 2468"
+                change_log.write_text(
+                    json.dumps(event, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, "민감정보"):
+                    apply_change_log(db, change_log)
+            finally:
+                db.close()
+
+    def test_outdated_projection_db_requires_rebuild(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "old.db")
+            try:
+                db.execute(
+                    """
+                    CREATE TABLE payment_transactions (
+                        id INTEGER PRIMARY KEY,
+                        external_key TEXT NOT NULL UNIQUE
+                    )
+                    """
+                )
+                db.commit()
+                with self.assertRaisesRegex(RuntimeError, "rebuild"):
+                    from ledger.domain.ledger_db import initialize
+                    initialize(db)
+            finally:
+                db.close()
 
     def test_booking_and_cancellation_are_explicit_relations(self) -> None:
         report = validation_report(self.db)

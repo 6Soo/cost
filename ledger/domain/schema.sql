@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 
 INSERT OR IGNORE INTO schema_versions(version) VALUES (1);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (2);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (3);
 
 -- 원천은 불변이다. 같은 파일의 같은 행을 다시 해석하더라도 원문은 이 계층에 남는다.
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -44,6 +45,8 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 CREATE TABLE IF NOT EXISTS payment_transactions (
     id INTEGER PRIMARY KEY,
     external_key TEXT NOT NULL UNIQUE,
+    source_event_id TEXT NOT NULL,
+    identity_fingerprint TEXT NOT NULL,
     payment_method_id INTEGER REFERENCES payment_methods(id),
     source_system TEXT NOT NULL,
     occurred_on TEXT,
@@ -74,6 +77,8 @@ CREATE TABLE IF NOT EXISTS payment_transaction_versions (
     transaction_id INTEGER NOT NULL REFERENCES payment_transactions(id),
     record_version INTEGER NOT NULL CHECK(record_version > 0),
     source_record_id INTEGER NOT NULL REFERENCES source_records(id),
+    source_event_id TEXT NOT NULL,
+    identity_fingerprint TEXT NOT NULL,
     payment_method_id INTEGER REFERENCES payment_methods(id),
     source_system TEXT NOT NULL,
     occurred_on TEXT,
@@ -206,6 +211,19 @@ CREATE TABLE IF NOT EXISTS decision_evidence (
     PRIMARY KEY(decision_id, evidence_id)
 );
 
+-- 수동 확정·거부·연결은 외부 append-only JSONL 변경 원장을 정본으로 삼고,
+-- 이 표에는 멱등 적용 상태만 투영한다.
+CREATE TABLE IF NOT EXISTS ledger_change_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 배분은 행이 아니라 plan 단위로 버전 관리한다. 1행→N행 재배분도 이력이 보존된다.
 CREATE TABLE IF NOT EXISTS allocation_plans (
     id INTEGER PRIMARY KEY,
@@ -234,6 +252,8 @@ CREATE INDEX IF NOT EXISTS allocations_by_plan ON cost_allocations(plan_id);
 CREATE INDEX IF NOT EXISTS allocations_by_target ON cost_allocations(target_id);
 CREATE INDEX IF NOT EXISTS payment_versions_by_transaction
 ON payment_transaction_versions(transaction_id, record_version);
+CREATE INDEX IF NOT EXISTS payments_by_identity_fingerprint
+ON payment_transactions(identity_fingerprint);
 
 -- 장부는 확정된 배분을 소비하는 출력이다. 원천·판정과 독립적으로 롤백/재생성한다.
 CREATE TABLE IF NOT EXISTS journal_entries (
