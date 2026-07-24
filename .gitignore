@@ -1,3 +1,6 @@
 .env
 __pycache__/
 *.pyc
+
+# Gmail 원시 추출본(고객 실명 등 PII 포함) — 저장소 커밋 금지, 세션 로컬 전용
+ledger/data/gmail_skwls3409_flights_master*.csv*
