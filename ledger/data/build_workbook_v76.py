@@ -745,7 +745,7 @@ wp.column_dimensions['E'].width = 22; wp.column_dimensions['F'].width = 30
 _names = wb.sheetnames
 wb.move_sheet('미청구_예약확정', offset=_names.index('월별순액') + 1 - _names.index('미청구_예약확정'))
 
-out = '숲길여행_2분기_비용분류_AI_v76.xlsx'
-wb.save(out)
+import versioning
+out = versioning.save_versioned('workbook', '숲길여행_2분기_비용분류_AI', lambda p: wb.save(p))
 print('저장:', out, '| 시트', len(wb.sheetnames), '개 | 상세행', len(rows))
 print('시트:', wb.sheetnames[:8], '...')

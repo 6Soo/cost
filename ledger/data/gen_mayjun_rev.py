@@ -208,5 +208,6 @@ for tab in APRIL:
     ni,ne,ta,tb,tp=build_tab(tab)
     report.append((tab,ni,ne,ta,tb))
     print(f'{tab}: 수입 {ni}행, 지출 {ne}행 (총A r{ta}, 총B r{tb})')
-out.save(OUT)
+import versioning
+OUT = versioning.save_versioned('mayjun_rev', '매출확인자료_5-6월_rev', lambda p: out.save(p))
 print('저장:', OUT)

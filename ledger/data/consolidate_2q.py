@@ -5,10 +5,13 @@
    (=사용자가 확정본을 원장에 직접 붙여넣어 확정처리한 탭) 중복 산출을 피하기 위해 제외한다."""
 import openpyxl, subprocess, os, tempfile
 from copy import copy
+import versioning
 
-OUT='매출확인자료_2분기_통합_v5.xlsx'
-SRC=[('매출확인자료_4월_rev_v8.xlsx', None),           # None=전 시트
-     ('매출확인자료_5-6월_rev_v5.xlsx', None)]
+# ★2026-07-24: 입력 파일명을 하드코딩(v8/v5)하지 않고 versioning 레지스트리에서 실제 현재
+#   파일명을 읽는다 — gen_april_rev.py/gen_mayjun_rev.py가 내용변경으로 버전을 올려도
+#   여기서 구버전 파일명을 찾다가 깨지지 않는다.
+SRC=[(versioning.current_path('april_rev', '매출확인자료_4월_rev'), None),   # None=전 시트
+     (versioning.current_path('mayjun_rev', '매출확인자료_5-6월_rev'), None)]
 LEDGER=('ledger_latest.xlsx', ['2분기_기타비용'])
 
 def recalc(paths):
@@ -81,6 +84,6 @@ for name in LEDGER[1]:
     for r in range(1,sw.max_row+1):
         if str(sw.cell(r,2).value or '').startswith('총'): endr=r; break
     d=out.create_sheet(name); copy_sheet(sw, d, max_r=endr, max_c=12)
-out.save(OUT)
+OUT = versioning.save_versioned('consolidated', '매출확인자료_2분기_통합', lambda p: out.save(p))
 print('저장:', OUT, '| 포함', len(included), included)
 print('제외(원장에 총액 동일하게 이미 확정반영됨):', len(excluded), excluded)
