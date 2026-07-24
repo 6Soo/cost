@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 INSERT OR IGNORE INTO schema_versions(version) VALUES (1);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (2);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (3);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (4);
 
 -- 원천은 불변이다. 같은 파일의 같은 행을 다시 해석하더라도 원문은 이 계층에 남는다.
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -69,6 +70,21 @@ CREATE TABLE IF NOT EXISTS transaction_sources (
     source_record_id INTEGER NOT NULL REFERENCES source_records(id),
     PRIMARY KEY(transaction_id, source_record_id)
 );
+
+-- 카드 이벤트의 안정 식별자는 legacy UID 및 비교용 fingerprint와 분리한다.
+-- 구조 정보가 부족해 같은 키가 나온 경우 자동 병합하지 않고 collision 상태로 보존한다.
+CREATE TABLE IF NOT EXISTS card_event_identities (
+    transaction_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    card_event_id TEXT NOT NULL,
+    generator_version TEXT NOT NULL,
+    identity_status TEXT NOT NULL DEFAULT 'unique'
+        CHECK(identity_status IN ('unique', 'collision', 'legacy_fallback')),
+    structural_payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS card_event_identities_by_event
+ON card_event_identities(card_event_id);
 
 -- payment_transactions는 현재 투영이고, 실제 결제 사실 변경 이력은 이 표에
 -- append-only로 보존한다. 같은 transaction/version을 수정하거나 덮어쓰지 않는다.
@@ -137,6 +153,64 @@ CREATE TABLE IF NOT EXISTS payment_booking_links (
     last_seen_document_id INTEGER REFERENCES source_documents(id),
     superseded_by_document_id INTEGER REFERENCES source_documents(id),
     PRIMARY KEY(payment_id, booking_id, relation_type)
+);
+
+-- 공급자 정정으로 예약 객체를 새로 만들지 않도록 식별자를 별도 이력으로 관리한다.
+CREATE TABLE IF NOT EXISTS booking_identifiers (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    provider TEXT NOT NULL DEFAULT 'unknown',
+    identifier TEXT NOT NULL,
+    identifier_type TEXT NOT NULL DEFAULT 'booking_number',
+    identifier_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(identifier_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    rule_id TEXT,
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
+    UNIQUE(booking_id, provider, identifier, identifier_type)
+);
+
+CREATE INDEX IF NOT EXISTS booking_identifiers_by_value
+ON booking_identifiers(identifier);
+
+-- 월일만 확인된 기간을 임의의 2026년 날짜로 확정하지 않는다.
+CREATE TABLE IF NOT EXISTS booking_service_period_evidence (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    start_on TEXT,
+    end_on TEXT,
+    date_precision TEXT NOT NULL
+        CHECK(date_precision IN ('day', 'month_day', 'unknown')),
+    original_text TEXT,
+    source_record_id INTEGER REFERENCES source_records(id),
+    evidence_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(evidence_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    redaction_version TEXT,
+    UNIQUE(booking_id, source_record_id, original_text)
+);
+
+-- 예약 표시액과 카드 청구액을 섞지 않고 대사 결과를 명시한다.
+CREATE TABLE IF NOT EXISTS payment_amount_reconciliations (
+    id INTEGER PRIMARY KEY,
+    payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    booking_id INTEGER REFERENCES bookings(id),
+    card_charge_krw INTEGER NOT NULL,
+    booking_display_amount TEXT,
+    booking_currency TEXT,
+    discount_amount TEXT,
+    points_amount TEXT,
+    onsite_amount TEXT,
+    reconciliation_type TEXT NOT NULL
+        CHECK(reconciliation_type IN (
+            'exact', 'discount_adjusted', 'within_2_percent', 'mismatch', 'unknown'
+        )),
+    difference_ratio REAL,
+    rule_id TEXT NOT NULL,
+    source_record_id INTEGER REFERENCES source_records(id),
+    reconciliation_status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(reconciliation_status IN ('proposed', 'confirmed', 'rejected', 'superseded')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS trips (

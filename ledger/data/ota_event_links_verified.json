@@ -1,0 +1,793 @@
+{
+  "KBO-2681": {
+    "booking_id": "2000890083",
+    "category": "숙박",
+    "period": "0417_0418",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 21030,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "KBO-2682": {
+    "booking_id": "1706671692",
+    "reference_code": "d65qnn9w",
+    "category": "숙박",
+    "period": "0417_0419",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 34370,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "KBO-2689": {
+    "booking_id": "1716795279",
+    "reference_code": "4gvrw62q",
+    "category": "숙박",
+    "period": "0417_0419",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 27152,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "KBO-2700": {
+    "booking_id": "1718382019",
+    "reference_code": "5026028431021952875",
+    "category": "숙박",
+    "period": "0418_0419",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 6501,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "KBO-2701": {
+    "booking_id": "1718165811",
+    "reference_code": "ZY26041507308262",
+    "category": "숙박",
+    "period": "0417_0418",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 6183,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "KBO-2702": {
+    "booking_id": "1718165346",
+    "reference_code": "d650z5g3",
+    "category": "숙박",
+    "period": "0418_0419",
+    "hotel": "Plaza Hotel Mutsu",
+    "guest": "kimeuiyoung",
+    "card4": "8835",
+    "foreign_amount": 6773,
+    "currency": "JPY",
+    "verification_source": "agoda_booking_page"
+  },
+  "HAN-3003": {
+    "booking_id": "1400825055977843",
+    "category": "숙박",
+    "period": "1127_1130",
+    "verification_source": "manual_ledger_crosscheck"
+  },
+  "HAN-3004": {
+    "booking_id": "1400825055983985",
+    "category": "숙박",
+    "period": "1127",
+    "hotel": "야쿠시마 그린호텔",
+    "paid_amount": 1224285,
+    "currency": "KRW",
+    "verification_source": "trip_hotel_and_manual_ledger",
+    "amount_verification": "exact"
+  },
+  "HAN-3011": {
+    "booking_id": "1400825121225979",
+    "category": "숙박",
+    "period": "0408",
+    "hotel": "더 셀렉턴 교토 호리가와산조",
+    "paid_amount": 792768,
+    "currency": "KRW",
+    "verification_source": "trip_hotel_and_manual_ledger",
+    "amount_verification": "exact"
+  },
+  "HAN-3047": {
+    "booking_id": "1400825265150133",
+    "category": "숙박",
+    "period": "0424",
+    "hotel": "다비노호텔 히다-다카야마",
+    "paid_amount": 762870,
+    "currency": "KRW",
+    "verification_source": "trip_hotel_and_manual_ledger",
+    "amount_verification": "exact"
+  },
+  "KBD-0862": {
+    "booking_id": "1400826609970299",
+    "category": "항공",
+    "period": "1127",
+    "linked_uid": "KBD-0861",
+    "link_type": "partial_refund",
+    "verification_source": "approval_and_manual_ledger"
+  },
+  "KBD-0865": {
+    "booking_id": "1400826609970299",
+    "category": "항공",
+    "period": "1127",
+    "linked_uid": "KBD-0861",
+    "link_type": "partial_refund",
+    "verification_source": "approval_and_manual_ledger"
+  },
+  "KBD-0871": {
+    "booking_id": "1400826610904891",
+    "category": "항공",
+    "period": "0801_0805",
+    "route": "서울(ICN)-고마쓰(KMQ)-서울(ICN)",
+    "passenger": "JEONG IM OH + 1",
+    "passenger_count": 2,
+    "paid_amount": 1293600,
+    "currency": "KRW",
+    "verification_source": "user_booking_page",
+    "amount_verification": "exact"
+  },
+  "KBD-0927": {
+    "booking_id": "1400826934962683",
+    "category": "항공",
+    "period": "0616_0621",
+    "route": "서울(ICN)-삿포로(CTS)-서울(ICN)",
+    "passenger": "JISOOK KIM + 1",
+    "passenger_count": 2,
+    "gross_amount": 1085000,
+    "payment_discount": 4000,
+    "paid_amount": 1081000,
+    "currency": "KRW",
+    "verification_source": "user_booking_page_and_payment_discount",
+    "amount_verification": "exact_after_discount"
+  },
+  "KBD-0389": {
+    "booking_id": "1400827051075866",
+    "category": "숙박",
+    "period": "0705_0707",
+    "hotel": "카메노이 호텔 다자와코",
+    "guest": "KIM EUIYOUNG, KIM DONGYEON, LEE YOON SIK",
+    "rooms": 3,
+    "nights": 2,
+    "paid_amount": 1307772,
+    "currency": "KRW",
+    "hotel_pay_amount": 1800,
+    "hotel_pay_currency": "JPY",
+    "verification_source": "user_booking_page",
+    "amount_verification": "exact"
+  },
+  "KBD-0390": {
+    "booking_id": "1400827051083658",
+    "category": "숙박",
+    "period": "0705_0707",
+    "hotel": "카메노이 호텔 다자와코",
+    "guest": "DONGYEON KIM + 1",
+    "passenger_count": 2,
+    "nights": 2,
+    "paid_amount": 887640,
+    "currency": "KRW",
+    "verification_source": "user_booking_page",
+    "amount_verification": "exact"
+  },
+  "KBD-0757": {
+    "booking_id": "1400825055959904",
+    "category": "숙박",
+    "period": "1127_1130",
+    "verification_source": "manual_ledger_crosscheck"
+  },
+  "KBD-0741": {
+    "external_source_id": "retired_staff_ota:2026:45",
+    "category": "항공",
+    "period": "1010_1013",
+    "destination": "도쿠시마",
+    "passenger": "이인선 이주영 백태성 전형구",
+    "passenger_count": 4,
+    "paid_amount": 1248400,
+    "currency": "KRW",
+    "verification_source": "retired_staff_ota_trusted_fields",
+    "amount_verification": "exact"
+  },
+  "KBD-0762": {
+    "pnr": "BMSEGA",
+    "e_ticket_numbers": [
+      "180-7476692587",
+      "180-7476692586"
+    ],
+    "category": "항공",
+    "period": "0620_0625",
+    "route": "서울(ICN)-니가타(KIJ)-서울(ICN)",
+    "passenger": "KIM HEESOON, CHA SEORIN",
+    "passenger_count": 2,
+    "paid_amount": 1121032,
+    "currency": "KRW",
+    "verification_source": "user_ticket_page_and_manual_ledger",
+    "amount_verification": "manual_ledger_exact"
+  },
+  "KBD-1029": {
+    "booking_id": "1400826669398170",
+    "category": "숙박",
+    "period": "0827",
+    "hotel": "리틀 프린스 호텔&콘도",
+    "verification_source": "trip_hotel_and_manual_ledger"
+  },
+  "KBD-0958": {
+    "booking_id": "1400826306387654",
+    "category": "숙박",
+    "period": "",
+    "hotel": "롯데 아라이 리조트",
+    "paid_amount": 750030,
+    "currency": "KRW",
+    "verification_source": "manual_ledger_crosscheck",
+    "amount_verification": "exact"
+  },
+  "KBD-1080": {
+    "booking_id": "1400826813453445",
+    "category": "숙박",
+    "period": "1015",
+    "hotel": "Daiwa Link Hotel Aizutaj",
+    "verification_source": "trip_hotel_and_manual_ledger"
+  },
+  "TRIP-0034": {
+    "booking_id": "1400824227575295",
+    "category": "숙박",
+    "period": "",
+    "verification_source": "manual_ledger_crosscheck"
+  },
+  "TRIP-0138": {
+    "booking_id": "1400822822379078",
+    "pnr": "E8GPHM",
+    "category": "항공",
+    "period": "0424_0429",
+    "verification_source": "passenger_names_and_manual_ledger"
+  },
+  "TRIP-0139": {
+    "booking_id": "1400822822085638",
+    "pnr": "E8J4OE",
+    "category": "항공",
+    "period": "0424_0429",
+    "verification_source": "passenger_names_and_manual_ledger"
+  },
+  "TRIP-0170": {
+    "booking_id": "1400821262987057",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "히라타칸",
+    "paid_amount": 893265,
+    "currency": "KRW",
+    "verification_source": "manual_ledger_crosscheck",
+    "amount_verification": "exact"
+  },
+  "TRIP-0373": {
+    "booking_id": "1400825754461766",
+    "pnr": "E2FPII",
+    "category": "항공",
+    "period": "0620_0625",
+    "verification_source": "pnr_and_passenger_names"
+  },
+  "TRIP-0420": {
+    "booking_id": "1400823716285910",
+    "category": "숙박",
+    "period": "0702_0703",
+    "hotel": "머큐어 우라반다이 리조트 & 스파",
+    "rooms": 7,
+    "nights": 1,
+    "paid_amount": 1454306,
+    "currency": "KRW",
+    "hotel_pay_amount": 2100,
+    "hotel_pay_currency": "JPY",
+    "verification_source": "user_booking_page_and_gmail_reminder",
+    "amount_verification": "exact"
+  },
+  "TRIP-0100": {
+    "booking_id": "1400823224509062",
+    "pnr": "BUBSLI",
+    "category": "항공",
+    "period": "0418_0429",
+    "source_message_id": "19aee32b547c5e1a"
+  },
+  "TRIP-0101": {
+    "booking_id": "1400823779576326",
+    "pnr": "EL679H",
+    "category": "항공",
+    "period": "0418_0423",
+    "source_message_id": "19b73c45ecd32a45"
+  },
+  "TRIP-0102": {
+    "booking_id": "1400823779576326",
+    "pnr": "EL679H",
+    "category": "항공",
+    "period": "0418_0423",
+    "linked_uid": "TRIP-0101",
+    "link_type": "partial_refund"
+  },
+  "TRIP-0103": {
+    "order_id": "1109-449-545",
+    "pnr": "Z77T3T",
+    "category": "항공",
+    "period": "0418_0429",
+    "source_message_id": "19bba1d693c9439e"
+  },
+  "TRIP-0105": {
+    "order_id": "1119-258-085",
+    "pnr": "YD76OC",
+    "category": "항공",
+    "period": "0417_0423",
+    "source_message_id": "19c4a699ec3ee6b9"
+  },
+  "TRIP-0106": {
+    "order_id": "1112-901-710",
+    "pnr": "YD642V",
+    "category": "항공",
+    "period": "0417_0423",
+    "source_message_id": "19c4a68b1c36c1cb"
+  },
+  "TRIP-0107": {
+    "order_id": "1112-901-710",
+    "pnr": "YD642V",
+    "category": "항공",
+    "period": "0417_0423",
+    "linked_uid": "TRIP-0106",
+    "link_type": "partial_refund"
+  },
+  "TRIP-0109": {
+    "order_id": "1110-671-963",
+    "pnr": "P24C8W",
+    "category": "항공",
+    "period": "0417",
+    "source_message_id": "19c549e6bdac3ab7"
+  },
+  "TRIP-0110": {
+    "order_id": "1118-675-101",
+    "pnr": "BEUDB2",
+    "category": "항공",
+    "period": "0417",
+    "source_message_id": "19c54ace111eb2d5"
+  },
+  "TRIP-0111": {
+    "order_id": "1115-449-361",
+    "pnr": "ZDLYNK",
+    "category": "항공",
+    "period": "0423",
+    "source_message_id": "19c54b50a0a39de5"
+  },
+  "TRIP-0112": {
+    "booking_id": "1400825183632390",
+    "pnr": "BTHRQH",
+    "category": "항공",
+    "period": "0417_0429",
+    "source_message_id": "19cd62daa3871d9f"
+  },
+  "TRIP-0113": {
+    "booking_id": "1400825183632390",
+    "pnr": "BTHRQH",
+    "category": "항공",
+    "period": "0417_0429",
+    "linked_uid": "TRIP-0112",
+    "link_type": "partial_refund"
+  },
+  "KBD-0373": {
+    "booking_id": "1400827192926537",
+    "category": "항공",
+    "period": "0630_0704",
+    "source_message_id": "19f170253b591a22",
+    "match_score": 11,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "여행탭일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0001": {
+    "booking_id": "1400821831501966",
+    "category": "숙박",
+    "period": "0404_0405",
+    "source_message_id": "19aab866c12fef93",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0002": {
+    "booking_id": "1400821831483055",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19aab7e71a566c9f",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0003": {
+    "booking_id": "1400822641924013",
+    "category": "숙박",
+    "period": "0404",
+    "source_message_id": "19b2db952c543ef7",
+    "match_score": 17,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일근접",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0017": {
+    "booking_id": "1400823535405415",
+    "category": "숙박",
+    "period": "0408_0409",
+    "source_message_id": "19c09a75d81332d9",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0018": {
+    "booking_id": "1400823535037213",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19c09220b00590d4",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0019": {
+    "booking_id": "1400823535398160",
+    "category": "숙박",
+    "period": "0408_0409",
+    "source_message_id": "19c09a506f13326a",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0024": {
+    "booking_id": "1400823535575464",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19c09dc3b897aa6b",
+    "match_score": 12,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0025": {
+    "booking_id": "1400823535575464",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19c09dc3b897aa6b",
+    "match_score": 12,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0027": {
+    "booking_id": "1400823576116533",
+    "category": "숙박",
+    "period": "0408_0409",
+    "source_message_id": "19c14176e8c4e674",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0028": {
+    "booking_id": "1400823576120634",
+    "category": "숙박",
+    "period": "0408_0409",
+    "source_message_id": "19c1418de20e50fc",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0037": {
+    "booking_id": "1400825589981574",
+    "category": "항공",
+    "period": "0407_0413",
+    "source_message_id": "19d09cc4de19148a",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "FX372B"
+  },
+  "TRIP-0080": {
+    "order_id": "1117-227-848",
+    "category": "항공",
+    "period": "0413_0416",
+    "source_message_id": "19c4ab49b7f3fb5f",
+    "match_score": 15,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "예약키존재"
+    ],
+    "pnr": "EQCBSS"
+  },
+  "TRIP-0082": {
+    "order_id": "1110-132-573",
+    "category": "항공",
+    "period": "0413_0416",
+    "source_message_id": "19c5484900e113e7",
+    "match_score": 17,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일근접",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "EYR3Y8"
+  },
+  "TRIP-0084": {
+    "booking_id": "1400824130526105",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19ca481a5087e862",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0085": {
+    "booking_id": "1400824415593617",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19ce235f950d81e5",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0086": {
+    "booking_id": "1400824415638626",
+    "category": "숙박",
+    "period": "",
+    "source_message_id": "19ce240ea1960a0a",
+    "match_score": 16,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0089": {
+    "booking_id": "1400824415647548",
+    "category": "숙박",
+    "period": "0413",
+    "source_message_id": "19ce2434280598e4",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0136": {
+    "booking_id": "1400825264731142",
+    "category": "항공",
+    "period": "0423_0424",
+    "source_message_id": "19cdc265a874723d",
+    "match_score": 17,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일근접",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "BXMAVW"
+  },
+  "TRIP-0140": {
+    "order_id": "1109-510-545",
+    "category": "항공",
+    "period": "0424_0429",
+    "source_message_id": "19bba1e1edb115dd",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "Z7DBWU"
+  },
+  "TRIP-0361": {
+    "booking_id": "1400823577011695",
+    "category": "숙박",
+    "period": "0616",
+    "source_message_id": "19c16125c0a3452f",
+    "match_score": 13,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일근접",
+      "여행탭일치",
+      "예약키존재"
+    ]
+  },
+  "TRIP-0372": {
+    "booking_id": "1400825606932998",
+    "category": "항공",
+    "period": "0620_0625",
+    "source_message_id": "19d163ffeb8f78a4",
+    "match_score": 17,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일근접",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "DPHYC3"
+  },
+  "TRIP-0410": {
+    "order_id": "1080-071-135",
+    "category": "항공",
+    "period": "0625_0630",
+    "source_message_id": "199326190fc64b9c",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "9TRDNG"
+  },
+  "TRIP-0413": {
+    "order_id": "1106-895-656",
+    "category": "항공",
+    "period": "0625_0630",
+    "source_message_id": "19ba226becf2c0b4",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "ZT3CJF"
+  },
+  "TRIP-0415": {
+    "booking_id": "1400825468611910",
+    "category": "항공",
+    "period": "0625_0630",
+    "source_message_id": "19cfe5f95a1eb93c",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "CSLBQO"
+  },
+  "TRIP-0417": {
+    "order_id": "1100-546-736",
+    "category": "항공",
+    "period": "0630_0704",
+    "source_message_id": "19ba225b50779b48",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "ZSZQ8S"
+  },
+  "TRIP-0429": {
+    "order_id": "1114-596-683",
+    "category": "항공",
+    "period": "0630_0704",
+    "source_message_id": "19c7b15cfcc96f88",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "X63TEI"
+  },
+  "TRIP-0409": {
+    "order_id": "1083-486-346",
+    "category": "항공",
+    "period": "0625_0630",
+    "source_message_id": "199325cd64d7cba9",
+    "match_score": 19,
+    "match_reasons": [
+      "업체일치",
+      "정확금액",
+      "메일일=결제일",
+      "여행탭일치",
+      "승객명일치",
+      "예약키존재"
+    ],
+    "pnr": "9TQY6Y"
+  }
+}

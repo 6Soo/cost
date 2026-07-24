@@ -19,6 +19,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
+from .source_adapters import stable_card_event_identity
+
 
 HERE = Path(__file__).resolve().parent
 LEDGER_DIR = HERE.parent
@@ -314,6 +316,7 @@ def upsert_payment(
         # when the original/refund amounts change that conclusion.
         values = values[:-1] + (existing["transaction_type"],)
     comparable = values[1:]
+    changed = True
     if existing is None:
         payment_id = int(db.execute(
             """
@@ -348,25 +351,68 @@ def upsert_payment(
             comparable + (row["uid"],),
         )
     else:
-        return int(
+        payment_id = int(
             db.execute(
                 "SELECT id FROM payment_transactions WHERE external_key=?",
                 (row["uid"],),
             ).fetchone()[0]
         )
+        changed = False
 
+    if changed:
+        db.execute(
+            """
+            INSERT INTO payment_transaction_versions(
+                transaction_id, record_version, source_record_id,
+                source_event_id, identity_fingerprint, payment_method_id,
+                source_system, occurred_on, posted_on, merchant, business_category,
+                country, currency, foreign_amount, amount_krw, approval_number,
+                transaction_type
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (payment_id, record_version, source_record_id) + comparable,
+        )
+    identity = stable_card_event_identity(row)
     db.execute(
         """
-        INSERT INTO payment_transaction_versions(
-            transaction_id, record_version, source_record_id,
-            source_event_id, identity_fingerprint, payment_method_id,
-            source_system, occurred_on, posted_on, merchant, business_category,
-            country, currency, foreign_amount, amount_krw, approval_number,
-            transaction_type
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO card_event_identities(
+            transaction_id, card_event_id, generator_version,
+            identity_status, structural_payload_json
+        ) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(transaction_id) DO UPDATE SET
+            card_event_id=excluded.card_event_id,
+            generator_version=excluded.generator_version,
+            identity_status=excluded.identity_status,
+            structural_payload_json=excluded.structural_payload_json
         """,
-        (payment_id, record_version, source_record_id) + comparable,
+        (
+            payment_id,
+            identity.card_event_id,
+            identity.generator_version,
+            identity.identity_status,
+            json.dumps(
+                identity.structural_payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        ),
     )
+    collision_count = int(
+        db.execute(
+            "SELECT COUNT(*) FROM card_event_identities WHERE card_event_id=?",
+            (identity.card_event_id,),
+        ).fetchone()[0]
+    )
+    if collision_count > 1:
+        db.execute(
+            """
+            UPDATE card_event_identities
+            SET identity_status='collision'
+            WHERE card_event_id=?
+            """,
+            (identity.card_event_id,),
+        )
     return payment_id
 
 
@@ -1328,6 +1374,26 @@ def validation_report(
         "transaction_versions": scalar(
             db, "SELECT COUNT(*) FROM payment_transaction_versions"
         ),
+        "card_event_identities": scalar(
+            db, "SELECT COUNT(*) FROM card_event_identities"
+        ),
+        "missing_card_event_identities": scalar(
+            db,
+            """
+            SELECT COUNT(*)
+            FROM payment_transactions p
+            LEFT JOIN card_event_identities i ON i.transaction_id=p.id
+            WHERE i.transaction_id IS NULL
+            """,
+        ),
+        "card_event_identity_collisions": scalar(
+            db,
+            """
+            SELECT COUNT(*)
+            FROM card_event_identities
+            WHERE identity_status='collision'
+            """,
+        ),
         "transaction_total_krw": transaction_total,
         "bookings": scalar(db, "SELECT COUNT(*) FROM bookings"),
         "trips": scalar(db, "SELECT COUNT(*) FROM trips"),
@@ -1359,11 +1425,26 @@ def validation_report(
             db,
             "SELECT COUNT(*) FROM booking_target_links WHERE link_status='superseded'",
         ),
+        "forbidden_sensitive_source_records": scalar(
+            db,
+            """
+            SELECT COUNT(*) FROM source_records
+            WHERE lower(raw_payload) LIKE '%"pin"%'
+               OR lower(raw_payload) LIKE '%"password"%'
+               OR lower(raw_payload) LIKE '%"birthdate"%'
+               OR lower(raw_payload) LIKE '%"passport"%'
+               OR raw_payload LIKE '%"생년월일"%'
+               OR raw_payload LIKE '%"전화번호"%'
+               OR raw_payload LIKE '%"여권"%'
+            """,
+        ),
     }
     report["valid"] = (
         report["transactions"] == report["active_allocations"]
         and report["transaction_total_krw"] == report["allocation_total_krw"]
         and report["allocation_mismatches"] == 0
+        and report["missing_card_event_identities"] == 0
+        and report["forbidden_sensitive_source_records"] == 0
     )
     return report
 
@@ -2037,6 +2118,70 @@ def rebuild_database(
     }
 
 
+def backup_database(source: Path, destination: Path) -> dict[str, object]:
+    """SQLite 온라인 백업과 검증용 semantic hash manifest를 만든다."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source_db = connect(source)
+    backup_db = connect(destination)
+    try:
+        source_db.backup(backup_db)
+        report = validation_report(backup_db)
+        if not report["valid"]:
+            raise ValueError("백업 DB 정합성 검증에 실패했습니다.")
+        semantic_sha256 = build_review_snapshot(backup_db)["semantic_sha256"]
+    finally:
+        backup_db.close()
+        source_db.close()
+    manifest = {
+        "format_version": 1,
+        "source": str(source),
+        "backup": str(destination),
+        "backup_sha256": file_sha256(destination),
+        "semantic_sha256": semantic_sha256,
+        "transactions": report["transactions"],
+        "amount_krw": report["transaction_total_krw"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    manifest_path = destination.with_suffix(destination.suffix + ".manifest.json")
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def restore_database(backup: Path, destination: Path) -> dict[str, object]:
+    """검증된 백업을 임시 파일에 복원한 뒤 원자적으로 교체한다."""
+    manifest_path = backup.with_suffix(backup.suffix + ".manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if file_sha256(backup) != manifest["backup_sha256"]:
+        raise ValueError("백업 파일 해시가 manifest와 다릅니다.")
+    token = hashlib.sha256(str(destination).encode("utf-8")).hexdigest()[:12]
+    temporary = destination.with_name(f".{destination.name}.{token}.restore")
+    backup_db = connect(backup)
+    restored_db = connect(temporary)
+    try:
+        backup_db.backup(restored_db)
+        report = validation_report(restored_db)
+        semantic_sha256 = build_review_snapshot(restored_db)["semantic_sha256"]
+        if not report["valid"] or semantic_sha256 != manifest["semantic_sha256"]:
+            raise ValueError("복원 DB가 백업 manifest와 일치하지 않습니다.")
+        restored_db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        restored_db.close()
+        backup_db.close()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.with_name(destination.name + "-wal").unlink(missing_ok=True)
+    destination.with_name(destination.name + "-shm").unlink(missing_ok=True)
+    os.replace(temporary, destination)
+    return {
+        "db": str(destination),
+        "semantic_sha256": semantic_sha256,
+        "transactions": report["transactions"],
+        "amount_krw": report["transaction_total_krw"],
+    }
+
+
 def print_stats(stats: ImportStats) -> None:
     state = "기존 스냅샷 재사용" if stats.repeated_snapshot else "이관 완료"
     print(
@@ -2089,6 +2234,10 @@ def cli(argv: list[str] | None = None) -> int:
     rebuild.add_argument("--trips", type=Path, default=DEFAULT_TRIPS)
     rebuild.add_argument("--bookings", type=Path, default=DEFAULT_BOOKINGS)
     rebuild.add_argument("--change-log", type=Path)
+    backup = sub.add_parser("backup", help="운영 DB를 검증 가능한 SQLite 백업으로 저장합니다.")
+    backup.add_argument("--output", type=Path, required=True)
+    restore = sub.add_parser("restore", help="검증된 SQLite 백업을 원자적으로 복원합니다.")
+    restore.add_argument("--backup", type=Path, required=True)
 
     args = parser.parse_args(argv)
     if args.command == "record-change":
@@ -2105,6 +2254,12 @@ def cli(argv: list[str] | None = None) -> int:
             args.change_log,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "backup":
+        print(json.dumps(backup_database(args.db, args.output), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "restore":
+        print(json.dumps(restore_database(args.backup, args.db), ensure_ascii=False, indent=2))
         return 0
     db = connect(args.db)
     try:

@@ -50,10 +50,10 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
     def test_legacy_snapshot_preserves_count_and_total(self) -> None:
         report = validation_report(self.db)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["transactions"], 1705)
-        self.assertEqual(report["active_allocations"], 1705)
-        self.assertEqual(report["transaction_total_krw"], 310_719_899)
-        self.assertEqual(report["allocation_total_krw"], 310_719_899)
+        self.assertEqual(report["transactions"], 1833)
+        self.assertEqual(report["active_allocations"], 1833)
+        self.assertEqual(report["transaction_total_krw"], 320_115_617)
+        self.assertEqual(report["allocation_total_krw"], 320_115_617)
         self.assertEqual(report["allocation_mismatches"], 0)
 
     def test_import_is_idempotent_for_same_snapshot(self) -> None:
@@ -69,7 +69,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT COUNT(*) FROM payment_transactions").fetchone()[0],
-            1705,
+            1833,
         )
         self.assertEqual(
             self.db.execute(
