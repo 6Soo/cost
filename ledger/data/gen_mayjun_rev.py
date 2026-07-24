@@ -10,6 +10,7 @@
 import openpyxl, re, json, datetime
 from copy import copy
 from collections import defaultdict, Counter
+import versioning
 
 APRIL=['0501_부산','5월_유럽','0613_북해도','0616_레분토&리시리','0620_묘코','0625_아키타','0630_오제']
 TPL='매출자료 양식_rev'
@@ -106,7 +107,7 @@ def evid_of(tab, evi, amt):
 
 # ── 데이터 적재 ──
 inc_all=json.load(open('/tmp/mayjun_inc.json'))
-wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v76.xlsx')
+wb68=openpyxl.load_workbook(versioning.current_path('workbook', '숲길여행_2분기_비용분류_AI'))
 def load_exp(tab):
     sv=wb68[tab]; out=[]
     for r in range(2,400):
@@ -208,6 +209,5 @@ for tab in APRIL:
     ni,ne,ta,tb,tp=build_tab(tab)
     report.append((tab,ni,ne,ta,tb))
     print(f'{tab}: 수입 {ni}행, 지출 {ne}행 (총A r{ta}, 총B r{tb})')
-import versioning
 OUT = versioning.save_versioned('mayjun_rev', '매출확인자료_5-6월_rev', lambda p: out.save(p))
 print('저장:', OUT)

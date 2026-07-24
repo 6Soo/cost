@@ -56,19 +56,25 @@
   스크립트 프로젝트에서 별도 확인). PR 구독(webhook) 없음.
 - **배포 소스 브랜치**: Vercel 등 외부 배포 없음. 기본 브랜치 = `main`(origin/HEAD도 main, 정상).
 
-### 4. 비용분류 파이프라인 실행 순서 (재현)
-`ledger/`에서 CWD 주의 — 처음 세 단계는 `ledger/`에서, 워크북·rev는 `ledger/data/`에서 실행.
+### 4. 비용분류 파이프라인 실행 순서 (재현, 2026-07-24 gen_manual_v34.py 추가로 갱신)
+`ledger/`에서 CWD 주의 — 처음 네 단계는 `ledger/`에서, 워크북·rev는 `ledger/data/`에서 실행.
+산출물 파일명은 `ledger/data/versioning.py`가 자동관리(내용이 실제로 바뀔 때만 버전 상승) —
+아래 파일명은 이 핸드오프 시점 기준이며 다음 실행에서 바뀔 수 있다(`output_versions.json` 확인).
 ```
 cd ledger
+python3 gen_manual_v34.py       # (P8 재수취 후) data/ledger_current.xlsx 여행탭 지출내용 → data/manual_v3/v4.csv 재생성
 python3 build_v13_trip.py       # newcard/conv/EFGHA + data/classified_v12 + manual_v3/v4 → data/classified_v13.csv
 python3 fix_v14.py              # data/classified_v13 (+cardindex, data/ledger_current.xlsx) → data/classified_v14.csv
 python3 patch_v14.py            # 수기 마스터 잔여 재주입 (data/classified_v14.csv in place, data/manual_special_rows.json)
+python3 test_regression.py      # 회귀 확인(수 초) — 여기서 이상하면 워크북 만들지 말고 먼저 조사
 cd data
-python3 build_workbook_v76.py   # classified_v14 + booking_info/fixes/trips/... → 숲길여행_2분기_비용분류_AI_v76.xlsx
-python3 gen_april_rev.py        # v76 + ledger_latest.xlsx + /tmp/april_inc·evid.json → 매출확인자료_4월_rev_v8.xlsx
-python3 gen_mayjun_rev.py       # → 매출확인자료_5-6월_rev_v5.xlsx
-python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합_v5.xlsx (최종 통합본)
+python3 build_workbook_v76.py   # classified_v14 + booking_info/fixes/trips/... → 숲길여행_2분기_비용분류_AI_vNN.xlsx(자동버전)
+python3 gen_april_rev.py        # 워크북(레지스트리 조회) + ledger_latest.xlsx + /tmp/april_inc·evid.json → 매출확인자료_4월_rev_vNN.xlsx
+python3 gen_mayjun_rev.py       # → 매출확인자료_5-6월_rev_vNN.xlsx
+python3 consolidate_2q.py       # rev 2종(레지스트리 조회) → 매출확인자료_2분기_통합_vNN.xlsx (최종 통합본)
 ```
+⚠ `ledger/verify.sh`는 `gen_manual_v34.py`를 포함하지 않는다(원장 재다운로드가 전제라 매번
+자동 돌리기엔 무겁다) — 원장을 새로 받았을 때만 수동으로 먼저 돌릴 것.
 ⚠ `gen_april_rev.py`/`gen_mayjun_rev.py`는 `/tmp/april_inc.json`·`/tmp/april_evid.json`·
 `/tmp/mayjun_inc.json`·`/tmp/mayjun_evid.json`을 읽는다. 핸드오프용 사본을 `ledger/data/`에 뒀으니
 실행 전 `cp ledger/data/april_inc.json /tmp/`(4개) 하거나 스크립트 경로를 상대경로로 바꿔라.
@@ -316,3 +322,44 @@ staleness를 재확인한 결과 이 세션 내 원장 변화는 미미했지만
 - `manual_v3.csv`/`manual_v4.csv` 재생성 스크립트를 저장소에 만드는 게 근본해결 — 없으면 이
   staleness는 세션이 갈수록 계속 벌어진다.
 - 롯데 아라이(KBO-0360) 222,217 vs 227,340 차이는 사용자 확인 대기.
+
+---
+
+## 2026-07-24 세션 핸드오프 ⑦ — 수기장부 flat 소스 재생성 스크립트 신설 + 이중계상 버그 수정
+
+### 0. 한 줄 요약
+"전 세션에 지적한 갭을 왜 안 고쳤냐"는 정당한 지적에, `manual_v3.csv`/`manual_v4.csv`를 실제로
+재생성하는 스크립트(`gen_manual_v34.py`)를 만들었다. 재생성 직후 이중계상 버그 2건을 발견·수정했고,
+버전 자동관리의 load-side 구멍(gen_april/mayjun_rev.py가 워크북을 여전히 'v76'으로 하드코딩
+참조)도 같이 잡았다.
+
+### 1. 무슨 일이 있었나
+- **`ledger/gen_manual_v34.py` 신설**: `data/ledger_current.xlsx`의 여행탭 "지출 내용" 섹션을
+  직접 파싱(레이아웃 2종 자동판별)해 `manual_v3.csv`/`manual_v4.csv`를 매번 재생성. **실측: 이미
+  확정(rev-paste)된 탭들이 06:39 스냅샷과 완전히 괴리돼 있었다** — 0625_아키타 12행(7.5M)→60행
+  (20.2M), 0630_오제 22행(8.2M)→32행(9.0M) 등.
+- **이중계상 버그 2건 발견·수정**(재생성 직후 실측 — 손 놓고 있었으면 몰랐을 것):
+  1. `patch_v14.py`의 MAN-FALAISE(241,350)·RF-AIR1/2가 원장 최신화로 `manual_v3.csv`에 자연히
+     잡히면서, uid만 보는 dedup이 못 잡아 TRIP-0233(자연편입)과 재주입이 같은 거래를 두 번 계상할
+     뻔함 → `patch_v14.py`에 (탭,금액) 내용 기준 dedup(`by_bucket_amt`) 추가.
+  2. 롯데 아라이(예약1740166023, KBO-0360)는 원장 날짜가 아직 공란이라 `build_v13_trip.py`의 Q2
+     날짜기반 dedup 게이트 자체를 안 타(sd=''가 falsy) TRIP-0393이 또 생겼다 → `book_in`에
+     `KNOWN_BASE_BOOKINGS` 명시 세트 추가.
+  두 사례 모두 `test_regression.py`에 회귀케이스로 추가(탭+금액 중복 감시).
+- **버전 자동관리 load-side 수정**: `gen_april_rev.py`/`gen_mayjun_rev.py`가 워크북을 여전히
+  `'숲길여행_2분기_비용분류_AI_v76.xlsx'`로 하드코딩 읽고 있어(직전 세션에서 save 쪽만 고치고 load
+  쪽을 놓침), 워크북이 v77로 올라가도 rev 스크립트는 낡은 v76을 계속 읽고 있었다.
+  `versioning.current_path()`로 참조하도록 수정.
+
+### 2. 결과 수치
+- classified_v14 1,683행 309,470,903원(직전 311,627,192원 대비 -2,156,289 — 이중계상 버그 2건
+  수정 + 원장 최신화 반영이 섞인 결과, booking-key/탭+금액 재추적으로 검증됨).
+- 최종 산출물: 워크북 v77, 4월rev v9, 5-6월rev v6, 통합본 v6(포함 10탭/제외 3탭 — 0404_에히메·
+  0408_교토·0420_오사카가 원장과 일치).
+
+### 3. 다음 세션 주의
+- **`gen_manual_v34.py`는 `verify.sh`(Fast Track)에 포함 안 됨** — 원장을 새로 받았을 때만
+  수동으로 먼저 실행할 것(무거운 Drive 재다운로드가 전제라 매 검증마다 돌리기엔 부적합).
+- **flat 소스를 최신화할 때마다 이중계상 위험을 항상 재검토**할 것 — uid 기준 dedup만으로는
+  부족하다(P16 확장: 내용 기준(탭+금액, 예약번호) dedup 병행 필수).
+- 버전 자동관리는 save/load 양쪽 다 레지스트리를 거쳐야 한다 — 한쪽만 고치면 무효화된다.

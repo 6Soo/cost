@@ -33,9 +33,26 @@ FN=list(rows[0].keys())
 present={r['uid'] for r in rows}
 special=json.load(open('data/manual_special_rows.json',encoding='utf-8'))
 
-added=0
+def i2(x):
+    try: return round(float(str(x).replace(',','') or 0))
+    except: return 0
+
+# ★2026-07-24 발견(수기장부 재생성 후 실측): uid 존재 여부만으로는 이중계상을 못 막는다.
+# 원장이 갱신되면서 build_v13_trip.py가 같은 실거래를 이미 '다른 uid'(TRIP-NNNN)로 자연
+# 편입하는 경우가 생겼다(예: MAN-FALAISE 241,350이 TRIP-0233으로, RF-AIR1/2가 TRIP-0375/6으로
+# 이미 자연 편입됐는데 uid='MAN-FALAISE'/'RF-AIR1'은 present에 없어 그대로 또 추가돼 241,350×2/
+# -293,400×2×2로 이중계상될 뻔함). uid뿐 아니라 (버킷,금액) 내용 기준으로도 이미 존재하는지 확인한다.
+by_bucket_amt={}
+for r in rows:
+    by_bucket_amt.setdefault((r['bucket'], i2(r['krw'])), []).append(r['uid'])
+
+added=0; skipped_dup=0
 for s in special:
     if s['uid'] not in RESTORE or s['uid'] in present: continue
+    dup=by_bucket_amt.get((s['bucket'], i2(s['krw'])))
+    if dup:
+        print('  ⚠ %s(%s, %s) 재주입 스킵 — 원장 재생성으로 이미 자연편입됨(%s)'%(s['uid'], s['bucket'], s['krw'], dup))
+        skipped_dup+=1; continue
     rows.append({k:s.get(k,'') for k in FN}); added+=1
 
 # 말라르 노트 재부착(리빌드에서 base note가 원복됨)
@@ -70,4 +87,4 @@ def i(x):
     try: return round(float(str(x).replace(',','') or 0))
     except: return 0
 tot=sum(i(r['krw']) for r in rows)
-print('patch_v14: 복원 %d건, 말라르노트 %d, 전용진계정 %d건, 미입력잔존태그교정 %d건 → %d행 krw합 %s'%(added, mal, jy, conf, len(rows), format(tot,',')))
+print('patch_v14: 복원 %d건(이중계상방지로 스킵 %d건), 말라르노트 %d, 전용진계정 %d건, 미입력잔존태그교정 %d건 → %d행 krw합 %s'%(added, skipped_dup, mal, jy, conf, len(rows), format(tot,',')))

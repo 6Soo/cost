@@ -176,6 +176,14 @@ for r in cls:
     for m in re.findall(r'\d{8,}', blob): book_in.add(m)
     for m in re.findall(r'\b[A-Z0-9]{5,7}\b', blob):
         if re.search(r'[A-Z]',m) and re.search(r'[0-9]',m): book_in.add(m)
+# ★2026-07-24 발견(수기장부 재생성 직후 실측): book_in은 classified_v12.csv(base)의 note 텍스트를
+# 스캔해서 만드는데, patch_v14.py가 나중에(이 스크립트보다 뒤 단계에서) note에 예약번호를 붙이는
+# 확정건(예: KBO-0360 롯데 아라이 1740166023)은 base 자체엔 그 번호가 없어 book_in이 놓친다.
+# 게다가 원장에 날짜가 아직 공란인 수기행(sd='')은 Q2 날짜기반 dedup(라인 하단)도 건너뛰어 이중
+# 안전장치가 둘 다 뚫린다 — 실측: 원장이 금액만 채워지자 TRIP-0393(230,782)이 KBO-0360(222,217)과
+# 별개로 또 생겨 이중계상될 뻔함. base에 이미 확정 배치된 걸 아는 예약번호는 명시적으로 book_in에 못박는다.
+KNOWN_BASE_BOOKINGS={'1740166023'}   # KBO-0360(묘코 롯데 아라이) — 원장 날짜 공란이라 Q2게이트도 못 잡음
+book_in |= KNOWN_BASE_BOOKINGS
 
 # ---- 수기장부 ----
 man=list(csv.DictReader(open('data/manual_v3.csv',encoding='utf-8')))

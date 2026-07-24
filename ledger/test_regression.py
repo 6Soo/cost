@@ -52,10 +52,22 @@ if 'TRIP-0016' in by_uid:
     check('0408_교토 탭 유지', r['bucket'] == '0408_교토', r['bucket'])
     check('예약번호 note 보존', '1400823535413714' in (r['note'] or ''))
 
+print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
+# 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
+# uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
+# 아라이 1740166023이 KBO-0360과 TRIP-0393로 이중계상될 뻔함, 팔레즈 241,350이 TRIP-0233과
+# MAN-FALAISE로 이중계상될 뻔함). 탭+금액 조합의 등장 횟수로 이중계상을 감시한다.
+DUP_WATCH = [('0620_묘코', 227340, '롯데 아라이(예약1740166023)'), ('0620_묘코', 230782, '롯데 아라이(카드매칭 변형)'),
+             ('5월_유럽', 241350, '호텔 데 팔레이즈(예약1400826104512972)')]
+for bucket, amt, label in DUP_WATCH:
+    hits = [r for r in rows if r['bucket'] == bucket and abs(float(r['krw'] or 0) - amt) < 1]
+    check(f'{label} 탭+금액 중복 없음(1건 이하)', len(hits) <= 1,
+          [(h['uid'], h['krw']) for h in hits])
+
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 311_627_192
-EXPECTED_ROWS = 1702
+EXPECTED_TOTAL = 309_470_903
+EXPECTED_ROWS = 1683
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')
