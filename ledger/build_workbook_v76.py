@@ -45,6 +45,13 @@ def booking_of(note):
     m = re.search(r'예약\s*(\d{10,19})', note or '')
     return m.group(1) if m else ''
 
+# 마이트립(항공) 개인건 보강(2026-07-23): Gmail 확정메일 전수조회로 PNR·구간·편명 확보.
+#   수기에 주문번호가 없어 금액(고유)으로 매칭. 단체 항공은 확정서 미수신이라 미보강.
+MYTRIP_ENRICH = {  # 금액: (PNR, 구간, 편명)
+    586834:  ('E4IOVR', 'ALA-TBS', 'KC139'),   # 유럽 트빌리시 05-09 김의영·미희
+    1409892: ('',       'CDG-ICN', ''),         # 유럽 파리→인천 06-10 김의영·미희
+}
+
 rows = list(csv.DictReader(open('classified_v14.csv', encoding='utf-8')))
 # 검증 픽스 적용
 if os.path.exists('fixes_ALREADY_APPLIED.json'):
@@ -366,6 +373,11 @@ def detail_sheet(title, xs):
         _bi = BOOKING_INFO.get(booking_of(x.get('note', '')))   # 예약번호로 호텔명·기간 보강(generic 트립닷컴 건)
         if _bi:
             vals['항목'] = _bi[0]; vals['내용'] = _bi[1]
+        if '마이트립' in (x.get('merchant') or ''):              # 마이트립 개인건 PNR·구간·편명 보강
+            _me = MYTRIP_ENRICH.get(round(x['krw_f']))
+            if _me:
+                if _me[0] and not vals['예약번호']: vals['예약번호'] = _me[0]
+                vals['항목'] = vals['항목'] + ' (%s%s)' % (_me[1], (' '+_me[2]) if _me[2] else '')
         for k, cc in COL.items():
             c = ws.cell(row=r, column=cc, value=vals[k]); c.border = THIN
             if k == '금액': c.number_format = '#,##0'

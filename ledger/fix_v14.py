@@ -77,6 +77,10 @@ def bookno_t(note):   # ★예약번호(다객실 동일가 유일 식별) — d
     return m.group(1) if m else ''
 seen_key=set(); kept2=[]; dd=0; ddtot=0
 for t in sorted(kept, key=lambda z:z['uid']):
+    # ★영수증/현금/이체(MAN, 비카드)는 수기장부가 마스터(2026-07-23 사용자 확정 "영수증은 수기가 마스터"):
+    #   카드 원거래가 없어 건수로 중복판정 불가 → dedup 제외, 수기 기재 건수 그대로 인정.
+    if t.get('src')=='MAN':
+        kept2.append(t); continue
     core=desc_core(t['note']); a=abs(i(t['krw'])); cx=str(t.get('cancel')).lower() in ('true','1')
     bk=bookno_t(t['note'])
     key=(t['bucket'], a, cx, core, bk)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
