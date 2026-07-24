@@ -44,13 +44,20 @@ def bookno(note):
     return m.group(1) if m else ''
 base_by_bucket=defaultdict(list)
 for r in base: base_by_bucket[r['bucket']].append(r)
-merged=0; kept=[]; blocked_by_book=0
+merged=0; kept=[]; blocked_by_book=0; blocked_by_appr=0
 for t in trip:
     a=abs(i(t['krw'])); tm=mk(t['merchant']); tb=bookno(t['note']); dup=None
+    ta=re.sub(r'\D','',t.get('appr') or '')
     for b in base_by_bucket[t['bucket']]:
         if mk(b['merchant'])!=tm or abs(abs(i(b['krw']))-a)>max(2000,a*0.02): continue
         bb=bookno(b['note'])
         if tb and bb and tb!=bb: continue   # 예약번호 상충 → 다른 거래, 병합 금지
+        # ★2026-07-24 실측(0413_나가센도 트래블로버 36,380 오병합): PG 결제대행(KCP 등)은 서로 다른
+        # 실거래도 가맹명이 "KCP(결제대행)"으로 동일하게 찍혀 가맹+금액만으로는 구분이 안 된다.
+        # 승인번호(appr)가 둘 다 있고 다르면 절대 다른 실거래 — 예약번호와 동급으로 병합 금지.
+        ba=re.sub(r'\D','',b.get('appr') or '')
+        if ta and ba and ta!=ba:
+            blocked_by_appr+=1; continue
         dup=b; break
     if dup:
         if '수기병합' not in (dup['note'] or ''):
@@ -60,7 +67,8 @@ for t in trip:
         merged+=1
     else:
         kept.append(t)
-print('①TRIP중복→병합(가맹+금액+예약번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept))
+print('①TRIP중복→병합(가맹+금액+예약번호+승인번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept),
+      '/ 승인번호 상충으로 병합차단', blocked_by_appr,'건')
 
 # ①B TRIP↔TRIP 수기 자체 중복입력 dedup (오제 등 in-progress 이중입력).
 #     같은 여행탭·같은 금액·같은 desc핵심(사람이름/예약)=중복. 정상 다건(묘코 다른사람 ×5)은 desc가 달라 보존.

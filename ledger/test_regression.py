@@ -61,6 +61,15 @@ komagane = [r for r in rows if r['bucket'] == '0413_나가센도' and r['merchan
 check('고마가네 62,496원 2건 모두 보존(다객실 동일가, 예약번호 없음)', len(komagane) == 2,
       [(r['uid'], r['note']) for r in komagane])
 
+print('== PG 결제대행 동일가맹명 오병합 회귀(2026-07-24 사용자 "전수조사한거아니었어" 지적) ==')
+# ①TRIP중복→병합 단계가 가맹명+금액(±2%)만으로 병합 판정하던 버그 — KCP(결제대행) 같은 PG는
+# 서로 다른 실거래도 가맹명이 동일하게 찍혀, 승인번호가 다른데도(TRIP-0094 appr30057417 vs
+# KBD-0777 appr30057653, 각각 3/22·4/14 별개 트래블로버 보험 결제) 하나로 오병합됐었다.
+if 'TRIP-0094' in by_uid and 'KBD-0777' in by_uid:
+    check('트래블로버 2건(3/22·4/14) 둘 다 보존(승인번호 다른 별개 실거래)', True)
+else:
+    check('트래블로버 2건 둘 다 보존', False, f"TRIP-0094={'TRIP-0094' in by_uid}, KBD-0777={'KBD-0777' in by_uid}")
+
 print('== 수기장부 재생성 이중계상 회귀(2026-07-24, 원장이 patch_v14 확정건을 자연 편입할 때) ==')
 # 원장이 갱신돼 manual_v3.csv가 patch_v14의 RESTORE 대상과 같은 실거래를 자연스럽게 잡아내면
 # uid는 다르지만(TRIP-NNNN) 같은 예약, 같은 탭·금액으로 두 번 잡힐 위험이 있다(실측: 롯데
@@ -75,8 +84,8 @@ for bucket, amt, label in DUP_WATCH:
 
 print('== 전체 합계 스냅샷(참고용 — 의도적 변경이면 아래 EXPECTED만 갱신) ==')
 total = sum(float(r['krw'] or 0) for r in rows)
-EXPECTED_TOTAL = 310_547_377
-EXPECTED_ROWS = 1687
+EXPECTED_TOTAL = 318_134_680
+EXPECTED_ROWS = 1819
 print(f'  현재: {len(rows)}행 {total:,.0f}원 / 기준: {EXPECTED_ROWS}행 {EXPECTED_TOTAL:,}원')
 if total != EXPECTED_TOTAL or len(rows) != EXPECTED_ROWS:
     print('  ⚠ 기준과 다름 — 의도된 변경이면 이 스크립트의 EXPECTED_TOTAL/EXPECTED_ROWS를 갱신할 것')
