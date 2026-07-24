@@ -171,6 +171,7 @@ def build_tab(tab):
     for L,dim in tpl.column_dimensions.items():
         nd=ws.column_dimensions[L]
         nd.width=dim.width; nd.hidden=dim.hidden
+    ws.column_dimensions['C'].width=(tpl.column_dimensions['C'].width or 14.63)*2.5  # C열(항목/이름) 2.5배(사용자 2026-07-23)
     # 병합(새 좌표)
     for mr in (f'C2:H2', f'B6:H6', f'B{bar}:H{bar}', f'C{ta}:H{ta}', f'C{tb}:H{tb}', f'C{tp}:H{tp}'):
         ws.merge_cells(mr)

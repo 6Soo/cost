@@ -166,18 +166,13 @@ for r in man:
         #   ±2% 퍼지 매칭이 THB 거래(유럽 Adria)·동일금액 APA 4건 중 2건 등 오매칭 양산 실측.
         #   금액 변경 없는 명칭 카드열(국민/하나/기업)만 매칭 — 끝4자리 무일자 건은 수기 그대로 두고 보고.
         cm=card_match(abs(a), {'국민':'국민','하나':'하나','기업':'기업'}.get(r['card'],''), want_cx=(a<0))
-        if sd and sd>='2026-04-01':
-            # 구제 조건: 매칭 카드가 Q1 승인 + 수기 기재일과 근접(±14일)일 때만(경계 케이스).
-            # ★근접 제한 없으면 동액 우연일치 원거리 카드(작년 카카오T 10,500가 커피빈 4/4에 매칭)로
-            #   가짜 구제→①B dedup이 진짜 현금건(HIMESO)까지 오인 제거하는 2차 사고 실측(2026-07-22).
-            import datetime as _dt
-            def _dd(x,y):
-                try:
-                    return abs((_dt.date.fromisoformat(x)-_dt.date.fromisoformat(y)).days)
-                except Exception:
-                    return 9999
-            near = cm and cm.get('use') and cm['use']<'2026-04-01' and _dd(cm['use'], sd)<=14
-            if not near:
+        if sd and sd>='2026-04-01' and a>=0:
+            # ★2026-07-23 사용자 "Q2필터 없애버려": 선결제는 승인이 수개월~1년 전일 수 있음(예: mercure 승인 2월·여행 6월).
+            #   14일 근접창 제거 — 매칭 카드가 Q2 이전(<4/1) 승인이면 승인일 간격 무제한으로 선결제 인정·편입.
+            #   Q2 승인(≥4/1) 카드는 base(classified_v12)에 이미 있을 가능성 → 중복방지 위해 skip 유지.
+            #   ★취소(-)행(a<0)은 이 블록 자체를 건너뜀(위 `and a>=0`) → 순액처리 위해 항상 편입.
+            is_prepay = cm and cm.get('use') and cm['use']<'2026-04-01'
+            if not is_prepay:
                 if cm: _used_card.discard(id(cm))   # 오매칭 소비 롤백
                 continue   # base(승인-Q2)에 이미 존재
     # === 미포함(Q1 선결제 or 현금) → 추가 ===
@@ -220,6 +215,39 @@ for r in man:
         note='%s수기장부 선결제 반영(%s) | %s%s'%(rowtag, issuer, r['desc'], ' 예약'+book if book else ''),
         tax_conf='상', appr=(ap if not cancel else ''), orig_appr=oap)
     new.append(row); addtot+=cardcell; pertab[r['tab']]+=cardcell
+
+# ── 옵션① (사용자 2026-07-23 "1번으로 가야해"): 미매칭 실카드 → 여행_미배정 ──
+#   base(classified_v12)·수기매칭 어디에서도 소비 안 된 카드 = 워크북 어디에도 없는 실결제(진에어30k 등 누락 근본원인).
+#   Q2 승인(2026-04~06)만 대상. 날짜근접 자동귀속은 하지 않고(사용자가 ②를 기각) 여행_미배정에 담아 대표님 검토.
+_mi=0; misc=[]; misctot=0; miscissuer=Counter()
+_ISS={'KBO':'국민','KBD':'국민','HAN':'하나','CORP':'기업'}
+for c in cards:
+    if id(c) in _used_card: continue
+    u=c.get('use') or ''
+    if not ('2026-04-01'<=u<='2026-06-30'): continue   # Q2 승인만(Q1 선결제 미매칭은 여기 제외 — 대응 여행탭 불명)
+    _mi+=1
+    amt = -c['amt'] if c['cx'] else c['amt']
+    issuer=_ISS.get(c['src'],'기타'); miscissuer[issuer]+=1
+    acct=account_of(c['mer'],'')
+    row={k:'' for k in FN}
+    row.update(uid='MISC-%04d'%_mi, src=c['src'], use_date=u, post_date='',
+        card4=c.get('c4',''), merchant=c['mer'], country=('KR' if c['sub']=='국내' else '해외'),
+        currency=c['cur'] or 'KRW', foreign=c['fx'] or '0', krw=str(amt), vat='0.0',
+        status=('취소' if c['cx'] else '정상'), bucket='여행_미배정', account=acct,
+        cancel=str(c['cx']), cost_type='여행원가', vat_tag='불공제_해외', confidence='하',
+        note='⚠수기 미기재 실카드결제(%s) — 대표님 검토요망: 여행탭 귀속/판관비 판정 필요'%issuer,
+        tax_conf='하', appr=c.get('appr',''), orig_appr='')
+    misc.append(row); misctot+=amt; _used_card.add(id(c))
+print('옵션① 미매칭 Q2 실카드 → 여행_미배정: %d건 %s (합 %s)'%(_mi, dict(miscissuer), format(misctot,'+,')))
+new += misc
+
+# ── 대사 게이트 (사용자 "왜 계속 누락"): Q2 승인 카드가 base·수기·미배정 어디에도 없으면 누락 → 경고 ──
+_lost=[c for c in cards if id(c) not in _used_card and '2026-04-01'<=(c.get('use') or '')<='2026-06-30']
+if _lost:
+    print('⚠️ 대사 실패: Q2 승인 카드 %d건이 어디에도 편입 안 됨(누락):'%len(_lost))
+    for c in _lost[:20]: print('   ', c['co'], c['use'], format(c['amt'],','), (c['mer'] or '')[:24])
+else:
+    print('✓ 대사 통과: 모든 Q2 승인 카드가 base·수기·여행_미배정에 편입(누락 0)')
 
 out=cls+new
 with open('data/classified_v13.csv','w',encoding='utf-8',newline='') as f:
