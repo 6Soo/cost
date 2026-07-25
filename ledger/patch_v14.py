@@ -44,9 +44,11 @@ post_ax=0
 for r in rows:
     if (r.get('use_date') or '') < '2026-06-13':
         continue
-    if (r.get('note') or '').strip() != '미입력추정(수기장부 없음)':
+    old_note=r.get('note') or ''
+    if not re.search(r'미입력(?:추정)?\(수기장부 없음\)', old_note):
         continue
-    r['note']='AX 자동화 구간(2026-06-13 이후): 수기 미기입은 정상; 카드·OTA 근거로 판정'
+    remaining=re.sub(r'\s*\|?\s*미입력(?:추정)?\(수기장부 없음\)\s*\|?\s*', ' | ', old_note).strip(' |')
+    r['note']=remaining or 'AX 자동화 구간(2026-06-13 이후): 수기 미기입은 정상; 카드·OTA 근거로 판정'
     if r.get('tax_conf') == '하':
         r['tax_conf']='중'
     post_ax+=1
