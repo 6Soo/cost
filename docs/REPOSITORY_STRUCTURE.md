@@ -57,14 +57,16 @@ v2의 로컬 재현은 저장소 루트에서 다음 순서로 수행한다.
 python3 -m unittest discover -s ledger/tests
 python3 -m ledger.domain.ledger_db --db /tmp/cost-ledger.db rebuild
 python3 -m ledger.domain.ledger_db --db /tmp/cost-ledger.db validate
+python3 -m ledger.domain.ledger_db --db /tmp/cost-ledger.db import-direct-sources
 python3 -m ledger.domain.transition_gates \
   --db /tmp/cost-ledger.db \
   --baseline ledger/baselines/p05_latest_20260725/regression_totals.json \
   --output /tmp/p6_transition_gate_report.json
 ```
 
-전환 게이트 명령 전에는 작업 목적에 맞게 직접 원천 적재가 선행되어야 한다. 정확한
-재현 조건과 현재 검증값은 `docs/CODEX_CLOUD_HANDOFF.md`를 기준으로 한다.
+`import-direct-sources`는 전환 게이트가 검사하는 카드·수기·OTA 직접 원천을 채운다.
+이를 생략하면 새 DB의 `direct_source_records`가 비어 게이트 1이 실패한다. 정확한 재현
+조건과 현재 검증값은 `docs/CODEX_CLOUD_HANDOFF.md`를 기준으로 한다.
 
 ## 4. 브랜치 정리 기준
 

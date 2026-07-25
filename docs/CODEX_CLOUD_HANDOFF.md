@@ -93,10 +93,13 @@ python -m ledger.domain.ledger_db --db /tmp/cost-ledger.db rebuild
 python -m ledger.domain.ledger_db --db /tmp/cost-ledger.db validate
 ```
 
-직접 원천 적재와 전환 게이트는 Python에서 `ledger.domain.direct_sources.import_all`
-을 실행한 뒤 다음 명령으로 확인한다.
+직접 원천 적재와 전환 게이트는 다음 명령으로 확인한다. 새 DB에서는
+`import-direct-sources`를 생략하면 직접 원천 건수가 0이므로 게이트 1이 실패한다.
 
 ```bash
+python -m ledger.domain.ledger_db \
+  --db /tmp/cost-ledger.db \
+  import-direct-sources
 python -m ledger.domain.transition_gates \
   --db /tmp/cost-ledger.db \
   --baseline ledger/baselines/p05_latest_20260725/regression_totals.json \
