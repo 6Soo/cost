@@ -17,8 +17,8 @@
       "name": "payment_allocation_total",
       "passed": true,
       "actual": {
-        "payments": 320118229,
-        "allocations": 320118229
+        "payments": 320057690,
+        "allocations": 320057690
       }
     },
     {
@@ -56,6 +56,13 @@
       "actual": {
         "differences": {
           "allocation_targets": [
+            {
+              "key": "0424_알펜루트",
+              "before": 49990557,
+              "after": 49930018,
+              "difference": -60539,
+              "classification": "legacy_duplicate_projection_correction"
+            },
             {
               "key": "0616_레분토&리시리",
               "before": 23425778,
@@ -99,6 +106,13 @@
               "after": 175733209,
               "difference": 636725,
               "classification": "legacy_error_correction"
+            },
+            {
+              "key": "식비",
+              "before": 17860065,
+              "after": 17799526,
+              "difference": -60539,
+              "classification": "legacy_duplicate_projection_correction"
             },
             {
               "key": "항공료",

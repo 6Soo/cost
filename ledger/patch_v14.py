@@ -10,7 +10,10 @@
   · RF-AIR1/2   -293,400×2 단체항공 1인취소 환불(수기 r75/r76, 원거래 TRIP-0377/0378 별개) — 순감
   · KBO-2882 말라르 예약번호 노트 재부착(트립닷컴 1400826104587865, 582.18유로)
 """
-import csv, json
+import csv, json, re
+from pathlib import Path
+
+from projection_guards import remove_kbo_source_excess
 
 RESTORE={'MAN-FALAISE','MERC-342280','MERC-556929','RF-AIR1','RF-AIR2'}
 MALAR_NOTE=('⇄수기:HOTEL MALAR.VPC | 파리 7구 Hotel Malar 549EUR | '
@@ -66,16 +69,15 @@ for r in rows:
         r['note']=('OTA 실증: SHONAI HOTEL SUIDEN TERRASSE 숙박_0625_0626 '
                    '예약 1696942614·1696943502·1696943284; 카드 승인 2026-06-26')
 
-# KB 해외매입 원천에는 ANA AIRFOOOCM 412.57 USD/634,113원이 1행뿐이다.
-# classified에만 생긴 두 번째 projection KBO-2863은 실거래가 아니므로 제거한다.
-before_ana=len(rows)
-rows=[r for r in rows if r['uid']!='KBO-2863']
+# KB 해외매입 원천의 물리 건수보다 projection이 많으면 낮은 근거의 초과행만 제거한다.
+# ANA 건은 RAW/master 1행 대 classified 2행이라 KBO-2863이 이 일반 가드에서 제거된다.
+rows, source_excess = remove_kbo_source_excess(rows, Path('master_ledger.csv'))
 for r in rows:
     if r['uid']=='KBO-2853':
         r['note']=re.sub(r'\s*\|\s*⚠동일일·동일액 2건.*$', '', r.get('note') or '')
 print('P18 AX구간 수기미기입 단독 저신뢰 해제:', post_ax,
       '건; 2026-06-30 현지결제→0630_오제, HAN-0517→0625_아키타;',
-      'ANA 원천초과 projection 제거:', before_ana-len(rows), '건')
+      '카드 정본 원천초과 projection 제거:', len(source_excess), '건', source_excess)
 
 with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
     w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(rows)

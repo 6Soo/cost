@@ -29,6 +29,8 @@ HEADERS = (
 KNOWN_REGRESSION_CORRECTIONS = {
     ("allocation_targets", "0616_레분토&리시리", -634_113):
         "legacy_duplicate_projection_correction",
+    ("allocation_targets", "0424_알펜루트", -60_539):
+        "legacy_duplicate_projection_correction",
     ("allocation_targets", "0620_묘코", -665_316):
         "ota_supported_reallocation",
     ("allocation_targets", "0625_아키타", -3_439_871):
@@ -36,6 +38,8 @@ KNOWN_REGRESSION_CORRECTIONS = {
     ("allocation_targets", "0630_오제", 4_123_942):
         "user_confirmed_reallocation",
     ("accounts", "항공료", -634_113):
+        "legacy_duplicate_projection_correction",
+    ("accounts", "식비", -60_539):
         "legacy_duplicate_projection_correction",
 }
 

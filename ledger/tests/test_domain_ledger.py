@@ -37,6 +37,7 @@ from ledger.domain.ledger_db import (
     validation_report,
     write_review_snapshot,
 )
+from ledger.projection_guards import remove_kbo_source_excess
 
 
 class DomainLedgerIntegrationTest(unittest.TestCase):
@@ -55,10 +56,10 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
     def test_legacy_snapshot_preserves_count_and_total(self) -> None:
         report = validation_report(self.db)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["transactions"], 1832)
-        self.assertEqual(report["active_allocations"], 1832)
-        self.assertEqual(report["transaction_total_krw"], 319_481_504)
-        self.assertEqual(report["allocation_total_krw"], 319_481_504)
+        self.assertEqual(report["transactions"], 1831)
+        self.assertEqual(report["active_allocations"], 1831)
+        self.assertEqual(report["transaction_total_krw"], 319_420_965)
+        self.assertEqual(report["allocation_total_krw"], 319_420_965)
         self.assertEqual(report["allocation_mismatches"], 0)
 
     def test_import_is_idempotent_for_same_snapshot(self) -> None:
@@ -74,7 +75,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT COUNT(*) FROM payment_transactions").fetchone()[0],
-            1832,
+            1831,
         )
         self.assertEqual(
             self.db.execute(
@@ -109,6 +110,20 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
             """
         ).fetchone()[0]
         self.assertEqual(wrong_june_30, 0)
+
+    def test_card_master_cardinality_removes_ana_projection_duplicate(self) -> None:
+        with (LEDGER_DIR / "data" / "classified_v13.csv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
+            legacy_rows = list(csv.DictReader(stream))
+        guarded, removed = remove_kbo_source_excess(
+            legacy_rows, LEDGER_DIR / "master_ledger.csv"
+        )
+        self.assertIn("KBO-2863", removed)
+        self.assertEqual(
+            [row["uid"] for row in guarded if row["merchant"] == "ANA AIRFOOOCM"],
+            ["KBO-2853"],
+        )
 
     def test_default_runtime_db_is_outside_repository_data(self) -> None:
         self.assertNotEqual(DEFAULT_DB, LEDGER_DIR / "data" / "ledger_v2.db")

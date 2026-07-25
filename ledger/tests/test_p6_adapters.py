@@ -81,12 +81,12 @@ class P6AdapterIntegrationTest(unittest.TestCase):
 
                 output = root / "parallel.xlsx"
                 workbook_result = export_parallel_workbook(db, output)
-                self.assertEqual(workbook_result["rows"], 1832)
-                self.assertEqual(workbook_result["amount_krw"], 320_118_229)
+                self.assertEqual(workbook_result["rows"], 1831)
+                self.assertEqual(workbook_result["amount_krw"], 320_057_690)
                 workbook = openpyxl.load_workbook(output, read_only=True)
                 self.assertEqual(
                     sum(max(0, sheet.max_row - 1) for sheet in workbook.worksheets),
-                    1832,
+                    1831,
                 )
                 workbook.close()
                 report = regression_report(
