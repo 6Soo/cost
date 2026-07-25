@@ -280,4 +280,5 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   고유 변경이 남아 있어 자동 병합하지 않았다.
 - PR #5 tip `c3751a3`은 `archive/pr-5-pre-cleanup`, PR #7 tip `47a1761`은
   `archive/pr-7-pre-cleanup` 태그로 원격 보존했다. 각 PR에 감사 근거를 남기고 닫은
-  뒤 두 원격 작업 브랜치를 삭제했다. 열린 PR은 0개, 원격 브랜치는 `main`만 남았다.
+  뒤 두 원격 작업 브랜치를 삭제했다. 기존 장기 draft PR은 0개이며, 감사 문서 변경은
+  `chore/repository-structure` 브랜치의 PR #11에서 검토한다.
