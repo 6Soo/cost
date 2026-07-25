@@ -267,3 +267,14 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   고유 변경을 대조한 뒤에만 종료·브랜치 삭제한다.
 - Cloud 세션 첫 진입점은 최신 `main`의 `AGENTS.md` → `LOG.md` 최신 블록 →
   `docs/CODEX_CLOUD_HANDOFF.md` 순서다.
+
+---
+
+## 2026-07-25 세션 핸드오프 — 코드 구조 파악·브랜치 기준 정리
+
+- 루트 README의 오래된 `STATUS.md` 우선 안내를 공통 진입점인 `AGENTS.md` 우선으로
+  교정하고, Apps Script·레거시 비용분류·v2 도메인 경로를 구분했다.
+- `docs/REPOSITORY_STRUCTURE.md`에 디렉터리별 책임, 운영 정본과 v2 병렬 경로의 경계,
+  재현 명령, 브랜치 생성·병합·삭제 기준을 기록했다.
+- 현재 체크아웃에는 원격 설정과 PR #5/#7 브랜치가 없어 원격 삭제는 수행하지 않았다.
+  원격 환경에서는 고유 변경과 하나카드 이벤트 보존 원칙을 검증한 뒤 정리해야 한다.
