@@ -2,7 +2,8 @@
 
 주식회사 숲길여행의 법인카드 비용처리(분류 → 장부 기록 → 시각화)를 자동화한다.
 
-> **이어받는 세션은 [`STATUS.md`](STATUS.md) 부터 읽을 것** — 결정사항·진행상황·다음 할 일 요약.
+> **이어받는 세션은 [`AGENTS.md`](AGENTS.md)부터 읽을 것** — 최신 핸드오프와 작업별
+> 필독 문서의 순서는 이 공통 진입점에서 관리한다.
 
 ## 왜 Google Apps Script인가 (핵심 설계 결정)
 
@@ -47,7 +48,15 @@
 ## 구성
 
 ```
-apps-script/      Apps Script 프로젝트 (자동화 엔진)
-docs/design.md    프로세스 재설계 + 장부 스키마 + 분류 규칙
-docs/roadmap.md   이메일 기반 후속 프로젝트(카드/OTA/페이)
+apps-script/      운영 Google Apps Script 자동전기·메일 연동 코드
+ledger/           Python 비용분류 파이프라인과 버전별 레거시 빌더
+ledger/domain/    SQLite 기반 v2 도메인 모델·직접 적재·전환 게이트
+ledger/tests/     v2 도메인·원천 어댑터·전환 회귀 테스트
+ledger/data/      재현 입력, 레거시 정본, 생성 워크북
+ledger/baselines/ v2 회귀 기준선과 전환 게이트 결과
+docs/             설계·운영·비용분류 규칙·세션 인계 문서
+tools/            외부 LLM을 직접 호출하는 선택적 브리지
 ```
+
+현재 운영 정본과 v2 병렬 경로, 주요 진입 명령, 브랜치 정리 기준은
+[`docs/REPOSITORY_STRUCTURE.md`](docs/REPOSITORY_STRUCTURE.md)에 정리되어 있다.

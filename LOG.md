@@ -267,3 +267,18 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   고유 변경을 대조한 뒤에만 종료·브랜치 삭제한다.
 - Cloud 세션 첫 진입점은 최신 `main`의 `AGENTS.md` → `LOG.md` 최신 블록 →
   `docs/CODEX_CLOUD_HANDOFF.md` 순서다.
+
+---
+
+## 2026-07-25 세션 핸드오프 — 코드 구조 파악·브랜치 기준 정리
+
+- 루트 README의 오래된 `STATUS.md` 우선 안내를 공통 진입점인 `AGENTS.md` 우선으로
+  교정하고, Apps Script·레거시 비용분류·v2 도메인 경로를 구분했다.
+- `docs/REPOSITORY_STRUCTURE.md`에 디렉터리별 책임, 운영 정본과 v2 병렬 경로의 경계,
+  재현 명령, 브랜치 생성·병합·삭제 기준을 기록했다.
+- GitHub 관리자 인증 후 PR #5/#7을 감사했다. 두 PR 모두 최신 `main`과 충돌하며
+  고유 변경이 남아 있어 자동 병합하지 않았다.
+- PR #5 tip `c3751a3`은 `archive/pr-5-pre-cleanup`, PR #7 tip `47a1761`은
+  `archive/pr-7-pre-cleanup` 태그로 원격 보존했다. 각 PR에 감사 근거를 남기고 닫은
+  뒤 두 원격 작업 브랜치를 삭제했다. 기존 장기 draft PR은 0개이며, 감사 문서 변경은
+  `chore/repository-structure` 브랜치의 PR #11에서 검토한다.
