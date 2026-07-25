@@ -81,12 +81,12 @@ class P6AdapterIntegrationTest(unittest.TestCase):
 
                 output = root / "parallel.xlsx"
                 workbook_result = export_parallel_workbook(db, output)
-                self.assertEqual(workbook_result["rows"], 1833)
-                self.assertEqual(workbook_result["amount_krw"], 320_752_342)
+                self.assertEqual(workbook_result["rows"], 1832)
+                self.assertEqual(workbook_result["amount_krw"], 320_118_229)
                 workbook = openpyxl.load_workbook(output, read_only=True)
                 self.assertEqual(
                     sum(max(0, sheet.max_row - 1) for sheet in workbook.worksheets),
-                    1833,
+                    1832,
                 )
                 workbook.close()
                 report = regression_report(
@@ -95,6 +95,14 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                     / "regression_totals.json",
                 )
                 self.assertEqual(report["unexplained_differences"], 0)
+                corrections = {
+                    row["classification"]
+                    for rows in report["differences"].values()
+                    for row in rows
+                }
+                self.assertIn("legacy_duplicate_projection_correction", corrections)
+                self.assertIn("ota_supported_reallocation", corrections)
+                self.assertIn("user_confirmed_reallocation", corrections)
                 self.assertTrue(validation_report(db)["valid"])
             finally:
                 db.close()

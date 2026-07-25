@@ -24,6 +24,21 @@ HEADERS = (
     "배분 대상",
 )
 
+# 2026-07-25 사용자 확인과 원천 대사로 확정된 legacy 기준선 차이.
+# 금액을 숨기지 않고 회귀 리포트에 사유를 붙여 전환 게이트가 설명 가능한 차이만 허용한다.
+KNOWN_REGRESSION_CORRECTIONS = {
+    ("allocation_targets", "0616_레분토&리시리", -634_113):
+        "legacy_duplicate_projection_correction",
+    ("allocation_targets", "0620_묘코", -665_316):
+        "ota_supported_reallocation",
+    ("allocation_targets", "0625_아키타", -3_439_871):
+        "user_confirmed_reallocation",
+    ("allocation_targets", "0630_오제", 4_123_942):
+        "user_confirmed_reallocation",
+    ("accounts", "항공료", -634_113):
+        "legacy_duplicate_projection_correction",
+}
+
 
 def workbook_rows(db: sqlite3.Connection) -> list[dict[str, object]]:
     rows = db.execute(
@@ -168,7 +183,12 @@ def regression_report(
                 else "v2_error"
             )
             difference = new - old
-            if section == "allocation_targets" and abs(difference) == 18_755:
+            known_correction = KNOWN_REGRESSION_CORRECTIONS.get(
+                (section, key, difference)
+            )
+            if known_correction:
+                classification = known_correction
+            elif section == "allocation_targets" and abs(difference) == 18_755:
                 classification = "intended_improvement"
             elif (
                 section == "allocation_targets"

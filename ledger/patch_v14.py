@@ -38,6 +38,43 @@ for r in rows:
     if '전용진' in (r['merchant'] or '') and r['account'] in ('숙박비','기타비용') and float(str(r['krw']).replace(',','') or 0)>0:
         r['account']='가이드정산'; jy+=1
 
+# 2026-06-13 이후는 AX 자동화를 위해 수기 기입을 의도적으로 최소화한 구간이다(P18).
+# 수기 미기입만으로 저신뢰 처리하지 않으며, 카드·OTA·여행기간 같은 독립 근거를 쓴다.
+post_ax=0
+for r in rows:
+    if (r.get('use_date') or '') < '2026-06-13':
+        continue
+    if (r.get('note') or '').strip() != '미입력추정(수기장부 없음)':
+        continue
+    r['note']='AX 자동화 구간(2026-06-13 이후): 수기 미기입은 정상; 카드·OTA 근거로 판정'
+    if r.get('tax_conf') == '하':
+        r['tax_conf']='중'
+    post_ax+=1
+
+# 사용자 확인 및 구조화 OTA 근거에 따른 귀속 교정.
+for r in rows:
+    if r.get('use_date')=='2026-06-30' and r.get('bucket')=='0625_아키타':
+        r['bucket']='0630_오제'
+        r['note']=(r.get('note') or '').strip(' |')+' | 사용자 확인: 2026-06-30 현지 결제는 0630_오제 귀속'
+        if r['uid']=='HAN-0529':
+            r['confidence']='상'; r['tax_conf']='중'
+    elif r['uid']=='HAN-0517':
+        r['bucket']='0625_아키타'
+        r['confidence']='상'; r['tax_conf']='중'
+        r['note']=('OTA 실증: SHONAI HOTEL SUIDEN TERRASSE 숙박_0625_0626 '
+                   '예약 1696942614·1696943502·1696943284; 카드 승인 2026-06-26')
+
+# KB 해외매입 원천에는 ANA AIRFOOOCM 412.57 USD/634,113원이 1행뿐이다.
+# classified에만 생긴 두 번째 projection KBO-2863은 실거래가 아니므로 제거한다.
+before_ana=len(rows)
+rows=[r for r in rows if r['uid']!='KBO-2863']
+for r in rows:
+    if r['uid']=='KBO-2853':
+        r['note']=re.sub(r'\s*\|\s*⚠동일일·동일액 2건.*$', '', r.get('note') or '')
+print('P18 AX구간 수기미기입 단독 저신뢰 해제:', post_ax,
+      '건; 2026-06-30 현지결제→0630_오제, HAN-0517→0625_아키타;',
+      'ANA 원천초과 projection 제거:', before_ana-len(rows), '건')
+
 with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
     w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(rows)
 

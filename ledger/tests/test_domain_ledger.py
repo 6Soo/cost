@@ -55,10 +55,10 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
     def test_legacy_snapshot_preserves_count_and_total(self) -> None:
         report = validation_report(self.db)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["transactions"], 1833)
-        self.assertEqual(report["active_allocations"], 1833)
-        self.assertEqual(report["transaction_total_krw"], 320_115_617)
-        self.assertEqual(report["allocation_total_krw"], 320_115_617)
+        self.assertEqual(report["transactions"], 1832)
+        self.assertEqual(report["active_allocations"], 1832)
+        self.assertEqual(report["transaction_total_krw"], 319_481_504)
+        self.assertEqual(report["allocation_total_krw"], 319_481_504)
         self.assertEqual(report["allocation_mismatches"], 0)
 
     def test_import_is_idempotent_for_same_snapshot(self) -> None:
@@ -74,7 +74,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT COUNT(*) FROM payment_transactions").fetchone()[0],
-            1833,
+            1832,
         )
         self.assertEqual(
             self.db.execute(
@@ -82,6 +82,33 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
             ).fetchone()[0],
             versions_before,
         )
+
+    def test_post_ax_user_confirmed_corrections_are_in_source_projection(self) -> None:
+        rows = {
+            row["external_key"]: row
+            for row in self.db.execute(
+                """
+                SELECT p.external_key, t.code AS target
+                FROM payment_transactions p
+                JOIN current_cost_allocations a ON a.payment_id=p.id
+                JOIN allocation_targets t ON t.id=a.target_id
+                WHERE p.external_key IN ('HAN-0517', 'HAN-0529', 'KBO-2863')
+                """
+            )
+        }
+        self.assertEqual(rows["HAN-0517"]["target"], "0625_아키타")
+        self.assertEqual(rows["HAN-0529"]["target"], "0630_오제")
+        self.assertNotIn("KBO-2863", rows)
+        wrong_june_30 = self.db.execute(
+            """
+            SELECT COUNT(*)
+            FROM payment_transactions p
+            JOIN current_cost_allocations a ON a.payment_id=p.id
+            JOIN allocation_targets t ON t.id=a.target_id
+            WHERE p.occurred_on='2026-06-30' AND t.code='0625_아키타'
+            """
+        ).fetchone()[0]
+        self.assertEqual(wrong_june_30, 0)
 
     def test_default_runtime_db_is_outside_repository_data(self) -> None:
         self.assertNotEqual(DEFAULT_DB, LEDGER_DIR / "data" / "ledger_v2.db")

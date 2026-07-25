@@ -17,8 +17,8 @@
       "name": "payment_allocation_total",
       "passed": true,
       "actual": {
-        "payments": 320752342,
-        "allocations": 320752342
+        "payments": 320118229,
+        "allocations": 320118229
       }
     },
     {
@@ -57,11 +57,32 @@
         "differences": {
           "allocation_targets": [
             {
+              "key": "0616_레분토&리시리",
+              "before": 23425778,
+              "after": 22791665,
+              "difference": -634113,
+              "classification": "legacy_duplicate_projection_correction"
+            },
+            {
+              "key": "0620_묘코",
+              "before": 47144809,
+              "after": 46479493,
+              "difference": -665316,
+              "classification": "ota_supported_reallocation"
+            },
+            {
               "key": "0625_아키타",
               "before": 20178248,
-              "after": 20197003,
-              "difference": 18755,
-              "classification": "intended_improvement"
+              "after": 16738377,
+              "difference": -3439871,
+              "classification": "user_confirmed_reallocation"
+            },
+            {
+              "key": "0630_오제",
+              "before": 12482142,
+              "after": 16606084,
+              "difference": 4123942,
+              "classification": "user_confirmed_reallocation"
             },
             {
               "key": "여행_미배정",
@@ -78,6 +99,13 @@
               "after": 175733209,
               "difference": 636725,
               "classification": "legacy_error_correction"
+            },
+            {
+              "key": "항공료",
+              "before": 66394928,
+              "after": 65760815,
+              "difference": -634113,
+              "classification": "legacy_duplicate_projection_correction"
             }
           ]
         },
