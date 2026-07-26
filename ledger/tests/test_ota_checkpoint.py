@@ -4,7 +4,10 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from ledger.domain.direct_sources import import_all
+from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.ota_checkpoint import OtaCheckpointStore
 from ledger.domain.source_adapters import forbidden_ota_fields
 
@@ -150,6 +153,48 @@ class OtaCheckpointStoreTest(unittest.TestCase):
         self.assertEqual(exported["message_id"], "portal:agoda:1696845387")
         self.assertEqual(exported["booking_number"], "1696845387")
         self.assertEqual(exported["portal_list_position"], 4)
+
+    def test_import_all_bridges_completed_checkpoint_without_json_export(self) -> None:
+        self.store.capture(portal_record())
+        root = Path(self.tempdir.name) / "ledger"
+        data = root / "data"
+        data.mkdir(parents=True)
+        checkpoint = data / "ota_checkpoints_agoda.db"
+        self.store.close()
+        self.store = OtaCheckpointStore(checkpoint)
+        self.store.capture(portal_record())
+        (data / "ota_mail_index.json").write_text('{"records": []}', encoding="utf-8")
+        (data / "manual_v4.csv").write_text("tab,row\n", encoding="utf-8")
+
+        db = connect(Path(self.tempdir.name) / "bridge.db")
+        try:
+            initialize(db)
+            with (
+                patch("ledger.domain.direct_sources.import_cards", return_value={"records": 0, "inserted": 0, "identity_collisions": 0, "normalized_payments": 0}),
+                patch("ledger.domain.direct_sources.import_manual", return_value={"records": 0, "inserted": 0}),
+                patch("ledger.domain.direct_sources.import_legacy_verified_links", return_value={"records": 0, "created": 0, "proposed": 0, "missing_payment": 0}),
+                patch("ledger.domain.reconciliation.project_direct_payments", return_value={}),
+            ):
+                first = import_all(
+                    db, root, data / "manual_v4.csv", data / "ota_mail_index.json"
+                )
+                second = import_all(
+                    db, root, data / "manual_v4.csv", data / "ota_mail_index.json"
+                )
+            self.assertEqual(first["ota_authenticated_portal_by_provider"]["agoda"]["records"], 1)
+            self.assertEqual(first["ota_authenticated_portal_by_provider"]["agoda"]["inserted"], 1)
+            self.assertEqual(second["ota_authenticated_portal_by_provider"]["agoda"]["inserted"], 0)
+            payload = db.execute(
+                "SELECT payload_json FROM direct_source_records WHERE source_kind='ota_authenticated_portal'"
+            ).fetchone()[0]
+            self.assertNotIn("current_url", payload)
+            self.assertNotIn("pin", payload)
+            self.assertEqual(
+                db.execute("SELECT COUNT(*) FROM direct_booking_service_periods").fetchone()[0],
+                1,
+            )
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

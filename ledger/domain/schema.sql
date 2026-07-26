@@ -112,6 +112,52 @@ CREATE TABLE IF NOT EXISTS direct_normalized_payments (
     UNIQUE(source_record_id, event_role)
 );
 
+-- Physical receipts are evidence objects in their own right.  They are never
+-- deduplicated by merchant, date, or amount: a corrected extraction appends a
+-- new event version while retaining the prior source record for audit.
+CREATE TABLE IF NOT EXISTS receipt_batch_manifests (
+    id INTEGER PRIMARY KEY,
+    source_record_id INTEGER NOT NULL UNIQUE REFERENCES direct_source_records(id),
+    batch_id TEXT NOT NULL,
+    image_count INTEGER NOT NULL CHECK(image_count > 0),
+    expected_physical_receipt_count INTEGER NOT NULL CHECK(expected_physical_receipt_count > 0),
+    currency TEXT NOT NULL,
+    krw_per_jpy INTEGER NOT NULL CHECK(krw_per_jpy > 0),
+    UNIQUE(batch_id, source_record_id)
+);
+
+CREATE TABLE IF NOT EXISTS physical_receipt_events (
+    id INTEGER PRIMARY KEY,
+    source_record_id INTEGER NOT NULL UNIQUE REFERENCES direct_source_records(id),
+    batch_id TEXT NOT NULL,
+    physical_id TEXT NOT NULL,
+    image_id TEXT NOT NULL,
+    event_version INTEGER NOT NULL CHECK(event_version > 0),
+    occurred_on TEXT,
+    amount_jpy INTEGER,
+    amount_status TEXT NOT NULL,
+    payment_method TEXT NOT NULL,
+    payment_status TEXT NOT NULL,
+    trip_assignment_status TEXT NOT NULL,
+    classification_status TEXT,
+    UNIQUE(batch_id, physical_id, event_version)
+);
+
+-- Only confirmed cash/transfer receipts may create a manual (MAN) posting
+-- candidate.  Card and unknown-method receipts remain evidence-only to avoid
+-- double-posting a card event.
+CREATE TABLE IF NOT EXISTS manual_receipt_projections (
+    id INTEGER PRIMARY KEY,
+    receipt_event_id INTEGER NOT NULL UNIQUE REFERENCES physical_receipt_events(id),
+    manual_event_key TEXT NOT NULL UNIQUE,
+    amount_krw INTEGER NOT NULL CHECK(amount_krw >= 0),
+    allocation_target TEXT NOT NULL,
+    expense_account TEXT NOT NULL,
+    projection_status TEXT NOT NULL CHECK(projection_status IN ('confirmed', 'needs_review')),
+    projection_version TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS direct_card_events_by_identity
 ON direct_card_events(card_event_id);
 

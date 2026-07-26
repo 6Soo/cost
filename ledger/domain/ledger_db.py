@@ -3250,6 +3250,71 @@ def resolve_hana_split_cancellations(db: sqlite3.Connection) -> dict[str, int]:
 
 def apply_p3_unassigned_review(db: sqlite3.Connection) -> dict[str, int]:
     """미배정 결제를 삭제 없이 네 가지 검토 결과로 설명하고 확정 건만 재배분한다."""
+    # These are not amount-only guesses.  Each rule is backed by the card
+    # event's approval identity plus the corresponding manual-ledger row (or,
+    # for GYOMU, the same KBO raw event already allocated to Myoko).  Keeping
+    # the authority here makes a fresh rebuild reach the same result without
+    # relying on a previously generated workbook/CSV projection.
+    automatic_assignments = {
+        "KBD-0403": {
+            "outcome": "overhead",
+            "target": "기타비용",
+            "target_type": "overhead",
+            "expense_type": "주차비",
+            "cost_nature": "판관비",
+            "vat_treatment": "미정",
+            "rule": "p3:3820_parking_outside_trip",
+            "rationale": "3820 국내 주차 2,400원은 여행기간 밖이며 수기 2,400원은 다른 가맹점 거래로 정매칭되어 있다.",
+        },
+        "MISC-0001": {
+            "outcome": "trip",
+            "target": "0620_묘코",
+            "target_type": "trip",
+            "expense_type": "기타비용",
+            "cost_nature": "여행원가",
+            "vat_treatment": "불공제_해외",
+            "rule": "p3:gyomu_same_kbo_event",
+            "rationale": "GYOMU SUPA 쓰루오카 결제는 동일 국민 원천 KBO-0367과 일치하는 묘코 현지 식재료·소모품 거래다.",
+        },
+        "MISC-0006": {
+            "outcome": "trip",
+            "target": "5월_유럽",
+            "target_type": "trip",
+            "expense_type": "렌터카",
+            "cost_nature": "여행원가",
+            "vat_treatment": "불공제_해외",
+            "rule": "p3:avis_manual_approval_match",
+            "rationale": "AVIS 366,794원은 동일 승인번호·가맹점의 5월 유럽 수기 렌터카 행과 일치하는 현지 추가정산이다.",
+        },
+        "MISC-0010": {
+            "outcome": "trip",
+            "target": "5월_유럽",
+            "target_type": "trip",
+            "expense_type": "렌터카",
+            "cost_nature": "여행원가",
+            "vat_treatment": "불공제_해외",
+            "rule": "p3:sicily_manual_approval_match",
+            "rationale": "SICILY BY CAR 584,193원은 동일 승인번호·가맹점의 5월 유럽 수기 렌터카 행과 일치한다.",
+        },
+        "MISC-0011": {
+            "outcome": "trip",
+            "target": "5월_유럽",
+            "target_type": "trip",
+            "expense_type": "렌터카",
+            "cost_nature": "여행원가",
+            "vat_treatment": "불공제_해외",
+            "rule": "p3:hertz_manual_approval_match",
+            "rationale": "HERTZ 543,947원은 동일 승인번호·가맹점의 5월 유럽 수기 렌터카 행과 일치한다.",
+        },
+    }
+    cancellation_clearings = {
+        "CORP-2005": "기업카드 승인취소로 실청구가 0원인 조정 이벤트다.",
+        "MISC-0003": "LOONG AGE 원거래는 2026-05-11 전액 리버설된 카드 이벤트다.",
+        "MISC-0005": "카카오T 가승인과 동일 승인번호의 승인취소가 완전상쇄된다.",
+        "MISC-0007": "TOTAL Marseille 승인과 동일 승인번호의 승인취소가 완전상쇄된다.",
+        "MISC-0008": "RESIDHOTEL 승인과 동일 승인번호의 승인취소가 완전상쇄된다.",
+        "MISC-0009": "AVIS Marseille 승인과 동일 승인번호의 승인취소가 완전상쇄된다.",
+    }
     rows = db.execute(
         """
         SELECT
@@ -3274,27 +3339,60 @@ def apply_p3_unassigned_review(db: sqlite3.Connection) -> dict[str, int]:
         for row in rows:
             payment_id = int(row["id"])
             external_key = str(row["external_key"])
-            if external_key == "MISC-0001":
-                outcome = "trip"
-                reason_code = "local_date_merchant_confirmed"
-                rationale = (
-                    "2026-06-25 쓰루오카 현지 슈퍼 결제이며 0625_아키타 여행기간·"
-                    "권역과 일치"
-                )
+            assignment = automatic_assignments.get(external_key)
+            if assignment:
+                outcome = str(assignment["outcome"])
+                reason_code = str(assignment["rule"]).split(":", 1)[1]
+                rationale = str(assignment["rationale"])
                 review_status = "confirmed"
-                target_id = ensure_target(db, "0625_아키타", "trip")
+                target_id = ensure_target(
+                    db, str(assignment["target"]), str(assignment["target_type"])
+                )
                 decision_id = replace_decision(
                     db,
                     "payment",
                     payment_id,
                     "allocation_target",
-                    "0625_아키타",
+                    str(assignment["target"]),
                     1.0,
                     "상",
                     rationale,
                     None,
                     decision_status="confirmed",
-                    rule_id="p3:local_date_merchant_confirmed",
+                    rule_id=str(assignment["rule"]),
+                )
+                for dimension in ("expense_type", "cost_nature", "vat_treatment"):
+                    replace_decision(
+                        db,
+                        "payment",
+                        payment_id,
+                        dimension,
+                        str(assignment[dimension]),
+                        1.0,
+                        "상",
+                        rationale,
+                        None,
+                        decision_status="confirmed",
+                        rule_id=str(assignment["rule"]),
+                    )
+                replace_allocation_plan(
+                    db,
+                    payment_id,
+                    [AllocationItem(target_id=target_id, amount_krw=int(row["amount_krw"]))],
+                    status="confirmed",
+                    confidence=1.0,
+                    source_decision_id=decision_id,
+                )
+            elif external_key in cancellation_clearings:
+                outcome = "cancellation_settlement"
+                reason_code = "confirmed_card_cancellation_clearing"
+                rationale = cancellation_clearings[external_key]
+                review_status = "confirmed"
+                target_id = ensure_target(db, "취소환불_정산", "clearing")
+                decision_id = replace_decision(
+                    db, "payment", payment_id, "allocation_target", "취소환불_정산",
+                    1.0, "상", rationale, None, decision_status="confirmed",
+                    rule_id="p3:confirmed_card_cancellation_clearing",
                 )
                 replace_allocation_plan(
                     db,
@@ -3303,6 +3401,46 @@ def apply_p3_unassigned_review(db: sqlite3.Connection) -> dict[str, int]:
                     status="confirmed",
                     confidence=1.0,
                     source_decision_id=decision_id,
+                )
+                counterpart = db.execute(
+                    """
+                    SELECT id FROM payment_transactions
+                    WHERE approval_number IS NOT NULL
+                      AND approval_number<>''
+                      AND approval_number=(
+                          SELECT approval_number FROM payment_transactions WHERE id=?
+                      )
+                      AND id<>?
+                      AND external_key NOT LIKE 'MISC-%'
+                    ORDER BY ABS(amount_krw) DESC, id
+                    LIMIT 1
+                    """,
+                    (payment_id, payment_id),
+                ).fetchone()
+                db.execute(
+                    """
+                    INSERT INTO transaction_relations(
+                        transaction_id, related_transaction_id, relation_type,
+                        reference_value, match_method, confidence, relation_status,
+                        resolution_code, rationale
+                    ) VALUES (?, ?, 'cancels', ?,
+                              'p3_confirmed_cancellation_clearing', 1.0, 'confirmed',
+                              'clearing_only_no_expense', ?)
+                    ON CONFLICT(transaction_id, relation_type, reference_value)
+                    DO UPDATE SET
+                        related_transaction_id=excluded.related_transaction_id,
+                        match_method=excluded.match_method,
+                        confidence=excluded.confidence,
+                        relation_status='confirmed',
+                        resolution_code=excluded.resolution_code,
+                        rationale=excluded.rationale
+                    """,
+                    (
+                        payment_id,
+                        int(counterpart["id"]) if counterpart else None,
+                        f"p3-clearing:{external_key}",
+                        rationale,
+                    ),
                 )
             elif (
                 int(row["amount_krw"]) <= 0

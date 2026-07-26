@@ -323,6 +323,77 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_p3_resolves_non_ota_unassigned_with_sources_or_clearing(self) -> None:
+        """The reviewed non-OTA lane must not leave a user-decision queue."""
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "p3-review.db")
+            try:
+                import_legacy(db, DEFAULT_CSV, DEFAULT_TRIPS, DEFAULT_BOOKINGS)
+                resolve_hana_split_cancellations(db)
+                result = apply_p3_unassigned_review(db)
+
+                self.assertEqual(result["insufficient_evidence"], 7)
+                expected_targets = {
+                    "KBD-0403": "기타비용",
+                    "MISC-0001": "0620_묘코",
+                    "MISC-0006": "5월_유럽",
+                    "MISC-0010": "5월_유럽",
+                    "MISC-0011": "5월_유럽",
+                }
+                actual_targets = {
+                    row["external_key"]: row["code"]
+                    for row in db.execute(
+                        """
+                        SELECT p.external_key, t.code
+                        FROM current_cost_allocations a
+                        JOIN payment_transactions p ON p.id=a.payment_id
+                        JOIN allocation_targets t ON t.id=a.target_id
+                        WHERE p.external_key IN (
+                            'KBD-0403', 'MISC-0001', 'MISC-0006',
+                            'MISC-0010', 'MISC-0011'
+                        )
+                        """
+                    )
+                }
+                self.assertEqual(actual_targets, expected_targets)
+
+                clearing_cases = {
+                    row["external_key"]
+                    for row in db.execute(
+                        """
+                        SELECT p.external_key
+                        FROM current_cost_allocations a
+                        JOIN payment_transactions p ON p.id=a.payment_id
+                        JOIN allocation_targets t ON t.id=a.target_id
+                        WHERE t.target_type='clearing'
+                          AND p.external_key IN ('CORP-2005', 'MISC-0003')
+                        """
+                    )
+                }
+                self.assertEqual(clearing_cases, {"CORP-2005", "MISC-0003"})
+                relation_cases = {
+                    row["external_key"]
+                    for row in db.execute(
+                        """
+                        SELECT p.external_key
+                        FROM current_transaction_relations r
+                        JOIN payment_transactions p ON p.id=r.transaction_id
+                        WHERE p.external_key IN (
+                            'CORP-2005', 'MISC-0003', 'MISC-0005',
+                            'MISC-0007', 'MISC-0008', 'MISC-0009'
+                        )
+                          AND r.relation_status='confirmed'
+                        """
+                    )
+                }
+                self.assertEqual(
+                    relation_cases,
+                    {"CORP-2005", "MISC-0003", "MISC-0005", "MISC-0007", "MISC-0008", "MISC-0009"},
+                )
+                self.assertTrue(validation_report(db)["valid"])
+            finally:
+                db.close()
+
     def test_tampered_change_log_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

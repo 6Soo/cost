@@ -6,8 +6,9 @@ import hashlib
 import json
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ledger import cardindex
 from ledger.domain.source_adapters import (
@@ -324,13 +325,41 @@ def import_ota(
     """
     if source_kind not in {"ota_mail", "ota_authenticated_portal"}:
         raise ValueError(f"unsupported OTA source kind: {source_kind}")
-    _ensure_ota_import_schema(db)
     raw = json.loads(path.read_text(encoding="utf-8"))
     rows: Iterable[dict[str, object]] = raw.get("records", raw)
+    return import_ota_records(db, rows, source_kind=source_kind)
+
+
+def import_ota_records(
+    db: sqlite3.Connection,
+    rows: Iterable[Mapping[str, object]],
+    *,
+    source_kind: str = "ota_mail",
+) -> dict[str, int]:
+    """Import already-sanitized OTA observations without a JSON round trip.
+
+    Authenticated portal checkpoints are SQLite-backed and expose only their
+    completed, allowlisted payloads.  Keeping this path shared with JSON
+    imports means the same redaction and confirmed-period rules apply to both
+    sources.  A defensive scope check also ensures a hand-crafted/stale
+    checkpoint cannot reintroduce pre-2025 OTA reservations.
+    """
+    if source_kind not in {"ota_mail", "ota_authenticated_portal"}:
+        raise ValueError(f"unsupported OTA source kind: {source_kind}")
+    _ensure_ota_import_schema(db)
     count = 0
     inserted = 0
     confirmed_booking_periods = 0
     for index, row in enumerate(rows):
+        raw_start = str(row.get("service_start_on") or "").strip()
+        if raw_start:
+            try:
+                if date.fromisoformat(raw_start).year < 2025:
+                    continue
+            except ValueError:
+                # ``sanitize_ota_record`` below will retain the observation
+                # but cannot make it an authoritative service period.
+                pass
         clean = sanitize_ota_record(row)
         # Alias normalization happens inside sanitize_ota_record before the
         # allowlist. Never append raw aliases after redaction.
@@ -405,6 +434,30 @@ def import_ota(
     }
 
 
+def import_ota_checkpoint(
+    db: sqlite3.Connection,
+    path: Path,
+    provider: str,
+) -> dict[str, int]:
+    """Bridge completed authenticated-portal checkpoints into direct sources.
+
+    The checkpoint store is append-only; ``completed_records`` returns only
+    its current complete observations.  Importing those records is likewise
+    append-only through ``direct_source_records`` content hashes.
+    """
+    if not path.exists():
+        return {"records": 0, "inserted": 0, "confirmed_booking_periods": 0}
+    from .ota_checkpoint import OtaCheckpointStore
+
+    with OtaCheckpointStore(path) as store:
+        records = store.completed_records(provider)
+    return import_ota_records(
+        db,
+        records,
+        source_kind="ota_authenticated_portal",
+    )
+
+
 def import_all(
     db: sqlite3.Connection,
     ledger_dir: Path,
@@ -426,7 +479,7 @@ def import_all(
             portal_path = (
                 ledger_dir / "data" / f"{provider}_direct_browser_evidence.json"
             )
-            portal_results[provider] = (
+            json_result = (
                 import_ota(
                     db,
                     portal_path,
@@ -439,19 +492,51 @@ def import_all(
                     "confirmed_booking_periods": 0,
                 }
             )
+            checkpoint_result = import_ota_checkpoint(
+                db,
+                ledger_dir / "data" / f"ota_checkpoints_{provider}.db",
+                provider,
+            )
+            portal_results[provider] = {
+                key: json_result[key] + checkpoint_result[key]
+                for key in ("records", "inserted", "confirmed_booking_periods")
+            }
         ota_portal = {
             key: sum(result[key] for result in portal_results.values())
             for key in ("records", "inserted", "confirmed_booking_periods")
         }
+        receipt_path = (
+            ledger_dir / "receipt_pipeline" / "receipt_batch_20260726.json"
+        )
+        if receipt_path.exists():
+            # Lazy import avoids a module cycle: receipt_projection reuses the
+            # privacy-safe direct-source insert primitive from this module.
+            from .receipt_projection import import_receipt_batch
+
+            receipts = import_receipt_batch(db, receipt_path)
+        else:
+            receipts = {
+                "physical_events_appended": 0,
+                "manual_events_projected": 0,
+                "physical_event_total": 0,
+                "manual_event_total": 0,
+            }
         legacy_links = import_legacy_verified_links(
             db, ledger_dir / "data" / "ota_event_links_verified.json"
         )
     return {
         "cards": cards,
         "manual": manual,
-        "ota": ota,
+        # The inventory gate reconciles all durable OTA source records.  Keep
+        # the mail-only view separately for callers that need its provenance.
+        "ota": {
+            key: ota[key] + ota_portal[key]
+            for key in ("records", "inserted", "confirmed_booking_periods")
+        },
+        "ota_mail": ota,
         "ota_authenticated_portal": ota_portal,
         "ota_authenticated_portal_by_provider": portal_results,
+        "receipts": receipts,
         "legacy_verified_links": legacy_links,
         "direct_projection": direct_projection,
         "direct_records": int(
