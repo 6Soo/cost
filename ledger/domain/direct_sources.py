@@ -421,16 +421,28 @@ def import_all(
             ledger_dir / "data" / "manual_special_rows.json",
         )
         ota = import_ota(db, ota_path)
-        portal_path = ledger_dir / "data" / "agoda_direct_browser_evidence.json"
-        ota_portal = (
-            import_ota(
-                db,
-                portal_path,
-                source_kind="ota_authenticated_portal",
+        portal_results: dict[str, dict[str, int]] = {}
+        for provider in ("agoda", "booking", "trip"):
+            portal_path = (
+                ledger_dir / "data" / f"{provider}_direct_browser_evidence.json"
             )
-            if portal_path.exists()
-            else {"records": 0, "inserted": 0, "confirmed_booking_periods": 0}
-        )
+            portal_results[provider] = (
+                import_ota(
+                    db,
+                    portal_path,
+                    source_kind="ota_authenticated_portal",
+                )
+                if portal_path.exists()
+                else {
+                    "records": 0,
+                    "inserted": 0,
+                    "confirmed_booking_periods": 0,
+                }
+            )
+        ota_portal = {
+            key: sum(result[key] for result in portal_results.values())
+            for key in ("records", "inserted", "confirmed_booking_periods")
+        }
         legacy_links = import_legacy_verified_links(
             db, ledger_dir / "data" / "ota_event_links_verified.json"
         )
@@ -439,6 +451,7 @@ def import_all(
         "manual": manual,
         "ota": ota,
         "ota_authenticated_portal": ota_portal,
+        "ota_authenticated_portal_by_provider": portal_results,
         "legacy_verified_links": legacy_links,
         "direct_projection": direct_projection,
         "direct_records": int(

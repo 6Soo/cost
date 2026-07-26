@@ -303,6 +303,22 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
                         for pair in pairs
                     )
                 )
+                engine_isolated = review_details(db)["engine_isolated"]
+                resolved_refunds = {
+                    "MISC-0005",
+                    "MISC-0007",
+                    "MISC-0008",
+                    "MISC-0009",
+                }
+                self.assertTrue(
+                    resolved_refunds.isdisjoint(
+                        {str(row["external_key"]) for row in engine_isolated}
+                    )
+                )
+                self.assertEqual(
+                    review_report(db)["engine_isolated_payments"],
+                    len(engine_isolated),
+                )
                 self.assertTrue(validation_report(db)["valid"])
             finally:
                 db.close()

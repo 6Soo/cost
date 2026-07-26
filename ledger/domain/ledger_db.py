@@ -2205,6 +2205,17 @@ def validation_report(
 
 def review_report(db: sqlite3.Connection) -> dict[str, int]:
     """합계 오류가 아닌 분류 품질 문제를 검토 큐로 드러낸다."""
+    engine_isolated_filter = """
+        p.external_key LIKE 'MISC-%'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM transaction_relations relation
+            WHERE relation.transaction_id=p.id
+              AND relation.related_transaction_id IS NOT NULL
+              AND relation.relation_status='confirmed'
+              AND relation.match_method='hana_same_raw_row_approval_cancel'
+        )
+    """
     return {
         "unassigned_payments": scalar(
             db,
@@ -2226,14 +2237,18 @@ def review_report(db: sqlite3.Connection) -> dict[str, int]:
         ),
         "engine_isolated_payments": scalar(
             db,
-            "SELECT COUNT(*) FROM payment_transactions WHERE external_key LIKE 'MISC-%'",
+            f"""
+            SELECT COUNT(*)
+            FROM payment_transactions p
+            WHERE {engine_isolated_filter}
+            """,
         ),
         "engine_isolated_amount_krw": scalar(
             db,
-            """
-            SELECT COALESCE(SUM(amount_krw), 0)
-            FROM payment_transactions
-            WHERE external_key LIKE 'MISC-%'
+            f"""
+            SELECT COALESCE(SUM(p.amount_krw), 0)
+            FROM payment_transactions p
+            WHERE {engine_isolated_filter}
             """,
         ),
         "zero_amount_payments": scalar(
@@ -2374,6 +2389,17 @@ def _payment_review_rows(
 
 def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]:
     """집계 리포트의 각 품질 지표를 행 단위 검토 큐로 반환한다."""
+    engine_isolated_filter = """
+        p.external_key LIKE 'MISC-%'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM transaction_relations relation
+            WHERE relation.transaction_id=p.id
+              AND relation.related_transaction_id IS NOT NULL
+              AND relation.relation_status='confirmed'
+              AND relation.match_method='hana_same_raw_row_approval_cancel'
+        )
+    """
     queues: dict[str, list[dict[str, object]]] = {
         "unassigned": _payment_review_rows(
             db,
@@ -2394,7 +2420,7 @@ def review_details(db: sqlite3.Connection) -> dict[str, list[dict[str, object]]]
             )
             """,
         ),
-        "engine_isolated": _payment_review_rows(db, "p.external_key LIKE 'MISC-%'"),
+        "engine_isolated": _payment_review_rows(db, engine_isolated_filter),
         "zero_amount": _payment_review_rows(db, "p.amount_krw=0"),
         "high_confidence_uncertain_rationale": _payment_review_rows(
             db,

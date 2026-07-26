@@ -1,0 +1,276 @@
+{
+  "batch_id": "local-receipts-2026-07-26-photos-1-4",
+  "currency": "JPY",
+  "conversion_policy": {
+    "type": "fixed_convenience_rate",
+    "krw_per_jpy": 10,
+    "confirmed_by_user_on": "2026-07-26"
+  },
+  "images": [
+    {
+      "image_id": "photo-1",
+      "file_name": "1-Photo-1.jpg",
+      "expected_physical_receipts": 4,
+      "header": {
+        "raw": "0620-0624 묘코",
+        "period_start": "2026-06-20",
+        "period_end": "2026-06-24",
+        "region": "묘코",
+        "trip_candidate": "0620_묘코",
+        "confidence": 0.98
+      }
+    },
+    {
+      "image_id": "photo-2",
+      "file_name": "2-Photo-2.jpg",
+      "expected_physical_receipts": 3,
+      "header": {
+        "raw": "0629 아키타 (사용자 교정)",
+        "period_start": "2026-06-29",
+        "period_end": "2026-06-29",
+        "region": "아키타",
+        "trip_candidate": "0625_아키타",
+        "confidence": 1.0
+      }
+    },
+    {
+      "image_id": "photo-3",
+      "file_name": "3-Photo-3.jpg",
+      "expected_physical_receipts": 5,
+      "header": {
+        "raw": "0703 12:30",
+        "period_start": "2026-07-03",
+        "period_end": "2026-07-03",
+        "region": null,
+        "trip_candidate": "0630_오제",
+        "confidence": 0.72
+      }
+    },
+    {
+      "image_id": "photo-4",
+      "file_name": "4-Photo-4.jpg",
+      "expected_physical_receipts": 7,
+      "header": {
+        "raw": "0630-0703 오제",
+        "period_start": "2026-06-30",
+        "period_end": "2026-07-03",
+        "region": "오제",
+        "trip_candidate": "0630_오제",
+        "confidence": 0.99
+      }
+    }
+  ],
+  "receipts": [
+    {
+      "physical_id": "photo-1-r01",
+      "image_id": "photo-1",
+      "position": "left",
+      "date": "2026-06-22",
+      "merchant": {"value": "A-COOP ファーマーズ松代店", "status": "confirmed", "confidence": 0.96},
+      "amount_jpy": {"value": 5036, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "VISA CREDIT / 三菱UFJニコス"},
+      "trip_assignment": {"trip_candidate": "0620_묘코", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.97, "note": "상단 기간과 영수증 날짜·오마치 지역이 일치"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-1-r02",
+      "image_id": "photo-1",
+      "position": "center-top",
+      "date": "2026-06-23",
+      "merchant": {"value": "竹風堂 小布施本店", "status": "confirmed", "confidence": 0.98},
+      "amount_jpy": {"value": 2700, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "Mastercard / IC"},
+      "trip_assignment": {"trip_candidate": "0620_묘코", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.86, "note": "날짜가 상단 여행기간 내"},
+      "notes": ["별도 상품영수증의 날짜·금액·카드결제로 가맹점 확인"]
+    },
+    {
+      "physical_id": "photo-1-r03",
+      "image_id": "photo-1",
+      "position": "center-bottom",
+      "date": "2026-06-24",
+      "merchant": {"value": "小嶋屋総本店 長岡喜多町店", "status": "confirmed", "confidence": 0.98},
+      "amount_jpy": {"value": 2068, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "Mastercard / 접촉 IC"},
+      "trip_assignment": {"trip_candidate": "0620_묘코", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.86, "note": "날짜가 상단 여행기간 내"},
+      "notes": ["전화번호 0258-25-9338과 카드 전표 표기로 가맹점 확인", "같은 CARDNET 양식이어도 별도 물리 전표로 보존"]
+    },
+    {
+      "physical_id": "photo-1-r04",
+      "image_id": "photo-1",
+      "position": "right",
+      "date": "2026-06-23",
+      "merchant": {"value": "デリシア 豊野店", "status": "confirmed", "confidence": 0.94},
+      "amount_jpy": {"value": 2643, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "Mastercard"},
+      "trip_assignment": {"trip_candidate": "0620_묘코", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.96, "note": "상단 기간과 영수증 날짜·나가노 지역이 일치"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-2-r01",
+      "image_id": "photo-2",
+      "position": "top-left-yellow-ticket",
+      "date": "2026-06-20",
+      "merchant": {"value": "仙北市桜並木駐車場", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 1000, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0625_아키타", "header_match": true, "date_region_match": true, "status": "manual_confirmed", "confidence": 1.0, "note": "사용자가 주차권 2장 모두 아키타 묶음으로 확인"},
+      "notes": ["날짜 도장은 令和8.6.20으로 판독"]
+    },
+    {
+      "physical_id": "photo-2-r02",
+      "image_id": "photo-2",
+      "position": "top-right-pink-ticket",
+      "date": "2026-06-28",
+      "merchant": {"value": "仙北市桜並木駐車場", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 500, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0625_아키타", "header_match": true, "date_region_match": true, "status": "manual_confirmed", "confidence": 1.0, "note": "사용자가 주차권 2장 모두 아키타 묶음으로 확인"},
+      "notes": ["날짜 도장은 令和8.6.28으로 판독"]
+    },
+    {
+      "physical_id": "photo-2-r03",
+      "image_id": "photo-2",
+      "position": "left-middle",
+      "date": "2026-06-30",
+      "merchant": {"value": "FamilyMart 南会津田島店", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 2249, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "cash", "status": "confirmed", "confidence": 1.0, "detail": "預り ¥5,000 / 釣り ¥2,751"},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": false, "date_region_match": true, "status": "manual_confirmed", "confidence": 1.0, "note": "사용자가 0630_오제로 확인; 사진 상단 아키타와 충돌하므로 개별 전표 증거 우선"},
+      "notes": ["P23 회귀사례: 한 사진 안에서 상단 묶음과 다른 여행탭으로 분리"]
+    },
+    {
+      "physical_id": "photo-3-r01",
+      "image_id": "photo-3",
+      "position": "top-left",
+      "date": "2026-07-03",
+      "merchant": {"value": "裏磐梯物産館", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 11550, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "cash", "status": "confirmed", "confidence": 0.99, "detail": "預り ¥12,000 / 釣り ¥450"},
+      "classification": {"target": "여행원가", "account": "여행 식재료·소모품", "status": "user_confirmed", "amount_krw": 115500},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.84, "note": "0703 날짜와 오제 여행 종료일 일치; 후쿠시마 경유 지역"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-3-r02",
+      "image_id": "photo-3",
+      "position": "top-center",
+      "date": "2026-07-03",
+      "merchant": {"value": "裏磐梯物産館", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 6600, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "cash", "status": "confirmed", "confidence": 0.95, "detail": "預り ¥6,600 / 釣り ¥0"},
+      "classification": {"target": "여행원가", "account": "여행 식재료·소모품", "status": "user_confirmed", "amount_krw": 66000},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.84, "note": "같은 가맹점·날짜여도 별도 물리 전표"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-3-r03",
+      "image_id": "photo-3",
+      "position": "top-right-vertical",
+      "date": "2026-07-03",
+      "merchant": {"value": "ホテル五色荘 売店・食堂", "status": "estimated", "confidence": 0.83},
+      "amount_jpy": {"value": 7300, "status": "confirmed", "confidence": 0.98},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.8, "note": "날짜 8년7월3일, 후쿠시마 지역"},
+      "notes": ["적요 손글씨: 御食事代 5名様分", "금액 손글씨 ¥7,300"]
+    },
+    {
+      "physical_id": "photo-3-r04",
+      "image_id": "photo-3",
+      "position": "bottom-left",
+      "date": "2026-07-03",
+      "merchant": {"value": "ホテル五色荘 売店・食堂", "status": "estimated", "confidence": 0.9},
+      "amount_jpy": {"value": 7300, "status": "confirmed", "confidence": 0.99},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.82, "note": "날짜 8년7월3일, 후쿠시마 지역"},
+      "notes": ["적요 손글씨: ドリンク代", "동일 ¥7,300 전표와 병합 금지"]
+    },
+    {
+      "physical_id": "photo-3-r05",
+      "image_id": "photo-3",
+      "position": "bottom-right",
+      "date": "2026-07-03",
+      "merchant": {"value": "廣新米穀 アパホテル新潟駅前通り店", "status": "confirmed", "confidence": 0.94},
+      "amount_jpy": {"value": 17776, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "VISA(SUMISHIN_SBI) / IC"},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.9, "note": "2026-07-03 19:59, 니가타 이동경로와 일치"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-4-r01",
+      "image_id": "photo-4",
+      "position": "top-left",
+      "date": "2026-07-01",
+      "merchant": {"value": "前沢曲家集落", "status": "confirmed", "confidence": 0.98},
+      "amount_jpy": {"value": 7500, "status": "confirmed", "confidence": 0.99},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.95, "note": "상단 오제 기간과 날짜·후쿠시마 지역 일치"},
+      "notes": ["단체입장 성인 250엔 × 30명 = 7,500엔"]
+    },
+    {
+      "physical_id": "photo-4-r02",
+      "image_id": "photo-4",
+      "position": "left-middle",
+      "date": "2026-07-02",
+      "merchant": {"value": "尾瀬 御池駐車場", "status": "confirmed", "confidence": 0.99},
+      "amount_jpy": {"value": 1000, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.99, "note": "상단 오제와 가맹점명이 직접 일치"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-4-r03",
+      "image_id": "photo-4",
+      "position": "center-large",
+      "date": "2026-07-02",
+      "merchant": {"value": "会津 猿楽そば", "status": "estimated", "confidence": 0.8},
+      "amount_jpy": {"value": 19300, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.93, "note": "오제 기간과 아이즈 지역·날짜 일치"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-4-r04",
+      "image_id": "photo-4",
+      "position": "left-bottom",
+      "date": "2026-07-02",
+      "merchant": {"value": "会津 猿楽そば", "status": "estimated", "confidence": 0.8},
+      "amount_jpy": {"value": 2400, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.93, "note": "같은 날·가맹점이어도 별도 물리 전표"},
+      "notes": []
+    },
+    {
+      "physical_id": "photo-4-r05",
+      "image_id": "photo-4",
+      "position": "top-right-small",
+      "date": "2026-07-01",
+      "merchant": {"value": null, "status": "unreadable", "confidence": 0.0},
+      "amount_jpy": {"value": 1100, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "unknown", "status": "unreadable", "confidence": 0.0, "detail": null},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.82, "note": "2026-07-01 17:39가 상단 기간 내"},
+      "notes": ["품목: 飲料 550엔 × 2", "가맹점명 절취/오염으로 미판독"]
+    },
+    {
+      "physical_id": "photo-4-r06",
+      "image_id": "photo-4",
+      "position": "right-middle",
+      "date": "2026-07-01",
+      "merchant": {"value": null, "status": "unreadable", "confidence": 0.0},
+      "amount_jpy": {"value": 5000, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "cash", "status": "confirmed", "confidence": 0.99, "detail": "預り ¥10,000 / 釣り ¥5,000"},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.82, "note": "2026-07-01 17:42가 상단 기간 내"},
+      "notes": ["음료 8건 합계", "가맹점명 절취/오염으로 미판독"]
+    },
+    {
+      "physical_id": "photo-4-r07",
+      "image_id": "photo-4",
+      "position": "bottom-horizontal-card-slip",
+      "date": "2026-07-03",
+      "merchant": {"value": "アパホテル＆リゾート〈新潟駅前大通〉", "status": "confirmed", "confidence": 0.95},
+      "amount_jpy": {"value": 84825, "status": "confirmed", "confidence": 1.0},
+      "payment_method": {"value": "card", "status": "confirmed", "confidence": 0.99, "detail": "VISA CARD / IC / 끝4자리 4595"},
+      "trip_assignment": {"trip_candidate": "0630_오제", "header_match": true, "date_region_match": true, "status": "auto_assigned", "confidence": 0.9, "note": "2026-07-03 18:24:36이 상단 여행 종료일과 일치"},
+      "notes": ["전표 전화번호 025-240-0811과 가맹점 표기로 확인", "카드 RAW 끝4자리 4595·금액·일시 교차대조는 별도 수행"]
+    }
+  ]
+}

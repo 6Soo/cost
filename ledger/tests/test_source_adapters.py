@@ -289,6 +289,28 @@ class SourceAdapterTest(unittest.TestCase):
         self.assertEqual(clean["record_type"], "payment_scheduled")
         self.assertEqual(clean["extraction_sources"], ["authenticated_portal_dom"])
 
+    def test_authenticated_portal_preserves_group_and_list_card_identity(self) -> None:
+        clean = sanitize_ota_record(
+            {
+                "provider": "booking",
+                "source_channel": "authenticated_booking_portal",
+                "message_id": "portal:booking:group-a:booking-card-b:2026-07-26",
+                "booking_number": "booking-card-b",
+                "portalGroupId": "group-a",
+                "portalGroupStatus": "completed",
+                "portalBookingStatus": "cancelled",
+                "portalListName": "past_trips",
+                "portalListPosition": 17,
+                "booking_confirmation_status": "confirmed",
+                "extraction_sources": ["authenticated_portal_dom"],
+            }
+        )
+        self.assertEqual(clean["portal_group_id"], "group-a")
+        self.assertEqual(clean["portal_group_status"], "completed")
+        self.assertEqual(clean["portal_booking_status"], "cancelled")
+        self.assertEqual(clean["portal_list_name"], "past_trips")
+        self.assertEqual(clean["portal_list_position"], 17)
+
     def test_synthetic_gmail_facts_keep_safe_trip_structure_without_people(self) -> None:
         records = [
             {
