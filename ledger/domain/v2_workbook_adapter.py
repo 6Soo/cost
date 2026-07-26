@@ -150,6 +150,40 @@ def regression_report(
             """
         ).fetchone()[0]
     )
+    prepaid_by_target = {
+        str(row["key"]): int(row["amount_krw"])
+        for row in db.execute(
+            """
+            SELECT target.value AS key, SUM(p.amount_krw) AS amount_krw
+            FROM payment_transactions p
+            JOIN current_classification_decisions period
+              ON period.target_type='payment' AND period.target_id=p.id
+             AND period.dimension='period_recognition'
+             AND period.value='prepaid_future_trip'
+            JOIN current_classification_decisions target
+              ON target.target_type='payment' AND target.target_id=p.id
+             AND target.dimension='service_period_target'
+            GROUP BY target.value
+            """
+        ).fetchall()
+    }
+    prepaid_by_account = {
+        str(row["key"]): int(row["amount_krw"])
+        for row in db.execute(
+            """
+            SELECT expense.value AS key, SUM(p.amount_krw) AS amount_krw
+            FROM payment_transactions p
+            JOIN current_classification_decisions period
+              ON period.target_type='payment' AND period.target_id=p.id
+             AND period.dimension='period_recognition'
+             AND period.value='prepaid_future_trip'
+            JOIN current_classification_decisions expense
+              ON expense.target_type='payment' AND expense.target_id=p.id
+             AND expense.dimension='service_period_expense_type'
+            GROUP BY expense.value
+            """
+        ).fetchall()
+    }
     sections: dict[str, list[dict[str, object]]] = {}
     for section in ("allocation_targets", "accounts"):
         before = {str(row["key"]): row for row in baseline[section]}
@@ -179,6 +213,22 @@ def regression_report(
                 )
             elif section == "accounts" and difference == hana_legacy_correction:
                 classification = "legacy_error_correction"
+            elif (
+                section == "allocation_targets"
+                and difference == -prepaid_by_target.get(key, 0)
+            ):
+                classification = "prepaid_future_trip_deferral"
+            elif (
+                section == "accounts"
+                and difference == -prepaid_by_account.get(key, 0)
+            ):
+                classification = "prepaid_future_trip_deferral"
+            elif (
+                section == "accounts"
+                and key == "선급비용"
+                and difference == sum(prepaid_by_account.values())
+            ):
+                classification = "prepaid_future_trip_deferral"
             differences.append(
                 {
                     "key": key,
@@ -209,7 +259,27 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
-    from ledger.domain.ledger_db import connect, initialize
+    from ledger.domain.ledger_db import DEFAULT_CSV, LEDGER_DIR, connect, initialize
+    from ledger.domain.review_verifier import verify_review_claims
+
+    claim_check = verify_review_claims(
+        DEFAULT_CSV,
+        LEDGER_DIR / "data" / "manual_v4.csv",
+        LEDGER_DIR / "data" / "ota_mail_index.json",
+    )
+    if not claim_check["passed"]:
+        print(
+            json.dumps(
+                {
+                    "passed": False,
+                    "gate": "review_claims_evidence_consistent",
+                    "counts": claim_check["counts"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 1
 
     db = connect(args.db)
     try:

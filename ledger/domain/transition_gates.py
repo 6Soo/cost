@@ -5,7 +5,14 @@ import argparse
 import json
 from pathlib import Path
 
-from ledger.domain.ledger_db import connect, review_report, validation_report
+from ledger.domain.ledger_db import (
+    DEFAULT_CSV,
+    LEDGER_DIR,
+    connect,
+    review_report,
+    validation_report,
+)
+from ledger.domain.review_verifier import verify_review_claims
 from ledger.domain.v2_workbook_adapter import regression_report
 
 
@@ -15,6 +22,11 @@ def build_gate_report(db_path: Path, baseline: Path) -> dict[str, object]:
         validation = validation_report(db)
         review = review_report(db)
         regression = regression_report(db, baseline)
+        review_claims = verify_review_claims(
+            DEFAULT_CSV,
+            LEDGER_DIR / "data" / "manual_v4.csv",
+            LEDGER_DIR / "data" / "ota_mail_index.json",
+        )
         direct_sources = int(
             db.execute(
                 "SELECT COUNT(*) FROM direct_source_records WHERE source_kind='card_raw'"
@@ -100,9 +112,33 @@ def build_gate_report(db_path: Path, baseline: Path) -> dict[str, object]:
                 "passed": regression["unexplained_differences"] == 0,
                 "actual": regression,
             },
+            {
+                "gate": 8,
+                "name": "review_claims_evidence_consistent",
+                "passed": review_claims["passed"],
+                "actual": {
+                    "assertion_count": review_claims["assertion_count"],
+                    "counts": review_claims["counts"],
+                    "collection_blockers": {
+                        name: review_claims["counts"].get(name, 0)
+                        for name in (
+                            "attachment_required",
+                            "forwarded_unextracted",
+                        )
+                    },
+                    "ota_field_loss_by_type": {
+                        name: review_claims["counts"].get(name, 0)
+                        for name in (
+                            "ota_booking_ref_loss",
+                            "ota_amount_loss",
+                            "ota_travel_date_loss",
+                        )
+                    },
+                },
+            },
         ]
         return {
-            "format_version": 1,
+            "format_version": 2,
             "passed": all(bool(gate["passed"]) for gate in gates),
             "gates": gates,
             "cutover_policy": (

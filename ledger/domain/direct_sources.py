@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterable
@@ -11,6 +12,7 @@ from typing import Iterable
 from ledger import cardindex
 from ledger.domain.source_adapters import (
     OTA_REDACTION_VERSION,
+    confirmed_booking_service_start,
     sanitize_ota_record,
     stable_card_event_identity,
 )
@@ -19,6 +21,65 @@ from ledger.domain.source_adapters import (
 def _canonical_hash(payload: object) -> str:
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _booking_provider(provider: object) -> str:
+    """Use the same provider identity for Gmail staging and legacy links."""
+    value = str(provider or "").strip().lower()
+    return {
+        "trip_hotel": "trip.com",
+        "trip_flight": "trip.com",
+        "trip": "trip.com",
+        "booking": "booking.com",
+    }.get(value, value or "unknown")
+
+
+def _ensure_ota_import_schema(db: sqlite3.Connection) -> None:
+    """Make the public OTA importer safe on a newly connected database."""
+    required = {"direct_source_records", "bookings", "direct_booking_service_periods"}
+    existing = {
+        str(row[0])
+        for row in db.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table'
+            """
+        ).fetchall()
+    }
+    booking_columns = (
+        {
+            str(row[1])
+            for row in db.execute("PRAGMA table_info(bookings)").fetchall()
+        }
+        if "bookings" in existing
+        else set()
+    )
+    if (
+        not required.issubset(existing)
+        or "service_end_on" not in booking_columns
+    ):
+        # Delayed import avoids the ledger_db -> direct_sources module cycle.
+        from ledger.domain.ledger_db import initialize
+
+        initialize(db)
+
+
+def signed_card_event_amount(row: dict[str, object]) -> int:
+    """카드사가 취소금액을 양수로 제공해도 이벤트 원장에는 음수로 보존한다."""
+    amount = int(row.get("krw") or 0)
+    cancelled = bool(row.get("cancel"))
+    return -abs(amount) if cancelled and row.get("src") != "HAN" else amount
+
+
+def hana_lifecycle_component_amounts(row: dict[str, object]) -> tuple[int, int]:
+    """Return posted purchase/refund amounts for a captured Hana cancellation."""
+    approved = abs(int(row.get("approval_amount") or 0))
+    billed = abs(int(row.get("purchase_amount") or 0))
+    cancelled = abs(int(row.get("cancel_amount") or 0))
+    purchase = billed or cancelled or approved
+    refund = cancelled or purchase
+    return purchase, -refund
 
 
 def _insert_source(
@@ -90,6 +151,7 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
             "status": card.get("status", ""),
         }
         identity = stable_card_event_identity(normalized)
+        event_amount = signed_card_event_amount(normalized)
         source_id, created = _insert_source(
             db,
             "card_raw",
@@ -120,7 +182,7 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 identity.generator_version,
                 identity.identity_status,
                 normalized["src"],
-                int(normalized["krw"]),
+                event_amount,
                 normalized["appr"] or None,
                 normalized["use_date"] or None,
                 normalized["merchant"],
@@ -129,15 +191,18 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
         approval_amount = int(normalized["approval_amount"])
         cancel_amount = int(normalized["cancel_amount"])
         if normalized["src"] == "HAN" and cancel_amount:
+            purchase_component, cancellation_component = (
+                hana_lifecycle_component_amounts(normalized)
+            )
             approval_row = dict(normalized)
             approval_row.update(
-                krw=abs(approval_amount),
+                krw=purchase_component,
                 cancel=False,
                 raw_record_id=f"{normalized['raw_record_id']}:approval",
             )
             cancellation_row = dict(normalized)
             cancellation_row.update(
-                krw=-abs(cancel_amount),
+                krw=cancellation_component,
                 cancel=True,
                 raw_record_id=f"{normalized['raw_record_id']}:cancellation",
             )
@@ -145,18 +210,18 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 (
                     "approval",
                     stable_card_event_identity(approval_row),
-                    abs(approval_amount),
+                    purchase_component,
                     "purchase",
                 ),
                 (
                     "cancellation",
                     stable_card_event_identity(cancellation_row),
-                    -abs(cancel_amount),
+                    cancellation_component,
                     "cancellation",
                 ),
             ]
         else:
-            amount = int(normalized["krw"])
+            amount = event_amount
             transaction_type = (
                 "refund"
                 if amount < 0
@@ -212,7 +277,18 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
     }
 
 
-def import_manual(db: sqlite3.Connection, path: Path) -> dict[str, int]:
+def import_manual(
+    db: sqlite3.Connection,
+    path: Path,
+    special_path: Path | None = None,
+) -> dict[str, int]:
+    """Import ordinary and explicitly maintained manual-source records.
+
+    ``manual_special_rows.json`` is a separate, reviewable manual source.  It
+    must not disappear merely because it has no position in the spreadsheet
+    extract (for example the Oze lodge transfer).  These rows remain manual
+    evidence; this import does not reclassify them as card events.
+    """
     with path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     inserted = 0
@@ -220,37 +296,113 @@ def import_manual(db: sqlite3.Connection, path: Path) -> dict[str, int]:
         key = f"{row.get('tab')}:{row.get('row')}"
         _, created = _insert_source(db, "manual_ledger", key, dict(row))
         inserted += int(created)
-    return {"records": len(rows), "inserted": inserted}
+    special_rows: list[dict[str, object]] = []
+    if special_path is not None and special_path.exists():
+        loaded = json.loads(special_path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, list):
+            raise ValueError("manual special rows must be a JSON list")
+        special_rows = [dict(row) for row in loaded if isinstance(row, dict)]
+        for row in special_rows:
+            key = str(row.get("uid") or "").strip()
+            if not key:
+                raise ValueError("manual special row missing uid")
+            _, created = _insert_source(db, "manual_special", key, row)
+            inserted += int(created)
+    return {"records": len(rows) + len(special_rows), "inserted": inserted}
 
 
-def import_ota(db: sqlite3.Connection, path: Path) -> dict[str, int]:
+def import_ota(
+    db: sqlite3.Connection,
+    path: Path,
+    *,
+    source_kind: str = "ota_mail",
+) -> dict[str, int]:
+    """Import sanitized OTA facts, initializing its required schema if absent.
+
+    Only ``confirmed_booking_service_start`` may create a service-period fact;
+    note text and unverified travel-date aliases remain non-authoritative.
+    """
+    if source_kind not in {"ota_mail", "ota_authenticated_portal"}:
+        raise ValueError(f"unsupported OTA source kind: {source_kind}")
+    _ensure_ota_import_schema(db)
     raw = json.loads(path.read_text(encoding="utf-8"))
     rows: Iterable[dict[str, object]] = raw.get("records", raw)
     count = 0
     inserted = 0
+    confirmed_booking_periods = 0
     for index, row in enumerate(rows):
         clean = sanitize_ota_record(row)
-        # 이미 구조화된 인덱스의 camelCase 필드도 허용목록 이름으로 매핑한다.
-        for old, new in (
-            ("messageId", "message_id"),
-            ("messageHash", "message_hash"),
-            ("bookingRefs", "booking_number"),
-            ("travelDates", "period_original"),
-        ):
-            if old in row and new not in clean:
-                clean[new] = row[old]
+        # Alias normalization happens inside sanitize_ota_record before the
+        # allowlist. Never append raw aliases after redaction.
         clean["redaction_version"] = OTA_REDACTION_VERSION
         key = str(clean.get("message_id") or f"row:{index}")
-        _, created = _insert_source(
+        source_record_id, created = _insert_source(
             db,
-            "ota_mail",
+            source_kind,
             key,
             clean,
             OTA_REDACTION_VERSION,
         )
         inserted += int(created)
+        confirmed = confirmed_booking_service_start(clean)
+        if confirmed is not None:
+            booking_provider = _booking_provider(confirmed["provider"])
+            db.execute(
+                """
+                INSERT INTO bookings(
+                    provider, booking_number, product_type, service_start_on,
+                    service_end_on, status
+                ) VALUES (?, ?, 'lodging', ?, ?, 'confirmed')
+                ON CONFLICT(provider, booking_number) DO UPDATE SET
+                    service_start_on=COALESCE(
+                        bookings.service_start_on, excluded.service_start_on
+                    ),
+                    service_end_on=COALESCE(
+                        bookings.service_end_on, excluded.service_end_on
+                    ),
+                    status=CASE
+                        WHEN bookings.status='unknown' THEN 'confirmed'
+                        ELSE bookings.status
+                    END
+                """,
+                (
+                    booking_provider,
+                    confirmed["booking_number"],
+                    confirmed["service_start_on"],
+                    confirmed.get("service_end_on"),
+                ),
+            )
+            booking_id = int(
+                db.execute(
+                    """
+                    SELECT id FROM bookings
+                    WHERE provider=? AND booking_number=?
+                    """,
+                    (booking_provider, confirmed["booking_number"]),
+                ).fetchone()[0]
+            )
+            db.execute(
+                """
+                INSERT OR IGNORE INTO direct_booking_service_periods(
+                    booking_id, source_record_id, service_start_on,
+                    settlement_condition, evidence_status, redaction_version
+                ) VALUES (?, ?, ?, ?, 'confirmed', ?)
+                """,
+                (
+                    booking_id,
+                    source_record_id,
+                    confirmed["service_start_on"],
+                    confirmed.get("settlement_condition"),
+                    OTA_REDACTION_VERSION,
+                ),
+            )
+            confirmed_booking_periods += 1
         count += 1
-    return {"records": count, "inserted": inserted}
+    return {
+        "records": count,
+        "inserted": inserted,
+        "confirmed_booking_periods": confirmed_booking_periods,
+    }
 
 
 def import_all(
@@ -261,16 +413,249 @@ def import_all(
 ) -> dict[str, object]:
     with db:
         cards = import_cards(db, ledger_dir)
-        manual = import_manual(db, manual_path)
+        from .reconciliation import project_direct_payments
+        direct_projection = project_direct_payments(db)
+        manual = import_manual(
+            db,
+            manual_path,
+            ledger_dir / "data" / "manual_special_rows.json",
+        )
         ota = import_ota(db, ota_path)
+        portal_path = ledger_dir / "data" / "agoda_direct_browser_evidence.json"
+        ota_portal = (
+            import_ota(
+                db,
+                portal_path,
+                source_kind="ota_authenticated_portal",
+            )
+            if portal_path.exists()
+            else {"records": 0, "inserted": 0, "confirmed_booking_periods": 0}
+        )
+        legacy_links = import_legacy_verified_links(
+            db, ledger_dir / "data" / "ota_event_links_verified.json"
+        )
     return {
         "cards": cards,
         "manual": manual,
         "ota": ota,
+        "ota_authenticated_portal": ota_portal,
+        "legacy_verified_links": legacy_links,
+        "direct_projection": direct_projection,
         "direct_records": int(
             db.execute("SELECT COUNT(*) FROM direct_source_records").fetchone()[0]
         ),
     }
+
+
+def import_legacy_verified_links(db: sqlite3.Connection, path: Path) -> dict[str, int]:
+    """Append read-only legacy OTA links as durable manual/proposed decisions.
+
+    The legacy file is evidence provenance, never a replacement projection:
+    absent direct message lineage remains proposed.  Stable content hashes make
+    replay idempotent and a changed legacy record raises rather than superseding
+    a current decision.
+    """
+    if not path.exists():
+        return {"records": 0, "created": 0, "proposed": 0, "missing_payment": 0}
+    from .reconciliation import create_match_group, record_match_decision
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mail_index_path = path.with_name("ota_mail_index.json")
+    mail_by_id: dict[str, dict[str, object]] = {}
+    if mail_index_path.exists():
+        mail_payload = json.loads(mail_index_path.read_text(encoding="utf-8"))
+        mail_by_id = {
+            str(item.get("messageId")): item
+            for item in mail_payload.get("records", [])
+            if isinstance(item, dict) and item.get("messageId")
+        }
+    created = proposed = missing = 0
+
+    def signal(
+        name: str,
+        left: object,
+        right: object,
+        *,
+        source_event_id: str = "",
+    ) -> dict[str, object]:
+        left_text = str(left or "").strip()
+        right_text = str(right or "").strip()
+        if not left_text or not right_text:
+            status = "unavailable"
+        else:
+            status = "match" if left_text == right_text else "mismatch"
+        return {
+            "name": name,
+            "status": status,
+            "left": left_text or None,
+            "right": right_text or None,
+            "rule_id": "legacy-link-signal-v1",
+            "source_event_id": source_event_id or None,
+            "evidence": [
+                {
+                    "source_type": "legacy_verified_link",
+                    "message_id": source_event_id or None,
+                }
+            ],
+        }
+
+    for external_key, record in sorted(payload.items()):
+        if not isinstance(record, dict):
+            continue
+        payment = db.execute(
+            """
+            SELECT payment.id, payment.merchant, payment.amount_krw,
+                   payment.occurred_on, payment.source_system, method.last4
+            FROM payment_transactions payment
+            LEFT JOIN payment_methods method ON method.id=payment.payment_method_id
+            WHERE external_key=?
+            """,
+            (external_key,),
+        ).fetchone()
+        if payment is None:
+            missing += 1; continue
+        canonical = _canonical_hash(record)
+        # A legacy evidence inventory is not the representative's append-only
+        # decision log.  Even message+booking lineage remains a proposal until
+        # record_match_decision() records an explicit manual review with its
+        # own actor/reason/rationale and verified supersedes chain.
+        source_message_id = str(
+            record.get("message_id") or record.get("source_message_id") or ""
+        )
+        mail = mail_by_id.get(source_message_id)
+        merchant = str(payment["merchant"] or "").upper()
+        payment_provider = (
+            "mytrip" if "MYTRIP" in merchant or "마이트립" in merchant
+            else "trip" if "TRIP.COM" in merchant or "트립닷컴" in merchant
+            else "manual_non_ota" if str(payment["source_system"]) == "MAN"
+            else ""
+        )
+        mail_provider = str(
+            (mail or {}).get("provider") or record.get("provider") or ""
+        ).lower()
+        provider_signal = signal(
+            "provider",
+            payment_provider,
+            mail_provider,
+            source_event_id=source_message_id,
+        )
+
+        paid_amount = record.get("paid_amount")
+        mail_amounts = {
+            abs(int(value))
+            for value in (mail or {}).get("amounts", [])
+            if str(value).lstrip("-").isdigit()
+        }
+        payment_amount = abs(int(payment["amount_krw"]))
+        if paid_amount not in (None, ""):
+            evidence_amount: object = abs(int(float(str(paid_amount))))
+        elif payment_amount in mail_amounts:
+            evidence_amount = payment_amount
+        elif mail_amounts:
+            evidence_amount = "|".join(str(value) for value in sorted(mail_amounts))
+        else:
+            evidence_amount = ""
+        amount_signal = signal(
+            "amount",
+            payment_amount,
+            evidence_amount,
+            source_event_id=source_message_id,
+        )
+
+        expense_row = db.execute(
+            """
+            SELECT value FROM current_classification_decisions
+            WHERE target_type='payment' AND target_id=?
+              AND dimension='expense_type'
+            """,
+            (int(payment["id"]),),
+        ).fetchone()
+        expense_type = str(expense_row["value"] if expense_row else "")
+        payment_product = (
+            "항공" if "항공" in expense_type or payment_provider == "mytrip"
+            else "숙박" if "숙박" in expense_type or "HOTEL" in merchant or "호텔" in merchant
+            else "교통" if "교통" in expense_type or (
+                str(payment["source_system"]) == "MAN" and "KOTSU" in merchant
+            )
+            else ""
+        )
+        evidence_product = str(record.get("category") or "")
+        if not evidence_product and mail is not None:
+            subject = str(mail.get("subject") or "")
+            evidence_product = (
+                "숙박" if "호텔" in subject or "HOTEL" in subject.upper()
+                else "항공" if "항공" in subject or "FLIGHT" in subject.upper()
+                else ""
+            )
+        product_signal = signal(
+            "product",
+            payment_product,
+            evidence_product,
+            source_event_id=source_message_id,
+        )
+
+        record_periods = {
+            token
+            for token in re.findall(
+                r"(?<!\d)\d{4}(?!\d)",
+                str(record.get("period") or ""),
+            )
+        }
+        if (
+            not record_periods
+            and str(payment["source_system"]) == "MAN"
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(payment["occurred_on"] or ""))
+        ):
+            occurred = str(payment["occurred_on"])
+            record_periods.add(occurred[5:7] + occurred[8:10])
+        mail_periods = {
+            str(token)
+            for token in (mail or {}).get("travelDates", [])
+            if re.fullmatch(r"\d{4}", str(token))
+        }
+        if record_periods and mail_periods and record_periods & mail_periods:
+            common_periods = "|".join(sorted(record_periods & mail_periods))
+            date_left: object = common_periods
+            date_right: object = common_periods
+        else:
+            date_left = "|".join(sorted(record_periods))
+            date_right = "|".join(sorted(mail_periods))
+        date_signal = signal(
+            "service_date",
+            date_left,
+            date_right,
+            source_event_id=source_message_id,
+        )
+        card_signal = signal(
+            "card_last4",
+            payment["last4"],
+            record.get("card4"),
+            source_event_id=source_message_id,
+        )
+        signals = [
+            provider_signal,
+            amount_signal,
+            product_signal,
+            date_signal,
+            card_signal,
+        ]
+        conflicts = [
+            str(item["name"]) + "_conflict"
+            for item in signals
+            if item["status"] == "mismatch"
+        ]
+        status = "conflict" if conflicts else "proposed"
+        group_key = "legacy-link:" + external_key + ":" + canonical[:16]
+        rationale = (
+            "legacy OTA link conflict: " + ",".join(conflicts)
+            if conflicts
+            else "read-only legacy OTA link"
+        )
+        group_id = create_match_group(db, group_key, provider=str(record.get("provider") or "legacy"), status=status, confidence=0.0, rationale=rationale, payment_ids=[int(payment[0])], signals=signals)
+        decision_id = "legacy-ota-link:" + external_key + ":" + canonical
+        if record_match_decision(db, decision_id, group_id, status=status, actor="legacy_import", reason_code="legacy_verified_link", rationale=rationale, evidence=[{"source_type":"legacy_verified_link","source_record_id":external_key,"content_hash":canonical,"record":record,"conflicts":conflicts}]):
+            created += 1
+        proposed += int(status == "proposed")
+    return {"records": len(payload), "created": created, "proposed": proposed, "missing_payment": missing}
 
 
 def compare_with_legacy(db: sqlite3.Connection) -> dict[str, int]:

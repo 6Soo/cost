@@ -2,12 +2,14 @@
 # Q2 비용분류 결과 워크북 조립 — classified.csv(+fixes.json) → 숲길여행_2분기_비용분류_AI_v62.xlsx
 import csv, json, re, os
 from collections import defaultdict, Counter
+from pathlib import Path
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from domain.review_verifier import verify_review_claims
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-os.chdir(DIR)
+os.chdir(os.path.join(DIR, 'data'))
 
 HDR_FILL = PatternFill('solid', fgColor='1F4E5F')
 HDR_FONT = Font(color='FFFFFF', bold=True)
@@ -51,6 +53,19 @@ MYTRIP_ENRICH = {  # 금액: (PNR, 구간, 편명)
     586834:  ('E4IOVR', 'ALA-TBS', 'KC139'),   # 유럽 트빌리시 05-09 김의영·미희
     1409892: ('',       'CDG-ICN', ''),         # 유럽 파리→인천 06-10 김의영·미희
 }
+
+# 산출 직전 원천 재검토 루프. "수기/메일 없음"이 실제 원천과 모순되거나
+# 동일 카드 이벤트가 MISC로 재생성됐으면 워크북을 만들지 않는다.
+_claim_check = verify_review_claims(
+    Path('classified_v14.csv'),
+    Path('manual_v4.csv'),
+    Path('ota_mail_index.json'),
+)
+if not _claim_check['passed']:
+    raise RuntimeError(
+        '원천 재검토 게이트 실패: ' +
+        ', '.join(f'{k}={v}' for k, v in _claim_check['counts'].items())
+    )
 
 rows = list(csv.DictReader(open('classified_v14.csv', encoding='utf-8')))
 # 검증 픽스 적용
@@ -746,5 +761,8 @@ wb.move_sheet('미청구_예약확정', offset=_names.index('월별순액') + 1 
 
 out = '숲길여행_2분기_비용분류_AI_v76.xlsx'
 wb.save(out)
+if os.path.exists(os.path.join(DIR, out)):
+    wb.save(os.path.join(DIR, out))
+os.chdir(DIR)
 print('저장:', out, '| 시트', len(wb.sheetnames), '개 | 상세행', len(rows))
 print('시트:', wb.sheetnames[:8], '...')

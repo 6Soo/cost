@@ -9,6 +9,7 @@ INSERT OR IGNORE INTO schema_versions(version) VALUES (1);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (2);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (3);
 INSERT OR IGNORE INTO schema_versions(version) VALUES (4);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (5);
 
 -- 원천은 불변이다. 같은 파일의 같은 행을 다시 해석하더라도 원문은 이 계층에 남는다.
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -187,6 +188,24 @@ CREATE TABLE IF NOT EXISTS bookings (
     UNIQUE(provider, booking_number)
 );
 
+-- Confirmed OTA booking periods are kept in the direct-source lineage rather
+-- than copied from mail notes.  A service date may drive period recognition
+-- only through this table or a separately maintained structured booking file.
+CREATE TABLE IF NOT EXISTS direct_booking_service_periods (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    source_record_id INTEGER NOT NULL REFERENCES direct_source_records(id),
+    service_start_on TEXT NOT NULL,
+    settlement_condition TEXT,
+    evidence_status TEXT NOT NULL DEFAULT 'confirmed'
+        CHECK(evidence_status IN ('confirmed', 'rejected', 'superseded')),
+    redaction_version TEXT NOT NULL,
+    UNIQUE(booking_id, source_record_id, service_start_on)
+);
+
+CREATE INDEX IF NOT EXISTS direct_booking_service_periods_by_booking
+ON direct_booking_service_periods(booking_id, evidence_status);
+
 CREATE TABLE IF NOT EXISTS payment_booking_links (
     payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
     booking_id INTEGER NOT NULL REFERENCES bookings(id),
@@ -312,6 +331,34 @@ CREATE TABLE IF NOT EXISTS evidence (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Gmail 검색 결과도 문구가 아니라 append-only 실증 이벤트로 남긴다.
+-- not_found는 해당 검색범위에서의 미발견일 뿐, 메일의 절대 부재나 자동확정 근거가 아니다.
+CREATE TABLE IF NOT EXISTS mail_search_evidence (
+    evidence_id TEXT PRIMARY KEY,
+    payment_external_key TEXT NOT NULL,
+    query_sha256 TEXT NOT NULL,
+    query_version TEXT NOT NULL,
+    account_scope TEXT NOT NULL,
+    search_complete INTEGER NOT NULL CHECK(search_complete IN (0, 1)),
+    searched_at TEXT NOT NULL,
+    result_status TEXT NOT NULL
+        CHECK(result_status IN ('found', 'not_found', 'inconclusive')),
+    candidate_count INTEGER NOT NULL CHECK(candidate_count >= 0),
+    candidate_message_ids_json TEXT NOT NULL DEFAULT '[]',
+    message_id TEXT,
+    subject TEXT,
+    observed_amount_krw INTEGER,
+    actor TEXT NOT NULL,
+    supersedes_evidence_id TEXT REFERENCES mail_search_evidence(evidence_id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK(
+        (result_status='found' AND candidate_count > 0 AND message_id IS NOT NULL)
+        OR (result_status='not_found' AND candidate_count=0
+            AND message_id IS NULL AND search_complete=1)
+        OR result_status='inconclusive'
+    )
+);
+
 -- 비용성격·귀속·계정·증빙·세무판정은 독립 차원의 버전 있는 판단이다.
 CREATE TABLE IF NOT EXISTS classification_decisions (
     id INTEGER PRIMARY KEY,
@@ -377,6 +424,18 @@ CREATE TABLE IF NOT EXISTS cost_allocations (
     amount_krw INTEGER NOT NULL
 );
 
+CREATE TRIGGER IF NOT EXISTS allocation_plans_append_only_update
+BEFORE UPDATE ON allocation_plans
+BEGIN
+    SELECT RAISE(ABORT, 'allocation_plans is append-only; insert a superseding plan');
+END;
+
+CREATE TRIGGER IF NOT EXISTS allocation_plans_append_only_delete
+BEFORE DELETE ON allocation_plans
+BEGIN
+    SELECT RAISE(ABORT, 'allocation_plans is append-only; insert a superseding plan');
+END;
+
 CREATE TABLE IF NOT EXISTS allocation_review_cases (
     payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
     outcome TEXT NOT NULL
@@ -428,6 +487,160 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     posted_at TEXT
 );
 
+-- Bridge from the immutable direct-source card feed to canonical ledger events.
+-- A direct event without a confirmed link is a hard close blocker.
+CREATE TABLE IF NOT EXISTS direct_payment_links (
+    direct_payment_id INTEGER PRIMARY KEY REFERENCES direct_normalized_payments(id),
+    payment_id INTEGER REFERENCES payment_transactions(id),
+    link_status TEXT NOT NULL CHECK(link_status IN ('confirmed','proposed','conflict','unmatched')),
+    reason_code TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 정산 v2.1: 카드 전수성·OTA 관계그룹·마감 판정을 독립적으로 보존한다.
+-- 기존 legacy 분류를 덮어쓰지 않고, 새 projection이 참조하는 append-only 사실이다.
+CREATE TABLE IF NOT EXISTS match_groups (
+    id INTEGER PRIMARY KEY,
+    group_key TEXT NOT NULL UNIQUE,
+    provider TEXT,
+    status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN ('confirmed_strong', 'confirmed_manual', 'proposed', 'conflict', 'unmatched')),
+    confidence REAL NOT NULL DEFAULT 0 CHECK(confidence BETWEEN 0 AND 1),
+    rationale TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS match_group_payments (
+    group_id INTEGER NOT NULL REFERENCES match_groups(id),
+    payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    role TEXT NOT NULL DEFAULT 'charge'
+        CHECK(role IN ('charge', 'refund', 'adjustment')),
+    amount_krw INTEGER NOT NULL,
+    PRIMARY KEY(group_id, payment_id)
+);
+
+CREATE TABLE IF NOT EXISTS match_group_bookings (
+    group_id INTEGER NOT NULL REFERENCES match_groups(id),
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    role TEXT NOT NULL DEFAULT 'primary'
+        CHECK(role IN ('primary', 'component', 'refund')),
+    PRIMARY KEY(group_id, booking_id)
+);
+
+CREATE TABLE IF NOT EXISTS match_signal_results (
+    id INTEGER PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES match_groups(id),
+    signal_name TEXT NOT NULL,
+    signal_status TEXT NOT NULL
+        CHECK(signal_status IN ('match', 'mismatch', 'unavailable')),
+    left_value TEXT,
+    right_value TEXT,
+    rule_id TEXT NOT NULL,
+    source_event_id TEXT,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    UNIQUE(group_id, signal_name)
+);
+
+-- 수동확정도 덮어쓰지 않는다. 같은 카드·예약 관계의 재등장은 decision_id로 억제한다.
+CREATE TABLE IF NOT EXISTS match_decisions (
+    decision_id TEXT PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES match_groups(id),
+    status TEXT NOT NULL
+        CHECK(status IN ('confirmed_strong', 'confirmed_manual', 'proposed', 'conflict', 'unmatched')),
+    actor TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    supersedes_decision_id TEXT REFERENCES match_decisions(decision_id),
+    decided_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_match_decision_supersedes
+    ON match_decisions(supersedes_decision_id)
+    WHERE supersedes_decision_id IS NOT NULL;
+
+CREATE VIEW IF NOT EXISTS current_match_decisions AS
+SELECT d.*
+FROM match_decisions d
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM match_decisions newer
+    WHERE newer.supersedes_decision_id=d.decision_id
+)
+AND d.rowid=(
+    SELECT MAX(candidate.rowid)
+    FROM match_decisions candidate
+    WHERE candidate.group_id=d.group_id
+      AND NOT EXISTS (
+          SELECT 1
+          FROM match_decisions candidate_newer
+          WHERE candidate_newer.supersedes_decision_id=candidate.decision_id
+      )
+);
+
+CREATE VIEW IF NOT EXISTS current_match_group_projection AS
+SELECT
+    g.id AS group_id,
+    g.group_key,
+    COALESCE(current.status, g.status) AS status,
+    current.decision_id,
+    g.provider,
+    g.confidence,
+    g.rationale
+FROM match_groups g
+LEFT JOIN current_match_decisions current ON current.group_id=g.id;
+
+CREATE TABLE IF NOT EXISTS card_event_dispositions (
+    payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    disposition TEXT NOT NULL
+        CHECK(disposition IN (
+            'trip', 'overhead', 'leader', 'cancellation_refund', 'clearing',
+            'pending', 'superseded_duplicate_projection',
+            'manual_claimed_card_no_raw', 'rejected_legacy_projection',
+            'prepaid_future_trip'
+        )),
+    finalized INTEGER NOT NULL DEFAULT 0 CHECK(finalized IN (0, 1)),
+    target_id INTEGER REFERENCES allocation_targets(id),
+    reason_code TEXT NOT NULL,
+    decision_id TEXT REFERENCES match_decisions(decision_id),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS authorization_holds (
+    hold_payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    hold_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(hold_status IN ('pending', 'released', 'captured')),
+    related_payment_id INTEGER REFERENCES payment_transactions(id),
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    reason_code TEXT NOT NULL DEFAULT 'merchant_authorization_hold',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tax_basis_assessments (
+    id INTEGER PRIMARY KEY,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    customer_receipts_krw INTEGER NOT NULL DEFAULT 0,
+    entrusted_costs_krw INTEGER NOT NULL DEFAULT 0,
+    refunds_krw INTEGER NOT NULL DEFAULT 0,
+    net_travel_cost_krw INTEGER NOT NULL DEFAULT 0,
+    commission_krw INTEGER NOT NULL DEFAULT 0,
+    evidence_status TEXT NOT NULL
+        CHECK(evidence_status IN ('confirmed', 'tax_review_required')),
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    assessment_version TEXT NOT NULL,
+    UNIQUE(trip_id, assessment_version)
+);
+
+CREATE TABLE IF NOT EXISTS period_close_gates (
+    run_id TEXT NOT NULL,
+    gate_name TEXT NOT NULL,
+    passed INTEGER NOT NULL CHECK(passed IN (0, 1)),
+    actual_value TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    PRIMARY KEY(run_id, gate_name)
+);
+
 CREATE VIEW IF NOT EXISTS current_classification_decisions AS
 SELECT *
 FROM classification_decisions
@@ -448,7 +661,8 @@ SELECT *
 FROM transaction_relations
 WHERE relation_status NOT IN ('rejected', 'superseded');
 
-CREATE VIEW IF NOT EXISTS current_cost_allocations AS
+DROP VIEW IF EXISTS current_cost_allocations;
+CREATE VIEW current_cost_allocations AS
 SELECT
     a.*,
     p.payment_id,
@@ -461,10 +675,17 @@ FROM allocation_plans p
 JOIN cost_allocations a ON a.plan_id=p.id
 WHERE p.plan_status <> 'rejected'
   AND NOT EXISTS (
+      SELECT 1 FROM authorization_holds h
+      WHERE h.hold_payment_id=p.payment_id
+         OR (
+             h.related_payment_id=p.payment_id
+             AND h.hold_status='released'
+         )
+  )
+  AND NOT EXISTS (
       SELECT 1
       FROM allocation_plans newer
       WHERE newer.supersedes_plan_id=p.id
-        AND newer.plan_status <> 'rejected'
   );
 
 CREATE VIEW IF NOT EXISTS payment_allocation_summary AS

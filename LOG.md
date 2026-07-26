@@ -282,3 +282,43 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   `archive/pr-7-pre-cleanup` 태그로 원격 보존했다. 각 PR에 감사 근거를 남기고 닫은
   뒤 두 원격 작업 브랜치를 삭제했다. 기존 장기 draft PR은 0개이며, 감사 문서 변경은
   `chore/repository-structure` 브랜치의 PR #11에서 검토한다.
+
+---
+
+## 2026-07-26 세션 핸드오프 — OTA 직접증거·Apps Script 배포·Gmail 재연결
+
+### 완료
+- Apps Script `cost` 프로젝트에 추적 파일 6개를 업로드하고 불변 배포 `@3`을 생성했다.
+  - deployment id: `AKfycbyNtMEGKOGjg6Umkx7EEiIK2G1bvsMVh5tCphNTkaz_MddXxOqcHAH_7ro7VZJdoayr`
+- Apps Script 회귀테스트 2개와 관련 Python 회귀테스트 80개를 통과했다.
+- Edge의 로그인된 Agoda 예약 화면을 직접 조사하고
+  `ledger/data/agoda_direct_browser_evidence.json`에 인증 포털 증거를 보존했다.
+  - 1696845387: Lotte Arai Resort, 2026-06-23~24, JPY 36,499, 카드 8835
+  - 1696836747: Mercure Nagano Matsushiro, 2026-06-22~23, JPY 59,040, 카드 8835
+  - 1999257668: Mercure Nagano Matsushiro, 2026-06-22~23, JPY 82,128, 카드 8835
+  - 1738849062: Karuizawa Hotel Paipuno Kemuri, 2026-10-26~28,
+    JPY 162,256, 결제예정 2026-10-21, 카드 8835
+- 인증 포털 증거를 `ota_authenticated_portal` 원천으로 적재하고, 포털의 원통화 금액·
+  결제일·숙박기간 충돌이 강한 확정을 차단하도록 수정했다.
+- 현재 분류의 잘못된 예약 연결 3건을 직접증거로 확인했다.
+  - KBO-2926 ↔ 1696836747: JPY 22,729 vs 59,040
+  - KBO-2927 ↔ 1999257668: JPY 22,737 vs 82,128
+  - KBO-2951 ↔ 1738849062: JPY 21,913 vs 162,256, 6월 결제 vs 10월 결제예정
+- Booking.com은 2026년 상세조사를 완료했다. 2025년 이전은 현재 범위에서 제외한다.
+
+### Gmail 상태
+- Edge Gmail과 Google의 OpenAI 접근 허용은 `kkokkohero6@gmail.com`으로 확인했다.
+- 사용자가 Codex Gmail 플러그인을 재연결했으나 기존 작업의 도구 목록은 갱신되지 않았다.
+- 새 작업에서 Gmail 전용 검색 도구를 먼저 확인하고 `11번가`, `산림`, `강화`, `토스`,
+  Mytrip 163,788원을 검색한다.
+
+### 다음 순서
+1. 새 작업에서 Gmail 연결을 실제 검색 호출로 검증한다.
+2. Agoda 직접 브라우징을 Q2 예약 전건으로 확대한다.
+3. Trip.com 현재 계정의 직접 브라우징 전수조사를 재개한다.
+4. 사용자 검토가 필요한 비OTA 건을 제시한다.
+   - SICILY BY CAR 584,193원: 5월 유럽 렌터카 귀속 확인
+   - GYOMU SUPA TSURUOKA 18,755원: 묘코 여행 식재료·소모품 여부 확인
+5. 승인·취소 쌍으로 무청구가 확인된 카카오T 10,100원, TOTAL Marseille 90,415원,
+   RESIDHOTEL 178,948원, AVIS 357,262원은 대표 검토 큐에서 자동 제거되는지 검증한다.
+6. 워크북·CSV 등 산출물은 사용자가 명시하기 전까지 생성하거나 출력하지 않는다.

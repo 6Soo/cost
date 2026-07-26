@@ -30,6 +30,9 @@ const PAY_SENDERS = [
   { group: '클룩',       q: 'from:klook.com' },
   { group: '라쿠텐/자란',q: 'from:(rakuten.com OR jalan.net)' },
   { group: '스카이티켓', q: 'from:skyticket.com' },
+  { group: 'Mytrip',     q: 'from:(support.kr.mytrip.com OR mytrip.com)' },
+  { group: '11번가',     q: 'from:11st.co.kr' },
+  { group: '휴양림/리조트', q: 'from:(foresttrip.go.kr OR ganghwa-resort.com OR smartropay.co.kr OR smartro.co.kr)' },
   { group: '항공사',     q: 'from:(koreanair.com OR vietnamairlines.com OR volotea.com OR skyscanner.com OR flyasiana.com OR jejuair.net OR jinair.com OR eastarjet.com)' },
   { group: 'KICC이지페이',q: 'from:easypay.co.kr' },
   { group: 'PG(KCP/NICE)',q: 'from:(kcp.co.kr OR nicepg.co.kr OR inicis.com OR nspay.co.kr)' },
@@ -72,12 +75,100 @@ function removeDrainTrigger() {
 
 // 스테이징 시트 헤더 순서
 const STAGING_COLS = ['source', 'type', 'paidDate', 'useDate', 'merchant', 'item',
-                      'currency', 'amount', 'bookingNo', 'card', 'account', 'messageId'];
+                       'currency', 'amount', 'bookingNo', 'card', 'account', 'messageId',
+                       'serviceStartOn', 'bookingStatus', 'settlementCondition'];
 
 // ─────────────────────────────────────────────────────────────
 // 발신자별 파서. match(m) → 대상 여부, parse(m) → 레코드(부분) 또는 null(스킵)
 // ─────────────────────────────────────────────────────────────
 const PARSERS = [
+  // ── Mytrip / Gotogate 추가서비스 영수증 ──
+  // 주문번호 뒤 회차 "(1)"와 "숫자 KRW" 순서의 소수점 금액을 범용 파서가
+  // 놓쳤다. 변경수수료는 새 항공권이 아니라 원예약에 붙는 추가 서비스로 보존한다.
+  {
+    id: 'mytrip',
+    match: function (m) {
+      return /(?:support\.kr\.)?mytrip\.com/i.test(m.from) ||
+             /Mytrip/i.test(m.subject + '\n' + m.body);
+    },
+    parse: function (m) {
+      const t = m.subject + '\n' + m.body;
+      const orderMatch = t.match(/\b([0-9]{4}-[0-9]{3}-[0-9]{3})(?:\s*\(([0-9]+)\))?/);
+      const orderNo = orderMatch ? orderMatch[1] : '';
+      const sequence = orderMatch && orderMatch[2] ? orderMatch[2] : '';
+      const isCancelPending = /예약을\s*취소|환불될\s*예정|항공권\s*가격에서[\s\S]{0,80}차감/i.test(t);
+      const isPending = /처리\s*중|최대\s*72시간|확정되면\s*확인\s*이메일/i.test(t);
+      const pnr = isCancelPending ? firstGroup(t, /\b([A-Z0-9]{6})\b/) : '';
+      const serviceFee = decimalKrw_(t, /서비스\s*수수료[^\d]{0,30}([0-9][0-9,]*(?:\.[0-9]+)?)\s*KRW/i);
+      if (isCancelPending) {
+        return {
+          source: 'mytrip',
+          type: 'cancel_pending',
+          bookingNo: orderNo,
+          merchant: 'Mytrip',
+          item: '예약취소 처리중' +
+            (pnr ? ' PNR ' + pnr : '') +
+            (serviceFee ? ' 환불차감수수료 ' + Math.round(serviceFee) + '원' : ''),
+          currency: 'KRW',
+          amount: 0, // 차감 수수료는 새 카드 청구가 아니므로 카드매칭 금액으로 쓰지 않는다.
+          paidDate: m.date,
+          account: '여비교통비',
+          card: '',
+        };
+      }
+      if (isPending) {
+        return {
+          source: 'mytrip',
+          type: 'pending',
+          bookingNo: orderNo,
+          merchant: 'Mytrip',
+          item: '항공사 처리중 주문',
+          currency: 'KRW',
+          amount: 0,
+          paidDate: m.date,
+          account: '여비교통비',
+          card: '',
+        };
+      }
+      const isPaid = /결제가\s*확인|결제액|구입해\s*주셔서|영수증|구매하신\s*추가\s*서비스/i.test(t);
+      if (!isPaid) {
+        return {
+          source: 'mytrip',
+          type: 'evidence_only',
+          bookingNo: orderNo,
+          merchant: 'Mytrip',
+          item: '일정·안내 예약 관계 증빙',
+          currency: 'KRW',
+          amount: 0,
+          paidDate: m.date,
+          account: '여비교통비',
+          card: '',
+        };
+      }
+      const isAdditional = /추가\s*서비스\s*영수증/i.test(t);
+      const totals = decimalKrwValues_(firstGroup(t, /(?:합계|결제액)[\s\S]{0,160}?((?:[0-9][0-9,.]*\s*KRW[\s\S]{0,30}?){1,3})/i));
+      const charged = totals.length ? Math.round(totals[totals.length - 1]) : 0;
+      const fareDelta = decimalKrw_(t, /항공료[^\d]{0,30}([0-9][0-9,]*(?:\.[0-9]+)?)\s*KRW/i);
+      return {
+        source: 'mytrip',
+        type: 'charge',
+        bookingNo: orderNo,
+        merchant: 'Mytrip',
+        item: isAdditional
+          ? '항공권 변경 추가서비스' + (sequence ? ' (' + sequence + ')' : '') +
+            (serviceFee ? ' 수수료 ' + Math.round(serviceFee) + '원' : '') +
+            (fareDelta ? ' 운임차액 ' + Math.round(fareDelta) + '원' : '')
+          : '항공권',
+        useDate: mytripDate_(t, m.date),
+        currency: 'KRW',
+        amount: charged,
+        paidDate: m.date,
+        account: '여비교통비',
+        card: '',
+      };
+    },
+  },
+
   // ── Trip.com 호텔 (확정 / 취소·환불) ──
   {
     id: 'trip_hotel',
@@ -88,7 +179,17 @@ const PARSERS = [
       const subj = m.subject || '';
       const isRefund = /환불|취소되었습니다|무료로 취소|취소되었어요/.test(subj);
       const isConfirm = /예약이 확정/.test(subj);
-      if (!isRefund && !isConfirm) return null;
+      const refundText = subj + '\n' + m.body;
+      // Trip 취소 메일은 "환불을 요청했습니다/1~7영업일 소요"와
+      // "환불 완료"를 한 본문에 함께 싣기도 한다. 완료 표지가 있으면 진행중
+      // 문구보다 우선해야 이미 완료된 환불을 pending으로 되돌리지 않는다.
+      const refundCompleted = /환불(?:이|\s*)\s*완료|환불\s*처리\s*완료|취소\s*완료/.test(refundText);
+      const refundPending = isRefund && !refundCompleted &&
+        /환불이\s*시작|환불을\s*요청|환불\s*처리\s*중|환불금이[\s\S]{0,40}입금|입금되는\s*데[\s\S]{0,30}영업일/.test(refundText);
+      const evidenceType =
+        /예약 정보가 업데이트/.test(subj) ? 'update' :
+        /인보이스 정보/.test(subj) ? 'invoice' : '';
+      if (!isRefund && !isConfirm && !evidenceType) return null;
 
       const name = subj.replace(/^\[[^\]]*\]\s*/, '');   // 앞머리 [예약 확정 안내] 제거
       const rec = {
@@ -101,12 +202,29 @@ const PARSERS = [
         useDate: kdate(m.body, /체크인[:\s]*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/),
         paidDate: m.date, // 실제 결제일은 카드내역과 매칭. 메일 수신일로 근사
       };
+      if (evidenceType) {
+        rec.type = evidenceType;
+        rec.amount = 0;
+        rec.item = '예약 관계 증빙';
+        return rec;
+      }
       if (isRefund) {
-        rec.type = 'refund';
-        rec.amount = -(won(m.body, /환불\s*금액\s*([0-9,]+)/) || won(m.body, /([0-9,]+)\s*원이\s*\(?가/));
+        const refundAmount = won(m.body, /환불\s*금액\s*([0-9,]+)/) ||
+                             won(m.body, /([0-9,]+)\s*원이\s*\(?가/);
+        rec.type = refundPending ? 'refund_pending' : 'refund';
+        rec.amount = refundPending ? 0 : -refundAmount;
+        if (refundPending && refundAmount) rec.item = '숙박 환불예정금액 ' + refundAmount;
       } else {
         rec.type = 'charge';
         rec.amount = won(m.body, /(?:온라인 사전 결제[\s\S]{0,60}?|[가-힣A-Za-z]+카드\(신용카드\)\s*)([0-9,]+)\s*원/);
+        // Only the provider's confirmed reservation with one parsed booking
+        // reference may populate the downstream structured service date.
+        // A date in an update/invoice/evidence mail is intentionally ignored.
+        if (isConfirm && rec.bookingNo && /^\d{6,19}$/.test(rec.bookingNo) &&
+            /^20\d{2}-\d{2}-\d{2}$/.test(rec.useDate || '')) {
+          rec.bookingStatus = 'confirmed';
+          rec.serviceStartOn = rec.useDate;
+        }
       }
       return rec;
     },
@@ -118,6 +236,16 @@ const PARSERS = [
     match: function (m) { return /kr_flt_noreply@trip\.com/i.test(m.from); },
     parse: function (m) {
       const subj = m.subject || '';
+      if (/결제\s*실패|결제를\s*완료하지\s*못/.test(subj + '\n' + m.body)) {
+        const attempted = won(m.body, /(?:결제|청구|총)\s*금액[^0-9]{0,20}([0-9,]+)/);
+        return {
+          source: 'trip_flight', type: 'payment_failed',
+          bookingNo: digits(after(m.body, /예약번호\s*([0-9​‌‍\s]+)/)),
+          merchant: '항공권',
+          item: attempted ? '항공권 결제실패 요청금액 ' + attempted : '항공권 결제실패',
+          currency: 'KRW', amount: 0, paidDate: m.date, account: '여비교통비',
+        };
+      }
       // 환불/취소는 '제목' 기준(확정메일 정책문구의 '환불'에 오검출 방지).
       // 제목 예: '항공권 환불: 후쿠오카…' / '환불 완료: 서울-니가타'
       if (/환불|취소/.test(subj)) {
@@ -128,6 +256,22 @@ const PARSERS = [
           bookingNo: digits(after(m.body, /예약번호\s*([0-9​‌‍\s]+)/)),
           merchant: '항공권', item: '항공권 환불',
           currency: 'KRW', amount: -amt, paidDate: m.date, account: '여비교통비',
+        };
+      }
+      if (/결제 완료 안내/.test(subj)) {
+        const paymentAmount =
+          won(m.body, /총\s*금액[^0-9]{0,20}([0-9,]+)\s*원/) ||
+          won(m.body, /결제\s*금액[^0-9]{0,20}([0-9,]+)\s*원/);
+        return {
+          source: 'trip_flight', type: 'payment_confirmation',
+          bookingNo: digits(after(m.body, /예약번호\s*([0-9​‌‍\s]+)/)),
+          merchant: '항공권', item: '결제 완료·발권대기 관계 증빙',
+          useDate: kdate(
+            m.body,
+            /출발[:：]\s*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/
+          ),
+          currency: 'KRW', amount: paymentAmount,
+          paidDate: m.date, account: '여비교통비',
         };
       }
       if (!/발권되었습니다|예약 확정/.test(subj + m.body)) return null;
@@ -202,12 +346,19 @@ const PARSERS = [
     parse: function (m) {
       // 결제/취소 구분: 제목 '[신용카드]취소하신 내역' → refund(음수). 취소는 '취소일시'.
       const isCancel = /취소/.test(m.subject);
-      const amt = won(m.body, /(?:상품금액|취소금액|결제금액)\s*([0-9,]+)\s*원/);
+      const amt = isCancel
+        ? won(m.body, /취소금액\s*([0-9,]+)\s*원/) ||
+          won(m.body, /(?:상품금액|결제금액)\s*([0-9,]+)\s*원/)
+        : won(m.body, /(?:상품금액|결제금액)\s*([0-9,]+)\s*원/);
+      const controlNo = /easypay\.co\.kr/i.test(m.body)
+        ? firstGroup(m.body, /[?&]controlNo=([0-9]+)/i)
+        : '';
       return {
         source: 'kicc_easypay',
         type: isCancel ? 'refund' : 'charge',
         merchant: line(m.body, /상\s*호\s*(.+)/) || line(m.body, /상호\s*(.+)/),
-        item: line(m.body, /상품명\s*(.+)/),
+        item: line(m.body, /상품명\s*(.+)/) +
+              (controlNo ? ' | payment_receipt_id=' + controlNo : ''),
         // 결제일시/취소일시가 '2026/06/28' 슬래시 또는 '2026년 06월 28일' 둘 다 지원
         paidDate: ymd2(firstGroup(m.body, /(?:결제일시|취소일시)\s*([0-9]{4}[.\-\/][0-9]{1,2}[.\-\/][0-9]{1,2}|[0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/)),
         currency: 'KRW',
@@ -223,7 +374,9 @@ const PARSERS = [
   //  · property.booking.com·평가하기·"새로운 메시지" = 노이즈 → 스킵
   {
     id: 'booking',
-    match: function (m) { return /booking\.com/i.test(m.from); },
+    match: function (m) {
+      return /booking\.com/i.test(m.from + '\n' + m.body);
+    },
     parse: function (m) {
       const t = m.subject + '\n' + m.body;
       if (/평가하기|후기|Rate\s|review/i.test(m.subject)) return null;         // 후기요청 스킵
@@ -231,23 +384,96 @@ const PARSERS = [
 
       const isReceipt = /noreply-payments@booking\.com/i.test(m.from) ||
                         /영수증|receipt|결제.{0,3}완료|지불\s*금액/i.test(t);
+      const isSupportUpdate =
+        /support\.booking\.com/i.test(t) &&
+        /중요\s*업데이트|문의|Customer\s*Service/i.test(t);
+      const isCancel = /환불|취소|refund|cancel/i.test(m.subject);
+      // CTA인 "지금 결제"만으로 실패로 보지 않는다. 실제 실패/미청구 문구가
+      // 있어야 payment_failed이며, 예약 약관의 환불 문구는 hold 신호가 아니다.
+      const paymentFailed = /결제\s*(?:금액\s*)?청구에\s*실패|결제\s*실패|결제를\s*(?:완료하지|처리하지)\s*못/.test(t);
+      const holdPossible =
+        /보증금을\s*청구할\s*수/.test(t) ||
+        /(?:보증금|카드\s*사전\s*승인|승인\s*보류)[\s\S]{0,100}(?:잠시\s*묶|승인\s*취소|전액\s*환불)/.test(t);
+      const payAtProperty =
+        /선결제가\s*필요\s*없/.test(t) ||
+        /(?:요금은|결제는)[^\n]{0,100}(?:숙소|호텔)[^\n]{0,60}(?:체크인할\s*때\s*)?결제/.test(t) ||
+        /(?:숙소|호텔)에서\s*결제하시면/.test(t);
+      const paymentScheduled =
+        /결제\s*일정이\s*확정/.test(t) ||
+        /정해진\s*날짜[\s\S]{0,80}자동\s*청구/.test(t) ||
+        /결제\s*예정(?:\s*금액)?/.test(t);
+      const cancelNoCharge = isCancel &&
+        /청구되지\s*않|추후\s*예정\s*결제\s*취소|금액\s*[¥₩]?\s*0\b/i.test(t);
       // 금액 라벨: '결제된 금액' / '총 지불 금액' / '총 결제 금액' 등
-      const mo = money(t, /(?:총\s*지불\s*금액|총\s*결제\s*금액|결제(?:된|\s*완료된)?\s*금액|amount\s*paid|total\s*price|total)/i);
-      return {
+      const mo = money(t, /(?:총\s*지불\s*금액|총\s*결제\s*금액|결제(?:한|된|\s*완료된)?\s*금액|결제\s*완료|환불된\s*금액|amount\s*paid|total\s*price|total)/i);
+      // 미완료 상태의 금액은 장부 amount가 아니라 설명용 후보로만 보존한다.
+      // 각 상태 라벨 바로 뒤의 금액만 읽어 취소 위약금·세금·보증금과 섞지 않는다.
+      const failedMo = paymentFailed
+        ? money(t, /결제\s*실패|결제\s*(?:금액\s*)?청구에\s*실패/i)
+        : { amount: 0, currency: '' };
+      const scheduledMo = paymentScheduled
+        ? money(t, /결제\s*예정(?:\s*금액)?|자동\s*청구\s*예정/i)
+        : { amount: 0, currency: '' };
+      const propertyMo = payAtProperty
+        ? money(t, /합계|총\s*(?:예약\s*)?요금|total\s*price/i)
+        : { amount: 0, currency: '' };
+      const statusMo = paymentFailed ? failedMo :
+                       paymentScheduled ? scheduledMo :
+                       payAtProperty ? propertyMo : { amount: 0, currency: '' };
+      const bookingNo = firstGroup(t, /예약\s*번호[:\s]*([0-9]{6,})/) ||
+        firstGroup(t, /고객\s*확인번호[:\s]*([0-9-]{6,})/) ||
+        firstGroup(t, /(?:booking\s*(?:number|id)|confirmation)[:\s]*([0-9]{6,})/i);
+      const useDate = bookingDate_(t, m.date) ||
+        endate(t, /Check-?in\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i);
+      const confirmedBooking = !isSupportUpdate && !isCancel && !paymentFailed &&
+        !payAtProperty && !holdPossible && !paymentScheduled &&
+        /예약이\s*확정|booking\s*(?:is\s*)?confirmed|confirmed\s*booking/i.test(t) &&
+        /^[0-9]{6,19}$/.test(bookingNo) && /^20\d{2}-\d{2}-\d{2}$/.test(useDate);
+      // A possible authorization and a generic free-cancellation policy are
+      // not a captured refundable deposit.  Record the latter only when the
+      // message explicitly says the deposit was charged and will be returned.
+      const refundableDepositPending = !isSupportUpdate && !isCancel &&
+        /보증금[\s\S]{0,80}(?:결제|청구)(?:가)?\s*완료|보증금[\s\S]{0,80}청구되었습니다/.test(t) &&
+        /(?:체크아웃|숙박\s*종료)[\s\S]{0,100}(?:반환|환불)/.test(t);
+      const result = {
         source: 'booking',
         // 환불/취소는 '제목' 기준(확정메일 본문·PIN·정책의 '취소' 오검출 방지)
-        type: /환불|취소|refund|cancel/i.test(m.subject) ? 'refund' : 'charge',
-        bookingNo: firstGroup(t, /예약\s*번호[:\s]*([0-9]{6,})/) || firstGroup(t, /booking\s*(?:number|id)[:\s]*([0-9]{6,})/i),
+        type: isSupportUpdate ? 'evidence_only' :
+              paymentFailed ? 'payment_failed' :
+              cancelNoCharge ? 'cancel_no_charge' :
+              isCancel ? 'refund' :
+              paymentScheduled ? 'payment_scheduled' :
+              payAtProperty ? 'pay_at_property' :
+              holdPossible ? 'authorization_hold_possible' :
+              'charge',
+        bookingNo: bookingNo,
         merchant: firstGroup(t, /숙소\s*이름\s*[\r\n]+\s*(.+)/) ||
                   firstGroup(m.subject, /[!\s]\s*([A-Za-z].*?)\s*예약이 확정/) ||
                   firstGroup(t, /(?:숙소명|Hotel|Property)[:\s]+(.+)/i),
-        item: '숙박',
-        useDate: ymd2(firstGroup(t, /체크인[:\s]*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/)) ||
-                 endate(t, /Check-?in\s*([A-Za-z]+ [0-9]{1,2}, [0-9]{4})/i),
-        currency: mo.currency || 'KRW',
-        amount: isReceipt ? mo.amount : 0,   // 영수증만 금액, 확정메일은 카드매칭
+        item: isSupportUpdate ? '예약 고객센터 진행상태 증빙' :
+              paymentFailed ? '숙박 결제실패' +
+                (statusMo.amount ? ' 요청금액 ' + statusMo.amount : '') :
+              paymentScheduled ? '숙박 자동결제 예정' +
+                (statusMo.amount ? '금액 ' + statusMo.amount : '') :
+              payAtProperty ? '숙박 현장결제 예정' +
+                (statusMo.amount ? '금액 ' + statusMo.amount : '') +
+                (holdPossible ? ' | 카드사전승인 가능' : '') :
+              holdPossible ? '숙박 카드사전승인 가능' :
+              '숙박',
+        useDate: useDate,
+        currency: statusMo.currency || mo.currency || 'KRW',
+        amount: isSupportUpdate || paymentFailed || holdPossible || payAtProperty || paymentScheduled || cancelNoCharge
+          ? 0 : isCancel ? -mo.amount : isReceipt ? mo.amount : 0,
         paidDate: m.date,
       };
+      if (confirmedBooking) {
+        result.bookingStatus = 'confirmed';
+        result.serviceStartOn = useDate;
+      }
+      if (refundableDepositPending && /^[0-9]{6,19}$/.test(bookingNo)) {
+        result.settlementCondition = 'refundable_deposit_pending';
+      }
+      return result;
     },
   },
 
@@ -286,15 +512,18 @@ const PARSERS = [
       const isCancel = /취소/.test(m.subject) || /부분취소되었|취소되었어요/.test(m.body);
       const full = won(m.body, /결제금액\s*([0-9,]+)\s*원/);
       const cancelAmt = won(m.body, /(?:부분취소금액|취소금액)\s*([0-9,]+)\s*원/);
+      const approval = firstGroup(m.body, /승인번호\s*([0-9]+)/);
+      const orderNo = firstGroup(m.body, /주문번호\s*([A-Z0-9_-]+)/i);
       return {
         source: 'toss',
         type: isCancel ? 'refund' : 'charge',
         merchant: firstGroup(m.body, /판매자\s*(.+)/),
-        item: firstGroup(m.body, /구매상품\s*(.+)/),
+        item: firstGroup(m.body, /구매상품\s*(.+)/) +
+              (approval ? ' | approval_id=' + approval : ''),
         paidDate: ymd2(firstGroup(m.body, /결제일시\s*([0-9]{4}[.\-\/][0-9]{1,2}[.\-\/][0-9]{1,2})/)),
         currency: 'KRW',
         amount: isCancel ? -(cancelAmt || full) : full,
-        bookingNo: firstGroup(m.body, /승인번호\s*([0-9]+)/),
+        bookingNo: orderNo || approval,
         card: firstGroup(m.body, /결제카드\s*(.+)/),
       };
     },
@@ -322,6 +551,48 @@ const PARSERS = [
     },
   },
 
+  // ── SKYTICKET 구입완료 / 최종안내 / 결제 전 자동취소 ──
+  // 구간별 "항공료 합계"가 반복된 뒤 마지막 "결제 금액"이 나오므로
+  // 범용 KRW 추출기는 첫 구간 금액을 거래 총액으로 오인한다.
+  {
+    id: 'skyticket',
+    match: function (m) { return /@skyticket\.com/i.test(m.from); },
+    parse: function (m) {
+      const t = m.subject + '\n' + m.body;
+      const applicationNo = firstGroup(t, /신청번호\s*[:：]?\s*([0-9]{6,})/);
+      const isAutoCancel = /자동\s*취소|자동취소/.test(m.subject) &&
+        /결제\s*기한[\s\S]{0,50}취소|결제\s*전\s*취소/.test(t);
+      const isPurchased = /구입\s*완료|본\s*메일로\s*구입이\s*완료|결제완료\s*메일/.test(t);
+      const isFinalInfo = /최종\s*안내/.test(m.subject);
+      if (!isAutoCancel && !isPurchased && !isFinalInfo) return null;
+      const amount = isPurchased
+        ? won(t, /결제\s*금액\s*[:：]?\s*(?:KRW\s*)?([0-9,]+)/i)
+        : 0;
+      const firstTravelDate = firstGroup(
+        t,
+        /([0-9]{4}-[0-9]{2}-[0-9]{2})[^\n]{0,80}출발/
+      );
+      const route = firstGroup(
+        t,
+        /[0-9]{4}-[0-9]{2}-[0-9]{2}\s+([^\n]{1,80}?출발\s*-\s*[^\n]{1,80}?도착)/
+      );
+      return {
+        source: 'skyticket',
+        type: isAutoCancel ? 'cancel_no_charge' :
+              isPurchased ? 'charge' : 'evidence_only',
+        bookingNo: applicationNo,
+        merchant: 'SKYTICKET',
+        item: '항공권' + (route ? ' ' + route : ''),
+        useDate: ymd2(firstTravelDate),
+        paidDate: m.date,
+        currency: 'KRW',
+        amount: isPurchased ? amount : 0,
+        card: '',
+        account: '여비교통비',
+      };
+    },
+  },
+
   // ── 범용 폴백 (반드시 마지막) ──
   //  전달계정 메일은 다음(Daum)에서 이미 선별됐으므로 매칭 파서가 없어도 버리지 않는다.
   //  금액·예약번호·취소여부를 휴리스틱으로 뽑고, 실패해도 제목·발신자를 기록해 누락 0을 보장.
@@ -329,9 +600,27 @@ const PARSERS = [
     id: 'generic',
     match: function () { return true; },
     parse: function (m) {
+      const trustedKcp = /admin8\.kcp\.co\.kr/i.test(m.body);
+      const kcpOrder = trustedKcp ? firstGroup(m.body, /[?&]order_no=([A-Z0-9_-]+)/i) : '';
+      const kcpPayment = trustedKcp ? firstGroup(m.body, /[?&]tno=([0-9]+)/i) : '';
+      const kcpAmount = trustedKcp ? won(m.body, /[?&]trade_mony=([0-9]+)/i) : 0;
+      if (kcpOrder || kcpPayment) {
+        return {
+          source: 'generic',
+          type: 'evidence_only',
+          merchant: 'KCP 거래명세서',
+          item: 'order_id=' + kcpOrder + ';payment_id=' + kcpPayment,
+          paidDate: m.date,
+          currency: 'KRW',
+          amount: kcpAmount,
+          bookingNo: kcpOrder,
+          card: '',
+        };
+      }
       const isCancel = /취소|환불|refund|cancel/i.test(m.subject);
       const krw = won(m.body, /(?:결제|승인|합계|총)\s*(?:금액|요금)?[^\d\-]{0,12}([0-9][0-9,]{2,})\s*원/) ||
-                  won(m.body, /(?:KRW|₩)\s*([0-9][0-9,]{2,})/);
+                  won(m.body, /(?:KRW|₩)\s*([0-9][0-9,]{2,})/) ||
+                  Math.round(decimalKrw_(m.body, /(?:결제액|결제금액|합계|총액)[\s\S]{0,80}?([0-9][0-9,]*(?:\.[0-9]+)?)\s*KRW/i));
       const jpy = won(m.body, /(?:JPY|¥|￥)\s*([0-9][0-9,]{2,})/);
       const book = firstGroup(m.subject + '\n' + m.body,
         /(?:예약\s*번호|주문\s*번호|승인\s*번호|booking\s*(?:id|number)|reservation)\s*[:#]?\s*([A-Z0-9\-]{6,20})/i);
@@ -545,10 +834,55 @@ function getOrCreateLabel_(name) {
 // ── 파싱 유틸 ──
 // 참고: num()·digits()·pad() 는 Code.gs 에 단일 정의. Apps Script 는 프로젝트 내
 // 모든 .gs 가 전역 스코프를 공유하므로 여기서 재선언하지 않는다(중복 선언 방지).
-function firstGroup(t, re) { const m = String(t || '').match(re); return m ? m[1].trim() : ''; }
-function after(t, re) { const m = String(t || '').match(re); return m ? m[1] : ''; }
-function line(t, re) { const m = String(t || '').match(re); return m ? m[1].replace(/\t/g, ' ').trim() : ''; }
-function won(t, re) { const m = String(t || '').match(re); return m ? num(m[1]) : 0; }
+// HTML 메일은 예약번호 숫자 사이에 zero-width 문자를 삽입하는 경우가 있다.
+// 모든 공통 추출 함수가 같은 정규화된 텍스트를 보게 해 특정 OTA별 누락을 막는다.
+function normalizeMailText_(t) {
+  return String(t || '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '');
+}
+function firstGroup(t, re) { const m = normalizeMailText_(t).match(re); return m ? m[1].trim() : ''; }
+function after(t, re) { const m = normalizeMailText_(t).match(re); return m ? m[1] : ''; }
+function line(t, re) { const m = normalizeMailText_(t).match(re); return m ? m[1].replace(/\t/g, ' ').trim() : ''; }
+function won(t, re) { const m = normalizeMailText_(t).match(re); return m ? num(m[1]) : 0; }
+function decimalKrw_(t, re) {
+  const m = normalizeMailText_(t).match(re);
+  return m ? Number(String(m[1]).replace(/,/g, '')) : 0;
+}
+function decimalKrwValues_(t) {
+  const values = []; const re = /([0-9][0-9,]*(?:\.[0-9]+)?)\s*KRW/ig;
+  let m;
+  while ((m = re.exec(normalizeMailText_(t))) !== null) values.push(Number(m[1].replace(/,/g, '')));
+  return values;
+}
+function mytripDate_(t, paidDate) {
+  const m = normalizeMailText_(t).match(
+    /\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s*([0-9]{1,2})\s+([A-Za-z]+)(?:\s+([0-9]{4}))?/i
+  );
+  if (!m) return '';
+  const months = {
+    jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,
+    may:5,jun:6,june:6,jul:7,july:7,aug:8,august:8,sep:9,september:9,
+    oct:10,october:10,nov:11,november:11,dec:12,december:12,
+  };
+  const month = months[m[2].toLowerCase()];
+  const year = m[3] || firstGroup(paidDate, /^([0-9]{4})/);
+  return month && year ? year + '-' + pad(month) + '-' + pad(m[1]) : '';
+}
+function bookingDate_(t, paidDate) {
+  const full = firstGroup(
+    t,
+    /체크인[:\s]*([0-9]{4}년\s*[0-9]{1,2}월\s*[0-9]{1,2}일)/
+  );
+  if (full) return ymd2(full);
+  const flight = normalizeMailText_(t).match(
+    /(?:발|행|\n)\s*([0-9]{1,2})월\s*([0-9]{1,2})일\s*\([^)]+\)\s*[·•]?\s*[0-9]{1,2}:[0-9]{2}/
+  ) || normalizeMailText_(t).match(
+    /([0-9]{1,2})월\s*([0-9]{1,2})일\s*\([^)]+\)\s*[·•]?\s*[0-9]{1,2}:[0-9]{2}/
+  );
+  const year = firstGroup(paidDate, /^([0-9]{4})/);
+  return flight && year
+    ? year + '-' + pad(flight[1]) + '-' + pad(flight[2])
+    : '';
+}
 function kdate(t, re) {
   const g = firstGroup(t, re); const m = g.match(/([0-9]{4})년\s*([0-9]{1,2})월\s*([0-9]{1,2})일/);
   return m ? m[1] + '-' + pad(m[2]) + '-' + pad(m[3]) : '';
@@ -567,7 +901,9 @@ function money(t, labelRe) {
   const s = String(t || ''); const m = s.match(labelRe);
   if (!m) return { amount: 0, currency: '' };
   const seg = s.slice(m.index, m.index + 60);
-  const cur = /¥|JPY/i.test(seg) ? 'JPY' : /€|EUR/i.test(seg) ? 'EUR' : /₩|KRW|원/.test(seg) ? 'KRW' : /\$|USD/i.test(seg) ? 'USD' : '';
+  const cur = /¥|JPY/i.test(seg) ? 'JPY' : /€|EUR/i.test(seg) ? 'EUR' :
+              /₩|KRW|원/.test(seg) ? 'KRW' : /฿|THB/i.test(seg) ? 'THB' :
+              /\$|USD/i.test(seg) ? 'USD' : '';
   const n = seg.match(/([0-9][0-9,]*(?:\.[0-9]+)?)/);   // 천단위콤마 + 소수점(EUR 등)
   return { amount: n ? num(n[1]) : 0, currency: cur };
 }

@@ -22,6 +22,10 @@ from ledger.domain.ledger_db import (
     resolve_hana_split_cancellations,
     validation_report,
 )
+from ledger.domain.source_loss_gate import (
+    HISTORICAL_SOURCE_RECORD_FLOORS,
+    source_inventory_gate,
+)
 from ledger.domain.v2_workbook_adapter import (
     export_parallel_workbook,
     regression_report,
@@ -29,6 +33,32 @@ from ledger.domain.v2_workbook_adapter import (
 
 
 class P6AdapterIntegrationTest(unittest.TestCase):
+    def test_current_source_inventory_reconciles_without_lowering_projection_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            db = connect(root / "source-inventory.db")
+            try:
+                initialize(db)
+                result = import_all(
+                    db,
+                    LEDGER_DIR,
+                    LEDGER_DIR / "data" / "manual_v4.csv",
+                    LEDGER_DIR / "data" / "ota_mail_index.json",
+                )
+                inventory = source_inventory_gate(
+                    result,
+                    direct_records=result["direct_records"],
+                )
+                self.assertTrue(inventory["passed"])
+                self.assertTrue(inventory["direct_records_reconciled"])
+                self.assertEqual(inventory["below_historical_floor"], {})
+                self.assertGreater(
+                    inventory["actual"]["manual"],
+                    HISTORICAL_SOURCE_RECORD_FLOORS["manual"],
+                )
+            finally:
+                db.close()
+
     def test_direct_sources_are_idempotent_and_workbook_has_no_unexplained_diff(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -53,7 +83,24 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                     LEDGER_DIR / "data" / "manual_v4.csv",
                     LEDGER_DIR / "data" / "ota_mail_index.json",
                 )
-                self.assertEqual(first["direct_records"], 8336)
+                inventory = source_inventory_gate(
+                    first,
+                    direct_records=first["direct_records"],
+                )
+                self.assertTrue(inventory["direct_records_reconciled"])
+                self.assertEqual(inventory["below_historical_floor"], {})
+                self.assertTrue(inventory["passed"])
+                # Dynamic reconciliation proves the direct-source store is a
+                # complete projection of today's source files.  Per-kind
+                # historical floors independently catch source loss while
+                # allowing append-only growth (currently manual_v4).
+                for source_kind, floor in HISTORICAL_SOURCE_RECORD_FLOORS.items():
+                    self.assertGreaterEqual(first[source_kind]["records"], floor)
+                    self.assertEqual(
+                        second[source_kind]["records"],
+                        first[source_kind]["records"],
+                    )
+                self.assertEqual(second["direct_records"], first["direct_records"])
                 self.assertEqual(second["cards"]["inserted"], 0)
                 self.assertEqual(second["manual"]["inserted"], 0)
                 self.assertEqual(second["ota"]["inserted"], 0)

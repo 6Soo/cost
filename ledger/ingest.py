@@ -4,8 +4,9 @@
 동작: 파일 형식 자동판별 → 정본 정규화 → master_ledger.csv에 '거래키' 기준 신규건만 병합
       (기존 행의 기록여부/워크북참조 보존). 일자 겹쳐도 중복은 자동 제외."""
 import openpyxl, csv, re, os, sys
+from domain.ingest_migration import balanced_legacy_enrichment_pairs
 HERE=os.path.dirname(os.path.abspath(__file__)); MASTER=os.path.join(HERE,'master_ledger.csv')
-FIELDS=['거래키','카드사','카드4','구분','승인일','매입일','가맹점','원화금액','현지금액','통화','승인번호','취소여부','출처','적재일','기록여부','워크북참조','비고']
+FIELDS=['거래키','카드사','카드4','구분','승인일','매입일','가맹점','원화금액','현지금액','통화','승인번호','원승인번호','취소여부','출처','적재일','기록여부','워크북참조','비고']
 def rn(x):
     try:return round(float(str(x).replace(',','').replace('원','').strip()))
     except:return 0
@@ -30,14 +31,14 @@ def detect(rows):
 
 def norm(rows, src, today):
     out=[]; occ={}   # 승인번호 없는 거래의 파일내 등장순번(정상 동일거래 다중도 보존 + 재업로드 멱등)
-    def emit(카드사,c4,구분,승,매,가맹,krw,fx,cur,ap,cx):
+    def emit(카드사,c4,구분,승,매,가맹,krw,fx,cur,ap,cx,orig_ap=''):
         ap=re.sub(r'\.0$','',str(ap)).lstrip('0')
         if ap: key=f'{카드사}|{c4}|A{ap}|{"취소" if cx else "정상"}|{abs(krw)}'
         else:
             base=f'{카드사}|{c4}|{승 or 매}|{abs(krw) or fx}|{mk(가맹)}|{"취소" if cx else "정상"}'
             occ[base]=occ.get(base,0)+1; key=f'{base}#{occ[base]}'
         out.append(dict(거래키=key,카드사=카드사,카드4=c4,구분=구분,승인일=승,매입일=매,가맹점=가맹,원화금액=krw,
-            현지금액=fx,통화=cur,승인번호=ap,취소여부='취소' if cx else '정상',출처=src,적재일=today,기록여부='N',워크북참조='',비고=''))
+            현지금액=fx,통화=cur,승인번호=ap,원승인번호=re.sub(r'\D','',str(orig_ap)),취소여부='취소' if cx else '정상',출처=src,적재일=today,기록여부='N',워크북참조='',비고=''))
     if src=='기업승인':
         for r in rows:
             if len(r)>13 and re.match(r'\d{4}-\d\d-\d\d',r[2] or ''):
@@ -48,17 +49,25 @@ def norm(rows, src, today):
             if r and r[0] and r[0]!='NO' and '-' in (r[3] or ''):
                 gu='해외' if '해외' in (r[11] if len(r)>11 else '') else '국내'
                 emit('하나',r[3][-4:],gu,d10(r[1]),'',r[7],rn(r[5]),0,'',r[4],False)
-                if rn(r[6]): emit('하나',r[3][-4:],gu,d10(r[1]),'',r[7],rn(r[6]),0,'',r[4],True)
+                # Hana supplies cancellation in either 승인취소금액(6) or
+                # 매입취소금액(15).  Preserve approval and cancellation as
+                # separate events even when the net billed amount is zero.
+                cancel_amount=rn(r[6]) or (-abs(rn(r[15])) if len(r)>15 and rn(r[15]) else 0)
+                if cancel_amount: emit('하나',r[3][-4:],gu,d10(r[1]),'',r[7],cancel_amount,0,'',r[4],True)
     elif src=='국민국내매입':
         for r in rows[1:]:
             if len(r)>11 and re.match(r'\d{4}\.\d\d',r[1] or ''):
-                a=rn(r[11]); emit('국민',r[5][-4:],'국내',d10(r[1]),d10(r[0]),r[7],a,0,'','',a<0)
+                a=rn(r[11])
+                match=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r[15]).strip())
+                approval,original=(match.group(1),match.group(2)) if match else (re.sub(r'\D','',str(r[15])), '')
+                emit('국민',r[5][-4:],'국내',d10(r[1]),d10(r[0]),r[7],a,0,'',approval,a<0,original)
     elif src=='국민해외매입':
         for r in rows[1:]:
             if len(r)>16 and re.match(r'\d{4}\.\d\d',r[0] or ''):
                 # 원화금액=총결제금액(16열, 결제원금+수수료) — 수기장부 기준과 동일(Nakajima 5,563,208 등 정확일치).
                 # (2026-07-22 버그수정: 종전 원화 0 하드코딩으로 국민 해외분 원화 전량 유실했던 것 교정)
-                cx=(r[6]=='취소매출'); krw=fdec(r[16])
+                status=str(r[6] or '').replace(' ','')
+                cx=('취소' in status or '리버설' in status or 'REVERSAL' in status.upper()); krw=fdec(r[16])
                 emit('국민',r[4][-4:],'해외','',d10(r[0]),r[7], -krw if cx else krw, fdec(r[11]),r[10],'',cx)
     return out
 
@@ -82,6 +91,8 @@ def main(files, today='2026-07-20'):
         rows=load(f); src=detect(rows)
         if not src: print(f'  ⚠ 형식판별 실패: {f}'); continue
         recs=norm(rows,src,today); a=m2=s=0
+        legacy_pairs=balanced_legacy_enrichment_pairs(master, recs)
+        legacy_by_key={r['거래키']:r for r in master}
         # ★가드(2026-07-22 신설): 원화 열이 있어야 할 카드소스가 전부 원화0이면 파싱 열매핑 오류 —
         #   국민 해외분 원화를 0으로 하드코딩해 1,679건 유실했던 버그 재발 방지. 전건0이면 즉시 중단.
         krwsum=sum(abs(rn(r['원화금액'])) for r in recs)
@@ -90,6 +101,8 @@ def main(files, today='2026-07-20'):
                              f'열 매핑 오류 의심(원본에 총결제금액/승인금액 열 확인 요망). norm() 파서 점검 필요.')
         for r in recs:
             ex=index.get(r['거래키'])
+            if ex is None:
+                ex=legacy_by_key.get(legacy_pairs.get(r['거래키'],''))
             if ex is None:                      # 없는 건 → 채워넣기
                 index[r['거래키']]=r; master.append(r); a+=1
             elif merge_into(ex,r):              # 있는 건 → 병합(보강)

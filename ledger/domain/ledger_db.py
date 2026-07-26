@@ -21,6 +21,20 @@ from typing import Iterable
 
 from .source_adapters import stable_card_event_identity
 from .direct_sources import compare_with_legacy, import_all as import_direct_sources
+from .reconciliation import (
+    PeriodCloseBlocked,
+    close_period,
+    coverage_report,
+    create_match_group,
+    record_match_decision,
+    verification_dimensions,
+)
+from .review_verifier import verify_review_claims
+from .period_recognition import (
+    Q2_CLOSE_ON,
+    is_prepaid_future_trip,
+    structured_service_start_on,
+)
 
 
 HERE = Path(__file__).resolve().parent
@@ -49,6 +63,53 @@ STRONG_EVIDENCE_RULES = (
     ("local_consistency", re.compile(r"현지정합\s*여행기간내")),
     ("booking_verified", re.compile(r"예약(?:번호|코드)?[A-Z0-9]{5,19}.{0,30}(?:확정|검증기간)")),
 )
+
+# These merchant strings identify an OTA or payment-gateway charge, not the
+# underlying travel service.  They therefore cannot keep a legacy travel
+# classification at high confidence unless the card, direct OTA receipt,
+# journey and service-period gates are all present.  Keep this deliberately
+# narrow: a direct airline or hotel merchant is not silently swept into the
+# OTA rule, and Agoda is outside the current review scope.
+DIRECT_OTA_REQUIRED_MERCHANT_TOKENS = (
+    "TRIP.COM",
+    "트립닷컴",
+    "MYTRIP",
+    "GOTOGATE",
+    "SKYTICKET",
+    "스카이티켓",
+    "KLOOK",
+    "클룩",
+    "인터넷상거래",
+    "KCP",
+    "NICE",
+    "이니시스",
+    "INICIS",
+    "토스",
+    "TOSS",
+)
+DIRECT_OTA_GATED_DIMENSIONS = {
+    "allocation_target",
+    "expense_type",
+    "cost_nature",
+    "period_recognition",
+}
+
+
+def _legacy_ota_or_pg_requires_direct_evidence(row: sqlite3.Row) -> bool:
+    """Return true only for a legacy OTA/PG travel conclusion.
+
+    A merchant name can corroborate a provider after a direct receipt was
+    matched.  It must never create that receipt or promote a PG charge into
+    OTA proof on its own.
+    """
+    return (
+        str(row["rule_id"] or "") == "legacy_v14_import"
+        and str(row["dimension"] or "") in DIRECT_OTA_GATED_DIMENSIONS
+        and any(
+            token in str(row["merchant"] or "").upper()
+            for token in DIRECT_OTA_REQUIRED_MERCHANT_TOKENS
+        )
+    )
 
 REVIEW_DETAIL_FIELDS = [
     "entity_type",
@@ -99,6 +160,12 @@ CONFIDENCE = {
     "상": 1.0,
     "중": 0.7,
     "하": 0.3,
+}
+
+NONPOSTING_SOURCE_DISPOSITIONS = {
+    "superseded_duplicate_projection",
+    "manual_claimed_card_no_raw",
+    "rejected_legacy_projection",
 }
 
 
@@ -160,6 +227,29 @@ def initialize(db: sqlite3.Connection) -> None:
                 "기존 직접 적재 DB는 승인·취소 분리 스키마와 호환되지 않습니다. "
                 "`python -m ledger.domain.ledger_db rebuild`로 불변 원천에서 재생성하세요."
             )
+    if "match_signal_results" in existing_tables:
+        signal_columns = {
+            str(row["name"])
+            for row in db.execute(
+                "PRAGMA table_info(match_signal_results)"
+            ).fetchall()
+        }
+        if "source_event_id" not in signal_columns:
+            db.execute(
+                "ALTER TABLE match_signal_results ADD COLUMN source_event_id TEXT"
+            )
+        if "evidence_json" not in signal_columns:
+            db.execute(
+                "ALTER TABLE match_signal_results "
+                "ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '[]'"
+            )
+    if "bookings" in existing_tables:
+        booking_columns = {
+            str(row["name"])
+            for row in db.execute("PRAGMA table_info(bookings)").fetchall()
+        }
+        if "service_end_on" not in booking_columns:
+            db.execute("ALTER TABLE bookings ADD COLUMN service_end_on TEXT")
     db.executescript(SCHEMA.read_text(encoding="utf-8"))
     db.commit()
 
@@ -224,6 +314,44 @@ def period_dates(period: str, year: int = 2026) -> tuple[str | None, str | None]
 
 def booking_numbers(note: str) -> list[str]:
     return list(dict.fromkeys(BOOKING_RE.findall(note or "")))
+
+
+def verified_booking_numbers(
+    db: sqlite3.Connection,
+    booking_info: dict[str, dict],
+) -> set[str]:
+    """Return references supported by imported OTA mail evidence only.
+
+    Booking-info JSON is an enrichment/proposal source, not settlement proof.
+    A number copied only into a legacy note or present only in booking_info is
+    a lead: it must not create a booking link or supply a service period.
+    Direct OTA rows are privacy-sanitized and are the only source permitted to
+    establish that the underlying Gmail evidence exists.
+    """
+    verified: set[str] = set()
+    rows = db.execute(
+        """
+        SELECT payload_json
+        FROM direct_source_records
+        WHERE source_kind IN ('ota_mail', 'ota_authenticated_portal')
+        """
+    ).fetchall()
+    for row in rows:
+        try:
+            payload = json.loads(str(row["payload_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for value in (payload.get("booking_number"), payload.get("order_id")):
+            number = str(value or "").strip()
+            if number:
+                verified.add(number)
+        values = payload.get("booking_numbers", [])
+        if not isinstance(values, list):
+            values = [values]
+        verified.update(str(value).strip() for value in values if str(value).strip())
+    return verified
 
 
 def target_type(code: str, known_trips: set[str]) -> str:
@@ -327,6 +455,32 @@ def upsert_payment(
         """,
         (row["uid"],),
     ).fetchone()
+    source_event_id = row.get("source_event_id") or row["uid"]
+    source_owner = db.execute(
+        """
+        SELECT external_key FROM payment_transactions
+        WHERE source_event_id=? AND external_key<>?
+        """,
+        (source_event_id, row["uid"]),
+    ).fetchone()
+    if source_owner is not None:
+        raise ValueError(
+            "source event lineage is already projected by "
+            f"{source_owner['external_key']!r}: {source_event_id!r}"
+        )
+    if (
+        existing is not None
+        # A legacy snapshot without lineage used its display UID as the
+        # source-event key.  Permit that one-way enrichment, but never let a
+        # regenerated positional UID (for example TRIP-0042) overwrite a
+        # different raw-card or manual-ledger event.
+        and existing["source_event_id"] not in {row["uid"], source_event_id}
+    ):
+        raise ValueError(
+            "source event lineage conflict for "
+            f"{row['uid']}: existing={existing['source_event_id']!r}, "
+            f"incoming={source_event_id!r}"
+        )
     if (
         existing is not None
         and amount < 0
@@ -509,7 +663,11 @@ def ensure_booking(
 ) -> int:
     info = booking_info.get(number, {})
     provider = provider_for(number, row.get("note", ""), booking_info)
-    start, end = period_dates(str(info.get("period", "")))
+    # A human-written note or a display period is not enough to defer a card
+    # payment.  Only a dedicated ISO date on the booking record is accounting
+    # evidence for service-period recognition.
+    start = structured_service_start_on(info)
+    _, end = period_dates(str(info.get("period", "")))
     db.execute(
         """
         INSERT INTO bookings(
@@ -877,6 +1035,16 @@ def replace_allocation_plan(
 ) -> int:
     if not items:
         raise ValueError("배분 plan에는 한 개 이상의 배분 행이 필요합니다.")
+    if scalar(
+        db,
+        """
+        SELECT COUNT(*) FROM authorization_holds
+        WHERE hold_payment_id=?
+           OR (related_payment_id=? AND hold_status='released')
+        """,
+        (payment_id, payment_id),
+    ):
+        raise ValueError("authorization hold 또는 해제 이벤트는 비용 배분할 수 없습니다.")
     payment_amount = scalar(
         db,
         "SELECT amount_krw FROM payment_transactions WHERE id=?",
@@ -892,10 +1060,10 @@ def replace_allocation_plan(
         """
         SELECT p.id, p.plan_version, p.plan_status, p.confidence, p.source_decision_id
         FROM allocation_plans p
-        WHERE p.payment_id=? AND p.plan_status <> 'rejected'
+        WHERE p.payment_id=?
           AND NOT EXISTS (
               SELECT 1 FROM allocation_plans newer
-              WHERE newer.supersedes_plan_id=p.id AND newer.plan_status <> 'rejected'
+              WHERE newer.supersedes_plan_id=p.id
           )
         """,
         (payment_id,),
@@ -952,6 +1120,64 @@ def replace_allocation_plan(
     return plan_id
 
 
+def reject_current_allocation_plan(
+    db: sqlite3.Connection,
+    payment_id: int,
+) -> int | None:
+    """Append a rejected leaf without mutating or uncovering an older plan."""
+    current = db.execute(
+        """
+        SELECT p.id, p.plan_status, p.confidence, p.source_decision_id
+        FROM allocation_plans p
+        WHERE p.payment_id=?
+          AND NOT EXISTS (
+              SELECT 1
+              FROM allocation_plans newer
+              WHERE newer.supersedes_plan_id=p.id
+          )
+        """,
+        (payment_id,),
+    ).fetchone()
+    if current is None:
+        return None
+    if current["plan_status"] == "rejected":
+        return int(current["id"])
+    items = [
+        AllocationItem(
+            target_id=int(row["target_id"]),
+            amount_krw=int(row["amount_krw"]),
+            booking_id=(
+                int(row["booking_id"])
+                if row["booking_id"] is not None
+                else None
+            ),
+        )
+        for row in db.execute(
+            """
+            SELECT target_id, amount_krw, booking_id
+            FROM cost_allocations
+            WHERE plan_id=?
+            ORDER BY id
+            """,
+            (int(current["id"]),),
+        ).fetchall()
+    ]
+    if not items:
+        raise ValueError("현재 allocation plan에 거절 이력을 승계할 배분행이 없습니다.")
+    return replace_allocation_plan(
+        db,
+        payment_id,
+        items,
+        status="rejected",
+        confidence=float(current["confidence"]),
+        source_decision_id=(
+            int(current["source_decision_id"])
+            if current["source_decision_id"] is not None
+            else None
+        ),
+    )
+
+
 def replace_legacy_allocation_plan(
     db: sqlite3.Connection,
     payment_id: int,
@@ -998,6 +1224,7 @@ def import_legacy(
     with csv_path.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     booking_info = json.loads(bookings_path.read_text(encoding="utf-8"))
+    verified_numbers = verified_booking_numbers(db, booking_info)
 
     with db:
         known_trips = load_trips(db, trips_path)
@@ -1039,7 +1266,7 @@ def import_legacy(
         )
 
         imported_payment_ids: list[int] = []
-        approval_lookup: dict[tuple[str, str], int] = {}
+        approval_lookup: dict[tuple[str, str], list[int]] = {}
         pending_relations: list[tuple[int, str, str]] = []
 
         for row_number, row in enumerate(rows, start=2):
@@ -1071,7 +1298,7 @@ def import_legacy(
             issuer = ISSUER_BY_SOURCE.get(row.get("src", ""), row.get("src", ""))
             approval = re.sub(r"\D", "", row.get("appr", ""))
             if approval and parse_int(row.get("krw")) > 0 and not is_true(row.get("cancel")):
-                approval_lookup[(issuer, approval)] = payment_id
+                approval_lookup.setdefault((issuer, approval), []).append(payment_id)
             original = re.sub(r"\D", "", row.get("orig_appr", ""))
             if original:
                 pending_relations.append((payment_id, issuer, original))
@@ -1153,8 +1380,61 @@ def import_legacy(
                 evidence_id,
             )
 
+            source_disposition = row.get("source_event_disposition") or ""
+            is_nonposting_projection = source_disposition in NONPOSTING_SOURCE_DISPOSITIONS
+            if source_disposition:
+                replace_decision(
+                    db,
+                    "payment",
+                    payment_id,
+                    "source_event_disposition",
+                    source_disposition,
+                    1.0 if is_nonposting_projection else confidence,
+                    "상" if is_nonposting_projection else confidence_label,
+                    (
+                        f"source alias of {row.get('source_event_alias_of')}"
+                        if row.get("source_event_alias_of")
+                        else source_disposition
+                    ),
+                    evidence_id,
+                    decision_status="confirmed" if is_nonposting_projection else "legacy",
+                    rule_id=f"lineage:{source_disposition}",
+                )
+
+            if is_nonposting_projection:
+                # Keep the payment fact and its source record for audit, but
+                # reject any legacy cost plan.  The reconciliation disposition
+                # is finalized separately as a non-posting alias.
+                reject_current_allocation_plan(db, payment_id)
+                continue
+
             linked_bookings: list[int] = []
-            for number in booking_numbers(note):
+            note_booking_numbers = booking_numbers(note)
+            linked_booking_numbers = [
+                number for number in note_booking_numbers if number in verified_numbers
+            ]
+            unverified_numbers = [
+                number for number in note_booking_numbers if number not in verified_numbers
+            ]
+            if unverified_numbers:
+                # Preserve the lead for review without treating a note-only
+                # reference as a Gmail/booking-file confirmation.  It is
+                # deliberately excluded from both booking links and period
+                # recognition below.
+                replace_decision(
+                    db,
+                    "payment",
+                    payment_id,
+                    "booking_reference_status",
+                    "unverified_booking_ref",
+                    0.0,
+                    "하",
+                    "note-only booking reference has no Gmail or booking-file evidence",
+                    evidence_id,
+                    decision_status="needs_review",
+                    rule_id="booking-ref:unverified-note-only",
+                )
+            for number in linked_booking_numbers:
                 booking_id = ensure_booking(db, number, row, booking_info)
                 linked_bookings.append(booking_id)
                 db.execute(
@@ -1196,6 +1476,90 @@ def import_legacy(
                 )
 
             allocation_booking_id = linked_bookings[0] if len(linked_bookings) == 1 else None
+            if refundable_deposit_pending_for_payment(
+                db,
+                linked_booking_numbers,
+                booking_info,
+            ):
+                # A charged, refundable deposit awaits its contractual return
+                # or capture.  It is not interchangeable with a normal
+                # prepaid service, which has a known future start date.
+                replace_decision(
+                    db, "payment", payment_id, "period_recognition", "settlement_pending",
+                    1.0, "상", "structured booking says refundable deposit pending", evidence_id,
+                    decision_status="confirmed", rule_id="period:refundable-deposit",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "allocation_target", "비용외정산",
+                    1.0, "상", "refundable deposit awaits settlement", evidence_id,
+                    decision_status="confirmed", rule_id="period:refundable-deposit",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "expense_type", "보증금정산대기",
+                    1.0, "상", "refundable deposit awaits settlement", evidence_id,
+                    decision_status="confirmed", rule_id="period:refundable-deposit",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "cost_nature", "비용외정산",
+                    1.0, "상", "refundable deposit awaits settlement", evidence_id,
+                    decision_status="confirmed", rule_id="period:refundable-deposit",
+                )
+                reject_current_allocation_plan(db, payment_id)
+                continue
+            future_service_start = future_service_start_for_payment(
+                db,
+                linked_booking_numbers,
+                booking_info,
+            )
+            if future_service_start:
+                # The payment happened in Q2, but the linked service begins
+                # later.  Retain the card event and the real trip target as
+                # auditable facts; do not recognize a Q2 travel cost or emit
+                # an automatic posting until the service period is reached.
+                replace_decision(
+                    db, "payment", payment_id, "service_start_on", future_service_start,
+                    1.0, "상", "linked booking service start", evidence_id,
+                    decision_status="confirmed", rule_id="period:service-start",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "service_period_target", code,
+                    confidence, confidence_label, "preserved future service target", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "service_period_expense_type",
+                    row.get("account") or "미정", confidence, confidence_label,
+                    "preserved future service expense type", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "service_period_cost_nature",
+                    row.get("cost_type") or "미정", confidence, confidence_label,
+                    "preserved future service cost nature", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "period_recognition", "prepaid_future_trip",
+                    1.0, "상", f"service starts {future_service_start} after Q2 close {Q2_CLOSE_ON}",
+                    evidence_id, decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "allocation_target", "비용외정산",
+                    1.0, "상", "future service is outside the Q2 cost period", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "expense_type", "선급비용",
+                    1.0, "상", "future service is outside the Q2 cost period", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                replace_decision(
+                    db, "payment", payment_id, "cost_nature", "비용외정산",
+                    1.0, "상", "future service is outside the Q2 cost period", evidence_id,
+                    decision_status="confirmed", rule_id="period:prepaid-future-trip",
+                )
+                reject_current_allocation_plan(db, payment_id)
+                continue
             replace_legacy_allocation_plan(
                 db,
                 payment_id,
@@ -1208,10 +1572,39 @@ def import_legacy(
 
         for transaction_id, issuer, original in pending_relations:
             has_original_reference = not original.startswith("missing:")
-            related_id = (
-                approval_lookup.get((issuer, original))
-                if has_original_reference else None
+            original_candidates = (
+                approval_lookup.get((issuer, original), [])
+                if has_original_reference else []
             )
+            refund_row = db.execute(
+                """
+                SELECT amount_krw, occurred_on, merchant
+                FROM payment_transactions WHERE id=?
+                """,
+                (transaction_id,),
+            ).fetchone()
+            candidate_rows = [
+                db.execute(
+                    """
+                    SELECT id, amount_krw, occurred_on, merchant
+                    FROM payment_transactions WHERE id=?
+                    """,
+                    (candidate_id,),
+                ).fetchone()
+                for candidate_id in original_candidates
+            ]
+            exact_amount = [
+                candidate
+                for candidate in candidate_rows
+                if abs(int(candidate["amount_krw"])) == abs(int(refund_row["amount_krw"]))
+            ]
+            eligible = exact_amount if len(exact_amount) == 1 else candidate_rows
+            related_id = (
+                int(eligible[0]["id"])
+                if len(eligible) == 1
+                else None
+            )
+            ambiguous_original = len(original_candidates) > 1 and related_id is None
             if related_id == transaction_id:
                 related_id = None
             refund_amount = int(
@@ -1295,18 +1688,55 @@ def import_legacy(
                 """,
                 (transaction_id,),
             ).fetchone()
-            if related_id:
+            relation_source_rows = (
+                db.execute(
+                    """
+                    SELECT external_key, source_event_id, source_system
+                    FROM payment_transactions
+                    WHERE id IN (?, ?)
+                    """,
+                    (transaction_id, related_id),
+                ).fetchall()
+                if related_id is not None
+                else []
+            )
+            source_events_verified = bool(
+                len(relation_source_rows) == 2
+                and all(
+                    str(source_row["source_event_id"])
+                    != str(source_row["external_key"])
+                    or str(source_row["external_key"]).startswith(
+                        f"{source_row['source_system']}-"
+                    )
+                    for source_row in relation_source_rows
+                )
+            )
+            if related_id and source_events_verified:
                 relation_status = "confirmed"
                 resolution_code = "original_linked"
                 rationale = "카드사 구조키로 원거래 연결"
+            elif related_id:
+                relation_status = "proposed"
+                resolution_code = "source_event_unverified"
+                rationale = (
+                    "원승인 후보는 연결됐지만 raw source_event_id 확인 전"
+                )
             elif allocation_code and allocation_code["code"] == "전기예약_환불":
                 relation_status = "confirmed"
                 resolution_code = "original_outside_window"
                 rationale = "원거래가 현재 적재기간 밖인 전기예약 환불"
             else:
                 relation_status = "proposed"
-                resolution_code = "insufficient_evidence"
-                rationale = "환불 이벤트는 보존하며 원승인 또는 예약 근거를 추가 대기"
+                resolution_code = (
+                    "ambiguous_original_approval"
+                    if ambiguous_original
+                    else "insufficient_evidence"
+                )
+                rationale = (
+                    "동일 원승인번호 후보가 복수여서 금액·일자 근거 추가 대기"
+                    if ambiguous_original
+                    else "환불 이벤트는 보존하며 원승인 또는 예약 근거를 추가 대기"
+                )
             db.execute(
                 f"""
                 INSERT INTO transaction_relations(
@@ -1335,7 +1765,11 @@ def import_legacy(
                     original,
                     (
                         "issuer+original_approval"
+                        if related_id and source_events_verified
+                        else "unverified_source_event+original_approval"
                         if related_id
+                        else "ambiguous_original_approval"
+                        if ambiguous_original
                         else "unresolved_original_approval"
                         if has_original_reference
                         else "missing_original_reference"
@@ -1364,22 +1798,216 @@ def scalar(db: sqlite3.Connection, query: str, params: Iterable[object] = ()) ->
     return int(db.execute(query, tuple(params)).fetchone()[0])
 
 
+def confirmed_direct_booking_terms(
+    db: sqlite3.Connection,
+    booking_numbers_for_payment: Iterable[str],
+) -> dict[str, dict[str, str]]:
+    """Read only non-conflicting confirmed periods from direct OTA evidence."""
+    numbers = list(dict.fromkeys(booking_numbers_for_payment))
+    if not numbers:
+        return {}
+    placeholders = ",".join("?" for _ in numbers)
+    rows = db.execute(
+        f"""
+        SELECT b.booking_number, p.service_start_on,
+               COALESCE(p.settlement_condition, '') AS settlement_condition
+        FROM direct_booking_service_periods p
+        JOIN bookings b ON b.id=p.booking_id
+        WHERE p.evidence_status='confirmed'
+          AND b.booking_number IN ({placeholders})
+        """,
+        numbers,
+    ).fetchall()
+    candidates: dict[str, set[tuple[str, str]]] = {}
+    for row in rows:
+        candidates.setdefault(str(row["booking_number"]), set()).add(
+            (str(row["service_start_on"]), str(row["settlement_condition"] or ""))
+        )
+    return {
+        number: {
+            "service_start_on": next(iter(values))[0],
+            "settlement_condition": next(iter(values))[1],
+        }
+        for number, values in candidates.items()
+        if len(values) == 1
+    }
+
+
+def future_service_start_for_payment(
+    db: sqlite3.Connection,
+    booking_numbers_for_payment: Iterable[str],
+    booking_info: dict[str, dict],
+    *,
+    closed_through_on: str = Q2_CLOSE_ON,
+) -> str | None:
+    """Return a future start only from every linked structured booking field."""
+    numbers = list(booking_numbers_for_payment)
+    if not numbers:
+        return None
+    direct_terms = confirmed_direct_booking_terms(db, numbers)
+    starts: list[str | None] = []
+    for number in numbers:
+        candidates = {
+            value
+            for value in (
+                structured_service_start_on(booking_info.get(number, {})),
+                direct_terms.get(number, {}).get("service_start_on"),
+            )
+            if value
+        }
+        if len(candidates) != 1:
+            return None
+        starts.append(next(iter(candidates)))
+    if not all(starts):
+        return None
+    if not all(
+        is_prepaid_future_trip(start, closed_through_on=closed_through_on)
+        for start in starts
+    ):
+        return None
+    return min(str(start) for start in starts)
+
+
+def refundable_deposit_pending_for_payment(
+    db: sqlite3.Connection,
+    booking_numbers_for_payment: Iterable[str],
+    booking_info: dict[str, dict],
+) -> bool:
+    """Recognize a deposit only from an explicit structured contract state.
+
+    A mention of a deposit or refund in a card note must not turn an ordinary
+    advance payment into a settlement item.  Multiple linked bookings must all
+    carry the same explicit state before the whole payment is excluded.
+    """
+    numbers = list(booking_numbers_for_payment)
+    if not numbers:
+        return False
+    direct_terms = confirmed_direct_booking_terms(db, numbers)
+    for number in numbers:
+        conditions = {
+            value
+            for value in (
+                str(booking_info.get(number, {}).get("settlement_condition") or ""),
+                direct_terms.get(number, {}).get("settlement_condition"),
+            )
+            if value
+        }
+        if conditions != {"refundable_deposit_pending"}:
+            return False
+    return True
+
+
+def recognize_prepaid_service_period(
+    db: sqlite3.Connection,
+    *,
+    recognized_through_on: str,
+) -> int:
+    """Recognize deferred service without creating another payment event."""
+    try:
+        date.fromisoformat(recognized_through_on)
+    except ValueError as exc:
+        raise ValueError("recognized_through_on은 YYYY-MM-DD 형식이어야 합니다.") from exc
+    rows = db.execute(
+        """
+        SELECT p.id AS payment_id, p.amount_krw, start.value AS service_start_on,
+               target.value AS target_code, expense.value AS expense_type,
+               nature.value AS cost_nature,
+               CASE WHEN COUNT(DISTINCT b.id)=1 THEN MIN(b.id) END AS booking_id,
+               at.id AS target_id
+        FROM payment_transactions p
+        JOIN current_classification_decisions period
+          ON period.target_type='payment' AND period.target_id=p.id
+         AND period.dimension='period_recognition' AND period.value='prepaid_future_trip'
+        JOIN current_classification_decisions start
+          ON start.target_type='payment' AND start.target_id=p.id AND start.dimension='service_start_on'
+        JOIN current_classification_decisions target
+          ON target.target_type='payment' AND target.target_id=p.id AND target.dimension='service_period_target'
+        JOIN current_classification_decisions expense
+          ON expense.target_type='payment' AND expense.target_id=p.id AND expense.dimension='service_period_expense_type'
+        JOIN current_classification_decisions nature
+          ON nature.target_type='payment' AND nature.target_id=p.id AND nature.dimension='service_period_cost_nature'
+        JOIN allocation_targets at ON at.code=target.value
+        LEFT JOIN payment_booking_links pbl
+          ON pbl.payment_id=p.id AND pbl.link_status NOT IN ('rejected', 'superseded')
+        LEFT JOIN bookings b ON b.id=pbl.booking_id
+        WHERE start.value <= ?
+        GROUP BY p.id
+        """,
+        (recognized_through_on,),
+    ).fetchall()
+    changed = 0
+    for row in rows:
+        payment_id = int(row["payment_id"])
+        decision_id = replace_decision(
+            db, "payment", payment_id, "period_recognition", "recognized_service_period",
+            1.0, "상", f"service starts {row['service_start_on']} within close through {recognized_through_on}",
+            None, decision_status="confirmed", rule_id="period:service-recognition",
+        )
+        for dimension, key in (
+            ("allocation_target", "target_code"),
+            ("expense_type", "expense_type"),
+            ("cost_nature", "cost_nature"),
+        ):
+            replace_decision(
+                db, "payment", payment_id, dimension, str(row[key]), 1.0, "상",
+                "restored when service period became recognizable", None,
+                decision_status="confirmed", rule_id="period:service-recognition",
+            )
+        replace_allocation_plan(
+            db,
+            payment_id,
+            [AllocationItem(
+                target_id=int(row["target_id"]),
+                amount_krw=int(row["amount_krw"]),
+                booking_id=int(row["booking_id"]) if row["booking_id"] else None,
+            )],
+            status="confirmed", confidence=1.0, source_decision_id=decision_id,
+        )
+        changed += 1
+    return changed
+
+
 def validation_report(
     db: sqlite3.Connection,
     payment_ids: Iterable[int] | None = None,
 ) -> dict[str, int | bool]:
     ids = list(payment_ids or [])
-    scope_sql = ""
+    # Authorization holds are card-lifecycle evidence, not recognizable cost.
+    # Their one-to-one final disposition is checked by ``coverage_report``;
+    # including them here would make the allocation-total gate fail precisely
+    # when they are correctly excluded from ``current_cost_allocations``.
+    scope_sql = (
+        " WHERE NOT EXISTS ("
+        "SELECT 1 FROM authorization_holds h WHERE h.hold_payment_id=p.id"
+        ") AND NOT EXISTS ("
+        "SELECT 1 FROM authorization_holds h "
+        "WHERE h.related_payment_id=p.id AND h.hold_status='released'"
+        ")"
+        " AND NOT EXISTS ("
+        "SELECT 1 FROM current_classification_decisions sd "
+        "WHERE sd.target_type='payment' AND sd.target_id=p.id "
+        "AND sd.dimension='source_event_disposition' "
+        "AND sd.value IN ('superseded_duplicate_projection', 'manual_claimed_card_no_raw', 'rejected_legacy_projection')"
+        ")"
+        " AND NOT EXISTS ("
+        "SELECT 1 FROM current_classification_decisions pr "
+        "WHERE pr.target_type='payment' AND pr.target_id=p.id "
+        "AND pr.dimension='period_recognition' "
+        "AND pr.value IN ('prepaid_future_trip', 'settlement_pending')"
+        ")"
+    )
+
+
     params: list[object] = []
     if ids:
         placeholders = ",".join("?" for _ in ids)
-        scope_sql = f" WHERE id IN ({placeholders})"
+        scope_sql += f" AND p.id IN ({placeholders})"
         params.extend(ids)
 
-    transaction_count = scalar(db, f"SELECT COUNT(*) FROM payment_transactions{scope_sql}", params)
+    transaction_count = scalar(db, f"SELECT COUNT(*) FROM payment_transactions p{scope_sql}", params)
     transaction_total = scalar(
         db,
-        f"SELECT COALESCE(SUM(amount_krw), 0) FROM payment_transactions{scope_sql}",
+        f"SELECT COALESCE(SUM(p.amount_krw), 0) FROM payment_transactions p{scope_sql}",
         params,
     )
     if ids:
@@ -1404,7 +2032,31 @@ def validation_report(
             db,
             f"""
             SELECT COUNT(*) FROM payment_allocation_summary
-            WHERE payment_id IN ({placeholders}) AND difference_krw <> 0
+            WHERE payment_id IN ({placeholders})
+              AND NOT EXISTS (
+                  SELECT 1 FROM authorization_holds h
+                  WHERE h.hold_payment_id=payment_allocation_summary.payment_id
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM authorization_holds h
+                  WHERE h.related_payment_id=payment_allocation_summary.payment_id
+                    AND h.hold_status='released'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_classification_decisions sd
+                  WHERE sd.target_type='payment'
+                    AND sd.target_id=payment_allocation_summary.payment_id
+                    AND sd.dimension='source_event_disposition'
+                    AND sd.value IN ('superseded_duplicate_projection', 'manual_claimed_card_no_raw', 'rejected_legacy_projection')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_classification_decisions pr
+                  WHERE pr.target_type='payment'
+                    AND pr.target_id=payment_allocation_summary.payment_id
+                    AND pr.dimension='period_recognition'
+                    AND pr.value IN ('prepaid_future_trip', 'settlement_pending')
+              )
+              AND difference_krw <> 0
             """,
             ids,
         )
@@ -1413,7 +2065,33 @@ def validation_report(
         allocation_total = scalar(db, "SELECT COALESCE(SUM(amount_krw), 0) FROM current_cost_allocations")
         mismatches = scalar(
             db,
-            "SELECT COUNT(*) FROM payment_allocation_summary WHERE difference_krw <> 0",
+            """
+            SELECT COUNT(*) FROM payment_allocation_summary
+            WHERE NOT EXISTS (
+                SELECT 1 FROM authorization_holds h
+                WHERE h.hold_payment_id=payment_allocation_summary.payment_id
+            )
+              AND NOT EXISTS (
+                  SELECT 1 FROM authorization_holds h
+                  WHERE h.related_payment_id=payment_allocation_summary.payment_id
+                    AND h.hold_status='released'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_classification_decisions sd
+                  WHERE sd.target_type='payment'
+                    AND sd.target_id=payment_allocation_summary.payment_id
+                    AND sd.dimension='source_event_disposition'
+                    AND sd.value IN ('superseded_duplicate_projection', 'manual_claimed_card_no_raw', 'rejected_legacy_projection')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM current_classification_decisions pr
+                  WHERE pr.target_type='payment'
+                    AND pr.target_id=payment_allocation_summary.payment_id
+                    AND pr.dimension='period_recognition'
+                    AND pr.value IN ('prepaid_future_trip', 'settlement_pending')
+              )
+              AND difference_krw <> 0
+            """,
         )
 
     report: dict[str, int | bool] = {
@@ -2156,7 +2834,7 @@ def apply_p1_confidence_rules(db: sqlite3.Connection) -> dict[str, int]:
     """상 신뢰도와 불확실 문구가 충돌하는 legacy 판정을 버전으로 정리한다."""
     rows = db.execute(
         """
-        SELECT d.*, p.external_key
+        SELECT d.*, p.external_key, p.merchant
         FROM current_classification_decisions d
         JOIN payment_transactions p
           ON d.target_type='payment' AND d.target_id=p.id
@@ -2167,20 +2845,107 @@ def apply_p1_confidence_rules(db: sqlite3.Connection) -> dict[str, int]:
               OR d.rationale LIKE '%불명%'
               OR d.rationale LIKE '%확인 필요%'
               OR d.rationale LIKE '%확인要%'
+              OR (
+                  d.rule_id='legacy_v14_import'
+                  AND d.dimension IN (
+                      'allocation_target', 'expense_type', 'cost_nature',
+                      'period_recognition'
+                  )
+              )
           )
         ORDER BY d.target_id, d.dimension
         """
     ).fetchall()
     confirmed_payments: set[int] = set()
     downgraded_payments: set[int] = set()
+    unverified_booking_payments = {
+        int(row[0])
+        for row in db.execute(
+            """
+            SELECT target_id
+            FROM current_classification_decisions
+            WHERE target_type='payment'
+              AND dimension='booking_reference_status'
+              AND value='unverified_booking_ref'
+            """
+        ).fetchall()
+    }
+    # Legacy rationale text (including "Gmail confirmed", titles and booking
+    # numbers) is not evidence by itself.  Only a persisted, direct-evidence
+    # match group with all four verification dimensions may retain a strong
+    # travel classification through this cleanup pass.
+    structurally_verified_payments: set[int] = set()
+    strong_groups = db.execute(
+        "SELECT id FROM match_groups WHERE status='confirmed_strong'"
+    ).fetchall()
+    for group in strong_groups:
+        group_id = int(group["id"])
+        payment_rows = db.execute(
+            """
+            SELECT p.id, p.source_event_id
+            FROM match_group_payments gp
+            JOIN payment_transactions p ON p.id=gp.payment_id
+            WHERE gp.group_id=?
+            """,
+            (group_id,),
+        ).fetchall()
+        signal_rows = []
+        for signal in db.execute(
+            """
+            SELECT signal_name, signal_status, left_value, right_value,
+                   source_event_id, evidence_json
+            FROM match_signal_results WHERE group_id=?
+            """,
+            (group_id,),
+        ).fetchall():
+            try:
+                evidence = json.loads(str(signal["evidence_json"] or "[]"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                evidence = []
+            signal_rows.append(
+                {
+                    "name": signal["signal_name"],
+                    "status": signal["signal_status"],
+                    "left": signal["left_value"],
+                    "right": signal["right_value"],
+                    "source_event_id": signal["source_event_id"],
+                    "evidence": evidence,
+                }
+            )
+        dimensions = verification_dimensions(
+            card_source_event_ids=[row["source_event_id"] for row in payment_rows],
+            signal_rows=signal_rows,
+        )
+        if dimensions["strong_travel_classification_ready"]:
+            structurally_verified_payments.update(int(row["id"]) for row in payment_rows)
     changed = 0
     with db:
         for row in rows:
             rationale = str(row["rationale"] or "")
-            matched_rules = [
-                rule_id for rule_id, pattern in STRONG_EVIDENCE_RULES
-                if pattern.search(rationale)
-            ]
+            # Regex matches are retained in the rationale for review but are
+            # never sufficient to promote a classification.  In particular,
+            # a title keyword or booking_info value cannot create OTA/travel
+            # or period verification.
+            requires_direct_ota = _legacy_ota_or_pg_requires_direct_evidence(row)
+            if not requires_direct_ota and not UNCERTAIN_RATIONALE_RE.search(rationale):
+                # The query includes every high-confidence legacy
+                # classification dimension so OTA/PG conclusions can be
+                # gated.  Other legacy conclusions remain untouched here
+                # unless they already meet the uncertainty-cleanup rule.
+                continue
+            matched_rules = (
+                ["direct_card+ota+travel+period"]
+                if (
+                    requires_direct_ota
+                    and int(row["target_id"]) in structurally_verified_payments
+                )
+                else []
+            )
+            if int(row["target_id"]) in unverified_booking_payments:
+                # A booking number that appears only in a note cannot turn a
+                # tentative rationale into a strong confirmation.  The
+                # dedicated status is written during import before P1 runs.
+                matched_rules = []
             if matched_rules:
                 confidence = 1.0
                 confidence_label = "상"
@@ -2243,7 +3008,18 @@ def resolve_hana_split_cancellations(db: sqlite3.Connection) -> dict[str, int]:
             refund.amount_krw AS refund_amount,
             original.approval_number,
             allocation.target_id,
-            allocation.booking_id,
+            CASE
+              WHEN allocation.booking_id IS NOT NULL
+               AND EXISTS (
+                    SELECT 1
+                    FROM current_payment_booking_links booking_link
+                    WHERE booking_link.payment_id=original.id
+                      AND booking_link.booking_id=allocation.booking_id
+                      AND booking_link.link_status='confirmed'
+               )
+              THEN allocation.booking_id
+              ELSE NULL
+            END AS booking_id,
             decision.id AS allocation_decision_id,
             decision.value AS allocation_code
         FROM payment_transactions original
@@ -2259,6 +3035,7 @@ def resolve_hana_split_cancellations(db: sqlite3.Connection) -> dict[str, int]:
           ON decision.target_type='payment'
          AND decision.target_id=original.id
          AND decision.dimension='allocation_target'
+         AND decision.decision_status='confirmed'
         WHERE original.amount_krw=0
           AND original.approval_number IS NOT NULL
           AND original.approval_number<>''
@@ -2351,6 +3128,7 @@ def resolve_hana_split_cancellations(db: sqlite3.Connection) -> dict[str, int]:
                 FROM current_classification_decisions
                 WHERE target_type='payment'
                   AND target_id=?
+                  AND decision_status='confirmed'
                   AND dimension IN (
                       'expense_type', 'cost_nature', 'vat_treatment'
                   )
@@ -2984,6 +3762,8 @@ def print_stats(stats: ImportStats) -> None:
 
 
 def cli(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -3046,6 +3826,45 @@ def cli(argv: list[str] | None = None) -> int:
         "apply-p5-quality-audit",
         help="저신뢰·0원 결제의 비용인식과 자동전기 게이트를 감사합니다.",
     )
+    sub.add_parser(
+        "coverage-report",
+        help="카드 이벤트 전수원장과 최종 배분의 무손실 상태를 검사합니다.",
+    )
+    recognize_prepaid = sub.add_parser(
+        "recognize-prepaid-services",
+        help="서비스 시작일이 도래한 선급 여행비를 해당 서비스 기간의 배분으로 복원합니다.",
+    )
+    recognize_prepaid.add_argument(
+        "--through-on",
+        required=True,
+        help="이 날짜까지 시작한 서비스만 인식합니다 (YYYY-MM-DD).",
+    )
+    close = sub.add_parser(
+        "close-period",
+        help="미배정·미연결 환불·순액 근거 부족이 없는지 마감 게이트를 실행합니다.",
+    )
+    close.add_argument("--run-id", required=True)
+    match_group = sub.add_parser(
+        "upsert-match-group",
+        help="OTA/카드 관계그룹과 신호를 기록합니다. 확정은 record-decision을 사용합니다.",
+    )
+    match_group.add_argument("--group-key", required=True)
+    match_group.add_argument("--provider", default="")
+    match_group.add_argument("--status", default="proposed")
+    match_group.add_argument("--confidence", type=float, default=0.0)
+    match_group.add_argument("--rationale", default="")
+    match_group.add_argument("--payment-ids-json", default="[]")
+    match_group.add_argument("--booking-ids-json", default="[]")
+    match_group.add_argument("--signals-json", default="[]")
+    decision = sub.add_parser("record-decision", help="OTA/카드 매칭 대표 판정을 append-only로 기록합니다.")
+    decision.add_argument("--decision-id", required=True)
+    decision.add_argument("--group-id", type=int, required=True)
+    decision.add_argument("--status", required=True)
+    decision.add_argument("--actor", required=True)
+    decision.add_argument("--reason-code", required=True)
+    decision.add_argument("--rationale", required=True)
+    decision.add_argument("--evidence-json", default="[]")
+    decision.add_argument("--supersedes")
     direct = sub.add_parser(
         "import-direct-sources",
         help="카드 RAW·수기장부·OTA 구조화 인덱스를 source 계층에 직접 적재합니다.",
@@ -3053,8 +3872,19 @@ def cli(argv: list[str] | None = None) -> int:
     direct.add_argument("--ledger-dir", type=Path, default=LEDGER_DIR)
     direct.add_argument("--manual", type=Path, default=LEDGER_DIR / "data" / "manual_v4.csv")
     direct.add_argument("--ota", type=Path, default=LEDGER_DIR / "data" / "ota_mail_index.json")
+    verify_claims = sub.add_parser(
+        "verify-review-claims",
+        help="검토 큐의 수기·메일 부재 및 별도 미배정 주장을 원천자료로 재검증합니다.",
+    )
+    verify_claims.add_argument("--classified", type=Path, default=DEFAULT_CSV)
+    verify_claims.add_argument("--manual", type=Path, default=LEDGER_DIR / "data" / "manual_v4.csv")
+    verify_claims.add_argument("--ota", type=Path, default=LEDGER_DIR / "data" / "ota_mail_index.json")
 
     args = parser.parse_args(argv)
+    if args.command == "verify-review-claims":
+        result = verify_review_claims(args.classified, args.manual, args.ota)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["passed"] else 1
     if args.command == "record-change":
         event = json.loads(args.event.read_text(encoding="utf-8"))
         result = append_change_event(args.log, event)
@@ -3141,6 +3971,107 @@ def cli(argv: list[str] | None = None) -> int:
                     indent=2,
                 )
             )
+            return 0
+        if args.command == "coverage-report":
+            initialize(db)
+            report = coverage_report(db)
+            print(json.dumps(report.__dict__ | {"lossless": report.lossless}, ensure_ascii=False, indent=2))
+            return 0 if report.lossless else 1
+        if args.command == "recognize-prepaid-services":
+            initialize(db)
+            changed = recognize_prepaid_service_period(
+                db,
+                recognized_through_on=args.through_on,
+            )
+            db.commit()
+            print(json.dumps({"recognized_payments": changed}, ensure_ascii=False, indent=2))
+            return 0
+        if args.command == "close-period":
+            initialize(db)
+            source_claims = verify_review_claims(
+                DEFAULT_CSV,
+                LEDGER_DIR / "data" / "manual_v4.csv",
+                LEDGER_DIR / "data" / "ota_mail_index.json",
+            )
+            if not source_claims["passed"]:
+                print(
+                    json.dumps(
+                        {
+                            "passed": False,
+                            "gates": {
+                                "review_claims_evidence_consistent": source_claims
+                            },
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 1
+            try:
+                result = close_period(
+                    db,
+                    args.run_id,
+                    require_tax_evidence=True,
+                )
+            except PeriodCloseBlocked as exc:
+                print(json.dumps({"passed": False, "gates": exc.gates}, ensure_ascii=False, indent=2, default=str))
+                return 1
+            print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+            return 0
+        if args.command == "upsert-match-group":
+            initialize(db)
+            if args.status in {"confirmed_strong", "confirmed_manual"}:
+                raise ValueError(
+                    "운영 CLI의 확정 상태는 append-only 판정 이력을 남기도록 "
+                    "`record-decision`으로 기록해야 합니다."
+                )
+            existing_group = db.execute(
+                """
+                SELECT status
+                FROM current_match_group_projection
+                WHERE group_key=?
+                """,
+                (args.group_key,),
+            ).fetchone()
+            if (
+                existing_group is not None
+                and existing_group["status"]
+                in {"confirmed_strong", "confirmed_manual"}
+            ):
+                raise ValueError(
+                    "이미 확정된 그룹의 신호를 upsert로 덮어쓸 수 없습니다. "
+                    "새 그룹 또는 명시적 후속 판정을 사용해야 합니다."
+                )
+            group_id = create_match_group(
+                db,
+                args.group_key,
+                provider=args.provider,
+                status=args.status,
+                confidence=args.confidence,
+                rationale=args.rationale,
+                payment_ids=json.loads(args.payment_ids_json),
+                booking_ids=json.loads(args.booking_ids_json),
+                signals=json.loads(args.signals_json),
+            )
+            db.commit()
+            print(
+                json.dumps(
+                    {"group_id": group_id, "group_key": args.group_key},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        if args.command == "record-decision":
+            initialize(db)
+            created = record_match_decision(
+                db, args.decision_id, args.group_id, status=args.status,
+                actor=args.actor, reason_code=args.reason_code,
+                rationale=args.rationale, evidence=json.loads(args.evidence_json),
+                supersedes=args.supersedes,
+            )
+            db.commit()
+            print(json.dumps({"decision_id": args.decision_id, "created": created}, ensure_ascii=False, indent=2))
             return 0
         if args.command == "import-direct-sources":
             initialize(db)

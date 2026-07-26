@@ -13,6 +13,10 @@ def load(f):
     wb=openpyxl.load_workbook('newcard/conv/%s.xlsx'%f,read_only=True); ws=wb[wb.sheetnames[0]]
     return [[('' if c is None else str(c)) for c in r] for r in ws.iter_rows(values_only=True)]
 
+def is_cancel_status(value):
+    text=str(value or '').replace(' ', '')
+    return '취소' in text or '리버설' in text or 'REVERSAL' in text.upper()
+
 def build_cards():
     cards=[]
     # 국민국내 F: 승인일1 카드5 가맹7 업종8 승인금11 부가세12 승인번호15 상태16 매입일0
@@ -29,16 +33,17 @@ def build_cards():
         if len(r)>16 and i(r[16]):
             cards.append(dict(co='국민',src='KBO',raw_record_id=f'E:{row_number}',c4=r[4][-4:],appr='',orig='',
                 use=d10(r[1]) or d10(r[0]),bill=d10(r[0]),mer=r[7],uptype='해외',krw=i(r[16]),vat=0,
-                cur=r[10],fx=r[11],sub='해외',cancel=(r[6]=='취소매출'),status=r[6]))
+                cur=r[10],fx=r[11],sub='해외',cancel=is_cancel_status(r[6]),status=r[6]))
     # 하나 G/H: 이용일1 카드3 승인번호4 승인금5 승인취소6 가맹7 업종8 이용구분11 매입금14 매입일16 상태17 부가세18
     for f in ('G','H'):
         for row_number, r in enumerate(load(f)[6:], start=7):
             if len(r)>17 and r[0] and r[0]!='NO' and i(r[5]):
                 gu='해외' if '해외' in (r[11] or '') else '국내'
+                cancel_amount=i(r[6]) or (-abs(i(r[15])) if i(r[15]) else 0)
                 cards.append(dict(co='하나',src='HAN',raw_record_id=f'{f}:{row_number}',c4=r[3][-4:],appr=re.sub(r'\D','',r[4]),orig=re.sub(r'\D','',r[4]),
                     use=d10(r[1]),bill=d10(r[16]),mer=r[7],uptype=r[8],krw=i(r[14]) or i(r[5]),
-                    approval_amount=i(r[5]),cancel_amount=i(r[6]),purchase_amount=i(r[14]),
-                    vat=i(r[18]),cur='KRW',fx=0,sub=gu,cancel=(i(r[6])!=0),status=r[17]))
+                    approval_amount=i(r[5]),cancel_amount=cancel_amount,purchase_amount=i(r[14]),
+                    vat=i(r[18]),cur='KRW',fx=0,sub=gu,cancel=bool(cancel_amount) or is_cancel_status(r[17]),status=r[17]))
     # 기업 A(헤더없음): 거래구분0 유형1 일시2 카드3 가맹5 금액6 외화7 승인번호13
     for row_number, r in enumerate(load('A_20260720'), start=1):
         if len(r)>13 and i(r[6]) and re.match(r'\d{4}-\d\d-\d\d',r[2] or ''):
