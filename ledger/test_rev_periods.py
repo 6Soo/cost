@@ -1,6 +1,6 @@
 import unittest
 
-from rev_periods import (
+from ledger.rev_periods import (
     fill_unique_item_periods,
     resolve_item_period,
     resolve_period,

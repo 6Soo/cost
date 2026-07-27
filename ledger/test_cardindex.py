@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-import cardindex
+from ledger import cardindex
 
 
 class BuildTripCardsTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class BuildTripCardsTests(unittest.TestCase):
             'merchant': '테스트 가맹점',
         }
 
-        with patch('cardindex.build_cards', return_value=[raw]):
+        with patch('ledger.cardindex.build_cards', return_value=[raw]):
             trip_cards = cardindex.build_trip_cards()
 
         self.assertEqual(trip_cards, [{**raw, 'amt': 12_345, 'cx': True}])

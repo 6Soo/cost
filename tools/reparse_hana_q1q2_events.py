@@ -21,7 +21,9 @@ import xlrd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DOWNLOAD = Path(r"D:\DownLoad")
+DOWNLOAD = Path(
+    os.environ.get("HANA_XLS_DIR", ROOT / "inputs" / "hana_q1q2")
+).expanduser().resolve()
 OUTDIR = ROOT / "outputs" / "hana_q1q2_revalidation"
 OUT_JSON = OUTDIR / "reparse_events.json"
 OUT_CSV = OUTDIR / "reparse_events_detail.csv"

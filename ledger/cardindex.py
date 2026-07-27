@@ -3,6 +3,9 @@
 각 카드결제를 승인번호·이용일·업종·청구금액·상태까지 정규화."""
 import openpyxl, re
 from collections import defaultdict
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
 
 def i(x):
     try: return int(round(float(str(x).replace(',','').replace('원','').strip())))
@@ -10,7 +13,7 @@ def i(x):
 def d10(s):
     m=re.search(r'(\d{4})[.\-](\d\d)[.\-](\d\d)',str(s)); return '%s-%s-%s'%(m.group(1),m.group(2),m.group(3)) if m else ''
 def load(f):
-    wb=openpyxl.load_workbook('newcard/conv/%s.xlsx'%f,read_only=True); ws=wb[wb.sheetnames[0]]
+    wb=openpyxl.load_workbook(BASE_DIR / 'newcard' / 'conv' / f'{f}.xlsx',read_only=True); ws=wb[wb.sheetnames[0]]
     return [[('' if c is None else str(c)) for c in r] for r in ws.iter_rows(values_only=True)]
 
 def build_cards():

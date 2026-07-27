@@ -17,10 +17,12 @@ from pathlib import Path
 import xlrd
 
 ROOT = Path(__file__).resolve().parents[1]
+INPUT_DIR = Path(
+    os.environ.get("HANA_XLS_DIR", ROOT / "inputs" / "hana_q1q2")
+).expanduser().resolve()
 INPUTS = [
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_3_2026_Q1Q2.xls"),
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_4_2026_Q1Q2.xls"),
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_5_2026_Q1Q2.xls"),
+    INPUT_DIR / f"주식회사 숲길여행_하나카드_해외_{index}_2026_Q1Q2.xls"
+    for index in range(3, 6)
 ]
 OUTDIR = ROOT / "outputs" / "hana_q1q2_parallel"
 DETAIL = OUTDIR / "files_3_5_detail.csv"

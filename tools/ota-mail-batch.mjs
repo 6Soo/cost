@@ -1,23 +1,32 @@
-import { pathToFileURL } from "node:url";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 
-const repoRoot = "D:\\OneDrive\\문서\\AX\\cost";
-const outputPath = `${repoRoot}\\ledger\\data\\ota_mail_index.json`;
-const sdkRoot =
-  "C:\\Users\\kkokk\\AppData\\Roaming\\npm\\node_modules\\@aaronsb\\google-workspace-mcp\\node_modules\\@modelcontextprotocol\\sdk\\dist\\esm";
-const { Client } = await import(pathToFileURL(`${sdkRoot}\\client\\index.js`).href);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outputPath = path.join(repoRoot, "ledger", "data", "ota_mail_index.json");
+const sdkRoot = process.env.GOOGLE_WORKSPACE_MCP_SDK_ROOT;
+if (!sdkRoot) {
+  throw new Error("GOOGLE_WORKSPACE_MCP_SDK_ROOT must point to @modelcontextprotocol/sdk/dist/esm");
+}
+const { Client } = await import(pathToFileURL(path.join(sdkRoot, "client", "index.js")).href);
 const { StdioClientTransport } = await import(
-  pathToFileURL(`${sdkRoot}\\client\\stdio.js`).href
+  pathToFileURL(path.join(sdkRoot, "client", "stdio.js")).href
 );
 const oauth = JSON.parse(
   await readFile(
-    "C:\\Users\\kkokk\\.codex\\google-workspace-mcp\\oauth_client.json",
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_FILE ??
+      path.join(
+        process.env.HOME ?? "",
+        ".codex",
+        "google-workspace-mcp",
+        "oauth_client.json",
+      ),
     "utf8",
   ),
 );
 const oauthClient = oauth.installed ?? oauth.web;
 const transport = new StdioClientTransport({
-  command: "C:\\Users\\kkokk\\AppData\\Roaming\\npm\\google-workspace-mcp.cmd",
+  command: process.env.GOOGLE_WORKSPACE_MCP_COMMAND ?? "google-workspace-mcp",
   env: {
     ...process.env,
     GOOGLE_CLIENT_ID: oauthClient.client_id,

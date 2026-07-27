@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 import csv
 import unittest
+from pathlib import Path
 
 
 class CardEventDedupRegressionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        with open("data/classified_v14.csv", encoding="utf-8") as f:
+        path = Path(__file__).resolve().parent / "data" / "classified_v14.csv"
+        with path.open(encoding="utf-8") as f:
             cls.rows = list(csv.DictReader(f))
 
     def rows_for(self, bucket, amount):

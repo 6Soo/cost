@@ -28,6 +28,13 @@ from ledger.domain.ledger_db import (
 class DomainLedgerIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        with DEFAULT_CSV.open(encoding="utf-8-sig", newline="") as stream:
+            source_rows = list(csv.DictReader(stream))
+        cls.expected_transactions = len(source_rows)
+        cls.expected_total_krw = sum(
+            round(float(row.get("krw") or 0))
+            for row in source_rows
+        )
         cls.tempdir = tempfile.TemporaryDirectory()
         cls.db_path = Path(cls.tempdir.name) / "ledger.db"
         cls.db = connect(cls.db_path)
@@ -41,10 +48,10 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
     def test_legacy_snapshot_preserves_count_and_total(self) -> None:
         report = validation_report(self.db)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["transactions"], 1705)
-        self.assertEqual(report["active_allocations"], 1705)
-        self.assertEqual(report["transaction_total_krw"], 310_719_899)
-        self.assertEqual(report["allocation_total_krw"], 310_719_899)
+        self.assertEqual(report["transactions"], self.expected_transactions)
+        self.assertEqual(report["active_allocations"], self.expected_transactions)
+        self.assertEqual(report["transaction_total_krw"], self.expected_total_krw)
+        self.assertEqual(report["allocation_total_krw"], self.expected_total_krw)
         self.assertEqual(report["allocation_mismatches"], 0)
 
     def test_import_is_idempotent_for_same_snapshot(self) -> None:
@@ -57,7 +64,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT COUNT(*) FROM payment_transactions").fetchone()[0],
-            1705,
+            self.expected_transactions,
         )
 
     def test_payment_fact_does_not_contain_classification_columns(self) -> None:

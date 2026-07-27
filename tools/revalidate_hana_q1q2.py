@@ -21,7 +21,9 @@ import openpyxl
 import xlrd
 
 ROOT = Path(__file__).resolve().parents[1]
-DOWNLOAD = Path(r"D:\DownLoad")
+DOWNLOAD = Path(
+    os.environ.get("HANA_XLS_DIR", ROOT / "inputs" / "hana_q1q2")
+).expanduser().resolve()
 INPUTS = sorted(DOWNLOAD.glob("*하나카드*해외_*_2026_Q1Q2.xls"))
 OUTDIR = ROOT / "outputs" / "hana_q1q2_revalidation"
 RESULT = OUTDIR / "rematch_result.json"
