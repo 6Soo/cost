@@ -6,7 +6,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-DIR = os.path.dirname(os.path.abspath(__file__))
+DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 os.chdir(DIR)
 
 HDR_FILL = PatternFill('solid', fgColor='1F4E5F')
@@ -103,10 +103,14 @@ try:
 except FileNotFoundError:
     TRIP_FLIGHT = {}
 
-# 수기장부 내용(desc) 사전 — 매칭건의 내용 열을 수기 표기('숙박_0405_0406')로 복원
-_MAN = list(csv.DictReader(open('manual_v3.csv', encoding='utf-8')))
+# 수기장부 내용(desc) 사전 — 거래분류 입력과 분리된 표시용 기간 승계본을 우선 사용한다.
+_manual_desc_file = 'manual_periods.csv' if os.path.exists('manual_periods.csv') else 'manual_v3.csv'
+_MAN = list(csv.DictReader(open(_manual_desc_file, encoding='utf-8')))
 DESC_BY_BOOK = {}
 DESC_BY_TABAMT = defaultdict(set)
+DESC_BY_TABITEM = defaultdict(set)
+def _item_key(value):
+    return re.sub(r'[^A-Z0-9가-힣]', '', (value or '').upper())
 for _m in _MAN:
     _d = (_m['desc'] or '').strip()
     if not _d: continue
@@ -115,15 +119,47 @@ for _m in _MAN:
     try: _a = round(float(_m['amount']))
     except (TypeError, ValueError): continue
     DESC_BY_TABAMT[(_m['tab'], _a)].add(_d)
+    # 동일 탭·동일 OTA 숙소의 기간이 하나로 확인되면 예약번호별 누락에도 안전하게 승계한다.
+    if re.match(r'^(숙박|숙박비|료칸)_\d{4}(?:_\d{4})?', _d):
+        DESC_BY_TABITEM[(_m['tab'], _item_key(_m['item']))].add(_d)
+
+# OTA 메일 본문에서 직접 확인한 기간은 최신 표시값으로 예약번호에 연결한다.
+if os.path.exists('booking_periods_verified.json'):
+    for _bk, _info in json.load(open('booking_periods_verified.json', encoding='utf-8')).items():
+        _period = (_info.get('period') or '').strip()
+        _category = (_info.get('category') or '숙박').strip()
+        if _period:
+            DESC_BY_BOOK[_bk] = f'{_category}_{_period}'
 
 def ledger_desc(x):
     n = x.get('note') or ''
+    verified_period = re.search(
+        r'검증기간_?(숙박|항공|렌트|렌터카)_?(\d{4}(?:_\d{4})?)', n
+    )
+    if verified_period:
+        category = {'렌터카': '렌트'}.get(verified_period.group(1), verified_period.group(1))
+        return f'{category}_{verified_period.group(2)}'
+    # 수기 내용에 기간이 빠졌어도 OTA 항목명에 항공 일정이 명시된 경우 사용한다.
+    # 예: 트립닷컴_0417_0429 + 항공_이상희 -> 항공_0417_0429.
+    if x.get('account') == '항공료':
+        item_period = re.search(
+            r'(?:^|_)(\d{4})(?:_(\d{4}))?(?:_|$)', x.get('merchant') or ''
+        )
+        if item_period:
+            period = item_period.group(1)
+            if item_period.group(2):
+                period += '_' + item_period.group(2)
+            return '항공_' + period
     m = re.search(r'예약\s*([0-9]{6,19})', n)
     if m and m.group(1) in DESC_BY_BOOK: return DESC_BY_BOOK[m.group(1)]
     # 탭+금액 desc 조회는 수기 매칭이 확정된 건에만 (우연한 금액 일치로 남의 desc가 붙는 것 방지)
     if MATCHED.get(x['uid']) in ('matched', 'cancel'):
         ds = DESC_BY_TABAMT.get((x['bucket'], round(abs(x['krw_f']))))
         if ds and len(ds) == 1: return next(iter(ds))
+        if x['account'] == '숙박비':
+            item_periods = DESC_BY_TABITEM.get((x['bucket'], _item_key(x.get('merchant'))))
+            if item_periods and len(item_periods) == 1:
+                return next(iter(item_periods))
     if x['account'] == '숙박비':
         m2 = re.search(r'체크인\s*(\d{4})-(\d{2})-(\d{2})(?:\s*[~–]\s*(\d{4})-(\d{2})-(\d{2}))?', n)
         if m2:
@@ -317,7 +353,11 @@ COL = {'거래일자': 2, '항목': 3, '내용': 4, '금액': 5, '증빙유형':
 LAST_COL = 12
 ISSUER = {'KBD': '국민', 'KBO': '국민', 'HAN': '하나', 'CORP': '기업', 'MAN': '영수증'}
 def evid_col(x):
-    # 증빙유형 간소화(사용자 2026-07-22): 카드번호 병기 폐기 — 국민/하나/기업/영수증.
+    # 비카드 수기건은 원장에 확정된 증빙유형(이체/현금/영수증)을 그대로 보존한다.
+    # MAN을 일괄 '영수증'으로 덮으면 이체가 영수증으로 오분류된다.
+    if x['src'] == 'MAN' and str(x.get('extra') or '').strip():
+        return str(x['extra']).strip()
+    # 카드건 증빙유형 간소화: 카드번호 병기 폐기 — 국민/하나/기업.
     return ISSUER.get(x['src'], '') or re.sub(r'\.0$','',str(x.get('card4') or ''))
 TAB_TOTALS = []   # (시트명, 합계행) — 검증 시트가 함수로 참조
 def detail_sheet(title, xs):

@@ -2,16 +2,13 @@
 """여행(실체) 기준 재구성: 기존 워크북(classified_v12, 카드검증 완료) +
 수기장부(여행 마스터) 미포함건을 카드매칭으로 추가 → classified_v13.
 금액은 카드 우선(rule A1), 탭·성격은 수기. 비카드는 증빙유형 표기."""
-import openpyxl, csv, re
+import csv, re, sys
 from collections import Counter, defaultdict
+from cardindex import build_trip_cards
 
 def i(x):
     try: return int(round(float(str(x).replace(',','').replace('원','').strip())))
     except: return 0
-def load(f):
-    wb=openpyxl.load_workbook('newcard/conv/%s.xlsx'%f,read_only=True); ws=wb[wb.sheetnames[0]]
-    return [[('' if c is None else str(c)) for c in r] for r in ws.iter_rows(values_only=True)]
-
 def d10(s):
     s=str(s).replace('.','-')
     m=re.search(r'(\d{2,4})-(\d{2})-(\d{2})',s)
@@ -20,24 +17,8 @@ def d10(s):
     return '%s-%s-%s'%(y,m.group(2),m.group(3))
 
 # ---- 통합 카드 인덱스 (정상+취소, 금액→상세) ----
-cards=[]
-for r in load('E')[1:]:
-    if len(r)>16 and i(r[16]):
-        cards.append(dict(co='국민',use=d10(r[1]) or d10(r[0]),c4=r[4][-4:],amt=i(r[16]),mer=r[7],fx=r[11],cur=r[10],sub='해외',src='KBO',cx=(r[6]=='취소매출'),appr=''))
-for r in load('F')[1:]:
-    if len(r)>15 and i(r[11]):
-        _m=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r[15]).strip())
-        _ap,_og=(_m.group(1),_m.group(2)) if _m else (re.sub(r'\D','',r[15]),'')
-        cards.append(dict(co='국민',use=d10(r[1]),c4=r[5][-4:],amt=abs(i(r[11])),mer=r[7],fx='',cur='',sub='국내',src='KBD',cx=(i(r[11])<0),appr=_ap,orig=_og))
-for f in ('G','H'):
-    for r in load(f)[6:]:
-        if len(r)>14 and r[0] and r[0]!='NO' and i(r[5]):
-            gu='해외' if '해외' in (r[11] or '') else '국내'
-            cards.append(dict(co='하나',use=d10(r[1]),c4=r[3][-4:],amt=i(r[14]) or i(r[5]),mer=r[7],fx='',cur='',sub=gu,src='HAN',cx=(i(r[6])!=0),appr=re.sub(r'\D','',r[4])))
-for r in load('A_20260720'):
-    if len(r)>13 and i(r[6]):
-        gu='해외' if r[1].startswith('해외') else '국내'
-        cards.append(dict(co='기업',use=str(r[2])[:10],c4=r[3][-4:],amt=i(r[6]),mer=r[5],fx=(r[7] or '').split()[0] if r[7] else '',cur='JPY' if 'JPY' in (r[7] or '') else '',sub=gu,src='CORP',cx=(r[0]=='취소또는할인'),appr=re.sub(r'\D','',r[13])))
+# 카드사별 열 위치 해석은 cardindex.py 한 곳에서만 유지한다.
+cards=build_trip_cards()
 byamt=defaultdict(list)
 for c in cards: byamt[(c['amt'],c['cx'])].append(c)
 amts=sorted(set(a for a,_ in byamt))
@@ -246,6 +227,7 @@ _lost=[c for c in cards if id(c) not in _used_card and '2026-04-01'<=(c.get('use
 if _lost:
     print('⚠️ 대사 실패: Q2 승인 카드 %d건이 어디에도 편입 안 됨(누락):'%len(_lost))
     for c in _lost[:20]: print('   ', c['co'], c['use'], format(c['amt'],','), (c['mer'] or '')[:24])
+    sys.exit(1)
 else:
     print('✓ 대사 통과: 모든 Q2 승인 카드가 base·수기·여행_미배정에 편입(누락 0)')
 

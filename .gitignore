@@ -1,3 +1,10 @@
 .env
 __pycache__/
 *.pyc
+.omc/
+outputs/
+*.tmp
+
+# Local-only evidence and OAuth/session state. Transfer securely outside Git.
+ledger/data/ota_mail_index.json
+ledger/data/ota_checkpoints_agoda.db

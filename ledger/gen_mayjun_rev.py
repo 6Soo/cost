@@ -10,6 +10,13 @@
 import openpyxl, re, json, datetime
 from copy import copy
 from collections import defaultdict, Counter
+from rev_periods import (
+    fill_unique_item_periods,
+    load_verified_booking_periods,
+    resolve_item_period,
+    resolve_period,
+    split_content,
+)
 
 APRIL=['0501_부산','5월_유럽','0613_북해도','0616_레분토&리시리','0620_묘코','0625_아키타','0630_오제']
 TPL='매출자료 양식_rev'
@@ -83,18 +90,8 @@ def build_income(rows):
         done.add(key)
     return out
 
-def split_content(s):
-    s=str(s); cat_map={'렌터카':'렌트','료칸':'숙박'}
-    m=re.match(r'^(숙박|항공|렌터카|렌트|료칸)(?:_(.*))?$', s)
-    if not m:
-        return ('항공','') if s=='항공료' else (('숙박','') if s=='숙박비' else (s,''))
-    cat=cat_map.get(m.group(1), m.group(1)); rest=m.group(2) or ''
-    pm=re.match(r'^(\d{4}(?:_\d{4})?)(?:_(.*))?$', rest)
-    if pm: return (cat+('_'+pm.group(2) if pm.group(2) else '')), pm.group(1)
-    return (cat+('_'+rest if rest else '')), ''
-
 CASHLIKE={'현금/기타','현금','영수증','현지통화'}
-EVID=json.load(open('/tmp/mayjun_evid.json'))
+EVID=json.load(open('mayjun_evid.json', encoding='utf-8'))
 def evid_of(tab, evi, amt):
     e=re.sub(r'_\d{4}$','',str(evi or ''))
     if re.match(r'^\d+(\.0)?$', e):
@@ -105,8 +102,9 @@ def evid_of(tab, evi, amt):
     return e
 
 # ── 데이터 적재 ──
-inc_all=json.load(open('/tmp/mayjun_inc.json'))
+inc_all=json.load(open('mayjun_inc.json', encoding='utf-8'))
 wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v76.xlsx')
+VERIFIED_PERIODS=load_verified_booking_periods()
 def load_exp(tab):
     sv=wb68[tab]; out=[]
     for r in range(2,400):
@@ -116,9 +114,11 @@ def load_exp(tab):
         if isinstance(dt,str) and dt.startswith('▼'): continue   # 워크북 구분줄(병합/미입력 안내) — 장부엔 미포함
         if item is None and cont is None and amt is None: continue
         content,period=split_content(cont)
+        content,period=resolve_period(content, period, book, VERIFIED_PERIODS)
+        content,period=resolve_item_period(content, period, item)
         out.append((pdate(dt), str(item or '').strip(), content, period,
                     str(book or ''), evid_of(tab, evi, amt), amt))
-    return out
+    return fill_unique_item_periods(out)
 
 # ── 템플릿 로드 및 시트 생성 ──
 src=openpyxl.load_workbook('ledger_latest.xlsx', rich_text=True)

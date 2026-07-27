@@ -33,7 +33,7 @@ def build_cards():
     # 하나 G/H: 이용일1 카드3 승인번호4 승인금5 승인취소6 가맹7 업종8 이용구분11 매입금14 매입일16 상태17 부가세18
     for f in ('G','H'):
         for r in load(f)[6:]:
-            if len(r)>17 and r[0] and r[0]!='NO' and i(r[5]):
+            if len(r)>18 and r[0] and r[0]!='NO' and i(r[5]):
                 gu='해외' if '해외' in (r[11] or '') else '국내'
                 cards.append(dict(co='하나',src='HAN',c4=r[3][-4:],appr=re.sub(r'\D','',r[4]),orig=re.sub(r'\D','',r[4]),
                     use=d10(r[1]),bill=d10(r[16]),mer=r[7],uptype=r[8],krw=i(r[14]) or i(r[5]),
@@ -47,6 +47,24 @@ def build_cards():
                 cur='JPY' if 'JPY' in (r[7] or '') else '',fx=(r[7] or '').split()[0] if r[7] else 0,
                 sub=gu,cancel=(r[0]=='취소또는할인'),status=r[0]))
     return cards
+
+def build_trip_cards():
+    """Return the matching view consumed by the trip-first pipeline.
+
+    ``build_cards`` is the canonical raw-card parser.  The trip-first stage
+    needs two derived fields for its amount/sign matching.  Its deterministic
+    matcher has historically consumed 국민해외 rows before 국민국내 rows, so
+    retain that order while exposing the compatibility view from one parser.
+    """
+    source_order = {'KBO': 0, 'KBD': 1, 'HAN': 2, 'CORP': 3}
+    return [
+        {
+            **card,
+            'amt': abs(card['krw']),
+            'cx': card['cancel'],
+        }
+        for card in sorted(build_cards(), key=lambda card: source_order[card['src']])
+    ]
 
 # 업종명 → 계정 (카드사 업종 우선, 없으면 브랜드/desc)
 FOOD={'편의점','슈퍼마켓','슈퍼마켓.마트','한식','일식','일식전문점','중식','양식','음식','휴게음식','제과','커피','카페','유흥','food','restaurant'}

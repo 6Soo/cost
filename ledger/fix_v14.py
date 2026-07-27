@@ -34,7 +34,8 @@ FN=list(rows[0].keys())
 base=[r for r in rows if not r['uid'].startswith('TRIP-')]
 trip=[r for r in rows if r['uid'].startswith('TRIP-')]
 
-# ① TRIP 중복 제거(병합): base에 같은 여행탭+가맹점명+금액(±2%) 존재해야만 병합.
+# ① TRIP 중복 제거(병합): 승인번호가 있으면 동일 승인번호만 병합한다.
+#    승인번호가 없을 때도 같은 여행탭+가맹점명+정확금액이어야 하며, 근사금액만으로는 병합하지 않는다.
 #    ★사용자 지적 실사고(KBO-2665 vs TRIP-0023): 같은 호텔 다객실 예약이 금액까지 근접(102,958 vs 104,092, 1.3%차)해
 #    가맹+금액만으로 오매칭 → 실거래(TRIP-0023, 예약1694237901, 102,958)가 통째로 삭제되는 사고 발생.
 #    **양쪽 다 예약번호가 있는데 서로 다르면 절대 병합 금지**(예약번호 최우선 진실).
@@ -42,13 +43,22 @@ def mk(m): return re.sub(r'[^A-Z0-9가-힣]','',(m or '').upper())[:12]
 def bookno(note):
     m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})', note or '')
     return m.group(1) if m else ''
+def approval(row):
+    return re.sub(r'\D', '', row.get('appr') or '')
 base_by_bucket=defaultdict(list)
 for r in base: base_by_bucket[r['bucket']].append(r)
 merged=0; kept=[]; blocked_by_book=0
 for t in trip:
-    a=abs(i(t['krw'])); tm=mk(t['merchant']); tb=bookno(t['note']); dup=None
+    a=abs(i(t['krw'])); tm=mk(t['merchant']); tb=bookno(t['note']); ta=approval(t); dup=None
     for b in base_by_bucket[t['bucket']]:
-        if mk(b['merchant'])!=tm or abs(abs(i(b['krw']))-a)>max(2000,a*0.02): continue
+        if mk(b['merchant'])!=tm: continue
+        ba=approval(b)
+        # 카드 이벤트 식별자가 둘 다 있으면 같은 승인번호만 동일 거래다.
+        if ta and ba:
+            if ta!=ba: continue
+        elif abs(i(b['krw']))!=a:
+            # 승인번호가 한쪽이라도 없을 때 근사금액 병합 금지.
+            continue
         bb=bookno(b['note'])
         if tb and bb and tb!=bb: continue   # 예약번호 상충 → 다른 거래, 병합 금지
         dup=b; break
@@ -60,7 +70,7 @@ for t in trip:
         merged+=1
     else:
         kept.append(t)
-print('①TRIP중복→병합(가맹+금액+예약번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept))
+print('①TRIP중복→병합(승인번호 우선·정확금액·예약번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept))
 
 # ①B TRIP↔TRIP 수기 자체 중복입력 dedup (오제 등 in-progress 이중입력).
 #     같은 여행탭·같은 금액·같은 desc핵심(사람이름/예약)=중복. 정상 다건(묘코 다른사람 ×5)은 desc가 달라 보존.
@@ -72,9 +82,12 @@ def desc_core(note):
     d=re.sub(r'예약[A-Za-z0-9]+','',d)                              # 예약번호 제거
     d=re.sub(r'\d{4}_\d{4}|\d{6,}|\d{4}','',d)                     # 날짜·번호 제거
     return re.sub(r'[\s_]','',d)                                    # 공백 제거→사람이름 핵심
-def bookno_t(note):   # ★예약번호(다객실 동일가 유일 식별) — dedup 키에 포함해 다른 예약 오제거 방지
+def bookno_t(note):
+    # 예약번호는 결제·환불 그룹키일 뿐 거래 PK가 아니다.
+    # 동일 예약번호여도 승인번호가 다른 분할결제/부분환불은 모두 별도 이벤트로 보존한다.
     m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})(?![0-9])', note or '')
     return m.group(1) if m else ''
+card_exact=Counter((c['co'],abs(c['krw']),c['cancel']) for c in cards)
 seen_key=set(); kept2=[]; dd=0; ddtot=0
 for t in sorted(kept, key=lambda z:z['uid']):
     # ★영수증/현금/이체(MAN, 비카드)는 수기장부가 마스터(2026-07-23 사용자 확정 "영수증은 수기가 마스터"):
@@ -84,7 +97,10 @@ for t in sorted(kept, key=lambda z:z['uid']):
     core=desc_core(t['note']); a=abs(i(t['krw'])); cx=str(t.get('cancel')).lower() in ('true','1')
     bk=bookno_t(t['note'])
     key=(t['bucket'], a, cx, core, bk)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
-    if (core or bk) and key in seen_key:      # 동탭·동액·동일 사람+동일예약 = 진짜 중복입력만 제거
+    # 카드 원본이 있으면 여기서 선삭제하지 않고 아래 ①C가 원본 건수까지만 보존한다.
+    # 원본이 0건인 수기형 카드표기 행만 동일 키를 중복입력으로 제거한다.
+    co=CO.get(t['src'],'')
+    if key in seen_key and card_exact.get((co,a,cx),0)==0:
         dd+=1; ddtot+=i(t['krw']); continue
     seen_key.add(key); kept2.append(t)
 print('①B 수기 중복입력 dedup:', dd,'건 제거 (순액', format(ddtot,'+,'),')')
@@ -93,7 +109,6 @@ kept=kept2
 # ①C 카드 정확금액 초과 dedup: 카드건(국민/하나/기업) 중 (카드사,정확금액,취소)가 카드원본 건수 초과 → 제거.
 #    단 카드건수≥1일 때만(0이면 승인/청구 변형일 수 있어 보존). 정상 다건은 카드도 다건이라 보존.
 #    ★base 선소비: base가 이미 쓰는 슬롯을 tripseen에 미리 반영(부산 하나건 등 base⇄수기 매칭 완료건을 TRIP이 재추가하는 이중계상 방지).
-card_exact=Counter((c['co'],abs(c['krw']),c['cancel']) for c in cards)
 tripseen=Counter(); kept3=[]; dd2=0; dd2tot=0
 for b in base:
     bco=CO.get(b['src'],'')
@@ -153,7 +168,8 @@ for r in allrows:
 # ⑤(폐기, 엔진 재점검): 동액 기반 계정승계는 우연 동액 오승계 위험 — 승인번호 페어 승계(⑦f)로 대체됨
 print('⑤취소 계정승계: 폐기(⑦f 승인번호 페어로 대체)')
 
-# ⑥ 원거래 없는 취소 → 카드 원본에서 원거래(양수·동액·**동일 브랜드**) 찾아 양수행 추가(net-0 쌍)
+# ⑥ 원거래 없는 취소 → 카드 원본에서 원거래(양수·동액·**동일 브랜드**)를 찾되,
+#    찾지 못해도 취소/부분환불 이벤트는 절대 삭제하지 않고 '연결대기 환불'로 보존한다.
 #    사용자 지적: 트립닷컴↔마이트립은 별개회사인데 금액만으로 묶여 오매칭됨(ORIG-0003).
 #    브랜드 불일치 또는 후보 승인번호가 base에 이미 있으면(=기존 실거래 도용) 팬텀 생성 금지.
 def brand(m):
@@ -175,7 +191,7 @@ for r in allrows:
     if str(r.get('cancel')).lower() not in ('true','1') and i(r['krw'])>0:
         c=desc_core(r['note']) if r['uid'].startswith(('TRIP-','ORIG-')) else ''
         if c: pos_desc[(r['bucket'],c)].append(r)
-paired=[]; pn=0; drop_uids=set(); unresolved=[]; partial=0
+paired=[]; pn=0; unresolved=[]; partial=0
 for r in kept:
     if str(r.get('cancel')).lower() in ('true','1') and pos_key.get((r['bucket'],abs(i(r['krw']))),0)==0:
         rc=desc_core(r['note'])
@@ -185,8 +201,14 @@ for r in kept:
         cand=[c for c in cards if not c['cancel'] and abs(c['krw'])==a and c['co']==co]
         cand=[c for c in cand if brand(c['mer'])==rb and c['appr'] not in base_appr_used]  # ★브랜드일치+base비도용
         if not cand:
-            # 브랜드검증 원거래 못 찾음 → 국내12건 취소전표 선례와 동일하게 취소단독 방치 금지, 제외(양쪽 다 없던 걸로)
-            drop_uids.add(r['uid']); unresolved.append(r); continue
+            # 원거래 연결 실패는 삭제 사유가 아니다. 일부환불·과거결제·타카드 결제일 수 있으므로
+            # 불변 취소 이벤트로 남기고 이후 예약번호/원승인번호 대사를 기다린다.
+            unresolved.append(r)
+            r['confidence']='중'
+            marker='연결대기 환불(원거래 미확인·삭제금지)'
+            if marker not in (r['note'] or ''):
+                r['note']=((r['note'] or '')+' | '+marker).strip(' |')
+            continue
         tm=re.sub(r'[^A-Z0-9가-힣]','',(r['merchant'] or '').upper())[:5]
         best=next((c for c in cand if tm and tm in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper())), cand[0])
         pn+=1
@@ -199,10 +221,8 @@ for r in kept:
             tax_conf='상', appr=best['appr'], orig_appr='')
         r['orig_appr']=orow['appr']
         paired.append(orow)
-kept=[r for r in kept if r['uid'] not in drop_uids]
-allrows=[r for r in allrows if r['uid'] not in drop_uids]   # ★버그수정: allrows는 kept 갱신 전에 고정됐었음, 실제 반영
 print('⑥원거래 없는 취소', pn, '건 원거래 복원(브랜드일치) /', partial,'건 부분환불(원거래 다른금액 존재→차감유지)')
-print('   브랜드검증 실패(원거래 불확실) →', len(unresolved),'건 양쪽 제외(국내12건 선례와 일관):', [(u['uid'],u['merchant'][:14],u['krw']) for u in unresolved])
+print('   원거래 연결 실패 →', len(unresolved),'건 연결대기 환불로 보존:', [(u['uid'],u['merchant'][:14],u['krw']) for u in unresolved])
 allrows=allrows+paired
 
 # ⑦ 나머지 안전 교정 (에이전트 감사 반영)
