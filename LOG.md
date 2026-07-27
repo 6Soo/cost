@@ -348,3 +348,30 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
 - 회귀검증은 최신 핵심 P0/OTA/환불/계보/워크북 대상 103건이 통과했다. 변경 중간시점의
   전체 Python 도메인 테스트도 250건 통과했으며, 최신 변경분은 103건으로 다시 검증했다.
   JavaScript 런타임이 없어 `.cjs` 테스트는 실행하지 못했다.
+
+---
+
+## 2026-07-28 세션 핸드오프 — Trip·Booking·Agoda 로그인 포털 병렬 수집
+
+- 로그인된 Chrome에서 Trip.com, Booking.com, Agoda를 공급자별 독립 작업·체크포인트로
+  병렬 조사했다. 인증코드·PIN·쿠키·비밀번호·승객명·주소·전화·전체 URL 토큰은 산출물에
+  저장하지 않았고, 전체 직접증빙 JSON의 금지 필드/URL·이메일 문자열 검사는 0건이었다.
+- Trip.com은 포털 예약 10건을 저장했다. 2건은 결제일까지 명시적으로 확인됐고 8건은
+  포털에 결제일이 없어 추정하지 않았다. `ota_checkpoints_trip.db`의 current 10건과
+  `trip_direct_browser_evidence.json` 10건이 일치하며 DB 무결성은 `ok`다.
+- Booking.com은 이메일 증빙 26건 중 포털 직접증빙 19건(73.1%)을 확보했다. 최초 13건은
+  정확일치 6건·JPY 표시금액 충돌 7건이고, 이메일 인증 후 추가한 6건은 결제일 충돌 5건·
+  결제상태 충돌 1건이다. 나머지 7건은 예약 소유권 인증 경로가 없어 미완료다.
+  JSON/DB current는 각각 19건이고 DB 무결성은 `ok`다.
+- Agoda는 기존 10건을 보존하면서 페이지별 append-only 샤드를 사용했다. 메인/페이지3/
+  페이지4/페이지3~5 목록/페이지4~5 상세 샤드의 current 234행을 예약번호 기준으로 병합해
+  메인 `agoda_direct_browser_evidence.json`과 `ota_checkpoints_agoda.db`를 고유 233건으로
+  통합했다. importer 필수필드 기준 complete 219건, incomplete 14건이며 DB 무결성은 `ok`다.
+  2페이지 마지막 5건은 `ERR_BLOCKED_BY_CLIENT`로 상세 미수집이다.
+- `ledger/tools/merge_ota_checkpoint_shards.py`를 추가했다. 공급자 샤드를 메인 DB에 append-only
+  병합하고 메인 JSON을 current 행으로 원자 재생성한다. 동일 입력 재실행 결과 신규 삽입 0건,
+  메인 current 233건으로 멱등성을 확인했다. 샤드 원본은 삭제하지 않았다.
+- `classified_v14.csv`와 기존 정본·워크북은 변경하지 않았다. OTA 결정 상태 546건 재산정과
+  비용 정본 반영은 이번 수집과 별도 단계다. Python 구문검사와 SQLite/JSON 독립 검증은
+  통과했으나 전체 `test_ota_checkpoint`는 실행 환경에 `openpyxl`이 없어 import 단계에서
+  중단됐다.
