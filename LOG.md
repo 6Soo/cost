@@ -304,3 +304,47 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
 - 최종 XLSX 재출력은 현재 세션에 필수 Artifact Tool 런타임이 없어 중단했다. 기존 XLSX를
   openpyxl로 다시 쓰지 않았으며, Artifact Tool이 제공되는 세션에서 정본 v14를 입력으로
   새 버전 파일을 만들고 전 시트 렌더·수식 오류 검사를 수행해야 한다.
+
+---
+
+## 2026-07-28 세션 핸드오프 — 무손실 재개·P0 릴리스 게이트·OTA 의미 교정
+
+- 승인 정본 `classified_v14.csv`를 P0 기준선으로 동결했다. 기준은 1,835행,
+  320,055,642원, SHA-256
+  `187cd7b7a7dfed48c1eda11ecf258229920ab7c9a8ecec1d5a4a7b680a3a403e`이며,
+  `ledger/baselines/p0_current_canonical_20260728/manifest.json`에 원천별·버킷별·환불
+  census와 필수 입력 해시를 기록했다. 구 v76 워크북과 2026-07-27 OTA 보고서는
+  `release_blocks.json`에서 배포 차단 상태다.
+- `build_v13_trip.py`→`fix_v14.py` 실제 재빌드를 별도 `/tmp` 후보로 수행했다.
+  결과는 1,552행·250,233,365원이었다. `patch_v14.py` 적용 후에도 기준 정본 대비
+  누락·추가·불변필드 변조가 있었고 254,845,973원으로 65,209,669원 부족했다.
+  P0 canonical reproduction gate가 이를 예외로 차단했고 최종 후보 파일은 쓰지 않았다.
+  기존 `ledger/data/classified_v14.csv`는 변경하지 않았다.
+- 모든 빌드 스크립트의 기본 출력을 `outputs/` 신규 버전 후보로 바꾸고 입력=출력 및 기존
+  파일 덮어쓰기를 금지했다. 환불/취소 원거래 선택은 복수 후보에서 첫 행을 고르지 않고
+  전체 양방향 1:1 고유 후보일 때만 연결하도록 공통 selector를 적용했다. 순차 처리 중 먼저
+  본 환불이 원거래를 소비하는 used-set 방식과 파생 버킷 우선 선택을 제거했다. 최종 P0 gate는
+  정본의 실제 SHA·바이트와 22개 사실/세무 필드를 확인하며 note/extra/confidence/tax_conf만
+  표시 보강 대상으로 허용한다.
+- OTA 보고는 `ota_event_links_verified.json` 포함 여부를 확정으로 승격하지 않는다.
+  append-only 현재 결정만 확정/충돌로 인정하며, 실제 충돌만 HOLD, 미처리·제안은 PENDING으로
+  분리한다. Booking과 Agoda 직접증빙 매처는 카드 원천의 공급자·통화·외화금액·카드끝4와
+  가용 결제일이 양방향 고유할 때만 강확정한다. 동일 `message_id` 중복 증빙은 동일 내용이면
+  1건으로 접고, 내용이 다르면 실패한다. 카드 이벤트 identity를 모두 후보에 포함해 반복금액
+  N:M 카드가 누락되지 않게 했다.
+- 최신 결정권위 보고서는 `outputs/20260728_decision_authoritative_review_v8/`이다.
+  OTA 546건 중 최종 확정 16건(Booking 14, Agoda 2), 실제 충돌 HOLD 9건(Booking),
+  PENDING 521건이다. 직접매처 자체는 적격증빙 31건을 확정 19 + 충돌 6 + 정확교차 없음
+  6으로 보존하며, 외화금액이 없는 Agoda 원화증빙 2건은 `ineligible_records`로 별도 표시한다.
+  동일 결제에 legacy 충돌과 직접확정이 병존한 3건은 보수적으로 HOLD가 우선하므로 최종 확정이
+  19→16건이다. 보고서는 schema 2, 코드/정본/검증링크 SHA provenance를 가지며 기존 경로는
+  `x` 모드로 덮어쓰지 않고 staging 디렉터리에서 완성한 뒤 원자적으로 발행한다. 상태는
+  `audit_only_blocked`로 명시해 완료된 릴리스로 오인하지 않게 했다.
+  따라서 과거 “확정 85/HOLD 461”은 결정 상태와 조사대기 상태를 섞은 수치로 폐기한다.
+- 워크북 소스는 요약에서 `전기예약_환불`을 포함하고 건수·금액의 범위를 일치시켰으며,
+  입력 SHA·행수·합계·커밋·생성시각 `_provenance` 시트를 추가했다. 출력은 v77 신규 후보만
+  허용한다. 다만 이 세션에는 Spreadsheet Skill이 요구하는 Artifact Tool 런타임이 없어
+  XLSX 생성·렌더·수식 오류 검증은 수행하지 않았고 기존 XLSX도 건드리지 않았다.
+- 회귀검증은 최신 핵심 P0/OTA/환불/계보/워크북 대상 103건이 통과했다. 변경 중간시점의
+  전체 Python 도메인 테스트도 250건 통과했으며, 최신 변경분은 103건으로 다시 검증했다.
+  JavaScript 런타임이 없어 `.cjs` 테스트는 실행하지 못했다.

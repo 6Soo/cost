@@ -250,6 +250,60 @@ class ReconciliationInvariantTest(unittest.TestCase):
             ).lastrowid
         )
 
+    def _agoda_portal_charge(
+        self,
+        message_id: str,
+        booking_number: str,
+        foreign_amount: str,
+        *,
+        card_last4: str = "8835",
+    ) -> dict[str, object]:
+        return {
+            "provider": "agoda",
+            "source_channel": "authenticated_booking_portal",
+            "message_id": message_id,
+            "booking_number": booking_number,
+            "product_type": "lodging",
+            "merchant": "Test Hotel",
+            "service_start_on": "2026-06-21",
+            "service_end_on": "2026-06-22",
+            "currency": "JPY",
+            "foreign_amount": foreign_amount,
+            "card_last4": card_last4,
+            "record_type": "charge",
+            "booking_confirmation_status": "confirmed",
+            "status": "completed",
+            "extraction_sources": ["authenticated_portal_dom"],
+        }
+
+    def _agoda_card_payment(
+        self,
+        key: str,
+        foreign_amount: str,
+        *,
+        card_last4: str = "8835",
+    ) -> int:
+        method_id = self.db.execute(
+            """
+            INSERT INTO payment_methods(method_key, issuer, last4)
+            VALUES (?, 'KBO', ?)
+            """,
+            (f"KBO:{card_last4}:{key}", card_last4),
+        ).lastrowid
+        return int(
+            self.db.execute(
+                """
+                INSERT INTO payment_transactions(
+                    external_key, source_event_id, identity_fingerprint,
+                    payment_method_id, source_system, occurred_on, merchant,
+                    currency, foreign_amount, amount_krw, transaction_type
+                ) VALUES (?, ?, ?, ?, 'KBO', '2026-06-20',
+                          'AGODA HOTEL', 'JPY', ?, 100000, 'purchase')
+                """,
+                (key, f"card:{key}", f"fp:{key}", method_id, foreign_amount),
+            ).lastrowid
+        )
+
     def test_direct_booking_payment_mail_confirms_only_unique_intersection(self) -> None:
         payment_id = self._booking_card_payment("KBO-UNIQUE", "63060")
         import_ota_records(
@@ -347,6 +401,158 @@ class ReconciliationInvariantTest(unittest.TestCase):
             "payments": 2,
             "bookings": 2,
         })
+
+    def test_direct_booking_conflict_keeps_all_legacy_identity_collisions(
+        self,
+    ) -> None:
+        payment_ids = [
+            self._booking_card_payment(f"KBO-LEGACY-REPEAT-{index}", "15510")
+            for index in range(2)
+        ]
+        for index, payment_id in enumerate(payment_ids):
+            self.db.execute(
+                "UPDATE payment_transactions SET source_event_id=? WHERE id=?",
+                (f"KBO-LEGACY-REPEAT-{index}", payment_id),
+            )
+            self.db.execute(
+                """
+                INSERT INTO card_event_identities(
+                    transaction_id, card_event_id, generator_version,
+                    identity_status, structural_payload_json
+                ) VALUES (?, 'card:shared-repeat', 'test-v1', 'collision', '{}')
+                """,
+                (payment_id,),
+            )
+        import_ota_records(
+            self.db,
+            [
+                self._booking_payment_mail(
+                    "mail-legacy-repeat-1", "6571773157", "15510"
+                ),
+                self._booking_payment_mail(
+                    "mail-legacy-repeat-2", "6851343288", "15510"
+                ),
+            ],
+        )
+        result = reconcile_direct_ota_payment_evidence(self.db)
+        self.assertEqual(result["confirmed_strong"], 0)
+        self.assertEqual(result["conflict_records"], 2)
+        group = self.db.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM match_group_payments
+                 WHERE group_id=g.group_id) AS payments,
+                (SELECT COUNT(*) FROM match_group_bookings
+                 WHERE group_id=g.group_id) AS bookings
+            FROM current_match_group_projection g
+            WHERE group_key LIKE 'booking-direct-conflict:%'
+            """
+        ).fetchone()
+        self.assertEqual(dict(group), {"payments": 2, "bookings": 2})
+
+    def test_direct_agoda_portal_confirms_only_unique_intersection(self) -> None:
+        payment_id = self._agoda_card_payment("KBO-AGODA-UNIQUE", "36499")
+        import_ota_records(
+            self.db,
+            [
+                self._agoda_portal_charge(
+                    "portal:agoda:unique",
+                    "1696845387",
+                    "36499",
+                )
+            ],
+        )
+        result = reconcile_direct_ota_payment_evidence(self.db)
+        self.assertEqual(result["by_provider"]["agoda"]["confirmed_strong"], 1)
+        row = self.db.execute(
+            """
+            SELECT g.status, g.provider, pbl.link_status
+            FROM current_match_group_projection g
+            JOIN match_group_payments mgp ON mgp.group_id=g.group_id
+            JOIN current_payment_booking_links pbl ON pbl.payment_id=mgp.payment_id
+            WHERE mgp.payment_id=?
+            """,
+            (payment_id,),
+        ).fetchone()
+        self.assertEqual(dict(row), {
+            "status": "confirmed_strong",
+            "provider": "agoda",
+            "link_status": "confirmed",
+        })
+
+    def test_direct_agoda_portal_keeps_repeated_amount_as_nm_conflict(self) -> None:
+        for index in range(2):
+            self._agoda_card_payment(f"KBO-AGODA-REPEAT-{index}", "59040")
+        import_ota_records(
+            self.db,
+            [
+                self._agoda_portal_charge(
+                    "portal:agoda:repeat-1", "1696836747", "59040"
+                ),
+                self._agoda_portal_charge(
+                    "portal:agoda:repeat-2", "1999257668", "59040"
+                ),
+            ],
+        )
+        result = reconcile_direct_ota_payment_evidence(self.db)
+        self.assertEqual(result["confirmed_strong"], 0)
+        self.assertEqual(result["by_provider"]["agoda"]["conflict_records"], 2)
+        group = self.db.execute(
+            """
+            SELECT status,
+                   (SELECT COUNT(*) FROM match_group_payments
+                    WHERE group_id=g.group_id) AS payments,
+                   (SELECT COUNT(*) FROM match_group_bookings
+                    WHERE group_id=g.group_id) AS bookings
+            FROM current_match_group_projection g
+            WHERE group_key LIKE 'agoda-direct-conflict:%'
+            """
+        ).fetchone()
+        self.assertEqual(dict(group), {
+            "status": "conflict",
+            "payments": 2,
+            "bookings": 2,
+        })
+
+    def test_agoda_without_date_requires_card_suffix(self) -> None:
+        self._agoda_card_payment("KBO-AGODA-NO-SUFFIX", "36499")
+        import_ota_records(
+            self.db,
+            [
+                self._agoda_portal_charge(
+                    "portal:agoda:no-suffix",
+                    "1696845387",
+                    "36499",
+                    card_last4="",
+                )
+            ],
+        )
+        result = reconcile_direct_ota_payment_evidence(self.db)
+        self.assertEqual(result["records"], 0)
+        self.assertEqual(result["confirmed_strong"], 0)
+        self.assertEqual(result["ineligible_records"], 1)
+        self.assertEqual(
+            result["ineligible_reasons"],
+            {"missing_date_and_card_suffix": 1},
+        )
+
+    def test_direct_charge_missing_foreign_amount_remains_visible(self) -> None:
+        evidence = self._agoda_portal_charge(
+            "portal:agoda:krw-only",
+            "1721755942",
+            "1",
+        )
+        evidence.pop("foreign_amount")
+        evidence["currency"] = "KRW"
+        evidence["booking_display_amount"] = "1034900"
+        import_ota_records(self.db, [evidence])
+        result = reconcile_direct_ota_payment_evidence(self.db)
+        self.assertEqual(result["records"], 0)
+        self.assertEqual(result["ineligible_records"], 1)
+        self.assertEqual(
+            result["ineligible_reasons"],
+            {"missing_foreign_amount": 1},
+        )
 
     def test_card_coverage_is_lossless_only_after_final_allocation(self) -> None:
         payment_id = self._payment("CARD-1", 10000)

@@ -19,6 +19,12 @@ from ledger.domain.ledger_db import (
     import_legacy,
     initialize,
 )
+from ledger.domain.ota_reporting import (
+    classify_payment_state,
+    current_payment_decision_states,
+    direct_evidence_inventory,
+)
+from ledger.domain.p0_release_guard import file_sha256, validate_frozen_stage
 
 
 def provider_of(row: dict[str, str]) -> str:
@@ -42,13 +48,15 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         "uid", "provider", "date", "merchant", "amount_krw", "bucket",
         "disposition", "reason_code",
     ]
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+    with path.open("x", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
 
 
 def build_report(output_dir: Path) -> dict[str, object]:
+    root = LEDGER_DIR.parent
+    input_gate = validate_frozen_stage(root, "ota_pending_report")
     classified = list(
         csv.DictReader(
             (LEDGER_DIR / "data" / "classified_v14.csv").open(
@@ -56,9 +64,6 @@ def build_report(output_dir: Path) -> dict[str, object]:
             )
         )
     )
-    verified_path = LEDGER_DIR / "data" / "ota_event_links_verified.json"
-    verified = json.loads(verified_path.read_text(encoding="utf-8"))
-
     with tempfile.TemporaryDirectory() as dirname:
         db = connect(Path(dirname) / "pending-review.db")
         try:
@@ -70,32 +75,8 @@ def build_report(output_dir: Path) -> dict[str, object]:
                 LEDGER_DIR / "data" / "manual_v4.csv",
                 LEDGER_DIR / "data" / "ota_mail_index.json",
             )
-            direct_confirmed = {
-                str(row["external_key"])
-                for row in db.execute(
-                    """
-                    SELECT DISTINCT payment.external_key
-                    FROM current_payment_booking_links link
-                    JOIN payment_transactions payment
-                      ON payment.id=link.payment_id
-                    WHERE link.link_status='confirmed'
-                    """
-                ).fetchall()
-            }
-            direct_conflicts = {
-                str(row["external_key"])
-                for row in db.execute(
-                    """
-                    SELECT DISTINCT payment.external_key
-                    FROM current_match_group_projection projection
-                    JOIN match_group_payments member
-                      ON member.group_id=projection.group_id
-                    JOIN payment_transactions payment
-                      ON payment.id=member.payment_id
-                    WHERE projection.status='conflict'
-                    """
-                ).fetchall()
-            }
+            decision_states = current_payment_decision_states(db)
+            evidence_inventory = direct_evidence_inventory(db)
         finally:
             db.close()
 
@@ -105,18 +86,7 @@ def build_report(output_dir: Path) -> dict[str, object]:
         if not provider:
             continue
         uid = row["uid"]
-        if uid in verified:
-            disposition = "confirmed_existing"
-            reason = "existing_verified_link"
-        elif uid in direct_confirmed:
-            disposition = "confirmed_direct"
-            reason = "unique_direct_payment_intersection"
-        elif uid in direct_conflicts:
-            disposition = "hold"
-            reason = "non_unique_repeated_amount"
-        else:
-            disposition = "hold"
-            reason = "no_unique_direct_evidence"
+        state = classify_payment_state(uid, provider, decision_states)
         rows.append(
             {
                 "uid": uid,
@@ -125,25 +95,35 @@ def build_report(output_dir: Path) -> dict[str, object]:
                 "merchant": row.get("merchant", ""),
                 "amount_krw": int(round(float(row.get("krw") or 0))),
                 "bucket": row.get("bucket", ""),
-                "disposition": disposition,
-                "reason_code": reason,
+                **state,
             }
         )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    write_csv(output_dir / "ota_dispositions.csv", rows)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        raise FileExistsError(f"기존 보고서를 덮어쓰지 않습니다: {output_dir}")
+    publish_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output_dir.name}.staging-",
+            dir=output_dir.parent,
+        )
+    )
+    write_csv(publish_dir / "ota_dispositions.csv", rows)
     counts = Counter(str(row["disposition"]) for row in rows)
+    state_counts = Counter(str(row["state"]) for row in rows)
     by_provider: dict[str, dict[str, int]] = {}
     for provider in sorted({str(row["provider"]) for row in rows}):
         provider_rows = [row for row in rows if row["provider"] == provider]
         provider_counts = Counter(
             str(row["disposition"]) for row in provider_rows
         )
+        provider_states = Counter(str(row["state"]) for row in provider_rows)
         by_provider[provider] = {
             "total": len(provider_rows),
-            "confirmed_existing": provider_counts["confirmed_existing"],
-            "confirmed_direct": provider_counts["confirmed_direct"],
+            "confirmed": provider_counts["confirmed"],
             "hold": provider_counts["hold"],
+            "pending": provider_counts["pending"],
+            "states": dict(sorted(provider_states.items())),
         }
 
     hana_holds = [
@@ -193,21 +173,35 @@ def build_report(output_dir: Path) -> dict[str, object]:
         },
     ]
     summary: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "release_status": "audit_only_blocked",
+        "provenance": {
+            "report_code_sha256": file_sha256(Path(__file__)),
+            "canonical_sha256": file_sha256(
+                LEDGER_DIR / "data" / "classified_v14.csv"
+            ),
+            "ota_verified_links_sha256": file_sha256(
+                LEDGER_DIR / "data" / "ota_event_links_verified.json"
+            ),
+        },
+        "input_gate": input_gate,
         "ota": {
             "total": len(rows),
-            "confirmed_existing": counts["confirmed_existing"],
-            "confirmed_direct": counts["confirmed_direct"],
+            "confirmed": counts["confirmed"],
             "hold": counts["hold"],
+            "pending": counts["pending"],
+            "states": dict(sorted(state_counts.items())),
             "by_provider": by_provider,
+            "direct_evidence_inventory": evidence_inventory,
             "direct_match_engine": import_result["direct_ota_matches"],
         },
         "hana_hold_count": len(hana_holds),
         "non_ota_resolved_count": len(non_ota),
         "rules": [
             "all card events retained",
-            "only unique direct intersections confirmed",
-            "N:M and missing evidence remain HOLD",
+            "only current append-only decisions can confirm a payment",
+            "legacy verified-link membership remains proposed or conflict",
+            "only actual conflicts remain HOLD; unprocessed rows remain pending",
             "refunds and cancellations remain independent events",
         ],
     }
@@ -216,10 +210,9 @@ def build_report(output_dir: Path) -> dict[str, object]:
         ("hana_holds.json", hana_holds),
         ("non_ota_resolved.json", non_ota),
     ):
-        (output_dir / name).write_text(
-            json.dumps(value, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        with (publish_dir / name).open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    publish_dir.replace(output_dir)
     return summary
 
 
@@ -228,7 +221,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/20260727_all_pending_review"),
+        default=Path("outputs/20260728_decision_authoritative_review_v8"),
     )
     args = parser.parse_args()
     print(json.dumps(build_report(args.output_dir), ensure_ascii=False, indent=2))

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -473,48 +473,113 @@ def _decimal_key(value: object) -> str:
 def reconcile_direct_ota_payment_evidence(
     db: sqlite3.Connection,
 ) -> dict[str, int]:
-    """Confirm only unique card↔OTA intersections from direct payment mail.
+    """Confirm only unique card↔OTA intersections from direct evidence.
 
-    The importer deliberately uses exact payment date, currency, foreign
-    amount and (when present) card suffix.  Repeated equal-amount components
-    become one durable N:M conflict group; records without a card-side
-    intersection become unmatched.  Neither case is guessed into a 1:1 link.
+    Booking mail requires exact payment date, currency, foreign amount and
+    (when present) card suffix.  Agoda authenticated evidence uses the same
+    exact dimensions, but a portal record without a payment date is eligible
+    only when currency, foreign amount and card suffix form a bidirectionally
+    unique intersection.  Repeated components remain durable N:M conflicts.
     """
     from .reconciliation import create_match_group, record_match_decision
 
-    direct_rows: list[dict[str, object]] = []
+    direct_by_message: dict[str, dict[str, object]] = {}
+    ineligible_by_message: dict[str, dict[str, object]] = {}
+
+    def evidence_identity(
+        row: Mapping[str, object],
+    ) -> tuple[str, ...]:
+        return (
+            str(row.get("_normalized_provider") or "").lower(),
+            str(row.get("booking_number") or "").strip(),
+            str(row.get("source_channel") or "").lower(),
+            str(row.get("payment_date") or "").strip(),
+            str(row.get("service_start_on") or "").strip(),
+            str(row.get("service_end_on") or "").strip(),
+            str(row.get("currency") or "").upper(),
+            _decimal_key(row.get("foreign_amount")),
+            str(
+                row.get("card4") or row.get("card_last4") or ""
+            ).strip(),
+            str(row.get("record_type") or "").lower(),
+            str(row.get("booking_confirmation_status") or "").lower(),
+            str(row.get("status") or "").lower(),
+        )
+
+    def store_unique(
+        target: dict[str, dict[str, object]],
+        payload: dict[str, object],
+    ) -> None:
+        message_id = str(payload["message_id"])
+        prior = target.get(message_id)
+        if prior is not None:
+            if evidence_identity(prior) != evidence_identity(payload):
+                raise RuntimeError(
+                    f"conflicting direct OTA evidence for message_id={message_id}"
+                )
+            return
+        target[message_id] = payload
+
     for source in db.execute(
         """
         SELECT id, source_key, payload_json
         FROM direct_source_records
-        WHERE source_kind='ota_mail'
+        WHERE source_kind IN ('ota_mail', 'ota_authenticated_portal')
         ORDER BY id
         """
     ).fetchall():
         payload = json.loads(source["payload_json"])
+        provider = _booking_provider(payload.get("provider"))
+        source_channel = str(payload.get("source_channel") or "").lower()
+        allowed_statuses = {"paid"} if provider == "booking.com" else {
+            "paid", "completed"
+        }
         if (
-            str(payload.get("provider") or "").lower() != "booking.com"
-            or str(payload.get("source_channel") or "").lower() != "mail"
+            provider not in {"booking.com", "agoda"}
+            or source_channel not in {"mail", "authenticated_booking_portal"}
             or str(payload.get("record_type") or "").lower() != "charge"
             or str(payload.get("booking_confirmation_status") or "").lower()
             != "confirmed"
-            or str(payload.get("status") or "").lower() != "paid"
+            or str(payload.get("status") or "").lower() not in allowed_statuses
             or not payload.get("message_id")
             or not payload.get("booking_number")
-            or not payload.get("payment_date")
-            or not payload.get("currency")
-            or not _decimal_key(payload.get("foreign_amount"))
         ):
             continue
+        payload["_normalized_provider"] = provider
         payload["_source_record_id"] = int(source["id"])
-        direct_rows.append(payload)
+        card_suffix = str(
+            payload.get("card4") or payload.get("card_last4") or ""
+        ).strip()
+        ineligible_reason = ""
+        if provider == "booking.com" and not payload.get("payment_date"):
+            ineligible_reason = "missing_payment_date"
+        elif not payload.get("currency"):
+            ineligible_reason = "missing_currency"
+        elif not _decimal_key(payload.get("foreign_amount")):
+            ineligible_reason = "missing_foreign_amount"
+        elif (
+            provider == "agoda"
+            and not payload.get("payment_date")
+            and not card_suffix
+        ):
+            ineligible_reason = "missing_date_and_card_suffix"
+        if ineligible_reason:
+            payload["_ineligible_reason"] = ineligible_reason
+            store_unique(ineligible_by_message, payload)
+            continue
+        store_unique(direct_by_message, payload)
+    direct_rows = list(direct_by_message.values())
 
     payments = [
         dict(row)
         for row in db.execute(
             """
             SELECT p.id, p.external_key,
-                   COALESCE(direct.card_event_id, p.source_event_id)
+                   COALESCE(
+                       direct.card_event_id,
+                       identity.card_event_id,
+                       p.source_event_id
+                   )
                      AS source_event_id,
                    p.occurred_on, p.merchant, p.currency, p.foreign_amount,
                    p.amount_krw, p.transaction_type, method.last4
@@ -524,11 +589,14 @@ def reconcile_direct_ota_payment_evidence(
             LEFT JOIN direct_normalized_payments direct
               ON direct.id=link.direct_payment_id
             LEFT JOIN payment_methods method ON method.id=p.payment_method_id
+            LEFT JOIN card_event_identities identity
+              ON identity.transaction_id=p.id
             WHERE p.amount_krw>0
               AND p.transaction_type='purchase'
               AND (
                   p.source_event_id LIKE 'card:%'
                   OR direct.card_event_id IS NOT NULL
+                  OR identity.card_event_id IS NOT NULL
               )
             ORDER BY p.id
             """
@@ -550,11 +618,14 @@ def reconcile_direct_ota_payment_evidence(
             merchant = re.sub(
                 r"[^0-9A-Z]", "", str(payment.get("merchant") or "").upper()
             )
-            if "BOOKINGCOM" not in merchant:
+            provider = str(evidence["_normalized_provider"])
+            merchant_token = (
+                "BOOKINGCOM" if provider == "booking.com" else "AGODA"
+            )
+            if merchant_token not in merchant:
                 continue
-            if str(payment.get("occurred_on") or "") != str(
-                evidence["payment_date"]
-            ):
+            payment_date = str(evidence.get("payment_date") or "")
+            if payment_date and str(payment.get("occurred_on") or "") != payment_date:
                 continue
             if str(payment.get("currency") or "").upper() != str(
                 evidence["currency"]
@@ -577,7 +648,53 @@ def reconcile_direct_ota_payment_evidence(
         "conflict_records": 0,
         "unmatched_records": 0,
         "booking_links": 0,
+        "ineligible_records": len(ineligible_by_message),
+        "ineligible_reasons": dict(
+            sorted(
+                Counter(
+                    str(row["_ineligible_reason"])
+                    for row in ineligible_by_message.values()
+                ).items()
+            )
+        ),
+        "by_provider": {},
     }
+    for provider in sorted(
+        {
+            str(row["_normalized_provider"])
+            for row in [
+                *direct_rows,
+                *ineligible_by_message.values(),
+            ]
+        }
+    ):
+        result["by_provider"][provider] = {
+            "records": sum(
+                str(row["_normalized_provider"]) == provider
+                for row in direct_rows
+            ),
+            "confirmed_strong": 0,
+            "conflict_records": 0,
+            "unmatched_records": 0,
+            "booking_links": 0,
+            "ineligible_records": sum(
+                str(row["_normalized_provider"]) == provider
+                for row in ineligible_by_message.values()
+            ),
+            "ineligible_reasons": dict(
+                sorted(
+                    Counter(
+                        str(row["_ineligible_reason"])
+                        for row in ineligible_by_message.values()
+                        if str(row["_normalized_provider"]) == provider
+                    ).items()
+                )
+            ),
+        }
+
+    def bump(provider: str, key: str, amount: int = 1) -> None:
+        result[key] += amount
+        result["by_provider"][provider][key] += amount
 
     def evidence_lineage(row: Mapping[str, object]) -> dict[str, object]:
         extraction_sources = row.get("extraction_sources")
@@ -586,12 +703,17 @@ def reconcile_direct_ota_payment_evidence(
             if isinstance(extraction_sources, list) and extraction_sources
             else "message_body"
         )
+        source_channel = str(row.get("source_channel") or "")
         return {
-            "source_type": "ota_mail",
-            "source_channel": "mail",
+            "source_type": (
+                "ota_authenticated_portal"
+                if source_channel == "authenticated_booking_portal"
+                else "ota_mail"
+            ),
+            "source_channel": source_channel,
             "message_id": str(row["message_id"]),
             "source_record_id": f"direct_source:{row['_source_record_id']}",
-            "provider": "booking.com",
+            "provider": str(row["_normalized_provider"]),
             "attachment_state": "not_applicable",
             "forwarded_state": "not_forwarded",
             "amount_currency_state": "resolved",
@@ -608,12 +730,13 @@ def reconcile_direct_ota_payment_evidence(
             continue
         evidence = evidence_by_message[message_id]
         payment = payment_by_id[payment_id]
+        provider = str(evidence["_normalized_provider"])
         booking = db.execute(
             """
             SELECT id FROM bookings
-            WHERE provider='booking.com' AND booking_number=?
+            WHERE provider=? AND booking_number=?
             """,
-            (str(evidence["booking_number"]),),
+            (provider, str(evidence["booking_number"])),
         ).fetchone()
         if booking is None:
             continue
@@ -629,7 +752,7 @@ def reconcile_direct_ota_payment_evidence(
                 "status": "match",
                 "left": left,
                 "right": right,
-                "rule_id": "booking-direct-payment-v1",
+                "rule_id": f"{provider}-direct-payment-v1",
                 "source_event_id": source_event_id,
                 "evidence": lineage,
             }
@@ -640,11 +763,8 @@ def reconcile_direct_ota_payment_evidence(
                 evidence["booking_number"],
                 evidence["booking_number"],
             ),
-            matched_signal("provider", "booking.com", "booking.com"),
+            matched_signal("provider", provider, provider),
             matched_signal("product_type", "lodging", "lodging"),
-            matched_signal(
-                "occurred_on", payment["occurred_on"], evidence["payment_date"]
-            ),
             matched_signal(
                 "currency", payment["currency"], evidence["currency"]
             ),
@@ -664,27 +784,36 @@ def reconcile_direct_ota_payment_evidence(
                 evidence["service_end_on"],
             ),
         ]
+        if evidence.get("payment_date"):
+            signals.append(
+                matched_signal(
+                    "occurred_on",
+                    payment["occurred_on"],
+                    evidence["payment_date"],
+                )
+            )
         card4 = str(
             evidence.get("card4") or evidence.get("card_last4") or ""
         ).strip()
         if card4:
             signals.append(matched_signal("card_suffix", payment["last4"], card4))
-        group_key = f"booking-direct:{message_id}"
+        provider_key = "booking" if provider == "booking.com" else provider
+        group_key = f"{provider_key}-direct:{message_id}"
         group_id = create_match_group(
             db,
             group_key,
-            provider="booking.com",
+            provider=provider,
             status="confirmed_strong",
             confidence=1.0,
             rationale=(
-                "Booking.com 결제완료 메일과 카드 원천의 결제일·통화·"
-                "외화금액·카드끝4 고유 교차"
+                f"{provider} 직접 결제증빙과 카드 원천의 통화·외화금액·"
+                "카드끝4 및 가용 결제일 고유 교차"
             ),
             payment_ids=[payment_id],
             booking_ids=[booking_id],
             signals=signals,
         )
-        decision_id = f"booking-direct-v1:{message_id}"
+        decision_id = f"{provider_key}-direct-v1:{message_id}"
         record_match_decision(
             db,
             decision_id,
@@ -693,7 +822,7 @@ def reconcile_direct_ota_payment_evidence(
             actor="direct_evidence_reconciler",
             reason_code="unique_direct_payment_intersection",
             rationale=(
-                "직접 결제메일의 예약번호와 카드 원천이 고유하게 교차한다."
+                "직접 결제증빙의 예약번호와 카드 원천이 고유하게 교차한다."
             ),
             evidence=lineage,
         )
@@ -709,8 +838,8 @@ def reconcile_direct_ota_payment_evidence(
             """,
             (payment_id, booking_id),
         )
-        result["booking_links"] += int(db.total_changes > before)
-        result["confirmed_strong"] += 1
+        bump(provider, "booking_links", int(db.total_changes > before))
+        bump(provider, "confirmed_strong")
         confirmed_messages.add(message_id)
 
     visited_messages: set[str] = set()
@@ -719,17 +848,19 @@ def reconcile_direct_ota_payment_evidence(
             continue
         if not start_payments:
             evidence = evidence_by_message[start_message]
+            provider = str(evidence["_normalized_provider"])
+            provider_key = "booking" if provider == "booking.com" else provider
             booking = db.execute(
                 """
                 SELECT id FROM bookings
-                WHERE provider='booking.com' AND booking_number=?
+                WHERE provider=? AND booking_number=?
                 """,
-                (str(evidence["booking_number"]),),
+                (provider, str(evidence["booking_number"])),
             ).fetchone()
             group_id = create_match_group(
                 db,
-                f"booking-direct-unmatched:{start_message}",
-                provider="booking.com",
+                f"{provider_key}-direct-unmatched:{start_message}",
+                provider=provider,
                 status="unmatched",
                 rationale="직접 결제메일과 정확히 교차하는 카드 외화 원천이 없음",
                 booking_ids=[int(booking["id"])] if booking else [],
@@ -739,14 +870,14 @@ def reconcile_direct_ota_payment_evidence(
                         "status": "match",
                         "left": evidence["booking_number"],
                         "right": evidence["booking_number"],
-                        "rule_id": "booking-direct-payment-v1",
+                        "rule_id": f"{provider}-direct-payment-v1",
                         "evidence": [evidence_lineage(evidence)],
                     }
                 ],
             )
             record_match_decision(
                 db,
-                f"booking-direct-unmatched-v1:{start_message}",
+                f"{provider_key}-direct-unmatched-v1:{start_message}",
                 group_id,
                 status="unmatched",
                 actor="direct_evidence_reconciler",
@@ -755,7 +886,7 @@ def reconcile_direct_ota_payment_evidence(
                 evidence=[evidence_lineage(evidence)],
             )
             visited_messages.add(start_message)
-            result["unmatched_records"] += 1
+            bump(provider, "unmatched_records")
             continue
 
         component_messages: set[str] = set()
@@ -778,15 +909,29 @@ def reconcile_direct_ota_payment_evidence(
                 component_payments.add(payment_id)
                 for message_id in reverse[payment_id]:
                     queue.append(("message", message_id))
+        component_providers = {
+            str(evidence_by_message[message_id]["_normalized_provider"])
+            for message_id in component_messages
+        }
+        if len(component_providers) != 1:
+            raise RuntimeError(
+                "direct OTA conflict component crossed providers: "
+                + ", ".join(sorted(component_providers))
+            )
+        provider = next(iter(component_providers))
+        provider_key = "booking" if provider == "booking.com" else provider
         booking_ids = [
             int(row["id"])
             for message_id in sorted(component_messages)
             for row in db.execute(
                 """
                 SELECT id FROM bookings
-                WHERE provider='booking.com' AND booking_number=?
+                WHERE provider=? AND booking_number=?
                 """,
-                (str(evidence_by_message[message_id]["booking_number"]),),
+                (
+                    provider,
+                    str(evidence_by_message[message_id]["booking_number"]),
+                ),
             ).fetchall()
         ]
         evidence_rows = [
@@ -798,8 +943,8 @@ def reconcile_direct_ota_payment_evidence(
         ).hexdigest()[:16]
         group_id = create_match_group(
             db,
-            f"booking-direct-conflict:{component_key}",
-            provider="booking.com",
+            f"{provider_key}-direct-conflict:{component_key}",
+            provider=provider,
             status="conflict",
             confidence=0.0,
             rationale="동일 결제일·통화·외화금액 카드와 예약이 N:M으로 반복됨",
@@ -810,7 +955,7 @@ def reconcile_direct_ota_payment_evidence(
         lineage = [evidence_lineage(row) for row in evidence_rows]
         record_match_decision(
             db,
-            f"booking-direct-conflict-v1:{component_key}",
+            f"{provider_key}-direct-conflict-v1:{component_key}",
             group_id,
             status="conflict",
             actor="direct_evidence_reconciler",
@@ -818,7 +963,7 @@ def reconcile_direct_ota_payment_evidence(
             rationale="승인시각 등 추가 식별자 없이는 반복금액을 1:1로 배정할 수 없다.",
             evidence=lineage,
         )
-        result["conflict_records"] += len(component_messages)
+        bump(provider, "conflict_records", len(component_messages))
     return result
 
 

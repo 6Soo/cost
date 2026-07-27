@@ -11,7 +11,12 @@
   · MAN-OZE-LODGE-3472049 3,472,049 모인 이체(오제산장 숙박비) — 0630_오제
   · KBO-2882 말라르 예약번호 노트 재부착(트립닷컴 1400826104587865, 582.18유로)
 """
-import csv, json, re
+import argparse, csv, hashlib, json, re
+from pathlib import Path
+from domain.p0_release_guard import (
+    validate_candidate_against_frozen_canonical,
+    validate_frozen_stage,
+)
 
 RESTORE={
     'MAN-FALAISE','MERC-342280','MERC-556929',
@@ -21,7 +26,28 @@ MALAR_NOTE=('⇄수기:HOTEL MALAR.VPC | 파리 7구 Hotel Malar 549EUR | '
             '예약1400826104587865(트립닷컴 말라르 6/7~10, 582.18유로=VPC객실+현장세금 합산)')
 KOMAGANE_BOOKING='1400824130566434'
 
-rows=list(csv.DictReader(open('data/classified_v14.csv',encoding='utf-8')))
+parser=argparse.ArgumentParser()
+parser.add_argument(
+    '--input',
+    type=Path,
+    required=True,
+    help='직전 fix_v14 후보 경로. 정본을 암묵적으로 다시 읽지 않습니다.',
+)
+parser.add_argument('--output',type=Path)
+args=parser.parse_args()
+input_bytes=args.input.read_bytes()
+input_sha=hashlib.sha256(input_bytes).hexdigest()
+output_path=args.output or (
+    Path('../outputs/20260728_pipeline_recovery')
+    / ('classified_v15_candidate_%s.csv'%input_sha[:8])
+)
+if output_path.resolve()==args.input.resolve():
+    raise RuntimeError('정본 인플레이스 덮어쓰기는 금지됩니다.')
+if output_path.exists():
+    raise FileExistsError('기존 후보를 덮어쓰지 않습니다: %s'%output_path)
+_input_gate=validate_frozen_stage(Path(__file__).resolve().parents[1],'canonical_rebuild')
+
+rows=list(csv.DictReader(args.input.open(encoding='utf-8')))
 FN=list(rows[0].keys())
 present={r['uid'] for r in rows}
 special=json.load(open('data/manual_special_rows.json',encoding='utf-8'))
@@ -85,11 +111,16 @@ for r in rows:
     if '전용진' in (r['merchant'] or '') and r['account'] in ('숙박비','기타비용') and float(str(r['krw']).replace(',','') or 0)>0:
         r['account']='가이드정산'; jy+=1
 
-with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
+_canonical_gate=validate_candidate_against_frozen_canonical(
+    Path(__file__).resolve().parents[1],
+    rows,
+)
+output_path.parent.mkdir(parents=True,exist_ok=True)
+with output_path.open('x',encoding='utf-8',newline='') as f:
     w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(rows)
 
 def i(x):
     try: return round(float(str(x).replace(',','') or 0))
     except: return 0
 tot=sum(i(r['krw']) for r in rows)
-print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, jy, len(rows), format(tot,',')))
+print('patch_v14: 입력 %s / 출력 %s / canonical_gate %s / 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(input_sha,output_path,_canonical_gate,added,mal,komagane,ota_enriched,jy,len(rows),format(tot,',')))

@@ -2,9 +2,15 @@
 """trip-first 교정: classified_v13 → v14.
 ①TRIP중복(base와 여행탭+가맹 동일) → 병합(TRIP행 제거, base에 병합표시)
 ②계정 업종 재분류(카드 대조)  ③빈 use_date 카드 이용일로 보완  ④취소 orig_appr 승인번호 페어링"""
-import csv, re, os, json, datetime, sys
+import csv, re, os, json, datetime, sys, hashlib
 from collections import defaultdict, Counter
+from pathlib import Path
 from cardindex import build_cards, account, i, d10
+from domain.candidate_selection import (
+    select_bidirectionally_unique_candidates,
+    select_unique_candidate,
+)
+from domain.p0_release_guard import validate_frozen_stage
 from domain.lineage_gates import (
     lineage_semantic_counts,
     require_protected_uids_preserved,
@@ -13,6 +19,26 @@ from domain.lineage_gates import (
 )
 
 DRY_RUN = '--dry-run' in sys.argv
+if '--input' not in sys.argv:
+    raise RuntimeError(
+        '--input은 필수입니다. build_v13 후보 경로를 명시해 단계 연결을 증명하세요.'
+    )
+def _option_path(flag, default):
+    try:
+        return Path(sys.argv[sys.argv.index(flag)+1])
+    except (ValueError, IndexError):
+        return Path(default)
+
+INPUT_PATH=_option_path('--input','data/classified_v13.csv')
+_input_sha=hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest()
+OUTPUT_PATH=_option_path(
+    '--output',
+    '../outputs/20260728_pipeline_recovery/classified_v14_candidate_%s.csv'
+    % _input_sha[:8],
+)
+if OUTPUT_PATH.resolve()==INPUT_PATH.resolve():
+    raise RuntimeError('입력 projection 인플레이스 덮어쓰기는 금지됩니다.')
+_input_gate=validate_frozen_stage(Path(__file__).resolve().parents[1],'canonical_rebuild')
 # Lossless policy: suspected duplicates remain visible and block review.  They
 # are never deleted merely because amount/merchant/description counts overlap.
 LOSSLESS_NO_DELETE = True
@@ -77,7 +103,7 @@ def validate_source_lineage(rows, label):
             raise RuntimeError('%s exact-group cardinality invalid: %s' % (label, group_id))
     return {str(r['source_event_id']): str(r['source_event_members']) for r in rows}
 
-rows=list(csv.DictReader(open('data/classified_v13.csv',encoding='utf-8')))
+rows=list(csv.DictReader(INPUT_PATH.open(encoding='utf-8')))
 v13_total=sum(i(r['krw']) for r in rows)
 FN=list(rows[0].keys())
 # A projection may reclassify an event, but it must never make an identified
@@ -235,7 +261,8 @@ for r in allrows:
     if str(r.get('cancel')).lower() not in ('true','1') and i(r['krw'])>0:
         c=desc_core(r['note']) if r['uid'].startswith(('TRIP-','ORIG-')) else ''
         if c: pos_desc[(r['bucket'],c)].append(r)
-paired=[]; pn=0; drop_uids=set(); unresolved=[]; partial=0
+paired=[]; pn=0; drop_uids=set(); unresolved=[]; ambiguous=[]; partial=0
+restoration_targets=[]
 for r in kept:
     if str(r.get('cancel')).lower() in ('true','1') and pos_key.get((r['bucket'],abs(i(r['krw']))),0)==0:
         rc=desc_core(r['note'])
@@ -243,36 +270,54 @@ for r in kept:
             partial+=1; continue   # 부분환불: 원거래(다른 금액 또는 그룹명단)가 이미 존재 → 손대지 않고 차감 유지
         if r['uid'].startswith('TRIP-'):
             partial+=1; continue   # 수기장부 마이너스 기입건: 정당한 수기 환불/취소 내역이므로 차감 유지
-        a=abs(i(r['krw'])); co=CO.get(r['src'],''); rb=brand(r['merchant'])
-        cand=[c for c in cards if not c['cancel'] and abs(c['krw'])==a and c['co']==co]
-        cand=[c for c in cand if brand(c['mer'])==rb and c['appr'] not in base_appr_used]  # ★브랜드일치+base비도용
-        if not cand:
-            # The missing original is a review problem, not authority to
-            # erase the cancellation source event.  Retain it in clearing so
-            # a later raw-card link can resolve the relation without losing
-            # the event or its amount.
-            unresolved.append(r)
-            r['bucket']='취소환불'
-            r['confidence']='하'
-            r['note']=((r.get('note') or '').strip(' |')
-                       + ' | 원거래 미확인: 취소환불 검토대기(원천 이벤트 보존)')
-            continue
-        tm=re.sub(r'[^A-Z0-9가-힣]','',(r['merchant'] or '').upper())[:5]
-        best=next((c for c in cand if tm and tm in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper())), cand[0])
-        pn+=1
-        orow={k:'' for k in FN}
-        orow.update(uid='ORIG-%04d'%pn, source_event_id='card:%s:%s' % (best['src'], best['raw_record_id']), source_event_members='%s:%s' % (best['src'], best['raw_record_id']), source_event_disposition='raw_card_linked', src=r['src'], use_date=best['use'], card4=r['card4'],
-            merchant=best['mer'], country=r['country'], currency=r['currency'], foreign='0', krw=str(a),
-            status='정상', bucket=r['bucket'], account=r['account'], cancel='False', cost_type='여행원가',
-            vat_tag=r['vat_tag'], confidence='상',
-            note='원거래 복원(취소쌍 net0, 브랜드일치확인) | %s'%(r['note'].split('|')[-1].strip() if '|' in r['note'] else ''),
-            tax_conf='상', appr=best['appr'], orig_appr='')
-        r['orig_appr']=orow['appr']
-        paired.append(orow)
+
+        restoration_targets.append(r)
+
+def _raw_original_candidates(r):
+    a=abs(i(r['krw'])); co=CO.get(r['src'],''); rb=brand(r['merchant'])
+    cand=[c for c in cards if not c['cancel'] and abs(c['krw'])==a and c['co']==co]
+    cand=[c for c in cand if brand(c['mer'])==rb and c['appr'] not in base_appr_used]  # ★브랜드일치+base비도용
+    return cand
+
+_restored_selected,_restored_statuses=select_bidirectionally_unique_candidates(
+    restoration_targets,
+    _raw_original_candidates,
+    candidate_key=lambda c: (c['src'],c['raw_record_id']),
+)
+for r in restoration_targets:
+    best=_restored_selected.get(id(r))
+    candidate_status=_restored_statuses[id(r)]
+    if best is None:
+        # The missing original is a review problem, not authority to
+        # erase the cancellation source event.  Retain it in clearing so
+        # a later raw-card link can resolve the relation without losing
+        # the event or its amount.
+        (ambiguous if candidate_status=='ambiguous' else unresolved).append(r)
+        r['bucket']='취소환불'
+        r['confidence']='하'
+        r['note']=((r.get('note') or '').strip(' |')
+                   + (
+                       ' | 원거래 복수후보: 자동연결 금지·취소환불 검토대기'
+                       if candidate_status=='ambiguous'
+                       else ' | 원거래 미확인: 취소환불 검토대기(원천 이벤트 보존)'
+                   ))
+        continue
+    pn+=1
+    a=abs(i(r['krw']))
+    orow={k:'' for k in FN}
+    orow.update(uid='ORIG-%04d'%pn, source_event_id='card:%s:%s' % (best['src'], best['raw_record_id']), source_event_members='%s:%s' % (best['src'], best['raw_record_id']), source_event_disposition='raw_card_linked', src=r['src'], use_date=best['use'], card4=r['card4'],
+        merchant=best['mer'], country=r['country'], currency=r['currency'], foreign='0', krw=str(a),
+        status='정상', bucket=r['bucket'], account=r['account'], cancel='False', cost_type='여행원가',
+        vat_tag=r['vat_tag'], confidence='상',
+        note='원거래 복원(취소쌍 net0, 브랜드일치확인) | %s'%(r['note'].split('|')[-1].strip() if '|' in r['note'] else ''),
+        tax_conf='상', appr=best['appr'], orig_appr='')
+    r['orig_appr']=orow['appr']
+    paired.append(orow)
 kept=[r for r in kept if r['uid'] not in drop_uids]
 allrows=[r for r in allrows if r['uid'] not in drop_uids]
 print('⑥원거래 없는 취소', pn, '건 원거래 복원(브랜드일치) /', partial,'건 부분환불(원거래 다른금액 존재→차감유지)')
 print('   브랜드검증 실패(원거래 불확실) →', len(unresolved),'건 취소환불 검토대기(원천 보존):', [(u['uid'],u['merchant'][:14],u['krw']) for u in unresolved])
+print('   원거래 복수후보 →', len(ambiguous),'건 자동연결 금지:', [(u['uid'],u['merchant'][:14],u['krw']) for u in ambiguous])
 allrows=allrows+paired
 
 # ⑦ 나머지 안전 교정 (에이전트 감사 반영)
@@ -348,19 +393,39 @@ for r in allrows:
 print('⑦ 계정교정',acc7,'/ vat정규화',vat7,'/ 버킷·플래그',buk7)
 
 # ⑦g base 취소행 승인번호 페어 보강: appr 비어있는 base 취소를 카드 취소전표(괄호 원승인)로 연결
-base_cx_fixed=0
-for r in allrows:
-    if not r['uid'].startswith(('TRIP-','ORIG-')) and i(r['krw'])<0 and not (r.get('orig_appr') or '').strip():
-        co=CO.get(r['src'],'')
-        if co!='국민' or r['src']!='KBD': continue
-        for c in cards:
-            if c.get('src')=='KBD' and c.get('cancel') and c.get('orig') and abs(c['krw'])==abs(i(r['krw'])):
-                if re.sub(r'[^A-Z0-9가-힣]','',(r['merchant'] or '').upper())[:5] in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper()):
-                    r['orig_appr']=c['orig']; r['appr']=(r['appr'] or c['appr']); base_cx_fixed+=1; break
-print('⑦g base 취소 승인번호 보강:', base_cx_fixed)
+base_cancellations=[
+    r for r in allrows
+    if not r['uid'].startswith(('TRIP-','ORIG-'))
+    and i(r['krw'])<0
+    and not (r.get('orig_appr') or '').strip()
+    and CO.get(r['src'],'')=='국민'
+    and r['src']=='KBD'
+]
+def _base_cancellation_candidates(r):
+    prefix=re.sub(r'[^A-Z0-9가-힣]','',(r['merchant'] or '').upper())[:5]
+    return [
+        c for c in cards
+        if c.get('src')=='KBD' and c.get('cancel') and c.get('orig')
+        and abs(c['krw'])==abs(i(r['krw']))
+        and prefix in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper())
+    ]
+_base_selected,_base_statuses=select_bidirectionally_unique_candidates(
+    base_cancellations,
+    _base_cancellation_candidates,
+    candidate_key=lambda c: (c['src'],c['raw_record_id']),
+)
+base_cx_fixed=0; base_cx_ambiguous=[]
+for r in base_cancellations:
+    c=_base_selected.get(id(r))
+    candidate_status=_base_statuses[id(r)]
+    if c is not None:
+        r['orig_appr']=c['orig']; r['appr']=(r['appr'] or c['appr']); base_cx_fixed+=1
+    elif candidate_status=='ambiguous':
+        base_cx_ambiguous.append(r['uid'])
+print('⑦g base 취소 승인번호 보강:', base_cx_fixed, '/ 복수후보 보류', len(base_cx_ambiguous))
 
 # ⑦h 국민해외(KBO) 환불 페어링: 승인번호 없음 → 규칙 A2 '현지외화금액' 페어(사용자 방식 엔진화).
-#    키=(카드4, 통화, |현지금액| 소수보존) 양수 원거래, 같은 버킷 우선, 소비형(1취소=1원거래).
+#    키=(카드4, 통화, |현지금액| 소수보존) 양수 원거래. 복수 후보면 버킷으로 좁히지 않고 보류한다.
 #    합성 페어ID(KP####)를 원거래 appr(빈 경우)·취소 orig_appr에 부여 → 빌더가 원거래 바로 아래 배치.
 def ff(x):
     try:
@@ -370,20 +435,30 @@ kbo_pos=defaultdict(list)
 for r in allrows:
     if r['src']=='KBO' and i(r['krw'])>0:
         kbo_pos[(r['card4'], r['currency'], abs(ff(r['foreign'])))].append(r)
-kp=0; kbo_unpaired=[]
-_kbo_used=set()
-for r in allrows:
-    if r['src']=='KBO' and i(r['krw'])<0 and not (r.get('orig_appr') or '').strip():
-        key=(r['card4'], r['currency'], abs(ff(r['foreign'])))
-        cand=[p for p in kbo_pos.get(key,[]) if id(p) not in _kbo_used]
-        same_b=[p for p in cand if p['bucket']==r['bucket']] or cand
-        if same_b:
-            p=same_b[0]; _kbo_used.add(id(p)); kp+=1
-            pid=p['appr'].strip() if (p.get('appr') or '').strip() else 'KP%04d'%kp
-            p['appr']=pid; r['orig_appr']=pid
-        else:
-            kbo_unpaired.append(r)
-print('⑦h KBO 현지외화 페어:', kp,'건 연결 / 원거래 기간밖(전기예약 등)', len(kbo_unpaired),'건')
+kbo_refunds=[
+    r for r in allrows
+    if r['src']=='KBO' and i(r['krw'])<0
+    and not (r.get('orig_appr') or '').strip()
+]
+_kbo_selected,_kbo_statuses=select_bidirectionally_unique_candidates(
+    kbo_refunds,
+    lambda r: kbo_pos.get(
+        (r['card4'], r['currency'], abs(ff(r['foreign']))), []
+    ),
+)
+kp=0; kbo_unpaired=[]; kbo_ambiguous=[]
+for r in kbo_refunds:
+    p=_kbo_selected.get(id(r))
+    candidate_status=_kbo_statuses[id(r)]
+    if p is not None:
+        kp+=1
+        pid=p['appr'].strip() if (p.get('appr') or '').strip() else 'KP%04d'%kp
+        p['appr']=pid; r['orig_appr']=pid
+    elif candidate_status=='ambiguous':
+        kbo_ambiguous.append(r)
+    else:
+        kbo_unpaired.append(r)
+print('⑦h KBO 현지외화 페어:', kp,'건 연결 / 복수후보',len(kbo_ambiguous),'건 / 원거래 기간밖(전기예약 등)', len(kbo_unpaired),'건')
 
 # ⑦i 현금성(MAN) 부분환불 페어: 같은 버킷·같은 desc핵심(사람/예약) 양수에 합성ID 연결(배치용)
 man_pos=defaultdict(list)
@@ -395,18 +470,34 @@ man_amt=defaultdict(list)
 for r in allrows:
     if i(r['krw'])>0:
         man_amt[(r['bucket'], mk(r['merchant']), abs(i(r['krw'])))].append(r)
-mp=0; _mp_used=set()
-for r in allrows:
-    if r['src']=='MAN' and i(r['krw'])<0 and not (r.get('orig_appr') or '').strip():
-        c=desc_core(r['note'])
-        cand=[p for p in man_pos.get((r['bucket'],c),[]) if id(p) not in _mp_used] if c else []
-        if not cand:   # 폴백: 같은 버킷·같은 가맹·동액 양수(완전취소쌍)
-            cand=[p for p in man_amt.get((r['bucket'], mk(r['merchant']), abs(i(r['krw']))),[]) if id(p) not in _mp_used]
-        if cand:
-            p=cand[0]; _mp_used.add(id(p)); mp+=1
-            pid=(p.get('appr') or '').strip() or 'MP%04d'%mp
-            p['appr']=pid; r['orig_appr']=pid
-print('⑦i 현금성 환불 페어(desc/동액):', mp,'건 연결')
+man_refunds=[
+    r for r in allrows
+    if r['src']=='MAN' and i(r['krw'])<0
+    and not (r.get('orig_appr') or '').strip()
+]
+def _manual_refund_candidates(r):
+    c=desc_core(r['note'])
+    cand=list(man_pos.get((r['bucket'],c),[])) if c else []
+    if not cand:   # 폴백: 같은 버킷·같은 가맹·동액 양수(완전취소쌍)
+        cand=list(man_amt.get(
+            (r['bucket'], mk(r['merchant']), abs(i(r['krw']))), []
+        ))
+    return cand
+_man_selected,_man_statuses=select_bidirectionally_unique_candidates(
+    man_refunds,
+    _manual_refund_candidates,
+)
+mp=0; man_ambiguous=[]
+for r in man_refunds:
+    p=_man_selected.get(id(r))
+    candidate_status=_man_statuses[id(r)]
+    if p is not None:
+        mp+=1
+        pid=(p.get('appr') or '').strip() or 'MP%04d'%mp
+        p['appr']=pid; r['orig_appr']=pid
+    elif candidate_status=='ambiguous':
+        man_ambiguous.append(r)
+print('⑦i 현금성 환불 페어(desc/동액):', mp,'건 연결 / 복수후보',len(man_ambiguous),'건 보류')
 
 # ⑦j 완전상쇄쌍 취소환불 격리(규칙4·P6): 페어ID로 연결된 원거래+취소 합이 0이면 여행탭에서 취소환불로 이동
 pair_pos={}; pair_neg=defaultdict(list)
@@ -725,7 +816,10 @@ if DRY_RUN:
     )
 
 if not DRY_RUN:
-    with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
+    if OUTPUT_PATH.exists():
+        raise FileExistsError('기존 후보를 덮어쓰지 않습니다: %s'%OUTPUT_PATH)
+    OUTPUT_PATH.parent.mkdir(parents=True,exist_ok=True)
+    with OUTPUT_PATH.open('x',encoding='utf-8',newline='') as f:
         w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(allrows)
 tot=sum(i(r['krw']) for r in allrows)
-print('classified_v14:',len(allrows),'행 krw합',format(tot,','),'(실제 v13 대비',format(tot-v13_total,'+,'),')')
+print('classified_v14 후보:',OUTPUT_PATH,'입력SHA',_input_sha,'/',len(allrows),'행 krw합',format(tot,','),'(실제 v13 대비',format(tot-v13_total,'+,'),')')

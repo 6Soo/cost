@@ -2,8 +2,9 @@
 """여행(실체) 기준 재구성: 기존 워크북(classified_v12, 카드검증 완료) +
 수기장부(여행 마스터) 미포함건을 카드매칭으로 추가 → classified_v13.
 금액은 카드 우선(rule A1), 탭·성격은 수기. 비카드는 증빙유형 표기."""
-import openpyxl, csv, re, sys, json
+import openpyxl, csv, re, sys, json, hashlib
 from collections import Counter, defaultdict
+from pathlib import Path
 from domain.card_group_matching import (
     balanced_blank_merchant_card_groups,
     balanced_exact_card_groups,
@@ -25,8 +26,25 @@ from domain.refund_projection import (
     exact_full_refund_pairs,
     repair_standalone_cancellation_signs,
 )
+from domain.p0_release_guard import validate_frozen_stage
 
 DRY_RUN = '--dry-run' in sys.argv
+def _option_path(flag, default):
+    try:
+        return Path(sys.argv[sys.argv.index(flag)+1])
+    except (ValueError, IndexError):
+        return Path(default)
+
+INPUT_PATH=_option_path('--input','data/classified_v12.csv')
+_input_sha=hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest()
+OUTPUT_PATH=_option_path(
+    '--output',
+    '../outputs/20260728_pipeline_recovery/classified_v13_candidate_%s.csv'
+    % _input_sha[:8],
+)
+if OUTPUT_PATH.resolve()==INPUT_PATH.resolve():
+    raise RuntimeError('입력 projection 인플레이스 덮어쓰기는 금지됩니다.')
+_input_gate=validate_frozen_stage(Path(__file__).resolve().parents[1],'canonical_rebuild')
 
 def i(x):
     try: return int(round(float(str(x).replace(',','').replace('원','').strip())))
@@ -91,7 +109,7 @@ def card_match(a, co, want_cx=False, use_date='', merchant=''):
 
 # ---- 기존 워크북 (classified_v12) ----
 FN=['uid','source_event_id','source_event_members','source_event_disposition','source_event_alias_of','src','use_date','post_date','card4','user','merchant','biz','country','currency','foreign','krw','vat','tax_type','status','biz_no','extra','bucket','account','cancel','cost_type','vat_tag','confidence','note','tax_conf','appr','orig_appr']
-cls=list(csv.DictReader(open('data/classified_v12.csv',encoding='utf-8')))
+cls=list(csv.DictReader(INPUT_PATH.open(encoding='utf-8')))
 _input_legacy_uids={str(row.get('uid') or '') for row in cls}
 _SUPERSEDED_DUPLICATE_PROJECTIONS={
     # Confirmed duplicate legacy projections: keep the audit row, but never
@@ -627,8 +645,8 @@ if _lost:
     for c in _lost[:20]: print('   ', c['co'], c['use'], format(c['amt'],','), (c['mer'] or '')[:24])
 else:
     print(
-        'OK 무손실 적재: 모든 Q2 카드가 base·수기·여행_미배정에 존재'
-        ' (원천누락 0, 미배정이 남으면 마감 차단)'
+        'Q2 카드 원천 범위 내 누락 0: base·수기·여행_미배정에 존재'
+        ' (정본 전체 재현 판정은 최종 P0 gate에서만 수행)'
     )
 
 out=cls+new
@@ -708,11 +726,14 @@ if DRY_RUN:
     )
 
 if not DRY_RUN:
-    with open('data/classified_v13.csv','w',encoding='utf-8',newline='') as f:
+    if OUTPUT_PATH.exists():
+        raise FileExistsError('기존 후보를 덮어쓰지 않습니다: %s'%OUTPUT_PATH)
+    OUTPUT_PATH.parent.mkdir(parents=True,exist_ok=True)
+    with OUTPUT_PATH.open('x',encoding='utf-8',newline='') as f:
         w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(out)
 oldtot=sum(abs(i(r['krw'])) for r in cls); newtot=sum(i(r['krw']) for r in out)
 print('추가 %d건 (증빙별 %s), 현금계열 합 %s'%(n, dict(percard), format(cashtot,',')))
-print('classified_v13: %d행, krw합 %s (기존 221,040,838 → 증가 %s)'%(len(out), format(newtot,','), format(newtot-221040838,'+,')))
+print('classified_v13 후보: %s / 입력SHA %s / %d행, krw합 %s (기존 221,040,838 → 증가 %s)'%(OUTPUT_PATH,_input_sha,len(out),format(newtot,','),format(newtot-221040838,'+,')))
 print('-- 여행탭별 추가액 --')
 for t,s in sorted(pertab.items(),key=lambda x:-x[1]):
     print('  {:16} {:+,}'.format(t,round(s)))

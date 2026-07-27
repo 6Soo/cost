@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
 # Q2 비용분류 결과 워크북 조립 — classified.csv(+fixes.json) → 숲길여행_2분기_비용분류_AI_v62.xlsx
-import csv, json, re, os
+import csv, json, re, os, hashlib, subprocess
+from datetime import datetime, timezone
 from collections import defaultdict, Counter
 from pathlib import Path
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from domain.review_verifier import verify_review_claims
+from domain.workbook_summary import SUMMARY_EXTRA_BUCKETS, scoped_summary_total
+from domain.p0_release_guard import validate_frozen_stage
 
 DIR = os.path.dirname(os.path.abspath(__file__))
+_input_gate = validate_frozen_stage(Path(DIR).parent, 'workbook_v76')
 os.chdir(os.path.join(DIR, 'data'))
 
 HDR_FILL = PatternFill('solid', fgColor='1F4E5F')
@@ -257,21 +261,39 @@ for tab in trip_order:
     diff = ai - man
     note = ''
     if abs(diff) > max(man * 0.10, 200000): note = '수기와 차이 큼 — 대조 시트 확인'
-    put(ws, row_i, [tab, inc, round(ai), man, round(diff), round(margin), supply, vat10, len(xs), note],
+    put(ws, row_i, [tab, inc, round(ai), man, round(diff), round(margin), supply, vat10, len(by_bucket.get(tab, [])), note],
         fills={5: (BAD_FILL if abs(diff) > max(man*0.10, 200000) and man else None) or PatternFill()} if False else None)
     if note: ws.cell(row=row_i, column=5).fill = WARN_FILL
     tot['inc'] += inc; tot['ai'] += ai; tot['man'] += man; tot['margin'] += margin
+    tot['count'] += len(by_bucket.get(tab, []))
     row_i += 1
-for extra_b in ['기타비용', '여행_미배정', '취소환불']:
+for extra_b in SUMMARY_EXTRA_BUCKETS:
     xs = by_bucket.get(extra_b, [])
     if not xs: continue
     ai = sum(x['krw_f'] for x in xs)
     man = manual_etc['sum'] if extra_b == '기타비용' else 0
     put(ws, row_i, [extra_b, 0, round(ai), man, round(ai - man), '', '', '', len(xs), ''])
-    tot['ai'] += ai; tot['man'] += man
+    tot['ai'] += ai; tot['man'] += man; tot['count'] += len(xs)
     row_i += 1
 put(ws, row_i, ['합계', round(tot['inc']), round(tot['ai']), round(tot['man']), round(tot['ai'] - tot['man']),
-                round(tot['margin']), '', '', len([x for x in rows]), ''])
+                round(tot['margin']), '', '', round(tot['count']), ''])
+_summary_scope = set(seen_tab) | set(SUMMARY_EXTRA_BUCKETS)
+_summary_amount, _summary_count = scoped_summary_total(rows, _summary_scope)
+_canonical_amount = round(sum(x['krw_f'] for x in rows))
+if _summary_amount != _canonical_amount or _summary_count != len(rows):
+    raise RuntimeError(
+        '총괄 스코프가 정본을 보존하지 못했습니다: '
+        f'amount={_summary_amount}!={_canonical_amount}, '
+        f'count={_summary_count}!={len(rows)}'
+    )
+_display_amount = round(tot['ai'])
+_display_count = round(tot['count'])
+if _display_amount != _summary_amount or _display_count != _summary_count:
+    raise RuntimeError(
+        '총괄 표시 합계와 동일 스코프 검산이 불일치합니다: '
+        f'display=({_display_amount},{_display_count}) '
+        f'scoped=({_summary_amount},{_summary_count})'
+    )
 for c in range(1, 11): ws.cell(row=row_i, column=c).font = Font(bold=True)
 ws.column_dimensions['A'].width = 18
 for col in 'BCDEFGH': ws.column_dimensions[col].width = 15
@@ -476,7 +498,7 @@ for line in [
     '원천자료: 국민카드_2604_국내(승인일 기준), 국민카드_2604_해외(매입일 기준·승인일 결측 다수),',
     '  하나카드_2604(승인내역 탭), 진행장부 스냅샷(7/8, 수입·수기지출·대조용), 완료장부 26Q1(계정 관례 학습),',
     '  메일수집 76건(아고다/트립/부킹/네이버페이 등 — OTA 실체 동정).',
-    '범위: 사용일 2026-04-01 ~ 2026-06-30, 총 1,186건. 2025년·Q1 건은 제외(범위외).',
+    f'범위: 정본 후보 {len(rows):,}건. 날짜·전기예약·환불 범위는 각 행과 총괄 버킷 기준.',
     '방법: 12개 AI 에이전트 병렬 1차 분류 → 3개 검증 에이전트(미배정 재배정/부가세/6월 중복창) 교차검증.',
     '한계: ① 해외카드는 승인일 결측으로 매입일을 사용일로 사용(실사용일과 1~3일 오차 가능).',
     '  ② OTA 국내PG 결제는 메일 미매칭 시 실체 추정(확신 "하" 표시). ③ 수기장부는 7/8 스냅샷이라',
@@ -520,7 +542,7 @@ for line in [
     '  [v41] 92에이전트 루프감사 반영: 264건 수정(계정·확신·탭재배정) + 무청구 승인취소 5건(AVIS/RESIDHOTEL 등 유령 789,083원) 0처리 + 하나 조인/영수증오매칭 검증. 수기장부 휴먼에러 감사 상설화.',
     '  [v40] 최신 카드 4장 전면 재빌드: 국민(국내·해외)·하나·기업 4장을 오늘자 구글시트 최신본으로 교체.',
     '       각 시트의 다중 형식 구간을 단일 스키마로 정규화(기업 224행 열이동·하나 3구간·국민국내 1107행 열밀림 흡수).',
-    '       기업카드(신규 카드) 2분기 56건 편입. 하나 중간 미매입구간 126건(유럽여행) 유실 방지. 승계 1160+신규 222=1382행.',
+    f'       기업카드·하나카드 포함 현재 정본 {len(rows):,}행. 입력 SHA와 합계는 _provenance 시트 참조.',
     '  [v38] 딥링크 정비+내용 열 수기화: ① 아고다 404 수정 — 실존 라우트(agoda.com/ko-kr/trips/detail?bookingId=)로 교체(로그인 후 해당 예약으로 이동).',
     '       ② 트립닷컴 항공은 확정메일의 실제 버튼 링크(vieworder, 주문별 토큰 포함)를 그대로 심음 — 숙박은 기존 인증페이지 유지.',
     '       ③ 내용 열을 수기장부 표기로 복원: 매칭건은 수기 desc 그대로(숙박_0405_0406 등), 미매칭 숙박건은 메일 체크인일로 합성(숙박_MMDD). 없으면 계정과목 유지.',
@@ -642,7 +664,7 @@ wsv.cell(row=_r, column=5).value = _sumf
 wsv.cell(row=_r, column=6).value = '=IF(ABS(E%d-D%d)<10,"함수일치 ✅","불일치 ⚠️")' % (_r, _r)
 for c in range(1, 7): wsv.cell(row=_r, column=c).font = Font(bold=True, color='1F4E5F')
 _r += 2
-wsv.cell(row=_r, column=1, value='버킷 배정 요약 — 1,382건 전량이 여행탭/기타비용/미배정/취소에 배정됨').font = Font(bold=True); _r += 1
+wsv.cell(row=_r, column=1, value=f'버킷 배정 요약 — 정본 {len(rows):,}건의 현재 배정').font = Font(bold=True); _r += 1
 wsv.append(['버킷', '건수', '', '금액(원)', '', ''])
 for c in wsv[_r]: c.font = Font(bold=True)
 _r += 1
@@ -759,10 +781,44 @@ wp.column_dimensions['E'].width = 22; wp.column_dimensions['F'].width = 30
 _names = wb.sheetnames
 wb.move_sheet('미청구_예약확정', offset=_names.index('월별순액') + 1 - _names.index('미청구_예약확정'))
 
-out = '숲길여행_2분기_비용분류_AI_v76.xlsx'
-wb.save(out)
-if os.path.exists(os.path.join(DIR, out)):
-    wb.save(os.path.join(DIR, out))
+# 감사 추적용 provenance. 기존 v76은 보존하고 입력 해시가 붙은 새 후보만 쓴다.
+_canonical_path = Path('classified_v14.csv')
+_canonical_sha = hashlib.sha256(_canonical_path.read_bytes()).hexdigest()
+_provenance = wb.create_sheet('_provenance')
+_provenance.append(['항목', '값'])
+_provenance_rows = [
+    ('builder', 'build_workbook_v76.py'),
+    ('output_status', 'candidate_not_released'),
+    ('generated_at_utc', datetime.now(timezone.utc).isoformat()),
+    ('canonical_input', str(_canonical_path)),
+    ('canonical_sha256', _canonical_sha),
+    ('canonical_rows', len(rows)),
+    ('canonical_amount_krw', round(sum(x['krw_f'] for x in rows))),
+]
+try:
+    _git_commit = subprocess.run(
+        ['git', 'rev-parse', 'HEAD'],
+        cwd=Path(DIR).parent,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+except (OSError, subprocess.SubprocessError):
+    _git_commit = 'unavailable'
+_provenance_rows.append(('git_commit', _git_commit))
+for _key, _value in _provenance_rows:
+    _provenance.append([_key, _value])
+style_header(_provenance, 2)
+_provenance.column_dimensions['A'].width = 24
+_provenance.column_dimensions['B'].width = 72
+
+_output_dir = Path(DIR).parent / 'outputs' / '20260728_pipeline_recovery'
+_output_dir.mkdir(parents=True, exist_ok=True)
+out = f'숲길여행_2분기_비용분류_AI_v77_candidate_{_canonical_sha[:8]}.xlsx'
+_output_path = _output_dir / out
+if _output_path.exists():
+    raise FileExistsError(f'기존 후보를 덮어쓰지 않습니다: {_output_path}')
+wb.save(_output_path)
 os.chdir(DIR)
-print('저장:', out, '| 시트', len(wb.sheetnames), '개 | 상세행', len(rows))
+print('저장:', _output_path, '| 시트', len(wb.sheetnames), '개 | 상세행', len(rows))
 print('시트:', wb.sheetnames[:8], '...')

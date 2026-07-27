@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "as_of": "2026-07-28",
+  "default_release_policy": "deny",
+  "artifacts": [
+    {
+      "id": "cost-workbook-v76",
+      "kind": "xlsx",
+      "status": "blocked",
+      "missing_artifact_policy": "remain_blocked",
+      "paths": {
+        "artifact": "ledger/data/숲길여행_2분기_비용분류_AI_v76.xlsx",
+        "canonical": "ledger/data/classified_v14.csv"
+      },
+      "reason_codes": [
+        "summary_excludes_preperiod_refund_bucket",
+        "summary_amount_mismatch",
+        "validation_formula_cache_missing"
+      ],
+      "observed": {
+        "sha256": "be53cfb27b7e4456edbf6ccb45666882894cf01279a387421d316da95a50d08e",
+        "bytes": 251693,
+        "sheet_count": 36,
+        "canonical_uid_rows": 1835,
+        "duplicate_canonical_uid_rows": 0,
+        "missing_canonical_uid_rows": 0,
+        "canonical_uid_amount_krw": 320055642,
+        "canonical_amount_krw": 320055642,
+        "summary_ai_expense_krw": 324471472,
+        "summary_row_count": 1835,
+        "summary_difference_krw": 4415830,
+        "preperiod_refund_amount_krw": -4415830,
+        "validation_formula_present": true,
+        "validation_formula_cached_value": null
+      },
+      "unblock_requires": [
+        "summary_ai_expense_krw equals canonical_amount_krw",
+        "preperiod refund bucket is included in every rollup",
+        "recalculated validation formula has a non-empty matching cached value",
+        "new versioned artifact; do not overwrite v76"
+      ]
+    },
+    {
+      "id": "ota-pending-review-20260727",
+      "kind": "pending_report",
+      "status": "blocked",
+      "missing_artifact_policy": "remain_blocked",
+      "paths": {
+        "summary": "outputs/20260727_all_pending_review/summary.json",
+        "dispositions": "outputs/20260727_all_pending_review/ota_dispositions.csv"
+      },
+      "reason_codes": [
+        "generic_reason_collapses_uninvestigated_and_unmatched",
+        "legacy_inventory_membership_is_not_current_decision",
+        "direct_confirmation_provenance_is_order_dependent",
+        "conflict_cardinality_is_collapsed",
+        "agoda_direct_matcher_missing"
+      ],
+      "observed": {
+        "summary_sha256": "b198d75dc69c51eb5593fb6a70a024bbfe3b95dc483151bd5faeb6779ceed52d",
+        "summary_bytes": 1255,
+        "dispositions_sha256": "0e327c8707c6472c5656f78fc49437046fb354de49c21a0b7faf083dc4f2ce89",
+        "dispositions_bytes": 56870,
+        "disposition_rows": 546,
+        "dispositions": {
+          "confirmed_direct": 17,
+          "confirmed_existing": 68,
+          "hold": 461
+        },
+        "reason_codes": {
+          "existing_verified_link": 68,
+          "no_unique_direct_evidence": 460,
+          "non_unique_repeated_amount": 1,
+          "unique_direct_payment_intersection": 17
+        },
+        "summary_ota": {
+          "total": 546,
+          "confirmed_existing": 68,
+          "confirmed_direct": 17,
+          "hold": 461,
+          "by_provider": {
+            "agoda": {
+              "total": 212,
+              "confirmed_existing": 6,
+              "confirmed_direct": 0,
+              "hold": 206
+            },
+            "booking": {
+              "total": 33,
+              "confirmed_existing": 0,
+              "confirmed_direct": 17,
+              "hold": 16
+            },
+            "mytrip": {
+              "total": 34,
+              "confirmed_existing": 15,
+              "confirmed_direct": 0,
+              "hold": 19
+            },
+            "travelrover": {
+              "total": 27,
+              "confirmed_existing": 0,
+              "confirmed_direct": 0,
+              "hold": 27
+            },
+            "trip": {
+              "total": 240,
+              "confirmed_existing": 47,
+              "confirmed_direct": 0,
+              "hold": 193
+            }
+          },
+          "direct_match_engine": {
+            "records": 26,
+            "confirmed_strong": 17,
+            "conflict_records": 4,
+            "unmatched_records": 5,
+            "booking_links": 17
+          }
+        }
+      },
+      "unblock_requires": [
+        "all 546 rows have mutually exclusive investigated states",
+        "generic no_unique_direct_evidence count is zero",
+        "confirmed rows reference a current decision and direct lineage",
+        "evidence-record and card-row conflict cardinalities are reported separately",
+        "new versioned artifact; do not overwrite the 2026-07-27 report"
+      ]
+    }
+  ]
+}
