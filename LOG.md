@@ -263,7 +263,7 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
   사용자 지시에 따라 워크북·2분기 출력 파일은 생성하지 않았다.
 ## 2026-07-27 세션 핸드오프 — Linux 환경 이전
 
-- 모든 Codex 서브에이전트와 비용처리 작업을 중단했다. 동결 시점에 실행 중인 Python/Orca 비용 작업은 없다.
+- 모든 Codex 서브에이전트와 비용처리 작업을 중단했다. 동결 시점에 실행 중인 비용처리 프로세스는 없다.
 - Linux 이전 브랜치는 `codex/linux-migration-2026-07-27`이다.
 - 최우선 인계서는 `docs/CODEX_LINUX_MIGRATION_HANDOFF_2026-07-27.md`이며, 완료·미완료 수치, OTA HOLD 9건,
   Linux 첫 실행 순서, 외부 연결, 민감자료 별도 이전 목록을 기록했다.
