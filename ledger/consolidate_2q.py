@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """2분기 통합: 4월(rev v5) 6탭 + 5·6월(rev v1) 7탭 + 2분기_기타비용(장부) → 단일 워크북.
    각 시트를 값+서식(폰트·배경·테두리·정렬·번호형식)·병합·행높이·열폭 그대로 셀단위 복제."""
-import openpyxl
+import openpyxl, os
 from copy import copy
 
-OUT='매출확인자료_2분기_통합_v5.xlsx'
-SRC=[('매출확인자료_4월_rev_v8.xlsx', None),           # None=전 시트
-     ('매출확인자료_5-6월_rev_v5.xlsx', None)]
-LEDGER=('ledger_latest.xlsx', ['2분기_기타비용'])
+def _path(fn):
+    return fn if os.path.exists(fn) else ('data/' + fn)
+
+OUT = _path('매출확인자료_2분기_통합_v5.xlsx')
+SRC = [(_path('매출확인자료_4월_rev_v8.xlsx'), None),           # None=전 시트
+     (_path('매출확인자료_5-6월_rev_v5.xlsx'), None)]
+LEDGER = (_path('ledger_latest.xlsx'), ['2분기_기타비용'])
 
 def copy_sheet(src_ws, dst_ws, max_r=None, max_c=None):
     mr=max_r or src_ws.max_row; mc=max_c or src_ws.max_column

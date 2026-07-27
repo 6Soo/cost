@@ -1,0 +1,86 @@
+{
+  "records": [
+    {
+      "provider": "agoda",
+      "source_channel": "mail",
+      "message_id": "19dfd8d1cad1c0c1",
+      "booking_number": "1720063662",
+      "product_type": "lodging",
+      "merchant": "Ooedo Onsen Monogatari Nagayama",
+      "service_start_on": "2026-04-28",
+      "service_end_on": "2026-04-29",
+      "payment_date": "2026-04-21",
+      "room_count": 5,
+      "currency": "JPY",
+      "foreign_amount": "123255",
+      "booking_display_amount": "123255",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "paid",
+      "extraction_sources": [
+        "attachment_text"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "mail",
+      "message_id": "19dfd6ca46434d4a",
+      "booking_number": "1720063845",
+      "product_type": "lodging",
+      "merchant": "Ooedo Onsen Monogatari Nagayama",
+      "service_start_on": "2026-04-28",
+      "service_end_on": "2026-04-29",
+      "payment_date": "2026-04-21",
+      "room_count": 5,
+      "currency": "JPY",
+      "foreign_amount": "123255",
+      "booking_display_amount": "123255",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "paid",
+      "extraction_sources": [
+        "attachment_text"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "mail",
+      "message_id": "19dfd21660788fae",
+      "booking_number": "1721755942",
+      "product_type": "lodging",
+      "merchant": "APA Hotel Kanazawa-Chuo",
+      "service_start_on": "2026-04-26",
+      "service_end_on": "2026-04-28",
+      "payment_date": "2026-04-26",
+      "room_count": 2,
+      "currency": "KRW",
+      "booking_display_amount": "359324",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "paid",
+      "extraction_sources": [
+        "attachment_text"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "mail",
+      "message_id": "19dfd21633d70c35",
+      "booking_number": "1721754761",
+      "product_type": "lodging",
+      "merchant": "APA Hotel Kanazawa-Chuo",
+      "service_start_on": "2026-04-26",
+      "service_end_on": "2026-04-28",
+      "payment_date": "2026-04-26",
+      "room_count": 2,
+      "currency": "KRW",
+      "booking_display_amount": "359324",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "paid",
+      "extraction_sources": [
+        "attachment_text"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,212 @@
+{
+  "records": [
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1696845387:2026-07-26",
+      "observed_at": "2026-07-26T01:20:00+09:00",
+      "booking_number": "1696845387",
+      "reference_code": "6178403970",
+      "product_type": "lodging",
+      "merchant": "Lotte Arai Resort",
+      "service_start_on": "2026-06-23",
+      "service_end_on": "2026-06-24",
+      "room_count": 1,
+      "currency": "JPY",
+      "foreign_amount": "36499",
+      "booking_display_amount": "36499",
+      "card_last4": "8835",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1696836747:2026-07-26",
+      "observed_at": "2026-07-26T01:45:00+09:00",
+      "booking_number": "1696836747",
+      "reference_code": "5921455190",
+      "product_type": "lodging",
+      "merchant": "Mercure Nagano Matsushiro Resort & Spa",
+      "service_start_on": "2026-06-22",
+      "service_end_on": "2026-06-23",
+      "room_count": 5,
+      "currency": "JPY",
+      "foreign_amount": "59040",
+      "booking_display_amount": "59040",
+      "card_last4": "8835",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1999257668:2026-07-26",
+      "observed_at": "2026-07-26T02:05:00+09:00",
+      "booking_number": "1999257668",
+      "reference_code": "6001857237",
+      "product_type": "lodging",
+      "merchant": "Mercure Nagano Matsushiro Resort & Spa",
+      "service_start_on": "2026-06-22",
+      "service_end_on": "2026-06-23",
+      "room_count": 6,
+      "currency": "JPY",
+      "foreign_amount": "82128",
+      "booking_display_amount": "82128",
+      "card_last4": "8835",
+      "record_type": "charge",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1738849062:2026-07-26",
+      "observed_at": "2026-07-26T01:35:00+09:00",
+      "booking_number": "1738849062",
+      "reference_code": "6875898319",
+      "product_type": "lodging",
+      "merchant": "Karuizawa Hotel Paipuno Kemuri",
+      "service_start_on": "2026-10-26",
+      "service_end_on": "2026-10-28",
+      "room_count": 4,
+      "currency": "JPY",
+      "foreign_amount": "162256",
+      "booking_display_amount": "162256",
+      "card_last4": "8835",
+      "payment_date": "2026-10-21",
+      "record_type": "payment_scheduled",
+      "booking_confirmation_status": "confirmed",
+      "status": "confirmed_unpaid",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1696942614:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1696942614",
+      "product_type": "lodging",
+      "merchant": "SHONAI HOTEL SUIDEN TERRASSE",
+      "service_start_on": "2026-06-25",
+      "service_end_on": "2026-06-26",
+      "currency": "JPY",
+      "booking_display_amount": "24548",
+      "card_last4": "8835",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1716795279:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1716795279",
+      "product_type": "lodging",
+      "merchant": "Plaza Hotel Mutsu",
+      "service_start_on": "2026-04-17",
+      "service_end_on": "2026-04-19",
+      "currency": "JPY",
+      "booking_display_amount": "27152",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1706671692:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1706671692",
+      "product_type": "lodging",
+      "merchant": "Plaza Hotel Mutsu",
+      "service_start_on": "2026-04-17",
+      "service_end_on": "2026-04-19",
+      "currency": "JPY",
+      "booking_display_amount": "34370",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1718382019:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1718382019",
+      "product_type": "lodging",
+      "merchant": "Plaza Hotel Mutsu",
+      "service_start_on": "2026-04-18",
+      "service_end_on": "2026-04-19",
+      "currency": "JPY",
+      "booking_display_amount": "6501",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1718165811:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1718165811",
+      "product_type": "lodging",
+      "merchant": "Plaza Hotel Mutsu",
+      "service_start_on": "2026-04-17",
+      "service_end_on": "2026-04-18",
+      "currency": "JPY",
+      "booking_display_amount": "6183",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    },
+    {
+      "provider": "agoda",
+      "source_channel": "authenticated_booking_portal",
+      "message_id": "portal:agoda:1718165346:2026-07-26",
+      "observed_at": "2026-07-26T00:00:00+09:00",
+      "booking_number": "1718165346",
+      "product_type": "lodging",
+      "merchant": "Plaza Hotel Mutsu",
+      "service_start_on": "2026-04-18",
+      "service_end_on": "2026-04-19",
+      "currency": "JPY",
+      "booking_display_amount": "6773",
+      "record_type": "evidence_only",
+      "booking_confirmation_status": "confirmed",
+      "status": "completed",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ]
+    }
+  ]
+}

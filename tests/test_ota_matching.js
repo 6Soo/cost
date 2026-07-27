@@ -56,6 +56,20 @@ const email = (overrides = {}) => ({
 }
 {
   const result = context.classify(card({ last4: '5836', rawRef: 'RAW:2' }), {}, [email()], [], {});
+  assert.equal(result.status, 'HOLD');
+  assert.match(result.reason, /strong lineage/);
+}
+{
+  const result = context.classify(card({
+    last4: '5836',
+    rawRef: 'RAW:2',
+    pythonProjectionStatus: 'confirmed_strong',
+    pythonDirectLineage: 'verified',
+    pythonProjectionReplay: {
+      matchedFresh: true,
+      currentDecisionVerified: true,
+    },
+  }), {}, [email()], [], {});
   assert.equal(result.status, 'CONFIRM');
   assert.equal(result.otaMatch.status, 'EXACT');
   assert.equal(result.bookingNo, '1234567890');
@@ -103,4 +117,4 @@ const email = (overrides = {}) => ({
   assert.deepEqual(rows.slice(1).map((row) => row[7]), ['CE-H1', 'CE-H2']);
 }
 
-console.log('Engine tests: 11 passed');
+console.log('Engine tests: 12 passed');

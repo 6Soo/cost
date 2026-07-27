@@ -7,16 +7,9 @@
     예약금*→예약금 / 잔금·잔액→잔금 / 전액·추가→추가금 / 환불→추가금(음수).
   · 지출: v68 워크북 데이터, 내용/기간 분리(항공·숙박·렌트), 증빙 간소화(국민/하나/기업/영수증),
     포인트·이체 등 수기 원기재 존중, 예약번호 텍스트('@')."""
-import openpyxl, re, json, datetime
+import openpyxl, re, json, datetime, os
 from copy import copy
 from collections import defaultdict, Counter
-from rev_periods import (
-    fill_unique_item_periods,
-    load_verified_booking_periods,
-    resolve_item_period,
-    resolve_period,
-    split_content,
-)
 
 APRIL=['0404_에히메','0408_교토','0413_나가센도','0417_아오모리','0420_오사카','0424_알펜루트']
 TPL='매출자료 양식_rev'
@@ -78,11 +71,24 @@ def build_income(rows):
         done.add(key)
     return out
 
+def split_content(s):
+    s=str(s); cat_map={'렌터카':'렌트','료칸':'숙박'}
+    m=re.match(r'^(숙박|항공|렌터카|렌트|료칸)(?:_(.*))?$', s)
+    if not m:
+        return ('항공','') if s=='항공료' else (('숙박','') if s=='숙박비' else (s,''))
+    cat=cat_map.get(m.group(1), m.group(1)); rest=m.group(2) or ''
+    pm=re.match(r'^(\d{4}(?:_\d{4})?)(?:_(.*))?$', rest)
+    if pm: return (cat+('_'+pm.group(2) if pm.group(2) else '')), pm.group(1)
+    return (cat+('_'+rest if rest else '')), ''
+
 CASHLIKE={'현금/기타','현금','영수증','현지통화'}
-EVID=json.load(open('april_evid.json', encoding='utf-8'))
+_evid_path = 'data/april_evid.json' if os.path.exists('data/april_evid.json') else 'april_evid.json'
+EVID=json.load(open(_evid_path, encoding='utf-8'))
 def evid_of(tab, evi, amt):
     e=re.sub(r'_\d{4}$','',str(evi or ''))
     if re.match(r'^\d+(\.0)?$', e):
+        rowkey='%s_r%s'%(tab, int(float(e)))
+        if rowkey in EVID: return EVID[rowkey]
         e={'8835':'국민','8895':'국민','4886':'국민','3820':'국민','4595':'하나','3923':'하나','0906':'하나','5483':'하나','4971':'기업','4985':'기업','8972':'기업'}.get(re.sub(r'\.0$','',e)[-4:], e)
     if e in CASHLIKE:
         orig=EVID.get(tab,{}).get(str(int(round(amt))) if isinstance(amt,(int,float)) else '')
@@ -90,10 +96,11 @@ def evid_of(tab, evi, amt):
     return e
 
 # ── 데이터 적재 ──
-inc_all=json.load(open('april_inc.json', encoding='utf-8'))
-wb68=openpyxl.load_workbook('숲길여행_2분기_비용분류_AI_v76.xlsx')
-VERIFIED_PERIODS=load_verified_booking_periods()
+_inc_path = 'data/april_inc.json' if os.path.exists('data/april_inc.json') else 'april_inc.json'
+inc_all=json.load(open(_inc_path, encoding='utf-8'))
+_wb68_path = 'data/숲길여행_2분기_비용분류_AI_v76.xlsx' if os.path.exists('data/숲길여행_2분기_비용분류_AI_v76.xlsx') else '숲길여행_2분기_비용분류_AI_v76.xlsx'
 def load_exp(tab):
+    wb68=openpyxl.load_workbook(_wb68_path, data_only=True)
     sv=wb68[tab]; out=[]
     for r in range(2,400):
         dt=sv.cell(r,2).value; item=sv.cell(r,3).value; cont=sv.cell(r,4).value
@@ -102,16 +109,15 @@ def load_exp(tab):
         if isinstance(dt,str) and dt.startswith('▼'): continue   # 워크북 구분줄(병합/미입력 안내) — 장부엔 미포함
         if item is None and cont is None and amt is None: continue
         content,period=split_content(cont)
-        content,period=resolve_period(content, period, book, VERIFIED_PERIODS)
-        content,period=resolve_item_period(content, period, item)
         out.append((pdate(dt), str(item or '').strip(), content, period,
                     str(book or ''), evid_of(tab, evi, amt), amt))
-    return fill_unique_item_periods(out)
+    return out
 
 # ── 템플릿 로드 및 시트 생성 ──
-src=openpyxl.load_workbook('ledger_latest.xlsx', rich_text=True)
+_led_path = 'data/ledger_latest.xlsx' if os.path.exists('data/ledger_latest.xlsx') else 'ledger_latest.xlsx'
+src=openpyxl.load_workbook(_led_path, rich_text=True)
 tpl=src[TPL]
-led=openpyxl.load_workbook('ledger_latest.xlsx', data_only=True)   # 제목·총A 캐시 참조
+led=openpyxl.load_workbook(_led_path, data_only=True)   # 제목·총A 캐시 참조
 
 INC_S,INC_E,TOTA,BAR,HDR,EXP_S,EXP_E,TOTB,PROFIT,NOTE=8,30,31,33,34,35,84,85,87,89
 out=openpyxl.Workbook(); out.remove(out.active)

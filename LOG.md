@@ -276,3 +276,31 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
 - 동결 검증: 카드/중복/기간 테스트 19 passed + 10 subtests, Apps Script OTA 엔진 11 passed, OTA 감사 재현 성공.
   도메인 테스트는 현재 1,835행인데 1,705행을 기대하는 고정 fixture 때문에 1 failed, 2 passed이며 인계서에 기록했다.
 - 다음 세션은 인계서의 §5 순서로 환경을 검증하고, 신규 OTA 링크 7건의 가드 병합부터 재개한다.
+
+---
+
+## 2026-07-27 세션 핸드오프 — OTA 로그인 후 직접증거 대사
+
+- 사용자가 Agoda·Trip.com·Booking.com 로그인을 완료했다. 인증 URL·PIN·메일 원문은 저장하지 않았다.
+- Booking.com 결제완료 메일 26건을 개인정보 허용목록 JSON으로 적재했다. 카드 RAW와 결제일·통화·
+  외화금액·카드끝4(메일에 있는 경우)를 교차해 **17건을 고유 강일치**로 확정했고
+  `ota_event_links_verified.json`을 68→85건으로 append-only 병합했다.
+- Booking.com 반복금액은 임의 배정하지 않았다. Nezame JPY 15,510 4예약×4카드가 N:M 충돌이며,
+  직접메일 중 카드 교차가 없는 5건도 HOLD다.
+- Agoda 인증 포털 직접증거는 기존 4건에 사용자 확인 6건을 더해 10건으로 보존하고,
+  `ota_checkpoints_agoda.db`에 예약별 즉시 커밋·재조회했다. Gmail 결제영수증 4건도 별도
+  허용목록 JSON으로 적재했다. 동일금액 중복 영수증은 1:1로 추정하지 않는다.
+- OTA 546건 전수 disposition 보고서 결과: 기존확정 68 + 신규직접확정 17 = **확정 85**,
+  증거부족/충돌 **HOLD 461**. 공급자별 HOLD는 Agoda 206, Trip.com 193, Booking.com 16,
+  Mytrip 19, Travelrover 27이다. 보고서는 `outputs/20260727_all_pending_review/`에 생성했다.
+- 비 OTA 잔여 `KBD-0403`은 기타비용/주차비 2,400원, `CORP-2005`는 0원 취소정산으로 확정했다.
+  하나카드 최종청구 스냅숏 3건과 승인번호 없는 -56,666원 취소는 별도 HOLD로 유지한다.
+- 직접 카드 링크가 legacy canonical 결제를 가리킬 때도 RAW `card_event_id`를 강한 매칭 계보로
+  인정하도록 교정했다. P05 회귀차이 8건은 P3 재배분·신규 취소 이벤트의 정확한 키/금액만
+  허용하는 명시적 전환으로 분류해 `unexplained_differences=0`을 복원했다.
+- `patch_v14.py`로 OTA 링크 85건을 재주입한 정본은 **1,835행 / 320,055,642원**이다.
+  전체 build_v13 재생성은 현재 입력 조합에서 1,556행으로 축소되는 원천손실 가드가 작동해
+  결과를 폐기하고 검증된 1,835행 정본을 복원했다. 이 재현 불일치는 해결 전까지 HOLD다.
+- 최종 XLSX 재출력은 현재 세션에 필수 Artifact Tool 런타임이 없어 중단했다. 기존 XLSX를
+  openpyxl로 다시 쓰지 않았으며, Artifact Tool이 제공되는 세션에서 정본 v14를 입력으로
+  새 버전 파일을 만들고 전 시트 렌더·수식 오류 검사를 수행해야 한다.

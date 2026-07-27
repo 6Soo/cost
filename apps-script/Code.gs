@@ -208,7 +208,9 @@ function recordsMatch(a, b) {
   if (a.card && b.card && a.card === b.card) sig.push('카드');
   if (sig.length) return '금액+' + sig.join('+');
   // OTA 특례 — 가맹점(호텔명 vs OTA명)·카드(수기엔 미기재)가 다 어긋나도, 금액 일치 + 60일 내면 추정.
-  if ((brandA || brandB) && (dayDiff == null || dayDiff <= CONFIG.OTA_DATE_TOL_DAYS)) return '금액+OTA(추정)';
+  // OTA brand/date alone is not evidence.  The authoritative reconciliation
+  // engine must provide a confirmed_strong or confirmed_manual projection.
+  // Never auto-post an approximate OTA match from Apps Script.
   return '';
 }
 function merchantSimilar(a, b) {
@@ -610,7 +612,76 @@ function parseRaw(row) {
 // ─────────────────────────────────────────────────────────────
 // 2단계 — 분류 (+ 여행 라우팅)
 // ─────────────────────────────────────────────────────────────
+// Provider/PG aliases that are not consistently present in the bank business
+// category.  Treating them as ordinary air/travel merchants would let rules,
+// a card profile, learned history, or a travel-window heuristic bypass the
+// direct-evidence gate.
+function isOtaLike_(name) {
+  return hasKw(name, KW.OTA) ||
+    /SKYTICKET|MYTRIP|GOTOGATE|KLOOK|TRAVELOKA/.test(String(name || '').toUpperCase());
+}
+function isPgLike_(rec, name) {
+  return hasKw(name, KW.PG) ||
+    /TOSS|토스|NAVERPAY|KAKAOPAY|PAYCO|11ST|11번가|SMARTRO|KICC|EASYPAY/.test(
+      String(name || '').toUpperCase()
+    ) ||
+    !!(rec.bizCat && /전자상거래|PG/.test(rec.bizCat));
+}
+
 function classify(rec, kb, emailIdx, trips, rules) {
+  return enforcePythonProjectionGate_(
+    rec,
+    classifyCandidate_(rec, kb, emailIdx, trips, rules)
+  );
+}
+
+// OTA/PG 최종 확정권은 Python 단일 대사 엔진에만 있다. Apps Script의
+// 직접메일·AI·영구규칙·완료장부 학습·카드주인·여행기간 휴리스틱은 후보를
+// 만들 수 있을 뿐, 구조화 confirmed projection 없이는 자동 전기하지 않는다.
+function enforcePythonProjectionGate_(rec, candidate) {
+  if (!candidate || candidate.status !== 'CONFIRM') return candidate;
+  const name = String((rec && rec.merchant) || '').toUpperCase();
+  if (!isOtaLike_(name) && !isPgLike_(rec || {}, name)) return candidate;
+  const projectionStatus = String(
+    (rec && (rec.pythonProjectionStatus || rec.python_projection_status)) || ''
+  ).trim();
+  const directLineage = rec && (
+    rec.pythonDirectLineage === true ||
+    rec.python_direct_lineage === true ||
+    String(rec.pythonDirectLineage || rec.python_direct_lineage || '').toLowerCase() === 'verified'
+  );
+  const projectionReplay =
+    (rec && (rec.pythonProjectionReplay || rec.python_projection_replay)) || {};
+  const projectionIsFreshAndCurrent =
+    (projectionReplay.matchedFresh === true ||
+      projectionReplay.matched_fresh === true) &&
+    (projectionReplay.currentDecisionVerified === true ||
+      projectionReplay.current_decision_verified === true);
+  const manual = (rec && (rec.pythonManualDecision || rec.python_manual_decision)) || {};
+  const manualProvenanceVerified =
+    !!String(manual.decisionId || manual.decision_id || '').trim() &&
+    !!String(manual.actor || '').trim() &&
+    !!String(manual.reasonCode || manual.reason_code || '').trim() &&
+    !!String(manual.rationale || '').trim() &&
+    (manual.replayVerified === true || manual.replay_verified === true) &&
+    (manual.matchedFresh === true || manual.matched_fresh === true) &&
+    (manual.currentDecisionVerified === true ||
+      manual.current_decision_verified === true) &&
+    (manual.supersedesChainVerified === true ||
+      manual.supersedes_chain_verified === true);
+  if ((projectionStatus === 'confirmed_strong' && directLineage &&
+       projectionIsFreshAndCurrent) ||
+      (projectionStatus === 'confirmed_manual' && manualProvenanceVerified)) {
+    candidate.pythonProjectionStatus = projectionStatus;
+    return candidate;
+  }
+  return {
+    status: 'HOLD',
+    reason: 'OTA/PG 자동전기 보류 — fresh/current replay와 strong lineage 또는 manual provenance 필요',
+  };
+}
+
+function classifyCandidate_(rec, kb, emailIdx, trips, rules) {
   const name = (rec.merchant || '').toUpperCase();
 
   if (/취소|환불|CANCEL/i.test(rec.saleType || '') || rec.krw < 0) return { status: 'CANCEL' };
@@ -637,11 +708,31 @@ function classify(rec, kb, emailIdx, trips, rules) {
 
   // 대장(가이드) 지급카드: 사용내역은 대장 전용 탭으로 직행(카드기명 규칙, 계정은 영구규칙 우선).
   // leaderSince(카드 전달일) 이전 사용분은 대장 구분 없이 일반 분류(예: 8831은 2026-07 엘레나 전달 — 그 전은 여행탭).
-  if (profile.leaderTab && (!profile.leaderSince || (rec.useDate && rec.useDate >= profile.leaderSince))) {
+  if (!isOtaLike_(name) && !isPgLike_(rec, name) &&
+      profile.leaderTab &&
+      (!profile.leaderSince || (rec.useDate && rec.useDate >= profile.leaderSince))) {
     const acct = (ruled && ruled.account) || profile.travelAccount || '숙박비';
     return { status: 'CONFIRM', account: acct, tripName: profile.leaderTab, note: '대장카드:' + profile.owner };
   }
 
+  // PG/간편결제는 여행기간·해외사용·학습규칙보다 먼저 검사한다. 그렇지 않으면
+  // 금액뿐인 수기 메모나 과거 가맹점 규칙이 아래 일반 여행 분기로 빠져
+  // 이메일 실증 없이 자동 확정될 수 있다.
+  if (isPgLike_(rec, name)) {
+    const hit = emailIdx && matchGenericPaymentEmail(emailIdx, rec);
+    // 이 분기는 후보만 만든다. classify()의 Python projection 최종 게이트가
+    // strong은 direct lineage, manual은 append-only 판정 provenance를 검사한다.
+    if (hit && hit.account) {
+      return { status: 'CONFIRM', account: hit.account, tripName: CONFIG.ETC_TAB,
+               note: '메일:' + hit.source, bookingNo: hit.bookingNo, project: hit.item,
+               directEvidence: directEmailEvidenceRef_(hit) };
+    }
+    if (hit) {
+      return { status: 'HOLD', reason: '온라인결제 메일 매칭됨(' + hit.source +
+               (hit.item ? '/' + hit.item : '') + ') — 계정과목만 확인해 학습대기에 입력' };
+    }
+    return { status: 'HOLD', reason: '온라인결제(PG/페이) — 직접 결제 메일(메시지ID+주문번호) 매칭 필요' };
+  }
   // 규칙 적중 → 즉시 확정 (구분: 기타면 ETC 탭, 아니면 날짜로 여행 라우팅)
   if (ruled && ruled.account) {
     if (/기타/.test(ruled.kind)) return { status: 'CONFIRM', account: ruled.account, tripName: CONFIG.ETC_TAB };
@@ -675,6 +766,7 @@ function classify(rec, kb, emailIdx, trips, rules) {
   }
 
   // 비여행 국내 = 기타비용
+  // 이 분기는 위 PG 선행 게이트와 같은 정책을 유지하는 방어적 fallback이다.
   if (hasKw(name, KW.PG) || (rec.bizCat && /전자상거래|PG/.test(rec.bizCat))) {
     const hit = emailIdx && matchGenericPaymentEmail(emailIdx, rec);
     // (R2-5) 메일이 계정과목을 못 주면 '여비교통비'로 강제하지 않고 보류한다.
@@ -763,6 +855,11 @@ function aiClassifyMerchants(items) {
 // 정산 전 프리패스 — 색상과 무관하게 사전·규칙·학습맵 어디에도 없는 가맹점을 모아
 //  Gemini로 일괄 분류하고 '분류규칙'에 저장 + 이번 정산의 rules 맵에 즉시 반영.
 function aiPrepassRules(ledgerSS, kb, rules) {
+  // AI output is a review hint, never an auto-confirming classification rule.
+  // Leave the old write-back implementation below unreachable until it has a
+  // separate, human-reviewed candidate workflow with evidence provenance.
+  Logger.log('AI merchant pre-classification is disabled: it cannot create confirmation rules.');
+  return;
   if (!aiKey()) return;                                    // 키 없으면 사전 추론만으로 진행
   const seen = {}, cand = [];
   CONFIG.RAW_SOURCES.forEach(function (src) {
@@ -849,7 +946,11 @@ function loadRules(ss) {
   const v = sh.getDataRange().getValues();
   for (let r = 1; r < v.length; r++) {
     const key = normMerchant(v[r][0]);
-    if (key && v[r][1]) map[key] = { account: String(v[r][1]).trim(), kind: String(v[r][2] || '').trim() };
+    // AI-created suggestions are not human confirmation and must not retain
+    // an automatic posting path merely because they remain in this sheet.
+    if (key && v[r][1] && !/^AI:/i.test(String(v[r][3] || '').trim())) {
+      map[key] = { account: String(v[r][1]).trim(), kind: String(v[r][2] || '').trim() };
+    }
   }
   return map;
 }
@@ -1074,17 +1175,44 @@ function loadEmailIndex() {
                 merchant: row[col.merchant], item: row[col.item], amount: num(row[col.amount]),
                 currency: String(row[col.currency] || '').toUpperCase(), card: row[col.card],
                 account: row[col.account], bookingNo: String(row[col.bookingNo] || ''),
-                messageId: String(row[col.messageId] || ''), rowNumber: r + 1 });
+                messageId: String(row[col.messageId] || ''),
+                bookingStatus: String(row[col.bookingStatus] || ''),
+                settlementCondition: String(row[col.settlementCondition] || ''),
+                rowNumber: r + 1 });
   }
   return rows;
 }
+// 카드 금액·날짜나 legacy 분류 메모는 이메일 실증이 아니다. 자동 전기에 쓸 수
+// 있는 이메일은 (1) Gmail 메시지 ID, (2) 예약/주문/승인 식별자, (3) 실제
+// 결제 완료 유형과 금액을 모두 가져야 한다. 충돌 표지가 하나라도 있으면 보류한다.
+function directEmailEvidenceRef_(e) {
+  if (!e) return '';
+  const source = String(e.source || '').toLowerCase();
+  const type = String(e.type || '').toLowerCase();
+  const conflict = String(
+    e.conflictFields || e.conflict_fields || e.evidenceConflict || e.evidence_conflict || ''
+  ).trim();
+  if (conflict) return '';
+  if (/manual|legacy|classified|note|internal/.test(source)) return '';
+  if (!/^(charge|payment_confirmation|receipt|payment_receipt)$/.test(type)) return '';
+  if (!String(e.messageId || '').trim()) return '';
+  if (!String(e.bookingNo || '').trim()) return '';
+  if (!(Math.abs(num(e.amount)) > 0)) return '';
+  return 'gmail:' + String(e.messageId).trim() + '|booking:' + String(e.bookingNo).trim();
+}
 // 일반 PG/페이 결제용 보조 매칭. OTA 메일은 아래의 엄격한 matchOtaEmail만 사용한다.
-function matchGenericPaymentEmail(index, rec) {
+// (R2-5) 금액 단독 매칭의 오매칭 방지 보강:
+//  1) 결제일 근접(±3일) 조건 — 메일 수신일(paidDate) ≈ 예약 결제 시점이므로
+//     카드 이용일(useDate)과 3일 넘게 벌어지면 동일 금액대 다른 결제로 간주.
+//     (실사용일 useDate가 아니라 '결제 시점'끼리 비교 — OTA 선결제 특성 보존)
+//  2) 같은 메일의 중복 매칭 금지(_used) — 한 메일은 카드 건 하나에만.
+//  3) 후보가 여럿이면 결제일이 가장 가까운 메일 채택.
+function matchEmail(index, rec) {
   const amt = Math.round(rec.krw);
+  const candidates = [];
   const recPay = dateMs(rec.useDate);   // 카드 '이용일' = 결제 발생일
-  let best = null, bestDiff = Infinity;
   index.forEach(function (e) {
-    if (e.type === 'refund' || e._used || emailOtaBrand(e)) return;
+    if (e.type === 'refund' || e._used || !directEmailEvidenceRef_(e)) return;
     const ea = Math.round(Math.abs(e.amount));
     if (!(ea > 0 && Math.abs(ea - amt) <= Math.max(2, amt * 0.01))) return;
     const ePay = dateMs(e.paidDate);
@@ -1093,10 +1221,19 @@ function matchGenericPaymentEmail(index, rec) {
       diff = Math.abs(ePay - recPay) / 86400000;
       if (diff > 3) return;   // 결제일 3일 초과 이격 → 다른 결제
     }
-    if (diff < bestDiff) { best = e; bestDiff = diff; }
+    candidates.push({ entry: e, dateDiff: diff });
   });
-  if (best) best._used = true;
-  return best;
+  // A closest-value tie-break is a guess. A card event may use a direct
+  // receipt only when exactly one unused receipt survives these filters.
+  if (candidates.length !== 1) return null;
+  candidates[0].entry._used = true;
+  return candidates[0].entry;
+}
+
+function matchGenericPaymentEmail(index, rec) {
+  return matchEmail((index || []).filter(function (e) {
+    return !emailOtaBrand(e);
+  }), rec);
 }
 
 // ─────────────────────────────────────────────────────────────

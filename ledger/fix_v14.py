@@ -2,40 +2,94 @@
 """trip-first 교정: classified_v13 → v14.
 ①TRIP중복(base와 여행탭+가맹 동일) → 병합(TRIP행 제거, base에 병합표시)
 ②계정 업종 재분류(카드 대조)  ③빈 use_date 카드 이용일로 보완  ④취소 orig_appr 승인번호 페어링"""
-import csv, re
+import csv, re, os, json, datetime, sys
 from collections import defaultdict, Counter
 from cardindex import build_cards, account, i, d10
+from domain.lineage_gates import (
+    lineage_semantic_counts,
+    require_protected_uids_preserved,
+    require_raw_cancellation_signs,
+    require_valid_nonposting_aliases,
+)
+
+DRY_RUN = '--dry-run' in sys.argv
+# Lossless policy: suspected duplicates remain visible and block review.  They
+# are never deleted merely because amount/merchant/description counts overlap.
+LOSSLESS_NO_DELETE = True
 
 cards=build_cards()
 # 카드 조회: 승인번호별, (카드사,금액)별
-by_appr={}; by_coamt=defaultdict(list)
-for c in cards:
-    if c['appr']: by_appr.setdefault((c['co'],c['appr']),c)
-    by_coamt[(c['co'],abs(c['krw']))].append(c)
 CO={'KBD':'국민','KBO':'국민','HAN':'하나','CORP':'기업','MAN':''}
-def find_card(row):
-    co=CO.get(row['src'],'')
-    ap=re.sub(r'\D','',row.get('appr') or '')
-    if ap and (co,ap) in by_appr: return by_appr[(co,ap)]
-    cand=by_coamt.get((co,abs(i(row['krw']))),[])
-    if not cand: return None
     # 이용일 근접 우선
-    ud=row.get('use_date') or ''
-    if ud:
-        cand=sorted(cand,key=lambda c:abs((c['use']>ud)-(c['use']<ud)) if c['use'] else 9)
     # 가맹 유사 우선
-    mm=re.sub(r'[^A-Z0-9가-힣]','',(row['merchant'] or '').upper())[:8]
-    for c in cand:
-        if mm and mm[:5] in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper()): return c
-    return cand[0]
+
+
+def validate_source_lineage(rows, label):
+    """Validate lossless event identity without inventing N:M pairings."""
+    missing=[r.get('uid','') for r in rows if not r.get('source_event_id') or not r.get('source_event_members') or not r.get('source_event_disposition')]
+    counts=Counter(str(r.get('source_event_id') or '') for r in rows)
+    duplicates=[event_id for event_id,count in counts.items() if count>1]
+    legacy=[r.get('uid','') for r in rows if str(r.get('source_event_id') or '').startswith('legacy:')]
+    if missing or duplicates or legacy:
+        raise RuntimeError(
+            '%s lineage invalid: missing=%s duplicate=%s legacy=%s'
+            % (label, ', '.join(missing[:5]), ', '.join(duplicates[:5]), ', '.join(legacy[:5]))
+        )
+
+    groups=defaultdict(list)
+    for row in rows:
+        event_id=str(row['source_event_id'])
+        members=str(row['source_event_members'])
+        if event_id.startswith(('card-group:', 'card-group-blank-merchant:')):
+            groups[event_id.rsplit(':',1)[0]].append(members)
+        elif event_id.startswith('card:') and members != event_id[len('card:'):]:
+            raise RuntimeError('%s card member mismatch: %s' % (label, event_id))
+        elif event_id.startswith('manual:') and members != event_id:
+            raise RuntimeError('%s manual member mismatch: %s' % (label, event_id))
+        elif event_id.startswith('adjustment:') and (
+            members != event_id
+            or row.get('source_event_disposition') != 'projection_adjustment_pending_review'
+        ):
+            raise RuntimeError('%s adjustment disposition mismatch: %s' % (label, event_id))
+        elif event_id.startswith('projection-alias:') and (
+            members != event_id
+            or row.get('source_event_disposition') != 'superseded_duplicate_projection'
+            or not row.get('source_event_alias_of')
+        ):
+            raise RuntimeError('%s superseded duplicate alias mismatch: %s' % (label, event_id))
+        elif event_id.startswith('manual-claimed-card-no-raw:') and (
+            members != event_id
+            or row.get('source_event_disposition') != 'manual_claimed_card_no_raw'
+            or not str(row.get('source_event_alias_of') or '').startswith('manual:')
+        ):
+            raise RuntimeError('%s manual/no-raw alias mismatch: %s' % (label, event_id))
+        elif event_id.startswith('rejected-legacy-projection:') and (
+            members != event_id
+            or row.get('source_event_disposition') != 'rejected_legacy_projection'
+            or not row.get('source_event_alias_of')
+        ):
+            raise RuntimeError('%s rejected legacy projection mismatch: %s' % (label, event_id))
+    for group_id, member_lists in groups.items():
+        if len(set(member_lists)) != 1:
+            raise RuntimeError('%s exact-group membership changed: %s' % (label, group_id))
+        members=[member for member in member_lists[0].split('|') if member]
+        if len(members) != len(member_lists) or len(set(members)) != len(members):
+            raise RuntimeError('%s exact-group cardinality invalid: %s' % (label, group_id))
+    return {str(r['source_event_id']): str(r['source_event_members']) for r in rows}
 
 rows=list(csv.DictReader(open('data/classified_v13.csv',encoding='utf-8')))
+v13_total=sum(i(r['krw']) for r in rows)
 FN=list(rows[0].keys())
+# A projection may reclassify an event, but it must never make an identified
+# source event disappear.  In particular, TRIP-* is a generated display key
+# and cannot be used as the coverage key.
+if LOSSLESS_NO_DELETE:
+    _input_source_events=validate_source_lineage(rows, 'v13 input')
+    _input_source_dispositions={r['source_event_id']: r['source_event_disposition'] for r in rows}
 base=[r for r in rows if not r['uid'].startswith('TRIP-')]
 trip=[r for r in rows if r['uid'].startswith('TRIP-')]
 
-# ① TRIP 중복 제거(병합): 승인번호가 있으면 동일 승인번호만 병합한다.
-#    승인번호가 없을 때도 같은 여행탭+가맹점명+정확금액이어야 하며, 근사금액만으로는 병합하지 않는다.
+# ① TRIP 중복 제거(병합): base에 같은 여행탭+가맹점명+금액(±2%) 존재해야만 병합.
 #    ★사용자 지적 실사고(KBO-2665 vs TRIP-0023): 같은 호텔 다객실 예약이 금액까지 근접(102,958 vs 104,092, 1.3%차)해
 #    가맹+금액만으로 오매칭 → 실거래(TRIP-0023, 예약1694237901, 102,958)가 통째로 삭제되는 사고 발생.
 #    **양쪽 다 예약번호가 있는데 서로 다르면 절대 병합 금지**(예약번호 최우선 진실).
@@ -43,26 +97,17 @@ def mk(m): return re.sub(r'[^A-Z0-9가-힣]','',(m or '').upper())[:12]
 def bookno(note):
     m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})', note or '')
     return m.group(1) if m else ''
-def approval(row):
-    return re.sub(r'\D', '', row.get('appr') or '')
 base_by_bucket=defaultdict(list)
 for r in base: base_by_bucket[r['bucket']].append(r)
 merged=0; kept=[]; blocked_by_book=0
 for t in trip:
-    a=abs(i(t['krw'])); tm=mk(t['merchant']); tb=bookno(t['note']); ta=approval(t); dup=None
+    a=abs(i(t['krw'])); tm=mk(t['merchant']); tb=bookno(t['note']); dup=None
     for b in base_by_bucket[t['bucket']]:
-        if mk(b['merchant'])!=tm: continue
-        ba=approval(b)
-        # 카드 이벤트 식별자가 둘 다 있으면 같은 승인번호만 동일 거래다.
-        if ta and ba:
-            if ta!=ba: continue
-        elif abs(i(b['krw']))!=a:
-            # 승인번호가 한쪽이라도 없을 때 근사금액 병합 금지.
-            continue
+        if mk(b['merchant'])!=tm or abs(abs(i(b['krw']))-a)>max(2000,a*0.02): continue
         bb=bookno(b['note'])
         if tb and bb and tb!=bb: continue   # 예약번호 상충 → 다른 거래, 병합 금지
         dup=b; break
-    if dup:
+    if dup and not LOSSLESS_NO_DELETE:
         if '수기병합' not in (dup['note'] or ''):
             rowtag_m=re.match(r'수기(\d+)행\s*\|', t['note'] or '')
             prefix='수기%s행 | '%rowtag_m.group(1) if rowtag_m else ''
@@ -70,7 +115,7 @@ for t in trip:
         merged+=1
     else:
         kept.append(t)
-print('①TRIP중복→병합(승인번호 우선·정확금액·예약번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept))
+print('①TRIP중복→병합(가맹+금액+예약번호검증):', merged,'건 제거 / 잔여 TRIP', len(kept))
 
 # ①B TRIP↔TRIP 수기 자체 중복입력 dedup (오제 등 in-progress 이중입력).
 #     같은 여행탭·같은 금액·같은 desc핵심(사람이름/예약)=중복. 정상 다건(묘코 다른사람 ×5)은 desc가 달라 보존.
@@ -81,13 +126,13 @@ def desc_core(note):
     d=re.sub(r'_?환불$|_?취소$','',d)                                # 환불/취소 접미 제거(부분환불 매칭용)
     d=re.sub(r'예약[A-Za-z0-9]+','',d)                              # 예약번호 제거
     d=re.sub(r'\d{4}_\d{4}|\d{6,}|\d{4}','',d)                     # 날짜·번호 제거
-    return re.sub(r'[\s_]','',d)                                    # 공백 제거→사람이름 핵심
-def bookno_t(note):
-    # 예약번호는 결제·환불 그룹키일 뿐 거래 PK가 아니다.
-    # 동일 예약번호여도 승인번호가 다른 분할결제/부분환불은 모두 별도 이벤트로 보존한다.
+    res=re.sub(r'[\s_]','',d)                                      # 공백 제거→사람이름 핵심
+    if res in ('항공', '숙박', '렌트', '렌터카', '식비', '교통', '교통비', '입장', '입장료', '기타', '유류비', '보험', '여행자보험'):
+        return ''
+    return res
+def bookno_t(note):   # ★예약번호(다객실 동일가 유일 식별) — dedup 키에 포함해 다른 예약 오제거 방지
     m=re.search(r'예약\s*(\d{6,}|[A-Z0-9]{5,7})(?![0-9])', note or '')
     return m.group(1) if m else ''
-card_exact=Counter((c['co'],abs(c['krw']),c['cancel']) for c in cards)
 seen_key=set(); kept2=[]; dd=0; ddtot=0
 for t in sorted(kept, key=lambda z:z['uid']):
     # ★영수증/현금/이체(MAN, 비카드)는 수기장부가 마스터(2026-07-23 사용자 확정 "영수증은 수기가 마스터"):
@@ -97,10 +142,7 @@ for t in sorted(kept, key=lambda z:z['uid']):
     core=desc_core(t['note']); a=abs(i(t['krw'])); cx=str(t.get('cancel')).lower() in ('true','1')
     bk=bookno_t(t['note'])
     key=(t['bucket'], a, cx, core, bk)   # ★예약번호 포함(규칙5·P10): 예약번호 다르면 별개 거래, 절대 병합/제거 금지
-    # 카드 원본이 있으면 여기서 선삭제하지 않고 아래 ①C가 원본 건수까지만 보존한다.
-    # 원본이 0건인 수기형 카드표기 행만 동일 키를 중복입력으로 제거한다.
-    co=CO.get(t['src'],'')
-    if key in seen_key and card_exact.get((co,a,cx),0)==0:
+    if (not LOSSLESS_NO_DELETE) and (core or bk) and key in seen_key:
         dd+=1; ddtot+=i(t['krw']); continue
     seen_key.add(key); kept2.append(t)
 print('①B 수기 중복입력 dedup:', dd,'건 제거 (순액', format(ddtot,'+,'),')')
@@ -109,6 +151,7 @@ kept=kept2
 # ①C 카드 정확금액 초과 dedup: 카드건(국민/하나/기업) 중 (카드사,정확금액,취소)가 카드원본 건수 초과 → 제거.
 #    단 카드건수≥1일 때만(0이면 승인/청구 변형일 수 있어 보존). 정상 다건은 카드도 다건이라 보존.
 #    ★base 선소비: base가 이미 쓰는 슬롯을 tripseen에 미리 반영(부산 하나건 등 base⇄수기 매칭 완료건을 TRIP이 재추가하는 이중계상 방지).
+card_exact=Counter((c['co'],abs(c['krw']),c['cancel']) for c in cards)
 tripseen=Counter(); kept3=[]; dd2=0; dd2tot=0
 for b in base:
     bco=CO.get(b['src'],'')
@@ -120,7 +163,7 @@ for t in sorted(kept, key=lambda z:z['uid']):
     if co and t['src']!='MAN':
         cx=str(t.get('cancel')).lower() in ('true','1'); a=abs(i(t['krw']))
         k=(co,a,cx); tripseen[k]+=1; cc=card_exact.get(k,0)
-        if cc>=1 and tripseen[k]>cc:
+        if (not LOSSLESS_NO_DELETE) and cc>=1 and tripseen[k]>cc:
             dd2+=1; dd2tot+=i(t['krw']); continue
     kept3.append(t)
 print('①C 카드 정확초과 dedup:', dd2,'건 제거 (순액', format(dd2tot,'+,'),')')
@@ -134,7 +177,9 @@ def card_by_mer_amt(row):
     co=CO.get(row['src'],''); a=abs(i(row['krw']))
     tm=re.sub(r'[^A-Z0-9가-힣]','',(row['merchant'] or '').upper())[:6]
     hit=[c for c in by_coamt_mer.get((co,a),[]) if tm and tm in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper())]
-    return hit[0] if len(hit)==1 else (hit[0] if hit else None)
+    # A date/approval enrichment is not allowed to choose the first raw row.
+    # Ambiguous card facts stay unchanged for manual review.
+    return hit[0] if len(hit)==1 else None
 
 # ②③④ — base는 절대 안 건드림. TRIP(kept)만 교정
 acc_fixed=0; date_fixed=0; orig_set=0
@@ -168,8 +213,7 @@ for r in allrows:
 # ⑤(폐기, 엔진 재점검): 동액 기반 계정승계는 우연 동액 오승계 위험 — 승인번호 페어 승계(⑦f)로 대체됨
 print('⑤취소 계정승계: 폐기(⑦f 승인번호 페어로 대체)')
 
-# ⑥ 원거래 없는 취소 → 카드 원본에서 원거래(양수·동액·**동일 브랜드**)를 찾되,
-#    찾지 못해도 취소/부분환불 이벤트는 절대 삭제하지 않고 '연결대기 환불'로 보존한다.
+# ⑥ 원거래 없는 취소 → 카드 원본에서 원거래(양수·동액·**동일 브랜드**) 찾아 양수행 추가(net-0 쌍)
 #    사용자 지적: 트립닷컴↔마이트립은 별개회사인데 금액만으로 묶여 오매칭됨(ORIG-0003).
 #    브랜드 불일치 또는 후보 승인번호가 base에 이미 있으면(=기존 실거래 도용) 팬텀 생성 금지.
 def brand(m):
@@ -191,29 +235,33 @@ for r in allrows:
     if str(r.get('cancel')).lower() not in ('true','1') and i(r['krw'])>0:
         c=desc_core(r['note']) if r['uid'].startswith(('TRIP-','ORIG-')) else ''
         if c: pos_desc[(r['bucket'],c)].append(r)
-paired=[]; pn=0; unresolved=[]; partial=0
+paired=[]; pn=0; drop_uids=set(); unresolved=[]; partial=0
 for r in kept:
     if str(r.get('cancel')).lower() in ('true','1') and pos_key.get((r['bucket'],abs(i(r['krw']))),0)==0:
         rc=desc_core(r['note'])
-        if rc and pos_desc.get((r['bucket'],rc)):
-            partial+=1; continue   # 부분환불: 원거래(다른 금액)가 이미 존재 → 손대지 않고 차감 유지
+        if rc and any(r['bucket']==b and (rc in c or c in rc) for (b,c) in pos_desc.keys()):
+            partial+=1; continue   # 부분환불: 원거래(다른 금액 또는 그룹명단)가 이미 존재 → 손대지 않고 차감 유지
+        if r['uid'].startswith('TRIP-'):
+            partial+=1; continue   # 수기장부 마이너스 기입건: 정당한 수기 환불/취소 내역이므로 차감 유지
         a=abs(i(r['krw'])); co=CO.get(r['src'],''); rb=brand(r['merchant'])
         cand=[c for c in cards if not c['cancel'] and abs(c['krw'])==a and c['co']==co]
         cand=[c for c in cand if brand(c['mer'])==rb and c['appr'] not in base_appr_used]  # ★브랜드일치+base비도용
         if not cand:
-            # 원거래 연결 실패는 삭제 사유가 아니다. 일부환불·과거결제·타카드 결제일 수 있으므로
-            # 불변 취소 이벤트로 남기고 이후 예약번호/원승인번호 대사를 기다린다.
+            # The missing original is a review problem, not authority to
+            # erase the cancellation source event.  Retain it in clearing so
+            # a later raw-card link can resolve the relation without losing
+            # the event or its amount.
             unresolved.append(r)
-            r['confidence']='중'
-            marker='연결대기 환불(원거래 미확인·삭제금지)'
-            if marker not in (r['note'] or ''):
-                r['note']=((r['note'] or '')+' | '+marker).strip(' |')
+            r['bucket']='취소환불'
+            r['confidence']='하'
+            r['note']=((r.get('note') or '').strip(' |')
+                       + ' | 원거래 미확인: 취소환불 검토대기(원천 이벤트 보존)')
             continue
         tm=re.sub(r'[^A-Z0-9가-힣]','',(r['merchant'] or '').upper())[:5]
         best=next((c for c in cand if tm and tm in re.sub(r'[^A-Z0-9가-힣]','',c['mer'].upper())), cand[0])
         pn+=1
         orow={k:'' for k in FN}
-        orow.update(uid='ORIG-%04d'%pn, src=r['src'], use_date=best['use'], card4=r['card4'],
+        orow.update(uid='ORIG-%04d'%pn, source_event_id='card:%s:%s' % (best['src'], best['raw_record_id']), source_event_members='%s:%s' % (best['src'], best['raw_record_id']), source_event_disposition='raw_card_linked', src=r['src'], use_date=best['use'], card4=r['card4'],
             merchant=best['mer'], country=r['country'], currency=r['currency'], foreign='0', krw=str(a),
             status='정상', bucket=r['bucket'], account=r['account'], cancel='False', cost_type='여행원가',
             vat_tag=r['vat_tag'], confidence='상',
@@ -221,8 +269,10 @@ for r in kept:
             tax_conf='상', appr=best['appr'], orig_appr='')
         r['orig_appr']=orow['appr']
         paired.append(orow)
+kept=[r for r in kept if r['uid'] not in drop_uids]
+allrows=[r for r in allrows if r['uid'] not in drop_uids]
 print('⑥원거래 없는 취소', pn, '건 원거래 복원(브랜드일치) /', partial,'건 부분환불(원거래 다른금액 존재→차감유지)')
-print('   원거래 연결 실패 →', len(unresolved),'건 연결대기 환불로 보존:', [(u['uid'],u['merchant'][:14],u['krw']) for u in unresolved])
+print('   브랜드검증 실패(원거래 불확실) →', len(unresolved),'건 취소환불 검토대기(원천 보존):', [(u['uid'],u['merchant'][:14],u['krw']) for u in unresolved])
 allrows=allrows+paired
 
 # ⑦ 나머지 안전 교정 (에이전트 감사 반영)
@@ -250,6 +300,51 @@ for r in allrows:
     # ⑦d 운전수당 → 인건비 (기사 수당, 실제 여행원가지만 숙박비 오분류)
     if '운전수당' in n and r['account']!='인건비':
         r['account']='인건비'; acc7+=1
+    # ⑦e KBD-1084: 결제 상세 전표로 음식점 이용을 확인했고,
+    # 사용자 확인으로 참석자는 운영이사 및 엘레나 대장(사내 인원)이다.
+    # 외부인 접대가 아닌 내부 운영회의 식대로 분류한다.
+    if r['uid']=='KBD-1084':
+        r['bucket']='기타비용'
+        r['account']='회의비'
+        r['cost_type']='판관비'
+        r['vat_tag']='공제후보'
+        r['confidence']='상'
+        r['tax_conf']='중'
+        r['note']=(
+            '카드매출전표 확인: 2026-06-18 강태현스시 매장 이용, 109,000원'
+            ' | 참석자: 운영이사, 엘레나 대장(사내 인원)'
+            ' | 내부 운영회의 식대: 회의비'
+            ' | 부가세 공제후보(구체적 회의 목적·안건 증빙 보관 필요)'
+        )
+        acc7+=1; vat7+=1
+    # ⑦f 사용자 단건 판정: 국내 식사 2건은 회의비,
+    # 집사의하루는 반려동물 업종이 아니라 카페이며 운영이사의 업무공간 사용분이다.
+    if r['uid'] in ('KBD-0401', 'KBD-0378'):
+        r['bucket']='기타비용'
+        r['account']='회의비'
+        r['cost_type']='판관비'
+        r['vat_tag']='공제후보'
+        r['confidence']='상'
+        r['tax_conf']='중'
+        r['note']=(
+            f'사용자 확정: {r["merchant"]} 회의비'
+            ' | 국내 업무회의 식대'
+            ' | 부가세 공제후보(참석자·회의 목적 증빙 보관 필요)'
+        )
+        acc7+=1; vat7+=1
+    if r['uid'] in ('KBD-0954', 'KBD-0955'):
+        r['bucket']='기타비용'
+        r['account']='복리후생비'
+        r['cost_type']='판관비'
+        r['vat_tag']='공제후보'
+        r['confidence']='상'
+        r['tax_conf']='중'
+        r['note']=(
+            '사용자 확정: 집사의 하루는 카페'
+            ' | 운영이사의 업무용 워크스페이스 사용'
+            ' | 복리후생비·부가세 공제후보(업무일지 등 업무관련성 증빙 보관)'
+        )
+        acc7+=1; vat7+=1
 print('⑦ 계정교정',acc7,'/ vat정규화',vat7,'/ 버킷·플래그',buk7)
 
 # ⑦g base 취소행 승인번호 페어 보강: appr 비어있는 base 취소를 카드 취소전표(괄호 원승인)로 연결
@@ -355,25 +450,137 @@ before=len(allrows)
 allrows=[r for r in allrows if not _is_company_cardpay(r)]
 print('⑦e 회사카드 카드이용대금 정산성 이체 제외:', before-len(allrows),'건 (외부 개인카드 정산은 유지)')
 
-# ⑦k 기업 승인취소 무청구 교정(엔진 전면 재점검 발견): A파일 '취소또는할인' 승인번호가 워크북에 양수로 반영된 4건
-#    (CORP-2011 아고다 1,160,562·CORP-2043 11,595·CORP-2006 356,158·CORP-2005 356,418 = +1,884,733 과대).
-#    승인취소=실청구 없음 → 무청구 관례(krw=0) 처리. 수기(아고다 2객실)가 옳았음.
+# ⑦k 기업 취소 이벤트 부호 교정: A파일 '취소또는할인'이 양수로 잘못 반영된 행
 corp_cx_appr={c['appr'].lstrip('0') for c in cards if c.get('src')=='CORP' and c.get('cancel')}
 ck=0
 for r in allrows:
     if r['src']=='CORP' and i(r['krw'])>0:
         ap=(r['appr'] or '').strip().lstrip('0')
         if ap and ap in corp_cx_appr:
-            r['note']=(r['note'] or '')+' | ⚠승인취소(기업 취소또는할인)=무청구, 실청구 0 처리(원 %s원)'%format(i(r['krw']),',')
-            r['krw']='0'; r['status']='승인취소'; ck+=1
-print('⑦k 기업 승인취소 무청구 교정:', ck,'건')
+            n_clean = re.sub(r'KRW결제 아고다[^|]*', '', r['note'] or '').strip(' |')
+            r['note'] = (n_clean if n_clean else '실카드 취소 전표') + ' | 카드원천 취소또는할인 부호 교정'
+            # This source row is a cancellation event, not a zero-value
+            # placeholder. Preserve its amount with the correct sign.
+            r['krw'] = str(-abs(i(r['krw'])))
+            r['cancel'] = 'True'
+            r['status'] = '\uCDE8\uC18C'
+            r['bucket'] = '\uCDE8\uC18C\uD658\uBD88'
+            r['confidence'] = '상'
+            r['tax_conf'] = '상'
+            ck += 1
+print('⑦k 기업 취소 이벤트 부호 교정:', ck,'건')
+
+# ⑦m 상충 태그 소거: note에 "미청구_예약확정" 또는 "수기미입력" 표기인데 bucket이 탭으로 정정된 행 →상충 태그 소거
+clr=0
+for r in allrows:
+    if r['bucket'] not in ('여행_미배정','미청구_예약확정','취소환불') and r['bucket']:
+        n=r['note'] or ''
+        if '미입력추정(수기장부 없음)' in n:
+            n=n.replace('미입력추정(수기장부 없음)','수기 반영완료')
+            r['note']=n; clr+=1
+print('⑦m 상충 태그 소거:', clr, '건')
+
+# ⑦p OTA 메일 전수 교차 대사 귀속 (Full OTA Mail Cross-Matching)
+ota_matched_cnt = 0
+if os.path.exists('data/ota_mail_index.json'):
+    records = json.load(open('data/ota_mail_index.json', encoding='utf-8')).get('records', [])
+    TAB_PATTERNS = [
+        (r'아오모리|AOMORI', '0417_아오모리'),
+        (r'교토|KYOTO', '0408_교토'),
+        (r'알펜루트|고마츠|하네다', '0424_알펜루트'),
+        (r'에히메|마츠야마', '0404_에히메'),
+        (r'오사카|OSAKA|난바', '0420_오사카'),
+        (r'나가센도|나고야', '0413_나가센도'),
+        (r'부산', '0501_부산'),
+        (r'북해도|삿포로|토마무|스스키노', '0613_북해도'),
+        (r'레분|리시리|왓카나이', '0616_레분토&리시리'),
+        (r'묘코|아라이|니가타|다자와코|요코테', '0620_묘코'),
+        (r'아키타|쇼나이', '0625_아키타'),
+        (r'오제|군마|미나카미', '0630_오제'),
+        (r'유럽|스위스|프랑스|이탈리아', '5월_유럽'),
+    ]
+    for r in allrows:
+        if r['bucket'] == '여행_미배정' or r['confidence'] in ('하', '중,하'):
+            mer = (r['merchant'] or '').upper()
+            dt_str = r['use_date']
+            if not dt_str or dt_str == 'None': continue
+            try: c_dt = datetime.datetime.strptime(dt_str, '%Y-%m-%d')
+            except: continue
+            prov = (
+                'agoda' if 'AGODA' in mer else
+                'mytrip' if any(x in mer for x in ('MYTRIP', 'GOTOGATE', '마이트립', '고투게이트')) else
+                'trip' if 'TRIP' in mer else
+                'booking' if 'BOOKING' in mer else ''
+            )
+            if not prov: continue
+
+            # 날짜·제목·가맹점 키워드만으로 자동확정하지 않는다. OTA 표시금액이
+            # 카드 원화금액과 정확히 같고, 기존 예약번호가 있으면 그것도 일치해야 한다.
+            row_refs = set(re.findall(r'(?:\d{4}-\d{3}-\d{3}|\d{6,19})', r.get('note') or ''))
+            candidates = []
+            for rec in records:
+                if rec.get('provider') == prov:
+                    amounts = {
+                        int(round(float(str(value).replace(',', ''))))
+                        for value in (rec.get('amounts') or [])
+                        if str(value).replace(',', '').replace('.', '', 1).isdigit()
+                    }
+                    if abs(i(r['krw'])) not in {abs(value) for value in amounts}:
+                        continue
+                    rec_refs = {str(value) for value in (rec.get('bookingRefs') or [])}
+                    if row_refs and rec_refs and not row_refs.intersection(rec_refs):
+                        continue
+                    sent_at = rec.get('sentAt', '')
+                    m_dt = None
+                    if sent_at:
+                        try:
+                            parts = sent_at.split()
+                            if len(parts) >= 4:
+                                m_dt = datetime.datetime.strptime(f'{parts[3]}-{parts[2]}-{parts[1]}', '%Y-%b-%d')
+                        except: pass
+                    if m_dt:
+                        diff = abs((c_dt - m_dt).days)
+                        if diff <= 10:
+                            subj = rec.get('subject', '')
+                            for pat, tab in TAB_PATTERNS:
+                                if re.search(pat, subj, re.IGNORECASE):
+                                    candidates.append((rec, tab, subj, diff))
+                                    break
+            # 같은 금액 후보가 둘 이상이면 N:M 그룹 검토 대상으로 남긴다.
+            if len(candidates) == 1:
+                rec, tab, subj, _ = candidates[0]
+                r['bucket'] = tab
+                r['confidence'] = '상'
+                r['note'] = (r['note'] or '') + f" | ⚡OTA메일 금액·공급자 교차확정({tab}): {subj[:35]}"
+                ota_matched_cnt += 1
+print('⑦p OTA 메일 전수 교차 대사 귀속:', ota_matched_cnt, '건 완료')
 
 # ⑦l 전수감사 발견 교정: ①아오모리 트립닷컴_그랜드 net0 취소쌍(수기122↙123행, 카드 30057825↔40901179) 복원—P6 취소환불
 _has_grand=any('1400825417884289' in (r['note'] or '') for r in allrows)
 if not _has_grand:
+    def _grand_raw_source(is_refund):
+        candidates=[
+            card for card in cards
+            if card.get('src')=='KBD'
+            and abs(i(card.get('krw'))) == 213274
+            and bool(card.get('cancel')) == is_refund
+            and (
+                (not is_refund and str(card.get('appr') or '')=='30057825')
+                or (is_refund and str(card.get('orig') or '')=='30057825')
+            )
+        ]
+        if len(candidates) != 1:
+            raise RuntimeError(
+                'cannot reconstruct Grand cancellation pair without one exact raw card event '
+                '(refund=%s, candidates=%d)' % (is_refund, len(candidates))
+            )
+        card=candidates[0]
+        return '%s:%s' % (card['src'], card['raw_record_id'])
+
     for sgn,ap,og,st in [(1,'30057825','', '정상'),(-1,'','30057825','취소')]:
+        raw_source=_grand_raw_source(sgn < 0)
         nr={k:'' for k in FN}
-        nr.update(uid='ORIG-0417G%s'%('P' if sgn>0 else 'N'), src='KBD', use_date='2026-04-20',
+        nr.update(uid='ORIG-0417G%s'%('P' if sgn>0 else 'N'), source_event_id='card:%s' % raw_source, source_event_members=raw_source, source_event_disposition='raw_card_linked', src='KBD', use_date='2026-04-20',
             card4='', merchant='트립닷컴_그랜드', country='KR', currency='KRW', foreign='0',
             krw=str(213274*sgn), status=st, bucket='취소환불', account='숙박비',
             cancel=str(sgn<0), cost_type='여행원가', vat_tag='불공제_해외', confidence='상',
@@ -426,26 +633,29 @@ for r in allrows:
         moved+=1; break
 print('⑧ 수기 기타비용시트 매칭:', moved,'건 → 기타비용 이동·미입력해제 (시트', len(etc_man),'건 중)')
 
-# ⑦n 카드 기명자 규칙(사용자 2026-07-21): 3820=김주형 기명법인카드(국내 상주).
-#    국내결제(KBD)는 여행기간과 날짜가 겹쳐도 기타비용(판관비)이 기본 — 여행목적 결제(항공·보험·숙박·여행상품)만 여행탭 유지.
-#    해외이용(KBO): 항공권=여행탭, 현지사용=답사여행→해당 일자 여행탭(유지).
+# ⑦n 3820 기명카드 규칙: 3820 기명법인카드는 기타비용, 일반 공용카드는 날짜에 맞는 여행탭 귀속
 TRIP_PURPOSE={'항공료','여행자보험','숙박비'}
 def is_triptab(b): return bool(re.match(r'\d{4}_|\d{1,2}월_', b or ''))
 n7=0
 for r in allrows:
-    if r['card4']=='3820' and r['src']=='KBD' and is_triptab(r['bucket']):
-        if r['account'] in TRIP_PURPOSE: continue          # 항공·보험·숙박 등 여행목적 결제는 유지
-        if '여행상품' in (r['note'] or ''): continue
-        if re.search(r'⇄수기\[', r['note'] or '') or '트립닷컴' in (r['note'] or ''):
-            # 수기장부가 이 여행탭에 기입·매칭한 건은 수기 우선(규칙 A1) — 이동 금지. 항공PG면 계정만 교정.
-            if r['account'] not in TRIP_PURPOSE and ('트립닷컴' in (r['note'] or '') or '항공' in (r['note'] or '')):
-                r['account']='항공료'
-            continue
-        old=r['bucket']; r['bucket']='기타비용'; r['cost_type']='판관비'
-        if r['account'] in ('기타비용','식비'): r['account']='복리후생비'
-        r['note']=(r['note'] or '')+' | 3820 김주형 기명카드 국내결제→기타비용(카드기명 규칙, 이전:%s)'%old
-        n7+=1
-print('⑦n 3820 기명카드 국내결제 기타비용 정정:', n7,'건')
+    if r['uid'] in ('KBD-0855', 'KBD-0872', 'KBD-0881'):
+        c4 = r.get('card4', '').strip()
+        if c4 == '3820':
+            r['bucket'] = '기타비용'
+            r['cost_type'] = '판관비'
+            r['confidence'] = '상'
+        else:
+            r['bucket'] = '0501_부산'
+            r['confidence'] = '상'
+            r['note'] = (r['note'] or '') + ' | 공용카드(0501_부산 일자귀속 확정)'
+            n7 += 1
+    elif r.get('card4') == '3820' and r['src'] == 'KBD' and is_triptab(r['bucket']):
+        if r['account'] not in TRIP_PURPOSE and '여행상품' not in (r['note'] or ''):
+            old = r['bucket']; r['bucket'] = '기타비용'; r['cost_type'] = '판관비'
+            if r['account'] in ('기타비용', '식비'): r['account'] = '복리후생비'
+            r['note'] = (r['note'] or '') + ' | 3820 기명카드 국내결제→기타비용'
+            n7 += 1
+print('⑦n 3820 기명카드 규칙 및 공용카드 여행탭 귀속 교정:', n7, '건')
 
 # ⑦o 대장(가이드) 지급카드 → 전용 탭 분리(사용자 2026-07-21, 07-22 갱신): 5836=현수 / 4813=바로바로 / 8831=엘레나.
 #    ★전달일 게이트: 8831은 2026-07 엘레나 전달 — 7/1 이전 사용분은 대장 구분 없이 일반 여행탭 유지.
@@ -482,7 +692,40 @@ for r in allrows:
         r['note']=re.sub(r'^수기\d+행 \| ','',r['note']); tag_purged+=1
 print('⑦m 상충 태그 소거:', tag_purged,'건')
 
-with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
-    w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(allrows)
+if LOSSLESS_NO_DELETE:
+    _output_source_events=validate_source_lineage(allrows, 'v14 output')
+    _output_source_dispositions={r['source_event_id']: r['source_event_disposition'] for r in allrows}
+    _lost_source_events=sorted(set(_input_source_events)-set(_output_source_events))
+    _mutated_source_members=sorted(
+        event_id for event_id,members in _input_source_events.items()
+        if _output_source_events.get(event_id) != members
+    )
+    _mutated_source_dispositions=sorted(
+        event_id for event_id,disposition in _input_source_dispositions.items()
+        if _output_source_dispositions.get(event_id) != disposition
+    )
+    if _lost_source_events or _mutated_source_members or _mutated_source_dispositions:
+        raise RuntimeError(
+            'lossless projection blocked: source event deleted, raw membership changed, or disposition changed; '
+            'deleted=%s members=%s dispositions=%s'
+            % (
+                ', '.join(_lost_source_events[:10]),
+                ', '.join(_mutated_source_members[:10]),
+                ', '.join(_mutated_source_dispositions[:10]),
+            )
+        )
+
+require_protected_uids_preserved(rows, allrows, {'KBO-9002'})
+require_valid_nonposting_aliases(allrows)
+require_raw_cancellation_signs(allrows)
+if DRY_RUN:
+    print(
+        'LINEAGE SEMANTIC COUNTS:',
+        json.dumps(lineage_semantic_counts(allrows), ensure_ascii=False, sort_keys=True),
+    )
+
+if not DRY_RUN:
+    with open('data/classified_v14.csv','w',encoding='utf-8',newline='') as f:
+        w=csv.DictWriter(f,fieldnames=FN); w.writeheader(); w.writerows(allrows)
 tot=sum(i(r['krw']) for r in allrows)
-print('classified_v14:',len(allrows),'행 krw합',format(tot,','),'(v13대비 병합제거로',format(tot-316386294,'+,'),')')
+print('classified_v14:',len(allrows),'행 krw합',format(tot,','),'(실제 v13 대비',format(tot-v13_total,'+,'),')')

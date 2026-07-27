@@ -789,5 +789,158 @@
       "예약키존재"
     ],
     "pnr": "9TQY6Y"
+  },
+  "KBO-2645": {
+    "booking_id": "6475326931",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0413_0414",
+    "hotel": "Nezame Hotel",
+    "source_message_id": "19d55a641f018be9",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2646": {
+    "booking_id": "6635102370",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0413_0414",
+    "hotel": "Nezame Hotel",
+    "source_message_id": "19d55a601670e7ce",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2650": {
+    "booking_id": "6909210711",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0413_0414",
+    "hotel": "Nezame Hotel",
+    "source_message_id": "19d53e47fe9acb48",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2651": {
+    "booking_id": "5851174083",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0413_0414",
+    "hotel": "Nezame Hotel",
+    "source_message_id": "19d53e44d4ee4344",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2683": {
+    "booking_id": "6597446309",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0418_0419",
+    "hotel": "Hotel Unisite Mutsu",
+    "source_message_id": "19d8769ee7b354b2",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2705": {
+    "booking_id": "6025019141",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0422_0423",
+    "hotel": "Grand Sunpia Hachinohe",
+    "source_message_id": "19da13037a78ec78",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2706": {
+    "booking_id": "6075373811",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0422_0423",
+    "hotel": "Grand Sunpia Hachinohe",
+    "source_message_id": "19da12f54898099d",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2852": {
+    "booking_id": "5502442589",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0620_0622",
+    "hotel": "Hotel Hakuba",
+    "source_message_id": "19e3bb0f2e298fad",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2890": {
+    "booking_id": "6490602626",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0619_0620",
+    "hotel": "Tmark City Hotel Sapporo Odori",
+    "source_message_id": "19ec6ba70854a9d9",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2964": {
+    "booking_id": "5838582477",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee5a04e70a004a",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2965": {
+    "booking_id": "5790054983",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee59fe04d3638b",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2966": {
+    "booking_id": "6053661851",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee59fd80ecdbfe",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2967": {
+    "booking_id": "6096819530",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee591d649b9403",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2968": {
+    "booking_id": "5950792958",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee59180fc0a1d3",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2969": {
+    "booking_id": "5217466155",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "APA Hotel & Resort Niigata Ekimae Odori",
+    "source_message_id": "19ee58fc1a514a69",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2979": {
+    "booking_id": "6365286068",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0628_0629",
+    "hotel": "Yokote Plaza Hotel",
+    "source_message_id": "19eefebb66f7aff0",
+    "verification_source": "booking_direct_payment_email"
+  },
+  "KBO-2980": {
+    "booking_id": "5388518091",
+    "provider": "booking.com",
+    "category": "숙박",
+    "period": "0628_0629",
+    "hotel": "Yokote Plaza Hotel",
+    "source_message_id": "19eefeba75daf8b4",
+    "verification_source": "booking_direct_payment_email"
   }
 }
