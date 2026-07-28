@@ -96,7 +96,7 @@
     "hash_or_count_mismatch": "fail",
     "stage_policies": {
       "canonical_rebuild": "RAW/legacy inputs needed to reproduce the frozen canonical",
-      "ota_pending_report": "inputs needed to reproduce the 2026-07-27 OTA report",
+      "ota_pending_report": "inputs needed to reproduce the 2026-07-28 OTA report",
       "workbook_v76": "inputs needed to reproduce the blocked v76 workbook",
       "audit_snapshot": "current derived snapshots retained only for audit comparison"
     },
@@ -278,8 +278,26 @@
         "path": "ledger/data/agoda_direct_browser_evidence.json",
         "role": "agoda_direct_browser_evidence",
         "distribution": "tracked",
-        "sha256": "f4be00e86045c3c30cbf89a18c65eefeb6cb16c315375143084fd47ca95d22a2",
-        "bytes": 7109,
+        "sha256": "cbe0738ad44f97f0767d4e4882d76bc2718efb9c17ba2e78de93ad135c6cd381",
+        "bytes": 172689,
+        "record_count": 233,
+        "stages": {"ota_pending_report": "required"}
+      },
+      {
+        "path": "ledger/data/booking_direct_browser_evidence.json",
+        "role": "booking_direct_browser_evidence",
+        "distribution": "tracked",
+        "sha256": "0f8605583d8d7c67486fc6cf74e6ca56c51de16bb1d4968270608f204e6f2e10",
+        "bytes": 14529,
+        "record_count": 19,
+        "stages": {"ota_pending_report": "required"}
+      },
+      {
+        "path": "ledger/data/trip_direct_browser_evidence.json",
+        "role": "trip_direct_browser_evidence",
+        "distribution": "tracked",
+        "sha256": "13d2cdcc7de8562c1ebbff7f50feb8d6c9b475fc4a9d487bdb1b4295c030c1be",
+        "bytes": 9413,
         "record_count": 10,
         "stages": {"ota_pending_report": "required"}
       },
@@ -287,8 +305,24 @@
         "path": "ledger/data/ota_checkpoints_agoda.db",
         "role": "agoda_authenticated_portal_checkpoint",
         "distribution": "ignored_local_required",
-        "sha256": "10f196a4bba2c74cd6108929923595c1689df43e02e5ca148df928556954a0a3",
-        "bytes": 49152,
+        "sha256": "cf6a286007a2413da3ce4f0f377e3e6851f736d76cef13f45fa6bd598885ba8a",
+        "bytes": 446464,
+        "stages": {"ota_pending_report": "required"}
+      },
+      {
+        "path": "ledger/data/ota_checkpoints_booking.db",
+        "role": "booking_authenticated_portal_checkpoint",
+        "distribution": "ignored_local_required",
+        "sha256": "9e401cfadbc6dc7e077ba3aef374fd7b82ad01a358b7c562d830f11301c9da23",
+        "bytes": 57344,
+        "stages": {"ota_pending_report": "required"}
+      },
+      {
+        "path": "ledger/data/ota_checkpoints_trip.db",
+        "role": "trip_authenticated_portal_checkpoint",
+        "distribution": "ignored_local_required",
+        "sha256": "0a4d9983af2e3afcf8dbf33921a14cdb0dae783c88c82714854074ee364f7776",
+        "bytes": 53248,
         "stages": {"ota_pending_report": "required"}
       },
       {

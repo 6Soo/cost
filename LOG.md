@@ -375,3 +375,28 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
   비용 정본 반영은 이번 수집과 별도 단계다. Python 구문검사와 SQLite/JSON 독립 검증은
   통과했으나 전체 `test_ota_checkpoint`는 실행 환경에 `openpyxl`이 없어 import 단계에서
   중단됐다.
+
+---
+
+## 2026-07-28 세션 핸드오프 — 포털 증거 반영 OTA 결정 재산정
+
+- 포털 수집 후 바뀐 직접증거를 재현 입력으로 고정했다. P0 입력 계약의 Agoda JSON/DB 해시를
+  233건 기준으로 갱신하고, Booking·Trip 포털 JSON과 각 로컬 체크포인트 DB도
+  `ota_pending_report` 필수 입력에 추가했다. 입력 게이트는 12개 파일을 모두 확인해 통과했다.
+- 새 결정권위 보고서는 `outputs/20260728_decision_authoritative_review_v9/`이다. OTA 카드
+  이벤트 546건은 그대로이며 **확정 16건 / 실제 충돌 HOLD 9건 / PENDING 521건**이다.
+  공급자별로 Agoda 2/0/210, Booking 14/9/10, Trip 0/0/240,
+  Mytrip 0/0/34, Travelrover 0/0/27(확정/HOLD/PENDING)이다. v8과 disposition CSV는
+  바이트 단위로 동일하고, 승인 정본 SHA-256도
+  `187cd7b7a7dfed48c1eda11ecf258229920ab7c9a8ecec1d5a4a7b680a3a403e`로 유지됐다.
+- 증거 재고는 실제로 늘었다. 인증 포털 고유건은 Agoda 233, Booking 19, Trip 10이다.
+  그러나 신규 Agoda 직접결제 후보 대부분은 외화 결제금액이 없어 70건이 부적격으로 분리됐고,
+  Booking 포털 19건은 예약 화면 증거(`portal_reservation`)라 결제 charge로 승격하지 않았다.
+  Trip 매처는 아직 미구현이다. 따라서 예약 화면 수집량을 카드 결제 확정량으로 오인하지 않는다.
+- AGY 저추론 검증을 Orca orchestration으로 병렬 실행했다. Sonnet 4.6은 Booking의
+  `portal_reservation` 스키마와 Agoda 결제금액 누락이 수치가 늘지 않은 주원인이라고 독립 확인했다.
+  Gemini 3.6 Flash는 `tools/gemini.mjs --model=gemini-3.6-flash`로 호출했으나 현재 AGY 셸에
+  `GEMINI_API_KEY`가 없고 macOS Computer Use provider도 없어 실행되지 않았다. 실패를 숨기거나
+  다른 모델 결과를 Gemini 결과로 표기하지 않았다.
+- 관련 P0/OTA/대사/어댑터 회귀 테스트 113건이 통과했다. 보고서 합계
+  `16 + 9 + 521 = 546`, UID 546개 고유성, v8↔v9 disposition 동일성도 별도 검증했다.
