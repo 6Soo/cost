@@ -318,7 +318,9 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
                 resolve_hana_split_cancellations(db)
                 result = apply_p3_unassigned_review(db)
 
-                self.assertEqual(result["insufficient_evidence"], 7)
+                # v15 resolves KBD-0380 and CORP-2006 with transaction-level
+                # OTA evidence; only the five Agoda allocation rows remain.
+                self.assertEqual(result["insufficient_evidence"], 5)
                 expected_targets = {
                     "KBD-0403": "기타비용",
                     "MISC-0001": "0620_묘코",
@@ -1395,12 +1397,13 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
 
     def test_review_report_exposes_quality_separately_from_balance(self) -> None:
         report = review_report(self.db)
-        # 현재 미배정 전체는 과거 9건 + MISC 중 현재 미배정 10건이다.
-        # 핸드오프의 11건/1,478,413원은 MISC 생성 집합(이후 1건은 취소환불 이동)이다.
-        self.assertEqual(report["unassigned_payments"], 19)
-        self.assertEqual(report["unassigned_amount_krw"], 2_734_540)
-        self.assertEqual(report["engine_isolated_payments"], 11)
-        self.assertEqual(report["engine_isolated_amount_krw"], 1_478_413)
+        # v15 moves KBD-0380/CORP-2006 out of unassigned and removes the
+        # MISC-0004 duplicate lifecycle shadow.  The underlying card events
+        # remain intact; only the duplicate projection row disappeared.
+        self.assertEqual(report["unassigned_payments"], 16)
+        self.assertEqual(report["unassigned_amount_krw"], 2_418_394)
+        self.assertEqual(report["engine_isolated_payments"], 10)
+        self.assertEqual(report["engine_isolated_amount_krw"], 1_326_055)
         self.assertGreater(report["high_confidence_with_uncertain_rationale"], 0)
 
     def test_p1_confidence_rules_version_conflicts_and_clear_the_queue(self) -> None:

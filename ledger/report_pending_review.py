@@ -280,7 +280,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/20260728_decision_authoritative_review_v12"),
+        default=Path("outputs/20260728_decision_authoritative_review_v15"),
     )
     args = parser.parse_args()
     print(json.dumps(build_report(args.output_dir), ensure_ascii=False, indent=2))

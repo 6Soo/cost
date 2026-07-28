@@ -195,16 +195,26 @@ def regression_report(
             "p3_confirmed_overhead_reallocation",
         ("allocation_targets", "여행_미배정", -1_300_465):
             "p3_confirmed_unassigned_resolution",
+        ("allocation_targets", "여행_미배정", -1_616_611):
+            "p3_and_postfiling_unassigned_resolution",
+        ("allocation_targets", "0625_아키타", 163_788):
+            "postfiling_mytrip_air_reallocation",
         ("allocation_targets", "취소환불", -59_975):
             "issuer_cancellation_events_preserved",
         ("allocation_targets", "취소환불_정산", -215_624):
             "p3_confirmed_cancellation_clearing",
         ("accounts", "기타비용", 18_755):
             "p3_confirmed_expense_reclassification",
+        ("accounts", "기타비용", -145_033):
+            "p3_and_postfiling_expense_reclassification",
         ("accounts", "렌터카", 1_494_934):
             "p3_confirmed_expense_reclassification",
         ("accounts", "숙박비", -1_573_664):
             "p3_and_cancellation_account_reallocation",
+        ("accounts", "숙박비", -1_726_022):
+            "p3_cancellation_and_duplicate_lifecycle_correction",
+        ("accounts", "항공료", 163_788):
+            "postfiling_mytrip_air_reclassification",
     }
     sections: dict[str, list[dict[str, object]]] = {}
     for section in ("allocation_targets", "accounts"):

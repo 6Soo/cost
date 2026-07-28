@@ -432,9 +432,9 @@
         "path": "ledger/data/agoda_direct_browser_evidence.json",
         "role": "agoda_direct_browser_evidence",
         "distribution": "tracked",
-        "sha256": "cbe0738ad44f97f0767d4e4882d76bc2718efb9c17ba2e78de93ad135c6cd381",
-        "bytes": 172689,
-        "record_count": 233,
+        "sha256": "de9ce5264ee608b6fc1bede2d179c343385120ae13e74fb07fb0354cc9c88cf2",
+        "bytes": 173625,
+        "record_count": 234,
         "stages": {
           "ota_pending_report": "required"
         }
@@ -465,7 +465,7 @@
         "path": "ledger/data/ota_checkpoints_agoda.db",
         "role": "agoda_authenticated_portal_checkpoint",
         "distribution": "ignored_local_required",
-        "sha256": "cf6a286007a2413da3ce4f0f377e3e6851f736d76cef13f45fa6bd598885ba8a",
+        "sha256": "a61f968d3ed619ec1e3bed17a77c886434a94a1b2136c3d1570e07a5514c1939",
         "bytes": 446464,
         "stages": {
           "ota_pending_report": "required"

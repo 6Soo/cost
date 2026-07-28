@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -170,6 +171,71 @@ class LegacyVerifiedLinkImportTest(unittest.TestCase):
         self.assertEqual(replay_ids, stable_ids)
         self.assertEqual(second["created"], 0)
         self.assertGreaterEqual(first["created"], len(self.CASES))
+
+    def test_booking_payment_completion_date_is_not_service_date(self) -> None:
+        self.db.execute(
+            """
+            INSERT INTO payment_transactions(
+                external_key, source_event_id, identity_fingerprint,
+                source_system, merchant, amount_krw, transaction_type
+            ) VALUES (
+                'KBO-PAYMENT-DATE', 'source:KBO-PAYMENT-DATE',
+                'fingerprint:booking-payment-date', 'KBO',
+                'BKG*BOOKING.COM HOTEL', 716289, 'purchase'
+            )
+            """
+        )
+        self.db.commit()
+        root = Path(self.temp.name)
+        links_path = root / "ota_event_links_verified.json"
+        links_path.write_text(
+            json.dumps(
+                {
+                    "KBO-PAYMENT-DATE": {
+                        "provider": "booking.com",
+                        "source_message_id": "mail-payment-complete",
+                        "period": "0418_0419",
+                        "category": "숙박",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        (root / "ota_mail_index.json").write_text(
+            json.dumps(
+                {
+                    "records": [
+                        {
+                            "messageId": "mail-payment-complete",
+                            "provider": "booking",
+                            "subject": "결제가 완료되었습니다",
+                            "travelDates": ["0414"],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = import_legacy_verified_links(self.db, links_path)
+
+        self.assertEqual(result["proposed"], 1)
+        row = self.db.execute(
+            """
+            SELECT decision.status, signal.signal_status
+            FROM match_decisions decision
+            JOIN match_groups group_row ON group_row.id=decision.group_id
+            JOIN match_group_payments member ON member.group_id=group_row.id
+            JOIN payment_transactions payment ON payment.id=member.payment_id
+            JOIN match_signal_results signal ON signal.group_id=group_row.id
+            WHERE payment.external_key='KBO-PAYMENT-DATE'
+              AND signal.signal_name='service_date'
+            """
+        ).fetchone()
+        self.assertEqual(dict(row), {
+            "status": "proposed",
+            "signal_status": "unavailable",
+        })
 
     def test_manual_projection_is_derived_from_append_only_current_chain(self) -> None:
         payment_id = int(

@@ -1049,14 +1049,35 @@ def import_all(
             db, ledger_dir / "data" / "ota_event_links_verified.json"
         )
         direct_ota_matches = reconcile_direct_ota_payment_evidence(db)
+        ota_unique_records = int(
+            db.execute(
+                """
+                SELECT COUNT(*) FROM direct_source_records
+                WHERE source_kind IN ('ota_mail', 'ota_authenticated_portal')
+                """
+            ).fetchone()[0]
+        )
     return {
         "cards": cards,
         "manual": manual,
         # The inventory gate reconciles all durable OTA source records.  Keep
         # the mail-only view separately for callers that need its provenance.
+        # JSON exports and their SQLite checkpoints intentionally overlap; raw
+        # input counts would double-count those observations and can no longer
+        # reconcile to the durable direct-source table.  ``records`` therefore
+        # means the deduplicated durable OTA inventory.
         "ota": {
-            key: ota[key] + supplemental_ota[key] + ota_portal[key]
-            for key in ("records", "inserted", "confirmed_booking_periods")
+            "records": ota_unique_records,
+            "inserted": (
+                ota["inserted"]
+                + supplemental_ota["inserted"]
+                + ota_portal["inserted"]
+            ),
+            "confirmed_booking_periods": (
+                ota["confirmed_booking_periods"]
+                + supplemental_ota["confirmed_booking_periods"]
+                + ota_portal["confirmed_booking_periods"]
+            ),
         },
         "ota_mail": ota,
         "ota_supplemental_direct_email": supplemental_ota,
@@ -1232,11 +1253,29 @@ def import_legacy_verified_links(db: sqlite3.Connection, path: Path) -> dict[str
         ):
             occurred = str(payment["occurred_on"])
             record_periods.add(occurred[5:7] + occurred[8:10])
-        mail_periods = {
-            str(token)
-            for token in (mail or {}).get("travelDates", [])
-            if re.fullmatch(r"\d{4}", str(token))
-        }
+        mail_subject = str((mail or {}).get("subject") or "").strip()
+        payment_completion_mail = bool(
+            re.search(
+                r"(?:결제가\s*완료|payment\s+(?:is\s+)?complete(?:d)?)",
+                mail_subject,
+                flags=re.IGNORECASE,
+            )
+        )
+        # The legacy mail index used one ``travelDates`` field for every date
+        # token.  Booking.com's payment-completion message puts the charge
+        # date in that slot; it is not a check-in/check-out date.  Treating it
+        # as service evidence manufactured false conflicts against a valid
+        # ledger period.  Direct charge importers retain the same value as
+        # ``payment_date`` and perform the card intersection separately.
+        mail_periods = (
+            set()
+            if payment_completion_mail
+            else {
+                str(token)
+                for token in (mail or {}).get("travelDates", [])
+                if re.fullmatch(r"\d{4}", str(token))
+            }
+        )
         if record_periods and mail_periods and record_periods & mail_periods:
             common_periods = "|".join(sorted(record_periods & mail_periods))
             date_left: object = common_periods

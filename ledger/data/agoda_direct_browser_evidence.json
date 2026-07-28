@@ -88,6 +88,33 @@
     },
     {
       "booking_confirmation_status": "confirmed",
+      "booking_display_amount": "22734",
+      "booking_number": "1740166023",
+      "card_last4": "8835",
+      "currency": "JPY",
+      "extraction_sources": [
+        "authenticated_portal_dom"
+      ],
+      "foreign_amount": "22734",
+      "merchant": "Lotte Arai Resort",
+      "message_id": "portal:agoda:1740166023",
+      "observed_at": "2026-07-28T10:39:42Z",
+      "portal_booking_status": "completed",
+      "portal_list_name": "completed_booking_date_probe",
+      "portal_list_position": 1,
+      "product_type": "lodging",
+      "provider": "agoda",
+      "record_type": "charge",
+      "redaction_version": "ota-allowlist-v5",
+      "reference_code": "H2606223455676716",
+      "room_count": 2,
+      "service_end_on": "2026-06-24",
+      "service_start_on": "2026-06-23",
+      "source_channel": "authenticated_booking_portal",
+      "status": "completed"
+    },
+    {
+      "booking_confirmation_status": "confirmed",
       "booking_display_amount": "59040",
       "booking_number": "1696836747",
       "card_last4": "8835",
