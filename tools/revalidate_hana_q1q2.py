@@ -4,6 +4,13 @@ The report expands every source row into an immutable card event.  It compares
 against the master ledger first and uses the current classified view plus the
 G/H raw snapshots as corroboration only.  It never mutates a source workbook
 or any central ledger file.
+
+Path resolution is environment first, then the historical default:
+
+``HANA_XLS_DIR``
+    Directory holding the issuer XLS exports.  Default ``D:\\DownLoad``.
+
+The repository root is derived from this module's location, never hardcoded.
 """
 from __future__ import annotations
 
@@ -21,7 +28,7 @@ import openpyxl
 import xlrd
 
 ROOT = Path(__file__).resolve().parents[1]
-DOWNLOAD = Path(r"D:\DownLoad")
+DOWNLOAD = Path(os.environ.get("HANA_XLS_DIR", r"D:\DownLoad"))
 INPUTS = sorted(DOWNLOAD.glob("*하나카드*해외_*_2026_Q1Q2.xls"))
 OUTDIR = ROOT / "outputs" / "hana_q1q2_revalidation"
 RESULT = OUTDIR / "rematch_result.json"

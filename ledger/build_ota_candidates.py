@@ -160,9 +160,21 @@ def main() -> int:
         if rec.get("rawText"):
             by_provider[rec.get("provider")].append(rec)
 
+    # 원장 임의배정에서 강등된 건은 후보 풀에서 제외한다(2026-07-29).
+    # 제외하지 않으면 모델 팬아웃이 방금 강등한 배정을 그대로 재확정한다 —
+    # 강등 사유(원장 짝짓기가 임의)는 모델이 볼 수 있는 증거로 해소되지 않는다.
+    # 해소는 Agoda 상세 확보 후 promote_group_assignments.py 게이트로만 이뤄진다.
+    group_assign_path = DATA / "ota_group_assignments.json"
+    demoted = (
+        set(json.loads(group_assign_path.read_text(encoding="utf-8")))
+        if group_assign_path.exists() else set()
+    )
+
     targets = [
         r for r in rows
-        if provider_of(f"{r.get('merchant','')} {r.get('note','')}") and r["uid"] not in links
+        if provider_of(f"{r.get('merchant','')} {r.get('note','')}")
+        and r["uid"] not in links
+        and r["uid"] not in demoted
     ]
 
     auto, ambiguous, none_found = [], [], []

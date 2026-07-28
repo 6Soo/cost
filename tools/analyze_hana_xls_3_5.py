@@ -2,6 +2,13 @@
 
 The script intentionally writes only its two audit artifacts below ``outputs``.
 It never mutates the input XLS files or the classified ledger.
+
+Path resolution is environment first, then the historical default:
+
+``HANA_XLS_DIR``
+    Directory holding the issuer XLS exports.  Default ``D:\\DownLoad``.
+
+The repository root is derived from this module's location, never hardcoded.
 """
 from __future__ import annotations
 
@@ -17,10 +24,9 @@ from pathlib import Path
 import xlrd
 
 ROOT = Path(__file__).resolve().parents[1]
+DOWNLOAD = Path(os.environ.get("HANA_XLS_DIR", r"D:\DownLoad"))
 INPUTS = [
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_3_2026_Q1Q2.xls"),
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_4_2026_Q1Q2.xls"),
-    Path(r"D:\DownLoad\주식회사 숲길여행_하나카드_해외_5_2026_Q1Q2.xls"),
+    DOWNLOAD / f"주식회사 숲길여행_하나카드_해외_{n}_2026_Q1Q2.xls" for n in (3, 4, 5)
 ]
 OUTDIR = ROOT / "outputs" / "hana_q1q2_parallel"
 DETAIL = OUTDIR / "files_3_5_detail.csv"

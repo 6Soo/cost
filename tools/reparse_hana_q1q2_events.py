@@ -3,6 +3,13 @@
 Each source row can contain an approval amount and a cancellation amount.
 They are expanded into separate immutable events.  This module deliberately
 does not reuse the earlier comparison script or modify any central dataset.
+
+Path resolution is environment first, then the historical default:
+
+``HANA_XLS_DIR``
+    Directory holding the issuer XLS exports.  Default ``D:\\DownLoad``.
+
+The repository root is derived from this module's location, never hardcoded.
 """
 from __future__ import annotations
 
@@ -21,7 +28,7 @@ import xlrd
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DOWNLOAD = Path(r"D:\DownLoad")
+DOWNLOAD = Path(os.environ.get("HANA_XLS_DIR", r"D:\DownLoad"))
 OUTDIR = ROOT / "outputs" / "hana_q1q2_revalidation"
 OUT_JSON = OUTDIR / "reparse_events.json"
 OUT_CSV = OUTDIR / "reparse_events_detail.csv"
