@@ -473,32 +473,6 @@
       "예약키존재"
     ]
   },
-  "TRIP-0024": {
-    "booking_id": "1400823535575464",
-    "category": "숙박",
-    "period": "",
-    "source_message_id": "19c09dc3b897aa6b",
-    "match_score": 12,
-    "match_reasons": [
-      "업체일치",
-      "정확금액",
-      "메일일=결제일",
-      "예약키존재"
-    ]
-  },
-  "TRIP-0025": {
-    "booking_id": "1400823535575464",
-    "category": "숙박",
-    "period": "",
-    "source_message_id": "19c09dc3b897aa6b",
-    "match_score": 12,
-    "match_reasons": [
-      "업체일치",
-      "정확금액",
-      "메일일=결제일",
-      "예약키존재"
-    ]
-  },
   "TRIP-0027": {
     "booking_id": "1400823576116533",
     "category": "숙박",
@@ -843,38 +817,6 @@
     "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
     "source_message_id": "19da12f54898099d",
     "verification": "card row + indexed Gmail raw text + booking number + exact amount"
-  },
-  "TRIP-0166": {
-    "booking_id": "1721756989",
-    "category": "숙박",
-    "period": "0426_0428",
-    "hotel": "APA HOTEL (가나자와)",
-    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
-    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
-  },
-  "APA-1721758806": {
-    "booking_id": "1721758806",
-    "category": "숙박",
-    "period": "0426_0428",
-    "hotel": "APA HOTEL (가나자와)",
-    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
-    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
-  },
-  "APA-1721757952": {
-    "booking_id": "1721757952",
-    "category": "숙박",
-    "period": "0426_0428",
-    "hotel": "APA HOTEL (가나자와)",
-    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
-    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
-  },
-  "APA-1721761805": {
-    "booking_id": "1721761805",
-    "category": "숙박",
-    "period": "0426_0428",
-    "hotel": "APA HOTEL (가나자와)",
-    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
-    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
   },
   "KBO-2645": {
     "booking_id": "6475326931",
@@ -2076,18 +2018,6 @@
     "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
     "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제 완료메일과 카드 결제일이 일치하고 본문 예약번호가 유일하게 확인된다."
   },
-  "TRIP-0016": {
-    "booking_id": "1400823535413714",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
-  },
-  "TRIP-0021": {
-    "booking_id": "1400823535402604",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
-  },
   "TRIP-0143": {
     "booking_id": "1400824392979326",
     "category": "숙박",
@@ -2109,36 +2039,12 @@
     "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
     "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 외화 결제액 29520엔과 예약 후보의 금액이 정확히 일치하고 예약번호가 공통으로 확인됩니다."
   },
-  "TRIP-0020": {
-    "booking_id": "1400823535395178",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
-  },
-  "TRIP-0022": {
-    "booking_id": "1400823535393192",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
-  },
   "MAN-FALAISE": {
     "booking_id": "1400826104512972",
     "category": "숙박",
     "period": "0606_0607",
     "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
     "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부와 확정메일 메모에 동일 예약번호와 EUR131.35 결제 및 6월 6~7일 숙박이 명시되어 있다."
-  },
-  "KBO-2883": {
-    "booking_id": "6474894255",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
-  },
-  "KBO-2884": {
-    "booking_id": "5437691600",
-    "category": "숙박",
-    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
   },
   "KBD-0395": {
     "booking_id": "1400827123142146",
@@ -2152,27 +2058,6 @@
     "category": "숙박",
     "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
     "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 결제일과 원화 금액이 일치하는 단일 고투게이트 주문 후보가 확인된다."
-  },
-  "KBD-0950": {
-    "booking_id": "1400826296229081",
-    "category": "숙박",
-    "period": "0623_0624",
-    "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
-  },
-  "KBD-0951": {
-    "booking_id": "1400826296219155",
-    "category": "숙박",
-    "period": "0623_0624",
-    "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
-  },
-  "KBD-0817": {
-    "booking_id": "1400825496038025",
-    "category": "숙박",
-    "period": "0704_0705",
-    "verification_source": "outputs/ota_verdicts_20260729/09.codex.json",
-    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부의 예약번호와 후보 메일의 예약번호가 유일하게 일치하고 결제일·금액·투숙일도 일치한다."
   },
   "KBD-0922": {
     "booking_id": "1400826103376932",
@@ -2229,5 +2114,23 @@
     "period": "0423_0424",
     "verification_source": "outputs/ota_verdicts_20260729_r2/04.codex.json",
     "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제금액 316800원이 후보와 정확히 일치하고 예약번호와 여행일도 확인된다."
+  },
+  "TRIP-0087": {
+    "booking_id": "1400824130566434",
+    "category": "숙박",
+    "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 예약번호 단일",
+    "verification": "수기장부 0413_나가센도(62,496원) 그룹 — 그룹 내 예약번호가 단일(1400824130566434)이라 짝 배정 문제가 성립하지 않음"
+  },
+  "TRIP-0088": {
+    "booking_id": "1400824130566434",
+    "category": "숙박",
+    "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 예약번호 단일",
+    "verification": "수기장부 0413_나가센도(62,496원) 그룹 — 그룹 내 예약번호가 단일(1400824130566434)이라 짝 배정 문제가 성립하지 않음"
+  },
+  "TRIP-0232": {
+    "booking_id": "1400826104512972",
+    "category": "숙박",
+    "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 예약번호 단일",
+    "verification": "수기장부 5월_유럽(241,350원) 그룹 — 그룹 내 예약번호가 단일(1400826104512972)이라 짝 배정 문제가 성립하지 않음"
   }
 }

@@ -1,0 +1,446 @@
+{
+  "TRIP-0024": {
+    "provisional_booking_id": "1400823535575464",
+    "group_id": "26.01.29_103911_트립닷컴펄시티",
+    "group_bookings": [
+      "1400823535571353",
+      "1400823535575464"
+    ],
+    "amount_krw": 103911,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535575464",
+      "category": "숙박",
+      "period": "",
+      "source_message_id": "19c09dc3b897aa6b",
+      "match_score": 12,
+      "match_reasons": [
+        "업체일치",
+        "정확금액",
+        "메일일=결제일",
+        "예약키존재"
+      ]
+    }
+  },
+  "TRIP-0025": {
+    "provisional_booking_id": "1400823535575464",
+    "group_id": "26.01.29_103911_트립닷컴펄시티",
+    "group_bookings": [
+      "1400823535571353",
+      "1400823535575464"
+    ],
+    "amount_krw": 103911,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535575464",
+      "category": "숙박",
+      "period": "",
+      "source_message_id": "19c09dc3b897aa6b",
+      "match_score": 12,
+      "match_reasons": [
+        "업체일치",
+        "정확금액",
+        "메일일=결제일",
+        "예약키존재"
+      ]
+    }
+  },
+  "TRIP-0166": {
+    "provisional_booking_id": "1721756989",
+    "group_id": "26.04.26_571962_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721756989",
+      "1721757952",
+      "1721758806",
+      "1721761805"
+    ],
+    "amount_krw": 571962,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721756989",
+      "category": "숙박",
+      "period": "0426_0428",
+      "hotel": "APA HOTEL (가나자와)",
+      "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
+      "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+    }
+  },
+  "APA-1721758806": {
+    "provisional_booking_id": "1721758806",
+    "group_id": "26.04.26_571962_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721756989",
+      "1721757952",
+      "1721758806",
+      "1721761805"
+    ],
+    "amount_krw": 571962,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721758806",
+      "category": "숙박",
+      "period": "0426_0428",
+      "hotel": "APA HOTEL (가나자와)",
+      "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
+      "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+    }
+  },
+  "APA-1721757952": {
+    "provisional_booking_id": "1721757952",
+    "group_id": "26.04.26_571962_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721756989",
+      "1721757952",
+      "1721758806",
+      "1721761805"
+    ],
+    "amount_krw": 571962,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721757952",
+      "category": "숙박",
+      "period": "0426_0428",
+      "hotel": "APA HOTEL (가나자와)",
+      "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
+      "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+    }
+  },
+  "APA-1721761805": {
+    "provisional_booking_id": "1721761805",
+    "group_id": "26.04.26_571962_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721756989",
+      "1721757952",
+      "1721758806",
+      "1721761805"
+    ],
+    "amount_krw": 571962,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721761805",
+      "category": "숙박",
+      "period": "0426_0428",
+      "hotel": "APA HOTEL (가나자와)",
+      "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
+      "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+    }
+  },
+  "TRIP-0016": {
+    "provisional_booking_id": "1400823535413714",
+    "group_id": "26.01.29_387267_트립닷컴하시다테베이호텔",
+    "group_bookings": [
+      "1400823535402604",
+      "1400823535413714"
+    ],
+    "amount_krw": 387267,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535413714",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
+    }
+  },
+  "TRIP-0021": {
+    "provisional_booking_id": "1400823535402604",
+    "group_id": "26.01.29_387267_트립닷컴하시다테베이호텔",
+    "group_bookings": [
+      "1400823535402604",
+      "1400823535413714"
+    ],
+    "amount_krw": 387267,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535402604",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
+    }
+  },
+  "TRIP-0020": {
+    "provisional_booking_id": "1400823535395178",
+    "group_id": "26.01.29_280544_트립닷컴하시다테베이호텔",
+    "group_bookings": [
+      "1400823535393192",
+      "1400823535395178"
+    ],
+    "amount_krw": 280544,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535395178",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
+    }
+  },
+  "TRIP-0022": {
+    "provisional_booking_id": "1400823535393192",
+    "group_id": "26.01.29_280544_트립닷컴하시다테베이호텔",
+    "group_bookings": [
+      "1400823535393192",
+      "1400823535395178"
+    ],
+    "amount_krw": 280544,
+    "payment_date": "26.01.29",
+    "allocation_target": "0408_교토",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400823535393192",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
+    }
+  },
+  "KBO-2883": {
+    "provisional_booking_id": "6474894255",
+    "group_id": "26.06.10_234244_부킹기요사토온센호텔류쿠세이",
+    "group_bookings": [
+      "5437691600",
+      "6474894255"
+    ],
+    "amount_krw": 234244,
+    "payment_date": "26.06.10",
+    "allocation_target": "0613_북해도",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "6474894255",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
+    }
+  },
+  "KBO-2884": {
+    "provisional_booking_id": "5437691600",
+    "group_id": "26.06.10_234244_부킹기요사토온센호텔류쿠세이",
+    "group_bookings": [
+      "5437691600",
+      "6474894255"
+    ],
+    "amount_krw": 234244,
+    "payment_date": "26.06.10",
+    "allocation_target": "0613_북해도",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "5437691600",
+      "category": "숙박",
+      "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
+    }
+  },
+  "KBD-0950": {
+    "provisional_booking_id": "1400826296229081",
+    "group_id": "26.05.26_161807_트립닷컴롯데아라이",
+    "group_bookings": [
+      "1400826296219155",
+      "1400826296229081"
+    ],
+    "amount_krw": 161807,
+    "payment_date": "26.05.26",
+    "allocation_target": "0620_묘코",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400826296229081",
+      "category": "숙박",
+      "period": "0623_0624",
+      "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
+    }
+  },
+  "KBD-0951": {
+    "provisional_booking_id": "1400826296219155",
+    "group_id": "26.05.26_161807_트립닷컴롯데아라이",
+    "group_bookings": [
+      "1400826296219155",
+      "1400826296229081"
+    ],
+    "amount_krw": 161807,
+    "payment_date": "26.05.26",
+    "allocation_target": "0620_묘코",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400826296219155",
+      "category": "숙박",
+      "period": "0623_0624",
+      "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
+    }
+  },
+  "KBD-0817": {
+    "provisional_booking_id": "1400825496038025",
+    "group_id": "26.04.21_144284_트립닷컴쇼나이",
+    "group_bookings": [
+      "1400825496038025",
+      "1400825496054775",
+      "1400825496059412"
+    ],
+    "amount_krw": 144284,
+    "payment_date": "26.04.21",
+    "allocation_target": "0704_아키타",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1400825496038025",
+      "category": "숙박",
+      "period": "0704_0705",
+      "verification_source": "outputs/ota_verdicts_20260729/09.codex.json",
+      "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부의 예약번호와 후보 메일의 예약번호가 유일하게 일치하고 결제일·금액·투숙일도 일치한다."
+    }
+  },
+  "HAN-3147": {
+    "provisional_booking_id": "1721755942",
+    "group_id": "26.04.26_359324_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721754761",
+      "1721755942"
+    ],
+    "amount_krw": 359324,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721755942",
+      "category": "숙박",
+      "hotel": "AGODA.COM APA HOTEL",
+      "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 카드사 분별",
+      "verification": "수기장부 0424_알펜루트 r125(359,324원, 하나) — 그룹 내 카드사가 기업/하나로 갈려 짝이 결정됨(임의배정 아님)"
+    }
+  },
+  "CORP-2034": {
+    "provisional_booking_id": "1721754761",
+    "group_id": "26.04.26_359324_AGODACOMAPAHOT",
+    "group_bookings": [
+      "1721754761",
+      "1721755942"
+    ],
+    "amount_krw": 359324,
+    "payment_date": "26.04.26",
+    "allocation_target": "0424_알펜루트",
+    "match_basis": "ledger_arbitrary_group",
+    "verified": false,
+    "row_level_desc_differs": false,
+    "demoted_on": "2026-07-29",
+    "rationale": "원장이 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다는 의사결정권자 진술에 따라 강등. 그룹 귀속과 금액은 유효하며 탭·계정·총액 영향 0. 개별 행↔예약 결합만 미확정이다.",
+    "usage_restriction": "이 예약번호로 환불·취소를 원거래에 자동 연결하지 말 것. 예약 유래 기간·호텔·투숙객을 행 단위 확정값으로 표시하지 말 것. 세무 증빙의 핵심 근거로 제시하지 말 것.",
+    "correction_procedure": "Agoda 원자료 확인 시 group_bookings 안에서 재짝짓기하고, 교집합이 유일해지면 merge_verified_ota_links.py 가드로 검증 링크에 승격한다. 불일치는 데이터 오류가 아니라 임의배정의 예정된 표면화이므로 원장을 방어하지 않는다.",
+    "prior_link": {
+      "booking_id": "1721754761",
+      "category": "숙박",
+      "hotel": "AGODA.COM APA HOTEL",
+      "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 카드사 분별",
+      "verification": "수기장부 0424_알펜루트 r124(359,324원, 기업) — 그룹 내 카드사가 기업/하나로 갈려 짝이 결정됨(임의배정 아님)"
+    }
+  }
+}

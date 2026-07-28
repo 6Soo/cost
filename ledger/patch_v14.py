@@ -114,6 +114,27 @@ for r in rows:
     if any(('예약'+b) in (r['note'] or '') for b in APA_COMPONENTS) and 'APA' in (r['merchant'] or '').upper():
         r['bucket']=APA_TAB
 
+# 원장 임의배정 유래 그룹배정 표기(2026-07-29, fable·gpt-5.6-sol 적대적 검증 결론).
+#   원장은 (결제일·금액·가맹점명) 동일 그룹에 예약번호를 임의배정했다. 그룹 귀속과 금액은
+#   유효하나 개별 행↔예약 결합은 미확정이므로, 검증 링크와 같은 형태로 인쇄하면 안 된다.
+#   → `예약{번호}` 가 아니라 `그룹배정{번호}(후보 N건·미확정)` 로 표기해 구분한다.
+#   ★환불·취소를 이 번호로 원거래에 자동 연결하지 말 것. 기간·호텔·투숙객도 행 단위 확정값
+#     으로 쓰지 말 것(양측 검증이 지목한 실질 위험).
+try:
+    grp_assign=json.load(open('data/ota_group_assignments.json',encoding='utf-8'))
+except FileNotFoundError:
+    grp_assign={}
+grp_marked=0
+for r in rows:
+    info=grp_assign.get(r['uid'])
+    if not info: continue
+    book=info.get('provisional_booking_id','')
+    marker='그룹배정%s'%book
+    if marker in (r['note'] or ''): continue
+    r['note']=((r['note'] or '')+' | %s(후보 %d건·미확정, 환불연결·투숙객표시 금지)'
+               %(marker, len(info.get('group_bookings') or []))).strip(' |')
+    grp_marked+=1
+
 # 여행자보험 가입기간 반영(사용자 지시 2026-07-29: "트래블로버 메일에 가입기간이 있다면
 # 파싱하고 여행배정 근거로 삼도록 해"). 근거는 ledger/build_insurance_periods.py 가
 # 메일 본문의 `보험기간 YYYY-MM-DD ~ YYYY-MM-DD` 를 파싱해 만든 검증값이며,
@@ -153,4 +174,4 @@ def i(x):
     try: return round(float(str(x).replace(',','') or 0))
     except: return 0
 tot=sum(i(r['krw']) for r in rows)
-print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, APA합산연결 %d건, 보험기간 %d건(귀속변경 %d), 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, apa, ins_note, ins_move, jy, len(rows), format(tot,',')))
+print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, APA합산연결 %d건, 보험기간 %d건(귀속변경 %d), 그룹배정표기 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, apa, ins_note, ins_move, grp_marked, jy, len(rows), format(tot,',')))
