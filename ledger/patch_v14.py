@@ -16,7 +16,19 @@ import csv, json, re
 RESTORE={
     'MAN-FALAISE','MERC-342280','MERC-556929',
     'MAN-OZE-LODGE-3472049',
+    # ★APA 가나자와 합산청구 분해(사용자 확정 2026-07-29 + fable·gpt-5.6-sol 반박검증 절차):
+    #   수기장부는 예약번호별 571,962원 4행, 카드는 KBO-2755 1건(¥241,920=2,287,848)으로 합산청구.
+    #   엔진(build_v13_trip)은 `sd>=4/1 and not is_prepay`면 "base에 이미 존재"로 보고 skip하는데
+    #   이 4개 예약번호는 base 예약참조집합(book_in)에 없음이 실측 확인돼 근거 없는 skip이었다.
+    #   → 4행을 모두 보존하고(1721756989는 엔진이 TRIP-0166으로 편입), 합산청구 카드행은
+    #     APA_LINKED_UID로 연결처리해 이중계상을 제거한다.
+    'APA-1721758806','APA-1721757952','APA-1721761805',
 }
+# 합산청구 카드이벤트 → 분해행 연결. 카드이벤트는 삭제하지 않고 금액만 0으로 두어
+# 이중계상을 막되, 원 청구액·외화·승인정보는 extra/note에 보존한다(불변규칙 1).
+APA_LINKED_UID='KBO-2755'
+APA_COMPONENTS=('1721756989','1721758806','1721757952','1721761805')
+APA_TAB='0424_알펜루트'
 MALAR_NOTE=('⇄수기:HOTEL MALAR.VPC | 파리 7구 Hotel Malar 549EUR | '
             '예약1400826104587865(트립닷컴 말라르 6/7~10, 582.18유로=VPC객실+현장세금 합산)')
 KOMAGANE_BOOKING='1400824130566434'
@@ -79,6 +91,29 @@ for r in rows:
         r['note']=((r['note'] or '')+' | '+' | '.join(additions)).strip(' |')
     ota_enriched+=1
 
+# APA 가나자와 합산청구 연결처리: 카드이벤트 KBO-2755는 분해 4행과 같은 돈이므로 금액을 0으로
+# 두고 연결표시만 남긴다. 행 자체·승인정보·원 청구액은 보존한다(카드이벤트 삭제 금지).
+# 귀속 탭은 반박검증 절차 결과(fable 확신도 상 / gpt-5.6-sol 확신도 중, 양측 결론 유지)에 따라
+# 수기장부 기재와 동일한 0424_알펜루트로 통일한다.
+apa=0
+for r in rows:
+    if r['uid']!=APA_LINKED_UID: continue
+    if '합산청구_연결' not in (r['status'] or ''):
+        orig=str(r['krw']).strip()
+        r['extra']=('card_krw=%s;foreign=%s %s'%(orig, r['foreign'], r['currency'])).strip()
+        r['krw']='0'
+        r['status']='합산청구_연결'
+        r['note']=('⇄수기[%s]:APAHOTEL | APA호텔 ¥241,920 단체 숙박(가나자와) | '
+                   '★합산청구 %s원 = 예약 %s (571,962×4)로 분해 계상 — 본 행은 연결표시로 금액 0, '
+                   '원 청구액은 extra 보존. 귀속탭 판정 2026-07-29(반박검증 절차)'
+                   % (APA_TAB, format(int(orig),','), '+'.join(APA_COMPONENTS)))
+    r['bucket']=APA_TAB
+    apa+=1
+# 분해행 4건(엔진 편입 TRIP-0166 포함)의 귀속 탭도 동일하게 맞춘다.
+for r in rows:
+    if any(('예약'+b) in (r['note'] or '') for b in APA_COMPONENTS) and 'APA' in (r['merchant'] or '').upper():
+        r['bucket']=APA_TAB
+
 # 전용진 자동편입행 계정 교정(TRIP-***, merchant 전용진 → 가이드정산; 숙박비 오분류 방지)
 jy=0
 for r in rows:
@@ -92,4 +127,4 @@ def i(x):
     try: return round(float(str(x).replace(',','') or 0))
     except: return 0
 tot=sum(i(r['krw']) for r in rows)
-print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, jy, len(rows), format(tot,',')))
+print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, APA합산연결 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, apa, jy, len(rows), format(tot,',')))
