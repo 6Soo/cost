@@ -1,0 +1,90 @@
+{
+  "format_version": 1,
+  "passed": true,
+  "gates": [
+    {
+      "gate": 1,
+      "name": "direct_card_source_count",
+      "passed": true,
+      "actual": {
+        "source_records": 5237,
+        "expected_events": 5328,
+        "normalized": 5328
+      }
+    },
+    {
+      "gate": 2,
+      "name": "payment_allocation_total",
+      "passed": true,
+      "actual": {
+        "payments": 320752342,
+        "allocations": 320752342
+      }
+    },
+    {
+      "gate": 3,
+      "name": "per_payment_allocation",
+      "passed": true,
+      "actual": 0
+    },
+    {
+      "gate": 4,
+      "name": "refund_relations_reviewed",
+      "passed": true,
+      "actual": {
+        "outside_window": 10,
+        "insufficient_evidence": 1,
+        "unexplained": 0
+      }
+    },
+    {
+      "gate": 5,
+      "name": "booking_target_conflicts",
+      "passed": true,
+      "actual": 0
+    },
+    {
+      "gate": 6,
+      "name": "high_confidence_uncertain_rationale",
+      "passed": true,
+      "actual": 0
+    },
+    {
+      "gate": 7,
+      "name": "workbook_regression_explained",
+      "passed": true,
+      "actual": {
+        "differences": {
+          "allocation_targets": [
+            {
+              "key": "0625_아키타",
+              "before": 20178248,
+              "after": 20197003,
+              "difference": 18755,
+              "classification": "intended_improvement"
+            },
+            {
+              "key": "여행_미배정",
+              "before": 2734540,
+              "after": 3352510,
+              "difference": 617970,
+              "classification": "legacy_error_correction_and_intended_improvement"
+            }
+          ],
+          "accounts": [
+            {
+              "key": "숙박비",
+              "before": 175096484,
+              "after": 175733209,
+              "difference": 636725,
+              "classification": "legacy_error_correction"
+            }
+          ]
+        },
+        "hana_legacy_correction_krw": 636725,
+        "unexplained_differences": 0
+      }
+    }
+  ],
+  "cutover_policy": "ready_for_user_approval"
+}

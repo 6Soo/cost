@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 );
 
 INSERT OR IGNORE INTO schema_versions(version) VALUES (1);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (2);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (3);
+INSERT OR IGNORE INTO schema_versions(version) VALUES (4);
 
 -- 원천은 불변이다. 같은 파일의 같은 행을 다시 해석하더라도 원문은 이 계층에 남는다.
 CREATE TABLE IF NOT EXISTS source_documents (
@@ -43,6 +46,8 @@ CREATE TABLE IF NOT EXISTS payment_methods (
 CREATE TABLE IF NOT EXISTS payment_transactions (
     id INTEGER PRIMARY KEY,
     external_key TEXT NOT NULL UNIQUE,
+    source_event_id TEXT NOT NULL,
+    identity_fingerprint TEXT NOT NULL,
     payment_method_id INTEGER REFERENCES payment_methods(id),
     source_system TEXT NOT NULL,
     occurred_on TEXT,
@@ -66,6 +71,90 @@ CREATE TABLE IF NOT EXISTS transaction_sources (
     PRIMARY KEY(transaction_id, source_record_id)
 );
 
+-- P6 직접 적재 원천. legacy classified CSV를 거치지 않고 카드·수기·OTA 구조화
+-- 레코드를 멱등 저장하며 원문 전체나 개인정보는 넣지 않는다.
+CREATE TABLE IF NOT EXISTS direct_source_records (
+    id INTEGER PRIMARY KEY,
+    source_kind TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    redaction_version TEXT,
+    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_kind, source_key, source_sha256)
+);
+
+CREATE TABLE IF NOT EXISTS direct_card_events (
+    source_record_id INTEGER PRIMARY KEY REFERENCES direct_source_records(id),
+    card_event_id TEXT NOT NULL,
+    generator_version TEXT NOT NULL,
+    identity_status TEXT NOT NULL
+        CHECK(identity_status IN ('unique', 'collision', 'legacy_fallback')),
+    source_system TEXT NOT NULL,
+    amount_krw INTEGER NOT NULL,
+    approval_number TEXT,
+    occurred_on TEXT,
+    merchant TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS direct_normalized_payments (
+    id INTEGER PRIMARY KEY,
+    source_record_id INTEGER NOT NULL REFERENCES direct_source_records(id),
+    event_role TEXT NOT NULL DEFAULT 'single'
+        CHECK(event_role IN ('single', 'approval', 'cancellation')),
+    card_event_id TEXT NOT NULL,
+    amount_krw INTEGER NOT NULL,
+    transaction_type TEXT NOT NULL
+        CHECK(transaction_type IN ('purchase', 'cancellation', 'refund', 'adjustment')),
+    normalization_version TEXT NOT NULL,
+    normalized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_record_id, event_role)
+);
+
+CREATE INDEX IF NOT EXISTS direct_card_events_by_identity
+ON direct_card_events(card_event_id);
+
+-- 카드 이벤트의 안정 식별자는 legacy UID 및 비교용 fingerprint와 분리한다.
+-- 구조 정보가 부족해 같은 키가 나온 경우 자동 병합하지 않고 collision 상태로 보존한다.
+CREATE TABLE IF NOT EXISTS card_event_identities (
+    transaction_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    card_event_id TEXT NOT NULL,
+    generator_version TEXT NOT NULL,
+    identity_status TEXT NOT NULL DEFAULT 'unique'
+        CHECK(identity_status IN ('unique', 'collision', 'legacy_fallback')),
+    structural_payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS card_event_identities_by_event
+ON card_event_identities(card_event_id);
+
+-- payment_transactions는 현재 투영이고, 실제 결제 사실 변경 이력은 이 표에
+-- append-only로 보존한다. 같은 transaction/version을 수정하거나 덮어쓰지 않는다.
+CREATE TABLE IF NOT EXISTS payment_transaction_versions (
+    id INTEGER PRIMARY KEY,
+    transaction_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    record_version INTEGER NOT NULL CHECK(record_version > 0),
+    source_record_id INTEGER NOT NULL REFERENCES source_records(id),
+    source_event_id TEXT NOT NULL,
+    identity_fingerprint TEXT NOT NULL,
+    payment_method_id INTEGER REFERENCES payment_methods(id),
+    source_system TEXT NOT NULL,
+    occurred_on TEXT,
+    posted_on TEXT,
+    merchant TEXT NOT NULL DEFAULT '',
+    business_category TEXT,
+    country TEXT,
+    currency TEXT,
+    foreign_amount TEXT,
+    amount_krw INTEGER NOT NULL,
+    approval_number TEXT,
+    transaction_type TEXT NOT NULL
+        CHECK(transaction_type IN ('purchase', 'cancellation', 'refund', 'adjustment')),
+    recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(transaction_id, record_version)
+);
+
 -- 취소/환불의 원승인 관계. 상대 거래가 아직 없더라도 참조값은 보존한다.
 CREATE TABLE IF NOT EXISTS transaction_relations (
     id INTEGER PRIMARY KEY,
@@ -75,6 +164,13 @@ CREATE TABLE IF NOT EXISTS transaction_relations (
     reference_value TEXT,
     match_method TEXT NOT NULL,
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    relation_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(relation_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    resolution_code TEXT,
+    rationale TEXT,
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     UNIQUE(transaction_id, relation_type, reference_value)
 );
 
@@ -97,8 +193,80 @@ CREATE TABLE IF NOT EXISTS payment_booking_links (
     relation_type TEXT NOT NULL DEFAULT 'pays_for',
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     link_status TEXT NOT NULL DEFAULT 'legacy'
-        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected')),
+        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     PRIMARY KEY(payment_id, booking_id, relation_type)
+);
+
+-- 공급자 정정으로 예약 객체를 새로 만들지 않도록 식별자를 별도 이력으로 관리한다.
+CREATE TABLE IF NOT EXISTS booking_identifiers (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    provider TEXT NOT NULL DEFAULT 'unknown',
+    identifier TEXT NOT NULL,
+    identifier_type TEXT NOT NULL DEFAULT 'booking_number',
+    identifier_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(identifier_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    rule_id TEXT,
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
+    UNIQUE(booking_id, provider, identifier, identifier_type)
+);
+
+CREATE INDEX IF NOT EXISTS booking_identifiers_by_value
+ON booking_identifiers(identifier);
+
+CREATE TABLE IF NOT EXISTS booking_provider_reviews (
+    booking_id INTEGER PRIMARY KEY REFERENCES bookings(id),
+    proposed_provider TEXT NOT NULL,
+    review_status TEXT NOT NULL
+        CHECK(review_status IN ('confirmed', 'needs_review')),
+    reason_code TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 월일만 확인된 기간을 임의의 2026년 날짜로 확정하지 않는다.
+CREATE TABLE IF NOT EXISTS booking_service_period_evidence (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    start_on TEXT,
+    end_on TEXT,
+    date_precision TEXT NOT NULL
+        CHECK(date_precision IN ('day', 'month_day', 'unknown')),
+    original_text TEXT,
+    source_record_id INTEGER REFERENCES source_records(id),
+    evidence_status TEXT NOT NULL DEFAULT 'legacy'
+        CHECK(evidence_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    redaction_version TEXT,
+    UNIQUE(booking_id, source_record_id, original_text)
+);
+
+-- 예약 표시액과 카드 청구액을 섞지 않고 대사 결과를 명시한다.
+CREATE TABLE IF NOT EXISTS payment_amount_reconciliations (
+    id INTEGER PRIMARY KEY,
+    payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    booking_id INTEGER REFERENCES bookings(id),
+    card_charge_krw INTEGER NOT NULL,
+    booking_display_amount TEXT,
+    booking_currency TEXT,
+    discount_amount TEXT,
+    points_amount TEXT,
+    onsite_amount TEXT,
+    reconciliation_type TEXT NOT NULL
+        CHECK(reconciliation_type IN (
+            'exact', 'discount_adjusted', 'within_2_percent', 'mismatch', 'unknown'
+        )),
+    difference_ratio REAL,
+    rule_id TEXT NOT NULL,
+    source_record_id INTEGER REFERENCES source_records(id),
+    reconciliation_status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(reconciliation_status IN ('proposed', 'confirmed', 'rejected', 'superseded')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS trips (
@@ -126,7 +294,10 @@ CREATE TABLE IF NOT EXISTS booking_target_links (
     target_id INTEGER NOT NULL REFERENCES allocation_targets(id),
     confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
     link_status TEXT NOT NULL DEFAULT 'legacy'
-        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected')),
+        CHECK(link_status IN ('legacy', 'proposed', 'confirmed', 'rejected', 'superseded')),
+    first_seen_document_id INTEGER REFERENCES source_documents(id),
+    last_seen_document_id INTEGER REFERENCES source_documents(id),
+    superseded_by_document_id INTEGER REFERENCES source_documents(id),
     PRIMARY KEY(booking_id, target_id)
 );
 
@@ -170,6 +341,19 @@ CREATE TABLE IF NOT EXISTS decision_evidence (
     PRIMARY KEY(decision_id, evidence_id)
 );
 
+-- 수동 확정·거부·연결은 외부 append-only JSONL 변경 원장을 정본으로 삼고,
+-- 이 표에는 멱등 적용 상태만 투영한다.
+CREATE TABLE IF NOT EXISTS ledger_change_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_key TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 배분은 행이 아니라 plan 단위로 버전 관리한다. 1행→N행 재배분도 이력이 보존된다.
 CREATE TABLE IF NOT EXISTS allocation_plans (
     id INTEGER PRIMARY KEY,
@@ -193,9 +377,41 @@ CREATE TABLE IF NOT EXISTS cost_allocations (
     amount_krw INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS allocation_review_cases (
+    payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
+    outcome TEXT NOT NULL
+        CHECK(outcome IN ('trip', 'overhead', 'cancellation_settlement', 'insufficient_evidence')),
+    reason_code TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    review_status TEXT NOT NULL
+        CHECK(review_status IN ('confirmed', 'needs_review')),
+    rule_id TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_quality_audits (
+    payment_id INTEGER NOT NULL REFERENCES payment_transactions(id),
+    audit_type TEXT NOT NULL
+        CHECK(audit_type IN ('low_confidence', 'zero_amount')),
+    category TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    recognition_amount_krw INTEGER,
+    posting_eligibility TEXT NOT NULL
+        CHECK(posting_eligibility IN ('allowed', 'blocked', 'not_applicable')),
+    audit_status TEXT NOT NULL
+        CHECK(audit_status IN ('confirmed', 'needs_review')),
+    rule_id TEXT NOT NULL,
+    audited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(payment_id, audit_type)
+);
+
 CREATE INDEX IF NOT EXISTS allocation_plans_by_payment ON allocation_plans(payment_id);
 CREATE INDEX IF NOT EXISTS allocations_by_plan ON cost_allocations(plan_id);
 CREATE INDEX IF NOT EXISTS allocations_by_target ON cost_allocations(target_id);
+CREATE INDEX IF NOT EXISTS payment_versions_by_transaction
+ON payment_transaction_versions(transaction_id, record_version);
+CREATE INDEX IF NOT EXISTS payments_by_identity_fingerprint
+ON payment_transactions(identity_fingerprint);
 
 -- 장부는 확정된 배분을 소비하는 출력이다. 원천·판정과 독립적으로 롤백/재생성한다.
 CREATE TABLE IF NOT EXISTS journal_entries (
@@ -216,6 +432,21 @@ CREATE VIEW IF NOT EXISTS current_classification_decisions AS
 SELECT *
 FROM classification_decisions
 WHERE superseded_by_id IS NULL;
+
+CREATE VIEW IF NOT EXISTS current_payment_booking_links AS
+SELECT *
+FROM payment_booking_links
+WHERE link_status NOT IN ('rejected', 'superseded');
+
+CREATE VIEW IF NOT EXISTS current_booking_target_links AS
+SELECT *
+FROM booking_target_links
+WHERE link_status NOT IN ('rejected', 'superseded');
+
+CREATE VIEW IF NOT EXISTS current_transaction_relations AS
+SELECT *
+FROM transaction_relations
+WHERE relation_status NOT IN ('rejected', 'superseded');
 
 CREATE VIEW IF NOT EXISTS current_cost_allocations AS
 SELECT

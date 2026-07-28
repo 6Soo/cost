@@ -12,3 +12,9 @@ ledger/data/ota_checkpoints_agoda.db
 # 링크 병합 백업/임시본(로컬 전용)
 ledger/data/*.json.bak
 ledger/data/*.json.tmp
+
+# 로컬 SQLite·리뷰 스냅숏 (origin/main 유래)
+ledger/data/*.db
+ledger/data/*.db-shm
+ledger/data/*.db-wal
+ledger/data/review-snapshots/
