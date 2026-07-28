@@ -639,3 +639,45 @@ OneDrive 버전 기록·섀도 복사본·휴지통은 모두 막혔거나 비�
 - Agoda 체크포인트 DB(`ota_checkpoints_agoda.db`)는 여전히 스키마만 있고 예약 행 **0건**.
 - `reconcile_ota_index.py` dry-run(편집본 기준): autoLinked 0 · ambiguous 281 · unresolved 189.
   원문 복구 후 재평가해야 의미가 있다.
+
+---
+
+## 2026-07-29 (이어서 4) — fixture 갱신·OTA HOLD 3건 해소·감사 보고 정확화
+
+### 1. 도메인 fixture 갱신 (인계서 §12-6 이행 완료)
+무손실 검증을 마친 뒤에만 기대값을 옮겼다.
+- `test_domain_ledger.py`: 1,833행/320,115,617 → **1,838행/319,483,680**.
+  도메인 임포터 실측이 CSV와 정확히 일치(transactions=allocations=1,838, 총액 양쪽 동일,
+  `allocation_mismatches` 0, `valid` True).
+- `test_p6_adapters.py`: `direct_records` 8,336 → **8,337**.
+  구성 실측 = cards 5,237 + manual 1,380 + ota 1,720. **+1은 origin/main 병합 때 채택한
+  `manual_v4` 한 행(0404_에히메 커피빈 10,500원)**이다(우리 1,380 vs main 1,379).
+  APA 정정과는 무관하다 — APA 행은 `classified_v14` 소속이라 `direct_source_records`에 안 들어온다.
+- 두 파일 모두 갱신 근거를 코드 주석으로 남겼다.
+
+### 2. OTA HOLD 9건 개별 재검토 → 3건 해소 (링크 79 → **82**)
+원문 색인 복구 후 수기장부 마스터와 원문 메일을 대조했다.
+- **해소**: `KBO-2645`(847,256 Nezame 예약6475326931) · `KBO-2646`(278,865 Nezame 예약6635102370)
+  — 수기 r34/r35 예약번호와 카드 note 기존 기재가 일치하고 동액 카드이벤트가 없어 교집합 유일.
+  `CORP-2007`(1,181,775 Hiratakan 예약5973810974) — 수기 r159 예약번호를 **Gmail 원문 5건이 본문에서 참조**
+  (2026-04-18~23, 4/20 "결제가 완료되었습니다"). **인계서 §3 HOLD #9의 "예약번호도 대응 메일도 없음"은 뒤집혔다.**
+- **유지 6건**: 트립닷컴 부분환불 3건(거래단위 환불증빙 필요) ·
+  `KBO-2648`/`KBO-2649`/`KBO-2652` 각 150,970(네자메 ¥15,510 동일가 4실 중 카드이벤트 3건에
+  알려진 예약번호는 `6851343288` 하나뿐 — N:M 충돌, 불변규칙 3에 따라 자동확정 금지).
+
+### 3. 감사 도구 보완 — HOLD 해소 반영
+`audit-ota-reconciliation.mjs`는 정적 체크포인트 파일의 HOLD를 그대로 보고해, 이후 중앙 링크가 생겨
+해소된 건도 계속 HOLD로 세고 있었다. 이제 중앙 링크와 대조해 분리 보고한다:
+`hold_records`(미해소) · `hold_records_declared` · `hold_records_resolved_by_central_link`.
+목록에서 지우지 않고 `02b_holds_resolved_by_central_link.json`으로 남겨 추적 가능하게 했다.
+현재 **미해소 6 · 선언 9 · 해소 3**.
+
+### 4. reconcile_ota_index 재평가 결과
+원문 색인 복구 후에도 dry-run 수치는 동일하다(autoLinked 0 · ambiguous 281 · unresolved 189).
+이 스크립트의 점수 산정은 **메타데이터(subject·bookingRefs·amounts·travelDates)만 쓰고 `rawText`를
+보지 않기** 때문이다(원문을 쓰는 것은 감사 도구뿐). 잔여 281건을 진전시키려면 rawText 기반 대사기가
+필요하다 — 다음 세션의 실질 과제다.
+
+### 5. 인계서 정정
+`docs/CODEX_LINUX_MIGRATION_HANDOFF_2026-07-27.md` 최상단에 "동결본이며 수치는 갱신됨" 경고와
+현재 수치 대조표를 넣었다. 본문은 이력 보존을 위해 손대지 않았다.
