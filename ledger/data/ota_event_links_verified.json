@@ -2132,5 +2132,26 @@
     "category": "숙박",
     "verification_source": "ledger/build_manual_ledger_links.py 충돌군 중 예약번호 단일",
     "verification": "수기장부 5월_유럽(241,350원) 그룹 — 그룹 내 예약번호가 단일(1400826104512972)이라 짝 배정 문제가 성립하지 않음"
+  },
+  "KBD-0972": {
+    "booking_id": "7493952591",
+    "category": "숙박",
+    "period": "0625_0630",
+    "verification_source": "outputs/ota_verdicts_20260729_r3/02.codex.json",
+    "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 결제금액과 결제일이 일치하고 6월 25일~30일 여행탭에 해당하는 예약번호가 고유하게 확인됩니다."
+  },
+  "KBD-0973": {
+    "booking_id": "7493952913",
+    "category": "숙박",
+    "period": "0630_0704",
+    "verification_source": "outputs/ota_verdicts_20260729_r3/02.codex.json",
+    "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 결제금액과 결제일이 일치하고 6월 30일~7월 4일 여행탭에 해당하는 예약번호가 고유하게 확인됩니다."
+  },
+  "TRIP-0023": {
+    "booking_id": "1400823535564147",
+    "category": "숙박",
+    "period": "0411_0412",
+    "verification_source": "outputs/ota_verdicts_20260729_r3/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 호텔명이 일치하고 결제일 및 금액이 후보와 정확히 일치합니다."
   }
 }

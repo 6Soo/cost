@@ -56,6 +56,14 @@ def main() -> int:
     with CLASSIFIED.open(encoding="utf-8-sig", newline="") as fh:
         rows = {r["uid"]: r for r in csv.DictReader(fh)}
     links = json.loads(LINKS.read_text(encoding="utf-8"))
+    # 원장 임의배정으로 강등된 uid 는 모델 판정으로 되살리지 않는다(2026-07-29).
+    # 강등 사유는 모델이 볼 수 있는 증거로 해소되지 않으며, 해소는
+    # ledger/promote_group_assignments.py 게이트(실제 숙박일 검증)로만 이뤄진다.
+    group_assign_path = DATA / "ota_group_assignments.json"
+    demoted = (
+        set(json.loads(group_assign_path.read_text(encoding="utf-8")))
+        if group_assign_path.exists() else set()
+    )
     linked_bookings = {
         str(v.get("booking_id") or v.get("order_id") or "").strip(): uid
         for uid, v in links.items()
@@ -97,6 +105,9 @@ def main() -> int:
             continue
         if uid in links:
             reject("이미 확정된 uid")
+            continue
+        if uid in demoted:
+            reject("원장 임의배정으로 강등된 uid — 모델 판정으로 되살리지 않는다")
             continue
         if not booking:
             reject("link 인데 booking_id 공란")
