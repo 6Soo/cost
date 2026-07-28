@@ -88,7 +88,13 @@ const classified = parseCsv(
   fs.readFileSync(path.join(root, "ledger", "data", "classified_v14.csv"), "utf8"),
 );
 const byUid = new Map(classified.map((row) => [row.uid, row]));
-const mailIndex = readJson("ledger/data/ota_mail_index.json");
+// 원문(rawText 포함) 색인이 있으면 우선 사용하고, 없으면 추적되는 편집본으로 폴백한다.
+// 편집본에는 rawText가 없어 evidenceContainsBooking 검증이 전건 실패한다(2026-07-29 실측).
+const MAIL_INDEX_RAW = "ledger/data/ota_mail_index.raw.json";
+const mailIndexPath = fs.existsSync(path.join(root, MAIL_INDEX_RAW))
+  ? MAIL_INDEX_RAW
+  : "ledger/data/ota_mail_index.json";
+const mailIndex = readJson(mailIndexPath);
 const mailsById = new Map(mailIndex.records.map((record) => [record.messageId, record]));
 const existingLinks = readJson("ledger/data/ota_event_links_verified.json");
 const tripDelta = readJson("outputs/terra_checkpoints/trip_verified_delta.json");
@@ -286,7 +292,7 @@ writeJson("04_verified_transaction_relations.json", relations);
 const evidence = {
   source_files: [
     "ledger/data/classified_v14.csv",
-    "ledger/data/ota_mail_index.json",
+    mailIndexPath,
     "ledger/data/ota_event_links_verified.json",
     "ledger/data/ota_checkpoints_agoda.db",
     "outputs/terra_checkpoints/trip_verified_delta.json",

@@ -18,3 +18,6 @@ ledger/data/*.db
 ledger/data/*.db-shm
 ledger/data/*.db-wal
 ledger/data/review-snapshots/
+
+# 원문(rawText 포함) Gmail 색인 — 절대 커밋 금지(추적본 ota_mail_index.json 은 편집본)
+ledger/data/ota_mail_index.raw.json

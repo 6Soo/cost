@@ -15,7 +15,9 @@ from pathlib import Path
 
 
 DATA = Path(__file__).resolve().parent / "data"
-INDEX = DATA / "ota_mail_index.json"
+# 원문(rawText 포함) 색인 우선, 없으면 추적되는 편집본으로 폴백.
+_INDEX_RAW = DATA / "ota_mail_index.raw.json"
+INDEX = _INDEX_RAW if _INDEX_RAW.exists() else DATA / "ota_mail_index.json"
 CLASSIFIED = DATA / "classified_v14.csv"
 LINKS = DATA / "ota_event_links_verified.json"
 REPORT = DATA / "ota_reconcile_report.json"

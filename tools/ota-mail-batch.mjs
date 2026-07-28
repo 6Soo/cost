@@ -1,8 +1,12 @@
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
-const repoRoot = "D:\\OneDrive\\문서\\AX\\cost";
-const outputPath = `${repoRoot}\\ledger\\data\\ota_mail_index.json`;
+// 저장소 위치는 이 모듈 경로에서 유도한다(하드코딩 금지).
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// ★원문(rawText 포함) 색인은 .raw.json 에 쓴다. ota_mail_index.json 은 origin/main 이
+//   추적하는 편집본이라 같은 경로에 쓰면 git 병합/체크아웃이 원문을 덮어쓴다(2026-07-29 실측).
+const outputPath = path.join(repoRoot, "ledger", "data", "ota_mail_index.raw.json");
 const sdkRoot =
   "C:\\Users\\kkokk\\AppData\\Roaming\\npm\\node_modules\\@aaronsb\\google-workspace-mcp\\node_modules\\@modelcontextprotocol\\sdk\\dist\\esm";
 const { Client } = await import(pathToFileURL(`${sdkRoot}\\client\\index.js`).href);
