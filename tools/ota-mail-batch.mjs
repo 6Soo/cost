@@ -1,6 +1,10 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
+import {
+  exhaustiveMailSearch,
+  formatDate,
+} from "./ota-mail-search-plan.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputPath = path.join(repoRoot, "ledger", "data", "ota_mail_index.json");
@@ -40,8 +44,8 @@ for (let year = 2025, month = 8; year < 2026 || month <= 7; ) {
   const nextYear = month === 12 ? year + 1 : year;
   const nextMonth = month === 12 ? 1 : month + 1;
   monthRanges.push({
-    after: `${year}/${String(month).padStart(2, "0")}/01`,
-    before: `${nextYear}/${String(nextMonth).padStart(2, "0")}/01`,
+    start: new Date(Date.UTC(year, month - 1, 1)),
+    end: new Date(Date.UTC(nextYear, nextMonth - 1, 1)),
   });
   year = nextYear;
   month = nextMonth;
@@ -100,6 +104,34 @@ function extract(messageId, raw) {
       .map((match) => Number((match[1] ?? match[2]).replace(/,/g, "")))
       .filter((amount) => amount >= 1000 && amount < 100000000),
   );
+  const amountCandidates = [];
+  const currencyPatterns = [
+    /\b(JPY|KRW|USD|EUR|GBP|GEL|KZT)\s*([0-9][0-9,.]*)/gi,
+    /([0-9][0-9,.]*)\s*(JPY|KRW|USD|EUR|GBP|GEL|KZT)\b/gi,
+  ];
+  for (const [patternIndex, pattern] of currencyPatterns.entries()) {
+    for (const match of raw.matchAll(pattern)) {
+      const currency = (patternIndex === 0 ? match[1] : match[2]).toUpperCase();
+      const amountText = patternIndex === 0 ? match[2] : match[1];
+      const amount = Number(amountText.replaceAll(",", ""));
+      if (Number.isFinite(amount) && amount > 0 && amount < 1000000000) {
+        amountCandidates.push({
+          amount,
+          currency,
+          role: "displayed_total",
+          source: "message_body",
+        });
+      }
+    }
+  }
+  const uniqueAmountCandidates = [
+    ...new Map(
+      amountCandidates.map((candidate) => [
+        `${candidate.currency}:${candidate.amount}`,
+        candidate,
+      ]),
+    ).values(),
+  ];
   const provider = /mytrip|마이트립/i.test(raw)
     ? "mytrip"
     : /trip\.com|트립닷컴/i.test(raw)
@@ -121,6 +153,7 @@ function extract(messageId, raw) {
     pnrs,
     travelDates,
     amounts,
+    amountCandidates: uniqueAmountCandidates,
     rawText: raw,
   };
 }
@@ -128,26 +161,35 @@ function extract(messageId, raw) {
 try {
   await client.connect(transport);
   const found = new Map();
+  let searchQueryCount = 0;
   for (const range of monthRanges) {
     for (const providerQuery of providerQueries) {
-      const result = await client.callTool(
-        {
-          name: "manage_email",
-          arguments: {
-            operation: "search",
-            email: "kkokkohero6@gmail.com",
-            query: `${providerQuery} after:${range.after} before:${range.before}`,
-            maxResults: 50,
-          },
+      const searchResult = await exhaustiveMailSearch({
+        start: range.start,
+        end: range.end,
+        search: async ({ after, before, limit }) => {
+          const result = await client.callTool(
+            {
+              name: "manage_email",
+              arguments: {
+                operation: "search",
+                email: "kkokkohero6@gmail.com",
+                query: `${providerQuery} after:${after} before:${before}`,
+                maxResults: limit,
+              },
+            },
+            undefined,
+            { timeout: 300000 },
+          );
+          return parseSearch(textOf(result));
         },
-        undefined,
-        { timeout: 300000 },
-      );
-      for (const message of parseSearch(textOf(result))) {
+      });
+      searchQueryCount += searchResult.queryCount;
+      for (const message of searchResult.records) {
         found.set(message.messageId, message);
       }
     }
-    console.error(`searched ${range.after}: ${found.size} unique`);
+    console.error(`searched ${formatDate(range.start)}: ${found.size} unique`);
   }
 
   const ids = [...found.keys()];
@@ -179,7 +221,17 @@ try {
   }
   await writeFile(
     outputPath,
-    `${JSON.stringify({ generatedAt: new Date().toISOString(), records }, null, 2)}\n`,
+    `${JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      collection: {
+        coverageComplete: true,
+        searchQueryCount,
+        saturatedRanges: 0,
+        searchLimit: 50,
+        strategy: "recursive_date_subdivision",
+      },
+      records,
+    }, null, 2)}\n`,
     "utf8",
   );
   console.log(JSON.stringify({ outputPath, messages: records.length }));

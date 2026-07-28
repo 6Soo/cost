@@ -13,6 +13,7 @@ from typing import Mapping
 
 
 MATCHER_PROVIDERS = {"agoda", "booking"}
+UNASSIGNED_TRAVEL_BUCKETS = {"", "여행_미배정", "미청구_예약확정"}
 STATUS_PRIORITY = {
     "conflict": 60,
     "confirmed_strong": 50,
@@ -86,9 +87,16 @@ def classify_payment_state(
         else:
             disposition = "pending"
             review_complete = False
+        evidence_disposition = {
+            "confirmed": "direct_link_confirmed",
+            "hold": "direct_link_conflict",
+            "pending": "direct_link_unproven",
+        }[disposition]
         return {
             "state": status,
             "disposition": disposition,
+            "evidence_state": status,
+            "evidence_disposition": evidence_disposition,
             "reason_code": str(current.get("reason_code") or status),
             "decision_id": str(current.get("decision_id") or ""),
             "decision_actor": str(current.get("actor") or ""),
@@ -107,11 +115,24 @@ def classify_payment_state(
     return {
         "state": state,
         "disposition": "pending",
+        "evidence_state": state,
+        "evidence_disposition": "direct_link_unproven",
         "reason_code": reason,
         "decision_id": "",
         "decision_actor": "",
         "concurrent_states": [],
         "review_complete": False,
+    }
+
+
+def classify_accounting_state(row: Mapping[str, object]) -> dict[str, object]:
+    """Describe accounting completeness independently from OTA link evidence."""
+    bucket = str(row.get("bucket") or "").strip()
+    assigned = bucket not in UNASSIGNED_TRAVEL_BUCKETS
+    return {
+        "accounting_state": "classified" if assigned else "travel_unassigned",
+        "filing_state": "included_in_canonical",
+        "accounting_review_complete": assigned,
     }
 
 
@@ -125,16 +146,21 @@ def direct_evidence_inventory(db: sqlite3.Connection) -> dict[str, dict[str, obj
             "direct_charge_records": 0,
             "raw_authenticated_portal_records": 0,
             "authenticated_portal_records": 0,
+            "portal_missing_record_type_records": 0,
+            "portal_charge_records": 0,
+            "portal_charge_missing_foreign_amount_records": 0,
+            "portal_display_only_records": 0,
+            "portal_currency_counts": {},
             "matched_payment_members": 0,
             "matcher_implemented": False,
         }
     )
     unique_messages: dict[str, set[str]] = defaultdict(set)
     unique_charges: dict[str, set[str]] = defaultdict(set)
-    unique_portal: dict[str, set[str]] = defaultdict(set)
+    unique_portal: dict[str, dict[str, dict[str, object]]] = defaultdict(dict)
     for row in db.execute(
         """
-        SELECT source_kind, payload_json
+        SELECT id, source_kind, source_key, payload_json
         FROM direct_source_records
         WHERE source_kind IN ('ota_mail', 'ota_authenticated_portal')
         """
@@ -169,8 +195,8 @@ def direct_evidence_inventory(db: sqlite3.Connection) -> dict[str, dict[str, obj
             inventory[provider]["raw_authenticated_portal_records"] = (
                 int(inventory[provider]["raw_authenticated_portal_records"]) + 1
             )
-            if message_id:
-                unique_portal[provider].add(message_id)
+            portal_key = message_id or str(row["source_key"]) or f"id:{row['id']}"
+            unique_portal[provider].setdefault(portal_key, payload)
 
     for provider in inventory:
         inventory[provider]["unique_message_records"] = len(
@@ -181,6 +207,26 @@ def direct_evidence_inventory(db: sqlite3.Connection) -> dict[str, dict[str, obj
         )
         inventory[provider]["authenticated_portal_records"] = len(
             unique_portal[provider]
+        )
+        currency_counts: dict[str, int] = defaultdict(int)
+        for payload in unique_portal[provider].values():
+            record_type = str(payload.get("record_type") or "").lower()
+            currency = str(payload.get("currency") or "missing").upper()
+            foreign_amount = payload.get("foreign_amount")
+            display_amount = payload.get("booking_display_amount")
+            if not record_type:
+                inventory[provider]["portal_missing_record_type_records"] += 1
+            if record_type == "charge":
+                inventory[provider]["portal_charge_records"] += 1
+                if foreign_amount in {None, ""}:
+                    inventory[provider][
+                        "portal_charge_missing_foreign_amount_records"
+                    ] += 1
+            if display_amount not in {None, ""} and foreign_amount in {None, ""}:
+                inventory[provider]["portal_display_only_records"] += 1
+            currency_counts[currency] += 1
+        inventory[provider]["portal_currency_counts"] = dict(
+            sorted(currency_counts.items())
         )
 
     for row in db.execute(

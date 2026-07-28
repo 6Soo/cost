@@ -20,6 +20,7 @@ from ledger.domain.ledger_db import (
     initialize,
 )
 from ledger.domain.ota_reporting import (
+    classify_accounting_state,
     classify_payment_state,
     current_payment_decision_states,
     direct_evidence_inventory,
@@ -87,6 +88,7 @@ def build_report(output_dir: Path) -> dict[str, object]:
             continue
         uid = row["uid"]
         state = classify_payment_state(uid, provider, decision_states)
+        accounting = classify_accounting_state(row)
         rows.append(
             {
                 "uid": uid,
@@ -95,6 +97,11 @@ def build_report(output_dir: Path) -> dict[str, object]:
                 "merchant": row.get("merchant", ""),
                 "amount_krw": int(round(float(row.get("krw") or 0))),
                 "bucket": row.get("bucket", ""),
+                "account": row.get("account", ""),
+                "cost_type": row.get("cost_type", ""),
+                "confidence": row.get("confidence", ""),
+                "tax_conf": row.get("tax_conf", ""),
+                **accounting,
                 **state,
             }
         )
@@ -109,22 +116,48 @@ def build_report(output_dir: Path) -> dict[str, object]:
         )
     )
     write_csv(publish_dir / "ota_dispositions.csv", rows)
-    counts = Counter(str(row["disposition"]) for row in rows)
-    state_counts = Counter(str(row["state"]) for row in rows)
+    counts = Counter(str(row["evidence_disposition"]) for row in rows)
+    state_counts = Counter(str(row["evidence_state"]) for row in rows)
+    accounting_counts = Counter(str(row["accounting_state"]) for row in rows)
     by_provider: dict[str, dict[str, int]] = {}
     for provider in sorted({str(row["provider"]) for row in rows}):
         provider_rows = [row for row in rows if row["provider"] == provider]
         provider_counts = Counter(
-            str(row["disposition"]) for row in provider_rows
+            str(row["evidence_disposition"]) for row in provider_rows
         )
-        provider_states = Counter(str(row["state"]) for row in provider_rows)
+        provider_states = Counter(str(row["evidence_state"]) for row in provider_rows)
+        provider_accounting = Counter(
+            str(row["accounting_state"]) for row in provider_rows
+        )
         by_provider[provider] = {
             "total": len(provider_rows),
-            "confirmed": provider_counts["confirmed"],
-            "hold": provider_counts["hold"],
-            "pending": provider_counts["pending"],
+            "direct_link_confirmed": provider_counts["direct_link_confirmed"],
+            "direct_link_conflict": provider_counts["direct_link_conflict"],
+            "direct_link_unproven": provider_counts["direct_link_unproven"],
+            "classified": provider_accounting["classified"],
+            "travel_unassigned": provider_accounting["travel_unassigned"],
             "states": dict(sorted(provider_states.items())),
         }
+
+    accounting_unassigned = [
+        row for row in rows if row["accounting_state"] == "travel_unassigned"
+    ]
+    evidence_conflicts = [
+        row for row in rows if row["evidence_disposition"] == "direct_link_conflict"
+    ]
+    action_rows = []
+    for row in rows:
+        actions: list[str] = []
+        if row["accounting_state"] == "travel_unassigned":
+            actions.append("assign_travel_bucket")
+        if row["evidence_disposition"] == "direct_link_conflict":
+            actions.append("resolve_direct_link_conflict")
+        if actions:
+            action_rows.append({**row, "required_actions": actions})
+    with (publish_dir / "ota_action_queue.json").open(
+        "x", encoding="utf-8"
+    ) as handle:
+        handle.write(json.dumps(action_rows, ensure_ascii=False, indent=2) + "\n")
 
     hana_holds = [
         {
@@ -173,8 +206,8 @@ def build_report(output_dir: Path) -> dict[str, object]:
         },
     ]
     summary: dict[str, object] = {
-        "schema_version": 2,
-        "release_status": "audit_only_blocked",
+        "schema_version": 3,
+        "release_status": "post_filing_audit_open",
         "provenance": {
             "report_code_sha256": file_sha256(Path(__file__)),
             "canonical_sha256": file_sha256(
@@ -185,15 +218,39 @@ def build_report(output_dir: Path) -> dict[str, object]:
             ),
         },
         "input_gate": input_gate,
-        "ota": {
+        "accounting": {
             "total": len(rows),
-            "confirmed": counts["confirmed"],
-            "hold": counts["hold"],
-            "pending": counts["pending"],
+            "included_in_canonical": len(rows),
+            "classified": accounting_counts["classified"],
+            "travel_unassigned": accounting_counts["travel_unassigned"],
+            "travel_unassigned_amount_krw": sum(
+                int(row["amount_krw"]) for row in accounting_unassigned
+            ),
+        },
+        "direct_link_audit": {
+            "total": len(rows),
+            "confirmed": counts["direct_link_confirmed"],
+            "conflict": counts["direct_link_conflict"],
+            "unproven": counts["direct_link_unproven"],
             "states": dict(sorted(state_counts.items())),
             "by_provider": by_provider,
             "direct_evidence_inventory": evidence_inventory,
             "direct_match_engine": import_result["direct_ota_matches"],
+        },
+        "action_queue": {
+            "total_distinct": len(action_rows),
+            "total_amount_krw": sum(int(row["amount_krw"]) for row in action_rows),
+            "travel_unassigned": len(accounting_unassigned),
+            "direct_link_conflicts": len(evidence_conflicts),
+            "artifact": "ota_action_queue.json",
+        },
+        "ota": {
+            "deprecated": True,
+            "note": "Use accounting and direct_link_audit; unproven is not filing-unresolved.",
+            "total": len(rows),
+            "confirmed": counts["direct_link_confirmed"],
+            "hold": counts["direct_link_conflict"],
+            "pending": counts["direct_link_unproven"],
         },
         "hana_hold_count": len(hana_holds),
         "non_ota_resolved_count": len(non_ota),
@@ -202,6 +259,8 @@ def build_report(output_dir: Path) -> dict[str, object]:
             "only current append-only decisions can confirm a payment",
             "legacy verified-link membership remains proposed or conflict",
             "only actual conflicts remain HOLD; unprocessed rows remain pending",
+            "direct-link unproven does not mean accounting or filing unresolved",
+            "portal display currency or display amount alone never proves a charge",
             "refunds and cancellations remain independent events",
         ],
     }
@@ -221,7 +280,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/20260728_decision_authoritative_review_v8"),
+        default=Path("outputs/20260728_decision_authoritative_review_v10"),
     )
     args = parser.parse_args()
     print(json.dumps(build_report(args.output_dir), ensure_ascii=False, indent=2))

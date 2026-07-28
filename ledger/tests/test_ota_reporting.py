@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.ota_reporting import (
+    classify_accounting_state,
     classify_payment_state,
     current_payment_decision_states,
 )
@@ -83,6 +84,8 @@ class OtaReportingTest(unittest.TestCase):
             {
                 "state": "confirmed_strong",
                 "disposition": "confirmed",
+                "evidence_state": "confirmed_strong",
+                "evidence_disposition": "direct_link_confirmed",
                 "reason_code": "unique_direct_payment_intersection",
                 "decision_id": "decision:booking-direct:BOOK-1",
                 "decision_actor": "direct_evidence_reconciler",
@@ -109,6 +112,7 @@ class OtaReportingTest(unittest.TestCase):
         )
         self.assertEqual(result["state"], "conflict")
         self.assertEqual(result["disposition"], "hold")
+        self.assertEqual(result["evidence_disposition"], "direct_link_conflict")
         self.assertEqual(
             result["concurrent_states"],
             ["confirmed_strong", "conflict"],
@@ -124,6 +128,7 @@ class OtaReportingTest(unittest.TestCase):
         )
         self.assertEqual(result["state"], "proposed")
         self.assertEqual(result["disposition"], "pending")
+        self.assertEqual(result["evidence_disposition"], "direct_link_unproven")
         self.assertFalse(result["review_complete"])
 
     def test_mutable_group_status_without_decision_never_confirms(self) -> None:
@@ -156,6 +161,22 @@ class OtaReportingTest(unittest.TestCase):
         self.assertEqual(result["state"], "not_investigated_no_matcher")
         self.assertEqual(result["disposition"], "pending")
         self.assertEqual(result["reason_code"], "provider_matcher_not_implemented")
+
+    def test_accounting_state_is_independent_from_direct_link_state(self) -> None:
+        self.assertEqual(
+            classify_accounting_state({"bucket": "0404_에히메"}),
+            {
+                "accounting_state": "classified",
+                "filing_state": "included_in_canonical",
+                "accounting_review_complete": True,
+            },
+        )
+        self.assertEqual(
+            classify_accounting_state({"bucket": "여행_미배정"})[
+                "accounting_state"
+            ],
+            "travel_unassigned",
+        )
 
 
 if __name__ == "__main__":
