@@ -114,6 +114,32 @@ for r in rows:
     if any(('예약'+b) in (r['note'] or '') for b in APA_COMPONENTS) and 'APA' in (r['merchant'] or '').upper():
         r['bucket']=APA_TAB
 
+# 여행자보험 가입기간 반영(사용자 지시 2026-07-29: "트래블로버 메일에 가입기간이 있다면
+# 파싱하고 여행배정 근거로 삼도록 해"). 근거는 ledger/build_insurance_periods.py 가
+# 메일 본문의 `보험기간 YYYY-MM-DD ~ YYYY-MM-DD` 를 파싱해 만든 검증값이며,
+# 카드 금액이 메일 보험료와 **정확히 일치**하고 동일 보험료 메일이 유일할 때만 채택된다.
+#   · 기간 표기는 note 에 붙인다.
+#   · 귀속 탭이 다르면(suggested_tab_mmdd) 해당 MMDD 로 시작하는 실재 탭이 **유일할 때만** 옮긴다.
+try:
+    ins_periods=json.load(open('data/insurance_periods_verified.json',encoding='utf-8'))
+except FileNotFoundError:
+    ins_periods={}
+ins_note=ins_move=0
+_buckets={r['bucket'] for r in rows}
+for r in rows:
+    info=ins_periods.get(r['uid'])
+    if not info: continue
+    marker='보험기간%s'%info['period']
+    if marker not in (r['note'] or ''):
+        r['note']=((r['note'] or '')+' | %s(%s, 메일 본문 확정)'%(marker, info.get('destination') or '')).strip(' |')
+        ins_note+=1
+    mmdd=info.get('suggested_tab_mmdd')
+    if mmdd:
+        hits=sorted(b for b in _buckets if b.startswith(mmdd+'_'))
+        if len(hits)==1 and r['bucket']!=hits[0]:
+            r['note']=(r['note'] or '')+' | 귀속변경 %s→%s(보험기간 근거, 2026-07-29)'%(r['bucket'], hits[0])
+            r['bucket']=hits[0]; ins_move+=1
+
 # 전용진 자동편입행 계정 교정(TRIP-***, merchant 전용진 → 가이드정산; 숙박비 오분류 방지)
 jy=0
 for r in rows:
@@ -127,4 +153,4 @@ def i(x):
     try: return round(float(str(x).replace(',','') or 0))
     except: return 0
 tot=sum(i(r['krw']) for r in rows)
-print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, APA합산연결 %d건, 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, apa, jy, len(rows), format(tot,',')))
+print('patch_v14: 복원 %d건, 말라르노트 %d, 고마가네예약 %d건, OTA검증연결 %d건, APA합산연결 %d건, 보험기간 %d건(귀속변경 %d), 전용진계정 %d건 → %d행 krw합 %s'%(added, mal, komagane, ota_enriched, apa, ins_note, ins_move, jy, len(rows), format(tot,',')))

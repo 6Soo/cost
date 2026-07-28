@@ -2194,5 +2194,40 @@
     "period": "0613_0616",
     "verification_source": "outputs/ota_verdicts_20260729/11.codex.json",
     "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 환불 메일의 금액과 여행일정이 일치하고 같은 일정의 예약확정 후보에 유일한 예약번호가 있습니다."
+  },
+  "TRIP-0145": {
+    "booking_id": "1087-639-436",
+    "category": "숙박",
+    "period": "0424_0429",
+    "verification_source": "outputs/ota_verdicts_20260729_r2/02.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 투숙객 고현숙이 장부 메모와 일치하고 금액·결제일·여행 기간도 일치한다."
+  },
+  "TRIP-0146": {
+    "booking_id": "1083-031-644",
+    "category": "숙박",
+    "period": "0424_0429",
+    "verification_source": "outputs/ota_verdicts_20260729_r2/02.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 투숙객 최향순이 장부 메모와 일치하고 금액·결제일·여행 기간도 일치한다."
+  },
+  "TRIP-0380": {
+    "booking_id": "1120-834-169",
+    "category": "숙박",
+    "period": "0620_0625",
+    "verification_source": "outputs/ota_verdicts_20260729_r2/02.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 투숙객 박충배가 장부 메모와 유일하게 일치하고 금액·결제일·여행 기간도 일치한다."
+  },
+  "KBD-0396": {
+    "booking_id": "1400827123145603",
+    "category": "숙박",
+    "period": "0704_0706",
+    "verification_source": "outputs/ota_verdicts_20260729_r2/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제금액이 예약 확정 메일의 총액과 정확히 일치하고 후보 예약번호가 하나뿐이다."
+  },
+  "TRIP-0132": {
+    "booking_id": "1400824819941766",
+    "category": "숙박",
+    "period": "0423_0424",
+    "verification_source": "outputs/ota_verdicts_20260729_r2/04.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제금액 316800원이 후보와 정확히 일치하고 예약번호와 여행일도 확인된다."
   }
 }

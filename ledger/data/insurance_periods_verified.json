@@ -1,0 +1,48 @@
+{
+  "KBD-1045": {
+    "period": "0613_0619",
+    "category": "여행자보험",
+    "destination": "일본",
+    "evidence_grade": "body_explicit",
+    "source_message_id": "19ebb8b25033b194",
+    "verification_source": "travelrover_mail_보험기간",
+    "current_bucket": "0613_북해도"
+  },
+  "KBD-1047": {
+    "period": "0616_0625",
+    "category": "여행자보험",
+    "destination": "일본",
+    "evidence_grade": "body_explicit",
+    "source_message_id": "19ebb947ec6bdc23",
+    "verification_source": "travelrover_mail_보험기간",
+    "current_bucket": "0616_레분토&리시리"
+  },
+  "KBD-1048": {
+    "period": "0616_0620",
+    "category": "여행자보험",
+    "destination": "일본",
+    "evidence_grade": "body_explicit",
+    "source_message_id": "19ebb99ea8b939f4",
+    "verification_source": "travelrover_mail_보험기간",
+    "current_bucket": "0616_레분토&리시리"
+  },
+  "TRIP-0342": {
+    "period": "0613_0619",
+    "category": "여행자보험",
+    "destination": "일본",
+    "evidence_grade": "body_explicit",
+    "source_message_id": "19ebb8b25033b194",
+    "verification_source": "travelrover_mail_보험기간",
+    "current_bucket": "0613_북해도"
+  },
+  "KBD-1046": {
+    "period": "0613_0615",
+    "category": "여행자보험",
+    "destination": "일본",
+    "evidence_grade": "body_explicit",
+    "source_message_id": "19ebb90c768c87ff",
+    "verification_source": "travelrover_mail_보험기간",
+    "current_bucket": "기타비용",
+    "suggested_tab_mmdd": "0613"
+  }
+}
