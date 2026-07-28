@@ -19,10 +19,16 @@ from ledger.domain.p0_release_guard import (
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = (
-    ROOT / "ledger" / "baselines" / "p0_current_canonical_20260728"
+    ROOT / "ledger" / "baselines" / "p0_current_canonical_20260728_v2"
 )
 MANIFEST = BASELINE / "manifest.json"
-RELEASE_BLOCKS = BASELINE / "release_blocks.json"
+RELEASE_BLOCKS = (
+    ROOT
+    / "ledger"
+    / "baselines"
+    / "p0_current_canonical_20260728"
+    / "release_blocks.json"
+)
 
 
 class P0CanonicalManifestTests(unittest.TestCase):
@@ -110,7 +116,7 @@ class P0CanonicalManifestTests(unittest.TestCase):
         with canonical_path.open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
         passed = validate_candidate_against_frozen_canonical(ROOT, rows)
-        self.assertEqual(passed["row_count"], 1835)
+        self.assertEqual(passed["row_count"], 1834)
         with self.assertRaisesRegex(P0GuardError, "missing="):
             validate_candidate_against_frozen_canonical(ROOT, rows[:-1])
         mutated = copy.deepcopy(rows)

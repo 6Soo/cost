@@ -23,7 +23,7 @@ class P0GuardError(RuntimeError):
 DEFAULT_MANIFEST = (
     Path("ledger")
     / "baselines"
-    / "p0_current_canonical_20260728"
+    / "p0_current_canonical_20260728_v2"
     / "manifest.json"
 )
 

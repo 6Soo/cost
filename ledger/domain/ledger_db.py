@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """도메인 분리형 비용 원장 초기화·legacy v14 이관·불변식 검증.
 
-기존 산출 경로를 대체하지 않는다. classified_v14를 원천 스냅샷으로 가져와
+기존 산출 경로를 대체하지 않는다. 승인된 classified 정본을 원천 스냅샷으로 가져와
 결제 사실, 예약 연결, 배분, 분류판정을 분리하고 동일 건수·합계를 검증한다.
 """
 from __future__ import annotations
@@ -50,7 +50,7 @@ def default_db_path() -> Path:
 
 
 DEFAULT_DB = default_db_path()
-DEFAULT_CSV = LEDGER_DIR / "data" / "classified_v14.csv"
+DEFAULT_CSV = LEDGER_DIR / "data" / "classified_v15.csv"
 DEFAULT_TRIPS = LEDGER_DIR / "data" / "trips.json"
 DEFAULT_BOOKINGS = LEDGER_DIR / "data" / "booking_info.json"
 SCHEMA = HERE / "schema.sql"
@@ -1237,7 +1237,7 @@ def import_legacy(
                 (str(csv_path.resolve()), digest),
             ).lastrowid
         )
-        # classified_v14 is a complete snapshot. End only legacy-derived links
+        # The classified canonical is a complete snapshot. End only legacy-derived links
         # before rebuilding the current projection; confirmed/proposed links
         # from later evidence remain untouched.
         db.execute(
@@ -3934,7 +3934,7 @@ def cli(argv: list[str] | None = None) -> int:
 
     sub.add_parser("init", help="빈 DB에 스키마를 적용한다.")
 
-    importer = sub.add_parser("import-legacy", help="classified_v14 스냅샷을 도메인별로 이관한다.")
+    importer = sub.add_parser("import-legacy", help="classified 정본 스냅샷을 도메인별로 이관한다.")
     importer.add_argument("--csv", type=Path, default=DEFAULT_CSV)
     importer.add_argument("--trips", type=Path, default=DEFAULT_TRIPS)
     importer.add_argument("--bookings", type=Path, default=DEFAULT_BOOKINGS)

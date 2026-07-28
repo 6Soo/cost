@@ -60,7 +60,7 @@ def build_report(output_dir: Path) -> dict[str, object]:
     input_gate = validate_frozen_stage(root, "ota_pending_report")
     classified = list(
         csv.DictReader(
-            (LEDGER_DIR / "data" / "classified_v14.csv").open(
+            DEFAULT_CSV.open(
                 encoding="utf-8-sig"
             )
         )
@@ -211,7 +211,7 @@ def build_report(output_dir: Path) -> dict[str, object]:
         "provenance": {
             "report_code_sha256": file_sha256(Path(__file__)),
             "canonical_sha256": file_sha256(
-                LEDGER_DIR / "data" / "classified_v14.csv"
+                DEFAULT_CSV
             ),
             "ota_verified_links_sha256": file_sha256(
                 LEDGER_DIR / "data" / "ota_event_links_verified.json"
@@ -280,7 +280,7 @@ def main() -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("outputs/20260728_decision_authoritative_review_v10"),
+        default=Path("outputs/20260728_decision_authoritative_review_v12"),
     )
     args = parser.parse_args()
     print(json.dumps(build_report(args.output_dir), ensure_ascii=False, indent=2))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from ledger.domain.cancellation_lifecycle import zero_net_cancellation_approvals
 from ledger.domain.hana_events import (
     expand_hana_row,
     reconcile_hana_billing_projection,
@@ -13,6 +14,27 @@ def identity(value: object) -> str:
 
 
 class HanaEventsTest(unittest.TestCase):
+    def test_zero_net_row_blocks_duplicate_unassigned_lifecycle(self) -> None:
+        keys = zero_net_cancellation_approvals(
+            [
+                {
+                    "uid": "HAN-3444",
+                    "src": "HAN",
+                    "status": "매출취소",
+                    "krw": "0",
+                    "appr": "30106104",
+                },
+                {
+                    "uid": "OTHER",
+                    "src": "HAN",
+                    "status": "정상",
+                    "krw": "0",
+                    "appr": "99999999",
+                },
+            ]
+        )
+        self.assertEqual(keys, {("HAN", "30106104")})
+
     def test_captured_cancellation_becomes_two_equal_accounting_events(self) -> None:
         row = [""] * 20
         row[1] = "2026-06-23"

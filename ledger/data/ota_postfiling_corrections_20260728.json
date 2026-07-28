@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "decided_at": "2026-07-28",
+  "actor": "codex_gmail_direct_evidence",
+  "corrections": [
+    {
+      "uid": "CORP-2006",
+      "operation": "update",
+      "expected": {
+        "krw": "0",
+        "appr": "51671053",
+        "bucket": "여행_미배정"
+      },
+      "set": {
+        "bucket": "0424_알펜루트",
+        "account": "숙박비",
+        "cost_type": "여행원가",
+        "vat_tag": "불공제_해외",
+        "confidence": "상",
+        "tax_conf": "상"
+      },
+      "note_append": "Gmail확정: Trip.com 나카무라칸 4/25 숙박 예약 후 무료취소",
+      "evidence_message_ids": [
+        "19dab0016baaa02c",
+        "19dab007c835e977"
+      ]
+    },
+    {
+      "uid": "KBD-0380",
+      "operation": "update",
+      "expected": {
+        "krw": "163788",
+        "appr": "30059295",
+        "bucket": "여행_미배정"
+      },
+      "set": {
+        "bucket": "0625_아키타",
+        "account": "항공료",
+        "cost_type": "여행원가",
+        "vat_tag": "불공제_해외",
+        "confidence": "상",
+        "tax_conf": "상"
+      },
+      "note_append": "Gmail확정: Mytrip 주문1122-610-807 항공권 변경 추가결제, 6/25 인천-니가타",
+      "evidence_message_ids": [
+        "19ef821c940442e5",
+        "19d9a997286ed1d3"
+      ]
+    },
+    {
+      "uid": "MISC-0004",
+      "operation": "remove_duplicate_lifecycle_shadow",
+      "expected": {
+        "src": "HAN",
+        "krw": "152358",
+        "appr": "30106104",
+        "bucket": "여행_미배정"
+      },
+      "represented_by_uid": "HAN-3444",
+      "evidence_message_ids": [
+        "19ee9f33a888b6be",
+        "19eea052ac7b0a16"
+      ],
+      "reason": "HAN-3444 already consumes purchase and full-cancellation lifecycle for the same approval; Trip.com mail confirms the reservation was cancelled."
+    }
+  ]
+}

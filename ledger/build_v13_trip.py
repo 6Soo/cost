@@ -14,6 +14,7 @@ from domain.card_group_matching import (
     unique_approval_card_links,
 )
 from domain.hana_events import expand_hana_row, reconcile_hana_billing_projection
+from domain.cancellation_lifecycle import zero_net_cancellation_approvals
 from domain.master_enrichment import enrich_from_master
 from domain.lineage_gates import (
     lineage_semantic_counts,
@@ -587,8 +588,16 @@ new += _refund_rows
 #   Q2 승인(2026-04~06)만 대상. 날짜근접 자동귀속은 하지 않고(사용자가 ②를 기각) 여행_미배정에 담아 대표님 검토.
 _mi=0; misc=[]; misctot=0; miscissuer=Counter()
 _ISS={'KBO':'국민','KBD':'국민','HAN':'하나','CORP':'기업'}
+_zero_net_approvals = zero_net_cancellation_approvals(cls + new)
 for c in cards:
     if card_key(c) in _used_card: continue
+    _lifecycle_key = (
+        str(c.get('src') or '').strip().upper(),
+        str(c.get('appr') or '').strip().lstrip('0'),
+    )
+    if _lifecycle_key in _zero_net_approvals:
+        _used_card.add(card_key(c))
+        continue
     u=c.get('use') or ''
     if not ('2026-04-01'<=u<='2026-06-30'): continue   # Q2 승인만(Q1 선결제 미매칭은 여기 제외 — 대응 여행탭 불명)
     _mi+=1

@@ -1,0 +1,601 @@
+{
+  "schema_version": 2,
+  "snapshot_date": "2026-07-28",
+  "status": "active_superseding_canonical",
+  "canonical": {
+    "path": "ledger/data/classified_v15.csv",
+    "sha256": "65ff2b7e34d820f8bc814ab92876bdbfc55f63dd1f87b009887f4fbff8e080e0",
+    "bytes": 543078,
+    "census": {
+      "row_count": 1834,
+      "unique_uid_count": 1834,
+      "signed_amount_krw": 319903284,
+      "columns": [
+        "uid",
+        "src",
+        "use_date",
+        "post_date",
+        "card4",
+        "user",
+        "merchant",
+        "biz",
+        "country",
+        "currency",
+        "foreign",
+        "krw",
+        "vat",
+        "tax_type",
+        "status",
+        "biz_no",
+        "extra",
+        "bucket",
+        "account",
+        "cancel",
+        "cost_type",
+        "vat_tag",
+        "confidence",
+        "note",
+        "tax_conf",
+        "appr",
+        "orig_appr"
+      ],
+      "sources": {
+        "CORP": {
+          "rows": 56,
+          "amount_krw": 10303142
+        },
+        "HAN": {
+          "rows": 694,
+          "amount_krw": 69466876
+        },
+        "KBD": {
+          "rows": 460,
+          "amount_krw": 98496989
+        },
+        "KBO": {
+          "rows": 515,
+          "amount_krw": 121774432
+        },
+        "MAN": {
+          "rows": 109,
+          "amount_krw": 19861845
+        }
+      },
+      "buckets": {
+        "0404_에히메": {
+          "rows": 51,
+          "amount_krw": 7455421
+        },
+        "0408_교토": {
+          "rows": 120,
+          "amount_krw": 17253592
+        },
+        "0413_나가센도": {
+          "rows": 60,
+          "amount_krw": 12538102
+        },
+        "0417_아오모리": {
+          "rows": 161,
+          "amount_krw": 36624313
+        },
+        "0420_오사카": {
+          "rows": 17,
+          "amount_krw": 563938
+        },
+        "0424_알펜루트": {
+          "rows": 256,
+          "amount_krw": 49990557
+        },
+        "0501_부산": {
+          "rows": 59,
+          "amount_krw": 9398413
+        },
+        "0613_북해도": {
+          "rows": 65,
+          "amount_krw": 13399291
+        },
+        "0616_레분토&리시리": {
+          "rows": 102,
+          "amount_krw": 23425778
+        },
+        "0620_묘코": {
+          "rows": 147,
+          "amount_krw": 47144809
+        },
+        "0625_아키타": {
+          "rows": 58,
+          "amount_krw": 20342036
+        },
+        "0630_오제": {
+          "rows": 30,
+          "amount_krw": 12482142
+        },
+        "0704_아키타": {
+          "rows": 21,
+          "amount_krw": 8247382
+        },
+        "0722_가루이자와": {
+          "rows": 1,
+          "amount_krw": 149800
+        },
+        "0801_노리쿠라": {
+          "rows": 2,
+          "amount_krw": 2349800
+        },
+        "0823_화순": {
+          "rows": 8,
+          "amount_krw": 1729636
+        },
+        "0827_군산": {
+          "rows": 10,
+          "amount_krw": 3703926
+        },
+        "0924_야마구치": {
+          "rows": 7,
+          "amount_krw": 1946091
+        },
+        "0927_북큐슈": {
+          "rows": 3,
+          "amount_krw": 826187
+        },
+        "1010_도쿠시마": {
+          "rows": 9,
+          "amount_krw": 2474708
+        },
+        "1015_오제": {
+          "rows": 11,
+          "amount_krw": 4147507
+        },
+        "1020_알펜루트": {
+          "rows": 5,
+          "amount_krw": 2654696
+        },
+        "1026_가루이자와": {
+          "rows": 3,
+          "amount_krw": 1035431
+        },
+        "1127_야쿠시마": {
+          "rows": 17,
+          "amount_krw": 12632933
+        },
+        "1201_도쿄": {
+          "rows": 2,
+          "amount_krw": 488600
+        },
+        "5월_유럽": {
+          "rows": 362,
+          "amount_krw": 23997441
+        },
+        "기타비용": {
+          "rows": 154,
+          "amount_krw": 4958165
+        },
+        "여행_미배정": {
+          "rows": 16,
+          "amount_krw": 2418394
+        },
+        "전기예약_환불": {
+          "rows": 10,
+          "amount_krw": -4415830
+        },
+        "취소환불": {
+          "rows": 67,
+          "amount_krw": -59975
+        }
+      },
+      "refund_census": {
+        "negative_amount": {
+          "rows": 73,
+          "amount_krw": -21646773
+        },
+        "cancel_flag": {
+          "rows": 78,
+          "amount_krw": -21646773
+        },
+        "orig_appr_present": {
+          "rows": 58,
+          "amount_krw": -16075018
+        },
+        "clearing_buckets": {
+          "전기예약_환불": {
+            "rows": 10,
+            "amount_krw": -4415830
+          },
+          "취소환불": {
+            "rows": 67,
+            "amount_krw": -59975
+          }
+        }
+      }
+    }
+  },
+  "input_contract": {
+    "policy_version": 1,
+    "missing_required": "fail",
+    "missing_optional": "record_and_continue",
+    "hash_or_count_mismatch": "fail",
+    "stage_policies": {
+      "canonical_rebuild": "RAW/legacy inputs needed to reproduce the frozen canonical",
+      "ota_pending_report": "inputs needed to reproduce the 2026-07-28 OTA report",
+      "workbook_v76": "inputs needed to reproduce the blocked v76 workbook",
+      "audit_snapshot": "current derived snapshots retained only for audit comparison"
+    },
+    "inputs": [
+      {
+        "path": "ledger/data/classified_v15.csv",
+        "role": "current_canonical",
+        "distribution": "tracked",
+        "sha256": "65ff2b7e34d820f8bc814ab92876bdbfc55f63dd1f87b009887f4fbff8e080e0",
+        "bytes": 543078,
+        "record_count": 1834,
+        "signed_amount_krw": 319903284,
+        "stages": {
+          "canonical_rebuild": "required",
+          "ota_pending_report": "required",
+          "workbook_v76": "required",
+          "audit_snapshot": "required"
+        }
+      },
+      {
+        "path": "ledger/data/classified_v14.csv",
+        "role": "superseded_canonical_reference",
+        "distribution": "tracked",
+        "sha256": "187cd7b7a7dfed48c1eda11ecf258229920ab7c9a8ecec1d5a4a7b680a3a403e",
+        "bytes": 544984,
+        "record_count": 1835,
+        "stages": {
+          "audit_snapshot": "required"
+        }
+      },
+      {
+        "path": "ledger/data/classified_v12.csv",
+        "role": "legacy_projection_seed",
+        "distribution": "tracked",
+        "sha256": "fa7623456fdb6951529b2c632f06c8c9853383f0e5dbfcf5225430c938df1790",
+        "bytes": 433324,
+        "record_count": 1401,
+        "signed_amount_krw": 221040838,
+        "stages": {
+          "canonical_rebuild": "required",
+          "audit_snapshot": "required"
+        }
+      },
+      {
+        "path": "ledger/data/classified_v13.csv",
+        "role": "legacy_intermediate_audit_only",
+        "distribution": "tracked",
+        "sha256": "6fb30d4fbaac38ca9061d24e35d2a4bb1ba06597c1ee29a94e0da29ef11827a4",
+        "bytes": 536111,
+        "record_count": 1845,
+        "signed_amount_krw": 316835914,
+        "stages": {
+          "audit_snapshot": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_v3.csv",
+        "role": "manual_ledger_projection",
+        "distribution": "tracked",
+        "sha256": "b1da87ddf593f2aeab65d9b203836dbd5b389efb2eeb5838dde1e5d99ceb17c9",
+        "bytes": 106995,
+        "record_count": 1380,
+        "signed_amount_krw": 289451139,
+        "stages": {
+          "canonical_rebuild": "required",
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_v4.csv",
+        "role": "latest_manual_ledger_projection",
+        "distribution": "tracked",
+        "sha256": "49d5ea51fd88ce27d87f6b65682e73783732dcdb28b329e083d8011f4e047be2",
+        "bytes": 111776,
+        "record_count": 1380,
+        "signed_amount_krw": 289451139,
+        "stages": {
+          "canonical_rebuild": "required",
+          "ota_pending_report": "required",
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/master_ledger.csv",
+        "role": "card_master_enrichment",
+        "distribution": "tracked",
+        "sha256": "6b24c2ff97a20bd8a4e5053be9fd7333287aaf1f5c7fb203778cdb575e3ec040",
+        "bytes": 867367,
+        "record_count": 5330,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/newcard/conv/A_20260720.xlsx",
+        "role": "corp_card_raw",
+        "distribution": "tracked",
+        "sha256": "45d29d086de7b01f9e4c0f55452f2ef8acc12baa44a5a9fe77f046a4f8a7dd56",
+        "bytes": 27879,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/newcard/conv/E.xlsx",
+        "role": "kb_overseas_card_raw",
+        "distribution": "tracked",
+        "sha256": "7db0f68cb4d01fb33f50694b04e4a28796079f67db09e35e6e4b75372cb3c16c",
+        "bytes": 137826,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/newcard/conv/F.xlsx",
+        "role": "kb_domestic_card_raw",
+        "distribution": "tracked",
+        "sha256": "e9f1656a297b76e6834ae5785755cfbffbf9c7ec64d7400db41f5e26440cf4a5",
+        "bytes": 160623,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/newcard/conv/G.xlsx",
+        "role": "hana_card_raw_part_1",
+        "distribution": "tracked",
+        "sha256": "f90ae46f217b2694c3d2fb012bf9550f0b7e395a785f7d19b8e83d5ca9060bb0",
+        "bytes": 44554,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/newcard/conv/H.xlsx",
+        "role": "hana_card_raw_part_2",
+        "distribution": "tracked",
+        "sha256": "e719a4b5468ae529663118cc2ac3dffc80094d75687d6e868655a7de4f82b9b0",
+        "bytes": 227913,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ledger_current.xlsx",
+        "role": "latest_drive_ledger_snapshot",
+        "distribution": "tracked",
+        "sha256": "cea581d142c0b62f3398f97699600cf3e2ab048105d36117524319821cc524dc",
+        "bytes": 619674,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_special_rows.json",
+        "role": "manual_restore_decisions",
+        "distribution": "tracked",
+        "sha256": "3332d6f75b60d94fa9f9eb5fa51e846aad978a118b77a21158d42d5c2fe190ba",
+        "bytes": 6194,
+        "record_count": 9,
+        "stages": {
+          "canonical_rebuild": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ota_event_links_verified.json",
+        "role": "legacy_ota_evidence_inventory",
+        "distribution": "tracked",
+        "sha256": "6d506b7c466c7ad911ce1aad11ad6140cd6cb3cde040ecf8b8c80cff6d24448e",
+        "bytes": 24946,
+        "record_count": 85,
+        "stages": {
+          "canonical_rebuild": "required",
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ota_mail_index.json",
+        "role": "ota_mail_inventory",
+        "distribution": "ignored_local_required",
+        "sha256": "db258948ff2240b682d579422c4de3edbc5079e6425a8fd7c0a224f57c40cb11",
+        "bytes": 874515,
+        "record_count": 1720,
+        "stages": {
+          "canonical_rebuild": "required",
+          "ota_pending_report": "required",
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/booking_direct_email_evidence.json",
+        "role": "booking_direct_evidence",
+        "distribution": "tracked",
+        "sha256": "5126d34f0e7de3698309096962bcd5cefa05923ade7d6103facc93d14676f22e",
+        "bytes": 14819,
+        "record_count": 26,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/agoda_direct_email_evidence.json",
+        "role": "agoda_direct_email_evidence",
+        "distribution": "tracked",
+        "sha256": "3caa182dfebaeaecf98dcab6e3746e1e0ce48b2ca758a0dbcd2cfc4963335026",
+        "bytes": 2510,
+        "record_count": 4,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/agoda_direct_browser_evidence.json",
+        "role": "agoda_direct_browser_evidence",
+        "distribution": "tracked",
+        "sha256": "cbe0738ad44f97f0767d4e4882d76bc2718efb9c17ba2e78de93ad135c6cd381",
+        "bytes": 172689,
+        "record_count": 233,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/booking_direct_browser_evidence.json",
+        "role": "booking_direct_browser_evidence",
+        "distribution": "tracked",
+        "sha256": "0f8605583d8d7c67486fc6cf74e6ca56c51de16bb1d4968270608f204e6f2e10",
+        "bytes": 14529,
+        "record_count": 19,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/trip_direct_browser_evidence.json",
+        "role": "trip_direct_browser_evidence",
+        "distribution": "tracked",
+        "sha256": "13d2cdcc7de8562c1ebbff7f50feb8d6c9b475fc4a9d487bdb1b4295c030c1be",
+        "bytes": 9413,
+        "record_count": 10,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ota_checkpoints_agoda.db",
+        "role": "agoda_authenticated_portal_checkpoint",
+        "distribution": "ignored_local_required",
+        "sha256": "cf6a286007a2413da3ce4f0f377e3e6851f736d76cef13f45fa6bd598885ba8a",
+        "bytes": 446464,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ota_checkpoints_booking.db",
+        "role": "booking_authenticated_portal_checkpoint",
+        "distribution": "ignored_local_required",
+        "sha256": "9e401cfadbc6dc7e077ba3aef374fd7b82ad01a358b7c562d830f11301c9da23",
+        "bytes": 57344,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/ota_checkpoints_trip.db",
+        "role": "trip_authenticated_portal_checkpoint",
+        "distribution": "ignored_local_required",
+        "sha256": "0a4d9983af2e3afcf8dbf33921a14cdb0dae783c88c82714854074ee364f7776",
+        "bytes": 53248,
+        "stages": {
+          "ota_pending_report": "required"
+        }
+      },
+      {
+        "path": "ledger/data/trips.json",
+        "role": "workbook_trip_tabs",
+        "distribution": "tracked",
+        "sha256": "0a9fdd6b4835d2cf889391b00e2567977858b77376d3d3071023e81609e51969",
+        "bytes": 3328,
+        "record_count": 34,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/income_totals.json",
+        "role": "workbook_income_totals",
+        "distribution": "tracked",
+        "sha256": "b86e5a1b13eab3e6004277a30d2065df6ab4d9f5e95098e804f5f86f5677f75d",
+        "bytes": 1059,
+        "record_count": 35,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_totals.json",
+        "role": "workbook_manual_totals",
+        "distribution": "tracked",
+        "sha256": "e1b5e1d32edf61644d2a69484902ecadf19ca2a63bd6af1e7f9f39cb2de3aea2",
+        "bytes": 1438,
+        "record_count": 25,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_etc_total.json",
+        "role": "workbook_manual_overhead_total",
+        "distribution": "tracked",
+        "sha256": "e7ee4a2b7f2b0e2e1bfaa527d1f7b984c7a2e70ea208eba5326ebf105fe7d549",
+        "bytes": 30,
+        "record_count": 2,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/manual_expenses.csv",
+        "role": "workbook_manual_expense_rows",
+        "distribution": "tracked",
+        "sha256": "ae63f23fd2596f5790425cb2c5e80253cf1e72e9d3de52e071ab693b802d2465",
+        "bytes": 102809,
+        "record_count": 1340,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/matched_fresh.json",
+        "role": "workbook_latest_manual_match_state",
+        "distribution": "tracked",
+        "sha256": "51b63678a427150b6c31a8e40d56698f9d96ab7c06417cdbd1894963a3f59cae",
+        "bytes": 39433,
+        "record_count": 1684,
+        "stages": {
+          "workbook_v76": "required"
+        }
+      },
+      {
+        "path": "ledger/data/booking_info.json",
+        "role": "workbook_booking_label_enrichment",
+        "distribution": "tracked",
+        "sha256": "1e456ecd17fc5d078141d9645d7179d24d912b0b857e710a5e1019d7d4047549",
+        "bytes": 5451,
+        "record_count": 54,
+        "stages": {
+          "workbook_v76": "optional"
+        }
+      },
+      {
+        "path": "ledger/data/booking_pins.json",
+        "role": "workbook_booking_deeplink_enrichment",
+        "distribution": "tracked",
+        "sha256": "2357b2c1554b9343f3af403ab8500c0cf14db28b1ee4f2cc9009c227761e7ad0",
+        "bytes": 3899,
+        "record_count": 176,
+        "stages": {
+          "workbook_v76": "optional"
+        }
+      },
+      {
+        "path": "ledger/data/trip_flight_links.json",
+        "role": "workbook_trip_flight_link_enrichment",
+        "distribution": "tracked",
+        "sha256": "be22ba5eb0c1485160b2f7487cd2282f3fb3cee538f209695348be8cc4f284fc",
+        "bytes": 1047,
+        "record_count": 3,
+        "stages": {
+          "workbook_v76": "optional"
+        }
+      }
+    ]
+  },
+  "supersedes": {
+    "manifest": "ledger/baselines/p0_current_canonical_20260728/manifest.json",
+    "canonical_path": "ledger/data/classified_v14.csv",
+    "canonical_sha256": "187cd7b7a7dfed48c1eda11ecf258229920ab7c9a8ecec1d5a4a7b680a3a403e",
+    "reason": "post-filing direct OTA evidence and duplicate lifecycle correction"
+  }
+}
