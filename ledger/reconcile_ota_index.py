@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
+import os
 import re
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -188,7 +190,7 @@ def retired_staff_candidates(row: dict, records: list[dict]) -> list[dict]:
     return sorted(candidates, key=lambda item: -len(item["signals"]))[:5]
 
 
-def main():
+def main(apply_changes: bool = False):
     mails = json.loads(INDEX.read_text(encoding="utf-8"))["records"]
     rows = list(csv.DictReader(CLASSIFIED.open(encoding="utf-8")))
     links = json.loads(LINKS.read_text(encoding="utf-8")) if LINKS.exists() else {}
@@ -288,7 +290,29 @@ def main():
             ]
             ambiguous.append(item)
 
-    LINKS.write_text(json.dumps(links, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # ★중앙 링크파일은 --apply 없이는 건드리지 않는다(2026-07-29).
+    #   이 스크립트는 links 딕셔너리를 in-place로 갱신하므로, 무인 실행이 기존 검증값을
+    #   덮어쓸 위험이 있었다. 기본은 dry-run이며 검산 수치만 보고한다.
+    if apply_changes:
+        before = len(links) - len(auto)
+        expected = before + len(auto)
+        if len(links) != expected:
+            raise SystemExit(
+                f"중단: 병합 후 링크수 {len(links)} != 기대 {expected} (기존 {before} + 신규 {len(auto)})"
+            )
+        backup = LINKS.with_suffix(".json.bak")
+        if LINKS.exists():
+            backup.write_bytes(LINKS.read_bytes())
+        tmp = LINKS.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(links, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, LINKS)
+        readback = json.loads(LINKS.read_text(encoding="utf-8"))
+        if len(readback) != expected:
+            raise SystemExit(f"중단: read-back {len(readback)} != 기대 {expected}")
+        print(f"[apply] 중앙 링크파일 갱신: {before} → {len(readback)} (신규 {len(auto)})")
+    else:
+        print(f"[dry-run] 중앙 링크파일 미변경. --apply 를 주면 기존 {len(links) - len(auto)}건에 "
+              f"신규 {len(auto)}건을 병합한다.")
     ambiguous.sort(key=lambda item: (-abs(item["amount"]), -item["score"], item["uid"]))
     unresolved.sort(key=lambda item: (-abs(item["amount"]), item["uid"]))
     report = {
@@ -317,4 +341,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    _ap = argparse.ArgumentParser(description="Gmail OTA 색인 ↔ 카드이벤트 대사")
+    _ap.add_argument("--apply", action="store_true",
+                     help="중앙 ota_event_links_verified.json 을 실제로 갱신한다(기본은 dry-run)")
+    main(apply_changes=_ap.parse_args().apply)

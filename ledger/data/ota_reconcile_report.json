@@ -1,10 +1,10 @@
 {
   "mailRecords": 1720,
-  "otaCardRows": 546,
-  "preexistingLinks": 68,
+  "otaCardRows": 549,
+  "preexistingLinks": 79,
   "autoLinked": 0,
-  "ambiguousCount": 283,
-  "unresolvedCount": 195,
+  "ambiguousCount": 281,
+  "unresolvedCount": 189,
   "ambiguous": [
     {
       "uid": "KBO-2885",
@@ -12503,122 +12503,6 @@
       ]
     },
     {
-      "uid": "TRIP-0039",
-      "date": "2026-03-20",
-      "merchant": "Trip.com_Plaza in Kanku Hotel",
-      "amount": 42005,
-      "bucket": "0408_교토",
-      "score": 6,
-      "secondScore": 5,
-      "reasons": [
-        "업체일치",
-        "메일일=결제일",
-        "예약키존재"
-      ],
-      "candidate": {
-        "messageId": "19d09cc4de19148a",
-        "subject": "4/7~13 인천-오사카 왕복 예약정보 -전용진",
-        "bookingRef": "1400825589981574",
-        "pnr": "FX372B",
-        "period": "0407_0413"
-      },
-      "retiredStaffCandidates": [
-        {
-          "sourceSheet": "2026",
-          "sourceRow": 116,
-          "travelPeriod": "0407_0413",
-          "destination": "오사카",
-          "passengers": "전용진",
-          "amountReference": 351000.0,
-          "amountDifferenceRatio": 0.8803276353276354,
-          "signals": [
-            "결제일",
-            "OTA"
-          ],
-          "sourceUrl": "https://docs.google.com/spreadsheets/d/1DJpNY1MRG2JNxTWpdbk4Nn4zb51YDyBgtNTy6hsG7u4/edit",
-          "amountPolicy": "exact_or_within_2_percent"
-        }
-      ],
-      "alternatives": [
-        {
-          "score": 6,
-          "subject": "4/7~13 인천-오사카 왕복 예약정보 -전용진",
-          "bookingRef": "1400825589981574",
-          "messageId": "19d09cc4de19148a"
-        },
-        {
-          "score": 5,
-          "subject": "[예약 확정 안내] 하시다테 베이 호텔 예약이 확정되었습니다-NoReply",
-          "bookingRef": "1400823576120634",
-          "messageId": "19c1418de20e50fc"
-        },
-        {
-          "score": 5,
-          "subject": "[예약 확정 안내] 하시다테 베이 호텔 예약이 확정되었습니다-NoReply",
-          "bookingRef": "1400823576116533",
-          "messageId": "19c14176e8c4e674"
-        }
-      ]
-    },
-    {
-      "uid": "TRIP-0040",
-      "date": "2026-03-20",
-      "merchant": "Trip.com_Plaza in Kanku Hotel",
-      "amount": 41522,
-      "bucket": "0408_교토",
-      "score": 6,
-      "secondScore": 5,
-      "reasons": [
-        "업체일치",
-        "메일일=결제일",
-        "예약키존재"
-      ],
-      "candidate": {
-        "messageId": "19d09cc4de19148a",
-        "subject": "4/7~13 인천-오사카 왕복 예약정보 -전용진",
-        "bookingRef": "1400825589981574",
-        "pnr": "FX372B",
-        "period": "0407_0413"
-      },
-      "retiredStaffCandidates": [
-        {
-          "sourceSheet": "2026",
-          "sourceRow": 116,
-          "travelPeriod": "0407_0413",
-          "destination": "오사카",
-          "passengers": "전용진",
-          "amountReference": 351000.0,
-          "amountDifferenceRatio": 0.8817037037037037,
-          "signals": [
-            "결제일",
-            "OTA"
-          ],
-          "sourceUrl": "https://docs.google.com/spreadsheets/d/1DJpNY1MRG2JNxTWpdbk4Nn4zb51YDyBgtNTy6hsG7u4/edit",
-          "amountPolicy": "exact_or_within_2_percent"
-        }
-      ],
-      "alternatives": [
-        {
-          "score": 6,
-          "subject": "4/7~13 인천-오사카 왕복 예약정보 -전용진",
-          "bookingRef": "1400825589981574",
-          "messageId": "19d09cc4de19148a"
-        },
-        {
-          "score": 5,
-          "subject": "[예약 확정 안내] 하시다테 베이 호텔 예약이 확정되었습니다-NoReply",
-          "bookingRef": "1400823576120634",
-          "messageId": "19c1418de20e50fc"
-        },
-        {
-          "score": 5,
-          "subject": "[예약 확정 안내] 하시다테 베이 호텔 예약이 확정되었습니다-NoReply",
-          "bookingRef": "1400823576116533",
-          "messageId": "19c14176e8c4e674"
-        }
-      ]
-    },
-    {
       "uid": "KBD-0372",
       "date": "2026-04-30",
       "merchant": "AGODA_NICE-Agoda",
@@ -13152,14 +13036,6 @@
       "reason": "후보 메일 없음"
     },
     {
-      "uid": "TRIP-0166",
-      "date": "2026-04-26",
-      "merchant": "AGODA.COM APA HOTEL",
-      "amount": 571962,
-      "bucket": "0424_알펜루트",
-      "reason": "후보 메일 없음"
-    },
-    {
       "uid": "KBO-0354",
       "date": "2026-05-26",
       "merchant": "AGODA.COM KITAGUNI G",
@@ -13264,14 +13140,6 @@
       "reason": "후보 메일 없음"
     },
     {
-      "uid": "KBO-2650",
-      "date": "2026-04-03",
-      "merchant": "BKG*BOOKING.COM HOTEL",
-      "amount": 436885,
-      "bucket": "0413_나가센도",
-      "reason": "후보 메일 없음"
-    },
-    {
       "uid": "KBO-2952",
       "date": "2026-06-18",
       "merchant": "AGODA.COM",
@@ -13317,14 +13185,6 @@
       "merchant": "Booking.com Hotel",
       "amount": 406991,
       "bucket": "0620_묘코",
-      "reason": "후보 메일 없음"
-    },
-    {
-      "uid": "KBO-2651",
-      "date": "2026-04-03",
-      "merchant": "Booking.com Hotel",
-      "amount": 406913,
-      "bucket": "0413_나가센도",
       "reason": "후보 메일 없음"
     },
     {
@@ -13816,14 +13676,6 @@
       "reason": "후보 메일 없음"
     },
     {
-      "uid": "KBO-2705",
-      "date": "2026-04-18",
-      "merchant": "BKG*BOOKING.COM HOTEL",
-      "amount": 172411,
-      "bucket": "0417_아오모리",
-      "reason": "후보 메일 없음"
-    },
-    {
       "uid": "KBD-1083",
       "date": "2026-06-18",
       "merchant": "AGODA_NICE",
@@ -13941,22 +13793,6 @@
       "merchant": "BKG*BOOKING.COM HOTEL",
       "amount": 150970,
       "bucket": "0413_나가센도",
-      "reason": "후보 메일 없음"
-    },
-    {
-      "uid": "KBO-2647",
-      "date": "2026-04-03",
-      "merchant": "BKG*BOOKING.COM HOTEL",
-      "amount": 150072,
-      "bucket": "0413_나가센도",
-      "reason": "후보 메일 없음"
-    },
-    {
-      "uid": "KBO-2706",
-      "date": "2026-04-18",
-      "merchant": "Booking.com Hotel",
-      "amount": 143690,
-      "bucket": "0417_아오모리",
       "reason": "후보 메일 없음"
     },
     {
