@@ -605,3 +605,37 @@ Windows에서 계속 작업하는 동안은 동작하나, 이식 시 정리 대�
   동일 논리의 오분류 후보로 지목했으나 본건 결론에는 영향이 없어 미변경으로 뒀다. 대응 수기행·지점 확인 필요.
 - APA 4건의 Agoda 예약확인서(호텔 지점)는 반박검증 판정의 **유일한 뒤집기 조건**이다.
   로컬 Gmail 색인에 해당 메일 0건 → Agoda 사이트 대사 때 최우선 확인.
+
+---
+
+## 2026-07-29 (이어서 3) — 원문 Gmail 색인 전량 복구
+
+### 1. 복구 완료 — 부분이 아니라 1,720건 전량
+OneDrive 버전 기록·섀도 복사본·휴지통은 모두 막혔거나 비어 있었다(`vssadmin`은 권한 부족,
+`D:\OneDrive` 15MB 초과 JSON 스캔 0건, OneDrive 로컬 캐시에 파일 저장소 없음).
+대신 **원문본이 git object DB에 blob으로 남아 있어** 거기서 추출했다.
+- blob `fab411ff21bc31701777368562fcd52695d81a27`, **29,054,822 bytes**(유실 전 크기와 정확히 일치).
+- `ledger/data/ota_mail_index.raw.json` 으로 복원(임시파일 → 원자적 rename → read-back).
+- 실측 검증: `generatedAt` `2026-07-24T17:59:44.511Z` · 레코드 **1,720** · `rawText` 보유 **1,720/1,720** ·
+  고유 messageId 1,720 · 편집본 messageId 중 원문본에 없는 것 **0건**(완전 포함).
+- `git check-ignore` 로 무시 확인, `git status` 청결 — 커밋하지 않았다.
+- **감사 HOLD 16 → 9 복귀.** 오탐이던 7건(TRIP-0039/0040·KBO-2647/2650/2651/2705/2706) 전부 소멸.
+
+### 2. ★정정 — 원격 노출은 없다
+복구 과정에서 "원문본이 커밋 `e894aa1`에 들어 있어 원격 push 시 개인정보가 노출된다"는 보고가 있었으나
+**사실이 아니다**. 직접 검증한 결과:
+- `e894aa1:ledger/data/ota_mail_index.json` 의 실제 blob은 `2384364e`, **874,515 bytes(편집본)** 다.
+- 29MB blob `fab411ff` 가 도달 가능한 ref는 **`refs/codex/turn-diffs/captures/…` 로컬 캡처 ref 하나뿐**이다.
+- `origin/main` 및 모든 `refs/remotes/*` 에서 도달 불가 — **원격에는 원문이 없다**.
+- 따라서 히스토리 재작성은 불필요하다. 원격에 있는 것은 `rawText` 없는 편집본이다
+  (다만 편집본에도 subject·예약번호·PNR·여행일·금액은 있으므로 이 자체의 공개 범위는 별도 판단 사항).
+
+### 3. 복구 경로의 취약성
+`fab411ff` 는 Codex의 로컬 turn-diff 캡처 ref에만 매달려 있다. Codex가 그 ref를 정리하거나 `git gc` 가
+돌면 사라진다. **지금은 디스크의 `ota_mail_index.raw.json`(29MB)이 유일한 내구 사본**이므로,
+이 파일을 암호화 채널로 별도 백업해 두는 것이 안전하다(인계서 §6 대상 자료).
+
+### 4. 부수 확인
+- Agoda 체크포인트 DB(`ota_checkpoints_agoda.db`)는 여전히 스키마만 있고 예약 행 **0건**.
+- `reconcile_ota_index.py` dry-run(편집본 기준): autoLinked 0 · ambiguous 281 · unresolved 189.
+  원문 복구 후 재평가해야 의미가 있다.
