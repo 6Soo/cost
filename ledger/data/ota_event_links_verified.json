@@ -843,5 +843,37 @@
     "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
     "source_message_id": "19da12f54898099d",
     "verification": "card row + indexed Gmail raw text + booking number + exact amount"
+  },
+  "TRIP-0166": {
+    "booking_id": "1721756989",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "APA HOTEL (가나자와)",
+    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
+    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+  },
+  "APA-1721758806": {
+    "booking_id": "1721758806",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "APA HOTEL (가나자와)",
+    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 하나)",
+    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+  },
+  "APA-1721757952": {
+    "booking_id": "1721757952",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "APA HOTEL (가나자와)",
+    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
+    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+  },
+  "APA-1721761805": {
+    "booking_id": "1721761805",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "APA HOTEL (가나자와)",
+    "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
+    "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
   }
 }
