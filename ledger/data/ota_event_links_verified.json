@@ -896,5 +896,1303 @@
     "hotel": "Hiratakan",
     "verification_source": "ledger/data/manual_v4.csv r159 + ota_mail_index.raw.json",
     "verification": "수기장부 마스터 r159(0424_알펜루트, Booking.com_Hiratakan, 1,181,775, 기업) 예약번호 + Gmail 원문 5건이 본문에서 동 번호 참조(2026-04-18~23, 4/20 결제완료 메일). 카드 상호 Amsterdam은 청구 기술자"
+  },
+  "TRIP-0009": {
+    "booking_id": "1709847157",
+    "category": "숙박",
+    "hotel": "아고다_호텔 파티오 도고",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r35(아고다_호텔 파티오 도고, 74,969, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0736": {
+    "booking_id": "1997215768",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r39(AGODA_NICE, 89,891, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0011": {
+    "booking_id": "1996884206",
+    "category": "숙박",
+    "hotel": "아고다_Hotel Clement",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r37(아고다_Hotel Clement, 94,927, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0008": {
+    "booking_id": "1400824604147296",
+    "category": "숙박",
+    "hotel": "트립닷컴_Hotel Clemt Uwajima",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r34(트립닷컴_Hotel Clemt Uwajima, 150,486, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0749": {
+    "booking_id": "1714976236",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r58(AGODA_NICE, 156,725, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0750": {
+    "booking_id": "1714977026",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r59(AGODA_NICE, 164,614, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0013": {
+    "booking_id": "1679438347",
+    "category": "숙박",
+    "hotel": "아고다_Hotel Clement",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r42(아고다_Hotel Clement, 165,501, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0012": {
+    "booking_id": "1679438284",
+    "category": "숙박",
+    "hotel": "아고다_Hotel Clement",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r41(아고다_Hotel Clement, 166,537, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0746": {
+    "booking_id": "1714877981",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r52(AGODA_NICE, 169,032, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0007": {
+    "booking_id": "1400824604184527",
+    "category": "숙박",
+    "hotel": "트립닷컴_Hotel Clemt Uwajima",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r33(트립닷컴_Hotel Clemt Uwajima, 170,983, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0735": {
+    "booking_id": "1709841661",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r38(AGODA_NICE, 179,399, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2643": {
+    "booking_id": "1997544406",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PATI",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0404_에히메 r40(AGODA.COM HOTEL PATI, 188,808, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2644": {
+    "booking_id": "1703632767",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PATI",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r53(AGODA.COM HOTEL PATI, 88,826, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0029": {
+    "booking_id": "1694125827",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PEAR",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r38(AGODA.COM HOTEL PEAR, 98,109, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2276": {
+    "booking_id": "1694122731",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PEAR",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r144(AGODA.COM HOTEL PEAR, 102,732, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0030": {
+    "booking_id": "1694237901",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PEAR",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r39(AGODA.COM HOTEL PEAR, 102,958, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2665": {
+    "booking_id": "1694237674",
+    "category": "숙박",
+    "hotel": "AGODA.COM HOTEL PEAR",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r59(AGODA.COM HOTEL PEAR, 104,092, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0758": {
+    "booking_id": "1712304088",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r64(AGODA_NICE, 124,879, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0751": {
+    "booking_id": "1714977171",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r55(AGODA_NICE, 150,467, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0743": {
+    "booking_id": "1712295886",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r54(AGODA_NICE, 228,475, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0032": {
+    "booking_id": "1400823769841920",
+    "category": "숙박",
+    "hotel": "트립닷컴_교토",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r41(트립닷컴_교토, 324,324, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0031": {
+    "booking_id": "1400823769846042",
+    "category": "숙박",
+    "hotel": "트립닷컴_교토",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r40(트립닷컴_교토, 324,472, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2660": {
+    "booking_id": "1694116994",
+    "category": "숙박",
+    "hotel": "AGODA.COM KYOTO UNIV",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r57(AGODA.COM KYOTO UNIV, 449,067, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2659": {
+    "booking_id": "1694117363",
+    "category": "숙박",
+    "hotel": "AGODA.COM KYOTO UNIV",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0408_교토 r56(AGODA.COM KYOTO UNIV, 673,586, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0090": {
+    "booking_id": "1400824130566434",
+    "category": "숙박",
+    "hotel": "트립닷컴_고마가네",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r32(트립닷컴_고마가네, 76,324, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0772": {
+    "booking_id": "1714384227",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r52(AGODA_NICE, 173,395, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0767": {
+    "booking_id": "1686572012",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r49(AGODA_NICE, 193,348, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0769": {
+    "booking_id": "1686571861",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r51(AGODA_NICE, 193,457, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2675": {
+    "booking_id": "1703337206",
+    "category": "숙박",
+    "hotel": "AGODA.COM YUTTARINO-",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r47(AGODA.COM YUTTARINO-, 339,851, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0768": {
+    "booking_id": "1686572859",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r50(AGODA_NICE, 343,368, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2676": {
+    "booking_id": "1707444358",
+    "category": "숙박",
+    "hotel": "AGODA.COM YUTTARINO-",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r48(AGODA.COM YUTTARINO-, 451,805, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2674": {
+    "booking_id": "1703334871",
+    "category": "숙박",
+    "hotel": "AGODA.COM YUTTARINO-",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r46(AGODA.COM YUTTARINO-, 461,167, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0756": {
+    "booking_id": "1686572294",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0413_나가센도 r42(AGODA_NICE, 632,661, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2654": {
+    "booking_id": "1698097984",
+    "category": "숙박",
+    "hotel": "AGODA.COM BUSINESS H",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r63(AGODA.COM BUSINESS H, 69,744, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2655": {
+    "booking_id": "1698097501",
+    "category": "숙박",
+    "hotel": "AGODA.COM BUSINESS H",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r64(AGODA.COM BUSINESS H, 69,833, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0114": {
+    "booking_id": "1698098228",
+    "category": "숙박",
+    "hotel": "AGODA.COM BUSINESS H",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r61(AGODA.COM BUSINESS H, 73,509, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0810": {
+    "booking_id": "1400825417867930",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r127(트립닷컴(구)_NICE, 100,029, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0794": {
+    "booking_id": "1400825342596160",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r88(트립닷컴(구)_NICE, 115,346, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2696": {
+    "booking_id": "1717830117",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r81(AGODA.COM PLAZA HOTE, 128,927, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2688": {
+    "booking_id": "1717709902",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r70(AGODA.COM PLAZA HOTE, 129,315, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0108": {
+    "booking_id": "1400823796508240",
+    "category": "숙박",
+    "hotel": "트립닷컴_비즈니스",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r55(트립닷컴_비즈니스, 135,870, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0753": {
+    "booking_id": "1124",
+    "category": "숙박",
+    "hotel": "이니시스(빌링)",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r62(이니시스(빌링), 158,904, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2698": {
+    "booking_id": "1694442365",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r83(AGODA.COM PLAZA HOTE, 176,625, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2690": {
+    "booking_id": "2001186924",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r72(AGODA.COM PLAZA HOTE, 222,275, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0814": {
+    "booking_id": "1400825417901414",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r130(트립닷컴(구)_NICE, 227,896, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2692": {
+    "booking_id": "1669530459",
+    "category": "숙박",
+    "hotel": "AGODA.COM",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r77(AGODA.COM, 234,472, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2694": {
+    "booking_id": "1718030489",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r79(AGODA.COM PLAZA HOTE, 275,368, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2697": {
+    "booking_id": "1694441925",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r82(AGODA.COM PLAZA HOTE, 353,236, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0776": {
+    "booking_id": "1669127509",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r74(AGODA_NICE, 365,055, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0812": {
+    "booking_id": "1400825417894974",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r128(트립닷컴(구)_NICE, 373,890, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2691": {
+    "booking_id": "1697426392",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r73(AGODA.COM PLAZA HOTE, 379,969, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2695": {
+    "booking_id": "1718009903",
+    "category": "숙박",
+    "hotel": "AGODA.COM PLAZA HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r80(AGODA.COM PLAZA HOTE, 386,365, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "HAN-3088": {
+    "booking_id": "1400825417855263",
+    "category": "숙박",
+    "hotel": "트립닷컴(ARS)_나이스",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r117(트립닷컴(ARS)_나이스, 568,808, 하나) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0813": {
+    "booking_id": "1400825417899655",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r129(트립닷컴(구)_NICE, 569,740, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2693": {
+    "booking_id": "1703654965",
+    "category": "숙박",
+    "hotel": "AGODA.COM SMILE HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r78(AGODA.COM SMILE HOTE, 640,111, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0098": {
+    "booking_id": "1703650164",
+    "category": "숙박",
+    "hotel": "AGODA.COM SMILE HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r45(AGODA.COM SMILE HOTE, 810,666, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0099": {
+    "booking_id": "1703650594",
+    "category": "숙박",
+    "hotel": "AGODA.COM SMILE HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r46(AGODA.COM SMILE HOTE, 1,242,168, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0104": {
+    "booking_id": "1703648208",
+    "category": "숙박",
+    "hotel": "AGODA.COM SMILE HOTE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0417_아오모리 r51(AGODA.COM SMILE HOTE, 1,474,398, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0168": {
+    "booking_id": "1698828904",
+    "category": "숙박",
+    "period": "0423_0424",
+    "hotel": "AGODA.COM HOTEL LIVE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r136(AGODA.COM HOTEL LIVE, 63,422, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0796": {
+    "booking_id": "1400825342741316",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r150(트립닷컴_다비노 호텔, 74,242, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0169": {
+    "booking_id": "1698829096",
+    "category": "숙박",
+    "period": "0423_0424",
+    "hotel": "AGODA.COM HOTEL LIVE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r137(AGODA.COM HOTEL LIVE, 74,510, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2708": {
+    "booking_id": "1718724762",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "AGODA.COM OOEDO ONSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r144(AGODA.COM OOEDO ONSE, 120,141, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2709": {
+    "booking_id": "1706708716",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "AGODA.COM OOEDO ONSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r143(AGODA.COM OOEDO ONSE, 122,663, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2707": {
+    "booking_id": "1706383316",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "AGODA.COM OOEDO ONSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r142(AGODA.COM OOEDO ONSE, 122,707, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2743": {
+    "booking_id": "1718722451",
+    "category": "숙박",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r123(AGODA.COM APA HOTEL, 123,682, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2747": {
+    "booking_id": "1706381605",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r139(AGODA.COM APA HOTEL, 131,833, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2687": {
+    "booking_id": "1715198391",
+    "category": "숙박",
+    "period": "0423_0424",
+    "hotel": "AGODA_Hotel Livemax",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r138(AGODA_Hotel Livemax, 146,171, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0785": {
+    "booking_id": "1400825264981506",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r155(트립닷컴_다비노 호텔, 153,362, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "HAN-3046": {
+    "booking_id": "1400825265122501",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r153(트립닷컴_다비노 호텔, 153,398, 하나) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "CORP-2008": {
+    "booking_id": "1400825482401786",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r149(트립닷컴_다비노 호텔, 158,634, 기업) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "CORP-2009": {
+    "booking_id": "1720063360",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "아고다_OOEDO",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r145(아고다_OOEDO, 244,550, 기업) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2746": {
+    "booking_id": "1694830690",
+    "category": "숙박",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r119(AGODA.COM APA HOTEL, 261,941, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2741": {
+    "booking_id": "1718079847",
+    "category": "숙박",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r122(AGODA.COM APA HOTEL, 265,749, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0784": {
+    "booking_id": "1400825264971143",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r156(트립닷컴_다비노 호텔, 306,724, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2713": {
+    "booking_id": "1694774723",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "AGODA.COM NAKAMURAKA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r130(AGODA.COM NAKAMURAKA, 354,992, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2710": {
+    "booking_id": "1706379429",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "AGODA.COM NAKAMURAKA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r134(AGODA.COM NAKAMURAKA, 379,240, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2744": {
+    "booking_id": "1694922534",
+    "category": "숙박",
+    "period": "0426_0428",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r120(AGODA.COM APA HOTEL, 392,913, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0167": {
+    "booking_id": "1664500928",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "AGODA.COM SPA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r135(AGODA.COM SPA HOTEL, 393,033, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "CORP-2013": {
+    "booking_id": "1720064019",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "아고다_OOEDO",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r148(아고다_OOEDO, 458,827, 기업) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2714": {
+    "booking_id": "1694924702",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "AGODA.COM OOEDO ONSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r141(AGODA.COM OOEDO ONSE, 475,033, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "HAN-3048": {
+    "booking_id": "1400825265177601",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r151(트립닷컴_다비노 호텔, 610,296, 하나) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0786": {
+    "booking_id": "1400825265041069",
+    "category": "숙박",
+    "period": "0424_0425",
+    "hotel": "트립닷컴_다비노 호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r154(트립닷컴_다비노 호텔, 639,620, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2711": {
+    "booking_id": "1694781342",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "AGODA.COM NAKAMURAKA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r133(AGODA.COM NAKAMURAKA, 690,224, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2712": {
+    "booking_id": "1694776138",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "AGODA.COM NAKAMURAKA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r131(AGODA.COM NAKAMURAKA, 1,064,936, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2699": {
+    "booking_id": "1694776811",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "AGODA.COM NAKAMURAKA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r132(AGODA.COM NAKAMURAKA, 1,080,377, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2745": {
+    "booking_id": "1694922480",
+    "category": "숙박",
+    "hotel": "AGODA.COM APA HOTEL",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r121(AGODA.COM APA HOTEL, 1,090,146, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2715": {
+    "booking_id": "1694924560",
+    "category": "숙박",
+    "period": "0428_0429",
+    "hotel": "AGODA.COM OOEDO ONSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r140(AGODA.COM OOEDO ONSE, 1,105,163, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0171": {
+    "booking_id": "5194529660",
+    "category": "숙박",
+    "period": "0425_0426",
+    "hotel": "Booking.com_Kazeya",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0424_알펜루트 r158(Booking.com_Kazeya, 1,648,573, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2748": {
+    "booking_id": "1715470826",
+    "category": "숙박",
+    "period": "0429_0501",
+    "hotel": "AGODA.COM HI DESIGN",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0501_부산 r30(AGODA.COM HI DESIGN, 80,241, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0206": {
+    "booking_id": "1680375476",
+    "category": "숙박",
+    "period": "0502_0503",
+    "hotel": "아고다_베니키아",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0501_부산 r29(아고다_베니키아, 182,572, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0331": {
+    "booking_id": "1696514123",
+    "category": "숙박",
+    "hotel": "Agoda_Hotel Parkway",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0613_북해도 r26(Agoda_Hotel Parkway, 197,412, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0337": {
+    "booking_id": "1696535055",
+    "category": "숙박",
+    "hotel": "아고다_New Akan",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0613_북해도 r32(아고다_New Akan, 205,309, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0338": {
+    "booking_id": "1696516321",
+    "category": "숙박",
+    "hotel": "Agoda_Hotel Parkway",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0613_북해도 r33(Agoda_Hotel Parkway, 207,998, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0330": {
+    "booking_id": "1696515653",
+    "category": "숙박",
+    "hotel": "Agoda_Hotel Parkway",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0613_북해도 r25(Agoda_Hotel Parkway, 1,047,912, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-1018": {
+    "booking_id": "661778779",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r36(AGODA_NICE, 218,253, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-1019": {
+    "booking_id": "661776875",
+    "category": "숙박",
+    "hotel": "AGODA_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r37(AGODA_NICE, 374,325, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0363": {
+    "booking_id": "1694219975",
+    "category": "숙박",
+    "hotel": "아고다_Kitaguni Grand Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r30(아고다_Kitaguni Grand Hotel, 407,881, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0355": {
+    "booking_id": "1673607772",
+    "category": "숙박",
+    "hotel": "아고다_Kitaguni Grand Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r22(아고다_Kitaguni Grand Hotel, 535,614, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2890": {
+    "booking_id": "6490602626",
+    "category": "숙박",
+    "hotel": "부킹_Tmark City Hotel Sapporo Odori",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r43(부킹_Tmark City Hotel Sapporo Od, 578,173, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0352": {
+    "booking_id": "1673605517",
+    "category": "숙박",
+    "hotel": "아고다_Kitaguni Grand Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0616_레분토&리시리 r19(아고다_Kitaguni Grand Hotel, 1,578,652, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2870": {
+    "booking_id": "1696846030",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r117(아고다_롯데 아라이, 65,420, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2975": {
+    "booking_id": "1737844344",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_APA 조에쓰 묘코",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r124(아고다_APA 조에쓰 묘코, 96,517, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0957": {
+    "booking_id": "663245499",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r109(아고다_mercure nagano, 96,969, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2969": {
+    "booking_id": "5217466155",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "부킹닷컴_APA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r151(부킹닷컴_APA, 114,900, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2965": {
+    "booking_id": "5790054983",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "부킹닷컴_APA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r150(부킹닷컴_APA, 116,280, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-1051": {
+    "booking_id": "2022270235",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r123(아고다_롯데 아라이, 128,133, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2867": {
+    "booking_id": "1696846534",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r118(아고다_롯데 아라이, 141,211, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-1050": {
+    "booking_id": "2022237060",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r122(아고다_롯데 아라이, 162,358, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-1083": {
+    "booking_id": "663246399",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r111(아고다_mercure nagano, 169,371, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0952": {
+    "booking_id": "1400826296233885",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "트립닷컴_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r106(트립닷컴_롯데 아라이, 170,824, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0390": {
+    "booking_id": "1696837725",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r113(아고다_mercure nagano, 174,668, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2900": {
+    "booking_id": "1737832515",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r115(아고다_mercure nagano, 195,029, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2869": {
+    "booking_id": "1696847736",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r119(아고다_롯데 아라이, 212,357, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0391": {
+    "booking_id": "1702389643",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r114(아고다_mercure nagano, 214,248, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2910": {
+    "booking_id": "1696826378",
+    "category": "숙박",
+    "period": "0620_0622",
+    "hotel": "아고다_Hakuba Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r94(아고다_Hakuba Hotel, 225,354, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2864": {
+    "booking_id": "1999260975",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r121(아고다_롯데 아라이, 242,000, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0959": {
+    "booking_id": "1400826306389141",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "트립닷컴_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r103(트립닷컴_롯데 아라이, 256,723, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0953": {
+    "booking_id": "1400826296238122",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "트립닷컴_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r105(트립닷컴_롯데 아라이, 289,588, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2868": {
+    "booking_id": "1696845387",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "아고다_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r116(아고다_롯데 아라이, 355,061, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0960": {
+    "booking_id": "1400826306396730",
+    "category": "숙박",
+    "period": "0623_0624",
+    "hotel": "트립닷컴_롯데 아라이",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r102(트립닷컴_롯데 아라이, 542,042, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "MERC-556929": {
+    "booking_id": "1696836747",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r112(아고다_mercure nagano, 556,929, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2964": {
+    "booking_id": "5838582477",
+    "category": "숙박",
+    "period": "0624_0625",
+    "hotel": "부킹닷컴_APA",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r149(부킹닷컴_APA, 615,006, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2671": {
+    "booking_id": "1999257668",
+    "category": "숙박",
+    "period": "0622_0623",
+    "hotel": "아고다_mercure nagano",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r110(아고다_mercure nagano, 779,680, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2852": {
+    "booking_id": "5502442589",
+    "category": "숙박",
+    "period": "0620_0622",
+    "hotel": "Booking.com_Hotel Hakuba",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r88(Booking.com_Hotel Hakuba, 2,649,477, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0937": {
+    "booking_id": "661557247",
+    "category": "숙박",
+    "period": "0621_0622",
+    "hotel": "아고다_Hakuba Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0620_묘코 r101(아고다_Hakuba Hotel, 2,977,844, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0976": {
+    "booking_id": "1400826325699362",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r51(트립닷컴(구)_NICE, 116,477, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2980": {
+    "booking_id": "5388518091",
+    "category": "숙박",
+    "hotel": "부킹_Yokote Plaza Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r65(부킹_Yokote Plaza Hotel, 175,401, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0961": {
+    "booking_id": "1400826306427887",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r49(트립닷컴(구)_NICE, 186,116, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2950": {
+    "booking_id": "1696943502",
+    "category": "숙박",
+    "hotel": "아고다_SHONAI HOTEL SUIDEN TERRASSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r60(아고다_SHONAI HOTEL SUIDEN TERRAS, 214,805, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2949": {
+    "booking_id": "1696943284",
+    "category": "숙박",
+    "hotel": "아고다_SHONAI HOTEL SUIDEN TERRASSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r59(아고다_SHONAI HOTEL SUIDEN TERRAS, 215,007, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0962": {
+    "booking_id": "1400826306438789",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r50(트립닷컴(구)_NICE, 280,226, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2948": {
+    "booking_id": "1696942614",
+    "category": "숙박",
+    "hotel": "아고다_SHONAI HOTEL SUIDEN TERRASSE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r58(아고다_SHONAI HOTEL SUIDEN TERRAS, 434,541, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2979": {
+    "booking_id": "6365286068",
+    "category": "숙박",
+    "hotel": "부킹_Yokote Plaza Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0625_아키타 r64(부킹_Yokote Plaza Hotel, 814,121, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0377": {
+    "booking_id": "1400826994473108",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0630_오제 r69(트립닷컴(구)_NICE, 81,040, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0747": {
+    "booking_id": "1400824992030750",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0630_오제 r61(트립닷컴(구)_NICE, 125,887, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0384": {
+    "booking_id": "1400827050342414",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0630_오제 r71(트립닷컴(구)_NICE, 157,652, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "HAN-0512": {
+    "booking_id": "1400826994474326",
+    "category": "숙박",
+    "hotel": "트립닷컴_나이스정보통신",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0630_오제 r72(트립닷컴_나이스정보통신, 162,080, 하나) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0748": {
+    "booking_id": "1400824992036609",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 0630_오제 r62(트립닷컴(구)_NICE, 251,774, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2810": {
+    "booking_id": "1715592048",
+    "category": "숙박",
+    "period": "0509_0510",
+    "hotel": "Agoda_Hotel Best Tbilisi",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r54(Agoda_Hotel Best Tbilisi, 88,532, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0996": {
+    "booking_id": "1400827350404106",
+    "category": "숙박",
+    "hotel": "트립닷컴(구)_NICE",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r282(트립닷컴(구)_NICE, 114,432, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0924": {
+    "booking_id": "1400826103470839",
+    "category": "숙박",
+    "period": "0605_0606",
+    "hotel": "트립닷컴_프리미어 클래스 리옹",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r67(트립닷컴_프리미어 클래스 리옹, 118,885, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0920": {
+    "booking_id": "1400826095224067",
+    "category": "숙박",
+    "period": "0531_0601",
+    "hotel": "트립닷컴_호텔 메리",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r64(트립닷컴_호텔 메리, 122,369, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0992": {
+    "booking_id": "1400826586138626",
+    "category": "숙박",
+    "period": "0606_0607",
+    "hotel": "Trip.com_파리 렌터카",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r51(Trip.com_파리 렌터카, 137,385, ) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0910": {
+    "booking_id": "1727507406",
+    "category": "숙박",
+    "period": "0520_0521",
+    "hotel": "AGODA_Urban Stay",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r60(AGODA_Urban Stay, 141,495, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0912": {
+    "booking_id": "659868523",
+    "category": "숙박",
+    "period": "0521_0522",
+    "hotel": "AGODA_Downtown Innsbruck",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r61(AGODA_Downtown Innsbruck, 151,246, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0983": {
+    "booking_id": "664206015",
+    "category": "숙박",
+    "period": "0530_0531",
+    "hotel": "Agoda_Hotel La Pioppa",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r63(Agoda_Hotel La Pioppa, 164,330, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-2811": {
+    "booking_id": "1694358581",
+    "category": "숙박",
+    "period": "0507_0509",
+    "hotel": "Agoda_Astana International Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r53(Agoda_Astana International Hot, 176,874, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "HAN-3198": {
+    "booking_id": "1400825954846693",
+    "category": "숙박",
+    "hotel": "트립닷컴",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r46(트립닷컴, 191,240, ) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0921": {
+    "booking_id": "1400826125352689",
+    "category": "숙박",
+    "period": "0601_0605",
+    "hotel": "트립닷컴_마르세유",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r50(트립닷컴_마르세유, 224,397, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0229": {
+    "booking_id": "1715820607",
+    "category": "숙박",
+    "period": "0510_0512",
+    "hotel": "Agoda_Rooftop Kazbegi",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r55(Agoda_Rooftop Kazbegi, 229,627, ) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0913": {
+    "booking_id": "659890567",
+    "category": "숙박",
+    "period": "0524_0526",
+    "hotel": "Agoda_Casa di Franz",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r62(Agoda_Casa di Franz, 250,831, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0231": {
+    "booking_id": "1717093956",
+    "category": "숙박",
+    "period": "0515_0516",
+    "hotel": "Agoda_Adria Hotel",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r57(Agoda_Adria Hotel, 261,050, 8835.0) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "TRIP-0230": {
+    "booking_id": "1400824740271133",
+    "category": "숙박",
+    "period": "0513_0515",
+    "hotel": "트립닷컴_호텔",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r56(트립닷컴_호텔, 262,926, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBD-0923": {
+    "booking_id": "1400826103426313",
+    "category": "숙박",
+    "period": "0602_0605",
+    "hotel": "트립닷컴_레지드호텔 르 그랑 프라도",
+    "verification_source": "ledger/build_manual_ledger_links.py",
+    "verification": "수기장부 마스터 5월_유럽 r66(트립닷컴_레지드호텔 르 그랑 프라도, 357,365, 국민) 예약번호. 동일(탭,금액) 미확정 카드이벤트 1건·예약보유 수기행 1건으로 교집합 유일, 해당 예약번호 미배정 확인"
+  },
+  "KBO-0391": {
+    "booking_id": "5066680166",
+    "category": "숙박",
+    "period": "0704_0706",
+    "verification_source": "outputs/ota_verdicts_20260729/01.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일·금액·여행기간이 일치하며 상위 후보들이 동일한 유일 예약번호 5066680166을 포함한다."
+  },
+  "TRIP-0377": {
+    "booking_id": "1125-634-382",
+    "category": "숙박",
+    "period": "0620_0625",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 탑승객 홍순옥과 일치하는 예약번호가 유일하고 금액과 결제일도 일치한다."
+  },
+  "TRIP-0378": {
+    "booking_id": "1121-833-450",
+    "category": "숙박",
+    "period": "0620_0625",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 탑승객 정경윤과 일치하는 예약번호가 유일하고 금액과 결제일도 일치한다."
+  },
+  "TRIP-0379": {
+    "booking_id": "1129-746-782",
+    "category": "숙박",
+    "period": "0620_0625",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 메일 제목의 탑승객 진수용과 일치하는 예약번호가 유일하고 금액과 결제일도 일치한다."
+  },
+  "KBO-2966": {
+    "booking_id": "6053661851",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제 완료메일과 카드 결제일이 일치하고 본문 예약번호가 유일하게 확인된다."
+  },
+  "TRIP-0016": {
+    "booking_id": "1400823535413714",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
+  },
+  "TRIP-0021": {
+    "booking_id": "1400823535402604",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/03.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 확정메일 예약번호가 일치하고 결제금액도 일치한다."
+  },
+  "TRIP-0143": {
+    "booking_id": "1400824392979326",
+    "category": "숙박",
+    "period": "0425_0426",
+    "verification_source": "outputs/ota_verdicts_20260729/04.codex.json",
+    "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 후보가 유일하고 예약번호·금액·투숙기간이 장부 기록과 일치한다."
+  },
+  "KBD-0394": {
+    "booking_id": "1400827121688427",
+    "category": "숙박",
+    "period": "0705_0707",
+    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 후보가 하나이고 결제금액 296512원이 정확히 일치하며 예약번호도 확인됩니다."
+  },
+  "KBO-0390": {
+    "booking_id": "5334034785",
+    "category": "숙박",
+    "period": "0703_0704",
+    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 외화 결제액 29520엔과 예약 후보의 금액이 정확히 일치하고 예약번호가 공통으로 확인됩니다."
+  },
+  "TRIP-0020": {
+    "booking_id": "1400823535395178",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
+  },
+  "TRIP-0022": {
+    "booking_id": "1400823535393192",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/05.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부 예약번호와 후보 예약번호가 일치하며 결제금액 280544원도 정확히 일치합니다."
+  },
+  "MAN-FALAISE": {
+    "booking_id": "1400826104512972",
+    "category": "숙박",
+    "period": "0606_0607",
+    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부와 확정메일 메모에 동일 예약번호와 EUR131.35 결제 및 6월 6~7일 숙박이 명시되어 있다."
+  },
+  "KBO-2883": {
+    "booking_id": "6474894255",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
+  },
+  "KBO-2884": {
+    "booking_id": "5437691600",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 결제일 일치 메일에 해당 예약번호가 단독으로 실재하고 수기장부 매칭도 확인된다."
+  },
+  "KBD-0395": {
+    "booking_id": "1400827123142146",
+    "category": "숙박",
+    "period": "0705_0706",
+    "verification_source": "outputs/ota_verdicts_20260729/07.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 단일 후보에서 예약번호와 정확한 원화 금액 및 숙박기간이 모두 일치한다."
+  },
+  "KBD-0380": {
+    "booking_id": "1122-610-807",
+    "category": "숙박",
+    "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
+    "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 결제일과 원화 금액이 일치하는 단일 고투게이트 주문 후보가 확인된다."
+  },
+  "KBD-0950": {
+    "booking_id": "1400826296229081",
+    "category": "숙박",
+    "period": "0623_0624",
+    "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
+  },
+  "KBD-0951": {
+    "booking_id": "1400826296219155",
+    "category": "숙박",
+    "period": "0623_0624",
+    "verification_source": "outputs/ota_verdicts_20260729/08.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부가 지정한 예약번호가 후보 본문에 존재하고 결제금액도 정확히 일치한다."
+  },
+  "KBD-0817": {
+    "booking_id": "1400825496038025",
+    "category": "숙박",
+    "period": "0704_0705",
+    "verification_source": "outputs/ota_verdicts_20260729/09.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 수기장부의 예약번호와 후보 메일의 예약번호가 유일하게 일치하고 결제일·금액·투숙일도 일치한다."
+  },
+  "KBD-0922": {
+    "booking_id": "1400826103376932",
+    "category": "숙박",
+    "period": "0601_0602",
+    "verification_source": "outputs/ota_verdicts_20260729/09.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 후보 메일의 예약번호와 금액·숙소·투숙일이 입력 장부 정보와 일치한다."
+  },
+  "TRIP-0424": {
+    "booking_id": "1400823716217200",
+    "category": "숙박",
+    "period": "0630_0701",
+    "verification_source": "outputs/ota_verdicts_20260729/10.codex.json",
+    "verification": "외부모델 판정(codex, confidence=high) + 원천 교차검증 통과: 취소금액과 메일금액이 일치하고 Daiwa 숙소 및 투숙일이 유일하게 맞는다."
+  },
+  "KBD-0832": {
+    "booking_id": "2101088033",
+    "category": "숙박",
+    "period": "0613_0616",
+    "verification_source": "outputs/ota_verdicts_20260729/11.codex.json",
+    "verification": "외부모델 판정(codex, confidence=medium) + 원천 교차검증 통과: 환불 메일의 금액과 여행일정이 일치하고 같은 일정의 예약확정 후보에 유일한 예약번호가 있습니다."
   }
 }
