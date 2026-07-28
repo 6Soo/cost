@@ -789,5 +789,59 @@
       "예약키존재"
     ],
     "pnr": "9TQY6Y"
+  },
+  "TRIP-0039": {
+    "booking_id": "1400824615769175",
+    "category": "숙박",
+    "period": "0407_0408",
+    "verification_source": "outputs/terra_checkpoints/trip_verified_delta.json",
+    "source_message_id": "19d0aef5ec9b9dea",
+    "verification": "card row + indexed Gmail raw text + booking number"
+  },
+  "TRIP-0040": {
+    "booking_id": "1400824616999483",
+    "category": "숙박",
+    "period": "0412_0413",
+    "verification_source": "outputs/terra_checkpoints/trip_verified_delta.json",
+    "source_message_id": "19d0d0b0a0a5b1de",
+    "verification": "card row + indexed Gmail raw text + booking number"
+  },
+  "KBO-2647": {
+    "booking_id": "6571773157",
+    "category": "숙박",
+    "period": "0413_0414",
+    "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
+    "source_message_id": "19ce239d9068eef7",
+    "verification": "card row + indexed Gmail raw text + booking number + exact amount"
+  },
+  "KBO-2650": {
+    "booking_id": "6909210711",
+    "category": "숙박",
+    "period": "0413_0414",
+    "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
+    "source_message_id": "19ca46bc5ae49c7b",
+    "verification": "card row + indexed Gmail raw text + booking number + exact amount"
+  },
+  "KBO-2651": {
+    "booking_id": "5851174083",
+    "category": "숙박",
+    "period": "0413_0414",
+    "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
+    "source_message_id": "19ce22eed347313c",
+    "verification": "card row + indexed Gmail raw text + booking number + exact amount"
+  },
+  "KBO-2705": {
+    "booking_id": "6025019141",
+    "category": "숙박",
+    "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
+    "source_message_id": "19da13037a78ec78",
+    "verification": "card row + indexed Gmail raw text + booking number + exact amount"
+  },
+  "KBO-2706": {
+    "booking_id": "6075373811",
+    "category": "숙박",
+    "verification_source": "outputs/terra_checkpoints/booking_receipts_verified_delta.json",
+    "source_message_id": "19da12f54898099d",
+    "verification": "card row + indexed Gmail raw text + booking number + exact amount"
   }
 }

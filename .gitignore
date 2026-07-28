@@ -8,3 +8,7 @@ outputs/
 # Local-only evidence and OAuth/session state. Transfer securely outside Git.
 ledger/data/ota_mail_index.json
 ledger/data/ota_checkpoints_agoda.db
+
+# 링크 병합 백업/임시본(로컬 전용)
+ledger/data/*.json.bak
+ledger/data/*.json.tmp
