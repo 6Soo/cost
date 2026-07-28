@@ -52,13 +52,21 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         cls.db.close()
         cls.tempdir.cleanup()
 
+    # 기대값 갱신 2026-07-29: 1,833행/320,115,617 → 1,838행/319,483,680.
+    #   근거 — ① APA 가나자와 합산청구 분해로 누락 예약 3건 복원(+3행) 및 합산청구행
+    #     KBO-2755 금액 0 처리로 초과계상 -571,962 제거(ledger/test_apa_combined_billing.py),
+    #     ② 하나카드 취소 2건(HAN-9111/9112) 편입분 반영.
+    #   갱신 전 무손실 검증: 1,705행 기준본과 업무키 대조 → 미대응 21행 전건 소명
+    #     (SMILE 3행은 실일자 재파싱본으로 교체, RF-AIR 2행은 카드 원환불로 대체,
+    #      트립닷컴 12행은 완전상쇄쌍 순액 0, APA 4행은 위 ①로 정정).
+    #   validation_report(...)["valid"]=True, allocation_mismatches=0 실측 확인.
     def test_legacy_snapshot_preserves_count_and_total(self) -> None:
         report = validation_report(self.db)
         self.assertTrue(report["valid"])
-        self.assertEqual(report["transactions"], 1833)
-        self.assertEqual(report["active_allocations"], 1833)
-        self.assertEqual(report["transaction_total_krw"], 320_115_617)
-        self.assertEqual(report["allocation_total_krw"], 320_115_617)
+        self.assertEqual(report["transactions"], 1838)
+        self.assertEqual(report["active_allocations"], 1838)
+        self.assertEqual(report["transaction_total_krw"], 319_483_680)
+        self.assertEqual(report["allocation_total_krw"], 319_483_680)
         self.assertEqual(report["allocation_mismatches"], 0)
 
     def test_import_is_idempotent_for_same_snapshot(self) -> None:
@@ -74,7 +82,7 @@ class DomainLedgerIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(
             self.db.execute("SELECT COUNT(*) FROM payment_transactions").fetchone()[0],
-            1833,
+            1838,
         )
         self.assertEqual(
             self.db.execute(
