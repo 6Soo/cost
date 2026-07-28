@@ -514,3 +514,60 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   `archive/pr-7-pre-cleanup` 태그로 원격 보존했다. 각 PR에 감사 근거를 남기고 닫은
   뒤 두 원격 작업 브랜치를 삭제했다. 기존 장기 draft PR은 0개이며, 감사 문서 변경은
   `chore/repository-structure` 브랜치의 PR #11에서 검토한다.
+
+---
+
+## 2026-07-29 (이어서) — origin/main 통합·APA 귀속 반박검증·원문 색인 사고
+
+### 1. 브랜치 통합 완료
+`codex/linux-migration-2026-07-27` ← `origin/main` 병합(커밋 `67b95fb`). 이제 origin/main 대비 0 behind.
+충돌 16건 해소 근거는 병합 커밋 메시지 참조. 요지:
+- **HEAD 채택**: `classified_v13/v14.csv`(main의 상위집합 — 하나카드 취소 2건 추가) ·
+  `ota_event_links_verified.json`(75) · `ledger_current/latest.xlsx`(48시트 9,424행 vs main 43시트 8,688행,
+  SHA `cea581d1…`가 LOG 기록 Drive 다운로드본과 일치) · `manual_periods.csv`(기간표기 보존).
+- **main 채택**: `ledger/domain/*`(ledger_db.py 3,161행) · `tests/test_domain_ledger.py` ·
+  `docs/비용분류_v2_정합성개선_실행계획.md`.
+- **양쪽 병합**: `.gitignore`(합집합) · `AGENTS.md` · `LOG.md`(세션기록 18개 전부) ·
+  `manual_v3/v4.csv`(HEAD 기반 + main의 고마가네 예약번호 `1400824130566434` 7건 보강) ·
+  `cardindex.py`(main의 `raw_record_id`·`approval/cancel/purchase_amount` + HEAD의 `build_trip_cards()` 복원).
+  ★`cardindex.py`는 단순 택일 불가였다 — main 버전은 `build_trip_cards()`를 삭제했는데
+  `build_v13_trip.py`·`test_cardindex.py`가 의존하고, main의 하나 G/H 가드 완화(`len(r)>17`)는
+  같은 블록의 `r[18]`(부가세) 접근과 충돌해 IndexError 위험이 있어 `>18`을 유지했다.
+
+### 2. APA 귀속탭 — 반박검증 절차 결과: `0424_알펜루트`
+사용자 지시로 fable과 gpt-5.6-sol(high)에게 **동일 근거 브리프**로 1차 판정 → 상호 반박 라운드를 거쳤다.
+- 1차: 양측 독립적으로 `0424_알펜루트`.
+- 반박 라운드(아오모리 지지 논거를 실제로 구성해 공격): 양측 모두 **결론 유지**.
+  fable 확신도 **상**, gpt-5.6-sol 확신도 **중**.
+- 채택된 핵심 근거: ① 수기 4행 합계 2,287,848이 카드 합산청구와 1원 단위 일치, ② 명시 숙박일
+  `0426_0428`이 알펜루트 탭 조밀구간(4/24~29) 내부이고 아오모리 탭 활동 종료 이후, ③ 4/26 당일 동반거래가
+  겐로쿠엔·카타마치·몽벨 다테야마 등 전부 알펜루트 권역.
+- 기각된 반박: 선결제/후결제론(숙박일이 명시돼 무력), 순환논증 지적(수기 기재를 빼도 ②③만으로 성립),
+  아오모리 연장코스설(두 팀 동시운행이라는 미입증 가정 필요).
+- 남은 유일한 실질 반박은 전표 note의 `⇄수기[0417_아오모리]` **과거 대사 이력**이며, "수기장부는 정정됐는데
+  카드 귀속이 따라가지 못한 잔재"라는 더 단순한 설명이 있어 결정력이 없다고 판단했다.
+- **뒤집기 조건(양측 공통)**: Agoda 예약 4건(`1721756989`·`1721758806`·`1721757952`·`1721761805`)의
+  호텔 지점이 아오모리로 확인되면 즉시 번복. 로컬 Gmail 색인에는 이 4건 메일이 **0건**이라 현재 반증 불가 —
+  Agoda 사이트 대사(인계서 §4-3) 때 최우선 확인 항목으로 남긴다.
+- 부수 확인 필요: 같은 날 별건 `APAHOTEL` 279,916원도 동일 논리의 오분류 후보다(본건 결론에는 영향 없음).
+
+### 3. ★사고 — 로컬 원문 Gmail 색인 덮어쓰기
+`ledger/data/ota_mail_index.json`은 우리 브랜치에서 **미추적(gitignore)** 이었으나 `origin/main`은 같은 경로에
+**편집본을 추적**하고 있었다. gitignore는 추적 파일을 보호하지 않으므로 병합이 로컬 원문본을 덮어썼다.
+- 이전 29,054,822 bytes(2026-07-25 02:59, `rawText` 포함) → 현재 903,658 bytes(`rawText` 0건, `redactionVersion` 보유).
+- 레코드 수는 양쪽 모두 1,720건. **손실분은 메일 본문 원문(rawText)뿐**이고 예약번호·PNR·여행일·금액 메타데이터는 남았다.
+- 영향: 감사의 `evidenceContainsBooking`이 rawText를 요구해 전건 실패 → HOLD 9 → 16.
+  늘어난 7건은 이미 병합된 링크(`rowFound`/`mailFound`=true, `existingLinkConflict`=false)로 링크 자체는 정상이다.
+- **구조 수정(커밋 `dbf931d`)**: 원문본 경로를 `ledger/data/ota_mail_index.raw.json`으로 분리·gitignore 추가.
+  `tools/ota-mail-batch.mjs`가 그리로 기록하고(하드코딩 repoRoot도 `import.meta.url` 유도로 교체),
+  `audit-ota-reconciliation.mjs`·`reconcile_ota_index.py`는 `.raw.json` 우선·편집본 폴백.
+- **복구 경로**: ① OneDrive 버전 기록(저장소가 `D:\OneDrive\문서\AX\cost` 아래라 이전 버전 복원 가능)에서
+  29MB본을 되살려 `ota_mail_index.raw.json`으로 저장, 또는 ② `tools/ota-mail-batch.mjs` 재실행(업무계정 Gmail 필요).
+  복구하면 HOLD는 9로 돌아온다.
+
+### 4. 정정 — 하드코딩 Windows 경로
+앞 블록에서 "하드코딩 경로 0건"이라 적은 것은 grep 이스케이프 오류였다. 실제로는 **`tools/` 8개 파일에 존재**한다
+(`ledger`·`tests`에는 없음): `analyze_hana_xls_3_5.py`·`reparse_hana_q1q2_events.py`·`revalidate_hana_q1q2.py`의
+`D:\DownLoad`, `google-workspace-mcp-*.mjs`·`ota-email-extract.mjs`·`ota-mail-batch.mjs`의
+`C:\Users\kkokk\...`(MCP SDK·OAuth 경로). `ota-mail-batch.mjs`의 repoRoot만 이번에 교체했고 나머지는 미처리다.
+Windows에서 계속 작업하는 동안은 동작하나, 이식 시 정리 대상이다.
