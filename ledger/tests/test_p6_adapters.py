@@ -100,9 +100,19 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                     1838,
                 )
                 workbook.close()
+                # 기준선 전환 2026-07-29: p05_latest_20260725 → p07_apa_corrected_20260729.
+                #   구 기준선은 APA 누락 상태를 고정하고 있었다 — 그 `0424_알펜루트` 값 49,990,557은
+                #   사용자가 인계서 §9.10에서 "사본에 3건/1,715,886원이 빠졌다"고 지적한 49,990,561과
+                #   같은 상태다. 여기에 면제 규칙을 덧대 통과시키면 잘못된 상태를 영구화한다.
+                #   구 기준선은 이력 보존을 위해 남겨두고(불변규칙 9) 새 버전을 기준으로 삼는다.
+                #   두 기준선의 차이 6건은 전부 규명됐고 baselines/.../diff.json 에 기록돼 있다:
+                #     0417_아오모리 -2,287,848 · 0424_알펜루트 +1,715,886 (APA 합산청구 정정)
+                #     취소환불 -59,975 (하나 취소 HAN-9111 -52,954 + HAN-9112 -7,021)
+                #     숙박비 +4,788 (resolve_hana_split_cancellations 보정 +636,725 + 데이터 -631,937)
+                #     0625_아키타 +18,755 · 여행_미배정 +617,970 (기존 분류기가 의도된 개선으로 인정하던 항목)
                 report = regression_report(
                     db,
-                    LEDGER_DIR / "baselines" / "p05_latest_20260725"
+                    LEDGER_DIR / "baselines" / "p07_apa_corrected_20260729"
                     / "regression_totals.json",
                 )
                 self.assertEqual(report["unexplained_differences"], 0)

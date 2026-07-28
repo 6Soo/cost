@@ -1,0 +1,12 @@
+{
+  "unassigned_payments": 14,
+  "unassigned_amount_krw": 3352510,
+  "engine_isolated_payments": 11,
+  "engine_isolated_amount_krw": 1478413,
+  "zero_amount_payments": 6,
+  "unresolved_transaction_relations": 0,
+  "unknown_booking_providers": 54,
+  "bookings_linked_to_multiple_targets": 0,
+  "high_confidence_with_uncertain_rationale": 0,
+  "low_confidence_payments": 87
+}

@@ -1,0 +1,636 @@
+{
+  "format_version": 1,
+  "rule_version": "p0-v1",
+  "generated_at": "2026-07-28T20:00:37.955495+00:00",
+  "semantic_sha256": "99f2fd8c87db2681d2e62ee399df4ca6a5c4fd147ffaa4562cb4c02039bcf749",
+  "inputs": [
+    {
+      "source_kind": "classified_v14_snapshot",
+      "path": "D:\\OneDrive\\문서\\AX\\cost\\ledger\\data\\classified_v14.csv",
+      "sha256": "8504eb94c0b19e1f932332f0df669d888374f2c583d815630b0699924b115862",
+      "imported_at": "2026-07-28 20:00:02"
+    }
+  ],
+  "summary": {
+    "unassigned_payments": 14,
+    "unassigned_amount_krw": 3352510,
+    "engine_isolated_payments": 11,
+    "engine_isolated_amount_krw": 1478413,
+    "zero_amount_payments": 6,
+    "unresolved_transaction_relations": 0,
+    "unknown_booking_providers": 54,
+    "bookings_linked_to_multiple_targets": 0,
+    "high_confidence_with_uncertain_rationale": 0,
+    "low_confidence_payments": 87
+  },
+  "regression_totals": {
+    "allocation_targets": [
+      {
+        "key": "전기예약_환불",
+        "type": "clearing",
+        "payments": 10,
+        "amount_krw": -4415830
+      },
+      {
+        "key": "취소환불",
+        "type": "clearing",
+        "payments": 67,
+        "amount_krw": -59975
+      },
+      {
+        "key": "기타비용",
+        "type": "overhead",
+        "payments": 154,
+        "amount_krw": 4958165
+      },
+      {
+        "key": "0404_에히메",
+        "type": "trip",
+        "payments": 51,
+        "amount_krw": 7455421
+      },
+      {
+        "key": "0408_교토",
+        "type": "trip",
+        "payments": 120,
+        "amount_krw": 17253592
+      },
+      {
+        "key": "0413_나가센도",
+        "type": "trip",
+        "payments": 60,
+        "amount_krw": 12538102
+      },
+      {
+        "key": "0417_아오모리",
+        "type": "trip",
+        "payments": 160,
+        "amount_krw": 34336465
+      },
+      {
+        "key": "0420_오사카",
+        "type": "trip",
+        "payments": 17,
+        "amount_krw": 563938
+      },
+      {
+        "key": "0424_알펜루트",
+        "type": "trip",
+        "payments": 259,
+        "amount_krw": 51706443
+      },
+      {
+        "key": "0501_부산",
+        "type": "trip",
+        "payments": 59,
+        "amount_krw": 9398413
+      },
+      {
+        "key": "0613_북해도",
+        "type": "trip",
+        "payments": 65,
+        "amount_krw": 13399291
+      },
+      {
+        "key": "0616_레분토&리시리",
+        "type": "trip",
+        "payments": 102,
+        "amount_krw": 23425778
+      },
+      {
+        "key": "0620_묘코",
+        "type": "trip",
+        "payments": 147,
+        "amount_krw": 47144809
+      },
+      {
+        "key": "0625_아키타",
+        "type": "trip",
+        "payments": 58,
+        "amount_krw": 20197003
+      },
+      {
+        "key": "0630_오제",
+        "type": "trip",
+        "payments": 30,
+        "amount_krw": 12482142
+      },
+      {
+        "key": "0704_아키타",
+        "type": "trip",
+        "payments": 21,
+        "amount_krw": 8247382
+      },
+      {
+        "key": "0722_가루이자와",
+        "type": "trip",
+        "payments": 1,
+        "amount_krw": 149800
+      },
+      {
+        "key": "0801_노리쿠라",
+        "type": "trip",
+        "payments": 2,
+        "amount_krw": 2349800
+      },
+      {
+        "key": "0823_화순",
+        "type": "trip",
+        "payments": 8,
+        "amount_krw": 1729636
+      },
+      {
+        "key": "0827_군산",
+        "type": "trip",
+        "payments": 10,
+        "amount_krw": 3703926
+      },
+      {
+        "key": "0924_야마구치",
+        "type": "trip",
+        "payments": 7,
+        "amount_krw": 1946091
+      },
+      {
+        "key": "0927_북큐슈",
+        "type": "trip",
+        "payments": 3,
+        "amount_krw": 826187
+      },
+      {
+        "key": "1010_도쿠시마",
+        "type": "trip",
+        "payments": 9,
+        "amount_krw": 2474708
+      },
+      {
+        "key": "1015_오제",
+        "type": "trip",
+        "payments": 11,
+        "amount_krw": 4147507
+      },
+      {
+        "key": "1020_알펜루트",
+        "type": "trip",
+        "payments": 5,
+        "amount_krw": 2654696
+      },
+      {
+        "key": "1026_가루이자와",
+        "type": "trip",
+        "payments": 3,
+        "amount_krw": 1035431
+      },
+      {
+        "key": "1127_야쿠시마",
+        "type": "trip",
+        "payments": 17,
+        "amount_krw": 12632933
+      },
+      {
+        "key": "1201_도쿄",
+        "type": "trip",
+        "payments": 2,
+        "amount_krw": 488600
+      },
+      {
+        "key": "5월_유럽",
+        "type": "trip",
+        "payments": 366,
+        "amount_krw": 23997441
+      },
+      {
+        "key": "여행_미배정",
+        "type": "unassigned",
+        "payments": 14,
+        "amount_krw": 3352510
+      }
+    ],
+    "trips": [
+      {
+        "key": "0404_에히메",
+        "payments": 51,
+        "amount_krw": 7455421
+      },
+      {
+        "key": "0408_교토",
+        "payments": 120,
+        "amount_krw": 17253592
+      },
+      {
+        "key": "0413_나가센도",
+        "payments": 60,
+        "amount_krw": 12538102
+      },
+      {
+        "key": "0417_아오모리",
+        "payments": 160,
+        "amount_krw": 34336465
+      },
+      {
+        "key": "0420_오사카",
+        "payments": 17,
+        "amount_krw": 563938
+      },
+      {
+        "key": "0424_알펜루트",
+        "payments": 259,
+        "amount_krw": 51706443
+      },
+      {
+        "key": "0501_부산",
+        "payments": 59,
+        "amount_krw": 9398413
+      },
+      {
+        "key": "0613_북해도",
+        "payments": 65,
+        "amount_krw": 13399291
+      },
+      {
+        "key": "0616_레분토&리시리",
+        "payments": 102,
+        "amount_krw": 23425778
+      },
+      {
+        "key": "0620_묘코",
+        "payments": 147,
+        "amount_krw": 47144809
+      },
+      {
+        "key": "0625_아키타",
+        "payments": 58,
+        "amount_krw": 20197003
+      },
+      {
+        "key": "0630_오제",
+        "payments": 30,
+        "amount_krw": 12482142
+      },
+      {
+        "key": "0704_아키타",
+        "payments": 21,
+        "amount_krw": 8247382
+      },
+      {
+        "key": "0722_가루이자와",
+        "payments": 1,
+        "amount_krw": 149800
+      },
+      {
+        "key": "0801_노리쿠라",
+        "payments": 2,
+        "amount_krw": 2349800
+      },
+      {
+        "key": "0823_화순",
+        "payments": 8,
+        "amount_krw": 1729636
+      },
+      {
+        "key": "0827_군산",
+        "payments": 10,
+        "amount_krw": 3703926
+      },
+      {
+        "key": "0924_야마구치",
+        "payments": 7,
+        "amount_krw": 1946091
+      },
+      {
+        "key": "0927_북큐슈",
+        "payments": 3,
+        "amount_krw": 826187
+      },
+      {
+        "key": "1010_도쿠시마",
+        "payments": 9,
+        "amount_krw": 2474708
+      },
+      {
+        "key": "1015_오제",
+        "payments": 11,
+        "amount_krw": 4147507
+      },
+      {
+        "key": "1020_알펜루트",
+        "payments": 5,
+        "amount_krw": 2654696
+      },
+      {
+        "key": "1026_가루이자와",
+        "payments": 3,
+        "amount_krw": 1035431
+      },
+      {
+        "key": "1127_야쿠시마",
+        "payments": 17,
+        "amount_krw": 12632933
+      },
+      {
+        "key": "1201_도쿄",
+        "payments": 2,
+        "amount_krw": 488600
+      },
+      {
+        "key": "5월_유럽",
+        "payments": 366,
+        "amount_krw": 23997441
+      }
+    ],
+    "accounts": [
+      {
+        "key": "가이드정산",
+        "payments": 1,
+        "amount_krw": 4280000
+      },
+      {
+        "key": "교통비",
+        "payments": 112,
+        "amount_krw": 8787939
+      },
+      {
+        "key": "기타비용",
+        "payments": 31,
+        "amount_krw": 3842330
+      },
+      {
+        "key": "렌터카",
+        "payments": 42,
+        "amount_krw": 28018020
+      },
+      {
+        "key": "복리후생비",
+        "payments": 68,
+        "amount_krw": 1824794
+      },
+      {
+        "key": "세금과공과",
+        "payments": 4,
+        "amount_krw": 115890
+      },
+      {
+        "key": "소모품비",
+        "payments": 48,
+        "amount_krw": 2135257
+      },
+      {
+        "key": "수수료",
+        "payments": 2,
+        "amount_krw": 973031
+      },
+      {
+        "key": "숙박비",
+        "payments": 520,
+        "amount_krw": 175101272
+      },
+      {
+        "key": "식비",
+        "payments": 656,
+        "amount_krw": 17860065
+      },
+      {
+        "key": "여행자보험",
+        "payments": 32,
+        "amount_krw": 2613500
+      },
+      {
+        "key": "이용료",
+        "payments": 4,
+        "amount_krw": 143823
+      },
+      {
+        "key": "인건비",
+        "payments": 3,
+        "amount_krw": 1350000
+      },
+      {
+        "key": "입장료",
+        "payments": 35,
+        "amount_krw": 1993765
+      },
+      {
+        "key": "주유비",
+        "payments": 44,
+        "amount_krw": 2895371
+      },
+      {
+        "key": "주차비",
+        "payments": 22,
+        "amount_krw": 206273
+      },
+      {
+        "key": "지급수수료",
+        "payments": 13,
+        "amount_krw": 406490
+      },
+      {
+        "key": "통신비",
+        "payments": 19,
+        "amount_krw": 899923
+      },
+      {
+        "key": "통행료",
+        "payments": 30,
+        "amount_krw": 219834
+      },
+      {
+        "key": "항공료",
+        "payments": 147,
+        "amount_krw": 66394928
+      },
+      {
+        "key": "회의비",
+        "payments": 5,
+        "amount_krw": 57900
+      }
+    ]
+  },
+  "queue_keys": {
+    "unassigned": [
+      "CORP-2005",
+      "CORP-2006",
+      "CORP-2052",
+      "HAN-0506",
+      "HAN-0507",
+      "HAN-0508",
+      "HAN-3089",
+      "KBD-0380",
+      "KBD-0403",
+      "MISC-0003",
+      "MISC-0004",
+      "MISC-0006",
+      "MISC-0010",
+      "MISC-0011"
+    ],
+    "engine_isolated": [
+      "MISC-0001",
+      "MISC-0002",
+      "MISC-0003",
+      "MISC-0004",
+      "MISC-0005",
+      "MISC-0006",
+      "MISC-0007",
+      "MISC-0008",
+      "MISC-0009",
+      "MISC-0010",
+      "MISC-0011"
+    ],
+    "zero_amount": [
+      "CORP-2005",
+      "CORP-2006",
+      "CORP-2011",
+      "CORP-2043",
+      "HAN-3444",
+      "KBO-2755"
+    ],
+    "unresolved_transaction_relations": [],
+    "unknown_booking_providers": [
+      "unknown:1669455475",
+      "unknown:1669456062",
+      "unknown:1669456497",
+      "unknown:202604167906192405",
+      "unknown:202604197953737289",
+      "unknown:202605168333031265",
+      "unknown:202605178346549551",
+      "unknown:202605188359325810",
+      "unknown:202605188360357628",
+      "unknown:202605188362162287",
+      "unknown:202605188362317082",
+      "unknown:202605208392971355",
+      "unknown:202605228410707377",
+      "unknown:202605228418229599",
+      "unknown:202605228418418951",
+      "unknown:202605228418443636",
+      "unknown:202605228418962443",
+      "unknown:202605248451330371",
+      "unknown:202605258466258448",
+      "unknown:202605258467683658",
+      "unknown:202605278489034158",
+      "unknown:202605278495883941",
+      "unknown:202605298516037747",
+      "unknown:202605298516245210",
+      "unknown:202605298516278054",
+      "unknown:202606038593686296",
+      "unknown:202606058620964164",
+      "unknown:202606058625037438",
+      "unknown:202606078649094533",
+      "unknown:202606098676227469",
+      "unknown:202606098677690663",
+      "unknown:202606118704518235",
+      "unknown:202606118711715550",
+      "unknown:202606128714995445",
+      "unknown:202606128719165995",
+      "unknown:202606128726611064",
+      "unknown:202606138728725694",
+      "unknown:202606138735203822",
+      "unknown:202606138739827728",
+      "unknown:202606158769238627",
+      "unknown:202606168777078873",
+      "unknown:202606168777873919",
+      "unknown:202606168778061592",
+      "unknown:202606168781386354",
+      "unknown:202606168782977116",
+      "unknown:202606198818495144",
+      "unknown:300584370",
+      "unknown:300585940",
+      "unknown:300987130",
+      "unknown:300987570",
+      "unknown:300987800",
+      "unknown:300994660",
+      "unknown:301037320",
+      "unknown:301037760"
+    ],
+    "bookings_linked_to_multiple_targets": [],
+    "high_confidence_uncertain_rationale": [],
+    "low_confidence": [
+      "CORP-2001",
+      "CORP-2002",
+      "CORP-2005",
+      "CORP-2006",
+      "HAN-0506",
+      "HAN-0507",
+      "HAN-0508",
+      "HAN-0509",
+      "HAN-0510",
+      "HAN-0511",
+      "HAN-0513",
+      "HAN-0514",
+      "HAN-0515",
+      "HAN-0516",
+      "HAN-0517",
+      "HAN-0518",
+      "HAN-0519",
+      "HAN-0520",
+      "HAN-0521",
+      "HAN-0522",
+      "HAN-0523",
+      "HAN-0524",
+      "HAN-0525",
+      "HAN-0526",
+      "HAN-0527",
+      "HAN-0528",
+      "HAN-0529",
+      "HAN-0530",
+      "HAN-0531",
+      "HAN-0532",
+      "HAN-0533",
+      "HAN-0534",
+      "HAN-0535",
+      "HAN-0536",
+      "HAN-0537",
+      "KBD-0379",
+      "KBD-0380",
+      "KBD-0381",
+      "KBD-0382",
+      "KBD-0385",
+      "KBD-0391",
+      "KBD-0392",
+      "KBD-0393",
+      "KBD-0398",
+      "KBD-0399",
+      "KBD-0400",
+      "KBD-0402",
+      "KBD-0404",
+      "KBD-0405",
+      "KBD-0406",
+      "KBD-0408",
+      "KBD-0409",
+      "KBD-0410",
+      "KBD-0833",
+      "KBD-0855",
+      "KBD-0872",
+      "KBD-0881",
+      "KBD-0888",
+      "KBD-0893",
+      "KBD-0898",
+      "KBD-0907",
+      "KBD-0911",
+      "KBD-0982",
+      "KBD-1000",
+      "KBD-1001",
+      "KBD-1008",
+      "KBD-1084",
+      "KBD-1088",
+      "KBD-1092",
+      "KBD-1096",
+      "KBO-0363",
+      "KBO-0364",
+      "KBO-0365",
+      "KBO-0389",
+      "KBO-2863",
+      "KBO-2951",
+      "MISC-0001",
+      "MISC-0002",
+      "MISC-0003",
+      "MISC-0004",
+      "MISC-0005",
+      "MISC-0006",
+      "MISC-0007",
+      "MISC-0008",
+      "MISC-0009",
+      "MISC-0010",
+      "MISC-0011"
+    ]
+  }
+}
