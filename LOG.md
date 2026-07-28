@@ -505,3 +505,25 @@ python3 consolidate_2q.py       # rev 2종 → 매출확인자료_2분기_통합
   회계분류 540/여행 미배정 5, 직접연결 확정20/충돌6/미입증519.
   작업 브랜치는 `codex/resolve-all-pending`; 직전 원격 tip은 `61ea7b9`다.
 - 기존 작업트리의 `CLAUDE.md` 수정은 사용자 소유이므로 건드리거나 스테이징하지 않는다.
+
+---
+
+## 2026-07-29 세션 핸드오프 — 최종 동결·문서 푸시 준비
+
+- 사용자가 모든 사항을 손실 없이 정리하고 문서를 최신화해 Git에 push하라고 명시했다.
+  이에 따라 기존에 사용자 소유라 보존만 하던 `CLAUDE.md`의 에이전트 라우팅 개정을 이번 문서
+  커밋 범위에 포함한다. 전역 정책 준수, agy 우선 저추론 폴백, GLM 우선 지시 폐지가 핵심이다.
+- `git fetch --all --prune` 직후 `codex/resolve-all-pending`은
+  `origin/codex/resolve-all-pending`과 0/0으로 일치했고 시작 tip은 `4d3c2c3`이었다.
+  `origin/main` 대비 17커밋 앞, 0커밋 뒤다.
+- 회계·OTA 권위 상태는 변하지 않았다. 정본 v15는 1,834행 / 319,903,284원 /
+  SHA-256 `65ff2b7e34d820f8bc814ab92876bdbfc55f63dd1f87b009887f4fbff8e080e0`,
+  회계분류 540 / 여행 미배정 5, 직접연결 확정 20 / 순열 충돌 6 / 미입증 519다.
+- Agoda CS 5건은 아직 미전송이며 상담번호가 없다. 로그인된 Browser/Chrome 연결 후 공식
+  Help Center 메시징으로 역추적하고, 응답을 영속 저장·read-back하기 전 여행 귀속을 확정하지 않는다.
+- Git 밖 핵심 자료의 크기·SHA-256, `outputs/` 재고, DB/JSON 68건 및 SQLite 무결성은
+  `docs/CODEX_LINUX_MIGRATION_HANDOFF_2026-07-27.md` §16에 기록했다.
+  `.env`는 현재 저장소 루트에 없고 OAuth/session 자료는 Git과 별도 이전 대상이다.
+- 이 동결에서 변경 범위는 `CLAUDE.md`, `LOG.md`,
+  `docs/CODEX_LINUX_MIGRATION_HANDOFF_2026-07-27.md`뿐이다. 정본·증거·DB·코드·워크북은
+  변경하지 않았고 실행 중 작업은 0건이다.

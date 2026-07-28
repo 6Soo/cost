@@ -607,3 +607,74 @@ Copy these separately using an encrypted channel, preserve timestamps where poss
 > 승인 469,570원 / 최종 청구 477,722원
 >
 > 예약번호를 모르는 결제 내역의 역추적 요청입니다. 한 건씩 대응 예약을 확인해 주세요.
+
+## 16. 2026-07-29 최종 세션 이동 동결점
+
+이 절은 §15 이후의 세션 종료 상태를 고정한다. 다음 세션에서는 §1~14의 과거 동결 수치보다
+§15와 이 절을 우선하며, 실제 파일·DB·Git 상태가 다르면 덮어쓰지 말고 차이를 먼저 감사한다.
+
+### 16.1 Git과 작업트리
+
+- `git fetch --all --prune` 직후 작업 브랜치 `codex/resolve-all-pending`의 시작 tip은
+  `4d3c2c3b11908fb7dbede0143ea7c25580e14661`
+  (`Document Agoda CS handoff for session migration`)이었고
+  `origin/codex/resolve-all-pending`과 차이 0/0이었다.
+- 같은 시점 이 브랜치는 `origin/main`보다 17커밋 앞, 0커밋 뒤였다. 강제 push, hard reset,
+  `main` 직접 덮어쓰기는 금지한다.
+- 시작 시 유일한 미커밋 파일은 사용자 소유 `CLAUDE.md`의 2026-07-28 에이전트 라우팅 개정이었다.
+  §15.1의 “스테이징하지 않음”은 당시 보존 경계였으나, 사용자가 2026-07-29에
+  “모든 사항을 손실 없이 정리하고 문서를 최신화하여 Git에 push”하라고 명시해 이번 문서 커밋
+  범위에 포함한다. 개정 내용은 전역 라우팅 정책 준수, agy 우선 저추론 폴백, 기존 GLM 우선 지시
+  폐지, 보조 브리지 사용법이다.
+- 이 동결에서는 `CLAUDE.md`, 이 인계서, `LOG.md`만 문서 변경 대상으로 삼는다.
+  정본 CSV, OTA 증거 JSON, SQLite, 코드, 워크북은 변경하지 않는다.
+
+### 16.2 회계·OTA 권위 상태
+
+- 승인 정본은 계속 `ledger/data/classified_v15.csv`:
+  **1,834행 / 319,903,284원 / SHA-256
+  `65ff2b7e34d820f8bc814ab92876bdbfc55f63dd1f87b009887f4fbff8e080e0`**이다.
+- 최신 결정권위 보고서는 Git 제외 로컬 경로
+  `outputs/20260728_decision_authoritative_review_v15/`이며, OTA 545건 중 회계분류 540,
+  여행 미배정 5건·1,117,929원, 직접연결 확정 20, 개별 순열 충돌 6, 미입증 519다.
+- 실제 조치 큐는 11건·2,189,399원이다. Booking 6건은 회계 귀속이 끝난 동일금액 N:M
+  순열 감사 HOLD이고, Agoda 5건은 여행 귀속을 위한 CS 역추적 대상이다.
+- Agoda CS 메시지는 여전히 전송되지 않았고 상담번호도 없다. 로그인된 Browser/Chrome 연결이
+  활성화된 다음 세션에서 §15.4 문안으로 공식 메시징을 사용한다. 모니터링되지 않는 이메일을
+  대체 전송으로 사용하지 않는다.
+- Google 원장 최종 갱신, 새 Google 스프레드시트 업로드, 최신 로컬 변경의 Apps Script 재배포는
+  완료 검증이 없다. 실제 계정/배포 상태를 읽어 확인하기 전 완료로 표시하지 않는다.
+
+### 16.3 Git 밖 자료의 현재 보존 지문
+
+아래 해시는 파일 내용을 Git에 넣지 않고 동일 파일을 안전하게 이전했는지 확인하기 위한 것이다.
+PIN·쿠키·비밀번호·OAuth 토큰·메일 원문은 이 문서에 기록하지 않았다.
+
+| 경로 | 크기 | SHA-256 | Git 상태 |
+|---|---:|---|---|
+| `ledger/data/ota_mail_index.json` | 874,515 bytes | `db258948ff2240b682d579422c4de3edbc5079e6425a8fd7c0a224f57c40cb11` | 제외, 민감 메일 증거 |
+| `ledger/data/ota_checkpoints_agoda.db` | 446,464 bytes | `a61f968d3ed619ec1e3bed17a77c886434a94a1b2136c3d1570e07a5514c1939` | 제외, 로컬 체크포인트 |
+| `ledger/data/ota_checkpoints_agoda_pages4_5.db` | 147,456 bytes | `fa86dd3a906febb7d18504207c04f8bfe7e4165a01c77064c6caca6f1bf56ef2` | 제외, 로컬 체크포인트 |
+| `ledger/data/agoda_direct_browser_evidence_pages4_5.json` | 62,422 bytes | `af0eec40a5765efd1b07263e02573f112b3d59456e1a1df0da650aab31d616f7` | Git 추적, 68건 |
+
+- `ota_checkpoints_agoda_pages4_5.db`는 WAL checkpoint 후 `integrity_check=ok`,
+  `ota_booking_current=68`, JSON도 68건이었다.
+- 현재 `outputs/`는 70개 파일 / 1,912,884 bytes이며 `.gitignore` 대상이다. 이 수치는 내용
+  완전성을 보장하는 해시가 아니므로, 다음 장치로 옮길 때 디렉터리 전체를 암호화 복사하고 별도
+  manifest를 생성한다.
+- 저장소 루트 `.env`는 이 동결 시점에 없었다. Google OAuth/session 파일은 사용자 프로필 등
+  저장소 밖 위치일 수 있으므로 Git 이전과 별개로 확인한다.
+
+### 16.4 다음 세션 재개와 완료 경계
+
+1. `AGENTS.md` → 이 문서 전체 → `LOG.md` 최신 블록 → `CLAUDE.md` →
+   `docs/비용분류_지시사항_원장.md`를 읽는다.
+2. `git fetch --all --prune`, `git status -sb`, `git log -5 --oneline --decorate`로
+   이 동결 커밋과 원격을 대조한다. 로컬 전용 파일은 위 SHA-256으로 확인한다.
+3. 실행 중인 작업은 0건이며 자동으로 이어지는 작업도 없다. 새 Goal은 사용자 명시 없이 만들지 않는다.
+4. 첫 외부 작업은 로그인된 Agoda 공식 Help Center 메시징으로 §15.2의 5건을 역추적하는 것이다.
+   전송/응답을 영속 저장하고 read-back하기 전 상태를 `CS_INQUIRY_SENT` 이상으로 올리지 않는다.
+5. 회계 정본은 이미 승인된 v15를 유지한다. CS의 거래 단위 강한 증거가 생긴 경우에만 새 버전으로
+   귀속을 바꾸고 회귀 테스트·보고서 재생성을 수행한다.
+6. 최종 수기장부/Google 원장/Drive 업로드는 §1의 무손실 규칙, OTA HOLD 공개, 전체 수입·지출·
+   기타비용·기간·예약번호·탑승객 검증을 통과한 뒤 사용자 승인으로 진행한다.
