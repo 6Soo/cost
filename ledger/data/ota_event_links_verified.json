@@ -875,5 +875,26 @@
     "hotel": "APA HOTEL (가나자와)",
     "verification_source": "ledger/data/manual_v4.csv (0424_알펜루트, 기업)",
     "verification": "수기장부 마스터 확정 + 합산청구 KBO-2755 분해(571,962×4=2,287,848 정확일치)"
+  },
+  "KBO-2645": {
+    "booking_id": "6475326931",
+    "category": "숙박",
+    "hotel": "Nezame Hotel",
+    "verification_source": "ledger/data/manual_v4.csv r34",
+    "verification": "수기장부 마스터 r34(0413_나가센도, 847,256, 국민) 예약번호 + 카드 note 기존 기재 일치. 금액 유일(동액 카드이벤트 없음)"
+  },
+  "KBO-2646": {
+    "booking_id": "6635102370",
+    "category": "숙박",
+    "hotel": "Nezame Hotel",
+    "verification_source": "ledger/data/manual_v4.csv r35",
+    "verification": "수기장부 마스터 r35(0413_나가센도, 278,865, 국민) 예약번호 + 카드 note 기존 기재 일치. 금액 유일(동액 카드이벤트 없음)"
+  },
+  "CORP-2007": {
+    "booking_id": "5973810974",
+    "category": "숙박",
+    "hotel": "Hiratakan",
+    "verification_source": "ledger/data/manual_v4.csv r159 + ota_mail_index.raw.json",
+    "verification": "수기장부 마스터 r159(0424_알펜루트, Booking.com_Hiratakan, 1,181,775, 기업) 예약번호 + Gmail 원문 5건이 본문에서 동 번호 참조(2026-04-18~23, 4/20 결제완료 메일). 카드 상호 Amsterdam은 청구 기술자"
   }
 }

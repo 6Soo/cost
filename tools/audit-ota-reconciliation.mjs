@@ -220,6 +220,26 @@ for (const item of bookingHold.held_events ?? []) {
   });
 }
 
+// 체크포인트가 선언한 HOLD 중, 그 사이 중앙 링크파일에 검증 링크가 생긴 건은 해소된 것이다.
+// 체크포인트 파일은 정적이라 스스로 갱신되지 않으므로 여기서 대조해 분리 보고한다(2026-07-29).
+// 해소 표시만 하고 목록에서 지우지는 않는다 — 무엇이 왜 풀렸는지 추적 가능해야 한다.
+const resolvedHolds = [];
+const openHolds = [];
+for (const hold of holds) {
+  const link = hold.uid ? existingLinks[hold.uid] : null;
+  if (link) {
+    resolvedHolds.push({
+      ...hold,
+      resolved_by_central_link: {
+        booking_id: link.booking_id ?? link.order_id ?? "",
+        verification: link.verification ?? link.verification_source ?? "",
+      },
+    });
+  } else {
+    openHolds.push(hold);
+  }
+}
+
 const db = new DatabaseSync(path.join(root, "ledger", "data", "ota_checkpoints_agoda.db"), {
   readOnly: true,
 });
@@ -270,7 +290,9 @@ const report = {
   result_counts: {
     newly_mergeable_links: mergeable.length,
     verified_cancellation_relation_records: relations.length,
-    hold_records: holds.length,
+    hold_records: openHolds.length,
+    hold_records_declared: holds.length,
+    hold_records_resolved_by_central_link: resolvedHolds.length,
   },
   by_provider: byProvider,
   warnings: [
@@ -285,7 +307,8 @@ function writeJson(name, value) {
 }
 
 writeJson("01_mergeable_verified_links.json", mergeable);
-writeJson("02_holds_and_conflicts.json", holds);
+writeJson("02_holds_and_conflicts.json", openHolds);
+writeJson("02b_holds_resolved_by_central_link.json", resolvedHolds);
 writeJson("03_provider_completion.json", report);
 writeJson("04_verified_transaction_relations.json", relations);
 
@@ -318,7 +341,8 @@ const md = `# OTA reconciliation checkpoint — 2026-07-27
 - OTA card events: **${otaRows.length}**
 - Existing verified links: **${Object.keys(existingLinks).length}**
 - Newly mergeable after local revalidation: **${mergeable.length}**
-- HOLD/conflict records: **${holds.length}**
+- HOLD/conflict records (open): **${openHolds.length}**
+- HOLD declared by checkpoints: **${holds.length}** (of which resolved by a central verified link since: **${resolvedHolds.length}**)
 - Agoda persisted checkpoints: **${Number(agodaRows)}**
 
 ## Provider status

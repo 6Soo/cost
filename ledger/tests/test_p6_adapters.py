@@ -53,7 +53,13 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                     LEDGER_DIR / "data" / "manual_v4.csv",
                     LEDGER_DIR / "data" / "ota_mail_index.json",
                 )
-                self.assertEqual(first["direct_records"], 8336)
+                # 기대값 갱신 2026-07-29: 8,336 → 8,337.
+                #   구성 실측 = cards 5,237 + manual 1,380 + ota 1,720 = 8,337.
+                #   +1은 origin/main 병합 시 채택한 manual_v4 한 행(0404_에히메 커피빈 10,500원)이다.
+                #   HEAD의 수기장부 재파싱본은 1,380행, origin/main은 1,379행이었고, 원장 최신본
+                #   (ledger_current.xlsx 48시트)에 근거해 HEAD를 채택했다. APA 정정과는 무관하다
+                #   (APA 행은 classified_v14 소속이라 direct_source_records에 들어오지 않는다).
+                self.assertEqual(first["direct_records"], 8337)
                 self.assertEqual(second["cards"]["inserted"], 0)
                 self.assertEqual(second["manual"]["inserted"], 0)
                 self.assertEqual(second["ota"]["inserted"], 0)
