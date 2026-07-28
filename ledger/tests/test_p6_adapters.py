@@ -86,13 +86,18 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                 )
 
                 output = root / "parallel.xlsx"
+                # 기대값 갱신 2026-07-29: rows 1,833 → 1,838 · amount_krw 320,752,342 → 320,120,405.
+                #   근거 — classified_v14 가 1,833행/320,115,617 → 1,838행/319,483,680 으로
+                #     이동했다(APA 합산청구 분해 +3행·-571,962, 하나카드 취소 2건).
+                #   어댑터 총액과 CSV 총액의 차이는 갱신 전후 모두 636,725 로 동일하다
+                #     (320,752,342-320,115,617 = 320,120,405-319,483,680) — 어댑터 집계 규칙은 불변.
                 workbook_result = export_parallel_workbook(db, output)
-                self.assertEqual(workbook_result["rows"], 1833)
-                self.assertEqual(workbook_result["amount_krw"], 320_752_342)
+                self.assertEqual(workbook_result["rows"], 1838)
+                self.assertEqual(workbook_result["amount_krw"], 320_120_405)
                 workbook = openpyxl.load_workbook(output, read_only=True)
                 self.assertEqual(
                     sum(max(0, sheet.max_row - 1) for sheet in workbook.worksheets),
-                    1833,
+                    1838,
                 )
                 workbook.close()
                 report = regression_report(
