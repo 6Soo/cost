@@ -788,3 +788,36 @@ git push origin \
   `ledger/domain/direct_sources.py`, `ledger/domain/direct_projection.py`,
   신규 `ledger/tests/test_cardindex_paths.py`만 접촉하고, parser 의미·data·baseline은
   바꾸지 않는다.
+
+## 2026-07-30 R11 세션 핸드오프 — explicit card input-root
+
+`096127cd3e713b8e2c94883b9ac3f461c0fdc173`은 네 파일만의 R11 구현이다:
+`ledger/cardindex.py`, `ledger/domain/direct_sources.py`,
+`ledger/domain/direct_projection.py`, `ledger/tests/test_cardindex_paths.py`.
+keyword-only `ledger_dir`와 module-root default, 두 consumer의 명시 root forwarding,
+process-global `chdir` 제거, workbook `try/finally` close를 포함한다.
+
+검증: targeted `26/26`; full `94/94` (coordinator 147.913s, Fable 153.421s,
+Sol 155.434s); py_compile/diff-check PASS. parser는 A/E/F/G/H=`174/1679/1287/221/1876`,
+합계 5,237, compact SHA=`e3fb99099f41f46747351e799e7c9e14dbe3b8249b03f143f76bc4fe1684dcc7`.
+FD는 GC disabled에서 pre `0→25`, post `0→0`; 최종 Fable/Sol `REVIEW=PASS`다.
+AGY Gemini 3.6 Flash High는 GEMINI_API_KEY 부재, AGY Sonnet 4.6은 unavailable,
+GPT-5.6 Luna low가 구현·작성했다. 설계·검증은 Claude Fable 5 medium과 GPT-5.6 Sol
+medium이 수행했다.
+
+post-commit P07은 exit 1, `code_commit=096127c`, bundle
+`6cb1a6bb471dbcbeebbe7c075d31e9a9418fe0a22825e7819694fd836cd8b0ed`, input manifest
+`e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199` unchanged,
+semantic `83019057f38782c44be9187f7d427ed62b47bcda9d419f70b18b04fde334ece9` unchanged,
+report `fb67a8818cda07abe05cc9e5ada86f1bf83bd240f11d1ca1f15aaeeb19dc975c`다.
+Gate 1/3/7 PASS; Gate 2/4/5/6은 각각 collision 8/sign 157/unresolved 5328/direct
+baseline unavailable(integrity true)로 FAIL했다. artifact `not_published`, candidate DB 없음,
+legacy authoritative, `REAL_EXPECTED_FAIL=PASS/CUTOVER=FAIL`이다.
+
+STATUS/AGENTS/classified_v14/patch_v14 보호 hash는 각각
+`a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc` /
+`3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` /
+`8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` /
+`1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 유지한다.
+R12 다음 후보는 high review 전 `candidate_selection` pure helper이며, OTA/evidence/data/
+schema/DB/policy cluster는 NO-PORT다.
