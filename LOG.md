@@ -893,3 +893,22 @@ donor tip `53ef5c89261fd182d1711a50cca11279f72d5560`, source `9ee6866d09dad0d154
 R14 guarded purpose mechanism과 owner review로 ambiguity를 해소했다. bare DB mutation inference를 막고 불변 입력·격리 temp·기존 승인 게이트 비대체를 명시했으며 root-cause는 code/pipeline defect에만, source fact/user decision은 일반화하지 않는다. P1–P21 byte unchanged, P07-specific policy language 없음. Luna DEFER는 기각, Fable/Sol 독립+cross는 guarded P22 ACCEPT다. 46 tests PASS, docs-only P07 미재실행, `REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL` 유지, code/data/baseline/output/STATUS/AGENTS 무접촉이다.
 
 보호 hash STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`; policy `5f83aa8`, control `03305d0`, PR12/draft PR13/branch 유지. 잔여 DEFER P18 OTA hierarchy·P22 OTA checkpoint/runbook·P25 general tail·P20 2025 fragment, R16은 P25 small-amount principle, OTA는 authorization 대기.
+
+## 2026-07-30 R16 세션 핸드오프 — P23 guarded policy closure
+
+policy temp `3293155`, control `9e3b20a`, donor tip `53ef5c89261fd182d1711a50cca11279f72d5560`, source `4997b2298ae1defe148260134d33255be2073453`.
+
+> **P25. 우라반다이 물산관 2건 분류와 소액 현지구매 일반화 한계(2026-07-26
+> 사용자 확정):** 2026-07-03 `裏磐梯物産館` 현금 영수증 11,550엔·6,600엔은
+> `0630_오제 / 여행원가 / 여행 식재료·소모품`으로 확정하고 P11 편의환율로
+> 각각 115,500원·66,000원을 기재한다. 단, **금액이 작다는 이유만으로
+> 업무관련성을 자동 인정하지 않는다.** 향후에도 여행기간·지역·실물 영수증·
+> 구매 목적이 결속되는 소액 현지구매만 같은 계정으로 자동 제안하며,
+> 개인사용·고객접대·선물 가능성 또는 여행 신호 충돌이 있으면 자동 전기하지
+> 않는다.
+
+우라반다이/date/amount/account 사실은 photo hash·evidence identity·approval lineage 부재로 NO-PORT, same-account 일반화도 NO-PORT, guarded general tail만 current P23 PORT다. 미래 evidence-backed item purpose는 donor port가 아닌 별도 목적이다. 네 신호는 필요조건이지 충분조건이 아니며 travel conflict는 proposal, adverse signal은 posting을 차단한다. venue category만으로 auto-include/auto-exclude하지 않고 data/system authority도 부여하지 않는다.
+
+Routing: Flash missing key → Sonnet unavailable → Luna low. Fable/Sol 독립 후 cross: Fable은 Sol 반박 뒤 same-account propagation·overbroad adverse proposal block을 철회, Sol은 Fable bidirectional venue guard 수용, Fable은 Sol §3 exact P23 수용. 57 tests PASS, diff-check PASS, docs-only·P07 미재실행, REAL_EXPECTED_FAIL=PASS/CUTOVER=FAIL 유지. P1–P22 byte unchanged; P23 item strings 없음, `0630_오제`는 기존. 보호 hash: STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`.
+
+code/data/baseline/output/STATUS/AGENTS untouched; PR12/draft PR13/branches kept. Residual DEFER: donor P18 OTA hierarchy, P22 OTA checkpoint/runbook pending authorized OTA purpose, P20 2025-scope fragment; P25 tail removed. Next R17 residual closure audit only; no automatic OTA/data action.
