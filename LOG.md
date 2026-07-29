@@ -411,3 +411,58 @@ Gate 7 report freshness    PASS
    strict event-key diff/approval을 구현한다.
 5. 네 blocker가 모두 해소되고 동일 7-gate·artifact 검증이 다시 통과하기 전에는
    legacy 경로를 정본으로 유지한다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — 원격 브랜치 R6 정리
+
+### 0. 실행 결과
+
+- P07 작업 커밋 `8cdab8e`는
+  `origin/codex/p07-canonical-cutover-candidate`에 push 완료했다.
+- `codex/settlement-integrity-handoff`(`9ee6866`)는 annotated tag
+  `archive/pre-unify-settlement-9ee6866`을 먼저 원격에 push하고 peeled SHA가
+  `9ee6866d09dad0d15471fb22fd59e73bf9b96679`인지 확인한 뒤 원격 브랜치를 삭제했다.
+- `codex/desktop-migration-2026-07-26`(`0aa4fd9`)도 annotated tag
+  `archive/pre-unify-desktop-0aa4fd9`의 peeled SHA
+  `0aa4fd9dbf258f22398cf3a8e6098bdfb6b75071`을 원격에서 확인한 뒤 삭제했다.
+- 두 삭제 브랜치는 열린 PR, check run, deployment가 없었고,
+  `settlement ⊂ desktop ⊂ resolve-all` 조상관계를 삭제 직전에 다시 확인했다.
+- 남은 원격 작업 브랜치는 4개다:
+  `linux-migration`(`9379850`), `resolve-all-pending`(`53ef5c8`, PR #13 draft),
+  `fix/post-0613-review-and-assignments`(`2a7aa3a`, PR #12),
+  `p07-canonical-cutover-candidate`(R6 문서 커밋의 parent code checkpoint `8cdab8e`).
+
+복구가 필요하면 exact SHA를 기존 ref로 push한다.
+
+```bash
+git push origin \
+  9ee6866d09dad0d15471fb22fd59e73bf9b96679:refs/heads/codex/settlement-integrity-handoff
+git push origin \
+  0aa4fd9dbf258f22398cf3a8e6098bdfb6b75071:refs/heads/codex/desktop-migration-2026-07-26
+```
+
+### 1. 브랜치별 검증 판정
+
+- `fix/post`: 독립 archive에서 31/31 PASS(236.175초). 고유 guard·정책 목적이 남아 유지.
+- `linux`: 29개 중 1개 FAIL. `KBD-1046` 여행자보험 8,110원이 최신 보험기간 근거로
+  `기타비용 → 0613_북해도` 이동했지만 p07 회귀 기준선은 이동 전 상태라
+  `unexplained_differences=2`가 됐다. magic amount 면제가 아니라 event-level evidence와
+  승인 계보 또는 귀속 원복으로 해소해야 한다.
+- `resolve-all`: 테스트 메서드 258개 전수 실행이 제한시간 안에 끝나지 않아
+  PASS로 판정하지 않았다. 고유 receipt/evidence/foundation 목적이 남아 유지.
+- `p07`: 실제 Git worktree에서 기존 targeted 34/34·전체 63/63 PASS.
+  운영 cutover는 계속 FAIL이고 legacy 경로가 정본이다.
+
+### 2. Fable/Sol 상호검증 합의와 다음 순서
+
+- Claude Fable 5 medium과 GPT-5.6 Sol medium은 독립 감사 후 상호 반박해
+  `삭제 2 / 유지 4 / whole-branch merge 금지`에 합의했다.
+- 기존 P07 브랜치를 유일한 control branch로 유지한다.
+- 목적별 이식 순서는 `resolve foundation → fix/post guards →
+  linux evidence/tools → P07 code-final`이다. 각 단계에서 P07 code bundle,
+  input manifest, semantic hash, 7 gates를 다시 계산한다.
+- P07 draft PR은 두 검토의 의견이 갈렸고, 이번 사용자 지시는 push·브랜치 정리가
+  중심이므로 생성하지 않았다. main merge와 cutover도 수행하지 않았다.
+- 사용자 변경 `STATUS.md` SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`를 보존했다.
