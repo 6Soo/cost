@@ -883,3 +883,13 @@ donor P23 사용자 확정 원문은 “현지 영수증의 여행탭 이중검�
 문서 N:거래 1 결정과 4,768 JPY 중복계상 반례로 guarded purpose rewrite를 채택했고 current P1–P19는 불변이다. policy commit은 control `78879ab`, temp `df76b40`이다. code/data/STATUS/AGENTS는 무접촉이며 receipt 11/11과 diff-check 통과, docs-only라 P07 미재실행, R11 expected-fail/cutover-fail을 유지한다.
 
 라우팅은 AGY Gemini 3.6 Flash High missing key → AGY Sonnet 4.6 unavailable → GPT-5.6 Luna low였고, Claude Fable 5 medium과 GPT-5.6 Sol medium 독립+cross 뒤 closure 둘 다 ACCEPT다. 수용은 guarded current P20/P21 이식과 DEFER 대장이고, 기각은 donor P18/P19/P22/P24/P25 원문 이식 및 실제 적재·분류·projection·정본·원장·CSV 변경 승인이다. 보호 hash는 STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`이다. PR12/draft PR13 및 두 branch는 유지한다. 다음 R15는 donor P19 output/publication만 감사하고 P18/P22는 승인된 OTA 목적까지 대기한다.
+
+## 2026-07-30 R15 세션 핸드오프 — output/publication closure
+
+donor tip `53ef5c89261fd182d1711a50cca11279f72d5560`, source `9ee6866d09dad0d15471fb22fd59e73bf9b96679`; P19 원문은 “사용자가 명시하기 전에는 워크북·CSV 등 산출물을 생성하거나 출력하지 않는다. 조사 중에는 dry-run·DB·테스트만 사용하고, 단건 오류의 근본원인→일반화된 알고리즘 수정→검증식→회귀테스트 순으로 처리한다.”이다. 원문은 NO-PORT, guarded purpose rewrite는 current P22 PORT다.
+
+라우팅은 AGY Gemini 3.6 Flash High missing key → AGY Sonnet 4.6 unavailable → GPT-5.6 Luna low였고, Claude Fable 5 medium과 GPT-5.6 Sol medium이 독립 판단 → cross 검증·반박 → closure를 수행했다. guarded current P22는 수용했고 donor 원문 그대로의 이식, P07 구현 세부사항 과적합, DB 변경 권한 추정은 기각했다.
+
+R14 guarded purpose mechanism과 owner review로 ambiguity를 해소했다. bare DB mutation inference를 막고 불변 입력·격리 temp·기존 승인 게이트 비대체를 명시했으며 root-cause는 code/pipeline defect에만, source fact/user decision은 일반화하지 않는다. P1–P21 byte unchanged, P07-specific policy language 없음. Luna DEFER는 기각, Fable/Sol 독립+cross는 guarded P22 ACCEPT다. 46 tests PASS, docs-only P07 미재실행, `REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL` 유지, code/data/baseline/output/STATUS/AGENTS 무접촉이다.
+
+보호 hash STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`; policy `5f83aa8`, control `03305d0`, PR12/draft PR13/branch 유지. 잔여 DEFER P18 OTA hierarchy·P22 OTA checkpoint/runbook·P25 general tail·P20 2025 fragment, R16은 P25 small-amount principle, OTA는 authorization 대기.
