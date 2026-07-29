@@ -819,6 +819,7 @@ STATUS/AGENTS/classified_v14/patch_v14 보호 hash는 각각
 `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` /
 `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` /
 `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 유지한다.
+
 R12 다음 후보는 high review 전 `candidate_selection` pure helper이며, OTA/evidence/data/
 schema/DB/policy cluster는 NO-PORT다.
 
@@ -848,3 +849,26 @@ STATUS/AGENTS/classified_v14/patch_v14 보호 hash는 각각
 `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` /
 `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` /
 `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 유지한다.
+
+## 2026-07-30 R13 세션 핸드오프 — period recognition closure
+
+resolve tip `53ef5c89261fd182d1711a50cca11279f72d5560`의
+`period_recognition.py` + `test_period_recognition.py`와 모든 consumer/docs/data는
+**NO-PORT / 0파일 / read-only**로 종결했다. control production 참조는 0이고 donor
+consumer는 ledger_db/DB/schema/reconciliation/workbook NO-PORT cluster다. helper는
+donor-dead이며 donor 3 tests는 통과하지만 integration에는 return 뒤 assertion 두 블록이
+있다. `5f36877`은 55파일/17,281 insertion 혼합 commit이고 fixed Q2_CLOSE_ON,
+invalid cutoff silent false, compact/week date implicit acceptance, whitespace/type
+불일치가 있다. KBD-1029 exact 1,299,640원은 이미 `0827_군산` bucket에 처리됐다.
+
+P18 compatible/insufficient, P19 neutral, A0/P16 authority와 explicit user-confirmed
+period policy 원문 부재, R8 defer 유지다. P20–P25는 이번 R13 밖 non-binding 별도
+doc-audit 후보다. Flash→Sonnet unavailable→Luna low routing과 Fable 5 medium/Sol
+medium 독립·cross 검토를 보존한다. 코드/data 불변으로 재실행은 없고 R11 94/94 및
+P07 expected-fail이 최신 evidence다. PR12/13 open branch는 유지한다.
+
+binding verdict **NO-PORT / 0파일 / read-only**. 보호 hash는 STATUS
+`a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc` / AGENTS
+`3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` / classified_v14
+`8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` / patch_v14
+`1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 불변이다.
