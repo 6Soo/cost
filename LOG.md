@@ -709,3 +709,82 @@ Gate 7 report freshness    PASS
   immutable recovery ref로 먼저 보존한다.
 - 다음 목적 단위는 `origin/codex/linux-migration-2026-07-27`의 portability/tool
   후보 감사다. evidence·생성 데이터·OTA 판정은 whole-branch로 이식하지 않는다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — R10 Linux migration 브랜치 정리
+
+### 0. 반영 결과
+
+- `origin/codex/linux-migration-2026-07-27` tip
+  `937985085c95f8136c332b49edb59e29afd65f69`의 26개 고유 커밋을 목적별로
+  전수 감사했다.
+- 최종 판정은 `CODE NO-PORT / DATA NO-PORT / ARCHIVE-TAG+DELETE`다.
+- archive ref는 `archive/pre-delete-linux-9379850`이다. remote peeled SHA를
+  exact tip과 대조했고 named Linux branch를 삭제한 뒤 원격 ref 부재를 확인했다.
+- 코드, 테스트, CSV, workbook, baseline, P07 runtime은 변경하지 않았다.
+
+### 1. 계보 정정과 NO-PORT 근거
+
+- 초기 inventory가 Linux 후보로 셌던 `ee54757`은 Linux tip에서 도달할 수 없고
+  `origin/codex/resolve-all-pending`에만 속한다.
+- Linux lineage의 실제 portability commit `a4c9771`이 변경한 9개 파일은 current
+  control에 모두 없다. Hana XLS, Google Workspace/Gmail, OTA 도구는 외부 입력,
+  자격증명, network, 생성 artifact 또는 판단 state에 결합돼 있어 path hunk만
+  신규 반입하지 않는다.
+- Linux branch의 보험기간 parser, OTA 대사 chain, 그룹배정 gate, 임의배정 강등
+  guard, KBD-1046 8,110원 및 KBD-0380 163,788원 data/evidence도 provenance와
+  승인 계보 없이 이식하지 않는다.
+- `test_domain_ledger.py`의 동적 expected total은 회귀 기준을 자기 인증하므로
+  영구 기각했다.
+
+### 2. 모델 라우팅·상호검증
+
+- 저추론 inventory는 AGY Gemini 3.6 Flash High가 `GEMINI_API_KEY` 부재로
+  추론 전 실패했고 AGY Sonnet 4.6 callable 수단도 없어 GPT-5.6 Luna low가
+  수행했다.
+- Claude Fable 5 medium과 GPT-5.6 Sol medium은 독립 감사 뒤 상호 반박했다.
+  Fable은 Sol이 재현한 repo-root `cardindex.load("F")` 실패와 process-global
+  CWD 의존을 독립 재현해 latent API 결함을 수용했다.
+- 양쪽은 `R10 code scope=None`, exact donor hunk 기각,
+  explicit input-root 4파일 재구현을 즉시 R11 resolve 목적 단위로 분리,
+  Linux branch는 archive-tag+delete에 합의했다.
+- Sol의 current targeted 검증은
+  `test_direct_projection + test_p6_adapters` 18/18 PASS였다.
+
+### 3. archive inventory와 복구
+
+archive tag에 다음 미이식 이력이 그대로 보존된다.
+
+- 여행자보험 가입기간 parser와 KBD-1046 8,110원 근거
+- OTA 대사 chain, 그룹배정 승격 gate, 임의배정 유래 17건 강등 guard
+- KBD-0380 163,788원 미배정과 사용자 선택 2번, 비율·기간 근거 미확정 상태
+- Gmail raw index overwrite 사고와 생성 artifact 의존 실패 이력
+- Linux/Windows 경로 대안 `a4c9771`
+
+복구 명령:
+
+```bash
+git push origin \
+  937985085c95f8136c332b49edb59e29afd65f69:refs/heads/codex/linux-migration-2026-07-27
+```
+
+`origin/codex/resolve-all-pending`과
+`origin/fix/post-0613-review-and-assignments`는 각각 open PR과 미완 목적이 있어
+유지한다.
+
+### 4. 보호 상태와 다음 순서
+
+- 사용자 `STATUS.md` SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`,
+  `AGENTS.md` SHA-256
+  `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`,
+  `classified_v14.csv` SHA-256
+  `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`,
+  `patch_v14.py` SHA-256
+  `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`
+  를 보존했다.
+- 다음 R11은 `resolve/card-input-root` 목적이다. `ledger/cardindex.py`,
+  `ledger/domain/direct_sources.py`, `ledger/domain/direct_projection.py`,
+  신규 `ledger/tests/test_cardindex_paths.py`만 접촉하고, parser 의미·data·baseline은
+  바꾸지 않는다.
