@@ -872,3 +872,14 @@ binding verdict **NO-PORT / 0파일 / read-only**. 보호 hash는 STATUS
 `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` / classified_v14
 `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` / patch_v14
 `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 불변이다.
+
+## 2026-07-30 R14 세션 핸드오프 — policy closure
+
+donor `origin/codex/resolve-all-pending` tip은 `53ef5c89261fd182d1711a50cca11279f72d5560`이며 donor P18/P19와 current P18/P19 번호가 충돌한다. 판정은 donor P18 **DEFER**(P5/P10 포함 OTA evidence hierarchy), P19 **DEFER**(output/publication), P20 **NO-PORT**, P21 **PORT → current P20**, P22 **DEFER**(승인된 OTA checkpoint/runbook), P23 **PORT → current P21**, P24 **NO-PORT**, P25 원문 **NO-PORT + 일반 tail DEFER**다.
+
+donor P21 사용자 확정 원문은 “현지 영수증 사진의 물리 전표 보존(2026-07-26 사용자 확정): 이면지에 부착된 영수증 사진에서 노이즈는 이면지의 다른 인쇄·필기 텍스트이며, 부착된 영수증끼리 중복되는 것은 아니다. 사진에 보이는 각 물리 영수증을 별도 실거래 후보로 보존하고 같은 날짜·가맹점·금액이라는 이유로 병합·제거하지 않는다. 이면지 본문·뒤집힌 문자·양식선은 OCR 배경으로 제외하며, 영수증 수·합계의 전단사 검증 후에만 구조화한다.”이다.
+donor P23 사용자 확정 원문은 “현지 영수증의 여행탭 이중검증(2026-07-26 사용자 확정): 사진 최상단의 지역명·기간을 기존 장부 탭명과 유사도 매칭해 1차 여행 후보로 삼고, 각 물리 영수증의 날짜·가맹점 지역을 2차로 대조한다. 두 신호가 일치할 때만 자동 귀속하고, 충돌하면 상단 표기를 강제 적용하지 말고 개별 전표 증거를 우선해 검토상태로 둔다.”이다. current P20/P21 재작성은 이 원문을 대체한 것이 아니라, N:1과 4,768 JPY 중복계상 반례를 반영하고 비권한 guard를 결합한 목적 이식이다.
+
+문서 N:거래 1 결정과 4,768 JPY 중복계상 반례로 guarded purpose rewrite를 채택했고 current P1–P19는 불변이다. policy commit은 control `78879ab`, temp `df76b40`이다. code/data/STATUS/AGENTS는 무접촉이며 receipt 11/11과 diff-check 통과, docs-only라 P07 미재실행, R11 expected-fail/cutover-fail을 유지한다.
+
+라우팅은 AGY Gemini 3.6 Flash High missing key → AGY Sonnet 4.6 unavailable → GPT-5.6 Luna low였고, Claude Fable 5 medium과 GPT-5.6 Sol medium 독립+cross 뒤 closure 둘 다 ACCEPT다. 수용은 guarded current P20/P21 이식과 DEFER 대장이고, 기각은 donor P18/P19/P22/P24/P25 원문 이식 및 실제 적재·분류·projection·정본·원장·CSV 변경 승인이다. 보호 hash는 STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`이다. PR12/draft PR13 및 두 branch는 유지한다. 다음 R15는 donor P19 output/publication만 감사하고 P18/P22는 승인된 OTA 목적까지 대기한다.
