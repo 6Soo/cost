@@ -466,3 +466,94 @@ git push origin \
   중심이므로 생성하지 않았다. main merge와 cutover도 수행하지 않았다.
 - 사용자 변경 `STATUS.md` SHA-256
   `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`를 보존했다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — R7 승인 봉투 보강·브랜치 검증
+
+### 0. 반영 결과
+
+- 통합 control branch `codex/p07-canonical-cutover-candidate`에
+  `abdd5a0`(`fix: harden p07 approval envelope`)을 반영했다.
+- 변경 범위는 `ledger/domain/transition_gates_v2.py`와
+  `ledger/tests/test_transition_gates_v2.py` 두 파일뿐이다.
+- direct event-level 승인 입력은 13개 필수 필드, 단일 안정 event key,
+  lowercase SHA-256 7종, source run/candidate semantic 결합, 중복 소비 금지,
+  known-offset 승인 시각을 모두 만족해야 한다.
+- `transition_id`와 lineage hash의 길이·non-hex·대문자, legacy event key,
+  0/2개 event, stale run, wrong candidate hash, duplicate transition/event,
+  supersession, 불가능한 날짜·시간을 fail-closed로 거부한다.
+- 승인 시각의 숫자 offset은 시 00~23·분 00~59로 제한한다. RFC3339 문법상
+  offset 미상을 뜻하는 `-00:00`도 accountable approval lineage에서는 거부하고,
+  `Z`·`+00:00`·`±23:59`는 허용한다.
+- 완전한 승인 봉투가 있어도 event-level baseline diff가 미구현이면 Gate 6은
+  `direct_baseline_event_diff_unimplemented`로 FAIL한다. baseline 자체가 없으면
+  승인 1건을 검증한 뒤에도 `direct_baseline_unavailable`로 FAIL한다. 새 PASS 경로는 없다.
+
+### 1. 모델 라우팅·상호검증
+
+- 설계·검증은 Claude Fable 5 medium과 GPT-5.6 Sol medium이 독립 검토 후
+  상호 반박했다.
+- 최초 구현의 비해시 `transition_id`, 달력 검증 없는 timestamp,
+  잘못된 supersession 필드와 owner-test 누락은 두 모델의 반려를 수용해 보완했다.
+- 1차 보완 후 Fable은 PASS였으나 Sol이 `+09:60`이 Python 파서에서
+  `+10:00`으로 정규화되는 반례를 찾았다. Fable이 이를 직접 재현해 기존 PASS를
+  철회했고, 두 모델은 offset 범위 제한과 `-00:00` 거부를 수용했다.
+- 최종 재심사는 양쪽 모두 `REVIEW=PASS`; 남은 기각 항목은 없다.
+- 저추론 구현은 AGY Gemini 3.6 Flash High를 먼저 호출했으나
+  `GEMINI_API_KEY` 부재로 추론 전에 실패했다. AGY Sonnet 4.6 호출 수단도 없어
+  최종 폴백 GPT-5.6 Luna low가 두 파일을 구현·보완했다.
+
+### 2. 검증
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  ledger.tests.test_transition_gates_v2
+# Ran 29 tests — OK
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s ledger/tests -p 'test_*.py'
+# Ran 75 tests in 146.394s — OK
+```
+
+`git diff --check`, Python compile, 88자 초과 신규 행 검사도 통과했다.
+
+control commit에서 실데이터를 다시 실행한 결과:
+
+```text
+output root                 /tmp/cost-r7-control.mGMm7f
+exit code                  1
+code_commit                abdd5a0148b4b3022ce0ab7ae89dc13ca0549d34
+code_bundle_sha256         fc4bd152064384bad3b961dc5f3a57eb655320ffa4068c0600d5fce2111eeab3
+input_manifest_sha256      e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199
+candidate_semantic_sha256  83019057f38782c44be9187f7d427ed62b47bcda9d419f70b18b04fde334ece9
+gate_report_sha256         982b335b2819f77d61a5b4ebcf05a86c4e8b77056a660be98d88b39877c43895
+artifact_state             not_published
+candidate DB               없음
+Gate 1 source provenance   PASS (7 physical inputs)
+Gate 2 projection          FAIL (identity collision 8)
+Gate 3 legacy leakage      PASS
+Gate 4 amount relations    FAIL (sign issue 157)
+Gate 5 allocation/decision FAIL (unresolved 5,328)
+Gate 6 semantic regression FAIL (direct baseline unavailable, integrity true)
+Gate 7 report freshness    PASS
+```
+
+따라서 `REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL`이며
+`legacy_path_remains_authoritative`를 유지한다.
+
+### 3. 남은 브랜치 판정과 다음 순서
+
+- `resolve-all-pending` tip의 실제 전수 실행은 258 tests 중
+  failures 2·errors 7로 FAIL했다. 7 errors는 미커밋
+  `ledger/data/ota_mail_index.json` 및 OTA checkpoint DB 의존이 주원인이고,
+  `test_legacy_verified_link_import` 2건은 기대한 `conflict`/match와 실제
+  `proposed`/unavailable가 불일치한다. whole-branch 이식 금지를 유지한다.
+- 남은 목적별 순서는 `resolve foundation의 재현 가능한 최소 단위 →
+  fix/post guards → linux evidence/tools → P07 code-final 재검증`이다.
+- `KBD-1046` 8,110원은 event-level evidence와 승인 계보가 완성되기 전에는
+  승인하지 않는다. `KBD-0380` 163,788원의 후속 행사 분할은 사용자 선택 2번을
+  보존하지만, 비율 근거가 확정되기 전에는 데이터 변경하지 않는다.
+- 사용자 `STATUS.md` SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
+  를 보존했다.
