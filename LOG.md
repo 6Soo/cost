@@ -647,3 +647,65 @@ Gate 7 report freshness    PASS
 - 사용자 `STATUS.md` SHA-256
   `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
   를 보존했다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — R9 fix/post 목적 감사
+
+### 0. 반영 결과
+
+- 통합 control branch `codex/p07-canonical-cutover-candidate`에
+  `2029077`(`docs: restore p18 p19 ledger policy`)을 반영했다.
+- `origin/fix/post-0613-review-and-assignments` tip
+  `2a7aa3a4e02c949cf58591dfb0bdf5df88c31cde`에서 P18/P19 사용자 확정 정책만
+  standing-instruction 원장으로 복원했다.
+- donor 코드, 테스트, CSV, 6월 귀속, note/confidence, baseline,
+  regression whitelist, P07 runtime은 이식하지 않았다.
+- 최종 목적 판정은
+  `DOC PORT / CODE NO-PORT / DATA NO-PORT / BRANCH KEEP`이다.
+
+### 1. 검증·기각 근거
+
+- donor guard는 invalid Decimal을 0으로 취급하고, source key 누락을 통과시키며,
+  중복·공백 UID 삭제와 근거 없는 confidence/note/UID tie-break를 허용한다.
+- package import에서 bare import가 실패하고, 실제 소비자는 legacy
+  `patch_v14.py`뿐이다. P07 Gate 2는 이미 직접 cardinality를 검사하며 현재
+  collision 8행은 donor가 겨냥한 KBO 중복이 아니라 Hana 승인식별자 재사용이다.
+- donor 정규화 기준 source-missing은 167 key·183행이며 165행은 공란
+  `post_date`다. 더 엄격한 fingerprint는 459건이어서 비교 스키마 계약 없이
+  fail-closed audit을 배선하면 정상 legacy 빌드가 상시 실패한다.
+- ANA/GASUTO projection 중복은 재현했지만 GASUTO 동률은 서로 다른 여행 bucket이라
+  자동 삭제할 수 없다. `classified_v14.csv` 총액 `-694,652`, baseline,
+  expected total은 바꾸지 않았다.
+- 문서 전용 변경이므로 코드 테스트와 P07 실데이터 실행은 반복하지 않았다.
+  직전 R8 control 검증 86/86 PASS와 expected-fail 판정을 유지하며
+  `git diff --check`와 exact-file 검사를 수행했다.
+
+### 2. 모델 라우팅·상호검증
+
+- 저추론 inventory는 AGY Gemini 3.6 Flash High가 `GEMINI_API_KEY` 부재로
+  추론 전 실패했고 AGY Sonnet 4.6 callable 수단도 없어 GPT-5.6 Luna low가
+  수행했다.
+- Claude Fable 5 medium과 GPT-5.6 Sol medium은 독립 설계 뒤 상호 반박했다.
+  Fable은 Sol의 소비자 부재·상시 실패·tie-break 반례를 수용해 guard 즉시 이식을
+  철회했고, Sol은 Fable의 standing-instruction 보존 논거를 수용해 P18/P19 문서
+  이식에 동의했다.
+- 최종 합의는 `DOC PORT NOW; AUDIT DESIGN DEFER; DATA NO-PORT; BRANCH KEEP`이다.
+
+### 3. 보호 상태와 다음 순서
+
+- 사용자 `STATUS.md` SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
+  와 `AGENTS.md` SHA-256
+  `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`
+  를 보존했다.
+- `classified_v14.csv` SHA-256
+  `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`,
+  `patch_v14.py` SHA-256
+  `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`
+  를 보존했다.
+- `fix/post-0613-review-and-assignments`는 실패 구현의 반례와 미이식 evidence
+  narrative가 남아 있어 유지한다. 삭제를 다시 검토할 때는 tip `2a7aa3a...`를
+  immutable recovery ref로 먼저 보존한다.
+- 다음 목적 단위는 `origin/codex/linux-migration-2026-07-27`의 portability/tool
+  후보 감사다. evidence·생성 데이터·OTA 판정은 whole-branch로 이식하지 않는다.
