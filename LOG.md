@@ -282,3 +282,30 @@ P1에서 `high_confidence_uncertain_rationale.csv` 196건을 문구·규칙별�
   `archive/pr-7-pre-cleanup` 태그로 원격 보존했다. 각 PR에 감사 근거를 남기고 닫은
   뒤 두 원격 작업 브랜치를 삭제했다. 기존 장기 draft PR은 0개이며, 감사 문서 변경은
   `chore/repository-structure` 브랜치의 PR #11에서 검토한다.
+
+---
+
+## 2026-07-29 포인터 — ★main의 이 파일은 최신이 아니다
+
+**진짜 최신 세션 핸드오프(2026-07-29 세션 종료 블록)는 미병합 브랜치
+`origin/codex/linux-migration-2026-07-27` 의 `LOG.md` 맨 아래에 있다**
+(origin/main 대비 branch-only 26 / main-only 0, tip 2026-07-29; local main
+`a0b46cf` 대비 branch-only 26 / main-only 1). 새 세션은 반드시
+`git rev-list --left-right --count origin/main...origin/codex/linux-migration-2026-07-27`
+및
+`git rev-list --left-right --count a0b46cf...origin/codex/linux-migration-2026-07-27`
+로 미병합 작업을 확인하고
+그 브랜치의 LOG.md 최신 블록을 먼저 읽어라.
+
+주의 — 수치 이원화: main 계열(v2 DB 1,833건·320,752,342원·역사 기준선 p05) vs
+브랜치 계열(classified_v14 1,838행·319,483,680원·p07 후보 기준선). p05는 APA
+누락 상태의 역사 기준선이며 p07은 fresh provenance manifest와 7-gate report 전까지
+전환 기준이 아니다. 두 수치를 섞어 회귀 실패로 오판하지 말 것.
+미병합 원격 ref는 총 5개(linux-migration, resolve-all-pending=PR #13 draft,
+fix/post-0613-review-and-assignments=PR #12, desktop-migration-2026-07-26,
+settlement-integrity-handoff)이나, settlement-integrity-handoff는
+desktop-migration의 선조이고 desktop-migration은 resolve-all-pending의 선조다.
+따라서 독립 tip은 linux-migration, resolve-all-pending(PR #13),
+fix/post-0613-review-and-assignments(PR #12)의 3개이며 자동 병합 금지 — 감사 후
+목적 단위 선별 이식은 `docs/브랜치감사_2026-07-29.md`를 참조한다.
+이 포인터는 브랜치 통합 시 제거한다.
