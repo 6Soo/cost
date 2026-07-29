@@ -77,12 +77,7 @@ def _key_set_sha256(keys: Iterable[str]) -> str:
 
 
 def _read_cards(ledger_dir: Path) -> list[dict[str, object]]:
-    previous = Path.cwd()
-    try:
-        os.chdir(ledger_dir)
-        return [dict(card) for card in cardindex.build_cards()]
-    finally:
-        os.chdir(previous)
+    return [dict(card) for card in cardindex.build_cards(ledger_dir=ledger_dir)]
 
 
 def _card_keys_by_artifact(

@@ -58,14 +58,7 @@ def _insert_source(
 
 def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
     """카드 RAW xlsx를 legacy classified CSV 없이 직접 읽는다."""
-    previous = Path.cwd()
-    try:
-        # 기존 검증된 카드 파서는 ledger/ 상대경로를 사용한다.
-        import os
-        os.chdir(ledger_dir)
-        cards = cardindex.build_cards()
-    finally:
-        os.chdir(previous)
+    cards = cardindex.build_cards(ledger_dir=ledger_dir)
 
     inserted = 0
     identities: dict[str, list[int]] = {}

@@ -2,6 +2,7 @@
 """trip-first 엔진용 카드 인덱스 + 업종기반 계정분류.
 각 카드결제를 승인번호·이용일·업종·청구금액·상태까지 정규화."""
 import openpyxl, re
+from pathlib import Path
 from collections import defaultdict
 
 def i(x):
@@ -9,15 +10,24 @@ def i(x):
     except: return 0
 def d10(s):
     m=re.search(r'(\d{4})[.\-](\d\d)[.\-](\d\d)',str(s)); return '%s-%s-%s'%(m.group(1),m.group(2),m.group(3)) if m else ''
-def load(f):
-    wb=openpyxl.load_workbook('newcard/conv/%s.xlsx'%f,read_only=True); ws=wb[wb.sheetnames[0]]
-    return [[('' if c is None else str(c)) for c in r] for r in ws.iter_rows(values_only=True)]
+DEFAULT_LEDGER_DIR = Path(__file__).resolve().parent
 
-def build_cards():
+def load(f, *, ledger_dir=None):
+    root = Path(ledger_dir) if ledger_dir is not None else DEFAULT_LEDGER_DIR
+    wb = openpyxl.load_workbook(root / 'newcard' / 'conv' / (f + '.xlsx'), read_only=True)
+    try:
+        ws = wb[wb.sheetnames[0]]
+        return [[('' if c is None else str(c)) for c in r]
+                for r in ws.iter_rows(values_only=True)]
+    finally:
+        wb.close()
+
+def build_cards(*, ledger_dir=None):
+    root = Path(ledger_dir) if ledger_dir is not None else DEFAULT_LEDGER_DIR
     cards=[]
     # 국민국내 F: 승인일1 카드5 가맹7 업종8 승인금11 부가세12 승인번호15 상태16 매입일0
     #   취소전표 승인번호는 '취소번호(원승인번호)' 괄호형(195/195 실측) → orig에 원승인 분리 저장
-    for row_number, r in enumerate(load('F')[1:], start=2):
+    for row_number, r in enumerate(load('F', ledger_dir=root)[1:], start=2):
         if len(r)>16 and i(r[11]):
             _m=re.match(r'^\s*(\d+)\((\d+)\)\s*$', str(r[15]).strip())
             _ap,_orig=(_m.group(1),_m.group(2)) if _m else (re.sub(r'\D','',r[15]),'')
@@ -25,14 +35,14 @@ def build_cards():
                 use=d10(r[1]),bill=d10(r[0]),mer=r[7],uptype=r[8],krw=i(r[11]),vat=i(r[12]),
                 cur='KRW',fx=0,sub='국내',cancel=('취소' in (r[16] or '')),status=r[16]))
     # 국민해외 E: 승인일1 카드4 가맹7 통화10 현지11 총결제16 결제방법6 매입일0 (승인번호 없음)
-    for row_number, r in enumerate(load('E')[1:], start=2):
+    for row_number, r in enumerate(load('E', ledger_dir=root)[1:], start=2):
         if len(r)>16 and i(r[16]):
             cards.append(dict(co='국민',src='KBO',raw_record_id=f'E:{row_number}',c4=r[4][-4:],appr='',orig='',
                 use=d10(r[1]) or d10(r[0]),bill=d10(r[0]),mer=r[7],uptype='해외',krw=i(r[16]),vat=0,
                 cur=r[10],fx=r[11],sub='해외',cancel=(r[6]=='취소매출'),status=r[6]))
     # 하나 G/H: 이용일1 카드3 승인번호4 승인금5 승인취소6 가맹7 업종8 이용구분11 매입금14 매입일16 상태17 부가세18
     for f in ('G','H'):
-        for row_number, r in enumerate(load(f)[6:], start=7):
+        for row_number, r in enumerate(load(f, ledger_dir=root)[6:], start=7):
             if len(r)>17 and r[0] and r[0]!='NO' and i(r[5]):
                 gu='해외' if '해외' in (r[11] or '') else '국내'
                 cards.append(dict(co='하나',src='HAN',raw_record_id=f'{f}:{row_number}',c4=r[3][-4:],appr=re.sub(r'\D','',r[4]),orig=re.sub(r'\D','',r[4]),
@@ -40,7 +50,7 @@ def build_cards():
                     approval_amount=i(r[5]),cancel_amount=i(r[6]),purchase_amount=i(r[14]),
                     vat=i(r[18]),cur='KRW',fx=0,sub=gu,cancel=(i(r[6])!=0),status=r[17]))
     # 기업 A(헤더없음): 거래구분0 유형1 일시2 카드3 가맹5 금액6 외화7 승인번호13
-    for row_number, r in enumerate(load('A_20260720'), start=1):
+    for row_number, r in enumerate(load('A_20260720', ledger_dir=root), start=1):
         if len(r)>13 and i(r[6]) and re.match(r'\d{4}-\d\d-\d\d',r[2] or ''):
             gu='해외' if (r[1] or '').startswith('해외') else '국내'
             cards.append(dict(co='기업',src='CORP',raw_record_id=f'A_20260720:{row_number}',c4=r[3][-4:],appr=re.sub(r'\D','',r[13]),orig='',
