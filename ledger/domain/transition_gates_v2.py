@@ -5,8 +5,10 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -69,10 +71,19 @@ GATE_NAMES = (
     "report_freshness",
 )
 APPROVAL_REQUIRED_FIELDS = {
+    "transition_id",
     "rule_id",
     "direct_event_keys",
+    "before_event_sha256",
+    "after_event_sha256",
+    "evidence_set_sha256",
     "before_semantic_sha256",
     "after_semantic_sha256",
+    "approved_by",
+    "approved_at",
+    "approval_source",
+    "approval_source_sha256",
+    "source_run_id",
 }
 
 
@@ -141,12 +152,48 @@ def gate_report_sha256(report: dict[str, object]) -> str:
     return _sha256_bytes(_canonical_json_bytes(payload))
 
 
+def _validate_sha256(value: object, field: str, index: int) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise ValueError(f"approval_hash_invalid:{index}:{field}")
+    return value
+
+
+def _validate_rfc3339_with_timezone(
+    value: object, field: str, index: int
+) -> str:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+            r"(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)",
+            value,
+        ) is None
+    ):
+        raise ValueError(f"approval_timestamp_invalid:{index}:{field}")
+    try:
+        parsed = datetime.fromisoformat(
+            value[:-1] + "+00:00" if value.endswith("Z") else value
+        )
+    except ValueError as exc:
+        raise ValueError(f"approval_timestamp_invalid:{index}:{field}") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"approval_timestamp_invalid:{index}:{field}")
+    if value.endswith("-00:00"):
+        raise ValueError(f"approval_timestamp_invalid:{index}:{field}")
+    return value
+
+
 def validate_approved_transitions(
     approvals: Iterable[dict[str, object]] | None,
+    *,
+    expected_source_run_id: str | None = None,
+    expected_after_semantic_sha256: str | None = None,
 ) -> list[dict[str, object]]:
     if approvals is None:
         return []
     validated: list[dict[str, object]] = []
+    transition_ids: set[str] = set()
+    event_keys_seen: set[str] = set()
     for index, raw in enumerate(approvals):
         if not isinstance(raw, dict):
             raise ValueError(f"approval_not_object:{index}")
@@ -156,20 +203,50 @@ def validate_approved_transitions(
                 f"approval_missing_event_lineage:{index}:{','.join(missing)}"
             )
         event_keys = raw["direct_event_keys"]
+        if not isinstance(event_keys, list) or len(event_keys) != 1:
+            raise ValueError(f"approval_event_keys_invalid:{index}")
         if (
-            not isinstance(event_keys, list)
-            or not event_keys
-            or not all(isinstance(key, str) and key for key in event_keys)
+            not isinstance(event_keys[0], str)
+            or re.fullmatch(
+                r"card:[0-9a-f]{64}#(single|approval|cancellation)",
+                event_keys[0],
+            ) is None
         ):
             raise ValueError(f"approval_event_keys_invalid:{index}")
-        for field in ("before_semantic_sha256", "after_semantic_sha256"):
-            value = raw[field]
-            if (
-                not isinstance(value, str)
-                or len(value) != 64
-                or any(char not in "0123456789abcdef" for char in value)
-            ):
-                raise ValueError(f"approval_semantic_hash_invalid:{index}:{field}")
+        for field in (
+            "before_event_sha256",
+            "after_event_sha256",
+            "evidence_set_sha256",
+            "before_semantic_sha256",
+            "after_semantic_sha256",
+            "approval_source_sha256",
+        ):
+            _validate_sha256(raw[field], field, index)
+        _validate_sha256(raw["transition_id"], "transition_id", index)
+        for field in ("rule_id", "approved_by", "approval_source", "source_run_id"):
+            if not isinstance(raw[field], str) or not raw[field].strip():
+                raise ValueError(f"approval_field_invalid:{index}:{field}")
+        _validate_rfc3339_with_timezone(raw["approved_at"], "approved_at", index)
+        if raw.get("supersedes_approval_id") is not None:
+            raise ValueError(f"approval_supersession_unsupported:{index}")
+        if raw.get("supersedes") is not None:
+            raise ValueError(f"approval_supersedes_field_invalid:{index}")
+        if raw["transition_id"] in transition_ids:
+            raise ValueError(f"approval_duplicate_transition:{index}")
+        if event_keys[0] in event_keys_seen:
+            raise ValueError(f"approval_duplicate_event:{index}")
+        if (
+            expected_source_run_id is not None
+            and raw["source_run_id"] != expected_source_run_id
+        ):
+            raise ValueError(f"approval_source_run_mismatch:{index}")
+        if (
+            expected_after_semantic_sha256 is not None
+            and raw["after_semantic_sha256"] != expected_after_semantic_sha256
+        ):
+            raise ValueError(f"approval_after_semantic_mismatch:{index}")
+        transition_ids.add(raw["transition_id"])
+        event_keys_seen.add(event_keys[0])
         validated.append(dict(raw))
     return validated
 
@@ -662,7 +739,11 @@ def _semantic_regression_gate(
     recomputed = candidate_semantic_sha256(db, run_id)
     integrity_ok = bool(stored_hash and stored_hash == recomputed)
     try:
-        approvals = validate_approved_transitions(approved_transitions)
+        approvals = validate_approved_transitions(
+            approved_transitions,
+            expected_source_run_id=run_id,
+            expected_after_semantic_sha256=recomputed,
+        )
     except ValueError as exc:
         return _gate(
             6,

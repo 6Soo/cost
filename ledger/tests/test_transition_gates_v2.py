@@ -400,6 +400,250 @@ class DirectTransitionGateTest(unittest.TestCase):
                 [{"rule_id": "magic", "amount_krw": 18755}]
             )
 
+    @staticmethod
+    def _valid_approval(**overrides: object) -> dict[str, object]:
+        value = "a" * 64
+        approval: dict[str, object] = {
+            "transition_id": value,
+            "rule_id": "rule-1",
+            "direct_event_keys": [f"card:{value}#single"],
+            "before_event_sha256": value,
+            "after_event_sha256": value,
+            "evidence_set_sha256": value,
+            "before_semantic_sha256": value,
+            "after_semantic_sha256": value,
+            "approved_by": "owner",
+            "approved_at": "2026-07-30T12:00:00+09:00",
+            "approval_source": "approval-artifact",
+            "approval_source_sha256": value,
+            "source_run_id": "run-1",
+        }
+        approval.update(overrides)
+        return approval
+
+    def test_strict_approval_envelope_validates_and_binds_context(self) -> None:
+        value = "a" * 64
+        approval = {
+            "transition_id": "a" * 64,
+            "rule_id": "rule-1",
+            "direct_event_keys": [f"card:{value}#single"],
+            "before_event_sha256": value,
+            "after_event_sha256": value,
+            "evidence_set_sha256": value,
+            "before_semantic_sha256": value,
+            "after_semantic_sha256": value,
+            "approved_by": "owner",
+            "approved_at": "2026-07-30T12:00:00+09:00",
+            "approval_source": "approval-artifact",
+            "approval_source_sha256": value,
+            "source_run_id": "run-1",
+        }
+        self.assertEqual(
+            validate_approved_transitions(
+                [approval],
+                expected_source_run_id="run-1",
+                expected_after_semantic_sha256=value,
+            ),
+            [approval],
+        )
+
+    def test_strict_approval_rejects_legacy_key_and_duplicate_consumption(self) -> None:
+        value = "a" * 64
+        approval = {
+            "transition_id": "a" * 64,
+            "rule_id": "rule-1",
+            "direct_event_keys": ["KBD-1046"],
+            "before_event_sha256": value,
+            "after_event_sha256": value,
+            "evidence_set_sha256": value,
+            "before_semantic_sha256": value,
+            "after_semantic_sha256": value,
+            "approved_by": "owner",
+            "approved_at": "2026-07-30T12:00:00Z",
+            "approval_source": "artifact",
+            "approval_source_sha256": value,
+            "source_run_id": "run-1",
+        }
+        with self.assertRaisesRegex(ValueError, "approval_event_keys_invalid"):
+            validate_approved_transitions([approval])
+        approval["direct_event_keys"] = [f"card:{value}#approval"]
+        with self.assertRaisesRegex(ValueError, "approval_duplicate_event"):
+            validate_approved_transitions(
+                [approval, dict(approval, transition_id="b" * 64)]
+            )
+
+    def test_strict_approval_rejects_draft_and_stale_context(self) -> None:
+        value = "a" * 64
+        approval = {
+            "transition_id": "a" * 64, "rule_id": "rule-1",
+            "direct_event_keys": [f"card:{value}#cancellation"],
+            "before_event_sha256": value, "after_event_sha256": value,
+            "evidence_set_sha256": value, "before_semantic_sha256": value,
+            "after_semantic_sha256": value, "approved_by": "owner",
+            "approved_at": "2026-07-30T12:00:00+09:00",
+            "approval_source": "artifact", "approval_source_sha256": value,
+            "source_run_id": "stale-run",
+        }
+        with self.assertRaisesRegex(ValueError, "approval_source_run_mismatch"):
+            validate_approved_transitions(
+                [approval], expected_source_run_id="current-run",
+                expected_after_semantic_sha256=value,
+            )
+
+    def test_transition_id_and_all_hashes_require_lowercase_sha256(self) -> None:
+        fields = (
+            "transition_id", "before_event_sha256", "after_event_sha256",
+            "evidence_set_sha256", "before_semantic_sha256",
+            "after_semantic_sha256", "approval_source_sha256",
+        )
+        for field in fields:
+            with self.subTest(field=field):
+                for invalid in ("A" * 64, "a" * 63, "g" * 64):
+                    value = self._valid_approval(**{field: invalid})
+                    with self.assertRaisesRegex(
+                        ValueError, "approval_hash_invalid"
+                    ):
+                        validate_approved_transitions([value])
+
+    def test_approval_rejects_each_missing_and_blank_required_field(self) -> None:
+        required = (
+            "transition_id", "rule_id", "direct_event_keys",
+            "before_event_sha256", "after_event_sha256",
+            "evidence_set_sha256", "before_semantic_sha256",
+            "after_semantic_sha256", "approved_by", "approved_at",
+            "approval_source", "approval_source_sha256", "source_run_id",
+        )
+        for field in required:
+            with self.subTest(field=field):
+                missing = self._valid_approval()
+                del missing[field]
+                with self.assertRaises(ValueError):
+                    validate_approved_transitions([missing])
+                blank = self._valid_approval(**{field: ""})
+                with self.assertRaises(ValueError):
+                    validate_approved_transitions([blank])
+
+    def test_approval_rejects_impossible_timestamp_and_supersession(self) -> None:
+        for timestamp in (
+            "2026-02-31T12:00:00Z", "2026-07-30T25:00:00Z",
+            "2026-07-30T12:00:00+99:99", "2026-07-30T12:00:00",
+        ):
+            with self.assertRaisesRegex(ValueError, "approval_timestamp_invalid"):
+                validate_approved_transitions(
+                    [self._valid_approval(approved_at=timestamp)]
+                )
+        for field in ("supersedes_approval_id", "supersedes"):
+            with self.assertRaisesRegex(ValueError, "approval_supers"):
+                validate_approved_transitions(
+                    [self._valid_approval(**{field: "old"})]
+                )
+
+    def test_approval_timestamp_offset_bounds_and_zero_policy(self) -> None:
+        for timestamp in (
+            "2026-07-30T12:00:00+09:60",
+            "2026-07-30T12:00:00-23:60",
+            "2026-07-30T12:00:00-00:00",
+        ):
+            with self.assertRaisesRegex(ValueError, "approval_timestamp_invalid"):
+                validate_approved_transitions(
+                    [self._valid_approval(approved_at=timestamp)]
+                )
+        for timestamp in (
+            "2026-07-30T12:00:00+23:59",
+            "2026-07-30T12:00:00-23:59",
+            "2026-07-30T12:00:00Z",
+            "2026-07-30T12:00:00+00:00",
+        ):
+            self.assertEqual(
+                len(validate_approved_transitions(
+                    [self._valid_approval(approved_at=timestamp)]
+                )),
+                1,
+            )
+
+    def test_approval_requires_exactly_one_direct_event(self) -> None:
+        for event_keys in ([], ["card:" + "a" * 64 + "#single"] * 2):
+            with self.assertRaisesRegex(ValueError, "approval_event_keys_invalid"):
+                validate_approved_transitions(
+                    [self._valid_approval(direct_event_keys=event_keys)]
+                )
+
+    def test_wrong_after_hash_and_duplicate_transition_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "approval_after_semantic_mismatch"):
+            validate_approved_transitions(
+                [self._valid_approval()],
+                expected_source_run_id="run-1",
+                expected_after_semantic_sha256="b" * 64,
+            )
+        approval = self._valid_approval()
+        with self.assertRaisesRegex(ValueError, "approval_duplicate_transition"):
+            validate_approved_transitions(
+                [
+                    approval,
+                    dict(
+                        approval,
+                        direct_event_keys=["card:" + "b" * 64 + "#single"],
+                    ),
+                ]
+            )
+
+    def test_valid_envelope_with_matching_descriptor_still_fails_event_diff(
+        self,
+    ) -> None:
+        database, run_id, expected, root = self._fixture()
+        payload = {
+            "event_scope": "direct-card-v2",
+            "parser_version": PARSER_BUNDLE_VERSION,
+            "candidate_semantic_sha256": expected["candidate_semantic_sha256"],
+        }
+        path = root / "ledger/baselines/direct.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(payload, sort_keys=True).encode()
+        path.write_bytes(raw)
+        baseline = {
+            "relative_path": "ledger/baselines/direct.json",
+            "role": "direct_semantic_baseline",
+            "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        value = expected["candidate_semantic_sha256"]
+        approval = self._valid_approval(
+            source_run_id=run_id,
+            after_semantic_sha256=value,
+        )
+        report = self._report(
+            database, run_id, expected,
+            approved_transitions=[approval], comparable_baseline=baseline,
+        )
+        gate = report["gates"][5]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["reason"], "direct_baseline_event_diff_unimplemented")
+        self.assertEqual(gate["actual"]["approvals_provided"], 1)
+        self.assertEqual(gate["actual"]["approval_mode"], "event_level")
+
+    def test_valid_envelope_without_baseline_still_fails_closed(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        approval = self._valid_approval(
+            source_run_id=run_id,
+            after_semantic_sha256=expected["candidate_semantic_sha256"],
+        )
+        report = self._report(
+            database, run_id, expected, approved_transitions=[approval]
+        )
+        gate = report["gates"][5]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["reason"], "direct_baseline_unavailable")
+        self.assertEqual(gate["actual"]["approvals_provided"], 1)
+        self.assertEqual(gate["actual"]["approval_mode"], "event_level")
+
+    def test_equal_amount_is_not_an_approval_identity(self) -> None:
+        first = self._valid_approval(amount_krw=1234)
+        second = self._valid_approval(
+            transition_id="b" * 64,
+            direct_event_keys=["card:" + "b" * 64 + "#single"],
+            amount_krw=1234,
+        )
+        self.assertEqual(len(validate_approved_transitions([first, second])), 2)
+
     def test_verified_baseline_cannot_pass_without_event_diff(self) -> None:
         database, run_id, expected, root = self._fixture()
         payload = {
