@@ -821,3 +821,30 @@ STATUS/AGENTS/classified_v14/patch_v14 보호 hash는 각각
 `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 유지한다.
 R12 다음 후보는 high review 전 `candidate_selection` pure helper이며, OTA/evidence/data/
 schema/DB/policy cluster는 NO-PORT다.
+
+## 2026-07-30 R12 세션 핸드오프 — binding closure
+
+resolve donor tip `53ef5c89261fd182d1711a50cca11279f72d5560`의 후보
+`candidate_selection.py`와 `test_candidate_selection.py`는 최종 **NO-PORT / 0파일 /
+read-only**로 종결했다. current helper consumer는 없고 donor test 3개는 missing과
+bidirectional success를 다루지 않는다. duplicate item key overwrite/reverse-count
+undercount의 순서 의존 `missing↔bidirectional_unique`, shared-candidate fail-open,
+기본 `id`의 clone 이중선택·memory-address key, 부정확한 동일 TypeVar 서명을 재현했다.
+`1a527e7`은 19파일/2,666 insertion 혼합 commit이며 branch deletion leverage도 없다.
+
+향후 binding negative invariants는 donor 원형 재사용 금지, 명시 semantic key 필수,
+duplicate item key 무탐지 통과 금지, dedupe-to-unique 금지, 고립된 1:1만 자동선택이다.
+consumer·error/status·files 선택은 non-binding이며 owner가 실제 consumer를 정한 별도
+review에서 다시 결정한다. Sol/Fable hypothetical spec은 승인 명세가 아니다.
+
+라우팅: AGY Gemini 3.6 Flash High는 GEMINI_API_KEY 부재로 pre-inference 실패,
+AGY Sonnet 4.6 unavailable, GPT-5.6 Luna low가 inventory/writing을 담당했다.
+Claude Fable 5 medium과 GPT-5.6 Sol medium은 독립 검토·반박 후 binding-only closure를
+수용했다. 코드/data 불변이므로 R12 tests/P07 재실행은 없고 R11 94/94와 P07 expected-fail이
+최신 code evidence다. PR13 resolve draft와 PR12 fix/post는 open이므로 branch는 유지한다.
+
+STATUS/AGENTS/classified_v14/patch_v14 보호 hash는 각각
+`a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc` /
+`3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` /
+`8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989` /
+`1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`로 유지한다.
