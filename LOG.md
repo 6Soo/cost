@@ -557,3 +557,93 @@ Gate 7 report freshness    PASS
 - 사용자 `STATUS.md` SHA-256
   `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
   를 보존했다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — R8 resolve 최소 목적 이식
+
+### 0. 반영 결과
+
+- 통합 control branch `codex/p07-canonical-cutover-candidate`에
+  `c100da5`(`feat: add scoped JPY receipt validation`)을 반영했다.
+- `origin/codex/resolve-all-pending`의 receipt 목적을 전체 cherry-pick하지 않고
+  다음 3개 파일로 재구현했다.
+  - `ledger/receipt_pipeline/__init__.py`
+  - `ledger/receipt_pipeline/validator.py`
+  - `ledger/tests/test_receipt_pipeline.py`
+- 실행 범위는 합성 입력 전용 JPY batch v1이다. 통화는 `JPY`, 변환 정책은
+  `fixed_convenience_rate`, 환율은 bool이 아닌 정수 `10 KRW/JPY`만 허용한다.
+  EUR 등 다른 통화·정책·환율은 조용히 건너뛰지 않고 `ReceiptBatchError`로 거부한다.
+- 실제 영수증/OCR/분류 데이터, schema, DB projection, P07 runtime, baseline은
+  추가하지 않았다. period-recognition은 A0 여행 귀속과 실제 consumer를 함께
+  재설계해야 하므로 이식하지 않았다.
+
+### 1. 검증
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  ledger.tests.test_receipt_pipeline
+# Ran 11 tests — OK
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s ledger/tests -p 'test_*.py'
+# Ran 86 tests in 143.275s — OK
+```
+
+별도 27개 malformed probe는 non-object element, 공백·중복 ID, unknown ref,
+under/over bijection, bool/float count·rate, bool/음수 amount, unknown status,
+불가능한 날짜, exact-True가 아닌 auto-assignment signal, EUR을 모두 fail-closed로
+거부했다. `py_compile`, 신규 행 88자 검사, `git diff --check`도 통과했다.
+
+커밋 상태의 실데이터 P07 재실행:
+
+```text
+output root                 /tmp/cost-r8-control.6obsOk
+exit code                  1
+code_commit                c100da5bd9b8e2f98ea1770599a936755f5e67d1
+code_bundle_sha256         fc4bd152064384bad3b961dc5f3a57eb655320ffa4068c0600d5fce2111eeab3
+input_manifest_sha256      e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199
+candidate_semantic_sha256  83019057f38782c44be9187f7d427ed62b47bcda9d419f70b18b04fde334ece9
+gate_report_sha256         12da7789d1492366473d3ac233045894446c9fa521d20100c204ea06b3cb13ca
+artifact_state             not_published
+candidate DB               없음
+Gate 1 source provenance   PASS (7 physical inputs)
+Gate 2 projection          FAIL (identity collision 8)
+Gate 3 legacy leakage      PASS
+Gate 4 amount relations    FAIL (sign issue 157)
+Gate 5 allocation/decision FAIL (unresolved 5,328)
+Gate 6 semantic regression FAIL (direct baseline unavailable, integrity true)
+Gate 7 report freshness    PASS
+```
+
+새 receipt package는 아직 P07 consumer가 아니므로 runtime code bundle은 R7과
+동일하다. 판정은 `REVIEW=PASS / REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL`이며
+`legacy_path_remains_authoritative`를 유지한다.
+
+### 2. 모델 라우팅·상호검증
+
+- 저추론 구현은 AGY Gemini 3.6 Flash High를 먼저 호출했으나
+  `GEMINI_API_KEY` 부재로 추론 전에 실패했다. AGY Sonnet 4.6 callable 수단도 없어
+  GPT-5.6 Luna low가 정확히 3개 파일을 구현했다.
+- Claude Fable 5 medium과 GPT-5.6 Sol medium은 receipt와 period 후보를 독립 검토한
+  뒤 상호 반박했다. 최종 수용안은 receipt 3파일뿐이며, period 2파일 이식과 generic
+  FX 일반화는 기각·보류했다.
+- 구현 재심 중 Sol은 오래된 NO-PORT 초안을 최신 합의로 오인해 절차상 FAIL을 냈지만,
+  그 문서 이후 Sol이 보낸 exact ACCEPT 메시지를 대조한 v2에서 기존 FAIL을 철회하고
+  `REVIEW=PASS`, 남은 코드 blocker 없음으로 확정했다.
+- Fable 서비스는 파일 대조 뒤 네트워크 재시도 상태가 되어 규칙에 따라 Opus 5 medium이
+  대체 검증했다. Opus도 현재 파일과 11/86/27 검증 근거를 독립 대조해
+  `REVIEW=PASS`, 남은 blocker 없음으로 판정했다.
+
+### 3. 남은 브랜치와 다음 순서
+
+- 이번 목적 이식만으로 `resolve-all-pending`은 삭제하지 않는다. receipt
+  projection/persistence, privacy allowlist, OTA checkpoint/mail evidence,
+  reconciliation/source-loss 등 고유 목적과 기존 2 failures·7 errors가 남아 있다.
+- 다음 목적 단위는 기존 합의대로 `fix/post guards`다. whole-branch merge가 아니라
+  owner test가 있고 P07/원장 정책과 충돌하지 않는 최소 guard만 다시 설계·검증한다.
+- 실제 receipt artifact 수집·분류 승인·DB projection은 별도 권한과 provenance
+  설계 전에는 진행하지 않는다.
+- 사용자 `STATUS.md` SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
+  를 보존했다.
