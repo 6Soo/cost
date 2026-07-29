@@ -912,3 +912,25 @@ policy temp `3293155`, control `9e3b20a`, donor tip `53ef5c89261fd182d1711a50cca
 Routing: Flash missing key → Sonnet unavailable → Luna low. Fable/Sol 독립 후 cross: Fable은 Sol 반박 뒤 same-account propagation·overbroad adverse proposal block을 철회, Sol은 Fable bidirectional venue guard 수용, Fable은 Sol §3 exact P23 수용. 57 tests PASS, diff-check PASS, docs-only·P07 미재실행, REAL_EXPECTED_FAIL=PASS/CUTOVER=FAIL 유지. P1–P22 byte unchanged; P23 item strings 없음, `0630_오제`는 기존. 보호 hash: STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`.
 
 code/data/baseline/output/STATUS/AGENTS untouched; PR12/draft PR13/branches kept. Residual DEFER: donor P18 OTA hierarchy, P22 OTA checkpoint/runbook pending authorized OTA purpose, P20 2025-scope fragment; P25 tail removed. Next R17 residual closure audit only; no automatic OTA/data action.
+
+## 2026-07-30 R17 세션 핸드오프 — guarded P24 closure
+
+policy temp/control `1fbb274`; donor tip `53ef5c89261fd182d1711a50cca11279f72d5560`, source `9ee6866d09dad0d15471fb22fd59e73bf9b96679`. Routing: Flash missing key → Sonnet unavailable → Luna low; Fable/Sol independent → cross → closure. Fable independently first marked donor P18 DEFER; Sol rebutted and rewrote a guarded current P24; Fable exact acceptance: **“ACCEPT — Sol cross §3의 개정 P24 문단을 byte 그대로 binding hunk로 채택한다. 안전 차단 수정 없음.”** Both closures exact: **“P24는 §3 문구 그대로 binding이며, P22는 DEFER, pre-2025 조각은 final NO-PORT, PR12는 ANA/GASUTO 결정 전 KEEP, PR13은 지금 KEEP이고 두 PR의 모든 미래 archive/close/delete는 별도 명시 권한 사항이다.”**
+
+Donor P18 exact quote (source `9ee6866d09dad0d15471fb22fd59e73bf9b96679`):
+
+> **P18. 인증된 OTA 포털 직접조회가 OTA측 최상위 증거(2026-07-26 사용자 확정):**
+> 로그인된 Agoda·Booking.com·Trip.com 예약 상세는 공급자가 현재 보유한
+> 예약번호·상태·숙박/탑승일·원통화 금액·카드 끝자리를 직접 보여 주고,
+> 메일 반송·누락·파서 실패의 영향을 받지 않으므로 OTA측 증거 중 가장 높다.
+> 카드사 RAW는 실제 카드 이벤트의 최상위 증거다. 인증 포털과 카드 RAW의 비교
+> 가능한 교집합이 모두 일치할 때 전체 매칭의 최강 증거로 확정하고, 하나라도
+> 충돌하면 기존 메일·수기·하드코딩보다 우선하여 강한 확정을 차단한다.
+
+Original P18 is **NO-PORT**; guarded current P24 is exact **PORT**. P24 preserves the no-portal P5/P10 default; applies only to a separately authorized, already lawfully acquired, provenance-bound observation; authorizes no new acquisition; separates OTA observation-time facts from card payment/cancellation/refund authority; treats missing/non-comparable fields as not a match; routes conflict to review without overwriting either source; and has the full nonauthority tail: no OTA login/browsing/collection, Gmail/Drive access, checkpoint/DB creation, matching/classification/posting, canonical/ledger/CSV change.
+
+Donor P22 source `4997b2298ae1defe148260134d33255be2073453` remains the sole residual **DEFER / NO-PORT**, pending explicit OTA purpose plus checkpoint owner/privacy/schema/retention/recovery/import gates. Donor P20 exact fragment — **“2025년 이전 거래는 부가세 신고기한이 끝났으므로 현재 우선범위에서 제외한다.”** — is final **NO-PORT** and removed from residual.
+
+PR12/fix-post and draft PR13/resolve remain **KEEP/NO-MERGE**: PR12 awaits ANA/GASUTO user decision; PR13 preserves sole evidence. No archive/tag/close/delete is scheduled or authorized without separate explicit user authorization. Safe donor policy ports are exhausted; next paths require user ANA/GASUTO or OTA approval, or a separate control-native Gate 2 Hana redesign.
+
+Verification: 63 tests PASS and diff-check PASS; docs-only, no P07 rerun; `REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL` remains; P1–P23 byte unchanged. Full protected hashes: STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`, AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`, classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`, patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`. No code/data/baseline/output/STATUS/AGENTS/OTA/Gmail/Drive/PR/ref action.
