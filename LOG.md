@@ -855,3 +855,126 @@ codex gpt-5.6-luna low 로 11샤드 처리(11/11 성공, link 75 · hold 54).
 ### 7. 하지 않기로 한 것
 47건 재조사·링크 전면 재구축·원장 소급 수정. 금액 영향이 0인 사안에 비례하지 않는 비용이며,
 Agoda 대사가 도래하면 그룹 안에서 재짝짓기로 해소된다.
+
+---
+
+## 2026-07-29 세션 종료 핸드오프 — ★다음 세션은 여기부터 읽어라
+
+이 블록 하나만 읽어도 재개 가능하도록 정리했다. 세부 경위는 위 블록들(이어서 1~7)에 있다.
+
+### 0. 현재 상태 수치 (실측)
+
+| 항목 | 값 |
+|---|---|
+| `ledger/data/classified_v14.csv` | **1,838행 / 319,483,680원** |
+| OTA 확정 링크 | **255** (`ota_event_links_verified.json`) |
+| 그룹배정(강등, 미확정) | **17** (`ota_group_assignments.json`) |
+| 여행자보험 기간 검증값 | **5** (`insurance_periods_verified.json`) |
+| OTA 카드이벤트 / 잔여 | 549 / **294** |
+| 공급사별 잔여 | agoda 103 · trip 139 · booking 14 · mytrip 11 · travelrover 27(보험, 대사 대상 아님) |
+| OTA HOLD | 미해소 6 · 선언 9 · 중앙링크로 해소 3 |
+| 원문 Gmail 색인 | `ota_mail_index.raw.json` 29,054,822 bytes (gitignore, 로컬 전용) |
+| 브랜치 | `codex/linux-migration-2026-07-27` — origin/main 대비 **0 behind** |
+
+검증: `ledger/` 회귀 30 passed·10 subtests · `ledger/tests/` 29 passed · `node tests/test_ota_matching.js` 11 passed.
+
+### 1. ★최우선 — Agoda 세션은 살아 있다. 로그인 요청하지 마라
+
+2026-07-29 실측: Chrome에서 `https://www.agoda.com/account/bookings.html` 가 **로그인 상태로 그대로 열린다**
+(계정 EUIYOUNG K. / VIP Diamond). 이전 인계서·LOG가 "사용자 로그인 필요"라고 적은 것은 **확인하지 않고 단정한 것**이며 사실이 아니다.
+
+**검증된 수집 절차** (그대로 재현하면 된다):
+1. `claude-in-chrome` 스킬 → `tabs_context_mcp{createIfEmpty:true}` → `navigate` 로 위 URL.
+2. `find` 로 `Completed` 탭 버튼을 잡아 클릭(4월 예약은 Upcoming이 아니라 Completed에 있다).
+3. 목록에 **예약번호 + 호텔명 + 체크인/체크아웃**이 그대로 나온다. 상세 페이지 진입 불필요.
+   `bookingdetail.html?bookingId=…` 같은 URL 직접 접근은 **404다.** 목록 파싱이 정답이다.
+4. `javascript_tool` 로 `document.body.innerText` 를 아래 정규식으로 파싱(40/40 정확 검증됨):
+   ```js
+   /ID:\s*(\d{8,})\s*\n\s*(Completed|Confirmed|Cancelled)[^\n]*\n(?:[^\n]*\n)??\s*([^\n]+?)\s*\nCheck in\s*\n\s*([^\n]+?)\s*\n\s*•?\s*\n?\s*Check out\s*\n\s*([^\n]+?)\s*\n/g
+   ```
+5. 페이지네이션 **12페이지 × 40건 ≈ 480건**. 페이지 버튼은 innerText가 `"1"`~`"12"` 인 button 이고
+   현재 페이지는 `aria-current="true"` 다. 스크롤로는 더 안 로드된다 — 페이지 클릭이 유일한 경로다.
+   ⚠ 페이지 전환이 느리다(체감 20~30초/페이지). 한 번의 async IIFE 안에서 12페이지를 도는 방식은
+   툴이 즉시 `{}` 를 반환해 결과 회수가 어렵다. **페이지마다 개별 호출로 수집·저장하라.**
+   ⚠ 수집 결과를 `window.__x` 에만 두면 탭 그룹이 정리될 때 **유실된다**(이번에 유실됨).
+      페이지마다 파일로 떨어뜨려라.
+6. 산출 목표 파일: **`ledger/data/stay_periods_verified.json`**
+   ```json
+   { "1721756989": { "check_in": "2026-04-26", "check_out": "2026-04-28",
+                     "evidence_grade": "verified_agoda_site",
+                     "source": "Agoda 예약목록 Completed 탭 2026-07-30" } }
+   ```
+   `evidence_grade` 가 `verified_` 로 시작해야 승격 게이트가 인정한다.
+
+이게 채워지면 `python ledger/promote_group_assignments.py --apply` 로 강등 17건이 자동 승격되고,
+agoda 잔여 103건 대사의 근거가 생긴다. **현재 최대 병목이며 사람 개입 없이 진행 가능하다.**
+
+### 2. 그 다음 우선순위
+
+1. **아고다 메일 금액추출 파서 보강** — 아고다 메일 485건 중 금액 추출 26건(5.4%)뿐이라
+   원화 카드금액↔메일 금액 교집합이 성립하지 않는다. `여행_미배정` 실질 잔여 9행 중 5행
+   (1,117,929원 = 87%)이 이것 때문에 막혀 있다. 추출기는 `tools/ota-mail-batch.mjs` 의 `extract()`.
+2. **링크 레코드에 `allocation_target` 도입** — 확정 링크가 82→255로 3배 늘었는데 `여행_미배정`은
+   19행/2,734,540원 그대로다. 링크 255건 중 `allocation_target` 보유 **0건**, `period` 보유 148건(59%)이라
+   링크가 버킷 재배정으로 이어지는 경로가 없다. **구조 문제다 — 링크를 더 만들어도 안 줄어든다.**
+3. **인계서 §4-5 하나카드 최종청구 3건 미반영** — `MISC-0010/0011` 의 승인번호는 같은데 금액이
+   다르고(584,193 vs 227,411 / 543,947 vs 422,687), 인계서가 기록한 최종청구액(227,861 / 423,524 / 393,383)은
+   어느 쪽과도 불일치한다. 이걸 먼저 정리해야 MISC 정합이 잡힌다.
+4. **`KBD-0380` 탭 배분 판단 필요** — 163,788원, 전용진 귀국편 6/30→7/9 변경수수료.
+   출발 기준 `0625_아키타` 단독 귀속인지, 후속 일정(`0630_오제`·`0704_아키타`)에 배분인지 대표 판단.
+5. **`CORP-2005`/`CORP-2006` → `0424_알펜루트` 이관 후보** — 각 실청구 0원(무료취소),
+   Trip.com 나카무라칸 예약 `1400825420340820`/`1400825420358648` 확인됨. 총액 영향 0.
+   ※ 인계서가 `CORP-2005` 를 "비OTA(나이스정보통신)"로 분류한 것은 오류다 — Trip.com 국내 PG 결제다.
+
+### 3. 절대 하지 말 것
+
+- **`MISC-*` 10건을 "중복이니 정리"하지 마라.** 5건은 짝이 0원이라 금액이 미배정 행에만 있어
+  정리하면 총액이 움직인다. 2건은 승인번호 동일·금액 상이다.
+- **강등 17건을 모델 판정으로 되살리지 마라.** `build_ota_candidates.py`·`validate_ota_verdicts.py` 에
+  제외 가드가 있다. 해소는 오직 `promote_group_assignments.py` 게이트로만.
+- **`ota_mail_index.json`(추적본, 편집본)에 원문을 쓰지 마라.** 원문은 `.raw.json` 이다.
+  같은 경로를 쓰면 git 병합이 원문을 덮어쓴다(2026-07-29 실제 사고).
+- **도메인 스위트(`ledger/tests/`)가 도는 동안 `ledger/data/` 를 건드리지 마라.** 입력이 바뀌면
+  `repeated_snapshot` 이 깨져 멀쩡한 테스트가 실패한다(이번에 겪음).
+- **`reconcile_ota_index.py` 는 기본 dry-run이다.** `--apply` 없이는 중앙 링크를 안 건드린다.
+
+### 4. 이번 세션에 새로 생긴 것 (도구·데이터)
+
+| 파일 | 역할 |
+|---|---|
+| `ledger/merge_verified_ota_links.py` | 링크 가드 병합기(overwrite 0·수량검산·백업·원자적 rename·read-back) |
+| `ledger/build_ota_candidates.py` | Gmail **원문 본문** 대조 후보 생성기(기존 대사기는 메타데이터만 봄) |
+| `ledger/build_manual_ledger_links.py` | 수기장부 기준 **유일 교집합**만 링크 |
+| `ledger/build_insurance_periods.py` | 여행자보험 `보험기간` 파싱 → 여행배정 근거 |
+| `ledger/demote_arbitrary_links.py` | 원장 임의배정 유래 링크 강등 분리 |
+| `ledger/promote_group_assignments.py` | 숙박일 검증 후 승격 게이트 |
+| `ledger/build_group_assignments.py` | 그룹 잠정배정 기록기 |
+| `tools/ota_shard_runner.py` | 샤드를 외부 CLI에 병렬 분배(ThreadPool) |
+| `tools/validate_ota_verdicts.py` | 외부 모델 판정 **원천 교차검증**(환각·중복주장·강등 차단) |
+| `ledger/test_apa_combined_billing.py` | APA 합산청구 분해 회귀 5건 |
+| `ledger/test_ledger_arbitrary_groups.py` | 원장 임의배정 안전조건 상설 6건 |
+| `ledger/baselines/p07_apa_corrected_20260729/` | 회귀 기준선(구 p05는 APA 누락을 고정하고 있었음) |
+| `ledger/data/ota_group_assignments.json` | 강등 17건(미확정, 사용제한 명시) |
+| `ledger/data/insurance_periods_verified.json` | 보험기간 검증값 5건 |
+
+### 5. 외부 모델 운용 실측 (다음 세션 참고)
+
+- **`codex exec --model gpt-5.6-luna -c model_reasoning_effort=low`** — 동작 확인. 샤드 판정에 적합.
+  라운드별 교차검증 통과율 **47/75 → 5/28 → 3/25** 로 수확체감이 뚜렷하다. 4차는 무의미하다.
+  기각 사유 대부분이 N:M 예약번호 중복주장 — 모델이 볼 수 있는 증거로는 안 풀린다.
+- **`codex exec --model gpt-5.6-sol -c model_reasoning_effort=high`** — 판정·반박에 사용. 정상.
+- **`agy`(gemini-3.6-flash-high)는 이 환경에서 사용 불가.** 프롬프트를 실행하지 않고 이전 대화 응답을
+  되돌려준다. 위치인자·`--prompt`·stdin·`--output-format json`·`--new-project`·`--log-file` 전부 동일.
+  `--new-project` 에서는 `~/.gemini/config/AGENTS.md` 의 **샘플 내용**(React+Vite 생성 안내)을 실행하려 했다.
+  그 파일이 아직 `# Sample AGENTS.md file` 원본이다. 사용자 환경 문제이며 저장소 오염은 없다.
+- `.env` 부재 → `tools/gemini.mjs`·`tools/llm-bridge.mjs` 경로는 사용 불가.
+
+### 6. 이번 세션에서 내가 틀렸던 것 (같은 실수 반복 금지)
+
+1. **확인 없이 "사용자 로그인 필요"라고 단정했다.** Agoda 세션은 살아 있었다. §1 참조.
+2. **`HAN-3147`/`CORP-2034` 를 "카드사가 갈려 짝이 결정된다"고 판정했다 — 순환논증이었다.**
+   카드사 열은 실제 카드내역이지만 예약번호를 어느 행에 적을지는 원장 작성자가 임의로 정했다. 철회·강등 완료.
+3. **"그룹 내 기간 표기 전원 동일"을 전체로 일반화했다.** 실제로는 OTA 충돌 9개군 한정이었고,
+   전체 20개군에는 예외가 있다(마이트립 몽골 항공, 승객별 PNR).
+4. **도메인 테스트 실패를 "origin/main 테스트의 격리 결함"이라 추정했다.** 실제 원인은
+   내가 스위트 실행 중 `patch_v14.py` 를 돌려 입력 CSV를 바꾼 것이었다.
