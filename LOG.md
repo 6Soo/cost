@@ -309,3 +309,105 @@ desktop-migration의 선조이고 desktop-migration은 resolve-all-pending의 �
 fix/post-0613-review-and-assignments(PR #12)의 3개이며 자동 병합 금지 — 감사 후
 목적 단위 선별 이식은 `docs/브랜치감사_2026-07-29.md`를 참조한다.
 이 포인터는 브랜치 통합 시 제거한다.
+
+---
+
+## 2026-07-30 세션 핸드오프 — P07 direct candidate first slice
+
+### 0. 판정
+
+- 작업 브랜치: `codex/p07-canonical-cutover-candidate`
+- 구현 전 기준 HEAD: `377d4bf` (`docs: audit canonical cutover branch lineage`)
+- 코드 심사: **PASS**
+- 실데이터 expected-fail 계약: **PASS**
+- 운영 cutover: **FAIL** — `legacy_path_remains_authoritative`
+- 외부 push·PR·merge·배포·Drive/Gmail·운영 데이터 변경은 수행하지 않았다.
+- 사용자 선행 수정 `STATUS.md`는 건드리지 않았고 SHA-256
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`
+  를 보존했다.
+
+### 1. 구현
+
+기존 v1/legacy 파일과 데이터·기준선을 수정하지 않고 다음 6개 파일만 추가했다.
+
+- `ledger/domain/direct_projection_schema.sql`
+- `ledger/domain/direct_projection.py`
+- `ledger/domain/transition_gates_v2.py`
+- `ledger/domain/p07_manifest.py`
+- `ledger/tests/test_direct_projection.py`
+- `ledger/tests/test_transition_gates_v2.py`
+
+핵심 계약:
+
+- 카드 RAW 5개 파일을 직접 결제 후보로 투영하고, 수기장부·OTA는 provenance/evidence로만
+  적재한다. manual/OTA가 candidate payment를 생성하지 않는다.
+- 7개 물리 입력의 raw/LF/byte/record/key-set/parser hash를 고정하고 경로 이탈·빈 입력·
+  중복키·동일키 내용충돌을 실패 처리한다.
+- candidate DB는 임시 DB에서 생성·게이트 평가한다. PASS 시에도
+  `building DB 설치 → report directory 원자 게시 → DB passed 활성화 →
+  manifest candidate_ready_for_shadow 원자 교체` 순서를 지키며, 어느 단계의 예외도
+  새 DB·report·WAL/SHM을 롤백한다.
+- 소비자 view는 `status='passed'`인 run만 노출한다.
+- report self-hash, manifest 입력/code bundle/comparator/파생 상태, PASS DB의 run 상태·
+  실제 projection semantic hash·노출 건수를 다시 계산해 교차검증한다.
+- Gate 6은 저장소 내부 path/role/raw hash가 검증된 baseline descriptor만 읽지만,
+  event-level diff가 구현되기 전에는 그 기준선도 PASS시키지 않는다.
+
+### 2. 모델 라우팅·상호검증
+
+- 고추론 설계·적대검증: Claude Fable 5 medium과 GPT-5.6 Sol medium이 독립 판단 후
+  상호 검증·반박·항목별 수용/기각을 수행했다.
+- 저추론 구현 라우팅: AGY Gemini 3.6 Flash High는 503으로 사용할 수 없었고,
+  AGY Sonnet 4.6도 사용 불가/응답 정지였다. 최종 폴백 GPT-5.6 Luna low가 초기 구현을
+  맡았으며, 발견된 결함은 coordinator가 수정하고 Fable/Sol이 다시 적대검증했다.
+- 수용한 반례: PASS 게시 원자성, manifest input/code/state/approval/파생값 변조,
+  검증되지 않은 3필드 baseline dict, 게시 후 PASS DB business row 변조.
+- 기각한 경로: legacy import/FK 재사용, manual/OTA payment 생성, aggregate·magic-number
+  승인, 검증되지 않은 baseline PASS, report만 맞고 실제 DB 내용을 재검증하지 않는 방식.
+- 최종 독립 판정은 양쪽 모두
+  `REVIEW=PASS / REAL_EXPECTED_FAIL=PASS / CUTOVER=FAIL`이다.
+
+### 3. 최종 검증
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  ledger.tests.test_direct_projection \
+  ledger.tests.test_transition_gates_v2
+# Ran 34 tests — OK
+
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s ledger/tests -p 'test_*.py'
+# Ran 63 tests in 184.608s — OK
+```
+
+코드 동결 뒤 실데이터 실행:
+
+```text
+output root                 /tmp/cost-p07-final-freeze.EI6VDi
+exit code                  1
+input_manifest_sha256      e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199
+candidate_semantic_sha256  83019057f38782c44be9187f7d427ed62b47bcda9d419f70b18b04fde334ece9
+gate_report_sha256         f15174cc8e036e9d815acb358431337dd8233cee0458d06e165e1a34ca31175f
+artifact_state             not_published
+candidate DB               없음
+Gate 1 source provenance   PASS (7 physical inputs)
+Gate 2 projection          FAIL (identity collision 8)
+Gate 3 legacy leakage      PASS
+Gate 4 amount relations    FAIL (positive cancellation/sign issue 157)
+Gate 5 allocation/decision FAIL (unresolved 5,328)
+Gate 6 semantic regression FAIL (direct baseline unavailable, integrity true)
+Gate 7 report freshness    PASS
+```
+
+`git diff --check`, Python compile 검증, 기존 data/baseline/runtime 파일 무변경 대조도
+통과했다.
+
+### 4. 다음 우선순위
+
+1. identity collision 8건의 원천키·이벤트 ID 생성 규칙을 행 단위로 분석하고 수정한다.
+2. positive cancellation/sign issue 157건의 카드사별 원천 부호 의미를 확정한다.
+3. direct candidate 5,328건의 allocation/decision을 event lineage 기반으로 구현한다.
+4. 승인 계보(`approved_by/approved_at/source_run_id`)가 있는 direct event-level baseline과
+   strict event-key diff/approval을 구현한다.
+5. 네 blocker가 모두 해소되고 동일 7-gate·artifact 검증이 다시 통과하기 전에는
+   legacy 경로를 정본으로 유지한다.
