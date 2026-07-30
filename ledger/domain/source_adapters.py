@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
 
-CARD_EVENT_ID_VERSION = "card-event-v1"
+CARD_EVENT_ID_VERSION = "card-event-v2"
 OTA_REDACTION_VERSION = "ota-allowlist-v1"
 
 OTA_ALLOWED_FIELDS = {
@@ -66,6 +66,17 @@ def _decimal_text(value: object) -> str:
         return text
 
 
+def _strict_occurrence_date(row: Mapping[str, object]) -> str | None:
+    value = _text(row.get("use_date") or row.get("occurred_on"))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        normalized = date.fromisoformat(value).isoformat()
+    except ValueError:
+        return None
+    return normalized if normalized == value else None
+
+
 def _hash_payload(namespace: str, payload: Mapping[str, object]) -> str:
     canonical = json.dumps(
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -96,14 +107,16 @@ def stable_card_event_identity(row: Mapping[str, object]) -> CardEventIdentity:
     source_locator = stable_source_locator or legacy_locator
 
     if approval:
+        occurred_on = _strict_occurrence_date(row)
         payload: dict[str, object] = {
             "source": source,
             "card4": _digits(row.get("card4"))[-4:],
             "approval": approval,
             "original_approval": original_approval,
             "event_kind": event_kind,
+            "occurred_on": occurred_on or "",
         }
-        status = "unique"
+        status = "unique" if occurred_on else "legacy_fallback"
     else:
         payload = {
             "source": source,

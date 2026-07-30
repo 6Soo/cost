@@ -18,15 +18,78 @@ class SourceAdapterTest(unittest.TestCase):
             "src": "KBD",
             "card4": "8835",
             "appr": "12345678",
+            "use_date": "2026-03-12",
             "krw": "10000",
             "merchant": "A",
             "uid": "OLD-1",
+            "post_date": "2026-03-14",
+            "raw_record_id": "KBD:1",
         }
-        changed = {**base, "merchant": "정규화된 A", "uid": "NEW-999"}
+        changed = {
+            **base,
+            "merchant": "정규화된 A",
+            "uid": "NEW-999",
+            "krw": "99999",
+            "post_date": "2026-03-15",
+            "raw_record_id": "KBD:999",
+        }
         self.assertEqual(
             stable_card_event_identity(base).card_event_id,
             stable_card_event_identity(changed).card_event_id,
         )
+
+    def test_approval_identity_dates_are_distinct(self) -> None:
+        base = {
+            "src": "HAN",
+            "card4": "4595",
+            "appr": "00107633",
+            "use_date": "2026-06-10",
+            "krw": "392606",
+        }
+        self.assertNotEqual(
+            stable_card_event_identity(base).card_event_id,
+            stable_card_event_identity({**base, "use_date": "2026-06-06"}).card_event_id,
+        )
+
+    def test_approval_missing_or_invalid_date_is_legacy_fallback(self) -> None:
+        base = {"src": "HAN", "card4": "4595", "appr": "00107633"}
+        self.assertEqual(stable_card_event_identity(base).identity_status, "legacy_fallback")
+        self.assertEqual(
+            stable_card_event_identity({**base, "use_date": "2026-02-30"}).identity_status,
+            "legacy_fallback",
+        )
+        self.assertEqual(
+            stable_card_event_identity({**base, "use_date": "2026-6-06"}).identity_status,
+            "legacy_fallback",
+        )
+
+    def test_same_date_approval_duplicate_remains_collision(self) -> None:
+        row = {
+            "src": "HAN",
+            "card4": "4595",
+            "appr": "00107633",
+            "use_date": "2026-06-10",
+            "krw": "392606",
+        }
+        identities = mark_identity_collisions(
+            [stable_card_event_identity(row), stable_card_event_identity(dict(row))]
+        )
+        self.assertEqual([item.identity_status for item in identities], ["collision", "collision"])
+
+    def test_approval_purchase_and_cancellation_kinds_remain_distinct(self) -> None:
+        base = {
+            "src": "HAN",
+            "card4": "4595",
+            "appr": "00107633",
+            "use_date": "2026-06-10",
+            "krw": "392606",
+        }
+        cancellation = {**base, "cancel": "1", "krw": "-392606"}
+        purchase_identity = stable_card_event_identity(base)
+        cancellation_identity = stable_card_event_identity(cancellation)
+        self.assertNotEqual(purchase_identity.card_event_id, cancellation_identity.card_event_id)
+        self.assertEqual(purchase_identity.structural_payload["event_kind"], "purchase")
+        self.assertEqual(cancellation_identity.structural_payload["event_kind"], "refund")
 
     def test_overseas_identity_preserves_same_amount_duplicate_rows(self) -> None:
         base = {

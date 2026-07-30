@@ -504,6 +504,15 @@ def _projection_cardinality_gate(
         ORDER BY e.card_event_id, s.source_key
         """
     ).fetchall()
+    fallbacks = db.execute(
+        """
+        SELECT e.card_event_id, s.source_key, e.identity_status
+        FROM direct_card_events e
+        JOIN direct_source_records s ON s.id=e.source_record_id
+        WHERE e.identity_status='legacy_fallback'
+        ORDER BY e.card_event_id, s.source_key
+        """
+    ).fetchall()
     duplicates = db.execute(
         """
         SELECT d.card_event_id, d.event_role, COUNT(*)
@@ -542,11 +551,14 @@ def _projection_cardinality_gate(
         and direct_count == link_count
         and not unmatched
         and not collisions
+        and not fallbacks
         and not duplicates
         and not mismatches
     )
     if collisions:
         reason = "identity_collision"
+    elif fallbacks:
+        reason = "identity_not_unique"
     elif unmatched:
         reason = "unmatched_direct_payment"
     elif duplicates:
@@ -571,6 +583,8 @@ def _projection_cardinality_gate(
             "unmatched_sample": [list(row) for row in unmatched[:10]],
             "collision_count": len(collisions),
             "collision_sample": [list(row) for row in collisions[:10]],
+            "fallback_count": len(fallbacks),
+            "fallback_sample": [list(row) for row in fallbacks[:10]],
             "duplicate_event_count": len(duplicates),
             "business_mismatch_count": len(mismatches),
         },

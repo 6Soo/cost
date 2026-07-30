@@ -54,9 +54,26 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                     LEDGER_DIR / "data" / "ota_mail_index.json",
                 )
                 self.assertEqual(first["direct_records"], 8336)
+                self.assertEqual(first["cards"]["identity_collisions"], 0)
+                identities = db.execute(
+                    "SELECT card_event_id, identity_status FROM direct_card_events ORDER BY card_event_id"
+                ).fetchall()
+                self.assertTrue(identities)
+                self.assertTrue(all(row[1] == "unique" for row in identities))
+                first_identity_snapshot = [tuple(row) for row in identities]
+                first_identity_count = len(first_identity_snapshot)
                 self.assertEqual(second["cards"]["inserted"], 0)
+                self.assertEqual(second["cards"]["identity_collisions"], 0)
                 self.assertEqual(second["manual"]["inserted"], 0)
                 self.assertEqual(second["ota"]["inserted"], 0)
+                second_identity_snapshot = [
+                    tuple(row)
+                    for row in db.execute(
+                        "SELECT card_event_id, identity_status FROM direct_card_events ORDER BY card_event_id"
+                    ).fetchall()
+                ]
+                self.assertEqual(second_identity_snapshot, first_identity_snapshot)
+                self.assertEqual(len(second_identity_snapshot), first_identity_count)
                 split_hana = db.execute(
                     """
                     SELECT

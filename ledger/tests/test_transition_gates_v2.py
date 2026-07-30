@@ -285,6 +285,28 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(gate["actual"]["collision_count"], 1)
         self.assertTrue(gate["actual"]["collision_sample"][0][1])
 
+    def test_identity_fallback_alone_fails_gate_two(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = sqlite3.connect(database)
+        db.execute(
+            """
+            UPDATE direct_card_events
+            SET identity_status='legacy_fallback'
+            WHERE source_record_id=(
+                SELECT MIN(source_record_id) FROM direct_card_events
+            )
+            """
+        )
+        db.commit()
+        db.close()
+        report = self._report(database, run_id, expected)
+        gate = report["gates"][1]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["reason"], "identity_not_unique")
+        self.assertEqual(gate["actual"]["collision_count"], 0)
+        self.assertEqual(gate["actual"]["fallback_count"], 1)
+        self.assertEqual(gate["actual"]["fallback_sample"][0][2], "legacy_fallback")
+
     def test_seeded_legacy_payment_fails_leakage_gate(self) -> None:
         database, run_id, expected, _ = self._fixture()
         db = sqlite3.connect(database)
