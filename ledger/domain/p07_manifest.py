@@ -256,6 +256,7 @@ def run_p07(
     manual_path: Path | None = None,
     ota_path: Path | None = None,
     code_commit: str | None = None,
+    owner_review_output: Path | None = None,
 ) -> dict[str, object]:
     result = build_direct_candidate(
         output_db,
@@ -264,6 +265,7 @@ def run_p07(
         manual_path=manual_path,
         ota_path=ota_path,
         code_commit=code_commit,
+        owner_review_output=owner_review_output,
     )
     verified = verify_run_artifacts(
         Path(str(result["report_dir"])),
@@ -285,6 +287,7 @@ def main() -> int:
     parser.add_argument("--manual", type=Path)
     parser.add_argument("--ota", type=Path)
     parser.add_argument("--code-commit")
+    parser.add_argument("--owner-review-output", type=Path, help="write an external validation template")
     args = parser.parse_args()
     result = run_p07(
         output_db=args.output_db,
@@ -293,6 +296,7 @@ def main() -> int:
         manual_path=args.manual,
         ota_path=args.ota,
         code_commit=args.code_commit,
+        owner_review_output=args.owner_review_output,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["passed"] else 1

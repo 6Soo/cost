@@ -43,6 +43,7 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/direct_projection.py"),
     Path("ledger/domain/transition_gates_v2.py"),
     Path("ledger/domain/p07_manifest.py"),
+    Path("ledger/domain/direct_owner_review.py"),
 )
 
 
@@ -443,6 +444,9 @@ def build_direct_candidate(
     ota_path: Path | None = None,
     code_commit: str | None = None,
     repository_root: Path = REPOSITORY_ROOT,
+    owner_review_output: Path | None = None,
+    owner_review_manifest: Path | None = None,
+    owner_review_events: Path | None = None,
 ) -> dict[str, object]:
     """Build, gate, and publish only a fully passing shadow candidate."""
     root = repository_root.resolve()
@@ -451,6 +455,13 @@ def build_direct_candidate(
     artifact_root = output_dir.resolve()
     _reject_repository_output(output_database, root, "candidate_output")
     _reject_repository_output(artifact_root, root, "artifact_output")
+    if owner_review_output is not None:
+        owner_target = owner_review_output.resolve()
+        _reject_repository_output(owner_target, root, "owner_review_output")
+        if owner_target == output_database or output_database in owner_target.parents or owner_target in output_database.parents:
+            raise ValueError("owner_review_output_candidate_overlap")
+        if owner_target == artifact_root or artifact_root in owner_target.parents or owner_target in artifact_root.parents:
+            raise ValueError("owner_review_output_artifact_overlap")
     if output_database.exists():
         raise FileExistsError(f"destination_exists:{output_database}")
     if artifact_root.exists():
@@ -484,6 +495,7 @@ def build_direct_candidate(
     db = None
     candidate_installed = False
     artifacts_installed = False
+    owner_review_installed = False
     try:
         db = connect(temporary_db)
         initialize(db)
@@ -592,6 +604,35 @@ def build_direct_candidate(
             ],
             "candidate_payment_count": projected,
         }
+        owner_review_result = None
+        if owner_review_manifest is not None or owner_review_events is not None:
+            if owner_review_manifest is None or owner_review_events is None:
+                raise ValueError("owner_review_input_incomplete")
+            from ledger.domain.direct_owner_review import load_owner_review
+            owner_review_result = load_owner_review(
+                owner_review_manifest, owner_review_events, db=db, run_id=run_id,
+                report=report, provenance={
+                    "source_run_id": run_id, "code_commit": actual_commit,
+                    "code_bundle_sha256": bundle["code_bundle_sha256"],
+                    "gate_report_sha256": report_hash, "source_inventory": inventory,
+                },
+            )
+        if owner_review_output is not None:
+            from ledger.domain.direct_owner_review import build_owner_review, write_owner_review
+            owner_review_result = write_owner_review(
+                build_owner_review(
+                    db, run_id, report,
+                    provenance={
+                        "code_commit": actual_commit,
+                        "code_bundle_sha256": bundle["code_bundle_sha256"],
+                        "gate_report_sha256": report_hash,
+                        "source_inventory": inventory,
+                    },
+                ),
+                owner_review_output,
+                repository_root=root,
+            )
+            owner_review_installed = True
         slug = f"{run_id}-{semantic_hash[:12]}"
 
         if passed:
@@ -643,6 +684,7 @@ def build_direct_candidate(
             "candidate_semantic_sha256": semantic_hash,
             "gate_report_sha256": report_hash,
             "failed_gates": manifest["failed_gates"],
+            "owner_review": owner_review_result,
         }
     except Exception:
         if db is not None:
@@ -662,6 +704,8 @@ def build_direct_candidate(
             _remove_sqlite_artifacts(output_database)
         if artifacts_installed:
             _remove_new_artifact_directory(artifact_root)
+        if owner_review_installed and owner_review_output is not None:
+            _remove_new_artifact_directory(owner_review_output.resolve())
         raise
     finally:
         if db is not None:
@@ -677,6 +721,9 @@ def main() -> int:
     parser.add_argument("--manual", type=Path)
     parser.add_argument("--ota", type=Path)
     parser.add_argument("--code-commit")
+    parser.add_argument("--owner-review-output", type=Path, help="write an external validation template")
+    parser.add_argument("--owner-review-manifest", type=Path)
+    parser.add_argument("--owner-review-events", type=Path)
     args = parser.parse_args()
     result = build_direct_candidate(
         args.output_db,
@@ -685,6 +732,9 @@ def main() -> int:
         manual_path=args.manual,
         ota_path=args.ota,
         code_commit=args.code_commit,
+        owner_review_output=args.owner_review_output,
+        owner_review_manifest=args.owner_review_manifest,
+        owner_review_events=args.owner_review_events,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["passed"] else 1

@@ -4,6 +4,7 @@ import sqlite3
 import json
 import tempfile
 import unittest
+import inspect
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +27,52 @@ from ledger.domain.transition_gates_v2 import GATE_NAMES
 
 
 class DirectProjectionTest(unittest.TestCase):
+    def test_owner_review_output_is_opt_in(self) -> None:
+        parameter = inspect.signature(build_direct_candidate).parameters["owner_review_output"]
+        self.assertIsNone(parameter.default)
+
+    def test_failed_real_p07_owner_export_is_external_blank_5328_and_unpublished(self) -> None:
+        import tempfile
+        from ledger.domain.direct_projection import build_direct_candidate
+        with tempfile.TemporaryDirectory(prefix="r22-real-test-") as dirname:
+            base = Path(dirname)
+            result = build_direct_candidate(
+                base / "candidate.db", Path("ledger"),
+                output_dir=base / "artifacts", owner_review_output=base / "owner",
+            )
+            self.assertFalse(result["passed"])
+            self.assertIsNone(result["output_db"])
+            self.assertEqual(result["status"], "blocked")
+            self.assertTrue((base / "owner" / "manifest.json").is_file())
+            with (base / "owner" / "events.csv").open(encoding="utf-8") as stream:
+                import csv
+                rows = list(csv.DictReader(stream))
+            self.assertEqual(len(rows), 5328)
+            manifest = json.loads((base / "owner" / "manifest.json").read_text(encoding="utf-8"))
+            context = manifest["source_context"]
+            self.assertEqual(context["decision_scope_sha256"], "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418")
+            self.assertEqual(manifest["authority_ready_count"], 0)
+            self.assertEqual(manifest["gate5_resolved_count"], 0)
+            import subprocess
+            proc = subprocess.run(
+                ["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current",
+                 "--ledger-dir", str(Path("ledger").resolve()), "--manifest",
+                 str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            summary = json.loads(proc.stdout)
+            self.assertEqual(summary["owner_review"]["status"], "template_valid")
+
+    def test_owner_output_overlap_and_inside_repository_are_rejected_before_build(self) -> None:
+        from ledger.domain.direct_projection import build_direct_candidate
+        with tempfile.TemporaryDirectory(prefix="r22-path-test-") as dirname:
+            base = Path(dirname)
+            with self.assertRaisesRegex(ValueError, "owner_review_output_candidate_overlap"):
+                build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "candidate.db")
+            with self.assertRaisesRegex(ValueError, "owner_review_output_inside_repository"):
+                build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=Path("ledger/review"))
+
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
