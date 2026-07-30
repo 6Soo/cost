@@ -6,7 +6,7 @@ import hashlib
 import json
 import sqlite3
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ledger import cardindex
 from ledger.domain.source_adapters import (
@@ -14,6 +14,26 @@ from ledger.domain.source_adapters import (
     sanitize_ota_record,
     stable_card_event_identity,
 )
+
+
+DIRECT_CARD_NORMALIZATION_VERSION = "direct-card-v3"
+
+
+def _normalize_single_payment(
+    normalized: Mapping[str, object],
+) -> tuple[int, str]:
+    raw_amount = int(normalized["krw"])
+    source = str(normalized["src"])
+    cancelled = bool(normalized["cancel"])
+    if cancelled and source in {"KBO", "CORP"}:
+        return -abs(raw_amount), "cancellation"
+    if raw_amount < 0:
+        return raw_amount, "refund"
+    if cancelled:
+        return raw_amount, "cancellation"
+    if raw_amount == 0:
+        return 0, "adjustment"
+    return raw_amount, "purchase"
 
 
 def _canonical_hash(payload: object) -> str:
@@ -149,16 +169,7 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 ),
             ]
         else:
-            amount = int(normalized["krw"])
-            transaction_type = (
-                "refund"
-                if amount < 0
-                else "cancellation"
-                if normalized["cancel"]
-                else "adjustment"
-                if amount == 0
-                else "purchase"
-            )
+            amount, transaction_type = _normalize_single_payment(normalized)
             components = [("single", identity, amount, transaction_type)]
 
         for role, component_identity, amount, transaction_type in components:
@@ -167,7 +178,7 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 INSERT INTO direct_normalized_payments(
                     source_record_id, event_role, card_event_id, amount_krw,
                     transaction_type, normalization_version
-                ) VALUES (?, ?, ?, ?, ?, 'direct-card-v2')
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source_record_id, event_role) DO UPDATE SET
                     card_event_id=excluded.card_event_id,
                     amount_krw=excluded.amount_krw,
@@ -180,6 +191,7 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                     component_identity.card_event_id,
                     amount,
                     transaction_type,
+                    DIRECT_CARD_NORMALIZATION_VERSION,
                 ),
             )
         identities.setdefault(identity.card_event_id, []).append(source_id)

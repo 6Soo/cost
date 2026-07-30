@@ -55,6 +55,65 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                 )
                 self.assertEqual(first["direct_records"], 8336)
                 self.assertEqual(first["cards"]["identity_collisions"], 0)
+                self.assertEqual(first["cards"]["normalized_payments"], 5328)
+                self.assertEqual(
+                    db.execute(
+                        """SELECT COUNT(*) FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           WHERE s.source_kind='card_raw'
+                             AND json_extract(s.payload_json, '$.status')='취소매출'
+                             AND d.transaction_type='cancellation'
+                             AND d.amount_krw<0"""
+                    ).fetchone()[0],
+                    149,
+                )
+                self.assertEqual(
+                    db.execute(
+                        """SELECT COUNT(*) FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           WHERE s.source_kind='card_raw'
+                             AND json_extract(s.payload_json, '$.status')='취소또는할인'
+                             AND d.transaction_type='cancellation'
+                             AND d.amount_krw<0"""
+                    ).fetchone()[0],
+                    8,
+                )
+                self.assertEqual(
+                    db.execute(
+                        """SELECT ABS(SUM(d.amount_krw)) FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           WHERE json_extract(s.payload_json, '$.status')='취소매출'"""
+                    ).fetchone()[0],
+                    43490431,
+                )
+                self.assertEqual(
+                    db.execute(
+                        """SELECT ABS(SUM(d.amount_krw)) FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           WHERE json_extract(s.payload_json, '$.status')='취소또는할인'"""
+                    ).fetchone()[0],
+                    2925343,
+                )
+                self.assertEqual(
+                    db.execute(
+                        """SELECT COUNT(*) FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           WHERE json_extract(s.payload_json, '$.status') IN ('취소매출','취소또는할인')
+                             AND d.amount_krw>=0"""
+                    ).fetchone()[0],
+                    0,
+                )
+                normalized_snapshot = db.execute(
+                    """SELECT s.source_key, d.event_role, d.card_event_id,
+                              d.amount_krw, d.transaction_type, d.normalization_version
+                       FROM direct_normalized_payments d
+                       JOIN direct_source_records s ON s.id=d.source_record_id
+                       ORDER BY s.source_key, d.event_role"""
+                ).fetchall()
+                self.assertTrue(normalized_snapshot)
+                self.assertTrue(
+                    all(row[5] == "direct-card-v3" for row in normalized_snapshot)
+                )
                 identities = db.execute(
                     "SELECT card_event_id, identity_status FROM direct_card_events ORDER BY card_event_id"
                 ).fetchall()
@@ -64,6 +123,7 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                 first_identity_count = len(first_identity_snapshot)
                 self.assertEqual(second["cards"]["inserted"], 0)
                 self.assertEqual(second["cards"]["identity_collisions"], 0)
+                self.assertEqual(second["cards"]["normalized_payments"], 5328)
                 self.assertEqual(second["manual"]["inserted"], 0)
                 self.assertEqual(second["ota"]["inserted"], 0)
                 second_identity_snapshot = [
@@ -74,6 +134,16 @@ class P6AdapterIntegrationTest(unittest.TestCase):
                 ]
                 self.assertEqual(second_identity_snapshot, first_identity_snapshot)
                 self.assertEqual(len(second_identity_snapshot), first_identity_count)
+                self.assertEqual(
+                    db.execute(
+                        """SELECT s.source_key, d.event_role, d.card_event_id,
+                                  d.amount_krw, d.transaction_type, d.normalization_version
+                           FROM direct_normalized_payments d
+                           JOIN direct_source_records s ON s.id=d.source_record_id
+                           ORDER BY s.source_key, d.event_role"""
+                    ).fetchall(),
+                    normalized_snapshot,
+                )
                 split_hana = db.execute(
                     """
                     SELECT
