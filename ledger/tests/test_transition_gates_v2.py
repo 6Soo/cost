@@ -22,7 +22,9 @@ from ledger.domain.transition_gates_v2 import (
     gate_report_sha256,
     input_manifest_sha256,
     validate_approved_transitions,
+    _direct_event_role_scope,
 )
+from ledger.domain.p07_manifest import verify_run_artifacts
 
 
 class DirectTransitionGateTest(unittest.TestCase):
@@ -141,7 +143,7 @@ class DirectTransitionGateTest(unittest.TestCase):
             if spec["db_source_kind"] != "card_raw":
                 continue
             card_number += 1
-            event_id = f"event-{card_number}"
+            event_id = "card:" + f"{card_number:064x}"
             db.execute(
                 """
                 INSERT INTO direct_card_events(
@@ -389,6 +391,138 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(gate["actual"]["candidate_payment_count"], 5)
         self.assertEqual(gate["actual"]["unresolved_count"], 5)
         self.assertTrue(gate["actual"]["unresolved_event_key_sample"])
+        self.assertEqual(gate["actual"]["decision_scope_format"], "direct-event-role-scope-v1")
+        self.assertEqual(gate["actual"]["decision_scope_count"], 5)
+        self.assertEqual(gate["actual"]["decision_scope_unique_count"], 5)
+        self.assertEqual(gate["actual"]["decision_scope_invalid_count"], 0)
+        self.assertEqual(gate["actual"]["decision_scope_duplicate_count"], 0)
+        self.assertEqual(
+            gate["actual"]["decision_scope_sha256"],
+            "a856dd4fae44d27849aacaaeee910b7dfc50bf4413c68dfebc4976180b1002ef",
+        )
+        self.assertEqual(
+            gate["actual"]["unresolved_direct_event_key_sample"],
+            [f"card:{index:064x}#single" for index in range(1, 6)],
+        )
+        self.assertEqual(
+            sum(gate["actual"]["counts_by_source_system"].values()), 5
+        )
+        self.assertEqual(
+            sum(gate["actual"]["counts_by_event_role"].values()), 5
+        )
+        self.assertEqual(
+            sum(gate["actual"]["counts_by_transaction_type"].values()), 5
+        )
+        self.assertEqual(gate["actual"]["requirements_status"], "direct_decision_contract_unavailable")
+
+    def test_scope_fingerprint_is_order_invariant_and_role_sensitive(self) -> None:
+        rows = [
+            {
+                "card_event_id": "card:" + "a" * 64,
+                "event_role": "approval",
+                "source_system": "HAN",
+                "transaction_type": "purchase",
+            },
+            {
+                "card_event_id": "card:" + "a" * 64,
+                "event_role": "cancellation",
+                "source_system": "HAN",
+                "transaction_type": "cancellation",
+            },
+        ]
+        first = _direct_event_role_scope(rows)
+        reversed_scope = _direct_event_role_scope(list(reversed(rows)))
+        changed = _direct_event_role_scope(
+            [dict(rows[0]), {**rows[1], "event_role": "single"}]
+        )
+        self.assertEqual(first["decision_scope_sha256"], reversed_scope["decision_scope_sha256"])
+        self.assertNotEqual(first["decision_scope_sha256"], changed["decision_scope_sha256"])
+        self.assertEqual(first["counts_by_event_role"], {"approval": 1, "cancellation": 1})
+
+    def test_scope_fingerprint_reports_invalid_and_duplicate_rows_without_dedup(self) -> None:
+        rows = [
+            {
+                "card_event_id": "invalid",
+                "event_role": "bogus",
+                "source_system": "X",
+                "transaction_type": "purchase",
+            }
+        ]
+        scope = _direct_event_role_scope(rows + rows)
+        one_row_scope = _direct_event_role_scope(rows)
+        self.assertEqual(scope["decision_scope_count"], 2)
+        self.assertEqual(scope["decision_scope_unique_count"], 1)
+        self.assertEqual(scope["decision_scope_invalid_count"], 2)
+        self.assertEqual(scope["decision_scope_duplicate_count"], 1)
+        self.assertNotEqual(
+            scope["decision_scope_sha256"], one_row_scope["decision_scope_sha256"]
+        )
+        self.assertEqual(scope["decision_scope_invalid_sample"], ["invalid#bogus", "invalid#bogus"])
+
+    def test_new_gate5_field_tamper_is_rejected_by_artifact_verifier(self) -> None:
+        from ledger.domain.direct_projection import build_direct_candidate
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            result = build_direct_candidate(
+                root / "candidate.db",
+                Path("ledger"),
+                output_dir=root / "reports",
+            )
+            report_dir = Path(str(result["report_dir"]))
+            report_path = report_dir / "gate_report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["gates"][4]["actual"]["decision_scope_count"] += 1
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "gate_report_self_hash_mismatch"):
+                verify_run_artifacts(report_dir, repository_root=Path("."))
+
+    def test_generic_confirmed_decision_and_exact_plan_do_not_resolve_gate5(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = sqlite3.connect(database)
+        payment_id = int(
+            db.execute(
+                "SELECT payment_id FROM direct_payment_projection_links WHERE run_id=? LIMIT 1",
+                (run_id,),
+            ).fetchone()[0]
+        )
+        db.execute(
+            "INSERT INTO allocation_targets(id, target_type, code, name) VALUES (99, 'other', 'fake', 'Fake')"
+        )
+        db.execute(
+            """INSERT INTO classification_decisions(
+                   target_type, target_id, dimension, value, confidence,
+                   confidence_label, decision_status
+               ) VALUES ('payment', ?, 'allocation_target', 'fake', 1.0, 'high', 'confirmed')""",
+            (payment_id,),
+        )
+        decision_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            """INSERT INTO allocation_plans(
+                   payment_id, plan_version, plan_status, confidence, source_decision_id
+               ) VALUES (?, 1, 'confirmed', 1.0, ?)""",
+            (payment_id, decision_id),
+        )
+        plan_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            "INSERT INTO cost_allocations(plan_id, target_id, amount_krw) VALUES (?, 99, 100)" ,
+            (plan_id,),
+        )
+        for status in ("legacy", "proposed", "needs_review", "rejected"):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                       target_type, target_id, dimension, value, confidence,
+                       confidence_label, decision_status
+                   ) VALUES ('payment', ?, ?, 'generic', 1.0, 'high', ?)""",
+                (payment_id, f"generic_{status}", status),
+            )
+        db.commit()
+        db.close()
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["actual"]["resolved_count"], 0)
+        self.assertEqual(gate["actual"]["unresolved_count"], 5)
+        self.assertEqual(gate["reason"], "direct_allocation_decision_unimplemented")
 
     def test_gate6_integrity_pass_without_baseline_still_fails(self) -> None:
         database, run_id, expected, _ = self._fixture()

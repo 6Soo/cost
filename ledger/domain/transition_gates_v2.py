@@ -709,21 +709,90 @@ def _amount_relation_gate(db: object) -> dict[str, object]:
     )
 
 
+_DIRECT_EVENT_ROLE_SCOPE_FORMAT = "direct-event-role-scope-v1"
+_DIRECT_EVENT_ROLE_PATTERN = re.compile(
+    r"^card:[0-9a-f]{64}#(single|approval|cancellation)$"
+)
+
+
+def _direct_event_role_scope(rows: Iterable[dict[str, object]]) -> dict[str, object]:
+    keys: list[str] = []
+    counts_by_source: dict[str, int] = {}
+    counts_by_role: dict[str, int] = {}
+    counts_by_type: dict[str, int] = {}
+    for row in rows:
+        key = f"{row['card_event_id']}#{row['event_role']}"
+        keys.append(key)
+        source = str(row["source_system"])
+        role = str(row["event_role"])
+        transaction_type = str(row["transaction_type"])
+        counts_by_source[source] = counts_by_source.get(source, 0) + 1
+        counts_by_role[role] = counts_by_role.get(role, 0) + 1
+        counts_by_type[transaction_type] = counts_by_type.get(transaction_type, 0) + 1
+    ordered = sorted(keys)
+    canonical = ("\n".join(ordered) + "\n").encode("utf-8")
+    invalid = [
+        key for key in ordered
+        if _DIRECT_EVENT_ROLE_PATTERN.fullmatch(key) is None
+    ]
+    frequencies: dict[str, int] = {}
+    for key in ordered:
+        frequencies[key] = frequencies.get(key, 0) + 1
+    duplicate_keys = sorted(
+        key for key, count in frequencies.items() if count > 1
+    )
+    return {
+        "decision_scope_format": _DIRECT_EVENT_ROLE_SCOPE_FORMAT,
+        "decision_scope_sha256": _sha256_bytes(canonical),
+        "decision_scope_count": len(ordered),
+        "decision_scope_unique_count": len(frequencies),
+        "decision_scope_invalid_count": len(invalid),
+        "decision_scope_invalid_sample": invalid[:10],
+        "decision_scope_duplicate_count": sum(
+            frequencies[key] - 1 for key in duplicate_keys
+        ),
+        "decision_scope_duplicate_sample": duplicate_keys[:10],
+        "unresolved_direct_event_key_sample": ordered[:10],
+        "counts_by_source_system": dict(sorted(counts_by_source.items())),
+        "counts_by_event_role": dict(sorted(counts_by_role.items())),
+        "counts_by_transaction_type": dict(sorted(counts_by_type.items())),
+    }
+
+
 def _allocation_decision_gate(
     db: object,
     run_id: str,
 ) -> dict[str, object]:
     payments = db.execute(
         """
-        SELECT p.external_key
+        SELECT
+            p.external_key,
+            d.card_event_id,
+            d.event_role,
+            e.source_system,
+            d.transaction_type
         FROM direct_payment_projection_links l
         JOIN payment_transactions p ON p.id=l.payment_id
+        JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+        JOIN direct_card_events e ON e.source_record_id=d.source_record_id
         WHERE l.run_id=?
         ORDER BY p.external_key
         """,
         (run_id,),
     ).fetchall()
     unresolved = len(payments)
+    scope = _direct_event_role_scope(
+        [
+            {
+                "external_key": row[0],
+                "card_event_id": row[1],
+                "event_role": row[2],
+                "source_system": row[3],
+                "transaction_type": row[4],
+            }
+            for row in payments
+        ]
+    )
     return _gate(
         5,
         GATE_NAMES[4],
@@ -736,6 +805,8 @@ def _allocation_decision_gate(
             "unresolved_event_key_sample": [
                 str(row[0]) for row in payments[:10]
             ],
+            **scope,
+            "requirements_status": "direct_decision_contract_unavailable",
         },
     )
 
