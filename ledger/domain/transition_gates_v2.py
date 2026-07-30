@@ -286,6 +286,149 @@ def _load_comparable_baseline(
     }
 
 
+_DIRECT_EVENT_BASELINE_SCOPE = "direct-event-role-v1"
+_DIRECT_EVENT_KEY_PATTERN = re.compile(
+    r"^card:[0-9a-f]{64}#(single|approval|cancellation)$"
+)
+_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _event_set_sha256(events: Iterable[tuple[str, str]]) -> str:
+    canonical = "".join(
+        f"{key} {event_hash}\n"
+        for key, event_hash in sorted(events)
+    ).encode("utf-8")
+    return _sha256_bytes(canonical)
+
+
+def _decision_scope_sha256(keys: Iterable[str]) -> str:
+    canonical = ("\n".join(sorted(keys)) + "\n").encode("utf-8")
+    return _sha256_bytes(canonical)
+
+
+def _direct_event_semantic_hash(payload: dict[str, object]) -> str:
+    return _sha256_bytes(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+
+def _current_direct_event_hashes(
+    db: object,
+    run_id: str,
+) -> tuple[dict[str, str], str, str]:
+    rows = db.execute(
+        """
+        SELECT
+            d.card_event_id,
+            d.event_role,
+            p.external_key,
+            p.source_event_id,
+            p.identity_fingerprint,
+            p.source_system,
+            p.occurred_on,
+            p.merchant,
+            p.approval_number,
+            p.amount_krw,
+            p.transaction_type,
+            s.source_kind,
+            s.source_key,
+            s.source_sha256
+        FROM direct_payment_projection_links l
+        JOIN payment_transactions p ON p.id=l.payment_id
+        JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+        JOIN direct_source_records s ON s.id=d.source_record_id
+        WHERE l.run_id=?
+        ORDER BY d.card_event_id, d.event_role
+        """,
+        (run_id,),
+    ).fetchall()
+    event_hashes: dict[str, str] = {}
+    for row in rows:
+        key = f"{row[0]}#{row[1]}"
+        if not _DIRECT_EVENT_KEY_PATTERN.fullmatch(key):
+            raise ValueError("baseline_current_event_key_invalid")
+        if key in event_hashes:
+            raise ValueError("baseline_current_event_key_duplicate")
+        payload = {
+            "direct_event_key": key,
+            "external_key": row[2],
+            "source_event_id": row[3],
+            "identity_fingerprint": row[4],
+            "source_system": row[5],
+            "occurred_on": row[6],
+            "merchant": row[7],
+            "approval_number": row[8],
+            "amount_krw": int(row[9]),
+            "transaction_type": row[10],
+            "card_event_id": row[0],
+            "event_role": row[1],
+            "source_kind": row[11],
+            "source_key": row[12],
+            "source_sha256": row[13],
+        }
+        event_hashes[key] = _direct_event_semantic_hash(payload)
+    return event_hashes, _event_set_sha256(event_hashes.items()), _decision_scope_sha256(
+        event_hashes
+    )
+
+
+def _validate_event_baseline(
+    payload: dict[str, object],
+    *,
+    run_id: str,
+) -> tuple[dict[str, object], dict[str, str]]:
+    format_version = payload.get("format_version")
+    if type(format_version) is not int or format_version != 1:
+        raise ValueError("baseline_format_version_invalid")
+    if payload.get("event_scope") != _DIRECT_EVENT_BASELINE_SCOPE:
+        raise ValueError("baseline_event_scope_invalid")
+    if payload.get("parser_version") != PARSER_BUNDLE_VERSION:
+        raise ValueError("baseline_parser_version_invalid")
+    required = (
+        "parser_version", "source_run_id", "input_manifest_sha256",
+        "decision_scope_sha256", "candidate_semantic_sha256",
+        "event_set_sha256", "events",
+    )
+    missing = [field for field in required if not payload.get(field)]
+    if missing:
+        raise ValueError(f"baseline_missing_field:{','.join(missing)}")
+    if not isinstance(payload["source_run_id"], str) or not payload["source_run_id"].strip():
+        raise ValueError("baseline_source_run_invalid")
+    for field in (
+        "input_manifest_sha256", "decision_scope_sha256",
+        "candidate_semantic_sha256", "event_set_sha256",
+    ):
+        if not isinstance(payload[field], str) or not _SHA256_PATTERN.fullmatch(payload[field]):
+            raise ValueError(f"baseline_hash_invalid:{field}")
+    events = payload["events"]
+    if not isinstance(events, list) or not events:
+        raise ValueError("baseline_events_invalid")
+    baseline_hashes: dict[str, str] = {}
+    for index, event in enumerate(events):
+        if not isinstance(event, dict) or set(event) != {"direct_event_key", "event_sha256"}:
+            raise ValueError(f"baseline_event_invalid:{index}")
+        key = event["direct_event_key"]
+        event_hash = event["event_sha256"]
+        if not isinstance(key, str) or not _DIRECT_EVENT_KEY_PATTERN.fullmatch(key):
+            raise ValueError(f"baseline_event_key_invalid:{index}")
+        if not isinstance(event_hash, str) or not _SHA256_PATTERN.fullmatch(event_hash):
+            raise ValueError(f"baseline_event_hash_invalid:{index}")
+        if key in baseline_hashes:
+            raise ValueError("baseline_event_key_duplicate")
+        baseline_hashes[key] = event_hash
+    baseline_scope_hash = _decision_scope_sha256(baseline_hashes)
+    if payload["decision_scope_sha256"] != baseline_scope_hash:
+        raise ValueError("baseline_decision_scope_hash_mismatch")
+    if _event_set_sha256(baseline_hashes.items()) != payload["event_set_sha256"]:
+        raise ValueError("baseline_event_set_hash_mismatch")
+    return payload, baseline_hashes
+
+
 def _gate(
     number: int,
     name: str,
@@ -846,16 +989,37 @@ def _semantic_regression_gate(
     baseline_descriptor: dict[str, object] | None = None
     baseline_payload: dict[str, object] | None = None
     baseline_error: str | None = None
-    if comparable_baseline is not None:
+    current_event_error: str | None = None
+    current_event_hashes: dict[str, str] = {}
+    current_event_set_hash: str | None = None
+    current_scope_hash: str | None = None
+    try:
+        (
+            current_event_hashes,
+            current_event_set_hash,
+            current_scope_hash,
+        ) = _current_direct_event_hashes(db, run_id)
+    except ValueError as exc:
+        current_event_error = str(exc)
+    if current_event_error is None and comparable_baseline is not None:
         try:
             baseline_payload, baseline_descriptor = _load_comparable_baseline(
                 comparable_baseline,
                 repository_root,
             )
+            if baseline_payload is not None:
+                baseline_payload, baseline_hashes = _validate_event_baseline(
+                    baseline_payload,
+                    run_id=run_id,
+                )
         except ValueError as exc:
             baseline_error = str(exc)
     if not integrity_ok:
         reason = "candidate_semantic_hash_mismatch"
+        baseline_status = "not_evaluated"
+        passed = False
+    elif current_event_error is not None:
+        reason = current_event_error
         baseline_status = "not_evaluated"
         passed = False
     elif comparable_baseline is None:
@@ -868,20 +1032,36 @@ def _semantic_regression_gate(
         passed = False
     else:
         assert baseline_payload is not None
-        scope_ok = (
-            baseline_payload.get("event_scope") == "direct-card-v2"
-            and baseline_payload.get("parser_version") == PARSER_BUNDLE_VERSION
+        current_keys = set(current_event_hashes)
+        baseline_keys = set(baseline_hashes)
+        unchanged = sorted(
+            key for key in current_keys & baseline_keys
+            if current_event_hashes[key] == baseline_hashes[key]
         )
-        semantic_ok = (
-            baseline_payload.get("candidate_semantic_sha256") == recomputed
+        changed = sorted(
+            key for key in current_keys & baseline_keys
+            if current_event_hashes[key] != baseline_hashes[key]
         )
+        added = sorted(current_keys - baseline_keys)
+        removed = sorted(baseline_keys - current_keys)
+        diff_actual = {
+            "unchanged_count": len(unchanged),
+            "unchanged_sample": unchanged[:10],
+            "changed_count": len(changed),
+            "changed_sample": changed[:10],
+            "added_count": len(added),
+            "added_sample": added[:10],
+            "removed_count": len(removed),
+            "removed_sample": removed[:10],
+            "current_event_set_sha256": current_event_set_hash,
+            "baseline_event_set_sha256": baseline_payload["event_set_sha256"],
+            "baseline_source_run_id": baseline_payload["source_run_id"],
+            "baseline_input_manifest_sha256": baseline_payload["input_manifest_sha256"],
+            "baseline_decision_scope_sha256": baseline_payload["decision_scope_sha256"],
+        }
         passed = False
-        if not (scope_ok and semantic_ok):
-            reason = "direct_baseline_mismatch"
-            baseline_status = "mismatch"
-        else:
-            reason = "direct_baseline_event_diff_unimplemented"
-            baseline_status = "unverified"
+        reason = "direct_baseline_authority_unavailable"
+        baseline_status = "diff_computed_unapproved"
     return _gate(
         6,
         GATE_NAMES[5],
@@ -896,6 +1076,9 @@ def _semantic_regression_gate(
             "baseline_status": baseline_status,
             "baseline_descriptor": baseline_descriptor,
             "diagnostic_comparators": historical_comparators,
+            "current_event_set_sha256": current_event_set_hash,
+            "current_decision_scope_sha256": current_scope_hash,
+            **(diff_actual if "diff_actual" in locals() else {}),
         },
     )
 

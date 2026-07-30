@@ -23,6 +23,10 @@ from ledger.domain.transition_gates_v2 import (
     input_manifest_sha256,
     validate_approved_transitions,
     _direct_event_role_scope,
+    _current_direct_event_hashes,
+    _event_set_sha256,
+    _decision_scope_sha256,
+    _direct_event_semantic_hash,
 )
 from ledger.domain.p07_manifest import verify_run_artifacts
 
@@ -193,6 +197,54 @@ class DirectTransitionGateTest(unittest.TestCase):
             expected_provenance=expected,
             **kwargs,
         )
+
+    def _valid_baseline(
+        self,
+        database: Path,
+        run_id: str,
+        expected: dict[str, object],
+        root: Path,
+    ) -> dict[str, object]:
+        db = sqlite3.connect(database)
+        event_hashes, event_set_hash, scope_hash = _current_direct_event_hashes(
+            db, run_id
+        )
+        db.close()
+        payload = {
+            "format_version": 1,
+            "event_scope": "direct-event-role-v1",
+            "parser_version": PARSER_BUNDLE_VERSION,
+            "source_run_id": run_id,
+            "input_manifest_sha256": expected["input_manifest_sha256"],
+            "decision_scope_sha256": scope_hash,
+            "candidate_semantic_sha256": expected["candidate_semantic_sha256"],
+            "event_set_sha256": _event_set_sha256(event_hashes.items()),
+            "events": [
+                {"direct_event_key": key, "event_sha256": event_hashes[key]}
+                for key in sorted(event_hashes)
+            ],
+        }
+        path = root / "ledger/baselines/direct.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(payload, sort_keys=True).encode()
+        path.write_bytes(raw)
+        return {
+            "relative_path": "ledger/baselines/direct.json",
+            "role": "direct_semantic_baseline",
+            "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+
+    @staticmethod
+    def _write_baseline(payload: dict[str, object], root: Path) -> dict[str, object]:
+        path = root / "ledger/baselines/direct.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        raw = json.dumps(payload, sort_keys=True).encode()
+        path.write_bytes(raw)
+        return {
+            "relative_path": "ledger/baselines/direct.json",
+            "role": "direct_semantic_baseline",
+            "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        }
 
     def test_clean_first_slice_fixture_passes_gates_1_to_4_and_7(self) -> None:
         database, run_id, expected, _ = self._fixture()
@@ -477,6 +529,22 @@ class DirectTransitionGateTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "gate_report_self_hash_mismatch"):
                 verify_run_artifacts(report_dir, repository_root=Path("."))
 
+    def test_new_gate6_diff_field_tamper_is_rejected_by_artifact_verifier(self) -> None:
+        from ledger.domain.direct_projection import build_direct_candidate
+
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname)
+            result = build_direct_candidate(
+                root / "candidate.db", Path("ledger"), output_dir=root / "reports"
+            )
+            report_dir = Path(str(result["report_dir"]))
+            report_path = report_dir / "gate_report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["gates"][5]["actual"]["current_event_set_sha256"] = "0" * 64
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "gate_report_self_hash_mismatch"):
+                verify_run_artifacts(report_dir, repository_root=Path("."))
+
     def test_generic_confirmed_decision_and_exact_plan_do_not_resolve_gate5(self) -> None:
         database, run_id, expected, _ = self._fixture()
         db = sqlite3.connect(database)
@@ -747,20 +815,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         self,
     ) -> None:
         database, run_id, expected, root = self._fixture()
-        payload = {
-            "event_scope": "direct-card-v2",
-            "parser_version": PARSER_BUNDLE_VERSION,
-            "candidate_semantic_sha256": expected["candidate_semantic_sha256"],
-        }
-        path = root / "ledger/baselines/direct.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        raw = json.dumps(payload, sort_keys=True).encode()
-        path.write_bytes(raw)
-        baseline = {
-            "relative_path": "ledger/baselines/direct.json",
-            "role": "direct_semantic_baseline",
-            "raw_sha256": hashlib.sha256(raw).hexdigest(),
-        }
+        baseline = self._valid_baseline(database, run_id, expected, root)
         value = expected["candidate_semantic_sha256"]
         approval = self._valid_approval(
             source_run_id=run_id,
@@ -772,7 +827,12 @@ class DirectTransitionGateTest(unittest.TestCase):
         )
         gate = report["gates"][5]
         self.assertFalse(gate["passed"])
-        self.assertEqual(gate["reason"], "direct_baseline_event_diff_unimplemented")
+        self.assertEqual(gate["reason"], "direct_baseline_authority_unavailable")
+        self.assertEqual(gate["actual"]["baseline_status"], "diff_computed_unapproved")
+        self.assertEqual(gate["actual"]["unchanged_count"], 5)
+        self.assertEqual(gate["actual"]["changed_count"], 0)
+        self.assertEqual(gate["actual"]["added_count"], 0)
+        self.assertEqual(gate["actual"]["removed_count"], 0)
         self.assertEqual(gate["actual"]["approvals_provided"], 1)
         self.assertEqual(gate["actual"]["approval_mode"], "event_level")
 
@@ -791,6 +851,280 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(gate["actual"]["approvals_provided"], 1)
         self.assertEqual(gate["actual"]["approval_mode"], "event_level")
 
+    def test_nonzero_event_diff_uses_baseline_owned_provenance_but_stays_unapproved(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        db = sqlite3.connect(database)
+        event_hashes, _, _ = _current_direct_event_hashes(db, run_id)
+        db.close()
+        keys = sorted(event_hashes)
+        baseline_hashes = dict(event_hashes)
+        baseline_hashes[keys[0]] = "b" * 64
+        del baseline_hashes[keys[-1]]
+        baseline_hashes["card:" + "f" * 64 + "#single"] = "c" * 64
+        payload = {
+            "format_version": 1,
+            "event_scope": "direct-event-role-v1",
+            "parser_version": PARSER_BUNDLE_VERSION,
+            "source_run_id": "prior-approved-run",
+            "input_manifest_sha256": "1" * 64,
+            "decision_scope_sha256": _decision_scope_sha256(baseline_hashes),
+            "candidate_semantic_sha256": "2" * 64,
+            "event_set_sha256": _event_set_sha256(baseline_hashes.items()),
+            "events": [
+                {"direct_event_key": key, "event_sha256": baseline_hashes[key]}
+                for key in sorted(baseline_hashes)
+            ],
+        }
+        baseline = self._write_baseline(payload, root)
+        gate = self._report(database, run_id, expected, comparable_baseline=baseline)["gates"][5]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["reason"], "direct_baseline_authority_unavailable")
+        self.assertEqual(gate["actual"]["baseline_status"], "diff_computed_unapproved")
+        self.assertEqual(gate["actual"]["changed_count"], 1)
+        self.assertEqual(gate["actual"]["added_count"], 1)
+        self.assertEqual(gate["actual"]["removed_count"], 1)
+        self.assertEqual(gate["actual"]["changed_sample"], [keys[0]])
+        self.assertEqual(gate["actual"]["added_sample"], [keys[-1]])
+        self.assertEqual(
+            gate["actual"]["removed_sample"], ["card:" + "f" * 64 + "#single"]
+        )
+
+    def test_integrity_and_invalid_approval_precedence_hold_with_baseline(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        baseline = self._valid_baseline(database, run_id, expected, root)
+        db = sqlite3.connect(database)
+        db.execute(
+            "UPDATE payment_transactions SET amount_krw=amount_krw+1 WHERE id=1"
+        )
+        db.commit()
+        db.close()
+        integrity = self._report(
+            database, run_id, expected, comparable_baseline=baseline
+        )["gates"][5]
+        self.assertEqual(integrity["reason"], "candidate_semantic_hash_mismatch")
+
+        invalid_approval = self._report(
+            database, run_id, expected,
+            approved_transitions=[{"transition_id": "bad"}],
+            comparable_baseline=baseline,
+        )["gates"][5]
+        self.assertTrue(invalid_approval["reason"].startswith("approval_missing_event_lineage"))
+
+    def test_baseline_scope_is_bound_to_its_own_event_keys(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        descriptor = self._valid_baseline(database, run_id, expected, root)
+        path = root / "ledger/baselines/direct.json"
+        payload = json.loads(path.read_text())
+        payload["events"] = payload["events"][:-1]
+        payload["event_set_sha256"] = _event_set_sha256(
+            (event["direct_event_key"], event["event_sha256"])
+            for event in payload["events"]
+        )
+        raw = json.dumps(payload, sort_keys=True).encode()
+        path.write_bytes(raw)
+        descriptor["raw_sha256"] = hashlib.sha256(raw).hexdigest()
+        gate = self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]
+        self.assertEqual(gate["reason"], "baseline_decision_scope_hash_mismatch")
+
+    def test_baseline_structure_matrix_rejects_invalid_format_scope_parser_hash_and_keys(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        self._valid_baseline(database, run_id, expected, root)
+        path = root / "ledger/baselines/direct.json"
+        original = json.loads(path.read_text())
+        cases = {
+            "format": ("format_version", 2, "baseline_format_version_invalid"),
+            "scope": ("event_scope", "direct-card-v2", "baseline_event_scope_invalid"),
+            "parser": ("parser_version", "old-parser", "baseline_parser_version_invalid"),
+            "manifest_hash": ("input_manifest_sha256", "A" * 64, "baseline_hash_invalid:input_manifest_sha256"),
+            "semantic_hash": ("candidate_semantic_sha256", "g" * 64, "baseline_hash_invalid:candidate_semantic_sha256"),
+        }
+        for name, (field, value, reason) in cases.items():
+            with self.subTest(name=name):
+                payload = dict(original)
+                payload[field] = value
+                descriptor = self._write_baseline(payload, root)
+                gate = self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]
+                self.assertEqual(gate["reason"], reason)
+        for name, field in (("source_blank", "source_run_id"), ("scope_blank", "decision_scope_sha256")):
+            with self.subTest(name=name):
+                payload = dict(original)
+                payload[field] = ""
+                descriptor = self._write_baseline(payload, root)
+                gate = self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]
+                self.assertTrue(gate["reason"].startswith("baseline_"))
+        payload = dict(original)
+        payload["events"] = list(original["events"])
+        payload["events"][0] = dict(payload["events"][0], direct_event_key="bad-key")
+        descriptor = self._write_baseline(payload, root)
+        self.assertEqual(
+            self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]["reason"],
+            "baseline_event_key_invalid:0",
+        )
+
+    def test_baseline_adversarial_envelope_matrix_is_permanent(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        self._valid_baseline(database, run_id, expected, root)
+        path = root / "ledger/baselines/direct.json"
+        original = json.loads(path.read_text())
+
+        for field in (
+            "format_version", "event_scope", "parser_version", "source_run_id",
+            "input_manifest_sha256", "decision_scope_sha256",
+            "candidate_semantic_sha256", "event_set_sha256", "events",
+        ):
+            with self.subTest(missing=field):
+                payload = dict(original)
+                payload.pop(field)
+                descriptor = self._write_baseline(payload, root)
+                reason = self._report(
+                    database, run_id, expected, comparable_baseline=descriptor
+                )["gates"][5]["reason"]
+                self.assertTrue(reason.startswith("baseline_"))
+
+        for field in (
+            "source_run_id", "input_manifest_sha256", "decision_scope_sha256",
+            "candidate_semantic_sha256", "event_set_sha256",
+        ):
+            with self.subTest(blank=field):
+                payload = dict(original, **{field: ""})
+                descriptor = self._write_baseline(payload, root)
+                reason = self._report(
+                    database, run_id, expected, comparable_baseline=descriptor
+                )["gates"][5]["reason"]
+                self.assertTrue(reason.startswith("baseline_"))
+
+        for field in (
+            "input_manifest_sha256", "decision_scope_sha256",
+            "candidate_semantic_sha256", "event_set_sha256",
+        ):
+            for value in ("a" * 63, "A" * 64, "g" * 64):
+                with self.subTest(hash_field=field, value=value[:4]):
+                    payload = dict(original, **{field: value})
+                    descriptor = self._write_baseline(payload, root)
+                    reason = self._report(
+                        database, run_id, expected, comparable_baseline=descriptor
+                    )["gates"][5]["reason"]
+                    self.assertEqual(reason, f"baseline_hash_invalid:{field}")
+
+        for value in ("a" * 63, "A" * 64, "g" * 64):
+            with self.subTest(event_hash=value[:4]):
+                events = list(original["events"])
+                events[0] = dict(events[0], event_sha256=value)
+                descriptor = self._write_baseline(dict(original, events=events), root)
+                reason = self._report(
+                    database, run_id, expected, comparable_baseline=descriptor
+                )["gates"][5]["reason"]
+                self.assertEqual(reason, "baseline_event_hash_invalid:0")
+
+        duplicate = list(original["events"]) + [dict(original["events"][0])]
+        descriptor = self._write_baseline(dict(original, events=duplicate), root)
+        self.assertEqual(
+            self._report(database, run_id, expected, comparable_baseline=descriptor)
+            ["gates"][5]["reason"],
+            "baseline_event_key_duplicate",
+        )
+
+        mismatch = dict(original, event_set_sha256="0" * 64)
+        descriptor = self._write_baseline(mismatch, root)
+        self.assertEqual(
+            self._report(database, run_id, expected, comparable_baseline=descriptor)
+            ["gates"][5]["reason"],
+            "baseline_event_set_hash_mismatch",
+        )
+
+        shaped = dict(original, event_scope="direct-card-v2")
+        descriptor = self._write_baseline(shaped, root)
+        self.assertEqual(
+            self._report(database, run_id, expected, comparable_baseline=descriptor)
+            ["gates"][5]["reason"],
+            "baseline_event_scope_invalid",
+        )
+
+    def test_format_version_requires_exact_integer_one(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        self._valid_baseline(database, run_id, expected, root)
+        path = root / "ledger/baselines/direct.json"
+        original = json.loads(path.read_text())
+        for value in (True, 1.0, "1", None, 2):
+            with self.subTest(value=value):
+                payload = dict(original)
+                payload["format_version"] = value
+                descriptor = self._write_baseline(payload, root)
+                gate = self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]
+                self.assertEqual(gate["reason"], "baseline_format_version_invalid")
+
+    def test_each_event_field_and_null_empty_change_semantic_hash(self) -> None:
+        base = {
+            "direct_event_key": "card:" + "a" * 64 + "#single",
+            "external_key": "p1", "source_event_id": "s1",
+            "identity_fingerprint": "i1", "source_system": "HAN",
+            "occurred_on": "2026-07-30", "merchant": "merchant",
+            "approval_number": "123", "amount_krw": 100,
+            "transaction_type": "purchase", "card_event_id": "card:" + "a" * 64,
+            "event_role": "single", "source_kind": "card_raw",
+            "source_key": "HAN:1", "source_sha256": "b" * 64,
+        }
+        fields = tuple(base)
+        original_hash = _direct_event_semantic_hash(base)
+        for field in fields:
+            changed = dict(base)
+            changed[field] = (base[field] + "-changed") if isinstance(base[field], str) else 101
+            self.assertNotEqual(original_hash, _direct_event_semantic_hash(changed))
+        for field in fields:
+            null_value = dict(base, **{field: None})
+            empty_value = dict(base, **{field: ""})
+            self.assertNotEqual(
+                _direct_event_semantic_hash(null_value),
+                _direct_event_semantic_hash(empty_value),
+            )
+        approval = dict(base, direct_event_key="card:" + "a" * 64 + "#approval", event_role="approval")
+        cancellation = dict(base, direct_event_key="card:" + "a" * 64 + "#cancellation", event_role="cancellation")
+        self.assertNotEqual(_direct_event_semantic_hash(approval), _direct_event_semantic_hash(cancellation))
+
+    def test_duplicate_current_event_key_fails_gate6(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = sqlite3.connect(database)
+        db.execute("UPDATE direct_normalized_payments SET card_event_id=(SELECT card_event_id FROM direct_normalized_payments WHERE id=2) WHERE id=1")
+        recomputed = candidate_semantic_sha256(db, run_id)
+        db.execute("UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?", (recomputed, run_id))
+        db.commit()
+        db.close()
+        expected["candidate_semantic_sha256"] = recomputed
+        gate = self._report(database, run_id, expected)["gates"][5]
+        self.assertEqual(gate["reason"], "baseline_current_event_key_duplicate")
+
+    def test_baseline_event_order_and_sorted_nonzero_samples_are_stable(self) -> None:
+        database, run_id, expected, root = self._fixture()
+        descriptor = self._valid_baseline(database, run_id, expected, root)
+        path = root / "ledger/baselines/direct.json"
+        payload = json.loads(path.read_text())
+        payload["events"] = list(reversed(payload["events"]))
+        raw = json.dumps(payload, sort_keys=True).encode()
+        path.write_bytes(raw)
+        descriptor["raw_sha256"] = hashlib.sha256(raw).hexdigest()
+        gate = self._report(database, run_id, expected, comparable_baseline=descriptor)["gates"][5]
+        self.assertEqual(gate["actual"]["unchanged_count"], 5)
+        self.assertEqual(gate["actual"]["changed_sample"], [])
+        self.assertEqual(gate["actual"]["added_sample"], [])
+        self.assertEqual(gate["actual"]["removed_sample"], [])
+
+    def test_current_event_structure_error_precedes_baseline_unavailable(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = sqlite3.connect(database)
+        db.execute(
+            "UPDATE direct_normalized_payments SET card_event_id='not-a-card-key' WHERE id=1"
+        )
+        recomputed = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (recomputed, run_id),
+        )
+        db.commit()
+        db.close()
+        expected["candidate_semantic_sha256"] = recomputed
+        gate = self._report(database, run_id, expected)["gates"][5]
+        self.assertEqual(gate["reason"], "baseline_current_event_key_invalid")
+
     def test_equal_amount_is_not_an_approval_identity(self) -> None:
         first = self._valid_approval(amount_krw=1234)
         second = self._valid_approval(
@@ -802,22 +1136,7 @@ class DirectTransitionGateTest(unittest.TestCase):
 
     def test_verified_baseline_cannot_pass_without_event_diff(self) -> None:
         database, run_id, expected, root = self._fixture()
-        payload = {
-            "event_scope": "direct-card-v2",
-            "parser_version": PARSER_BUNDLE_VERSION,
-            "candidate_semantic_sha256": expected[
-                "candidate_semantic_sha256"
-            ],
-        }
-        baseline_path = root / "ledger/baselines/direct.json"
-        baseline_path.parent.mkdir(parents=True, exist_ok=True)
-        raw = json.dumps(payload, sort_keys=True).encode("utf-8")
-        baseline_path.write_bytes(raw)
-        baseline = {
-            "relative_path": "ledger/baselines/direct.json",
-            "role": "direct_semantic_baseline",
-            "raw_sha256": hashlib.sha256(raw).hexdigest(),
-        }
+        baseline = self._valid_baseline(database, run_id, expected, root)
         report = self._report(
             database,
             run_id,
@@ -828,9 +1147,9 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertFalse(gate["passed"])
         self.assertEqual(
             gate["reason"],
-            "direct_baseline_event_diff_unimplemented",
+            "direct_baseline_authority_unavailable",
         )
-        self.assertEqual(gate["actual"]["baseline_status"], "unverified")
+        self.assertEqual(gate["actual"]["baseline_status"], "diff_computed_unapproved")
 
     def test_unverified_three_field_baseline_cannot_satisfy_gate6(self) -> None:
         database, run_id, expected, _ = self._fixture()
