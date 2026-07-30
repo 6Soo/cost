@@ -972,3 +972,39 @@ Real P07 root `/tmp/cost-r20-p07.0dYRQm`, run `2e4d867e6d2946beb658ad00dd259212`
 Safe ports `0`; PR12/13 KEEP/NO-MERGE. Fable exact-match PASS was withdrawn after Sol’s arbitrary-JSON self-approval counterexample; binding event-diff diagnostics plus authority-fail seal accepted. Luna v1/v2 reviews failed B1–B5; v3 passed both reviews with strict matrices. Exact code `+547/-45`; targeted `45/45`, full `117/117`.
 
 Real P07 `/tmp/cost-r21-p07.xC2jgL`, run `2e8e2184...`: input `e355...`, semantic `660e...` unchanged; bundle `3cd165...`; report `b941e9...` verified. Gate1/2/3/4/7 PASS; Gate5 `0/5328`; Gate6 baseline unavailable, current event-set `0f5ca...`, scope `224593...`; `not_published`, candidate absent, legacy authoritative. Baseline authority/promotion user-owner DEFER. STATUS untouched; no data/baseline/artifact/PR action.
+
+## 2026-07-31 R22 세션 핸드오프 — non-authoritative owner review
+
+Main `37688e0`; exact five-file R22A scope `+866`. 외부 검토 패키지 생성·검증만
+추가했고 owner 결정을 DB에 적용하거나 Gate 5 권한으로 승격하는 R22B는 DEFER다.
+Sol/Fable v7 독립 검토와 상호 반박은 모두 PASS했다. v6에서 발견한 양쪽
+`source_run_id` 결속 누락과 잘못된 container의 traceback은 strict guard와 회귀
+테스트로 닫았다. Targeted `38/38`, full `138/138`, diff-check PASS다.
+
+Real P07 root `/tmp/cost-r22-p07.SjbkOr`, run
+`73eca28631bc45b687983cf690ea4ae1`, exit `1`; input
+`e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199`,
+semantic `660eb1fd16f2ca2cb8247609ecc893f5d64ab021dcef50698abc2a829c8c58d2`,
+bundle `c2165c0636f5822f7e8322faa0568e4a2d890e0b49916e566c836c9b292f5b6c`,
+report `17e6fd791478e41d536680d21511102f51cad5f25110d4144717e6f6e8d7c5d8`
+이며 artifact verifier PASS다. Gate 1–4/7 PASS; Gate 5 `0/5328`, scope
+`22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418`;
+Gate 6 baseline unavailable, event-set
+`0f5ca97c971125327e2bdc5aaa0f6505872c5a03c50cf4886d29753b4c1a8c7e`;
+`not_published`, candidate DB absent, legacy authoritative다.
+
+외부 owner package manifest
+`dfd2c4b3fc5d9053e16d8f56361d7675ae151d3421fe5eab8eb917cbe7ed10bb`,
+events `f7772fb5c0122da30e9af2a0bdd3bc24035ff30ba12613e58cb0dd2f593012d6`;
+public canonical rebuild는 `template_valid`, `same_source_context=true`,
+`same_export_run=false`, `authority_ready_count=0`, `gate5_resolved_count=0`,
+임시 디렉터리 clean을 확인했다.
+
+Routing은 Flash missing key → Sonnet unavailable → Luna low 구현·쓰기,
+Fable 5 medium/Sol medium 독립 판단 → 반박 → v7 상호 수용이다. 보호 hash는
+STATUS `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`,
+AGENTS `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`,
+classified `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`,
+patch `1e95db2df8669047fec96973cd197bcad7feaf1b3498eb2ae35b7610d8705361`
+로 불변이다. PR12/13 KEEP/NO-MERGE; 승인된 owner 결정과 authority-bound
+baseline 없이는 Gate 5/6 및 cutover를 진행하지 않는다.
