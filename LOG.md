@@ -1211,3 +1211,30 @@ Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부�
 폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다. 다음 R37은
 bucket이 확보된 28건의 manual item/description을 범용가맹·품목불명 반례와 분리해 독립
 account/cost_type/VAT 근거를 찾고, 같은 방식으로 순신규 full classification만 추가한다.
+
+## 2026-08-01 R37 세션 핸드오프 — narrow toll service classification
+
+R36 bucket 44에서 full 16을 뺀 28 events/13 groups를 latest manual item·description과 current
+raw merchant·biz·currency로 전수 재검토했다. Sol의 초기 strict 18안(숙박12/항공4/통행료2)은
+보고서상 raw product/VAT 조건과 실제 selector가 달랐다. Fable 반박 후 Sol이 숙박·항공 16건을
+철회해 최종 교집합은 통행료 1 group/2 events뿐이다. 나머지 26건은 OTA 다상품성, 원거래 미결속
+취소, item/description 충돌·모호성, 해외 VAT 결속 부족 때문에 보류한다.
+
+채택 2건은 R36의 완전한 2↔2 group과 동일 여행 bucket 위에 manual item·description 모두 통행료,
+current raw merchant가 HIGHWAY와 TOLL을 함께 만족, purchase/single, non-KRW ISO currency와 positive
+foreign amount를 모두 요구한다. 결과는 `통행료/여행원가/불공제_해외`이며 exact event set
+`6f5bc4ec…b14ffc`, semantic set `288de0cb…bc196`이다. full-classification proposal union은
+1,524→1,526, incomplete 잔여는 3,804→3,802다.
+
+새 `direct_narrow_service_classification.py`는 strict 2와 deferred 26을 external-only 4파일로
+게시한다. R36/R25/latest manual/current raw/trips 및 complete group·source·payload·event·manual
+row/locator hashes를 live 결속하고, withdrawn 16이 다시 들어오면 fail-close한다. 출력에는 raw
+merchant/biz/item/description/locator/date/amount/card/approval/booking을 넣지 않는다. 모든 proposal은
+`unattested/blocked/confirmed_count=0/gate5_credit=0/applied=false`다. R36 v4의 post-publication
+durability/reconcile 및 target/stage reuse 경쟁 계약도 그대로 적용했다.
+
+Fable/Sol 최종 구현 리뷰는 모두 `PASS`; targeted 7/7, 전체 회귀 216/216 PASS(1375.633초)다.
+Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 로컬 구현 폴백을
+사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다. 다음 R38은 deferred
+26 중 예약·원거래 exact relation을 새로 확보할 수 있는지 우선 확인하고, 불가능하면 전체 잔여
+3,802를 source/time/provider cluster로 재분해해 다음 최대 독립 근거 source를 찾는다.
