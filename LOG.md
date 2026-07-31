@@ -1051,3 +1051,42 @@ STATUS/AGENTS/classified_v14 보호 hash는 각각
 `8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`로 유지한다.
 PR14는 KEEP/DRAFT/NO-MERGE이며 승인된 owner 결정과 authority-bound baseline 전에는
 Gate 5/6 및 cutover를 진행하지 않는다.
+
+## 2026-08-01 R25 세션 핸드오프 — latest manual evidence resolution annex
+
+최신 Drive 원장 전체 파일(`055ba6da…af41`, 40 sheets)을 P8 parser로 다시 만든 외부
+`manual_v4.csv`는 1,559행, SHA-256 `2c6d7486…10489`다. 부분 465행 snapshot과 repo의
+stale 1,379행 파일은 최신 census에 사용하지 않는다.
+
+R25는 새 `direct_external_manual_evidence.py`와 전용 테스트만 추가했다. 외부 latest manual과
+현재 direct context/R23 annex를 매 실행 새로 rebuild하여 `(issuer, exact date, exact signed KRW)`
+양측 고립만 row proposal로 만든다. merchant는 A1에 따라 identity key가 아니라 support/error
+flag다. 실데이터 결과는 전체 고립 1,043, 기존 R23 일치 847, classification conflict 8,
+R23-unmatched 신규 188(KBD94/HAN65/KBO27/CORP2; single184/approval4; 음수5)이다.
+support는 exact merchant19, containment87, booking67, OTA exact32/unique28이다. alias 계약은
+version/hash로 결속하며 독립 alias bilateral 143은 188과 전부 교차하고 alias-only는 0이다.
+배타 provider conflict 26은 `needs_review`로 격리한다.
+
+기존 accepted evidence tier도 안정 event ID로 재계산·export했다: clean L1/L2/L5 110,
+amount-conflict L9 21, group L12 29, typed v14 65, portal 1, independent signed merchant 19.
+manual188 교집합은 각각 90/0/0/2/0/19이며, clean individual lane들의 고유 event union은
+272다. 따라서 proposal 관점의 잔여 evidence-blocked는 4,101→3,829지만, 이것은 확정·전기 수가
+아니다. 모든 manifest/row는 `unattested`, `posting_status=blocked`, `confirmed_count=0`,
+`gate5_credit=0`이며 DB apply/canonical 변경/publication/cutover는 없다.
+
+package는 manifest/proposals/conflicts/groups/diagnostics/evidence_sets 6파일이다. 최신 원문 row
+hash, current event/source hash, input/semantic/event-set/decision-scope/classified/alias contract를
+결속하고 public verifier가 외부 manual과 canonical context를 live 재생성해 byte-identical을
+요구한다. duplicate/split, malformed 2행, conflict 8행을 별도 lane에 보존한다. 출력은 repo 밖
+same-parent staging, file+directory fsync, `renameat2(RENAME_NOREPLACE)`, parent fsync이며 symlink,
+기존 target, self-consistent forgery, stale context를 fail-close한다.
+
+Fable은 merchant를 필수키로 삼는 143안을 A1 위반으로 반박하고 ACCEPT_188; Sol은 alias hash,
+ID 교집합, conflict 원문, malformed queue, fsync, independent set equality 누락을 순차 지적했다.
+전부 반영 후 Fable v3와 Sol v4 최종 `REVIEW=PASS`다. targeted 6/6 PASS, 전체 회귀
+171/171 PASS(343.298s)다. 보호 data/AGENTS 및 main의 사용자 STATUS 변경은 건드리지 않는다.
+
+다음 unit은 `booking_periods_verified`의 authority-bound mail→booking 13 event ID를 별도
+content-bound artifact로 export한 뒤 이 annex의 `manual_signed_exact_19`와 결합하는 exact-union96
+aggregator다. raw mail date+amount coincidence를 재구현하지 않는다. 그 뒤 3,829 잔여를 evidence
+source별로 계속 해소하되 authority 계약 전 confirmed/Gate5 credit은 계속 0이다.
