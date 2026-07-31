@@ -1090,3 +1090,32 @@ ID 교집합, conflict 원문, malformed queue, fsync, independent set equality 
 content-bound artifact로 export한 뒤 이 annex의 `manual_signed_exact_19`와 결합하는 exact-union96
 aggregator다. raw mail date+amount coincidence를 재구현하지 않는다. 그 뒤 3,829 잔여를 evidence
 source별로 계속 해소하되 authority 계약 전 confirmed/Gate5 credit은 계속 0이다.
+
+## 2026-08-01 R26 세션 핸드오프 — verified booking relation evidence
+
+`booking_periods_verified.json`의 13개 fact를 exact `예약<digits>` token과 현재 direct
+event까지 다시 추적했다. 19개 사건 중 R23 기존 11개, R25 union 중복 5개이며,
+고마가네 booking `1400824130566434`의 7-way split relation 가운데 R25에 없던 순신규
+event는 3개다. 따라서 proposal coverage 잔여는 3,829→3,826이다. 관계행은 7개지만
+event coverage와 혼동하지 않는다.
+
+새 `direct_verified_booking_evidence.py`는 canonical booking/mail 입력, 최신 외부 manual,
+R23/R25/current direct context를 매번 live rebuild한다. exact 7 UID→approval→event 집합,
+R25 union 272 및 overlap 4+1, strict digits-only approval, issuer-family bridge, TRIP-0090
+날짜 충돌, target mail/fact schema를 rule hash에 결속한다. 출력은 repo 밖에만 atomic
+no-replace로 설치하며 file/stage/parent fsync, symlink/hardlink/nonregular, duplicate JSON
+key·NaN·unknown/tamper·self-consistent forgery를 fail-close한다. 모든 행은 `unattested`,
+`posting_status=blocked`, `confirmed_count=0`, `gate5_credit=0`이며 DB/CSV/workbook/canonical
+변경은 없다.
+
+Gemini 3.6 Flash는 API key 부재로 호출 실패했고 AGY Sonnet/Luna callable도 없어 구현은
+로컬 폴백으로 수행했다. Fable/Sol은 초기 구현을 각각 self-consistent forged input,
+count-only mapping, 느슨한 approval/schema, fsync·rule-hash 공백으로 FAIL했고 전부 반영한
+최종 commit을 각각 v3 `REVIEW=PASS`로 수용했다. targeted 6/6와 최종 live 1/1,
+전체 회귀 178/178 PASS(496.237초), diff-check clean이다. 보호된 사용자 `STATUS.md`,
+AGENTS, classified_v14는 변경하지 않았다.
+
+다음 R27은 `booking_info` 순신규 4개와 `ota_event_links_verified` 순신규 2개를 서로 및
+R23/R25/R26 event union과 중복 제거하는 별도 content-bound proposal artifact다. 예상
+proposal 잔여는 3,826→3,820이며 raw authority가 없으므로 confirmed/Gate5 credit은 0을
+유지한다.
