@@ -1013,3 +1013,41 @@ baseline 없이는 Gate 5/6 및 cutover를 진행하지 않는다.
 targeted `38/38`, full `138/138`을 재확인했다. 원격 draft PR14
 `feat(ledger): harden P07 gates and add owner review package`를 생성했으며
 Gate 5/6 충족 전에는 KEEP/DRAFT/NO-MERGE다.
+
+## 2026-07-31 R23/R24 세션 핸드오프 — 전 데이터시트·직접 DB 무결성 감사
+
+저장소 데이터 파일 33개(CSV 7, JSON 20, XLSX 6)를 전수 파싱했고 파싱 실패와
+Excel 오류 셀은 0이다. `ledger_current.xlsx`/`ledger_latest.xlsx`,
+`manual_periods.csv`/`manual_v4.csv`는 각각 동일하며, manual v4의 `row`는 기존
+중복 53건을 구별한다. 불변 원천에서 재구축한 direct DB는 source 8,336건
+(card 5,237 + manual 1,379 + OTA 1,720), payment 5,328건이고 FK·부호·고아행
+문제는 0이다. input manifest는
+`3593aaa02e47aacfd93f826137f98548a85268131c43ae0517b656a96b6ff3aa`, semantic은
+`660eb1fd16f2ca2cb8247609ecc893f5d64ab021dcef50698abc2a829c8c58d2`다.
+
+R24A `14ff652`는 직접 원천 내용/manifest 변조 fail-close, OTA 배열 보존·엄격
+검증, decision 무결성 blocker, stdout-only reference namespace 감사를 추가했다.
+Sol/Fable 최종 구현 검토는 모두 PASS했다. 실제 P07은 Gate 1–4/7 PASS,
+Gate 5 unresolved 5,328 및 Gate 6 baseline unavailable로 예상 exit 1이며,
+`not_published`, candidate DB absent라 정본 전환은 일어나지 않았다.
+
+R23A `d1f6b45`는 과거 분류와 현재 direct event의 비권한 lineage proposal annex를
+추가했다. 결과는 confirmed 0 / proposal 1,227(P0 932 + 기타 295) / evidence
+blocked 4,101이다. 4,101은 DB 손상이나 누락 수가 아니라 유일한 과거 1:1 lineage를
+입증하지 못해 자동 확정을 거부한 수다. annex는 `unattested`, `posting_status=blocked`,
+`gate5_credit=0`을 강제한다. 최종 외부 산출물 manifest
+`4a127646e01c795dfdf3ece69a08f75ff460466e6bbeb1216c042212dbbadd4d`, events
+`dca055ba1583035fb7c0609d55ef182b5448990fe88d85d06b32dd5490c666b1`, 5,328행이며
+verifier PASS다. 출력은 repo 밖 기존 부모에만 원자 no-replace로 설치하고 심링크·경쟁
+생성·지원되지 않는 원자 primitive는 fail-close한다. Sol/Fable v2 최종 검토 모두 PASS다.
+통합 HEAD 전체 회귀 스위트도 `165/165` PASS(실패·오류 0)다.
+
+Routing은 Flash key 부재 → Sonnet unavailable → Luna low 구현, Fable 5 medium/Sol
+medium 독립 판단·반박·수용이었다. 수용: 원천/결정 무결성 강화와 비권한 proposal
+감사. 기각: 1,227건 자동 확정, 4,101건 임의 보간, Gate 5/6 credit 또는 cutover.
+STATUS/AGENTS/classified_v14 보호 hash는 각각
+`a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc` /
+`3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4` /
+`8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989`로 유지한다.
+PR14는 KEEP/DRAFT/NO-MERGE이며 승인된 owner 결정과 authority-bound baseline 전에는
+Gate 5/6 및 cutover를 진행하지 않는다.
