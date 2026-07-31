@@ -1149,3 +1149,31 @@ diff-check clean이다. 모든 row는 `unattested/blocked/0/0`이며 DB/CSV/work
 분해한다. amount-only·historical classification-only·근사 match는 계속 제외하고, 독립 raw
 locator/hash 또는 globally isolated structural identity가 있는 순신규 event만 별도 annex로
 추가한다.
+
+## 2026-08-01 R34 세션 핸드오프 — merchant taxonomy diagnostic support
+
+R28~R33에서 repository 잔여 source, Gmail Trip/Agoda/Booking 원문, 카드 승인 메일,
+classified 생성 lineage를 다시 조사했지만 R27 union 밖 순신규 exact event는 0이었다.
+따라서 proposal coverage union은 1,508, evidence-blocked 잔여는 3,820으로 유지된다.
+Gmail 원문은 read-only로 확인했고 raw MIME·PII를 저장소에 넣지 않았다.
+
+R34는 merchant taxonomy를 독립 교차검토했다. Fable의 broad 941안과 Sol의 strict 259안 중
+양측이 동일하게 지지한 strict 259건만 진단 artifact 대상으로 수용했다. 이 집합은 account
+259건과 cost_type 259건을 지지하며 VAT는 258건만 지지한다. VAT `확인` 1건은 미해결이고,
+기간·예약 근거가 필요한 bucket 및 full classification은 0건이다. 따라서 이 결과는 부분
+분류 지원일 뿐 신규 evidence coverage, confirmed, Gate 5 credit을 늘리지 않는다.
+source+currency partition에 기대던 Tier-B19는 14개 seed 중 0개 3건·1개 5건으로 결정성이
+없어 양쪽 검토에서 기각했다.
+
+새 `direct_merchant_taxonomy_support.py`는 현재 event set, decision scope, R23/R25/R26/R27
+component set, 전체 12-field semantic row set과 선택 event set의 SHA를 rule에 고정하고 live
+재계산한다. 초기 구현은 같은 건수의 universe 교체와 semantic drift를 막지 못해 양쪽 검토가
+FAIL했고, exact set/hash 결속과 rule-independent compiler/selector 및 적대 테스트를 추가했다.
+수정 후 Fable v2와 Sol v2가 각각 `REVIEW=PASS`; targeted 10/10, 전체 회귀 195/195
+PASS(1084.106초)다. 모든 결과는 `unattested/blocked/confirmed_count=0/gate5_credit=0`이며
+DB apply, canonical publication, cutover는 수행하지 않았다.
+
+Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 로컬 구현
+폴백을 사용했다. 다음 R35는 잔여 3,820건을 계정·비용유형·VAT·bucket별로 분리하고, 독립
+근거가 없는 제안은 review-only로 유지하면서 full classification을 완성할 수 있는 예약기간
+및 원장 근거를 우선 탐색한다. 보호된 사용자 `STATUS.md`, AGENTS, classified_v14는 변경하지 않는다.
