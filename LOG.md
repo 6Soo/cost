@@ -1119,3 +1119,33 @@ AGENTS, classified_v14는 변경하지 않았다.
 R23/R25/R26 event union과 중복 제거하는 별도 content-bound proposal artifact다. 예상
 proposal 잔여는 3,826→3,820이며 raw authority가 없으므로 confirmed/Gate5 credit은 0을
 유지한다.
+
+## 2026-08-01 R27 세션 핸드오프 — repository booking/OTA evidence
+
+R23 1,227 ∪ R25 272 ∪ R26 relation 7을 event ID로 live 결합했고 교집합은 R25∩R26
+4뿐이라 prior union은 1,502다. R23 UID 경로를 먼저 적용한 뒤 strict approval-family
+1:1 fallback을 사용했다. `booking_info`는 resolved 53/overlap 49/new 4/unresolved 7,
+`ota_event_links_verified`는 resolved 63/overlap 61/new 2/unresolved 5다. 두 신규 set은
+서로 비중복이므로 proposal coverage 잔여는 3,826→3,820이다.
+
+새 `direct_repository_booking_evidence.py`는 relations 신규 6, coverage 116,
+ambiguities 12와 manifest의 정확히 4파일을 외부 경로에 원자 게시한다. canonical source
+whole-file/row-set SHA, 실제 OTA field-shape census 21, exact new/ambiguity/group sets,
+R23/R25/R26/current context를 rule과 manifest에 결속한다. R26 전체 중첩 rebuild 대신
+canonical periods/mail path+nlink+SHA, R26 rule/exact relation-set, current membership 및
+R25 input/semantic/event/scope를 검증하는 경량 dependency verifier를 사용한다. R23 UID-first
+누락 과대계상, self-consistent forgery, exact swap, 민감값 export, authority 승격 및
+write/file-fsync/stage-fsync/verify/rename/parent-fsync 실패를 테스트로 차단한다. output은
+0700/files0600, atomic no-replace이며 guest/PNR/PIN/access-token URL을 내보내지 않는다.
+
+두 설계 검토는 final counts의 `53/7`과 approval-only 중간 `13/47`을 구분해 수용했다.
+초기 구현은 disposition/rule 결속, provenance/shape, 적대 테스트, 중첩 rebuild와 upstream
+R26 drift 검증 공백으로 Fable/Sol이 FAIL했고 모두 수정했다. 최종 Fable v3와 Sol v3는
+`REVIEW=PASS`; targeted 6/6, fresh live build PASS, 전체 회귀 185/185 PASS(648.427초),
+diff-check clean이다. 모든 row는 `unattested/blocked/0/0`이며 DB/CSV/workbook/canonical과
+보호된 STATUS/AGENTS/classified_v14는 변경하지 않았다.
+
+다음 R28은 proposal 잔여 3,820에서 현재 제외된 source를 stable identity 가능성별로 다시
+분해한다. amount-only·historical classification-only·근사 match는 계속 제외하고, 독립 raw
+locator/hash 또는 globally isolated structural identity가 있는 순신규 event만 별도 annex로
+추가한다.
