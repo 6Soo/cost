@@ -8,11 +8,48 @@ from ledger.domain.source_adapters import (
     normalize_service_period,
     reconcile_amount,
     sanitize_ota_record,
+    adapt_ota_record,
     stable_card_event_identity,
 )
 
 
 class SourceAdapterTest(unittest.TestCase):
+    def test_ota_candidates_are_typed_and_scalars_only_when_unique(self) -> None:
+        clean = adapt_ota_record({
+            "messageId": "m1", "amounts": [1000, 2000],
+            "pnrs": ["AB12345"], "bookingRefs": ["12345678"],
+            "travelDates": ["0701"],
+        })
+        self.assertEqual(clean["amount_candidates"], [1000, 2000])
+        self.assertEqual(clean["pnr_candidates"], ["AB12345"])
+        self.assertEqual(clean["booking_ref_candidates"], ["12345678"])
+        self.assertNotIn("booking_number", clean)
+        self.assertNotIn("period_original", clean)
+        self.assertEqual(clean["redaction_version"], "ota-allowlist-v2")
+
+        many = adapt_ota_record({"bookingRefs": ["12345678", "87654321"]})
+        self.assertEqual(many["booking_ref_candidates"], ["12345678", "87654321"])
+        self.assertNotIn("booking_number", many)
+
+        formatted = adapt_ota_record({"bookingRefs": ["1083-192-723"]})
+        self.assertEqual(formatted["booking_ref_candidates"], ["1083-192-723"])
+
+    def test_ota_candidate_type_and_pattern_violations_fail_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ota_candidate_pattern"):
+            adapt_ota_record({"pnrs": [" AB1234 "]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_type"):
+            adapt_ota_record({"amounts": ["1000"]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_pattern"):
+            adapt_ota_record({"pnrs": ["ab12345"]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_type"):
+            adapt_ota_record({"amounts": [True]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_pattern"):
+            adapt_ota_record({"pnrs": ["too-long-pnr"]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_pattern"):
+            adapt_ota_record({"travelDates": ["2026/07/01"]})
+        with self.assertRaisesRegex(ValueError, "ota_candidate_date"):
+            adapt_ota_record({"travelDates": ["0231"]})
+
     def test_approval_identity_ignores_enrichment_and_legacy_uid(self) -> None:
         base = {
             "src": "KBD",
@@ -133,7 +170,7 @@ class SourceAdapterTest(unittest.TestCase):
         self.assertTrue(forbidden_ota_fields(record))
         clean = sanitize_ota_record(record)
         self.assertEqual(clean["booking_number"], "1400823716285910")
-        self.assertEqual(clean["redaction_version"], "ota-allowlist-v1")
+        self.assertEqual(clean["redaction_version"], "ota-allowlist-v2")
         self.assertFalse(forbidden_ota_fields(clean))
 
     def test_amount_reconciliation_distinguishes_supported_tolerance(self) -> None:

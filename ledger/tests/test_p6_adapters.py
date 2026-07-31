@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
+from collections import Counter
 from pathlib import Path
 
 import openpyxl
 
 from ledger.domain.direct_sources import import_all
+from ledger.domain.source_adapters import forbidden_ota_fields
 from ledger.domain.ledger_db import (
     DEFAULT_BOOKINGS,
     DEFAULT_CSV,
@@ -29,6 +32,23 @@ from ledger.domain.v2_workbook_adapter import (
 
 
 class P6AdapterIntegrationTest(unittest.TestCase):
+    def test_real_ota_candidate_census_and_pnr_lengths(self) -> None:
+        rows = json.loads((LEDGER_DIR / "data/ota_mail_index.json").read_text(encoding="utf-8"))["records"]
+        self.assertEqual(len(rows), 1720)
+        from ledger.domain.source_adapters import adapt_ota_record
+        clean = [adapt_ota_record(row) for row in rows]
+        self.assertTrue(all(set(("amount_candidates", "pnr_candidates", "booking_ref_candidates", "travel_date_candidates")) <= set(r) for r in clean))
+        self.assertEqual(sum(bool(forbidden_ota_fields(r)) for r in clean), 0)
+        self.assertEqual(sum(bool(r.get("amount_candidates")) for r in clean), 608)
+        self.assertEqual(sum(len(r.get("amount_candidates", [])) for r in clean), 1927)
+        pnrs = [x for r in clean for x in r.get("pnr_candidates", [])]
+        self.assertEqual((sum(bool(r.get("pnr_candidates")) for r in clean), len(pnrs)), (154, 159))
+        self.assertEqual(Counter(map(len, pnrs)), {6: 132, 7: 21, 8: 6})
+        refs = [x for r in clean for x in r.get("booking_ref_candidates", [])]
+        dates = [x for r in clean for x in r.get("travel_date_candidates", [])]
+        self.assertEqual((sum(bool(r.get("booking_ref_candidates")) for r in clean), len(refs)), (383, 384))
+        self.assertEqual((sum(bool(r.get("travel_date_candidates")) for r in clean), len(dates)), (1347, 3536))
+        self.assertTrue(all("booking_number" not in r and "period_original" not in r for r in clean))
     def test_direct_sources_are_idempotent_and_workbook_has_no_unexplained_diff(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

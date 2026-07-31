@@ -14,7 +14,7 @@ from typing import Mapping
 
 
 CARD_EVENT_ID_VERSION = "card-event-v2"
-OTA_REDACTION_VERSION = "ota-allowlist-v1"
+OTA_REDACTION_VERSION = "ota-allowlist-v2"
 
 OTA_ALLOWED_FIELDS = {
     "provider",
@@ -37,6 +37,13 @@ OTA_ALLOWED_FIELDS = {
     "payment_date",
     "card_last4",
     "status",
+}
+
+_OTA_CANDIDATE_FIELDS = {
+    "amounts": ("amount_candidates", int),
+    "pnrs": ("pnr_candidates", str),
+    "bookingRefs": ("booking_ref_candidates", str),
+    "travelDates": ("travel_date_candidates", str),
 }
 
 
@@ -166,6 +173,66 @@ def sanitize_ota_record(record: Mapping[str, object]) -> dict[str, object]:
         if key in record and record[key] not in (None, "")
     }
     clean["redaction_version"] = OTA_REDACTION_VERSION
+    return clean
+
+
+def _typed_ota_candidates(record: Mapping[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    patterns = {
+        "pnr_candidates": r"[A-Z0-9]{5,16}",
+        "booking_ref_candidates": r"[0-9]+(?:-[0-9]+)*",
+        "travel_date_candidates": r"(?:\d{4}|\d{4}-\d{2}-\d{2})",
+    }
+    for source, (target, kind) in _OTA_CANDIDATE_FIELDS.items():
+        if source not in record:
+            continue
+        value = record[source]
+        if not isinstance(value, list):
+            raise ValueError(f"ota_candidate_type:{source}")
+        values: list[object] = []
+        for index, item in enumerate(value):
+            if kind is int:
+                if isinstance(item, bool) or not isinstance(item, int):
+                    raise ValueError(f"ota_candidate_type:{source}:{index}")
+            else:
+                if not isinstance(item, str):
+                    raise ValueError(f"ota_candidate_type:{source}:{index}")
+                if not re.fullmatch(patterns[target], item):
+                    raise ValueError(f"ota_candidate_pattern:{source}:{index}")
+                if source == "bookingRefs" and not 8 <= len(item) <= 32:
+                    raise ValueError(f"ota_candidate_length:{source}:{index}")
+                if source == "travelDates":
+                    try:
+                        if re.fullmatch(r"\d{4}", item):
+                            date(2000, int(item[:2]), int(item[2:]))
+                        else:
+                            date.fromisoformat(item)
+                    except ValueError as exc:
+                        raise ValueError(f"ota_candidate_date:{source}:{index}") from exc
+            values.append(item)
+        result[target] = values
+    return result
+
+
+def adapt_ota_record(record: Mapping[str, object]) -> dict[str, object]:
+    """Return the single canonical, typed OTA projection used by import and inventory."""
+    if forbidden_ota_fields(record):
+        raise ValueError("forbidden_ota_field")
+    clean = sanitize_ota_record(record)
+    for old, new in (("messageId", "message_id"), ("messageHash", "message_hash")):
+        if old in record and new not in clean:
+            value = record[old]
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"ota_scalar_type:{old}")
+            clean[new] = value
+    for field, value in clean.items():
+        if field != "redaction_version" and isinstance(value, (list, dict, tuple, set)):
+            raise ValueError(f"ota_scalar_type:{field}")
+    candidates = _typed_ota_candidates(record)
+    clean.update(candidates)
+    clean["redaction_version"] = OTA_REDACTION_VERSION
+    if forbidden_ota_fields(clean):
+        raise ValueError("forbidden_ota_value")
     return clean
 
 

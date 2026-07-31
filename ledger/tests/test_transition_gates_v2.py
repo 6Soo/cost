@@ -29,6 +29,7 @@ from ledger.domain.transition_gates_v2 import (
     _direct_event_semantic_hash,
 )
 from ledger.domain.p07_manifest import verify_run_artifacts
+from ledger.domain.decision_integrity import decision_integrity
 
 
 class DirectTransitionGateTest(unittest.TestCase):
@@ -36,6 +37,38 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+
+    def test_decision_integrity_is_history_inclusive_and_allocation_unbound(self) -> None:
+        db = connect(self.root / "integrity.db")
+        initialize(db)
+        db.execute("""INSERT INTO classification_decisions
+            (target_type,target_id,dimension,value,confidence,decision_status)
+            VALUES ('payment',999,'account','x',1,'superseded')""")
+        db.execute("""INSERT INTO classification_decisions
+            (target_type,target_id,dimension,value,confidence,decision_status)
+            VALUES ('allocation',1,'allocation_target','x',1,'confirmed')""")
+        result = decision_integrity(db)
+        self.assertEqual(result["orphan_count"], 1)
+        self.assertEqual(result["orphan_sample"], [[1, "payment", 999]])
+        self.assertTrue(result["allocation_target_binding_unconfirmed"])
+        db.execute("PRAGMA ignore_check_constraints=ON")
+        db.execute("""INSERT INTO classification_decisions
+            (target_type,target_id,dimension,value,confidence,decision_status)
+            VALUES ('mystery',7,'account','x',1,'confirmed')""")
+        result = decision_integrity(db)
+        self.assertEqual(result["invalid_target_type_count"], 1)
+        db.close()
+
+    def test_gate1_reports_deterministic_source_key_conflict(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = sqlite3.connect(database)
+        db.execute("INSERT INTO direct_source_records(source_kind,source_key,source_sha256,payload_json) VALUES ('card_raw','A:conflict','a','{}')")
+        db.execute("INSERT INTO direct_source_records(source_kind,source_key,source_sha256,payload_json) VALUES ('card_raw','A:conflict','b','{}')")
+        db.commit(); db.close()
+        gate = self._report(database, run_id, expected)["gates"][0]
+        self.assertFalse(gate["passed"])
+        issue = next(item for item in gate["actual"]["issues"] if item["reason"] == "source_key_content_conflict")
+        self.assertEqual(issue["sample"], [["card_raw", "A:conflict"]])
 
     @staticmethod
     def _raw_sha(data: bytes) -> str:

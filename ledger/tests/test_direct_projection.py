@@ -31,6 +31,25 @@ class DirectProjectionTest(unittest.TestCase):
         parameter = inspect.signature(build_direct_candidate).parameters["owner_review_output"]
         self.assertIsNone(parameter.default)
 
+    def test_projection_rejects_changed_source_versions_even_if_insert_was_bypassed(self) -> None:
+        from ledger.domain.ledger_db import connect
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "direct.db")
+            try:
+                initialize(db)
+                _apply_schema(db)
+                db.execute("INSERT INTO direct_source_records(source_kind,source_key,source_sha256,payload_json) VALUES ('card_raw','KBO:E:1','a','{}')")
+                db.execute("INSERT INTO direct_source_records(source_kind,source_key,source_sha256,payload_json) VALUES ('card_raw','KBO:E:1','b','{}')")
+                with self.assertRaisesRegex(ValueError, "source_key_content_conflict:card_raw:KBO:E:1"):
+                    project_card_payments(db, "run")
+            finally:
+                db.close()
+
+    def test_runtime_bundle_contains_each_runtime_dependency_once(self) -> None:
+        from ledger.domain.direct_projection import RUNTIME_CODE_PATHS
+        paths = [path.as_posix() for path in RUNTIME_CODE_PATHS]
+        self.assertEqual(paths.count("ledger/domain/decision_integrity.py"), 1)
+        self.assertNotIn("ledger/domain/reference_namespace_report.py", paths)
     def test_failed_real_p07_owner_export_is_external_blank_5328_and_unpublished(self) -> None:
         import tempfile
         from ledger.domain.direct_projection import build_direct_candidate

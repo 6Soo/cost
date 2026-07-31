@@ -9,12 +9,63 @@ from ledger.domain.direct_sources import (
     DIRECT_CARD_NORMALIZATION_VERSION,
     _normalize_single_payment,
     import_cards,
+    _insert_source,
 )
 from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.source_adapters import stable_card_event_identity
+from ledger.domain.direct_sources import import_manual, import_ota
 
 
 class DirectSourceNormalizationTest(unittest.TestCase):
+    def test_changed_content_same_source_key_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "direct.db")
+            try:
+                initialize(db)
+                _insert_source(db, "card_raw", "KBO:E:1", {"krw": 100})
+                with self.assertRaisesRegex(ValueError, "source_key_content_conflict:card_raw:KBO:E:1"):
+                    _insert_source(db, "card_raw", "KBO:E:1", {"krw": 101})
+                _, created = _insert_source(db, "card_raw", "KBO:E:1", {"krw": 100})
+                self.assertFalse(created)
+            finally:
+                db.close()
+
+    def test_payload_digest_tamper_fails_with_stable_error(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "direct.db"); initialize(db)
+            _insert_source(db, "manual_ledger", "M:1", {"amount": "1"})
+            db.execute("UPDATE direct_source_records SET payload_json='not-json'")
+            with self.assertRaisesRegex(ValueError, "source_payload_digest_inconsistent:manual_ledger:M:1"):
+                _insert_source(db, "manual_ledger", "M:1", {"amount": "1"})
+            db.close()
+
+    def test_actual_card_import_changed_content_preserves_source_and_children(self) -> None:
+        cards = [{"src":"KBO", "raw_record_id":"E:1", "c4":"1234", "appr":"1", "orig":"", "use":"2026-06-01", "bill":"2026-06-02", "mer":"M", "uptype":"", "cur":"KRW", "fx":"", "krw":100, "approval_amount":0, "cancel_amount":0, "purchase_amount":0, "cancel":False, "status":""}]
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "direct.db"); initialize(db)
+            with patch("ledger.domain.direct_sources.cardindex.build_cards", return_value=cards):
+                import_cards(db, Path(dirname))
+                before = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("direct_source_records", "direct_card_events", "direct_normalized_payments"))
+                cards[0]["krw"] = 101
+                with self.assertRaisesRegex(ValueError, "source_key_content_conflict:card_raw:KBO:E:1"):
+                    import_cards(db, Path(dirname))
+                after = tuple(db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("direct_source_records", "direct_card_events", "direct_normalized_payments"))
+                self.assertEqual(after, before)
+            db.close()
+
+    def test_manual_and_ota_changed_content_leave_source_and_children_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            root = Path(dirname); db = connect(root / "direct.db"); initialize(db)
+            manual = root / "manual.csv"; manual.write_text("tab,row,note\nA,1,one\n", encoding="utf-8")
+            ota = root / "ota.json"; ota.write_text('{"records":[{"messageId":"m1"}]}', encoding="utf-8")
+            import_manual(db, manual); import_ota(db, ota)
+            before = {table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("direct_source_records", "direct_card_events", "direct_normalized_payments")}
+            manual.write_text("tab,row,note\nA,1,two\n", encoding="utf-8")
+            ota.write_text('{"records":[{"messageId":"m1","messageHash":"changed"}]}', encoding="utf-8")
+            with self.assertRaises(ValueError): import_manual(db, manual)
+            with self.assertRaises(ValueError): import_ota(db, ota)
+            after = {table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in before}
+            self.assertEqual(after, before); db.close()
     def test_issuer_cancel_matrix_is_label_first_and_idempotent(self) -> None:
         for source in ("KBO", "CORP"):
             for raw in (100, -100, 0):

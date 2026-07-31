@@ -21,6 +21,7 @@ from typing import Iterable
 
 from .source_adapters import stable_card_event_identity
 from .direct_sources import compare_with_legacy, import_all as import_direct_sources
+from .decision_integrity import decision_integrity
 
 
 HERE = Path(__file__).resolve().parent
@@ -1515,12 +1516,26 @@ def validation_report(
             """,
         ),
     }
+    integrity = decision_integrity(db)
+    report.update({
+        "decision_orphan_count": integrity["orphan_count"],
+        "decision_orphan_sample": integrity["orphan_sample"],
+        "allocation_decision_count": integrity["allocation_decision_count"],
+        "allocation_target_binding_unconfirmed": integrity[
+            "allocation_target_binding_unconfirmed"
+        ],
+        "invalid_target_type_count": integrity["invalid_target_type_count"],
+        "invalid_target_type_sample": integrity["invalid_target_type_sample"],
+    })
     report["valid"] = (
         report["transactions"] == report["active_allocations"]
         and report["transaction_total_krw"] == report["allocation_total_krw"]
         and report["allocation_mismatches"] == 0
         and report["missing_card_event_identities"] == 0
         and report["forbidden_sensitive_source_records"] == 0
+        and report["decision_orphan_count"] == 0
+        and not report["allocation_target_binding_unconfirmed"]
+        and report["invalid_target_type_count"] == 0
     )
     return report
 

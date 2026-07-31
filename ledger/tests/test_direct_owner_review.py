@@ -336,7 +336,11 @@ class DirectOwnerReviewTest(unittest.TestCase):
             base = Path(dirname); result = build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "owner")
             self.assertFalse(result["passed"]); self.assertIsNone(result["output_db"])
             manifest = json.loads((base / "owner/manifest.json").read_text()); context = manifest["source_context"]
-            self.assertEqual((context["input_manifest_sha256"], context["candidate_semantic_sha256"], context["current_event_set_sha256"], context["decision_scope_sha256"]), ("e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199", "660eb1fd16f2ca2cb8247609ecc893f5d64ab021dcef50698abc2a829c8c58d2", "0f5ca97c971125327e2bdc5aaa0f6505872c5a03c50cf4886d29753b4c1a8c7e", "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
+            new_manifest_sha = "3593aaa02e47aacfd93f826137f98548a85268131c43ae0517b656a96b6ff3aa"
+            old_manifest_sha = "e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199"
+            self.assertTrue(all(item["parser_version"] == "direct-source-v3" for item in manifest["provenance"]["source_inventory"]))
+            self.assertNotEqual(new_manifest_sha, old_manifest_sha)
+            self.assertEqual((context["input_manifest_sha256"], context["candidate_semantic_sha256"], context["current_event_set_sha256"], context["decision_scope_sha256"]), (new_manifest_sha, "660eb1fd16f2ca2cb8247609ecc893f5d64ab021dcef50698abc2a829c8c58d2", "0f5ca97c971125327e2bdc5aaa0f6505872c5a03c50cf4886d29753b4c1a8c7e", "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
             with (base / "owner/events.csv").open(encoding="utf-8") as stream:
                 rows = list(__import__("csv").DictReader(stream))
             self.assertEqual(len(rows), 5328); self.assertTrue(all(row[field] in ('""', 'null') for row in rows for field in ("decision_status", "allocation_items_json", "classification_items_json", "evidence_refs_json", "owner_rationale")))

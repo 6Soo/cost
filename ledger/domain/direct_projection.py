@@ -16,8 +16,7 @@ from ledger import cardindex
 from ledger.domain.direct_sources import import_all
 from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.source_adapters import (
-    OTA_REDACTION_VERSION,
-    sanitize_ota_record,
+    adapt_ota_record,
 )
 from ledger.domain.transition_gates_v2 import (
     PARSER_BUNDLE_VERSION,
@@ -36,6 +35,7 @@ SCHEMA = HERE / "direct_projection_schema.sql"
 RUNTIME_CODE_PATHS = (
     Path("ledger/cardindex.py"),
     Path("ledger/domain/schema.sql"),
+    Path("ledger/domain/decision_integrity.py"),
     Path("ledger/domain/source_adapters.py"),
     Path("ledger/domain/direct_sources.py"),
     Path("ledger/domain/ledger_db.py"),
@@ -124,16 +124,7 @@ def _ota_keys(path: Path) -> list[str]:
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"ota_record_not_object:{index}")
-        clean = sanitize_ota_record(row)
-        for old, new in (
-            ("messageId", "message_id"),
-            ("messageHash", "message_hash"),
-            ("bookingRefs", "booking_number"),
-            ("travelDates", "period_original"),
-        ):
-            if old in row and new not in clean:
-                clean[new] = row[old]
-        clean["redaction_version"] = OTA_REDACTION_VERSION
+        clean = adapt_ota_record(row)
         keys.append(str(clean.get("message_id") or f"row:{index}"))
     return keys
 
@@ -240,6 +231,14 @@ def _stable_external_key(row: object) -> str:
 
 def project_card_payments(db: object, run_id: str) -> int:
     """Project card facts and their business fields without legacy matching."""
+    conflict = db.execute(
+        """SELECT source_kind, source_key FROM direct_source_records
+           GROUP BY source_kind, source_key
+           HAVING COUNT(DISTINCT source_sha256)>1
+           ORDER BY source_kind, source_key LIMIT 1"""
+    ).fetchone()
+    if conflict:
+        raise ValueError(f"source_key_content_conflict:{conflict[0]}:{conflict[1]}")
     rows = db.execute(
         """
         SELECT

@@ -11,7 +11,7 @@ from typing import Iterable, Mapping
 from ledger import cardindex
 from ledger.domain.source_adapters import (
     OTA_REDACTION_VERSION,
-    sanitize_ota_record,
+    adapt_ota_record,
     stable_card_event_identity,
 )
 
@@ -49,6 +49,19 @@ def _insert_source(
     redaction_version: str | None = None,
 ) -> tuple[int, bool]:
     digest = _canonical_hash(payload)
+    rows = db.execute(
+        """SELECT source_sha256, payload_json FROM direct_source_records
+           WHERE source_kind=? AND source_key=? ORDER BY id""", (kind, key)
+    ).fetchall()
+    if len(rows) > 1 or (rows and rows[0][0] != digest):
+        raise ValueError(f"source_key_content_conflict:{kind}:{key}")
+    if rows:
+        try:
+            stored_digest = _canonical_hash(json.loads(rows[0][1]))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"source_payload_digest_inconsistent:{kind}:{key}") from exc
+        if stored_digest != rows[0][0]:
+            raise ValueError(f"source_payload_digest_inconsistent:{kind}:{key}")
     before = db.total_changes
     db.execute(
         """
@@ -234,17 +247,7 @@ def import_ota(db: sqlite3.Connection, path: Path) -> dict[str, int]:
     count = 0
     inserted = 0
     for index, row in enumerate(rows):
-        clean = sanitize_ota_record(row)
-        # 이미 구조화된 인덱스의 camelCase 필드도 허용목록 이름으로 매핑한다.
-        for old, new in (
-            ("messageId", "message_id"),
-            ("messageHash", "message_hash"),
-            ("bookingRefs", "booking_number"),
-            ("travelDates", "period_original"),
-        ):
-            if old in row and new not in clean:
-                clean[new] = row[old]
-        clean["redaction_version"] = OTA_REDACTION_VERSION
+        clean = adapt_ota_record(row)
         key = str(clean.get("message_id") or f"row:{index}")
         _, created = _insert_source(
             db,

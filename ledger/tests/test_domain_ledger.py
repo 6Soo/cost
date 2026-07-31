@@ -40,6 +40,22 @@ from ledger.domain.ledger_db import (
 
 
 class DomainLedgerIntegrationTest(unittest.TestCase):
+    def test_validation_report_blocks_historical_orphan_and_allocation_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "ledger.db")
+            from ledger.domain.ledger_db import initialize
+            initialize(db)
+            db.execute("""INSERT INTO classification_decisions
+                (target_type,target_id,dimension,value,confidence,decision_status)
+                VALUES ('booking',123,'account','x',1,'superseded')""")
+            db.execute("""INSERT INTO classification_decisions
+                (target_type,target_id,dimension,value,confidence,decision_status)
+                VALUES ('allocation',1,'allocation_target','x',1,'confirmed')""")
+            report = validation_report(db)
+            self.assertEqual(report["decision_orphan_count"], 1)
+            self.assertTrue(report["allocation_target_binding_unconfirmed"])
+            self.assertFalse(report["valid"])
+            db.close()
     @classmethod
     def setUpClass(cls) -> None:
         cls.tempdir = tempfile.TemporaryDirectory()

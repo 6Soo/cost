@@ -11,12 +11,13 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
+from ledger.domain.decision_integrity import decision_integrity
 
 
 HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parents[1]
 SCHEMA_VERSION = "p07-direct-v2"
-PARSER_BUNDLE_VERSION = "direct-card-v2"
+PARSER_BUNDLE_VERSION = "direct-source-v3"
 REQUIRED_INPUTS = (
     {
         "source_kind": "card_raw:A_20260720",
@@ -769,13 +770,25 @@ def _legacy_leakage_gate(db: object, run_id: str) -> dict[str, object]:
         """,
         (run_id,),
     ).fetchall()
-    passed = not linked_non_card and not unlinked_payments and not legacy_lineage
+    integrity = decision_integrity(db)
+    passed = (
+        not linked_non_card and not unlinked_payments and not legacy_lineage
+        and integrity["orphan_count"] == 0
+        and not integrity["allocation_target_binding_unconfirmed"]
+        and integrity["invalid_target_type_count"] == 0
+    )
     if linked_non_card:
         reason = "non_card_direct_source_linked"
     elif unlinked_payments:
         reason = "unlinked_legacy_payment"
     elif legacy_lineage:
         reason = "legacy_source_record_lineage"
+    elif integrity["invalid_target_type_count"]:
+        reason = "classification_decision_target_type_invalid"
+    elif integrity["orphan_count"]:
+        reason = "classification_decision_target_orphan"
+    elif integrity["allocation_target_binding_unconfirmed"]:
+        reason = "allocation_target_binding_unconfirmed"
     else:
         reason = "ok"
     return _gate(
@@ -790,6 +803,7 @@ def _legacy_leakage_gate(db: object, run_id: str) -> dict[str, object]:
                 str(row[0]) for row in unlinked_payments[:10]
             ],
             "legacy_lineage_count": len(legacy_lineage),
+            "decision_integrity": integrity,
         },
     )
 
