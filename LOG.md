@@ -1177,3 +1177,37 @@ Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부�
 폴백을 사용했다. 다음 R35는 잔여 3,820건을 계정·비용유형·VAT·bucket별로 분리하고, 독립
 근거가 없는 제안은 review-only로 유지하면서 full classification을 완성할 수 있는 예약기간
 및 원장 근거를 우선 탐색한다. 보호된 사용자 `STATUS.md`, AGENTS, classified_v14는 변경하지 않는다.
+
+## 2026-08-01 R36 세션 핸드오프 — manual duplicate-group + taxonomy evidence
+
+잔여 3,820건을 다시 분해하면 R34 taxonomy 259건 중 258건은 bucket만, 1건은 bucket과 VAT가
+비어 있고, 나머지 3,561건은 네 분류 차원이 모두 비어 있다. canonical `occurred_on` 기준
+2026년 2분기 잔여는 44건(4월25/5월9/6월10)이며 69건이 아니다. Q2 밖 3,776건은 선결제·사후
+환불 가능성이 있어 날짜만으로 보고범위 제외나 Gate 5 해결로 처리하지 않았다.
+
+최신 외부 manual 1,559행에서 `(issuer, exact occurred_on, exact signed KRW)`가 양쪽 모두
+중복이면서 cardinality가 같고 signed total이 같으며 모든 manual member의 tab이 동일한 declared
+trip인 residual group만 수용했다. 결과는 18 groups/44 events의 group-level bucket support다.
+개별 manual row↔card event bijection은 주장하지 않는다. 이 44건과 독립 R34 taxonomy 259의
+교집합은 5 groups/16 purchase events이며 account·cost_type·VAT·bucket 네 필드가 모두 완성된다.
+따라서 full-classification proposal union은 1,508→1,524, incomplete 잔여는 3,820→3,804다.
+bucket-only 28건은 다음 단위에서 manual item/description과 세무근거를 별도로 검증한다.
+
+새 `direct_manual_group_taxonomy_evidence.py`는 44행 bucket support와 16행 full proposal을
+저장소 밖에만 게시한다. current/prior/R25/R34/trips/manual 전체 context와 member·locator·row·source
+set, group partition, bucket/full semantic hash를 live 재생성한다. 외부 출력에는 merchant,
+manual locator, booking reference, card4, raw amount를 넣지 않는다. 모든 행은
+`unattested/blocked/confirmed_count=0/gate5_credit=0/applied=false`이며 DB·canonical·cutover는
+변경하지 않는다.
+
+초기 구현은 bucket-only 28 event addressability와 단계별 원자 실패 테스트가 없어 양 검토가
+FAIL했다. 44행 addressable artifact와 bucket semantic binding을 추가한 뒤에도 parent-fsync
+rollback의 output/stage pathname TOCTOU가 두 차례 발견되어 수정했다. 최종 v4는 게시 후 경로를
+삭제·rollback하지 않고 durability 미확인을 명시적으로 반환하며, live verify→parent fsync→live
+verify reconciliation만 허용한다. target/stage reuse 경쟁 테스트까지 반영한 뒤 Fable v4와 Sol
+v4 모두 `REVIEW=PASS`; targeted 14/14, 전체 회귀 209/209 PASS(1221.819초)다.
+
+Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 로컬 구현
+폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다. 다음 R37은
+bucket이 확보된 28건의 manual item/description을 범용가맹·품목불명 반례와 분리해 독립
+account/cost_type/VAT 근거를 찾고, 같은 방식으로 순신규 full classification만 추가한다.
