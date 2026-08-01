@@ -1591,3 +1591,31 @@ focused R55 11/11 PASS(359.600초), R44/R45/R49 의존61/61 PASS, 전체 회귀3
 surface 부재라 구현은 로컬 폴백을 사용했고, 보호된 사용자 `STATUS.md` 및 data/AGENTS 파일은 변경하지
 않았다. 다음은 residual3,792에서 authenticated payment locator와 service/VAT/trip authority를 함께 주는
 순신규 증거군을 계속 탐색한다.
+
+## 2026-08-02 R56/R57 세션 핸드오프 — Trip.com 항공료 unordered atomic 2 admission
+
+R55 residual3,792를 membership-first로 다시 분할했다. bucket frontier19
+(`9f0a465f…15e`), taxonomy243(`ce223531…16ca`), broad3,530
+(`b97d1d07…199a`)이며 합계와 교집합0을 확인했다. 초기 R49 Agoda 형제 후보는 현재 accepted/residual
+membership을 대조하자 신규 yield가 없었다. Sol이 이 반례를 제시했고 Fable이 수용해, 과거 audit
+스크립트나 opaque hash만 재결속하지 않고 항상 현재 집합 membership부터 확인한다는 절차를 확정했다.
+
+다음 실제 신규 집합은 R43의 Trip.com 항공 영수증 2건이다. restricted provenance가 서로 다른 영수증
+참조 2개와 동일 공급자·날짜·총액을 제공하고, current 전수에서 KBD 해당 signature가 exact2/extra0,
+external manual v4 전수에서도 국민·KRW208,400이 exact2다. 개별 receipt↔event 또는 card4 bijection은
+주장하지 않고 unordered atomic2만 허용한다. 의미축은 `항공료/여행원가/불공제_해외/5월_유럽`이다.
+
+새 `direct_trip_airfare_atomic_admission.py`는 R55 accepted/residual과 R43 member/document 집합을 live
+재구성해 selected `618073ea…4f68e`가 residual에 정확히 2건이고 accepted와 disjoint임을 검증한다.
+accepted는 1,536→1,538(`05dded46…be5d`), residual은 3,792→3,790
+(`b21ca674…04f`), full delta2다. manual date·전역 collision, live member/document hash와 cardinality,
+symlink/hardlink/TOCTOU, physical duplicate, dirfd-only no-replace publication, post-state hash 및
+durability/reconcile을 fail-close한다. 모든 공개 row는 계속 unattested/blocked/confirmed0/Gate5 0/
+applied=false/database_applied=false이며 DB 활성화나 canonical cutover 권한을 주장하지 않는다.
+
+초기 구현은 manual date를 강제하지 않았고 R55 publisher를 production mock으로 교체했으며
+member/document hash가 decorative였다. Sol과 Fable이 각각 반례를 제시하고 상호 수용해 local dirfd
+publisher, exact manual date, live group hash 검증과 교환·변조·복구 테스트를 추가했다. 최종 Fable 5
+medium과 GPT-5.6 Sol medium 모두 `REVIEW=PASS`; focused actual 9/9 PASS(1,094.041초), 전체 회귀
+393/393 PASS(4,512.632초)다. AGY Flash/Sonnet/Luna는 callable surface 부재로 로컬 구현
+폴백을 사용했다. 보호된 사용자 `STATUS.md`와 원장 data 파일은 변경하지 않았다.
