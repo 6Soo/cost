@@ -35,6 +35,9 @@ SCHEMA = HERE / "direct_projection_schema.sql"
 RUNTIME_CODE_PATHS = (
     Path("ledger/cardindex.py"),
     Path("ledger/domain/han_normalizer.py"),
+    Path("ledger/domain/han_master_candidate.py"),
+    Path("ledger/domain/han_master_authority.json"),
+    Path("ledger/domain/direct_lineage_annex.py"),
     Path("ledger/domain/schema.sql"),
     Path("ledger/domain/decision_integrity.py"),
     Path("ledger/domain/source_adapters.py"),
