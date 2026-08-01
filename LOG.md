@@ -1303,3 +1303,36 @@ rich message 215개의 identity/VAT/group cardinality를 갖춘 strict linker를
 
 AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
 폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
+
+## 2026-08-01 R40 세션 핸드오프 — exact original-approval relation evidence
+
+R38 이후 incomplete residual 3,800건의 cancellation/refund를 raw issuer `orig_appr` 기준으로
+전수 재구성했다. amount/merchant/date/legacy classification은 identity에 사용하지 않고 동일
+issuer+card4+exact ASCII approval 문자열의 unique purchase target만 허용했다. 결과는 순신규
+relation 210건(HAN82/KBD128), target accepted23/residual187, target missing29, original missing147,
+ambiguous/collision0이다. leading-zero와 `.0` alias를 전혀 합치지 않아도 210건이 유지되어 alias
+의존은 0이다. 독립 full-classified target은 0이므로 full-classification delta0, incomplete3,800을
+그대로 유지한다. 관계 근거가 늘어난 것이지 분류 완료나 전기 권한이 늘어난 것은 아니다.
+
+새 `direct_original_approval_relation.py`는 external-only manifest/relations/exclusions 3파일을
+게시한다. 짧은 승인번호의 무염 SHA도 사전대입으로 복원 가능하므로 원문과 파생 digest를 모두
+제거하고 event/target/source/payload content provenance만 공개한다. HAN G/H와 KBD F의 whole-file
+SHA, parser v4, HAN normalizer version/contract 및 issuer field-shape를 live inventory와 결속한다.
+모든 row는 `unattested/blocked/confirmed_count=0/gate5_credit=0/applied=false`이며 account/cost/VAT/
+bucket을 내보내지 않는다.
+
+초기 구현은 Fable/Sol이 privacy digest, verifier TOCTOU, decorative normalization authority,
+parent-fsync 성공 오판과 stage swap을 차례로 재현해 두 라운드 FAIL했다. 승인 digest 제거,
+dirfd+O_NOFOLLOW/fstat 단일-fd capture, external-only no-replace, file/stage/parent fsync, 게시 전후와
+fsync 후 byte 검증, `PublicationIntegrityError`/`PublicationDurabilityError` 및 보존형 reconciliation,
+exact-string authority live 검증을 반영했다. 최종 Fable v3와 Sol v3 모두 `REVIEW=PASS`; R40
+targeted 7/7 PASS(176.277초), 전체 회귀 261/261 PASS(2182.924초), diff-check clean이다.
+
+다음 R41 read-only census는 OTA mail1,720/rich215/lifecycle199를 확인했다. exact bridge는 38
+components→40 events지만 모두 R26/R27 accepted에 이미 포함되어 순신규 stable edge는 0이다.
+rich group-only244와 metadata shortest-path5는 card identity·currency·typed amount·VAT 권위가
+없다. R41은 support-only lifecycle compiler로 봉인하고, authenticated portal/invoice identity가
+확보될 때만 재실행한다. 잔여3,800을 허위로 줄이지 않는다.
+
+AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
+폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
