@@ -1304,6 +1304,45 @@ rich message 215개의 identity/VAT/group cardinality를 갖춘 strict linker를
 AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
 폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
 
+## 2026-08-01 R41 세션 핸드오프 — OTA lifecycle support-only compiler
+
+OTA mail index 1,720개를 provider+identity type+exact ref/PNR namespace의 lifecycle graph로
+재구성했다. identity message416, identity nodes454, rich message215, rich nodes263, rich lifecycle
+components199다. R26/R27 source facts를 live rebuild해 실제 관계만 결합한 결과 61 node/event
+pairs와 54 linked nodes가 37 components→40 current events로 연결되고, 모두 기존 accepted1,528에
+포함된다. repository fact는 있지만 current identity가 없는 TRIP-0429 1 component와 no-fact161을
+분리해 no-current queue는162다. amount-only global singleton61은 currency/role/card identity가
+없어 전부 거부한다. 따라서 net-new0, service existing40, period37, VAT0, full delta0,
+incomplete3,800이다.
+
+새 `direct_ota_lifecycle_support.py`는 components/rejections/existing_links/new_proposals/manifest
+5파일의 external-only package다. raw ref/PNR/subject/amount/card4와 무염 identity digest를 내보내지
+않고 opaque component/node, message/source/event content hashes만 기록한다. strict duplicate-key JSON,
+실제 RFC3339와 달력 MMDD, provider별 ASCII identity, nested booking/period/OTA schemas, full namespace
+fact bridge, source UID/message 참조 무결성, R23~R40 accepted/residual 및 R40 live package를 결속한다.
+모든 결과는 `unattested/blocked/confirmed_count=0/gate5_credit=0/applied=false`다.
+
+canonical에는 timezone 없는 legacy booking timestamp3행과 mail에 없는 OTA source_message_id2행이
+있다. broad 예외는 금지하고 legacy3은 `(messageId,messageHash,sentAt,provider)` exact tuple set,
+orphan2는 `(source_uid,message_id,canonical_fact_row_sha256)` exact tuple set으로만 격리했다. relocation,
+swap, content mutation과 임의 reuse는 fail-close한다. TRIP-0429 unresolved source-fact set도 exact SHA로
+결속한다.
+
+초기 구현은 임의 event cardinality, namespace 소실, decorative counts, schema holes, stage/durability,
+legacy/orphan broad allowlist가 연속 적대 리뷰에서 발견되어 여섯 라운드 수정했다. 최종 Fable v6와
+Sol v6 모두 `REVIEW=PASS`; R41 targeted 10/10 PASS(376.951초), 전체 회귀 271/271
+PASS(2455.242초), diff-check clean이다. R40의 fd capture helper는 filename tuple을 받도록 안전하게
+일반화했고 R40 회귀도 유지된다.
+
+R42 독립 discovery는 로컬 full-classification 신규 yield가 0임을 확인했다. 다음 권위는 exact
+payment locator+item/service+VAT jurisdiction/treatment+single trip/bucket을 한 chain으로 결속한
+authenticated itemized invoice/receipt/OTA portal bundle이다. 전환율 우선은 bucket 확보 residual
+24건/11그룹, 대규모 search universe는 card6741 1,077건, CORP122, R41 no-current162, card3820 50이다.
+latest manual delta180은 이미 R25/R36 이후 latest1,559로 처리되어 additive yield가 아니다.
+
+AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
+폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
+
 ## 2026-08-01 R40 세션 핸드오프 — exact original-approval relation evidence
 
 R38 이후 incomplete residual 3,800건의 cancellation/refund를 raw issuer `orig_appr` 기준으로
