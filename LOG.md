@@ -1406,3 +1406,36 @@ Sol v2 모두 `REVIEW=PASS`; R42 targeted 9/9 PASS(로컬195.659초, Fable195.53
 Sol194.441초), 기존 R41 기준 전체271/271 PASS는 기존 파일 불변으로 유지된다. 실제 문서 parser,
 ingestion, classification, canonical DB/cutover는 비승인이다. 다음 실행은 독립 검증된 raw-document
 parser 설계 후 remaining24/11부터 시작한다.
+
+## 2026-08-01 R43 세션 핸드오프 — authenticated airfare receipts, support-only
+
+R42 remaining24/11 중 수율이 높은 3개 complete 2↔2 그룹의 Gmail 영수증 6개(Mytrip/Gotogate
+4, Trip.com 2)를 업무 계정에서 read-only로 수취했다. 원문 RFC822 6개와 PDF·추출문·HMAC key는
+저장소 밖 0700/0600 restricted 영역에만 두고, 공개 패키지에는 Gmail ID·예약/주문/티켓·승객·카드·
+원문/텍스트/MIME hash를 내보내지 않는다. raw MIME에서 attachment bytes를 다시 파싱해 pinned PDF와
+byte equality를 확인하고, 별도 keyed manifest HMAC을 매번 재계산하며, 격리 pypdf 5.9.0 strict
+extractor로 PDF→text를 fresh 재생성해 저장된 text와 byte equality를 강제한다. Trip.com 2건은
+From/DKIM domain alignment 관찰, 전달된 Mytrip 4건은 `forwarded_outer_auth_observed_unverified`로
+정직하게 격리한다.
+
+새 `direct_receipt_airfare_provenance.py`와 `direct_receipt_airfare_evidence.py`는 live R36 bucket
+support, R38 remaining, R42 24/243/3,533 partition을 재빌드하고, 3그룹의 실제 event/source/locator/
+payload hash와 issuer/date/amount/provider/purchase 역할을 영수증의 ordered label·금액 산술·국제항공
+service 사실에 결속한다. 문서에 승인번호나 완전 card4가 없으므로 document↔event bijection은 주장하지
+않고 `support_only_no_payment_locator` 6행만 게시한다. Mytrip VAT는 `검토필요`, Trip.com만 해외 supplier/
+service support로 `불공제_해외`를 기록한다. 모든 행은 unattested/blocked/confirmed0/Gate5 0/applied=false;
+accepted union 1,528, incomplete residual 3,800, full-classification delta 0을 유지한다. 실제 외부 package
+SHA는 `700574d20a8243867fadd4be609c767d75fc514fb1398c80ee350f57f545c842`다.
+
+초기 v1은 self-attested HMAC, PDF와 분리된 text, hardcoded event 미결속, raw event ID 노출,
+3794 오계상 때문에 Fable/Sol 모두 FAIL했다. raw MIME·fresh extractor·live event derivation·opaque IDs·
+state semantics·publication durability/reconcile을 보완한 v2에서도 DKIM domain 미정렬과 unordered token
+bag 반례가 발견되어 수정했다. 최종 v3는 Fable/Sol 모두 support-only 범위 `REVIEW=PASS`; focused
+20/20과 R36~R43 의존 회귀 58/58 PASS(879.969초), actual MIME/PDF integration과 package verify도
+PASS다. 다음 R44는 이 3그룹의 provider-scoped order/booking identity에서 issuer/PG 승인번호·exact
+card4를 가진 authenticated payment message/portal edge를 찾고, 동시에 remaining 8그룹의 Agoda/
+Booking/Trip original·receipt 검색을 계속한다. 강한 locator가 없으면 3,800을 줄이지 않는다.
+
+AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
+폴백을 사용했다. Fable과 GPT-5.6 Sol은 설계·구현을 독립 검증하고 FAIL 반례를 상호 수용한 뒤 v3
+support-only 판정에 합의했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
