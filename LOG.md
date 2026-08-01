@@ -1555,3 +1555,39 @@ AGY Gemini 3.6 Flash High·AGY Sonnet 4.6·GPT-5.6 Luna low는 이 환경에서 
 없어 구현은 로컬 폴백으로 수행했다. 보호된 사용자 STATUS·AGENTS·classified_v14·master_ledger는
 변경하지 않았다. 다음은 residual3,796 중 taxonomy243와 broad3,533에서 같은 수준의 authenticated
 payment locator + service/VAT + authoritative trip/bucket을 한 chain으로 주는 근거를 우선 처리한다.
+
+## 2026-08-02 R55 세션 핸드오프 — Trip.com full-refund atomic 4 admission
+
+R44의 support-only Trip.com 숙박 lifecycle을 R49 post-state에서 다시 검증했다. restricted raw RFC822
+9개와 receipt PDF 2개는 서로 다른 주문 2개가 각각 JPY92,001 결제 후 전액환불된 사실을 제공하고,
+current 카드 전수는 국민계열 전체에서 절대 KRW893,170 사건이 KBO purchase2/cancellation2 exact4임을
+확인한다. 최신 external manual v4 1,559행 SHA `2c6d7486…10489`도 국민·동일금액 전역에서 exact4이고
+`10월_도고`에 구매2/취소2, net0이며, `1127_야쿠시마` 동명이행 3개는 서로 다른 카드·금액 exclusion으로
+결속했다. 개별 order↔card 또는 manual-row↔event bijection은 주장하지 않고 unordered atomic group만
+허용한다. A1/A2/A6에 따라 의미축은 `숙박비/여행원가/불공제_해외/10월_도고`, posting bucket은
+`취소환불(net0)`이다.
+
+새 `direct_trip_cancel_atomic_admission.py`는 R44 selected set
+`43af8f7c…a64af`가 R49 residual에 정확히 4건 포함되고 accepted와 disjoint임을 live 재구성한다.
+accepted는 1,532→1,536(`dde71329…1da`), residual은 3,796→3,792
+(`0c45fa0f…591f6`), full delta4이며 실제 public package SHA는
+`acfc0af941709cc12d5c88121a717075102914847ba606f5d5150cf05e9d29a6`다. provider capture completeness는
+계속 `capture_claim_unverified`; 모든 공개 row는 `unattested/blocked/confirmed_count=0/gate5_credit=0/
+applied=false/database_applied=false`라 DB apply·canonical cutover 권한은 없다.
+
+Fable 5 medium은 초기 조건부 수용 뒤 KBD 숨은 동일금액, decorative post-accepted hash, 다른 item/tab의
+국민 동일금액 manual collision 반례를 제시했다. GPT-5.6 Sol medium은 manual symlink/hardlink/TOCTOU,
+physical duplicate dict-collapse, compound signature 교환, pathname 기반 publication/verify/reconcile과
+post-publish raw ValueError 반례를 제시했다. 모든 반례를 상호 수용해 KBO+KBD global census, post set
+재계산, single-fd manual capture/final reopen, dirfd byte capture, parent/target identity+fsync 재검증,
+typed integrity/durability 및 swap reconciliation으로 보완했다. 최종 Fable과 Sol 모두 `REVIEW=PASS`.
+focused R55 11/11 PASS(359.600초), R44/R45/R49 의존61/61 PASS, 전체 회귀384/384 PASS
+(3,129.695초), py_compile/diff-check clean이다.
+
+병행 DB·데이터시트 감사에서는 CSV/XLSX 27개, Excel 11개/154 sheets, repo SQLite0을 확인했다.
+물리 PK/FK/투영 구조는 PASS지만 repo manual1,379 대 external1,559 drift, 생성 workbook formula cache
+621/621 blank, v76↔v14 drift, sealed candidate/activation pointer 부재 때문에 CONSUMER/CANONICAL은 FAIL로
+유지한다. 임시 DB나 기존 P6 report를 운영 정본으로 승격하지 않았다. AGY Flash/Sonnet/Luna는 callable
+surface 부재라 구현은 로컬 폴백을 사용했고, 보호된 사용자 `STATUS.md` 및 data/AGENTS 파일은 변경하지
+않았다. 다음은 residual3,792에서 authenticated payment locator와 service/VAT/trip authority를 함께 주는
+순신규 증거군을 계속 탐색한다.
