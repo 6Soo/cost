@@ -1238,3 +1238,36 @@ Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부�
 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다. 다음 R38은 deferred
 26 중 예약·원거래 exact relation을 새로 확보할 수 있는지 우선 확인하고, 불가능하면 전체 잔여
 3,802를 source/time/provider cluster로 재분해해 다음 최대 독립 근거 source를 찾는다.
+
+## 2026-08-01 R38 세션 핸드오프 — structured lodging evidence + DB 전수 감사
+
+R37 deferred 26건/12그룹을 canonical structured source와 다시 대조했다. 양 검토가 독립적으로
+수용한 순신규는 complete 2↔2 group 한 개의 2 events뿐이다. 두 manual member의 서로 다른 exact
+booking reference가 `booking_info.json`의 숙박 fact에 2/2 존재하고 동일 숙박기간이 R36 trip
+window 안에 있으며, current 두 사건도 purchase/single/card_raw, non-KRW ISO currency, positive
+foreign amount와 해외 payload를 만족한다. 결과는 `숙박비/여행원가/불공제_해외`, exact set
+`a9028357…a7578`, semantic set `df45ad8a…02d4b`다. proposal union은 1,526→1,528,
+incomplete 잔여는 3,802→3,800이며, 나머지 24건/11그룹은 exact relation 부족으로 보류한다.
+
+새 `direct_structured_lodging_evidence.py`는 R25/R36/R37 rule/package/current/scope/manual/trips,
+complete group, booking whole-file/reference/row/period, current event/source/payload 및 remaining24
+semantic hashes를 live 결속한다. row bijection은 주장하지 않고 raw booking/merchant/date/amount/
+card/approval을 출력하지 않는다. 모든 결과는 `unattested/blocked/confirmed_count=0/gate5_credit=0/
+applied=false`다. strict duplicate-key JSON, partial coverage, source drift, 해외 VAT 근거 누락,
+inclusive trip window, post-rename durability와 target swap을 fail-close한다. 초기 구현은 두 리뷰가
+upstream provenance·VAT·trip·durability 공백으로 FAIL했고, 보완 후 발견된 window off-by-one까지
+수정하여 Fable patch2와 Sol final 모두 `REVIEW=PASS`; targeted 8/8 계열과 전체 회귀 224/224
+PASS(1738.239초), diff-check clean이다.
+
+병행 전수 감사는 CSV16+XLSX11의 170 sheets와 isolated SQLite 33 tables+7 views를 확인했다.
+physical integrity/FK/PK/NOT NULL/orphan은 PASS지만 canonical/consumer/cutover는 FAIL이다. HAN
+2,188 identity는 1:1이나 1,602 events에서 legacy master가 승인금, direct DB가 매입금 우선이라
+DB-master 합계가 6,285,630원 다르다. 회계 계약상 direct의 매입금 우선이 authoritative이며,
+근거부족 residual 교집합은 1,494건이다. 저장소 manual 1,379행도 확인된 외부 latest 1,559행보다
+180행 stale이고, 생성 XLSX 4종은 headless formula cache 621/621이 비어 있다. `/tmp` latest를
+정본으로 복사하지 말고 P8 Drive provenance로 재수취해야 한다. 다음 R39는 공통 HAN normalizer와
+identity/role/event-amount equality gate를 추가하고 전 artifact를 rebuild한 뒤, residual 3,800의
+exact unique cancellation 209건을 original relation 기준으로 우선 검토한다.
+
+AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
+폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다.
