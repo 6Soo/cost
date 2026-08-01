@@ -1518,3 +1518,40 @@ py_compile/diff-check clean이다. 모든 public row는 `unattested/blocked/conf
 applied=false`; DB·classified·master·canonical·cutover는 변경하지 않았다. 보호된 사용자 `STATUS.md`
 SHA `a3622a…b659cc`도 불변이다. 다음 R47은 잔여3,797의 broad3,533 중 KB 확인서 broad19를 예약/여행
 실체와 결합할 수 있는지 우선 검증하고, 독립 분류축이 없는 issuer identity만으로는 delta를 올리지 않는다.
+
+## 2026-08-02 R47/R49 세션 핸드오프 — authenticated Agoda customer-service singleton admission
+
+R47은 R45 이후 broad 잔여의 KB 확인서 19건을 로컬 원장·여행·OTA 근거와 다시 결합했으나 완전한
+신규 분류축은 0건이었다. 이후 Gmail read-only 검색에서 Agoda 고객센터 원문 1건을 수취했다. 이 메일의
+서명된 HTML 거래표는 서로 무관한 제목 예약번호와 본문 거래행을 분리하면서 특정 예약번호·외화금액·
+거래일을 한 행 경계로 제공한다. restricted 0700/0600 영역에 raw RFC822와 256-bit nonce를 가진 strict
+binding sidecar만 보존하고, 공개 산출물에는 예약·카드4·금액·가맹점·메일 식별자나 사전대입 가능한
+저엔트로피 digest를 내보내지 않는다.
+
+새 `direct_agoda_customer_service_evidence.py`는 pinned Agoda/SendGrid 2048-bit 키로 실제
+RSA-SHA256 relaxed/relaxed DKIM 본문·헤더 서명을 offline 재검증한다. `l=`을 금지하고 필수 signed-header,
+단일 HTML table/행 nesting, signed supplier footer, 거래행 cardinality를 강제한다. 최신 Drive-derived
+manual v4 1,559행 SHA `2c6d7486…10489`의 단일 예약 행 전체와 `0620_묘코` tab을 직접 결속하고,
+공급자 M.D와 current event occurred_on M/D도 직접 비교한다. 서비스 기간은 추론하거나 사용하지 않는다.
+current 5,328 전체를 live 재빌드해 physical duplicate 전에 실패하고 source key/raw record/date/posted/
+role/type/currency/금액/card/merchant/payload를 exact 검증한다.
+
+결과 의미축은 `숙박비/여행원가/불공제_해외/0620_묘코` 단일 건이다. accepted는 1,531→1,532
+(`d4765203…d0147`), residual은 3,797→3,796(`bb0f837d…e3778d`), full delta1이다. 공개 package SHA는
+`7a70d6bd26d74dadf3a7f38404cccd8b41233f5aff9cd08892b1574ff6dbe4fc`다. 모든 row는 계속
+`unattested/blocked/confirmed_count=0/gate5_credit=0/applied=false/database_applied=false`이며 DB 전기나
+canonical cutover 권한을 주장하지 않는다.
+
+publication은 external-only no-replace, short-write0, file/stage/parent fsync, parent pathname·target inode와
+bytes를 검증한다. parent fsync 중 target name을 경쟁자 디렉터리로 교체하는 반례가 Sol/공격감사에서
+재현되어, fsync 후 target name을 dirfd 기준으로 다시 열어 identity+전체 bytes를 확인하도록 build와
+reconcile을 함께 보완했다. Fable은 최신 수기본을 repo stale본으로 오인한 초기 지적을 철회한 뒤
+manual-tab→trip, provider-date→event, service-period claim honesty 세 결속을 추가로 요구했고 모두 수용했다.
+최종 Fable 5 medium과 GPT-5.6 Sol medium, 공격감사는 모두 `REVIEW=PASS`; focused15/15,
+R45+R49 의존32/32, 전체 회귀371/371 PASS(2961.540초), py_compile/diff-check clean이다. 전체 회귀가
+시작된 뒤 추가된 최종 결속·휴대성 수정은 최신 focused15/15를 다시 실행해 확인했다.
+
+AGY Gemini 3.6 Flash High·AGY Sonnet 4.6·GPT-5.6 Luna low는 이 환경에서 callable credential/surface가
+없어 구현은 로컬 폴백으로 수행했다. 보호된 사용자 STATUS·AGENTS·classified_v14·master_ledger는
+변경하지 않았다. 다음은 residual3,796 중 taxonomy243와 broad3,533에서 같은 수준의 authenticated
+payment locator + service/VAT + authoritative trip/bucket을 한 chain으로 주는 근거를 우선 처리한다.
