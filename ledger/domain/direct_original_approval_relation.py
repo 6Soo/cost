@@ -55,15 +55,15 @@ def _validate_normalization_authority(ledger_dir:Path,inventory):
             if item is None or item["raw_sha256"]!=digest or item["parser_version"]!=contract["parser_version"]:raise ValueError(f"r40_normalization_authority_invalid:{issuer}:{path}")
     return _sha(_json(NORMALIZATION_CONTRACTS))
 
-def _capture_package(directory:Path)->dict[str,bytes]:
+def _capture_package(directory:Path,filenames=FILES)->dict[str,bytes]:
     flags=os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0)
     try:dirfd=os.open(directory,flags)
     except OSError as exc:raise ValueError("r40_package_directory_invalid") from exc
     actual={}
     try:
         dm=os.fstat(dirfd)
-        if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(FILES):raise ValueError("r40_package_shape_invalid")
-        for name in FILES:
+        if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(filenames):raise ValueError("r40_package_shape_invalid")
+        for name in filenames:
             try:fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dirfd)
             except OSError as exc:raise ValueError("r40_package_file_invalid") from exc
             try:
