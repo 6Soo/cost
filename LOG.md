@@ -1475,3 +1475,46 @@ AGY Gemini 3.6 Flash High는 이번 환경에서 callable credential이 없어 �
 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다. 다음 라운드는 provider
 portal/export 또는 issuer/acquirer 자료처럼 acquisition completeness와 KRW payment locator를 함께 주는
 권위 source를 수취해야만 이 4건 또는 나머지 3,800건의 full delta를 올린다.
+
+## 2026-08-02 R45/R46 세션 핸드오프 — KB 확인서 atomic 3 admission + legacy cardinality 격리
+
+R23의 `근거부족 4,101`을 독립 재계산했다. 이는 현재 미분류 수가 아니라 direct 5,328에서 과거
+분류표와 exact 1:1 lineage가 된 1,227을 뺀 초기 blocked 수다. 원인은 no exact candidate 3,880,
+current duplicate 216, historical duplicate 5이고, 3,927건은 Q2 밖이다. 다만 선결제·사후환불이
+있어 날짜만으로 scope 제외하지 않는다. R25~R38의 실제 evidence union +301 이후 authoritative
+잔여는 3,800(CORP122/HAN1,638/KBD761/KBO1,279)이었다.
+
+Gmail에서 KB 해외 사용확인서 23 deliveries를 read-only 수취하고 offline 복호했다. whole-file census는
+unique19/duplicate pairs4(`03=08`,`04=06`,`05=07`,`09=10`)다. 초기 pin을 17/18/20으로 잘못 잡아
+18이 인접 JPY21,600임을 적대 검토가 차단했다. 전 23개를 다시 검사해 목표 envelope가 15/17/20임을
+확정하고, restricted 0700/0600 v4 bundle에 envelope·decrypted DOM·normalized table/body를 고정했다.
+public package에는 승인·카드4·가맹점·금액·예약·메일·원 source locator와 저엔트로피 무염 digest를
+내보내지 않는다. business credential은 저장하지 않았다.
+
+새 `direct_kb_confirmation_evidence.py`는 KBO raw 전수 signature census에서 purchase3/refund0을
+확인하고 exact target event set `a743559b…b77f7f`, manual/R36/R38 bucket, trip 실체, 해외 VAT를
+atomic 3-group으로 결속한다. 개별 booking↔approval/card bijection은 주장하지 않으며
+`bijection=false`, individual edge0, permutation-invariant다. 결과는
+`숙박비/여행원가/불공제_해외/0613_북해도`, accepted1,528→1,531
+(`fb6fb36c…94ca31`), residual3,800→3,797(`3ddfedb0…97dba`), bucket frontier24/11→21/10
+(`4bfb88f4…da61b`), full delta3다. private manifest와 pin-set을 외부 상수로 이중 hard-pin하고 exact
+schema, 23-envelope final recensus, forged DOM+manifest rehash, same-signature extra/cancel, symlink/hardlink,
+duplicate/nonfinite JSON, privacy와 fd/inode-pinned publication/reconcile을 fail-close한다. 실제 public
+package SHA는 `631fca37532ad68405159f23fefab47617b42cd165b3155101ee0ec30873e8d8`이다.
+
+병행 R46은 인접 JPY21,600 취소의 raw/direct2 대 legacy classified4 대 master physical2·동일 workbook
+reference 문제를 `direct_kbo_signature_cardinality.py`로 격리했다. raw가 권위 cardinality이며 legacy
+UID edge는 0, unanimous partial group support2만 기록하고 missing cost_type 때문에 full delta0,
+accepted1,528/residual3,800을 유지한다. R45 target3과 exact disjoint다. 입력은 single-fd bytes를 재사용·
+종료 재검증하고, blank/duplicate UID·거래키·semantic drift를 거부한다. 첫 구현은 녹색 9 tests에도
+parent-path swap, short write, input reopen TOCTOU가 남아 Sol 적대 리뷰가 FAIL했다. dirfd-only stage/rename/
+target capture와 published integrity/durability/reconcile, 실제 selector 교환 테스트를 반영해 최종
+Sol 독립 리뷰가 PASS했다.
+
+R45도 첫 Fable 구현 리뷰가 self-consistent private rehash 반례로 FAIL했고 hard-pin과 raw full census를
+추가한 뒤 최종 PASS했다. GPT-5.6 Sol은 계정/비용축 순서, 잘못된 25-event SHA, locator digest 및
+publication 반례를 제시했고 Fable 판단과 항목별 상호 수용했다. 통합 targeted 28/28 PASS(164.380초),
+py_compile/diff-check clean이다. 모든 public row는 `unattested/blocked/confirmed_count=0/gate5_credit=0/
+applied=false`; DB·classified·master·canonical·cutover는 변경하지 않았다. 보호된 사용자 `STATUS.md`
+SHA `a3622a…b659cc`도 불변이다. 다음 R47은 잔여3,797의 broad3,533 중 KB 확인서 broad19를 예약/여행
+실체와 결합할 수 있는지 우선 검증하고, 독립 분류축이 없는 issuer identity만으로는 delta를 올리지 않는다.
