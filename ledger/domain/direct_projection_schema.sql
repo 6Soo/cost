@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS direct_projection_runs (
   gate_report_sha256 TEXT,
   code_commit TEXT NOT NULL,
   code_bundle_sha256 TEXT NOT NULL,
+  activation_validation_sha256 TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -33,9 +34,44 @@ CREATE TABLE IF NOT EXISTS direct_payment_projection_links (
   UNIQUE(run_id, payment_id)
 );
 
+CREATE TABLE IF NOT EXISTS direct_projection_validations (
+  run_id TEXT PRIMARY KEY REFERENCES direct_projection_runs(run_id),
+  status TEXT NOT NULL CHECK(status='passed'),
+  package_set_sha256 TEXT NOT NULL CHECK(length(package_set_sha256)=64),
+  authority_sha256 TEXT NOT NULL CHECK(length(authority_sha256)=64),
+  input_manifest_sha256 TEXT NOT NULL CHECK(length(input_manifest_sha256)=64),
+  candidate_semantic_sha256 TEXT NOT NULL CHECK(length(candidate_semantic_sha256)=64),
+  candidate_master_sha256 TEXT NOT NULL CHECK(length(candidate_master_sha256)=64),
+  identity_role_set_sha256 TEXT NOT NULL CHECK(length(identity_role_set_sha256)=64),
+  amount_semantic_sha256 TEXT NOT NULL CHECK(length(amount_semantic_sha256)=64),
+  validation_sha256 TEXT NOT NULL UNIQUE CHECK(length(validation_sha256)=64),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER IF NOT EXISTS direct_projection_validations_exact_run
+BEFORE INSERT ON direct_projection_validations
+WHEN NOT EXISTS (
+  SELECT 1 FROM direct_projection_runs r WHERE r.run_id=NEW.run_id AND r.status='building'
+    AND r.input_manifest_sha256=NEW.input_manifest_sha256
+    AND r.candidate_semantic_sha256=NEW.candidate_semantic_sha256
+)
+BEGIN SELECT RAISE(ABORT, 'direct_projection_validation_run_mismatch'); END;
+
+CREATE TRIGGER IF NOT EXISTS direct_projection_validations_no_update
+BEFORE UPDATE ON direct_projection_validations
+BEGIN SELECT RAISE(ABORT, 'direct_projection_validation_append_only'); END;
+
+CREATE TRIGGER IF NOT EXISTS direct_projection_validations_no_delete
+BEFORE DELETE ON direct_projection_validations
+BEGIN SELECT RAISE(ABORT, 'direct_projection_validation_append_only'); END;
+
 CREATE VIEW IF NOT EXISTS direct_candidate_payments AS
 SELECT l.run_id, l.direct_payment_id, p.*
 FROM direct_payment_projection_links l
 JOIN payment_transactions p ON p.id = l.payment_id
 JOIN direct_projection_runs r ON r.run_id = l.run_id
-WHERE r.status = 'passed';
+JOIN direct_projection_validations v ON v.run_id=r.run_id
+WHERE r.status = 'passed' AND v.status='passed'
+  AND r.activation_validation_sha256=v.validation_sha256
+  AND v.input_manifest_sha256=r.input_manifest_sha256
+  AND v.candidate_semantic_sha256=r.candidate_semantic_sha256;

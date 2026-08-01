@@ -16,7 +16,7 @@ from ledger.domain.decision_integrity import decision_integrity
 
 HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parents[1]
-SCHEMA_VERSION = "p07-direct-v2"
+SCHEMA_VERSION = "p07-direct-v3"
 PARSER_BUNDLE_VERSION = "direct-source-v4"
 REQUIRED_INPUTS = (
     {
@@ -808,7 +808,7 @@ def _legacy_leakage_gate(db: object, run_id: str) -> dict[str, object]:
     )
 
 
-def _amount_relation_gate(db: object) -> dict[str, object]:
+def _amount_relation_gate(db: object,run_id:str,han_equality_context:dict[str,object]|None=None) -> dict[str, object]:
     sign_issues = db.execute(
         """
         SELECT d.card_event_id, d.event_role, d.amount_krw,
@@ -842,12 +842,35 @@ def _amount_relation_gate(db: object) -> dict[str, object]:
         ORDER BY s.source_key
         """
     ).fetchall()
-    passed = not sign_issues and not split_issues
+    live_package=None
+    if han_equality_context is not None:
+        from ledger.domain.han_master_candidate import verify_candidate
+        live_package=verify_candidate(**han_equality_context)
+    validations=db.execute("""SELECT v.run_id,v.status,v.package_set_sha256,v.authority_sha256,v.input_manifest_sha256,
+      v.candidate_semantic_sha256,v.candidate_master_sha256,v.identity_role_set_sha256,v.amount_semantic_sha256,v.validation_sha256
+      FROM direct_projection_validations v JOIN direct_projection_runs r ON r.run_id=v.run_id
+      WHERE v.run_id=? AND v.status='passed' AND v.input_manifest_sha256=r.input_manifest_sha256
+        AND v.candidate_semantic_sha256=r.candidate_semantic_sha256""",(run_id,)).fetchall()
+    validation_fields=("run_id","status","package_set_sha256","authority_sha256","input_manifest_sha256",
+      "candidate_semantic_sha256","candidate_master_sha256","identity_role_set_sha256","amount_semantic_sha256","validation_sha256")
+    valid=[]
+    authority_sha=_sha256_bytes((Path(__file__).with_name("han_master_authority.json")).read_bytes())
+    for row in validations:
+        item=dict(zip(validation_fields,row));claimed=item.pop("validation_sha256")
+        envelope=None if live_package is None else live_package["validation_envelope"]
+        detail_fields=("package_set_sha256","authority_sha256","input_manifest_sha256","candidate_semantic_sha256",
+          "candidate_master_sha256","identity_role_set_sha256","amount_semantic_sha256")
+        if (item["authority_sha256"]==authority_sha and claimed==_sha256_bytes(_canonical_json_bytes(item)+b"\n")
+          and envelope is not None and all(item[x]==envelope[x] for x in detail_fields)):valid.append((*row,))
+    validations=valid
+    passed = not sign_issues and not split_issues and len(validations)==1
     reason = (
         "positive_cancellation_or_invalid_sign"
         if sign_issues
         else "hana_split_pair_invalid"
         if split_issues
+        else "han_equality_validation_missing_or_stale"
+        if len(validations)!=1
         else "ok"
     )
     return _gate(
@@ -857,11 +880,11 @@ def _amount_relation_gate(db: object) -> dict[str, object]:
         reason=reason,
         actual={
             "sign_issue_count": len(sign_issues),
-            "sign_issue_sample": [list(row) for row in sign_issues[:10]],
+            "sign_issue_set_sha256":_sha256_bytes(_canonical_json_bytes([list(row) for row in sign_issues])),
             "hana_split_issue_count": len(split_issues),
-            "hana_split_issue_sample": [
-                str(row[0]) for row in split_issues[:10]
-            ],
+            "hana_split_issue_set_sha256":_sha256_bytes(_canonical_json_bytes([list(row) for row in split_issues])),
+            "validation_count":len(validations),
+            "validation":dict(zip(validation_fields,validations[0])) if len(validations)==1 else None,
         },
     )
 
@@ -1165,6 +1188,7 @@ def build_gate_report(
     historical_comparators: list[dict[str, object]] | None = None,
     approved_transitions: Iterable[dict[str, object]] | None = None,
     comparable_baseline: dict[str, object] | None = None,
+    han_equality_context:dict[str,object]|None=None,
 ) -> dict[str, object]:
     db = sqlite3.connect(db_path)
     db.execute("PRAGMA foreign_keys = ON")
@@ -1211,7 +1235,7 @@ def build_gate_report(
             ),
             _projection_cardinality_gate(db, run_id),
             _legacy_leakage_gate(db, run_id),
-            _amount_relation_gate(db),
+            _amount_relation_gate(db,run_id,han_equality_context),
             _allocation_decision_gate(db, run_id),
             _semantic_regression_gate(
                 db,

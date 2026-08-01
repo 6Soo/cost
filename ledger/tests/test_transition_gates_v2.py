@@ -283,7 +283,8 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, _ = self._fixture()
         report = self._report(database, run_id, expected)
         passed = [bool(gate["passed"]) for gate in report["gates"]]
-        self.assertEqual(passed, [True, True, True, True, False, False, True])
+        self.assertEqual(passed, [True, True, True, False, False, False, True])
+        self.assertEqual(report["gates"][3]["reason"],"han_equality_validation_missing_or_stale")
         self.assertEqual(
             report["gates"][4]["reason"],
             "direct_allocation_decision_unimplemented",
@@ -1234,14 +1235,7 @@ class DirectTransitionGateTest(unittest.TestCase):
             (run_id,),
         )
         db.commit()
-        self.assertEqual(
-            int(
-                db.execute(
-                    "SELECT COUNT(*) FROM direct_candidate_payments"
-                ).fetchone()[0]
-            ),
-            5,
-        )
+        self.assertEqual(int(db.execute("SELECT COUNT(*) FROM direct_candidate_payments").fetchone()[0]),0)
         db.execute(
             """
             UPDATE direct_projection_runs SET status='failed' WHERE run_id=?

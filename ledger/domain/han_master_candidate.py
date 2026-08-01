@@ -55,7 +55,7 @@ def _authority(expected_sha256:str):
     required={"format_version":1,"policy":"r39-han-master-candidate-v1","normalizer_contract_sha256":APPROVED_CONTRACT_SHA256,
       "legacy_master_sha256":APPROVED_LEGACY_MASTER_SHA256,"target_master_sha256":APPROVED_TARGET_MASTER_SHA256,
       "G_sha256":APPROVED_G_SHA256,"H_sha256":APPROVED_H_SHA256,"allowed_run_status":["building"],
-      "schema_version":"p07-direct-v2","parser_version":"direct-source-v4"}
+      "schema_version":"p07-direct-v3","parser_version":"direct-source-v4"}
     if value!=required:raise ValueError("r39_authority_policy_mismatch")
     return value,_sha(raw)
 def _master_key(row:dict[str,object],amount:int)->str:
@@ -100,9 +100,9 @@ def _han_targets(ledger_dir:Path):
                 targets.append((identity,old_key,target_key,component,record,_sha(_json(list(row)))))
     return targets
 
-def _direct_snapshot(candidate_db:Path,run_id:str,input_sha:str,semantic_sha:str,authority,inventory,bundle,commit):
+def _direct_snapshot(candidate_db:Path,run_id:str,input_sha:str,semantic_sha:str,authority,inventory,bundle,commit,verification_mode:str):
     if not run_id or len(input_sha)!=64 or len(semantic_sha)!=64:raise ValueError("r39_direct_context_invalid")
-    sidecars=[Path(str(candidate_db)+suffix) for suffix in ("-wal","-shm")]
+    sidecars=[Path(str(candidate_db)+suffix) for suffix in ("-wal","-shm","-journal")]
     if any(os.path.lexists(x) for x in sidecars):raise ValueError("r39_direct_db_sidecar_present")
     db_bytes=_read_regular_nofollow(candidate_db)
     with tempfile.TemporaryDirectory(prefix="r39-db-snapshot-") as td:
@@ -118,7 +118,12 @@ def _direct_snapshot(candidate_db:Path,run_id:str,input_sha:str,semantic_sha:str
         if row is None or row["input_manifest_sha256"]!=input_sha or row["candidate_semantic_sha256"]!=semantic_sha:
             raise ValueError("r39_direct_run_context_mismatch")
         full=db.execute("SELECT status,schema_version,code_commit,code_bundle_sha256 FROM direct_projection_runs WHERE run_id=?",(run_id,)).fetchone()
-        if full["status"] not in authority["allowed_run_status"]:raise ValueError("r39_direct_status_invalid")
+        allowed={"building"} if verification_mode=="pending" else {"passed"} if verification_mode=="activated" else set()
+        if full["status"] not in allowed:raise ValueError("r39_direct_status_invalid")
+        if verification_mode=="activated":
+            seal=db.execute("""SELECT r.activation_validation_sha256,v.validation_sha256 FROM direct_projection_runs r
+              JOIN direct_projection_validations v ON v.run_id=r.run_id WHERE r.run_id=?""",(run_id,)).fetchone()
+            if seal is None or seal[0]!=seal[1]:raise ValueError("r39_activation_validation_seal_invalid")
         if full["schema_version"]!=authority["schema_version"]:raise ValueError("r39_direct_schema_invalid")
         if full["code_commit"]!=commit:raise ValueError("r39_direct_commit_invalid")
         if full["code_bundle_sha256"]!=bundle["code_bundle_sha256"]:raise ValueError("r39_direct_bundle_invalid")
@@ -141,10 +146,13 @@ def _direct_snapshot(candidate_db:Path,run_id:str,input_sha:str,semantic_sha:str
       finally:db.close()
     if _read_regular_nofollow(candidate_db)!=db_bytes:raise ValueError("r39_direct_db_changed_during_read")
     if any(os.path.lexists(x) for x in sidecars):raise ValueError("r39_direct_db_sidecar_present")
-    return direct,_sha(db_bytes),scope
+    logical={"run_id":run_id,"input_manifest_sha256":input_sha,"candidate_semantic_sha256":semantic_sha,
+      "code_commit":commit,"code_bundle_sha256":bundle["code_bundle_sha256"],"inputs":inventory,"scope":scope}
+    return direct,_sha(_json(logical)),scope
 
 def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
-           input_manifest_sha256:str,candidate_semantic_sha256_expected:str,authority_sha256_expected:str):
+           input_manifest_sha256:str,candidate_semantic_sha256_expected:str,authority_sha256_expected:str,
+           verification_mode:str="pending"):
     if ledger_dir.resolve()!=(REPOSITORY_ROOT/"ledger").resolve():raise ValueError("r39_noncanonical_ledger")
     authority,authority_sha=_authority(authority_sha256_expected);raw=_read_regular_nofollow(master_path)
     raw_sha=_sha(raw)
@@ -212,7 +220,7 @@ def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
     if live_input_sha!=input_manifest_sha256:raise ValueError("r39_live_input_manifest_mismatch")
     if any(x["parser_version"]!=authority["parser_version"] for x in inventory):raise ValueError("r39_live_parser_version_invalid")
     bundle=code_bundle_descriptor(REPOSITORY_ROOT);commit=_git_head(REPOSITORY_ROOT)
-    direct,direct_db_sha,direct_scope=_direct_snapshot(candidate_db,run_id,input_manifest_sha256,candidate_semantic_sha256_expected,authority,inventory,bundle,commit)
+    direct,direct_db_sha,direct_scope=_direct_snapshot(candidate_db,run_id,input_manifest_sha256,candidate_semantic_sha256_expected,authority,inventory,bundle,commit,verification_mode)
     if build_source_inventory(ledger_dir,REPOSITORY_ROOT)!=inventory:raise ValueError("r39_live_inventory_changed_during_build")
     if set(expected)!=set(direct):raise ValueError("r39_identity_role_set_mismatch")
     equality=_compare(expected,direct)
@@ -221,7 +229,7 @@ def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
       "normalizer_version":HAN_NORMALIZER_VERSION,"normalizer_contract_sha256":HAN_NORMALIZER_CONTRACT_SHA256,
       "authority_sha256":authority_sha,
       "source_master_sha256":_sha(raw),"candidate_master_sha256":_sha(candidate_bytes),
-      "direct_candidate":{"run_id":run_id,"database_sha256":direct_db_sha,"input_manifest_sha256":input_manifest_sha256,
+      "direct_candidate":{"run_id":run_id,"database_provenance_sha256":direct_db_sha,"input_manifest_sha256":input_manifest_sha256,
         "candidate_semantic_sha256":candidate_semantic_sha256_expected,"scope":direct_scope,"code_commit":commit,
         "code_bundle_sha256":bundle["code_bundle_sha256"]},
       "identity_role_set_sha256":_set_sha(expected),"amount_semantic_sha256":_sha(_json(semantic)),
@@ -244,21 +252,76 @@ def _fsync(path:Path):
     try:os.fsync(fd)
     finally:os.close(fd)
 def verify_candidate(directory:Path,*,candidate_db:Path,run_id:str,input_manifest_sha256:str,candidate_semantic_sha256_expected:str,
-                     authority_sha256_expected:str,ledger_dir:Path=REPOSITORY_ROOT/"ledger",master_path:Path|None=None):
+                     authority_sha256_expected:str,ledger_dir:Path=REPOSITORY_ROOT/"ledger",master_path:Path|None=None,
+                     verification_mode:str="pending"):
     flags=os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0);fd=os.open(directory,flags)
     try:dst=os.fstat(fd)
     finally:os.close(fd)
-    if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or dst.st_uid!=os.getuid():raise ValueError("r39_package_directory_invalid")
+    expected_dir_mode=0o700 if verification_mode=="pending" else 0o500
+    expected_file_mode=0o600 if verification_mode=="pending" else 0o400
+    if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=expected_dir_mode or dst.st_uid!=os.getuid():raise ValueError("r39_package_directory_invalid")
     if directory.is_symlink() or {x.name for x in directory.iterdir()}!=set(FILES):raise ValueError("r39_package_shape_invalid")
     actual={}
     for name in FILES:
         path=directory/name
-        actual[name]=_read_regular_nofollow(path,mode=0o600)
+        actual[name]=_read_regular_nofollow(path,mode=expected_file_mode)
     manifest,expected=_build(ledger_dir,master_path or ledger_dir/"master_ledger.csv",candidate_db=candidate_db,run_id=run_id,
       input_manifest_sha256=input_manifest_sha256,candidate_semantic_sha256_expected=candidate_semantic_sha256_expected,
-      authority_sha256_expected=authority_sha256_expected)
+      authority_sha256_expected=authority_sha256_expected,verification_mode=verification_mode)
     if actual!=expected:raise ValueError("r39_package_or_live_context_mismatch")
-    return {"status":"valid","package_set_sha256":manifest["package_set_sha256"],"mismatch":0}
+    summary=json.loads(actual["summary.json"])
+    envelope={"package_set_sha256":manifest["package_set_sha256"],"authority_sha256":authority_sha256_expected,
+      "input_manifest_sha256":input_manifest_sha256,"candidate_semantic_sha256":candidate_semantic_sha256_expected,
+      "candidate_master_sha256":summary["candidate_master_sha256"],"identity_role_set_sha256":summary["identity_role_set_sha256"],
+      "amount_semantic_sha256":summary["amount_semantic_sha256"]}
+    files_sha={name:_sha(data) for name,data in actual.items()}
+    return {"status":"valid",**envelope,"validation_envelope":envelope,"verified_file_sha256":files_sha,
+      "_verified_file_bytes":actual,"package_bytes_sha256":_sha(_json(files_sha)),"mismatch":0}
+def _validation_pretransaction_hook(candidate_db:Path,directory:Path)->None:
+    """Test seam for adversarial changes between preflight and DB locking."""
+def install_han_equality_validation(directory:Path,*,candidate_db:Path,run_id:str,input_manifest_sha256:str,
+    candidate_semantic_sha256_expected:str,authority_sha256_expected:str,ledger_dir:Path=REPOSITORY_ROOT/"ledger",
+    master_path:Path|None=None):
+    context=dict(candidate_db=candidate_db,run_id=run_id,input_manifest_sha256=input_manifest_sha256,
+      candidate_semantic_sha256_expected=candidate_semantic_sha256_expected,authority_sha256_expected=authority_sha256_expected,
+      ledger_dir=ledger_dir,master_path=master_path)
+    verified=verify_candidate(directory,**context)
+    package_snapshot={name:_read_regular_nofollow(directory/name,mode=0o600) for name in FILES}
+    summary=json.loads(_read_regular_nofollow(directory/"summary.json",mode=0o600))
+    payload={"run_id":run_id,"status":"passed","package_set_sha256":verified["package_set_sha256"],
+      "authority_sha256":authority_sha256_expected,"input_manifest_sha256":input_manifest_sha256,
+      "candidate_semantic_sha256":candidate_semantic_sha256_expected,"candidate_master_sha256":summary["candidate_master_sha256"],
+      "identity_role_set_sha256":summary["identity_role_set_sha256"],"amount_semantic_sha256":summary["amount_semantic_sha256"]}
+    validation_sha=_sha(_json(payload))
+    values=(run_id,"passed",verified["package_set_sha256"],authority_sha256_expected,input_manifest_sha256,
+      candidate_semantic_sha256_expected,summary["candidate_master_sha256"],summary["identity_role_set_sha256"],
+      summary["amount_semantic_sha256"],validation_sha)
+    _validation_pretransaction_hook(candidate_db,directory)
+    db=sqlite3.connect(candidate_db)
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        run=db.execute("SELECT status,schema_version,input_manifest_sha256,candidate_semantic_sha256,code_commit,code_bundle_sha256 FROM direct_projection_runs WHERE run_id=?",(run_id,)).fetchone()
+        authority,_=_authority(authority_sha256_expected);bundle=code_bundle_descriptor(REPOSITORY_ROOT);commit=_git_head(REPOSITORY_ROOT)
+        if run!=("building",authority["schema_version"],input_manifest_sha256,candidate_semantic_sha256_expected,commit,bundle["code_bundle_sha256"]):raise ValueError("r39_validation_run_precondition_failed")
+        if candidate_semantic_sha256(db,run_id)!=candidate_semantic_sha256_expected:raise ValueError("r39_validation_semantic_changed")
+        live_inventory=build_source_inventory(ledger_dir,REPOSITORY_ROOT)
+        if compute_input_manifest_sha256(live_inventory)!=input_manifest_sha256:raise ValueError("r39_validation_inputs_changed")
+        if {name:_read_regular_nofollow(directory/name,mode=0o600) for name in FILES}!=package_snapshot:raise ValueError("r39_validation_package_changed")
+        existing=db.execute("""SELECT run_id,status,package_set_sha256,authority_sha256,input_manifest_sha256,
+          candidate_semantic_sha256,candidate_master_sha256,identity_role_set_sha256,amount_semantic_sha256,validation_sha256
+          FROM direct_projection_validations WHERE run_id=?""",(run_id,)).fetchone()
+        if existing is not None:
+            if tuple(existing)!=values:raise ValueError("r39_validation_conflicting_duplicate")
+            db.rollback();return {"status":"passed","installed":False,"idempotent":True,"package_set_sha256":values[2]}
+        db.execute("""INSERT INTO direct_projection_validations(run_id,status,package_set_sha256,authority_sha256,
+          input_manifest_sha256,candidate_semantic_sha256,candidate_master_sha256,identity_role_set_sha256,amount_semantic_sha256,validation_sha256)
+          VALUES (?,?,?,?,?,?,?,?,?,?)""",values)
+        db.commit()
+        db.execute("PRAGMA journal_mode=DELETE")
+    except Exception:
+        db.rollback();raise
+    finally:db.close()
+    return {"status":"passed","installed":True,"idempotent":False,"package_set_sha256":values[2]}
 def build_candidate(output:Path,*,candidate_db:Path,run_id:str,input_manifest_sha256:str,candidate_semantic_sha256_expected:str,
                     authority_sha256_expected:str,ledger_dir:Path=REPOSITORY_ROOT/"ledger",master_path:Path|None=None):
     context=dict(candidate_db=candidate_db,run_id=run_id,input_manifest_sha256=input_manifest_sha256,

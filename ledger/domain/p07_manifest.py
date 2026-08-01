@@ -4,10 +4,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
+import stat
+import tempfile
 from pathlib import Path
 
-from ledger.domain.direct_projection import build_direct_candidate
+from ledger.domain.direct_projection import build_direct_candidate,_assert_existing_v3_schema
 from ledger.domain.transition_gates_v2 import (
     candidate_semantic_sha256,
     gate_report_sha256,
@@ -22,6 +25,21 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+def _sealed_file_bytes(path:Path)->bytes:
+    try:fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    except OSError as exc:raise ValueError("candidate_db_seal_open_failed") from exc
+    try:
+        meta=os.fstat(fd)
+        if not stat.S_ISREG(meta.st_mode) or meta.st_nlink!=1 or stat.S_IMODE(meta.st_mode)!=0o400:
+            raise ValueError("candidate_db_seal_invalid")
+        chunks=[]
+        while True:
+            chunk=os.read(fd,1024*1024)
+            if not chunk:break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:os.close(fd)
 
 
 def _canonical_json_sha256(value: object) -> str:
@@ -91,12 +109,21 @@ def verify_run_artifacts(
     report_dir: Path,
     *,
     repository_root: Path,
+    expected_activation_pointer_sha256:str|None=None,
 ) -> dict[str, object]:
+    """Verify artifacts; passed runs require an externally retained pointer.
+
+    The pointer is a hash anchor, not a signature.  Callers must retain it in
+    an append-only or otherwise out-of-band channel instead of reading it back
+    from the manifest being verified.
+    """
     run_dir = report_dir.resolve()
     report_path = run_dir / "gate_report.json"
     manifest_path = run_dir / "blocker_manifest.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_seal=manifest.get("manifest_content_sha256");manifest_payload=dict(manifest);manifest_payload.pop("manifest_content_sha256",None)
+    if manifest_seal!=_canonical_json_sha256(manifest_payload):raise ValueError("manifest_content_self_seal_mismatch")
     calculated_report_hash = gate_report_sha256(report)
     if report.get("gate_report_sha256") != calculated_report_hash:
         raise ValueError("gate_report_self_hash_mismatch")
@@ -111,6 +138,7 @@ def verify_run_artifacts(
         "schema_version",
         "parser_version",
         "cutover_policy",
+        "run_created_at",
     )
     mismatches = {
         field: {
@@ -151,6 +179,9 @@ def verify_run_artifacts(
     if manifest.get("failed_gates") != failed_gates:
         raise ValueError("manifest_failed_gates_mismatch")
     passed = bool(report["passed"])
+    if passed:
+        if expected_activation_pointer_sha256 is None:raise ValueError("activation_pointer_required")
+        if expected_activation_pointer_sha256!=manifest_seal:raise ValueError("activation_pointer_mismatch")
     expected_state = (
         "candidate_ready_for_shadow" if passed else "not_published"
     )
@@ -196,17 +227,24 @@ def verify_run_artifacts(
         ):
             raise ValueError("candidate_db_semantic_hash_mismatch")
         candidate_path = Path(str(candidate_db.get("path", ""))).resolve()
-        if not candidate_path.is_file():
-            raise ValueError("candidate_db_missing")
-        candidate = sqlite3.connect(
-            f"file:{candidate_path.as_posix()}?mode=ro",
-            uri=True,
-        )
+        if any(os.path.lexists(str(candidate_path)+suffix) for suffix in ("-wal","-shm","-journal")):raise ValueError("candidate_db_sidecar_present")
+        sealed_bytes=_sealed_file_bytes(candidate_path)
+        if hashlib.sha256(sealed_bytes).hexdigest()!=candidate_db.get("final_seal_sha256") or candidate_db.get("mode")!="0400":
+            raise ValueError("candidate_db_final_seal_mismatch")
+        descriptor,snapshot_name=tempfile.mkstemp(prefix="p07-sealed-",suffix=".db");os.fchmod(descriptor,0o600)
         try:
+            view=memoryview(sealed_bytes)
+            while view:view=view[os.write(descriptor,view):]
+            os.fsync(descriptor)
+        finally:os.close(descriptor)
+        snapshot=Path(snapshot_name)
+        candidate = sqlite3.connect(f"file:{snapshot.as_posix()}?mode=ro&immutable=1",uri=True)
+        try:
+            _assert_existing_v3_schema(candidate)
             row = candidate.execute(
                 """
                 SELECT status, candidate_semantic_sha256,
-                       gate_report_sha256
+                       gate_report_sha256,created_at
                 FROM direct_projection_runs
                 WHERE run_id=?
                 """,
@@ -216,6 +254,7 @@ def verify_run_artifacts(
                 "passed",
                 report["candidate_semantic_sha256"],
                 report["gate_report_sha256"],
+                report["run_created_at"],
             )
             if row != expected_row:
                 raise ValueError("candidate_db_run_state_mismatch")
@@ -235,8 +274,28 @@ def verify_run_artifacts(
             )
             if exposed != expected_count:
                 raise ValueError("candidate_db_count_mismatch")
+            han_report=report.get("han_equality");han_manifest=manifest.get("han_equality")
+            if not isinstance(han_report,dict) or not isinstance(han_manifest,dict) or han_report.get("state")!="activated" or han_manifest.get("state")!="activated":
+                raise ValueError("han_equality_activation_state_invalid")
+            if han_report.get("private_package_path")!=han_manifest.get("private_package_path") or han_report.get("package_set_sha256")!=han_manifest.get("package_set_sha256"):
+                raise ValueError("han_equality_manifest_report_mismatch")
+            validation_fields=("run_id","status","package_set_sha256","authority_sha256","input_manifest_sha256","candidate_semantic_sha256","candidate_master_sha256","identity_role_set_sha256","amount_semantic_sha256","validation_sha256")
+            validation=candidate.execute("SELECT "+",".join(validation_fields)+" FROM direct_projection_validations WHERE run_id=?",(report["run_id"],)).fetchone()
+            if validation is None:raise ValueError("han_equality_validation_missing")
+            validation_row=dict(zip(validation_fields,validation));gate_validation=gates_by_name["amount_sign_and_relations"]["actual"].get("validation")
+            if validation_row!=gate_validation:raise ValueError("han_equality_gate_validation_mismatch")
+            claimed=validation_row.pop("validation_sha256")
+            canonical=(json.dumps(validation_row,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode()
+            if hashlib.sha256(canonical).hexdigest()!=claimed:raise ValueError("han_equality_validation_sha_mismatch")
+            from ledger.domain.han_master_candidate import verify_candidate as verify_han_candidate
+            package_result=verify_han_candidate(Path(str(han_manifest["private_package_path"])),candidate_db=snapshot,
+              run_id=str(report["run_id"]),input_manifest_sha256=str(validation_row["input_manifest_sha256"]),candidate_semantic_sha256_expected=str(validation_row["candidate_semantic_sha256"]),
+              authority_sha256_expected=str(validation_row["authority_sha256"]),ledger_dir=repository_root/"ledger",verification_mode="activated")
+            if package_result["package_set_sha256"]!=han_manifest["package_set_sha256"]:raise ValueError("han_equality_package_hash_mismatch")
+            if any(validation_row[key]!=package_result["validation_envelope"][key] for key in package_result["validation_envelope"]):raise ValueError("han_equality_package_validation_mismatch")
         finally:
             candidate.close()
+            snapshot.unlink(missing_ok=True)
     validate_approved_transitions(None)
     return {
         "passed": passed,
@@ -270,6 +329,7 @@ def run_p07(
     verified = verify_run_artifacts(
         Path(str(result["report_dir"])),
         repository_root=ledger_dir.resolve().parent,
+        expected_activation_pointer_sha256=result.get("activation_pointer_sha256"),
     )
     if bool(result["passed"]) != bool(verified["passed"]):
         raise ValueError("builder_report_pass_mismatch")

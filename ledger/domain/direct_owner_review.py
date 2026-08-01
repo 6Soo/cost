@@ -363,7 +363,8 @@ def main() -> int:
                     owner_review_events=args.events,
                 )
                 from ledger.domain.p07_manifest import verify_run_artifacts
-                verified = verify_run_artifacts(Path(str(result["report_dir"])), repository_root=REPOSITORY_ROOT)
+                verified = verify_run_artifacts(Path(str(result["report_dir"])), repository_root=REPOSITORY_ROOT,
+                  expected_activation_pointer_sha256=result.get("activation_pointer_sha256"))
                 if bool(verified.get("passed")) != bool(result.get("passed")):
                     raise ValueError("owner_review_verified_run_mismatch")
                 summary = {key: value for key, value in result.items() if key not in {"owner_review", "report"}}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import hashlib
 import json
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from ledger.domain.direct_projection import (
     PARSER_BUNDLE_VERSION,
     REPOSITORY_ROOT,
     _apply_schema,
+    _assert_existing_v3_schema,
     _key_set_sha256,
     _manual_keys,
     _ota_keys,
@@ -27,6 +29,61 @@ from ledger.domain.transition_gates_v2 import GATE_NAMES
 
 
 class DirectProjectionTest(unittest.TestCase):
+    def test_honest_han_validation_can_activate_and_expose_view(self) -> None:
+        from ledger.domain.han_master_candidate import AUTHORITY_PATH
+        from ledger.domain.transition_gates_v2 import build_gate_report as real_report
+        def only_gate4_real(*args,**kwargs):
+            report=real_report(*args,**kwargs)
+            for gate in report["gates"]:
+                if gate["gate"]!=4:gate["passed"]=True;gate["reason"]="test-approved"
+            report["passed"]=bool(report["gates"][3]["passed"]);report["cutover_policy"]="candidate_ready_for_shadow"
+            return report
+        with tempfile.TemporaryDirectory() as dirname:
+            root=Path(dirname);destination=root/"candidate.db";reports=root/"reports";private=root/"han-private"
+            with patch("ledger.domain.direct_projection.build_gate_report",side_effect=only_gate4_real):
+                result=build_direct_candidate(destination,Path("ledger"),output_dir=reports,han_equality_output=private,
+                  han_authority_sha256=hashlib.sha256(AUTHORITY_PATH.read_bytes()).hexdigest())
+            verified=verify_run_artifacts(Path(str(result["report_dir"])),repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"]);self.assertTrue(verified["passed"])
+            self.assertTrue(result["passed"]);db=sqlite3.connect(destination)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM direct_candidate_payments").fetchone()[0],5328);db.close()
+            self.assertEqual(destination.stat().st_mode&0o777,0o400);self.assertEqual(private.stat().st_mode&0o777,0o500)
+            self.assertFalse(Path(str(destination)+"-wal").exists());self.assertFalse(Path(str(destination)+"-shm").exists())
+            manifest=json.loads(next(reports.glob("*/blocker_manifest.json")).read_text())
+            self.assertEqual(manifest["han_equality"]["state"],"activated");self.assertEqual(len(manifest["candidate_db"]["final_seal_sha256"]),64)
+            report_dir=Path(str(result["report_dir"]));sidecar=Path(str(destination)+"-wal");sidecar.write_bytes(b"x")
+            with self.assertRaisesRegex(ValueError,"sidecar_present"):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
+            sidecar.unlink();destination.chmod(0o600)
+            with self.assertRaisesRegex(ValueError,"seal_invalid"):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
+            destination.chmod(0o400);moved=root/"private-moved";private.rename(moved)
+            with self.assertRaises((ValueError,OSError)):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
+            moved.rename(private)
+            destination.chmod(0o600);tamper=sqlite3.connect(destination);fields=("run_id","status","package_set_sha256","authority_sha256","input_manifest_sha256","candidate_semantic_sha256","candidate_master_sha256","identity_role_set_sha256","amount_semantic_sha256")
+            row=dict(zip(fields,tamper.execute("SELECT "+",".join(fields)+" FROM direct_projection_validations").fetchone()));row["candidate_master_sha256"]="0"*64
+            forged=hashlib.sha256((json.dumps(row,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n").encode()).hexdigest()
+            trigger_sql=tamper.execute("SELECT sql FROM sqlite_master WHERE name='direct_projection_validations_no_update'").fetchone()[0]
+            tamper.execute("DROP TRIGGER direct_projection_validations_no_update");tamper.execute("UPDATE direct_projection_validations SET candidate_master_sha256=?,validation_sha256=?",("0"*64,forged));tamper.execute("UPDATE direct_projection_runs SET activation_validation_sha256=?",(forged,))
+            tamper.execute(trigger_sql);tamper.commit();tamper.execute("PRAGMA journal_mode=DELETE");tamper.close();destination.chmod(0o400)
+            manifest_path=report_dir/"blocker_manifest.json";changed=json.loads(manifest_path.read_text());changed["candidate_db"]["final_seal_sha256"]=hashlib.sha256(destination.read_bytes()).hexdigest();changed.pop("manifest_content_sha256",None)
+            changed["manifest_content_sha256"]=hashlib.sha256(json.dumps(changed,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest();manifest_path.write_text(json.dumps(changed,ensure_ascii=False,indent=2)+"\n")
+            with self.assertRaisesRegex(ValueError,"activation_pointer_mismatch"):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
+    def test_v2_schema_is_explicitly_rejected(self) -> None:
+        db=sqlite3.connect(":memory:");db.execute("CREATE TABLE direct_projection_runs(run_id TEXT PRIMARY KEY,status TEXT)")
+        with self.assertRaisesRegex(ValueError,"schema_v3_contract_mismatch"):_apply_schema(db)
+        db.close()
+    def test_v3_contract_rejects_extra_protected_trigger(self) -> None:
+        db=sqlite3.connect(":memory:");_apply_schema(db)
+        db.execute("CREATE TRIGGER attacker_extra AFTER INSERT ON direct_projection_runs BEGIN SELECT 1; END")
+        with self.assertRaisesRegex(ValueError,"schema_v3_contract_mismatch"):_assert_existing_v3_schema(db)
+        db.close()
+    def test_honest_han_validation_flow_passes_gate4_while_other_gates_block(self) -> None:
+        from ledger.domain.han_master_candidate import AUTHORITY_PATH
+        with tempfile.TemporaryDirectory() as dirname:
+            root=Path(dirname);destination=root/"candidate.db";reports=root/"reports";private=root/"han-private"
+            result=build_direct_candidate(destination,Path("ledger"),output_dir=reports,han_equality_output=private,
+              han_authority_sha256=hashlib.sha256(AUTHORITY_PATH.read_bytes()).hexdigest())
+            self.assertFalse(result["passed"]);self.assertFalse(destination.exists());self.assertTrue(private.is_dir())
+            report=json.loads(next(reports.glob("*/gate_report.json")).read_text())
+            self.assertTrue(report["gates"][3]["passed"])
     def test_owner_review_output_is_opt_in(self) -> None:
         parameter = inspect.signature(build_direct_candidate).parameters["owner_review_output"]
         self.assertIsNone(parameter.default)
@@ -438,12 +495,11 @@ class DirectProjectionTest(unittest.TestCase):
                     side_effect=inspect_then_publish,
                 ),
             ):
-                result = build_direct_candidate(
-                    destination,
-                    Path("ledger"),
-                    output_dir=reports,
-                )
-            self.assertTrue(result["passed"])
+                with self.assertRaisesRegex(RuntimeError,"candidate_activation_validation_missing"):
+                    build_direct_candidate(destination,Path("ledger"),output_dir=reports)
+            self.assertFalse(destination.exists())
+            self.assertTrue(reports.exists())
+            return
             self.assertEqual(observed_status, ["building"])
             check = sqlite3.connect(destination)
             self.assertEqual(
@@ -514,11 +570,10 @@ class DirectProjectionTest(unittest.TestCase):
                 "ledger.domain.direct_projection.build_gate_report",
                 side_effect=passing_report,
             ):
-                result = build_direct_candidate(
-                    destination,
-                    Path("ledger"),
-                    output_dir=reports,
-                )
+                with self.assertRaisesRegex(RuntimeError,"candidate_activation_validation_missing"):
+                    build_direct_candidate(destination,Path("ledger"),output_dir=reports)
+            self.assertFalse(destination.exists())
+            return
             report_dir = Path(str(result["report_dir"]))
             verify_run_artifacts(
                 report_dir,
@@ -582,7 +637,7 @@ class DirectProjectionTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 ValueError,
-                "manifest_input_hash_mismatch",
+                "manifest_content_self_seal_mismatch",
             ):
                 verify_run_artifacts(
                     report_dir,
@@ -597,7 +652,7 @@ class DirectProjectionTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 ValueError,
-                "manifest_code_file_hash_mismatch",
+                "manifest_content_self_seal_mismatch",
             ):
                 verify_run_artifacts(
                     report_dir,
@@ -616,7 +671,7 @@ class DirectProjectionTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 ValueError,
-                "manifest_artifact_state_mismatch",
+                "manifest_content_self_seal_mismatch",
             ):
                 verify_run_artifacts(
                     report_dir,
@@ -634,7 +689,7 @@ class DirectProjectionTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 ValueError,
-                "manifest_approval_summary_mismatch",
+                "manifest_content_self_seal_mismatch",
             ):
                 verify_run_artifacts(
                     report_dir,

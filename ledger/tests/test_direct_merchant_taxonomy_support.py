@@ -33,7 +33,7 @@ class MerchantTaxonomySupportTest(unittest.TestCase):
         self.assertEqual(m["selected_event_set_sha256"],EXPECTED_EVENT_SET_SHA256)
         self.assertEqual(m["semantic_set_sha256"],EXPECTED_SEMANTIC_SET_SHA256)
         self.assertEqual(m["prior_union_set_sha256"],"426b4ec226f804dcfb2f87c8b6f1f8915352169ef401e241945f8c52ee75fc8c")
-        self.assertEqual(m["current_event_set_sha256"],"0f5ca97c971125327e2bdc5aaa0f6505872c5a03c50cf4886d29753b4c1a8c7e")
+        self.assertEqual(m["current_event_set_sha256"],"de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93")
         self.assertEqual(m["rule_contract_sha256"],RULE_SHA256)
         self.assertEqual((m["authority_status"],m["posting_status"],m["confirmed_count"],m["gate5_credit"]),("unattested","blocked",0,0))
 

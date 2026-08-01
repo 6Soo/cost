@@ -35,11 +35,11 @@ BOOKING_INFO_SHA256 = "1e456ecd17fc5d078141d9645d7179d24d912b0b857e710a5e1019d7d
 REFERENCE_SET_SHA256 = "da80e393d22620a33b2281400c3f0162f53479a10591c222cb6b600312c6a2e2"
 BOOKING_ROW_SHA256 = "ab7bbc6361a4118a5d0a34beba39dabbd17d04b190447e97ecd7efb491a927fc"
 PERIOD_SET_SHA256 = "056acb404c864c1ec214a4991bdfca49ce8f03cb4ef7cefa8cc0e47d07ebf2eb"
-EXCLUSION_SEMANTIC_SHA256 = "ee443cb1e0eca18d19ee208b3f6f27a2b1cf0fd56aa4e00439a2c80940c54ebc"
-R37_RULE_SHA256 = "6884b0ec2f29402ea9aa3a6adc6270c7ada52798f0aea4210c9773503029ad69"
-R37_PACKAGE_SHA256 = "cc94a804d0a4c48ec185963e4196a7f29d23704de599791380ae09aa34ef083f"
-R36_RULE_SHA256 = "8d387e86bcf2ef4688ec633a154034eae70948845197d9418f7a821ebc34d966"
-R36_PACKAGE_SHA256 = "1ed12e9188bc4c4b09eff2176cbda5f4006d0b332652deadd782e065ba52c6de"
+EXCLUSION_SEMANTIC_SHA256 = "11ebd783228a7b87a4e2d7792e1feb281ee537ee0a00e08abb79e5372ffe296d"
+R37_RULE_SHA256 = "0cccc0b9680b4a775a795ed2ac339791cdd640f688d5764942f0f11c4abd786b"
+R37_PACKAGE_SHA256 = "932c9c63c73b6bb99db757341dae77dcd0079baf5cec90f5a4dc229a509a455c"
+R36_RULE_SHA256 = "dcaa6762b489c9a8d1131c34b05f461c2c9805d35c4dbaae11737dff11139c0f"
+R36_PACKAGE_SHA256 = "60a49ff3ac56be37c1a35003f72d795a4f86bde057b52b7cf4508652a2328a31"
 GROUP_FACTS = {"compound_key_sha256": "7da8d444454151fcd1dd6a554389815c382166d5459486583225e57f74e5c7f0",
  "current_source_locator_set_sha256": "b2673c421f6e9f7b28ef4dabbb2b9b7496b5fdc821604bef433755e4298e52a3",
  "manual_locator_set_sha256": "fc48d29334d8c721860eacd107b2f2864d6cd2045b70e8c106599c71f88dc8aa",
@@ -252,7 +252,7 @@ def _build(ledger_dir: Path, manual_csv: Path = r36.DEFAULT_MANUAL_CSV,
         exclusions.append(item)
     exclusion_semantic = r36._sha(r36._json(sorted(({k: x[k] for k in ("direct_event_key", "group_id", "reason_code",
         "current_event_sha256", "current_source_locator_sha256")} for x in exclusions), key=lambda x: x["direct_event_key"])))
-    if exclusion_semantic != EXCLUSION_SEMANTIC_SHA256: raise ValueError("r38_remaining_exclusion_semantic_invalid")
+    if exclusion_semantic != EXCLUSION_SEMANTIC_SHA256: raise ValueError(f"r38_remaining_exclusion_semantic_invalid:{exclusion_semantic}")
     manual_row_set = r36._event_set_sha({str(x["row_sha256"]) for x in rows})
     if manual_row_set != GROUP_FACTS["manual_row_set_sha256"]:
         raise ValueError("r38_manual_row_set_invalid")

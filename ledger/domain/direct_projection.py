@@ -6,6 +6,7 @@ import csv
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import tempfile
 import uuid
@@ -220,7 +221,24 @@ def _git_head(repository_root: Path = REPOSITORY_ROOT) -> str:
 
 
 def _apply_schema(db: object) -> None:
+    exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='direct_projection_runs'").fetchone()
+    if exists:
+        _assert_existing_v3_schema(db)
     db.executescript(SCHEMA.read_text(encoding="utf-8"))
+
+def _assert_existing_v3_schema(db:object)->None:
+    reference=sqlite3.connect(":memory:")
+    try:
+        reference.executescript(SCHEMA.read_text(encoding="utf-8"))
+        expected={str(x[0]):(str(x[1]),str(x[2])) for x in reference.execute("SELECT name,type,sql FROM sqlite_master WHERE sql IS NOT NULL")}
+    finally:reference.close()
+    actual_all={str(x[0]):(str(x[1]),str(x[2]),str(x[3])) for x in db.execute("SELECT name,type,sql,tbl_name FROM sqlite_master WHERE sql IS NOT NULL")}
+    actual={name:(value[0],value[1]) for name,value in actual_all.items() if name in expected}
+    protected={"direct_projection_runs","direct_projection_inputs","direct_payment_projection_links","direct_projection_validations"}
+    extras={name for name,value in actual_all.items() if name not in expected and (value[2] in protected or name.startswith("direct_projection"))}
+    if actual!=expected or extras:raise ValueError("direct_projection_schema_v3_contract_mismatch")
+    versions={str(x[0]) for x in db.execute("SELECT DISTINCT schema_version FROM direct_projection_runs")}
+    if versions and versions!={SCHEMA_VERSION}:raise ValueError("direct_projection_schema_version_mismatch")
 
 
 def _stable_external_key(row: object) -> str:
@@ -317,6 +335,20 @@ def project_card_payments(db: object, run_id: str) -> int:
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
     return candidate_semantic_sha256(db, run_id)
 
+def _activate_candidate(db:object,run_id:str,report_hash:str,validation_sha256:str)->None:
+    run=db.execute("SELECT input_manifest_sha256,candidate_semantic_sha256,gate_report_sha256 FROM direct_projection_runs WHERE run_id=?",(run_id,)).fetchone()
+    if run is None or candidate_semantic_snapshot(db,run_id)!=run[1] or run[2]!=report_hash:
+        raise RuntimeError("candidate_activation_revalidation_failed")
+    cursor=db.execute("""UPDATE direct_projection_runs SET status='passed',activation_validation_sha256=(
+        SELECT validation_sha256 FROM direct_projection_validations WHERE run_id=direct_projection_runs.run_id)
+      WHERE run_id=? AND status='building' AND gate_report_sha256=?
+        AND EXISTS (SELECT 1 FROM direct_projection_validations v
+          WHERE v.run_id=direct_projection_runs.run_id AND v.status='passed'
+            AND v.input_manifest_sha256=direct_projection_runs.input_manifest_sha256
+            AND v.candidate_semantic_sha256=direct_projection_runs.candidate_semantic_sha256
+            AND v.validation_sha256=?)""",(run_id,report_hash,validation_sha256))
+    if cursor.rowcount!=1:raise RuntimeError("candidate_activation_precondition_failed")
+
 
 def _historical_comparators(
     repository_root: Path = REPOSITORY_ROOT,
@@ -372,8 +404,9 @@ def _write_artifact_directory(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        sealed_manifest=dict(manifest);sealed_manifest["manifest_content_sha256"]=_manifest_content_sha256(sealed_manifest)
         (run_dir / "blocker_manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(sealed_manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         os.replace(staging, output)
@@ -394,16 +427,24 @@ def _atomic_replace_json(path: Path, payload: dict[str, object]) -> None:
         suffix=".tmp",
         dir=str(path.parent),
     )
-    os.close(descriptor)
     temporary = Path(temporary_name)
     try:
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        sealed=dict(payload);sealed["manifest_content_sha256"]=_manifest_content_sha256(sealed)
+        data=(json.dumps(sealed,ensure_ascii=False,indent=2)+"\n").encode()
+        view=memoryview(data)
+        while view:view=view[os.write(descriptor,view):]
+        os.fsync(descriptor);os.close(descriptor);descriptor=-1
         os.replace(temporary, path)
+        parent_fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+        try:os.fsync(parent_fd)
+        finally:os.close(parent_fd)
     finally:
+        if descriptor>=0:os.close(descriptor)
         temporary.unlink(missing_ok=True)
+
+def _manifest_content_sha256(payload:dict[str,object])->str:
+    value=dict(payload);value.pop("manifest_content_sha256",None)
+    return _sha256_bytes(json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode())
 
 
 def _remove_sqlite_artifacts(path: Path) -> None:
@@ -411,8 +452,23 @@ def _remove_sqlite_artifacts(path: Path) -> None:
         path,
         Path(str(path) + "-wal"),
         Path(str(path) + "-shm"),
+        Path(str(path) + "-journal"),
     ):
         candidate.unlink(missing_ok=True)
+
+def _seal_private_directory(path:Path,names:tuple[str,...])->None:
+    for name in names:
+        target=path/name;os.chmod(target,0o400)
+        fd=os.open(target,os.O_RDONLY)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    try:os.fsync(fd)
+    finally:os.close(fd)
+    os.chmod(path,0o500)
+    parent_fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    try:os.fsync(parent_fd)
+    finally:os.close(parent_fd)
 
 
 def _remove_new_artifact_directory(path: Path) -> None:
@@ -450,6 +506,8 @@ def build_direct_candidate(
     owner_review_output: Path | None = None,
     owner_review_manifest: Path | None = None,
     owner_review_events: Path | None = None,
+    han_equality_output:Path|None=None,
+    han_authority_sha256:str|None=None,
 ) -> dict[str, object]:
     """Build, gate, and publish only a fully passing shadow candidate."""
     root = repository_root.resolve()
@@ -469,6 +527,10 @@ def build_direct_candidate(
         raise FileExistsError(f"destination_exists:{output_database}")
     if artifact_root.exists():
         raise FileExistsError(f"output_directory_exists:{artifact_root}")
+    if (han_equality_output is None)!=(han_authority_sha256 is None):raise ValueError("han_equality_context_incomplete")
+    if han_equality_output is not None:
+        _reject_repository_output(han_equality_output.resolve(),root,"han_equality_output")
+        if han_equality_output.exists():raise FileExistsError(f"han_equality_output_exists:{han_equality_output}")
 
     expected_manual = (ledger / "data/manual_v4.csv").resolve(strict=True)
     expected_ota = (ledger / "data/ota_mail_index.json").resolve(strict=True)
@@ -499,6 +561,7 @@ def build_direct_candidate(
     candidate_installed = False
     artifacts_installed = False
     owner_review_installed = False
+    activation_pointer_sha256=None
     try:
         db = connect(temporary_db)
         initialize(db)
@@ -552,6 +615,17 @@ def build_direct_candidate(
         )
         db.commit()
 
+        han_context=None;han_validation_result=None
+        if han_equality_output is not None:
+            db.close();db=None
+            from ledger.domain.han_master_candidate import build_candidate as build_han_candidate,install_han_equality_validation
+            han_context={"directory":han_equality_output,"candidate_db":temporary_db,"run_id":run_id,
+              "input_manifest_sha256":input_hash,"candidate_semantic_sha256_expected":semantic_hash,
+              "authority_sha256_expected":str(han_authority_sha256),"ledger_dir":ledger,"master_path":ledger/"master_ledger.csv"}
+            build_han_candidate(han_equality_output,candidate_db=temporary_db,run_id=run_id,input_manifest_sha256=input_hash,
+              candidate_semantic_sha256_expected=semantic_hash,authority_sha256_expected=str(han_authority_sha256),ledger_dir=ledger)
+            han_validation_result=install_han_equality_validation(**han_context)
+
         comparators = _historical_comparators(root)
         expected_provenance = {
             "schema_version": SCHEMA_VERSION,
@@ -567,10 +641,19 @@ def build_direct_candidate(
             repository_root=root,
             expected_provenance=expected_provenance,
             historical_comparators=comparators,
+            han_equality_context=han_context,
         )
+        created_probe=sqlite3.connect(f"file:{temporary_db}?mode=ro&immutable=1",uri=True)
+        try:report["run_created_at"]=str(created_probe.execute("SELECT created_at FROM direct_projection_runs WHERE run_id=?",(run_id,)).fetchone()[0])
+        finally:created_probe.close()
+        if han_validation_result is not None:
+            report["han_equality"]={"private_package_path":str(han_equality_output),
+              "package_set_sha256":han_validation_result["package_set_sha256"],
+              "state":"activated" if bool(report["passed"]) else "private_validated_not_activated"}
         report_hash = gate_report_sha256(report)
         report["gate_report_sha256"] = report_hash
         passed = bool(report["passed"])
+        if db is None:db=connect(temporary_db)
         db.execute(
             """
             UPDATE direct_projection_runs
@@ -606,6 +689,8 @@ def build_direct_candidate(
                 if not bool(gate["passed"])
             ],
             "candidate_payment_count": projected,
+            "run_created_at":report["run_created_at"],
+            "han_equality":report.get("han_equality"),
         }
         owner_review_result = None
         if owner_review_manifest is not None or owner_review_events is not None:
@@ -655,27 +740,47 @@ def build_direct_candidate(
         )
         artifacts_installed = True
         if passed:
+            validation=(report["gates"][3].get("actual") or {}).get("validation")
+            if not validation:raise RuntimeError("candidate_activation_validation_missing")
+            if han_context is None:raise RuntimeError("candidate_activation_package_context_missing")
+            from ledger.domain.han_master_candidate import verify_candidate as verify_han_candidate,_read_regular_nofollow,FILES
+            activation_context={**han_context,"candidate_db":output_database}
+            verified_package=verify_han_candidate(**activation_context)
+            verified_envelope=verified_package["validation_envelope"]
+            captured=verified_package["_verified_file_bytes"]
+            _seal_private_directory(han_equality_output,FILES)
             activation = connect(output_database)
             try:
-                activation.execute(
-                    """
-                    UPDATE direct_projection_runs
-                    SET status='passed'
-                    WHERE run_id=? AND status='building'
-                      AND gate_report_sha256=?
-                    """,
-                    (run_id, report_hash),
-                )
-                if activation.total_changes != 1:
-                    raise RuntimeError("candidate_activation_precondition_failed")
+                activation.execute("BEGIN IMMEDIATE")
+                if {name:_read_regular_nofollow(han_equality_output/name,mode=0o400) for name in FILES}!=captured:
+                    raise RuntimeError("candidate_activation_package_changed")
+                if any(validation[key]!=verified_envelope[key] for key in verified_envelope):
+                    raise RuntimeError("candidate_activation_validation_envelope_mismatch")
+                if input_manifest_sha256(build_source_inventory(ledger,root))!=input_hash or gate_report_sha256(report)!=report_hash:
+                    raise RuntimeError("candidate_activation_context_changed")
+                validation_sha=str(validation["validation_sha256"])
+                _activate_candidate(activation,run_id,report_hash,validation_sha)
                 activation.commit()
+                activation.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                activation.execute("PRAGMA journal_mode=DELETE")
             finally:
                 activation.close()
+            if any(os.path.lexists(str(output_database)+suffix) for suffix in ("-wal","-shm","-journal")):
+                raise RuntimeError("candidate_activation_sidecar_present")
+            verify_han_candidate(**{**activation_context,"verification_mode":"activated"})
+            os.chmod(output_database,0o400);db_fd=os.open(output_database,os.O_RDONLY)
+            try:os.fsync(db_fd)
+            finally:os.close(db_fd)
+            final_db_sha=_sha256_bytes(output_database.read_bytes())
             manifest["artifact_state"] = "candidate_ready_for_shadow"
+            if manifest.get("han_equality"):manifest["han_equality"]["state"]="activated"
+            manifest["candidate_db"]["final_seal_sha256"]=final_db_sha
+            manifest["candidate_db"]["mode"]="0400"
             _atomic_replace_json(
                 report_dir / "blocker_manifest.json",
                 manifest,
             )
+            activation_pointer_sha256=_manifest_content_sha256(manifest)
         return {
             "run_id": run_id,
             "passed": passed,
@@ -688,6 +793,7 @@ def build_direct_candidate(
             "gate_report_sha256": report_hash,
             "failed_gates": manifest["failed_gates"],
             "owner_review": owner_review_result,
+            "activation_pointer_sha256":activation_pointer_sha256,
         }
     except Exception:
         if db is not None:
@@ -705,8 +811,8 @@ def build_direct_candidate(
                 pass
         if candidate_installed:
             _remove_sqlite_artifacts(output_database)
-        if artifacts_installed:
-            _remove_new_artifact_directory(artifact_root)
+        # A successfully published diagnostic report is retained on later
+        # activation failure; it is the auditable explanation for no cutover.
         if owner_review_installed and owner_review_output is not None:
             _remove_new_artifact_directory(owner_review_output.resolve())
         raise
