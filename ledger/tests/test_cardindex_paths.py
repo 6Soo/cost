@@ -35,16 +35,18 @@ def _root(marker="shop"):
     e = ["x"] * 17
     e[0] = "2026-07-01"; e[1] = "2026-07-01"; e[4] = "1234"; e[7] = marker
     e[10] = "JPY"; e[11] = "10"; e[16] = "100"
-    g = ["x"] * 19
-    g[0] = "ok"; g[1] = "2026-07-01"; g[3] = "1234"; g[4] = "2"; g[5] = "100"
+    g = ["x"] * 20
+    g[0] = "ok"; g[1] = "2026-07-01"; g[3] = "1234"; g[4] = "2"; g[5] = "100"; g[6] = "0"
     g[7] = marker; g[8] = "food"; g[14] = "100"; g[16] = "2026-07-01"
     g[17] = "ok"; g[18] = "0"
+    han_header = ["h"] * 20
+    han_header[5] = "승인금액"; han_header[6] = "승인취소금액"; han_header[14] = "매입금액"
     a = ["purchase", "domestic", "2026-07-01", "1234", "x", marker, "100",
          "KRW", "x", "x", "x", "x", "x", "1"]
     _book(conv / "F.xlsx", [["h"] * 17, f])
     _book(conv / "E.xlsx", [["h"] * 17, e])
-    _book(conv / "G.xlsx", [["h"] * 19] * 6 + [g])
-    _book(conv / "H.xlsx", [["h"] * 19] * 6 + [g])
+    _book(conv / "G.xlsx", [["h"] * 20] * 5 + [han_header, g])
+    _book(conv / "H.xlsx", [["h"] * 20] * 5 + [han_header, g])
     _book(conv / "A_20260720.xlsx", [a])
     return root
 

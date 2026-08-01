@@ -4,6 +4,12 @@
 동작: 파일 형식 자동판별 → 정본 정규화 → master_ledger.csv에 '거래키' 기준 신규건만 병합
       (기존 행의 기록여부/워크북참조 보존). 일자 겹쳐도 중복은 자동 제외."""
 import openpyxl, csv, re, os, sys
+try:
+    from ledger.domain.han_normalizer import (normalize_han_components,
+        is_han_transaction, normalize_han_identity_text, parse_han_amounts, validate_han_header)
+except ModuleNotFoundError:  # Preserve `cd ledger && python3 ingest.py ...`.
+    from domain.han_normalizer import (normalize_han_components,
+        is_han_transaction, normalize_han_identity_text, parse_han_amounts, validate_han_header)
 HERE=os.path.dirname(os.path.abspath(__file__)); MASTER=os.path.join(HERE,'master_ledger.csv')
 FIELDS=['거래키','카드사','카드4','구분','승인일','매입일','가맹점','원화금액','현지금액','통화','승인번호','취소여부','출처','적재일','기록여부','워크북참조','비고']
 def rn(x):
@@ -44,11 +50,18 @@ def norm(rows, src, today):
                 cx=(r[0]=='취소또는할인'); cur='JPY' if 'JPY' in (r[7] or '') else ''
                 emit('기업',r[3][-4:],'해외' if r[0]=='외화' else '국내',r[2][:10],'',r[5],rn(r[6])*(-1 if cx else 1),fdec((r[7] or '').split()[0] if r[7] else 0),cur,r[13],cx)
     elif src=='하나승인':
+        columns=validate_han_header(rows[5] if len(rows)>5 else ())
         for r in rows[6:]:
-            if r and r[0] and r[0]!='NO' and '-' in (r[3] or ''):
+            card_identity=normalize_han_identity_text(r[3]) if len(r)>3 else ''
+            approval_identity=normalize_han_identity_text(r[4]) if len(r)>4 else ''
+            identity_present=bool(card_identity or approval_identity)
+            if identity_present:
+                amounts=parse_han_amounts(r,columns)
+                if not is_han_transaction(amounts,identity_present=True): continue
                 gu='해외' if '해외' in (r[11] if len(r)>11 else '') else '국내'
-                emit('하나',r[3][-4:],gu,d10(r[1]),'',r[7],rn(r[5]),0,'',r[4],False)
-                if rn(r[6]): emit('하나',r[3][-4:],gu,d10(r[1]),'',r[7],rn(r[6]),0,'',r[4],True)
+                for component in normalize_han_components(amounts):
+                    emit('하나',card_identity[-4:],gu,d10(r[1]),'',r[7],component.signed_amount_krw,
+                         0,'',approval_identity,component.role=='cancellation')
     elif src=='국민국내매입':
         for r in rows[1:]:
             if len(r)>11 and re.match(r'\d{4}\.\d\d',r[1] or ''):
@@ -75,12 +88,21 @@ def merge_into(ex, new):
     return changed
 
 def main(files, today='2026-07-20'):
-    master=list(csv.DictReader(open(MASTER,encoding='utf-8-sig'))) if os.path.exists(MASTER) else []
+    if os.path.exists(MASTER):
+        with open(MASTER,encoding='utf-8-sig',newline='') as stream:
+            master=list(csv.DictReader(stream))
+    else: master=[]
     index={r['거래키']:r for r in master}
     added=merged=same=0
     for f in files:
         rows=load(f); src=detect(rows)
         if not src: print(f'  ⚠ 형식판별 실패: {f}'); continue
+        # R39 changes HAN keys because the authoritative normal amount is now
+        # purchase-first.  Merging into an old amount-bearing keyspace would
+        # retain the old row and add a second row.  Until the explicit atomic
+        # full-rebuild/review-state migration path is used, fail before write.
+        if src=='하나승인' and master:
+            raise SystemExit('✗ 적재중단 [하나승인]: han_full_rebuild_required — 기존 master 증분병합 금지')
         recs=norm(rows,src,today); a=m2=s=0
         # ★가드(2026-07-22 신설): 원화 열이 있어야 할 카드소스가 전부 원화0이면 파싱 열매핑 오류 —
         #   국민 해외분 원화를 0으로 하드코딩해 1,679건 유실했던 버그 재발 방지. 전건0이면 즉시 중단.

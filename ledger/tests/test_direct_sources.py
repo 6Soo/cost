@@ -13,6 +13,7 @@ from ledger.domain.direct_sources import (
 )
 from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.source_adapters import stable_card_event_identity
+from ledger.domain.han_normalizer import HAN_NORMALIZER_CONTRACT_SHA256, HAN_NORMALIZER_VERSION
 from ledger.domain.direct_sources import import_manual, import_ota
 
 
@@ -112,8 +113,13 @@ class DirectSourceNormalizationTest(unittest.TestCase):
                 "src": "HAN", "raw_record_id": "H:1", "c4": "9999", "appr": "456",
                 "orig": "", "use": "2026-06-05", "bill": "2026-06-06",
                 "mer": "HAN MERCHANT", "uptype": "", "cur": "KRW", "fx": "",
-                "krw": 80, "approval_amount": 100, "cancel_amount": 20,
-                "purchase_amount": 100, "cancel": False, "status": "",
+                "krw": 100, "approval_amount": 100, "cancel_amount": 20,
+                "purchase_amount": 100, "cancel": True, "status": "",
+                "amount_selection_reason":"split_approval_amount",
+                "han_components":(("approval",100,"purchase","split_approval_amount"),
+                                  ("cancellation",-20,"cancellation","split_cancel_amount")),
+                "han_normalizer_version":HAN_NORMALIZER_VERSION,
+                "han_contract_sha256":HAN_NORMALIZER_CONTRACT_SHA256,
             },
         ]
         with tempfile.TemporaryDirectory() as dirname:
@@ -220,6 +226,59 @@ class DirectSourceNormalizationTest(unittest.TestCase):
                     )
             finally:
                 db.close()
+
+    def test_hana_normalizer_provenance_is_preserved_in_raw_payload(self) -> None:
+        card = {"src":"HAN", "raw_record_id":"H:1", "c4":"9999", "appr":"456", "orig":"456",
+            "use":"2026-06-05", "bill":"2026-06-06", "mer":"M", "uptype":"", "cur":"KRW",
+            "fx":"", "krw":120, "approval_amount":100, "cancel_amount":0, "purchase_amount":120,
+            "cancel":False, "status":"", "amount_selection_reason":"purchase_amount_nonzero",
+            "han_components":(("single",120,"purchase","purchase_amount_nonzero"),),
+            "han_normalizer_version":HAN_NORMALIZER_VERSION, "han_contract_sha256":HAN_NORMALIZER_CONTRACT_SHA256}
+        with tempfile.TemporaryDirectory() as dirname:
+            db=connect(Path(dirname)/"direct.db");initialize(db)
+            with patch("ledger.domain.direct_sources.cardindex.build_cards",return_value=[card]): import_cards(db,Path(dirname))
+            import json
+            payload=json.loads(db.execute("SELECT payload_json FROM direct_source_records").fetchone()[0]);db.close()
+        self.assertEqual((payload["approval_amount"],payload["purchase_amount"],payload["cancel_amount"]),(100,120,0))
+        self.assertEqual((payload["amount_selection_reason"],payload["han_normalizer_version"],payload["han_contract_sha256"]),
+                         ("purchase_amount_nonzero",HAN_NORMALIZER_VERSION,HAN_NORMALIZER_CONTRACT_SHA256))
+
+    def test_hana_tampered_components_fail_before_database_mutation(self) -> None:
+        card = {"src":"HAN", "raw_record_id":"H:1", "c4":"9999", "appr":"456", "orig":"456",
+            "use":"2026-06-05", "bill":"2026-06-06", "mer":"M", "uptype":"", "cur":"KRW", "fx":"",
+            "krw":80, "approval_amount":100, "cancel_amount":20, "purchase_amount":80, "cancel":True, "status":"",
+            "amount_selection_reason":"split_approval_amount",
+            "han_components":(("approval",80,"purchase","split_approval_amount"),
+                              ("cancellation",-20,"cancellation","split_cancel_amount")),
+            "han_normalizer_version":HAN_NORMALIZER_VERSION,"han_contract_sha256":HAN_NORMALIZER_CONTRACT_SHA256}
+        with tempfile.TemporaryDirectory() as dirname:
+            db=connect(Path(dirname)/"direct.db");initialize(db)
+            with patch("ledger.domain.direct_sources.cardindex.build_cards",return_value=[card]), \
+                 self.assertRaisesRegex(ValueError,"han_component_contract_mismatch"):
+                import_cards(db,Path(dirname))
+            self.assertEqual(tuple(db.execute("SELECT (SELECT COUNT(*) FROM direct_source_records),"
+                "(SELECT COUNT(*) FROM direct_card_events),(SELECT COUNT(*) FROM direct_normalized_payments)").fetchone()),(0,0,0))
+            db.close()
+
+    def test_hana_envelope_and_component_exact_types_fail_prewrite(self) -> None:
+        base={"src":"HAN","raw_record_id":"H:1","c4":"9999","appr":"456","orig":"456",
+            "use":"2026-06-05","bill":"2026-06-06","mer":"M","uptype":"","cur":"KRW","fx":"",
+            "krw":120,"approval_amount":100,"cancel_amount":0,"purchase_amount":120,"cancel":False,"status":"",
+            "amount_selection_reason":"purchase_amount_nonzero",
+            "han_components":(("single",120,"purchase","purchase_amount_nonzero"),),
+            "han_normalizer_version":HAN_NORMALIZER_VERSION,"han_contract_sha256":HAN_NORMALIZER_CONTRACT_SHA256}
+        cases=(("approval_amount",True),("purchase_amount","120"),("cancel_amount",0.5),("cancel",0),
+               ("krw","120"),("han_components",(("single",True,"purchase","purchase_amount_nonzero"),)),
+               ("han_components",(("single","120","purchase","purchase_amount_nonzero"),)),
+               ("han_components",(("single",120.0,"purchase","purchase_amount_nonzero"),)))
+        for field,value in cases:
+            card={**base,field:value}
+            with self.subTest(field=field,value=repr(value)),tempfile.TemporaryDirectory() as dirname:
+                db=connect(Path(dirname)/"direct.db");initialize(db)
+                with patch("ledger.domain.direct_sources.cardindex.build_cards",return_value=[card]), \
+                     self.assertRaisesRegex(ValueError,"han_(envelope_type_invalid|component_contract_mismatch)"):
+                    import_cards(db,Path(dirname))
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM direct_source_records").fetchone()[0],0);db.close()
 
 
 if __name__ == "__main__":

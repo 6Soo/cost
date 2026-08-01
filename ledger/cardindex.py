@@ -4,6 +4,9 @@
 import openpyxl, re
 from pathlib import Path
 from collections import defaultdict
+from ledger.domain.han_normalizer import (HAN_NORMALIZER_CONTRACT_SHA256,
+    HAN_NORMALIZER_VERSION, is_han_transaction, normalize_han_components, parse_han_amounts,
+    normalize_han_identity_text, validate_han_header)
 
 def i(x):
     try: return int(round(float(str(x).replace(',','').replace('원','').strip())))
@@ -42,13 +45,23 @@ def build_cards(*, ledger_dir=None):
                 cur=r[10],fx=r[11],sub='해외',cancel=(r[6]=='취소매출'),status=r[6]))
     # 하나 G/H: 이용일1 카드3 승인번호4 승인금5 승인취소6 가맹7 업종8 이용구분11 매입금14 매입일16 상태17 부가세18
     for f in ('G','H'):
-        for row_number, r in enumerate(load(f, ledger_dir=root)[6:], start=7):
-            if len(r)>17 and r[0] and r[0]!='NO' and i(r[5]):
+        rows=load(f, ledger_dir=root); columns=validate_han_header(rows[5] if len(rows)>5 else ())
+        for row_number, r in enumerate(rows[6:], start=7):
+            card_identity=normalize_han_identity_text(r[3]) if len(r)>3 else ""
+            approval_identity=normalize_han_identity_text(r[4]) if len(r)>4 else ""
+            identity_present=bool(card_identity or approval_identity)
+            amounts=parse_han_amounts(r,columns) if identity_present else None
+            populated=is_han_transaction(amounts,identity_present=True) if amounts is not None else False
+            if len(r)>17 and amounts and populated:
                 gu='해외' if '해외' in (r[11] or '') else '국내'
-                cards.append(dict(co='하나',src='HAN',raw_record_id=f'{f}:{row_number}',c4=r[3][-4:],appr=re.sub(r'\D','',r[4]),orig=re.sub(r'\D','',r[4]),
-                    use=d10(r[1]),bill=d10(r[16]),mer=r[7],uptype=r[8],krw=i(r[14]) or i(r[5]),
-                    approval_amount=i(r[5]),cancel_amount=i(r[6]),purchase_amount=i(r[14]),
-                    vat=i(r[18]),cur='KRW',fx=0,sub=gu,cancel=(i(r[6])!=0),status=r[17]))
+                components=normalize_han_components(amounts)
+                cards.append(dict(co='하나',src='HAN',raw_record_id=f'{f}:{row_number}',c4=card_identity[-4:],appr=re.sub(r'\D','',approval_identity),orig=re.sub(r'\D','',approval_identity),
+                    use=d10(r[1]),bill=d10(r[16]),mer=r[7],uptype=r[8],krw=components[0].signed_amount_krw,
+                    approval_amount=amounts.approval_amount,cancel_amount=amounts.cancel_amount,purchase_amount=amounts.purchase_amount,
+                    amount_selection_reason=components[0].selection_reason,
+                    han_components=tuple((x.role,x.signed_amount_krw,x.transaction_type,x.selection_reason) for x in components),
+                    han_normalizer_version=HAN_NORMALIZER_VERSION,han_contract_sha256=HAN_NORMALIZER_CONTRACT_SHA256,
+                    vat=i(r[18]),cur='KRW',fx=0,sub=gu,cancel=bool(amounts.cancel_amount),status=r[17]))
     # 기업 A(헤더없음): 거래구분0 유형1 일시2 카드3 가맹5 금액6 외화7 승인번호13
     for row_number, r in enumerate(load('A_20260720', ledger_dir=root), start=1):
         if len(r)>13 and i(r[6]) and re.match(r'\d{4}-\d\d-\d\d',r[2] or ''):

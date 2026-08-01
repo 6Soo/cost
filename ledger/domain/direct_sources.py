@@ -14,6 +14,8 @@ from ledger.domain.source_adapters import (
     adapt_ota_record,
     stable_card_event_identity,
 )
+from ledger.domain.han_normalizer import (HAN_NORMALIZER_CONTRACT_SHA256,
+    HAN_NORMALIZER_VERSION, HanRawAmounts, normalize_han_components)
 
 
 DIRECT_CARD_NORMALIZATION_VERSION = "direct-card-v3"
@@ -115,6 +117,34 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
             "cancel": card.get("cancel", False),
             "status": card.get("status", ""),
         }
+        if normalized["src"] == "HAN":
+            raw_amounts = (card.get("approval_amount"), card.get("purchase_amount"), card.get("cancel_amount"))
+            if any(type(value) is not int for value in raw_amounts) or type(card.get("cancel")) is not bool:
+                raise ValueError("han_envelope_type_invalid")
+            expected_components = normalize_han_components(HanRawAmounts(
+                raw_amounts[0], raw_amounts[1], raw_amounts[2]))
+            expected_wire = tuple((x.role, x.signed_amount_krw, x.transaction_type,
+                                   x.selection_reason) for x in expected_components)
+            supplied_wire = card.get("han_components")
+            wire_types_valid = isinstance(supplied_wire, (tuple, list)) and all(
+                isinstance(x, (tuple, list)) and len(x) == 4 and type(x[0]) is str and
+                type(x[1]) is int and type(x[2]) is str and type(x[3]) is str
+                for x in supplied_wire)
+            if (card.get("han_normalizer_version") != HAN_NORMALIZER_VERSION or
+                card.get("han_contract_sha256") != HAN_NORMALIZER_CONTRACT_SHA256 or
+                card.get("amount_selection_reason") != expected_components[0].selection_reason or
+                type(card.get("krw")) is not int or card.get("krw") != expected_components[0].signed_amount_krw or
+                card.get("cancel") is not bool(raw_amounts[2]) or not wire_types_valid or
+                tuple(tuple(x) if isinstance(x, (tuple, list)) else () for x in supplied_wire) != expected_wire):
+                raise ValueError("han_component_contract_mismatch")
+            normalized.update(
+                amount_selection_reason=expected_components[0].selection_reason,
+                han_normalizer_version=HAN_NORMALIZER_VERSION,
+                han_contract_sha256=HAN_NORMALIZER_CONTRACT_SHA256,
+                han_components=[{"role": x.role, "signed_amount_krw": x.signed_amount_krw,
+                    "transaction_type": x.transaction_type, "selection_reason": x.selection_reason}
+                    for x in expected_components],
+            )
         identity = stable_card_event_identity(normalized)
         source_id, created = _insert_source(
             db,
@@ -152,35 +182,16 @@ def import_cards(db: sqlite3.Connection, ledger_dir: Path) -> dict[str, int]:
                 normalized["merchant"],
             ),
         )
-        approval_amount = int(normalized["approval_amount"])
-        cancel_amount = int(normalized["cancel_amount"])
-        if normalized["src"] == "HAN" and cancel_amount:
-            approval_row = dict(normalized)
-            approval_row.update(
-                krw=abs(approval_amount),
-                cancel=False,
-                raw_record_id=f"{normalized['raw_record_id']}:approval",
-            )
-            cancellation_row = dict(normalized)
-            cancellation_row.update(
-                krw=-abs(cancel_amount),
-                cancel=True,
-                raw_record_id=f"{normalized['raw_record_id']}:cancellation",
-            )
-            components = [
-                (
-                    "approval",
-                    stable_card_event_identity(approval_row),
-                    abs(approval_amount),
-                    "purchase",
-                ),
-                (
-                    "cancellation",
-                    stable_card_event_identity(cancellation_row),
-                    -abs(cancel_amount),
-                    "cancellation",
-                ),
-            ]
+        if normalized["src"] == "HAN":
+            components = []
+            for component in expected_components:
+                identity_row = dict(normalized)
+                identity_row.update(krw=component.signed_amount_krw,
+                    cancel=component.role == "cancellation",
+                    raw_record_id=(normalized["raw_record_id"] if component.role == "single"
+                        else f"{normalized['raw_record_id']}:{component.role}"))
+                components.append((component.role, stable_card_event_identity(identity_row),
+                    component.signed_amount_krw, component.transaction_type))
         else:
             amount, transaction_type = _normalize_single_payment(normalized)
             components = [("single", identity, amount, transaction_type)]

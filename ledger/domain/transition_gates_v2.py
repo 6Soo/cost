@@ -17,7 +17,7 @@ from ledger.domain.decision_integrity import decision_integrity
 HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE.parents[1]
 SCHEMA_VERSION = "p07-direct-v2"
-PARSER_BUNDLE_VERSION = "direct-source-v3"
+PARSER_BUNDLE_VERSION = "direct-source-v4"
 REQUIRED_INPUTS = (
     {
         "source_kind": "card_raw:A_20260720",
