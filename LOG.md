@@ -1439,3 +1439,39 @@ Booking/Trip original·receipt 검색을 계속한다. 강한 locator가 없으�
 AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
 폴백을 사용했다. Fable과 GPT-5.6 Sol은 설계·구현을 독립 검증하고 FAIL 반례를 상호 수용한 뒤 v3
 support-only 판정에 합의했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
+
+## 2026-08-01 R44 세션 핸드오프 — closed provider census + authenticated Trip refund lifecycle support
+
+R43 이후 remaining24/11 중 남은 8그룹을 Gmail 전체보관함에서 provider reference·숙소명·여행기간·
+금액·카드 suffix·승인번호·대체 booking ID·환불 lifecycle로 폐쇄 검색했다. Booking.com Nezame 후보는
+초기 known-reference 검색에서 3개 paid 예약처럼 보였으나, 전체 49 messages/20 refs census에서 동일
+외화 결제 signature의 네 번째 paid 예약이 확인됐다. current에도 외화 signature 4행이 있으나 KRW가
+3+1로 갈리고 Booking UUID↔issuer KRW locator가 없어 3개만 고르는 것은 invented subset이다. Trip 호텔
+2건은 pay-at-property preauthorization, Agoda 항공 2건은 승인/ARN·settlement·해외 VAT authority가 없고,
+나머지 Agoda 그룹들은 exact/alternate search에서도 결제 edge가 0이라 모두 full admission을 거부했다.
+
+유일한 강한 신규 근거는 Trip.com 숙박의 구매2+전액환불2 lifecycle이다. 제한 영역의 raw RFC822 9개와
+embedded receipt PDF 2개를 fresh 검증해 서로 다른 2 orders 각각 paid JPY92,001→same-order full refund,
+1 room/3 nights/2026-10-06~09를 확인했다. current도 KBO purchase +893,170/JPY92,001 2행과 cancellation
+-893,170/JPY92,001 2행으로 net0다. 공통 의미축은 `숙박비/여행원가/불공제_해외`, semantic trip target은
+`10월_도고`, A4/P6에 따른 실제 posting bucket은 `취소환불(net0)`이다. 행별 order↔card bijection과
+issuer original-approval relation은 주장하지 않는다.
+
+새 `direct_trip_cancel_provenance.py`와 `direct_trip_cancel_lifecycle_evidence.py`는 raw9 exact SHA,
+trusted `mx.google.com` DKIM pass의 i/s/b와 정확한 Trip signature d/s/b 결속(독립 SES 서명만 허용),
+pypdf 5.9.0 전체 56-file tree pin·격리 실행·active-content/timeout, strict payload JSON, live residual SHA,
+event/source/locator/payload/content 결속, P2/C2 exact arithmetic, trip/VAT, permutation·atomic4/no-edge,
+privacy allowlist 및 fd/inode-pinned no-replace publication/reconcile을 fail-close한다. 실제 provenance v2.3
+SHA는 `2b9ac638d6b62f5b1c891cc0fcf5e18d206dcba7a867054737d1aedc00873c47`, 외부 package SHA는
+`84445af21ff2595b7d7994f91d4c2ab7322b91e2bbcd99874fd8138c45962dc6`다.
+
+Gmail query 결과의 암호학적으로 인증된 acquisition transcript는 없으므로 capture completeness는
+`authenticated=false/capture_claim_unverified`로 명시했다. 따라서 4 support rows와 frontier support2를
+보존하되 full classification delta0, accepted1,528/residual3,800, authoritative frontier24를 유지한다.
+모든 행은 unattested/blocked/confirmed0/Gate5 0/applied=false이며 DB 활성화 권한은 없다. Fable v2는
+이 정직한 support-only 경계에서 PASS했고, Sol v3도 DKIM evil-d/selector/b·fake extractor·TOCTOU 반례
+보완 후 PASS했다. focused R44 29/29, R43+R44 49/49 PASS, actual raw/package independent verifier PASS다.
+AGY Gemini 3.6 Flash High는 이번 환경에서 callable credential이 없어 로컬 구현 폴백을 사용했다.
+보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다. 다음 라운드는 provider
+portal/export 또는 issuer/acquirer 자료처럼 acquisition completeness와 KRW payment locator를 함께 주는
+권위 source를 수취해야만 이 4건 또는 나머지 3,800건의 full delta를 올린다.
