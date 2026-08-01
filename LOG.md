@@ -1375,3 +1375,34 @@ rich group-only244와 metadata shortest-path5는 card identity·currency·typed 
 
 AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
 폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
+
+## 2026-08-01 R42 세션 핸드오프 — zero-document acquisition census
+
+R41 이후 residual3,800을 전환 가능성 기준으로 정확히 분할했다. 이미 bucket을 가진 remaining
+24건/11그룹(`ab199a...f5d16`), taxonomy tag가 있으나 bucket이 없는 243건
+(`ce2235...16ca`), 네 분류 축이 모두 비어 있는 broad3,533건(`a16876...bab2`)이며 세 집합은
+서로소이고 합집합이 residual SHA `f52cc4...ab8b47`과 일치한다. 243건 중 242건은 VAT tag가
+존재하지만 unattested이고 1건은 tag도 없으므로 이를 VAT 권위나 완료로 세지 않는다.
+
+새 `direct_document_acquisition_census.py`는 external-only 6파일 package로 위 분할과
+remaining 11그룹의 기존 bucket lineage만 게시한다. 현 production raw document는 0이므로
+documents/payment edges/candidates/rejections는 모두 0행이고 disposition은
+`ACQUISITION_BLOCKED_NO_DOCUMENTS`, full delta0, confirmed/Gate5 0이다. v1은 raw parser가 없으므로
+`documents_dir`가 지정되면 빈 디렉터리도 즉시 거부하고 ingestion gate도 모든 입력을
+`document_intake_parser_not_implemented`로 차단한다. 실제 receipt/invoice를 self-attested boolean,
+임의 HMAC, merchant/date/amount로 승격할 수 없다.
+
+publication은 external-only no-replace, 0700 directory/0600 files, dirfd+O_NOFOLLOW+fstat capture,
+file/stage/parent fsync, install 전후와 parent-fsync 후 byte 검증을 유지한다. post-install byte mismatch와
+parent fsync 실패를 실제 seam으로 주입해 각각 integrity/durability published-state 예외와 2-pass
+reconciliation을 검증했다. remaining24/243/3533은 개수뿐 아니라 독립 고정 set SHA로 검사하며
+24는 R38 canonical remaining SHA와도 교차검증한다.
+
+구현은 AGY Gemini 3.6 Flash High가 시작했으나 Python set-comprehension 오류, m40 미정의,
+문서 무시, self-attested ingestion과 보호 `STATUS.md` checkout을 일으켜 즉시 중단했다. AGY 실행
+transcript의 exact 4-line diff로 STATUS를 복구해 보호 SHA `a3622a...b659cc`를 재확인했다. 이후
+Codex가 차단사항을 수정하고 Fable/Sol이 각 FAIL 반례를 제시한 뒤 상호 수용했다. 최종 Fable v3와
+Sol v2 모두 `REVIEW=PASS`; R42 targeted 9/9 PASS(로컬195.659초, Fable195.531초,
+Sol194.441초), 기존 R41 기준 전체271/271 PASS는 기존 파일 불변으로 유지된다. 실제 문서 parser,
+ingestion, classification, canonical DB/cutover는 비승인이다. 다음 실행은 독립 검증된 raw-document
+parser 설계 후 remaining24/11부터 시작한다.
