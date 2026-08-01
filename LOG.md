@@ -1271,3 +1271,35 @@ exact unique cancellation 209건을 original relation 기준으로 우선 검토
 
 AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
 폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14는 변경하지 않았다.
+
+## 2026-08-01 R39 세션 핸드오프 — HAN canonical equality candidate + activation binding
+
+하나카드 G/H 원본의 금액 의미를 공통 `han_normalizer.py`로 통합했다. 일반행은 매입금액을
+우선하고 승인금액을 fallback으로 사용하며, 승인/취소 동시행 91개는 양수 approval과 음수
+cancellation 역할로 분해한다. 이를 현재 direct projection과 master 후보에 동일 적용한 결과
+전체 5,328건(CORP174/HAN2,188/KBD1,287/KBO1,679), identity/role 및 금액합 708,722,467원이
+정확히 일치한다. legacy canonical master는 HAN 1,602행에서 6,285,630원 차이가 나지만 원본
+`master_ledger.csv`는 변경하지 않았고, 저장소 밖 private candidate만 생성한다.
+
+projection schema는 `p07-direct-v3`로 올렸다. equality package의 authority/input/candidate master/
+identity-role/amount semantic을 append-only validation row에 결속하고, Gate 4가 live package와
+정확히 대조해야만 활성화할 수 있다. 활성화는 sealed package snapshot 재확인, `BEGIN IMMEDIATE`,
+manifest/report/inventory CAS, consumer view validation join, WAL/SHM/journal 부재, DB 0400 seal 및
+외부 보관 activation pointer를 모두 요구한다. 실패한 진단 report는 감사 근거로 보존하되 candidate
+DB는 게시하지 않는다. pointer는 서명이 아니므로 manifest 자체에서 되읽어 신뢰하지 않는다.
+
+HAN provenance 변화로 R34→R38의 event/semantic/package hash를 의존 순서대로 재생성했다.
+업무 membership은 전부 불변이다: current5,328, prior1,508, R34 residual3,820/taxonomy259,
+R36 bucket44/full16, R37 strict2/deferred26, R38 selected2/remaining24, 최종 proposal union1,528/
+incomplete3,800. targeted R34 10/10, R36 14/14, R37+R38 15/15, 최종 전체 회귀 254/254
+PASS(2031.393초), diff-check clean이다. Fable/Sol B2 최종 리뷰와 cascade 감사 모두 PASS다.
+
+DB·전 데이터시트 독립 감사는 물리 구조를 PASS with WARN으로 판정했다. 실제 활성 SQLite는
+저장소에 없고 후보는 미활성이다. repo manual_v4 1,379행은 Drive latest 1,559행보다 180행 stale,
+생성 XLSX 수식 cache 621/621은 비어 있으므로 운영 정본으로 승격하지 않는다. 다음 R40은 양쪽
+검토가 수용한 raw `orig_appr` exact cancellation/refund relation 210건을 relation-only annex로
+게시한다. full-classification delta는 0이고 incomplete3,800은 유지한다. 그 다음 R41에서 OTA
+rich message 215개의 identity/VAT/group cardinality를 갖춘 strict linker를 검증한다.
+
+AGY Gemini 3.6 Flash는 API key 부재, AGY Sonnet 및 GPT-5.6 Luna는 callable 부재라 구현은 로컬
+폴백을 사용했다. 보호된 사용자 STATUS, AGENTS, classified_v14, master_ledger는 변경하지 않았다.
