@@ -1698,3 +1698,18 @@ live 재구성한 뒤에만 1,542→1,547, residual 3,786→3,781을 허용하�
 취소/원거래 관계, ANA cardinality, GASUTO·GYOMU 귀속 충돌이 남아 자동 승인하지 않았다.
 이 세션은 전역 워커 규칙에 따라 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol medium이 직접
 구현·검증했다. 보호된 사용자 `STATUS.md`, `AGENTS.md`, `classified_v14.csv`의 SHA는 유지했다.
+
+## 2026-08-03 Q2 기업 승인취소 핸드오프 — 4건 zero-posting 해결
+
+Q2 잔여 취소 7건을 원천별로 분리했다. 그중 기업카드 4건은 current direct event에서 모두
+`transaction_type=cancellation`, 과거 `classified_v14`에서 동일 승인번호의 `승인취소`, 비용금액
+0원으로 일치했다. 새 `direct_q2_corp_void_admission.py`는 이 네 조건과 source/date/signed amount/
+card4/merchant의 exact tuple, classified SHA를 live 결속하고, 네 event set
+`3acd515a122d22a8135508c055f4c817f6a29e2d032ce6f1ecb0ee07b77854ac`만
+`void_no_posting`으로 해결한다. 비용 전기 합계는 0원이고 계정 추정은 하지 않는다.
+
+Q2 안전숙박 5건의 상류 상태를 매 실행 재검증한 뒤 resolved union은 1,547→1,551,
+global residual은 3,781→3,777이다. `full_classification_delta=0`, `resolved_event_delta=4`,
+`database_applied=false`, `posting_status=blocked`를 유지한다. 하나 승인취소 1건과 국민 Q1원거래
+환불 2건은 동일 정책으로 섞지 않고 관계 검증 대상으로 남겼다. focused 실데이터 테스트 3/3
+PASS(161.467초), py_compile PASS다. 다른 모델/CLI 재위임 없이 GPT-5.6 Sol medium이 직접 수행했다.
