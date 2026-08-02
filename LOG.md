@@ -1937,3 +1937,24 @@ residual set SHA는 `b41bcbda43a40d6ee22325bbcc2c42b4c3823d5b6dbb4b3911b839f7a07
 숙박 admission 3/3, 항공 admission 3/3, transition gates 49/49, 실데이터 candidate targeted test와
 residual census 3/3 PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접
 수행이다.
+
+## 2026-08-03 Gate 5 직접 배분 계약 구현 — 8건 exact allocation
+
+manual frontier에서 네 축이 확정된 8 payment에만 `confirmed` allocation plan을 만들었다. `trips.json`의
+여행 코드·지역·시작/종료일을 live 검증해 trip/target을 생성하고, 각 payment의 양수 결제금액 전액을
+단일 여행 target에 배분한다. allocation의 source decision은 같은 payment의 confirmed
+`allocation_target` 판단을 직접 참조한다. 합계 plans8·allocations8이며 나머지 5,320건에는 plan을
+생성하지 않았다.
+
+Gate 5는 더 이상 `direct_allocation_decision_unimplemented`가 아니다. payment별 confirmed 네 축,
+현재 confirmed plan 정확히 1개, allocation 정확히 1개, 결제금액=배분금액, target code=source decision
+값을 모두 만족할 때만 resolved로 센다. 현재 결과는 candidate 5,328 / resolved 8 / unresolved 5,320,
+reason `direct_allocation_decision_incomplete`, contract `direct_decision_contract_v1`이다. payment·relation·
+decision뿐 아니라 trip/target/plan/allocation 의미도 candidate semantic hash에 포함했고 새 SHA는
+`eceaec6504eed8a5b3d694d5e1d95e5a518cd1f5b29b0aeb906773d1a5e147a3`다. owner-review manifest도
+Gate 5 resolved count8을 source context와 일치시킨다.
+
+transition gates 전체 50/50 PASS, 실데이터 candidate/owner rebuild targeted test PASS, owner-review의
+실데이터 invariant·tamper test PASS다. 후보는 여전히 Gate5 미완결과 Gate6 baseline 부재로 미게시다.
+디버깅용 `/tmp/cost-owner-debug-QtblWR`는 검증 후 삭제했다. 보호된 사용자 `STATUS.md`는 변경하지
+않았다. GPT-5.6 Sol medium 직접 수행이다.

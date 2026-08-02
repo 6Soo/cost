@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from collections import defaultdict
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterable
 
@@ -565,6 +566,57 @@ def project_manual_frontier_airfare_decisions(
     return {"payments": 2, "decisions": 8}
 
 
+def project_confirmed_full_axis_allocations(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    """Allocate only payments whose four direct-evidence axes are confirmed."""
+    trips = {row["tab"]: row for row in json.loads((ledger_dir / "data/trips.json").read_bytes())}
+    rows = db.execute(
+        """SELECT p.id,p.amount_krw,MAX(CASE WHEN d.dimension='allocation_target' THEN d.value END),
+                  MAX(CASE WHEN d.dimension='allocation_target' THEN d.id END),COUNT(*)
+           FROM direct_payment_projection_links l
+           JOIN payment_transactions p ON p.id=l.payment_id
+           JOIN classification_decisions d ON d.target_type='payment' AND d.target_id=p.id
+           WHERE l.run_id=? AND d.decision_status='confirmed'
+             AND d.dimension IN ('account','cost_type','vat_tag','allocation_target')
+           GROUP BY p.id,p.amount_krw
+           HAVING COUNT(*)=4
+           ORDER BY p.id""", (run_id,)).fetchall()
+    if len(rows) != 8:
+        raise ValueError("direct_full_axis_allocation_scope_invalid")
+    allocations = 0
+    for payment_id, amount, target_code, source_decision_id, decision_count in rows:
+        trip = trips.get(str(target_code))
+        if (trip is None or set(trip) != {"tab", "mm", "dd", "region", "window"}
+                or int(amount) <= 0 or int(decision_count) != 4):
+            raise ValueError("direct_full_axis_allocation_trip_invalid")
+        start = date(2026, int(trip["mm"]), int(trip["dd"]))
+        end = start + timedelta(days=int(trip["window"]) - 1)
+        db.execute(
+            """INSERT INTO trips(code,name,region,starts_on,ends_on,status)
+               VALUES (?,?,?,?,?,'planned')
+               ON CONFLICT(code) DO UPDATE SET name=excluded.name,region=excluded.region,
+                 starts_on=excluded.starts_on,ends_on=excluded.ends_on""",
+            (target_code, target_code, trip["region"], start.isoformat(), end.isoformat()))
+        trip_id = int(db.execute("SELECT id FROM trips WHERE code=?", (target_code,)).fetchone()[0])
+        db.execute(
+            """INSERT INTO allocation_targets(target_type,code,name,trip_id)
+               VALUES ('trip',?,?,?)
+               ON CONFLICT(code) DO UPDATE SET target_type='trip',name=excluded.name,
+                 trip_id=excluded.trip_id""", (target_code, target_code, trip_id))
+        target_id = int(db.execute(
+            "SELECT id FROM allocation_targets WHERE code=?", (target_code,)).fetchone()[0])
+        plan_id = int(db.execute(
+            """INSERT INTO allocation_plans(
+                 payment_id,plan_version,plan_status,confidence,source_decision_id)
+               VALUES (?,1,'confirmed',1.0,?)""",
+            (payment_id, source_decision_id)).lastrowid)
+        db.execute(
+            "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,?)",
+            (plan_id, target_id, int(amount)))
+        allocations += 1
+    return {"payments": len(rows), "plans": len(rows), "allocations": allocations}
+
+
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
     return candidate_semantic_sha256(db, run_id)
 
@@ -843,6 +895,7 @@ def build_direct_candidate(
             db, run_id, ledger)
         projected_manual_frontier_airfare = project_manual_frontier_airfare_decisions(
             db, run_id, ledger)
+        projected_allocations = project_confirmed_full_axis_allocations(db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
             """
@@ -926,6 +979,7 @@ def build_direct_candidate(
             "projected_taxonomy": projected_taxonomy,
             "projected_manual_frontier_lodging": projected_manual_frontier_lodging,
             "projected_manual_frontier_airfare": projected_manual_frontier_airfare,
+            "projected_allocations": projected_allocations,
             "failed_gates": [
                 str(gate["name"])
                 for gate in report["gates"]

@@ -161,10 +161,24 @@ def candidate_semantic_sha256(db: object, run_id: str) -> str:
            JOIN direct_payment_projection_links l ON l.payment_id=p.id
            WHERE l.run_id=? AND d.target_type='payment'
            ORDER BY p.external_key,d.dimension""", (run_id,)).fetchall()
+    allocation_rows = db.execute(
+        """SELECT p.external_key,ap.plan_version,ap.plan_status,ap.confidence,
+                  sd.dimension,sd.value,t.target_type,t.code,t.name,tr.code,tr.region,
+                  tr.starts_on,tr.ends_on,a.amount_krw,a.booking_id
+           FROM allocation_plans ap
+           JOIN payment_transactions p ON p.id=ap.payment_id
+           JOIN direct_payment_projection_links l ON l.payment_id=p.id
+           JOIN cost_allocations a ON a.plan_id=ap.id
+           JOIN allocation_targets t ON t.id=a.target_id
+           LEFT JOIN trips tr ON tr.id=t.trip_id
+           LEFT JOIN classification_decisions sd ON sd.id=ap.source_decision_id
+           WHERE l.run_id=?
+           ORDER BY p.external_key,ap.plan_version,a.id""", (run_id,)).fetchall()
     return _sha256_bytes(_canonical_json_bytes({
         "payments": [list(row) for row in payment_rows],
         "relations": [list(row) for row in relation_rows],
         "decisions": [list(row) for row in decision_rows],
+        "allocations": [list(row) for row in allocation_rows],
     }))
 
 
@@ -1046,7 +1060,33 @@ def _allocation_decision_gate(
         """,
         (run_id,),
     ).fetchall()
-    unresolved = len(payments)
+    resolved_rows = db.execute(
+        """SELECT p.external_key
+           FROM direct_payment_projection_links l
+           JOIN payment_transactions p ON p.id=l.payment_id
+           WHERE l.run_id=?
+             AND (SELECT COUNT(*) FROM current_classification_decisions d
+                  WHERE d.target_type='payment' AND d.target_id=p.id
+                    AND d.decision_status='confirmed'
+                    AND d.dimension IN ('account','cost_type','vat_tag','allocation_target'))=4
+             AND (SELECT COUNT(DISTINCT a.plan_id) FROM current_cost_allocations a
+                  WHERE a.payment_id=p.id AND a.allocation_status='confirmed')=1
+             AND (SELECT COUNT(*) FROM current_cost_allocations a
+                  WHERE a.payment_id=p.id AND a.allocation_status='confirmed')=1
+             AND (SELECT COALESCE(SUM(a.amount_krw),0) FROM current_cost_allocations a
+                  WHERE a.payment_id=p.id AND a.allocation_status='confirmed')=p.amount_krw
+             AND NOT EXISTS (
+                  SELECT 1 FROM current_cost_allocations a
+                  JOIN allocation_targets t ON t.id=a.target_id
+                  JOIN current_classification_decisions d ON d.id=a.source_decision_id
+                  WHERE a.payment_id=p.id AND a.allocation_status='confirmed'
+                    AND (d.target_type<>'payment' OR d.target_id<>p.id
+                         OR d.dimension<>'allocation_target' OR d.value<>t.code))
+           ORDER BY p.external_key""", (run_id,)).fetchall()
+    resolved = len(resolved_rows)
+    unresolved = len(payments) - resolved
+    resolved_keys = {str(row[0]) for row in resolved_rows}
+    unresolved_rows = [row for row in payments if str(row[0]) not in resolved_keys]
     partial_rows = db.execute(
         """SELECT p.external_key,COUNT(*)
            FROM classification_decisions c
@@ -1081,24 +1121,26 @@ def _allocation_decision_gate(
             for row in payments
         ]
     )
+    passed = bool(payments) and unresolved == 0
     return _gate(
         5,
         GATE_NAMES[4],
-        False,
-        reason="direct_allocation_decision_unimplemented",
+        passed,
+        reason="ok" if passed else "direct_allocation_decision_incomplete",
         actual={
-            "candidate_payment_count": unresolved,
-            "resolved_count": 0,
+            "candidate_payment_count": len(payments),
+            "resolved_count": resolved,
             "unresolved_count": unresolved,
+            "resolved_event_key_sample": [str(row[0]) for row in resolved_rows[:10]],
             "partial_taxonomy_payment_count": len(partial_rows),
             "partial_taxonomy_decision_count": sum(int(row[1]) for row in partial_rows),
             "full_axis_payment_count": len(full_axis_rows),
             "full_axis_decision_count": sum(int(row[1]) for row in full_axis_rows),
             "unresolved_event_key_sample": [
-                str(row[0]) for row in payments[:10]
+                str(row[0]) for row in unresolved_rows[:10]
             ],
             **scope,
-            "requirements_status": "direct_decision_contract_unavailable",
+            "requirements_status": "direct_decision_contract_v1",
         },
     )
 

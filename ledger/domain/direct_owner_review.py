@@ -64,6 +64,7 @@ def _source_context(report: dict[str, object], event_set: str, scope: str, count
         "decision_scope_count": count,
         "current_event_set_format": "direct-event-role-v1",
         "current_event_set_sha256": event_set,
+        "gate5_resolved_count": int(actual.get("resolved_count", 0)),
     }
 
 
@@ -102,10 +103,11 @@ def build_owner_review(db: object, run_id: str, report: dict[str, object], *, pr
         "gate_report_sha256": provenance.get("gate_report_sha256", ""),
         "source_inventory": provenance.get("source_inventory", []),
     }
+    resolved_count = int(context["gate5_resolved_count"])
     manifest = {
         "format_version": 1, "artifact_type": "direct_owner_review_template",
         "source_run_id": run_id, "source_context": context, "provenance": dict(provenance),
-        "authority_ready_count": 0, "gate5_resolved_count": 0,
+        "authority_ready_count": 0, "gate5_resolved_count": resolved_count,
     }
     return {"manifest": manifest, "events": facts, "context": context, "provenance": dict(provenance)}
 
@@ -227,7 +229,10 @@ def validate_owner_review(package: dict[str, object], current: dict[str, object]
         raise ValueError("owner_review_manifest_schema_invalid")
     if type(manifest["format_version"]) is not int or manifest["format_version"] != 1 or manifest["artifact_type"] != "direct_owner_review_template":
         raise ValueError("owner_review_manifest_header_invalid")
-    if manifest["authority_ready_count"] != 0 or manifest["gate5_resolved_count"] != 0:
+    if (manifest["authority_ready_count"] != 0
+            or type(manifest["gate5_resolved_count"]) is not int
+            or manifest["gate5_resolved_count"] < 0
+            or manifest["gate5_resolved_count"] != manifest["source_context"].get("gate5_resolved_count")):
         raise ValueError("owner_review_authority_fields_invalid")
     if package.get("context") != manifest.get("source_context"):
         raise ValueError("owner_review_manifest_context_mismatch")
@@ -272,7 +277,8 @@ def validate_owner_review(package: dict[str, object], current: dict[str, object]
         "status": "template_valid" if covered == 0 else "dry_run_structurally_valid_not_authorized",
         "total_count": len(rows), "covered_count": covered, "blank_count": len(rows) - covered,
         "needs_review_count": len(rows) - complete, "structurally_complete_count": complete,
-        "invalid_count": 0, "authority_ready_count": 0, "gate5_resolved_count": 0,
+        "invalid_count": 0, "authority_ready_count": 0,
+        "gate5_resolved_count": int(manifest["gate5_resolved_count"]),
     }
     provenance = package.get("provenance", package.get("manifest", {}).get("provenance", {}))
     current_provenance = current.get("provenance", {})

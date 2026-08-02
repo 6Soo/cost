@@ -159,7 +159,7 @@ class DirectProjectionTest(unittest.TestCase):
             context = manifest["source_context"]
             self.assertEqual(context["decision_scope_sha256"], "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418")
             self.assertEqual(manifest["authority_ready_count"], 0)
-            self.assertEqual(manifest["gate5_resolved_count"], 0)
+            self.assertEqual(manifest["gate5_resolved_count"], 8)
             import subprocess
             proc = subprocess.run(
                 ["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current",

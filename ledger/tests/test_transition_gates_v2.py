@@ -287,7 +287,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(report["gates"][3]["reason"],"han_equality_validation_missing_or_stale")
         self.assertEqual(
             report["gates"][4]["reason"],
-            "direct_allocation_decision_unimplemented",
+            "direct_allocation_decision_incomplete",
         )
         self.assertEqual(
             report["gates"][5]["reason"],
@@ -547,7 +547,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(
             sum(gate["actual"]["counts_by_transaction_type"].values()), 5
         )
-        self.assertEqual(gate["actual"]["requirements_status"], "direct_decision_contract_unavailable")
+        self.assertEqual(gate["actual"]["requirements_status"], "direct_decision_contract_v1")
 
     def test_scope_fingerprint_is_order_invariant_and_role_sensitive(self) -> None:
         rows = [
@@ -672,7 +672,46 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertFalse(gate["passed"])
         self.assertEqual(gate["actual"]["resolved_count"], 0)
         self.assertEqual(gate["actual"]["unresolved_count"], 5)
-        self.assertEqual(gate["reason"], "direct_allocation_decision_unimplemented")
+        self.assertEqual(gate["reason"], "direct_allocation_decision_incomplete")
+
+    def test_gate5_resolves_only_exact_four_axis_confirmed_allocation(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,)).fetchone()[0])
+        decision_id = None
+        for dimension, value in (("account", "숙박비"), ("cost_type", "여행원가"),
+                                 ("vat_tag", "불공제_해외"),
+                                 ("allocation_target", "0924_야마구치")):
+            db.execute("""INSERT INTO classification_decisions(
+                target_type,target_id,dimension,value,confidence,confidence_label,
+                decision_status,rule_id,rationale)
+                VALUES ('payment',?,?,?,?,?,'confirmed','test','exact')""",
+                       (payment_id, dimension, value, 1.0, "confirmed"))
+            if dimension == "allocation_target":
+                decision_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute("""INSERT INTO allocation_targets(target_type,code,name)
+                      VALUES ('trip','0924_야마구치','0924_야마구치')""")
+        target_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute("""INSERT INTO allocation_plans(
+                      payment_id,plan_version,plan_status,confidence,source_decision_id)
+                      VALUES (?,1,'confirmed',1.0,?)""", (payment_id, decision_id))
+        plan_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute("INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,100)",
+                   (plan_id, target_id))
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute("UPDATE cost_allocations SET amount_krw=99 WHERE plan_id=?", (plan_id,))
+        self.assertNotEqual(semantic_hash, candidate_semantic_sha256(db, run_id))
+        db.execute("UPDATE cost_allocations SET amount_krw=100 WHERE plan_id=?", (plan_id,))
+        db.execute("UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+                   (semantic_hash, run_id))
+        db.commit(); db.close(); expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertFalse(gate["passed"])
+        self.assertEqual((gate["actual"]["resolved_count"],
+                          gate["actual"]["unresolved_count"]), (1, 4))
+        self.assertEqual(gate["reason"], "direct_allocation_decision_incomplete")
 
     def test_gate6_integrity_pass_without_baseline_still_fails(self) -> None:
         database, run_id, expected, _ = self._fixture()
