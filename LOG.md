@@ -1804,3 +1804,18 @@ focused 전수 테스트는 첫 실행에서 census가 기존 event-set 해시 �
 fail-close했고, 기존 `r36._event_set_sha`를 직접 사용하도록 교정했다. 최종 3/3 PASS(210.637초),
 py_compile PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. 전역 워커 규칙상 다른 모델/CLI로
 재위임하지 않고 GPT-5.6 Sol medium이 직접 구현·검증했다.
+
+## 2026-08-03 전 기간 취소·환불 관계 census — 377건 중 exact 209
+
+대량 분류 정책 답변을 기다리는 동안 판단이 필요 없는 구조 관계를 계속 감사했다. 새
+`direct_all_period_lifecycle_relation_census.py`는 현재 residual 3,768건 중 취소·환불 377건을
+원거래 승인번호 정규화 규칙으로 다시 결속한다. 209건(KBD128/HAN81)은 issuer+card4+원승인번호가
+현재 구매 1건에 유일하게 연결된다. 대상 구매는 accepted 22, residual 187이다. 이 209건은 관계
+증거만 보존하고 계정·여행·VAT·전기 권한이나 full classification delta를 주장하지 않는다.
+
+나머지 168건은 KBO135/KBD29/CORP4이며 cancellation139/refund29다. KBO는 승인번호 없는 해외매입
+구조가 주류이고 CORP는 원승인 직접 링크가 없어, 동액·가맹점 추정으로 억지 연결하지 않았다.
+현재 exact linked set SHA는 `f0b52d194ab335661052f011b5ad5650972d17d7ebcc1d0ed049e05a4270fdc4`다.
+focused 실데이터 3/3 PASS(325.161초), py_compile PASS, DB/정본 변경 없음이다. 보호된 사용자
+`STATUS.md`는 변경하지 않았다. 전역 워커 규칙상 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol
+medium이 직접 구현·검증했다.
