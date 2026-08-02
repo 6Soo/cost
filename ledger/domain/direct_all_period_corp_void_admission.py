@@ -1,4 +1,4 @@
-"""Resolve four 2026-Q2 corporate-card authorization voids as zero-posting events."""
+"""Resolve four corporate-card authorization voids as zero-posting events."""
 from __future__ import annotations
 
 import csv
@@ -8,11 +8,11 @@ import tempfile
 from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
-from ledger.domain import direct_q2_safe_group_admission as q2
+from ledger.domain import direct_all_period_safe_group_admission as base
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
-ARTIFACT_TYPE = "q2-corp-authorization-void-resolution-v1"
-RULE_VERSION = "q2-corp-source-void-and-legacy-zero-v1"
+ARTIFACT_TYPE = "all-period-corp-authorization-void-resolution-v1"
+RULE_VERSION = "all-period-corp-source-void-and-legacy-zero-v1"
 CLASSIFIED_SHA256 = "8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989"
 SELECTED_SET_SHA256 = "3acd515a122d22a8135508c055f4c817f6a29e2d032ce6f1ecb0ee07b77854ac"
 
@@ -37,7 +37,7 @@ def _historical(ledger_dir: Path) -> dict[str, dict[str, str]]:
     path = ledger_dir / "data" / "classified_v14.csv"
     data = path.read_bytes()
     if _sha(data) != CLASSIFIED_SHA256:
-        raise ValueError("q2_void_classified_pin_invalid")
+        raise ValueError("all_period_void_classified_pin_invalid")
     rows = list(csv.DictReader(data.decode("utf-8-sig").splitlines()))
     found = {}
     for row in rows:
@@ -45,24 +45,24 @@ def _historical(ledger_dir: Path) -> dict[str, dict[str, str]]:
         if approval not in TARGETS or row.get("src") != "CORP":
             continue
         if row.get("status") != "승인취소" or int(float(row.get("krw") or 0)) != 0:
-            raise ValueError("q2_void_historical_disposition_invalid")
+            raise ValueError("all_period_void_historical_disposition_invalid")
         if approval in found:
-            raise ValueError("q2_void_historical_duplicate")
+            raise ValueError("all_period_void_historical_duplicate")
         found[approval] = row
     if set(found) != set(TARGETS):
-        raise ValueError("q2_void_historical_missing")
+        raise ValueError("all_period_void_historical_missing")
     return found
 
 
 def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, list[dict]]:
     if ledger_dir.resolve() != (Path(REPOSITORY_ROOT) / "ledger").resolve():
-        raise ValueError("q2_void_noncanonical_ledger")
-    upstream = q2.build_q2_safe_group_admission(ledger_dir=ledger_dir)["manifest"]
+        raise ValueError("all_period_void_noncanonical_ledger")
+    upstream = base.build_all_period_safe_group_admission(ledger_dir=ledger_dir)["manifest"]
     if (upstream["accepted_union"], upstream["global_residual"],
-            upstream["selected_event_set_sha256"]) != (1547, 3781, q2.SELECTED_SET_SHA256):
-        raise ValueError("q2_void_upstream_invalid")
+            upstream["selected_event_set_sha256"]) != (1547, 3781, base.SELECTED_SET_SHA256):
+        raise ValueError("all_period_void_upstream_invalid")
     historical = _historical(ledger_dir)
-    with tempfile.TemporaryDirectory(prefix="q2-void-") as directory:
+    with tempfile.TemporaryDirectory(prefix="all-period-void-") as directory:
         context = r36._context(ledger_dir, Path(directory))
         try:
             rows = list(context["events"])
@@ -77,7 +77,7 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
         if (event.get("occurred_on"), int(event.get("signed_amount_krw")), event.get("card4"),
                 event.get("merchant"), event.get("transaction_type"), event.get("event_role")) != (
                 date, amount, card4, merchant, "cancellation", "single"):
-            raise ValueError("q2_void_current_fact_invalid")
+            raise ValueError("all_period_void_current_fact_invalid")
         old = historical[approval]
         selected.append({"event_key_sha256": _sha(event["direct_event_key"].encode()),
                          "current_event_sha256": event["current_event_sha256"],
@@ -87,8 +87,8 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
                          "disposition": "void_no_posting", "posting_amount_krw": 0})
     keys = {event["direct_event_key"] for event in rows
             if _digits(event.get("approval_number")) in TARGETS and event.get("source_system") == "CORP"}
-    if len(selected) != 4 or len(keys) != 4 or q2._setsha(keys) != SELECTED_SET_SHA256:
-        raise ValueError("q2_void_selected_set_invalid")
+    if len(selected) != 4 or len(keys) != 4 or base._setsha(keys) != SELECTED_SET_SHA256:
+        raise ValueError("all_period_void_selected_set_invalid")
     manifest = {"artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
                 "selected_event_set_sha256": SELECTED_SET_SHA256,
                 "resolved_event_delta": 4, "full_classification_delta": 0,
@@ -99,6 +99,6 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
     return manifest, selected
 
 
-def build_q2_corp_void_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
+def build_all_period_corp_void_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
     manifest, resolutions = _live(ledger_dir)
     return {"manifest": manifest, "resolutions": resolutions}

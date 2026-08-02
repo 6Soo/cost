@@ -1,12 +1,12 @@
 import unittest
 
-from ledger.domain import direct_q2_manual_duplicate_collapse_admission as duplicate
+from ledger.domain import direct_all_period_manual_duplicate_collapse_admission as duplicate
 
 
-class Q2ManualDuplicateCollapseAdmissionTests(unittest.TestCase):
+class AllPeriodManualDuplicateCollapseAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = duplicate.build_q2_manual_duplicate_collapse_admission()
+        cls.result = duplicate.build_all_period_manual_duplicate_collapse_admission()
 
     def test_two_card_events_not_four_manual_rows(self):
         manifest = self.result["manifest"]

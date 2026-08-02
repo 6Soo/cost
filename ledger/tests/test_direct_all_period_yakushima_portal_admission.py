@@ -1,13 +1,13 @@
 import unittest
 from unittest import mock
 
-from ledger.domain import direct_q2_yakushima_portal_admission as yakushima
+from ledger.domain import direct_all_period_yakushima_portal_admission as yakushima
 
 
-class Q2YakushimaPortalAdmissionTests(unittest.TestCase):
+class AllPeriodYakushimaPortalAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = yakushima.build_q2_yakushima_portal_admission()
+        cls.result = yakushima.build_all_period_yakushima_portal_admission()
 
     def test_two_card_events_one_portal_booking_group(self):
         manifest = self.result["manifest"]

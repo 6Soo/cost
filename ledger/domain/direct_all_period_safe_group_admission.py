@@ -1,4 +1,4 @@
-"""Admit the five non-conflicting 2026-Q2 manual groups left after R59.
+"""Admit the five non-conflicting manual groups left after R59.
 
 The three groups are deliberately narrow: exact current cardinality and exact
 manual multiset are both required.  No rule is broadcast by merchant name.
@@ -20,8 +20,8 @@ from ledger.domain import direct_trip_airfare_atomic_admission as r57
 from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
-ARTIFACT_TYPE = "q2-safe-manual-groups-full-v1"
-RULE_VERSION = "q2-exact-current-manual-multiset-v1"
+ARTIFACT_TYPE = "all-period-safe-manual-groups-full-v1"
+RULE_VERSION = "all-period-exact-current-manual-multiset-v1"
 MANUAL = r57.MANUAL
 MANUAL_SHA256 = r57.MANUAL_SHA256
 SELECTED_SET_SHA256 = "414856751e5b4de59d2515352d0387c17259b85a1cceb0425c1d94d39be53e8c"
@@ -65,11 +65,11 @@ def _date(value: str) -> str:
 
 def _manual_groups(path: Path = MANUAL) -> dict[tuple, list[dict[str, str]]]:
     if path.resolve() != MANUAL.resolve():
-        raise ValueError("q2_manual_path_invalid")
+        raise ValueError("all_period_manual_path_invalid")
     data = r57._secure_read(path, MANUAL_SHA256)
     rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
     if len(rows) != 1559 or len({(row["tab"], row["row"]) for row in rows}) != 1559:
-        raise ValueError("q2_manual_census_invalid")
+        raise ValueError("all_period_manual_census_invalid")
     result = {}
     for group in GROUPS:
         source, date, amount, card4, merchant, count, tab, item, *_ = group
@@ -83,7 +83,7 @@ def _manual_groups(path: Path = MANUAL) -> dict[tuple, list[dict[str, str]]]:
             matches = [row for row in matches if row.get("item") in
                        {merchant, "부킹_Nezame Hotel"}]
         if len(matches) != count or len({(row["tab"], row["row"]) for row in matches}) != count:
-            raise ValueError("q2_manual_group_cardinality_invalid")
+            raise ValueError("all_period_manual_group_cardinality_invalid")
         result[group[:6]] = matches
     return result
 
@@ -101,15 +101,15 @@ def _later_selected(universe: dict[str, dict]) -> set[str]:
                    and int(event["signed_amount_krw"]) == amount
                    and event["transaction_type"] == "purchase" and event["event_role"] == "single"}
     if len(trip) != 2 or _setsha(trip) != r57.MEMBER_SET_SHA256 or len(mytrip) != 4 or _setsha(mytrip) != r59.SELECTED_SET_SHA256:
-        raise ValueError("q2_later_admission_membership_invalid")
+        raise ValueError("all_period_later_admission_membership_invalid")
     return trip | mytrip
 
 
 def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, list[dict]]:
     if ledger_dir.resolve() != (Path(REPOSITORY_ROOT) / "ledger").resolve():
-        raise ValueError("q2_noncanonical_ledger")
+        raise ValueError("all_period_noncanonical_ledger")
     manual = _manual_groups()
-    with tempfile.TemporaryDirectory(prefix="q2-safe-") as directory:
+    with tempfile.TemporaryDirectory(prefix="all-period-safe-") as directory:
         context = r36._context(ledger_dir, Path(directory))
         try:
             rows = list(context["events"])
@@ -117,12 +117,12 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
             context["db"].close()
     universe = {row["direct_event_key"]: row for row in rows}
     if len(universe) != 5328 or len(universe) != len(rows):
-        raise ValueError("q2_current_census_invalid")
+        raise ValueError("all_period_current_census_invalid")
     accepted0, _ = r44._accepted_union(ledger_dir)
     admitted = set(r45.EVENTS) | {r49.TARGET_EVENT} | set(r44.EVENTS) | _later_selected(universe)
     pre_residual = set(universe) - accepted0 - admitted
     if len(pre_residual) != 3786 or _setsha(pre_residual) != r59.POST_RESIDUAL_SHA256:
-        raise ValueError("q2_r59_state_invalid")
+        raise ValueError("all_period_r59_state_invalid")
     selected = set()
     proposals = []
     for group in GROUPS:
@@ -133,7 +133,7 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
                    universe[key]["merchant"] == merchant and universe[key]["transaction_type"] == "purchase" and
                    universe[key]["event_role"] == "single"}
         if len(matches) != count:
-            raise ValueError("q2_current_group_cardinality_invalid")
+            raise ValueError("all_period_current_group_cardinality_invalid")
         selected |= matches
         manual_sha = _sha(_json(sorted(manual[group[:6]], key=lambda row: int(row["row"]))))
         group_id = _sha(_json({"signature": group[:6], "manual": manual_sha}))
@@ -145,7 +145,7 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
                               "group_id": group_id, "group_count": count, "account": account,
                               "cost_type": cost_type, "vat_tag": vat, "trip_target": tab})
     if len(selected) != 5 or _setsha(selected) != SELECTED_SET_SHA256:
-        raise ValueError("q2_selected_set_invalid")
+        raise ValueError("all_period_selected_set_invalid")
     post = pre_residual - selected
     manifest = {"artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
                 "selected_event_set_sha256": SELECTED_SET_SHA256,
@@ -156,6 +156,6 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
     return manifest, proposals
 
 
-def build_q2_safe_group_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
+def build_all_period_safe_group_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
     manifest, proposals = _live(ledger_dir)
     return {"manifest": manifest, "proposals": proposals}

@@ -1685,7 +1685,7 @@ taxonomy 243, broad 3,530이며, 기간 분포는 2025년 2,305 / 2026-Q1 1,184 
 2026-Q3 275다. 따라서 3,764건은 2026-Q2 밖이며, 전 기간 통합 분류인지 Q2 완료율 집계인지에
 따라 결과가 대량으로 달라지므로 사용자 범위 판단 전에는 기간 외 행을 변경하지 않는다.
 
-Q2 잔여 22건은 거래별로 재감사했다. 새 `direct_q2_safe_group_admission.py`는 그중 최신 외부
+Q2 잔여 22건은 거래별로 재감사했다. 새 `direct_all_period_safe_group_admission.py`는 그중 최신 외부
 manual 1,559행과 현재 카드 이벤트의 날짜·금액·카드·가맹점·건수 다중집합이 정확히 일치하는
 Booking.com 나가센도 3건과 Agoda Hotel Pearl 교토 2건만 승인 후보로 만든다. 계정/원가/VAT는
 각각 `숙박비/여행원가/불공제_해외`이며, selected set은
@@ -1703,7 +1703,7 @@ live 재구성한 뒤에만 1,542→1,547, residual 3,786→3,781을 허용하�
 
 Q2 잔여 취소 7건을 원천별로 분리했다. 그중 기업카드 4건은 current direct event에서 모두
 `transaction_type=cancellation`, 과거 `classified_v14`에서 동일 승인번호의 `승인취소`, 비용금액
-0원으로 일치했다. 새 `direct_q2_corp_void_admission.py`는 이 네 조건과 source/date/signed amount/
+0원으로 일치했다. 새 `direct_all_period_corp_void_admission.py`는 이 네 조건과 source/date/signed amount/
 card4/merchant의 exact tuple, classified SHA를 live 결속하고, 네 event set
 `3acd515a122d22a8135508c055f4c817f6a29e2d032ce6f1ecb0ee07b77854ac`만
 `void_no_posting`으로 해결한다. 비용 전기 합계는 0원이고 계정 추정은 하지 않는다.
@@ -1716,7 +1716,7 @@ PASS(161.467초), py_compile PASS다. 다른 모델/CLI 재위임 없이 GPT-5.6
 
 ## 2026-08-03 Q2 잔여 취소 핸드오프 — 하나 pair 1 + 국민 환불 2 해결
 
-Q2 취소 잔여 3건을 별도 `direct_q2_remaining_cancellation_admission.py`로 결속했다. 하나 Agoda
+Q2 취소 잔여 3건을 별도 `direct_all_period_remaining_cancellation_admission.py`로 결속했다. 하나 Agoda
 승인취소는 동일 source key·승인번호·날짜·merchant/card4의 +139,761 approval과 -139,761
 cancellation이 정확히 net0인 pair다. 국민 New Akan -209,498원 2건은 서로 다른 physical source key를
 가진 JPY21,600 환불 2건이며, 최신 외부 manual의 `0613_북해도` New Akan 원거래 4건
@@ -1732,7 +1732,7 @@ py_compile PASS이며 DB 적용·게시·정본 전환은 하지 않았다. GPT-
 ## 2026-08-03 Q2 수기 중복축 핸드오프 — 카드 2건만 분류
 
 최신 외부 manual에서 ANA 634,113원과 GYOMU 18,755원이 각각 2행씩 중복 기재됐지만 current
-card raw에는 각각 서로 다른 실제 1건만 존재한다. 새 `direct_q2_manual_duplicate_collapse_admission.py`는
+card raw에는 각각 서로 다른 실제 1건만 존재한다. 새 `direct_all_period_manual_duplicate_collapse_admission.py`는
 manual 4행을 비용 4건으로 만들지 않고 physical card event 2건에만 축을 부여한다. ANA는
 `0616_레분토&리시리/항공료/여행원가/불공제_해외`, GYOMU는
 `0620_묘코/기타비용/여행원가/불공제_해외`다. selected set은
@@ -1750,7 +1750,7 @@ PASS(170.122초), py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-
 confirmed로 결속된다. 현재 KBO에는 서로 다른 physical source key의 JPY118,800/KRW1,150,385
 구매가 정확히 2건이다.
 
-새 `direct_q2_yakushima_portal_admission.py`는 Git 객체의 전체 파일 hash와 단일 portal record를
+새 `direct_all_period_yakushima_portal_admission.py`는 Git 객체의 전체 파일 hash와 단일 portal record를
 매 실행 검증하고 두 카드 거래를 `1127_야쿠시마/숙박비/여행원가/불공제_해외`로 분류한다.
 portal booking1↔card event2의 개별 bijection이나 중복 결제 정당성은 주장하지 않는다. selected set
 `5751262cd691a9339a215d32418fd4f7dcc7e070828223f8dee8aa3eb093b822`, accepted union
@@ -1764,9 +1764,24 @@ py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직
 physical source 2건이 있다. 차이는 152bp이며 P11의 외화 공간 대조 원칙에 따라 명시적 200bp
 상한 안에서만 허용했다.
 
-새 `direct_q2_minatoya_portal_admission.py`는 portal file 전체 hash·record·JPY tolerance·current
+새 `direct_all_period_minatoya_portal_admission.py`는 portal file 전체 hash·record·JPY tolerance·current
 cardinality를 live 검증하고 두 건을 `1010_도쿠시마/숙박비/여행원가/불공제_해외`로 분류한다.
 portal booking1↔card2의 개별 bijection은 주장하지 않는다. selected set
 `8c839c3a275dc6846d47508dc7c494b39918f3ec466bbf3b00182a75ea890eb1`, accepted union
 1,558→1,560, global residual 3,770→3,768, Q2 잔여 6→4다. focused 3/3 PASS(175.829초),
 py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 전 기간 단일 DB 전환 핸드오프 — 분기 범위 폐기·5,328건 전량 보존
+
+사용자가 “DB에는 모든 자료 보존, Q2라는 개념 자체를 폐기”한다고 확정했다. 원장 P25를 신설해
+분기를 분류 범위·완료율 분모·근거부족 제외·삭제/격리 조건으로 쓰지 못하게 했고, 분기는 조회·보고용
+파생 속성으로만 남겼다. 원거래↔환불, 선결제↔여행 같은 교차기간 관계도 끊지 않는다. 과거 LOG의
+Q2 표현은 당시 산출 이력일 뿐 현행 규범이 아니며 P25가 우선한다.
+
+현재 admission 체인의 파일·함수·artifact/rule/error 식별자를 `direct_all_period_*`와 `all_period`로
+전환했다. 새 `direct_all_period_scope_policy.py`는 direct event 5,328건의 유일성과 전량 포함을
+실데이터로 강제한다. 보고용 기간 분포는 2025-Q2 25, 2025-Q3 922, 2025-Q4 1,383,
+2026-Q1 1,322, 2026-Q2 1,401, 2026-Q3 275이며 합계 5,328, 기간 제외 0이다. 현재 accepted 1,560,
+residual 3,768도 특정 분기로 축소하지 않는다. focused 전수 재생성 3/3 PASS(178.246초), py_compile와
+diff-check PASS다. 원천·정본 DB에는 삭제나 게시를 하지 않았고 보호된 사용자 `STATUS.md`는 건드리지
+않았다. 전역 워커 규칙상 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol medium이 직접 구현·검증했다.

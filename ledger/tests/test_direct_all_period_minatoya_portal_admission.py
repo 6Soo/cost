@@ -1,13 +1,13 @@
 import unittest
 from unittest import mock
 
-from ledger.domain import direct_q2_minatoya_portal_admission as minatoya
+from ledger.domain import direct_all_period_minatoya_portal_admission as minatoya
 
 
-class Q2MinatoyaPortalAdmissionTests(unittest.TestCase):
+class AllPeriodMinatoyaPortalAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = minatoya.build_q2_minatoya_portal_admission()
+        cls.result = minatoya.build_all_period_minatoya_portal_admission()
 
     def test_two_card_events_one_portal_booking_with_tolerance(self):
         manifest = self.result["manifest"]

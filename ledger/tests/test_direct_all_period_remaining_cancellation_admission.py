@@ -1,12 +1,12 @@
 import unittest
 
-from ledger.domain import direct_q2_remaining_cancellation_admission as cancellations
+from ledger.domain import direct_all_period_remaining_cancellation_admission as cancellations
 
 
-class Q2RemainingCancellationAdmissionTests(unittest.TestCase):
+class AllPeriodRemainingCancellationAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = cancellations.build_q2_remaining_cancellation_admission()
+        cls.result = cancellations.build_all_period_remaining_cancellation_admission()
 
     def test_three_resolutions_and_totals(self):
         manifest = self.result["manifest"]

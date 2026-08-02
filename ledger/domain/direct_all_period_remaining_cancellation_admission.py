@@ -1,4 +1,4 @@
-"""Resolve the remaining Q2 cancellation pair and prior-period refund group."""
+"""Resolve the remaining cancellation pair and prior-period refund group."""
 from __future__ import annotations
 
 import csv
@@ -8,12 +8,12 @@ import tempfile
 from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
-from ledger.domain import direct_q2_corp_void_admission as voids
-from ledger.domain import direct_q2_safe_group_admission as q2
+from ledger.domain import direct_all_period_corp_void_admission as voids
+from ledger.domain import direct_all_period_safe_group_admission as base
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
-ARTIFACT_TYPE = "q2-remaining-cancellation-resolution-v1"
-RULE_VERSION = "q2-exact-source-pair-and-prior-trip-refund-group-v1"
+ARTIFACT_TYPE = "all-period-remaining-cancellation-resolution-v1"
+RULE_VERSION = "all-period-exact-source-pair-and-prior-trip-refund-group-v1"
 SELECTED_SET_SHA256 = "24d585580723593e60f9b07e361a328ecf4bd45ae2231a5424fe4c614c0cb517"
 HAN_CANCEL_KEY = "card:f6d8bb9008bab3a843ae258e306ea3e69d058d46968f52c240f2870f10824380#cancellation"
 HAN_APPROVAL_KEY = "card:bfced2e7b5f9e1d069b38a408abdd0ab5192260d6b4f2191a150298cf3c5d111#approval"
@@ -28,25 +28,25 @@ def _sha(data: bytes) -> str:
 
 
 def _manual_originals() -> list[dict[str, str]]:
-    data = q2.r57._secure_read(q2.MANUAL, q2.MANUAL_SHA256)
+    data = base.r57._secure_read(base.MANUAL, base.MANUAL_SHA256)
     rows = list(csv.DictReader(io.StringIO(data.decode("utf-8-sig"))))
     selected = [row for row in rows if row.get("tab") == "0613_북해도" and
                 row.get("item") == "아고다_New Akan" and row.get("card") == "국민"]
-    amounts = sorted(q2._amount(row) for row in selected)
+    amounts = sorted(base._amount(row) for row in selected)
     bookings = {row.get("book") for row in selected}
     if (len(selected) != 4 or amounts != [205309, 410621, 410621, 410621] or
             len(bookings) != 4 or "" in bookings):
-        raise ValueError("q2_cancel_manual_original_group_invalid")
+        raise ValueError("all_period_cancel_manual_original_group_invalid")
     return selected
 
 
 def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, list[dict]]:
-    upstream = voids.build_q2_corp_void_admission(ledger_dir=ledger_dir)["manifest"]
+    upstream = voids.build_all_period_corp_void_admission(ledger_dir=ledger_dir)["manifest"]
     if (upstream["accepted_union"], upstream["global_residual"],
             upstream["selected_event_set_sha256"]) != (1551, 3777, voids.SELECTED_SET_SHA256):
-        raise ValueError("q2_cancel_upstream_invalid")
+        raise ValueError("all_period_cancel_upstream_invalid")
     originals = _manual_originals()
-    with tempfile.TemporaryDirectory(prefix="q2-cancel-") as directory:
+    with tempfile.TemporaryDirectory(prefix="all-period-cancel-") as directory:
         context = r36._context(ledger_dir, Path(directory))
         try:
             universe = {row["direct_event_key"]: row for row in context["events"]}
@@ -54,7 +54,7 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
             context["db"].close()
     if (HAN_CANCEL_KEY not in universe or HAN_APPROVAL_KEY not in universe or
             not KBO_REFUND_KEYS <= set(universe)):
-        raise ValueError("q2_cancel_current_member_missing")
+        raise ValueError("all_period_cancel_current_member_missing")
     approval = universe[HAN_APPROVAL_KEY]
     cancellation = universe[HAN_CANCEL_KEY]
     pair_fields = ("source_system", "occurred_on", "merchant", "approval_number", "card4", "current_source_key")
@@ -62,7 +62,7 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
             (approval["transaction_type"], approval["event_role"], int(approval["signed_amount_krw"]),
              cancellation["transaction_type"], cancellation["event_role"], int(cancellation["signed_amount_krw"])) != (
              "purchase", "approval", 139761, "cancellation", "cancellation", -139761)):
-        raise ValueError("q2_cancel_han_pair_invalid")
+        raise ValueError("all_period_cancel_han_pair_invalid")
     refunds = [universe[key] for key in sorted(KBO_REFUND_KEYS)]
     if len({row["current_source_key"] for row in refunds}) != 2 or any(
             (row["source_system"], row["occurred_on"], int(row["signed_amount_krw"]),
@@ -70,11 +70,11 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
              row["transaction_type"], row["event_role"]) !=
             ("KBO", "2026-05-22", -209498, "21600", "JPY", "8835",
              "AGODA.COM NEW AKAN H", "cancellation", "single") for row in refunds):
-        raise ValueError("q2_cancel_kbo_refund_group_invalid")
+        raise ValueError("all_period_cancel_kbo_refund_group_invalid")
     selected = {HAN_CANCEL_KEY} | KBO_REFUND_KEYS
-    if q2._setsha(selected) != SELECTED_SET_SHA256:
-        raise ValueError("q2_cancel_selected_set_invalid")
-    original_sha = _sha(q2._json(sorted(originals, key=lambda row: int(row["row"]))))
+    if base._setsha(selected) != SELECTED_SET_SHA256:
+        raise ValueError("all_period_cancel_selected_set_invalid")
+    original_sha = _sha(base._json(sorted(originals, key=lambda row: int(row["row"]))))
     resolutions = [{"event_key_sha256": _sha(HAN_CANCEL_KEY.encode()),
                     "current_event_sha256": cancellation["current_event_sha256"],
                     "disposition": "approval_cancellation_pair", "posting_amount_krw": -139761,
@@ -97,6 +97,6 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
     return manifest, resolutions
 
 
-def build_q2_remaining_cancellation_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
+def build_all_period_remaining_cancellation_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
     manifest, resolutions = _live(ledger_dir)
     return {"manifest": manifest, "resolutions": resolutions}

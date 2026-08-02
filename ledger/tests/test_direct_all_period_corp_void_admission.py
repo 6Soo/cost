@@ -1,13 +1,13 @@
 import unittest
 from unittest import mock
 
-from ledger.domain import direct_q2_corp_void_admission as voids
+from ledger.domain import direct_all_period_corp_void_admission as voids
 
 
-class Q2CorpVoidAdmissionTests(unittest.TestCase):
+class AllPeriodCorpVoidAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.result = voids.build_q2_corp_void_admission()
+        cls.result = voids.build_all_period_corp_void_admission()
 
     def test_four_voids_resolve_without_cost_posting(self):
         manifest = self.result["manifest"]
