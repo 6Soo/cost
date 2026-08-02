@@ -1713,3 +1713,18 @@ global residual은 3,781→3,777이다. `full_classification_delta=0`, `resolved
 `database_applied=false`, `posting_status=blocked`를 유지한다. 하나 승인취소 1건과 국민 Q1원거래
 환불 2건은 동일 정책으로 섞지 않고 관계 검증 대상으로 남겼다. focused 실데이터 테스트 3/3
 PASS(161.467초), py_compile PASS다. 다른 모델/CLI 재위임 없이 GPT-5.6 Sol medium이 직접 수행했다.
+
+## 2026-08-03 Q2 잔여 취소 핸드오프 — 하나 pair 1 + 국민 환불 2 해결
+
+Q2 취소 잔여 3건을 별도 `direct_q2_remaining_cancellation_admission.py`로 결속했다. 하나 Agoda
+승인취소는 동일 source key·승인번호·날짜·merchant/card4의 +139,761 approval과 -139,761
+cancellation이 정확히 net0인 pair다. 국민 New Akan -209,498원 2건은 서로 다른 physical source key를
+가진 JPY21,600 환불 2건이며, 최신 외부 manual의 `0613_북해도` New Akan 원거래 4건
+(205,309×1 + 410,621×3, 예약번호 4개)과 group-level로 결속했다. 환불은
+`숙박비/여행원가/불공제_해외`, trip `0613_북해도`, posting bucket `전기예약_환불`이며 개별
+booking↔refund bijection은 주장하지 않는다.
+
+selected 3 set은 `24d585580723593e60f9b07e361a328ecf4bd45ae2231a5424fe4c614c0cb517`,
+resolved union은 1,551→1,554, global residual은 3,777→3,774다. Q2 잔여는 최초 22에서
+숙박5+기업void4+취소/환불3을 해결해 10건이다. focused 실데이터 테스트 2/2 PASS(166.303초),
+py_compile PASS이며 DB 적용·게시·정본 전환은 하지 않았다. GPT-5.6 Sol medium 직접 수행이다.
