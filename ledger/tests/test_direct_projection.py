@@ -154,6 +154,8 @@ class DirectProjectionTest(unittest.TestCase):
                              {"payments": 6, "decisions": 24})
             self.assertEqual(blocker["projected_verified_kamenoi_lodging"],
                              {"payments": 2, "decisions": 8})
+            self.assertEqual(blocker["projected_verified_partial_booking"],
+                             {"payments": 7, "decisions": 17, "gate5_credit": 0})
             self.assertTrue((base / "owner" / "manifest.json").is_file())
             with (base / "owner" / "events.csv").open(encoding="utf-8") as stream:
                 import csv

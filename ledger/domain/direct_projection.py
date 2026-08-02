@@ -53,6 +53,7 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/direct_all_period_manual_frontier_agoda_airfare_admission.py"),
     Path("ledger/domain/direct_all_period_verified_mutsu_lodging_admission.py"),
     Path("ledger/domain/direct_all_period_verified_kamenoi_lodging_admission.py"),
+    Path("ledger/domain/direct_all_period_verified_partial_booking_admission.py"),
     Path("ledger/domain/direct_all_period_residual_census.py"),
     Path("ledger/domain/direct_merchant_taxonomy_support.py"),
     Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
@@ -640,6 +641,40 @@ def project_verified_kamenoi_lodging_decisions(
     return {"payments": 2, "decisions": 8}
 
 
+def project_verified_partial_booking_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    from ledger.domain.direct_all_period_verified_partial_booking_admission import (
+        build_verified_partial_booking_admission,
+    )
+    admission = build_verified_partial_booking_admission(ledger_dir=ledger_dir)
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    inserted = 0
+    for row in admission["decisions"]:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("verified_partial_projection_event_missing")
+        for dimension, value in sorted(row["axes"].items()):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, value, 1.0, "직접근거부분확정",
+                 admission["manifest"]["rule_version"],
+                 "exact booking payment; only explicit axes confirmed; VAT unresolved"))
+            inserted += 1
+    if len(admission["decisions"]) != 7 or inserted != 17:
+        raise ValueError("verified_partial_projection_count_invalid")
+    return {"payments": 7, "decisions": 17, "gate5_credit": 0}
+
+
 def project_confirmed_full_axis_allocations(
         db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
     """Allocate only payments whose four direct-evidence axes are confirmed."""
@@ -973,6 +1008,8 @@ def build_direct_candidate(
             db, run_id, ledger)
         projected_verified_kamenoi_lodging = project_verified_kamenoi_lodging_decisions(
             db, run_id, ledger)
+        projected_verified_partial_booking = project_verified_partial_booking_decisions(
+            db, run_id, ledger)
         projected_allocations = project_confirmed_full_axis_allocations(db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
@@ -1059,6 +1096,7 @@ def build_direct_candidate(
             "projected_manual_frontier_airfare": projected_manual_frontier_airfare,
             "projected_verified_mutsu_lodging": projected_verified_mutsu_lodging,
             "projected_verified_kamenoi_lodging": projected_verified_kamenoi_lodging,
+            "projected_verified_partial_booking": projected_verified_partial_booking,
             "projected_allocations": projected_allocations,
             "failed_gates": [
                 str(gate["name"])

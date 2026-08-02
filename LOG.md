@@ -2003,3 +2003,26 @@ resolved 14→16, unresolved 5,314→5,312가 됐고 plans/allocations은 16/16�
 admission 3/3, transition gates 50/50, 실데이터 candidate/owner rebuild,
 owner-review invariant·tamper 테스트가 모두 PASS했다. GPT-5.6 Sol medium이 다른 모델/CLI
 재위임 없이 직접 구현·검증했다.
+
+## 2026-08-03 exact 예약 7건 부분축 — VAT 미확정 보존
+
+완전 네 축 exact 예약 후보가 소진된 뒤 `ota_event_links_verified.json`에서 결제액이
+exact/exact-after-discount로 검증된 잔여 7건을 감사했다. HAN-3004/3011/3047은
+숙박 예약·여행일·결제액으로 숙박비/여행원가/여행 target만, KBD-0741은 항공료/
+여행원가/여행 target만, KBD-0871/0927은 항공료/여행 target만, 여행기간이 빈
+KBD-0958은 숙박비만 확정했다. 모든 건의 VAT와 증거가 말하지 않는 축은 만들지
+않았다.
+
+새 `direct_all_period_verified_partial_booking_admission.py`는 OTA links·trips 전체 SHA,
+개별 예약/외부 source id, 정확 결제액, 여행창, 현재 event/source hash, lineage의 해당 축만
+live 검증한다. selected set SHA는
+`cfcbbffd02f21ae6bad9ee7fa414ed0130b8bb60f84ab0c772a529168824cc59`이며 7 payment에
+decision 17행을 추가했다. VAT unresolved 7, Gate 5 credit 0을 명시했다.
+
+실데이터 후보에서 Gate 5 resolved 16/unresolved 5,312와 allocations 16/16은 불변이고,
+원천 5,328건·relation 330건도 보존되며 후보는 미게시다. candidate semantic SHA는
+`8c3429d78a94f715bc89313f61ddb2c28c3079fbc75803338cc0c4c254557e65`다. 대량 정책이 아닌
+개별 exact 증거의 명시적 축만 승격했다. `STATUS.md`는 변경하지 않았고 GPT-5.6 Sol
+medium이 다른 모델/CLI 재위임 없이 직접 구현·검증했다. admission 3/3,
+실데이터 candidate/owner rebuild, transition gates 50/50, owner-review invariant·tamper 테스트가
+모두 PASS했다.
