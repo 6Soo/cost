@@ -63,12 +63,16 @@ def build_all_period_kbo_lifecycle_pair_census(
         else:
             unordered_groups += 1
     selected_sha256 = residual_census._setsha(selected)
+    unlinked = {event["direct_event_key"] for event in cancellations} - selected
+    unlinked_event_hashes = {universe[key]["current_event_sha256"] for key in unlinked}
+    unlinked_source_hashes = {universe[key]["current_source_sha256"] for key in unlinked}
     expected_cardinalities = Counter({(1, 1): 44, (1, 0): 18, (1, 2): 4,
                                      (2, 2): 3, (3, 3): 1, (3, 9): 1,
                                      (4, 0): 1, (9, 9): 1, (11, 2): 1,
                                      (16, 1): 1, (17, 1): 1})
     if (len(cancellations), len(selected), singleton_groups, unordered_groups,
-            cardinalities) != (135, 62, 44, 5, expected_cardinalities):
+            len(unlinked), len(unlinked_event_hashes), len(unlinked_source_hashes),
+            cardinalities) != (135, 62, 44, 5, 73, 73, 73, expected_cardinalities):
         raise ValueError("all_period_kbo_pair_census_drift")
     if selected_sha256 != EXPECTED_SELECTED_SET_SHA256:
         raise ValueError(f"all_period_kbo_pair_selected_set_drift:{selected_sha256}")
@@ -78,6 +82,9 @@ def build_all_period_kbo_lifecycle_pair_census(
             "exact_singleton_relation_count": singleton_groups,
             "unordered_atomic_group_count": unordered_groups,
             "unlinked_or_cardinality_conflict_count": len(cancellations) - len(selected),
+            "unlinked_unique_event_hash_count": len(unlinked_event_hashes),
+            "unlinked_unique_source_hash_count": len(unlinked_source_hashes),
+            "unlinked_rows_preserved_not_collapsed": True,
             "selected_event_set_sha256": selected_sha256,
             "individual_bijection_count": singleton_groups,
             "multi_event_bijection_asserted": False,

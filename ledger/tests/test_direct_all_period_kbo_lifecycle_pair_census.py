@@ -15,6 +15,9 @@ class AllPeriodKboLifecyclePairCensusTests(unittest.TestCase):
         self.assertEqual(result["exact_singleton_relation_count"], 44)
         self.assertEqual(result["unordered_atomic_group_count"], 5)
         self.assertEqual(result["unlinked_or_cardinality_conflict_count"], 73)
+        self.assertEqual(result["unlinked_unique_event_hash_count"], 73)
+        self.assertEqual(result["unlinked_unique_source_hash_count"], 73)
+        self.assertTrue(result["unlinked_rows_preserved_not_collapsed"])
 
     def test_multi_event_groups_do_not_claim_bijection(self):
         result = self.result
