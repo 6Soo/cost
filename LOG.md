@@ -1677,3 +1677,24 @@ card/currency/amount exact edge는 모두 0이었다. Edge의 여행사 운영 �
 merchant 4-token direct locator는 0건이었다. generated/source artifact exact-token 167건과 loose partial
 755건은 비증빙 false positive로 격리했다. 제한 exhaustive report SHA는
 `a66a80d8253f0da30978016cf2e6984c3ff07871678c7e0c658db7a71afe9cef`이며 원본 변경은 없다.
+
+## 2026-08-03 Q2 안전그룹 세션 핸드오프 — 최신 원장 결속 숙박 5건
+
+R59 잔여 3,786을 현재 이벤트 DB에서 다시 재생성했다. 서로소 분할은 manual frontier 13,
+taxonomy 243, broad 3,530이며, 기간 분포는 2025년 2,305 / 2026-Q1 1,184 / 2026-Q2 22 /
+2026-Q3 275다. 따라서 3,764건은 2026-Q2 밖이며, 전 기간 통합 분류인지 Q2 완료율 집계인지에
+따라 결과가 대량으로 달라지므로 사용자 범위 판단 전에는 기간 외 행을 변경하지 않는다.
+
+Q2 잔여 22건은 거래별로 재감사했다. 새 `direct_q2_safe_group_admission.py`는 그중 최신 외부
+manual 1,559행과 현재 카드 이벤트의 날짜·금액·카드·가맹점·건수 다중집합이 정확히 일치하는
+Booking.com 나가센도 3건과 Agoda Hotel Pearl 교토 2건만 승인 후보로 만든다. 계정/원가/VAT는
+각각 `숙박비/여행원가/불공제_해외`이며, selected set은
+`414856751e5b4de59d2515352d0387c17259b85a1cceb0425c1d94d39be53e8c`다. R59 membership을
+live 재구성한 뒤에만 1,542→1,547, residual 3,786→3,781을 허용하며 DB 적용·게시·정본 전환은
+하지 않는다. focused 실데이터 테스트 4/4 PASS(315.584초), py_compile/diff-check PASS다.
+
+초기 후보였던 AVIS 392,606원은 repo의 오래된 manual에는 있으나 최신 외부 manual에는
+366,794원만 있어 즉시 기각했다. 나머지 Q2 17건은 동일 Agoda의 서로 다른 bucket 배분,
+취소/원거래 관계, ANA cardinality, GASUTO·GYOMU 귀속 충돌이 남아 자동 승인하지 않았다.
+이 세션은 전역 워커 규칙에 따라 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol medium이 직접
+구현·검증했다. 보호된 사용자 `STATUS.md`, `AGENTS.md`, `classified_v14.csv`의 SHA는 유지했다.
