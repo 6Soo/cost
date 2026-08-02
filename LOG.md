@@ -2026,3 +2026,26 @@ decision 17행을 추가했다. VAT unresolved 7, Gate 5 credit 0을 명시했�
 medium이 다른 모델/CLI 재위임 없이 직접 구현·검증했다. admission 3/3,
 실데이터 candidate/owner rebuild, transition gates 50/50, owner-review invariant·tamper 테스트가
 모두 PASS했다.
+
+## 2026-08-03 과거 상/상 대량 승계 dry-run census — 분류 611, 여행배분 608
+
+개별 exact 예약을 모두 투영한 뒤, 다음 대량 후보인 과거 `classified_v14`의 상/상
+분류를 현재 event에 승계할 범위를 DB 변경 없이 고정했다. 현재·과거 1:1 lineage,
+매입일 exact, 가맹점 exact, 과거 confidence/tax_conf 상/상, 이미 개별 투영된 15 UID 제외을
+모두 만족하는 최초 엄격 집합은 764건이다. 그중 cost_type=`여행원가`,
+vat_tag=`불공제_해외`, 계정·bucket이 빈값/확인이 아닌 후보는 611건이다.
+
+새 `direct_all_period_historical_carryforward_census.py`는 원천 classified hash를 결속하는
+lineage annex, `trips.json` 전체 SHA, 611 event set
+`71ebfa85e2dbf97d778da60767072bc2300a87411442490ab0bdbb44ba671438`, 네 축 semantic set
+`c44ce5848421667e92df3438eab0b79130108f41c90476e51869de1080e37d2e`를 live 재구성한다.
+원천별 HAN343/KBO237/KBD31, 계정별 식비346/숙박비130/교통비40/주유비25/렌터카23/
+통행료15/입장료14/기타18이다.
+
+추가 감사에서 611 중 KBD-0779/0781/0783 3건의 bucket은 `취소환불`로, `trips.json`의
+여행 target이 아님을 확인했다. 따라서 사용자가 대량 승계를 승인하더라도 분류 후보는
+611, Gate 5 여행 배분 후보는 608으로 분리해야 한다. 608 set은
+`9b5f2286fa608f4407f287d0c486ef232362e96a928cb8c01826a43ae6950a52`다. 현재 artifact는
+`awaiting_user_policy_decision`, `database_applied=false`, `posting_status=blocked`이며 DB/정본을
+변경하지 않았다. focused 3/3, py_compile, diff-check PASS, `STATUS.md` 불변이다.
+GPT-5.6 Sol medium이 다른 모델/CLI 재위임 없이 직접 감사·구현했다.
