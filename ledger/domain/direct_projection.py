@@ -10,6 +10,7 @@ import sqlite3
 import subprocess
 import tempfile
 import uuid
+from collections import defaultdict
 from pathlib import Path
 from typing import Iterable
 
@@ -332,6 +333,121 @@ def project_card_payments(db: object, run_id: str) -> int:
     return len(rows)
 
 
+def _approval_digits(value: object) -> str:
+    text = str(value or "").strip()
+    return text if text and text.isascii() and text.isdigit() and len(text) <= 32 \
+        and bool(text.strip("0")) else ""
+
+
+def _foreign_text(value: object) -> str:
+    return str(value or "").strip().lstrip("-")
+
+
+def project_card_relations(db: object, run_id: str) -> dict[str, int]:
+    """Project deterministic relation evidence without claiming classification."""
+    rows = db.execute(
+        """
+        SELECT l.payment_id,p.external_key,p.source_system,p.occurred_on,p.merchant,
+               p.approval_number,p.transaction_type,s.payload_json
+        FROM direct_payment_projection_links l
+        JOIN payment_transactions p ON p.id=l.payment_id
+        JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+        JOIN direct_source_records s ON s.id=d.source_record_id
+        WHERE l.run_id=? ORDER BY p.external_key
+        """, (run_id,)).fetchall()
+    if len(rows) != 5328:
+        raise ValueError("direct_relation_payment_census_invalid")
+    events = []
+    for row in rows:
+        payload = json.loads(row[7])
+        events.append({"payment_id": int(row[0]), "external_key": str(row[1]),
+                       "source_system": str(row[2]), "occurred_on": str(row[3]),
+                       "merchant": str(row[4]), "approval": row[5],
+                       "transaction_type": str(row[6]), "payload": payload})
+
+    purchases = defaultdict(list)
+    raw_approvals = defaultdict(set)
+    for event in events:
+        if event["transaction_type"] != "purchase" or event["source_system"] not in {"HAN", "KBD"}:
+            continue
+        approval = _approval_digits(event["approval"] or event["payload"].get("appr"))
+        card4 = str(event["payload"].get("card4") or "")
+        if approval and len(card4) == 4 and card4.isdigit():
+            key = (event["source_system"], card4, approval)
+            purchases[key].append(event)
+            raw_approvals[key].add(str(event["approval"] or event["payload"].get("appr")))
+    exact_approval = 0
+    for event in events:
+        if event["transaction_type"] not in {"cancellation", "refund"} or event["source_system"] not in {"HAN", "KBD"}:
+            continue
+        original = _approval_digits(event["payload"].get("orig_appr"))
+        card4 = str(event["payload"].get("card4") or "")
+        targets = purchases.get((event["source_system"], card4, original), [])
+        if not original or len(targets) != 1 or len(raw_approvals[(event["source_system"], card4, original)]) != 1:
+            continue
+        relation_type = "cancels" if event["transaction_type"] == "cancellation" else "refunds"
+        db.execute(
+            """INSERT INTO transaction_relations(
+                 transaction_id,related_transaction_id,relation_type,reference_value,
+                 match_method,confidence,relation_status,resolution_code,rationale)
+               VALUES (?,?,?,?,?,1.0,'proposed',?,?)""",
+            (event["payment_id"], targets[0]["payment_id"], relation_type, original,
+             "issuer_card4_original_approval_exact", "exact_unique_original_approval",
+             "issuer, card4, and normalized original approval identify one purchase"))
+        exact_approval += 1
+
+    kbo_purchases = defaultdict(list)
+    kbo_cancellations = defaultdict(list)
+    for event in events:
+        if event["source_system"] != "KBO":
+            continue
+        payload = event["payload"]
+        key = (str(payload.get("card4") or ""), str(payload.get("currency") or ""),
+               _foreign_text(payload.get("foreign")), event["merchant"])
+        if event["transaction_type"] == "purchase":
+            kbo_purchases[key].append(event)
+        elif event["transaction_type"] in {"cancellation", "refund"}:
+            kbo_cancellations[key].append(event)
+    kbo_singleton = 0
+    kbo_atomic_events = 0
+    kbo_atomic_groups = 0
+    for key in sorted(kbo_cancellations):
+        cancellation_rows = kbo_cancellations[key]
+        purchase_rows = kbo_purchases[key]
+        if not purchase_rows or len(cancellation_rows) != len(purchase_rows):
+            continue
+        if max(row["occurred_on"] for row in purchase_rows) > min(
+                row["occurred_on"] for row in cancellation_rows):
+            raise ValueError("direct_relation_kbo_date_order_invalid")
+        group_reference = "kbo-group:" + _sha256_bytes(_canonical_json_bytes({
+            "key": key, "cancellations": sorted(row["external_key"] for row in cancellation_rows),
+            "purchases": sorted(row["external_key"] for row in purchase_rows)}))
+        singleton = len(cancellation_rows) == 1
+        for event in cancellation_rows:
+            relation_type = "cancels" if event["transaction_type"] == "cancellation" else "refunds"
+            db.execute(
+                """INSERT INTO transaction_relations(
+                     transaction_id,related_transaction_id,relation_type,reference_value,
+                     match_method,confidence,relation_status,resolution_code,rationale)
+                   VALUES (?,?,?,?,?,1.0,'proposed',?,?)""",
+                (event["payment_id"], purchase_rows[0]["payment_id"] if singleton else None,
+                 relation_type, group_reference,
+                 "kbo_card4_currency_foreign_merchant_exact_singleton" if singleton else
+                 "kbo_card4_currency_foreign_merchant_unordered_group",
+                 "exact_unique_foreign_group" if singleton else "exact_unordered_foreign_group",
+                 "individual relation" if singleton else
+                 "equal-cardinality group; individual bijection not asserted"))
+        if singleton:
+            kbo_singleton += 1
+        else:
+            kbo_atomic_events += len(cancellation_rows)
+            kbo_atomic_groups += 1
+    return {"exact_original_approval": exact_approval, "kbo_singleton": kbo_singleton,
+            "kbo_unordered_events": kbo_atomic_events,
+            "kbo_unordered_groups": kbo_atomic_groups,
+            "total": exact_approval + kbo_singleton + kbo_atomic_events}
+
+
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
     return candidate_semantic_sha256(db, run_id)
 
@@ -604,6 +720,7 @@ def build_direct_candidate(
             )
         import_all(db, ledger, expected_manual, expected_ota)
         projected = project_card_payments(db, run_id)
+        projected_relations = project_card_relations(db, run_id)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
             """
@@ -683,6 +800,7 @@ def build_direct_candidate(
                 "provided": 0,
                 "mode": "none",
             },
+            "projected_relations": projected_relations,
             "failed_gates": [
                 str(gate["name"])
                 for gate in report["gates"]

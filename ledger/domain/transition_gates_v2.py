@@ -116,7 +116,7 @@ def input_manifest_sha256(inventory: Iterable[dict[str, object]]) -> str:
 
 
 def candidate_semantic_sha256(db: object, run_id: str) -> str:
-    rows = db.execute(
+    payment_rows = db.execute(
         """
         SELECT
             p.external_key,
@@ -142,9 +142,21 @@ def candidate_semantic_sha256(db: object, run_id: str) -> str:
         """,
         (run_id,),
     ).fetchall()
-    return _sha256_bytes(
-        _canonical_json_bytes([list(row) for row in rows])
-    )
+    relation_rows = db.execute(
+        """
+        SELECT p.external_key,rp.external_key,r.relation_type,r.reference_value,
+               r.match_method,r.confidence,r.relation_status,r.resolution_code,r.rationale
+        FROM transaction_relations r
+        JOIN payment_transactions p ON p.id=r.transaction_id
+        LEFT JOIN payment_transactions rp ON rp.id=r.related_transaction_id
+        JOIN direct_payment_projection_links l ON l.payment_id=p.id
+        WHERE l.run_id=?
+        ORDER BY p.external_key,r.relation_type,r.reference_value
+        """, (run_id,)).fetchall()
+    return _sha256_bytes(_canonical_json_bytes({
+        "payments": [list(row) for row in payment_rows],
+        "relations": [list(row) for row in relation_rows],
+    }))
 
 
 def gate_report_sha256(report: dict[str, object]) -> str:

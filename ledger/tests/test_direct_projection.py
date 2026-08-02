@@ -22,6 +22,7 @@ from ledger.domain.direct_projection import (
     candidate_semantic_snapshot,
     code_bundle_descriptor,
     project_card_payments,
+    project_card_relations,
 )
 from ledger.domain.ledger_db import initialize
 from ledger.domain.p07_manifest import verify_run_artifacts
@@ -29,6 +30,30 @@ from ledger.domain.transition_gates_v2 import GATE_NAMES
 
 
 class DirectProjectionTest(unittest.TestCase):
+    def test_projects_lossless_relation_evidence_and_binds_it_to_semantic_hash(self) -> None:
+        from ledger.domain.direct_sources import import_cards
+        from ledger.domain.ledger_db import connect
+        with tempfile.TemporaryDirectory() as dirname:
+            db = connect(Path(dirname) / "candidate.db")
+            initialize(db); _apply_schema(db)
+            db.execute("""INSERT INTO direct_projection_runs(
+                run_id,status,schema_version,input_manifest_sha256,code_commit,code_bundle_sha256)
+                VALUES ('run','building','p07-direct-v3',?,?,?)""", ("a" * 64, "commit", "b" * 64))
+            import_cards(db, Path("ledger")); project_card_payments(db, "run")
+            before = candidate_semantic_snapshot(db, "run")
+            counts = project_card_relations(db, "run")
+            after = candidate_semantic_snapshot(db, "run")
+            self.assertNotEqual(before, after)
+            self.assertEqual(counts, {"exact_original_approval": 257, "kbo_singleton": 53,
+                                     "kbo_unordered_events": 20,
+                                     "kbo_unordered_groups": 6, "total": 330})
+            self.assertEqual(counts["total"], db.execute(
+                "SELECT COUNT(*) FROM transaction_relations").fetchone()[0])
+            self.assertGreater(counts["kbo_singleton"], 0)
+            self.assertGreater(counts["kbo_unordered_events"], 0)
+            self.assertGreater(counts["kbo_unordered_groups"], 0)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_relations WHERE relation_status!='proposed'").fetchone()[0], 0)
+            db.close()
     def test_honest_han_validation_can_activate_and_expose_view(self) -> None:
         from ledger.domain.han_master_candidate import AUTHORITY_PATH
         from ledger.domain.transition_gates_v2 import build_gate_report as real_report

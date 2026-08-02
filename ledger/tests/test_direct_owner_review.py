@@ -340,7 +340,7 @@ class DirectOwnerReviewTest(unittest.TestCase):
             old_manifest_sha = "e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199"
             self.assertTrue(all(item["parser_version"] == "direct-source-v4" for item in manifest["provenance"]["source_inventory"]))
             self.assertNotEqual(new_manifest_sha, old_manifest_sha)
-            self.assertEqual((context["input_manifest_sha256"], context["candidate_semantic_sha256"], context["current_event_set_sha256"], context["decision_scope_sha256"]), (new_manifest_sha, "cd0e71c04a154840103f25c981a176c7b66023f910bcb3c8a2533c585ef2fa0d", "de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93", "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
+            self.assertEqual((context["input_manifest_sha256"], context["candidate_semantic_sha256"], context["current_event_set_sha256"], context["decision_scope_sha256"]), (new_manifest_sha, "e36eeb47cff6336c717bd3fe79dc61a5ee41500664919a76d434e2c3facf40ee", "de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93", "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
             with (base / "owner/events.csv").open(encoding="utf-8") as stream:
                 rows = list(__import__("csv").DictReader(stream))
             self.assertEqual(len(rows), 5328); self.assertTrue(all(row[field] in ('""', 'null') for row in rows for field in ("decision_status", "allocation_items_json", "classification_items_json", "evidence_refs_json", "owner_rationale")))

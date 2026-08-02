@@ -1847,3 +1847,18 @@ KBD 2025-05-06~2026-07-15, KBO 2025-07-21~2026-07-14다. 따라서 KBD 환불 �
 부재다. 보유하지 않은 선행 거래를 생성하거나 분류하지 않으며 환불 RAW 자체는 계속 보존한다.
 focused 3/3 PASS(0.996초), py_compile PASS, DB/정본 변경 없음, `STATUS.md` 불변이다. GPT-5.6 Sol
 medium이 전역 워커 규칙에 따라 직접 구현·검증했다.
+
+## 2026-08-03 후보 DB 관계 투영 — 330 proposed relations·semantic hash 결속
+
+후보 DB의 `transaction_relations` 테이블이 기존 빌더에서 비어 있던 구조 공백을 교정했다.
+`project_card_relations()`는 5,328 event 전부에서 issuer+card4+원승인번호가 유일한 HAN/KBD 관계
+257개, KBO card4+통화+현지금액+가맹점 1:1 관계 53개, KBO 동일 cardinality 다건 관계 20개/
+6그룹을 투영한다. 합계 330개이며 모두 `relation_status=proposed`다. KBO 다건은
+`related_transaction_id=NULL`과 공통 group reference를 사용해 개별 bijection을 주장하지 않는다.
+
+`candidate_semantic_sha256()`도 payment 5,328건뿐 아니라 관계의 양쪽 external key·유형·참조·매칭법·
+confidence·상태·resolution·rationale까지 결속하도록 확장했다. 관계 추가 전후 의미 해시가 달라지고,
+실데이터 새 semantic SHA는 `e36eeb47cff6336c717bd3fe79dc61a5ee41500664919a76d434e2c3facf40ee`다.
+계정·여행·VAT 분류나 운영 전기는 추가하지 않았다. direct projection 27/27, transition gates 47/47,
+owner review 18/18, HAN master 14/14, P6 adapters 2/2 모두 PASS(합계108 tests)했고 py_compile/
+diff-check PASS다. 보호된 `STATUS.md`는 변경하지 않았으며 GPT-5.6 Sol medium이 직접 구현·검증했다.
