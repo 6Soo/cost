@@ -47,6 +47,10 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/ledger_db.py"),
     Path("ledger/domain/direct_projection_schema.sql"),
     Path("ledger/domain/direct_projection.py"),
+    Path("ledger/domain/direct_all_period_user_approved_taxonomy_admission.py"),
+    Path("ledger/domain/direct_all_period_residual_census.py"),
+    Path("ledger/domain/direct_merchant_taxonomy_support.py"),
+    Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
     Path("ledger/domain/transition_gates_v2.py"),
     Path("ledger/domain/p07_manifest.py"),
     Path("ledger/domain/direct_owner_review.py"),
@@ -448,6 +452,45 @@ def project_card_relations(db: object, run_id: str) -> dict[str, int]:
             "total": exact_approval + kbo_singleton + kbo_atomic_events}
 
 
+def project_user_approved_taxonomy_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    """Project only the three axes explicitly approved by the user."""
+    from ledger.domain.direct_all_period_user_approved_taxonomy_admission import (
+        build_user_approved_taxonomy_admission,
+    )
+    admission = build_user_approved_taxonomy_admission(ledger_dir=ledger_dir)
+    decisions = admission["decisions"]
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    if len(payment_by_key) != 5328:
+        raise ValueError("user_taxonomy_projection_scope_invalid")
+    inserted = 0
+    for row in decisions:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("user_taxonomy_projection_event_missing")
+        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
+                                 ("vat_tag", "vat_tag")):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, row[field], 1.0, "사용자확정",
+                 admission["manifest"]["rule_version"],
+                 "user approved low-ambiguity merchant taxonomy axis; trip and posting remain blocked"))
+            inserted += 1
+    if len(decisions) != 116 or inserted != 348:
+        raise ValueError("user_taxonomy_projection_count_invalid")
+    return {"payments": len(decisions), "decisions": inserted}
+
+
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
     return candidate_semantic_sha256(db, run_id)
 
@@ -721,6 +764,7 @@ def build_direct_candidate(
         import_all(db, ledger, expected_manual, expected_ota)
         projected = project_card_payments(db, run_id)
         projected_relations = project_card_relations(db, run_id)
+        projected_taxonomy = project_user_approved_taxonomy_decisions(db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
             """
@@ -801,6 +845,7 @@ def build_direct_candidate(
                 "mode": "none",
             },
             "projected_relations": projected_relations,
+            "projected_taxonomy": projected_taxonomy,
             "failed_gates": [
                 str(gate["name"])
                 for gate in report["gates"]

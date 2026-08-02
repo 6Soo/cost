@@ -144,6 +144,8 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertIsNone(result["output_db"])
             self.assertEqual(result["status"], "blocked")
+            blocker = json.loads(next((base / "artifacts").glob("*/blocker_manifest.json")).read_text())
+            self.assertEqual(blocker["projected_taxonomy"], {"payments": 116, "decisions": 348})
             self.assertTrue((base / "owner" / "manifest.json").is_file())
             with (base / "owner" / "events.csv").open(encoding="utf-8") as stream:
                 import csv

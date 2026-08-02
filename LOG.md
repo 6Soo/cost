@@ -1868,3 +1868,26 @@ Gate2 cardinality, Gate3 leakage, Gate4 amount/relation, Gate7 freshness는 PASS
 `direct_allocation_decision_unimplemented`와 Gate6 `direct_baseline_unavailable` 두 개뿐이다. relation
 330개와 semantic SHA `e36eeb47…40ee`가 report/manifest에 일치했고 candidate는 미게시, 임시경로는
 정리됐다.
+
+## 2026-08-03 사용자 승인 저모호성 taxonomy 116건 — 후보 DB 판단 348행 투영
+
+사용자가 실제 예시를 확인한 뒤 “진행”을 명시해 merchant taxonomy-only 241건 중 저모호성 116건의
+부분 분류를 승인했다. `direct_all_period_user_approved_taxonomy_admission.py`는 현재 5,328 event와 R34
+원천/이벤트 해시를 live 재구성하고, 이미 분류된 행을 제외한 숙박비38·여행자보험36·교통비19·주유비11·
+통행료9·렌터카3만 선택한다. selected set SHA는
+`8b93c6c23f75625fb2ace043a1a8d6b3d2d5a305b8845ab9f75003b121150d76`다. 편의점124와 KLOOK1은
+식비/소모품/제공품 및 상품·VAT 모호성이 남아 사용자 지침대로 자동 분류하지 않았다.
+
+후보 DB 빌더는 116 payment에 `account/cost_type/vat_tag` 각 1개, 합계 confirmed decision 348행을
+투영한다. 여행 bucket, allocation, journal/posting은 만들지 않으며 원천 5,328건과 relation330건은
+전량 보존한다. decision 내용도 candidate semantic hash에 결속했다. 실제 격리 재빌드에서
+`projected_taxonomy={payments:116, decisions:348}`, Gate5의 partial count도 116/348로 일치했고 새
+semantic SHA는 `85ad1f6193d362f7ae9aac65496e249176af886af294f102c6f9d0bb0e030eb6`다. HAN package를 생략한
+감사 run이라 Gate4는 equality package 부재로 fail-closed했지만 relation issue는 0이었고, HAN을 포함한
+전체 direct projection 회귀에서는 Gate4 PASS를 재확인했다. candidate는 미게시·임시경로 정리 상태다.
+
+동시에 Gate4가 relation 행을 단순 semantic hash로만 보지 않도록 동일 run target, 구매 target,
+issuer/KBO source·method·status·confidence·resolution, unordered group 최소 cardinality를 검증하게
+보강했다. 자기참조 환불 target 반례도 영구 테스트로 추가했다. taxonomy 3/3, transition gates는 신규
+반례 포함 transition gates 전체 49/49, direct projection 전체 27/27 및 변경 후 실데이터
+targeted test PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접 수행이다.

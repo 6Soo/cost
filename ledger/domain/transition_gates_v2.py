@@ -153,9 +153,18 @@ def candidate_semantic_sha256(db: object, run_id: str) -> str:
         WHERE l.run_id=?
         ORDER BY p.external_key,r.relation_type,r.reference_value
         """, (run_id,)).fetchall()
+    decision_rows = db.execute(
+        """SELECT p.external_key,d.dimension,d.value,d.confidence,d.confidence_label,
+                  d.decision_status,d.rule_id,d.rationale
+           FROM classification_decisions d
+           JOIN payment_transactions p ON p.id=d.target_id
+           JOIN direct_payment_projection_links l ON l.payment_id=p.id
+           WHERE l.run_id=? AND d.target_type='payment'
+           ORDER BY p.external_key,d.dimension""", (run_id,)).fetchall()
     return _sha256_bytes(_canonical_json_bytes({
         "payments": [list(row) for row in payment_rows],
         "relations": [list(row) for row in relation_rows],
+        "decisions": [list(row) for row in decision_rows],
     }))
 
 
@@ -820,6 +829,65 @@ def _legacy_leakage_gate(db: object, run_id: str) -> dict[str, object]:
     )
 
 
+def _relation_integrity_issues(db: object, run_id: str) -> list[dict[str, object]]:
+    rows = db.execute(
+        """
+        SELECT r.id,p.external_key,p.source_system,p.transaction_type,
+               rp.external_key,rp.source_system,rp.transaction_type,
+               r.relation_type,r.reference_value,r.match_method,r.confidence,
+               r.relation_status,r.resolution_code,r.rationale,
+               CASE WHEN rp.id IS NULL THEN 0 ELSE EXISTS(
+                 SELECT 1 FROM direct_payment_projection_links tl
+                 WHERE tl.run_id=? AND tl.payment_id=rp.id) END
+        FROM transaction_relations r
+        JOIN payment_transactions p ON p.id=r.transaction_id
+        JOIN direct_payment_projection_links l ON l.payment_id=p.id AND l.run_id=?
+        LEFT JOIN payment_transactions rp ON rp.id=r.related_transaction_id
+        ORDER BY r.id
+        """, (run_id, run_id)).fetchall()
+    issues: list[dict[str, object]] = []
+    group_counts: dict[str, int] = {}
+    for row in rows:
+        (relation_id, external_key, source_system, transaction_type,
+         related_key, related_source, related_type, relation_type, reference,
+         method, confidence, status, resolution, rationale, target_in_run) = row
+        def add(reason: str) -> None:
+            issues.append({"relation_id": int(relation_id),
+                           "external_key": str(external_key), "reason": reason})
+        expected_relation = "cancels" if transaction_type == "cancellation" else "refunds" if transaction_type == "refund" else None
+        if expected_relation is None or relation_type != expected_relation:
+            add("relation_source_type_invalid")
+        if status != "proposed" or float(confidence) != 1.0 or not rationale:
+            add("relation_authority_invalid")
+        if method == "issuer_card4_original_approval_exact":
+            if (source_system not in {"HAN", "KBD"} or related_key is None
+                    or not target_in_run or related_source != source_system
+                    or related_type != "purchase" or not str(reference or "").isdigit()
+                    or resolution != "exact_unique_original_approval"):
+                add("issuer_relation_shape_invalid")
+        elif method == "kbo_card4_currency_foreign_merchant_exact_singleton":
+            if (source_system != "KBO" or related_key is None or not target_in_run
+                    or related_source != "KBO" or related_type != "purchase"
+                    or not str(reference or "").startswith("kbo-group:")
+                    or resolution != "exact_unique_foreign_group"):
+                add("kbo_singleton_relation_shape_invalid")
+        elif method == "kbo_card4_currency_foreign_merchant_unordered_group":
+            ref = str(reference or "")
+            if (source_system != "KBO" or related_key is not None
+                    or not re.fullmatch(r"kbo-group:[0-9a-f]{64}", ref)
+                    or resolution != "exact_unordered_foreign_group"):
+                add("kbo_group_relation_shape_invalid")
+            group_counts[ref] = group_counts.get(ref, 0) + 1
+        else:
+            add("relation_match_method_invalid")
+    invalid_groups = {reference for reference, count in group_counts.items() if count < 2}
+    for reference in sorted(invalid_groups):
+        issues.append({"relation_id": None, "external_key": None,
+                       "reason": "kbo_group_cardinality_invalid",
+                       "reference_value": reference, "count": group_counts[reference]})
+    return issues
+
+
 def _amount_relation_gate(db: object,run_id:str,han_equality_context:dict[str,object]|None=None) -> dict[str, object]:
     sign_issues = db.execute(
         """
@@ -854,6 +922,7 @@ def _amount_relation_gate(db: object,run_id:str,han_equality_context:dict[str,ob
         ORDER BY s.source_key
         """
     ).fetchall()
+    relation_issues = _relation_integrity_issues(db, run_id)
     live_package=None
     if han_equality_context is not None:
         from ledger.domain.han_master_candidate import verify_candidate
@@ -875,12 +944,14 @@ def _amount_relation_gate(db: object,run_id:str,han_equality_context:dict[str,ob
         if (item["authority_sha256"]==authority_sha and claimed==_sha256_bytes(_canonical_json_bytes(item)+b"\n")
           and envelope is not None and all(item[x]==envelope[x] for x in detail_fields)):valid.append((*row,))
     validations=valid
-    passed = not sign_issues and not split_issues and len(validations)==1
+    passed = not sign_issues and not split_issues and not relation_issues and len(validations)==1
     reason = (
         "positive_cancellation_or_invalid_sign"
         if sign_issues
         else "hana_split_pair_invalid"
         if split_issues
+        else "transaction_relation_integrity_invalid"
+        if relation_issues
         else "han_equality_validation_missing_or_stale"
         if len(validations)!=1
         else "ok"
@@ -895,6 +966,9 @@ def _amount_relation_gate(db: object,run_id:str,han_equality_context:dict[str,ob
             "sign_issue_set_sha256":_sha256_bytes(_canonical_json_bytes([list(row) for row in sign_issues])),
             "hana_split_issue_count": len(split_issues),
             "hana_split_issue_set_sha256":_sha256_bytes(_canonical_json_bytes([list(row) for row in split_issues])),
+            "relation_issue_count": len(relation_issues),
+            "relation_issue_set_sha256": _sha256_bytes(_canonical_json_bytes(relation_issues)),
+            "relation_issue_sample": relation_issues[:10],
             "validation_count":len(validations),
             "validation":dict(zip(validation_fields,validations[0])) if len(validations)==1 else None,
         },
@@ -973,6 +1047,17 @@ def _allocation_decision_gate(
         (run_id,),
     ).fetchall()
     unresolved = len(payments)
+    partial_rows = db.execute(
+        """SELECT p.external_key,COUNT(*)
+           FROM classification_decisions c
+           JOIN payment_transactions p ON p.id=c.target_id
+           JOIN direct_payment_projection_links l ON l.payment_id=p.id
+           WHERE l.run_id=? AND c.target_type='payment'
+             AND c.decision_status='confirmed'
+             AND c.dimension IN ('account','cost_type','vat_tag')
+           GROUP BY p.id,p.external_key
+           HAVING COUNT(*)=3
+           ORDER BY p.external_key""", (run_id,)).fetchall()
     scope = _direct_event_role_scope(
         [
             {
@@ -994,6 +1079,8 @@ def _allocation_decision_gate(
             "candidate_payment_count": unresolved,
             "resolved_count": 0,
             "unresolved_count": unresolved,
+            "partial_taxonomy_payment_count": len(partial_rows),
+            "partial_taxonomy_decision_count": sum(int(row[1]) for row in partial_rows),
             "unresolved_event_key_sample": [
                 str(row[0]) for row in payments[:10]
             ],

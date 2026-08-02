@@ -469,6 +469,54 @@ class DirectTransitionGateTest(unittest.TestCase):
         )
         self.assertEqual(gate["actual"]["sign_issue_count"], 1)
 
+    def test_relation_target_must_be_purchase_in_same_run(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,)).fetchone()[0])
+        direct_id = int(db.execute(
+            "SELECT direct_payment_id FROM direct_payment_projection_links WHERE run_id=? AND payment_id=?",
+            (run_id, payment_id)).fetchone()[0])
+        db.execute("UPDATE direct_normalized_payments SET transaction_type='refund',amount_krw=-100 WHERE id=?", (direct_id,))
+        db.execute("UPDATE payment_transactions SET transaction_type='refund',amount_krw=-100 WHERE id=?", (payment_id,))
+        db.execute("""INSERT INTO transaction_relations(
+            transaction_id,related_transaction_id,relation_type,reference_value,
+            match_method,confidence,relation_status,resolution_code,rationale)
+            VALUES (?,?,'refunds','123','issuer_card4_original_approval_exact',1.0,
+                    'proposed','exact_unique_original_approval','invalid self target')""",
+                   (payment_id, payment_id))
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute("UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+                   (semantic_hash, run_id))
+        db.commit(); db.close()
+        expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][3]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["reason"], "transaction_relation_integrity_invalid")
+        self.assertEqual(gate["actual"]["relation_issue_count"], 1)
+        self.assertEqual(gate["actual"]["relation_issue_sample"][0]["reason"],
+                         "issuer_relation_shape_invalid")
+
+    def test_taxonomy_decision_is_bound_to_candidate_semantic_hash(self) -> None:
+        database, run_id, _expected, _ = self._fixture()
+        db = connect(database)
+        before = candidate_semantic_sha256(db, run_id)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,)).fetchone()[0])
+        db.execute("""INSERT INTO classification_decisions(
+            target_type,target_id,dimension,value,confidence,confidence_label,
+            decision_status,rule_id,rationale)
+            VALUES ('payment',?,'account','숙박비',1.0,'사용자확정','confirmed','rule','approved')""",
+                   (payment_id,))
+        after = candidate_semantic_sha256(db, run_id)
+        self.assertNotEqual(before, after)
+        db.execute("UPDATE classification_decisions SET value='교통비' WHERE target_id=?",
+                   (payment_id,))
+        self.assertNotEqual(after, candidate_semantic_sha256(db, run_id))
+        db.close()
+
     def test_gate5_reports_every_unresolved_candidate_key(self) -> None:
         database, run_id, expected, _ = self._fixture()
         report = self._report(database, run_id, expected)
