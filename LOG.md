@@ -1891,3 +1891,25 @@ issuer/KBO source·method·status·confidence·resolution, unordered group 최�
 보강했다. 자기참조 환불 target 반례도 영구 테스트로 추가했다. taxonomy 3/3, transition gates는 신규
 반례 포함 transition gates 전체 49/49, direct projection 전체 27/27 및 변경 후 실데이터
 targeted test PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 taxonomy 투영 후 상류 증거체인 해시 재결속
+
+116건 decision을 candidate semantic hash에 포함하면서 R25/R34/R36의 내용 집합은 불변이지만 그들이
+결속하는 candidate semantic SHA가 바뀌었고, 그 결과 R36 package와 이를 고정한 R37/R38 상류 계약이
+fail-closed하는 것을 추가 감사에서 발견했다. 과거 `d934958`의 동일 R36 산출물과 현재 산출물을 임시
+detached worktree에서 비교해 event set·manual·group·semantic evidence는 모두 동일하고,
+candidate semantic 및 그에 종속된 package/rule hash만 변경됐음을 확인했다. 임시 worktree는 제거했다.
+
+R37/R38의 상류 package/rule 핀을 현재 decision-inclusive candidate 의미에 재결속했다. 새 R36 package는
+`f7574ecc81fae0b9d05ff75bfb2bdaf69be1c652099a62dcb3ef26bd15a0b530`, R37 rule/package는
+`c670cd2f46dbc5869fee2ca2306b1cef4c174732d7c476c712e76a7012a443a7` /
+`2c2000773dc3ba04af82774bac5f46c0b2910c8e1122505c63b05dcf29028063`, R38 rule/package는
+`e79b49cb7abca844a43cea670e487b77e453615c20f78dcbb3b1ad161c25a64e` /
+`fe98ee996188b46ddbf934626c64d036dd1d9a1da3f8cbd3c2ff93f7c10ad868`다. 전 기간 residual census를
+다시 끝까지 재생성해 3/3 PASS(213.056초), 5,328=1,560+3,768 및 잔여 partition 불변을 확인했다.
+이어지는 R42 package도 `6b384c2d39ee66c9e0d4032fd1da235106011aac86c4d4bd754227a38e25afe7`로
+재결속했고 R43 `_live_context()`가 R36/R38/R42 새 package와 기존 24건 frontier를 모두 통과했다.
+R43의 정책 핀도 P25가 포함된 현행 원장 SHA
+`d4ebe4b7fc0584b72f51e2d3a883f55c4bf7c1f5e6f2dbd46da2df8df5e7837c`로 갱신했고 receipt evidence
+회귀 14/14 PASS다.
+보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접 수행이다.
