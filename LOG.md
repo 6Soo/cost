@@ -1619,3 +1619,61 @@ publisher, exact manual date, live group hash 검증과 교환·변조·복구 �
 medium과 GPT-5.6 Sol medium 모두 `REVIEW=PASS`; focused actual 9/9 PASS(1,094.041초), 전체 회귀
 393/393 PASS(4,512.632초)다. AGY Flash/Sonnet/Luna는 callable surface 부재로 로컬 구현
 폴백을 사용했다. 보호된 사용자 `STATUS.md`와 원장 data 파일은 변경하지 않았다.
+
+## 2026-08-02 R58/R59 세션 핸드오프 — Gotogate 국내 항공 atomic 2×2 admission
+
+R57 post residual3,790을 재감사했다. original-approval relation 23건과 taxonomy243의 관계·집합은
+정확했지만 accepted membership이나 manual tab/item/description은 권위 있는 4축 tuple이 아니다.
+Fable이 Sol의 clean19 상속안을 반박했고 Sol이 수용해 즉시 승인 subset0으로 정정했다. taxonomy243도
+exact manual/trip locator 교집합0이며 날짜·merchant·여행기간만으로 bucket을 전파하지 않는다.
+
+대신 R43 support-only였던 Mytrip/Gotogate 두 그룹 4건을 원문과 A0 정책으로 다시 검증했다. PDF 4개는
+각각 서로 다른 주문 참조, 동일 그룹별 예약일·총액·항공 service, `Gotogate Korea LLC`·서울 주소·국내
+사업자번호를 제공한다. current는 KBD purchase KRW single 4건이며 국민계열 전역에서 그룹별 동일
+날짜·금액 exact2/extra0, external manual v4도 각 tab/item/date/card exact2/locator2다. A0 최우선 규칙은
+항공·숙박 고객대행 여행경비를 매입세액공제 대상이 아니라고 직접 정하므로 의미축을
+`항공료/여행원가/불공제_국내/0712_몽골` 2건과
+`항공료/여행원가/불공제_국내/0924_야마구치` 2건으로 닫았다. 세금계산서나 매입 VAT액은 주장하지
+않고, 개별 receipt↔event/card4 bijection도 주장하지 않는 unordered atomic2 두 그룹이다.
+
+새 `direct_mytrip_airfare_atomic_admission.py`는 R43 member/document commitment, PDF supplier/date/
+amount/tax-invoice active scan, A0 SHA, manual single-fd census, current KBD+KBO 전역 collision과 physical
+duplicate, R57 post membership을 live 재구성한다. selected4는 `93515d41…a0e8`, accepted는
+1,538→1,542(`7a49e7e6…32e9`), residual은 3,790→3,786(`df0bafd8…d629`), actual public package SHA는
+`d0193762df677ee1d69946070d858177dfdda4b1720efc4c80d71afc08738b56`다. 전달 메일은 provider DKIM
+인증으로 격상하지 않고 4개 alias의 `forwarded_outer_auth_observed_unverified` exact set을 별도
+commitment로 결속한다. 모든 행은 unattested/blocked/confirmed0/Gate5 0/applied=false/
+database_applied=false인 review proposal이다.
+
+초기 구현은 parent path 교환 시 detached directory에 게시할 수 있었고 receipt↔event↔manual 날짜 직접
+결속과 transport commitment가 부족했다. Sol과 Fable이 독립 FAIL 반례를 제시해 open 직후·rename 직전
+parent identity 확인, dirfd stage cleanup, receipt/current/manual exact date pin, transport set commitment,
+partial/zero-write·member/document 교환·외부 collision·verify/reconcile/parent-swap 테스트를 추가했다.
+최종 Fable 5 medium과 GPT-5.6 Sol medium 모두 `REVIEW=PASS`; focused actual 9/9 PASS(378.418초),
+전체 회귀402/402 PASS(4,955.734초), py_compile/diff-check clean이다. AGY Flash/Sonnet/Luna는
+callable surface 부재로 로컬 구현 폴백을 사용했고 보호된 `STATUS.md`와 원장 data는 변경하지 않았다.
+
+## 2026-08-02 R60 증거수집 핸드오프 — taxonomy 21건 Gmail exact census 0
+
+R59 post residual3,786에서 taxonomy243을 trips.json 기간에 단순 포함시키면 unique bucket22가 나오고,
+그중 R34 account/cost/VAT support가 있는 행은 21건(`eaf97671…9aa`)이다. 그러나 R34는 명시적으로
+unattested/blocked이고 날짜 포함은 지출→여행 exact edge가 아니므로 full delta0을 유지했다. broad3,530도
+원장 explicit Ali/Daiso/KAFUKA 규칙과 현재 membership을 대조했으나 권위가 완성된 행은 모두 이미
+accepted였고, 잔여 동명이행은 품목·목적·bucket이 없어 안전 subset0이었다. Fable과 Sol 모두 merchant
+broadcast를 기각했다.
+
+21건을 restricted 0700/0600 수집 큐 19개 query group으로 만들고 로컬 pinned MIME 16개와 Gmail UI
+전체보관함을 read-only 검색했다. exact merchant+date+amount/provider-reference 조건으로 로컬 hit0,
+Gmail 19/19 candidate0·exact0·provider-reference0이었다. Gmail의 전송·삭제·라벨·초안 변경은 없었다.
+제한 결과 `gmail-ui-results.json` SHA는 `0453b01b15612672e24a53c92fab5d752482c72a1aa311b57b8e255671f03a91`,
+summary SHA는 `b3185205003f9f8a31622a8692e3192dd82445545fc3b5f1436c507dbf8153ef`다.
+공개/저장소에는 raw merchant·금액·카드·승인번호를 기록하지 않았고 `full_delta_claimed=false`다. 다음
+수집 경로는 provider portal/issuer export/사업자 증빙처럼 current key에 직접 결속되는 외부 자료다.
+
+추가로 저장소 booking/OTA 4종과 R27 coverage를 재빌드했으나 21건 direct key·booking ref·structured
+card/currency/amount exact edge는 모두 0이었다. Edge의 여행사 운영 시스템 탭도 공개 정보 화면이며
+인증 관리자 검색/export가 노출되지 않았다. 마지막으로 `/tmp/cost-*` 허용 확장자 951파일 중 937개를
+판독하고 issuer statement/usage confirmation/receipt 표식 195개를 전수 검사했으나 approval/date/amount/
+merchant 4-token direct locator는 0건이었다. generated/source artifact exact-token 167건과 loose partial
+755건은 비증빙 false positive로 격리했다. 제한 exhaustive report SHA는
+`a66a80d8253f0da30978016cf2e6984c3ff07871678c7e0c658db7a71afe9cef`이며 원본 변경은 없다.
