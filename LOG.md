@@ -1785,3 +1785,22 @@ Q2 표현은 당시 산출 이력일 뿐 현행 규범이 아니며 P25가 우�
 residual 3,768도 특정 분기로 축소하지 않는다. focused 전수 재생성 3/3 PASS(178.246초), py_compile와
 diff-check PASS다. 원천·정본 DB에는 삭제나 게시를 하지 않았고 보호된 사용자 `STATUS.md`는 건드리지
 않았다. 전역 워커 규칙상 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol medium이 직접 구현·검증했다.
+
+## 2026-08-03 전 기간 잔여 재분할 핸드오프 — 3,768건 근거 수준 전수 census
+
+P25 기준으로 현재 accepted 1,560건과 residual 3,768건을 live event key membership에서 재구성했다.
+새 `direct_all_period_residual_census.py`는 과거 분기나 보고 범위를 사용하지 않고 5,328건 전체에서
+현재까지의 32건 순신규 admission을 결속한다. residual set SHA는
+`1a259893425431595d63e3ab5891f66e8a4042056f0eab399c5500183d073b7d`다.
+
+잔여는 서로소 3종이다. 수기 여행 bucket만 있고 계정·원가·VAT가 없는 `manual_frontier` 8건,
+반복 가맹점 seed로 계정·원가·VAT만 제안되지만 여행 bucket이 전부 비어 있는
+`merchant_taxonomy_only` 241건, 직접 분류축이 없는 `broad_no_direct_axes` 3,519건이다. 241건의
+제안축은 식비124·숙박38·여행자보험36·교통19(+VAT 미정1)·주유11·통행9·렌터카3이며 모두
+여행원가다. 이는 대량 정책 판단 후보일 뿐 자동 적용하지 않았고 DB/정본 변경도 없다. broad 3,519는
+구매3,142·취소220·환불157이며 카드 원천별로 CORP118/HAN1,494/KBD712/KBO1,195다.
+
+focused 전수 테스트는 첫 실행에서 census가 기존 event-set 해시 직렬화 함수를 재사용하지 않아
+fail-close했고, 기존 `r36._event_set_sha`를 직접 사용하도록 교정했다. 최종 3/3 PASS(210.637초),
+py_compile PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. 전역 워커 규칙상 다른 모델/CLI로
+재위임하지 않고 GPT-5.6 Sol medium이 직접 구현·검증했다.
