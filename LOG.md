@@ -1741,3 +1741,18 @@ manual 4행을 비용 4건으로 만들지 않고 physical card event 2건에만
 accepted/resolved union은 1,554→1,556, global residual은 3,774→3,772, Q2 잔여는 10→8이다.
 manual duplicate rows2를 명시적으로 extra event가 아니라고 기록한다. focused 실데이터 테스트 2/2
 PASS(170.122초), py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 Q2 Yakushima 포털 핸드오프 — 인증 예약 1 ↔ 카드 2 그룹
+
+정리 대상 원격 브랜치의 Git commit `61ea7b9`에 인증 Agoda 포털 관찰 파일이 보존되어 있음을
+재확인했다. 파일 전체 SHA-256은 `de9ce5264ee608b6fc1bede2d179c343385120ae13e74fb07fb0354cc9c88cf2`다.
+예약 662897867은 authenticated portal DOM에서 card4 8835, JPY118,800, 2026-11-27~30,
+confirmed로 결속된다. 현재 KBO에는 서로 다른 physical source key의 JPY118,800/KRW1,150,385
+구매가 정확히 2건이다.
+
+새 `direct_q2_yakushima_portal_admission.py`는 Git 객체의 전체 파일 hash와 단일 portal record를
+매 실행 검증하고 두 카드 거래를 `1127_야쿠시마/숙박비/여행원가/불공제_해외`로 분류한다.
+portal booking1↔card event2의 개별 bijection이나 중복 결제 정당성은 주장하지 않는다. selected set
+`5751262cd691a9339a215d32418fd4f7dcc7e070828223f8dee8aa3eb093b822`, accepted union
+1,556→1,558, global residual 3,772→3,770, Q2 잔여 8→6이다. focused 3/3 PASS(172.505초),
+py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
