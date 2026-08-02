@@ -152,6 +152,8 @@ class DirectProjectionTest(unittest.TestCase):
                              {"payments": 2, "decisions": 8})
             self.assertEqual(blocker["projected_verified_mutsu_lodging"],
                              {"payments": 6, "decisions": 24})
+            self.assertEqual(blocker["projected_verified_kamenoi_lodging"],
+                             {"payments": 2, "decisions": 8})
             self.assertTrue((base / "owner" / "manifest.json").is_file())
             with (base / "owner" / "events.csv").open(encoding="utf-8") as stream:
                 import csv
@@ -161,7 +163,7 @@ class DirectProjectionTest(unittest.TestCase):
             context = manifest["source_context"]
             self.assertEqual(context["decision_scope_sha256"], "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418")
             self.assertEqual(manifest["authority_ready_count"], 0)
-            self.assertEqual(manifest["gate5_resolved_count"], 14)
+            self.assertEqual(manifest["gate5_resolved_count"], 16)
             import subprocess
             proc = subprocess.run(
                 ["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current",

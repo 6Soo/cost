@@ -1981,3 +1981,25 @@ confirmed allocation 6건을 후보 DB에만 추가했다. 대량 가맹점 정�
 transition gates 50/50, 실데이터 candidate/owner rebuild, owner-review invariant·tamper 테스트가 모두
 PASS했다. `STATUS.md`는 건드리지 않았고, 전역 워커 규칙에 따라 GPT-5.6 Sol medium이
 다른 모델/CLI 재위임 없이 직접 구현·검증했다.
+
+## 2026-08-03 사용자 예약페이지 카메노이 호텔 2건 — exact 금액 배분
+
+`ota_event_links_verified.json`의 KBD-0389/0390은 서로 다른 Trip.com booking id와
+카메노이 호텔 다자와코 7/5~7/7 숙박을 담고, 사용자 예약페이지의 결제액
+1,307,772원/887,640원이 현재 카드 event와 각각 exact 일치한다. 두 숙박일은
+`trips.json`의 `0704_아키타` 7일 창에 포함되며, exact lineage의 축도
+`숙박비/여행원가/불공제_해외/0704_아키타` 상/상으로 일치한다.
+
+새 `direct_all_period_verified_kamenoi_lodging_admission.py`는 OTA links·trips 전체 SHA,
+예약 id/결제액/숙박일/객실·박수, 현재 event/source hash, 역사 lineage를 live 검증한다.
+selected set SHA는 `060271be84bbaa74b1ecbe84b35c1e08a9554318a4bdbcdc358c81150e849fee`다.
+후보 DB에 네 축 decision 8행과 결제액 전액 allocation 2건을 추가해 Gate 5는
+resolved 14→16, unresolved 5,314→5,312가 됐고 plans/allocations은 16/16이다.
+
+원천 5,328건·relation 330건은 보존되며 후보는 Gate 5 미완결·Gate 6 baseline 부재로
+미게시다. candidate semantic SHA는
+`a22698e85f2bab0008a8fee264bd261fd2e39a60fc720cd689401ca406936f0b`다. 대량 정책 판단은
+사용하지 않았고 개별 인증 예약 2건만 승격했다. `STATUS.md`는 변경하지 않았으며
+admission 3/3, transition gates 50/50, 실데이터 candidate/owner rebuild,
+owner-review invariant·tamper 테스트가 모두 PASS했다. GPT-5.6 Sol medium이 다른 모델/CLI
+재위임 없이 직접 구현·검증했다.
