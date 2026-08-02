@@ -1862,3 +1862,9 @@ confidence·상태·resolution·rationale까지 결속하도록 확장했다. �
 계정·여행·VAT 분류나 운영 전기는 추가하지 않았다. direct projection 27/27, transition gates 47/47,
 owner review 18/18, HAN master 14/14, P6 adapters 2/2 모두 PASS(합계108 tests)했고 py_compile/
 diff-check PASS다. 보호된 `STATUS.md`는 변경하지 않았으며 GPT-5.6 Sol medium이 직접 구현·검증했다.
+
+커밋 후 HAN equality를 포함한 실제 후보 빌드를 격리 임시경로에서 다시 실행했다. Gate1 source,
+Gate2 cardinality, Gate3 leakage, Gate4 amount/relation, Gate7 freshness는 PASS다. 남은 차단은 Gate5
+`direct_allocation_decision_unimplemented`와 Gate6 `direct_baseline_unavailable` 두 개뿐이다. relation
+330개와 semantic SHA `e36eeb47…40ee`가 report/manifest에 일치했고 candidate는 미게시, 임시경로는
+정리됐다.
