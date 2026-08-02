@@ -1958,3 +1958,26 @@ transition gates 전체 50/50 PASS, 실데이터 candidate/owner rebuild targete
 실데이터 invariant·tamper test PASS다. 후보는 여전히 Gate5 미완결과 Gate6 baseline 부재로 미게시다.
 디버깅용 `/tmp/cost-owner-debug-QtblWR`는 검증 후 삭제했다. 보호된 사용자 `STATUS.md`는 변경하지
 않았다. GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 인증 Agoda Plaza Hotel Mutsu 6건 — 후보 DB 네 축·배분 투영
+
+`ota_event_links_verified.json`의 Agoda 예약 페이지 검증 레코드 중 Plaza Hotel Mutsu
+개별 예약 6건을 현재 카드 이벤트와 다시 결속했다. KBO-2681/2682/2689/2700/2701/2702는
+각각 서로 다른 booking id를 가지며 card4 8835, JPY 21,030/34,370/27,152/6,501/6,183/6,773,
+숙박일 4/17~19가 인증 레코드와 일치한다. exact lineage로 현재 physical event 6건에 유일하게
+연결되고, `trips.json`의 `0417_아오모리` 일정 범위에도 포함된다.
+
+새 `direct_all_period_verified_mutsu_lodging_admission.py`는 OTA links 전체 SHA, 6개 개별 레코드,
+현재 event/source hash, 역사 lineage의 상/상 축을 모두 live 검증한다. selected set SHA는
+`c9c9c81d3d1c2416cba72477344f0768ec9e8d4350d82df0d8bf876bb0debc9c`다. 6건에
+`숙박비/여행원가/불공제_해외/0417_아오모리` 네 축 24 decision과 각 결제액 전액의
+confirmed allocation 6건을 후보 DB에만 추가했다. 대량 가맹점 정책을 적용한 것이 아니라
+개별 인증 예약을 근거로 한 소집합이다.
+
+현재 Gate 5는 5,328건 중 resolved 14, unresolved 5,314이며 plans/allocations도 14/14다.
+원천 5,328건·relation 330건은 그대로 보존되고 후보는 Gate 5 미완결·Gate 6 baseline 부재로
+여전히 미게시다. 새 candidate semantic SHA는
+`1fe46c8c892bc45715a4c22dc9e6364103fa9725cbb94da0f052527a6810d16d`다. admission 3/3,
+transition gates 50/50, 실데이터 candidate/owner rebuild, owner-review invariant·tamper 테스트가 모두
+PASS했다. `STATUS.md`는 건드리지 않았고, 전역 워커 규칙에 따라 GPT-5.6 Sol medium이
+다른 모델/CLI 재위임 없이 직접 구현·검증했다.

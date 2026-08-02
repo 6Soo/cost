@@ -51,6 +51,7 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/direct_all_period_user_approved_taxonomy_admission.py"),
     Path("ledger/domain/direct_all_period_manual_frontier_lodging_admission.py"),
     Path("ledger/domain/direct_all_period_manual_frontier_agoda_airfare_admission.py"),
+    Path("ledger/domain/direct_all_period_verified_mutsu_lodging_admission.py"),
     Path("ledger/domain/direct_all_period_residual_census.py"),
     Path("ledger/domain/direct_merchant_taxonomy_support.py"),
     Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
@@ -566,6 +567,42 @@ def project_manual_frontier_airfare_decisions(
     return {"payments": 2, "decisions": 8}
 
 
+def project_verified_mutsu_lodging_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    from ledger.domain.direct_all_period_verified_mutsu_lodging_admission import (
+        build_verified_mutsu_lodging_admission,
+    )
+    admission = build_verified_mutsu_lodging_admission(ledger_dir=ledger_dir)
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    inserted = 0
+    for row in admission["decisions"]:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("verified_mutsu_projection_event_missing")
+        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
+                                 ("vat_tag", "vat_tag"),
+                                 ("allocation_target", "trip_target")):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, row[field], 1.0, "직접근거확정",
+                 admission["manifest"]["rule_version"],
+                 "individually verified Agoda booking and exact current card lineage"))
+            inserted += 1
+    if len(admission["decisions"]) != 6 or inserted != 24:
+        raise ValueError("verified_mutsu_projection_count_invalid")
+    return {"payments": 6, "decisions": 24}
+
+
 def project_confirmed_full_axis_allocations(
         db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
     """Allocate only payments whose four direct-evidence axes are confirmed."""
@@ -581,7 +618,7 @@ def project_confirmed_full_axis_allocations(
            GROUP BY p.id,p.amount_krw
            HAVING COUNT(*)=4
            ORDER BY p.id""", (run_id,)).fetchall()
-    if len(rows) != 8:
+    if len(rows) != 14:
         raise ValueError("direct_full_axis_allocation_scope_invalid")
     allocations = 0
     for payment_id, amount, target_code, source_decision_id, decision_count in rows:
@@ -895,6 +932,8 @@ def build_direct_candidate(
             db, run_id, ledger)
         projected_manual_frontier_airfare = project_manual_frontier_airfare_decisions(
             db, run_id, ledger)
+        projected_verified_mutsu_lodging = project_verified_mutsu_lodging_decisions(
+            db, run_id, ledger)
         projected_allocations = project_confirmed_full_axis_allocations(db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
@@ -979,6 +1018,7 @@ def build_direct_candidate(
             "projected_taxonomy": projected_taxonomy,
             "projected_manual_frontier_lodging": projected_manual_frontier_lodging,
             "projected_manual_frontier_airfare": projected_manual_frontier_airfare,
+            "projected_verified_mutsu_lodging": projected_verified_mutsu_lodging,
             "projected_allocations": projected_allocations,
             "failed_gates": [
                 str(gate["name"])
