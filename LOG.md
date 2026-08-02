@@ -1913,3 +1913,27 @@ R43의 정책 핀도 P25가 포함된 현행 원장 SHA
 `d4ebe4b7fc0584b72f51e2d3a883f55c4bf7c1f5e6f2dbd46da2df8df5e7837c`로 갱신했고 receipt evidence
 회귀 14/14 PASS다.
 보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 manual frontier 8건 전량 해결 — 숙박6 + Agoda 항공2
+
+잔여 manual frontier 8건을 현재 카드 event와 `manual_v4.csv`로 건별 재구성했다. 날짜·금액·카드4·
+가맹점·건수가 정확히 일치하는 기타구니 호텔 4건(레분토&리시리)과 이즈미야 료칸 2건(야마구치)을
+`숙박비/여행원가/불공제_해외` 및 해당 trip으로 확정했다. selected set SHA는
+`627c152c2f018a8d65379cbb31c1f7dc1a03546ed40ab39f8fccb163ac807eef`다.
+
+남은 Agoda 542,370원 2건은 수기장부에는 항공으로 적혀 있으나 merchant만 보면 모순처럼 보여 처음
+보류했다. 이후 정본 입력 `ota_mail_index.json`에서 결제 당일 Agoda 메일 2개를 확인했다. 두 메일은
+각각 박희경/정용숙의 `9/24~27 인천-후쿠오카 왕복 예약정보`, 서로 다른 PNR, 동일 여행기간을 가지며
+수기 2행·카드 2행과 group cardinality가 일치한다. 따라서 두 건을 원자 그룹으로
+`항공료/여행원가/불공제_해외/0924_야마구치` 확정했으며 개별 카드↔승객 bijection은 주장하지 않는다.
+selected set SHA는 `cb644e7fa0c44abad2c2e58dd0e659b62d1d362234bb722682965a69ad3d8a41`다.
+
+후보 DB에는 8 payment의 네 축 32 decision이 추가되어, 기존 116건과 합쳐 taxonomy 3축 완비는
+124 payment/372 decision, trip까지 완비는 8 payment/32 decision이다. 원천 5,328건·relation330건은
+불변이고 allocation/posting은 계속 차단한다. 새 candidate semantic SHA는
+`84fd3e22bbb800f8ce8a9fddaf6730937f558e0ec8d9d132f4a9d645a6bc92cd`이며 격리 실데이터 build는
+미게시·relation issue0을 확인했다. accepted union은 1,568, residual은 3,760, manual frontier는 0,
+residual set SHA는 `b41bcbda43a40d6ee22325bbcc2c42b4c3823d5b6dbb4b3911b839f7a07bf03d`다.
+숙박 admission 3/3, 항공 admission 3/3, transition gates 49/49, 실데이터 candidate targeted test와
+residual census 3/3 PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium 직접
+수행이다.

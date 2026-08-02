@@ -9,6 +9,8 @@ from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain import direct_all_period_minatoya_portal_admission as minatoya
+from ledger.domain import direct_all_period_manual_frontier_lodging_admission as frontier_lodging
+from ledger.domain import direct_all_period_manual_frontier_agoda_airfare_admission as frontier_airfare
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
 ARTIFACT_TYPE = "all-period-lossless-scope-policy-v1"
@@ -35,6 +37,16 @@ def build_all_period_scope_policy(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / 
     if (upstream["accepted_union"], upstream["global_residual"],
             upstream["selected_event_set_sha256"]) != (1560, 3768, minatoya.SELECTED_SET_SHA256):
         raise ValueError("all_period_upstream_invalid")
+    frontier = frontier_lodging.build_manual_frontier_lodging_admission(
+        ledger_dir=ledger_dir)["manifest"]
+    if (frontier["selected_count"], frontier["selected_event_set_sha256"]) != (
+            6, frontier_lodging.SELECTED_SET_SHA256):
+        raise ValueError("all_period_frontier_lodging_upstream_invalid")
+    airfare = frontier_airfare.build_manual_frontier_agoda_airfare_admission(
+        ledger_dir=ledger_dir)["manifest"]
+    if (airfare["selected_count"], airfare["selected_event_set_sha256"]) != (
+            2, frontier_airfare.SELECTED_SET_SHA256):
+        raise ValueError("all_period_frontier_airfare_upstream_invalid")
     with tempfile.TemporaryDirectory(prefix="all-period-") as directory:
         context = r36._context(ledger_dir, Path(directory))
         try:
@@ -59,5 +71,5 @@ def build_all_period_scope_policy(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / 
                 separators=(",", ":")) + "\n").encode()),
             "current_event_set_sha256": event_set_sha256,
             "decision_scope_sha256": decision_scope_sha256,
-            "accepted_union": 1560, "global_residual": 3768,
+            "accepted_union": 1568, "global_residual": 3760,
             "database_applied": False, "posting_status": "blocked"}

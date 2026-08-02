@@ -19,12 +19,14 @@ from ledger.domain import direct_all_period_corp_void_admission as voids
 from ledger.domain import direct_all_period_manual_duplicate_collapse_admission as duplicates
 from ledger.domain import direct_all_period_remaining_cancellation_admission as cancellations
 from ledger.domain import direct_all_period_safe_group_admission as safe
+from ledger.domain import direct_all_period_manual_frontier_lodging_admission as frontier_lodging
+from ledger.domain import direct_all_period_manual_frontier_agoda_airfare_admission as frontier_airfare
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
-ARTIFACT_TYPE = "all-period-residual-census-v1"
-RULE_VERSION = "p25-current-evidence-partition-v1"
-EXPECTED_RESIDUAL_SET_SHA256 = "1a259893425431595d63e3ab5891f66e8a4042056f0eab399c5500183d073b7d"
-EXPECTED_COUNTS = {"accepted": 1560, "residual": 3768, "manual_frontier": 8,
+ARTIFACT_TYPE = "all-period-residual-census-v2"
+RULE_VERSION = "p25-current-evidence-partition-v2"
+EXPECTED_RESIDUAL_SET_SHA256 = "b41bcbda43a40d6ee22325bbcc2c42b4c3823d5b6dbb4b3911b839f7a07bf03d"
+EXPECTED_COUNTS = {"accepted": 1568, "residual": 3760, "manual_frontier": 0,
                    "merchant_taxonomy_only": 241, "broad_no_direct_axes": 3519}
 
 
@@ -70,7 +72,25 @@ def _selected_additions(universe: dict[str, dict]) -> set[str]:
         if len(matches) != 2:
             raise ValueError("all_period_census_portal_group_drift")
         selected |= matches
-    if len(selected) != 32:
+    for source, date, amount, card4, merchant, count, *_ in frontier_lodging.GROUPS:
+        matches = {key for key, event in universe.items() if
+                   (event["source_system"], event["occurred_on"],
+                    int(event["signed_amount_krw"]), event["card4"], event["merchant"],
+                    event["transaction_type"], event["event_role"]) ==
+                   (source, date, amount, card4, merchant, "purchase", "single")}
+        if len(matches) != count:
+            raise ValueError("all_period_census_frontier_lodging_drift")
+        selected |= matches
+    airfare_matches = {key for key, event in universe.items() if
+                       (event["source_system"], event["occurred_on"],
+                        int(event["signed_amount_krw"]), event["card4"], event["merchant"],
+                        event["transaction_type"], event["event_role"]) ==
+                       ("KBD", "2026-02-20", 542370, "4886", "AGODA_NICE-Agoda",
+                        "purchase", "single")}
+    if len(airfare_matches) != 2 or _setsha(airfare_matches) != frontier_airfare.SELECTED_SET_SHA256:
+        raise ValueError("all_period_census_frontier_airfare_drift")
+    selected |= airfare_matches
+    if len(selected) != 40:
         raise ValueError("all_period_census_addition_count_drift")
     return selected
 
@@ -99,7 +119,7 @@ def build_all_period_residual_census(
         raise ValueError("all_period_census_accepted_overlap")
     accepted = accepted_base | additions
     residual = set(universe) - accepted
-    if len(residual) != 3768 or _setsha(residual) != EXPECTED_RESIDUAL_SET_SHA256:
+    if len(residual) != 3760 or _setsha(residual) != EXPECTED_RESIDUAL_SET_SHA256:
         raise ValueError("all_period_census_residual_drift")
 
     _manifest36, files36 = r36._build(ledger_dir, r36.DEFAULT_MANUAL_CSV)

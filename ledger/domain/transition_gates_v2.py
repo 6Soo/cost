@@ -1058,6 +1058,17 @@ def _allocation_decision_gate(
            GROUP BY p.id,p.external_key
            HAVING COUNT(*)=3
            ORDER BY p.external_key""", (run_id,)).fetchall()
+    full_axis_rows = db.execute(
+        """SELECT p.external_key,COUNT(*)
+           FROM classification_decisions c
+           JOIN payment_transactions p ON p.id=c.target_id
+           JOIN direct_payment_projection_links l ON l.payment_id=p.id
+           WHERE l.run_id=? AND c.target_type='payment'
+             AND c.decision_status='confirmed'
+             AND c.dimension IN ('account','cost_type','vat_tag','allocation_target')
+           GROUP BY p.id,p.external_key
+           HAVING COUNT(*)=4
+           ORDER BY p.external_key""", (run_id,)).fetchall()
     scope = _direct_event_role_scope(
         [
             {
@@ -1081,6 +1092,8 @@ def _allocation_decision_gate(
             "unresolved_count": unresolved,
             "partial_taxonomy_payment_count": len(partial_rows),
             "partial_taxonomy_decision_count": sum(int(row[1]) for row in partial_rows),
+            "full_axis_payment_count": len(full_axis_rows),
+            "full_axis_decision_count": sum(int(row[1]) for row in full_axis_rows),
             "unresolved_event_key_sample": [
                 str(row[0]) for row in payments[:10]
             ],

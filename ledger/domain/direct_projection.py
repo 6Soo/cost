@@ -48,6 +48,8 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/direct_projection_schema.sql"),
     Path("ledger/domain/direct_projection.py"),
     Path("ledger/domain/direct_all_period_user_approved_taxonomy_admission.py"),
+    Path("ledger/domain/direct_all_period_manual_frontier_lodging_admission.py"),
+    Path("ledger/domain/direct_all_period_manual_frontier_agoda_airfare_admission.py"),
     Path("ledger/domain/direct_all_period_residual_census.py"),
     Path("ledger/domain/direct_merchant_taxonomy_support.py"),
     Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
@@ -491,6 +493,78 @@ def project_user_approved_taxonomy_decisions(
     return {"payments": len(decisions), "decisions": inserted}
 
 
+def project_manual_frontier_lodging_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    from ledger.domain.direct_all_period_manual_frontier_lodging_admission import (
+        build_manual_frontier_lodging_admission,
+    )
+    admission = build_manual_frontier_lodging_admission(ledger_dir=ledger_dir)
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    inserted = 0
+    for row in admission["decisions"]:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("manual_frontier_lodging_projection_event_missing")
+        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
+                                 ("vat_tag", "vat_tag"),
+                                 ("allocation_target", "trip_target")):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, row[field], 1.0, "직접근거확정",
+                 admission["manifest"]["rule_version"],
+                 "exact card/manual lodging group; posting remains blocked"))
+            inserted += 1
+    if len(admission["decisions"]) != 6 or inserted != 24:
+        raise ValueError("manual_frontier_lodging_projection_count_invalid")
+    return {"payments": 6, "decisions": 24}
+
+
+def project_manual_frontier_airfare_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    from ledger.domain.direct_all_period_manual_frontier_agoda_airfare_admission import (
+        build_manual_frontier_agoda_airfare_admission,
+    )
+    admission = build_manual_frontier_agoda_airfare_admission(ledger_dir=ledger_dir)
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    inserted = 0
+    for row in admission["decisions"]:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("manual_frontier_airfare_projection_event_missing")
+        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
+                                 ("vat_tag", "vat_tag"),
+                                 ("allocation_target", "trip_target")):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, row[field], 1.0, "직접근거확정",
+                 admission["manifest"]["rule_version"],
+                 "exact card/manual/OTA airfare group; individual bijection not asserted"))
+            inserted += 1
+    if len(admission["decisions"]) != 2 or inserted != 8:
+        raise ValueError("manual_frontier_airfare_projection_count_invalid")
+    return {"payments": 2, "decisions": 8}
+
+
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
     return candidate_semantic_sha256(db, run_id)
 
@@ -765,6 +839,10 @@ def build_direct_candidate(
         projected = project_card_payments(db, run_id)
         projected_relations = project_card_relations(db, run_id)
         projected_taxonomy = project_user_approved_taxonomy_decisions(db, run_id, ledger)
+        projected_manual_frontier_lodging = project_manual_frontier_lodging_decisions(
+            db, run_id, ledger)
+        projected_manual_frontier_airfare = project_manual_frontier_airfare_decisions(
+            db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
             """
@@ -846,6 +924,8 @@ def build_direct_candidate(
             },
             "projected_relations": projected_relations,
             "projected_taxonomy": projected_taxonomy,
+            "projected_manual_frontier_lodging": projected_manual_frontier_lodging,
+            "projected_manual_frontier_airfare": projected_manual_frontier_airfare,
             "failed_gates": [
                 str(gate["name"])
                 for gate in report["gates"]
