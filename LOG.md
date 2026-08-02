@@ -2049,3 +2049,8 @@ lineage annex, `trips.json` 전체 SHA, 611 event set
 `awaiting_user_policy_decision`, `database_applied=false`, `posting_status=blocked`이며 DB/정본을
 변경하지 않았다. focused 3/3, py_compile, diff-check PASS, `STATUS.md` 불변이다.
 GPT-5.6 Sol medium이 다른 모델/CLI 재위임 없이 직접 감사·구현했다.
+
+추가로 현재 후보 DB에 투영되는 모든 admission을 live 재생성해 유일 payment 139건
+(사용자 승인 taxonomy116 + manual frontier8 + Mutsu6 + Kamenoi2 + exact partial7)을 구했다.
+611 대량 승계 후보와의 교집합은 0건이다. census에 `already_projected_payment_count=139`,
+`already_projected_overlap_count=0`을 fail-closed 불변식으로 추가했고 focused 4/4 PASS(84.040초)다.

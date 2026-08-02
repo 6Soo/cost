@@ -33,6 +33,36 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _already_projected_keys(ledger_dir: Path) -> set[str]:
+    from ledger.domain.direct_all_period_user_approved_taxonomy_admission import (
+        build_user_approved_taxonomy_admission,
+    )
+    from ledger.domain.direct_all_period_manual_frontier_lodging_admission import (
+        build_manual_frontier_lodging_admission,
+    )
+    from ledger.domain.direct_all_period_manual_frontier_agoda_airfare_admission import (
+        build_manual_frontier_agoda_airfare_admission,
+    )
+    from ledger.domain.direct_all_period_verified_mutsu_lodging_admission import (
+        build_verified_mutsu_lodging_admission,
+    )
+    from ledger.domain.direct_all_period_verified_kamenoi_lodging_admission import (
+        build_verified_kamenoi_lodging_admission,
+    )
+    from ledger.domain.direct_all_period_verified_partial_booking_admission import (
+        build_verified_partial_booking_admission,
+    )
+    packages = (
+        build_user_approved_taxonomy_admission(ledger_dir=ledger_dir),
+        build_manual_frontier_lodging_admission(ledger_dir=ledger_dir),
+        build_manual_frontier_agoda_airfare_admission(ledger_dir=ledger_dir),
+        build_verified_mutsu_lodging_admission(ledger_dir=ledger_dir),
+        build_verified_kamenoi_lodging_admission(ledger_dir=ledger_dir),
+        build_verified_partial_booking_admission(ledger_dir=ledger_dir),
+    )
+    return {row["direct_event_key"] for package in packages for row in package["decisions"]}
+
+
 def build_historical_carryforward_census(
         *, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
     if ledger_dir.resolve() != (Path(REPOSITORY_ROOT) / "ledger").resolve():
@@ -79,6 +109,8 @@ def build_historical_carryforward_census(
     sources = dict(sorted(Counter(
         str(row["historical_uid"]).split("-", 1)[0] for row in selected).items()))
     lifecycle = [row for row in selected if not row["gate5_trip_eligible"]]
+    already_projected = _already_projected_keys(ledger_dir)
+    overlap = keys & already_projected
     if (strict_before_policy != 764 or len(selected) != 611 or len(eligible) != 608
             or r36._event_set_sha(keys) != CLASSIFICATION_SET_SHA256
             or r36._event_set_sha(eligible) != GATE5_ELIGIBLE_SET_SHA256
@@ -87,7 +119,8 @@ def build_historical_carryforward_census(
             or len(lifecycle) != 3
             or {row["historical_uid"] for row in lifecycle}
             != {"KBD-0779", "KBD-0781", "KBD-0783"}
-            or {row["bucket"] for row in lifecycle} != {"취소환불"}):
+            or {row["bucket"] for row in lifecycle} != {"취소환불"}
+            or len(already_projected) != 139 or overlap):
         raise ValueError("carryforward_census_drift")
     return {
         "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
@@ -100,6 +133,8 @@ def build_historical_carryforward_census(
         "semantic_set_sha256": SEMANTIC_SET_SHA256,
         "account_counts": accounts, "source_counts": sources,
         "lifecycle_uids": sorted(row["historical_uid"] for row in lifecycle),
+        "already_projected_payment_count": len(already_projected),
+        "already_projected_overlap_count": len(overlap),
         "current_event_set_sha256": annex["manifest"]["current_event_set_sha256"],
         "decision_scope_sha256": annex["manifest"]["decision_scope_sha256"],
         "authority_status": "awaiting_user_policy_decision",

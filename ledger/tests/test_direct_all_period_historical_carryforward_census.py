@@ -26,6 +26,10 @@ class HistoricalCarryforwardCensusTest(unittest.TestCase):
         self.assertEqual(self.result["posting_status"], "blocked")
         self.assertTrue(self.result["all_source_events_retained"])
 
+    def test_existing_projected_payments_do_not_overlap(self) -> None:
+        self.assertEqual(self.result["already_projected_payment_count"], 139)
+        self.assertEqual(self.result["already_projected_overlap_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
