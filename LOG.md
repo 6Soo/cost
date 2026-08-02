@@ -1728,3 +1728,16 @@ selected 3 set은 `24d585580723593e60f9b07e361a328ecf4bd45ae2231a5424fe4c614c0cb
 resolved union은 1,551→1,554, global residual은 3,777→3,774다. Q2 잔여는 최초 22에서
 숙박5+기업void4+취소/환불3을 해결해 10건이다. focused 실데이터 테스트 2/2 PASS(166.303초),
 py_compile PASS이며 DB 적용·게시·정본 전환은 하지 않았다. GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 Q2 수기 중복축 핸드오프 — 카드 2건만 분류
+
+최신 외부 manual에서 ANA 634,113원과 GYOMU 18,755원이 각각 2행씩 중복 기재됐지만 current
+card raw에는 각각 서로 다른 실제 1건만 존재한다. 새 `direct_q2_manual_duplicate_collapse_admission.py`는
+manual 4행을 비용 4건으로 만들지 않고 physical card event 2건에만 축을 부여한다. ANA는
+`0616_레분토&리시리/항공료/여행원가/불공제_해외`, GYOMU는
+`0620_묘코/기타비용/여행원가/불공제_해외`다. selected set은
+`b612c323caef871426049a5b52153b78d930e70678a149e1ba65cdf322a68120`이다.
+
+accepted/resolved union은 1,554→1,556, global residual은 3,774→3,772, Q2 잔여는 10→8이다.
+manual duplicate rows2를 명시적으로 extra event가 아니라고 기록한다. focused 실데이터 테스트 2/2
+PASS(170.122초), py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
