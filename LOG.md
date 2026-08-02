@@ -1819,3 +1819,16 @@ py_compile PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았다. �
 focused 실데이터 3/3 PASS(325.161초), py_compile PASS, DB/정본 변경 없음이다. 보호된 사용자
 `STATUS.md`는 변경하지 않았다. 전역 워커 규칙상 다른 모델/CLI로 재위임하지 않고 GPT-5.6 Sol
 medium이 직접 구현·검증했다.
+
+## 2026-08-03 국민 해외 취소 현지금액 관계 census — 135건 중 exact group 62
+
+승인번호가 없는 KBO 취소 135건을 P25 전 기간 universe에서 카드4·통화·현지금액 소수보존·가맹점
+exact key로 전수 대조했다. 새 `direct_all_period_kbo_lifecycle_pair_census.py`는 취소 수와 선행 구매
+수가 같은 그룹만 관계 증거로 인정한다. 1:1 유일 관계 44건과 2:2 세 그룹, 3:3 한 그룹, 9:9 한
+그룹의 unordered atomic 18건, 합계 62건이다. 다건 그룹은 개별 bijection을 주장하지 않는다.
+
+잔여 73건은 구매 부재 또는 취소/구매 cardinality 불일치라 동액 추정으로 연결하지 않는다. selected
+set SHA는 `75dfdaf66934d87d46892f2ecc962dc698108d180e9d688e2a84e088e344b800`다. 관계만 보존하며
+계정·여행·VAT·전기·full classification delta는 0이고 DB/정본 변경도 없다. focused 실데이터 3/3
+PASS(154.904초), py_compile PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았고 GPT-5.6 Sol
+medium이 전역 워커 규칙에 따라 직접 구현·검증했다.
