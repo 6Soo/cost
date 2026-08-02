@@ -1834,3 +1834,16 @@ set SHA는 `75dfdaf66934d87d46892f2ecc962dc698108d180e9d688e2a84e088e344b800`다
 계정·여행·VAT·전기·full classification delta는 0이고 DB/정본 변경도 없다. focused 실데이터 3/3
 PASS(최신 155.005초), py_compile PASS다. 보호된 사용자 `STATUS.md`는 변경하지 않았고 GPT-5.6 Sol
 medium이 전역 워커 규칙에 따라 직접 구현·검증했다.
+
+## 2026-08-03 전 기간 카드 원천 범위 census — 5,237 RAW→5,328 event, 제외 0
+
+`direct_all_period_source_coverage_census.py`로 카드 원본 5개 파일 SHA와 전 행을 다시 고정했다.
+RAW는 CORP174/HAN2,097/KBD1,287/KBO1,679, 합계 5,237행이며 HAN 승인+취소 component 91개가
+추가되어 normalized event 5,328건이 된다. 기간 필터로 제외된 입력행은 0이다.
+
+다만 파일 자체의 날짜 범위는 CORP 2026-01-25~07-14, HAN 2025-07-21~2026-07-20,
+KBD 2025-05-06~2026-07-15, KBO 2025-07-21~2026-07-14다. 따라서 KBD 환불 중 원승인번호가
+현재 5,328건의 어느 구매에도 없는 29건은 DB 삭제나 분기 필터가 아니라 제공 원천 이전/밖의 구매
+부재다. 보유하지 않은 선행 거래를 생성하거나 분류하지 않으며 환불 RAW 자체는 계속 보존한다.
+focused 3/3 PASS(0.996초), py_compile PASS, DB/정본 변경 없음, `STATUS.md` 불변이다. GPT-5.6 Sol
+medium이 전역 워커 규칙에 따라 직접 구현·검증했다.
