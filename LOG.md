@@ -1756,3 +1756,17 @@ portal booking1↔card event2의 개별 bijection이나 중복 결제 정당성�
 `5751262cd691a9339a215d32418fd4f7dcc7e070828223f8dee8aa3eb093b822`, accepted union
 1,556→1,558, global residual 3,772→3,770, Q2 잔여 8→6이다. focused 3/3 PASS(172.505초),
 py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
+
+## 2026-08-03 Q2 Minatoya 포털 핸드오프 — JPY tolerance 그룹 2건
+
+동일 인증 Agoda 포털 Git 객체에서 예약 1723193688은 card4 8835, JPY12,069,
+2026-10-11~12, confirmed다. current KBO에는 2026-06-26 JPY11,885/KRW116,935의 서로 다른
+physical source 2건이 있다. 차이는 152bp이며 P11의 외화 공간 대조 원칙에 따라 명시적 200bp
+상한 안에서만 허용했다.
+
+새 `direct_q2_minatoya_portal_admission.py`는 portal file 전체 hash·record·JPY tolerance·current
+cardinality를 live 검증하고 두 건을 `1010_도쿠시마/숙박비/여행원가/불공제_해외`로 분류한다.
+portal booking1↔card2의 개별 bijection은 주장하지 않는다. selected set
+`8c839c3a275dc6846d47508dc7c494b39918f3ec466bbf3b00182a75ea890eb1`, accepted union
+1,558→1,560, global residual 3,770→3,768, Q2 잔여 6→4다. focused 3/3 PASS(175.829초),
+py_compile PASS, DB 적용·게시·정본 전환 없음, GPT-5.6 Sol medium 직접 수행이다.
