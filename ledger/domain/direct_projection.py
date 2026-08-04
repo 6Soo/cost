@@ -54,6 +54,8 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/direct_all_period_verified_mutsu_lodging_admission.py"),
     Path("ledger/domain/direct_all_period_verified_kamenoi_lodging_admission.py"),
     Path("ledger/domain/direct_all_period_verified_partial_booking_admission.py"),
+    Path("ledger/domain/direct_all_period_historical_carryforward_census.py"),
+    Path("ledger/domain/direct_all_period_historical_carryforward_admission.py"),
     Path("ledger/domain/direct_all_period_residual_census.py"),
     Path("ledger/domain/direct_merchant_taxonomy_support.py"),
     Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
@@ -675,6 +677,41 @@ def project_verified_partial_booking_decisions(
     return {"payments": 7, "decisions": 17, "gate5_credit": 0}
 
 
+def project_historical_carryforward_decisions(
+        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
+    from ledger.domain.direct_all_period_historical_carryforward_admission import (
+        build_historical_carryforward_admission,
+    )
+    admission = build_historical_carryforward_admission(ledger_dir=ledger_dir)
+    payment_by_key = {
+        f"{row[0]}#{row[1]}": int(row[2])
+        for row in db.execute(
+            """SELECT d.card_event_id,d.event_role,l.payment_id
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               WHERE l.run_id=?""", (run_id,)).fetchall()
+    }
+    inserted = 0
+    for row in admission["decisions"]:
+        payment_id = payment_by_key.get(row["direct_event_key"])
+        if payment_id is None:
+            raise ValueError("carryforward_projection_event_missing")
+        for dimension, value in sorted(row["axes"].items()):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
+                (payment_id, dimension, value, 1.0, "코드재현확정",
+                 admission["manifest"]["rule_version"],
+                 "isolated legacy code replay reproduced UID and all four axes exactly"))
+            inserted += 1
+    if len(admission["decisions"]) != 611 or inserted != 2444:
+        raise ValueError("carryforward_projection_count_invalid")
+    return {"payments": 611, "decisions": 2444,
+            "gate5_trip_eligible": 608, "lifecycle_nontrip": 3}
+
+
 def project_confirmed_full_axis_allocations(
         db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
     """Allocate only payments whose four direct-evidence axes are confirmed."""
@@ -690,12 +727,18 @@ def project_confirmed_full_axis_allocations(
            GROUP BY p.id,p.amount_krw
            HAVING COUNT(*)=4
            ORDER BY p.id""", (run_id,)).fetchall()
-    if len(rows) != 16:
+    if len(rows) != 627:
         raise ValueError("direct_full_axis_allocation_scope_invalid")
     allocations = 0
+    nontrip = 0
     for payment_id, amount, target_code, source_decision_id, decision_count in rows:
         trip = trips.get(str(target_code))
-        if (trip is None or set(trip) != {"tab", "mm", "dd", "region", "window"}
+        if trip is None:
+            if str(target_code) != "취소환불":
+                raise ValueError("direct_full_axis_allocation_target_unknown")
+            nontrip += 1
+            continue
+        if (set(trip) != {"tab", "mm", "dd", "region", "window"}
                 or int(amount) <= 0 or int(decision_count) != 4):
             raise ValueError("direct_full_axis_allocation_trip_invalid")
         start = date(2026, int(trip["mm"]), int(trip["dd"]))
@@ -723,7 +766,11 @@ def project_confirmed_full_axis_allocations(
             "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,?)",
             (plan_id, target_id, int(amount)))
         allocations += 1
-    return {"payments": len(rows), "plans": len(rows), "allocations": allocations}
+    if allocations != 624 or nontrip != 3:
+        raise ValueError("direct_full_axis_allocation_partition_invalid")
+    return {"full_axis_payments": len(rows), "payments": allocations,
+            "plans": allocations, "allocations": allocations,
+            "nontrip_full_axis_payments": nontrip}
 
 
 def candidate_semantic_snapshot(db: object, run_id: str) -> str:
@@ -1010,6 +1057,8 @@ def build_direct_candidate(
             db, run_id, ledger)
         projected_verified_partial_booking = project_verified_partial_booking_decisions(
             db, run_id, ledger)
+        projected_historical_carryforward = project_historical_carryforward_decisions(
+            db, run_id, ledger)
         projected_allocations = project_confirmed_full_axis_allocations(db, run_id, ledger)
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
@@ -1097,6 +1146,7 @@ def build_direct_candidate(
             "projected_verified_mutsu_lodging": projected_verified_mutsu_lodging,
             "projected_verified_kamenoi_lodging": projected_verified_kamenoi_lodging,
             "projected_verified_partial_booking": projected_verified_partial_booking,
+            "projected_historical_carryforward": projected_historical_carryforward,
             "projected_allocations": projected_allocations,
             "failed_gates": [
                 str(gate["name"])

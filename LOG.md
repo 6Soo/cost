@@ -2054,3 +2054,37 @@ GPT-5.6 Sol medium이 다른 모델/CLI 재위임 없이 직접 감사·구현�
 (사용자 승인 taxonomy116 + manual frontier8 + Mutsu6 + Kamenoi2 + exact partial7)을 구했다.
 611 대량 승계 후보와의 교집합은 0건이다. census에 `already_projected_payment_count=139`,
 `already_projected_overlap_count=0`을 fail-closed 불변식으로 추가했고 focused 4/4 PASS(84.040초)다.
+
+## 2026-08-04 과거 분류 코드 재생성 검증 — 611/611 네 축 일치, 608 배분 투영
+
+사용자가 과거 담당자의 판단 프로세스가 코드에 남아 있음을 지적했다. 이에 따라
+`classified_v14.csv`를 단순 과거 스냅샷으로만 보던 이전의 보수적 판정을 재감사했다.
+생성 계보 `build_v13_trip.py → fix_v14.py → patch_v14.py → integrity_check.py`와
+`cardindex.py`, 원장 교정 이력이 저장소에 남아 있음을 확인했다.
+
+현재 브랜치를 건드리지 않고 `/tmp/cost-replay-5fkTOyhm/repo` detached worktree에서 상기
+계보를 재실행했다. `build_v13_trip.py`는 Q2 승인카드 누락 0을 재현했다. 전체
+재생성 v14는 1,684행/310,130,982원으로 현재 스냅샷 1,833행과는 다르고 integrity
+이슈 13건이 남아, 전체 v14의 무조건 승계는 기각했다. 그러나 이번 선택 611 UID는
+재생성 결과에 611/611 전부 존재했고 `bucket/account/cost_type/vat_tag` 네 축이
+611/611 일치했으며 changed 0, missing 0이었다. 따라서 이 집합은 새 대량 판단이
+아니라 기존 코드·사용자 교정 프로세스의 재실행 결과로 재판정했다.
+
+새 `direct_all_period_historical_carryforward_admission.py`는 매 후보 빌드에서 `ledger/`를
+임시 디렉터리로 복사하고 생성 3단계를 격리 재실행한다. 재생성 v14 1,684행 SHA
+`93ad47c4ef78301d1934411e53bc48e560cba2bce1fe7f926af32a2b384a5fc1`과 611 UID/네 축이
+정확히 일치할 때만 `confirmed_by_reproducible_code_replay`로 승격한다. 코드·입력·출력
+중 하나라도 달라지면 fail-closed한다.
+
+후보 DB에 611 payment의 decision 2,444행을 투영했다. `trips.json` target인 608건에만
+전액 confirmed allocation을 만들고, `취소환불` lifecycle 3건은 네 축을 보존하되 여행 plan을
+만들지 않았다. 기존 16건을 포함한 full-axis payment은 627, plans/allocations은 624/624,
+Gate 5 resolved 624/unresolved 4,704가 됐다. 원천 5,328건·relation 330건은 전량 보존되고,
+새 candidate semantic SHA는
+`8971922de7c8d4c236e3c8b9d8397e908022f33005aa94b109e91a0371141b57`다. Gate 6 승인
+baseline이 없으므로 후보는 여전히 미게시다.
+
+admission 3/3(97.265초), 실데이터 candidate/owner rebuild, transition gates 50/50(399.134초),
+owner-review invariant·tamper(945.202초)가 모두 PASS했다. 임시 detached worktree는 검증 후
+제거했고, 보호된 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium이 전역 워커
+규칙에 따라 다른 모델/CLI 재위임 없이 직접 재현·구현·검증했다.

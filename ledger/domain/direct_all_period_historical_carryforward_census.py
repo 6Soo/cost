@@ -140,4 +140,5 @@ def build_historical_carryforward_census(
         "authority_status": "awaiting_user_policy_decision",
         "database_applied": False, "posting_status": "blocked",
         "all_source_events_retained": True,
+        "candidates": sorted(selected, key=lambda row: row["direct_event_key"]),
     }
