@@ -2088,3 +2088,83 @@ admission 3/3(97.265초), 실데이터 candidate/owner rebuild, transition gates
 owner-review invariant·tamper(945.202초)가 모두 PASS했다. 임시 detached worktree는 검증 후
 제거했고, 보호된 `STATUS.md`는 변경하지 않았다. GPT-5.6 Sol medium이 전역 워커
 규칙에 따라 다른 모델/CLI 재위임 없이 직접 재현·구현·검증했다.
+
+## 2026-08-04 세션 이동 최종 핸드오프 — 5,328건 보존·624건 직접 해결·후보 미게시
+
+### 현재 정본과 Git 상태
+
+- 작업 브랜치와 원격은 `codex/p07-canonical-cutover-candidate`이며, 이 블록 작성 직전 구현
+  HEAD는 `f03f734`(`ledger: replay and allocate historical decisions`)다. 직전 연속 커밋은
+  `c099df6`, `6d89cc7`, `6cf6f5c`, `b64f446`, `3d576d4`, `97ddd45`, `acae5d6`다.
+- `STATUS.md`는 사용자가 별도로 수정한 보호 파일이다. 내용 SHA는
+  `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`이며 이 세션에서는
+  편집·스테이징·커밋하지 않았다. `AGENTS.md` SHA는
+  `3042ea2ccf6b9eef62ae777506302d8edfc392ac1cb8516822bf52b925bf1fe4`다.
+- DB/정본 게시, 운영 전기, 배포는 수행하지 않았다. 현재 산출물은 검증용 candidate뿐이다.
+
+### 사용자가 확정한 불변 원칙
+
+1. 카드 원천 및 정규화 이벤트 **5,328건은 모두 DB에 보존**한다. 삭제·분기 필터로 수를
+   줄이지 않는다. 5,328은 미분류 수가 아니라 전체 normalized event 수다.
+2. **Q2라는 범위 개념은 폐기**한다. 모든 기간의 원천을 보존하고 직접 증거 단위로 판단한다.
+3. 과거 담당자의 판정 코드는 재실행 가능한 증거다. 다만 현재 `classified_v14.csv` 전체를
+   무조건 신뢰하지 않고, 재실행 결과와 현재 lineage가 정확히 일치하는 축만 승격한다.
+4. `확인`, `공제후보` 같은 placeholder/proposal은 confirmed 최종 판단으로 바꾸지 않는다.
+   새 대량 정책판단은 금지하되 기존 코드·입력으로 결정론적으로 재현되는 판단은 자동 진행한다.
+5. Gate를 통과하지 않은 candidate DB는 게시하지 않으며 승인 baseline을 만들어내거나 가장하지 않는다.
+
+### 지금까지 후보 DB에 반영된 내용
+
+- source events 5,328건 전량과 proposed transaction relations 330건을 보존했다.
+- 사용자 승인 저모호성 taxonomy 116건, manual frontier 8건, 인증 Mutsu 숙박 6건,
+  인증 Kamenoi 숙박 2건, exact 예약 부분축 7건을 직접 증거로 투영했다.
+- 과거 생성 계보 `build_v13_trip.py → fix_v14.py → patch_v14.py`를 격리 재실행했다.
+  재생성 결과는 1,684행/310,130,982원, SHA
+  `93ad47c4ef78301d1934411e53bc48e560cba2bce1fe7f926af32a2b384a5fc1`이다. 현재 역사
+  스냅샷 1,833행과 다르고 integrity 이슈 13건이므로 전체 승계는 기각했다.
+- 엄격 후보 611건만 네 축이 재생성 결과와 611/611 일치(changed 0, missing 0)해 confirmed
+  decision 2,444행으로 승격했다. 그중 여행 target 608건은 배분했고, `취소환불` lifecycle
+  3건은 분류만 보존하고 여행 plan은 만들지 않았다.
+- 현재 full-axis payments 627건, confirmed plans/allocations 624/624건이다. Gate 5는
+  **resolved 624 / unresolved 4,704**다. 4,704는 원천이나 자료가 삭제된 수가 아니라,
+  네 축과 여행 배분 계약을 아직 모두 충족하지 않은 이벤트 수다.
+- candidate semantic SHA는
+  `8971922de7c8d4c236e3c8b9d8397e908022f33005aa94b109e91a0371141b57`다.
+
+### 검증 완료값과 게시 상태
+
+- carryforward census 4/4 PASS(84.040초), admission 3/3 PASS(97.265초), 실제 candidate/owner
+  rebuild PASS, transition gates 50/50 PASS(399.134초), owner-review invariant·tamper PASS
+  (945.202초)다.
+- Gate 1/2/3/4/7은 현 구조에서 통과했다. Gate 5는 4,704건 미완결 때문에 FAIL,
+  Gate 6은 승인된 direct baseline이 없어 FAIL이다. 따라서 **CUTOVER=FAIL, candidate 미게시**가
+  정상이고 안전한 현재 상태다.
+- OTA 대사는 완전히 끝난 것이 아니다. 저장소에 인증된 exact 예약은 위 범위까지 투영했지만,
+  VAT 또는 여행축을 증거가 확정하지 못한 7건은 부분축으로 남겼고 증거 없는 축을 추정하지 않았다.
+
+### 다음 세션이 승인 질문 없이 바로 수행할 우선순위
+
+1. 최초 엄격 replay 집합 764건 중 완전 승계 611건을 제외한 **153건**을 전수 감사한다.
+   대략 `여행원가+VAT 확인` 66, `판관비+공제후보` 36, `여행원가+공제후보` 29,
+   `cost_type 확인+불공제_해외` 11, 기타 11건이다.
+2. 153건에서 replay가 확정하는 concrete `account`, `bucket`, `cost_type`, 최종 VAT 축만
+   부분 decision으로 투영한다. `확인`과 `공제후보`는 미확정으로 유지한다. 기존 139개 직접
+   투영 UID 및 611 승계 UID와 교집합이 0인지 다시 fail-closed 검증한다.
+3. 재생성 파이프라인이 후보 빌드마다 중복 실행되어 매우 느리므로 full/partial admission이
+   한 번의 격리 replay 결과를 공유하도록 리팩터링하되, 고정 row/SHA/UID/축 검증은 약화하지 않는다.
+4. focused admission → 실제 candidate build → transition 50개 → owner tamper 순으로 검증하고,
+   semantic SHA와 owner-review 기대값을 갱신한다. `STATUS.md`는 계속 제외한다.
+5. 그 뒤 남은 4,704건을 direct evidence/source family별로 재분할해 다음 고효율 묶음을 처리한다.
+   증거가 없는 축을 가맹점명만으로 대량 확정하지 않는다. Gate 6 baseline 권한이 생기기 전에는
+   게시·cutover를 시도하지 않는다.
+
+### 채팅의 저장소 외 별도 맥락
+
+- 사용자는 WSL + Orca Mobile에서 세션 목록/미리보기는 보이지만 채팅 본문이 무한 로딩되는 문제와
+  최신 업데이트 링크도 요청했다. 이 브랜치에는 해당 앱 수정이나 검증된 웹 조사 산출물이 없으므로,
+  다음 세션에서 이 문제를 이어갈 경우 현행 버전·공식 릴리스·WSL 네트워크/인증 로그를 새로 확인해야
+  하며 이 원장 작업의 완료로 오인하지 않는다.
+- 터미널 입력창 전체 선택 단축키 질문도 별도 UI 질문이며 저장소 변경 사항은 없다.
+
+이 최종 핸드오프는 GPT-5.6 Sol medium이 현재 워커 지침에 따라 작성했다. 모델 상호검증은 이 CLI의
+워커 스텁에서 재위임이 금지되어 수행하지 않았고, 기존 검증 결과와 재현 가능한 로컬 증거만 기록했다.
