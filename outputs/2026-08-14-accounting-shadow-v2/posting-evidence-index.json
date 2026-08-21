@@ -1,0 +1,145 @@
+{
+  "conditional_target": {
+    "accounting_candidate_payment_count": 5167,
+    "production_posted_payment_count": 0,
+    "requires_family_approval": true,
+    "requires_gate5_gate6_han_release_attestation": true
+  },
+  "family_approval_request": {
+    "decision_status": "pending_user_decision",
+    "file": "family-approval-request-unresolved-2026-v1.json",
+    "payment_count": 1253,
+    "sha256": "ad36e9c9c8169d9acd8ad50ca3b8cbf949399b6237ea7c9f2d3ca11351de9749",
+    "signed_amount_krw": 189627699
+  },
+  "index_version": "accounting-posting-evidence-index-v1",
+  "preflight": {
+    "actual_posting_completed": false,
+    "blocker_count": 4,
+    "file": "release-preflight-report.json",
+    "release_ready": false,
+    "sha256": "9aa289da6dc229c506eef17a7ab10fd9b40e8f23bb267d9ed7b9343fbe1d1e64"
+  },
+  "reports": [
+    {
+      "blocked_reasons": [],
+      "candidate_payment_count": null,
+      "external_posting": null,
+      "file": "base-report.json",
+      "legacy_journal_count": 0,
+      "mode": "base",
+      "passed": true,
+      "posted_payment_count": null,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 3914,
+      "sha256": "9eb5ae2f4a413c9465bcb42c74b16f86b26382df6c6a2b58bdfbc51be93e7fdb",
+      "status": null
+    },
+    {
+      "blocked_reasons": [],
+      "candidate_payment_count": null,
+      "external_posting": null,
+      "file": "with-2026-clearing-report.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": true,
+      "posted_payment_count": null,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 5167,
+      "sha256": "92b1009169c2f05f453b1d05170e7fb8aec8ea41b5de267881c8109fe875ad6e",
+      "status": null
+    },
+    {
+      "blocked_reasons": [],
+      "candidate_payment_count": 5167,
+      "external_posting": false,
+      "file": "posting-candidate-report.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": true,
+      "posted_payment_count": 0,
+      "run_id": null,
+      "selected_payment_count": 5167,
+      "sha256": "09d846db92844a97cc2eda6d61e739b88e6aebecdb6d373c6b9cd9cc57d60bf5",
+      "status": "candidate"
+    },
+    {
+      "blocked_reasons": [
+        "family_approval_missing"
+      ],
+      "candidate_payment_count": null,
+      "external_posting": false,
+      "file": "posting-blocked-family-report.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": false,
+      "posted_payment_count": 0,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 5167,
+      "sha256": "1a80b902b00fcd076bdff10867e7c2a37e96d944fd00e056c9a24dd19481d93a",
+      "status": "blocked"
+    },
+    {
+      "blocked_reasons": [
+        "family_approval_attestation_missing_or_invalid",
+        "release_attestation_missing_or_invalid"
+      ],
+      "candidate_payment_count": null,
+      "external_posting": false,
+      "file": "posting-blocked-release-report.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": false,
+      "posted_payment_count": 0,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 5167,
+      "sha256": "1590351ce1e66088907c92614ebd5f8da7dd977ea5262040cbfba8dbf45c3ce4",
+      "status": "blocked"
+    },
+    {
+      "blocked_reasons": [
+        "user_family_approval_missing",
+        "gate6_baseline_unavailable",
+        "han_release_attestation_missing",
+        "production_chart_mapping_missing"
+      ],
+      "candidate_payment_count": 5167,
+      "external_posting": false,
+      "file": "release-preflight-report.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": false,
+      "posted_payment_count": 0,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 5167,
+      "sha256": "9aa289da6dc229c506eef17a7ab10fd9b40e8f23bb267d9ed7b9343fbe1d1e64",
+      "status": "blocked"
+    },
+    {
+      "blocked_reasons": [
+        "pending_user_decision"
+      ],
+      "candidate_payment_count": 1253,
+      "external_posting": false,
+      "file": "family-approval-request-unresolved-2026-v1.json",
+      "legacy_journal_count": 0,
+      "mode": "with_2026_clearing",
+      "passed": false,
+      "posted_payment_count": 0,
+      "run_id": "81ef975e382040d080087bcdd719993c",
+      "selected_payment_count": 1253,
+      "sha256": "ad36e9c9c8169d9acd8ad50ca3b8cbf949399b6237ea7c9f2d3ca11351de9749",
+      "status": "pending_user_decision"
+    }
+  ],
+  "run_id": "81ef975e382040d080087bcdd719993c",
+  "scope": "isolated shadow and posting candidate evidence; no external posting",
+  "test_summary": {
+    "combined": 11,
+    "direct_2025_cost_accounting": 4,
+    "direct_accounting_shadow": 7,
+    "git_diff_check": "pass",
+    "py_compile": "pass",
+    "test_transition_gates_v2": "not claimed; user-interrupted"
+  }
+}

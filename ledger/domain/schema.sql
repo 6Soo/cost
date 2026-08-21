@@ -81,7 +81,17 @@ CREATE TABLE IF NOT EXISTS direct_source_records (
     payload_json TEXT NOT NULL,
     redaction_version TEXT,
     imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_kind, source_key, source_sha256)
+    UNIQUE(source_kind, source_key, source_sha256),
+    -- booking_source_evidence uses this exact composite parent key so its
+    -- numeric id and copied source tuple cannot diverge.
+    UNIQUE(id, source_kind, source_key, source_sha256)
+);
+
+-- 정규화된 direct evidence와 canonical source_records의 lineage를 보존한다.
+CREATE TABLE IF NOT EXISTS direct_source_lineage (
+    direct_source_record_id INTEGER NOT NULL REFERENCES direct_source_records(id),
+    source_record_id INTEGER NOT NULL REFERENCES source_records(id),
+    PRIMARY KEY(direct_source_record_id, source_record_id)
 );
 
 CREATE TABLE IF NOT EXISTS direct_card_events (
@@ -219,6 +229,41 @@ CREATE TABLE IF NOT EXISTS booking_identifiers (
 CREATE INDEX IF NOT EXISTS booking_identifiers_by_value
 ON booking_identifiers(identifier);
 
+-- 하나의 예약을 메일·포털 등 여러 원천 증거가 공유한다.
+-- 원천 증거가 늘어도 bookings에 예약 행을 복제하지 않는다.
+CREATE TABLE IF NOT EXISTS booking_source_evidence (
+    id INTEGER PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(id),
+    direct_source_record_id INTEGER NOT NULL REFERENCES direct_source_records(id),
+    source_kind TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL,
+    evidence_kind TEXT NOT NULL CHECK(
+        evidence_kind IN ('ota_mail', 'ota_mail_live', 'agoda_portal_detail')
+    ),
+    evidence_role TEXT NOT NULL CHECK(
+        evidence_role IN (
+            'identity', 'service_period', 'portal_payment_claim',
+            'portal_card_observation', 'lifecycle'
+        )
+    ),
+    observed_at TEXT,
+    evidence_status TEXT NOT NULL DEFAULT 'observed' CHECK(
+        evidence_status IN ('observed', 'proposed', 'confirmed', 'rejected', 'superseded')
+    ),
+    conflict_count INTEGER NOT NULL DEFAULT 0 CHECK(conflict_count >= 0),
+    conflict_json TEXT NOT NULL DEFAULT '[]',
+    UNIQUE(booking_id, direct_source_record_id, evidence_role),
+    FOREIGN KEY(
+        direct_source_record_id, source_kind, source_key, source_sha256
+    ) REFERENCES direct_source_records(
+        id, source_kind, source_key, source_sha256
+    )
+);
+
+CREATE INDEX IF NOT EXISTS booking_source_evidence_by_booking
+ON booking_source_evidence(booking_id, evidence_kind);
+
 CREATE TABLE IF NOT EXISTS booking_provider_reviews (
     booking_id INTEGER PRIMARY KEY REFERENCES bookings(id),
     proposed_provider TEXT NOT NULL,
@@ -259,7 +304,7 @@ CREATE TABLE IF NOT EXISTS payment_amount_reconciliations (
     onsite_amount TEXT,
     reconciliation_type TEXT NOT NULL
         CHECK(reconciliation_type IN (
-            'exact', 'discount_adjusted', 'within_2_percent', 'mismatch', 'unknown'
+            'exact', 'discount_adjusted', 'mismatch', 'unknown'
         )),
     difference_ratio REAL,
     rule_id TEXT NOT NULL,
@@ -380,11 +425,15 @@ CREATE TABLE IF NOT EXISTS cost_allocations (
 CREATE TABLE IF NOT EXISTS allocation_review_cases (
     payment_id INTEGER PRIMARY KEY REFERENCES payment_transactions(id),
     outcome TEXT NOT NULL
-        CHECK(outcome IN ('trip', 'overhead', 'cancellation_settlement', 'insufficient_evidence')),
+        CHECK(outcome IN (
+            'trip', 'overhead', 'cancellation_settlement',
+            'travel_unassigned', 'insufficient_evidence',
+            'structural_rule_admitted', 'payment_year_2025'
+        )),
     reason_code TEXT NOT NULL,
     rationale TEXT NOT NULL,
     review_status TEXT NOT NULL
-        CHECK(review_status IN ('confirmed', 'needs_review')),
+        CHECK(review_status IN ('confirmed', 'needs_review', 'auto_provisional')),
     rule_id TEXT NOT NULL,
     reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

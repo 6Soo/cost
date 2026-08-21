@@ -1,0 +1,38 @@
+{
+  "artifact_type": "agoda-card-reconciliation-review-v1",
+  "generated_on": "2026-08-21",
+  "status": "FAIL",
+  "recording_mode": "read_only_review",
+  "review_scope": {
+    "legacy_staging_records": 555,
+    "refresh_staging_records": 591,
+    "current_upcoming_detail_evidence": 116,
+    "current_upcoming_card4_verified": 116,
+    "opaque_detail_canonical_membership_direct_match": 51,
+    "opaque_detail_canonical_membership_unresolved": 65
+  },
+  "confirmed_authority_count": 0,
+  "strict_official_amount_candidates": 41,
+  "unresolved_positive_card_rows": 130,
+  "exploratory_currency_aware_total_overlap": 135,
+  "agoda_staging_records": 555,
+  "positive_agoda_card_rows": 171,
+  "cancelled_excluded_from_staging": true,
+  "staging_card4_present": 0,
+  "refresh_detail_card4_present": 116,
+  "staging_page_metadata_present": 305,
+  "reasons": [
+    "legacy staging has no reservation-side card4; current opaque detail card4 is not yet a complete canonical membership and amount authority",
+    "gross and actual charged amount are not separated",
+    "on-site/future payment, discount, points, refund, and recharge are not separated",
+    "65 opaque detail identifiers are not directly bound to canonical list membership",
+    "completed/cancelled detail census convergence is not proven",
+    "candidate amount matches are not closed authority relations"
+  ],
+  "write_effects": {
+    "ledger_rows_written": 0,
+    "database_rows_written": 0,
+    "external_actions": 0
+  },
+  "promotion_rule": "Do not promote review_required candidates until currency, actual charged amount, card4, provider, and payment lifecycle form a closed 1:1 or N:N relation."
+}

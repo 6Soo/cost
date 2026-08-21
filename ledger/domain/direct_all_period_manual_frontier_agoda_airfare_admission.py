@@ -76,18 +76,21 @@ def build_manual_frontier_agoda_airfare_admission(
         "current_source_sha256": event["current_source_sha256"],
         "ota_message_group_sha256": evidence_sha,
         "account": "항공료", "cost_type": "여행원가",
-        "vat_tag": "불공제_해외", "trip_target": "0924_야마구치",
-        "decision_status": "confirmed", "posting_status": "blocked",
+        "trip_target": "0924_야마구치",
+        "candidate_status": "withheld_pending_independent_evidence",
+        "posting_status": "blocked",
         "individual_card_to_passenger_bijection_asserted": False,
     } for event in matches]
     return {"manifest": {
         "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
         "selected_event_set_sha256": SELECTED_SET_SHA256, "selected_count": 2,
-        "axis_decision_count": 8, "card_event_count": 2, "ota_message_count": 2,
+        "candidate_axis_count": 6, "gate5_credit": 0,
+        "authority_status": "candidate_only", "excluded_dimensions": ["vat_tag"],
+        "card_event_count": 2, "ota_message_count": 2,
         "individual_card_to_passenger_bijection_asserted": False,
         "current_event_set_sha256": current_event_set_sha256,
         "decision_scope_sha256": decision_scope_sha256,
         "manual_sha256": MANUAL_SHA256, "ota_sha256": OTA_SHA256,
         "posting_status": "blocked", "database_applied": False,
         "all_source_events_retained": True,
-    }, "decisions": sorted(decisions, key=lambda row: row["direct_event_key"])}
+    }, "candidates": sorted(decisions, key=lambda row: row["direct_event_key"])}

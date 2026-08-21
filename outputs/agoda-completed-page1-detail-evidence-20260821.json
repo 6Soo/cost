@@ -1,0 +1,654 @@
+{
+  "schema": "agoda-completed-page1-detail-evidence-v1",
+  "captured_at": "2026-08-21",
+  "browser_provider": "Paseo IAB",
+  "page": 1,
+  "list_count": 40,
+  "customer_center_clicks": 0,
+  "support_clicks": 0,
+  "scope": "completed_current_year_page1",
+  "records": [
+    {
+      "booking_id": "1701212145",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 73,196",
+        "JPY 15,368",
+        "오늘 결제됨",
+        "JPY 88,564",
+        "총 금액",
+        "JPY 88,564"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1703236054",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 11,532",
+        "JPY 2,421",
+        "오늘 결제됨",
+        "JPY 13,953",
+        "총 금액",
+        "JPY 13,953"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1701189825",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 26,558",
+        "JPY 5,576",
+        "오늘 결제됨",
+        "JPY 32,134",
+        "총 금액",
+        "JPY 32,134"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1701190303",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 78,258",
+        "JPY 16,437",
+        "오늘 결제됨",
+        "JPY 94,695",
+        "총 금액",
+        "JPY 94,695"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1748964047",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 89,918",
+        "KRW 23,830",
+        "오늘 결제됨",
+        "KRW 113,748",
+        "총 금액",
+        "KRW 113,748"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1748964256",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 102,605",
+        "KRW 10,304",
+        "오늘 결제됨",
+        "KRW 112,909",
+        "총 금액",
+        "KRW 112,909"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1755317286",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 9,066",
+        "JPY 1,903",
+        "오늘 결제됨",
+        "JPY 10,969",
+        "총 금액",
+        "JPY 10,969"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1755318830",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 5,936",
+        "JPY 692",
+        "오늘 결제됨",
+        "JPY 6,628",
+        "총 금액",
+        "JPY 6,628"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1755880764",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 42,083",
+        "KRW 8,838",
+        "오늘 결제됨",
+        "KRW 50,921",
+        "총 금액",
+        "KRW 50,921"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1755881743",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 43,676",
+        "KRW 9,169",
+        "오늘 결제됨",
+        "KRW 52,845",
+        "총 금액",
+        "KRW 52,845"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708856701",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 186,151",
+        "KRW 49,320",
+        "오늘 결제됨",
+        "KRW 235,471",
+        "총 금액",
+        "KRW 235,471"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708857090",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 375,800",
+        "KRW 99,594",
+        "오늘 결제됨",
+        "KRW 475,394",
+        "총 금액",
+        "KRW 475,394"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708857592",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 375,800",
+        "KRW 99,594",
+        "오늘 결제됨",
+        "KRW 475,394",
+        "총 금액",
+        "KRW 475,394"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708858096",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 375,800",
+        "KRW 99,594",
+        "오늘 결제됨",
+        "KRW 475,394",
+        "총 금액",
+        "KRW 475,394"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708858620",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 186,151",
+        "KRW 49,320",
+        "오늘 결제됨",
+        "KRW 235,471",
+        "총 금액",
+        "KRW 235,471"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708344534",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 70,640",
+        "JPY 18,720",
+        "오늘 결제됨",
+        "JPY 89,360",
+        "총 금액",
+        "JPY 89,360"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1708294064",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 120,000",
+        "JPY 12,000",
+        "JPY 132,000",
+        "총 금액",
+        "JPY 132,000"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746634873",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 135,869",
+        "KRW 28,540",
+        "오늘 결제됨",
+        "KRW 164,409",
+        "총 금액",
+        "KRW 164,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746635610",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 139,346",
+        "KRW 29,261",
+        "오늘 결제됨",
+        "KRW 168,607",
+        "총 금액",
+        "KRW 168,607"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746637348",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 135,869",
+        "KRW 28,540",
+        "오늘 결제됨",
+        "KRW 164,409",
+        "총 금액",
+        "KRW 164,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1750977977",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 40,000",
+        "JPY 4,000",
+        "JPY 44,000",
+        "총 금액",
+        "JPY 44,000"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746868752",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 246,824",
+        "KRW 26,736",
+        "오늘 결제됨",
+        "KRW 273,560",
+        "총 금액",
+        "KRW 273,560"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747621301",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 107,438",
+        "KRW 22,563",
+        "오늘 결제됨",
+        "KRW 123,506",
+        "총 금액",
+        "KRW 123,506"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747621542",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 122,149",
+        "KRW 25,653",
+        "오늘 결제됨",
+        "KRW 140,409",
+        "총 금액",
+        "KRW 140,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747621730",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 122,149",
+        "KRW 25,653",
+        "오늘 결제됨",
+        "KRW 140,409",
+        "총 금액",
+        "KRW 140,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747623006",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 122,149",
+        "KRW 25,653",
+        "오늘 결제됨",
+        "KRW 140,409",
+        "총 금액",
+        "KRW 140,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747623404",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 122,149",
+        "KRW 25,653",
+        "오늘 결제됨",
+        "KRW 140,409",
+        "총 금액",
+        "KRW 140,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747624162",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 122,149",
+        "KRW 25,653",
+        "오늘 결제됨",
+        "KRW 140,409",
+        "총 금액",
+        "KRW 140,409"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747624709",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 117,884",
+        "KRW 24,755",
+        "오늘 결제됨",
+        "KRW 135,500",
+        "총 금액",
+        "KRW 135,500"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746528232",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 1,183,656",
+        "KRW 118,340",
+        "오늘 결제됨",
+        "KRW 1,301,996",
+        "총 금액",
+        "KRW 1,301,996"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746528572",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 282,806",
+        "KRW 59,405",
+        "오늘 결제됨",
+        "KRW 342,211",
+        "총 금액",
+        "KRW 342,211"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1750971486",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 144,387",
+        "KRW 30,315",
+        "오늘 결제됨",
+        "KRW 174,702",
+        "총 금액",
+        "KRW 174,702"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747605746",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 188,782",
+        "KRW 39,647",
+        "오늘 결제됨",
+        "KRW 228,429",
+        "총 금액",
+        "KRW 228,429"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747606001",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 193,210",
+        "KRW 40,581",
+        "오늘 결제됨",
+        "KRW 233,791",
+        "총 금액",
+        "KRW 233,791"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1747606430",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 192,597",
+        "KRW 40,444",
+        "오늘 결제됨",
+        "KRW 233,041",
+        "총 금액",
+        "KRW 233,041"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1752665847",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 7,815",
+        "JPY 1,641",
+        "오늘 결제됨",
+        "JPY 9,456",
+        "총 금액",
+        "JPY 9,456"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1752665894",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "JPY 7,815",
+        "JPY 1,641",
+        "오늘 결제됨",
+        "JPY 9,456",
+        "총 금액",
+        "JPY 9,456"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746172827",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 247,206",
+        "KRW 51,936",
+        "오늘 결제됨",
+        "KRW 299,142",
+        "총 금액",
+        "KRW 299,142"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    },
+    {
+      "booking_id": "1746529645",
+      "detail_success": true,
+      "kind": "hotel",
+      "payment_section": true,
+      "card4_present": true,
+      "payment_fact_lines": [
+        "KRW 247,110",
+        "KRW 51,938",
+        "오늘 결제됨",
+        "KRW 299,048",
+        "총 금액",
+        "KRW 299,048"
+      ],
+      "title": "아고다 - 예약 정보 - 호텔"
+    }
+  ],
+  "summary": {
+    "unique_detail_records": 39,
+    "hotel_detail_captured": 39,
+    "flight_excluded": 0,
+    "detail_success": 39,
+    "card4_present": 39,
+    "payment_fact_present": 39,
+    "payment_state_counts": {
+      "paid_today": 37,
+      "other_payment_state": 2
+    },
+    "promotion_allowed": false,
+    "posting_allowed": false
+  },
+  "write_effects": {
+    "database_rows_inserted": 0,
+    "database_rows_updated": 0,
+    "posted_transactions": 0,
+    "workbook_rows_written": 0
+  }
+}

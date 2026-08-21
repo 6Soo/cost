@@ -1,4 +1,4 @@
-"""Admit six Plaza Hotel Mutsu payments from individually verified Agoda bookings."""
+"""Retain six legacy-bound Mutsu rows as booking candidates only."""
 from __future__ import annotations
 
 import hashlib
@@ -51,13 +51,8 @@ def build_verified_mutsu_lodging_admission(
                 or int(link.get("foreign_amount", 0)) != foreign_amount
                 or link.get("verification_source") != "agoda_booking_page"):
             raise ValueError("verified_mutsu_booking_contract_drift")
-        proposal = envelope.get("proposal") if isinstance(envelope, dict) else None
-        if (not isinstance(proposal, dict)
-                or (proposal.get("bucket"), proposal.get("account"),
-                    proposal.get("cost_type"), proposal.get("vat_tag"),
-                    proposal.get("confidence"), proposal.get("tax_conf"))
-                != (TRIP_TARGET, "숙박비", "여행원가", "불공제_해외", "상", "상")):
-            raise ValueError("verified_mutsu_lineage_contract_drift")
+        if not isinstance(envelope, dict):
+            raise ValueError("verified_mutsu_legacy_candidate_binding_missing")
         decisions.append({
             "direct_event_key": envelope["direct_event_key"],
             "current_event_sha256": envelope["current_event_sha256"],
@@ -67,8 +62,9 @@ def build_verified_mutsu_lodging_admission(
                 link, ensure_ascii=False, sort_keys=True, separators=(",", ":")
             ).encode()),
             "account": "숙박비", "cost_type": "여행원가",
-            "vat_tag": "불공제_해외", "trip_target": TRIP_TARGET,
-            "decision_status": "confirmed", "posting_status": "blocked",
+            "trip_target": TRIP_TARGET,
+            "candidate_status": "withheld_pending_direct_current_binding_and_trip_evidence",
+            "posting_status": "blocked",
         })
     keys = {row["direct_event_key"] for row in decisions}
     if len(decisions) != 6 or len(keys) != 6 or r36._event_set_sha(keys) != SELECTED_SET_SHA256:
@@ -77,12 +73,14 @@ def build_verified_mutsu_lodging_admission(
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
             "selected_event_set_sha256": SELECTED_SET_SHA256,
-            "selected_count": 6, "axis_decision_count": 24,
+            "selected_count": 6, "candidate_axis_count": 18,
+            "gate5_credit": 0, "authority_status": "candidate_only",
+            "excluded_dimensions": ["vat_tag"],
             "ota_links_sha256": OTA_LINKS_SHA256,
             "current_event_set_sha256": annex["manifest"]["current_event_set_sha256"],
             "decision_scope_sha256": annex["manifest"]["decision_scope_sha256"],
             "posting_status": "blocked", "database_applied": False,
             "all_source_events_retained": True,
         },
-        "decisions": sorted(decisions, key=lambda row: row["direct_event_key"]),
+        "candidates": sorted(decisions, key=lambda row: row["direct_event_key"]),
     }

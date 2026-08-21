@@ -23,7 +23,9 @@ class AllPeriodScopePolicyTests(unittest.TestCase):
 
     def test_current_candidate_counts_are_not_shrunk_to_a_quarter(self):
         self.assertEqual((self.result["accepted_union"], self.result["global_residual"]),
-                         (1568, 3760))
+                         (1558, 3770))
+        self.assertEqual(self.result["gate5_credit"], 0)
+        self.assertEqual(self.result["authority_status"], "candidate_only")
 
 
 if __name__ == "__main__":

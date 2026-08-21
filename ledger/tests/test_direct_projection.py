@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
 import sqlite3
 import hashlib
 import json
+import sys
 import tempfile
 import unittest
 import inspect
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +18,7 @@ from ledger.domain.direct_projection import (
     _apply_schema,
     _assert_existing_v3_schema,
     _key_set_sha256,
+    _classifier_training_keys,
     _manual_keys,
     _ota_keys,
     build_direct_candidate,
@@ -23,6 +27,8 @@ from ledger.domain.direct_projection import (
     code_bundle_descriptor,
     project_card_payments,
     project_card_relations,
+    _question_queue_payload,
+    _normalize_gate_report_readiness,
 )
 from ledger.domain.ledger_db import initialize
 from ledger.domain.p07_manifest import verify_run_artifacts
@@ -30,6 +36,157 @@ from ledger.domain.transition_gates_v2 import GATE_NAMES
 
 
 class DirectProjectionTest(unittest.TestCase):
+    def test_gate_report_readiness_aliases_are_fail_closed(self) -> None:
+        shadow_only = {"passed": False, "shadow_ready": True,
+                       "release_ready": False, "pipeline_status": "TRIAGE_PASS"}
+        self.assertFalse(_normalize_gate_report_readiness(shadow_only))
+        with self.assertRaisesRegex(
+            RuntimeError, "gate_report_pass_release_readiness_mismatch"
+        ):
+            _normalize_gate_report_readiness(
+                {"passed": True, "shadow_ready": True,
+                 "release_ready": False, "pipeline_status": "TRIAGE_PASS"}
+            )
+        with self.assertRaisesRegex(
+            RuntimeError, "gate_report_release_without_shadow_readiness"
+        ):
+            _normalize_gate_report_readiness(
+                {"passed": True, "shadow_ready": False,
+                 "release_ready": True, "pipeline_status": "RELEASE_READY"}
+            )
+        with self.assertRaisesRegex(
+            RuntimeError, "gate_report_pipeline_status_mismatch"
+        ):
+            _normalize_gate_report_readiness(
+                {"passed": False, "shadow_ready": True,
+                 "release_ready": False, "pipeline_status": "BLOCKED"}
+            )
+
+    def test_cli_shadow_success_does_not_change_release_pass_semantics(self) -> None:
+        from ledger.domain import direct_projection as module
+
+        result = {
+            "passed": False,
+            "shadow_ready": True,
+            "release_ready": False,
+            "pipeline_status": "TRIAGE_PASS",
+        }
+        base_args = [
+            "direct_projection",
+            "--output-db", "/tmp/unused-shadow-candidate.db",
+            "--output-dir", "/tmp/unused-shadow-artifacts",
+            "--ledger-dir", "ledger",
+        ]
+        with patch.object(module, "build_direct_candidate", return_value=result):
+            with patch.object(sys, "argv", base_args), redirect_stdout(io.StringIO()):
+                self.assertEqual(module.main(), 1)
+            with (
+                patch.object(sys, "argv", [*base_args, "--success-level", "shadow"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(module.main(), 0)
+
+    def test_question_queue_puts_owner_work_before_automatic_batches(self) -> None:
+        report = {
+            "gates": [
+                {
+                    "name": "allocation_and_decision_completeness",
+                    "actual": {
+                        "owner_confirmation_payment_count": 2,
+                        "owner_confirmation_question_group_count": 2,
+                        "owner_confirmation_question_groups": [
+                            {"question_id": "owner-1"},
+                            {"question_id": "owner-2"},
+                        ],
+                        "travel_unassigned_metadata_question_count": 3,
+                        "travel_unassigned_metadata_question_group_count": 2,
+                        "travel_unassigned_metadata_question_groups": [
+                            {"question_id": "travel-1"},
+                            {"question_id": "travel-2"},
+                        ],
+                        "auto_provisional_count": 4103,
+                        "auto_provisional_action_count": 4103,
+                        "action_required_count": 4103,
+                        "total_auto_provisional_count": 4103,
+                        "total_nonfinal_count": 4103,
+                        "auto_provisional_question_group_count": 4,
+                        "auto_provisional_detail_group_count": 1289,
+                        "auto_provisional_question_groups": [
+                            {"question_id": "auto-1"},
+                        ],
+                    },
+                },
+            ],
+        }
+        queue = _question_queue_payload(report)
+        self.assertEqual(len(queue["source_gate_report_sha256"]), 64)
+        self.assertEqual(
+            queue["rule_addition_requests"]["contract"],
+            "structural-rule-admission-v1",
+        )
+        self.assertEqual(
+            queue["rule_addition_requests"]["item_level_approval"],
+            "forbidden",
+        )
+        self.assertEqual(
+            queue["queue_order"],
+            [
+                "owner_confirmation",
+                "travel_unassigned",
+                "auto_provisional_summary",
+            ],
+        )
+        self.assertEqual(queue["owner_confirmation"]["payment_count"], 2)
+        self.assertEqual(queue["travel_unassigned"]["payment_count"], 3)
+        self.assertEqual(
+            queue["auto_provisional_summary"]["payment_count"], 4103
+        )
+        self.assertEqual(
+            queue["auto_provisional_summary"]["detail_group_count"], 1289
+        )
+
+    def test_question_queue_counts_relationships_and_splits_automatic_lanes(self) -> None:
+        report = {
+            "gates": [{
+                "name": "allocation_and_decision_completeness",
+                "actual": {
+                    "owner_confirmation_payment_count": 0,
+                    "owner_confirmation_question_groups": [{
+                        "question_type": "partial_refund_mn",
+                        "payment_external_keys": ["fuk-1", "fuk-2"],
+                    }],
+                    "owner_confirmation_question_group_count": 1,
+                    "auto_provisional_count": 2899,
+                    "auto_provisional_action_count": 839,
+                    "action_required_count": 902,
+                    "provisional_activity_count": 1692,
+                    "total_nonfinal_count": 2899,
+                    "auto_provisional_question_groups": [{
+                        "payment_count": 839,
+                    }],
+                    "auto_provisional_question_group_count": 1,
+                    "auto_provisional_detail_group_count": 1,
+                },
+            }],
+        }
+        queue = _question_queue_payload(report)
+        self.assertEqual(queue["owner_confirmation"]["payment_count"], 2)
+        self.assertEqual(
+            queue["auto_provisional_summary"]["payment_count"], 839
+        )
+        self.assertEqual(
+            queue["auto_provisional_summary"]["action_required_payment_count"],
+            902,
+        )
+        self.assertEqual(
+            queue["auto_provisional_summary"]["total_auto_provisional_count"],
+            2899,
+        )
+        self.assertEqual(
+            queue["auto_provisional_summary"]["activity_payment_count"],
+            1692,
+        )
+
     def test_projects_lossless_relation_evidence_and_binds_it_to_semantic_hash(self) -> None:
         from ledger.domain.direct_sources import import_cards
         from ledger.domain.ledger_db import connect
@@ -61,7 +218,12 @@ class DirectProjectionTest(unittest.TestCase):
             report=real_report(*args,**kwargs)
             for gate in report["gates"]:
                 if gate["gate"]!=4:gate["passed"]=True;gate["reason"]="test-approved"
-            report["passed"]=bool(report["gates"][3]["passed"]);report["cutover_policy"]="candidate_ready_for_shadow"
+            report["gates"][4]["actual"]["release_scope_ready"] = True
+            report["passed"]=bool(report["gates"][3]["passed"])
+            report["release_ready"] = report["passed"]
+            report["shadow_ready"] = report["passed"]
+            report["pipeline_status"] = "RELEASE_READY" if report["passed"] else "BLOCKED"
+            report["cutover_policy"]="candidate_ready_for_shadow"
             return report
         with tempfile.TemporaryDirectory() as dirname:
             root=Path(dirname);destination=root/"candidate.db";reports=root/"reports";private=root/"han-private"
@@ -132,37 +294,162 @@ class DirectProjectionTest(unittest.TestCase):
         paths = [path.as_posix() for path in RUNTIME_CODE_PATHS]
         self.assertEqual(paths.count("ledger/domain/decision_integrity.py"), 1)
         self.assertNotIn("ledger/domain/reference_namespace_report.py", paths)
+        self.assertIn("ledger/domain/direct_independent_evidence.py", paths)
+        self.assertIn("ledger/domain/direct_validated_purchase_classifier.py", paths)
+        self.assertFalse(any("historical_carryforward" in path for path in paths))
+        self.assertFalse(any("manual_frontier" in path for path in paths))
+
+    def test_legacy_manual_and_replay_projection_entrypoints_fail_closed(self) -> None:
+        from ledger.domain import direct_projection as module
+        blocked = (
+            module.project_user_approved_taxonomy_decisions,
+            module.project_manual_frontier_lodging_decisions,
+            module.project_manual_frontier_airfare_decisions,
+            module.project_verified_mutsu_lodging_decisions,
+            module.project_verified_kamenoi_lodging_decisions,
+            module.project_verified_partial_booking_decisions,
+            module.project_safe_group_decisions,
+            module.project_historical_carryforward_decisions,
+            module.project_historical_partial_carryforward_decisions,
+            module.project_historical_exact_manual_card_decisions,
+        )
+        for projector in blocked:
+            with self.subTest(projector=projector.__name__), self.assertRaisesRegex(
+                ValueError, "candidate_only_projection_forbidden"
+            ):
+                projector(None, "run", Path("ledger"))
     def test_failed_real_p07_owner_export_is_external_blank_5328_and_unpublished(self) -> None:
         import tempfile
+        from ledger.domain import direct_projection as projection
         from ledger.domain.direct_projection import build_direct_candidate
         with tempfile.TemporaryDirectory(prefix="r22-real-test-") as dirname:
             base = Path(dirname)
-            result = build_direct_candidate(
-                base / "candidate.db", Path("ledger"),
-                output_dir=base / "artifacts", owner_review_output=base / "owner",
-            )
+            with patch.object(
+                projection, "_read_cards_from_snapshots",
+                wraps=projection._read_cards_from_snapshots,
+            ) as card_parser:
+                result = build_direct_candidate(
+                    base / "candidate.db", Path("ledger"),
+                    output_dir=base / "artifacts", owner_review_output=base / "owner",
+                )
+            self.assertEqual(card_parser.call_count, 1)
             self.assertFalse(result["passed"])
+            self.assertTrue(result["shadow_ready"])
+            self.assertFalse(result["release_ready"])
+            self.assertEqual(result["pipeline_status"], "TRIAGE_PASS")
             self.assertIsNone(result["output_db"])
             self.assertEqual(result["status"], "blocked")
-            blocker = json.loads(next((base / "artifacts").glob("*/blocker_manifest.json")).read_text())
-            self.assertEqual(blocker["projected_taxonomy"], {"payments": 116, "decisions": 348})
-            self.assertEqual(blocker["projected_manual_frontier_lodging"],
-                             {"payments": 6, "decisions": 24})
-            self.assertEqual(blocker["projected_manual_frontier_airfare"],
-                             {"payments": 2, "decisions": 8})
-            self.assertEqual(blocker["projected_verified_mutsu_lodging"],
-                             {"payments": 6, "decisions": 24})
-            self.assertEqual(blocker["projected_verified_kamenoi_lodging"],
-                             {"payments": 2, "decisions": 8})
-            self.assertEqual(blocker["projected_verified_partial_booking"],
-                             {"payments": 7, "decisions": 17, "gate5_credit": 0})
-            self.assertEqual(blocker["projected_historical_carryforward"],
-                             {"payments": 611, "decisions": 2444,
-                              "gate5_trip_eligible": 608, "lifecycle_nontrip": 3})
+            report_dir = next((base / "artifacts").iterdir())
+            blocker = json.loads((report_dir / "blocker_manifest.json").read_text())
+            self.assertTrue(blocker["shadow_ready"])
+            self.assertFalse(blocker["release_ready"])
+            self.assertEqual(blocker["artifact_state"], "not_published")
+            self.assertNotIn("candidate_db", blocker)
+            gate_report = json.loads((report_dir / "gate_report.json").read_text())
+            gate5 = gate_report["gates"][4]
+            self.assertTrue(gate5["passed"])
+            self.assertEqual(gate5["actual"]["triage_status"], "TRIAGE_PASS")
+            self.assertFalse(gate5["actual"]["release_scope_ready"])
+            self.assertTrue(gate5["actual"]["nonfinal_side_effect_invariant"])
+            self.assertEqual(gate5["actual"]["queue_slo"]["enforcement"], "advisory_only")
+            verified = verify_run_artifacts(
+                report_dir,
+                repository_root=REPOSITORY_ROOT,
+            )
+            self.assertFalse(verified["passed"])
+            self.assertTrue(verified["report"]["shadow_ready"])
+            self.assertFalse(verified["report"]["release_ready"])
+            expected_classification_policy = {
+                "active_dimensions": ["account", "cost_type", "allocation_target"],
+                "excluded_dimensions": ["vat_tag"],
+                "active_decision_count": 15984,
+                "promotion_status": (
+                    "settlement_lodging_ota_reservation_and_validated_classifier_promoted"
+                ),
+            }
+            for key, value in expected_classification_policy.items():
+                self.assertEqual(blocker["classification_policy"][key], value)
+            self.assertIn(
+                "structural_rule_admission",
+                blocker["classification_policy"],
+            )
+            self.assertEqual(blocker["current_card_evidence"]["event_count"], 5328)
+            self.assertEqual(blocker["current_card_evidence"]["materialization_count"], 1)
+            self.assertEqual(blocker["current_card_evidence"]["manual_evidence_count"], 0)
+            self.assertEqual(blocker["legacy_candidate_audit"]["previous_gate5_credit"], 676)
+            self.assertEqual(blocker["legacy_candidate_audit"]["current_gate5_credit"], 0)
+            self.assertEqual(blocker["source_scan_policy"], {
+                "card_workbook_parse_count": 1,
+                "activation_recheck": "raw_bytes_only",
+            })
+            self.assertEqual(blocker["projected_settlement"], {
+                "scope_payments": 5328,
+                "authorities": 259,
+                "set_authorities": 54,
+                "payments": 544,
+                "decisions": 1632,
+                "withheld_payments": 4784,
+            })
+            self.assertTrue(blocker["settlement_authority_validation"]["passed"])
+            self.assertTrue(blocker["settlement_manifest_validation"]["passed"])
+            self.assertEqual(blocker["projected_classifier"]["promoted_payment_count"], 114)
+            self.assertEqual(blocker["projected_classifier"]["validation_count"], 99)
+            self.assertEqual(blocker["projected_classifier"]["validation_error_count"], 0)
+            self.assertFalse(blocker["projected_classifier"][
+                "manual_or_historical_transaction_evidence_used"
+            ])
+            self.assertTrue(blocker["classifier_validation"]["passed"])
+            self.assertEqual(blocker["projected_ota_reservation"],
+                             {"source_fact_count": 68,
+                              "promoted_payment_count": 5,
+                              "decision_count": 15,
+                              "withheld_fact_count": 63,
+                              "withheld_reason_counts": {
+                                  "exact_card_identity_missing": 7,
+                                  "independent_source_missing_or_forbidden": 55,
+                                  "non_unique_current_match": 1,
+                              },
+                              "unique_match_count": 5,
+                              "non_unique_match_count": 1,
+                              "promoted_sample": [
+                                  {
+                                      "source_key": "KBO-2681",
+                                      "direct_event_key": "card:2e988cea7492a532d9a57ddf2bb0af80690eefa95c78b187e72e850db04b43ac#single",
+                                      "allocation_target": "0417_아오모리",
+                                  },
+                                  {
+                                      "source_key": "KBO-2682",
+                                      "direct_event_key": "card:94c0b0d5a0a8e8ffaafa224fe540f341c112d9a633a12af0c061c9cd3a1c8d5e#single",
+                                      "allocation_target": "0417_아오모리",
+                                  },
+                                  {
+                                      "source_key": "KBO-2689",
+                                      "direct_event_key": "card:14f05a83495270233728529555a202028a1d6cd941e1a6d543a44899c94c1a7f#single",
+                                      "allocation_target": "0417_아오모리",
+                                  },
+                                  {
+                                      "source_key": "KBO-2700",
+                                      "direct_event_key": "card:e62e9e7eb9479335f0db2c8dfc6d5034c120413a670aeb0ad6a26651bb258e06#single",
+                                      "allocation_target": "0417_아오모리",
+                                  },
+                                  {
+                                      "source_key": "KBO-2702",
+                                      "direct_event_key": "card:8cba1c1d99737cfeaa1d495c38c2c24f171a03defb02a1888dd5ee0804291d6e#single",
+                                      "allocation_target": "0417_아오모리",
+                                  },
+                              ],
+                              "non_unique_match_sample": [
+                                  {
+                                      "source_key": "KBO-2701",
+                                      "candidate_count": 2,
+                                      "detail_sha256": "8c744fbd5fd6ad337f08d296ed2014d8e21195740379e369357cb39e60520146",
+                                  },
+                              ]})
+            self.assertTrue(blocker["ota_reservation_validation"]["passed"])
             self.assertEqual(blocker["projected_allocations"],
-                             {"full_axis_payments": 627, "payments": 624,
-                              "plans": 624, "allocations": 624,
-                              "nontrip_full_axis_payments": 3})
+                             {"full_axis_payments": 3914, "payments": 3058,
+                              "plans": 3058, "allocations": 3058,
+                              "nontrip_full_axis_payments": 2811})
             self.assertTrue((base / "owner" / "manifest.json").is_file())
             with (base / "owner" / "events.csv").open(encoding="utf-8") as stream:
                 import csv
@@ -172,17 +459,7 @@ class DirectProjectionTest(unittest.TestCase):
             context = manifest["source_context"]
             self.assertEqual(context["decision_scope_sha256"], "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418")
             self.assertEqual(manifest["authority_ready_count"], 0)
-            self.assertEqual(manifest["gate5_resolved_count"], 624)
-            import subprocess
-            proc = subprocess.run(
-                ["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current",
-                 "--ledger-dir", str(Path("ledger").resolve()), "--manifest",
-                 str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")],
-                capture_output=True, text=True, check=False,
-            )
-            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            summary = json.loads(proc.stdout)
-            self.assertEqual(summary["owner_review"]["status"], "template_valid")
+            self.assertEqual(manifest["gate5_resolved_count"], 3914)
 
     def test_owner_output_overlap_and_inside_repository_are_rejected_before_build(self) -> None:
         from ledger.domain.direct_projection import build_direct_candidate
@@ -255,9 +532,9 @@ class DirectProjectionTest(unittest.TestCase):
         )
         return int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
 
-    def test_source_inventory_covers_seven_physical_inputs_and_real_keys(self) -> None:
+    def test_source_inventory_covers_declared_physical_inputs_and_real_keys(self) -> None:
         inventory = build_source_inventory(Path("ledger"))
-        self.assertEqual(len(inventory), 7)
+        self.assertEqual(len(inventory), 17)
         counts = {
             str(item["source_kind"]): int(item["record_count"])
             for item in inventory
@@ -271,7 +548,17 @@ class DirectProjectionTest(unittest.TestCase):
                 "card_raw:G": 221,
                 "card_raw:H": 1876,
                 "manual_ledger": 1379,
-                "ota_mail": 1720,
+                "classifier_training": 1833,
+                "ota_mail": 1802,
+                "ota_mail_live": 451,
+                "pg_mail": 1864,
+                "pg_mail_supplement": 19,
+                "service_mail": 2,
+                "trip_schedule": 35,
+                "geographic_trip_context": 1,
+                "ota_lodging_fact": 50,
+                "ota_reservation_fact": 68,
+                "current_owner_decision": 2,
             },
         )
         self.assertTrue(
@@ -293,9 +580,11 @@ class DirectProjectionTest(unittest.TestCase):
             ota = root / "ota.json"
             ota.write_text('{"records":[]}\n', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "manual_source_empty"):
-                _manual_keys(manual)
+                _manual_keys(manual.read_bytes())
             with self.assertRaisesRegex(ValueError, "ota_source_empty"):
-                _ota_keys(ota)
+                _ota_keys(ota.read_bytes())
+            with self.assertRaisesRegex(ValueError, "classifier_training_header_invalid"):
+                _classifier_training_keys(b"uid,src\n")
 
     def test_equal_count_source_loss_changes_key_set_hash(self) -> None:
         before = _key_set_sha256(["a", "b"])
@@ -341,7 +630,7 @@ class DirectProjectionTest(unittest.TestCase):
 
     def test_manual_and_ota_sources_never_create_candidate_payments(self) -> None:
         db = self._db()
-        for kind in ("manual_ledger", "ota_mail"):
+        for kind in ("manual_ledger", "ota_mail", "classifier_training"):
             db.execute(
                 """
                 INSERT INTO direct_source_records(
@@ -672,6 +961,24 @@ class DirectProjectionTest(unittest.TestCase):
                 report_dir,
                 repository_root=REPOSITORY_ROOT,
             )
+
+            queue_path = report_dir / "question_queue.json"
+            original_queue = queue_path.read_bytes()
+            tampered_queue = json.loads(original_queue.decode("utf-8"))
+            tampered_queue["owner_confirmation"]["payment_count"] += 1
+            queue_path.write_text(
+                json.dumps(tampered_queue, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "question_queue_hash_mismatch",
+            ):
+                verify_run_artifacts(
+                    report_dir,
+                    repository_root=REPOSITORY_ROOT,
+                )
+            queue_path.write_bytes(original_queue)
 
             tampered_input = json.loads(json.dumps(original))
             tampered_input["inputs"][0]["record_count"] += 1

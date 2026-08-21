@@ -17,7 +17,9 @@ from pathlib import Path
 from ledger.domain.direct_projection import (
     REPOSITORY_ROOT,
     _apply_schema,
+    _read_cards_from_snapshots,
     build_source_inventory,
+    capture_source_snapshots,
     candidate_semantic_snapshot,
     project_card_payments,
 )
@@ -43,9 +45,10 @@ def _json(data: object) -> bytes:
     return (json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _historical(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        return [dict(row) for row in csv.DictReader(stream)]
+def _historical_bytes(raw: bytes) -> list[dict[str, str]]:
+    import io
+    stream = io.StringIO(raw.decode("utf-8-sig"), newline="")
+    return [dict(row) for row in csv.DictReader(stream)]
 
 
 def _key(source: str, date: object, amount: object, approval: object, card4: object) -> tuple[str, str, int, str, str]:
@@ -94,27 +97,54 @@ def _install_noreplace(stage: Path, target: Path) -> None:
     raise OSError("r23_atomic_noreplace_unsupported")
 
 
-def _build_temp_db(ledger_dir: Path, temp_root: Path) -> tuple[sqlite3.Connection, str, list[dict[str, object]], str, str]:
-    inventory = build_source_inventory(ledger_dir, REPOSITORY_ROOT)
+def _build_temp_db(
+    ledger_dir: Path,
+    temp_root: Path,
+    *,
+    return_snapshots: bool = False,
+) -> tuple:
+    # Capture once, then use the same bytes for card parsing, inventory, and
+    # import.  Parsing live files before inventory creates a TOCTOU gap in the
+    # annex manifest even though the annex is non-authoritative.
+    source_snapshots = capture_source_snapshots(REPOSITORY_ROOT)
+    cards = _read_cards_from_snapshots(source_snapshots)
+    inventory = build_source_inventory(
+        ledger_dir, REPOSITORY_ROOT, cards=cards,
+        source_snapshots=source_snapshots,
+    )
     db = connect(temp_root / "r23.db"); initialize(db); _apply_schema(db)
     run_id = "analysis-temp"
     canonical_input_hash = input_manifest_sha256(inventory)
     db.execute("INSERT INTO direct_projection_runs(run_id,status,schema_version,input_manifest_sha256,code_commit,code_bundle_sha256) VALUES(?,?,?,?,?,?)", (run_id, "building", SCHEMA_VERSION, canonical_input_hash, "temp", "temp"))
     for item in inventory:
         db.execute("INSERT INTO direct_projection_inputs(run_id,source_kind,relative_path,raw_sha256,lf_sha256,byte_count,key_set_sha256,record_count,parser_version) VALUES(?,?,?,?,?,?,?,?,?)", (run_id, item["source_kind"], item["relative_path"], item["raw_sha256"], item["lf_sha256"], item["byte_count"], item["key_set_sha256"], item["record_count"], item["parser_version"]))
-    import_all(db, ledger_dir, ledger_dir / "data/manual_v4.csv", ledger_dir / "data/ota_mail_index.json")
+    import_all(
+        db, ledger_dir, ledger_dir / "data/manual_v4.csv",
+        ledger_dir / "data/ota_mail_index.json", cards=cards,
+        source_bytes=source_snapshots,
+        live_ota_path=ledger_dir / "data/ota_mail_live_index.json",
+        materialize_agoda_bookings=False,
+    )
     project_card_payments(db, run_id)
     semantic = candidate_semantic_snapshot(db, run_id)
     db.execute("UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?", (semantic, run_id)); db.commit()
     hashes, eventset, scope = _current_direct_event_hashes(db, run_id)
-    return db, run_id, inventory, eventset, scope, hashes
+    result = (db, run_id, inventory, eventset, scope, hashes)
+    if return_snapshots:
+        return (*result, source_snapshots)
+    return result
 
 
 def build_annex(*, ledger_dir: Path = REPOSITORY_ROOT / "ledger", output: Path | None = None) -> dict[str, object]:
     if ledger_dir.resolve() != (REPOSITORY_ROOT / "ledger").resolve():
         raise ValueError("r23_noncanonical_ledger")
     with tempfile.TemporaryDirectory(prefix="r23a-") as dirname:
-        db, run_id, inventory, eventset, scope, current_hashes = _build_temp_db(ledger_dir, Path(dirname))
+        (
+            db, run_id, inventory, eventset, scope, current_hashes,
+            source_snapshots,
+        ) = _build_temp_db(
+            ledger_dir, Path(dirname), return_snapshots=True
+        )
         try:
             rows = db.execute("""
                 SELECT d.card_event_id,d.event_role,p.source_system,p.occurred_on,d.amount_krw,
@@ -125,11 +155,11 @@ def build_annex(*, ledger_dir: Path = REPOSITORY_ROOT / "ledger", output: Path |
                 LEFT JOIN payment_methods pm ON pm.id=p.payment_method_id
                 WHERE l.run_id=? ORDER BY d.card_event_id,d.event_role
             """, (run_id,)).fetchall()
-            classified_path = ledger_dir / "data/classified_v14.csv"
-            classified_sha = _sha(classified_path.read_bytes())
+            classified_bytes = source_snapshots["classifier_training"]
+            classified_sha = _sha(classified_bytes)
             if classified_sha != CLASSIFIED_SHA256:
                 raise ValueError("r23_classified_hash_mismatch")
-            historical = _historical(classified_path)
+            historical = _historical_bytes(classified_bytes)
             groups: dict[tuple[str, str, int, str, str], list[dict[str, str]]] = {}
             for item in historical:
                 try:

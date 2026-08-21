@@ -73,8 +73,9 @@ def build_manual_frontier_lodging_admission(
                 "current_source_sha256": event["current_source_sha256"],
                 "manual_group_sha256": manual_group_sha,
                 "account": "숙박비", "cost_type": "여행원가",
-                "vat_tag": "불공제_해외", "trip_target": bucket,
-                "decision_status": "confirmed", "posting_status": "blocked",
+                "trip_target": bucket,
+                "candidate_status": "withheld_pending_independent_evidence",
+                "posting_status": "blocked",
             })
     keys = {row["direct_event_key"] for row in selected}
     if len(selected) != 6 or len(keys) != 6 or _setsha(keys) != SELECTED_SET_SHA256:
@@ -83,7 +84,9 @@ def build_manual_frontier_lodging_admission(
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
             "selected_event_set_sha256": SELECTED_SET_SHA256,
-            "selected_count": 6, "axis_decision_count": 24,
+            "selected_count": 6, "candidate_axis_count": 18,
+            "gate5_credit": 0, "authority_status": "candidate_only",
+            "excluded_dimensions": ["vat_tag"],
             "deferred_ambiguous_count": 2,
             "deferred_reason": "agoda_merchant_conflicts_with_manual_airfare_description",
             "current_event_set_sha256": current_event_set_sha256,
@@ -91,5 +94,5 @@ def build_manual_frontier_lodging_admission(
             "manual_sha256": MANUAL_SHA256, "posting_status": "blocked",
             "database_applied": False, "all_source_events_retained": True,
         },
-        "decisions": sorted(selected, key=lambda row: row["direct_event_key"]),
+        "candidates": sorted(selected, key=lambda row: row["direct_event_key"]),
     }

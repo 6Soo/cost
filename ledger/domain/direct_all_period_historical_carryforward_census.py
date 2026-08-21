@@ -1,4 +1,9 @@
-"""Dry-run census for the large historical high/high carry-forward decision."""
+"""Candidate census learned from the historical high/high validation process.
+
+The old labels are not evidence.  This module only records which current card
+events survived the old identity/cardinality checks and which three cost axes
+were concrete.  VAT no longer participates in selection or output.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -10,68 +15,42 @@ from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, build_annex
 
 
-ARTIFACT_TYPE = "all-period-historical-carryforward-census-v1"
-RULE_VERSION = "exact-lineage-posted-merchant-high-high-dry-run-v1"
+ARTIFACT_TYPE = "all-period-historical-carryforward-census-v2"
+RULE_VERSION = "legacy-process-audit-three-active-axis-candidate-only-v2"
 TRIPS_SHA256 = "0a9fdd6b4835d2cf889391b00e2567977858b77376d3d3071023e81609e51969"
-CLASSIFICATION_SET_SHA256 = "71ebfa85e2dbf97d778da60767072bc2300a87411442490ab0bdbb44ba671438"
-GATE5_ELIGIBLE_SET_SHA256 = "9b5f2286fa608f4407f287d0c486ef232362e96a928cb8c01826a43ae6950a52"
-SEMANTIC_SET_SHA256 = "c44ce5848421667e92df3438eab0b79130108f41c90476e51869de1080e37d2e"
+CLASSIFICATION_SET_SHA256 = "7f0c81f10e42da1b7a373283834c9c81081c7eb4197c37b628e27d17262e79f7"
+TRIP_HINT_SET_SHA256 = "a5df09ad078cf0a778b4307dea7c05c28b1cd21a8cadad141367891b4c3e771b"
+SEMANTIC_SET_SHA256 = "eebe4188f007ba5968e61377d188fa2ca93f5738590e15871e5e2979ffbb821a"
 ALREADY_PROJECTED_UIDS = {
     "KBO-2681", "KBO-2682", "KBO-2689", "KBO-2700", "KBO-2701", "KBO-2702",
     "KBD-0389", "KBD-0390", "HAN-3004", "HAN-3011", "HAN-3047", "KBD-0741",
     "KBD-0871", "KBD-0927", "KBD-0958",
 }
 EXPECTED_ACCOUNTS = {
-    "교통비": 40, "렌터카": 23, "소모품비": 4, "수수료": 1, "숙박비": 130,
-    "식비": 346, "이용료": 3, "입장료": 14, "주유비": 25, "주차비": 6, "통신비": 1,
-    "통행료": 15, "항공료": 3,
+    "교통비": 54, "렌터카": 26, "복리후생비": 24, "세금과공과": 1,
+    "소모품비": 10, "수수료": 1, "숙박비": 168, "식비": 370,
+    "이용료": 3, "입장료": 15, "주유비": 26, "주차비": 10,
+    "지급수수료": 3, "통신비": 4, "통행료": 16, "항공료": 16,
+    "회의비": 3,
 }
-EXPECTED_SOURCES = {"HAN": 343, "KBD": 31, "KBO": 237}
+EXPECTED_COST_TYPES = {"여행원가": 707, "판관비": 43}
+EXPECTED_SOURCES = {"HAN": 364, "KBD": 146, "KBO": 240}
 
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _already_projected_keys(ledger_dir: Path) -> set[str]:
-    from ledger.domain.direct_all_period_user_approved_taxonomy_admission import (
-        build_user_approved_taxonomy_admission,
-    )
-    from ledger.domain.direct_all_period_manual_frontier_lodging_admission import (
-        build_manual_frontier_lodging_admission,
-    )
-    from ledger.domain.direct_all_period_manual_frontier_agoda_airfare_admission import (
-        build_manual_frontier_agoda_airfare_admission,
-    )
-    from ledger.domain.direct_all_period_verified_mutsu_lodging_admission import (
-        build_verified_mutsu_lodging_admission,
-    )
-    from ledger.domain.direct_all_period_verified_kamenoi_lodging_admission import (
-        build_verified_kamenoi_lodging_admission,
-    )
-    from ledger.domain.direct_all_period_verified_partial_booking_admission import (
-        build_verified_partial_booking_admission,
-    )
-    packages = (
-        build_user_approved_taxonomy_admission(ledger_dir=ledger_dir),
-        build_manual_frontier_lodging_admission(ledger_dir=ledger_dir),
-        build_manual_frontier_agoda_airfare_admission(ledger_dir=ledger_dir),
-        build_verified_mutsu_lodging_admission(ledger_dir=ledger_dir),
-        build_verified_kamenoi_lodging_admission(ledger_dir=ledger_dir),
-        build_verified_partial_booking_admission(ledger_dir=ledger_dir),
-    )
-    return {row["direct_event_key"] for package in packages for row in package["decisions"]}
-
-
 def build_historical_carryforward_census(
-        *, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
+        *, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger",
+        annex: dict[str, object] | None = None) -> dict:
     if ledger_dir.resolve() != (Path(REPOSITORY_ROOT) / "ledger").resolve():
         raise ValueError("carryforward_census_noncanonical_ledger")
     trips_raw = (ledger_dir / "data/trips.json").read_bytes()
     if _sha(trips_raw) != TRIPS_SHA256:
         raise ValueError("carryforward_census_trips_drift")
     trip_codes = {row["tab"] for row in json.loads(trips_raw)}
-    annex = build_annex(ledger_dir=ledger_dir)
+    annex = annex or build_annex(ledger_dir=ledger_dir)
     selected = []
     strict_before_policy = 0
     for row in annex["package"]["envelopes"]:
@@ -83,10 +62,9 @@ def build_historical_carryforward_census(
         if not strict:
             continue
         strict_before_policy += 1
-        if ((proposal.get("cost_type"), proposal.get("vat_tag"))
-                != ("여행원가", "불공제_해외")
-                or proposal.get("bucket") in {None, "", "확인"}
-                or proposal.get("account") in {None, "", "확인"}):
+        if (proposal.get("bucket") in {None, "", "확인"}
+                or proposal.get("account") in {None, "", "확인"}
+                or proposal.get("cost_type") in {None, "", "확인"}):
             continue
         selected.append({
             "direct_event_key": row["direct_event_key"],
@@ -94,50 +72,59 @@ def build_historical_carryforward_census(
             "current_event_sha256": row["current_event_sha256"],
             "current_source_sha256": row["current_source_sha256"],
             "bucket": proposal["bucket"], "account": proposal["account"],
-            "cost_type": proposal["cost_type"], "vat_tag": proposal["vat_tag"],
-            "gate5_trip_eligible": proposal["bucket"] in trip_codes,
+            "cost_type": proposal["cost_type"],
+            "legacy_trip_target_hint": proposal["bucket"] in trip_codes,
         })
     keys = {row["direct_event_key"] for row in selected}
-    eligible = {row["direct_event_key"] for row in selected if row["gate5_trip_eligible"]}
+    trip_hints = {
+        row["direct_event_key"] for row in selected
+        if row["legacy_trip_target_hint"]
+    }
     semantic = [{"event": row["direct_event_key"], "bucket": row["bucket"],
                  "account": row["account"], "cost_type": row["cost_type"],
-                 "vat_tag": row["vat_tag"]} for row in selected]
+                 } for row in selected]
     semantic_sha = _sha((json.dumps(
         sorted(semantic, key=lambda row: row["event"]), ensure_ascii=False,
         sort_keys=True, separators=(",", ":")) + "\n").encode())
     accounts = dict(sorted(Counter(row["account"] for row in selected).items()))
+    cost_types = dict(sorted(Counter(
+        row["cost_type"] for row in selected
+    ).items()))
     sources = dict(sorted(Counter(
         str(row["historical_uid"]).split("-", 1)[0] for row in selected).items()))
-    lifecycle = [row for row in selected if not row["gate5_trip_eligible"]]
-    already_projected = _already_projected_keys(ledger_dir)
-    overlap = keys & already_projected
-    if (strict_before_policy != 764 or len(selected) != 611 or len(eligible) != 608
+    nontrip_hints = [row for row in selected if not row["legacy_trip_target_hint"]]
+    if (strict_before_policy != 764 or len(selected) != 750 or len(trip_hints) != 700
             or r36._event_set_sha(keys) != CLASSIFICATION_SET_SHA256
-            or r36._event_set_sha(eligible) != GATE5_ELIGIBLE_SET_SHA256
+            or r36._event_set_sha(trip_hints) != TRIP_HINT_SET_SHA256
             or semantic_sha != SEMANTIC_SET_SHA256
-            or accounts != EXPECTED_ACCOUNTS or sources != EXPECTED_SOURCES
-            or len(lifecycle) != 3
-            or {row["historical_uid"] for row in lifecycle}
-            != {"KBD-0779", "KBD-0781", "KBD-0783"}
-            or {row["bucket"] for row in lifecycle} != {"취소환불"}
-            or len(already_projected) != 139 or overlap):
+            or accounts != EXPECTED_ACCOUNTS
+            or cost_types != EXPECTED_COST_TYPES
+            or sources != EXPECTED_SOURCES
+            or len(nontrip_hints) != 50
+            or Counter(row["bucket"] for row in nontrip_hints)
+            != {"기타비용": 43, "취소환불": 7}):
         raise ValueError("carryforward_census_drift")
     return {
         "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
         "strict_before_policy_count": strict_before_policy,
         "classification_candidate_count": len(selected),
-        "gate5_trip_eligible_count": len(eligible),
-        "lifecycle_nontrip_count": len(lifecycle),
+        "trip_target_hint_count": len(trip_hints),
+        "nontrip_target_hint_count": len(nontrip_hints),
         "classification_set_sha256": CLASSIFICATION_SET_SHA256,
-        "gate5_eligible_set_sha256": GATE5_ELIGIBLE_SET_SHA256,
+        "trip_hint_set_sha256": TRIP_HINT_SET_SHA256,
         "semantic_set_sha256": SEMANTIC_SET_SHA256,
-        "account_counts": accounts, "source_counts": sources,
-        "lifecycle_uids": sorted(row["historical_uid"] for row in lifecycle),
-        "already_projected_payment_count": len(already_projected),
-        "already_projected_overlap_count": len(overlap),
+        "account_counts": accounts, "cost_type_counts": cost_types,
+        "source_counts": sources,
+        "nontrip_target_counts": dict(sorted(Counter(
+            row["bucket"] for row in nontrip_hints
+        ).items())),
         "current_event_set_sha256": annex["manifest"]["current_event_set_sha256"],
         "decision_scope_sha256": annex["manifest"]["decision_scope_sha256"],
-        "authority_status": "awaiting_user_policy_decision",
+        "authority_status": "candidate_only", "gate5_credit": 0,
+        "active_dimensions": ["account", "cost_type", "allocation_target"],
+        "excluded_dimensions": ["vat_tag"],
+        "trips_json_is_evidence": False,
+        "legacy_partition_only": True,
         "database_applied": False, "posting_status": "blocked",
         "all_source_events_retained": True,
         "candidates": sorted(selected, key=lambda row: row["direct_event_key"]),

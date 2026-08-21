@@ -1,4 +1,4 @@
-"""Admit two Minatoya charges as an unordered authenticated-portal group."""
+"""Retain two Minatoya charges as unresolved amount-mismatch candidates."""
 from __future__ import annotations
 
 import json
@@ -11,8 +11,8 @@ from ledger.domain import direct_all_period_safe_group_admission as base
 from ledger.domain import direct_all_period_yakushima_portal_admission as yakushima
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 
-ARTIFACT_TYPE = "all-period-minatoya-authenticated-portal-group-v1"
-RULE_VERSION = "all-period-portal-trip-axis-jpy-tolerance-unordered-v1"
+ARTIFACT_TYPE = "all-period-minatoya-amount-mismatch-candidate-v2"
+RULE_VERSION = "portal-card-jpy-mismatch-candidate-only-v2"
 SELECTED_SET_SHA256 = "8c839c3a275dc6846d47508dc7c494b39918f3ec466bbf3b00182a75ea890eb1"
 BOOKING = "1723193688"
 
@@ -39,18 +39,28 @@ def _portal(repo: Path = Path(REPOSITORY_ROOT)) -> dict:
     return row
 
 
-def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, list[dict]]:
-    upstream = yakushima.build_all_period_yakushima_portal_admission(ledger_dir=ledger_dir)["manifest"]
-    if (upstream["accepted_union"], upstream["global_residual"],
-            upstream["selected_event_set_sha256"]) != (1558, 3770, yakushima.SELECTED_SET_SHA256):
-        raise ValueError("all_period_minatoya_upstream_invalid")
+def _live(
+        ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger",
+        *, current_context: dict[str, object] | None = None) -> tuple[dict, list[dict]]:
     portal = _portal()
-    with tempfile.TemporaryDirectory(prefix="all-period-minatoya-") as directory:
-        context = r36._context(ledger_dir, Path(directory))
-        try:
-            events = list(context["events"])
-        finally:
-            context["db"].close()
+    if current_context is None:
+        with tempfile.TemporaryDirectory(prefix="all-period-minatoya-") as directory:
+            context = r36._context(ledger_dir, Path(directory))
+            try:
+                events = list(context["events"])
+                current_event_set_sha256 = str(context["current_event_set_sha256"])
+                decision_scope_sha256 = str(context["decision_scope_sha256"])
+            finally:
+                context["db"].close()
+    else:
+        if set(current_context) != {
+                "events", "current_event_set_sha256", "decision_scope_sha256"}:
+            raise ValueError("all_period_minatoya_current_context_invalid")
+        events = list(current_context["events"])
+        current_event_set_sha256 = str(current_context["current_event_set_sha256"])
+        decision_scope_sha256 = str(current_context["decision_scope_sha256"])
+    if len(events) != 5328:
+        raise ValueError("all_period_minatoya_current_context_invalid")
     matches = [event for event in events if
                (event["source_system"], event["occurred_on"], int(event["signed_amount_krw"]),
                 event["foreign_amount"], event["currency"], event["card4"], event["merchant"],
@@ -62,26 +72,35 @@ def _live(ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> tuple[dict, li
         raise ValueError("all_period_minatoya_current_group_invalid")
     portal_jpy = int(portal["foreign_amount"]); card_jpy = int(matches[0]["foreign_amount"])
     difference_bps = abs(portal_jpy - card_jpy) * 10000 // portal_jpy
-    if difference_bps > 200:
-        raise ValueError("all_period_minatoya_jpy_tolerance_invalid")
+    if difference_bps != 152 or portal_jpy == card_jpy:
+        raise ValueError("all_period_minatoya_jpy_difference_drift")
     proposals = [{"event_key_sha256": base._sha(event["direct_event_key"].encode()),
                   "current_event_sha256": event["current_event_sha256"],
                   "current_source_sha256": event["current_source_sha256"],
                   "portal_record_sha256": base._sha(base._json(portal)), "account": "숙박비",
-                  "cost_type": "여행원가", "vat_tag": "불공제_해외",
+                  "cost_type": "여행원가",
                   "trip_target": "1010_도쿠시마", "atomic_group_count": 2,
-                  "booking_bijection_asserted": False, "jpy_difference_bps": difference_bps}
+                  "booking_bijection_asserted": False, "jpy_difference_bps": difference_bps,
+                  "candidate_status": "unresolved",
+                  "reason_code": "portal_card_foreign_amount_mismatch"}
                  for event in matches]
     manifest = {"artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
                 "selected_event_set_sha256": SELECTED_SET_SHA256,
-                "full_classification_delta": 2, "accepted_union": 1560, "global_residual": 3768,
+                "candidate_count": 2, "full_classification_delta": 0,
+                "gate5_credit": 0, "accepted_union": 1558, "global_residual": 3770,
                 "booking_bijection_asserted": False, "card_event_count": 2, "portal_booking_count": 1,
-                "jpy_difference_bps": difference_bps, "jpy_tolerance_bps": 200,
-                "authority_status": "unattested", "posting_status": "blocked",
-                "database_applied": False, "contains_sensitive_raw_values": False}
+                "observed_jpy_difference_bps": difference_bps,
+                "generic_tolerance_allowed": False,
+                "match_status": "amount_mismatch_unresolved",
+                "authority_status": "candidate_only", "posting_status": "blocked",
+                "database_applied": False, "contains_sensitive_raw_values": False,
+                "current_event_set_sha256": current_event_set_sha256,
+                "decision_scope_sha256": decision_scope_sha256}
     return manifest, proposals
 
 
-def build_all_period_minatoya_portal_admission(*, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger") -> dict:
-    manifest, proposals = _live(ledger_dir)
+def build_all_period_minatoya_portal_admission(
+        *, ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger",
+        current_context: dict[str, object] | None = None) -> dict:
+    manifest, proposals = _live(ledger_dir, current_context=current_context)
     return {"manifest": manifest, "proposals": proposals}

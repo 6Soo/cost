@@ -27,6 +27,12 @@ from ledger.domain.transition_gates_v2 import (
     _event_set_sha256,
     _decision_scope_sha256,
     _direct_event_semantic_hash,
+    _semantic_manifest_payload,
+    _unknown_service_period_reservation,
+    _current_assignment_queue_in_scope,
+    _travel_unassigned_queue_slo_met,
+    _queue_slo_diagnostics,
+    _readiness_summary,
 )
 from ledger.domain.p07_manifest import verify_run_artifacts
 from ledger.domain.decision_integrity import decision_integrity
@@ -58,6 +64,123 @@ class DirectTransitionGateTest(unittest.TestCase):
         result = decision_integrity(db)
         self.assertEqual(result["invalid_target_type_count"], 1)
         db.close()
+
+    def test_unknown_service_period_reservation_action_lane_ignores_payment_year(self) -> None:
+        self.assertTrue(
+            _unknown_service_period_reservation(
+                {"current_card_reservation_placeholder"}
+            )
+        )
+        self.assertFalse(
+            _unknown_service_period_reservation(
+                {"current_card_travel_activity_placeholder"}
+            )
+        )
+
+    def test_current_assignment_queue_scope_is_all_period_followup(self) -> None:
+        self.assertTrue(_current_assignment_queue_in_scope("2026-01-08"))
+        self.assertTrue(_current_assignment_queue_in_scope("2025-12-31"))
+        # A malformed/missing date also stays visible in the action lane.
+        self.assertTrue(_current_assignment_queue_in_scope(""))
+
+    def test_travel_unassigned_queue_slo_uses_five_unique_keys(self) -> None:
+        self.assertTrue(
+            _travel_unassigned_queue_slo_met(["a", "b", "c", "d", "e"])
+        )
+        self.assertFalse(
+            _travel_unassigned_queue_slo_met(["a", "b", "c", "d", "e", "f"])
+        )
+        # Duplicate/overlapping review evidence counts once, not once per path.
+        self.assertTrue(
+            _travel_unassigned_queue_slo_met(["a", "b", "c", "d", "e", "a"])
+        )
+
+    def test_queue_slo_breaches_are_advisory_diagnostics(self) -> None:
+        diagnostic = _queue_slo_diagnostics(
+            ["a", "b", "c", "d", "e", "f"],
+            11,
+        )
+        self.assertEqual(diagnostic["enforcement"], "advisory_only")
+        self.assertEqual(
+            diagnostic["warnings"],
+            [
+                "travel_unassigned_slo_exceeded",
+                "human_question_group_slo_exceeded",
+            ],
+        )
+
+    @staticmethod
+    def _readiness_gates() -> list[dict[str, object]]:
+        return [
+            {"gate": 1, "name": "source_provenance", "passed": True,
+             "reason": "ok", "actual": {}},
+            {"gate": 2, "name": "event_projection_cardinality", "passed": True,
+             "reason": "ok", "actual": {}},
+            {"gate": 3, "name": "legacy_leakage", "passed": True,
+             "reason": "ok", "actual": {}},
+            {
+                "gate": 4,
+                "name": "amount_sign_and_relations",
+                "passed": False,
+                "reason": "han_equality_validation_missing_or_stale",
+                "actual": {
+                    "sign_issue_count": 0,
+                    "hana_split_issue_count": 0,
+                    "relation_issue_count": 0,
+                },
+            },
+            {
+                "gate": 5,
+                "name": "allocation_and_decision_completeness",
+                "passed": True,
+                "reason": "triage_pass_with_nonfinal_queue",
+                "actual": {
+                    "release_scope_ready": False,
+                    "queue_slo": {
+                        "enforcement": "advisory_only",
+                        "warnings": ["travel_unassigned_slo_exceeded"],
+                    },
+                },
+            },
+            {
+                "gate": 6,
+                "name": "semantic_regression",
+                "passed": False,
+                "reason": "direct_baseline_unavailable",
+                "actual": {"integrity_ok": True},
+            },
+            {"gate": 7, "name": "report_freshness", "passed": True,
+             "reason": "ok", "actual": {}},
+        ]
+
+    def test_shadow_readiness_is_not_release_or_legacy_pass(self) -> None:
+        summary = _readiness_summary(self._readiness_gates())
+        self.assertTrue(summary["shadow_ready"])
+        self.assertFalse(summary["release_ready"])
+        self.assertFalse(summary["passed"])
+        self.assertEqual(summary["pipeline_status"], "TRIAGE_PASS")
+        self.assertIn("semantic_regression", summary["release_blockers"])
+        self.assertIn(
+            "allocation_and_decision_finality",
+            summary["release_blockers"],
+        )
+
+    def test_nonfinal_side_effect_failure_blocks_shadow_readiness(self) -> None:
+        gates = self._readiness_gates()
+        gates[4] = {
+            **gates[4],
+            "passed": False,
+            "reason": "nonfinal_side_effect_leak",
+            "actual": {
+                "release_scope_ready": False,
+                "nonfinal_side_effect_invariant": False,
+            },
+        }
+        summary = _readiness_summary(gates)
+        self.assertFalse(summary["shadow_ready"])
+        self.assertFalse(summary["release_ready"])
+        self.assertFalse(summary["passed"])
+        self.assertEqual(summary["pipeline_status"], "BLOCKED")
 
     def test_gate1_reports_deterministic_source_key_conflict(self) -> None:
         database, run_id, expected, _ = self._fixture()
@@ -171,7 +294,7 @@ class DirectTransitionGateTest(unittest.TestCase):
                 (
                     spec["db_source_kind"],
                     source_key,
-                    f"source-hash-{source_key}",
+                    self._raw_sha(f"source:{source_key}".encode()),
                 ),
             )
             source_id = int(
@@ -230,6 +353,72 @@ class DirectTransitionGateTest(unittest.TestCase):
             expected_provenance=expected,
             **kwargs,
         )
+
+    @staticmethod
+    def _bind_independent_promotions(
+            db: object, run_id: str, payment_id: int,
+            decision_ids: dict[str, int]) -> None:
+        event = db.execute(
+            """SELECT d.card_event_id || '#' || d.event_role,
+                      s.source_kind,s.source_key,s.source_sha256
+               FROM direct_payment_projection_links l
+               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
+               JOIN direct_source_records s ON s.id=d.source_record_id
+               WHERE l.run_id=? AND l.payment_id=?""",
+            (run_id, payment_id),
+        ).fetchone()
+        if event is None:
+            raise AssertionError("fixture payment event missing")
+        current_fact_sha = f"{payment_id:064x}"
+        current_id = "current-card:" + current_fact_sha
+        db.execute(
+            """INSERT INTO direct_promotion_evidence(
+                 evidence_id,run_id,evidence_kind,authority_status,direct_event_key,
+                 source_kind,source_key,source_sha256,fact_sha256)
+               VALUES (?,?,'current_card','current_raw',?,?,?,?,?)""",
+            (current_id, run_id, str(event[0]), str(event[1]), str(event[2]),
+             str(event[3]), current_fact_sha),
+        )
+        for number, dimension in enumerate(
+                ("account", "cost_type", "allocation_target"), start=1):
+            decision = db.execute(
+                "SELECT value,rule_id FROM classification_decisions WHERE id=?",
+                (decision_ids[dimension],),
+            ).fetchone()
+            source_key = f"booking:{payment_id}:{number}"
+            source_sha = f"{number:064x}"
+            fact_sha = f"{payment_id * 10 + number:064x}"
+            external_id = "verified_booking:" + fact_sha
+            db.execute(
+                """INSERT INTO direct_source_records(
+                     source_kind,source_key,source_sha256,payload_json)
+                   VALUES ('booking_raw',?,?, '{}')""",
+                (source_key, source_sha),
+            )
+            db.execute(
+                """INSERT INTO direct_promotion_evidence(
+                     evidence_id,run_id,evidence_kind,authority_status,direct_event_key,
+                     source_kind,source_key,source_sha256,fact_sha256)
+                   VALUES (?,?,'verified_booking','verified_external',?,
+                           'booking_raw',?,?,?)""",
+                (external_id, run_id, str(event[0]), source_key,
+                 source_sha, fact_sha),
+            )
+            derivation_id = f"fixture-derivation:{payment_id}:{dimension}"
+            db.execute(
+                """INSERT INTO direct_axis_derivations(
+                     derivation_id,run_id,payment_id,dimension,value,rule_id,
+                     current_evidence_id,independent_evidence_id,
+                     derivation_status,conflict_count)
+                   VALUES (?,?,?,?,?,?,?,?,'pass',0)""",
+                (derivation_id, run_id, payment_id, dimension, decision[0],
+                 decision[1], current_id, external_id),
+            )
+            db.execute(
+                """INSERT INTO direct_decision_promotion_bindings(
+                     run_id,decision_id,derivation_id) VALUES (?,?,?)""",
+                (run_id, decision_ids[dimension], derivation_id),
+            )
 
     def _valid_baseline(
         self,
@@ -517,6 +706,18 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertNotEqual(after, candidate_semantic_sha256(db, run_id))
         db.close()
 
+    def test_semantic_manifest_payload_ignores_run_scoped_id(self) -> None:
+        first = _semantic_manifest_payload(
+            '{"artifact_type":"manifest","run_id":"run-a",'
+            '"state_sha256":"a"}'
+        )
+        second = _semantic_manifest_payload(
+            '{"artifact_type":"manifest","run_id":"run-b",'
+            '"state_sha256":"a"}'
+        )
+        self.assertEqual(first, second)
+        self.assertNotIn("run_id", first)
+
     def test_gate5_reports_every_unresolved_candidate_key(self) -> None:
         database, run_id, expected, _ = self._fixture()
         report = self._report(database, run_id, expected)
@@ -547,7 +748,10 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertEqual(
             sum(gate["actual"]["counts_by_transaction_type"].values()), 5
         )
-        self.assertEqual(gate["actual"]["requirements_status"], "direct_decision_contract_v1")
+        self.assertEqual(
+            gate["actual"]["requirements_status"],
+            "direct_decision_contract_v2_three_axis",
+        )
 
     def test_scope_fingerprint_is_order_invariant_and_role_sensitive(self) -> None:
         rows = [
@@ -672,25 +876,84 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertFalse(gate["passed"])
         self.assertEqual(gate["actual"]["resolved_count"], 0)
         self.assertEqual(gate["actual"]["unresolved_count"], 5)
-        self.assertEqual(gate["reason"], "direct_allocation_decision_incomplete")
+        self.assertEqual(gate["reason"], "nonfinal_side_effect_leak")
+        self.assertFalse(gate["actual"]["nonfinal_side_effect_invariant"])
+        self.assertEqual(gate["actual"]["nonfinal_plan_count"], 1)
+        self.assertEqual(gate["actual"]["nonfinal_allocation_count"], 1)
+        self.assertEqual(gate["actual"]["nonfinal_confirmed_decision_count"], 1)
 
-    def test_gate5_resolves_only_exact_four_axis_confirmed_allocation(self) -> None:
+    def test_three_confirmed_axes_without_promotion_bindings_do_not_resolve_gate5(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0])
+        allocation_decision_id = None
+        for dimension, value in (
+            ("account", "숙박비"), ("cost_type", "여행원가"),
+            ("allocation_target", "0924_야마구치"),
+        ):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                     target_type,target_id,dimension,value,confidence,confidence_label,
+                     decision_status,rule_id,rationale)
+                   VALUES ('payment',?,?,?,?,?,'confirmed','unbound','unbound')""",
+                (payment_id, dimension, value, 1.0, "confirmed"),
+            )
+            if dimension == "allocation_target":
+                allocation_decision_id = int(db.execute(
+                    "SELECT last_insert_rowid()"
+                ).fetchone()[0])
+        db.execute(
+            "INSERT INTO allocation_targets(target_type,code,name) VALUES ('trip','0924_야마구치','trip')"
+        )
+        target_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            """INSERT INTO allocation_plans(
+                 payment_id,plan_version,plan_status,confidence,source_decision_id)
+               VALUES (?,1,'confirmed',1.0,?)""",
+            (payment_id, allocation_decision_id),
+        )
+        plan_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,100)",
+            (plan_id, target_id),
+        )
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (semantic_hash, run_id),
+        )
+        db.commit(); db.close(); expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertEqual(gate["actual"]["resolved_count"], 0)
+        self.assertEqual(gate["actual"]["full_axis_payment_count"], 0)
+
+    def test_gate5_resolves_only_exact_three_axis_confirmed_allocation(self) -> None:
         database, run_id, expected, _ = self._fixture()
         db = connect(database)
         payment_id = int(db.execute(
             "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
             (run_id,)).fetchone()[0])
         decision_id = None
+        decision_ids = {}
         for dimension, value in (("account", "숙박비"), ("cost_type", "여행원가"),
-                                 ("vat_tag", "불공제_해외"),
                                  ("allocation_target", "0924_야마구치")):
             db.execute("""INSERT INTO classification_decisions(
                 target_type,target_id,dimension,value,confidence,confidence_label,
                 decision_status,rule_id,rationale)
                 VALUES ('payment',?,?,?,?,?,'confirmed','test','exact')""",
                        (payment_id, dimension, value, 1.0, "confirmed"))
+            decision_ids[dimension] = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
             if dimension == "allocation_target":
-                decision_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+                decision_id = decision_ids[dimension]
+        db.execute("""INSERT INTO classification_decisions(
+            target_type,target_id,dimension,value,confidence,confidence_label,
+            decision_status,rule_id,rationale)
+            VALUES ('payment',?,'vat_tag','legacy-vat',1.0,'legacy','confirmed',
+                    'legacy-only','excluded dimension')""", (payment_id,))
+        self._bind_independent_promotions(db, run_id, payment_id, decision_ids)
         db.execute("""INSERT INTO allocation_targets(target_type,code,name)
                       VALUES ('trip','0924_야마구치','0924_야마구치')""")
         target_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
@@ -701,6 +964,25 @@ class DirectTransitionGateTest(unittest.TestCase):
         db.execute("INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,100)",
                    (plan_id, target_id))
         semantic_hash = candidate_semantic_sha256(db, run_id)
+        evidence_id = str(db.execute(
+            "SELECT evidence_id FROM direct_promotion_evidence WHERE run_id=? LIMIT 1",
+            (run_id,),
+        ).fetchone()[0])
+        original_fact_sha = str(db.execute(
+            "SELECT fact_sha256 FROM direct_promotion_evidence WHERE evidence_id=?",
+            (evidence_id,),
+        ).fetchone()[0])
+        db.execute("PRAGMA ignore_check_constraints=ON")
+        db.execute(
+            "UPDATE direct_promotion_evidence SET fact_sha256=? WHERE evidence_id=?",
+            ("f" * 64, evidence_id),
+        )
+        self.assertNotEqual(semantic_hash, candidate_semantic_sha256(db, run_id))
+        db.execute(
+            "UPDATE direct_promotion_evidence SET fact_sha256=? WHERE evidence_id=?",
+            (original_fact_sha, evidence_id),
+        )
+        db.execute("PRAGMA ignore_check_constraints=OFF")
         db.execute("UPDATE cost_allocations SET amount_krw=99 WHERE plan_id=?", (plan_id,))
         self.assertNotEqual(semantic_hash, candidate_semantic_sha256(db, run_id))
         db.execute("UPDATE cost_allocations SET amount_krw=100 WHERE plan_id=?", (plan_id,))
@@ -711,7 +993,176 @@ class DirectTransitionGateTest(unittest.TestCase):
         self.assertFalse(gate["passed"])
         self.assertEqual((gate["actual"]["resolved_count"],
                           gate["actual"]["unresolved_count"]), (1, 4))
-        self.assertEqual(gate["reason"], "direct_allocation_decision_incomplete")
+        self.assertEqual(gate["actual"]["full_axis_decision_count"], 3)
+        self.assertEqual(gate["actual"]["excluded_dimensions"], ["vat_tag"])
+        self.assertEqual(gate["reason"], "settlement_authority_validation_failed")
+
+    def test_gate5_accepts_one_confirmed_plan_with_multiple_exact_rows(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0])
+        allocation_decision_id = None
+        decision_ids = {}
+        for dimension, value in (
+            ("account", "숙박비"),
+            ("cost_type", "여행원가"),
+            ("allocation_target", "0924_야마구치"),
+        ):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                    target_type,target_id,dimension,value,confidence,confidence_label,
+                    decision_status,rule_id,rationale)
+                    VALUES ('payment',?,?,?,?,?,'confirmed','test','split')""",
+                (payment_id, dimension, value, 1.0, "confirmed"),
+            )
+            decision_ids[dimension] = int(db.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0])
+            if dimension == "allocation_target":
+                allocation_decision_id = decision_ids[dimension]
+        self._bind_independent_promotions(db, run_id, payment_id, decision_ids)
+        db.execute(
+            "INSERT INTO allocation_targets(target_type,code,name) VALUES ('trip','0924_야마구치','0924_야마구치')"
+        )
+        target_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            """INSERT INTO allocation_plans(
+                payment_id,plan_version,plan_status,confidence,source_decision_id)
+                VALUES (?,1,'confirmed',1.0,?)""",
+            (payment_id, allocation_decision_id),
+        )
+        plan_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.executemany(
+            "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,?)",
+            [(plan_id, target_id, 40), (plan_id, target_id, 60)],
+        )
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (semantic_hash, run_id),
+        )
+        db.commit()
+        db.close()
+        expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(
+            (gate["actual"]["allocated_count"], gate["actual"]["terminal_complete_count"],
+             gate["actual"]["resolved_count"], gate["actual"]["unresolved_count"]),
+            (1, 0, 1, 4),
+        )
+
+    def test_gate5_rejects_null_plan_source_binding(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0])
+        decision_ids = {}
+        for dimension, value in (
+            ("account", "숙박비"),
+            ("cost_type", "여행원가"),
+            ("allocation_target", "0924_야마구치"),
+        ):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                    target_type,target_id,dimension,value,confidence,confidence_label,
+                    decision_status,rule_id,rationale)
+                    VALUES ('payment',?,?,?,?,?,'confirmed','test','null-source')""",
+                (payment_id, dimension, value, 1.0, "confirmed"),
+            )
+            decision_ids[dimension] = int(db.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0])
+        self._bind_independent_promotions(db, run_id, payment_id, decision_ids)
+        db.execute(
+            "INSERT INTO allocation_targets(target_type,code,name) VALUES ('trip','0924_야마구치','0924_야마구치')"
+        )
+        target_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            "INSERT INTO allocation_plans(payment_id,plan_version,plan_status,confidence) VALUES (?,1,'confirmed',1.0)",
+            (payment_id,),
+        )
+        plan_id = int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+        db.execute(
+            "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,100)",
+            (plan_id, target_id),
+        )
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (semantic_hash, run_id),
+        )
+        db.commit()
+        db.close()
+        expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["actual"]["resolved_count"], 0)
+
+    def test_gate5_counts_confirmed_nontrip_terminal_separately(self) -> None:
+        database, run_id, expected, _ = self._fixture()
+        db = connect(database)
+        payment_id = int(db.execute(
+            "SELECT MIN(payment_id) FROM direct_payment_projection_links WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0])
+        decision_ids = {}
+        for dimension, value in (
+            ("account", "확인"),
+            ("cost_type", "판관비"),
+            ("allocation_target", "취소환불"),
+        ):
+            db.execute(
+                """INSERT INTO classification_decisions(
+                    target_type,target_id,dimension,value,confidence,confidence_label,
+                    decision_status,rule_id,rationale)
+                    VALUES ('payment',?,?,?,?,?,'confirmed','test','terminal')""",
+                (payment_id, dimension, value, 1.0, "confirmed"),
+            )
+            decision_ids[dimension] = int(db.execute(
+                "SELECT last_insert_rowid()"
+            ).fetchone()[0])
+        self._bind_independent_promotions(db, run_id, payment_id, decision_ids)
+        db.execute(
+            """INSERT INTO allocation_review_cases(
+                payment_id,outcome,reason_code,rationale,review_status,rule_id)
+                VALUES (?, 'cancellation_settlement', 'test_terminal', 'terminal', 'confirmed', 'stale')""",
+            (payment_id,),
+        )
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (semantic_hash, run_id),
+        )
+        db.commit()
+        db.close()
+        expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertEqual(gate["actual"]["terminal_complete_count"], 0)
+        db = connect(database)
+        db.execute("UPDATE allocation_review_cases SET rule_id='test' WHERE payment_id=?",
+                   (payment_id,))
+        semantic_hash = candidate_semantic_sha256(db, run_id)
+        db.execute(
+            "UPDATE direct_projection_runs SET candidate_semantic_sha256=? WHERE run_id=?",
+            (semantic_hash, run_id),
+        )
+        db.commit(); db.close(); expected["candidate_semantic_sha256"] = semantic_hash
+        gate = self._report(database, run_id, expected)["gates"][4]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(
+            (gate["actual"]["allocated_count"], gate["actual"]["terminal_complete_count"],
+             gate["actual"]["resolved_count"], gate["actual"]["unresolved_count"]),
+            (0, 0, 0, 5),
+        )
+        self.assertEqual(
+            gate["reason"], "settlement_authority_validation_failed"
+        )
 
     def test_gate6_integrity_pass_without_baseline_still_fails(self) -> None:
         database, run_id, expected, _ = self._fixture()

@@ -55,7 +55,7 @@ def _authority(expected_sha256:str):
     required={"format_version":1,"policy":"r39-han-master-candidate-v1","normalizer_contract_sha256":APPROVED_CONTRACT_SHA256,
       "legacy_master_sha256":APPROVED_LEGACY_MASTER_SHA256,"target_master_sha256":APPROVED_TARGET_MASTER_SHA256,
       "G_sha256":APPROVED_G_SHA256,"H_sha256":APPROVED_H_SHA256,"allowed_run_status":["building"],
-      "schema_version":"p07-direct-v3","parser_version":"direct-source-v4"}
+      "schema_version":"p07-direct-v3","parser_version":"direct-source-v5"}
     if value!=required:raise ValueError("r39_authority_policy_mismatch")
     return value,_sha(raw)
 def _master_key(row:dict[str,object],amount:int)->str:

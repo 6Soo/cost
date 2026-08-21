@@ -1,4 +1,4 @@
-"""Admit only directly evidenced axes for seven exact-payment booking records."""
+"""Retain seven mixed-provenance booking rows as candidates only."""
 from __future__ import annotations
 
 import hashlib
@@ -111,12 +111,6 @@ def build_verified_partial_booking_admission(
             period_start, period_end = _period_dates(str(expected["period"]))
             if not (start <= period_start <= period_end <= end):
                 raise ValueError("verified_partial_period_outside_trip")
-        proposal = envelope.get("proposal") or {}
-        field_map = {"account": "account", "cost_type": "cost_type",
-                     "allocation_target": "bucket"}
-        if any(proposal.get(field_map[dimension]) != value
-               for dimension, value in expected["axes"].items()):
-            raise ValueError("verified_partial_lineage_axis_drift")
         decisions.append({
             "direct_event_key": envelope["direct_event_key"],
             "current_event_sha256": envelope["current_event_sha256"],
@@ -124,8 +118,9 @@ def build_verified_partial_booking_admission(
             "evidence_record_sha256": _sha(json.dumps(
                 link, ensure_ascii=False, sort_keys=True, separators=(",", ":")
             ).encode()),
-            "axes": dict(expected["axes"]), "vat_status": "unresolved",
-            "decision_status": "confirmed", "posting_status": "blocked",
+            "axes": dict(expected["axes"]),
+            "candidate_status": "withheld_pending_direct_current_binding_and_trip_evidence",
+            "posting_status": "blocked",
         })
     keys = {row["direct_event_key"] for row in decisions}
     axis_count = sum(len(row["axes"]) for row in decisions)
@@ -136,13 +131,14 @@ def build_verified_partial_booking_admission(
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
             "selected_event_set_sha256": SELECTED_SET_SHA256,
-            "selected_count": 7, "axis_decision_count": 17,
-            "vat_unresolved_count": 7, "gate5_credit": 0,
+            "selected_count": 7, "candidate_axis_count": 17,
+            "excluded_dimensions": ["vat_tag"], "gate5_credit": 0,
+            "authority_status": "candidate_only",
             "ota_links_sha256": OTA_LINKS_SHA256, "trips_sha256": TRIPS_SHA256,
             "current_event_set_sha256": annex["manifest"]["current_event_set_sha256"],
             "decision_scope_sha256": annex["manifest"]["decision_scope_sha256"],
             "posting_status": "blocked", "database_applied": False,
             "all_source_events_retained": True,
         },
-        "decisions": sorted(decisions, key=lambda row: row["direct_event_key"]),
+        "candidates": sorted(decisions, key=lambda row: row["direct_event_key"]),
     }

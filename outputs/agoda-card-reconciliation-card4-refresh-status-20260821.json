@@ -1,0 +1,58 @@
+{
+  "schema": "agoda-card-reconciliation-card4-refresh-status-v1",
+  "captured_at": "2026-08-21",
+  "status": "FAIL",
+  "promotion_allowed": false,
+  "posting_allowed": false,
+  "customer_center_clicks": 0,
+  "refresh_source": {
+    "path": "outputs/agoda-paseo-staging-refresh-20260821.json",
+    "record_count": 591,
+    "sha256": "53db93800ac55b0178faac2bc4945739e76dcfd3aa8d805c9fc26807f25c0b5b"
+  },
+  "detail_card4_sample": {
+    "path": "outputs/agoda-paseo-staging-refresh-card4-20260821.json",
+    "record_count": 36,
+    "detail_captured": 36,
+    "card4_present": 36,
+    "payment_states": {
+      "paid_today": 5,
+      "scheduled": 26,
+      "pay_at_property": 3,
+      "guarantee_only": 2
+    },
+    "distinct_card4": [
+      "8835"
+    ]
+  },
+    "opaque_detail_expansion": {
+    "browser_provider": "Paseo IAB",
+    "parallel_lanes": 10,
+    "current_upcoming_list_count": 116,
+    "unique_detail_evidence_count": 116,
+    "card4_verified_count": 116,
+    "card4_unknown_count": 0,
+    "opaque_detail_canonical_membership_direct_match_count": 51,
+    "opaque_detail_canonical_membership_unresolved_count": 65,
+    "duplicate_lane_captures_excluded": 2,
+    "customer_center_clicks": 0,
+    "scope": "current_upcoming_pages_1_to_3",
+    "status": "COMPLETE",
+    "artifact": "outputs/agoda-upcoming-opaque-detail-capture-status-20260821.json",
+    "page1_artifact": "outputs/agoda-upcoming-page1-opaque-detail-evidence-20260821.json",
+    "page2_artifact": "outputs/agoda-upcoming-page2-opaque-detail-evidence-20260821.json"
+  },
+  "holds": [
+    "COMPLETED_TAB_DETAIL_CENSUS_NOT_CLOSED",
+    "CARD_RAW_TO_PORTAL_AUTHORITY_NOT_CLOSED",
+    "ACTUAL_CHARGED_AMOUNT_AND_CURRENCY_NOT_CLOSED",
+    "REFRESH_STAGING_NOT_REPROJECTED"
+  ],
+  "write_effects": {
+    "db_rows_inserted": 0,
+    "db_rows_updated": 0,
+    "posted_transactions": 0,
+    "workbook_rows_written": 0
+  },
+  "next_safe_boundary": "Upcoming pages 1-3 are screen-captured 116/116, but 65 opaque identifiers are not yet directly bound to canonical list membership. Completed/Cancelled detail scope, card raw/projection authority, and actual-charge currency binding remain open. Resolve those, rebuild a sealed projection, then run the candidate graph read-only; do not promote or post."
+}

@@ -186,6 +186,7 @@ def _validate_edits(row: dict[str, object], fact: dict[str, object], refs: set[t
         if (not isinstance(item, dict) or set(item) != {"dimension", "value"}
                 or not isinstance(item["dimension"], str) or not item["dimension"].strip()
                 or not isinstance(item["value"], str) or not item["value"].strip()
+                or item["dimension"] not in {"account", "cost_type", "allocation_target"}
                 or item["dimension"] in dimensions):
             raise ValueError("owner_review_classification_item_invalid")
         dimensions.add(item["dimension"])

@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import sqlite3
@@ -11,15 +12,22 @@ import subprocess
 import tempfile
 import uuid
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Iterable
 
 from ledger import cardindex
 from ledger.domain.direct_sources import import_all
+from ledger.domain.direct_structural_rule_admission import (
+    admission_manifest,
+    normalize_admitted_rule_paths,
+    paths_for_package,
+)
 from ledger.domain.ledger_db import connect, initialize
 from ledger.domain.source_adapters import (
     adapt_ota_record,
+    adapt_pg_record,
+    adapt_service_mail_record,
 )
 from ledger.domain.transition_gates_v2 import (
     PARSER_BUNDLE_VERSION,
@@ -45,20 +53,25 @@ RUNTIME_CODE_PATHS = (
     Path("ledger/domain/decision_integrity.py"),
     Path("ledger/domain/source_adapters.py"),
     Path("ledger/domain/direct_sources.py"),
+    Path("ledger/domain/agoda_booking_evidence.py"),
     Path("ledger/domain/ledger_db.py"),
     Path("ledger/domain/direct_projection_schema.sql"),
     Path("ledger/domain/direct_projection.py"),
-    Path("ledger/domain/direct_all_period_user_approved_taxonomy_admission.py"),
-    Path("ledger/domain/direct_all_period_manual_frontier_lodging_admission.py"),
-    Path("ledger/domain/direct_all_period_manual_frontier_agoda_airfare_admission.py"),
-    Path("ledger/domain/direct_all_period_verified_mutsu_lodging_admission.py"),
-    Path("ledger/domain/direct_all_period_verified_kamenoi_lodging_admission.py"),
-    Path("ledger/domain/direct_all_period_verified_partial_booking_admission.py"),
-    Path("ledger/domain/direct_all_period_historical_carryforward_census.py"),
-    Path("ledger/domain/direct_all_period_historical_carryforward_admission.py"),
-    Path("ledger/domain/direct_all_period_residual_census.py"),
-    Path("ledger/domain/direct_merchant_taxonomy_support.py"),
-    Path("ledger/domain/direct_manual_group_taxonomy_evidence.py"),
+    Path("ledger/domain/direct_independent_evidence.py"),
+    Path("ledger/domain/direct_current_cancellation_settlement.py"),
+    Path("ledger/domain/direct_verified_ota_lodging.py"),
+    Path("ledger/domain/direct_geographic_trip_context.py"),
+    Path("ledger/domain/direct_gmail_payment_evidence.py"),
+    Path("ledger/domain/direct_pg_payment_evidence.py"),
+    Path("ledger/domain/direct_current_owner_decision.py"),
+    Path("ledger/domain/direct_taiwan_cluster_candidate.py"),
+    Path("ledger/domain/direct_ota_reservation_authority.py"),
+    Path("ledger/domain/direct_high_coverage_classifier.py"),
+    Path("ledger/domain/direct_2025_cost_accounting.py"),
+    Path("ledger/domain/direct_2025_payment_terminal.py"),
+    Path("ledger/domain/direct_structural_rule_admission.py"),
+    Path("ledger/domain/direct_trip_cluster_registry.py"),
+    Path("ledger/domain/direct_validated_purchase_classifier.py"),
     Path("ledger/domain/transition_gates_v2.py"),
     Path("ledger/domain/p07_manifest.py"),
     Path("ledger/domain/direct_owner_review.py"),
@@ -99,8 +112,44 @@ def _read_cards(ledger_dir: Path) -> list[dict[str, object]]:
     return [dict(card) for card in cardindex.build_cards(ledger_dir=ledger_dir)]
 
 
+def capture_source_snapshots(
+    repository_root: Path = REPOSITORY_ROOT,
+) -> dict[str, bytes]:
+    """Capture every declared input once before any parser sees it."""
+    root = repository_root.resolve()
+    snapshots: dict[str, bytes] = {}
+    for spec in REQUIRED_INPUTS:
+        source_kind = str(spec["source_kind"])
+        resolved, _ = _relative_file(root / str(spec["relative_path"]), root)
+        raw = resolved.read_bytes()
+        if not raw:
+            raise ValueError(f"source_empty:{spec['relative_path']}")
+        snapshots[source_kind] = raw
+    if len(snapshots) != len(REQUIRED_INPUTS):
+        raise ValueError("source_snapshot_cardinality_invalid")
+    return snapshots
+
+
+def _read_cards_from_snapshots(
+    snapshots: dict[str, bytes],
+) -> list[dict[str, object]]:
+    """Parse card workbooks only from the captured byte snapshots."""
+    with tempfile.TemporaryDirectory(prefix="direct-card-snapshot-") as temp_name:
+        snapshot_ledger = Path(temp_name)
+        card_dir = snapshot_ledger / "newcard" / "conv"
+        card_dir.mkdir(parents=True)
+        for spec in REQUIRED_INPUTS:
+            source_kind = str(spec["source_kind"])
+            if not source_kind.startswith("card_raw:"):
+                continue
+            filename = Path(str(spec["relative_path"])).name
+            (card_dir / filename).write_bytes(snapshots[source_kind])
+        return [dict(card) for card in cardindex.build_cards(ledger_dir=snapshot_ledger)]
+
+
 def _card_keys_by_artifact(
     ledger_dir: Path,
+    cards: list[dict[str, object]] | None = None,
 ) -> dict[str, list[str]]:
     by_artifact = {
         spec["source_kind"]: []
@@ -112,7 +161,7 @@ def _card_keys_by_artifact(
         for spec in REQUIRED_INPUTS
         if str(spec["source_kind"]).startswith("card_raw:")
     }
-    for card in _read_cards(ledger_dir):
+    for card in cards if cards is not None else _read_cards(ledger_dir):
         raw_record_id = str(card["raw_record_id"])
         artifact = raw_record_id.split(":", 1)[0]
         source_kind = artifact_for_prefix.get(artifact)
@@ -122,19 +171,36 @@ def _card_keys_by_artifact(
     return by_artifact
 
 
-def _manual_keys(path: Path) -> list[str]:
-    with path.open(encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream)
-        if not reader.fieldnames:
-            raise ValueError("manual_header_missing")
-        rows = list(reader)
+def _manual_keys(raw: bytes) -> list[str]:
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"), newline=""))
+    if not reader.fieldnames:
+        raise ValueError("manual_header_missing")
+    rows = list(reader)
     if not rows:
         raise ValueError("manual_source_empty")
     return [f"{row.get('tab')}:{row.get('row')}" for row in rows]
 
 
-def _ota_keys(path: Path) -> list[str]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+def _classifier_training_keys(raw: bytes) -> list[str]:
+    """Inventory historical rows as learning data, never as card evidence."""
+    reader = csv.DictReader(io.StringIO(raw.decode("utf-8-sig"), newline=""))
+    required = {
+        "uid", "src", "use_date", "post_date", "merchant", "bucket",
+        "account", "cost_type", "confidence", "tax_conf", "appr", "card4",
+    }
+    if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+        raise ValueError("classifier_training_header_invalid")
+    rows = list(reader)
+    if not rows:
+        raise ValueError("classifier_training_source_empty")
+    keys = [str(row.get("uid") or "").strip() for row in rows]
+    if any(not key for key in keys):
+        raise ValueError("classifier_training_uid_missing")
+    return keys
+
+
+def _ota_keys(raw_bytes: bytes) -> list[str]:
+    raw = json.loads(raw_bytes.decode("utf-8"))
     rows = raw.get("records", raw) if isinstance(raw, dict) else raw
     if not isinstance(rows, list) or not rows:
         raise ValueError("ota_source_empty")
@@ -147,6 +213,73 @@ def _ota_keys(path: Path) -> list[str]:
     return keys
 
 
+def _pg_keys(raw_bytes: bytes) -> list[str]:
+    raw = json.loads(raw_bytes.decode("utf-8"))
+    rows = raw.get("records") if isinstance(raw, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("pg_source_empty")
+    keys: list[str] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"pg_record_not_object:{index}")
+        clean = adapt_pg_record(row)
+        keys.append(str(clean["message_id"]))
+    return keys
+
+
+def _service_mail_keys(raw_bytes: bytes) -> list[str]:
+    raw = json.loads(raw_bytes.decode("utf-8"))
+    rows = raw.get("records") if isinstance(raw, dict) else None
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("service_mail_source_empty")
+    keys: list[str] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"service_mail_record_not_object:{index}")
+        clean = adapt_service_mail_record(row)
+        keys.append(str(clean["message_id"]))
+    return keys
+
+
+def _trip_keys(raw_bytes: bytes) -> list[str]:
+    raw = json.loads(raw_bytes.decode("utf-8"))
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("trip_schedule_source_empty")
+    if any(not isinstance(row, dict) or not isinstance(row.get("tab"), str)
+           for row in raw):
+        raise ValueError("trip_schedule_source_invalid")
+    return [str(row["tab"]) for row in raw]
+
+
+def _geographic_context_keys(raw_bytes: bytes) -> list[str]:
+    from ledger.domain.direct_geographic_trip_context import context_keys
+
+    return context_keys(raw_bytes)
+
+
+def _lodging_fact_keys(raw_bytes: bytes) -> list[str]:
+    from ledger.domain.direct_verified_ota_lodging import (
+        validate_lodging_fact_document,
+    )
+    raw = json.loads(raw_bytes.decode("utf-8"))
+    rows = validate_lodging_fact_document(raw)["records"]
+    return [str(row["message_id"]) for row in rows]
+
+
+def _ota_reservation_fact_keys(raw_bytes: bytes) -> list[str]:
+    try:
+        raw = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("ota_reservation_fact_json_invalid") from exc
+    if not isinstance(raw, dict) or not raw:
+        raise ValueError("ota_reservation_fact_root_invalid")
+    if any(not isinstance(key, str) or not key.strip() for key in raw):
+        raise ValueError("ota_reservation_fact_key_invalid")
+    if any(not isinstance(value, dict) for value in raw.values()):
+        raise ValueError("ota_reservation_fact_row_invalid")
+    return [str(key) for key in raw]
+
+
 def _validate_unique_keys(source_kind: str, keys: list[str]) -> None:
     if not keys:
         raise ValueError(f"parsed_source_empty:{source_kind}")
@@ -157,8 +290,11 @@ def _validate_unique_keys(source_kind: str, keys: list[str]) -> None:
 def build_source_inventory(
     ledger_dir: Path,
     repository_root: Path = REPOSITORY_ROOT,
+    *,
+    cards: list[dict[str, object]] | None = None,
+    source_snapshots: dict[str, bytes] | None = None,
 ) -> list[dict[str, object]]:
-    """Parse all seven physical inputs before creating a candidate database."""
+    """Inventory and parse the same captured bytes used by source import."""
     root = repository_root.resolve()
     ledger = ledger_dir.resolve(strict=True)
     try:
@@ -166,7 +302,8 @@ def build_source_inventory(
     except ValueError as exc:
         raise ValueError(f"ledger_outside_repository:{ledger}") from exc
 
-    card_keys = _card_keys_by_artifact(ledger)
+    snapshots = source_snapshots or capture_source_snapshots(root)
+    card_keys = _card_keys_by_artifact(ledger, cards)
     inventory: list[dict[str, object]] = []
     for spec in REQUIRED_INPUTS:
         source_kind = str(spec["source_kind"])
@@ -174,13 +311,32 @@ def build_source_inventory(
             root / str(spec["relative_path"]),
             root,
         )
-        raw = resolved.read_bytes()
+        raw = snapshots.get(source_kind)
+        if raw is None:
+            raise ValueError(f"source_snapshot_missing:{source_kind}")
         if not raw:
             raise ValueError(f"source_empty:{relative_path}")
         if source_kind == "manual_ledger":
-            keys = _manual_keys(resolved)
-        elif source_kind == "ota_mail":
-            keys = _ota_keys(resolved)
+            keys = _manual_keys(raw)
+        elif source_kind == "classifier_training":
+            keys = _classifier_training_keys(raw)
+        elif source_kind in {"ota_mail", "ota_mail_live"}:
+            keys = _ota_keys(raw)
+        elif source_kind in {"pg_mail", "pg_mail_supplement"}:
+            keys = _pg_keys(raw)
+        elif source_kind == "service_mail":
+            keys = _service_mail_keys(raw)
+        elif source_kind == "trip_schedule":
+            keys = _trip_keys(raw)
+        elif source_kind == "geographic_trip_context":
+            keys = _geographic_context_keys(raw)
+        elif source_kind == "ota_lodging_fact":
+            keys = _lodging_fact_keys(raw)
+        elif source_kind == "ota_reservation_fact":
+            keys = _ota_reservation_fact_keys(raw)
+        elif source_kind == "current_owner_decision":
+            from ledger.domain.direct_current_owner_decision import source_keys
+            keys = source_keys(raw)
         else:
             keys = card_keys[source_kind]
         _validate_unique_keys(source_kind, keys)
@@ -204,6 +360,29 @@ def build_source_inventory(
         key=lambda row: (str(row["source_kind"]), str(row["relative_path"]))
     )
     return inventory
+
+
+def source_inventory_raw_unchanged(
+    inventory: Iterable[dict[str, object]],
+    repository_root: Path = REPOSITORY_ROOT,
+) -> bool:
+    """Recheck immutable input bytes without reparsing every workbook."""
+    root = repository_root.resolve()
+    for item in inventory:
+        try:
+            resolved, normalized = _relative_file(
+                root / str(item["relative_path"]), root
+            )
+            raw = resolved.read_bytes()
+        except (KeyError, OSError, ValueError):
+            return False
+        if (
+            normalized != str(item["relative_path"])
+            or len(raw) != int(item["byte_count"])
+            or _sha256_bytes(raw) != str(item["raw_sha256"])
+        ):
+            return False
+    return True
 
 
 def code_bundle_descriptor(
@@ -461,288 +640,271 @@ def project_card_relations(db: object, run_id: str) -> dict[str, int]:
 
 
 def project_user_approved_taxonomy_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    """Project only the three axes explicitly approved by the user."""
-    from ledger.domain.direct_all_period_user_approved_taxonomy_admission import (
-        build_user_approved_taxonomy_admission,
-    )
-    admission = build_user_approved_taxonomy_admission(ledger_dir=ledger_dir)
-    decisions = admission["decisions"]
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    if len(payment_by_key) != 5328:
-        raise ValueError("user_taxonomy_projection_scope_invalid")
-    inserted = 0
-    for row in decisions:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("user_taxonomy_projection_event_missing")
-        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
-                                 ("vat_tag", "vat_tag")):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, row[field], 1.0, "사용자확정",
-                 admission["manifest"]["rule_version"],
-                 "user approved low-ambiguity merchant taxonomy axis; trip and posting remain blocked"))
-            inserted += 1
-    if len(decisions) != 116 or inserted != 348:
-        raise ValueError("user_taxonomy_projection_count_invalid")
-    return {"payments": len(decisions), "decisions": inserted}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Legacy/user labels are candidates and cannot be projected directly."""
+    raise ValueError("candidate_only_projection_forbidden:user_taxonomy")
 
 
 def project_manual_frontier_lodging_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_manual_frontier_lodging_admission import (
-        build_manual_frontier_lodging_admission,
-    )
-    admission = build_manual_frontier_lodging_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("manual_frontier_lodging_projection_event_missing")
-        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
-                                 ("vat_tag", "vat_tag"),
-                                 ("allocation_target", "trip_target")):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, row[field], 1.0, "직접근거확정",
-                 admission["manifest"]["rule_version"],
-                 "exact card/manual lodging group; posting remains blocked"))
-            inserted += 1
-    if len(admission["decisions"]) != 6 or inserted != 24:
-        raise ValueError("manual_frontier_lodging_projection_count_invalid")
-    return {"payments": 6, "decisions": 24}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Manual-ledger lodging hints cannot become active decisions."""
+    raise ValueError("candidate_only_projection_forbidden:manual_frontier_lodging")
 
 
 def project_manual_frontier_airfare_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_manual_frontier_agoda_airfare_admission import (
-        build_manual_frontier_agoda_airfare_admission,
-    )
-    admission = build_manual_frontier_agoda_airfare_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("manual_frontier_airfare_projection_event_missing")
-        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
-                                 ("vat_tag", "vat_tag"),
-                                 ("allocation_target", "trip_target")):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, row[field], 1.0, "직접근거확정",
-                 admission["manifest"]["rule_version"],
-                 "exact card/manual/OTA airfare group; individual bijection not asserted"))
-            inserted += 1
-    if len(admission["decisions"]) != 2 or inserted != 8:
-        raise ValueError("manual_frontier_airfare_projection_count_invalid")
-    return {"payments": 2, "decisions": 8}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Manual-ledger airfare hints cannot become active decisions."""
+    raise ValueError("candidate_only_projection_forbidden:manual_frontier_airfare")
 
 
 def project_verified_mutsu_lodging_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_verified_mutsu_lodging_admission import (
-        build_verified_mutsu_lodging_admission,
-    )
-    admission = build_verified_mutsu_lodging_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("verified_mutsu_projection_event_missing")
-        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
-                                 ("vat_tag", "vat_tag"),
-                                 ("allocation_target", "trip_target")):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, row[field], 1.0, "직접근거확정",
-                 admission["manifest"]["rule_version"],
-                 "individually verified Agoda booking and exact current card lineage"))
-            inserted += 1
-    if len(admission["decisions"]) != 6 or inserted != 24:
-        raise ValueError("verified_mutsu_projection_count_invalid")
-    return {"payments": 6, "decisions": 24}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Legacy-bound Mutsu hints require a new direct evidence binding."""
+    raise ValueError("candidate_only_projection_forbidden:legacy_bound_mutsu")
 
 
 def project_verified_kamenoi_lodging_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_verified_kamenoi_lodging_admission import (
-        build_verified_kamenoi_lodging_admission,
-    )
-    admission = build_verified_kamenoi_lodging_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("verified_kamenoi_projection_event_missing")
-        for dimension, field in (("account", "account"), ("cost_type", "cost_type"),
-                                 ("vat_tag", "vat_tag"),
-                                 ("allocation_target", "trip_target")):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, row[field], 1.0, "직접근거확정",
-                 admission["manifest"]["rule_version"],
-                 "exact user booking-page amount and exact current card lineage"))
-            inserted += 1
-    if len(admission["decisions"]) != 2 or inserted != 8:
-        raise ValueError("verified_kamenoi_projection_count_invalid")
-    return {"payments": 2, "decisions": 8}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Legacy-bound Kamenoi hints require a new direct evidence binding."""
+    raise ValueError("candidate_only_projection_forbidden:legacy_bound_kamenoi")
 
 
 def project_verified_partial_booking_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_verified_partial_booking_admission import (
-        build_verified_partial_booking_admission,
-    )
-    admission = build_verified_partial_booking_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("verified_partial_projection_event_missing")
-        for dimension, value in sorted(row["axes"].items()):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, value, 1.0, "직접근거부분확정",
-                 admission["manifest"]["rule_version"],
-                 "exact booking payment; only explicit axes confirmed; VAT unresolved"))
-            inserted += 1
-    if len(admission["decisions"]) != 7 or inserted != 17:
-        raise ValueError("verified_partial_projection_count_invalid")
-    return {"payments": 7, "decisions": 17, "gate5_credit": 0}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Mixed/legacy booking hints cannot become active decisions."""
+    raise ValueError("candidate_only_projection_forbidden:mixed_partial_booking")
+
+
+def project_safe_group_decisions(
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Manual-ledger multiset hints cannot become active decisions."""
+    raise ValueError("candidate_only_projection_forbidden:manual_exact_group")
 
 
 def project_historical_carryforward_decisions(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    from ledger.domain.direct_all_period_historical_carryforward_admission import (
-        build_historical_carryforward_admission,
-    )
-    admission = build_historical_carryforward_admission(ledger_dir=ledger_dir)
-    payment_by_key = {
-        f"{row[0]}#{row[1]}": int(row[2])
-        for row in db.execute(
-            """SELECT d.card_event_id,d.event_role,l.payment_id
-               FROM direct_payment_projection_links l
-               JOIN direct_normalized_payments d ON d.id=l.direct_payment_id
-               WHERE l.run_id=?""", (run_id,)).fetchall()
-    }
-    inserted = 0
-    for row in admission["decisions"]:
-        payment_id = payment_by_key.get(row["direct_event_key"])
-        if payment_id is None:
-            raise ValueError("carryforward_projection_event_missing")
-        for dimension, value in sorted(row["axes"].items()):
-            db.execute(
-                """INSERT INTO classification_decisions(
-                     target_type,target_id,dimension,value,confidence,confidence_label,
-                     decision_status,rule_id,rationale)
-                   VALUES ('payment',?,?,?,?,?,'confirmed',?,?)""",
-                (payment_id, dimension, value, 1.0, "코드재현확정",
-                 admission["manifest"]["rule_version"],
-                 "isolated legacy code replay reproduced UID and all four axes exactly"))
-            inserted += 1
-    if len(admission["decisions"]) != 611 or inserted != 2444:
-        raise ValueError("carryforward_projection_count_invalid")
-    return {"payments": 611, "decisions": 2444,
-            "gate5_trip_eligible": 608, "lifecycle_nontrip": 3}
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Historical replay is candidate material, never decision authority."""
+    raise ValueError("candidate_only_projection_forbidden:historical_replay")
+
+
+def project_historical_partial_carryforward_decisions(
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Partial historical replay is candidate material only."""
+    raise ValueError("candidate_only_projection_forbidden:historical_partial_replay")
+
+
+def project_historical_exact_manual_card_decisions(
+        db: object, run_id: str, ledger_dir: Path,
+        admission: dict[str, object] | None = None) -> dict[str, int]:
+    """Historical/manual-card matches are candidate material only."""
+    raise ValueError("candidate_only_projection_forbidden:historical_manual_card")
 
 
 def project_confirmed_full_axis_allocations(
-        db: object, run_id: str, ledger_dir: Path) -> dict[str, int]:
-    """Allocate only payments whose four direct-evidence axes are confirmed."""
-    trips = {row["tab"]: row for row in json.loads((ledger_dir / "data/trips.json").read_bytes())}
+        db: object,
+        run_id: str,
+        ledger_dir: Path | None = None,
+        admitted_rule_paths: Iterable[str] = (),
+    ) -> dict[str, int]:
+    """Allocate confirmed payments except structural-rule terminal rows."""
+    from ledger.domain.direct_geographic_trip_context import (
+        load_allocation_trip_schedule,
+        load_verified_trip_target_schedule,
+    )
+    from ledger.domain.direct_verified_ota_lodging import AUTHORITY_CONTRACT
+    from ledger.domain.direct_2025_cost_accounting import (
+        ALLOCATION_TARGET as COST_ALLOCATION_TARGET,
+        RULE_ID as COST_RULE_ID,
+        cost_payment_ids,
+    )
+    # The normal allocator may only enumerate canonical schedules.  A
+    # context-only target (for example 0107_대만) is admitted here only when
+    # the same payment already has a typed, independently verified lodging
+    # authority.  This keeps historical context from silently becoming a
+    # generic allocation target.
+    trips = load_allocation_trip_schedule(db)
+    admitted_paths = normalize_admitted_rule_paths(admitted_rule_paths)
+    cost_payment_id_set = cost_payment_ids(db, run_id)
+    verified_ota_context_targets = {
+        str(row[0]) for row in db.execute(
+            """SELECT DISTINCT allocation_target
+               FROM direct_lodging_authorities WHERE run_id=?""",
+            (run_id,),
+        ).fetchall()
+    }
+    verified_trips: dict[str, dict[str, object]] | None = None
     rows = db.execute(
-        """SELECT p.id,p.amount_krw,MAX(CASE WHEN d.dimension='allocation_target' THEN d.value END),
-                  MAX(CASE WHEN d.dimension='allocation_target' THEN d.id END),COUNT(*)
+        """SELECT p.id,p.amount_krw,p.transaction_type,
+                  MAX(hp.rule_path),
+                  MAX(CASE WHEN d.dimension='account' THEN d.value END),
+                  MAX(CASE WHEN d.dimension='cost_type' THEN d.value END),
+                  MAX(CASE WHEN d.dimension='allocation_target' THEN d.value END),
+                  MAX(CASE WHEN d.dimension='allocation_target' THEN d.id END),
+                  COUNT(*),MIN(d.rule_id),MAX(d.rule_id),
+                  MAX(CASE WHEN d.dimension='allocation_target' THEN d.rule_id END)
            FROM direct_payment_projection_links l
            JOIN payment_transactions p ON p.id=l.payment_id
-           JOIN classification_decisions d ON d.target_type='payment' AND d.target_id=p.id
+           LEFT JOIN direct_high_coverage_classifier_predictions hp
+             ON hp.run_id=l.run_id AND hp.payment_id=p.id
+           JOIN current_independently_promoted_decisions d
+             ON d.run_id=l.run_id AND d.target_type='payment' AND d.target_id=p.id
            WHERE l.run_id=? AND d.decision_status='confirmed'
-             AND d.dimension IN ('account','cost_type','vat_tag','allocation_target')
-           GROUP BY p.id,p.amount_krw
-           HAVING COUNT(*)=4
+             AND d.dimension IN ('account','cost_type','allocation_target')
+           GROUP BY p.id,p.amount_krw,p.transaction_type
+           HAVING COUNT(*)=3
            ORDER BY p.id""", (run_id,)).fetchall()
-    if len(rows) != 627:
-        raise ValueError("direct_full_axis_allocation_scope_invalid")
     allocations = 0
     nontrip = 0
-    for payment_id, amount, target_code, source_decision_id, decision_count in rows:
+    for (payment_id, amount, transaction_type, rule_path, account_code, cost_type_code, target_code,
+         source_decision_id, decision_count, minimum_rule_id,
+         maximum_rule_id, target_rule_id) in rows:
+        path_parts = str(rule_path or "").split("|")
+        if (
+            len(path_parts) > 1
+            and path_parts[1] in admitted_paths
+            and int(payment_id) not in cost_payment_id_set
+        ):
+            # Structural admission creates a confirmed terminal disposition,
+            # not an allocation plan.  Keep the financial side effects at zero
+            # until a separate target/service-period rule is accepted.
+            continue
+        axis_rule_set = {
+            str(row[0]) for row in db.execute(
+                """SELECT d.rule_id
+                   FROM current_independently_promoted_decisions d
+                   WHERE d.run_id=? AND d.target_id=?
+                     AND d.target_type='payment'
+                     AND d.dimension IN ('account','cost_type','allocation_target')""",
+                (run_id, payment_id),
+            ).fetchall()
+        }
+        ota_axis_rules = {
+            "ota-reservation-current-card-unique-service-period-v1:" + dimension
+            for dimension in ("account", "cost_type", "allocation_target")
+        }
+        same_rule = bool(minimum_rule_id) and minimum_rule_id == maximum_rule_id
+        ota_rule = axis_rule_set == ota_axis_rules
+        typed_lodging_rule = axis_rule_set == {AUTHORITY_CONTRACT}
+        cost_axis_rules = {
+            f"{COST_RULE_ID}:{dimension}"
+            for dimension in ("account", "cost_type", "allocation_target")
+        }
+        cost_rule = axis_rule_set == cost_axis_rules
+        if int(decision_count) != 3 or not target_rule_id or not (
+            same_rule or ota_rule or cost_rule
+        ):
+            raise ValueError("direct_full_axis_rule_set_invalid")
+        allocation_rule_id = str(
+            target_rule_id if ota_rule or cost_rule else minimum_rule_id
+        )
         trip = trips.get(str(target_code))
+        if (
+            trip is None
+            and typed_lodging_rule
+            and str(target_code) in verified_ota_context_targets
+        ):
+            if verified_trips is None:
+                verified_trips = load_verified_trip_target_schedule(db)
+            trip = verified_trips.get(str(target_code))
         if trip is None:
-            if str(target_code) != "취소환불":
+            if str(target_code) not in {
+                "취소환불", "기타비용", "여행_미배정", COST_ALLOCATION_TARGET,
+            }:
                 raise ValueError("direct_full_axis_allocation_target_unknown")
+            if str(target_code) == COST_ALLOCATION_TARGET:
+                if not cost_rule:
+                    raise ValueError("direct_2025_cost_axis_rule_invalid")
+                db.execute(
+                    """INSERT INTO allocation_targets(target_type,code,name,trip_id)
+                       VALUES ('other',?,?,NULL)
+                       ON CONFLICT(code) DO UPDATE SET
+                         target_type='other',name=excluded.name,trip_id=NULL""",
+                    (COST_ALLOCATION_TARGET, COST_ALLOCATION_TARGET),
+                )
+                target_id = int(db.execute(
+                    "SELECT id FROM allocation_targets WHERE code=?",
+                    (COST_ALLOCATION_TARGET,),
+                ).fetchone()[0])
+                plan_id = int(db.execute(
+                    """INSERT INTO allocation_plans(
+                         payment_id,plan_version,plan_status,confidence,source_decision_id)
+                       VALUES (?,1,'confirmed',1.0,?)""",
+                    (payment_id, source_decision_id),
+                ).lastrowid)
+                db.execute(
+                    "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,?)",
+                    (plan_id, target_id, int(amount)),
+                )
+                allocations += 1
+                nontrip += 1
+                continue
+            if str(target_code) == "취소환불" and (
+                str(account_code) != "비용제외"
+                or str(cost_type_code) != "비용제외"
+                or allocation_rule_id != "current-card-net-zero-settlement-v1"
+            ):
+                raise ValueError("direct_cancellation_terminal_axes_invalid")
+            outcome = (
+                "cancellation_settlement"
+                if str(target_code) == "취소환불"
+                else "travel_unassigned"
+                if str(target_code) == "여행_미배정"
+                else "overhead"
+            )
+            db.execute(
+                """
+                INSERT INTO allocation_review_cases(
+                    payment_id, outcome, reason_code, rationale,
+                    review_status, rule_id
+                ) VALUES (?, ?, ?, ?, 'confirmed', ?)
+                ON CONFLICT(payment_id) DO UPDATE SET
+                    outcome=excluded.outcome,
+                    reason_code=excluded.reason_code,
+                    rationale=excluded.rationale,
+                    review_status=excluded.review_status,
+                    rule_id=excluded.rule_id,
+                    reviewed_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    payment_id,
+                    outcome,
+                    f"direct_full_axis_{outcome}",
+                    (
+                        "행사일이 없는 OTA·해외 선결제는 결제일을 행사일로 쓰지 않고 "
+                        "여행_미배정으로 자동 종결"
+                        if outcome == "travel_unassigned"
+                        else "독립 근거로 3개 비용 축이 확정된 비여행 terminal은 배분 없이 종결"
+                    ),
+                    allocation_rule_id,
+                ),
+            )
             nontrip += 1
             continue
-        if (set(trip) != {"tab", "mm", "dd", "region", "window"}
-                or int(amount) <= 0 or int(decision_count) != 4):
+        signed_reversal = (
+            str(transaction_type) in {"cancellation", "refund"}
+            and int(amount) < 0
+        )
+        trip_keys = set(trip)
+        valid_trip_keys = {
+            frozenset({"tab", "mm", "dd", "region", "window", "starts_on",
+                       "ends_on", "service_year", "source_sha256"}),
+            frozenset({"tab", "mm", "dd", "region", "window", "starts_on",
+                       "ends_on", "service_year", "source_kind", "source_sha256"}),
+        }
+        if (frozenset(trip_keys) not in valid_trip_keys
+                or (int(amount) <= 0 and not signed_reversal)):
             raise ValueError("direct_full_axis_allocation_trip_invalid")
-        start = date(2026, int(trip["mm"]), int(trip["dd"]))
-        end = start + timedelta(days=int(trip["window"]) - 1)
+        start = date.fromisoformat(str(trip["starts_on"]))
+        end = date.fromisoformat(str(trip["ends_on"]))
         db.execute(
             """INSERT INTO trips(code,name,region,starts_on,ends_on,status)
                VALUES (?,?,?,?,?,'planned')
@@ -766,8 +928,6 @@ def project_confirmed_full_axis_allocations(
             "INSERT INTO cost_allocations(plan_id,target_id,amount_krw) VALUES (?,?,?)",
             (plan_id, target_id, int(amount)))
         allocations += 1
-    if allocations != 624 or nontrip != 3:
-        raise ValueError("direct_full_axis_allocation_partition_invalid")
     return {"full_axis_payments": len(rows), "payments": allocations,
             "plans": allocations, "allocations": allocations,
             "nontrip_full_axis_payments": nontrip}
@@ -845,7 +1005,20 @@ def _write_artifact_directory(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        sealed_manifest=dict(manifest);sealed_manifest["manifest_content_sha256"]=_manifest_content_sha256(sealed_manifest)
+        question_queue = _question_queue_payload(report)
+        question_queue_bytes = (
+            json.dumps(question_queue, ensure_ascii=False, indent=2) + "\n"
+        ).encode("utf-8")
+        (run_dir / "question_queue.json").write_bytes(question_queue_bytes)
+        sealed_manifest = dict(manifest)
+        sealed_manifest["question_queue"] = {
+            "path": "question_queue.json",
+            "raw_sha256": _sha256_bytes(question_queue_bytes),
+            "source_gate_report_sha256": question_queue["source_gate_report_sha256"],
+        }
+        sealed_manifest["manifest_content_sha256"] = _manifest_content_sha256(
+            sealed_manifest
+        )
         (run_dir / "blocker_manifest.json").write_text(
             json.dumps(sealed_manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -860,6 +1033,152 @@ def _write_artifact_directory(
                 elif child.is_dir():
                     child.rmdir()
             staging.rmdir()
+
+
+def _question_queue_payload(report: dict[str, object]) -> dict[str, object]:
+    """Return the owner queue first and automatic work as a separate lane."""
+    gate5_actual = next(
+        (
+            gate.get("actual") or {}
+            for gate in report.get("gates", [])
+            if gate.get("name") == "allocation_and_decision_completeness"
+        ),
+        {},
+    )
+    owner_questions = gate5_actual.get("owner_confirmation_question_groups", [])
+    travel_questions = gate5_actual.get(
+        "travel_unassigned_metadata_question_groups", []
+    )
+    auto_questions = gate5_actual.get("auto_provisional_question_groups", [])
+    structural_rule_requests = gate5_actual.get(
+        "structural_rule_requests",
+        {
+            "contract": "structural-rule-admission-v1",
+            "decision_unit": "structural_failure_group",
+            "item_level_approval": "forbidden",
+            "rule_auto_authorization": False,
+            "nonfinal_payment_count": 0,
+            "rule_request_group_count": 0,
+            "affected_payment_count": 0,
+            "overlap_payment_count": 0,
+            "coverage_invariant": True,
+            "groups": [],
+        },
+    )
+    owner_payment_keys = {
+        str(key)
+        for group in owner_questions
+        if isinstance(group, dict)
+        for key in group.get("payment_external_keys", [])
+    }
+    owner_payment_count = int(
+        gate5_actual.get(
+            "owner_confirmation_question_payment_count",
+            gate5_actual.get("owner_confirmation_payment_count", 0),
+        )
+    )
+    if owner_payment_keys:
+        owner_payment_count = len(owner_payment_keys)
+    auto_action_count = int(
+        gate5_actual.get(
+            "auto_provisional_action_count",
+            sum(
+                int(group.get("payment_count", 0))
+                for group in auto_questions
+                if isinstance(group, dict)
+            ),
+        )
+    )
+    lane_summary = {
+        "final_payment_count": int(
+            gate5_actual.get("final_count", gate5_actual.get("resolved_count", 0))
+        ),
+        "nonfinal_payment_count": int(
+            gate5_actual.get("nonfinal_count", gate5_actual.get("total_nonfinal_count", 0))
+        ),
+        "auto_nonfinal_payment_count": int(
+            gate5_actual.get("auto_nonfinal_count", 0)
+        ),
+        "human_question_payment_count": int(
+            gate5_actual.get("human_question_payment_count", len(owner_payment_keys))
+        ),
+        "human_question_group_count": int(
+            gate5_actual.get(
+                "human_question_group_count",
+                int(gate5_actual.get("owner_confirmation_question_group_count", 0))
+                + int(gate5_actual.get("travel_unassigned_metadata_question_group_count", 0)),
+            )
+        ),
+        "untriaged_nonfinal_payment_count": int(
+            gate5_actual.get("untriaged_nonfinal_count", 0)
+        ),
+        "lane_partition_invariant": bool(
+            gate5_actual.get("lane_partition_invariant", True)
+        ),
+    }
+    return {
+        "format_version": 2,
+        "source_gate_report_sha256": gate_report_sha256(report),
+        "lane_summary": lane_summary,
+        # Structural rule requests are a separate authorization channel. They
+        # never become one question per payment and do not alter the existing
+        # owner/automatic queue ordering.
+        "rule_addition_requests": structural_rule_requests,
+        "queue_order": [
+            "owner_confirmation",
+            "travel_unassigned",
+            "auto_provisional_summary",
+        ],
+        "owner_confirmation": {
+            "status": "action_required" if owner_questions else "empty",
+            "payment_count": owner_payment_count,
+            "group_count": gate5_actual.get(
+                "owner_confirmation_question_group_count", 0
+            ),
+            "questions": owner_questions,
+        },
+        "travel_unassigned": {
+            "status": "action_required" if travel_questions else "empty",
+            "payment_count": gate5_actual.get(
+                "travel_unassigned_metadata_question_count", 0
+            ),
+            "group_count": gate5_actual.get(
+                "travel_unassigned_metadata_question_group_count", 0
+            ),
+            "questions": travel_questions,
+        },
+        "auto_provisional_summary": {
+            "status": "automatic_processing",
+            # The displayed groups are the actionable reservation lane.  The
+            # full automatic lane also contains activity placeholders, so its
+            # total is exposed separately instead of being mislabeled as the
+            # count covered by these groups.
+            "payment_count": auto_action_count,
+            "automatic_followup_payment_count": auto_action_count,
+            "human_question_payment_count": int(
+                gate5_actual.get("action_required_count", auto_action_count)
+            ),
+            "action_required_payment_count": int(
+                gate5_actual.get("action_required_count", auto_action_count)
+            ),
+            "total_auto_provisional_count": int(
+                gate5_actual.get("auto_provisional_count", 0)
+            ),
+            "activity_payment_count": int(
+                gate5_actual.get("provisional_activity_count", 0)
+            ),
+            "total_nonfinal_count": int(
+                gate5_actual.get("total_nonfinal_count", 0)
+            ),
+            "group_count": gate5_actual.get(
+                "auto_provisional_question_group_count", 0
+            ),
+            "detail_group_count": gate5_actual.get(
+                "auto_provisional_detail_group_count", 0
+            ),
+            "groups": auto_questions,
+        },
+    }
 
 
 def _atomic_replace_json(path: Path, payload: dict[str, object]) -> None:
@@ -935,6 +1254,38 @@ def _reject_repository_output(
     raise ValueError(f"{label}_inside_repository:{path.resolve()}")
 
 
+def _normalize_gate_report_readiness(
+    report: dict[str, object],
+) -> bool:
+    """Validate readiness aliases before any artifact can be installed."""
+    report.setdefault("release_ready", bool(report.get("passed")))
+    report.setdefault("shadow_ready", bool(report.get("passed")))
+    report.setdefault(
+        "pipeline_status",
+        "RELEASE_READY"
+        if bool(report["release_ready"])
+        else "TRIAGE_PASS"
+        if bool(report["shadow_ready"])
+        else "BLOCKED",
+    )
+    release_ready = bool(report["release_ready"])
+    shadow_ready = bool(report["shadow_ready"])
+    if bool(report.get("passed")) != release_ready:
+        raise RuntimeError("gate_report_pass_release_readiness_mismatch")
+    if release_ready and not shadow_ready:
+        raise RuntimeError("gate_report_release_without_shadow_readiness")
+    expected_pipeline_status = (
+        "RELEASE_READY"
+        if release_ready
+        else "TRIAGE_PASS"
+        if shadow_ready
+        else "BLOCKED"
+    )
+    if report["pipeline_status"] != expected_pipeline_status:
+        raise RuntimeError("gate_report_pipeline_status_mismatch")
+    return release_ready
+
+
 def build_direct_candidate(
     output_db: Path,
     ledger_dir: Path,
@@ -949,8 +1300,10 @@ def build_direct_candidate(
     owner_review_events: Path | None = None,
     han_equality_output:Path|None=None,
     han_authority_sha256:str|None=None,
+    structural_rule_package: str = "none",
 ) -> dict[str, object]:
-    """Build, gate, and publish only a fully passing shadow candidate."""
+    """Build a triage report; publish a candidate only when release-ready."""
+    admitted_rule_paths = paths_for_package(structural_rule_package)
     root = repository_root.resolve()
     ledger = ledger_dir.resolve(strict=True)
     output_database = output_db.resolve()
@@ -975,12 +1328,39 @@ def build_direct_candidate(
 
     expected_manual = (ledger / "data/manual_v4.csv").resolve(strict=True)
     expected_ota = (ledger / "data/ota_mail_index.json").resolve(strict=True)
+    expected_pg_mail = (ledger / "data/pg_mail_index.json").resolve(strict=True)
+    expected_pg_mail_supplement = (
+        ledger / "data/pg_mail_supplemental_index.json"
+    ).resolve(strict=True)
+    expected_service_mail = (
+        ledger / "data/service_mail_index.json"
+    ).resolve(strict=True)
+    expected_live_ota = (
+        ledger / "data/ota_mail_live_index.json"
+    ).resolve(strict=True)
+    expected_trip = (ledger / "data/trips.json").resolve(strict=True)
+    expected_geographic_context = (
+        ledger / "data/current_geographic_trip_context.json"
+    ).resolve(strict=True)
+    expected_lodging_fact = (
+        ledger / "data/ota_lodging_facts_v2.json"
+    ).resolve(strict=True)
+    expected_reservation = (
+        ledger / "data/ota_event_links_verified.json"
+    ).resolve(strict=True)
+    expected_owner_decision = (
+        ledger / "data/current_owner_decisions_v1.json"
+    ).resolve(strict=True)
     if manual_path is not None and manual_path.resolve(strict=True) != expected_manual:
         raise ValueError("manual_path_not_in_declared_inventory")
     if ota_path is not None and ota_path.resolve(strict=True) != expected_ota:
         raise ValueError("ota_path_not_in_declared_inventory")
 
-    inventory = build_source_inventory(ledger, root)
+    source_snapshots = capture_source_snapshots(root)
+    card_snapshot = _read_cards_from_snapshots(source_snapshots)
+    inventory = build_source_inventory(
+        ledger, root, cards=card_snapshot, source_snapshots=source_snapshots,
+    )
     input_hash = input_manifest_sha256(inventory)
     actual_commit = _git_head(root)
     if code_commit is not None and code_commit != actual_commit:
@@ -1002,6 +1382,12 @@ def build_direct_candidate(
     candidate_installed = False
     artifacts_installed = False
     owner_review_installed = False
+    # A failed shadow build normally removes its private SQLite file.  Keep it
+    # only for an explicit local diagnostic run so row-level evidence can be
+    # inspected without changing publication behavior.
+    keep_failed_database = os.environ.get(
+        "DIRECT_PROJECTION_KEEP_FAILED_DB", ""
+    ) == "1"
     activation_pointer_sha256=None
     try:
         db = connect(temporary_db)
@@ -1043,23 +1429,212 @@ def build_direct_candidate(
                     item["parser_version"],
                 ),
             )
-        import_all(db, ledger, expected_manual, expected_ota)
+        import_all(
+            db, ledger, expected_manual, expected_ota, cards=card_snapshot,
+            source_bytes=source_snapshots, trip_path=expected_trip,
+            geographic_context_path=expected_geographic_context,
+            lodging_fact_path=expected_lodging_fact,
+            reservation_path=expected_reservation,
+            owner_decision_path=expected_owner_decision,
+            pg_mail_path=expected_pg_mail,
+            pg_mail_supplement_path=expected_pg_mail_supplement,
+            service_mail_path=expected_service_mail,
+            live_ota_path=expected_live_ota,
+            # Shadow projection validates card/payment facts; OTA booking
+            # materialization belongs to the canonical ingestion pass.
+            materialize_agoda_bookings=False,
+        )
+        from ledger.domain.direct_validated_purchase_classifier import (
+            materialize_classifier_training,
+            project_validated_purchase_classifier,
+            validate_validated_purchase_classifier,
+        )
+        classifier_training = materialize_classifier_training(
+            db, source_snapshots["classifier_training"],
+        )
+        from ledger.domain.direct_verified_ota_lodging import (
+            finalize_lodging_manifest,
+            prepare_external_lodging_facts,
+            project_verified_lodging_decisions,
+            validate_lodging_authorities,
+            validate_lodging_manifest,
+        )
+        prepared_lodging = prepare_external_lodging_facts(db, run_id)
         projected = project_card_payments(db, run_id)
         projected_relations = project_card_relations(db, run_id)
-        projected_taxonomy = project_user_approved_taxonomy_decisions(db, run_id, ledger)
-        projected_manual_frontier_lodging = project_manual_frontier_lodging_decisions(
-            db, run_id, ledger)
-        projected_manual_frontier_airfare = project_manual_frontier_airfare_decisions(
-            db, run_id, ledger)
-        projected_verified_mutsu_lodging = project_verified_mutsu_lodging_decisions(
-            db, run_id, ledger)
-        projected_verified_kamenoi_lodging = project_verified_kamenoi_lodging_decisions(
-            db, run_id, ledger)
-        projected_verified_partial_booking = project_verified_partial_booking_decisions(
-            db, run_id, ledger)
-        projected_historical_carryforward = project_historical_carryforward_decisions(
-            db, run_id, ledger)
-        projected_allocations = project_confirmed_full_axis_allocations(db, run_id, ledger)
+        from ledger.domain.direct_independent_evidence import (
+            build_legacy_candidate_audit,
+            materialize_current_card_evidence,
+        )
+        from ledger.domain.direct_current_cancellation_settlement import (
+            finalize_cancellation_settlement_manifest,
+            project_current_cancellation_settlements,
+            validate_cancellation_settlement_authorities,
+            validate_cancellation_settlement_manifest,
+        )
+        from ledger.domain.direct_ota_reservation_authority import (
+            project_ota_reservation_authority,
+            validate_ota_reservation_authority,
+        )
+        from ledger.domain.direct_high_coverage_classifier import (
+            project_high_coverage_classifier,
+            project_high_coverage_provisional_reviews,
+            validate_high_coverage_classifier,
+        )
+        current_evidence = materialize_current_card_evidence(db, run_id)
+        legacy_candidate_audit = build_legacy_candidate_audit()
+        leaked_decision_count = int(db.execute(
+            """SELECT COUNT(*) FROM classification_decisions d
+               JOIN direct_payment_projection_links l ON l.payment_id=d.target_id
+               WHERE l.run_id=? AND d.target_type='payment'
+                 AND d.decision_status IN ('proposed','confirmed','needs_review')""",
+            (run_id,),
+        ).fetchone()[0])
+        if leaked_decision_count != 0:
+            raise ValueError("candidate_only_decision_leak")
+        db.execute("SAVEPOINT verified_current_authorities")
+        try:
+            projected_settlement = project_current_cancellation_settlements(
+                db, run_id,
+            )
+            projected_lodging = project_verified_lodging_decisions(db, run_id)
+            projected_ota_reservation = project_ota_reservation_authority(
+                db, run_id,
+            )
+            projected_classifier = project_validated_purchase_classifier(
+                db, run_id,
+            )
+            projected_high_coverage = project_high_coverage_classifier(
+                db, run_id, admitted_rule_paths,
+            )
+            projected_high_coverage_provisional = (
+                project_high_coverage_provisional_reviews(
+                    db, run_id, admitted_rule_paths,
+                )
+            )
+            projected_high_coverage.update(
+                projected_high_coverage_provisional
+            )
+            from ledger.domain.direct_2025_cost_accounting import (
+                project_2025_cost_accounting,
+                validate_2025_cost_accounting,
+            )
+            projected_2025_cost = project_2025_cost_accounting(db, run_id)
+            projected_allocations = project_confirmed_full_axis_allocations(
+                db, run_id, admitted_rule_paths=admitted_rule_paths,
+            )
+            settlement_validation = validate_cancellation_settlement_authorities(
+                db, run_id, require_terminal=True,
+            )
+            if not settlement_validation["passed"]:
+                raise ValueError(
+                    "settlement_authority_validation_failed:"
+                    + ",".join(
+                        str(issue) for issue in settlement_validation["issues"]
+                    )
+                )
+            lodging_validation = validate_lodging_authorities(
+                db, run_id, require_allocations=True,
+            )
+            if not lodging_validation["passed"]:
+                raise ValueError(
+                    "lodging_authority_validation_failed:"
+                    + ",".join(str(issue) for issue in lodging_validation["issues"])
+                )
+            ota_reservation_validation = validate_ota_reservation_authority(
+                db, run_id, require_allocations=True,
+            )
+            if not ota_reservation_validation["passed"]:
+                raise ValueError(
+                    "ota_reservation_authority_validation_failed:"
+                    + ",".join(
+                        str(issue)
+                        for issue in ota_reservation_validation["issues"]
+                    )
+                )
+            classifier_validation = validate_validated_purchase_classifier(
+                db, run_id, require_allocations=True,
+            )
+            if not classifier_validation["passed"]:
+                raise ValueError(
+                    "validated_classifier_validation_failed:"
+                    + ",".join(
+                        str(issue) for issue in classifier_validation["issues"]
+                    )
+                )
+            high_coverage_validation = validate_high_coverage_classifier(
+                db,
+                run_id,
+                require_allocations=True,
+                admitted_rule_paths=admitted_rule_paths,
+            )
+            if not high_coverage_validation["passed"]:
+                raise ValueError(
+                    "high_coverage_classifier_validation_failed:"
+                    + ",".join(
+                        str(issue)
+                        for issue in high_coverage_validation["issues"]
+                    )
+                )
+            cost_validation = validate_2025_cost_accounting(db, run_id)
+            if not cost_validation["passed"]:
+                raise ValueError(
+                    "2025_cost_accounting_validation_failed:"
+                    + ",".join(
+                        str(issue) for issue in cost_validation["issues"]
+                    )
+                )
+            from ledger.domain.direct_2025_payment_terminal import (
+                project_2025_payment_terminals,
+            )
+            projected_2025_terminals = project_2025_payment_terminals(
+                db, run_id,
+            )
+            settlement_manifest = finalize_cancellation_settlement_manifest(
+                db, run_id,
+            )
+            lodging_manifest = finalize_lodging_manifest(db, run_id)
+            settlement_manifest_validation = (
+                validate_cancellation_settlement_manifest(db, run_id)
+            )
+            if not settlement_manifest_validation["passed"]:
+                raise ValueError(
+                    "settlement_manifest_validation_failed:"
+                    + ",".join(
+                        str(issue)
+                        for issue in settlement_manifest_validation["issues"]
+                    )
+                )
+            lodging_manifest_validation = validate_lodging_manifest(db, run_id)
+            if not lodging_manifest_validation["passed"]:
+                raise ValueError(
+                    "lodging_manifest_validation_failed:"
+                    + ",".join(
+                        str(issue) for issue in lodging_manifest_validation["issues"]
+                    )
+                )
+        except Exception:
+            db.execute("ROLLBACK TO verified_current_authorities")
+            db.execute("RELEASE verified_current_authorities")
+            raise
+        else:
+            db.execute("RELEASE verified_current_authorities")
+        active_decision_count = int(db.execute(
+            """SELECT COUNT(*) FROM current_classification_decisions d
+               JOIN direct_payment_projection_links l ON l.payment_id=d.target_id
+               WHERE l.run_id=? AND d.target_type='payment'
+                 AND d.decision_status IN ('proposed','confirmed','needs_review')""",
+            (run_id,),
+        ).fetchone()[0])
+        if active_decision_count != (
+            projected_settlement["decisions"] + projected_lodging["decisions"]
+            + projected_ota_reservation["decision_count"]
+            + projected_classifier["decision_count"]
+            + projected_high_coverage["decision_count"]
+            + projected_2025_cost["decisions"]
+            - projected_2025_cost["superseded_decisions"]
+        ):
+            raise ValueError("current_authority_active_decision_census_mismatch")
         semantic_hash = candidate_semantic_snapshot(db, run_id)
         db.execute(
             """
@@ -1098,7 +1673,12 @@ def build_direct_candidate(
             expected_provenance=expected_provenance,
             historical_comparators=comparators,
             han_equality_context=han_context,
+            require_current_projection_contract=True,
         )
+        # Normalize legacy/mocked gate reports before hashing.  ``passed``
+        # retains release semantics; the added readiness fields only make the
+        # shadow-vs-release distinction explicit.
+        release_ready = _normalize_gate_report_readiness(report)
         created_probe=sqlite3.connect(f"file:{temporary_db}?mode=ro&immutable=1",uri=True)
         try:report["run_created_at"]=str(created_probe.execute("SELECT created_at FROM direct_projection_runs WHERE run_id=?",(run_id,)).fetchone()[0])
         finally:created_probe.close()
@@ -1108,7 +1688,7 @@ def build_direct_candidate(
               "state":"activated" if bool(report["passed"]) else "private_validated_not_activated"}
         report_hash = gate_report_sha256(report)
         report["gate_report_sha256"] = report_hash
-        passed = bool(report["passed"])
+        passed = release_ready
         if db is None:db=connect(temporary_db)
         db.execute(
             """
@@ -1125,6 +1705,9 @@ def build_direct_candidate(
             "run_id": run_id,
             "artifact_state": "pending_activation" if passed else "not_published",
             "cutover_policy": report["cutover_policy"],
+            "shadow_ready": bool(report.get("shadow_ready")),
+            "release_ready": bool(report.get("release_ready")),
+            "pipeline_status": report.get("pipeline_status"),
             "input_manifest_sha256": input_hash,
             "candidate_semantic_sha256": semantic_hash,
             "gate_report_sha256": report_hash,
@@ -1134,19 +1717,56 @@ def build_direct_candidate(
             "schema_version": SCHEMA_VERSION,
             "parser_version": PARSER_BUNDLE_VERSION,
             "inputs": inventory,
+            "source_scan_policy": {
+                "card_workbook_parse_count": 1,
+                "activation_recheck": "raw_bytes_only",
+            },
             "historical_comparators": comparators,
             "approved_transitions": {
                 "provided": 0,
                 "mode": "none",
             },
             "projected_relations": projected_relations,
-            "projected_taxonomy": projected_taxonomy,
-            "projected_manual_frontier_lodging": projected_manual_frontier_lodging,
-            "projected_manual_frontier_airfare": projected_manual_frontier_airfare,
-            "projected_verified_mutsu_lodging": projected_verified_mutsu_lodging,
-            "projected_verified_kamenoi_lodging": projected_verified_kamenoi_lodging,
-            "projected_verified_partial_booking": projected_verified_partial_booking,
-            "projected_historical_carryforward": projected_historical_carryforward,
+            "classification_policy": {
+                "active_dimensions": ["account", "cost_type", "allocation_target"],
+                "excluded_dimensions": ["vat_tag"],
+                "active_decision_count": active_decision_count,
+                "promotion_status": (
+                    "settlement_lodging_ota_reservation_and_validated_classifier_promoted"
+                ),
+                "structural_rule_admission": admission_manifest(
+                    admitted_rule_paths
+                ),
+            },
+            "current_card_evidence": current_evidence["manifest"],
+            "legacy_candidate_audit": legacy_candidate_audit,
+            "classifier_training": classifier_training,
+            "projected_classifier": projected_classifier,
+            "classifier_validation": classifier_validation,
+            "projected_high_coverage": projected_high_coverage,
+            "high_coverage_validation": high_coverage_validation,
+            "projected_2025_cost_accounting": projected_2025_cost,
+            "2025_cost_accounting_validation": cost_validation,
+            "projected_2025_payment_terminals": projected_2025_terminals,
+            "projected_ota_reservation": projected_ota_reservation,
+            "ota_reservation_validation": ota_reservation_validation,
+            "projected_settlement": projected_settlement,
+            "settlement_authority_validation": settlement_validation,
+            "settlement_manifest": {
+                "state_sha256": settlement_manifest["state_sha256"],
+                "manifest_sha256": settlement_manifest["manifest_sha256"],
+                "run_sha256": settlement_manifest["run_sha256"],
+            },
+            "settlement_manifest_validation": settlement_manifest_validation,
+            "prepared_lodging": prepared_lodging,
+            "projected_lodging": projected_lodging,
+            "lodging_authority_validation": lodging_validation,
+            "lodging_manifest": {
+                "state_sha256": lodging_manifest["state_sha256"],
+                "manifest_sha256": lodging_manifest["manifest_sha256"],
+                "run_sha256": lodging_manifest["run_sha256"],
+            },
+            "lodging_manifest_validation": lodging_manifest_validation,
             "projected_allocations": projected_allocations,
             "failed_gates": [
                 str(gate["name"])
@@ -1221,7 +1841,8 @@ def build_direct_candidate(
                     raise RuntimeError("candidate_activation_package_changed")
                 if any(validation[key]!=verified_envelope[key] for key in verified_envelope):
                     raise RuntimeError("candidate_activation_validation_envelope_mismatch")
-                if input_manifest_sha256(build_source_inventory(ledger,root))!=input_hash or gate_report_sha256(report)!=report_hash:
+                if (not source_inventory_raw_unchanged(inventory, root)
+                        or gate_report_sha256(report) != report_hash):
                     raise RuntimeError("candidate_activation_context_changed")
                 validation_sha=str(validation["validation_sha256"])
                 _activate_candidate(activation,run_id,report_hash,validation_sha)
@@ -1241,14 +1862,37 @@ def build_direct_candidate(
             if manifest.get("han_equality"):manifest["han_equality"]["state"]="activated"
             manifest["candidate_db"]["final_seal_sha256"]=final_db_sha
             manifest["candidate_db"]["mode"]="0400"
+            # Activation rewrites the blocker manifest after the question
+            # queue has already been sealed. Carry that descriptor forward;
+            # otherwise the rewrite drops queue provenance and p07 rejects an
+            # otherwise valid candidate.
+            sealed_manifest = json.loads(
+                (report_dir / "blocker_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            if isinstance(sealed_manifest.get("question_queue"), dict):
+                manifest["question_queue"] = sealed_manifest["question_queue"]
             _atomic_replace_json(
                 report_dir / "blocker_manifest.json",
                 manifest,
             )
             activation_pointer_sha256=_manifest_content_sha256(manifest)
+        gate5_actual = next(
+            (
+                gate.get("actual") or {}
+                for gate in report.get("gates", [])
+                if gate.get("name") == "allocation_and_decision_completeness"
+            ),
+            {},
+        )
+        question_queue = _question_queue_payload(report)
         return {
             "run_id": run_id,
             "passed": passed,
+            "shadow_ready": bool(report.get("shadow_ready")),
+            "release_ready": bool(report.get("release_ready")),
+            "pipeline_status": report.get("pipeline_status"),
             "status": "candidate_ready_for_shadow" if passed else "blocked",
             "cutover_policy": report["cutover_policy"],
             "output_db": output_database.as_posix() if passed else None,
@@ -1258,6 +1902,66 @@ def build_direct_candidate(
             "gate_report_sha256": report_hash,
             "failed_gates": manifest["failed_gates"],
             "owner_review": owner_review_result,
+            "owner_confirmation_questions": gate5_actual.get(
+                "owner_confirmation_question_groups", []
+            ),
+            "travel_unassigned_metadata_questions": gate5_actual.get(
+                "travel_unassigned_metadata_question_groups", []
+            ),
+            "auto_provisional_questions": gate5_actual.get(
+                "auto_provisional_question_groups", []
+            ),
+            "question_queue": question_queue,
+            "question_queue_counts": {
+                "owner_confirmation_groups": gate5_actual.get(
+                    "owner_confirmation_question_group_count", 0
+                ),
+                "owner_confirmation_payments": gate5_actual.get(
+                    "owner_confirmation_payment_count",
+                    gate5_actual.get("pending_owner_confirmation_count", 0),
+                ),
+                "relationship_question_groups": gate5_actual.get(
+                    "relationship_question_group_count", 0
+                ),
+                "user_question_groups": gate5_actual.get(
+                    "user_question_group_count", 0
+                ),
+                "user_question_payments": gate5_actual.get(
+                    "user_question_payment_count", 0
+                ),
+                "travel_unassigned_payments": gate5_actual.get(
+                    "travel_unassigned_metadata_question_count", 0
+                ),
+                "travel_unassigned_groups": gate5_actual.get(
+                    "travel_unassigned_metadata_question_group_count", 0
+                ),
+                "auto_provisional_payments": gate5_actual.get(
+                    "auto_provisional_count", 0
+                ),
+                "auto_provisional_groups": gate5_actual.get(
+                    "auto_provisional_question_group_count", 0
+                ),
+                "auto_provisional_detail_groups": gate5_actual.get(
+                    "auto_provisional_detail_group_count", 0
+                ),
+                "final_payments": gate5_actual.get("final_count", 0),
+                "nonfinal_payments": gate5_actual.get("nonfinal_count", 0),
+                "auto_nonfinal_payments": gate5_actual.get(
+                    "auto_nonfinal_count", 0
+                ),
+                "human_question_payments": gate5_actual.get(
+                    "human_question_payment_count", 0
+                ),
+                "human_question_groups": gate5_actual.get(
+                    "human_question_group_count", 0
+                ),
+                "untriaged_nonfinal_payments": gate5_actual.get(
+                    "untriaged_nonfinal_count", 0
+                ),
+                "lane_partition_invariant": gate5_actual.get(
+                    "lane_partition_invariant", False
+                ),
+            },
             "activation_pointer_sha256":activation_pointer_sha256,
         }
     except Exception:
@@ -1284,7 +1988,8 @@ def build_direct_candidate(
     finally:
         if db is not None:
             db.close()
-        _remove_sqlite_artifacts(temporary_db)
+        if not keep_failed_database:
+            _remove_sqlite_artifacts(temporary_db)
 
 
 def main() -> int:
@@ -1298,7 +2003,42 @@ def main() -> int:
     parser.add_argument("--owner-review-output", type=Path, help="write an external validation template")
     parser.add_argument("--owner-review-manifest", type=Path)
     parser.add_argument("--owner-review-events", type=Path)
+    parser.add_argument(
+        "--han-equality-output",
+        type=Path,
+        help="write the external private HAN equality validation package",
+    )
+    parser.add_argument(
+        "--han-authority-sha256",
+        help="approved HAN authority hash; computed from the declared ledger authority when omitted",
+    )
+    parser.add_argument(
+        "--success-level",
+        choices=("release", "shadow"),
+        default="release",
+        help=(
+            "process exit criterion; release preserves legacy fail-closed "
+            "behavior, while shadow succeeds for a lossless triage report"
+        ),
+    )
+    parser.add_argument(
+        "--structural-rule-package",
+        choices=("none", "package-b-core", "package-b", "package-c"),
+        default="none",
+        help=(
+            "select a grouped structural-rule exception package; default none "
+            "keeps all provisional paths fail-closed"
+        ),
+    )
     args = parser.parse_args()
+    han_authority_sha256 = args.han_authority_sha256
+    if args.han_equality_output is not None and han_authority_sha256 is None:
+        authority_path = (
+            args.ledger_dir / "domain" / "han_master_authority.json"
+        ).resolve(strict=True)
+        han_authority_sha256 = hashlib.sha256(
+            authority_path.read_bytes()
+        ).hexdigest()
     result = build_direct_candidate(
         args.output_db,
         args.ledger_dir,
@@ -1309,9 +2049,17 @@ def main() -> int:
         owner_review_output=args.owner_review_output,
         owner_review_manifest=args.owner_review_manifest,
         owner_review_events=args.owner_review_events,
+        han_equality_output=args.han_equality_output,
+        han_authority_sha256=han_authority_sha256,
+        structural_rule_package=args.structural_rule_package,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if result["passed"] else 1
+    success = (
+        bool(result["shadow_ready"])
+        if args.success_level == "shadow"
+        else bool(result["passed"])
+    )
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

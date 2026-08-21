@@ -2168,3 +2168,989 @@ owner-review invariant·tamper(945.202초)가 모두 PASS했다. 임시 detached
 
 이 최종 핸드오프는 GPT-5.6 Sol medium이 현재 워커 지침에 따라 작성했다. 모델 상호검증은 이 CLI의
 워커 스텁에서 재위임이 금지되어 수행하지 않았고, 기존 검증 결과와 재현 가능한 로컬 증거만 기록했다.
+
+## 2026-08-04 replay 잔여 153건 부분축 투영 — 458 decision·Gate 5 resolved 625
+
+엄격 historical replay 집합 764건에서 완전 네 축 승계 611건을 제외한 153건을 전수 재구성했다.
+과거 코드가 재현한 값 중 placeholder가 아닌 축만 확정했다. allocation target 153, account 153,
+cost_type 139, 최종 VAT 13으로 합계 458 decision이다. `확인`과 `공제후보`는 확정값으로 승격하지
+않았다. event set SHA는
+`243343241506c8829edb2f927ed5f201592d26670b4b100222b4baebe729d090`, 축 semantic SHA는
+`80b0614d29fda09b2154072e5c0352d1511f036aadec5b6744bba39fb996c02c`다. 기존 직접투영 139건 및
+완전승계 611건과의 교집합은 각각 0이다.
+
+153건 중 KBD-0852와 KBD-0979 두 건만 네 축이 모두 구체적이다. KBD-0852는 `0501_부산` 여행
+target이라 전액 배분했고, KBD-0979는 판관비 `기타비용`이라 분류는 완결하되 여행 allocation을
+만들지 않았다. 이에 따라 full-axis payment는 627→629, confirmed plans/allocations은
+624→625가 됐다. Gate 5는 resolved 624→625, unresolved 4,704→4,703이다. 원천 5,328건과
+relation 330건은 전량 보존했다.
+
+full/partial admission이 candidate 빌드에서 동일한 격리 replay 결과를 공유하도록 replay 실행기를
+분리했다. replay 자체는 기존 고정 결과 1,684행, SHA
+`93ad47c4ef78301d1934411e53bc48e560cba2bce1fe7f926af32a2b384a5fc1`을 계속 fail-closed 검증한다.
+새 candidate semantic SHA는
+`98358d728ae281bea0d8a83fb730f68c060084527caff74391aa3db760b0f916`이다.
+
+partial focused admission 3/3 PASS(242.647초), 실제 5,328건 candidate와 owner rebuild targeted
+test PASS(1,067.122초), transition gates 50/50 PASS(795.223초), owner-review 실데이터
+invariant·tamper PASS(2,172.168초)다. Gate 5 미완결과 Gate 6 승인 baseline 부재로 후보는 계속
+미게시이며 DB/정본 게시·운영 전기·배포는 하지 않았다. 보호된 사용자 `STATUS.md`는 편집하지 않았고
+SHA `a3622a894ee9ff40fdb5cae325ec1be56e219046efc43828e796837b71b659cc`를 재확인했다.
+
+다음 우선순위는 남은 4,703건을 direct evidence/source family별로 재분할해, 증거가 확정하는 축만
+같은 방식으로 처리하는 것이다. Gate 6 baseline 권한이 생기기 전에는 게시·cutover를 시도하지 않는다.
+GPT-5.6 Sol medium이 전역 워커 규칙에 따라 다른 모델/CLI 재위임 없이 직접 구현·검증했다.
+
+## 2026-08-04 전 기간 exact manual/card 그룹 5건 투영 — Gate 5 resolved 630
+
+잔여 direct evidence 중 최신 `manual_v4.csv`와 current card raw의 날짜·금액·카드·가맹점·건수
+다중집합이 정확히 일치하는 Booking.com 나가센도 3건과 Agoda Hotel Pearl 교토 2건을 P25 전 기간
+범위에서 admission했다. 기존 Q2 전용 `direct_all_period_safe_group_admission.py`는 R37의 오래된
+upstream package pin(`f7574e…`) 때문에 현재 live R36 package(`eb8e1a…`)에서 fail-closed되므로
+pin을 무시하거나 갱신하지 않았다. 대신 exact matcher를 재사용하는 새
+`direct_all_period_exact_manual_group_admission.py`를 추가해 current event set 5건과 최신 manual
+group cardinality를 직접 결속했다. selected set은
+`414856751e5b4de59d2515352d0387c17259b85a1cceb0425c1d94d39be53e8c`다.
+
+5 payment에 `숙박비/여행원가/불공제_해외/<0413_나가센도 또는 0408_교토>` 네 축 20 decision을
+투영하고, 기존 projection decision이 있으면 즉시 fail-closed하도록 overlap guard를 추가했다.
+historical 611, partial 153, 기존 direct 139와의 교집합은 모두 0이다. full-axis payments는
+629→634, confirmed plans/allocations는 625→630이 됐고 Gate 5는 **resolved 630 / unresolved
+4,698**이다. 원천 5,328건과 relation 330건은 그대로 보존했다. 인증 portal의 Yakushima·Minatoya
+4건은 booking 1건↔card 2건으로 개별 bijection이 없어 이번 투영에서 보류했다.
+
+새 candidate semantic SHA는
+`7e212dd737e29658f600650923ba5ee7f047898547883b940582d42aaf4e329d`다. exact-group admission
+2/2 PASS(6.905초), 실제 candidate/owner export targeted PASS(1,154.410초), transition gates
+50/50 PASS(991.630초), owner-review invariant·tamper PASS(2,009.546초)다. 중간 allocation scope
+고정값 누락은 수정 후 재검증했고, 첫 owner tamper 실행은 2,400초 제한을 초과했으나 재실행에서
+완주 PASS했다. Gate 5 미완결·Gate 6 승인 baseline 부재로 후보는 계속 미게시이며 DB/정본 게시·운영
+전기·배포는 하지 않았다. 사용자 변경 파일 `AGENTS.md`, `CLAUDE.md`, `STATUS.md`는 편집하지 않았다.
+
+다음 우선순위는 포털 4건처럼 group-level evidence만 있는 항목을 개별 payment 결속 여부별로 재감사하고,
+그 뒤 남은 4,698건을 source family별로 재분할하는 것이다. 증거 없는 축을 가맹점명으로 확정하거나
+stale upstream pin을 무시해 admission하지 않는다. GPT-5.6 Sol medium이 전역 워커 규칙에 따라
+다른 모델/CLI 재위임 없이 직접 구현·검증했다.
+
+## 2026-08-04 Gate 5 잔여 분해 및 R27 순신규 6건 재감사 — 확정 보류
+
+exact manual/card 그룹 5건 투영 뒤 Gate 5의 `unresolved=4,698`을 결제 건 기준으로 다시
+분해했다. 이는 원천 누락 수가 아니다.
+
+- `4,420`건: 아직 네 축 완결 decision이 없는 broad 잔여. 여기에는 R27 순신규 6건과
+  인증 포털 Yakushima·Minatoya 4건이 포함된다.
+- `123`건: 기존 direct 부분축(`user-approved taxonomy` 116건 + verified partial booking 7건).
+- `151`건: historical replay가 일부 축만 재현한 잔여.
+- `4`건: 네 축은 완결됐지만 `취소환불` 3건과 `기타비용` 1건이라 여행 allocation/Gate5 credit 대상이 아니다.
+
+따라서 full-axis payment는 `634`, 그중 여행 allocation·Gate5 credit 대상은 `630`이며,
+`4,420+123+151+4=4,698`이다.
+
+R27 `booking_info`/`ota_event_links_verified`의 순신규 관계 6건
+(`TRIP-0016/0020/0021/0022/0024/0025`)을 별도 대조했다. 고정 replay
+`93ad47c4ef78301d1934411e53bc48e560cba2bce1fe7f926af32a2b384a5fc1`와 current card raw를
+대조한 결과 6/6이 승인번호·금액·사용일·과거 `account/cost_type/vat_tag/bucket` 모두 일치했고,
+수기 예약번호·탭·금액도 결속됐다. 현재 이미 확정된 direct 139건과의 event overlap은 0이다.
+그러나 R27 관계의 계약 상태는 의도적으로 `unattested/blocked/confirmed_count=0/gate5_credit=0`이고,
+인증 OTA 원문/권한 근거가 아니다. 따라서 이 6건은 **확정 후보**로만 보존하며 DB projection이나
+Gate5 credit을 부여하지 않았다. 권한 있는 원문 또는 사용자 확정이 추가되면 이 exact 검증을
+재사용할 수 있다. 포털 4건도 예약 1건↔카드 2건 bijection 부재와 필드 부족으로 같은 보류 상태다.
+
+현재 `CUTOVER=FAIL`, candidate 미게시, DB/정본/운영 전기는 수행하지 않았다. GPT-5.6 Sol medium이
+전역 워커 규칙에 따라 다른 모델/CLI 재위임 없이 직접 대조·기록했다.
+
+## 2026-08-05 historical high/high exact manual-card 42건 — Gate 5 resolved 672
+
+전날 `unresolved=4,698`의 원인을 source family·수기 장부·격리 historical replay로 다시 묶었다.
+46건이 `HAN/CORP`의 current↔historical 승인번호·사용일·금액·card4 exact identity, replay 네 축
+`상/상`, 최신 `manual_v4.csv`의 source/date/approval-amount/bucket cardinality 1을 동시에 만족했다.
+46건 전체 set SHA는
+`9bb0c486e6800ffe5e1518247922ff0c4235f411b336ebf038364b9b2a22862c5`, semantic SHA는
+`fee9078f8d2d36844f791f714a5e660543a6d6ab92e3c455bab7f57163652a76`다. 이 중 숙박비 2건과 렌터카
+2건은 OTA·서비스 실체 증빙이 없으므로 P10에 따라 배정에서 제외했다.
+
+배정 admission은 일반 카드군 42건(CORP 30, HAN 12)만 고정했다. 식비 33, 통행료 3, 입장료 2,
+주유비 2, 소모품비 1, 교통비 1이며 숙박·렌터카·항공은 포함하지 않았다. 42건 event set SHA는
+`774cf2788be9cc045405eb6139ee91fb5bb0a3445bf97aa2377b4f0f2b25a6ef`, semantic SHA는
+`652f33cda2d033af7b567d8865ac5903ce053b63b65131d09c3b281caab9963c`다. 168 decisions(네 축 각
+42), replay SHA `93ad47c4ef78301d1934411e53bc48e560cba2bce1fe7f926af32a2b384a5fc1`을 fail-closed로
+검증하고 posting은 계속 blocked로 유지한다. source event 5,328건과 relation 330건은 보존했다.
+
+full-axis payment는 `634→676`, confirmed plans/allocations 및 Gate 5 credit은 `630→672`가 됐다.
+따라서 현재 Gate 5는 **resolved 672 / unresolved 4,656**다. 잔여 분해는 broad 네 축 미완결
+`4,378`(여기 포함: 이번에 보류한 service 4건, medium 확신 30건, R27/portal 등), 기존 direct
+부분축 `123`, historical partial `151`, 여행 배정 불가 full-axis `4`로 `4,378+123+151+4=4,656`다.
+
+새 `direct_all_period_historical_exact_manual_card_admission.py`와 projection overlap guard를
+추가했고, service evidence withheld UID는 `CORP-2004/HAN-3445/CORP-2018/HAN-3261`로 고정했다.
+admission 2/2 PASS(8.090초), 실제 candidate/owner export targeted PASS(734.320초)다. owner semantic
+SHA는 `cdc3c8592963fead11226fd82a24c60081da0b96aea44672bd0bc2a6a03297aa`로 갱신했다. 임시 DB
+고정 경로 충돌을 한 차례 발견해 고유 임시 디렉터리로 수정했으며, 사용자 데이터나 운영 DB에는
+변경이 없다. transition gates 전체와 owner tamper 재검증은 다음 단계로 남겨두며, 현재 CUTOVER=FAIL,
+candidate 미게시·DB/정본/운영 전기·배포 미수행이다.
+
+GPT-5.6 Sol medium이 전역 워커 규칙에 따라 다른 모델/CLI 재위임 없이 직접 구현·검증했다.
+
+## 2026-08-05 final verification closeout (latest)
+
+고정 exact-card admission 2/2와 기존 exact-group 2/2가 PASS했고, 실제 5,328건 candidate/owner
+export targeted test는 PASS(734.320초)했다. transition gates는 50/50 PASS(737.220초), owner
+실데이터 invariant·tamper는 semantic SHA 갱신 후 PASS(1,827.987초)했다. `git diff --check`와
+변경 Python 모듈 `py_compile`도 PASS했다. 이 검증은 후보의 Gate 5 수치만 확인하며 Gate 6 승인
+baseline 부재를 해소하지 않는다. 따라서 CUTOVER=FAIL, candidate 미게시·DB/정본/운영 전기·배포
+미수행 상태를 유지한다.
+
+이번 세션의 남은 작업은 증빙이 없는 4,656건을 추가로 확정하는 것이 아니라, 다음 별도 권한/원문
+입력(서비스 실체·사용자 승인·Gate 6 baseline)이 들어올 때 동일한 fail-closed admission을 재사용하는
+것이다. GPT-5.6 Sol medium이 전역 워커 규칙에 따라 직접 기록했다.
+
+## 2026-08-05 Sol high/Luna max 프로세스 독립검증 및 Gate 5 수정 — 676/4/4,652 분리
+
+사용자 요청으로 GPT-5.6 Sol high가 별도 문맥에서 현재 프로세스 문제를 독립 검증했다.
+판정은 `VERDICT: FAIL`이며, (1) owner tamper 루프가 `--rebuild-current`로 후보 전체를 최소
+5회 재생성하는 구조, (2) 과거 Q2의 빠른 버킷·기본값·허용 매칭과 현재 fail-closed 전기간
+검증의 차이, (3) Gate 5의 1:N 행수 거부, NULL/비확정 source 결속 통과, (4) terminal 4건의
+unresolved 오집계를 모두 수용했다. Sol high는 장시간 전체 회귀를 실행하지 않고 targeted
+fixture와 정적 근거로 검증했다.
+
+Luna max가 항목별로 재검토해 다음 범위만 자동 수용·수정했다.
+
+- 한 confirmed plan 아래 allocation N행을 허용하고 정확한 합계를 검사한다. 기존 스키마가
+  plan 단위 source decision 하나만 표현하므로 서로 다른 대상에 대한 다중 source decision
+  모델은 별도 설계로 남겼고, 현재 계약 안에서는 각 행이 plan source의 target과 일치할 때만
+  통과시킨다.
+- allocation plan source가 NULL, current가 아니거나 confirmed가 아니면 실패하도록 고쳤다.
+- `취소환불` 3건과 `기타비용` 1건을 confirmed `allocation_review_cases` terminal로 기록하고
+  Gate 5에서 allocation과 별도 완료로 집계한다.
+- Gate 5 부분축·완전축 진단을 history 전체가 아닌 current decision view에서 계산한다.
+- 한 후보 빌드 안에서 6개 admission package, historical annex/replay/census를 재사용해
+  동일한 5,328건 전체 import를 중복 호출하지 않도록 했다. owner tamper 테스트는 전체 후보
+  재생성이 필요 없는 순수 validator fixture로 바꿨다.
+
+검증 결과:
+
+- Gate 5 targeted 회귀 4개 PASS: exact single allocation, exact N-row plan, NULL source 실패,
+  confirmed terminal 분리.
+- 실제 5,328건 통합 후보 1회 실행 결과: `allocated=672`, `terminal_complete=4`,
+  `resolved=676`, `unresolved=4,652`. 후보는 `amount_sign_and_relations`의 HAN equality
+  package 미제공, `semantic_regression`의 Gate 6 baseline 부재로 차단됐고 이는 기존 운영
+  안전 게이트로 유지됐다. 후보 DB/원장/운영 전기/배포는 수행하지 않았다.
+- 실제 Gate 5 tamper artifact 회귀 1회 PASS. 중복 전체 빌드는 의도적으로 중단했다.
+- `git diff --check` 및 변경 Python 모듈 `py_compile` PASS. historical admission 묶음 테스트는
+  동일한 원천 엑셀 전체 재독 병목이 재현되어 중단했으며, 새 targeted fixture는 통과했다.
+
+현재 결론은 `4,656건 미처리`가 아니라 `672건 배분완료 + 4건 terminal 완료 + 4,652건 일반 미해결`이다.
+Gate 6 승인 baseline과 HAN equality 권한이 들어오기 전까지 CUTOVER=FAIL, candidate 미게시 상태를
+유지한다. 모델 판단: Sol high의 FAIL 근거를 Luna max가 수용했고, 위 범위의 코드·회귀 테스트만
+수정했다.
+
+## 2026-08-06 과거 결과 재사용 폐기·Q2 검증 절차 재설계 — Gate 5 0/5,328 정직한 재기준선
+
+사용자 지시로 과거 2분기 **결과값**이 아니라 당시의 **검증 순서**를 감사했다. 계승한 것은 원천
+완전성, 카드 원행·승인번호, 예약번호/PNR, 정확금액, 서비스일, 그룹 cardinality, 취소 원거래,
+중복·충돌 fail-close다. 폐기한 것은 수기장부/과거 라벨/리플레이를 증거로 쓰는 방식, 가맹점+근사
+금액, 결제일만의 여행배정, 일반 ±2% 허용이다. 수기장부와 `classified_v14`는 앞으로 후보·학습
+자료일 뿐 Gate 5 증거가 아니다.
+
+Luna max 1차 설계는 과거 cohort를 전부 보류하는 방향을 냈다. Sol high 1차 검증은 VAT 제외 누락,
+historical UID를 통한 현재 이벤트 결속, `trips.json` 단독 여행 귀속의 순환근거를 이유로
+`VERDICT: FAIL`했다. 수정 설계는 비용 분류를 `account/cost_type/allocation_target` 세 축으로
+한정하고, 모든 기존 676 credit을 먼저 0으로 되돌리며, 카드 현재 원천만 한 번 materialize한 뒤
+축별 서로 다른 derivation/evidence 결속을 요구하도록 했다. Sol high 2차 판정은 `VERDICT: PASS`다.
+
+구현 결과:
+
+- `direct_independent_evidence.py`가 5,328 current event-role key를 한 번만 고정하고 event/evidence
+  set SHA와 source/identity census를 만든다. manual/historical/tolerance evidence count는 모두 0이다.
+- legacy full611, replay-partial의 기존 full2, historical manual42, manual lodging6/airfare2,
+  exact-manual5, legacy-bound Mutsu6/Kamenoi2 등 기존 Gate 5 credit 676은 모두 candidate-only audit로
+  이동했다. 해당 projection entrypoint를 직접 호출해도 fail-close한다.
+- Gate 5와 allocation은 VAT를 제외한 세 축만 동적으로 센다. terminal review는 같은 payment의
+  current allocation-target decision과 rule id가 결속되어야 한다. 예상 resolved 수를 하드코딩하지
+  않는다.
+- `reconcile_amount`는 해외 2% 이내도 `mismatch`로 반환한다. Minatoya 2건은 JPY 12,069↔11,885
+  152bp 차이를 관찰값으로만 보존하고 `candidate_only/unresolved/gate5_credit=0`으로 내렸다.
+- Minatoya 검사가 Yakushima→수기중복→취소→safe-group 전 체인을 역재실행하던 병목을 제거하고,
+  all-period scope와 같은 current context를 공유하도록 바꿨다.
+
+검증:
+
+- 새 evidence/promotion, 2% 차단, 세 축 Gate 5, plan binding, terminal binding 표적 10개 PASS
+  (15.483초).
+- Minatoya/scope/legacy-entrypoint/owner VAT 표적 9개 PASS(31.639초). 변경 전 동일 연쇄는 5분 이상
+  진행 중이라 중단했으며, 스택으로 불필요한 upstream 전체 재실행을 확인했다.
+- 실제 5,328건 후보 전체 집계는 마지막에 1회만 실행해 PASS(40.844초). 새 정직한 기준선은
+  `resolved=0 / unresolved=5,328`, active decision 0, allocation/terminal 0이다. 이는 분류 실패가
+  아니라 독립 증거 없이 확정했던 676건을 숨기지 않은 상태다.
+- `py_compile`, `git diff --check` PASS. 후보 DB/정본/워크북/운영 전기/배포는 수행하지 않았다.
+
+다음 복구 순서는 현재 카드 raw key/hash에 OTA 예약 원문을 직접 결속하고, 독립된 여행 일정 원천을
+추가한 뒤 Mutsu/Kamenoi부터 세 축을 다시 승격하는 것이다. airfare2는 OTA 원문에 결제금액 결속이
+없어 계속 보류하고, Minatoya는 정확금액 또는 명시된 조정식이 들어올 때만 재평가한다.
+
+## 2026-08-06 과거 검증 절차 재학습 보강 — VAT 제거 후 후보 750/14, 전체집계 19.42초
+
+첫 Sol high 최종검증은 `VERDICT: FAIL`이었다. 지적은 (1) 임의 문자열 증거 ID를 만들 수 있음,
+(2) 일반 confirmed 세 축이 독립증거 경계 없이 Gate 5에 들어갈 수 있음, (3) 과거 admission 공개
+산출물과 도달 불가능 코드에 confirmed/VAT 경로가 남아 있음의 세 가지였다. 이를 그대로 수용해
+다음과 같이 보강했다.
+
+- 승격 증거는 content-addressed ID만 허용하고, 같은 run의 실제 `direct_source_records`
+  `(source_kind, source_key, source_sha256)`와 FK로 결속했다. 외부 증거도 대상 current event key가
+  같아야 하며 다른 결제에 재사용할 수 없다. 세 축 승격은 SAVEPOINT 안에서 원자적으로 기록해 중간
+  축 실패 시 decision/derivation/binding을 모두 되돌린다. Gate 5는 decision 자체가 아니라 이 결속을
+  모두 통과한 `current_independently_promoted_decisions`만 읽는다.
+- candidate semantic hash에 증거 registry·축 derivation·decision binding을 모두 포함했다. 임의
+  confirmed 세 축이나 allocation만 삽입해도 resolved credit은 0이다.
+- 과거/manual/replay projector의 도달 불가능 confirmed 삽입 코드를 삭제하고 공개 entrypoint는 즉시
+  candidate-only 오류로 닫았다. 과거 산출물은 `candidates`, `authority_status=candidate_only`,
+  `gate5_credit=0`만 반환한다.
+
+과거 결론이 아니라 과거 검증 절차를 VAT 없는 현행 세 축으로 다시 계산했다. posted date·merchant·
+current/historical identity가 exact이고 `account/cost_type/allocation_target`이 모두 구체적인 후보는
+기존 611건이 아니라 **750건**이었다. 과거에는 VAT 상태 때문에 139건이 별도 partial로 밀려 있었다.
+VAT를 제거하자 실제 active-axis partial은 **14건**(account+allocation_target만 있고 cost_type 없음)으로
+줄었다. 이 750/14는 학습 후보 수이며 독립 외부증거가 아니므로 Gate 5 credit은 모두 0이다.
+
+반복 전체검사도 구조적으로 제거했다. 한 후보 빌드에서 카드 엑셀을 한 번만 파싱해 inventory와 DB
+적재가 같은 메모리 스냅샷을 공유하고, 종료 직전 변경 검사는 재파싱 대신 원본 바이트 해시만 확인한다.
+통합 테스트 내부의 두 번째 `--rebuild-current` 호출도 제거했다. 실제 5,328건 후보+owner export
+전체집계 1회는 **19.042초(벽시계 19.42초)**에 PASS했고, 직전 40.844초의 절반 이하이며 과거
+734.320초 반복 빌드와 비교해 병목을 제거했다. 결과는 정직한 기준선 `resolved=0 / unresolved=5,328`,
+active decision 0, allocation/terminal 0, 이전 credit 676→0이다.
+
+표적 검증은 evidence/projector 7개 PASS(12.662초)와 source/event 재사용 방지 3개 PASS,
+Gate 5 결속·tamper 10개 PASS, owner VAT/권한 3개 PASS(2.754초), 과거 후보 재분할 12개
+PASS(87.012초)다. `py_compile`와 `git diff --check`도 통과했다. 후보 DB·정본·워크북·운영 전기·
+배포는 수행하지 않았다.
+
+두 번째이자 마지막 Sol high 최종 독립검증은 비싼 전체집계를 재실행하지 않고 17개 표적검사
+(5.630초)와 정적 경계를 대조해 `VERDICT: PASS`했다. `p07-direct-v3` 명칭은 버전 표기 부채지만
+exact-schema guard가 구형 v3 layout을 거부하므로 현재 정확성 차단요인은 아니라고 판정했다.
+
+## 2026-08-07 current-card LOO 자동분류 — 후보 675/4,653, 최종수용 보류
+
+중간 설명 뒤 다음 자동처리를 이어가지 않은 코디네이터 운영 오류를 바로잡고, 과거 분류 장부를
+거래 증거가 아닌 고정 학습자료로만 쓰는 네 모델 leave-one-out 분류기를 후보 빌드에 연결했다.
+현재 양수 purchase 4,885건을 대상으로 각 최소 3개 peer가 필요한 account 2개 모델과
+allocation-target/cost-type 2개 모델이 모두 일치할 때만 세 축을 승격한다. VAT와 ±2% 금액 허용은
+사용하지 않으며 일정 부재·모호성은 지지 근거가 아니다.
+
+첫 최종 Sol high 검증은 대상 과거행의 confidence/label이 후보 선별에 영향을 주는 누수를 잡아
+`VERDICT: FAIL`했다. 이를 현재 카드만으로 후보를 만들고 과거 exact identity는 대상 peer 제외와
+예측 후 채점에만 쓰도록 수정했다. 두 번째 검증도 전역 model id가 대상 과거행 hash에 따라 바뀌는
+문제를 잡아 `VERDICT: FAIL`했다. 검증 횟수 한도 뒤에도 지적 자체는 수용해, 알고리즘 model id와
+run-level 학습상태 hash를 분리하고 각 대상에는 자기 과거행이 빠진 `loo_model_sha256`을 별도로
+결속했다. 실제 `_build_expected` 경로에서 대상 UID/content/label/confidence/tax_conf를 바꿔도
+그 대상의 model id·LOO 지문·prediction id/hash/세 축은 같고 사후 validation/run-state만 달라지는
+회귀를 추가했다.
+
+실제 5,328건 재빌드 결과는 cancellation settlement terminal 544 + verified lodging 16 + classifier
+115 = **후보 resolved 675 / unresolved 4,653**이다. classifier는 held-out 100/100, 오류 0이며,
+수기·과거 장부의 transaction evidence 사용은 0이다. 분류기 단위 6/6, Gate 회귀 54/54,
+실데이터 owner-export 1/1, `py_compile`, `git diff --check`가 통과했다. 진단 산출물은
+`/tmp/cost-gate5-classifier-v3-20260807.bKr0yF/artifacts/48347eecc6bf4cb3a0ec5852cfdeeefd-2db7a53f6eeb`다.
+
+다만 두 번째이자 마지막 Sol high 최종검증이 수정 전 상태에서 FAIL로 끝난 뒤 적용한 변경이므로
+독립 최종 PASS는 없다. 또한 전체 후보는 Gate 4(HAN equality), Gate 5(4,653 미완결), Gate 6
+(승인 baseline) 때문에 fail-close다. 따라서 활성 확정은 0이고 candidate DB·정본·워크북·운영
+전기·배포는 수행하지 않았다. 가장 큰 잔여군은 동일 가맹점 peer 부족/충돌 4,223건이다.
+
+## 2026-08-11 무손실 세션 인계 패키지 — PARTIAL_HANDOFF
+
+현재 세션의 상세 인계는 `docs/handoff/2026-08-11/README.md`를 기준으로 한다.
+Phase 1 연도 무결성 변경은 Sol high 최종 `VERDICT: PASS`를 받았고, Phase 2 대만 승격
+설계는 Sol `VERDICT: FAIL`이다. Kimi 전체 파이프라인 검토는 `KIMI_VERDICT: FAIL`이다.
+
+인계 패키지는 현재 상태·결정·시도·산출물 해시·다음 작업을 보존한다. Codex 앱의 66 turn
+표시 대화는 비식별 export했고, 식별자가 포함될 수 있는 보호 원문은 저장소 밖에 보관했다.
+다만 Sol/Kimi 전체 검토 출력과 전체 unittest 최종 로그가 아직 없어 `PARTIAL_HANDOFF`다.
+
+## 2026-08-12 Gate5 placeholder 보정 세션 — PARTIAL_HANDOFF_REINFORCED
+
+Sol high 설계 검증은 `VERDICT: FAIL`로, markerless 전체 재그룹화와 지리 문맥 우회 허용을
+배제하고 동일 source/card4 혼합국가 parent run·정확한 foreign pending 경로·정확히 7건
+membership를 요구했다. 이를 반영해 UNKNOWN placeholder를 compact mixed-country parent
+내부의 양수 해외금액 markerless purchase로만 제한하고, 각 registry를 1행으로 만들었으며
+selection context hash를 registry core와 Gate payload audit에 결속했다.
+
+최신 격리 투영은 `/tmp/codex-goal-final2-20260812-artifacts/fcc3a214960c4bb696ab7bf9b8b474d2-f759f0584385`
+(`run_id=fcc3a214960c4bb696ab7bf9b8b474d2`)를 기준으로 candidate 5,328, final 2,184,
+nonfinal/travel_open 3,144, untriaged 0, literal `travel_unassigned` **2**, auto provisional
+3,142를 산출했고 Gate5는 `accepted_with_auto_provisional_queue`였다. UNKNOWN registry는
+정확히 7개·각 1행이며 해당 7행에는 allocation plan, cost allocation, posting, confirmed
+decision, reversal inheritance가 0이었다. Gate4(HAN equality)와 Gate6(baseline)은
+fail-closed로 남겨 정본·워크북·운영 전기·배포는 수행하지 않았다.
+
+변경 단위 테스트 53개, `py_compile`, `git diff --check`가 통과했다. 독립 Sol high 최종
+검증은 최신 run 기준으로 진행 중이며, 최종 `VERDICT` 수신 전에는 이번 단계의 확정을 보류한다.
+
+## 2026-08-12 후속 검증·문서 최신화 — 미완료 여행 배정 9건 → 1건
+
+이번 세션은 직전 placeholder 보정 이후의 실제 후보 결과를 확정적으로 기록하고 인계 문서를
+최신화했다. 기존 9건(KBO 7, CARPISA 1, NICE 국내 PG 환불 1) 중 KBO 7건과 CARPISA 1건은
+국가·목적지·서비스기간을 추정하지 않는 `UNKNOWN/미상` 임시활동 검토 lane으로 이동했다.
+NICE 환불은 서비스기간 미확정 구매에 비용축을 상속하지 않고 `여행_미배정`에 남겼다.
+
+최신 격리 후보는 5,328 payment 기준으로 `final=2,184`, `nonfinal=3,144`,
+`travel_open=3,144`, `travel_unassigned=1`, `auto_provisional=3,143`을 산출했다.
+Gate5는 `accepted_with_auto_provisional_queue`로 통과했고, 수용 상한은 유일 key 5건으로
+연결됐다. Gate6은 `direct_baseline_unavailable`로 실패해 전체 실행 `passed=false`를 유지했다.
+HAN equality package도 `applied=false`, `authority_status=unattested`, `posting_status=blocked`다.
+
+검증은 `py_compile`, `git diff --check`, registry·classifier·transition Gate 표적 테스트
+106건(`OK`)으로 완료했다. 정확히 5건 통과·6건 실패·중복 key 1회 집계 경계 테스트도 추가했다.
+독립 Sol high 최종검증은 `VERDICT: PASS`였다. 전체 후보는 게시·정본 반영·장부 전기·배포하지 않았다.
+
+AGY Gemini 3.6 Flash low는 `GEMINI_API_KEY` 부재로 호출 실패해 Luna max가 문서화·검증을
+이어받았다. 설계 Sol 1차 FAIL 후 수정했고, 설계 2차와 최종 검증은 모두 PASS다.
+
+상세 인계: `docs/handoff/2026-08-12/README.md`
+
+## 2026-08-12 Gate5 triage·release 분리 — 통과 가능성 완화, release 안전성 유지
+
+사용자 지적대로 기존 단일 통과 표현이 분석 진행과 운영 release를 혼동하게 만드는 문제를
+보정했다. `travel_unassigned=5`와 사용자 질문 10그룹은 correctness acceptance에서
+`advisory_only` queue SLO로 내렸다. 초과 수량과 유일 key 집계는 계속 보고하지만, 그것만으로
+lossless triage를 실패시키지 않는다.
+
+Gate5는 `TRIAGE_PASS`와 `release_scope_ready`를 분리한다. triage hard 조건은 모든 payment의
+상호배타적 lane 귀속, `untriaged_nonfinal=0`, finality veto 무우회, 그리고 비최종 payment의
+confirmed decision·allocation plan·cost allocation·journal/posting·reversal derivation 및
+inheritance 0이다. 전체 release scope는 여전히 `nonfinal_count=0`을 요구한다.
+
+상위 보고서는 `shadow_ready`와 `release_ready`를 별도로 노출하며 호환 필드
+`passed == release_ready`를 builder와 P07에서 강제한다. Gate6 baseline 또는 HAN equality가
+없어도 구조적으로 정직한 분석은 `shadow_ready=true`가 될 수 있지만, candidate DB 설치,
+artifact activation, 게시·전기·배포는 계속 불가능하다. CLI에는 명시적
+`--success-level shadow`를 추가했고 기본값은 기존 release fail-closed 동작이다.
+
+격리 실행 `/tmp/cost-shadow-readiness-20260812-final1/artifacts/72961a7c3a334e6ea3cb5bf4cf88719b-68726a34736e`는
+5,328 payment에서 `TRIAGE_PASS`, `shadow_ready=true`, `release_ready=false`, `passed=false`,
+`output_db=null`, `nonfinal=3,144`, `nonfinal_side_effect_invariant=true`를 냈다. P07은 이를
+`artifact_state=not_published`, candidate DB reference 없음으로 검증했다. 운영·정본 산출물은
+변경하지 않았다.
+
+검증은 `test_transition_gates_v2` 60/60, `test_direct_projection` 32/32, 추가 핵심 계약시험
+9/9, `py_compile`, `git diff --check`가 모두 PASS했다. AGY 저추론 경로는 timeout되어 Luna max가
+설계·구현을 이어받았고, 별도 GPT-5.6 Sol high 최종 검증은 `VERDICT: PASS`였다.
+
+## 2026-08-12 구조적 실패요인별 규칙 추가 요청 방식 확정
+
+사용자 지시로 비최종 건별 승인 방식을 폐기했다. 이후 파이프라인은 `row_finality` veto와
+fail-closed 원인을 구조적 family로 묶어 `structural-rule-admission-v1` 요청을 만들고,
+사용자에게 family+분류경로 단위 `allow_rule`/`keep_blocked`만 요청한다. scope 허용은 규칙 구현·검증
+권한일 뿐 finalization·allocation·posting 권한이 아니며, 적용 전후 `nonfinal_count`,
+`travel_open_count`, lane partition, 비최종 side-effect 0을 다시 검증한다.
+
+현재 격리 aggregate `nonfinal=3,144`는 lifecycle 미종료 2, review/provisional 대상 hard veto
+3,141, 세 축 최종 배정 불가 2로 분류되며 family 간 겹침은 1이다. 행 단위 ID·원문은 요청
+출력과 인계 문서에 기록하지 않는다. 상세 계약: `docs/handoff/2026-08-12/06_structural_rule_admission.md`.
+
+패키지 B what-if을 실제 후보 DB에 적용한 결과, registry 335 → activity placeholder 1,785 →
+reservation placeholder 820 → inferred external 114 순으로 후보 감소가 3,054건, 잔여 후보가
+90건이었다. 이 시뮬레이션은 `side_effects_created=false`인 격리 계산이며 사용자 규칙 허용,
+final decision, allocation, posting, 게시를 수행하지 않았다.
+
+## 2026-08-12 package-b 실제 격리 실행 — 비최종 3,144건 → 90건
+
+사용자의 구조적 실패요인별 규칙 추가 방식을 유지하면서, 목표 검증 실행에만
+`--structural-rule-package package-b`를 명시했다. 네 path의 적용 건수는 registry 335,
+activity placeholder 1,785, reservation placeholder 820, inferred external 114로 합계
+3,054건이다. 최신 Gate5 집계는 `final=5,238`, `nonfinal=90`, `untriaged=0`,
+`TRIAGE_PASS`, `shadow_ready=true`였다.
+
+적용된 구조 규칙 행의 allocation plan·cost allocation·posting·reversal inheritance는
+모두 0건이고, 비최종 side-effect 불변식은 true였다. Gate4 HAN equality와 Gate6 baseline이
+없어 `release_ready=false`, `passed=false`, `output_db=null`로 유지했다. candidate DB·정본·
+워크북·장부 전기·운영 게시·배포는 하지 않았다. 기본 package는 계속 `none`이며, 이번 결과는
+운영 반영이 아닌 격리 shadow 검증 결과다.
+
+## 2026-08-12 package-c 실제 격리 실행 — 임시분류 88건 → 5건
+
+`--structural-rule-package package-c`를 명시해 package-b에 세 path를 추가했다. 추가된
+범위는 지리 문맥 exact 65건, 수기 환불 exact 13건, 수기 환불 M:N invariant 5건으로 합계
+83건이다. 최신 Gate5 집계는 `auto_provisional=5`, `human_question_nonfinal=2`,
+`nonfinal=7`, `untriaged=0`, `TRIAGE_PASS`, `shadow_ready=true`다.
+
+package-c terminal 처리 83건의 allocation plan·cost allocation·posting·reversal
+inheritance는 모두 0건이고, 비최종 side-effect 불변식은 true였다. Gate4 HAN equality와
+Gate6 baseline이 없어 `release_ready=false`, `passed=false`로 유지했으며 운영 게시·정본·
+워크북·장부 전기·배포는 하지 않았다. 기본 package는 계속 `none`이다.
+
+## 2026-08-13 2025년 결제 레인·수기장부 산출물 최종 확정 — v9
+
+사용자 확정 규칙을 반영해 결제연도는 `occurred_on`으로 판정했다. 2025년 결제 2,330건 중
+2026년 행사일이 정식 일정표로 독립 확인된 76건만 해당 여행 탭에 두고, 나머지 2,254건은
+`2025년 결제` 표시 전용 탭으로 배정했다. 2026·2027년 결제는 허용 행사연도와 정식 대상이
+확인되면 여행 탭, 명시적 기타비용은 `기타비용`, 그 밖에는 `검토필요`로 단일 배정했다.
+
+v8 최종검증에서 발견된 `period.event_years` 비어 있지 않음만 검사하는 반례를 수용해,
+공통 여행 판정이 `{2026, 2027}`과의 교집합을 요구하도록 수정하고 `{2025}`·`{2028}`
+반례 회귀시험을 추가했다. 문서에는 세 표시 레인이 여행 확정·기간·배분·전기와 분리된
+예외 레인임을 명시했다.
+
+v9 산출물은 여행 1,370 / `2025년 결제` 2,254 / 기타비용 275 / 검토필요 1,429,
+총 5,328건·708,722,467원이며 실제 미출력 0건이다. 사용자 열 7개, Carlito 11pt,
+E열 폭 16, KBD/KBO 노출 0, GoToGate 542,143원은 `항공_염장규`·예약번호 공란이다.
+예약번호 동률/provider 충돌은 fail-close로 유지했고, 비최종 7건의 confirmed decision·
+allocation plan·cost allocation·journal/posting·reversal inheritance는 0건이다.
+
+GPT-5.6 Sol high 독립 최종검증은 v9 기준 `VERDICT: PASS`였다. v9를 Google Sheets로
+변환·검증한 뒤 이전 출력 시트 2개를 삭제하고 새 시트만 유지했다:
+`https://docs.google.com/spreadsheets/d/12Mk3nps0wld8xeoRupEZGuz9TRrU-aLldKyI3raK8tc/edit`
+
+## 2026-08-14 2025년 결제 mail-only 승격 보정 — rule4 격리 검증
+
+사용자 최신 규칙을 우선 적용했다. 2025년 결제를 2026년 여행으로 승격하는 조건은
+해당 카드 결제와 유일하게 결속된 OTA·PG·서비스 메일 및 메일에 명시된 2026년 서비스
+기간이다. 수기 여행 탭, `Tokyo JP` 표기, 현지사용 묶음, 지역클러스터, 결제일,
+임시예약·임시활동은 2025년 승격 근거가 아니다. 조건을 만족하지 않는 2025년 결제는
+사용자 표시용 `2025년 결제` 레인으로만 남기고 최종 배분·전기·환불상속을 차단한다.
+
+분류기 `row_finality`와 사용자 exporter 양쪽에 이 계약을 반영하고, PG/OTA source
+provenance와 OTA 메일의 명시 서비스연도를 보존하도록 보정했다. 2025 `기타비용` 경로도
+메일 없는 경우 표시 전용 차단 레인으로 처리해 DB 최종성과 사용자 탭의 이중 기준을
+제거했다. 집중 회귀 71건, `py_compile`, `git diff --check`가 통과했다.
+
+최신 `rule4` 격리 후보는 전체 5,328건·708,722,467원, 2025년 2,330건·277,445,721원,
+2026년 2,998건·431,276,746원이다. 2025년 중 메일에 명시된 2026 서비스기간으로
+여행 승격된 건은 5건(일반 OTA 경로 2건 + 인증된 Trip 숙박 메일 authority 3건)이며,
+취소환불 정산 292건은 여행 승격과 별도다. 나머지 2025 결제는 승격되지 않았다. Gate5는 후보 전수
+lineage와 비최종 side-effect 0은 유지했지만 `confirmed=3,108`, `nonfinal=2,220`으로
+release는 차단됐다. Gate6 baseline도 별도 승인 없이 통과시키지 않았다. 임시 DB·report는
+검증용으로만 보존했고 정본·운영 DB·Google Sheets·전기·게시에는 반영하지 않았다.
+
+두 독립 GPT-5.6 Sol 검증자는 지정된 최신 run만 대상으로 최종 검증 중이다. PASS 전에는
+이번 변경을 운영 확정하지 않는다.
+
+## 2026-08-14 2025년 비용 회계·배부·전기 규칙 — shadow 검증 진행
+
+사용자가 최초 의도한 `2025년 비용` 회계 규칙을 별도 family로 구현했다. 메일 없는
+2025년 구매를 2026년 여행으로 추정하지 않고 `account=기타비용`, `cost_type=판관비`,
+`allocation_target=2025년 비용`, `target_type=other`로 회계확정·배부 가능 처리한다.
+여행기간·여행코드·예약번호는 공란이며 취소·환불 정산과 reversal inheritance는 별도다.
+회계기간 `2025`, 기준일 원천 `payment.occurred_on`, 행별 멱등키를 기록하고 정책·membership·
+provenance hash를 semantic manifest에 결속했다. shadow 단계는 외부 전표 발행을 실행하지
+않고, release 승인 및 전기 엔진의 별도 게이트를 남긴다.
+
+최신 shadow run은 `/tmp/codex-2025-cost-rule-20260814l`의
+`run_id=81ef975e382040d080087bcdd719993c`, report hash
+`f06ae1ec1de9f7ec5ff703d2db0e4e8a52a52f745028fa8563944b7170dea56c`, candidate semantic
+hash `dc1fe08322f5caf8b03f9fa284ad12d4aebe9af501763f644fac571289e8e065`다. candidate 5,328,
+2025 비용 회계 1,955건·302,744,666원, 1:1 allocation 1,955건·동일 금액,
+booking/journal/reversal 0건, audit field·idempotency key 결손 0건, cost validator PASS다.
+Gate5는 `TRIAGE_PASS`, `shadow_ready=true`, `release_ready=false`; accounting final 3,058건,
+resolved 3,914건, nonfinal 1,414건으로 5,000 회계확정 목표에는 1,086건 부족하다.
+부족분을 채우기 위해 2026 임시행·메일 없는 여행행·취소환불을 임의 승격하지 않는다.
+
+회귀는 새 규칙 4건, Gate5 축소 fixture 2건, 전체 `test_transition_gates_v2` 61건,
+실제 5,328행 projection/owner-export fixture 1건이 통과했고 `py_compile`,
+`git diff --check`도 통과했다. AGY Gemini 3.6 Flash high는
+멱등성·회계기간·전기 엔진 연계·reversal orphan 위험을 독립 점검했고, Luna가 반영했다.
+설계 Sol high는 승인된 규칙 계약 기준 `VERDICT: PASS`, 최종 Sol high도 최신 l run 기준
+`VERDICT: PASS`였다. 다만 `release_ready=false`이므로 운영 DB·정본 workbook·Google Sheets·
+실제 전기는 변경하지 않았다.
+
+## 2026-08-14 2025년 비용 규칙 최종 회귀 — 규칙 PASS, 5,000 목표 미달
+
+최종 Sol high가 최신 l run의 run/semantic/report identity, 2025 비용 membership,
+1:1 배부, manifest fail-closed, provenance·policy hash·idempotency·audit, 여행필드 공란,
+reversal inheritance 0, shadow booking/journal 0, cost/display terminal 상호배타성 및
+비최종 side-effect 0을 재검증했다. 최신 회귀 증거는 새 규칙 4/4, Gate5 6/6,
+`test_transition_gates_v2` 61/61, 실제 5,328행 fixture 1/1, compile/diff 통과다.
+
+판정은 승인된 `2025년 비용` 규칙 자체 `VERDICT: PASS`다. 전체 회계확정은 3,058/5,000건으로
+1,086건 부족하므로 목표는 미완료이며, 이를 위해 2026 임시행·메일 없는 여행행·취소환불을
+자동 승격하지 않는다. 실제 전기는 release 승인과 전기 엔진 게이트 뒤의 별도 작업으로 남긴다.
+
+## 2026-08-14 현재 결과 산출물 — 2025 비용 규칙 l run
+
+최신 l run을 사용자용 수기장부형 workbook으로 별도 산출했다. 파일은
+`outputs/2026-08-14-2025-cost-rule-l/2025-cost-rule-current-results.xlsx`이며,
+122개 탭·5,328행·708,722,467원이다. 탭 구성은 여행 2,004행, `2025년 결제` 2,036행,
+`기타비용` 312행, `취소환불` 544행, `검토필요` 432행이며, 원본 후보 행 수·금액과
+일치하고 거래일자·7열 헤더·Carlito 11pt·E열 폭·기술 헤더 부재를 post-save 검사로 확인했다.
+이 산출물은 표시 결과이며 운영 DB·정본 workbook·Google Sheets·실제 전기는 변경하지 않았다.
+
+## 2026-08-14 5,000건 달성 후보 family 집계 — 적용 전
+
+최신 l run의 `accounting_final=3,058`, `display_terminal_final=856`, `nonfinal=1,414`를
+재집계했다. confirmed terminal은 기타비용 312건과 취소환불 544건으로 구성되고, nonfinal
+auto-provisional 중 2026년 purchase는 1,253건(temporary activity 806, temporary
+reservation 282, named trip metadata 165)이다. 나머지는 2026년 refund/cancellation 82건,
+2025년 refund/cancellation 76건 및 owner-review 3건으로 분리된다.
+
+여행 임시건을 여행 final로 바꾸지 않고, `기타비용 terminal → 회계배부`, `취소환불 terminal →
+settlement 배부·전기`, `2026 purchase provisional → 2026년 비용 회계-only`의 세 family를
+적용하면 예상 accounting final은 5,167건(3,058+312+544+1,253)이다. 이는 아직 사용자
+승인 전이며 실제 코드·DB·전기에는 적용하지 않았다. 설계 검증에서 취소환불 signed posting,
+2026 비용의 여행필드 공란, provenance·idempotency·lineage·상호배타성·비최종 부작용 0을
+확인한 뒤 구조적 family 단위로 승인 요청한다.
+
+## 2026-08-14 회계 shadow 전표 v2 — 두 설계 FAIL 후 보정 실행
+
+GPT-5.6 Sol 독립 검토 2건은 기존 5,167 설계를 FAIL로 판정했다. 기존 `journal_entries`가
+차·대변·배치 원자성·통화·회계기간·멱등키를 표현하지 못하고, `net=0`만으로 복식균형을
+증명할 수 없다는 지적을 수용했다. 또한 2026 임시구매 1,253건의 travel final 승격을
+차단하고, 2025 mail-only 승격 규칙을 그대로 유지한다.
+
+보정 모듈 `ledger/domain/direct_accounting_shadow.py`는 기존 전표·배부·결정 테이블과
+분리된 shadow batch/member/line/manifest 4종 테이블을 사용한다. 각 배치는 단일
+transaction에서 구성되고, 구성원 1건당 차·대변 2라인, `debit=credit`, 회계기간과
+전기일, `ledger_currency=KRW` 및 `amount_krw` 근거, source currency unknown 상태,
+membership/provenance/idempotency hash를 기록한다. 취소환불은 authority 단위 M:N batch로
+원자 처리하며, 기존 `journal_entries`에는 쓰지 않는다.
+
+실제 l run 복사 DB에 대한 조건부 shadow 결과:
+
+- base: 3,914 payment member / 3,629 batch / 7,828 line / legacy journal 0 / PASS
+- `with_2026_clearing`: 5,167 payment member / 4,882 batch / 10,334 line / legacy journal 0 / PASS
+- family: existing 3,058 + confirmed overhead 312 + settlement member 544 + unresolved
+  2026 purchase 1,253 = 5,167; family overlap 0
+- 모든 batch는 balance PASS, 2026 clearing 1,253건의 행사기간·여행코드·예약번호 공란,
+  재실행 manifest hash 동일
+
+산출물은 `outputs/2026-08-14-accounting-shadow-v2/base-report.json` 및
+`outputs/2026-08-14-accounting-shadow-v2/with-2026-clearing-report.json`이다. 두 파일은
+shadow-only 증거이며 `release_ready`, 실제 journal/posting, 외부 회계 전기를 뜻하지 않는다.
+2026 clearing rule과 production chart mapping은 사용자 family 승인 및 최종 Sol 검증 전까지
+활성화하지 않는다.
+
+## 2026-08-14 회계 posting candidate gate
+
+`promote_shadow_to_posting`를 추가해 shadow batch를 별도 posting batch/line으로 복사할 수
+있게 했다. family approval, production chart mapping, release-ready가 없으면 posting row를
+0건으로 유지하며 `family_approval_missing`으로 차단한다. 조건을 모두 넣은 격리 재실행은
+`candidate` 상태로 5,167 payment / 4,882 batch / 10,334 line을 만들고 차변·대변 각
+896,445,338원, legacy journal 0건을 확인했다. 재실행은 동일 approval/mapping hash로
+멱등 처리됐다.
+
+산출물은 `outputs/2026-08-14-accounting-shadow-v2/posting-candidate-report.json`과
+`outputs/2026-08-14-accounting-shadow-v2/posting-blocked-report.json`이다. candidate는
+실제 posted가 아니며 `posted_payment_count=0`, `external_posting=false`다.
+
+실제 승격 함수는 family approval attestation 및 Gate5·Gate6·HAN equality release
+attestation hash 없이는 `authorize=True`여도 차단한다. 새 shadow/posting 테스트는 9건으로
+통과했다.
+
+`posting-release-gate-report.json`에서는 승인·release attestation 없이
+`release_ready=True`와 `authorize=True`를 넣어도 `posting_rows=0` 및
+`family_approval_attestation_missing_or_invalid`/`release_attestation_missing_or_invalid`
+차단이 재현됐다.
+
+독립 GPT-5.6 Sol high는 shadow v2 코드·실행 DB·재실행 hash·membership/lineage·부작용
+불변식을 읽기 전용으로 재검증해 `VERDICT: PASS`를 반환했다. 새 shadow/2025 규칙 테스트
+9건, `py_compile`, `git diff --check`는 통과했다. `test_transition_gates_v2` 전체 재실행은
+사용자 중단으로 결과를 PASS로 기록하지 않는다.
+
+## 2026-08-14 posting 증거 정합성 보정 — 최신 근거
+
+이전 최종 검토에서 지적된 대로, 기존 `posting-blocked-report.json`과 blocked DB는
+서로 다른 재실행 시점의 attestation 상태를 가리켜 근거로 폐기한다. 또한 위 문단의
+"새 shadow/posting 테스트 9건"은 당시 중간 상태의 기록이며 최신 수치는
+`test_direct_accounting_shadow` 7건과 `test_direct_2025_cost_accounting` 4건, 합계 11건이다.
+
+새 격리 DB·보고서 쌍을 같은 run identity로 재생성했다.
+
+- `posting-blocked-family-report.json`: 승인 rule ID 공집합 → `family_approval_missing`만
+  차단. selected 5,167, posting batch/line 0, legacy journal 0.
+- `posting-blocked-release-report.json`: 네 family rule ID와 계정 mapping은 충족하지만
+  family approval/release attestation을 제공하지 않음 →
+  `family_approval_attestation_missing_or_invalid`와
+  `release_attestation_missing_or_invalid`만 차단. posting batch/line 0, legacy journal 0.
+- 두 보고서 모두 run `81ef975e382040d080087bcdd719993c`와 mode
+  `with_2026_clearing`에 결속된다. 보고서 SHA-256은 각각
+  `1a80b902b00fcd076bdff10867e7c2a37e96d944fd00e056c9a24dd19481d93a`,
+  `1590351ce1e66088907c92614ebd5f8da7dd977ea5262040cbfba8dbf45c3ce4`다.
+
+현재 posting candidate 5,167건은 여전히 격리 후보일 뿐이며, 실제 journal·외부 전기는
+0건이다. 전체 5개 보고서의 파일 hash와 테스트 요약은
+`outputs/2026-08-14-accounting-shadow-v2/posting-evidence-index.json`에 묶었으며, 해당
+index SHA-256은 `6d86f064258cb56d1c6c37b9b09451cfa191d0c7b401b824b908f94886e82de7`다.
+최신 Sol high 최종 재검토는 이 보정 증거를 대상으로 다시 수행해야 한다.
+
+## 2026-08-14 posting 증거 최종 독립 검토 — PASS
+
+GPT-5.6 Sol high가 보정된 최신 보고서·두 blocked DB·코드·테스트를 읽기 전용으로
+재검토했다. run/mode 동일성, 5,167 payment·4,882 batch·10,334 line,
+family `3,058+312+544+1,253`의 overlap 0, 차·대변 각 896,445,338원,
+M:N settlement 259 authority/544 member, 2026 clearing 여행필드 공란,
+blocked 사유 1개/2개, blocked DB posting 0·legacy journal 0, candidate와
+posted_shadow의 구분, 11/11 테스트를 모두 확인해 `VERDICT: PASS`를 반환했다.
+
+이는 회계 shadow·격리 candidate 설계와 회귀 증거의 PASS다. Gate6/HAN release
+attestation과 사용자 family 승인이 없으므로 실제 전기·외부 posting 완료로 승격하지 않는다.
+
+## 2026-08-14 release preflight — 실제 전기 전 차단사항
+
+현재 candidate DB를 `mode=ro&immutable=1`로 재확인했다. 후보는 5,167건,
+posting candidate 5,167건이며 `posted_shadow=0`, legacy journal 0,
+external posting false다. 실제 release를 막는 조건은 다음 네 가지다: 사용자 family 승인,
+Gate6 baseline, HAN release attestation, authoritative production chart mapping.
+
+상세 preflight는
+`outputs/2026-08-14-accounting-shadow-v2/release-preflight-report.json`에 기록했다.
+파일 SHA-256은 `9aa289da6dc229c506eef17a7ab10fd9b40e8f23bb267d9ed7b9343fbe1d1e64`이며,
+증거 index는 6개 보고서를 포함하도록 갱신했다. index SHA-256은
+`f24915e9afa1bd50c439c9118a2ced63ed49b27e9ba9ae8db70d87d556c5c356`다.
+
+사용자에게 건별 승인을 요청하지 않도록 `unresolved_2026_purchase_clearing` family
+전체의 승인 요청서를 별도 생성했다. 대상은 1,253건·189,627,699원이며 목적은
+`accounting_only_pending_cost`다. 여행 확정·기간/여행코드/예약번호 생성·legacy journal·
+Gate6/HAN 전 외부 전기는 금지한다. 문서는
+`outputs/2026-08-14-accounting-shadow-v2/family-approval-request-unresolved-2026-v1.json`이며,
+아직 `pending_user_decision`이고 SHA-256은
+`ad36e9c9c8169d9acd8ad50ca3b8cbf949399b6237ea7c9f2d3ca11351de9749`다. 증거 index는
+7개 항목으로 갱신됐고 SHA-256은
+`e5107a877db4881d274350b0e325d16b3288aaf13e974c04f73e2266b3409fad`다.
+
+## 2026-08-15 P26 비용분류 결과 v6 — 최종 PASS
+
+P26 v4 최종 검토에서 지적된 네 가지 과포착 경로를 수정했다. OTA/PG/service-mail
+source kind 허용목록을 적용하고, 예약·온라인 결제의 무메일 현지사용 우회를 차단했으며,
+임시여행활동은 결제일에 정확히 하나의 정식 여행코드가 활성일 때만 그 정식 탭으로
+표시한다. 카드 3820 국내 무메일 규칙에는 충돌 없음 조건을 추가했다. P27과 충돌하던
+기존 3820 문장도 현행 규칙으로 정리했다.
+
+v6 실행 결과는 전체 5,328건·708,722,467원이며, 여행 1,009건, `2025년 결제`
+2,036건, 기타비용 363건, 취소환불 544건, 검토필요 1,376건이다. 2025년 여행 2건은
+모두 OTA/PG/service mail로 확인된 2026 행사기간이다. 임시여행활동의 비정식 여행탭
+0건, 예약·온라인 무메일 여행 0건, 3820 규칙 대상 128건의 기타비용 위반 0건,
+취소환불 순액 0원이다.
+
+워크북은 26개 탭, 사용자용 7열, Carlito 11pt, E열 폭 기준을 유지한다. Google Sheet
+전수 재검증은 26개 탭·5,328행·708,722,467원, 행/금액 불일치 0, 읽기 실패 0,
+셀 37,660개의 폰트 불일치 0으로 완료했다. 합계행 병합으로 생기던 Google Sheets
+Calibri interior-cell 문제를 제거했다. 집중시험 26/26, `py_compile`, `git diff --check`도
+통과했다. 이 산출물은 표시 전용이며 회계 전기·journal·외부 posting을 만들지 않는다.
+
+현재 산출물: https://docs.google.com/spreadsheets/d/1gBtq41B3mFbvl4XggpQmsVwaf1WKxdTXojvzkezjb8w/edit
+검증 후 이전 v4 및 중간 v5 Google Sheet는 삭제했고, 이전 ID 조회는 404로 확인했다.
+두 번째 독립 GPT-5.6 Sol high 최종검증은 전체 Google Sheet 전수 증거까지 확인해
+`VERDICT: PASS`를 반환했다.
+
+## 2026-08-15 P26 비용분류 결과 v7 — 합계행 서식·1분기 자료 보정
+
+사용자 요청에 따라 각 비용 탭의 마지막 합계행을 보정했다. 합계행의 C:H는 병합하고,
+B:H는 노란색 배경과 검은색 글자를 적용했다. 분류 기준·행 수·금액은 v6과 동일하게
+유지했다.
+
+v7은 26개 탭·5,328행·708,722,467원이며, 여행 1,009건, `2025년 결제` 2,036건,
+기타비용 363건, 취소환불 544건, 검토필요 1,376건이다. 집중시험 26/26,
+`py_compile`, `git diff --check`, Google Sheet 26개 탭 전수 행·금액 대조를 통과했다.
+
+Google 원장에 있는 1분기 비용 자료도 확인했다. 3월 비용 4건은 v7에 반영되어 있으며,
+수입 자료 탭은 비용 산출물에 섞지 않았다. v6 Google Sheet는 삭제했고 404를 확인했다.
+
+현재 산출물: https://docs.google.com/spreadsheets/d/1q_mwWw8fHa1jMByoKQ6TJ4_DL--2ZOWi0QolYP1Ab1Q/edit
+
+합계행 병합과 표시 형식에 대한 독립 GPT-5.6 Sol high 최종검증은
+`VERDICT: PASS`를 반환했다. 본 산출물은 표시 전용이며 회계 전기·journal·외부 posting은
+생성하지 않는다.
+
+## 2026-08-15 Agoda 2026 누락 방지 기준 — 2025년 8월 역추적 경계
+
+사용자 의도에 따라 `2025-08-01`부터 `2025-08-31`까지를 Agoda 조사 결과의
+종료월로 보는 것이 아니라, 2026년 행사 선결제를 놓치지 않기 위한 역추적 경계로
+사용한다. 해당 월의 결제·예약·취소/환불·연결 메일을 전수 대사하고, 2026년 행사와
+연결되는 건은 OTA/PG/service mail 근거가 있을 때만 2026 여행으로 연결한다. 근거가
+없는 2025년 결제는 2025년 결제에 남긴다. 동시에 2026년 관련 결제·예약·후속 메일은
+2025년 8월 경계만으로 잘라내지 않는다.
+
+기존 Agoda 중간 `0건` 판정은 최종 판정에서 폐기한다. 2025년 8월 경계 커버리지와
+2026년 관련 자료의 신규/중복/충돌/보류를 확인하기 전에는 OTA DB 병합 완료로
+표시하지 않는다. 10개 병렬 조사 레인은 읽기 전용으로 운영하고, 최종 병합은
+고유키·근거 해시·결제 연결을 단일 트랜잭션에서 검증한 뒤 코디네이터가 한 번만
+수행한다.
+
+## 2026-08-15 Agoda 2025-08 역추적 1차 실측 — 병합 보류
+
+읽기 전용 감사 도구 `tools/agoda_boundary_audit.py`를 추가해 중첩 인덱스의
+메타데이터와 sealed candidate DB를 집계했다. 후보 DB에서 2025-08 Agoda 구매는
+15건·3,248,979원이며 `payment_booking_links` 연결은 0건이다. 기존
+`ota_reconcile_report.json` 및 `pg_mail_index.json`과 날짜+금액 서명도 각각
+일치 0건이다.
+
+Gmail의 2025-08 검색은 34통(그중 Agoda 계열 발신 29통)이며, 2026 서비스일이
+본문에 명시된 메일은 1통이다. 15건 중 메일 금액만 일치하는 결제행은 4건이나,
+날짜+금액이 함께 일치하는 것은 동일 금액의 중복 3행뿐이고 2026 서비스일은
+없었다. 따라서 2025 결제를 2026 여행으로 승격하거나 OTA DB에 예약 연결을
+생성하지 않았다. 2026 관련 Gmail 검색 전체는 637통으로 별도 후속 연결 대사
+대상이며, 이는 2025-08 경계 밖 자료를 잘라내지 않는다는 규칙을 따른다.
+
+## 2026-08-15 Agoda 포털 페이지별 조사 방식 전환
+
+사용자 지시에 따라 Agoda 완료 예약내역을 단일 로그인 브라우저에서 조사한다. 시작점은
+10페이지로 고정하고, 2025년 예약이면 앞 페이지 방향으로, 2026년 예약이면 뒤 페이지
+방향으로 이동해 2026년과 2025년의 경계 예약을 확인한다. 확인된 경계 페이지를 포함해
+2026년 대상 페이지를 페이지 번호별 서브에이전트에 하나씩 배정한다.
+
+기본 보고 단위는 월별 건수가 아니라 페이지별 `전체 카드 수 / 2026년 카드 수 / 날짜
+없음 / 중복 / 페이지 SHA-256`이다. 페이지당 카드 수가 일정한지와 페이지 해시·예약 ID
+해시의 전역 중복을 함께 검증해 누락을 찾는다. 2026년과 2025년이 섞인 경계 페이지는
+2026년 카드만 대상에 넣고, 2025년 카드는 staging DB에는 보존하되 2026년 집계에서는
+제외한다.
+
+포털 결과는 기존 candidate DB나 원장에 직접 쓰지 않고, 페이지별 원자료와 해시를 담는
+새 private staging DB에 먼저 저장한다. 모든 페이지 에이전트 보고가 끝나고 단일 lineage·
+중복·페이지 완전성 검증이 통과한 뒤에만 OTA DB 병합을 별도로 검토한다. 월별 수량은
+필요 시 보조 집계로만 산출하며, 페이지별 완전성 보고를 대체하지 않는다.
+
+## 2026-08-15 Agoda 포털 페이지별 staging r3 — Sol high 최종 PASS
+
+실제 Agoda 완료예약 포털을 단일 로그인 브라우저에서 페이지별로 캡처하고, 13개 private
+staging DB를 immutable read-only로 병합했다. run은
+`agoda-portal-20260815-pages-merged-r3`이며, 최종 파일은
+`/tmp/agoda-2026-page-staging-20260815-final-r3.sqlite`이다.
+
+페이지별 관찰/2026 대상 건수는 다음과 같다: `1: 40/40, 2: 40/40,
+3: 40/40, 4: 40/40, 5: 40/40, 6: 40/40, 7: 40/40, 8: 40/31,
+9: 40/0, 10: 40/0, 11: 40/0, 12: 40/0, 13: 1/0`.
+전체 관찰은 481건, 2026 대상은 311건이며 최종 게시도 311건(전부 2026년,
+고유 예약 해시 311, 중복 0)이다. 페이지 11은 페이지 10과 비2026 카드 40건이
+겹쳤지만 target-year-only 병합에서 제외되어 2026 결과에 누출되지 않았다.
+
+최종 DB는 mode `0600`, SQLite 무결성 정상, 13개 page manifest(1~13), 13개 고유 입력
+SHA-256, capture-set SHA-256
+`13ebe9f5a961c7618173801b307721bd7ba1fe5ece3465411f4ca968f3bf5321`을 보존한다.
+최종 파일 SHA-256은
+`babf1936b1a92ea8eae96f651ec3504021391e14b320bf486bc43e6d7c589449`이다.
+
+페이지 11·12는 각각 숫자 11·12가 선택된 화면을 직접 확인한 뒤 안정화 캡처했다
+(입력 파일 `page-11-correct-r2.sqlite`, `page-12-correct-r1.sqlite`). 이 화면 확인은
+이번 staging 결과의 페이지 identity 공백을 보완하는 인계 attestation으로 기록하며,
+DB 내부의 자동 UI 증명으로 과장하지 않는다.
+
+전용 캡처·병합 테스트 22/22, `git diff --check`가 통과했다. 기존 candidate DB,
+ledger DB, OTA DB 및 Google Sheet에는 쓰지 않았다. 따라서 이번 PASS는 13페이지
+staging 병합과 2026 대상 산출물에 한정되며, candidate/ledger/OTA DB 반영이나 회계
+전기 승인은 아직 아니다.
+
+독립 GPT-5.6 Sol high 최종 검토는 위 r3 DB·코드·집계·테스트·diff를 대조해
+`VERDICT: PASS`를 반환했다.
+
+## 2026-08-15 Agoda 카드 결제 연결 후보 v4 — 운영 반영 보류
+
+Agoda 포털 staging의 2026 대상 311건과 현재 카드 projection을 대조해, OTA 예약·
+서비스기간·카드 결제의 양방향 단일성 및 기존 3축 confirmed를 동시에 만족하는
+5건만 증빙상 예약-결제 관계 후보로 만들었다. 나머지 306건은 1건의 비고유 카드
+후보와 305건의 유일 증거 부재로 보류했다. 금액·날짜만으로 추정 연결하지 않았다.
+
+최신 private 후보는 `/tmp/agoda-card-confirmation-20260815-v4/candidate.db` 및
+`report.json`이며, DB SHA-256은
+`bc0a65296b96d8ed705f2602a12aabf0e94fde6eaa801e29adc9521dd71333ae`, report
+SHA-256은 `8db99a9bbad546276e6f2baac97ad4b159b5abfeb62829516b0dccbb5c276909`이다.
+두 파일 모두 mode `0600`, SQLite integrity 및 immutable read-only 검사를 통과했다.
+
+후보 DB에는 예약·식별자·서비스기간 증거·관계 링크가 각각 5건 생성됐지만, 일반
+`payment_booking_links` 상태는 `proposed`로 격리하고 별도 감사 테이블에서만
+증빙 관계를 `confirmed`로 표시한다. `private_candidate_only=1`과 회계·전기 side
+effect 0을 함께 저장했다. 기존 allocation/cost allocation/classification/journal/
+reversal 및 외부 posting은 변경하지 않았다. 원장·운영 candidate DB·OTA DB·Google
+Sheet에는 쓰지 않았다.
+
+전용 회귀시험 5/5, 기존 OTA authority 1/1, domain ledger 23/23, `py_compile`,
+`git diff --check`가 통과했다. 게시 경쟁 시 타 inode 삭제 방지, report 변조 거부,
+원본 base 재대조, membership/policy/run hash 재계산을 구현했다.
+
+다만 독립 GPT-5.6 Sol high 최종 검증은 2회 모두 `VERDICT: FAIL`을 반환했다. 최신
+v4의 로컬 집계와 회귀시험은 통과했지만, 모델 검증 단계의 승인 한도를 소진했으므로
+본 후보를 확정 거래·회계 final·전기 대상으로 승격하지 않는다. 다음 단계는 새
+독립 검증 슬롯을 승인한 뒤에만 재개한다.
+
+## 2026-08-20 Windows headless Agoda 재개 — 인증 프로필 게이트에서 보류
+
+WSL/UIA 경로를 폐기하고 Windows-native CDP 경로를 준비했다. `headless=new`,
+loopback CDP, 고유 launch nonce·PID·Edge 버전·target ID를 manifest로 검증하고,
+CDP `Runtime.callFunctionOn` 기반으로 Upcoming `U01` 1개와 Completed `C01..C09`
+9개 논리 샤드만 수집하도록 구성했다. Cancelled는 수집·배정하지 않는다.
+목록 인증/URL/tab/page/예약 ID 바인딩, 상세 ID·기간·금액 파싱, history-back 후
+목록 복구 검증을 모두 staging 단계에 둔다. 원장·OTA DB에는 쓰지 않는다.
+
+격리 임시 프로필의 Cookies DB는 SQLite 무결성은 정상이었으나 Agoda 인증 세션이
+아니었다. headless 예약 URL은 `chrome-error://chromewebdata/`로 실패했고, 홈은
+로그인 필요 상태였다. 따라서 실제 1+9 수집은 0건 실행했으며, 사용자 Edge의
+프로필·화면·포커스는 건드리지 않았다. live Edge 프로필은 실행 중이라 파일 복사로
+인증 세션을 만들 수 없고, VSS 또는 별도 로그인 프로필 없이는 다음 단계로 갈 수 없다.
+
+click 중 CDP 응답이 끊겨 브라우저 위치가 불명확해지는 경우 `navigation_state_unknown`
+으로 즉시 중단하는 안전 패치를 추가했고, Node syntax check·Python compile·로컬
+계약 검증을 통과했다. 최신 독립 Sol 리뷰 에이전트는 사용량 제한으로 완료되지
+않았으며, 이전 Sol/Advisor 리뷰의 NO-GO 지적을 반영했다. 인증 프로필이 확보되면
+auth-only smoke 후 U01/C01..C09 수집, 1,095건 대사 순서로 재개한다.
+
+사용자가 VSS 생성을 허용했으나 현재 Codex PowerShell은 `Medium Mandatory Level`이며
+Administrators 그룹이 deny-only라 관리자 토큰이 없다. 이 Windows 빌드의 `vssadmin`에는
+create 명령이 없고, `Win32_ShadowCopy.Create`도 권한/초기화 오류로 실패했다. 숨김
+UAC 승격 시도는 실행 정책에 의해 차단되어 스냅샷은 생성하지 않았다. live Edge와
+프로필은 계속 보존하며, 관리자 PowerShell에서 VSS 생성 후 동일한 headless auth-check를
+재개해야 한다.
+사용자 요청에 따라 VSS 서비스 시작과 숨김 `RunAs` 실행도 직접 재시도했지만 현재
+세션은 UAC 승격을 수행할 수 없어 exit code 1로 종료되었고, VSS 중지·shadow 0개로
+확인됐다.
+
+## 2026-08-20 Windows VSS 프로필 인증 재검증 — 세션 미전달
+
+사용자가 관리자 PowerShell에서 생성한 VSS(`ReturnValue=0`,
+`HarddiskVolumeShadowCopy3`)에서 `Local State`, `Default`의 Cookies/Network 및
+필요 저장소를 새 private headless 프로필로 복제했다. 복제 Cookies DB는 SQLite
+무결성 정상, Agoda 쿠키 30건이었지만 예약 화면은 로그인 페이지로 리디렉션되어
+`AUTH_NOT_ATTESTED`였다. 복제본은 일반 Edge User-Agent와 `headless=new` 양쪽에서
+동일하게 로그인 페이지를 반환했다. 일반 User-Agent 재검증에서는 네트워크 오류가
+아닌 Agoda 로그인 URL이 관찰되어 headless 자체 차단과 인증 세션 부재를 분리했다.
+
+검증용 프로필은 VSS 복제본에서 새로 만들었고, 테스트 후 해당 headless Edge와 CDP
+포트는 종료했다. 라이브 Edge 프로세스·창·포커스에는 접근하지 않았다. 따라서 U01 및
+C01..C09 수집은 여전히 0건이며, Cancelled 제외·원장·OTA DB·ledger 쓰기는 실행하지
+않았다. `agoda_headless_cdp_probe.ps1`에는 검증용 `-UserAgent` 선택 인자를 추가했고,
+기존 Python/Node 계약 검증은 다음 단계에서 다시 확인한다.
+
+현재 증거상 VSS 시점 복제본만으로는 인증된 Agoda 페이지를 재현할 수 없다. 새
+스냅샷은 관리자 토큰이 없는 Codex 세션에서 직접 생성되지 않았으므로, 사용자가
+Agoda 로그인 완료 후 생성한 새 VSS를 제공하거나 별도 인증된 자동화 프로필을
+마련해야 auth-only gate를 통과시킬 수 있다. 인증 gate 통과 전에는 병렬 수집을
+시작하지 않는다.
+
+## 2026-08-21 Paseo 병렬 Sol 검토 격리 보정
+
+Agoda 예약 수집 중 실행 워커와 Sol 검토가 같은 dirty workspace에서 동시에 실행되면서
+해시 재검토 루프와 셸 권한 요청이 반복됐다. 수집 워커는 Agoda Edge의
+`ERR_BLOCKED_BY_CLIENT`/UIA session ownership 경계에서 중단됐지만, 검토 에이전트의
+권한 알림과 과거 고객센터 증거 이벤트가 같은 Paseo 알림 경로에 섞여 작업이 멈춘 원인이
+불명확해졌다. 이 사건은 예약 수집기가 고객센터를 호출한 것으로 판정하지 않는다.
+
+재발 방지를 위해 `AGENTS.md`와 `CLAUDE.md`에 다음을 고정했다: Sol 검토는 실행 워커와
+분리된 immutable snapshot/worktree의 read-only 사후 검토이며, 실행 워커의 critical path가
+아니다. 검토 agent는 파일·DB·브라우저·UIA·외부 서비스·다른 agent를 변경하지 않고,
+`notifyOnFinish=false` 및 단일 묶음 권한 요청을 사용한다. 권한 거부·만료와 브라우저 차단은
+각각 `review_blocked` 또는 단일 failure code로 끝내며 반복 재시도하지 않는다. 동일 scope의
+기존 agent가 있으면 새 agent를 추가하지 않는다. 이번 보정에서는 운영 DB·원장·브라우저를
+변경하지 않았다.
+
+추가 보정으로 Sol 검토를 실행 워커의 critical path에서 제거했다. 검토는 `background=true`로
+병렬 시작하고, 일반 실행·중간 보고는 `review_pending`으로 계속 진행한다. 외부 게시·전기·
+배포·결제·보안 변경 같은 고위험 최종 확정에서만 검토 PASS를 기다린다. 검토가 권한이나
+추가 입력에서 막히면 본 작업을 멈추지 않고 `review_blocked`로 종료한다.
+
+## 2026-08-21 Paseo IAB 예약 범위 재대조 — 최신화 필요
+
+사용자 요청에 따라 Paseo IAB 전용으로 10개 읽기 전용 레인을 병렬 실행했다. Edge/CDP/UIA
+경로와 Agoda 고객센터/도움말 버튼은 사용하지 않았고, 원장·OTA DB·candidate DB·외부
+서비스에는 쓰지 않았다. 일부 레인은 라우트 timeout/reset으로 중단됐으며, 이는 한정된
+failure code로 보존하고 반복 재시도하지 않는다.
+
+부모 Paseo 탭의 현재 목록 집계는 다가오는 예약 116건(페이지 40/40/36), 완료 예약
+페이지 1~9 360건이다. 완료 페이지 9의 과거 연도 6건을 제외한 현재 연도 후보는 354건이다.
+기존 `outputs/agoda-paseo-staging.json`은 555건(Upcoming 80, Completed 475)으로,
+해시 기반 membership 대조 결과 Upcoming은 80/80 일치하고 36건이 최신 라이브 목록에
+추가됐다. 완료 현재연도는 354건 중 353건이 일치하고 1건은 staging에 없다. 이 결과는
+목록 범위 대조이며 상세 증거·카드 대사·회계 권위를 의미하지 않는다.
+
+C04는 완료 페이지 7~8에서 목록 80건과 상세 40건을 읽었고 C06은 완료 페이지 11~13에서
+상세 1건을 읽었으나 목록 복귀/페이지 라우트 실패로 private staging 병합까지 완료하지
+못했다. 따라서 다음 실행은 새로 보인 Upcoming 36건과 완료 1건의 상세 증거를 먼저
+private staging에 보완하고, 그 뒤에만 카드 대사를 재실행한다. 현재 카드 reconciliation
+review는 여전히 FAIL이며, confirmed authority·promotion·전기는 0건이다.
+
+이번 집계에서 권한 요청은 0건이었다. 검토는 백그라운드 사후 검토이고 실행 critical path가
+아니므로, 브라우저 수집은 검토 완료를 기다리지 않는다.
+
+## 2026-08-21 Paseo IAB 상세 캡처 의미 및 완료 범위 확정
+
+상세 캡처는 고객센터 호출이 아니라 예약 목록의 `예약 확인/변경하기`를 열어 예약번호,
+숙소, 일정, 결제·환불 상태를 원문으로 확인하는 절차다. 이번 실행에서는 고객센터 버튼과
+지원 라우트를 클릭하지 않았다(`customer_center_click_count=0`, `support_route_count=0`).
+
+Upcoming page 3의 최신 36건은 36/36 상세 ID가 목록 ID와 일치했고 결제 라인·일정도 모두
+확인되어 `outputs/agoda-paseo-staging-refresh-20260821.json`에 반영했다. refresh staging은
+591건, unique 591건, SHA-256 `53db93800ac55b0178faac2bc4945739e76dcfd3aa8d805c9fc26807f25c0b5b`다.
+
+완료 예약 현재연도 membership의 staging 미포함 1건은 상세 라우트가 호텔이 아닌 항공
+예약(`/flights/account/bookingdetails`)으로 확인됐다. 호텔 staging 범위에서는 실제 누락이
+0건이므로 호텔 staging에 넣지 않았고, 분류 결과를
+`outputs/agoda-completed-coverage-audit-20260821.json`에 보존했다.
+
+카드 대사는 여전히 FAIL이다. 카드 권위 원문·card4 결속·refresh staging 재투영이 없으므로
+promotion/posting/ledger 전기는 모두 금지 상태이며 이번 실행의 DB·원장·외부 쓰기는 0건이다.
+
+## 2026-08-21 Agoda 상세 카드4 표본 보완 및 대사 보류 고정
+
+Paseo IAB의 예약 상세 경로에서 새로 확보한 호텔 예약 36건을 병렬 재확인했다. 고객센터·도움말·지원 경로 클릭은 0건이다. 36/36이 호텔 상세 페이지에 도달했고 36/36에서 카드 끝 4자리가 표시됐다. 결제 상태는 즉시 결제 5건, 자동 결제 예정 26건, 숙소 현장 결제 3건, 보증용 카드 2건으로 분리했다.
+
+이 표본은 기존 목록 staging의 parser 누락을 보완하는 증거이며 전체 591건의 권위 있는 카드 원문·실제 청구 금액·통화·card4 결속을 대신하지 않는다. 따라서 `outputs/agoda-paseo-staging-refresh-card4-20260821.json`과 `outputs/agoda-card-reconciliation-card4-refresh-status-20260821.json`을 별도 보존하고, promotion/posting/ledger 반영은 계속 금지했다. DB write 0건, posting 0건이다. 카드4 표본 파일 SHA-256은 `d3d4067dda0f9844839d1712518e34f3296b55d6a35f57da107cbf5fae029e0d`다.
+
+검토는 실행 critical path 밖에서 처리하며, 검토 권한 요청·알림·지연 때문에 브라우저 수집을 중단하거나 고객센터를 호출하지 않는다. 다음 경계는 전체 호텔 상세 census를 private sealed DB로 완결한 뒤 card raw/projection source hash와 결속하고 read-only candidate graph를 재실행하는 것이다.
+
+레거시 `tools/agoda_detail_parallel_supervisor.py`는 기본 `msedge`를 실행하지 않도록 Paseo IAB 전용 오류로 즉시 중단하게 수정했다. 기존 Windows UIA/CDP 도구는 현재 수집 경로가 아니며, Agoda 브라우저 작업은 Paseo IAB MCP에서만 수행한다.
+
+기존 555건 staging의 숫자형 `detail_id`를 현재 Agoda 상세 URL에 재사용한 probe는 `errorpage`로 돌아왔다(`STALE_NUMERIC_DETAIL_ROUTE`). 현재 36건은 목록에서 얻은 opaque detail route로만 정상 캡처됐다. 이 범위 문제를 `outputs/agoda-full-detail-expansion-blocker-20260821.json`에 고정했으며, 전체 census를 위해서는 현재 목록 재열거가 필요하다.
+
+추가로 현재 Upcoming page 1에서 opaque 상세 route 8건을 시도했고 2건이 상세 화면까지
+도달했다. 기존 page 3 상세 36건과 합쳐 현재 Upcoming 상세 증거는 38건이며, 카드4가
+확인된 건도 38건이다. 나머지는 route timeout 또는 목록 화면 복귀로 중단되었고, 무한
+재시도하지 않았다. 상태와 실패 코드는
+`outputs/agoda-upcoming-opaque-detail-capture-status-20260821.json`에 보존했다.
+고객센터·지원 경로 클릭은 계속 0건이며, 카드 reconciliation FAIL 및 promotion/posting
+금지는 변하지 않는다.
+
+10개 병렬 lane의 추가 결과를 source ID 기준으로 재집계했다. 기존 page 3 상세와 겹치는
+성공 2건은 제외했고, page 1에서 고유 상세 5건을 더해 현재 Upcoming 상세 증거는 41건이다.
+그중 card4가 명시적으로 확인된 건은 40건이며 1건은 상세 성공만 확인되어 card4 상태를
+unknown으로 남겼다. 결제 상태는 기존 확정값과 추가 확인값을 분리했고, 전체 116건 상세
+census는 아직 닫지 않았다. lane별 page-state mismatch, page-route failure,
+detail-data-unavailable가 반복되어 promotion/posting은 계속 금지한다.
+
+수집 관련 회귀·대사·후보 graph 테스트 91건은 재실행 결과 모두 통과했다. 이는 코드
+회귀 검증이며, Agoda 전체 상세 census나 카드 권위 결속이 완료됐다는 뜻은 아니다.
+
+후속으로 탭 재사용을 중단하고 예약별 새 Paseo IAB 탭에서 한 번만 상세를 여는 방식으로
+page 1을 재수집했다. page 1 source ID 15건이 모두 호텔 상세·card4까지 확인됐고,
+page 3 기존 36건과 합쳐 Upcoming 상세 증거는 51건으로 갱신됐다. page 1 나머지와
+page 2는 아직 미확인이다. 신규 page 1 원문 요약은
+`outputs/agoda-upcoming-page1-opaque-detail-evidence-20260821.json`에 보존했고,
+대사 상태의 opaque expansion도 51건/51건 card4 확인으로 갱신했다. 전체 census와
+카드 raw 권위 결속이 닫히지 않았으므로 FAIL·promotion 금지는 유지한다.
+
+## 2026-08-21 Paseo IAB Upcoming 상세 census 완료
+
+예약별 새 Paseo IAB 탭/명시적 목록 복귀 방식으로 Upcoming page 1의 40건과 page 2의
+40건을 추가 캡처했다. page 2는 `page=2` 주소만으로는 첫 목록이 다시 표시되고 목록의
+`다음` 제어를 눌러야 실제 page 2가 되는 라우팅 특성이 확인됐다. 이 제어를 확인한 뒤
+각 예약의 `예약 확인/변경하기`만 열었고 고객센터·지원 경로는 클릭하지 않았다.
+
+현재 Upcoming page 1~3은 목록 116건, 상세 성공 116건, 카드4 표시 확인 116건으로
+닫혔다. page 1·2 증거는 각각
+`outputs/agoda-upcoming-page1-opaque-detail-evidence-20260821.json` 및
+`outputs/agoda-upcoming-page2-opaque-detail-evidence-20260821.json`에 보존했고,
+opaque detail 상태와 reconciliation 상태에도 116/116을 반영했다. 두 페이지 모두
+40/40 unique source ID·detail success였으며 customer center click은 0건이다.
+
+이 결과는 예약 상세 census를 닫은 것이지 카드 원문이 실제 청구액·통화·card4와
+권위 있게 결속됐다는 뜻은 아니다. 카드 대사 review는 여전히 FAIL,
+promotion/posting/ledger 전기는 계속 금지이며 write effect는 0건이다. 대상 Agoda
+portal/detail·card reconciliation·candidate graph 회귀 테스트 91건은 재실행 결과
+모두 통과했다. 완료 예약 전체의 상세 census와 카드 raw/projection authority 결속은
+별도 미완료 범위로 남긴다.
+
+이번 실행에서 종료된 병렬 Agoda 레인과 과거 Sol/Edge 검토 agent는 정리·보관했고,
+현재 pending permission은 0건이다. 따라서 검토 권한 알림이 실행 critical path를
+다시 멈추지 않도록 현재 작업 공간에는 부모 agent만 남겨 두었다.
+
+## 2026-08-21 Agoda 상태 산출물 정합성 보정
+
+읽기 전용 재점검에서 Upcoming 1~3의 상세·card4 116/116은 이미 닫혔는데,
+상태 JSON에 과거 `FULL_PORTAL_CARD4_CENSUS_MISSING` 및
+`CURRENT_UPCOMING_FULL_OPAQUE_CENSUS_INCOMPLETE`가 현재 차단처럼 남아 있던 것을
+확인했다. 두 코드는 각각 완료 탭 상세 범위 미완료 hold와 해결된 이력 코드로 정리했다.
+현재도 카드 원문/프로젝션 권위, 실제 청구액·통화 결속, 완료 탭 상세 범위,
+refresh staging 재투영은 닫히지 않았으므로 `promotion_allowed=false`,
+`posting_allowed=false`는 유지한다. JSON UTF-8 파싱과 Agoda 관련 91개 테스트는
+재검증 PASS이며 브라우저 탭·권한 요청은 0건이다.
+
+같은 날 메모리 DB에서 정상 `import_cards`/`project_card_payments`를 재실행해 카드 원천
+자체도 별도 확인했다. `card_raw` 5,237건 전부의 저장 payload hash가 일치했고,
+projected payment는 5,328건이었다. 이 결과는
+`outputs/agoda-card-raw-authority-audit-20260821.json`에 보존했다. 따라서 남은
+차단은 카드 파일 누락이 아니라 Agoda opaque 상세와 카드 원문·실청구액·통화 사이의
+권위 관계가 아직 닫히지 않은 점이다.

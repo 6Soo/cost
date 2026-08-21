@@ -1,35 +1,32 @@
 # CLAUDE.md
 
-## 모델 위임 규칙 (2026-07-22)
+## 모델 라우팅 규칙 (2026-08-04)
 
-메인 세션 모델은 그대로 두고, 하위 작업을 Agent로 위임할 때는 작업 성격에 따라
-모델을 고른다:
+- 기본 초안·설계·운영 판단: GPT-5.6 Luna max
+- 모든 실질 답변의 독립 반박·검증: GPT-5.6 Sol medium
+- 저추론·단순 구현·일반 웹검색: AGY Gemini 3.6 Flash low
+- AGY 실패 시 Codex Luna max로 폴백
 
-- 기획·카피·메일 문구·전략적 판단 → fable 위임
-- 코드/스크립트 구현, 반복적 데이터 작업 → 위임 없이 메인 세션이 직접 처리
-- 복잡한 아키텍처 결정이나 리스크 큰 작업(배포 전략, 보안 판단 등) 검토 → opus 위임
+실질적인 작업은 `Luna 초안`을 먼저 실행하고 `Sol 독립 반박`을 백그라운드로 병렬 진행한다.
+일반 실행·중간 보고는 Sol을 기다리지 않는다. 외부 게시·전기·배포·결제·보안 변경 같은
+고위험 최종 확정만 Sol PASS를 게이트로 삼는다. 단순 인사·상태 확인·모델 프로브는 반박을
+생략할 수 있다. 비용·카드·고객정보가 포함된 작업은 PII 규칙과 증거 원칙을 먼저 적용하며,
+원문 고객 데이터를 외부 모델에 전달하지 않는다.
 
-판단 기준이 애매하면 직접 처리하고, 명백히 위 범주에 해당할 때만 위임한다.
+## Sol 검토 격리·권한 규칙
 
----
+Sol은 실행 워커와 같은 workspace·dirty tree·DB·브라우저를 공유하지 않는다. 실행 시점의
+immutable snapshot 또는 별도 worktree가 없으면 검토를 보류한다. Sol 검토는 read-only이며
+파일·DB·output·브라우저·UIA·외부 서비스·다른 agent를 변경하지 않는다.
 
-## 모델 우선순위 (사장 지시 2026-07-22, 전사 공통)
+검토는 실행 워커의 critical path가 아니다. `background=true`로 시작한다. 읽기 명령 권한은 한 번에 묶고, 거부·만료 시
+`review_blocked` 한 건으로 끝낸다. 동일 명령·requestId를 반복 요청하지 않으며, 검토 agent는
+`notifyOnFinish=false`로 만들고 user-facing 알림을 만들지 않는다. 브라우저 오류나 session ownership/UIA ambiguity는 같은
+경로를 반복하지 않고 단일 failure code로 보존한다.
 
-되도록 많은 작업(코딩 포함)을 **GLM 서브에이전트**에 맡기고, 결과에는 "GLM이 작성/분석함"을 명시한다.
-저수준·반복 작업은 **Gemini Flash 3.6**을 활용하고 역시 "Gemini(3.6 Flash)"임을 명시한다.
-Claude 토큰은 최대한 아끼되, **지휘·최종 검증은 1순위 Opus, 2순위 Fable**이 담당한다
-(메인 세션 모델은 사람이 /model로 선택 — Claude가 스스로 전환하는 기능은 없음).
+Agoda 예약 수집의 브라우저 공급자는 Paseo IAB로 고정한다. Edge, Windows UIA/CDP 및 `msedge`
+supervisor로 폴백하지 않으며, Paseo IAB unavailable/timeout은 단일 failure code로 종료한다.
+예약 상세 경로 외의 고객센터·도움말·지원/문의 버튼은 클릭하거나 호출하지 않는다.
 
-**기술적 한계**: GLM·Gemini는 Claude의 Agent 시스템에 못 앉는 순수 텍스트 API라 파일·git·bash
-접근이 없다 — "GLM 서브에이전트"의 실체는 (a) 저비용 Claude(sonnet, 최소 추론) 래퍼 에이전트가
-`tools/llm-bridge.mjs --provider=glm`(또는 `tools/gemini.mjs`)로 프롬프트를 보내고 (b) 받은
-코드/텍스트를 그 래퍼가 파일에 적용·커밋하는 구조다. Claude 토큰 절약은 "내용 생성"을
-GLM/Gemini로 옮기는 데서 나오는 것이지, 조율 자체를 없애는 게 아니다.
-
-도구: `tools/gemini.mjs`(Gemini, 기본 모델 gemini-3.1-pro-preview — API 무료 등급 없어 결제
-연결 필요, 무료로 쓰려면 --model=gemini-3-flash-preview 또는 gemini-3.6-flash) ·
-`tools/llm-bridge.mjs --provider=glm|kimi|grok`(GLM은 무료 등급 확인됨 glm-4.7-flash, Kimi·Grok는
-키는 있으나 잔액 충전 필요). 키는 리포 루트 .env에서 자동 로드(GEMINI_API_KEY·GLM_API_KEY 등).
-클라우드 세션에서는 명령 앞에 `NODE_USE_ENV_PROXY=1` 필요. ▸ 래퍼 실행 모델은 항상 sonnet 최저 effort(예외: 맥락 거의 없는 1회성 짧은 호출은 메인 세션 직접 처리 무방).
-상세 배경·실측 이력은 foresttour
-리포 CLAUDE.md 참조.
+저추론 위임은 `python ~/.orca/bin/route-b.py "<프롬프트>" --task "<작업 설명>"`을 사용하고,
+전체 설계·구현·검증 사이클은 `bash ~/.orca/bin/cycle.sh <워크트리> "<과제>"`를 사용한다.

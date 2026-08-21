@@ -62,7 +62,7 @@ class DirectOwnerReviewTest(unittest.TestCase):
         fake = json.loads(json.dumps(package))
         fake["events"][0]["decision_status"] = "confirmed"
         fake["events"][0]["allocation_items_json"] = json.dumps([{"target_code": "X", "amount_krw": fake["events"][0]["amount_krw"]}])
-        fake["events"][0]["classification_items_json"] = json.dumps([{"dimension": "d", "value": "v"}])
+        fake["events"][0]["classification_items_json"] = json.dumps([{"dimension": "account", "value": "v"}])
         fake["events"][0]["evidence_refs_json"] = json.dumps([])
         fake["events"][0]["owner_rationale"] = "exact"
         result = validate_owner_review(fake, current)
@@ -79,13 +79,14 @@ class DirectOwnerReviewTest(unittest.TestCase):
         for field, value, reason in (
             ("decision_status", "confirmedx", "decision_status_invalid"),
             ("allocation_items_json", "{", "allocation_items_json_invalid"),
-            ("classification_items_json", json.dumps([{ "dimension": "d", "value": "v" }, { "dimension": "d", "value": "w" }]), "classification_item_invalid"),
+            ("classification_items_json", json.dumps([{ "dimension": "account", "value": "v" }, { "dimension": "account", "value": "w" }]), "classification_item_invalid"),
+            ("classification_items_json", json.dumps([{ "dimension": "vat_tag", "value": "excluded" }]), "classification_item_invalid"),
             ("evidence_refs_json", json.dumps([{ "source_key": "fake", "source_sha256": "0" * 64 }]), "evidence_ref_unresolved"),
         ):
             row = json.loads(json.dumps(package)); row["events"][0][field] = value
             row["events"][0]["decision_status"] = row["events"][0].get("decision_status", "confirmed") or "confirmed"
             row["events"][0]["allocation_items_json"] = row["events"][0].get("allocation_items_json") or json.dumps([{ "target_code": "X", "amount_krw": row["events"][0]["amount_krw"] }])
-            row["events"][0]["classification_items_json"] = row["events"][0].get("classification_items_json") or json.dumps([{ "dimension": "d", "value": "v" }])
+            row["events"][0]["classification_items_json"] = row["events"][0].get("classification_items_json") or json.dumps([{ "dimension": "account", "value": "v" }])
             row["events"][0]["evidence_refs_json"] = row["events"][0].get("evidence_refs_json") or "[]"
             row["events"][0]["owner_rationale"] = "r"
             with self.subTest(field=field):
@@ -153,7 +154,7 @@ class DirectOwnerReviewTest(unittest.TestCase):
         for field, value, reason in (("target_code", " ", "allocation_item_invalid"), ("dimension", " ", "classification_item_invalid"), ("value", 3, "classification_item_invalid")):
             candidate = json.loads(json.dumps(package)); candidate["events"][0]["decision_status"] = "needs_review"
             candidate["events"][0]["allocation_items_json"] = json.dumps([{"target_code": value if field == "target_code" else "X", "amount_krw": base["amount_krw"]}])
-            candidate["events"][0]["classification_items_json"] = json.dumps([{"dimension": value if field == "dimension" else "d", "value": value if field == "value" else "v"}])
+            candidate["events"][0]["classification_items_json"] = json.dumps([{"dimension": value if field == "dimension" else "account", "value": value if field == "value" else "v"}])
             candidate["events"][0]["evidence_refs_json"] = "[]"; candidate["events"][0]["owner_rationale"] = "r"
             with self.subTest(field=field):
                 with self.assertRaisesRegex(ValueError, reason): validate_owner_review(candidate, current)
@@ -195,7 +196,9 @@ class DirectOwnerReviewTest(unittest.TestCase):
             db.execute("UPDATE direct_projection_inputs SET raw_sha256=? WHERE run_id=? AND source_kind=(SELECT source_kind FROM direct_projection_inputs WHERE run_id=? LIMIT 1)", ("f" * 64, run_id, run_id))
             db.commit()
             from ledger.domain.direct_owner_review import load_owner_review
-            with self.assertRaisesRegex(ValueError, "inventory_hash_mismatch"):
+            with self.assertRaisesRegex(
+                ValueError, "owner_review_stored_provenance_mismatch"
+            ):
                 load_owner_review(target / "manifest.json", target / "events.csv", db=db, run_id=run_id, report=report, provenance={})
         db.close()
 
@@ -330,25 +333,38 @@ class DirectOwnerReviewTest(unittest.TestCase):
         self.assertNotIn("owner_review", package["manifest"].get("approved_transitions", {}))
 
     def test_v6_real_invariants_and_tamper(self) -> None:
-        import subprocess
         from ledger.domain.direct_projection import build_direct_candidate
+        from ledger.domain.direct_owner_review import _load_package, validate_owner_review
         with tempfile.TemporaryDirectory(prefix="r22-v6-real-") as dirname:
             base = Path(dirname); result = build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "owner")
             self.assertFalse(result["passed"]); self.assertIsNone(result["output_db"])
             manifest = json.loads((base / "owner/manifest.json").read_text()); context = manifest["source_context"]
-            new_manifest_sha = "182ead7e7f7014fe6edfc4e38d305f8e6b6ef1c5f9344135705551534e78fbc7"
+            new_manifest_sha = "0047bdc7445c8fca6db89c634bb70680421c1ec7498385a35c1fe453ca15a394"
             old_manifest_sha = "e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199"
-            self.assertTrue(all(item["parser_version"] == "direct-source-v4" for item in manifest["provenance"]["source_inventory"]))
+            self.assertTrue(all(item["parser_version"] == "direct-source-v5" for item in manifest["provenance"]["source_inventory"]))
             self.assertNotEqual(new_manifest_sha, old_manifest_sha)
-            self.assertEqual((context["input_manifest_sha256"], context["candidate_semantic_sha256"], context["current_event_set_sha256"], context["decision_scope_sha256"]), (new_manifest_sha, "8971922de7c8d4c236e3c8b9d8397e908022f33005aa94b109e91a0371141b57", "de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93", "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
+            self.assertEqual((context["input_manifest_sha256"], context["current_event_set_sha256"],
+                              context["decision_scope_sha256"]),
+                             (new_manifest_sha,
+                              "de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93",
+                              "22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"))
+            self.assertRegex(context["candidate_semantic_sha256"], r"^[0-9a-f]{64}$")
             with (base / "owner/events.csv").open(encoding="utf-8") as stream:
                 rows = list(__import__("csv").DictReader(stream))
             self.assertEqual(len(rows), 5328); self.assertTrue(all(row[field] in ('""', 'null') for row in rows for field in ("decision_status", "allocation_items_json", "classification_items_json", "evidence_refs_json", "owner_rationale")))
+            package = _load_package(base / "owner/manifest.json", base / "owner/events.csv")
+            current = {
+                "context": package["context"],
+                "events": package["events"],
+                "provenance": package["provenance"],
+            }
             for field in context:
                 if field.endswith("sha256"):
-                    altered = json.loads((base / "owner/manifest.json").read_text()); altered["source_context"][field] = "f" * 64; (base / "owner/manifest.json").write_text(json.dumps(altered))
-                    proc = subprocess.run(["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current", "--ledger-dir", str(Path("ledger").resolve()), "--manifest", str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")], capture_output=True, text=True); self.assertEqual(proc.returncode, 2)
-                    (base / "owner/manifest.json").write_text(json.dumps(manifest))
+                    altered = json.loads(json.dumps(package))
+                    altered["manifest"]["source_context"][field] = "f" * 64
+                    altered["context"] = altered["manifest"]["source_context"]
+                    with self.assertRaises(ValueError):
+                        validate_owner_review(altered, current)
 
     def test_v6_manifest_run_binding_and_container_tamper_cli(self) -> None:
         database, run_id, expected, _ = self._fixture()

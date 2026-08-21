@@ -12,8 +12,8 @@ class ManualFrontierAgodaAirfareAdmissionTest(unittest.TestCase):
 
     def test_exact_two_airfare_rows(self) -> None:
         self.assertEqual(self.result["manifest"]["selected_count"], 2)
-        self.assertEqual(self.result["manifest"]["axis_decision_count"], 8)
-        self.assertTrue(all(row["account"] == "항공료" for row in self.result["decisions"]))
+        self.assertEqual(self.result["manifest"]["candidate_axis_count"], 6)
+        self.assertTrue(all(row["account"] == "항공료" for row in self.result["candidates"]))
 
     def test_atomic_group_does_not_claim_individual_bijection(self) -> None:
         manifest = self.result["manifest"]
@@ -23,9 +23,10 @@ class ManualFrontierAgodaAirfareAdmissionTest(unittest.TestCase):
 
     def test_all_axes_and_sources_are_retained(self) -> None:
         self.assertTrue(self.result["manifest"]["all_source_events_retained"])
-        for row in self.result["decisions"]:
-            self.assertEqual((row["cost_type"], row["vat_tag"], row["trip_target"]),
-                             ("여행원가", "불공제_해외", "0924_야마구치"))
+        for row in self.result["candidates"]:
+            self.assertEqual((row["cost_type"], row["trip_target"]),
+                             ("여행원가", "0924_야마구치"))
+            self.assertNotIn("vat_tag", row)
 
 
 if __name__ == "__main__":

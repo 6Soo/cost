@@ -25,7 +25,7 @@ class SourceAdapterTest(unittest.TestCase):
         self.assertEqual(clean["booking_ref_candidates"], ["12345678"])
         self.assertNotIn("booking_number", clean)
         self.assertNotIn("period_original", clean)
-        self.assertEqual(clean["redaction_version"], "ota-allowlist-v2")
+        self.assertEqual(clean["redaction_version"], "ota-allowlist-v3")
 
         many = adapt_ota_record({"bookingRefs": ["12345678", "87654321"]})
         self.assertEqual(many["booking_ref_candidates"], ["12345678", "87654321"])
@@ -170,10 +170,10 @@ class SourceAdapterTest(unittest.TestCase):
         self.assertTrue(forbidden_ota_fields(record))
         clean = sanitize_ota_record(record)
         self.assertEqual(clean["booking_number"], "1400823716285910")
-        self.assertEqual(clean["redaction_version"], "ota-allowlist-v2")
+        self.assertEqual(clean["redaction_version"], "ota-allowlist-v3")
         self.assertFalse(forbidden_ota_fields(clean))
 
-    def test_amount_reconciliation_distinguishes_supported_tolerance(self) -> None:
+    def test_amount_reconciliation_requires_exact_or_sourced_adjustment(self) -> None:
         self.assertEqual(reconcile_amount(100_000, 100_000)[0], "exact")
         self.assertEqual(
             reconcile_amount(996_000, 1_000_000, discount_krw=4_000)[0],
@@ -181,7 +181,7 @@ class SourceAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             reconcile_amount(1_015_000, 1_000_000, overseas_krw=True)[0],
-            "within_2_percent",
+            "mismatch",
         )
         self.assertEqual(
             reconcile_amount(1_015_000, 1_000_000, overseas_krw=False)[0],
@@ -197,6 +197,25 @@ class SourceAdapterTest(unittest.TestCase):
             normalize_service_period("2026-04-17", "2026-04-19")[:3],
             ("2026-04-17", "2026-04-19", "day"),
         )
+
+    def test_ota_policy_cancellation_is_not_a_completed_cancel(self) -> None:
+        clean = adapt_ota_record({
+            "provider": "Agoda",
+            "subject": "무료 취소 가능 예약 확정",
+            "sentAt": "2025-12-20T10:00:00",
+            "messageHash": "a" * 64,
+        })
+        self.assertEqual(clean["message_status"], "confirmation")
+        self.assertEqual(clean["message_template_class"], "confirmation")
+        self.assertEqual(clean["lifecycle_parser_version"], "ota-lifecycle-v2")
+        self.assertEqual(clean["message_status_rule_version"], "ota-status-v2")
+
+    def test_ota_completed_cancel_is_detected(self) -> None:
+        clean = adapt_ota_record({
+            "provider": "Agoda",
+            "subject": "예약 취소 안내 및 환불 완료",
+        })
+        self.assertEqual(clean["message_status"], "cancel")
 
 
 if __name__ == "__main__":

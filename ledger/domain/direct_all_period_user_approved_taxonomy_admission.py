@@ -1,7 +1,7 @@
-"""Admit the user-approved, low-ambiguity merchant taxonomy subset.
+"""Retain the prior user-taxonomy subset as candidate hints.
 
-This admission confirms only account/cost/VAT axes.  No trip bucket,
-allocation, posting, deletion, or transaction identity change is authorized.
+These hints do not confirm any axis.  VAT is excluded from the active contract,
+and no trip, posting, deletion, or identity change is authorized.
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ ARTIFACT_TYPE = "all-period-user-approved-taxonomy-admission-v1"
 RULE_VERSION = "user-approval-2026-08-03-partial-taxonomy-no-trip-v1"
 EXPECTED_SELECTED_COUNT = 116
 EXPECTED_AXIS_COUNTS = {
-    ("숙박비", "여행원가", "불공제_해외"): 38,
-    ("여행자보험", "여행원가", "불공제_간이면세"): 36,
-    ("교통비", "여행원가", "불공제_해외"): 19,
-    ("주유비", "여행원가", "불공제_해외"): 11,
-    ("통행료", "여행원가", "불공제_해외"): 9,
-    ("렌터카", "여행원가", "불공제_해외"): 3,
+    ("숙박비", "여행원가"): 38,
+    ("여행자보험", "여행원가"): 36,
+    ("교통비", "여행원가"): 19,
+    ("주유비", "여행원가"): 11,
+    ("통행료", "여행원가"): 9,
+    ("렌터카", "여행원가"): 3,
 }
 
 
@@ -55,7 +55,7 @@ def build_user_approved_taxonomy_admission(
         and row["account"] != "식비" and bool(row["vat_tag"])
     ]
     axes = Counter(
-        (row["account"], row["cost_type"], row["vat_tag"])
+        (row["account"], row["cost_type"])
         for row in selected
     )
     if len(selected) != EXPECTED_SELECTED_COUNT or dict(axes) != EXPECTED_AXIS_COUNTS:
@@ -71,9 +71,9 @@ def build_user_approved_taxonomy_admission(
             "source_residual_set_sha256": census.EXPECTED_RESIDUAL_SET_SHA256,
             "selected_event_set_sha256": taxonomy._event_set_sha(selected_keys),
             "selected_count": EXPECTED_SELECTED_COUNT,
-            "axis_decision_count": EXPECTED_SELECTED_COUNT * 3,
+            "candidate_axis_count": EXPECTED_SELECTED_COUNT * 2,
             "axis_counts": [
-                {"account": key[0], "cost_type": key[1], "vat_tag": key[2], "count": count}
+                {"account": key[0], "cost_type": key[1], "count": count}
                 for key, count in sorted(axes.items())
             ],
             "excluded_ambiguous_count": 125,
@@ -83,15 +83,17 @@ def build_user_approved_taxonomy_admission(
             "full_classification_delta": 0,
             "posting_status": "blocked",
             "database_applied": False,
-            "authority_status": "user_approved_partial_axes",
+            "authority_status": "candidate_only", "gate5_credit": 0,
+            "excluded_dimensions": ["vat_tag"],
             "all_source_events_retained": True,
         },
-        "decisions": [
+        "candidates": [
             {"direct_event_key": row["direct_event_key"],
              "current_event_sha256": row["current_event_sha256"],
              "account": row["account"], "cost_type": row["cost_type"],
-             "vat_tag": row["vat_tag"], "trip_target": None,
-             "decision_status": "confirmed", "posting_status": "blocked"}
+             "trip_target": None,
+             "candidate_status": "withheld_pending_independent_evidence",
+             "posting_status": "blocked"}
             for row in sorted(selected, key=lambda item: item["direct_event_key"])
         ],
     }

@@ -127,6 +127,32 @@ def verify_run_artifacts(
     calculated_report_hash = gate_report_sha256(report)
     if report.get("gate_report_sha256") != calculated_report_hash:
         raise ValueError("gate_report_self_hash_mismatch")
+    queue_descriptor = manifest.get("question_queue")
+    if not isinstance(queue_descriptor, dict):
+        raise ValueError("question_queue_manifest_missing")
+    queue_relative = str(queue_descriptor.get("path", ""))
+    if queue_relative != "question_queue.json":
+        raise ValueError("question_queue_path_invalid")
+    queue_path = run_dir / queue_relative
+    try:
+        queue_path.resolve().relative_to(run_dir)
+    except ValueError as exc:
+        raise ValueError("question_queue_path_escape") from exc
+    if not queue_path.is_file() or queue_path.is_symlink():
+        raise ValueError("question_queue_missing")
+    queue_bytes = queue_path.read_bytes()
+    if _sha256_file(queue_path) != queue_descriptor.get("raw_sha256"):
+        raise ValueError("question_queue_hash_mismatch")
+    try:
+        question_queue = json.loads(queue_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("question_queue_invalid_json") from exc
+    if not isinstance(question_queue, dict):
+        raise ValueError("question_queue_invalid")
+    if question_queue.get("source_gate_report_sha256") != calculated_report_hash:
+        raise ValueError("question_queue_gate_report_mismatch")
+    if queue_descriptor.get("source_gate_report_sha256") != calculated_report_hash:
+        raise ValueError("question_queue_manifest_report_mismatch")
     cross_fields = (
         "format_version",
         "run_id",
@@ -138,6 +164,9 @@ def verify_run_artifacts(
         "schema_version",
         "parser_version",
         "cutover_policy",
+        "shadow_ready",
+        "release_ready",
+        "pipeline_status",
         "run_created_at",
     )
     mismatches = {
@@ -179,6 +208,21 @@ def verify_run_artifacts(
     if manifest.get("failed_gates") != failed_gates:
         raise ValueError("manifest_failed_gates_mismatch")
     passed = bool(report["passed"])
+    release_ready = bool(report.get("release_ready", passed))
+    shadow_ready = bool(report.get("shadow_ready", passed))
+    if passed != release_ready:
+        raise ValueError("report_pass_release_readiness_mismatch")
+    if release_ready and not shadow_ready:
+        raise ValueError("release_without_shadow_readiness")
+    expected_pipeline_status = (
+        "RELEASE_READY"
+        if release_ready
+        else "TRIAGE_PASS"
+        if shadow_ready
+        else "BLOCKED"
+    )
+    if report.get("pipeline_status", expected_pipeline_status) != expected_pipeline_status:
+        raise ValueError("report_pipeline_status_mismatch")
     if passed:
         if expected_activation_pointer_sha256 is None:raise ValueError("activation_pointer_required")
         if expected_activation_pointer_sha256!=manifest_seal:raise ValueError("activation_pointer_mismatch")

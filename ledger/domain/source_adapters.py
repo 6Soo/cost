@@ -8,13 +8,61 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from email.utils import parsedate_to_datetime
 from typing import Mapping
 
 
 CARD_EVENT_ID_VERSION = "card-event-v2"
-OTA_REDACTION_VERSION = "ota-allowlist-v2"
+OTA_REDACTION_VERSION = "ota-allowlist-v3"
+OTA_LIFECYCLE_PARSER_VERSION = "ota-lifecycle-v2"
+OTA_STATUS_RULE_VERSION = "ota-status-v2"
+PG_REDACTION_VERSION = "pg-allowlist-v1"
+SERVICE_MAIL_REDACTION_VERSION = "service-mail-allowlist-v1"
+
+# PG mail is evidence at the same trust level as the typed OTA mail source,
+# but only after it has been reduced to this allow-list.  Raw MIME, subjects,
+# snippets, recipients, names, addresses, URLs, and account identifiers are
+# intentionally not part of the persisted contract.
+PG_ALLOWED_FIELDS = {
+    "provider",
+    "message_id",
+    "thread_id",
+    "sender_domain",
+    "sent_at",
+    "payment_at",
+    "payment_date",
+    "merchant",
+    "product",
+    "amount_krw",
+    "cancel_amount_krw",
+    "remaining_amount_krw",
+    "approval_number",
+    "original_approval_number",
+    "order_id",
+    "status",
+    "service_start_on",
+    "service_end_on",
+    "service_date_precision",
+    "service_evidence_key",
+    "evidence_level",
+    "source_type",
+}
+
+SERVICE_MAIL_ALLOWED_FIELDS = {
+    "provider",
+    "message_id",
+    "sender_domain",
+    "sent_at",
+    "merchant",
+    "property_name",
+    "room_name",
+    "service_start_on",
+    "service_end_on",
+    "status",
+    "source_type",
+}
 
 OTA_ALLOWED_FIELDS = {
     "provider",
@@ -37,6 +85,15 @@ OTA_ALLOWED_FIELDS = {
     "payment_date",
     "card_last4",
     "status",
+    # Derived, non-content metadata retained so a month/day service date is
+    # never assigned a year merely because the current schedule happens to be
+    # 2026.  The raw subject is not stored.
+    "sent_at",
+    "message_status",
+    "message_template_class",
+    "lifecycle_parser_version",
+    "message_status_rule_version",
+    "service_year_candidates",
 }
 
 _OTA_CANDIDATE_FIELDS = {
@@ -214,6 +271,74 @@ def _typed_ota_candidates(record: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
+def _normalized_ota_sent_at(value: object) -> str | None:
+    """Return a canonical timestamp without retaining the raw mail header."""
+    if value in (None, ""):
+        return None
+    text = _text(value)
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError, OverflowError):
+        # Accept an already ISO-8601 timestamp as well; this is useful for
+        # future mailbox exports that do not use RFC-2822 headers.
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("ota_sent_at_invalid") from None
+    if parsed.tzinfo is None:
+        # Some mailbox exports expose an ISO timestamp without an offset.
+        # Keep that explicit as a naive local timestamp; date/year matching
+        # remains valid and we do not fabricate a timezone.
+        return parsed.replace(microsecond=0).isoformat()
+    return parsed.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+def _ota_message_status(subject: object) -> str:
+    """Derive a completed lifecycle state without treating policy text as an event.
+
+    OTA confirmations often contain phrases such as ``무료 취소 가능``.  That
+    phrase describes an option, not a cancellation that actually happened, so
+    it must never close the active booking component.
+    """
+    text = _text(subject).lower()
+    option_text = re.compile(
+        r"취소\s*가능|환불\s*가능|무료\s*취소|"
+        r"free\s+cancellation|cancel(?:lable|able)|can\s+cancel|"
+        r"refundable"
+    )
+    if not option_text.search(text) and re.search(
+        r"예약\s*취소|취소\s*(?:되었습니다|완료|처리|됨|안내)|"
+        r"cancel(?:ed|led)|refund(?:ed)?|환불\s*(?:되었습니다|완료|처리|안내)",
+        text,
+    ):
+        return "cancel"
+    if re.search(
+        r"변경\s*(?:되었습니다|완료|처리|안내)|업데이트\s*(?:됨|완료)|"
+        r"updated|itinerary\s+changed|booking\s+changed|"
+        r"change\s+confirmation",
+        text,
+    ) and not re.search(r"변경\s*가능|changeable", text):
+        return "change"
+    if any(token in text for token in (
+        "확정", "예약", "order", "주문", "결제", "payment", "receipt",
+        "청구", "confirmation", "confirmed",
+    )):
+        return "confirmation"
+    return "unknown"
+
+
+def _ota_service_year_candidates(subject: object) -> list[int]:
+    """Extract explicit service years from subject metadata only."""
+    years = sorted({
+        int(value)
+        for value in re.findall(r"(?<!\d)(20\d{2})(?!\d)", _text(subject))
+        if 2020 <= int(value) <= 2100
+    })
+    return years
+
+
 def adapt_ota_record(record: Mapping[str, object]) -> dict[str, object]:
     """Return the single canonical, typed OTA projection used by import and inventory."""
     if forbidden_ota_fields(record):
@@ -225,9 +350,26 @@ def adapt_ota_record(record: Mapping[str, object]) -> dict[str, object]:
             if not isinstance(value, str) or not value:
                 raise ValueError(f"ota_scalar_type:{old}")
             clean[new] = value
+    sent_at = _normalized_ota_sent_at(record.get("sentAt", record.get("sent_at")))
+    if sent_at is not None:
+        clean["sent_at"] = sent_at
+    clean["message_status"] = _ota_message_status(record.get("subject", ""))
+    clean["message_template_class"] = clean["message_status"]
+    clean["lifecycle_parser_version"] = OTA_LIFECYCLE_PARSER_VERSION
+    clean["message_status_rule_version"] = OTA_STATUS_RULE_VERSION
+    clean["service_year_candidates"] = _ota_service_year_candidates(
+        record.get("subject", "")
+    )
     for field, value in clean.items():
-        if field != "redaction_version" and isinstance(value, (list, dict, tuple, set)):
+        if field not in {"redaction_version", "service_year_candidates"} and isinstance(
+            value, (list, dict, tuple, set)
+        ):
             raise ValueError(f"ota_scalar_type:{field}")
+        if field == "service_year_candidates" and (
+            not isinstance(value, list)
+            or any(type(item) is not int or not 2020 <= item <= 2100 for item in value)
+        ):
+            raise ValueError("ota_service_year_candidates_invalid")
     candidates = _typed_ota_candidates(record)
     clean.update(candidates)
     clean["redaction_version"] = OTA_REDACTION_VERSION
@@ -258,7 +400,7 @@ def reconcile_amount(
     discount_krw: int = 0,
     overseas_krw: bool = False,
 ) -> tuple[str, float | None]:
-    """표시액과 청구액의 대사 유형을 반환한다."""
+    """표시액과 청구액을 정확값 또는 명시된 할인 근거로만 대사한다."""
     if booking_amount_krw in (None, 0):
         return "unknown", None
     reference = abs(int(booking_amount_krw))
@@ -268,8 +410,8 @@ def reconcile_amount(
         return "exact", 0.0
     if discount_krw and charge == abs(reference - abs(int(discount_krw))):
         return "discount_adjusted", difference_ratio
-    if overseas_krw and difference_ratio <= 0.02:
-        return "within_2_percent", difference_ratio
+    # 해외 결제라는 사실만으로 금액 차이를 설명할 수 없다. 수수료·환율·
+    # 할인처럼 원천에 명시된 조정식이 없으면 근사치는 후보 신호일 뿐이다.
     return "mismatch", difference_ratio
 
 
@@ -293,3 +435,122 @@ def normalize_service_period(
     ):
         return start_text, end_text or start_text, "month_day", original_text or start_text
     return None, None, "unknown", original_text or " ".join(filter(None, (start_text, end_text)))
+
+
+def _pg_amount(value: object, field: str) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"pg_amount_type:{field}")
+    text = str(value).replace(",", "").replace("원", "").strip()
+    if not re.fullmatch(r"\d+", text):
+        raise ValueError(f"pg_amount_invalid:{field}")
+    return int(text)
+
+
+def _pg_date(value: object, field: str) -> str | None:
+    if value in (None, ""):
+        return None
+    text = _text(value)
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"pg_date_invalid:{field}") from exc
+
+
+def adapt_pg_record(record: Mapping[str, object]) -> dict[str, object]:
+    """Normalize one PG receipt/cancellation into the persisted allow-list.
+
+    The adapter deliberately rejects an unrecognised field instead of silently
+    carrying raw mail content into SQLite.  A PG receipt is high-trust source
+    evidence, not permission to infer a service period from its payment date.
+    """
+    if forbidden_ota_fields(record):
+        raise ValueError("forbidden_pg_field")
+    unknown = set(record) - PG_ALLOWED_FIELDS
+    if unknown:
+        raise ValueError(f"pg_unknown_field:{sorted(str(item) for item in unknown)[0]}")
+    message_id = _text(record.get("message_id"))
+    if not message_id:
+        raise ValueError("pg_message_id_missing")
+    provider = _text(record.get("provider"))
+    sender_domain = _text(record.get("sender_domain")).lower()
+    if not provider or not sender_domain:
+        raise ValueError("pg_provider_identity_missing")
+    status = _text(record.get("status")).lower() or "purchase"
+    if status not in {"purchase", "cancel", "partial_cancel", "refund"}:
+        raise ValueError("pg_status_invalid")
+    clean: dict[str, object] = {
+        "provider": provider,
+        "message_id": message_id,
+        "sender_domain": sender_domain,
+        "status": status,
+        "evidence_level": _text(record.get("evidence_level")) or "high",
+        "source_type": _text(record.get("source_type")) or "payment_receipt",
+    }
+    for field in ("thread_id", "merchant", "product", "approval_number",
+                  "original_approval_number", "order_id", "service_evidence_key"):
+        value = _text(record.get(field))
+        if value:
+            clean[field] = value
+    for field in ("sent_at", "payment_at"):
+        value = _text(record.get(field))
+        if value:
+            clean[field] = value
+    for field in ("payment_date", "service_start_on", "service_end_on"):
+        value = _pg_date(record.get(field), field)
+        if value:
+            clean[field] = value
+    for field in ("amount_krw", "cancel_amount_krw", "remaining_amount_krw"):
+        value = _pg_amount(record.get(field), field)
+        if value is not None:
+            clean[field] = value
+    precision = _text(record.get("service_date_precision"))
+    if precision:
+        if precision not in {"day", "month_day", "unknown"}:
+            raise ValueError("pg_service_date_precision_invalid")
+        clean["service_date_precision"] = precision
+    if clean.get("status") in {"cancel", "partial_cancel", "refund"} and not any(
+        field in clean for field in ("cancel_amount_krw", "amount_krw")
+    ):
+        raise ValueError("pg_cancel_amount_missing")
+    clean["redaction_version"] = PG_REDACTION_VERSION
+    return clean
+
+
+def adapt_service_mail_record(record: Mapping[str, object]) -> dict[str, object]:
+    """Normalize an independent provider message containing a service date."""
+    if forbidden_ota_fields(record):
+        raise ValueError("forbidden_service_mail_field")
+    unknown = set(record) - SERVICE_MAIL_ALLOWED_FIELDS
+    if unknown:
+        raise ValueError(
+            f"service_mail_unknown_field:{sorted(str(item) for item in unknown)[0]}"
+        )
+    message_id = _text(record.get("message_id"))
+    provider = _text(record.get("provider"))
+    sender_domain = _text(record.get("sender_domain")).lower()
+    if not message_id or not provider or not sender_domain:
+        raise ValueError("service_mail_identity_missing")
+    start = _pg_date(record.get("service_start_on"), "service_start_on")
+    end = _pg_date(record.get("service_end_on"), "service_end_on") or start
+    if not start or not end or end < start:
+        raise ValueError("service_mail_period_invalid")
+    status = _text(record.get("status")) or "confirmed"
+    if status not in {"confirmed", "payment", "cancel", "refund"}:
+        raise ValueError("service_mail_status_invalid")
+    clean: dict[str, object] = {
+        "provider": provider,
+        "message_id": message_id,
+        "sender_domain": sender_domain,
+        "service_start_on": start,
+        "service_end_on": end,
+        "status": status,
+        "source_type": _text(record.get("source_type")) or "service_confirmation",
+        "redaction_version": SERVICE_MAIL_REDACTION_VERSION,
+    }
+    for field in ("sent_at", "merchant", "property_name", "room_name"):
+        value = _text(record.get(field))
+        if value:
+            clean[field] = value
+    return clean

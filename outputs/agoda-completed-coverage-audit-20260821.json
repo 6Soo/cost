@@ -1,0 +1,43 @@
+{
+  "artifact_type": "agoda-completed-coverage-audit-v1",
+  "captured_at_utc": "2026-08-21T11:30:00Z",
+  "source": "paseo_authenticated_iab",
+  "scope": "completed_page_1_to_9_current_year",
+  "live_completed_current_year_count": 354,
+  "staging_completed_current_year_count": 353,
+  "overlap_count": 353,
+  "missing_from_staging_count": 1,
+  "missing_from_staging": [
+    {
+      "source_id": "1755579869",
+      "page": 1,
+      "index": 0,
+      "classification": "NON_HOTEL_FLIGHT",
+      "card_text_classification": "flight_route",
+      "detail_route": "/ko-kr/flights/account/bookingdetails",
+      "hotel_staging_action": "excluded",
+      "reason": "hotel_staging_scope_excludes_flight_reservations"
+    }
+  ],
+  "hotel_scope_gap_after_classification": 0,
+  "detail_capture_policy": {
+    "allowed_control": "예약 확인/변경하기",
+    "customer_center_click_count": 0,
+    "support_route_count": 0,
+    "flight_detail_not_captured_into_hotel_staging": true
+  },
+  "refresh_staging": {
+    "path": "outputs/agoda-paseo-staging-refresh-20260821.json",
+    "record_count": 591,
+    "unique_source_ids": 591,
+    "sha256": "53db93800ac55b0178faac2bc4945739e76dcfd3aa8d805c9fc26807f25c0b5b"
+  },
+  "card_reconciliation": {
+    "status": "FAIL",
+    "promotion_allowed": false,
+    "posting_allowed": false,
+    "database_rows_written": 0,
+    "ledger_rows_written": 0,
+    "external_actions": 0
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "schema_version": "current-geographic-trip-context-v1",
+  "records": [
+    {
+      "tab": "0107_대만",
+      "mm": 1,
+      "dd": 7,
+      "region": "대만",
+      "window": 8,
+      "current_card_geography_required": true,
+      "payment_date_is_service_date": false,
+      "transaction_evidence_allowed": false,
+      "provenance": {
+        "kind": "historical_context_only",
+        "source_path": "ledger/data/retired_staff_ota_index.json",
+        "source_rows": ["2026:43", "2026:44"],
+        "note": "Q1 historical Taiwan context; current card geography remains the only transaction evidence"
+      }
+    }
+  ]
+}
