@@ -58,7 +58,7 @@ class MerchantTaxonomySupportTest(unittest.TestCase):
             out=Path(td)/"pkg"; out.mkdir()
             with self.assertRaises(FileExistsError): build_merchant_taxonomy_support(output=out)
         with tempfile.TemporaryDirectory() as td:
-            out=Path(td)/"pkg"; build_merchant_taxonomy_support(output=out); (out/"extra").write_text("x")
+            out=Path(td)/"pkg"; build_merchant_taxonomy_support(output=out); (out/"extra").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError,"shape_invalid"): verify_merchant_taxonomy_support(out)
 
     def test_self_consistent_file_manifest_forgery_rejected(self):
@@ -69,7 +69,7 @@ class MerchantTaxonomySupportTest(unittest.TestCase):
             rows[0]["account"]="FORGED"
             with (out/"proposals.csv").open("w",encoding="utf8",newline="") as stream:
                 writer=csv.DictWriter(stream,fieldnames=rows[0].keys(),lineterminator="\n"); writer.writeheader(); writer.writerows(rows)
-            proposal=(out/"proposals.csv").read_bytes(); manifest=json.loads((out/"manifest.json").read_text())
+            proposal=(out/"proposals.csv").read_bytes(); manifest=json.loads((out/"manifest.json").read_text(encoding="utf-8"))
             manifest["files"]["proposals.csv"]["sha256"]=hashlib.sha256(proposal).hexdigest()
             manifest["semantic_set_sha256"]="0"*64; manifest["package_set_sha256"]="1"*64; manifest["analysis_run_id"]="2"*64
             (out/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,sort_keys=True,separators=(",",":"))+"\n")
@@ -78,7 +78,7 @@ class MerchantTaxonomySupportTest(unittest.TestCase):
     def test_authority_forgery_symlink_and_hardlink_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             out=Path(td)/"pkg"; build_merchant_taxonomy_support(output=out)
-            manifest=json.loads((out/"manifest.json").read_text()); manifest["confirmed_count"]=259
+            manifest=json.loads((out/"manifest.json").read_text(encoding="utf-8")); manifest["confirmed_count"]=259
             (out/"manifest.json").write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError,"authority_boundary_invalid"): verify_merchant_taxonomy_support(out)
         with tempfile.TemporaryDirectory() as td:

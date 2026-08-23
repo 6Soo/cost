@@ -109,7 +109,7 @@ class ManualGroupTaxonomyEvidenceTests(unittest.TestCase):
             (target/"manifest.json").write_bytes(r36._json(manifest))
             with self.assertRaisesRegex(ValueError,"authority_boundary"):
                 r36.verify_manual_group_taxonomy_evidence(target)
-            (target/"manifest.json").write_bytes(self.files["manifest.json"]);(target/"extra").write_text("x")
+            (target/"manifest.json").write_bytes(self.files["manifest.json"]);(target/"extra").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError,"package_shape"):
                 r36.verify_manual_group_taxonomy_evidence(target)
             (target/"extra").unlink();(target/"groups.csv").unlink();(target/"groups.csv").symlink_to(target/"classifications.csv")

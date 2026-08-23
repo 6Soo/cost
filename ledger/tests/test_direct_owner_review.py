@@ -1,9 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import tempfile
 import unittest
 import subprocess
+import sys
 import hashlib
 import os
 from unittest.mock import patch
@@ -247,9 +248,9 @@ class DirectOwnerReviewTest(unittest.TestCase):
             before = hashlib.sha256(database.read_bytes()).hexdigest()
             isolated_tmp = base / "tmp"; isolated_tmp.mkdir()
             env = dict(os.environ, TMPDIR=str(isolated_tmp))
-            proc = subprocess.run(["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current", "--ledger-dir", str(Path("ledger").resolve()), "--manifest", str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")], capture_output=True, text=True, env=env)
+            proc = subprocess.run([sys.executable, "-m", "ledger.domain.direct_owner_review", "--rebuild-current", "--ledger-dir", str(Path("ledger").resolve()), "--manifest", str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")], capture_output=True, text=True, env=env)
             self.assertIn(proc.returncode, (0, 2)); self.assertEqual(before, hashlib.sha256(database.read_bytes()).hexdigest()); self.assertEqual(list(isolated_tmp.iterdir()), [])
-            bad = subprocess.run(["python3", "-m", "ledger.domain.direct_owner_review", "--rebuild-current", "--ledger-dir", str(base), "--manifest", str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")], capture_output=True, text=True)
+            bad = subprocess.run([sys.executable, "-m", "ledger.domain.direct_owner_review", "--rebuild-current", "--ledger-dir", str(base), "--manifest", str(base / "owner/manifest.json"), "--events", str(base / "owner/events.csv")], capture_output=True, text=True)
             self.assertEqual(bad.returncode, 2); self.assertIn("noncanonical", bad.stdout)
 
     def test_b7_atomic_replace_failure_leaves_no_staging_and_existing_target(self) -> None:
@@ -261,9 +262,9 @@ class DirectOwnerReviewTest(unittest.TestCase):
             with patch("ledger.domain.direct_owner_review.os.replace", side_effect=OSError("injected")):
                 with self.assertRaises(OSError): write_owner_review(package, target, repository_root=Path("/repo"))
             self.assertFalse(target.exists()); self.assertEqual(list(parent.iterdir()), [])
-            target.mkdir(); (target / "keep").write_text("old")
+            target.mkdir(); (target / "keep").write_text("old", encoding="utf-8")
             with self.assertRaises(FileExistsError): write_owner_review(package, target, repository_root=Path("/repo"))
-            self.assertEqual((target / "keep").read_text(), "old")
+            self.assertEqual((target / "keep").read_text(encoding="utf-8"), "old")
 
     def test_b7_direct_db_load_is_read_only_authorized_and_file_stable(self) -> None:
         database, run_id, expected, _ = self._fixture()
@@ -324,9 +325,9 @@ class DirectOwnerReviewTest(unittest.TestCase):
             with patch("ledger.domain.direct_owner_review.os.replace", side_effect=OSError("replace")):
                 with self.assertRaises(OSError): write_owner_review(package, target, repository_root=Path("/repo"))
             self.assertFalse(target.exists())
-            target.mkdir(); (target / "keep").write_text("keep")
+            target.mkdir(); (target / "keep").write_text("keep", encoding="utf-8")
             with self.assertRaises(FileExistsError): write_owner_review(package, target, repository_root=Path("/repo"))
-            self.assertEqual((target / "keep").read_text(), "keep")
+            self.assertEqual((target / "keep").read_text(encoding="utf-8"), "keep")
             with self.assertRaisesRegex(ValueError, "owner_review_output_artifact_overlap"):
                 from ledger.domain.direct_projection import build_direct_candidate
                 build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "artifacts" / "child")
@@ -338,7 +339,7 @@ class DirectOwnerReviewTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="r22-v6-real-") as dirname:
             base = Path(dirname); result = build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "owner")
             self.assertFalse(result["passed"]); self.assertIsNone(result["output_db"])
-            manifest = json.loads((base / "owner/manifest.json").read_text()); context = manifest["source_context"]
+            manifest = json.loads((base / "owner/manifest.json").read_text(encoding="utf-8")); context = manifest["source_context"]
             new_manifest_sha = "0047bdc7445c8fca6db89c634bb70680421c1ec7498385a35c1fe453ca15a394"
             old_manifest_sha = "e355f146e426d9147b3387bd98802d83b8b70090d5e6327f92ff60f6825f0199"
             self.assertTrue(all(item["parser_version"] == "direct-source-v5" for item in manifest["provenance"]["source_inventory"]))

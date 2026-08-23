@@ -188,7 +188,7 @@ class TripCancelLifecycleEvidenceTests(unittest.TestCase):
             auth._trusted_dkim(message)
 
     def test_pdf_extractor_rejects_fake_executable_and_oversize(self):
-        fake=self.root/"fake-python";fake.write_text("#!/bin/sh\nprintf x");os.chmod(fake,0o700)
+        fake=self.root/"fake-python";fake.write_text("#!/bin/sh\nprintf x", encoding="utf-8");os.chmod(fake,0o700)
         with self.assertRaisesRegex(ValueError,"runtime_invalid"):auth._extract_pdf(b"%PDF-1.4\n%%EOF",fake)
         with self.assertRaisesRegex(ValueError,"size_invalid"):auth._extract_pdf(b"%PDF-"+b"x"*(2*1024*1024)+b"%%EOF",Path(auth.PINNED_RUNTIME["requested_path"]))
 

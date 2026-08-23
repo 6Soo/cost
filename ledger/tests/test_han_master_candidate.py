@@ -134,7 +134,7 @@ class HanMasterCandidateTests(unittest.TestCase):
         with patch.object(r39,"APPROVED_CONTRACT_SHA256","0"*64),self.assertRaisesRegex(ValueError,"authority_policy_mismatch"):
             r39._build(Path("ledger"),Path("ledger/master_ledger.csv"),**self.context)
         with tempfile.TemporaryDirectory() as d:
-            changed=Path(d)/"authority.json";value=json.loads(r39.AUTHORITY_PATH.read_text());value["policy"]="attacker"
+            changed=Path(d)/"authority.json";value=json.loads(r39.AUTHORITY_PATH.read_text(encoding="utf-8"));value["policy"]="attacker"
             changed.write_text(json.dumps(value),encoding="utf-8")
             with patch.object(r39,"AUTHORITY_PATH",changed),self.assertRaisesRegex(ValueError,"authority_sha256_mismatch"):
                 r39._build(Path("ledger"),Path("ledger/master_ledger.csv"),**self.context)

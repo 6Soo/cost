@@ -235,7 +235,7 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM direct_candidate_payments").fetchone()[0],5328);db.close()
             self.assertEqual(destination.stat().st_mode&0o777,0o400);self.assertEqual(private.stat().st_mode&0o777,0o500)
             self.assertFalse(Path(str(destination)+"-wal").exists());self.assertFalse(Path(str(destination)+"-shm").exists())
-            manifest=json.loads(next(reports.glob("*/blocker_manifest.json")).read_text())
+            manifest=json.loads(next(reports.glob("*/blocker_manifest.json")).read_text(encoding="utf-8"))
             self.assertEqual(manifest["han_equality"]["state"],"activated");self.assertEqual(len(manifest["candidate_db"]["final_seal_sha256"]),64)
             report_dir=Path(str(result["report_dir"]));sidecar=Path(str(destination)+"-wal");sidecar.write_bytes(b"x")
             with self.assertRaisesRegex(ValueError,"sidecar_present"):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
@@ -250,7 +250,7 @@ class DirectProjectionTest(unittest.TestCase):
             trigger_sql=tamper.execute("SELECT sql FROM sqlite_master WHERE name='direct_projection_validations_no_update'").fetchone()[0]
             tamper.execute("DROP TRIGGER direct_projection_validations_no_update");tamper.execute("UPDATE direct_projection_validations SET candidate_master_sha256=?,validation_sha256=?",("0"*64,forged));tamper.execute("UPDATE direct_projection_runs SET activation_validation_sha256=?",(forged,))
             tamper.execute(trigger_sql);tamper.commit();tamper.execute("PRAGMA journal_mode=DELETE");tamper.close();destination.chmod(0o400)
-            manifest_path=report_dir/"blocker_manifest.json";changed=json.loads(manifest_path.read_text());changed["candidate_db"]["final_seal_sha256"]=hashlib.sha256(destination.read_bytes()).hexdigest();changed.pop("manifest_content_sha256",None)
+            manifest_path=report_dir/"blocker_manifest.json";changed=json.loads(manifest_path.read_text(encoding="utf-8"));changed["candidate_db"]["final_seal_sha256"]=hashlib.sha256(destination.read_bytes()).hexdigest();changed.pop("manifest_content_sha256",None)
             changed["manifest_content_sha256"]=hashlib.sha256(json.dumps(changed,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()).hexdigest();manifest_path.write_text(json.dumps(changed,ensure_ascii=False,indent=2)+"\n")
             with self.assertRaisesRegex(ValueError,"activation_pointer_mismatch"):verify_run_artifacts(report_dir,repository_root=REPOSITORY_ROOT,expected_activation_pointer_sha256=result["activation_pointer_sha256"])
     def test_v2_schema_is_explicitly_rejected(self) -> None:
@@ -269,7 +269,7 @@ class DirectProjectionTest(unittest.TestCase):
             result=build_direct_candidate(destination,Path("ledger"),output_dir=reports,han_equality_output=private,
               han_authority_sha256=hashlib.sha256(AUTHORITY_PATH.read_bytes()).hexdigest())
             self.assertFalse(result["passed"]);self.assertFalse(destination.exists());self.assertTrue(private.is_dir())
-            report=json.loads(next(reports.glob("*/gate_report.json")).read_text())
+            report=json.loads(next(reports.glob("*/gate_report.json")).read_text(encoding="utf-8"))
             self.assertTrue(report["gates"][3]["passed"])
     def test_owner_review_output_is_opt_in(self) -> None:
         parameter = inspect.signature(build_direct_candidate).parameters["owner_review_output"]
@@ -340,12 +340,12 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertIsNone(result["output_db"])
             self.assertEqual(result["status"], "blocked")
             report_dir = next((base / "artifacts").iterdir())
-            blocker = json.loads((report_dir / "blocker_manifest.json").read_text())
+            blocker = json.loads((report_dir / "blocker_manifest.json").read_text(encoding="utf-8"))
             self.assertTrue(blocker["shadow_ready"])
             self.assertFalse(blocker["release_ready"])
             self.assertEqual(blocker["artifact_state"], "not_published")
             self.assertNotIn("candidate_db", blocker)
-            gate_report = json.loads((report_dir / "gate_report.json").read_text())
+            gate_report = json.loads((report_dir / "gate_report.json").read_text(encoding="utf-8"))
             gate5 = gate_report["gates"][4]
             self.assertTrue(gate5["passed"])
             self.assertEqual(gate5["actual"]["triage_status"], "TRIAGE_PASS")

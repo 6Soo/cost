@@ -12,7 +12,7 @@ class OtaLifecycleSupportTests(unittest.TestCase):
   forbidden={"booking_reference","pnr","subject","amount","card4","guest","passenger","url","pin","access_token"}
   exported={x.lower() for fields in (r41.COMP_FIELDS,r41.REJ_FIELDS,r41.LINK_FIELDS,r41.NEW_FIELDS) for x in fields}
   self.assertFalse(exported&forbidden)
-  package=b"".join(self.files.values());mail=json.loads(Path("ledger/data/ota_mail_index.json").read_text())["records"]
+  package=b"".join(self.files.values());mail=json.loads(Path("ledger/data/ota_mail_index.json").read_text(encoding="utf-8"))["records"]
   identities={x for row in mail for x in row["bookingRefs"]+row["pnrs"] if len(x)>=6}
   for value in identities:
    self.assertNotIn(value.encode(),package);self.assertNotIn(hashlib.sha256(value.encode()).hexdigest().encode(),package)
@@ -32,7 +32,7 @@ class OtaLifecycleSupportTests(unittest.TestCase):
   for field,value in (("sentAt","2025-99-99T99:99:99Z"),("sentAt","2025-01-01T00:00:00"),("travelDates",["0231"]),("travelDates",["1939"]),("bookingRefs",["１２３４５６７８９０１２３４５６"]),("pnrs",["ＡＢＣ１２３"]),("bookingRefs",["1"*16,"1"*16])):
    row=dict(base);row[field]=value
    with self.assertRaises(ValueError):r41._validate_message(row)
-  live={row["messageId"]:row for row in json.loads(Path("ledger/data/ota_mail_index.json").read_text())["records"]}
+  live={row["messageId"]:row for row in json.loads(Path("ledger/data/ota_mail_index.json").read_text(encoding="utf-8"))["records"]}
   for message_id,_,_,_ in r41.LEGACY_UTC_ROWS:r41._validate_message(live[message_id])
   forged=dict(base,sentAt="2099-01-01T00:00:00.12345678")
   with self.assertRaises(ValueError):r41._validate_message(forged)
@@ -53,7 +53,7 @@ class OtaLifecycleSupportTests(unittest.TestCase):
   with self.assertRaises(ValueError):r41._validate_repository_facts(booking,periods,missing_message,messages={},source_uids={"TRIP-0001"})
   missing_uid={"TRIP-0001":{"category":"숙박","period":"0101_0102","linked_uid":"TRIP-9999"}}
   with self.assertRaises(ValueError):r41._validate_repository_facts(booking,periods,missing_uid,messages={},source_uids={"TRIP-0001"})
-  canonical=json.loads(Path("ledger/data/ota_event_links_verified.json").read_text())["TRIP-0100"]
+  canonical=json.loads(Path("ledger/data/ota_event_links_verified.json").read_text(encoding="utf-8"))["TRIP-0100"]
   relocated={"TRIP-0001":canonical}
   with self.assertRaises(ValueError):r41._validate_repository_facts(booking,periods,relocated,messages={},source_uids={"TRIP-0001","TRIP-0100"},allowed_orphan_fact_rows=r41.QUARANTINED_ORPHAN_FACT_ROWS)
   changed={"TRIP-0100":{**canonical,"period":"0418_0428"}}
@@ -62,7 +62,7 @@ class OtaLifecycleSupportTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    out=Path(d)/"pkg";out.mkdir(mode=0o700)
    for name,data in self.files.items():(out/name).write_bytes(data);os.chmod(out/name,0o600)
-   data=(out/"existing_links.csv").read_text();(out/"existing_links.csv").write_text(data.replace(",1,",",99,",1));os.chmod(out/"existing_links.csv",0o600)
+   data=(out/"existing_links.csv").read_text(encoding="utf-8");(out/"existing_links.csv").write_text(data.replace(",1,",",99,",1));os.chmod(out/"existing_links.csv",0o600)
    with patch.object(r41,"_build",return_value=(self.manifest,self.files)),self.assertRaisesRegex(ValueError,"semantics_mismatch"):r41.verify_ota_lifecycle_support(out)
  def test_parent_fsync_failure_is_reconcilable_published_state(self):
   with tempfile.TemporaryDirectory() as d,patch.object(r41,"_build",return_value=(self.manifest,self.files)):

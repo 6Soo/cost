@@ -162,14 +162,14 @@ class KBConfirmationEvidenceTests(unittest.TestCase):
         pin = self.root / "forged-pin"
         self._copy_private(PIN, pin)
         record_path = pin / "15.json"
-        record = json.loads(record_path.read_text())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
         record["decrypted_dom_html"] += "<!-- forged -->"
         record["decrypted_dom_sha256"] = r45._sha(record["decrypted_dom_html"].encode())
         record_bytes = (json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
         record_path.write_bytes(record_bytes)
         os.chmod(record_path, 0o600)
         manifest_path = pin / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         member = next(row for row in manifest["members"] if row["private_record_filename"] == "15.json")
         member["decrypted_dom_sha256"] = record["decrypted_dom_sha256"]
         member["private_record_sha256"] = r45._sha(record_bytes)
@@ -184,7 +184,7 @@ class KBConfirmationEvidenceTests(unittest.TestCase):
         pin = self.root / "unknown-field-pin"
         self._copy_private(PIN, pin)
         record_path = pin / "15.json"
-        record = json.loads(record_path.read_text())
+        record = json.loads(record_path.read_text(encoding="utf-8"))
         record["capture_complete"] = True
         record_path.write_text(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
         os.chmod(record_path, 0o600)

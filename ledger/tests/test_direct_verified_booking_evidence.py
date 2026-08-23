@@ -42,7 +42,7 @@ class VerifiedBookingEvidenceTests(unittest.TestCase):
             out = Path(td) / "annex"
             build_verified_booking_evidence(booking_periods=periods, ota_mail=mail, manual_csv=manual, output=out)
             with self.assertRaises(FileExistsError): build_verified_booking_evidence(booking_periods=periods, ota_mail=mail, manual_csv=manual, output=out)
-            manifest = json.loads((out / "manifest.json").read_text()); manifest["gate5_credit"] = 1; (out / "manifest.json").write_text(json.dumps(manifest))
+            manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8")); manifest["gate5_credit"] = 1; (out / "manifest.json").write_text(json.dumps(manifest))
             with self.assertRaises(ValueError): verify_verified_booking_evidence(out, booking_periods=periods, ota_mail=mail, manual_csv=manual)
 
     def test_exact_token_and_approval_cardinality_fail_closed(self):
@@ -58,10 +58,10 @@ class VerifiedBookingEvidenceTests(unittest.TestCase):
 
     def test_duplicate_json_key_rejected(self):
         with tempfile.TemporaryDirectory() as td:
-            path = Path(td) / "bad.json"; path.write_text('{"x":1,"x":2}')
+            path = Path(td) / "bad.json"; path.write_text('{"x":1,"x":2}', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "duplicate_key"):
                 _load_json(path)
-            path.write_text('{"x":NaN}')
+            path.write_text('{"x":NaN}', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "nonfinite"):
                 _load_json(path)
 
@@ -70,7 +70,7 @@ class VerifiedBookingEvidenceTests(unittest.TestCase):
         for bad in ({"category": [], "period":"0414_0415", "source":"x"}, {"category":"기타", "period":"0414_0415", "source":"x"}, {"category":"숙박", "period":"0230_0301", "source":"x"}, {"category":"숙박", "period":"0415_0414", "source":"x"}):
             with self.assertRaises(ValueError): _validate_fact("1400824130566434", bad)
         _, mail = self.paths()[:2]
-        records = json.loads(mail.read_text())["records"]
+        records = json.loads(mail.read_text(encoding="utf-8"))["records"]
         target = next(r for r in records if "1400824130566434" in r.get("bookingRefs", []))
         _validate_target_message(target)
         for field, value in (("messageHash","x"),("redactionVersion","wrong"),("travelDates",["0414"]),("bookingRefs",["1400824130566434", "1400824130566434"])):
@@ -89,7 +89,7 @@ class VerifiedBookingEvidenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "annex"
             build_verified_booking_evidence(booking_periods=periods, ota_mail=mail, manual_csv=manual, output=out)
-            manifest = json.loads((out / "manifest.json").read_text()); manifest["unknown"] = True; (out / "manifest.json").write_text(json.dumps(manifest))
+            manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8")); manifest["unknown"] = True; (out / "manifest.json").write_text(json.dumps(manifest))
             with self.assertRaises(ValueError): verify_verified_booking_evidence(out, booking_periods=periods, ota_mail=mail, manual_csv=manual)
             (out / "manifest.json").unlink(); (out / "manifest.json").symlink_to(out / "coverage.csv")
             with self.assertRaises(ValueError): verify_verified_booking_evidence(out, booking_periods=periods, ota_mail=mail, manual_csv=manual)

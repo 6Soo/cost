@@ -90,7 +90,7 @@ class HanNormalizerTests(unittest.TestCase):
         rows = self._han_rows()
         with tempfile.TemporaryDirectory() as dirname:
             master = Path(dirname) / "master.csv"
-            master.write_text("거래키,카드사\nold,하나\n", encoding="utf-8-sig")
+            master.write_text("거래키,카드사\nold,하나\n", "utf-8-sig")
             before = master.read_bytes()
             with patch.object(ingest, "MASTER", str(master)), patch.object(ingest, "load", return_value=rows), \
                  self.assertRaisesRegex(SystemExit, "han_full_rebuild_required"):

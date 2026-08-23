@@ -1486,7 +1486,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, root = self._fixture()
         descriptor = self._valid_baseline(database, run_id, expected, root)
         path = root / "ledger/baselines/direct.json"
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["events"] = payload["events"][:-1]
         payload["event_set_sha256"] = _event_set_sha256(
             (event["direct_event_key"], event["event_sha256"])
@@ -1502,7 +1502,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, root = self._fixture()
         self._valid_baseline(database, run_id, expected, root)
         path = root / "ledger/baselines/direct.json"
-        original = json.loads(path.read_text())
+        original = json.loads(path.read_text(encoding="utf-8"))
         cases = {
             "format": ("format_version", 2, "baseline_format_version_invalid"),
             "scope": ("event_scope", "direct-card-v2", "baseline_event_scope_invalid"),
@@ -1537,7 +1537,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, root = self._fixture()
         self._valid_baseline(database, run_id, expected, root)
         path = root / "ledger/baselines/direct.json"
-        original = json.loads(path.read_text())
+        original = json.loads(path.read_text(encoding="utf-8"))
 
         for field in (
             "format_version", "event_scope", "parser_version", "source_run_id",
@@ -1616,7 +1616,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, root = self._fixture()
         self._valid_baseline(database, run_id, expected, root)
         path = root / "ledger/baselines/direct.json"
-        original = json.loads(path.read_text())
+        original = json.loads(path.read_text(encoding="utf-8"))
         for value in (True, 1.0, "1", None, 2):
             with self.subTest(value=value):
                 payload = dict(original)
@@ -1669,7 +1669,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         database, run_id, expected, root = self._fixture()
         descriptor = self._valid_baseline(database, run_id, expected, root)
         path = root / "ledger/baselines/direct.json"
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["events"] = list(reversed(payload["events"]))
         raw = json.dumps(payload, sort_keys=True).encode()
         path.write_bytes(raw)

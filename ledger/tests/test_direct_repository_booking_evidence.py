@@ -127,7 +127,7 @@ class RepositoryBookingEvidenceTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "semantics_mismatch"):
                         verify_repository_booking_evidence(out, booking_info=booking, ota_links=ota, manual_csv=manual)
                 (out / "relations.csv").write_bytes(pristine["relations.csv"])
-            manifest = json.loads((out / "manifest.json").read_text()); manifest["gate5_credit"] = 1
+            manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8")); manifest["gate5_credit"] = 1
             (out / "manifest.json").write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "authority_boundary"):
                 verify_repository_booking_evidence(out, booking_info=booking, ota_links=ota, manual_csv=manual)
@@ -177,9 +177,9 @@ class RepositoryBookingEvidenceTests(unittest.TestCase):
 
     def test_duplicate_nonfinite_and_noncanonical_copy_rejected(self):
         with tempfile.TemporaryDirectory() as td:
-            bad = Path(td) / "bad.json"; bad.write_text('{"x":1,"x":2}')
+            bad = Path(td) / "bad.json"; bad.write_text('{"x":1,"x":2}', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "duplicate_key"): _strict_json(bad)
-            bad.write_text('{"x":NaN}')
+            bad.write_text('{"x":NaN}', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "nonfinite"): _strict_json(bad)
             booking, ota, manual = self.paths(); copied = Path(td) / "booking.json"; copied.write_bytes(booking.read_bytes())
             with self.assertRaisesRegex(ValueError, "noncanonical_booking_info"):

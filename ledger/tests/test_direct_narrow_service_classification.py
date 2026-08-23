@@ -138,7 +138,7 @@ class NarrowServiceClassificationTests(unittest.TestCase):
             (target/"manifest.json").write_bytes(self.files["manifest.json"]);(target/"manifest.json").chmod(0o644)
             with self.assertRaisesRegex(ValueError,"package_file"):
                 r37.verify_narrow_service_classification(target)
-            (target/"manifest.json").chmod(0o600);(target/"extra").write_text("x")
+            (target/"manifest.json").chmod(0o600);(target/"extra").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError,"package_shape"):
                 r37.verify_narrow_service_classification(target)
 
@@ -164,18 +164,18 @@ class NarrowServiceClassificationTests(unittest.TestCase):
             def make(**_):stage.mkdir();return str(stage)
             def fsync(_):
                 nonlocal calls;calls+=1
-                if calls==2:stage.mkdir();(stage/"sentinel").write_text("owned");raise OSError("parent")
+                if calls==2:stage.mkdir();(stage/"sentinel").write_text("owned", encoding="utf-8");raise OSError("parent")
             with patch.object(r37,"_build",return_value=(self.manifest,self.files)),patch.object(r37,"verify_narrow_service_classification",return_value={"status":"valid"}), \
                  patch.object(r37.tempfile,"mkdtemp",side_effect=make),patch.object(r37,"_fsync_dir",side_effect=fsync), \
                  self.assertRaises(r37.PublicationDurabilityError) as caught:
                 r37.build_narrow_service_classification(output=target)
-            self.assertEqual((stage/"sentinel").read_text(),"owned");self.assertTrue(target.is_dir())
-            competitor=root/"competitor";competitor.mkdir();(competitor/"x").write_text("competitor");moved=root/"moved"
+            self.assertEqual((stage/"sentinel").read_text(encoding="utf-8"),"owned");self.assertTrue(target.is_dir())
+            competitor=root/"competitor";competitor.mkdir();(competitor/"x").write_text("competitor", encoding="utf-8");moved=root/"moved"
             def swap(_):target.rename(moved);competitor.rename(target)
             with patch.object(r37,"verify_narrow_service_classification",return_value={"status":"valid"}),patch.object(r37,"_fsync_dir",side_effect=swap), \
                  self.assertRaises((ValueError,OSError)):
                 r37.reconcile_publication_durability(caught.exception)
-            self.assertEqual((target/"x").read_text(),"competitor")
+            self.assertEqual((target/"x").read_text(encoding="utf-8"),"competitor")
 
     def test_concurrent_no_replace_one_winner(self):
         with tempfile.TemporaryDirectory() as dirname:

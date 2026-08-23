@@ -63,7 +63,7 @@ class StructuredLodgingEvidenceTests(unittest.TestCase):
             (target / "manifest.json").write_bytes(r38.r36._json(manifest)); (target / "manifest.json").chmod(0o600)
             with self.assertRaisesRegex(ValueError, "authority_boundary"):
                 r38.verify_structured_lodging_evidence(target)
-            (target / "manifest.json").write_bytes(self.files["manifest.json"]); (target / "extra").write_text("x")
+            (target / "manifest.json").write_bytes(self.files["manifest.json"]); (target / "extra").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "package_shape"):
                 r38.verify_structured_lodging_evidence(target)
             copied = root / "booking.json"; copied.write_bytes((Path("ledger/data/booking_info.json")).read_bytes())
@@ -158,14 +158,14 @@ class StructuredLodgingEvidenceTests(unittest.TestCase):
                 result = r38.reconcile_publication_durability(caught.exception)
             self.assertTrue(result["parent_fsync"])
 
-            competitor = root / "competitor"; competitor.mkdir(); (competitor / "x").write_text("competitor")
+            competitor = root / "competitor"; competitor.mkdir(); (competitor / "x").write_text("competitor", encoding="utf-8")
             moved = root / "moved"
             def swap(_path): target.rename(moved); competitor.rename(target)
             with patch.object(r38, "_build", return_value=(self.manifest, self.files)), \
                  patch.object(r38.r37, "_fsync_dir", side_effect=swap), \
                  self.assertRaises((ValueError, OSError)):
                 r38.reconcile_publication_durability(caught.exception)
-            self.assertEqual((target / "x").read_text(), "competitor")
+            self.assertEqual((target / "x").read_text(encoding="utf-8"), "competitor")
 
 
 if __name__ == "__main__": unittest.main()

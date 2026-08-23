@@ -107,7 +107,7 @@ class TripCancelAtomicAdmissionTests(unittest.TestCase):
    def seam(fd):
     nonlocal calls;calls+=1
     if calls==len(r55.FILES)+2:
-     out.rename(moved);out.mkdir();os.chmod(out,0o700);(out/'sentinel').write_text('x')
+     out.rename(moved);out.mkdir();os.chmod(out,0o700);(out/'sentinel').write_text('x', encoding="utf-8")
     return real(fd)
    with mock.patch.object(r55,'_build',return_value=(self.manifest,self.files)),mock.patch.object(r55.os,'fsync',side_effect=seam),self.assertRaises(r55.PublicationIntegrityError):
     r55.build_trip_cancel_atomic_admission(*args,out)
