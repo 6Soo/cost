@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
+import json
 import os
 import sqlite3
 import tempfile
@@ -2540,38 +2542,24 @@ class AgodaPortalDetailCaptureTests(unittest.TestCase):
             self.assertEqual(int(rebind_rows[0]["new_window_id"]), 88888)
             connection.close()
 
-    def test_capture_cli_rebind_window_flag(self) -> None:
-        with patch("tools.agoda_portal_detail_capture.capture_details", return_value={"status": "ok"}) as mock_capture:
-            with patch("sys.argv", [
-                "agoda_portal_detail_capture.py",
-                "capture",
-                "--window-id", "99999",
-                "--source-db", "/tmp/source.sqlite",
-                "--hmac-key-file", "/tmp/key.key",
-                "--work-db", "/tmp/work.sqlite",
-                "--run-id", "test-run",
-                "--resume",
-                "--rebind-window",
-            ]), patch("sys.stdout"):
-                ret = main()
-                self.assertEqual(ret, 0)
-                mock_capture.assert_called_once_with(
-                    app="msedge",
-                    window_id=99999,
-                    source_db=Path("/tmp/source.sqlite"),
-                    hmac_key_file=Path("/tmp/key.key"),
-                    work_db=Path("/tmp/work.sqlite"),
-                    run_id="test-run",
-                    pages=None,
-                    tabs=None,
-                    resume=True,
-                    rebind_window=True,
-                    attempts_per_booking=2,
-                    max_new_successes=None,
-                    target_only=False,
-                    fast_direct=False,
-                    recapture_existing=False,
-                )
+    def test_capture_cli_is_blocked_by_paseo_iab_policy(self) -> None:
+        stdout = io.StringIO()
+        with patch("sys.argv", [
+            "agoda_portal_detail_capture.py",
+            "capture",
+            "--window-id", "99999",
+            "--source-db", "/tmp/source.sqlite",
+            "--hmac-key-file", "/tmp/key.key",
+            "--work-db", "/tmp/work.sqlite",
+            "--run-id", "test-run",
+            "--resume",
+            "--rebind-window",
+        ]), patch("sys.stdout", stdout):
+            ret = main()
+        self.assertEqual(ret, 2)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["status"], "BLOCKED")
+        self.assertEqual(payload["failure_code"], "PASEO_IAB_ONLY")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import contextlib
 import hashlib
@@ -41,7 +41,7 @@ from tools.agoda_portal_page_capture import (
     capture_page,
     _go_to_page,
     _resolve_csharp_source_windows_path,
-    _resolve_windows_temp_dir,
+    _resolve_temp_dir,
     _verify_csharp_bridge_executable,
     _wait_loaded,
     _wait_stable_page_tree,
@@ -227,6 +227,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
             self.assertEqual(path.parent, WINDOWS_UIA_LOCK_DIRECTORY)
             self.assertEqual(path.name, f"bridge-slot-{slot_no}.lock")
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_bridge_admission_caps_five_processes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             slot_paths = tuple(
@@ -312,6 +316,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                 with _windows_uia_bridge_admission("state", "1"):
                     pass
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_same_hwnd_click_select_mutual_exclusion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             context = multiprocessing.get_context("fork")
@@ -347,6 +355,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                         process.terminate()
                         process.join(2.0)
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_different_hwnd_mutations_proceed_in_parallel(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             context = multiprocessing.get_context("fork")
@@ -388,6 +400,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                         process.terminate()
                         process.join(2.0)
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_foreground_operation_concurrency_remains_strictly_one(
         self,
     ) -> None:
@@ -537,6 +553,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                 self.assertIsNotNone(w)
                 _release_private_file_lock(w)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "POSIX permission-bit and fifo contracts are not representable on Windows",
+    )
     def test_windows_uia_private_locks_reject_unsafe_directory_and_files(
         self,
     ) -> None:
@@ -586,6 +606,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
             ):
                 _try_private_file_lock(fifo_path)
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_foreground_lock_excludes_another_process(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             lock_path = str(Path(directory) / "foreground.lock")
@@ -623,6 +647,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                         process.terminate()
                     process.join(2.0)
 
+    @unittest.skipIf(
+        "fork" not in multiprocessing.get_all_start_methods(),
+        "fork start method is unavailable on this platform",
+    )
     def test_windows_uia_foreground_lock_times_out_then_can_be_reacquired(
         self,
     ) -> None:
@@ -1265,7 +1293,7 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                 )
             self.assertEqual(result["total_cards"], 13)
             self.assertEqual(result["distinct_target_year_bookings"], 13)
-            with sqlite3.connect(db_path) as connection:
+            with contextlib.closing(sqlite3.connect(db_path)) as connection:
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM agoda_pages").fetchone()[0],
                     13,
@@ -1294,10 +1322,10 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
                 )
             self.assertEqual(result["captured_pages"], [10])
             self.assertEqual(result["total_cards"], 1)
-            with sqlite3.connect(
+            with contextlib.closing(sqlite3.connect(
                 f"file:{db_path}?mode=ro&immutable=1",
                 uri=True,
-            ) as connection:
+            )) as connection:
                 self.assertEqual(
                     connection.execute("SELECT page_no FROM agoda_pages").fetchone()[0],
                     10,
@@ -1617,97 +1645,29 @@ class AgodaPortalPageCaptureTests(unittest.TestCase):
         self.assertNotIn(secret_code, rendered)
         self.assertNotIn(secret_detail, rendered)
 
-    def test_windows_uia_script_path_failure_does_not_chain_process_error_or_output(
-        self,
-    ) -> None:
-        secret_stdout = "SECRET_WSLPATH_STDOUT_LEAK_111"
-        secret_stderr = "SECRET_WSLPATH_STDERR_LEAK_222"
+    def test_windows_uia_script_path_resolves_sibling_ps1(self) -> None:
         page_capture._windows_uia_script_path.cache_clear()
         try:
-            with patch(
-                "tools.agoda_portal_page_capture.subprocess.run",
-                side_effect=subprocess.CalledProcessError(
-                    returncode=1,
-                    cmd=["wslpath", "-w", "agoda_windows_uia_bridge.ps1"],
-                    output=secret_stdout,
-                    stderr=secret_stderr,
-                ),
-            ):
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "windows UIA bridge path resolution failed",
-                ) as raised:
-                    page_capture._windows_uia_script_path(timeout=10.0)
-
-            self.assertIsNone(raised.exception.__cause__)
-            self.assertIsNone(raised.exception.__context__)
-            rendered = "".join(
-                traceback.format_exception(
-                    type(raised.exception),
-                    raised.exception,
-                    raised.exception.__traceback__,
-                )
-            )
-            self.assertNotIn(secret_stdout, rendered)
-            self.assertNotIn(secret_stderr, rendered)
-            self.assertNotIn("CalledProcessError", rendered)
+            resolved = page_capture._windows_uia_script_path(timeout=10.0)
+            self.assertTrue(resolved.endswith("agoda_windows_uia_bridge.ps1"))
+            self.assertTrue(Path(resolved).is_file())
         finally:
             page_capture._windows_uia_script_path.cache_clear()
 
-    def test_windows_uia_script_path_timeout_does_not_chain_timeout_error_or_output(
-        self,
-    ) -> None:
-        secret_stdout = "SECRET_WSLPATH_TIMEOUT_OUTPUT_333"
-        secret_stderr = "SECRET_WSLPATH_TIMEOUT_STDERR_444"
+    def test_windows_uia_script_path_missing_fails_closed(self) -> None:
         page_capture._windows_uia_script_path.cache_clear()
         try:
             with patch(
-                "tools.agoda_portal_page_capture.subprocess.run",
-                side_effect=subprocess.TimeoutExpired(
-                    cmd=["wslpath", "-w", "agoda_windows_uia_bridge.ps1"],
-                    timeout=10.0,
-                    output=secret_stdout,
-                    stderr=secret_stderr,
+                "tools.agoda_portal_page_capture.__file__",
+                str(
+                    Path(tempfile.gettempdir())
+                    / "no-such-dir"
+                    / "agoda_portal_page_capture.py"
                 ),
             ):
                 with self.assertRaisesRegex(
                     RuntimeError,
-                    "windows UIA bridge path resolution timed out",
-                ) as raised:
-                    page_capture._windows_uia_script_path(timeout=10.0)
-
-            self.assertIsNone(raised.exception.__cause__)
-            self.assertIsNone(raised.exception.__context__)
-            rendered = "".join(
-                traceback.format_exception(
-                    type(raised.exception),
-                    raised.exception,
-                    raised.exception.__traceback__,
-                )
-            )
-            self.assertNotIn(secret_stdout, rendered)
-            self.assertNotIn(secret_stderr, rendered)
-            self.assertNotIn("TimeoutExpired", rendered)
-        finally:
-            page_capture._windows_uia_script_path.cache_clear()
-
-    def test_windows_uia_script_path_empty_stdout_fails_without_cause_or_context(
-        self,
-    ) -> None:
-        page_capture._windows_uia_script_path.cache_clear()
-        try:
-            with patch(
-                "tools.agoda_portal_page_capture.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=["wslpath", "-w", "dummy"],
-                    returncode=0,
-                    stdout="   \n",
-                    stderr="",
-                ),
-            ):
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "windows UIA bridge path resolution failed",
+                    "windows UIA bridge script not found",
                 ) as raised:
                     page_capture._windows_uia_script_path(timeout=10.0)
 
@@ -2148,8 +2108,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             "result": {"snapshot": {"treeText": "0 기본 Completed"}},
         }
         mock_exe_info = {
-            "win_path": r"C:\Users\tester\AppData\Local\Temp\agoda_uia_123.exe",
-            "wsl_path": "/tmp/agoda_uia_123.exe",
+            "path": r"C:\Users\tester\AppData\Local\Temp\agoda_uia_123.exe",
             "sha256": "fake_sha256_hash",
         }
         for env_val in ("", "csharp", "c#"):
@@ -2174,7 +2133,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
                     self.assertEqual(mock_verify.call_count, 2)
                     self.assertEqual(
                         mock_run.call_args[0][0],
-                        ["/tmp/agoda_uia_123.exe", "-Operation", "state", "-WindowId", "101"],
+                        [r"C:\Users\tester\AppData\Local\Temp\agoda_uia_123.exe", "-Operation", "state", "-WindowId", "101"],
                     )
 
     def test_explicit_powershell_override(self) -> None:
@@ -2213,8 +2172,8 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             "tools.agoda_portal_page_capture._resolve_csharp_source_windows_path",
             return_value=r"C:\repo\tools\AgodaWindowsUiaBridge.cs",
         ) as mock_src, patch(
-            "tools.agoda_portal_page_capture._resolve_windows_temp_dir",
-            return_value=(r"C:\Users\testuser\AppData\Local\Temp", "/tmp/wsl_temp"),
+            "tools.agoda_portal_page_capture._resolve_temp_dir",
+            return_value=r"C:\Users\testuser\AppData\Local\Temp",
         ) as mock_temp, patch(
             "tools.agoda_portal_page_capture.secrets.token_hex",
             return_value="deadbeef0123456789abcdef00112233",
@@ -2242,12 +2201,8 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             mock_src.assert_called_once()
             mock_temp.assert_called_once()
             self.assertEqual(
-                exe_info["win_path"],
+                exe_info["path"],
                 r"C:\Users\testuser\AppData\Local\Temp\agoda_uia_deadbeef0123456789abcdef00112233.exe",
-            )
-            self.assertEqual(
-                exe_info["wsl_path"],
-                "/tmp/wsl_temp/agoda_uia_deadbeef0123456789abcdef00112233.exe",
             )
             self.assertEqual(exe_info["sha256"], expected_sha256)
 
@@ -2260,9 +2215,10 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\System.Core.dll", cmd)
             self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\WPF\\UIAutomationClient.dll", cmd)
             self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\WPF\\UIAutomationTypes.dll", cmd)
+            self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\WPF\\WindowsBase.dll", cmd)
             self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\System.Windows.Forms.dll", cmd)
             self.assertIn(f"/r:{FRAMEWORK64_DIR_DEFAULT}\\System.Web.Extensions.dll", cmd)
-            self.assertIn(f"/out:{exe_info['win_path']}", cmd)
+            self.assertIn(f"/out:{exe_info['path']}", cmd)
             self.assertIn(r"C:\repo\tools\AgodaWindowsUiaBridge.cs", cmd)
 
     def test_one_compile_per_process(self) -> None:
@@ -2271,8 +2227,8 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             "tools.agoda_portal_page_capture._resolve_csharp_source_windows_path",
             return_value=r"C:\repo\tools\AgodaWindowsUiaBridge.cs",
         ), patch(
-            "tools.agoda_portal_page_capture._resolve_windows_temp_dir",
-            return_value=(r"C:\Temp", "/tmp/temp"),
+            "tools.agoda_portal_page_capture._resolve_temp_dir",
+            return_value=r"C:\Temp",
         ), patch(
             "tools.agoda_portal_page_capture.subprocess.run"
         ) as mock_compile_run, patch(
@@ -2308,8 +2264,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
 
     def test_hash_mismatch_fails_closed_without_spawn(self) -> None:
         exe_info = {
-            "win_path": r"C:\Temp\agoda_uia.exe",
-            "wsl_path": "/tmp/agoda_uia.exe",
+            "path": r"C:\Temp\agoda_uia.exe",
             "sha256": "correct_sha256_value",
         }
         with patch(
@@ -2346,8 +2301,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
 
     def test_missing_compiled_exe_fails_closed_without_spawn(self) -> None:
         exe_info = {
-            "win_path": r"C:\Temp\missing.exe",
-            "wsl_path": "/tmp/missing.exe",
+            "path": r"C:\Temp\missing.exe",
             "sha256": "expected_sha",
         }
         with patch(
@@ -2381,26 +2335,14 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             mock_run.assert_not_called()
 
         with patch(
-            "tools.agoda_portal_page_capture.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="wslpath", timeout=10.0),
+            "tools.agoda_portal_page_capture.__file__",
+            str(Path(tempfile.gettempdir()) / "no-such-dir" / "agoda_portal_page_capture.py"),
         ):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "windows UIA bridge path resolution timed out",
+                "windows UIA bridge source not found",
             ) as raised:
                 _resolve_csharp_source_windows_path(timeout=10.0)
-            self.assertIsNone(raised.exception.__cause__)
-            self.assertIsNone(raised.exception.__context__)
-
-        with patch(
-            "tools.agoda_portal_page_capture.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="cmd.exe", timeout=10.0),
-        ):
-            with self.assertRaisesRegex(
-                RuntimeError,
-                "windows UIA bridge path resolution timed out",
-            ) as raised:
-                _resolve_windows_temp_dir(timeout=10.0)
             self.assertIsNone(raised.exception.__cause__)
             self.assertIsNone(raised.exception.__context__)
 
@@ -2408,8 +2350,8 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             "tools.agoda_portal_page_capture._resolve_csharp_source_windows_path",
             return_value=r"C:\AgodaWindowsUiaBridge.cs",
         ), patch(
-            "tools.agoda_portal_page_capture._resolve_windows_temp_dir",
-            return_value=(r"C:\Temp", "/tmp/temp"),
+            "tools.agoda_portal_page_capture._resolve_temp_dir",
+            return_value=r"C:\Temp",
         ), patch(
             "tools.agoda_portal_page_capture.os.path.exists",
             return_value=False,
@@ -2432,8 +2374,8 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
             "tools.agoda_portal_page_capture._resolve_csharp_source_windows_path",
             return_value=r"C:\AgodaWindowsUiaBridge.cs",
         ), patch(
-            "tools.agoda_portal_page_capture._resolve_windows_temp_dir",
-            return_value=(r"C:\Temp", "/tmp/temp"),
+            "tools.agoda_portal_page_capture._resolve_temp_dir",
+            return_value=r"C:\Temp",
         ), patch(
             "tools.agoda_portal_page_capture.os.path.exists",
             return_value=False,
@@ -2458,8 +2400,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
 
         self.assertTrue(os.path.exists(temp_path))
         page_capture._compiled_csharp_bridge = {
-            "win_path": r"C:\Temp\test.exe",
-            "wsl_path": temp_path,
+            "path": temp_path,
             "sha256": "fake",
         }
         _cleanup_compiled_bridge()
@@ -2478,8 +2419,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
         ]
 
         mock_exe_info = {
-            "win_path": r"C:\Temp\app.exe",
-            "wsl_path": "/tmp/app.exe",
+            "path": r"C:\Temp\app.exe",
             "sha256": "sha",
         }
         response = {"ok": True, "result": {"action": "ok", "snapshot": {"treeText": ""}}}
@@ -2501,7 +2441,7 @@ class AgodaWindowsUiaCSharpBridgeTests(unittest.TestCase):
                     mock_run.return_value.stdout = json.dumps(response)
                     _run_windows_uia(*args)
                     spawn_cmd = mock_run.call_args[0][0]
-                    self.assertEqual(spawn_cmd[0], "/tmp/app.exe")
+                    self.assertEqual(spawn_cmd[0], r"C:\Temp\app.exe")
                     self.assertEqual(spawn_cmd[1:], expected_args)
 
             with self.subTest(operation=op_name, backend="powershell"):

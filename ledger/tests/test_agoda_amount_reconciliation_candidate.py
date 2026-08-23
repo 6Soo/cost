@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import sqlite3
@@ -6,6 +6,7 @@ import json
 import os
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -423,11 +424,12 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             )
             self.assertEqual(result["confirmed_individual_count"], 1)
             self.assertEqual(result["confirmed_group_count"], 0)
-            self.assertEqual(os.stat(output).st_mode & 0o777, 0o600)
-            self.assertEqual(os.stat(report).st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(os.stat(output).st_mode & 0o777, 0o600)
+                self.assertEqual(os.stat(report).st_mode & 0o777, 0o600)
             payload = json.loads(report.read_text(encoding="utf-8"))
             self.assertFalse(payload["external_posting"])
-            with sqlite3.connect(output) as connection:
+            with closing(sqlite3.connect(output)) as connection:
                 self.assertEqual(
                     connection.execute(
                         "SELECT COUNT(*) FROM direct_agoda_amount_individual_authorities"
@@ -455,7 +457,7 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             self.assertEqual(result["confirmed_group_count"], 0)
             self.assertFalse(result["amount_universe_sealed"])
             self.assertEqual(result["detail_terminal_no_price_count"], 1)
-            with sqlite3.connect(output) as connection:
+            with closing(sqlite3.connect(output)) as connection:
                 self.assertEqual(
                     connection.execute(
                         "SELECT COUNT(*) "
@@ -473,7 +475,7 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             report = root / "report.json"
             integration_base(base)
             integration_detail_with_terminal_no_price(detail)
-            with sqlite3.connect(detail) as connection:
+            with closing(sqlite3.connect(detail)) as connection:
                 connection.execute(
                     "UPDATE booking_detail_observations "
                     "SET observation_kind=?,detail_reservation_status='confirmed'",
@@ -497,7 +499,7 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             detail = root / "detail.sqlite"
             integration_base(base)
             integration_detail_with_terminal_no_price(detail)
-            with sqlite3.connect(detail) as connection:
+            with closing(sqlite3.connect(detail)) as connection:
                 connection.execute("DELETE FROM page_attestations")
                 connection.commit()
             with self.assertRaisesRegex(
@@ -518,7 +520,7 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             detail = root / "detail.sqlite"
             integration_base(base)
             integration_detail_with_terminal_no_price(detail)
-            with sqlite3.connect(detail) as connection:
+            with closing(sqlite3.connect(detail)) as connection:
                 connection.execute(
                     "UPDATE page_attestations SET ordered_membership_sha256=?",
                     ("x" * 64,),
@@ -547,7 +549,7 @@ class AgodaAmountReconciliationCandidateTests(unittest.TestCase):
             detail = root / "detail.sqlite"
             integration_base(base)
             integration_detail_with_terminal_no_price(detail)
-            with sqlite3.connect(detail) as connection:
+            with closing(sqlite3.connect(detail)) as connection:
                 connection.execute(
                     "UPDATE page_attestations SET source_page_set_sha256=?",
                     ("x" * 64,),

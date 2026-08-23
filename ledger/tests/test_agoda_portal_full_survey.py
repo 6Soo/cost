@@ -461,10 +461,11 @@ class AgodaPortalFullSurveyTests(unittest.TestCase):
         self.assertIn("11", arguments)
 
     def test_route_reset_retries_transient_browser_command_failure(self) -> None:
+        address_state = {"result": {"snapshot": {"treeText": "0 주소 표시줄"}}}
         with (
             patch(
                 "tools.agoda_portal_full_survey._run_orca",
-                side_effect=[RuntimeError("transient"), {}, {}, {}],
+                side_effect=[RuntimeError("transient"), address_state, {}, {}],
             ) as run_orca,
             patch("tools.agoda_portal_full_survey.time.sleep"),
         ):
@@ -733,10 +734,11 @@ class AgodaPortalFullSurveyTests(unittest.TestCase):
             key, key_id = _load_or_create_hmac_key(key_path)
             self.assertGreaterEqual(len(key), 32)
             self.assertTrue(key_id.startswith("agoda-hmac-v1:"))
-            self.assertEqual(key_path.stat().st_mode & 0o777, 0o600)
             same_key, same_id = _load_or_create_hmac_key(key_path)
             self.assertEqual(key, same_key)
             self.assertEqual(key_id, same_id)
+            if os.name != "nt":
+                self.assertEqual(key_path.stat().st_mode & 0o777, 0o600)
 
     def test_private_publication_is_0600_and_no_replace(self) -> None:
         connection = sqlite3.connect(":memory:")
@@ -779,7 +781,8 @@ class AgodaPortalFullSurveyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:
             destination = Path(directory) / "survey.sqlite"
             _publish_memory_database(connection, destination)
-            self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(destination.stat().st_mode & 0o777, 0o600)
             with self.assertRaisesRegex(SurveyError, "refusing_to_overwrite"):
                 _publish_memory_database(connection, destination)
 
@@ -802,7 +805,8 @@ class AgodaPortalFullSurveyTests(unittest.TestCase):
                 side_effect=reject_tmp_chmod,
             ):
                 _publish_memory_database(connection, direct_destination)
-            self.assertEqual(direct_destination.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(direct_destination.stat().st_mode & 0o777, 0o600)
         finally:
             direct_destination.unlink(missing_ok=True)
         connection.close()
