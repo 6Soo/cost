@@ -3194,3 +3194,42 @@ projected payment는 5,328건이었다. 이 결과는
 화면에 도달했고 8/8에서 카드 끝 4자리가 표시됐다. 고객센터·지원 경로 클릭은 0건이다.
 중간 병렬 묶음은 호스트가 끊겨 저장되지 않은 부분 결과가 있으므로 완성 증거로 합치지
 않았다. 이번 재확인은 읽기 전용이며 DB·원장·외부 쓰기는 0건이다.
+
+## 2026-08-23 Phase 0 워크스페이스 위생과 Windows 테스트 기준선 복구
+
+이전 세션의 미커밋 변경을 주제별 4커밋(e55e3bf·18103e2·20c8049·0c30ef5)으로 분리
+반영했다. `.gitignore`에 `outputs/*.sqlite*`와 `outputs/agoda-benchmark-*.json`을
+추가해 생성 DB·벤치마크 산물을 추적에서 제외했고 파일 자체는 디스크에 보존했다.
+
+이어서 이 Windows 작업공간에서 Agoda 회귀 서브셋(237테스트)이 FAIL 3·ERROR 12로
+깨져 있음을 실측으로 확정했다. 과거 LOG의 "91개 PASS"는 POSIX 환경(Linux 세션) 측정으로,
+Windows에서는 구조적으로 통과 불가능한 계약들이 원인이었다. 수정 내용:
+
+1. POSIX 전용 모드 계약(0o600/0o700)을 `os.name != "nt"` 조건으로 플랫폼 분리
+   (amount_reconciliation `_require_private_sqlite`, card_payment_confirmation
+   `_require_private_file`). Linux 의미는 불변.
+2. `open("rb")` 핸들에 `os.fsync` → EBADF(Bad file descriptor) 오류를
+   `open("r+b")`으로 수정(amount_reconciliation ×2, card_payment_confirmation ×2,
+   detail_capture, full_survey). `_publish_noreplace`의 읽기전용 fd fsync도 O_RDWR로
+   바꾸고, 디렉터리 fd fsync는 POSIX에서만 실행한다.
+3. `with sqlite3.Connection`이 close가 아닌 트랜잭션 컨텍스트라 Windows에서 파일
+   잠금(WinError 32)을 유발 — merge 입력·detail sealed/work 요약·full_survey 검증·
+   amount_rec output 검증·관련 테스트들을 `contextlib.closing`으로 결정적 close로
+   변경했다. 최소 재현 스크립트로 leak을 먼저 증명한 뒤 수정했다.
+4. msvcrt.locking의 잠금 충돌이 PermissionError로 나오는 것을 `_try_private_file_lock`
+   이 수용하도록 `(BlockingIOError, PermissionError)`로 확장했다.
+5. `PAGINATION_CONTROL_RE`가 두 번 정의돼 두 번째(범용판)가 첫 번째(엄격판)를 덮어
+   bare `Next`를 page-step으로 오판하던 것을 수정: `_is_page_step_control`을
+   `_pagination_controls` 선택 결과에 위임하고, labeled 선호 판정에 `페이지` 접미를
+   추가했다. 실제 클릭 대상 선택 규칙은 기존 선호 로직 그대로다.
+6. page_capture WSL 브리지 제거 후 남았던 테스트 드리프트(`_resolve_windows_temp_dir`
+   → `_resolve_temp_dir`, exe_info 키 win/wsl_path→path, csc 명령 WindowsBase 포함,
+   wslpath 타임아웃 블록 폐기, script_path 3종을 현재 계약으로 재작성)를 정리하고,
+   POSIX 전용 계약 테스트(mkfifo·chmod 비트·fork 시작방식)에 skipIf 가드를 추가했다.
+7. rebind CLI 테스트는 Paseo IAB fail-closed 정책 BLOCKED(PASEO_IAB_ONLY, 종료코드 2)
+   을 단언하도록 재작성했다. route_reset 목 mock을 현재 state 구조에 맞춰 갱신했다.
+
+결과: Agoda 서브셋 237개 OK(skipped 7=POSIX 전용), tools 내부 5개 OK. 전체
+unittest 스위트는 백그라운드 터미널에서 재실행 중이다. Sol 독립 검토는 immutable
+snapshot 부재로 review_deferred 유지. AGY Gemini는 GEMINI_API_KEY 부재로 미호출,
+본 세션(opencode)이 구현·검증을 수행했다.
