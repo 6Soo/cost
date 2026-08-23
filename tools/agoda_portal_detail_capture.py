@@ -4673,6 +4673,12 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "capture":
+        try:
+            from tools.agoda_browser_policy import legacy_browser_block
+        except ImportError:  # pragma: no cover - direct script execution
+            from agoda_browser_policy import legacy_browser_block
+        return legacy_browser_block("agoda_portal_detail_capture.capture")
+
         result = capture_details(
             app=args.app,
             window_id=args.window_id,

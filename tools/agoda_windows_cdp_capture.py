@@ -55,6 +55,9 @@ BRIDGE_ERROR_CODES = frozenset(
         "cdp_target_list_failed",
         "cdp_page_target_missing",
         "cdp_socket_error",
+        "customer_service_control_forbidden",
+        "customer_service_panel_open",
+        "manage_booking_control_missing",
     }
 )
 
@@ -295,6 +298,8 @@ def auth_check(
     # turn a homepage CTA or a direct-route 502 into a false auth diagnosis.
     if bookings.get("error_marker"):
         status = "PAGE_ERROR"
+    elif bookings.get("customer_service_panel_visible"):
+        status = "CUSTOMER_SERVICE_PANEL_OPEN"
     elif bookings.get("login_required") or not bookings.get("authenticated_page_marker"):
         status = "AUTH_NOT_ATTESTED"
     else:
@@ -331,6 +336,8 @@ def census(
         raise CaptureError("auth_required")
     if result.get("error_marker"):
         raise CaptureError("booking_page_error")
+    if result.get("customer_service_panel_visible"):
+        raise CaptureError("customer_service_panel_open")
     if not result.get("authenticated_page_marker"):
         raise CaptureError("authenticated_page_marker_missing")
     if not _is_agoda_bookings_url(result.get("url")):
@@ -345,6 +352,8 @@ def census(
     )
     if selected.get("login_required") or selected.get("error_marker"):
         raise CaptureError("tab_selection_page_error")
+    if selected.get("customer_service_panel_visible"):
+        raise CaptureError("customer_service_panel_open")
     if not selected.get("authenticated_page_marker"):
         raise CaptureError("authenticated_page_marker_missing_after_selection")
     if not _is_agoda_bookings_url(selected.get("url")):
@@ -366,6 +375,8 @@ def census(
         )
         if selected.get("selected_tab") != tab_name:
             raise CaptureError("selected_tab_not_attested_after_page")
+        if selected.get("customer_service_panel_visible"):
+            raise CaptureError("customer_service_panel_open")
         if not selected.get("authenticated_page_marker"):
             raise CaptureError("authenticated_page_marker_missing_after_page")
         if not selected.get("page_attested") or selected.get("selected_page") != 1:
@@ -380,6 +391,8 @@ def census(
         )
         if selected.get("selected_tab") != tab_name:
             raise CaptureError("selected_tab_not_attested_after_page")
+        if selected.get("customer_service_panel_visible"):
+            raise CaptureError("customer_service_panel_open")
         if not selected.get("authenticated_page_marker"):
             raise CaptureError("authenticated_page_marker_missing_after_page")
         if not selected.get("page_attested") or selected.get("selected_page") != page_no:
@@ -438,6 +451,8 @@ def census_from_selected(
 
     if selected.get("login_required") or selected.get("error_marker"):
         raise CaptureError("selected_page_error")
+    if selected.get("customer_service_panel_visible"):
+        raise CaptureError("customer_service_panel_open")
     if not selected.get("authenticated_page_marker"):
         raise CaptureError("authenticated_page_marker_missing_after_selection")
     if not _is_agoda_bookings_url(selected.get("url")):
@@ -527,6 +542,11 @@ def write_private_json(path: Path, value: Any) -> None:
 
 
 def main() -> int:
+    try:
+        from tools.agoda_browser_policy import legacy_browser_block
+    except ImportError:  # pragma: no cover - direct script execution
+        from agoda_browser_policy import legacy_browser_block
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("auth-check", "census"), required=True)
     parser.add_argument("--port", type=int, required=True)
@@ -539,6 +559,8 @@ def main() -> int:
     parser.add_argument("--page-no", type=int, default=1)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    return legacy_browser_block("agoda_windows_cdp_capture")
+
     try:
         if args.mode == "auth-check":
             result = auth_check(

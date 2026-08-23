@@ -225,6 +225,8 @@ def _verify_return_to_list(
 ) -> None:
     if result.get("login_required") or result.get("error_marker"):
         raise DetailRunError("list_restore_page_error")
+    if result.get("customer_service_panel_visible"):
+        raise DetailRunError("customer_service_panel_open")
     if result.get("selected_tab") != source["tab_name"]:
         raise DetailRunError("list_restore_tab_mismatch")
     if result.get("selected_page") != source["page_no"] or not result.get(
@@ -254,7 +256,7 @@ def _capture_one(
     source_booking = _source_booking(source)
     clicked = False
     try:
-        run_bridge(
+        clicked_result = run_bridge(
             port=port,
             operation="click-card",
             booking_id=source_booking.booking_id,
@@ -262,6 +264,8 @@ def _capture_one(
             endpoint_manifest=endpoint_manifest,
             summary_only=False,
         )
+        if clicked_result.get("customer_service_panel_visible"):
+            raise DetailRunError("customer_service_panel_open")
         clicked = True
         detail = run_bridge(
             port=port,
@@ -271,6 +275,8 @@ def _capture_one(
         )
         if detail.get("login_required") or detail.get("error_marker"):
             raise DetailRunError("detail_error_or_authentication_page")
+        if detail.get("customer_service_panel_visible"):
+            raise DetailRunError("customer_service_panel_open")
         if (
             not detail.get("detail_marker")
             or not detail.get("detail_scope_attested")
@@ -421,6 +427,11 @@ def capture(
 
 
 def main() -> int:
+    try:
+        from tools.agoda_browser_policy import legacy_browser_block
+    except ImportError:  # pragma: no cover - direct script execution
+        from agoda_browser_policy import legacy_browser_block
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--endpoint-manifest", type=Path, required=True)
@@ -432,6 +443,8 @@ def main() -> int:
     parser.add_argument("--max-pages", type=int, default=100)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    return legacy_browser_block("agoda_windows_cdp_detail")
+
     try:
         if args.max_pages < 1:
             raise DetailRunError("max_pages_invalid")

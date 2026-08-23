@@ -8,6 +8,16 @@
  * staging records.
  */
 
+// This is the historical Edge/CDP bridge.  Agoda collection is now owned by
+// Paseo IAB; fail before opening a CDP socket or touching a browser session.
+console.log(JSON.stringify({
+  status: 'BLOCKED',
+  failure_code: 'PASEO_IAB_ONLY',
+  entrypoint: 'agoda_cdp_bridge',
+  message: 'Use the Paseo IAB browser tool; the legacy Edge/CDP bridge is disabled.',
+}));
+process.exit(2);
+
 const argv = process.argv.slice(2);
 
 function option(name, fallback = undefined) {
@@ -128,9 +138,29 @@ const collectExpression = `(() => {
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
   const lines = (value) => String(value || '').split(/\\r?\\n/)
     .map(clean).filter(Boolean);
+  const visible = (element) => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && style.opacity !== '0' && rect.width > 0 && rect.height > 0;
+  };
   const lower = (value) => clean(value).toLocaleLowerCase();
   const body = document.body ? document.body.innerText || '' : '';
   const bodyLower = lower(body);
+  const customerServicePanelVisible = /아고다 고객 센터/i.test(body)
+    && /요청 사항을 선택하거나 직접 입력해 주세요/i.test(body);
+  const customerServiceControlPresent = Array.from(document.querySelectorAll(
+    '[data-element-name="blp-booking-item-agoda-customer-service"],
+     [data-element-name="iris-chat-prompt-button"], button, a, [role="button"]'
+  )).some((element) => {
+    if (!visible(element)) return false;
+    const label = clean(element.innerText || element.getAttribute('aria-label') || '');
+    const dataName = clean(element.getAttribute('data-element-name') || '');
+    return dataName === 'blp-booking-item-agoda-customer-service'
+      || dataName === 'iris-chat-prompt-button'
+      || /고객센터|고객 센터|support|help|문의/i.test(label + ' ' + dataName);
+  });
   const cardElements = Array.from(document.querySelectorAll('[class*="mmb-booking-card--"]'));
   const cards = cardElements.map((element, index) => {
     const className = String(element.className || '');
@@ -227,6 +257,8 @@ const collectExpression = `(() => {
     identity_attested: cards.length === new Set(cards.map((item) => item.booking_id).filter(Boolean)).size &&
       cards.every((item) => item.booking_id && item.manage_id_attested),
     body_length: body.length,
+    customer_service_panel_visible: customerServicePanelVisible,
+    customer_service_control_present: customerServiceControlPresent,
   };
 })()`;
 
@@ -252,6 +284,8 @@ async function collect() {
       has_next_page: result.has_next_page,
       next_page_control_present: result.next_page_control_present,
       body_length: result.body_length,
+      customer_service_panel_visible: result.customer_service_panel_visible,
+      customer_service_control_present: result.customer_service_control_present,
     };
   }
   return result;
@@ -259,6 +293,9 @@ async function collect() {
 
 const detailCollectExpression = `(() => {
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const pageBody = document.body ? document.body.innerText || '' : '';
+  const customerServicePanelVisible = /아고다 고객 센터/i.test(pageBody)
+    && /요청 사항을 선택하거나 직접 입력해 주세요/i.test(pageBody);
   // The customer-support chat widget is mounted under document.body and can
   // contain unrelated historical booking IDs.  Scope detail capture to the
   // booking content root so those IDs cannot contaminate identity binding.
@@ -278,6 +315,7 @@ const detailCollectExpression = `(() => {
     error_marker: errorMarker,
     detail_marker: detailMarker,
     detail_scope_attested: Boolean(detailRoot && detailMarker),
+    customer_service_panel_visible: customerServicePanelVisible,
     values,
     body_length: body.length,
   };
@@ -298,6 +336,7 @@ async function collectDetail() {
       error_marker: result.error_marker,
       detail_marker: result.detail_marker,
       detail_scope_attested: result.detail_scope_attested,
+      customer_service_panel_visible: result.customer_service_panel_visible,
       value_count: result.values.length,
       body_length: result.body_length,
     };
@@ -363,6 +402,11 @@ async function clickNextPage() {
 async function clickCard() {
   const result = await evaluate(`((wantedId, wantedIndex) => {
     const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+    const pageBody = document.body ? document.body.innerText || '' : '';
+    if (/아고다 고객 센터/i.test(pageBody)
+      && /요청 사항을 선택하거나 직접 입력해 주세요/i.test(pageBody)) {
+      return { ok: false, code: 'customer_service_panel_open' };
+    }
     const cards = Array.from(document.querySelectorAll('[class*="mmb-booking-card--"]'));
     const card = cards.find((item, index) => {
       const classMatch = String(item.className || '').match(/mmb-booking-card--([A-Za-z0-9_-]+)/);
@@ -375,8 +419,20 @@ async function clickCard() {
     });
     if (!card) return { ok: false, code: 'card_missing' };
     const controls = Array.from(card.querySelectorAll('a,button,[role="button"]'));
-    const manage = controls.find((item) => /manage booking|예약 관리|예약 확인\\/변경하기/i.test(clean(item.innerText || item.getAttribute('aria-label') || '')));
-    (manage || card).click();
+    const manage = controls.find((item) =>
+      item.getAttribute('data-element-name') === 'blp-booking-item-button-edit'
+    ) || controls.find((item) =>
+      /manage booking|예약 관리|예약 확인\\/변경하기/i.test(
+        clean(item.innerText || item.getAttribute('aria-label') || '')
+      )
+    );
+    if (!manage) return { ok: false, code: 'manage_booking_control_missing' };
+    const manageText = clean(manage.innerText || manage.getAttribute('aria-label') || '');
+    const manageData = clean(manage.getAttribute('data-element-name') || '');
+    if (/고객센터|고객 센터|support|help|문의/i.test(manageText + ' ' + manageData)) {
+      return { ok: false, code: 'customer_service_control_forbidden' };
+    }
+    manage.click();
     return { ok: true };
   })(wantedId, wantedIndex)`, { wantedId: bookingId, wantedIndex: cardIndex });
   if (!result?.ok) throw new Error(result?.code || 'card_click_failed');

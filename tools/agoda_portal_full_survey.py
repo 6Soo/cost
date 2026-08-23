@@ -1769,6 +1769,11 @@ def survey_all_tabs(
 
 
 def main() -> int:
+    try:
+        from tools.agoda_browser_policy import legacy_browser_block
+    except ImportError:  # pragma: no cover - direct script execution
+        from agoda_browser_policy import legacy_browser_block
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", default="msedge")
     parser.add_argument("--window-id", type=int, required=True)
@@ -1776,6 +1781,8 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--hmac-key-file", type=Path, required=True)
     args = parser.parse_args()
+    return legacy_browser_block("agoda_portal_full_survey")
+
     result = survey_all_tabs(
         app=args.app,
         window_id=args.window_id,

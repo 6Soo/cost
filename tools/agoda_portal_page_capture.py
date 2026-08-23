@@ -120,11 +120,11 @@ _atexit_registered = False
 def _cleanup_compiled_bridge() -> None:
     global _compiled_csharp_bridge
     if _compiled_csharp_bridge is not None:
-        wsl_path = _compiled_csharp_bridge.get("wsl_path")
-        if wsl_path:
+        bridge_path = _compiled_csharp_bridge.get("path")
+        if bridge_path:
             try:
-                if os.path.exists(wsl_path):
-                    os.remove(wsl_path)
+                if os.path.exists(bridge_path):
+                    os.remove(bridge_path)
             except Exception:
                 pass
 
@@ -136,20 +136,19 @@ def _resolve_csharp_source_windows_path(timeout: float = 10.0) -> str:
     return str(source)
 
 
-def _resolve_windows_temp_dir(timeout: float = 10.0) -> tuple[str, str]:
-    win_temp = tempfile.gettempdir()
-    return win_temp, win_temp
+def _resolve_temp_dir(timeout: float = 10.0) -> str:
+    return tempfile.gettempdir()
 
 
 def _verify_csharp_bridge_executable(exe_info: dict[str, Any]) -> None:
-    wsl_path = exe_info.get("wsl_path")
+    bridge_path = exe_info.get("path")
     expected_sha = exe_info.get("sha256")
-    if not wsl_path or not expected_sha or not os.path.isfile(wsl_path):
+    if not bridge_path or not expected_sha or not os.path.isfile(bridge_path):
         raise RuntimeError("windows UIA bridge executable verification failed")
     verification_failed = False
     current_sha = ""
     try:
-        with open(wsl_path, "rb") as f:
+        with open(bridge_path, "rb") as f:
             content = f.read()
         current_sha = hashlib.sha256(content).hexdigest()
     except Exception:
@@ -188,19 +187,16 @@ def _ensure_csharp_bridge(
         if step_timeout <= 0:
             raise RuntimeError("windows UIA bridge admission timed out")
 
-        win_temp, wsl_temp = _resolve_windows_temp_dir(timeout=step_timeout)
+        temp_dir = _resolve_temp_dir(timeout=step_timeout)
 
         target_found = False
-        win_exe_path = ""
-        wsl_exe_path = ""
+        bridge_path = ""
         for _ in range(10):
             token = secrets.token_hex(16)
             exe_filename = f"agoda_uia_{token}.exe"
-            candidate_win = f"{win_temp}\\{exe_filename}"
-            candidate_wsl = f"{wsl_temp}/{exe_filename}"
-            if not os.path.exists(candidate_wsl):
-                win_exe_path = candidate_win
-                wsl_exe_path = candidate_wsl
+            candidate_path = os.path.join(temp_dir, exe_filename)
+            if not os.path.exists(candidate_path):
+                bridge_path = candidate_path
                 target_found = True
                 break
         if not target_found:
@@ -229,7 +225,7 @@ def _ensure_csharp_bridge(
             f"/r:{wpf_dir}\\WindowsBase.dll",
             f"/r:{framework_dir}\\System.Windows.Forms.dll",
             f"/r:{framework_dir}\\System.Web.Extensions.dll",
-            f"/out:{win_exe_path}",
+            f"/out:{bridge_path}",
             win_src,
         ]
 
@@ -256,18 +252,17 @@ def _ensure_csharp_bridge(
         if failed or compile_process is None or compile_process.returncode != 0:
             raise RuntimeError("windows UIA bridge compilation failed") from None
 
-        if not os.path.isfile(wsl_exe_path):
+        if not os.path.isfile(bridge_path):
             raise RuntimeError("windows UIA bridge executable verification failed")
         try:
-            with open(wsl_exe_path, "rb") as f:
+            with open(bridge_path, "rb") as f:
                 content = f.read()
             file_sha256 = hashlib.sha256(content).hexdigest()
         except Exception:
             raise RuntimeError("windows UIA bridge executable verification failed") from None
 
         _compiled_csharp_bridge = {
-            "win_path": win_exe_path,
-            "wsl_path": wsl_exe_path,
+            "path": bridge_path,
             "sha256": file_sha256,
         }
 
@@ -567,7 +562,7 @@ def _run_windows_uia(*args: str) -> dict[str, Any]:
         )
         _verify_csharp_bridge_executable(exe_info)
         command = [
-            exe_info["wsl_path"],
+            exe_info["path"],
             "-Operation",
             operation,
             "-WindowId",
@@ -1485,6 +1480,11 @@ def capture_page(
 
 
 def main() -> int:
+    try:
+        from tools.agoda_browser_policy import legacy_browser_block
+    except ImportError:  # pragma: no cover - direct script execution
+        from agoda_browser_policy import legacy_browser_block
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", default="msedge")
     parser.add_argument("--window-id", type=int, required=True)
@@ -1498,6 +1498,11 @@ def main() -> int:
     )
     parser.add_argument("--pages", default=",".join(str(page) for page in EXPECTED_PAGE_ORDER))
     args = parser.parse_args()
+
+    # This module still contains the historical Windows UIA implementation,
+    # but it must never be used as a browser entry point.  Paseo IAB owns the
+    # browser session and is driven by the coordinator's browser tools.
+    return legacy_browser_block("agoda_portal_page_capture")
 
     if "-" in args.pages:
         start, end = (int(part) for part in args.pages.split("-", 1))
