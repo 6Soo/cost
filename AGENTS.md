@@ -10,8 +10,12 @@
 1. **기본 초안·설계 모델은 GPT-5.6 Luna max**로 둔다. 필요한 실질 작업에는
    **GPT-5.6 Sol medium의 별도 문맥 독립 반박·검증**을 붙이되, 검토는 기본적으로
    백그라운드에서 병렬 진행한다. 일반 작업의 실행·진행·중간 보고는 Sol 결과를 기다리지 않는다.
-2. **저추론·쓰기·웹검색·구현**은 AGY Gemini 3.6 Flash Low를 우선 사용한다.
-   사용 불가 시 GPT-5.6 Luna max로 폴백한다.
+2. **저추론·쓰기·웹검색·구현**에서 AGY는 Paseo의 `agy` provider
+   (`AGY (Antigravity CLI)`, local ACP bridge)를 통해서만 호출한다. 에이전트 위임은
+   `mcp__paseo__create_agent`에 `provider: "agy"`를 지정하고, 후속 작업은 같은 agent에 보낸다.
+   `tools/gemini.mjs` 직접 실행이나 `GEMINI_API_KEY`를 요구하는 직접 Gemini API 경로는 AGY 호출로 사용하지 않는다.
+   Paseo `agy` provider가 unavailable이면 `AGY_ACP_UNAVAILABLE`로 기록하고 GPT-5.6 Luna max로 즉시 폴백한다.
+   ACP를 실제로 사용하지 않았다면 AGY를 사용했다고 보고하지 않는다.
 3. **사용자 판단이 필요해 보이는 사안**도 Luna 초안을 먼저 진행하고 Sol medium 검토를
    병렬로 붙인다. Sol 결과가 늦어도 실행 가능한 작업은 계속한다. 외부 게시·전기·배포·결제·
    보안 변경처럼 되돌리기 어렵거나 고위험인 최종 확정만 독립 검토 PASS를 게이트로 삼는다.
@@ -109,7 +113,9 @@ Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 �
 ## 에이전트 차이 (넘어가지 않는 것)
 Claude Code 고유 기능은 **다른 에이전트로 이전되지 않는다**: 서브에이전트 위임(Agent/Task), Skill,
 백그라운드 Workflow, PR 웹훅 구독. `CLAUDE.md`의 "GLM 서브에이전트/모델 위임"도 Claude 세션 안에서만
-성립한다. 다른 에이전트에서는 `tools/llm-bridge.mjs`·`tools/gemini.mjs`를 **직접 셸 호출**해 대체하라.
+성립한다. 다른 에이전트에서도 AGY는 Paseo의 `agy` provider(local ACP bridge)를 우선 사용한다.
+`tools/gemini.mjs` 직접 셸 호출과 `GEMINI_API_KEY` 기반 직접 Gemini API 호출은 AGY 경로로 금지한다.
+ACP 도구가 없으면 `AGY_ACP_UNAVAILABLE`을 남기고 Luna max로 폴백한다.
 
 ---
 
