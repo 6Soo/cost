@@ -59,9 +59,38 @@ Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 �
 
 10. Agoda 예약 목록·상세 수집은 이 작업공간에서 Paseo IAB 브라우저 도구만 사용한다. Edge,
     Windows UIA/CDP, 기존 `msedge` supervisor, 또는 다른 브라우저로 폴백하지 않는다. Paseo
-    IAB가 unavailable/timeout이면 `PASEO_BROWSER_UNAVAILABLE` 또는 구체적인 단일 failure code로
-    종료하고 재시도 폭주를 만들지 않는다. 수집 중 예약 상세의 `예약 확인/변경하기` 경로만
+    IAB가 unavailable/timeout이면 `PASEO_BROWSER_UNAVAILABLE` 또는 구체적인 failure code를
+    기록하고, 같은 전용 세션에서만 bounded backoff 재시도(목록/페이지 로딩 최대 5회,
+    상세 진입 전 최대 3회)를 허용한다. 새 에이전트·새 세션·중복 탭으로 우회하거나 무한
+    재시도하지 않으며, 소진 시 `RETRY_EXHAUSTED`로 종료한다. 수집 중 예약 상세의 `예약 확인/변경하기` 경로만
     허용하며, `고객센터`, 도움말, 지원/문의 버튼과 그 텍스트를 클릭·호출하지 않는다.
+     `booking-button` 순번, 전체 DOM 버튼 index, 위치 기반 range는 예약 상세 선택에 사용할 수
+     없다. Agoda 상세 control은 `blp-booking-item-button-edit` 또는 동일 예약의 명시적인
+     `예약 확인/변경하기`만 허용하고, 고객센터 패널이 보이면 즉시 fail-closed한다.
+     Agoda 수집에서는 `browser_click`을 사용하지 않는다. 상세 진입은 예약 ID로 카드를
+     먼저 증명한 뒤 그 카드 내부의 `data-element-name="blp-booking-item-button-edit"`
+     하나만 `browser_evaluate`에서 선택·클릭한다. snapshot의 `@e23` 같은 일반 ref,
+     카드/버튼의 순번·좌표·텍스트 부분일치는 금지한다.
+     단, 예약 카드에 기본으로 렌더링되는 `blp-booking-item-agoda-customer-service`,
+     `iris-chat-prompt-button`, `고객센터에 연락하기` 같은 지원 control의 존재만으로는
+     패널 오픈으로 판정하지 않는다. `display/visibility/opacity`와 bounding box를 확인한
+     실제 chat dialog/root 및 그 안의 입력 안내문(`요청 사항을 선택하거나 직접 입력해
+     주세요`)이 동시에 보일 때만 `CUSTOMER_CENTER_PANEL_VISIBLE`이다. control 존재는
+     `CUSTOMER_CENTER_CONTROL_PRESENT`로 기록하는 비차단 관찰값이다.
+11. Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상태가 workspace 단위로
+    공유될 수 있으므로, 병렬 수집에서는 에이전트마다 별도의 Paseo workspace를 만들고
+    그 workspace에 에이전트 하나만 붙인다. 하나의 Paseo IAB 인증 세션·브라우저 호스트·탭을
+    두 에이전트가 공유하지 않으며, 한 에이전트가 다른 에이전트의 `browserId`를 사용하거나
+    그 세션에 새 탭을 추가하지 않는다. 세션 소유권이 확인되지 않거나 다른 Agoda 탭이
+    보이면 `SESSION_OWNERSHIP_UNKNOWN`으로 중단한다.
+12. Agoda 비교 실행의 각 워커는 전용 세션 하나에서만 순차적으로 작업하고, 예약별로
+    `booking_id`, 선택 control, 현재 URL, 고객센터 패널 상태, 시작·종료 시각, failure code를
+    기록한다. 작업 완료 알림은 부모 에이전트의 단일 요약으로만 전달하며, 브라우저 워커와
+    백그라운드 검토 워커는 `notifyOnFinish=false`를 사용한다. 재시도는 동일 세션에서만
+     수행하고, 클릭 후 URL/상태가 불명확하면 재클릭하지 않고 `NAVIGATION_STATE_UNKNOWN`으로
+     종료한다. `browser_new_tab`이 timeout이면 즉시 재호출하지 말고 먼저
+     `browser_list_tabs`로 결과를 확인한다. 새 tab이 있으면 그 tab만 사용하고, 없다는
+     확정이 없으면 `NAVIGATION_STATE_UNKNOWN`으로 종료한다. 추가 워커·중복 탭은 만들지 않는다.
 
 ## 시작 시 반드시 읽을 순서
 1. **`LOG.md` 맨 아래 최신 "세션 핸드오프" 블록** — 지금 무엇이 끝났고 다음에 뭘 할지.

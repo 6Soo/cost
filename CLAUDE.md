@@ -25,8 +25,33 @@ immutable snapshot 또는 별도 worktree가 없으면 검토를 보류한다. S
 경로를 반복하지 않고 단일 failure code로 보존한다.
 
 Agoda 예약 수집의 브라우저 공급자는 Paseo IAB로 고정한다. Edge, Windows UIA/CDP 및 `msedge`
-supervisor로 폴백하지 않으며, Paseo IAB unavailable/timeout은 단일 failure code로 종료한다.
+supervisor로 폴백하지 않으며, Paseo IAB unavailable/timeout은 동일 전용 세션에서만
+bounded backoff 재시도(목록/페이지 최대 5회, 상세 진입 전 최대 3회)를 적용한다.
+새 세션·새 워커·중복 탭으로 우회하거나 무한 재시도하지 않고, 소진 시 `RETRY_EXHAUSTED`로
+종료한다.
 예약 상세 경로 외의 고객센터·도움말·지원/문의 버튼은 클릭하거나 호출하지 않는다.
+     `booking-button` 순번이나 전체 DOM 버튼 index/range로 예약 상세를 선택하지 않으며,
+     `blp-booking-item-button-edit` 또는 명시적인 `예약 확인/변경하기`만 허용한다. 고객센터
+     패널이 보이면 즉시 fail-closed한다. 카드에 기본으로 존재하는
+     `blp-booking-item-agoda-customer-service`, `iris-chat-prompt-button`,
+     `고객센터에 연락하기` control은 패널 자체가 아니며 존재만으로 중단하지 않는다.
+     실제로 보이는 chat dialog/root와 입력 안내문 `요청 사항을 선택하거나 직접 입력해
+     주세요`가 함께 있을 때만 `CUSTOMER_CENTER_PANEL_VISIBLE`로 기록한다.
+     Agoda 수집에서는 snapshot 일반 ref를 사용하는 `browser_click`을 금지한다. 예약 ID로
+     카드와 동일 예약을 증명한 뒤 `browser_evaluate`에서 해당 카드 내부의
+     `data-element-name="blp-booking-item-button-edit"`만 선택·클릭한다.
+
+Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상태가 workspace 단위로 공유될 수
+있으므로 병렬 수집에서는 에이전트마다 별도 Paseo workspace를 만들고 workspace당 에이전트
+하나만 붙인다. 하나의 Paseo IAB 인증 세션·브라우저 호스트·탭을 여러 에이전트가 공유하지
+않으며, 다른 에이전트의 `browserId`를 재사용하거나 그 세션에 새 탭을 추가하지 않는다.
+세션 소유권이 확인되지 않거나 다른 Agoda 탭이 보이면 `SESSION_OWNERSHIP_UNKNOWN`으로
+     중단한다. 각 워커는 전용 세션 하나에서 예약을 순차 처리하고, 예약별 선택 control·현재 URL·
+     패널 상태·시각·failure code를 기록한다. 클릭 후 URL/상태가 불명확하면 재클릭하지 않고
+     `NAVIGATION_STATE_UNKNOWN`으로 종료한다. `browser_new_tab` timeout 후에는 먼저
+     `browser_list_tabs`로 실제 생성 여부를 확인하며, 확인 전 중복 `browser_new_tab`을
+     호출하지 않는다. 브라우저 워커와 백그라운드 검토 워커는
+`notifyOnFinish=false`를 사용하고 부모가 단일 요약을 전달한다.
 
 저추론 위임은 `python ~/.orca/bin/route-b.py "<프롬프트>" --task "<작업 설명>"`을 사용하고,
 전체 설계·구현·검증 사이클은 `bash ~/.orca/bin/cycle.sh <워크트리> "<과제>"`를 사용한다.

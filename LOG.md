@@ -3137,6 +3137,38 @@ portal/detail·card reconciliation·candidate graph 회귀 테스트 91건은 �
 현재 pending permission은 0건이다. 따라서 검토 권한 알림이 실행 critical path를
 다시 멈추지 않도록 현재 작업 공간에는 부모 agent만 남겨 두었다.
 
+## 2026-08-21 Agoda 고객센터 패널 실시간 incident
+
+사용자 화면에서 `아고다 고객센터` 패널과 Paseo 데스크톱 알림이 실제로 열린 상태가
+확인됐다. 기존 산출물의 `customer_center_click_count=0`은 과거 수집 실행의 계측값일
+뿐이며 현재 브라우저 상태를 증명하지 못한다. Paseo IAB DOM을 읽기 전용으로 대조한
+결과, 동일한 Agoda 예약 목록 URL의 탭 2개 모두 채팅 패널 본문(`요청 사항을 선택하거나
+직접 입력해 주세요`)을 포함하고 있었다. 고객센터 버튼이 예약 카드에 보이는 것은 기본
+Agoda UI지만, 패널이 열린 것은 정상 수집 상태가 아니다.
+
+현재 활성 agent는 부모 1개뿐이고 pending permission은 0건이었다. 두 탭은 고객센터
+UI를 누르지 않고 닫았으며, 이후 Paseo 탭 목록은 0개가 됐다. 이 incident 중 예약 상세
+수집·원장·DB·외부 쓰기는 없었다.
+
+직접 확인된 원인은 `예약 확인/변경하기`와 `아고다 고객센터에 연락하기`가 카드마다
+함께 존재하는 화면에서 과거 병렬 작업이 순번 기반으로 실행될 수 있었던 구조와 중복
+탭/알림 잔류가 결합한 위험이다. 실제 최초 클릭 주체는 보존된 실행 이벤트만으로 확정할
+수 없으므로 이를 단정하지 않는다. Sol 검토의 권한 요청이 이 패널을 직접 열었다는
+근거도 없지만, 같은 workspace의 검토·실행 혼합은 권한 알림과 작업 지연을 만든 별도
+원인이다.
+
+재발 방지로 레거시 CDP 브리지도 다음 경계를 추가했다. 고객센터 패널이 보이면
+`customer_service_panel_open`으로 fail-closed하고, 상세 열기는 카드 내부의
+`blp-booking-item-button-edit` 또는 명시적인 `예약 확인/변경하기`만 허용하며,
+고객센터/지원 텍스트를 가진 control은 거부한다. Python capture/detail 경로도 목록·
+상세·복귀 단계에서 같은 패널 플래그를 차단한다. `node --check`, `py_compile`, Agoda
+관련 91개 테스트는 PASS했다. 현재 Agoda 대사는 카드 권위·실청구액/통화 결속 등이
+아직 닫히지 않아 FAIL 및 posting 금지를 유지한다.
+
+AGY Gemini 점검은 `GEMINI_API_KEY` 부재로 호출되지 않아 Luna가 구현·검증을 이어갔다.
+Sol 검토는 실행 workspace와 dirty tree를 공유하지 않는 immutable snapshot을 확보한 뒤
+background로만 시작해야 하므로 이번 실시간 incident의 critical path에는 붙이지 않았다.
+
 ## 2026-08-21 Agoda 상태 산출물 정합성 보정
 
 읽기 전용 재점검에서 Upcoming 1~3의 상세·card4 116/116은 이미 닫혔는데,
@@ -3154,3 +3186,11 @@ projected payment는 5,328건이었다. 이 결과는
 `outputs/agoda-card-raw-authority-audit-20260821.json`에 보존했다. 따라서 남은
 차단은 카드 파일 누락이 아니라 Agoda opaque 상세와 카드 원문·실청구액·통화 사이의
 권위 관계가 아직 닫히지 않은 점이다.
+
+## 2026-08-21 Agoda 완료 2페이지 후반 재개 확인
+
+브라우저 호스트 재연결 후 새 Paseo IAB 탭을 예약마다 만들고 완료 예약 2페이지 후반
+8건을 `blp-booking-item-button-edit` 고정 selector로 재확인했다. 8/8이 호텔 상세
+화면에 도달했고 8/8에서 카드 끝 4자리가 표시됐다. 고객센터·지원 경로 클릭은 0건이다.
+중간 병렬 묶음은 호스트가 끊겨 저장되지 않은 부분 결과가 있으므로 완성 증거로 합치지
+않았다. 이번 재확인은 읽기 전용이며 DB·원장·외부 쓰기는 0건이다.
