@@ -5,3 +5,6 @@ ledger/data/*.db
 ledger/data/*.db-shm
 ledger/data/*.db-wal
 ledger/data/review-snapshots/
+outputs/*.sqlite
+outputs/*.sqlite-*
+outputs/agoda-benchmark-*.json
