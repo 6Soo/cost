@@ -3233,3 +3233,28 @@ Windows에서는 구조적으로 통과 불가능한 계약들이 원인이었�
 unittest 스위트는 백그라운드 터미널에서 재실행 중이다. Sol 독립 검토는 immutable
 snapshot 부재로 review_deferred 유지. AGY Gemini는 GEMINI_API_KEY 부재로 미호출,
 본 세션(opencode)이 구현·검증을 수행했다.
+
+## 2026-08-23 전체 스위트 기준선 측정과 비아고다 실패 분류
+
+전체 unittest 스위트(729테스트, 39.6분)를 이 Windows 머신에서 최초 완주해
+FAIL 15·ERROR 73·skipped 26을 실측했다. 사용자 지시로 아고다 관련 파일과 진행 중인
+Luna(codex) 세션의 작업은 건드리지 않았고, 비아고다 실패만 처리했다.
+
+수정한 것(185ca9d): 테스트의 무인코딩 `read_text`/`write_text` 31곳을
+`encoding="utf-8"`으로 고정했다. cp949 로캘에서 한글 JSON이 깨져 r41 입력 해시
+게이트까지 연쇄 실패했던 것이 근본원인이며, CLI 재빌드 테스트의 `python3` 호출은
+`sys.executable`로 바꿔 Windows 종료코드 9009를 해소했다. Linux는 UTF-8이 기본이라
+동작 불변이다. 실측: owner_review 모듈 18개 중 17개 통과(잔여 1개는 아래 환경 경계),
+projection의 이전 실패 3건 중 1건 통과.
+
+남은 비아고다 실패는 코드 결함이 아니라 환경 경계 두 종류로 확정했다.
+①라이브 입력 바이트 게이트: `/tmp/cost-r*` 봉인 스테이징 부재(all_period_* 계열
+setUpClass 17종), 커밋된 ledger/data의 CRLF 체크아웃으로 r39 권위 해시·r41 인덱스
+해시·v6 상수가 불일치(han/projection/owner_review/ota_lifecycle). ②POSIX 전용
+프리미티브: 심볼릭링크 권한(WinError 1314), renameat2·부모 디렉터리 fsync·nlink
+계약(lineage_annex·receipt_airfare·p07 발행/검증 스택). 이들은 Linux 세션에서
+역대 통과 이력이 있는 설계된 경계다. Windows 상시화가 필요하면 `.gitattributes`
+줄바꿈 정책 결정이 선행 과제다(별도 승인 필요, Luna 동시 작업 중 대규모 정규화 금지).
+
+재측정은 분리 프로세스로 실행하며 결과는 `%TEMP%\opencode\full-baseline2.log`에
+기록한다. Sol 검토 review_deferred 유지.
