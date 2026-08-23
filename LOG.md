@@ -3258,3 +3258,29 @@ setUpClass 17종), 커밋된 ledger/data의 CRLF 체크아웃으로 r39 권위 �
 
 재측정은 분리 프로세스로 실행하며 결과는 `%TEMP%\opencode\full-baseline2.log`에
 기록한다. Sol 검토 review_deferred 유지.
+
+## 2026-08-23 Windows 상시화 Wave 1 — 정책 선언과 활성화 런북
+
+사용자 결정에 따라 Windows를 상시 환경으로 진행한다. 이번 세션에서 안전하게
+선언만 완료했고, 작업 트리 플립은 동시 Agoda 세션(codex)의 미커밋 변경이
+사라진 조용한 시점에 실행한다.
+
+완료(1e2d979): `.gitattributes`로 LF 캐논 컬 정책 선언(`* text=auto eol=lf`,
+바이너리 산출물 명시 제외). 로컬 `core.autocrlf=false` 설정. symlink 권한 프로브
+결과 WinError 1314(권한 없음) 확인.
+
+Wave 2 활성화 순서(Sol 세션이 커밋·idle이 된 뒤, 단일 세션에서):
+1. 미커밋 잔여가 있으면 해당 경로만 `git stash push -- <paths>`.
+2. `git add --renormalize .` 후 커밋(인덱스는 이미 LF라 변경 최소).
+3. 작업 트리를 정책대로 재추출: `git rm -rq --cached . && git reset --hard`
+   (untracked는 보존됨). 모든 텍스트가 LF로 materialize된다.
+4. stash 사용 시 pop으로 복원. 개행 문맥 충돌이 나면 해당 파일은 수동 재적용.
+5. 영향 모듈 재실행로 검증: test_direct_projection(han 3종),
+   test_direct_owner_review(v6), test_direct_ota_lifecycle_support,
+   test_han_master_candidate — r39/r41/v6 해시 게이트가 통과로 바뀌어야 한다.
+
+추가 전제: symlink 계약 테스트(lineage_annex 등 다수)는 Windows Developer Mode
+활성(또는 관리자 1회)으로 권한을 열면 코드 수정 없이 통과한다. renameat2 기반
+p07 발행 스택(프로덕션 23곳)은 Linux 전용 설계로, Windows 지원은 발행 백엔드
+추상화 리팩토링(별도 계획 R1) 이후에만 가능하다 — 그 전까지 해당 패밀리는
+Linux 세션 전용으로 남긴다.
