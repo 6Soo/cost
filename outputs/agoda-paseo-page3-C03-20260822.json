@@ -1,0 +1,496 @@
+{
+  "lane": "C03",
+  "tab": "완료된 예약",
+  "page": 3,
+  "status": "partial",
+  "list_count": 40,
+  "scanned_count": 40,
+  "captured_count": 37,
+  "duplicate_count": 0,
+  "failure_codes": [
+    "DETAIL_READ_FAILED"
+  ],
+  "records": [
+    {
+      "booking_id": "1742732881",
+      "hotel_or_route": "APA 호텔 앤 리조트 니가타 에키마에 오도리 (APA Hotel and Resort Niigata Ekimae Odori)",
+      "dates": {
+        "check_in": "2026년 7월 3일 금요일 15:00",
+        "check_out": "2026년 7월 4일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 11000,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1737890732",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 11289,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1740618268",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 19188,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1740618418",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 9674,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1740857467",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 21182,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1740858851",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 26954,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1740860247",
+      "hotel_or_route": "EN 리조트 그란데코 호텔 (EN RESORT Grandeco Hotel)",
+      "dates": {
+        "check_in": "2026년 7월 2일 목요일 15:00",
+        "check_out": "2026년 7월 3일 금요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 38859,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1698427658",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일",
+        "check_out": "2026년 6월 30일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 21892,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1698427891",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일",
+        "check_out": "2026년 6월 30일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 21913,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1698429313",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일",
+        "check_out": "2026년 6월 30일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 48914,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1720326239",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일 15:00",
+        "check_out": "2026년 6월 30일 화요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 22737,
+      "currency": "JPY",
+      "card_last4": "4971"
+    },
+    {
+      "booking_id": "1720328123",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일 15:00",
+        "check_out": "2026년 6월 30일 화요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 22729,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1720328445",
+      "hotel_or_route": "Senami View Hotel",
+      "dates": {
+        "check_in": "2026년 6월 29일 월요일 15:00",
+        "check_out": "2026년 6월 30일 화요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 22737,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696945809",
+      "hotel_or_route": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "dates": {
+        "check_in": "2026년 6월 26일 금요일 15:00",
+        "check_out": "2026년 6월 28일 일요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 28150,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696945909",
+      "hotel_or_route": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "dates": {
+        "check_in": "2026년 6월 26일 금요일 15:00",
+        "check_out": "2026년 6월 28일 일요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 365648,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1720316333",
+      "hotel_or_route": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "dates": {
+        "check_in": "2026년 6월 26일 금요일 15:00",
+        "check_out": "2026년 6월 28일 일요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 41125,
+      "currency": "JPY",
+      "card_last4": "4971"
+    },
+    {
+      "booking_id": "1720316730",
+      "hotel_or_route": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "dates": {
+        "check_in": "2026년 6월 26일 금요일 15:00",
+        "check_out": "2026년 6월 28일 일요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 41125,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1720317216",
+      "hotel_or_route": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "dates": {
+        "check_in": "2026년 6월 26일 금요일 15:00",
+        "check_out": "2026년 6월 28일 일요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 24649,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "663906767",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 191473,
+      "currency": "KRW",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "663907375",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일",
+        "check_out": "2026년 6월 26일 금요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "체크인 시 SHONAI HOTEL SUIDEN TERRASSE에서 결제",
+      "amount": 11000,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696942614",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 24548,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1720313176",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 23676,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1720313753",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 23676,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1696943284",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 30540,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1696943502",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 102850,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1739104628",
+      "hotel_or_route": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "dates": {
+        "check_in": "2026년 6월 25일 목요일 15:30",
+        "check_out": "2026년 6월 26일 금요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 26341,
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1696845387",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 36499,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696846030",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 6725,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696846534",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 14516,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696847736",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 21830,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1737844344",
+      "hotel_or_route": "APA 호텔 앤 리조트 조에쓰 묘코 (APA Hotel & Resort Joetsu Myoko)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 10:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 9846,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1740166023",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 22734,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1999260975",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 24877,
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "2022237060",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 162358,
+      "currency": "KRW",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "2022270235",
+      "hotel_or_route": "롯데 아라이 리조트 (Lotte Arai Resort)",
+      "dates": {
+        "check_in": "2026년 6월 23일 화요일 15:00",
+        "check_out": "2026년 6월 24일 수요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 128133,
+      "currency": "KRW",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "663245499",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "check_in": "2026년 6월 22일 월요일 15:00",
+        "check_out": "2026년 6월 23일 화요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 96969,
+      "currency": "KRW",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "663246399",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "check_in": "2026년 6월 22일 월요일 15:00",
+        "check_out": "2026년 6월 23일 화요일 11:00"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": 169371,
+      "currency": "KRW",
+      "card_last4": "8835"
+    }
+  ]
+}

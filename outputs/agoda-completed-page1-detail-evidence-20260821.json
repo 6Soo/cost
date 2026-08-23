@@ -634,7 +634,7 @@
   "summary": {
     "unique_detail_records": 39,
     "hotel_detail_captured": 39,
-    "flight_excluded": 0,
+    "flight_excluded": 1,
     "detail_success": 39,
     "card4_present": 39,
     "payment_fact_present": 39,

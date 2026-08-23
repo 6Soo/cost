@@ -1,0 +1,190 @@
+{
+  "lane": "C04",
+  "tab": "완료된 예약",
+  "page": 4,
+  "status": "partial",
+  "counts": {
+    "total": 40,
+    "attempted": 13,
+    "extracted": 13,
+    "failed": 0,
+    "remaining": 27,
+    "stopped": true
+  },
+  "failure_codes": [
+    "PASEO_BROWSER_UNAVAILABLE",
+    "RETRY_EXHAUSTED"
+  ],
+  "customer_center_panel_seen": false,
+  "records": [
+    {
+      "booking_id": "1696836747",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "checkin": "2026년 6월 22일 월요일",
+        "checkout": "2026년 6월 23일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "59,040",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696837725",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "checkin": "2026년 6월 22일 월요일",
+        "checkout": "2026년 6월 23일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "18,517",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1702389643",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "checkin": "2026년 6월 22일 월요일",
+        "checkout": "2026년 6월 23일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "22,674",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1737832515",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "checkin": "2026년 6월 22일 월요일",
+        "checkout": "2026년 6월 23일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "19,984",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1999257668",
+      "hotel_or_route": "머큐어 나가노 마쓰시로 리조트 앤 스파 (Mercure Nagano Matsushiro Resort & Spa)",
+      "dates": {
+        "checkin": "2026년 6월 22일 월요일",
+        "checkout": "2026년 6월 23일 화요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "82,128",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1737582120",
+      "hotel_or_route": "Hakuba Hotel Paipunokemuri",
+      "dates": {
+        "checkin": "2026년 6월 21일 일요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "19,820",
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "1737582184",
+      "hotel_or_route": "Hakuba Hotel Paipunokemuri",
+      "dates": {
+        "checkin": "2026년 6월 21일 일요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "20,794",
+      "currency": "JPY",
+      "card_last4": "4595"
+    },
+    {
+      "booking_id": "661557247",
+      "hotel_or_route": "호텔 하쿠바 (Hotel Hakuba)",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "2,977,844",
+      "currency": "KRW",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1696826378",
+      "hotel_or_route": "Hakuba Hotel Paipunokemuri",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "22,914",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1710518131",
+      "hotel_or_route": "호텔 하쿠바 (Hotel Hakuba)",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "54,394",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1710518256",
+      "hotel_or_route": "호텔 하쿠바 (Hotel Hakuba)",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "54,394",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1710518480",
+      "hotel_or_route": "호텔 하쿠바 (Hotel Hakuba)",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "54,394",
+      "currency": "JPY",
+      "card_last4": "8835"
+    },
+    {
+      "booking_id": "1710518551",
+      "hotel_or_route": "호텔 하쿠바 (Hotel Hakuba)",
+      "dates": {
+        "checkin": "2026년 6월 20일 토요일",
+        "checkout": "2026년 6월 22일 월요일"
+      },
+      "status": "투숙 완료",
+      "payment_state": "오늘 결제됨",
+      "amount": "54,394",
+      "currency": "JPY",
+      "card_last4": "8835"
+    }
+  ]
+}
