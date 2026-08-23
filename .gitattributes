@@ -1,0 +1,16 @@
+# Byte-deterministic working trees across Linux and Windows sessions.
+# Live-input hash gates (r39/r41/v6 constants) require identical bytes everywhere,
+# so all text files are stored with LF and checked out with LF on every platform.
+* text=auto eol=lf
+
+# Binary evidence artifacts must never be normalized.
+*.xlsx -text
+*.xls -text
+*.db -text
+*.sqlite -text
+*.sqlite-wal -text
+*.sqlite-shm -text
+*.png -text
+*.jpg -text
+*.pdf -text
+*.exe -text
