@@ -3285,6 +3285,35 @@ p07 발행 스택(프로덕션 23곳)은 Linux 전용 설계로, Windows 지원�
 추상화 리팩토링(별도 계획 R1) 이후에만 가능하다 — 그 전까지 해당 패밀리는
 Linux 세션 전용으로 남긴다.
 
+## 2026-08-23 규칙 레지스트리화 사전조사 — 착수 보류 판정과 게이트 티어링 설계
+
+사용자 승인으로 direct_all_period_* 예외 모듈의 레지스트리화를 시작하려 했으나,
+착수 전 실측 조사에서 실행 보류가 정답으로 판명했다.
+
+실측: 모듈 23개, 총 2,283줄(평균 99줄). 모듈별 공통 스캐폴딩(_sha·canonical
+guard·context 순회·manifest 공통 필드)은 약 15~20줄뿐이고 나머지 80줄 내외는
+가족별 고유의 핀 증명 논리(정확 건수·집합 해시·상류 체인 검증)다. 즉 데이터
+주도 레지스트리로 바꿔도 절감량이 소박하고, 결정 의미는 그대로 남는다.
+결정적으로 **로컬에서 0/23이 실행 가능**하다(/tmp 라이브 입력 부재로 setUpClass
+전원 실패, full-baseline2 로그 재확인). 검증 불가능한 코드의 대규모 구조변경은
+P22 정신에 반하므로 보류한다. 재평가 시점: Windows Wave 2 활성화로 r39/r41
+해시 게이트가 열린 뒤, 또는 Linux 세션에서 게이트 전체 통과를 확인한 뒤.
+
+대신 승인된 목적(검증 비용은 유지하면서 전기 흐름을 막는 과잉 완화)을 위해
+게이트 티어링 설계를 확정한다. 세 티어:
+
+- TIER1 blocking-money(전기·게시 직전 필수): 카드 원단위 대사, 취소·환불 페어
+  순액 정합, 멱등 재실행 해시 동일, no-replace 발행 검증. 영구 불변.
+- TIER2 blocking-completeness(운영 전기 시작의 전제, 현재 진행형): Agoda 카드
+  권위 결속(Phase 1), Gate4 HAN equality, Gate6 baseline, Gate5 잔여 상한.
+- TIER3 advisory(막지 않고 리포트만): 8종 검토 큐 세분화, 중중복 attestation
+  해시, 문서 정합 경고, 저신뢰 참고 건.
+
+효과: 현행 `promotion_allowed=false` 전면 차단을 TIER1+TIER2 축소판으로 먼저
+열 수 있는지 별도 사용자 승인으로 검토한다. 권위 독립 계정(기타비용 등)부터
+부분 승격하는 옵션이 후보다. 구현은 transition_gates_v2에 티어 메타데이터를
+추가하는 방식이며 동작 변경은 없다(승인 전까지).
+
 ## 2026-08-23 Agoda 카드 연결 후보 v4 생성·멱등성 감사
 
 봉인 Agoda 입력 `outputs/agoda-paseo-staging-20260822.sqlite`
@@ -3386,6 +3415,39 @@ trip target이 유일한 41건만 별도 journal draft로 만들었다. 41 batch
 두 빌드 모두 입력 DB 불변, 두 번째 materialization 0 changes, 독립 재빌드 semantic
 hash 일치, integrity/FK 정상이다.
 
+## 2026-08-24 Agoda 일정 권위·연도 분리 v3
+
+기존 `trips.json`의 `mm/dd/window`를 서비스 기간 권위로 사용하던 경로를 새 v3
+산출물에서 차단했다. `ledger/domain/direct_trip_schedule_authority.py`는 명시적인
+`starts_on`·`ends_on`·`event_year`·`end_semantics`·원천 SHA-256을 요구한다. 숙박
+`service_end_on`은 checkout-exclusive로 취급하고, 일정 `ends_on`은 inclusive
+last-service-date로 취급한다. 2025 결제는 `payment_lane='2025년 결제'`로 남기며,
+독립적인 2026 서비스 권위가 없으면 2026 여행 target으로 승격하지 않는다. 명시적
+권위 문서는 현재 `records=[]`인 빈 문서이며, 기존 window는 35개
+`legacy_window_candidate`로만 변환된다. 날짜를 추정해 권위 문서를 채우지 않았다.
+
+v3 accounting 결과는 77건/20,546,481원이다. 기존 window 기준 41건 unique, 23건
+ambiguous, 13건 missing이었으나, 독립 권위 일정이 0건이므로 `bound_unique=0`,
+`legacy_window_candidate_only=64`, `authority_missing=13`으로 재분류했다. v3 journal
+shadow는 77 batch/154 line 전부 `미확정여행원가`·`여행_미배정`이고 차변=대변=
+20,546,481원이다. posting/authoritative/external posting은 모두 0이다.
+
+- authority module: `ledger/domain/direct_trip_schedule_authority.py`
+- authority document: `ledger/data/trip_schedule_authority_v3.json`
+- accounting v3 DB SHA-256:
+  `79b2fdba5deaf2766c956b17aa0c0823d1b837cb706b5112013a1753108970a6`
+- accounting v3 audit SHA-256:
+  `41ffa7c55c4293ee6a2d9a75a32ec658ddebdd4b641c17cdbf84164dbc0245a1`
+- journal v3 DB SHA-256:
+  `8523f6736d2402879afad2a93d626cdf084d15d7e5d74b4526ef6e4265a549e7`
+- journal v3 audit SHA-256:
+  `c413b3c9b10f3bf4af1e85b881c3838c9162de0b36898f53b02cf75ab698a5b7`
+
+동일 입력으로 재빌드한 accounting DB/detail/audit와 journal DB/detail/audit의 SHA-256이
+각각 모두 일치했다. 무결성 `ok`, FK violation 0, posting table 0이다. v3와 기존
+Agoda 관련 회귀를 합쳐 77/77 PASS했다. AGY 설계 검토는 `GEMINI_API_KEY` 부재로
+호출 실패했으며, 성공한 AGY 검토로 표시하지 않는다.
+
 ## 2026-08-24 Agoda 77건 완전 복식부기 shadow v2
 
 41건만 보이던 journal draft와 별개로 전체 77건의 회계 금액이 누락되지 않는지 증명하는
@@ -3421,3 +3483,22 @@ snapshot(`85c8019b9882fc6f82e2059097a290f1b08e6c8ae324918d746ceb8b318f3a93`)
 `notifyOnFinish=false`이며 실행 critical path와 분리됐다. 결과가 오기 전까지는
 `review_pending`이고 독립 PASS로 표시하지 않는다. AGY는 앞선 세션에서 API key 부재가
 확인돼 재호출하지 않았고 Luna가 구현·검증을 계속했다.
+
+## 2026-08-24 Agoda 일정 권위 v3 clean 산출물 교정
+
+앞서 v1 accounting DB를 입력으로 만든 `v3-final`은 원본 v1의 구형 분류·배부
+테이블을 복제한 것이 확인되어 최종 산출물로 채택하지 않는다. 분류·배부 행이 0건인
+`agoda-card-proposed-links-v1`를 입력으로 다시 만든 `v3-clean`만 사용한다. clean DB와
+clean journal shadow에는 `classification_decisions=0`, `allocation_plans=0`,
+`cost_allocations=0`, `journal_entries=0`이며 v3 테이블만 77건/154라인이다.
+
+- clean accounting v3 DB SHA-256:
+  `c5b58924a3926931633d5adf1836831c2f7fa4cfe959f0bdd46418dbfc68c760`
+- clean accounting v3 audit SHA-256:
+  `706034454bc41865189141f6e154d0b8155e471361dee4f1586fa6a3c81ecfa9`
+- clean journal v3 DB SHA-256:
+  `9e408224e37c292afd3651b0d3334b2ff06c9c5d3df1fcd65c046b10ab2dc12c`
+- clean journal v3 audit SHA-256:
+  `67a7d68375cf1eab7a9ebf418b90e6a613e78ec06c0bca2f858623a96c7852a0`
+
+clean 산출물도 별도 경로로 재빌드한 6개 파일의 SHA-256이 모두 일치했다.
