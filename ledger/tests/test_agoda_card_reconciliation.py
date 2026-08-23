@@ -111,8 +111,14 @@ def _card(
     card4: str | None = "8835",
     transaction_type: str = "purchase",
     identity_status: str = "unique",
+    merchant: str = "AGODA.COM",
 ) -> None:
-    payload = {"currency": currency, "foreign": foreign, "card4": card4}
+    payload = {
+        "currency": currency,
+        "foreign": foreign,
+        "card4": card4,
+        "merchant": merchant,
+    }
     source_sha256 = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
@@ -497,6 +503,178 @@ class AgodaCardReconciliationTest(unittest.TestCase):
             "card_currency_raw_invalid",
             {item.get("reason") for item in report["held"]},
         )
+
+    def test_non_agoda_merchant_never_proposes(self) -> None:
+        for merchant in (
+            "KURASHIKI IVYSQUARE",
+            "NOTAGODA",
+            "XAGODAY",
+            "NOT AGODA",
+            "PAYPAL AGODA",
+            "AGODA가짜",
+            "AGODAé",
+        ):
+            with self.subTest(merchant=merchant):
+                db = sqlite3.connect(":memory:")
+                try:
+                    _schema(db)
+                    _portal(db, 1, "A-1", 11, "portal-1")
+                    _card(db, 101, 21, merchant=merchant)
+                    report = build_agoda_card_candidate_report(
+                        db, run_id="run-1", universe_sealed=True,
+                        universe_attestation=_attestation(db),
+                    )
+                    self.assertEqual(report["proposed_individuals"], [])
+                    self.assertIn(
+                        "card_merchant_not_agoda",
+                        {item.get("reason") for item in report["held"]},
+                    )
+                finally:
+                    db.close()
+
+    def test_observed_agoda_merchant_forms_remain_eligible(self) -> None:
+        for merchant in (
+            "AGODA.COM",
+            "AGODA_NICE-Agoda",
+            "아고다_나이스",
+            "아고다페이먼츠코리아",
+        ):
+            with self.subTest(merchant=merchant):
+                db = sqlite3.connect(":memory:")
+                try:
+                    _schema(db)
+                    _portal(db, 1, "A-1", 11, "portal-1")
+                    _card(db, 101, 21, merchant=merchant)
+                    report = build_agoda_card_candidate_report(
+                        db, run_id="run-1", universe_sealed=True,
+                        universe_attestation=_attestation(db),
+                    )
+                    self.assertEqual(len(report["proposed_individuals"]), 1)
+                finally:
+                    db.close()
+
+    def test_non_string_agoda_merchant_never_proposes(self) -> None:
+        _portal(self.db, 1, "A-1", 11, "portal-1")
+        _card(self.db, 101, 21)
+        _replace_card_payload(self.db, 21, merchant=["AGODA"])
+        report = build_agoda_card_candidate_report(
+            self.db, run_id="run-1", universe_sealed=True,
+            universe_attestation=_attestation(self.db),
+        )
+        self.assertEqual(report["proposed_individuals"], [])
+        self.assertIn(
+            "card_merchant_not_agoda",
+            {item.get("reason") for item in report["held"]},
+        )
+
+    def test_empty_source_hashes_never_propose(self) -> None:
+        _portal(self.db, 1, "A-1", 11, "portal-1")
+        _card(self.db, 101, 21)
+        self.db.execute("UPDATE direct_source_records SET source_sha256='' WHERE id=21")
+        report = build_agoda_card_candidate_report(
+            self.db, run_id="run-1", universe_sealed=True,
+            universe_attestation=_attestation(self.db),
+        )
+        self.assertEqual(report["proposed_individuals"], [])
+        self.assertIn(
+            "card_source_payload_digest_invalid",
+            {item.get("reason") for item in report["held"]},
+        )
+
+        self.db.execute(
+            "UPDATE direct_source_records SET source_sha256='' WHERE id=11"
+        )
+        report = build_agoda_card_candidate_report(
+            self.db, run_id="run-1", universe_sealed=True,
+            universe_attestation=_attestation(self.db),
+        )
+        self.assertEqual(report["proposed_individuals"], [])
+        self.assertIn(
+            "portal_source_payload_digest_invalid",
+            {item.get("reason") for item in report["held"]},
+        )
+
+    def test_malformed_and_mismatched_card_hashes_never_propose(self) -> None:
+        for source_hash in ("abc", "g" * 64, 123):
+            with self.subTest(source_hash=source_hash):
+                db = sqlite3.connect(":memory:")
+                try:
+                    _schema(db)
+                    _portal(db, 1, "A-1", 11, "portal-1")
+                    _card(db, 101, 21)
+                    db.execute(
+                        "UPDATE direct_source_records SET source_sha256=? WHERE id=21",
+                        (source_hash,),
+                    )
+                    report = build_agoda_card_candidate_report(
+                        db, run_id="run-1", universe_sealed=True,
+                        universe_attestation=_attestation(db),
+                    )
+                    self.assertEqual(report["proposed_individuals"], [])
+                    self.assertIn(
+                        "card_source_payload_digest_invalid",
+                        {item.get("reason") for item in report["held"]},
+                    )
+                finally:
+                    db.close()
+
+        db = sqlite3.connect(":memory:")
+        try:
+            _schema(db)
+            _portal(db, 1, "A-1", 11, "portal-1")
+            _card(db, 101, 21)
+            digest = db.execute(
+                "SELECT source_sha256 FROM direct_source_records WHERE id=21"
+            ).fetchone()[0]
+            db.execute(
+                "UPDATE direct_source_records SET source_sha256=? WHERE id=21",
+                (f" {digest} ",),
+            )
+            report = build_agoda_card_candidate_report(
+                db, run_id="run-1", universe_sealed=True,
+                universe_attestation=_attestation(db),
+            )
+            self.assertEqual(report["proposed_individuals"], [])
+            self.assertIn(
+                "card_source_payload_digest_invalid",
+                {item.get("reason") for item in report["held"]},
+            )
+        finally:
+            db.close()
+
+        _portal(self.db, 1, "A-1", 11, "portal-1")
+        _card(self.db, 101, 21)
+        row = self.db.execute(
+            "SELECT payload_json FROM direct_source_records WHERE id=21"
+        ).fetchone()
+        payload = json.loads(row[0])
+        payload["merchant"] = "AGODA.COM TAMPERED"
+        self.db.execute(
+            "UPDATE direct_source_records SET payload_json=? WHERE id=21",
+            (json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                        separators=(",", ":")),),
+        )
+        report = build_agoda_card_candidate_report(
+            self.db, run_id="run-1", universe_sealed=True,
+            universe_attestation=_attestation(self.db),
+        )
+        self.assertEqual(report["proposed_individuals"], [])
+        self.assertIn(
+            "card_source_payload_digest_invalid",
+            {item.get("reason") for item in report["held"]},
+        )
+
+    def test_uppercase_valid_hashes_are_accepted(self) -> None:
+        _portal(self.db, 1, "A-1", 11, "portal-1")
+        _card(self.db, 101, 21)
+        self.db.execute(
+            "UPDATE direct_source_records SET source_sha256=upper(source_sha256)"
+        )
+        report = build_agoda_card_candidate_report(
+            self.db, run_id="run-1", universe_sealed=True,
+            universe_attestation=_attestation(self.db),
+        )
+        self.assertEqual(len(report["proposed_individuals"]), 1)
 
 
 if __name__ == "__main__":

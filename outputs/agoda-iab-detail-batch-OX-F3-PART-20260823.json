@@ -1,0 +1,516 @@
+{
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd25a0afbffeR9mZ6mh1w5UvWQ",
+    "verified_success_ids": [
+      "1623002400",
+      "1611752254",
+      "1611780153",
+      "1611781306",
+      "1611336480",
+      "1611338503",
+      "1611338654",
+      "1610105487",
+      "1593977016",
+      "1614934471",
+      "1615077186"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "OX-F3-PART",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1623002400",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-22",
+      "check_out": "2025-06-23",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1623002400",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "33,211",
+          "kind": "room"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "6,974",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "40,185",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "40,185",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "4p2q2vjv",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611752254",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-19",
+      "check_out": "2025-06-20",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611752254",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "1,265,358",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "255,756",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "17,304",
+          "kind": "surcharge"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,538,418",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,538,418",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "4633503361",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611780153",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-11",
+      "check_out": "2025-06-12",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611780153",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "441,389",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "44,136",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "485,525",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "485,525",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "6143867806",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611781306",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-06-11",
+      "check_out": "2025-06-12",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611781306",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "1,439,304",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "143,928",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,583,232",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,583,232",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "6143868330",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611336480",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-10",
+      "check_out": "2025-06-11",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611336480",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "1,408,904",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "373,317",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,782,221",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1,782,221",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "66BB6F",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611338503",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-10",
+      "check_out": "2025-06-11",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611338503",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "198,840",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "52,692",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "251,532",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "251,532",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "H25051679418",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611338654",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-10",
+      "check_out": "2025-06-11",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1611338654",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "403,970",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "107,060",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "511,030",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "511,030",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "66BB98",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1610105487",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-04",
+      "check_out": "2025-06-05",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1610105487",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "72,375",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "15,195",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "87,570",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "87,570",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1593977016",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-03",
+      "check_out": "2025-06-04",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1593977016",
+      "panel_visible": false,
+      "payment_status": "체크인 시 Hotel Yumoto에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "20,362",
+          "kind": "room"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2,034",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22,396",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22,396",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "Hotel Yumoto",
+      "reference_code": "4640179213",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1614934471",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-01",
+      "check_out": "2025-06-02",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1614934471",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "212,224",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "44,562",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "256,786",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "256,786",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "dormnwyd",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1615077186",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-06-01",
+      "check_out": "2025-06-02",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1615077186",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "265,139",
+          "kind": "room"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "26,520",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "291,659",
+          "kind": "paid_today"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "291,659",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": null,
+      "reference_code": "6145391172",
+      "reservation_status": null,
+      "selector_count": 1,
+      "status": null
+    },
+    {
+      "booking_id": "1611368172",
+      "card4": null,
+      "card_observation_status": null,
+      "card_type": null,
+      "check_in": null,
+      "check_out": null,
+      "collection_model": null,
+      "detail_success": false,
+      "failure_code": "NAVIGATION_STATE_UNKNOWN",
+      "observed_booking_id": null,
+      "panel_visible": false,
+      "payment_status": null,
+      "price_components": [],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": null,
+      "selector_count": null,
+      "status": null
+    }
+  ],
+  "targets": [
+    "1623002400",
+    "1611752254",
+    "1611780153",
+    "1611781306",
+    "1611336480",
+    "1611338503",
+    "1611338654",
+    "1610105487",
+    "1593977016",
+    "1614934471",
+    "1615077186",
+    "1611368172"
+  ],
+  "writes": 0
+}

@@ -1,0 +1,427 @@
+{
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd221a53effevb50SaIxRLkEgX",
+    "verified_success_ids": [
+      "1659251924",
+      "1659516555",
+      "1657325226",
+      "1657824658",
+      "1657972039",
+      "1644568991",
+      "1648774677",
+      "1654553070",
+      "1657451233",
+      "1612461708"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "OX-F1-B",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1659251924",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-22",
+      "check_out": "2025-10-23",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1659251924",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "12251",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2572",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "14823",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "Grand Park Hotel Odate",
+      "reference_code": "ZY25101422346491",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1659516555",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-21",
+      "check_out": "2025-10-22",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1659516555",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "28421",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "7531",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "35952",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "Wafuyado Okabeso",
+      "reference_code": "48r972rv",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1657325226",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-16",
+      "check_out": "2025-10-17",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1657325226",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "37855",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "3785",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "41640",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "450",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "Komagane Kogen Resort Linx",
+      "reference_code": "4n67l9qg",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1657824658",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-16",
+      "check_out": "2025-10-17",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1657824658",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "228608",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "22854",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "251462",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "2798",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "Komagane Kogen Resort Linx",
+      "reference_code": "48r91pgn",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1657972039",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-16",
+      "check_out": "2025-10-17",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1657972039",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "15012",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1502",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "16514",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "150",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "Komagane Kogen Resort Linx",
+      "reference_code": "k9j6py68",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1644568991",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-12",
+      "check_out": "2025-10-13",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1644568991",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "192540",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "38510",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1500",
+          "kind": "fee"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "232550",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "머큐어 코치 토사 리조트 앤 스파 (Mercure Kochi Tosa Resort & Spa)",
+      "reference_code": "5285573376",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1648774677",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-12",
+      "check_out": "2025-10-13",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1648774677",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "545032",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "108997",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "4245",
+          "kind": "fee"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "658274",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "머큐어 코치 토사 리조트 앤 스파 (Mercure Kochi Tosa Resort & Spa)",
+      "reference_code": "6844278470",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1654553070",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-12",
+      "check_out": "2025-10-13",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1654553070",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "696575",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "139326",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "4230",
+          "kind": "fee"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "840131",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "머큐어 코치 토사 리조트 앤 스파 (Mercure Kochi Tosa Resort & Spa)",
+      "reference_code": "5073054599",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1657451233",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-10-11",
+      "check_out": "2025-10-12",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1657451233",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "80988",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "17010",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "97998",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "오리엔트 호텔 코치 (Orient Hotel Kochi)",
+      "reference_code": "de2mm2m6",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1612461708",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-08",
+      "check_out": "2025-10-09",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1612461708",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "1778028",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "471170",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "2249198",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "Hoshino Resorts Tomamu The Tower",
+      "reference_code": "67088C",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    }
+  ],
+  "targets": [
+    "1659251924",
+    "1659516555",
+    "1657325226",
+    "1657824658",
+    "1657972039",
+    "1644568991",
+    "1648774677",
+    "1654553070",
+    "1657451233",
+    "1612461708"
+  ],
+  "writes": 0
+}

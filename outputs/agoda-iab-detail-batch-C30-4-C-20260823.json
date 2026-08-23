@@ -1,0 +1,519 @@
+{
+  "browser_id": "d2e2baf3-958a-42c0-8886-7d5f16b88885",
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd25a0afbffeR9mZ6mh1w5UvWQ",
+    "verified_success_ids": [
+      "1692039822",
+      "1692040187",
+      "1692040610",
+      "1692041294",
+      "1692044802",
+      "1692045100",
+      "1692045359",
+      "1692045627",
+      "1692045892",
+      "1692046174"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "C30-4-C",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1692039822",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692039822",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "8,700",
+          "kind": "room",
+          "minor_units": 8700
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1,827",
+          "kind": "taxes_and_fees",
+          "minor_units": 1827
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "paid_today",
+          "minor_units": 10527
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "gross_total",
+          "minor_units": 10527
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692040187",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692040187",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "8,700",
+          "kind": "room",
+          "minor_units": 8700
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1,827",
+          "kind": "taxes_and_fees",
+          "minor_units": 1827
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "paid_today",
+          "minor_units": 10527
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "gross_total",
+          "minor_units": 10527
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692040610",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692040610",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "8,700",
+          "kind": "room",
+          "minor_units": 8700
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1,827",
+          "kind": "taxes_and_fees",
+          "minor_units": 1827
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "paid_today",
+          "minor_units": 10527
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10,527",
+          "kind": "gross_total",
+          "minor_units": 10527
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692041294",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692041294",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692044802",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692044802",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692045100",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692045100",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692045359",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692045359",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692045627",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692045627",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692045892",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692045892",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1692046174",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1692046174",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4,738",
+          "kind": "room",
+          "minor_units": 4738
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees",
+          "minor_units": 995
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "paid_today",
+          "minor_units": 5733
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5,733",
+          "kind": "gross_total",
+          "minor_units": 5733
+        }
+      ],
+      "property_name": null,
+      "reference_code": null,
+      "reservation_status": "확정",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    }
+  ],
+  "targets": [
+    "1692039822",
+    "1692040187",
+    "1692040610",
+    "1692041294",
+    "1692044802",
+    "1692045100",
+    "1692045359",
+    "1692045627",
+    "1692045892",
+    "1692046174"
+  ],
+  "workspace_id": "wks_56a35f1cb71c2a0c",
+  "writes": 0
+}

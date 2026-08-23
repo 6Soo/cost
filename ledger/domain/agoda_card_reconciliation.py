@@ -57,6 +57,13 @@ def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _valid_sha256(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.lower()
+    return len(text) == 64 and all(char in "0123456789abcdef" for char in text)
+
+
 def _text(value: object) -> str:
     return str(value or "").strip()
 
@@ -99,6 +106,18 @@ def _canonical_money(component: Mapping[str, object]) -> int:
 def _currency(value: object) -> str:
     currency = _text(value).upper()
     return currency if len(currency) == 3 and currency.isascii() and currency.isalpha() else ""
+
+
+def _is_agoda_merchant(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    merchant = " ".join(value.strip().upper().split())
+    return (
+        merchant == "AGODA"
+        or merchant.startswith(("AGODA.", "AGODA_", "AGODA "))
+        or merchant == "아고다_나이스"
+        or merchant == "아고다페이먼츠코리아"
+    )
 
 
 def _raw_card_normalization(payload: Mapping[str, object]) -> tuple[int, str] | None:
@@ -311,7 +330,7 @@ def _portal_nodes(db: sqlite3.Connection) -> tuple[list[ReservationAmount], list
         if not isinstance(payload, Mapping):
             holds.append({"booking_id": int(booking_id), "reason": "portal_payload_not_object"})
             continue
-        if _text(source_sha256) and _sha256(payload) != _text(source_sha256):
+        if not _valid_sha256(source_sha256) or _sha256(payload) != str(source_sha256).lower():
             holds.append({
                 "booking_id": int(booking_id),
                 "source_key": str(source_key),
@@ -497,10 +516,17 @@ def _payment_nodes(
         if not isinstance(payload, Mapping):
             holds.append({"payment_id": int(payment_id), "reason": "card_payload_not_object"})
             continue
-        if _text(source_sha256) and _sha256(payload) != _text(source_sha256):
+        if not _valid_sha256(source_sha256) or _sha256(payload) != str(source_sha256).lower():
             holds.append({
                 "payment_id": int(payment_id),
                 "reason": "card_source_payload_digest_invalid",
+            })
+            continue
+        raw_merchant = payload.get("merchant")
+        if not _is_agoda_merchant(raw_merchant):
+            holds.append({
+                "payment_id": int(payment_id),
+                "reason": "card_merchant_not_agoda",
             })
             continue
         raw_source_system = _text(payload.get("src")).upper()

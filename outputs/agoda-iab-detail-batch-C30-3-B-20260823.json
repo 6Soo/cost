@@ -1,0 +1,525 @@
+{
+  "browser_id": "c807f270-d293-4440-9eb5-17254fff42f0",
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd1efc732ffeIu5jHSGkv3nFq3",
+    "verified_success_ids": [
+      "1660804866",
+      "1660805467",
+      "1676244640",
+      "1660701699",
+      "1676079132",
+      "1679267917",
+      "1679270589",
+      "1679275458",
+      "1674948951",
+      "1672971823"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "C30-3-B",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1660804866",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-18",
+      "check_out": "2025-12-20",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660804866",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "62580",
+          "kind": "base",
+          "minor_units": 6258000
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "6262",
+          "kind": "taxes_and_fees",
+          "minor_units": 626200
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "68842",
+          "kind": "paid_today",
+          "minor_units": 6884200
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "68842",
+          "kind": "gross_total",
+          "minor_units": 6884200
+        }
+      ],
+      "property_name": "호텔 골든데이지 서귀포오션 (Hotel Goldendaisy Seogwipo ocean)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1660805467",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-18",
+      "check_out": "2025-12-20",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660805467",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "25032",
+          "kind": "base",
+          "minor_units": 2503200
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2505",
+          "kind": "taxes_and_fees",
+          "minor_units": 250500
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "27537",
+          "kind": "paid_today",
+          "minor_units": 2753700
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "27537",
+          "kind": "gross_total",
+          "minor_units": 2753700
+        }
+      ],
+      "property_name": "호텔 골든데이지 서귀포오션 (Hotel Goldendaisy Seogwipo ocean)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1676244640",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-18",
+      "check_out": "2025-12-20",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1676244640",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "133216",
+          "kind": "base",
+          "minor_units": 13321600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "13328",
+          "kind": "taxes_and_fees",
+          "minor_units": 1332800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "146544",
+          "kind": "paid_today",
+          "minor_units": 14654400
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "146544",
+          "kind": "gross_total",
+          "minor_units": 14654400
+        }
+      ],
+      "property_name": "호텔 골든데이지 서귀포오션 (Hotel Goldendaisy Seogwipo ocean)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1660701699",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-17",
+      "check_out": "2025-12-18",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660701699",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "20379",
+          "kind": "base",
+          "minor_units": 2037900
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2037",
+          "kind": "taxes_and_fees",
+          "minor_units": 203700
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22416",
+          "kind": "paid_today",
+          "minor_units": 2241600
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22416",
+          "kind": "gross_total",
+          "minor_units": 2241600
+        }
+      ],
+      "property_name": "제주 오리엔탈 호텔 앤 카지노 (Jeju oriental Hotel & Casino)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1676079132",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-17",
+      "check_out": "2025-12-18",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1676079132",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "118986",
+          "kind": "base",
+          "minor_units": 11898600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "11910",
+          "kind": "taxes_and_fees",
+          "minor_units": 1191000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "130896",
+          "kind": "paid_today",
+          "minor_units": 13089600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "130896",
+          "kind": "gross_total",
+          "minor_units": 13089600
+        }
+      ],
+      "property_name": "제주 오리엔탈 호텔 앤 카지노 (Jeju oriental Hotel & Casino)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1679267917",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-17",
+      "check_out": "2025-12-18",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1679267917",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "118056",
+          "kind": "base",
+          "minor_units": 11805600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "11796",
+          "kind": "taxes_and_fees",
+          "minor_units": 1179600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "129852",
+          "kind": "paid_today",
+          "minor_units": 12985200
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "129852",
+          "kind": "gross_total",
+          "minor_units": 12985200
+        }
+      ],
+      "property_name": "제주 오리엔탈 호텔 앤 카지노 (Jeju oriental Hotel & Casino)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1679270589",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-17",
+      "check_out": "2025-12-18",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1679270589",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "118056",
+          "kind": "base",
+          "minor_units": 11805600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "11796",
+          "kind": "taxes_and_fees",
+          "minor_units": 1179600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "129852",
+          "kind": "paid_today",
+          "minor_units": 12985200
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "129852",
+          "kind": "gross_total",
+          "minor_units": 12985200
+        }
+      ],
+      "property_name": "제주 오리엔탈 호텔 앤 카지노 (Jeju oriental Hotel & Casino)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1679275458",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-17",
+      "check_out": "2025-12-18",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1679275458",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "59028",
+          "kind": "base",
+          "minor_units": 5902800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "5898",
+          "kind": "taxes_and_fees",
+          "minor_units": 589800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "64926",
+          "kind": "paid_today",
+          "minor_units": 6492600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "64926",
+          "kind": "gross_total",
+          "minor_units": 6492600
+        }
+      ],
+      "property_name": "제주 오리엔탈 호텔 앤 카지노 (Jeju oriental Hotel & Casino)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1674948951",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-04",
+      "check_out": "2025-12-05",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1674948951",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(AgodaCash 차감 후)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "107519",
+          "kind": "base",
+          "minor_units": 10751900
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "10755",
+          "kind": "taxes_and_fees",
+          "minor_units": 1075500
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "-63106",
+          "kind": "agoda_cash",
+          "minor_units": -6310600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55168",
+          "kind": "paid_today",
+          "minor_units": 5516800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55168",
+          "kind": "gross_total",
+          "minor_units": 5516800
+        }
+      ],
+      "property_name": "수안보 파크 호텔 (Suanbo Park Hotel)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1672971823",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-02",
+      "check_out": "2025-12-03",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1672971823",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "39110",
+          "kind": "base",
+          "minor_units": 3911000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "8210",
+          "kind": "taxes_and_fees",
+          "minor_units": 821000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "47320",
+          "kind": "paid_today",
+          "minor_units": 4732000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "47320",
+          "kind": "gross_total",
+          "minor_units": 4732000
+        }
+      ],
+      "property_name": "문경 온천 호텔 (Mungyeong Oncheon Hotel)",
+      "reference_code": "2511271769910684",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    }
+  ],
+  "targets": [
+    "1660804866",
+    "1660805467",
+    "1676244640",
+    "1660701699",
+    "1676079132",
+    "1679267917",
+    "1679270589",
+    "1679275458",
+    "1674948951",
+    "1672971823"
+  ],
+  "workspace_id": "wks_e966aef786fb87d4",
+  "writes": 0
+}

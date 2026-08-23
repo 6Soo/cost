@@ -1,0 +1,412 @@
+{
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd221a53effevb50SaIxRLkEgX",
+    "verified_success_ids": [
+      "1634025641",
+      "1645655205",
+      "1631481737",
+      "1645645740",
+      "1634034097",
+      "1609832106",
+      "1609833389",
+      "1609835358",
+      "1609836272",
+      "1634009255"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "OX-F1-C",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1634025641",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-06",
+      "check_out": "2025-10-07",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1634025641",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "9727",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "973",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "10700",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "루트 인 가른티아 시레토코 사리 에키마에 (Route Inn Grantia Shiretoko Shari Ekimae)",
+      "reference_code": "6154855581",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1645655205",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-06",
+      "check_out": "2025-10-07",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1645655205",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Route Inn Grantia Shiretoko Shari Ekimae에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "31089",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "3111",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "34200",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "34200",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "루트 인 가른티아 시레토코 사리 에키마에 (Route Inn Grantia Shiretoko Shari Ekimae)",
+      "reference_code": "6829493750",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1631481737",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-05",
+      "check_out": "2025-10-06",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1631481737",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "13850",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1402",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "15252",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "리브맥스 리조트 시레토코 씨 프론트 (LIVEMAX RESORT SHIRETOKO SEA FRONT)",
+      "reference_code": "6134971860",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1645645740",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-05",
+      "check_out": "2025-10-06",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1645645740",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "21365",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "4486",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "-1293",
+          "kind": "discount"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "24558",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "리브맥스 리조트 시레토코 씨 프론트 (LIVEMAX RESORT SHIRETOKO SEA FRONT)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1634034097",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-04",
+      "check_out": "2025-10-05",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1634034097",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Smile Hotel Kushiro에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "69307",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "6923",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "76230",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "76230",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "스마일 호텔 쿠시로 (Smile Hotel Kushiro)",
+      "reference_code": "5717089918",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1609832106",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-03",
+      "check_out": "2025-10-04",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1609832106",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "97008",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "20365",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "117373",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "퀸스 호텔 치토세 (QUEEN'S HOTEL CHITOSE)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1609833389",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-03",
+      "check_out": "2025-10-04",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1609833389",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "54690",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "11479",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "66169",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "퀸스 호텔 치토세 (QUEEN'S HOTEL CHITOSE)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1609835358",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-03",
+      "check_out": "2025-10-04",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1609835358",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "109380",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "22958",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "132338",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "퀸스 호텔 치토세 (QUEEN'S HOTEL CHITOSE)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1609836272",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-03",
+      "check_out": "2025-10-04",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1609836272",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "109380",
+          "kind": "base"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "22958",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "132338",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "퀸스 호텔 치토세 (QUEEN'S HOTEL CHITOSE)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1634009255",
+      "card4": null,
+      "card_observation_status": "confirmed_non_card",
+      "card_type": null,
+      "check_in": "2025-10-03",
+      "check_out": "2025-10-04",
+      "collection_model": "agoda_collect_prepaid_paid_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1634009255",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "7773",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1632",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "9405",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "치토세 다이치 호텔 (Chitose Daiichi Hotel)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    }
+  ],
+  "targets": [
+    "1634025641",
+    "1645655205",
+    "1631481737",
+    "1645645740",
+    "1634034097",
+    "1609832106",
+    "1609833389",
+    "1609835358",
+    "1609836272",
+    "1634009255"
+  ],
+  "writes": 0
+}

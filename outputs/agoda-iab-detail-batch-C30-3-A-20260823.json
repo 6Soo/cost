@@ -1,0 +1,519 @@
+{
+  "browser_id": "c807f270-d293-4440-9eb5-17254fff42f0",
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd1efc732ffeIu5jHSGkv3nFq3",
+    "verified_success_ids": [
+      "1655682585",
+      "1655682872",
+      "1655683036",
+      "1677557867",
+      "1677932031",
+      "1660807754",
+      "1660807940",
+      "1676245435",
+      "1677547586",
+      "1660804695"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "C30-3-A",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1655682585",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-28",
+      "check_out": "2025-12-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1655682585",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "110656",
+          "kind": "base",
+          "minor_units": 11065600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "11072",
+          "kind": "taxes_and_fees",
+          "minor_units": 1107200
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "121728",
+          "kind": "paid_today",
+          "minor_units": 12172800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "121728",
+          "kind": "gross_total",
+          "minor_units": 12172800
+        }
+      ],
+      "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1655682872",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-28",
+      "check_out": "2025-12-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1655682872",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "52994",
+          "kind": "base",
+          "minor_units": 5299400
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "5299",
+          "kind": "taxes_and_fees",
+          "minor_units": 529900
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "58293",
+          "kind": "paid_today",
+          "minor_units": 5829300
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "58293",
+          "kind": "gross_total",
+          "minor_units": 5829300
+        }
+      ],
+      "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "reference_code": "15233334909",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1655683036",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-28",
+      "check_out": "2025-12-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1655683036",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "56775",
+          "kind": "base",
+          "minor_units": 5677500
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "5671",
+          "kind": "taxes_and_fees",
+          "minor_units": 567100
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "62446",
+          "kind": "paid_today",
+          "minor_units": 6244600
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "62446",
+          "kind": "gross_total",
+          "minor_units": 6244600
+        }
+      ],
+      "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "reference_code": "2510030364225490",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1677557867",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-28",
+      "check_out": "2025-12-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1677557867",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "64108",
+          "kind": "base",
+          "minor_units": 6410800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "6410",
+          "kind": "taxes_and_fees",
+          "minor_units": 641000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "70518",
+          "kind": "paid_today",
+          "minor_units": 7051800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "70518",
+          "kind": "gross_total",
+          "minor_units": 7051800
+        }
+      ],
+      "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "reference_code": "2512112361388651",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1677932031",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-28",
+      "check_out": "2025-12-29",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1677932031",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "95758",
+          "kind": "base",
+          "minor_units": 9575800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "9592",
+          "kind": "taxes_and_fees",
+          "minor_units": 959200
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "105350",
+          "kind": "paid_today",
+          "minor_units": 10535000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "105350",
+          "kind": "gross_total",
+          "minor_units": 10535000
+        }
+      ],
+      "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1660807754",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-20",
+      "check_out": "2025-12-21",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660807754",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "26265",
+          "kind": "base",
+          "minor_units": 2626500
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5515",
+          "kind": "taxes_and_fees",
+          "minor_units": 551500
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "31780",
+          "kind": "paid_today",
+          "minor_units": 3178000
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "31780",
+          "kind": "gross_total",
+          "minor_units": 3178000
+        }
+      ],
+      "property_name": "서귀포 모슬포호텔 (Jeju Moseulpo Hotel)",
+      "reference_code": "AGD-T4E2EGL2R",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1660807940",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-20",
+      "check_out": "2025-12-21",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660807940",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "9950",
+          "kind": "base",
+          "minor_units": 995000
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2088",
+          "kind": "taxes_and_fees",
+          "minor_units": 208800
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "12038",
+          "kind": "paid_today",
+          "minor_units": 1203800
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "12038",
+          "kind": "gross_total",
+          "minor_units": 1203800
+        }
+      ],
+      "property_name": "서귀포 모슬포호텔 (Jeju Moseulpo Hotel)",
+      "reference_code": "1128143280120339",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1676245435",
+      "card4": "6741",
+      "card_observation_status": "observed_card4",
+      "card_type": "Visa",
+      "check_in": "2025-12-20",
+      "check_out": "2025-12-21",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1676245435",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "45633",
+          "kind": "base",
+          "minor_units": 4563300
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "9580",
+          "kind": "taxes_and_fees",
+          "minor_units": 958000
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55213",
+          "kind": "paid_today",
+          "minor_units": 5521300
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55213",
+          "kind": "gross_total",
+          "minor_units": 5521300
+        }
+      ],
+      "property_name": "서귀포 모슬포호텔 (Jeju Moseulpo Hotel)",
+      "reference_code": "69876011",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1677547586",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-20",
+      "check_out": "2025-12-21",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1677547586",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "KRW",
+          "decimal_text": "46228",
+          "kind": "base",
+          "minor_units": 4622800
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "9707",
+          "kind": "taxes_and_fees",
+          "minor_units": 970700
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55935",
+          "kind": "paid_today",
+          "minor_units": 5593500
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "55935",
+          "kind": "gross_total",
+          "minor_units": 5593500
+        }
+      ],
+      "property_name": "서귀포 모슬포호텔 (Jeju Moseulpo Hotel)",
+      "reference_code": "17088564",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    },
+    {
+      "booking_id": "1660804695",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-12-18",
+      "check_out": "2025-12-20",
+      "collection_model": "prepaid",
+      "detail_success": true,
+      "duration_ms": null,
+      "ended_at": null,
+      "failure_code": null,
+      "observed_booking_id": "1660804695",
+      "panel_visible": false,
+      "payment_status": "오늘 결제됨(전액)",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "46280",
+          "kind": "base",
+          "minor_units": 4628000
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "4623",
+          "kind": "taxes_and_fees",
+          "minor_units": 462300
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "50903",
+          "kind": "paid_today",
+          "minor_units": 5090300
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "50903",
+          "kind": "gross_total",
+          "minor_units": 5090300
+        }
+      ],
+      "property_name": "호텔 골든데이지 서귀포오션 (Hotel Goldendaisy Seogwipo ocean)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "started_at": null,
+      "status": "투숙 완료"
+    }
+  ],
+  "targets": [
+    "1655682585",
+    "1655682872",
+    "1655683036",
+    "1677557867",
+    "1677932031",
+    "1660807754",
+    "1660807940",
+    "1676245435",
+    "1677547586",
+    "1660804695"
+  ],
+  "workspace_id": "wks_e966aef786fb87d4",
+  "writes": 0
+}

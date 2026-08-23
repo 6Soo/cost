@@ -150,6 +150,31 @@ class AgodaBookingEvidenceTests(unittest.TestCase):
             0,
         )
 
+    def test_card_observation_status_is_explicit_and_validated(self) -> None:
+        record = self._portal()
+        record["card4"] = None
+        record["card_observation_status"] = "confirmed_non_card"
+        result = import_agoda_portal_details(self.db, [record], run_id="capture-status")
+        self.assertEqual(result["source_inserted"], 1)
+        payload = json.loads(
+            self.db.execute(
+                "SELECT payload_json FROM direct_source_records "
+                "WHERE source_kind='agoda_portal_detail'"
+            ).fetchone()[0]
+        )
+        self.assertEqual(payload["card_observation_status"], "confirmed_non_card")
+        self.assertEqual(
+            self.db.execute(
+                "SELECT COUNT(*) FROM booking_source_evidence "
+                "WHERE evidence_role='portal_card_observation'"
+            ).fetchone()[0],
+            1,
+        )
+        invalid = self._portal()
+        invalid["card_observation_status"] = "maybe"
+        with self.assertRaisesRegex(ValueError, "card_observation_status_invalid"):
+            import_agoda_portal_details(self.db, [invalid], run_id="capture-invalid-status")
+
     def test_ambiguous_mail_reference_is_unresolved_not_a_guessed_booking(self) -> None:
         path = self.root / "ambiguous.json"
         path.write_text(

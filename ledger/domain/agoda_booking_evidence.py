@@ -41,6 +41,12 @@ COMPONENT_KINDS = {
     "tax",
     "taxes_and_fees",
 }
+CARD_OBSERVATION_STATUSES = {
+    "observed_card4",
+    "confirmed_non_card",
+    "confirmed_absent",
+    "unresolved",
+}
 EVIDENCE_ROLES = {
     "identity",
     "service_period",
@@ -731,6 +737,14 @@ def _portal_payload(
     refund_status = _safe_scalar_text(record.get("refund_status"), "refund_status")
     card_type = _safe_scalar_text(record.get("card_type"), "card_type")
     card_role = _safe_scalar_text(record.get("card_role"), "card_role")
+    card_observation_status = _safe_scalar_text(
+        record.get("card_observation_status"), "card_observation_status"
+    )
+    if (
+        card_observation_status is not None
+        and card_observation_status not in CARD_OBSERVATION_STATUSES
+    ):
+        raise ValueError("card_observation_status_invalid")
     reference_code = _safe_scalar_text(record.get("reference_code"), "reference_code")
     if reference_code is not None and not REFERENCE_CODE_RE.fullmatch(reference_code):
         raise ValueError("reference_code_value_invalid")
@@ -757,6 +771,7 @@ def _portal_payload(
         "card4_sha256": card_hash,
         "card4_present": card_last4 is not None,
         "card_role": card_role,
+        "card_observation_status": card_observation_status,
         "portal_payment_state": state,
         "price_components": components,
         "portal_event_claims": payment_claims,
@@ -778,6 +793,7 @@ def _portal_payload(
         "card_last4": card_last4,
         "card_last4_sha256": card_hash,
         "card_role": card_role,
+        "card_observation_status": card_observation_status,
         "portal_payment_state": state,
         "price_components": components,
         "portal_event_claims": payment_claims,
@@ -838,7 +854,11 @@ def import_agoda_portal_details(
             roles.add("service_period")
         if payload.get("price_components") or payload.get("portal_event_claims"):
             roles.add("portal_payment_claim")
-        if payload.get("card_last4") or payload.get("card_role"):
+        if (
+            payload.get("card_last4")
+            or payload.get("card_role")
+            or payload.get("card_observation_status")
+        ):
             roles.add("portal_card_observation")
         if payload.get("status") or payload.get("refund_status"):
             roles.add("lifecycle")

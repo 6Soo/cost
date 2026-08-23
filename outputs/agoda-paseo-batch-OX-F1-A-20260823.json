@@ -1,0 +1,442 @@
+{
+  "engine": "ox",
+  "evidence_audit": {
+    "downgraded": {},
+    "source_session_id": "ses_fd221a53effevb50SaIxRLkEgX",
+    "verified_success_ids": [
+      "1692046462",
+      "1682187101",
+      "1657575244",
+      "1633684773",
+      "1633685844",
+      "1633688017",
+      "1655801889",
+      "1632140927",
+      "1632141650",
+      "1659248880"
+    ]
+  },
+  "failure_codes": [],
+  "lane": "OX-F1-A",
+  "panel_visible": false,
+  "records": [
+    {
+      "booking_id": "1692046462",
+      "card4": "8835",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-28",
+      "check_out": "2026-01-29",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1692046462",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "4738",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "995",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5733",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "APA 호텔 앤 리조트 니가타 에키마에 오도리 (APA Hotel and Resort Niigata Ekimae Odori)",
+      "reference_code": null,
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1682187101",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2026-01-27",
+      "check_out": "2026-01-28",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1682187101",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 숙소 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "11490",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1150",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "12640",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "12640",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "KRW",
+          "decimal_text": "1381",
+          "kind": "bathing_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "쇼나이 호텔 스이덴 테라스 (SHONAI HOTEL SUIDEN TERRASSE)",
+      "reference_code": "6181348668",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1657575244",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-11-04",
+      "check_out": "2025-11-05",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1657575244",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "33915",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2764",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "36679",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "300",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "Yutorelo Karuizawa Hotel",
+      "reference_code": "kmyeezpz",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1633684773",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-28",
+      "check_out": "2025-10-29",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1633684773",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "25725",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "5402",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "31127",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "만자 코겐 호텔 (Manza Kogen Hotel)",
+      "reference_code": "d7vvqmp3",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1633685844",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-28",
+      "check_out": "2025-10-29",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1633685844",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Manza Kogen Hotel에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "229460",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22960",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "252420",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "252420",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "3000",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "만자 코겐 호텔 (Manza Kogen Hotel)",
+      "reference_code": "5880003353",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1633688017",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-28",
+      "check_out": "2025-10-29",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1633688017",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "39308",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "8256",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "47564",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "만자 코겐 호텔 (Manza Kogen Hotel)",
+      "reference_code": "dl885o67",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1655801889",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-28",
+      "check_out": "2025-10-29",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1655801889",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Manza Kogen Hotel에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "23302",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "2330",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "25632",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "25632",
+          "kind": "gross_total"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "300",
+          "kind": "hot_spring_tax_excluded_pay_at_property"
+        }
+      ],
+      "property_name": "만자 코겐 호텔 (Manza Kogen Hotel)",
+      "reference_code": "5018591916",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1632140927",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-24",
+      "check_out": "2025-10-25",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1632140927",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Hotel Route Inn Hirosaki-Joto에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "8500",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "850",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "9350",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "9350",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "호텔 루트 인 히로사키-조토 (Hotel Route Inn Hirosaki-Joto)",
+      "reference_code": "6153748783",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1632141650",
+      "card4": "5855",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-24",
+      "check_out": "2025-10-25",
+      "collection_model": "pay_at_property",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1632141650",
+      "panel_visible": false,
+      "payment_status": "paid_at_property:체크인 시 Hotel Route Inn Hirosaki-Joto에서 결제",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "17001",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "1699",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "18700",
+          "kind": "property_due"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "18700",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "호텔 루트 인 히로사키-조토 (Hotel Route Inn Hirosaki-Joto)",
+      "reference_code": "6153749057",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    },
+    {
+      "booking_id": "1659248880",
+      "card4": "4886",
+      "card_observation_status": "observed_card4",
+      "card_type": "MasterCard",
+      "check_in": "2025-10-22",
+      "check_out": "2025-10-23",
+      "collection_model": "agoda_collect_card_charged_today",
+      "detail_success": true,
+      "failure_code": null,
+      "observed_booking_id": "1659248880",
+      "panel_visible": false,
+      "payment_status": "paid_today:charge_completed",
+      "price_components": [
+        {
+          "currency": "JPY",
+          "decimal_text": "18230",
+          "kind": "base"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "3829",
+          "kind": "taxes_and_fees"
+        },
+        {
+          "currency": "JPY",
+          "decimal_text": "22059",
+          "kind": "gross_total"
+        }
+      ],
+      "property_name": "Grand Park Hotel Odate",
+      "reference_code": "ZY25101422266478",
+      "reservation_status": "투숙 완료",
+      "selector_count": 1,
+      "status": "COMPLETED"
+    }
+  ],
+  "targets": [
+    "1692046462",
+    "1682187101",
+    "1657575244",
+    "1633684773",
+    "1633685844",
+    "1633688017",
+    "1655801889",
+    "1632140927",
+    "1632141650",
+    "1659248880"
+  ],
+  "writes": 0
+}

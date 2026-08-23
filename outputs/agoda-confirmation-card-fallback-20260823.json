@@ -1,0 +1,37 @@
+{
+  "artifact_type": "agoda-mail-card-evidence-v1",
+  "records": [
+    {
+      "booking_id": "1520497128",
+      "gmail_message_id": "194c5a72c5281732",
+      "attachment_filename": "Confirmation_for_Booking_ID_#_1520497128.pdf",
+      "sent_at": "2025-02-02T07:54:15+00:00",
+      "service_start_on": "2025-02-22",
+      "service_end_on": "2025-02-23",
+      "card_type": "MasterCard",
+      "card_last4": "5855",
+      "evidence_text_sha256": "43e90e20f6ac0b524fc0c3d292ce6021605e1152884fcdc4230f308e0a63ac50",
+      "scheduled_payment": {
+        "currency": "JPY",
+        "decimal_text": "29995",
+        "due_on": "2025-02-19"
+      }
+    },
+    {
+      "booking_id": "1520504164",
+      "gmail_message_id": "194c5ac505fd56c7",
+      "attachment_filename": "Confirmation_for_Booking_ID_#_1520504164.pdf",
+      "sent_at": "2025-02-02T07:59:52+00:00",
+      "service_start_on": "2025-02-22",
+      "service_end_on": "2025-02-23",
+      "card_type": "Visa",
+      "card_last4": "6741",
+      "evidence_text_sha256": "2ef05cecc24cc09412fbdd1a78863b6773e71ad3ac460ec96e4f1151fab0aaef",
+      "scheduled_payment": {
+        "currency": "JPY",
+        "decimal_text": "15998",
+        "due_on": "2025-02-19"
+      }
+    }
+  ]
+}

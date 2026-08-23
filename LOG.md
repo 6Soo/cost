@@ -3284,3 +3284,140 @@ Wave 2 활성화 순서(Sol 세션이 커밋·idle이 된 뒤, 단일 세션에�
 p07 발행 스택(프로덕션 23곳)은 Linux 전용 설계로, Windows 지원은 발행 백엔드
 추상화 리팩토링(별도 계획 R1) 이후에만 가능하다 — 그 전까지 해당 패밀리는
 Linux 세션 전용으로 남긴다.
+
+## 2026-08-23 Agoda 카드 연결 후보 v4 생성·멱등성 감사
+
+봉인 Agoda 입력 `outputs/agoda-paseo-staging-20260822.sqlite`
+(SHA-256 `39f8750897d98ee131dac6693ad0f1ca16e3e177f013dda6a9f70c1e79ac45b3`)
+을 수정하지 않고 복제한 별도 후보 DB에서 카드 RAW 5,237건을 적재하고 결제 5,328건을
+투영했다. 두 번째 카드 적재는 신규 삽입 0건이었고 source/card-event/normalized-payment
+의 비시간 의미 해시는 첫 적재 후와 같았다. 후보 계산은 DB serialization hash와
+`total_changes`를 바꾸지 않았고, 같은 DB 2회 결과 및 별도 in-memory 재빌드 결과의
+candidate report content hash가 일치했다.
+
+최종 결과는 exact amount/currency/card4와 Agoda 상호·lifecycle·source digest 경계를
+모두 통과한 1:1 `proposed` 77건, 개별쌍을 만들지 않는 N:N review group 9개,
+amount candidate 152건, held 5,899건이다. 우연히 금액·card4가 맞은 비Agoda 상호가
+후보가 되던 문제를 발견해 상호를 관찰된 Agoda prefix/form으로 fail-closed했다.
+첫 Sol 검토에서 `AGODA가짜`/`AGODAé` Unicode suffix 우회를 추가 발견해 차단하고
+회귀시험을 보강했다. 최종 immutable snapshot 검토는 PASS(차단 사항 없음)였다.
+
+이 단계는 candidate-only다. `payment_booking_links`, classification, allocation,
+cost allocation, journal/posting authority 표는 모두 실행 전후 0건이며 canonical link나
+전기는 생성하지 않았다. DB integrity는 `ok`, foreign-key violation은 0,
+portal/card payload digest mismatch도 0이다. 관련 회귀 83건과 직접 projection 핵심 5건,
+총 88건은 PASS했다. `test_direct_projection` 모듈 전체 실행은 기능 실패가 아니라
+304초 실행 제한으로 중단되어 전체 통과로 세지 않았다.
+
+최종 산출물:
+- DB: `outputs/agoda-card-link-candidate-v4-20260823.sqlite`
+  SHA-256 `be4696799469e94279b152fb09c13141d61220e8569c151f3bf558ace58e0cc6`
+- 후보 보고서: `outputs/agoda-card-link-candidate-v4-20260823.json`
+  SHA-256 `e071c3f8a982d89bc13bef26dc1c334b51593993ff9307653d2dd2690b1293d5`
+- 상세 보고서: `outputs/agoda-card-link-candidate-detail-v4-20260823.json`
+  SHA-256 `ec14e1efdb8306f4eef476bf40a394b79f00a605ff5ff0485206f9264d95b6af`
+- 감사 보고서: `outputs/agoda-card-link-candidate-audit-v4-20260823.json`
+  SHA-256 `9bbb1419abeeac0664ae7fe40ab20b2865aa6941746a901dc231e9ebc57f0a25`
+- 재현 명령: `python tools/build_agoda_card_link_candidate.py --version v4 --date 20260823`
+
+AGY wrapper/API key를 사용할 수 없어 AGY 호출은 하지 않았고 Luna max가 실행을
+이어받았다. Sol 검토는 실행 critical path와 분리된 read-only snapshot에서 수행했다.
+
+## 2026-08-24 Agoda 1:1 후보의 proposed 링크 자동 등록
+
+가역적인 `proposed` 링크 등록에 사용자 승인을 요구한 것은 과도한 게이트로 판단해
+철회했다. 기존 `모두 진행` 지시 범위에서 v4 후보 DB를 수정하지 않고 복제한
+`outputs/agoda-card-proposed-links-v1-20260824.sqlite`에 강한 1:1 후보 77건만
+`payment_booking_links(link_status='proposed', relation_type='pays_for', confidence=1.0)`로
+등록했다. N:N review group 9개는 개별쌍을 만들지 않았다.
+
+각 링크에는 exact candidate report SHA와 reservation/payment key를 결속한
+`direct_agoda_card_proposed_link_authorities` 77건을 함께 저장했다. 같은 입력을 두 번째
+적용한 결과 추가 변경은 0건이었다. integrity `ok`, FK violation 0,
+classification/allocation/journal 표는 모두 0건으로 불변이다. 원본 v4 후보 DB SHA도
+`be4696799469e94279b152fb09c13141d61220e8569c151f3bf558ace58e0cc6`으로 유지됐다.
+
+- proposed-link DB SHA-256:
+  `11590ba10510cc129a3860c6c837b0e1ae070345275e6f3b74e7ef90510d0c24`
+- audit SHA-256:
+  `ba4800913e403c66615fc5d25f276f69f2abd4dc47f66d521c452815b5caa4cb`
+- 재현 명령: `python tools/promote_agoda_card_candidates.py`
+
+향후 자동 진행 대상은 원천 보존, 후보/`proposed` 등록, 결정 가능한 분류·배부 초안,
+검증이다. 사용자 승인은 저장소 규칙으로 결정되지 않는 실제 회계정책 선택 또는 최종
+권위 원장 전기처럼 되돌리기 어려운 경계에만 요청한다.
+
+## 2026-08-24 Agoda 분류·배부 및 41건 journal draft
+
+`proposed` 링크 DB를 변경하지 않고 복제해 Agoda 숙박 77건 전부에 `숙박비`·
+`여행원가`·`불공제_해외` 분류 초안과 배부 계획을 만들었다. 서비스 기간과 현재
+여행 일정이 한 개로만 결속된 41건은 trip target이 결정됐고, 23건은 일정 중첩으로
+ambiguous, 13건은 현재 일정에 대응하는 target이 없어 missing으로 남았다. 모든
+classification decision·allocation plan·booking link는 `proposed`이고 posting eligibility는
+0이다.
+
+- accounting draft DB:
+  `outputs/agoda-card-accounting-draft-v1-20260824.sqlite`
+  SHA-256 `a0bf9ff2ccd0d15a16883a64c1e78e6cc1840c491f1b356fc911281a0e18b889`
+- detail SHA-256:
+  `cfc85cc1af692fcccbd4be37923ed9cbd88511d11e4c47d934b776a0a9d7689f`
+- audit SHA-256:
+  `e6326c8d5204d8df4e03d416d26b43526b73ef8c69f4187e1d0a1d8d7868e5ad`
+
+미확정 36건에는 과거 수기 분류를 현재 권위로 승격하지 않고 candidate evidence로만
+대조했다. 22건은 예약번호·KRW 금액이 정확히 일치하는 과거 target 후보가 있었고,
+12건은 숙소명 증거만 있었으며, 2건은 추가 증거가 없었다. 이 36건은 모두
+`candidate_only`/`blocked`다.
+
+trip target이 유일한 41건만 별도 journal draft로 만들었다. 41 batch/82 line,
+차변 `숙박비`·대변 `법인카드미지급금`, 차변=대변=KRW 10,018,782이다. legacy
+`journal_entries`와 `direct_accounting_posting_*`에는 한 행도 쓰지 않았다.
+
+- journal draft DB:
+  `outputs/agoda-card-journal-draft-v1-20260824.sqlite`
+  SHA-256 `1ca7a1b3190861a0022b01eff5f8a6e8ac14149d035fc070262d11689af8a0fc`
+- detail SHA-256:
+  `02b995677d2956cd94d97a441e5818146680c19cb6ee25f93e71cc8b83e38dad`
+- audit SHA-256:
+  `3692509c0ccad318f5c0491f0919d810e85149094c6c9c0fd21bb2d50fcf2f1c`
+- semantic SHA-256:
+  `3121715b61318c275136e2f67db03301c8c46b8e0582ad61da1ac69b67a26e62`
+
+두 빌드 모두 입력 DB 불변, 두 번째 materialization 0 changes, 독립 재빌드 semantic
+hash 일치, integrity/FK 정상이다.
+
+## 2026-08-24 Agoda 77건 완전 복식부기 shadow v2
+
+41건만 보이던 journal draft와 별개로 전체 77건의 회계 금액이 누락되지 않는지 증명하는
+로컬 shadow v2를 만들었다. target이 정해진 41건/KRW 10,018,782은 차변 `숙박비`,
+미확정 36건/KRW 10,527,699은 차변 `미확정여행원가`, 전 건의 대변은
+`법인카드미지급금`이다. 결과는 77 batch/154 line이고 차변=대변=KRW 20,546,481이다.
+
+이 shadow는 실제 전기가 아니다. 모든 batch가 `shadow_only`, `posting_eligible=0`,
+`authoritative_posting=0`, `external_posting=0`이며 미확정 36건의 과거 exact 후보도
+현재 target 권위로 승격하지 않았다. `journal_entries` 0건,
+`direct_accounting_posting_*` 0건, 미포함 payment 0건이다.
+
+- builder: `tools/build_agoda_journal_shadow_v2.py`
+  SHA-256 `a21402304dac21b90f74993d2d90d0c84605cc62fcb9e05e8b096008dbc58bc7`
+- DB: `outputs/agoda-card-journal-shadow-v2-20260824.sqlite`
+  SHA-256 `b64c63bface95b634175acd34a91b28abf17f1b593194aceb1dcd496d78e84b6`
+- detail: `outputs/agoda-card-journal-shadow-detail-v2-20260824.json`
+  SHA-256 `e3f7b20454bdc2f476865198ee75f59be86b8daef9d91e55ff20fa17a9fc354c`
+- audit: `outputs/agoda-card-journal-shadow-audit-v2-20260824.json`
+  SHA-256 `9e88e912c55b1057f231fa27176716004609de9b50c2980306031fc50357f401`
+- semantic SHA-256:
+  `22702b3059b629c6781265092b9f8530602428fbf99d34ac61f8cdfdd65c7b58`
+
+첫 materialization은 232 changes, 두 번째는 0 changes였고 독립 재빌드 semantic hash가
+일치했다. account mapping issue 0, unbalanced batch 0, uncovered source 0,
+unauthorized row 0, posting table row 0, FK violation 0이다. accounting/journal/shadow와
+Agoda reconciliation·candidate graph·booking evidence를 합친 회귀 57건은 전부 PASS했다.
+
+과거 proposed-link Sol 검토용 snapshot의 파생 파일 3개는 제거했다. 빈 snapshot
+디렉터리 삭제는 실행 정책이 차단해 빈 껍데기만 남았다. shadow v2는 별도 읽기 전용
+snapshot(`85c8019b9882fc6f82e2059097a290f1b08e6c8ae324918d746ceb8b318f3a93`)
+에서 Sol high 정적 검토를 background/non-blocking으로 시작했다. 검토 agent는
+`notifyOnFinish=false`이며 실행 critical path와 분리됐다. 결과가 오기 전까지는
+`review_pending`이고 독립 PASS로 표시하지 않는다. AGY는 앞선 세션에서 API key 부재가
+확인돼 재호출하지 않았고 Luna가 구현·검증을 계속했다.

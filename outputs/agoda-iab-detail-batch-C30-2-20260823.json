@@ -1,0 +1,213 @@
+{
+  "lane": "C30-2",
+  "engine": "ox",
+  "targets": [
+    "1683778910", "1687621609", "1673318891", "1681854306", "1685346271",
+    "1685346874", "1968385259", "1678503785", "1681853186", "1688875605",
+    "1688878230", "1667416564", "1667416965", "1667417216", "1682096777",
+    "1673280672", "1682084335", "1682086828", "1667405770", "1682067525",
+    "1682068923", "1682069503", "1681896384", "1969941563", "1681886077",
+    "1969707111", "1681883010", "1681883581", "1681883843", "1655682455"
+  ],
+  "records": [
+    {
+      "booking_id": "1683778910", "detail_success": true, "observed_booking_id": "1683778910",
+      "property_name": "카메노이 호텔 타자와코 (KAMENOI HOTEL TAZAWAKO)",
+      "check_in": "2026-01-25", "check_out": "2026-01-26", "status": "completed", "reservation_status": "투숙 완료",
+      "payment_status": "paid_full_with_property_fee", "collection_model": "prepaid",
+      "price_components": [
+        {"kind":"base","currency":"KRW","decimal_text":"106569"},
+        {"kind":"taxes_and_fees","currency":"KRW","decimal_text":"10889"},
+        {"kind":"paid_today","currency":"KRW","decimal_text":"117458"},
+        {"kind":"gross_total","currency":"KRW","decimal_text":"117458"},
+        {"kind":"property_due","currency":"KRW","decimal_text":"1382","label":"Hot Spring Tax (숙소에서 결제)"}
+      ],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "6118904667",
+      "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1687621609", "detail_success": true, "observed_booking_id": "1687621609",
+      "property_name": "타자와코 레이크 리조트 앤 온센 (Tazawako Lake Resort & Onsen)",
+      "check_in": "2026-01-25", "check_out": "2026-01-26", "status": "completed", "reservation_status": "투숙 완료",
+      "payment_status": "paid_full_with_property_fee", "collection_model": "prepaid",
+      "price_components": [
+        {"kind":"base","currency":"KRW","decimal_text":"197204"},
+        {"kind":"taxes_and_fees","currency":"KRW","decimal_text":"19794"},
+        {"kind":"paid_today","currency":"KRW","decimal_text":"216998"},
+        {"kind":"gross_total","currency":"KRW","decimal_text":"216998"},
+        {"kind":"property_due","currency":"KRW","decimal_text":"2786","label":"Hot Spring Tax (숙소에서 결제)"}
+      ],
+      "card_type": "MasterCard", "card4": "8835", "card_observation_status": "observed_card4", "reference_code": "5499900161",
+      "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1673318891", "detail_success": true, "observed_booking_id": "1673318891",
+      "property_name": "루트 인 그란티아 아키타 스파 리조트 (Route Inn Grantia Akita SPA RESORT)",
+      "check_in": "2026-01-24", "check_out": "2026-01-25", "status": "completed", "reservation_status": "투숙 완료",
+      "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [
+        {"kind":"base","currency":"KRW","decimal_text":"674140"},
+        {"kind":"taxes_and_fees","currency":"KRW","decimal_text":"68361"},
+        {"kind":"paid_today","currency":"KRW","decimal_text":"742501"},
+        {"kind":"gross_total","currency":"KRW","decimal_text":"742501"}
+      ],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "5639571408",
+      "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1681854306", "detail_success": true, "observed_booking_id": "1681854306", "property_name": "레이크 45 호텔 (Lake 45 Hotel)",
+      "check_in": "2026-01-20", "check_out": "2026-01-21", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"276618"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"32760"},{"kind":"paid_today","currency":"KRW","decimal_text":"309378"},{"kind":"gross_total","currency":"KRW","decimal_text":"309378"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "5366326737", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1685346271", "detail_success": true, "observed_booking_id": "1685346271", "property_name": "레이크 45 호텔 (Lake 45 Hotel)",
+      "check_in": "2026-01-20", "check_out": "2026-01-21", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"170580"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"35828"},{"kind":"paid_today","currency":"KRW","decimal_text":"206408"},{"kind":"gross_total","currency":"KRW","decimal_text":"206408"}],
+      "card_type": "MasterCard", "card4": "8835", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1685346874", "detail_success": true, "observed_booking_id": "1685346874", "property_name": "레이크 45 호텔 (Lake 45 Hotel)",
+      "check_in": "2026-01-20", "check_out": "2026-01-21", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"46257"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"9709"},{"kind":"paid_today","currency":"KRW","decimal_text":"55966"},{"kind":"gross_total","currency":"KRW","decimal_text":"55966"}],
+      "card_type": "MasterCard", "card4": "8835", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1968385259", "detail_success": true, "observed_booking_id": "1968385259", "property_name": "레이크 45 호텔 (Lake 45 Hotel)",
+      "check_in": "2026-01-20", "check_out": "2026-01-21", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"195285"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"45379"},{"kind":"paid_today","currency":"KRW","decimal_text":"240664"},{"kind":"gross_total","currency":"KRW","decimal_text":"240664"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1678503785", "detail_success": true, "observed_booking_id": "1678503785", "property_name": "금호 화순 스파 리조트 (Kumho Hwasun Spa Resort)",
+      "check_in": "2026-01-19", "check_out": "2026-01-20", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"253642"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"25370"},{"kind":"paid_today","currency":"KRW","decimal_text":"279012"},{"kind":"gross_total","currency":"KRW","decimal_text":"279012"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1681853186", "detail_success": true, "observed_booking_id": "1681853186", "property_name": "금호 화순 스파 리조트 (Kumho Hwasun Spa Resort)",
+      "check_in": "2026-01-19", "check_out": "2026-01-20", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"122560"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"12248"},{"kind":"paid_today","currency":"KRW","decimal_text":"134808"},{"kind":"gross_total","currency":"KRW","decimal_text":"134808"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1688875605", "detail_success": true, "observed_booking_id": "1688875605", "property_name": "금호 화순 스파 리조트 (Kumho Hwasun Spa Resort)",
+      "check_in": "2026-01-19", "check_out": "2026-01-20", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"80364"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"8040"},{"kind":"paid_today","currency":"KRW","decimal_text":"88404"},{"kind":"gross_total","currency":"KRW","decimal_text":"88404"}],
+      "card_type": "MasterCard", "card4": "8835", "card_observation_status": "observed_card4", "reference_code": "100722804767", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1688878230", "detail_success": true, "observed_booking_id": "1688878230", "property_name": "금호 화순 스파 리조트 (Kumho Hwasun Spa Resort)",
+      "check_in": "2026-01-19", "check_out": "2026-01-20", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"82464"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"8246"},{"kind":"paid_today","currency":"KRW","decimal_text":"90710"},{"kind":"gross_total","currency":"KRW","decimal_text":"90710"}],
+      "card_type": "MasterCard", "card4": "8835", "card_observation_status": "observed_card4", "reference_code": "260116144687708132", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1667416564", "detail_success": true, "observed_booking_id": "1667416564", "property_name": "체른 유안 호텔 (Cherng Yuan Hotel)",
+      "check_in": "2026-01-13", "check_out": "2026-01-14", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"JPY","decimal_text":"21016"},{"kind":"taxes_and_fees","currency":"JPY","decimal_text":"3259"},{"kind":"paid_today","currency":"JPY","decimal_text":"24275"},{"kind":"gross_total","currency":"JPY","decimal_text":"24275"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1667416965", "detail_success": true, "observed_booking_id": "1667416965", "property_name": "체른 유안 호텔 (Cherng Yuan Hotel)",
+      "check_in": "2026-01-13", "check_out": "2026-01-14", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "due_at_property", "collection_model": "pay_at_property",
+      "price_components": [{"kind":"base","currency":"TWD","decimal_text":"2337.75"},{"kind":"taxes_and_fees","currency":"TWD","decimal_text":"362.25"},{"kind":"property_due","currency":"TWD","decimal_text":"2700.00"},{"kind":"gross_total","currency":"TWD","decimal_text":"2700.00"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "6122831751", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1667417216", "detail_success": true, "observed_booking_id": "1667417216", "property_name": "체른 유안 호텔 (Cherng Yuan Hotel)",
+      "check_in": "2026-01-13", "check_out": "2026-01-14", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "due_at_property", "collection_model": "pay_at_property",
+      "price_components": [{"kind":"base","currency":"TWD","decimal_text":"2337.75"},{"kind":"taxes_and_fees","currency":"TWD","decimal_text":"362.25"},{"kind":"property_due","currency":"TWD","decimal_text":"2700.00"},{"kind":"gross_total","currency":"TWD","decimal_text":"2700.00"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "5150827056", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682096777", "detail_success": true, "observed_booking_id": "1682096777", "property_name": "체른 유안 호텔 (Cherng Yuan Hotel)",
+      "check_in": "2026-01-13", "check_out": "2026-01-14", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"352524"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"54649"},{"kind":"paid_today","currency":"KRW","decimal_text":"407173"},{"kind":"gross_total","currency":"KRW","decimal_text":"407173"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1673280672", "detail_success": true, "observed_booking_id": "1673280672", "property_name": "싱징 드림 타운 (Cingjing Dream Town)",
+      "check_in": "2026-01-12", "check_out": "2026-01-13", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"129270"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"20024"},{"kind":"paid_today","currency":"KRW","decimal_text":"149294"},{"kind":"gross_total","currency":"KRW","decimal_text":"149294"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682084335", "detail_success": true, "observed_booking_id": "1682084335", "property_name": "싱징 드림 타운 (Cingjing Dream Town)",
+      "check_in": "2026-01-12", "check_out": "2026-01-13", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"258600"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"40108"},{"kind":"paid_today","currency":"KRW","decimal_text":"298708"},{"kind":"gross_total","currency":"KRW","decimal_text":"298708"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682086828", "detail_success": true, "observed_booking_id": "1682086828", "property_name": "싱징 드림 타운 (Cingjing Dream Town)",
+      "check_in": "2026-01-12", "check_out": "2026-01-13", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"199806"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"30976"},{"kind":"paid_today","currency":"KRW","decimal_text":"230782"},{"kind":"gross_total","currency":"KRW","decimal_text":"230782"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "A25122690434", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1667405770", "detail_success": true, "observed_booking_id": "1667405770", "property_name": "하이 예스 호텔 (Hi Yes Hotel)",
+      "check_in": "2026-01-11", "check_out": "2026-01-12", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "due_at_property", "collection_model": "pay_at_property",
+      "price_components": [{"kind":"base","currency":"TWD","decimal_text":"8976.08"},{"kind":"taxes_and_fees","currency":"TWD","decimal_text":"1391.92"},{"kind":"property_due","currency":"TWD","decimal_text":"10368.00"},{"kind":"gross_total","currency":"TWD","decimal_text":"10368.00"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "6460842310", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682067525", "detail_success": true, "observed_booking_id": "1682067525", "property_name": "하이 예스 호텔 (Hi Yes Hotel)",
+      "check_in": "2026-01-11", "check_out": "2026-01-12", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "due_at_property", "collection_model": "pay_at_property",
+      "price_components": [{"kind":"base","currency":"TWD","decimal_text":"3878.80"},{"kind":"taxes_and_fees","currency":"TWD","decimal_text":"601.20"},{"kind":"property_due","currency":"TWD","decimal_text":"4480.00"},{"kind":"gross_total","currency":"TWD","decimal_text":"4480.00"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "5962088751", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682068923", "detail_success": true, "observed_booking_id": "1682068923", "property_name": "하이 예스 호텔 (Hi Yes Hotel)",
+      "check_in": "2026-01-11", "check_out": "2026-01-12", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"91966"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"14260"},{"kind":"paid_today","currency":"KRW","decimal_text":"106226"},{"kind":"gross_total","currency":"KRW","decimal_text":"106226"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "100696600842", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1682069503", "detail_success": true, "observed_booking_id": "1682069503", "property_name": "하이 예스 호텔 (Hi Yes Hotel)",
+      "check_in": "2026-01-11", "check_out": "2026-01-12", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "due_at_property", "collection_model": "pay_at_property",
+      "price_components": [{"kind":"base","currency":"TWD","decimal_text":"2119.44"},{"kind":"taxes_and_fees","currency":"TWD","decimal_text":"328.56"},{"kind":"property_due","currency":"TWD","decimal_text":"2448.00"},{"kind":"gross_total","currency":"TWD","decimal_text":"2448.00"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "reference_code": "5607230693", "selector_count": 1, "panel_visible": false
+    },
+    {"booking_id":"1681896384","detail_success":false,"selector_count":1,"panel_visible":false,"failure_code":"NAVIGATION_STATE_UNKNOWN"},
+    {
+      "booking_id": "1969941563", "detail_success": true, "observed_booking_id": "1969941563", "property_name": "나루완 갤럭시 플레이스 (Naruwan Galaxy Place)",
+      "check_in": "2026-01-10", "check_out": "2026-01-11", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"528145"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"125610"},{"kind":"paid_today","currency":"KRW","decimal_text":"653755"},{"kind":"gross_total","currency":"KRW","decimal_text":"653755"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1681886077", "detail_success": true, "observed_booking_id": "1681886077", "property_name": "Talmud Hotel Tainan",
+      "check_in": "2026-01-08", "check_out": "2026-01-09", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"437232"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"67806"},{"kind":"paid_today","currency":"KRW","decimal_text":"505038"},{"kind":"gross_total","currency":"KRW","decimal_text":"505038"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1969707111", "detail_success": true, "observed_booking_id": "1969707111", "property_name": "Talmud Hotel Tainan",
+      "check_in": "2026-01-08", "check_out": "2026-01-09", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"120658"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"27543"},{"kind":"paid_today","currency":"KRW","decimal_text":"148201"},{"kind":"gross_total","currency":"KRW","decimal_text":"148201"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {"booking_id":"1681883010","detail_success":false,"selector_count":1,"panel_visible":false,"failure_code":"NAVIGATION_STATE_UNKNOWN"},
+    {
+      "booking_id": "1681883581", "detail_success": true, "observed_booking_id": "1681883581", "property_name": "탈무드 호텔 타이중 (Talmud Hotel Taichung)",
+      "check_in": "2026-01-07", "check_out": "2026-01-08", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"55048"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"8525"},{"kind":"paid_today","currency":"KRW","decimal_text":"63573"},{"kind":"gross_total","currency":"KRW","decimal_text":"63573"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1681883843", "detail_success": true, "observed_booking_id": "1681883843", "property_name": "탈무드 호텔 타이중 (Talmud Hotel Taichung)",
+      "check_in": "2026-01-07", "check_out": "2026-01-08", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"60888"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"9436"},{"kind":"paid_today","currency":"KRW","decimal_text":"70324"},{"kind":"gross_total","currency":"KRW","decimal_text":"70324"}],
+      "card_type": "MasterCard", "card4": "4886", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    },
+    {
+      "booking_id": "1655682455", "detail_success": true, "observed_booking_id": "1655682455", "property_name": "베니키아 호텔 대림 (Benikea Hotel Daelim)",
+      "check_in": "2025-12-28", "check_out": "2025-12-29", "status": "completed", "reservation_status": "투숙 완료", "payment_status": "paid_full", "collection_model": "prepaid",
+      "price_components": [{"kind":"base","currency":"KRW","decimal_text":"102840"},{"kind":"taxes_and_fees","currency":"KRW","decimal_text":"10288"},{"kind":"paid_today","currency":"KRW","decimal_text":"113128"},{"kind":"gross_total","currency":"KRW","decimal_text":"113128"}],
+      "card_type": "Visa", "card4": "6741", "card_observation_status": "observed_card4", "selector_count": 1, "panel_visible": false
+    }
+  ],
+  "writes": 0,
+  "panel_visible": false,
+  "failure_codes": ["NAVIGATION_STATE_UNKNOWN"]
+}
