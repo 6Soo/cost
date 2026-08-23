@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -138,7 +139,7 @@ def merge_page_databases(
             VALUES ({', '.join('?' for _ in BOOKING_COLUMNS)})
         """
         for expected_page, page_path in zip(ALL_PAGE_ORDER, input_paths):
-            with _immutable_connection(page_path) as source:
+            with closing(_immutable_connection(page_path)) as source:
                 manifest = source.execute(
                     "SELECT source, captured_pages, target_year FROM run_manifest"
                 ).fetchall()

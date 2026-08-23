@@ -385,7 +385,7 @@ def _try_private_file_lock(path: Path) -> int | None:
             msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
         else:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+    except (BlockingIOError, PermissionError):
         os.close(descriptor)
         return None
     except BaseException:

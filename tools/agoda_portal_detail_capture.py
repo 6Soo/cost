@@ -4412,7 +4412,7 @@ def seal_work_database(
         finally:
             destination.close()
         os.chmod(temporary_path, 0o600)
-        with temporary_path.open("rb") as sync_file:
+        with temporary_path.open("r+b") as sync_file:
             os.fsync(sync_file.fileno())
         os.link(temporary_path, sealed_path)
         published_stat = sealed_path.stat()
@@ -4420,7 +4420,7 @@ def seal_work_database(
         temporary_path.unlink()
         temporary_path = None
         os.chmod(sealed_path, 0o600)
-        with _immutable_connection(sealed_path) as verified:
+        with closing(_immutable_connection(sealed_path)) as verified:
             integrity = verified.execute("PRAGMA integrity_check").fetchone()[0]
             row = verified.execute("SELECT * FROM sealed_manifest").fetchone()
             price_booking_count = int(
@@ -4493,7 +4493,7 @@ def seal_work_database(
 
 def _summary_from_work(work_db: Path, run_id: str) -> dict[str, Any]:
     path = _require_tmp(work_db, must_exist=True)
-    with _immutable_connection(path) as connection:
+    with closing(_immutable_connection(path)) as connection:
         has_observations = bool(
             connection.execute(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master "

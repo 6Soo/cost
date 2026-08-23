@@ -79,7 +79,9 @@ def _mode(path: Path) -> int:
 
 
 def _require_private_file(path: Path) -> None:
-    if path.is_symlink() or not path.is_file() or _mode(path) != 0o600:
+    if path.is_symlink() or not path.is_file() or (
+        os.name != "nt" and _mode(path) != 0o600
+    ):
         raise ValueError(f"private_file_contract_invalid:{path}")
 
 
@@ -632,17 +634,18 @@ def _publish_noreplace(stage: Path, final: Path) -> tuple[int, int]:
         info = os.lstat(final)
         if (info.st_dev, info.st_ino) != token:
             raise RuntimeError("published_inode_changed")
-        fd = os.open(final, os.O_RDONLY)
+        fd = os.open(final, os.O_RDWR)
         try:
             os.fsync(fd)
         finally:
             os.close(fd)
         os.chmod(final, 0o600)
-        dir_fd = os.open(final.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+        if os.name != "nt":
+            dir_fd = os.open(final.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
         return token
     except Exception:
         if created:
@@ -793,9 +796,9 @@ def build(
             _integrity(db)
         finally:
             db.close()
-        with stage_db.open("rb") as stream:
+        with stage_db.open("r+b") as stream:
             os.fsync(stream.fileno())
-        with stage_report.open("rb") as stream:
+        with stage_report.open("r+b") as stream:
             os.fsync(stream.fileno())
         published[output_db] = _publish_noreplace(stage_db, output_db)
         published[report_path] = _publish_noreplace(stage_report, report_path)

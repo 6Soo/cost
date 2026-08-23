@@ -22,6 +22,7 @@ import sqlite3
 import stat
 import tempfile
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -118,7 +119,9 @@ def _mode(path: Path) -> int:
 
 
 def _require_private_sqlite(path: Path) -> None:
-    if path.is_symlink() or not path.is_file() or _mode(path) != 0o600:
+    if path.is_symlink() or not path.is_file() or (
+        os.name != "nt" and _mode(path) != 0o600
+    ):
         raise ReconciliationError("private_sqlite_contract_invalid")
     if any(os.path.lexists(str(path) + suffix) for suffix in ("-wal", "-shm", "-journal")):
         raise ReconciliationError("sqlite_sidecar_present")
@@ -1277,14 +1280,14 @@ def build(
         os.chmod(stage_db, 0o600)
         stage_report.write_bytes(report_bytes)
         os.chmod(stage_report, 0o600)
-        with stage_db.open("rb") as stream:
+        with stage_db.open("r+b") as stream:
             os.fsync(stream.fileno())
-        with stage_report.open("rb") as stream:
+        with stage_report.open("r+b") as stream:
             os.fsync(stream.fileno())
 
         published[output_db] = _publish_noreplace(stage_db, output_db)
         published[report_path] = _publish_noreplace(stage_report, report_path)
-        with _connect_immutable(output_db) as verified:
+        with closing(_connect_immutable(output_db)) as verified:
             _integrity(verified)
             verified.row_factory = sqlite3.Row
             manifest = verified.execute(

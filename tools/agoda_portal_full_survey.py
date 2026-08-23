@@ -31,6 +31,7 @@ import sqlite3
 import tempfile
 import time
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -252,7 +253,11 @@ def _pagination_controls(tree: str) -> dict[str, int]:
     for direction, items in candidates.items():
         if not items:
             continue
-        page_labeled = [item for item in items if item[0].endswith(" page")]
+        page_labeled = [
+            item
+            for item in items
+            if item[0].endswith(" page") or item[0].endswith("페이지")
+        ]
         selected = page_labeled if page_labeled else items
         if len(selected) != 1:
             raise SurveyError("pagination_range_control_ambiguous")
@@ -263,13 +268,12 @@ def _pagination_controls(tree: str) -> dict[str, int]:
 def _is_page_step_control(
     tree: str, direction: str, element_index: int
 ) -> bool:
-    """Identify Agoda's explicit one-page step control, not a generic Next."""
-    return any(
-        int(match.group(1)) == element_index
-        and _pagination_direction(match.group(2)) == direction
-        for line in tree.splitlines()
-        if (match := PAGINATION_CONTROL_RE.match(line))
-    )
+    """Identify the control that :func:`_pagination_controls` would pick."""
+    try:
+        controls = _pagination_controls(tree)
+    except SurveyError:
+        return False
+    return controls.get(direction) == element_index
 
 
 def _infer_last_page(tree: str, *, empty: bool) -> tuple[tuple[int, ...], int]:
@@ -1550,7 +1554,7 @@ def _publish_memory_database(connection: sqlite3.Connection, destination: Path) 
         finally:
             disk.close()
         os.chmod(temporary_path, 0o600)
-        with temporary_path.open("rb") as source:
+        with temporary_path.open("r+b") as source:
             os.fsync(source.fileno())
         os.link(temporary_path, final_path)
         stat = final_path.stat()
@@ -1558,9 +1562,9 @@ def _publish_memory_database(connection: sqlite3.Connection, destination: Path) 
         temporary_path.unlink()
         temporary_path = None
         os.chmod(final_path, 0o600)
-        with sqlite3.connect(
+        with closing(sqlite3.connect(
             f"file:{final_path}?mode=ro&immutable=1", uri=True
-        ) as verified:
+        )) as verified:
             integrity = verified.execute("PRAGMA integrity_check").fetchone()[0]
             passes = verified.execute(
                 "SELECT COUNT(DISTINCT pass_no) FROM survey_pages"
