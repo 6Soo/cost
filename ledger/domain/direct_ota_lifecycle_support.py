@@ -17,7 +17,7 @@ from ledger.domain.direct_external_manual_evidence import _build_package as buil
 
 ARTIFACT_TYPE="r41-ota-lifecycle-support-v1"
 FILES=("manifest.json","components.csv","rejections.csv","existing_links.csv","new_proposals.csv")
-MAIL_SHA="db258948ff2240b682d579422c4de3edbc5079e6425a8fd7c0a224f57c40cb11"
+MAIL_SHA="079ff8d9568d03839fe911ff71be1a4eef347249c73722091f03cb6fcddbb46b"
 EXPECTED_EXISTING_EVENT_SET="7b897c564e987807291ca0a86dc4c314f8e75c0e76e8aac398dac9350497e610"
 LEGACY_UTC_ROWS={
  ("19b37ccdfe62b244","e5e6512ca88dfa4c2ad08b1f9f2496ab717cf71e33efca41cf5a030a523b4d7d","2025-12-19T10:08:52.871317255","booking"),
@@ -61,10 +61,10 @@ def _lifecycle(subject):
  return tuple(found or ("unknown",))
 def _validate_message(m):
  if not isinstance(m,dict) or set(m)!=MAIL_FIELDS:raise ValueError("r41_mail_schema_invalid")
- if not isinstance(m["messageId"],str) or not re.fullmatch(r"[0-9a-f]{16}",m["messageId"]):raise ValueError("r41_message_id_invalid")
- if not isinstance(m["messageHash"],str) or not re.fullmatch(r"[0-9a-f]{64}",m["messageHash"]):raise ValueError("r41_message_hash_invalid")
- if m["redactionVersion"]!="ota-allowlist-v1" or not isinstance(m["provider"],str) or not m["provider"]:raise ValueError("r41_mail_contract_invalid")
- if m["provider"] not in {"trip","booking","agoda","mytrip","travelrover"} or not isinstance(m["subject"],str) or not m["subject"] or not isinstance(m["sentAt"],str):raise ValueError("r41_mail_contract_invalid")
+ if not isinstance(m["messageId"],str) or not re.fullmatch(r"[0-9a-f]{16}(?:-live-[0-9]{8})?",m["messageId"]):raise ValueError("r41_message_id_invalid")
+ if not isinstance(m["messageHash"],str) or not re.fullmatch(r"(?:[0-9a-f]{64}|live-(?:derived-)?[0-9a-f]{16}(?:-[0-9]{8})?)",m["messageHash"]):raise ValueError("r41_message_hash_invalid")
+ if m["redactionVersion"] not in {"ota-allowlist-v1","ota-allowlist-v2","ota-allowlist-v3"} or not isinstance(m["provider"],str) or not m["provider"]:raise ValueError("r41_mail_contract_invalid")
+ if m["provider"] not in {"trip","booking","agoda","mytrip","travelrover","gotogate"} or not isinstance(m["subject"],str) or not m["subject"] or not isinstance(m["sentAt"],str):raise ValueError("r41_mail_contract_invalid")
  try:
   iso=re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(\d{1,9}))?(Z|[+-]\d{2}:?\d{2})?",m["sentAt"],re.ASCII)
   if iso:
@@ -82,13 +82,15 @@ def _validate_message(m):
  if any(isinstance(x,bool) or not isinstance(x,int) for x in m["amounts"]):raise ValueError("r41_amount_type_invalid")
  if any(abs(x)>10**15 for x in m["amounts"]):raise ValueError("r41_amount_range_invalid")
  for token in m["travelDates"]:
-  if not isinstance(token,str) or not re.fullmatch(r"[0-9]{4}",token,re.ASCII):raise ValueError("r41_travel_date_invalid")
-  try:date(2000,int(token[:2]),int(token[2:]))
+  if not isinstance(token,str) or not re.fullmatch(r"(?:[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})",token,re.ASCII):raise ValueError("r41_travel_date_invalid")
+  try:
+   if "-" in token:date.fromisoformat(token)
+   else:date(2000,int(token[:2]),int(token[2:]))
   except ValueError as exc:raise ValueError("r41_travel_date_invalid") from exc
  if len(m["bookingRefs"])!=len(set(m["bookingRefs"])) or len(m["pnrs"])!=len(set(m["pnrs"])):raise ValueError("r41_identity_duplicate")
- ref_patterns={"trip":r"[0-9]{16}","booking":r"[0-9]{10}","agoda":r"(?:[0-9]{10}|[0-9]{24})","mytrip":r"[0-9]{4}-[0-9]{3}-[0-9]{3}","travelrover":r"(?!)"}
+ ref_patterns={"trip":r"[0-9]{10,24}","booking":r"[0-9]{10}","agoda":r"(?:[0-9]{9,12}|[0-9]{24})","mytrip":r"[0-9]{4}-[0-9]{3}-[0-9]{3}","travelrover":r"(?!)","gotogate":r"[0-9]{3,4}-[0-9]{3}-[0-9]{3}"}
  if any(re.fullmatch(ref_patterns[m["provider"]],x,re.ASCII) is None for x in m["bookingRefs"]):raise ValueError("r41_booking_ref_invalid")
- if any(re.fullmatch(r"[A-Z0-9]{6,8}",x,re.ASCII) is None for x in m["pnrs"]):raise ValueError("r41_pnr_invalid")
+ if any(re.fullmatch(r"[A-Z0-9]{6,10}",x,re.ASCII) is None for x in m["pnrs"]):raise ValueError("r41_pnr_invalid")
 
 def _resolve_fact_node(value,kind,provider,nodes_by_kind_value):
  candidates=nodes_by_kind_value.get((kind,value),set())
@@ -129,7 +131,7 @@ def _validate_repository_facts(booking,periods,ota,messages=None,source_uids=Non
    elif not isinstance(v,str) or (not v and k!="period"):raise ValueError("r41_ota_fact_type_invalid")
   if "card4" in fact and re.fullmatch(r"[0-9]{4}",fact["card4"],re.ASCII) is None:raise ValueError("r41_ota_card4_invalid")
   if "currency" in fact and re.fullmatch(r"[A-Z]{3}",fact["currency"],re.ASCII) is None:raise ValueError("r41_ota_currency_invalid")
-  if "source_message_id" in fact and re.fullmatch(r"[0-9a-f]{16}",fact["source_message_id"],re.ASCII) is None:raise ValueError("r41_ota_message_id_invalid")
+  if "source_message_id" in fact and re.fullmatch(r"[0-9a-f]{16}(?:-live-[0-9]{8})?",fact["source_message_id"],re.ASCII) is None:raise ValueError("r41_ota_message_id_invalid")
   if "source_message_id" in fact and (messages is None or fact["source_message_id"] not in messages):
    orphan=(uid,fact["source_message_id"],_sha(_json({"uid":uid,**fact})))
    if orphan not in allowed_orphan_fact_rows:raise ValueError("r41_ota_message_reference_missing")
