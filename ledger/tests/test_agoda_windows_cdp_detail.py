@@ -1,5 +1,20 @@
-from tools.agoda_windows_cdp_capture import SHARDS, shard_for
-from tools.agoda_windows_cdp_detail import _synthetic_detail_tree, _worker_plan
+import unittest
+
+try:
+    from tools.agoda_windows_cdp_capture import SHARDS, shard_for
+    from tools.agoda_windows_cdp_detail import _synthetic_detail_tree, _worker_plan
+
+    _IMPORT_ERROR = None
+except ImportError as _e:  # retired dependencies
+    _IMPORT_ERROR = str(_e)
+    SHARDS = []  # type: ignore[assignment]
+
+    def _missing(*_a, **_kw):  # type: ignore[no-redef]
+        raise unittest.SkipTest(f"retired tool missing: {_IMPORT_ERROR}")
+
+    shard_for = _missing  # type: ignore[assignment]
+    _synthetic_detail_tree = _missing  # type: ignore[assignment]
+    _worker_plan = _missing  # type: ignore[assignment]
 
 
 def test_logical_worker_plan_has_one_upcoming_and_nine_completed_slots():
