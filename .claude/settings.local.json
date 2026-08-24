@@ -1,16 +1,15 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python3 -m unittest ledger.tests.test_receipt_pipeline -v)",
-      "Bash(orca-ide orchestration *)",
-      "Bash(git -C /tmp/cost-r9-source diff 370052e..2a7aa3a -- ledger/patch_v14.py ledger/domain/v2_workbook_adapter.py)",
-      "Bash(python3 *)",
-      "Bash(git grep *)",
-      "Bash(awk '/def test_new_gate5_field_tamper/,/def test_gate6/' ledger/tests/test_transition_gates_v2.py)",
-      "Bash(awk '/def test_scope_fingerprint_reports_invalid/,/def /' ledger/tests/test_transition_gates_v2.py)",
-      "Bash(awk '/def test_scope_fingerprint_reports_invalid/,/def test_new_gate5/' ledger/tests/test_transition_gates_v2.py)",
-      "Read(//tmp/cost-r23-decision-envelopes/ledger/domain/**)",
-      "Bash(grep -c \"ok$\" /tmp/claude-1000/-home-kkokk-AX-cost/d5ea3a98-2a96-49cf-a207-0ce1c5df985e/tasks/b9thohm4p.output)"
-    ]
-  }
+﻿{
+    "permissions":  {
+                        "allow":  [
+                                      "Bash(python3 -m unittest ledger.tests.test_receipt_pipeline -v)",
+                                      "Bash(git -C /tmp/cost-r9-source diff 370052e..2a7aa3a -- ledger/patch_v14.py ledger/domain/v2_workbook_adapter.py)",
+                                      "Bash(python3 *)",
+                                      "Bash(git grep *)",
+                                      "Bash(awk \u0027/def test_new_gate5_field_tamper/,/def test_gate6/\u0027 ledger/tests/test_transition_gates_v2.py)",
+                                      "Bash(awk \u0027/def test_scope_fingerprint_reports_invalid/,/def /\u0027 ledger/tests/test_transition_gates_v2.py)",
+                                      "Bash(awk \u0027/def test_scope_fingerprint_reports_invalid/,/def test_new_gate5/\u0027 ledger/tests/test_transition_gates_v2.py)",
+                                      "Read(//tmp/cost-r23-decision-envelopes/ledger/domain/**)",
+                                      "Bash(grep -c \"ok$\" /tmp/claude-1000/-home-kkokk-AX-cost/d5ea3a98-2a96-49cf-a207-0ce1c5df985e/tasks/b9thohm4p.output)"
+                                  ]
+                    }
 }

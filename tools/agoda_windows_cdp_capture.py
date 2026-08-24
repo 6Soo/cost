@@ -1,6 +1,6 @@
-"""Windows-native CDP capture coordinator for Agoda.
+﻿"""Windows-native CDP capture coordinator for Agoda.
 
-This is intentionally separate from the historical ORCA/UIA implementation.
+This is intentionally separate from the historical UIA implementation.
 It attaches only to a loopback CDP endpoint owned by a separately launched
 headless Edge process.  It never connects to the user's visible Edge process,
 never reads cookies or storage, and never writes a ledger or OTA database.

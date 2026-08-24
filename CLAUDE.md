@@ -1,4 +1,4 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 ## 모델 라우팅 규칙 (2026-08-04)
 
@@ -57,4 +57,3 @@ Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상�
 저추론 위임은 `mcp__paseo__create_agent`에 `provider: "agy"`를 지정해 Paseo local ACP bridge를 사용한다.
 Paseo `agy` provider가 없으면 `AGY_ACP_UNAVAILABLE`을 기록하고 Luna max로 폴백한다. 구 브리지
 스크립트(`tools/gemini.mjs` 등)는 2026-08-24 삭제됐으며 어떤 경로로도 부활시키지 않는다.
-전체 설계·구현·검증 사이클은 `bash ~/.orca/bin/cycle.sh <워크트리> "<과제>"`를 사용한다.
