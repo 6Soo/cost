@@ -6,6 +6,7 @@ four-member unordered group and never claims an order-to-card-event bijection.
 from __future__ import annotations
 
 import csv, hashlib, io, json, os, re, shutil, stat, tempfile
+from ledger.domain.staged_inputs import staged
 from pathlib import Path
 
 from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
@@ -17,7 +18,7 @@ from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 ARTIFACT_TYPE="r55-trip-cancel-atomic4-full-v1"
 RULE_VERSION="r55-raw-manual-provider-unordered-complete-group-v1"
 FILES=("manifest.json","groups.csv","proposals.csv","exclusions.csv")
-MANUAL=Path("/tmp/cost-r25-manual-v4.csv")
+MANUAL=staged("cost-r25-manual-v4.csv")
 MANUAL_SHA256="2c6d7486458a0921186311780cb2fab26950c13b369d8cf876a5ad04cac10489"
 PRE_RESIDUAL_SHA256=r49.POST_RESIDUAL_SHA256
 POST_ACCEPTED_SHA256="dde7132923defa559597946d22acf8f784e112066f499c5258cd9426f3b811da"
@@ -200,7 +201,7 @@ def build_trip_cancel_atomic_admission(documents_dir,provenance_path,key_path,py
  stage=Path(tempfile.mkdtemp(prefix=".r55-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700);published=False
  try:
   for n,d in files.items():
-   p=stage/n;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+   p=stage/n;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
    try:
     v=memoryview(d)
     while v:

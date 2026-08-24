@@ -1,6 +1,7 @@
 """R40 external-only exact original-approval relation annex."""
 from __future__ import annotations
 import csv,hashlib,io,json,os,re,shutil,stat,tempfile
+from ledger.domain.staged_inputs import staged
 from collections import Counter,defaultdict
 from pathlib import Path
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
@@ -20,7 +21,7 @@ EXPECTED_CURRENT="de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce
 EXPECTED_SCOPE="22459391ce7696e03c62eeaedf3d59b9faec5307baa62fcb578f55cc4b1a1418"
 EXPECTED_RESIDUAL="f52cc4accd1afaf66150a96e375aee76167227170e87c9aa7ce7db00f7ab8b47"
 EXPECTED_RELATIONS="ad1010e6e18fce331eafd5356f7cee5ba913823bb210210a0593e95cbd049cd8"
-MANUAL=Path("/tmp/cost-r25-manual-v4.csv")
+MANUAL=staged("cost-r25-manual-v4.csv")
 NORMALIZATION_CONTRACTS={
  "HAN":{"version":"han-exact-parser-output-v2","inputs":{"ledger/newcard/conv/G.xlsx":"f90ae46f217b2694c3d2fb012bf9550f0b7e395a785f7d19b8e83d5ca9060bb0","ledger/newcard/conv/H.xlsx":"e719a4b5468ae529663118cc2ac3dffc80094d75687d6e868655a7de4f82b9b0"},"parser_version":"direct-source-v4","han_normalizer_version":"han-approval-sheet-v1","han_normalizer_contract_sha256":"2a0575154a206db99cbdabf4f8f6a9eaa78f5d4b4f7660417ce93d21b79bad0d","field_shape":{"card4":3,"approval":4,"source_rows_start":7,"adapter":"digits-only"},"matching":"trimmed-exact-ascii-digits"},
  "KBD":{"version":"kbd-exact-parser-output-v2","inputs":{"ledger/newcard/conv/F.xlsx":"e9f1656a297b76e6834ae5785755cfbffbf9c7ec64d7400db41f5e26440cf4a5"},"parser_version":"direct-source-v4","field_shape":{"card4":5,"approval":15,"status":16,"source_rows_start":2,"cancellation":"cancel_number(original_number)","adapter":"digits-only"},"matching":"trimmed-exact-ascii-digits"}}
@@ -150,7 +151,7 @@ def build_original_approval_relation(output:Path|None=None,ledger_dir:Path=REPOS
         stage=Path(tempfile.mkdtemp(prefix=f".{output.name}-",dir=parent));os.chmod(stage,0o700);published=False
         try:
             for name,data in files.items():
-                p=stage/name;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                p=stage/name;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
                 try:
                     view=memoryview(data)
                     while view:view=view[os.write(fd,view):]

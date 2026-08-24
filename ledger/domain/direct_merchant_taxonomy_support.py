@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse, csv, hashlib, io, json, os, re, shutil, stat, tempfile, unicodedata
+from ledger.domain.staged_inputs import staged
 from collections import defaultdict
 from pathlib import Path
 
@@ -26,7 +27,7 @@ EXPECTED_COMPONENT_SET_SHA256 = {
 }
 EXPECTED_SEMANTIC_SET_SHA256 = "1cce4d8542af6c31928b4fbbc269841e2eeda089d7b5ca40e1ac409c635267d7"
 EXPECTED_MANUAL_SHA256 = "2c6d7486458a0921186311780cb2fab26950c13b369d8cf876a5ad04cac10489"
-DEFAULT_MANUAL_CSV = Path("/tmp/cost-r25-manual-v4.csv")
+DEFAULT_MANUAL_CSV = staged("cost-r25-manual-v4.csv")
 EXPECTED_COUNTS = {"current":5328,"prior_union":1508,"remaining":3820,"rules":48,"events":259,"account":259,"cost_type":259,"vat_tag":258,"vat_unresolved":1,"bucket":0,"full":0,"confirmed":0,"gate5_credit":0}
 FILES = ("manifest.json", "proposals.csv")
 COLUMNS = ("proposal_id","direct_event_key","current_event_sha256","current_source_kind","current_source_key","current_source_sha256","taxonomy_key_sha256","seed_source_count","seed_event_set_sha256","account","cost_type","vat_tag","vat_unresolved_reason","bucket","disposition","authority_status","posting_status","confirmed_count","gate5_credit")

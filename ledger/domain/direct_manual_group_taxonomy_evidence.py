@@ -6,6 +6,7 @@ manual row with an individual card event and never applies a classification.
 from __future__ import annotations
 
 import argparse
+from ledger.domain.staged_inputs import staged
 import csv
 import hashlib
 import io
@@ -29,7 +30,7 @@ from ledger.domain.direct_merchant_taxonomy_support import _build as _build_r34,
 ARTIFACT_TYPE = "r36-manual-group-taxonomy-evidence-v1"
 RULE_VERSION = "r36-exact-signed-equal-cardinality-group-v1"
 FILES = ("manifest.json", "groups.csv", "bucket_support.csv", "classifications.csv")
-DEFAULT_MANUAL_CSV = Path("/tmp/cost-r25-manual-v4.csv")
+DEFAULT_MANUAL_CSV = staged("cost-r25-manual-v4.csv")
 MANUAL_SHA256 = "2c6d7486458a0921186311780cb2fab26950c13b369d8cf876a5ad04cac10489"
 TRIPS_SHA256 = "0a9fdd6b4835d2cf889391b00e2567977858b77376d3d3071023e81609e51969"
 CURRENT_EVENT_SET_SHA256 = "de1660be34fa259e7e4a2fe88d5e45c478c7707637f61cf43c69c33af3abce93"

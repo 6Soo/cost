@@ -6,6 +6,11 @@ two-event group; it deliberately makes no receipt-to-event or card-last-four cla
 from __future__ import annotations
 
 import csv, hashlib, io, json, os, re, shutil, stat, tempfile
+from ledger.domain.staged_inputs import staged
+_r55_package = staged('cost-r44-trip-cancel-restricted.S2RPTC')
+r55_documents_dir = _r55_package
+r55_provenance = staged('cost-r44-trip-cancel-restricted.S2RPTC', 'provenance.v2.3.json')
+r55_key = staged('cost-r44-trip-cancel-restricted.S2RPTC', 'seal.key')
 from pathlib import Path
 
 from ledger.domain import direct_receipt_airfare_evidence as r43
@@ -111,7 +116,7 @@ def _live(documents_dir,provenance_path,key_path,pypdf_python,ledger_dir):
   raise ValueError("r57_member_or_document_set_mismatch")
  props=[x for x in csv.DictReader(io.StringIO(f43["proposals.csv"].decode())) if x["group_id"]==GID]
  if len(props)!=2 or {x["current_event_sha256"] for x in props}.__len__()!=2:raise ValueError("r57_r43_selected_invalid")
- r55._live(documents_dir=Path('/tmp/cost-r44-trip-cancel-restricted.S2RPTC'),provenance_path=Path('/tmp/cost-r44-trip-cancel-restricted.S2RPTC/provenance.v2.3.json'),key_path=Path('/tmp/cost-r44-trip-cancel-restricted.S2RPTC/seal.key'),pypdf_python=pypdf_python,ledger_dir=ledger_dir)
+ r55._live(documents_dir=documents_dir,provenance_path=r55_provenance,key_path=r55_key,pypdf_python=pypdf_python,ledger_dir=ledger_dir)
  with tempfile.TemporaryDirectory(prefix="r57-current-") as td:
   c=r36._context(ledger_dir,Path(td));db=c["db"]
   try:
@@ -192,7 +197,7 @@ def build_trip_airfare_atomic_admission(*args,output=None,**kwargs):
  stage=Path(tempfile.mkdtemp(prefix=".r57-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700);published=False
  try:
   for n,d in files.items():
-   fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+   fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
    try:
     view=memoryview(d)
     while view:
