@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 import subprocess
 from email import policy
 from email.parser import BytesParser
@@ -14,6 +15,7 @@ from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
 from ledger.domain import direct_trip_cancel_provenance as auth
 
 
+@requires_posix_durability()
 class TripCancelLifecycleEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);os.chmod(self.root,0o700)

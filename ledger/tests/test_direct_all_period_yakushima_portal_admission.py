@@ -1,9 +1,11 @@
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from unittest import mock
 
 from ledger.domain import direct_all_period_yakushima_portal_admission as yakushima
 
 
+@requires_staged_evidence()
 class AllPeriodYakushimaPortalAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

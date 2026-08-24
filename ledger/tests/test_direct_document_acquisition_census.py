@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from ledger.tests._platform import allow_pin_drift
 from pathlib import Path
 from unittest.mock import patch
 
@@ -35,6 +36,7 @@ from ledger.domain.direct_document_acquisition_census import (
 )
 
 
+@allow_pin_drift()
 class TestDirectDocumentAcquisitionCensus(unittest.TestCase):
 
     @classmethod

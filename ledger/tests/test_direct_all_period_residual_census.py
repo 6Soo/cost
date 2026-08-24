@@ -1,8 +1,10 @@
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 
 from ledger.domain import direct_all_period_residual_census as census
 
 
+@requires_staged_evidence()
 class AllPeriodResidualCensusTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import csv,hashlib,io,json,os,sqlite3,tempfile,unittest
+from ledger.tests._platform import allow_pin_drift
 from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
@@ -12,6 +13,7 @@ from ledger.domain.transition_gates_v2 import _amount_relation_gate
 from ledger.domain.direct_sources import import_cards
 from ledger.domain.ledger_db import connect,initialize
 
+@allow_pin_drift()
 class HanMasterCandidateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

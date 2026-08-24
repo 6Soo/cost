@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 
 from ledger.domain import direct_all_period_user_approved_taxonomy_admission as admission
 
 
+@requires_staged_evidence()
 class UserApprovedTaxonomyAdmissionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

@@ -1,8 +1,10 @@
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 
 from ledger.domain import direct_all_period_manual_duplicate_collapse_admission as duplicate
 
 
+@requires_staged_evidence()
 class AllPeriodManualDuplicateCollapseAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

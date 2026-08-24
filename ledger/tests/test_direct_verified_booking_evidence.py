@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from pathlib import Path
 
 from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS, TARGET_FACT, _booking_tokens, _digits, _load_json, _resolve_approval, _validate_fact, _validate_target_message, build_verified_booking_evidence, verify_verified_booking_evidence
@@ -11,6 +12,7 @@ from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS, T
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@requires_staged_evidence()
 class VerifiedBookingEvidenceTests(unittest.TestCase):
     def paths(self):
         manual = Path("/tmp/cost-r25-manual-v4.csv")

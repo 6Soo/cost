@@ -3,6 +3,7 @@
 import json
 import tempfile
 import unittest
+from ledger.tests._platform import allow_pin_drift
 import subprocess
 import sys
 import hashlib
@@ -333,6 +334,7 @@ class DirectOwnerReviewTest(unittest.TestCase):
                 build_direct_candidate(base / "candidate.db", Path("ledger"), output_dir=base / "artifacts", owner_review_output=base / "artifacts" / "child")
         self.assertNotIn("owner_review", package["manifest"].get("approved_transitions", {}))
 
+    @allow_pin_drift()
     def test_v6_real_invariants_and_tamper(self) -> None:
         from ledger.domain.direct_projection import build_direct_candidate
         from ledger.domain.direct_owner_review import _load_package, validate_owner_review

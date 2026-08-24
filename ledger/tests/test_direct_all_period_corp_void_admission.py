@@ -1,9 +1,11 @@
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from unittest import mock
 
 from ledger.domain import direct_all_period_corp_void_admission as voids
 
 
+@requires_staged_evidence()
 class AllPeriodCorpVoidAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

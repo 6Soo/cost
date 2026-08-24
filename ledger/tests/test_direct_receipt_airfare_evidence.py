@@ -4,12 +4,14 @@ import json
 import os
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 from pathlib import Path
 from unittest import mock
 
 from ledger.domain import direct_receipt_airfare_evidence as r43
 
 
+@requires_posix_durability()
 class ReceiptAirfareEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);os.chmod(self.root,0o700)

@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 from ledger.domain.direct_independent_evidence import materialize_current_card_evidence
@@ -41,7 +42,31 @@ class DirectOtaReservationAuthorityTest(unittest.TestCase):
             (run_id, "a" * 64, "test", "b" * 64),
         )
         import_cards(db, Path("ledger"))
-        import_trip_schedule(db, Path("ledger/data/trips.json"))
+        # Use a typed authority fixture.  The production legacy trips.json
+        # remains candidate-only and is tested separately.
+        legacy_rows = json.loads(
+            Path("ledger/data/trips.json").read_text(encoding="utf-8")
+        )
+        explicit_rows = []
+        for row in legacy_rows:
+            start = date(2026, int(row["mm"]), int(row["dd"]))
+            end = start + timedelta(days=int(row["window"]) - 1)
+            explicit_rows.append({
+                "tab": row["tab"],
+                "event_year": 2026,
+                "starts_on": start.isoformat(),
+                "ends_on": end.isoformat(),
+                "region": row["region"],
+                "authority_kind": "user_confirmed_schedule",
+                "authority_status": "authoritative",
+                "end_semantics": "inclusive_last_service_date",
+            })
+        schedule_path = Path(temporary.name) / "explicit-trip-schedule.json"
+        schedule_path.write_text(
+            json.dumps(explicit_rows, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        import_trip_schedule(db, schedule_path)
         import_ota_reservation_facts(
             db, Path("ledger/data/ota_event_links_verified.json")
         )

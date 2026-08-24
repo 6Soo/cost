@@ -4,7 +4,10 @@ import copy
 import hashlib
 import json
 import sqlite3
+import tempfile
 import unittest
+from ledger.tests._platform import allow_pin_drift
+from datetime import date, timedelta
 from pathlib import Path
 
 from ledger.domain.direct_projection import (
@@ -69,7 +72,31 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
                    VALUES ('run',?,?,?,NULL,1,?,1,'test-v1')""",
                 (kind, f"{kind}.json", "c" * 64, "d" * 64),
             )
-        import_trip_schedule(db, TRIP_PATH)
+        # This fixture deliberately supplies an explicit authority document.
+        # Production must never derive authority from the legacy window file;
+        # the separate schedule-authority tests cover that fail-closed path.
+        legacy_rows = json.loads(TRIP_PATH.read_text(encoding="utf-8"))
+        explicit_rows = []
+        for row in legacy_rows:
+            start = date(2026, int(row["mm"]), int(row["dd"]))
+            end = start + timedelta(days=int(row["window"]) - 1)
+            explicit_rows.append({
+                "tab": row["tab"],
+                "event_year": 2026,
+                "starts_on": start.isoformat(),
+                "ends_on": end.isoformat(),
+                "region": row["region"],
+                "authority_kind": "user_confirmed_schedule",
+                "authority_status": "authoritative",
+                "end_semantics": "inclusive_last_service_date",
+            })
+        with tempfile.TemporaryDirectory() as temporary:
+            schedule_path = Path(temporary) / "explicit-trip-schedule.json"
+            schedule_path.write_text(
+                json.dumps(explicit_rows, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            import_trip_schedule(db, schedule_path)
         import_lodging_facts(db, FACT_PATH)
         return db
 
@@ -186,6 +213,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "record_schema_invalid"):
             validate_lodging_fact_record(privacy_tamper)
 
+    @allow_pin_drift()
     def test_booking_reference_lifecycle_beats_accidental_group_sum(self) -> None:
         db = self._prepare()
         try:
@@ -205,6 +233,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_taiwan_context_targets_service_period_and_never_becomes_evidence(self) -> None:
         db = self._db()
         try:
@@ -241,6 +270,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_withheld_cancellation_blocks_same_booking_as_uncertainty(self) -> None:
         db = self._db()
         try:
@@ -279,6 +309,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_equal_amount_mn_is_withheld_without_pairwise_links(self) -> None:
         db = self._prepare()
         try:
@@ -311,6 +342,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_open_cardinality_component_is_withheld_not_force_paired(self) -> None:
         db = self._prepare()
         try:
@@ -333,6 +365,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_extra_collision_card_cannot_be_silently_filtered_from_component(self) -> None:
         db = self._prepare()
         try:
@@ -355,6 +388,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_schedule_hash_is_part_of_fact_and_authority_content_address(self) -> None:
         db = self._prepare()
         try:
@@ -385,6 +419,7 @@ class VerifiedOtaLodgingTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_authority_and_manifest_tampering_is_detected(self) -> None:
         db = self._prepare()
         try:

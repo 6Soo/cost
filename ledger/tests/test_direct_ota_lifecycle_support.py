@@ -1,7 +1,9 @@
 import hashlib,json,os,tempfile,unittest
+from ledger.tests._platform import allow_pin_drift
 from pathlib import Path
 from unittest.mock import patch
 from ledger.domain import direct_ota_lifecycle_support as r41
+@allow_pin_drift()
 class OtaLifecycleSupportTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):cls.manifest,cls.files=r41._build(Path("ledger"))

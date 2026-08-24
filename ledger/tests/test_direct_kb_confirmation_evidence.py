@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,7 @@ PIN = Path("/tmp/cost-r45-kb-pinned-v4.2SR9yH")
 ENVELOPES = Path("/tmp/cost-r45-kb-usage.5V8jJg")
 
 
+@requires_posix_durability()
 class KBConfirmationEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

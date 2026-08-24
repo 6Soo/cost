@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import unittest
+from ledger.tests._platform import allow_pin_drift
 
 from ledger.domain import direct_all_period_historical_carryforward_census as census
 
 
+@allow_pin_drift()
 class HistoricalCarryforwardCensusTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

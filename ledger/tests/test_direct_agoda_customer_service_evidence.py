@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 import json
 from email import policy
 from email.parser import BytesParser
@@ -17,6 +18,7 @@ from ledger.domain import direct_agoda_customer_service_evidence as r49
 PRIVATE = Path("/tmp/cost-r49-agoda-private.DLx7ES")
 
 
+@requires_posix_durability()
 class AgodaCustomerServiceEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

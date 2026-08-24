@@ -1,5 +1,6 @@
 from __future__ import annotations
 import csv, json, os, tempfile, unittest
+from ledger.tests._platform import requires_staged_evidence
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,6 +10,7 @@ from ledger.domain.direct_merchant_taxonomy_support import (
     build_merchant_taxonomy_support, verify_merchant_taxonomy_support,
 )
 
+@requires_staged_evidence()
 class MerchantTaxonomySupportTest(unittest.TestCase):
     def test_pure_rule_gates_distinct_source_purchase_partition_conflict_adverse(self):
         key=("HAN","MERCHANT","BIZ","KRW","purchase"); triple=("식비","여행원가","불공제_해외")

@@ -6,12 +6,14 @@ import hashlib
 import subprocess
 import tempfile
 import unittest
+from ledger.tests._platform import requires_symlinks
 from unittest.mock import patch
 from pathlib import Path
 
 from ledger.domain.direct_lineage_annex import build_annex, verify_annex, _install_noreplace
 
 
+@requires_symlinks()
 class DirectLineageAnnexTest(unittest.TestCase):
     def test_real_fixed_census_and_authority_boundary(self) -> None:
         result = build_annex()

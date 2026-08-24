@@ -5,6 +5,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 from pathlib import Path
 
 from ledger.domain.direct_external_manual_evidence import (
@@ -19,6 +20,7 @@ from ledger.domain.direct_external_manual_evidence import (
 )
 
 
+@requires_posix_durability()
 class DirectExternalManualEvidenceTest(unittest.TestCase):
     def test_alias_contract_separates_exclusive_providers(self) -> None:
         self.assertEqual(_provider("MYTRIP 항공권"), "mytrip")

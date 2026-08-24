@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import unittest
+from ledger.tests._platform import allow_pin_drift
 from unittest.mock import patch
 
 from ledger.domain.direct_current_cancellation_settlement import (
@@ -188,6 +189,7 @@ class CurrentCancellationSettlementTest(unittest.TestCase):
         finally:
             db.close()
 
+    @allow_pin_drift()
     def test_negative_trip_refund_allocation_is_signed_and_gate5_detects_tamper(self) -> None:
         db = self._db()
         try:

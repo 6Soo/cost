@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 from unittest.mock import patch
 from pathlib import Path
 import io
@@ -37,6 +38,7 @@ def stat_mode(path):
     return path.stat().st_mode & 0o777
 
 
+@requires_posix_durability()
 class RepositoryBookingEvidenceTests(unittest.TestCase):
     def paths(self):
         manual = Path("/tmp/cost-r25-manual-v4.csv")

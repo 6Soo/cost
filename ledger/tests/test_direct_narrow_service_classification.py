@@ -8,6 +8,7 @@ import os
 import stat
 import tempfile
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -26,6 +27,7 @@ class _DB:
     def close(self): pass
 
 
+@requires_staged_evidence()
 class NarrowServiceClassificationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -8,6 +8,7 @@ import os
 import stat
 import tempfile
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -16,6 +17,7 @@ import ledger.domain.direct_manual_group_taxonomy_evidence as r36
 import ledger.domain.direct_lineage_annex as lineage
 
 
+@requires_staged_evidence()
 class ManualGroupTaxonomyEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

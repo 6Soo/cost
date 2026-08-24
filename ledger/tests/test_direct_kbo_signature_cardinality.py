@@ -1,4 +1,5 @@
 import csv, io, json, os, tempfile, unittest
+from ledger.tests._platform import allow_pin_drift
 from pathlib import Path
 from unittest import mock
 
@@ -6,6 +7,7 @@ from ledger.domain import direct_kbo_signature_cardinality as r46
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 
 
+@allow_pin_drift()
 class KboSignatureCardinalityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

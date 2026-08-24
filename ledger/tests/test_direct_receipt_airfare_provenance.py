@@ -2,6 +2,7 @@ import hashlib
 import os
 import tempfile
 import unittest
+from ledger.tests._platform import requires_posix_durability
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from ledger.domain import direct_receipt_airfare_provenance as auth
 
 
+@requires_posix_durability()
 class AuthenticatedProvenanceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

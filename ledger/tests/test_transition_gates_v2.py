@@ -5,6 +5,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from ledger.tests._platform import allow_pin_drift
 from pathlib import Path
 
 from ledger.domain.direct_projection import (
@@ -797,6 +798,7 @@ class DirectTransitionGateTest(unittest.TestCase):
         )
         self.assertEqual(scope["decision_scope_invalid_sample"], ["invalid#bogus", "invalid#bogus"])
 
+    @allow_pin_drift()
     def test_new_gate5_field_tamper_is_rejected_by_artifact_verifier(self) -> None:
         from ledger.domain.direct_projection import build_direct_candidate
 
@@ -815,6 +817,7 @@ class DirectTransitionGateTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "gate_report_self_hash_mismatch"):
                 verify_run_artifacts(report_dir, repository_root=Path("."))
 
+    @allow_pin_drift()
     def test_new_gate6_diff_field_tamper_is_rejected_by_artifact_verifier(self) -> None:
         from ledger.domain.direct_projection import build_direct_candidate
 

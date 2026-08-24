@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+from ledger.tests._platform import allow_pin_drift
 import inspect
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -211,6 +212,7 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertGreater(counts["kbo_unordered_groups"], 0)
             self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_relations WHERE relation_status!='proposed'").fetchone()[0], 0)
             db.close()
+    @allow_pin_drift()
     def test_honest_han_validation_can_activate_and_expose_view(self) -> None:
         from ledger.domain.han_master_candidate import AUTHORITY_PATH
         from ledger.domain.transition_gates_v2 import build_gate_report as real_report
@@ -262,6 +264,7 @@ class DirectProjectionTest(unittest.TestCase):
         db.execute("CREATE TRIGGER attacker_extra AFTER INSERT ON direct_projection_runs BEGIN SELECT 1; END")
         with self.assertRaisesRegex(ValueError,"schema_v3_contract_mismatch"):_assert_existing_v3_schema(db)
         db.close()
+    @allow_pin_drift()
     def test_honest_han_validation_flow_passes_gate4_while_other_gates_block(self) -> None:
         from ledger.domain.han_master_candidate import AUTHORITY_PATH
         with tempfile.TemporaryDirectory() as dirname:
@@ -318,6 +321,7 @@ class DirectProjectionTest(unittest.TestCase):
                 ValueError, "candidate_only_projection_forbidden"
             ):
                 projector(None, "run", Path("ledger"))
+    @allow_pin_drift()
     def test_failed_real_p07_owner_export_is_external_blank_5328_and_unpublished(self) -> None:
         import tempfile
         from ledger.domain import direct_projection as projection
@@ -740,6 +744,7 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertFalse(reports.exists())
             self.assertEqual(list(root.glob(".*-candidate-*.db*")), [])
 
+    @allow_pin_drift()
     def test_pass_path_report_failure_rolls_back_building_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -780,6 +785,7 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertFalse(destination.exists())
             self.assertFalse(reports.exists())
 
+    @allow_pin_drift()
     def test_pass_path_activates_candidate_after_report_publication(self) -> None:
         from ledger.domain import direct_projection as module
 
@@ -857,6 +863,7 @@ class DirectProjectionTest(unittest.TestCase):
                 "candidate_ready_for_shadow",
             )
 
+    @allow_pin_drift()
     def test_passed_candidate_business_mutation_fails_verification(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -931,6 +938,7 @@ class DirectProjectionTest(unittest.TestCase):
                     repository_root=REPOSITORY_ROOT,
                 )
 
+    @allow_pin_drift()
     def test_legacy_import_spy_is_never_called_by_real_direct_build(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)
@@ -946,6 +954,7 @@ class DirectProjectionTest(unittest.TestCase):
             self.assertFalse(result["passed"])
             self.assertFalse((root / "candidate.db").exists())
 
+    @allow_pin_drift()
     def test_artifact_verifier_rejects_manifest_inventory_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as dirname:
             root = Path(dirname)

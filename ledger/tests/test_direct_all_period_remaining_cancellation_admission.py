@@ -1,8 +1,10 @@
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 
 from ledger.domain import direct_all_period_remaining_cancellation_admission as cancellations
 
 
+@requires_staged_evidence()
 class AllPeriodRemainingCancellationAdmissionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

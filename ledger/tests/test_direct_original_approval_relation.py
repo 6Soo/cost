@@ -1,9 +1,11 @@
 from __future__ import annotations
 import hashlib,os,tempfile,unittest
+from ledger.tests._platform import requires_staged_evidence
 from pathlib import Path
 from unittest.mock import patch
 from ledger.domain import direct_original_approval_relation as r40
 
+@requires_staged_evidence()
 class OriginalApprovalRelationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):cls.manifest,cls.files=r40._build(Path("ledger"))

@@ -6,6 +6,7 @@ import json
 import copy
 import tempfile
 import unittest
+from ledger.tests._platform import requires_staged_evidence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from unittest.mock import patch
 from ledger.domain import direct_structured_lodging_evidence as r38
 
 
+@requires_staged_evidence()
 class StructuredLodgingEvidenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
