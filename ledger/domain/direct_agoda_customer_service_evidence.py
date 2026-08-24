@@ -542,7 +542,7 @@ def build_agoda_customer_service_evidence(private_dir: Path, output: Path | None
         stagefd = os.open(stage_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
         try:
             for name, data in files.items():
-                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=stagefd)
+                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600, dir_fd=stagefd)
                 try:
                     view = memoryview(data)
                     while view:

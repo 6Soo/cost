@@ -272,7 +272,7 @@ def build_receipt_airfare_evidence(documents_dir: Path, provenance_path: Path,
     stage=Path(tempfile.mkdtemp(prefix=".r43-stage-",dir=out.parent));os.chmod(stage,0o700);published=False
     try:
         for name,data in files.items():
-            fd=os.open(stage/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            fd=os.open(stage/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
             try:
                 view=memoryview(data)
                 while view:view=view[os.write(fd,view):]

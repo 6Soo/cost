@@ -1535,7 +1535,7 @@ def _publish_memory_database(connection: sqlite3.Connection, destination: Path) 
         os.chmod(final_path.parent, 0o700)
     lock_path = final_path.with_name(f".{final_path.name}.lock")
     try:
-        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
         raise SurveyError("survey_destination_is_locked") from exc
     os.close(lock_fd)

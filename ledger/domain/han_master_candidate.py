@@ -106,7 +106,7 @@ def _direct_snapshot(candidate_db:Path,run_id:str,input_sha:str,semantic_sha:str
     if any(os.path.lexists(x) for x in sidecars):raise ValueError("r39_direct_db_sidecar_present")
     db_bytes=_read_regular_nofollow(candidate_db)
     with tempfile.TemporaryDirectory(prefix="r39-db-snapshot-") as td:
-      snapshot=Path(td)/"candidate.db";fd=os.open(snapshot,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+      snapshot=Path(td)/"candidate.db";fd=os.open(snapshot,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
       try:
         _write_all(fd,db_bytes);os.fsync(fd)
       finally:os.close(fd)
@@ -171,7 +171,7 @@ def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
     with tempfile.TemporaryDirectory(prefix="r39-input-snapshot-") as td:
         snap=Path(td);conv=snap/"newcard/conv";conv.mkdir(parents=True)
         for name,data in (("G.xlsx",g_bytes),("H.xlsx",h_bytes)):
-            fd=os.open(conv/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            fd=os.open(conv/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
             try:_write_all(fd,data);os.fsync(fd)
             finally:os.close(fd)
         targets=_han_targets(snap)
@@ -337,7 +337,7 @@ def build_candidate(output:Path,*,candidate_db:Path,run_id:str,input_manifest_sh
     try:
         os.chmod(stage,0o700)
         for name,data in files.items():
-            fd=os.open(stage/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            fd=os.open(stage/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
             try:
                 os.fchmod(fd,0o600);_write_all(fd,data)
                 os.fsync(fd)

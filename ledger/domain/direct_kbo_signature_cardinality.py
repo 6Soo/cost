@@ -217,7 +217,7 @@ def build_kbo_signature_cardinality(output:Path|None=None,ledger_dir:Path=REPOSI
  stage=Path(tempfile.mkdtemp(prefix=f".{output.name}-",dir=f"/proc/self/fd/{pfd}"));stage_name=stage.name;stage_path=Path(f"/proc/self/fd/{pfd}")/stage_name;os.chmod(stage_path,0o700);published=False;target_id=None;targetfd=None
  try:
   for name,data in files.items():
-   fd=os.open(stage_path/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+   fd=os.open(stage_path/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
    try:
     view=memoryview(data)
     while view:

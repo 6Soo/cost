@@ -17,7 +17,9 @@ from collections import Counter, defaultdict
 from datetime import date
 from typing import Iterable
 
-from ledger.domain.direct_verified_ota_lodging import load_trip_schedule
+from ledger.domain.direct_verified_ota_lodging import (
+    load_authoritative_trip_schedule,
+)
 
 
 SOURCE_KIND = "ota_reservation_fact"
@@ -306,7 +308,7 @@ def _existing_decision_count(db: sqlite3.Connection, payment_id: int) -> int:
 def _evaluate(
     db: sqlite3.Connection, run_id: str, *, check_existing: bool = True,
 ) -> dict[str, object]:
-    schedule = load_trip_schedule(db)
+    schedule = load_authoritative_trip_schedule(db)
     cards = _load_current_cards(db, run_id)
     facts = _load_facts(db)
     proposals: list[dict[str, object]] = []

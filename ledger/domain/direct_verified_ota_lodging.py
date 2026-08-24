@@ -18,6 +18,14 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from ledger.domain.direct_trip_schedule_authority import (
+    END_SEMANTICS,
+    EXCLUSIVE_SERVICE_END_SEMANTICS,
+    normalize_service_period,
+    sha256_value,
+    validate_record,
+)
+
 
 FACT_ARTIFACT_TYPE = "trip-gmail-lodging-safe-facts-v2"
 FACT_ACQUISITION_SCOPE = "authenticated_trip_hotel_targeted_cohort"
@@ -277,7 +285,13 @@ def validate_lodging_fact_document(raw: object) -> dict[str, object]:
 
 
 def load_trip_schedule(db: object) -> dict[str, dict[str, object]]:
-    """Load the imported schedule only; never reopen trips.json."""
+    """Load legacy schedule rows as *candidate* metadata only.
+
+    This function is retained for candidate/audit code that needs to explain
+    what the old ``mm/dd/window`` file would have suggested.  It must not be
+    used by a promotion, allocation, or posting path.  Those paths use
+    :func:`load_authoritative_trip_schedule` below.
+    """
     rows = db.execute(
         """SELECT source_key,source_sha256,payload_json
            FROM direct_source_records WHERE source_kind='trip_schedule'
@@ -286,12 +300,25 @@ def load_trip_schedule(db: object) -> dict[str, dict[str, object]]:
     if not rows:
         raise ValueError("trip_schedule_source_missing")
     result: dict[str, dict[str, object]] = {}
+    legacy_shape = {"tab", "mm", "dd", "region", "window"}
+    explicit_shape = {
+        "tab", "event_year", "starts_on", "ends_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
+    explicit_service_shape = {
+        "tab", "event_year", "service_start_on", "service_end_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
     for source_key, source_sha256, payload_json in rows:
         try:
             payload = json.loads(str(payload_json))
         except (TypeError, json.JSONDecodeError) as exc:
             raise ValueError("trip_schedule_payload_invalid") from exc
-        if not isinstance(payload, dict) or set(payload) != {"tab", "mm", "dd", "region", "window"}:
+        if isinstance(payload, dict) and set(payload) in (
+            explicit_shape, explicit_service_shape,
+        ):
+            continue
+        if not isinstance(payload, dict) or set(payload) != legacy_shape:
             raise ValueError("trip_schedule_payload_invalid")
         if (
             not _is_clean_text(payload["tab"])
@@ -324,23 +351,123 @@ def load_trip_schedule(db: object) -> dict[str, dict[str, object]]:
     return result
 
 
+def load_authoritative_trip_schedule(
+    db: object,
+) -> dict[str, dict[str, object]]:
+    """Load only explicit, content-addressed trip schedule authority.
+
+    Legacy rows remain in the source table for auditability, but a row with
+    only ``mm/dd/window`` is never upgraded here.  An authoritative row must
+    carry explicit start/end dates and an explicit event year.  ``ends_on``
+    is therefore a normalized field produced from the source schedule
+    evidence, not a value inferred from a payment date or a user-facing
+    activity window.
+    """
+
+    rows = db.execute(
+        """SELECT source_key,source_sha256,payload_json
+           FROM direct_source_records WHERE source_kind='trip_schedule'
+           ORDER BY source_key"""
+    ).fetchall()
+    if not rows:
+        raise ValueError("trip_schedule_source_missing")
+    result: dict[str, dict[str, object]] = {}
+    legacy_shape = {"tab", "mm", "dd", "region", "window"}
+    explicit_shape = {
+        "tab", "event_year", "starts_on", "ends_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
+    explicit_service_shape = {
+        "tab", "event_year", "service_start_on", "service_end_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
+    for source_key, source_sha256, payload_json in rows:
+        try:
+            payload = json.loads(str(payload_json))
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("trip_schedule_payload_invalid") from exc
+        if isinstance(payload, dict) and set(payload) == legacy_shape:
+            # Candidate-only legacy input.  Do not silently turn its window
+            # into an accounting period.
+            continue
+        if not isinstance(payload, dict) or set(payload) not in (
+            explicit_shape, explicit_service_shape,
+        ):
+            raise ValueError("trip_schedule_authority_payload_invalid")
+        if str(source_key) != str(payload["tab"]):
+            raise ValueError("trip_schedule_authority_source_key_invalid")
+        if not _is_sha256(source_sha256):
+            raise ValueError("trip_schedule_authority_source_digest_invalid")
+        if sha256_value(payload) != str(source_sha256):
+            raise ValueError("trip_schedule_authority_payload_digest_invalid")
+        if set(payload) == explicit_service_shape:
+            if payload["end_semantics"] != EXCLUSIVE_SERVICE_END_SEMANTICS:
+                raise ValueError("trip_schedule_authority_end_semantics_invalid")
+            period = normalize_service_period(
+                str(payload["service_start_on"]),
+                str(payload["service_end_on"]),
+            )
+            starts_on = period.service_start_on.isoformat()
+            ends_on = period.last_service_on.isoformat()
+        else:
+            if payload["end_semantics"] != END_SEMANTICS:
+                raise ValueError("trip_schedule_authority_end_semantics_invalid")
+            starts_on = payload["starts_on"]
+            ends_on = payload["ends_on"]
+        raw_record = {
+            "trip_code": payload["tab"],
+            "event_year": payload["event_year"],
+            "starts_on": starts_on,
+            "ends_on": ends_on,
+            "region": payload["region"],
+            "authority_kind": payload["authority_kind"],
+            "source_locator": f"db://direct_source_records/trip_schedule/{source_key}",
+            "source_sha256": str(source_sha256),
+            "authority_status": payload["authority_status"],
+            "end_semantics": END_SEMANTICS,
+        }
+        record = validate_record(raw_record)
+        if not record.is_authoritative:
+            continue
+        if record.trip_code in result:
+            raise ValueError("trip_schedule_authority_duplicate_target")
+        inclusive_days = (record.ends_on - record.starts_on).days + 1
+        result[record.trip_code] = {
+            "tab": record.trip_code,
+            "event_year": record.event_year,
+            "service_year": record.event_year,
+            "mm": record.starts_on.month,
+            "dd": record.starts_on.day,
+            "region": record.region,
+            # Compatibility metadata for consumers that render a period.
+            # This value is derived from explicit dates, never authoritative
+            # input and never a matching authority by itself.
+            "window": inclusive_days,
+            "starts_on": record.starts_on.isoformat(),
+            "ends_on": record.ends_on.isoformat(),
+            "authority_kind": record.authority_kind,
+            "authority_status": record.authority_status,
+            "end_semantics": record.end_semantics,
+            "source_kind": "trip_schedule",
+            "source_sha256": str(source_sha256),
+        }
+    return result
+
+
 def schedule_matches_for_date(
     db: object, occurred_on: str,
 ) -> list[dict[str, object]]:
-    """Match a card/use date against the yearless trip template.
+    """Match a card/use date against explicit, year-bound schedule authority.
 
-    ``trips.json`` stores month/day templates.  The legacy loader materializes
-    the current 2026 instance because typed OTA facts are 2026 facts, but a
-    card event may be from another year.  Rebuilding the instance in the
-    event's year prevents 2025 rows from becoming false ``no_match`` results.
     This helper never turns an OTA payment date into a service date; callers
-    must decide whether the event is a use-date purchase first.
+    must decide whether the event is a use-date purchase first.  Legacy
+    month/day windows are intentionally absent from this lookup.
     """
     try:
         event_day = date.fromisoformat(str(occurred_on))
     except (TypeError, ValueError):
         return []
-    templates = load_trip_schedule(db)
+    templates = load_authoritative_trip_schedule(db)
     matches: list[dict[str, object]] = []
     for trip in templates.values():
         try:
@@ -350,12 +477,10 @@ def schedule_matches_for_date(
         if service_year != event_day.year:
             continue
         try:
-            start = date(
-                service_year, int(trip["mm"]), int(trip["dd"]),
-            )
-        except (TypeError, ValueError) as exc:
+            start = date.fromisoformat(str(trip["starts_on"]))
+            end = date.fromisoformat(str(trip["ends_on"]))
+        except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("trip_schedule_date_invalid") from exc
-        end = start + timedelta(days=int(trip["window"]) - 1)
         matches.append({
             **trip,
             "starts_on": start.isoformat(),
@@ -379,9 +504,9 @@ def _withhold(
 def _target_for_fact(
     row: dict[str, object], schedule: dict[str, dict[str, object]],
 ) -> list[dict[str, object]]:
-    check_in = date.fromisoformat(str(row["check_in"]))
-    check_out = date.fromisoformat(str(row["check_out"]))
-    last_night = check_out - timedelta(days=1)
+    period = normalize_service_period(
+        str(row["check_in"]), str(row["check_out"]),
+    )
     tokens = {_nfc(str(token)) for token in row["address_tokens"]}
     alias_hints = {
         SERVICE_REGION_ALIASES[key]
@@ -392,9 +517,9 @@ def _target_for_fact(
     searchable_regions = tokens | {str(value) for value in alias_hints if value}
     return [
         trip for trip in schedule.values()
-        if date.fromisoformat(str(trip["starts_on"])) <= check_in
+        if date.fromisoformat(str(trip["starts_on"])) <= period.service_start_on
         <= date.fromisoformat(str(trip["ends_on"]))
-        and last_night <= date.fromisoformat(str(trip["ends_on"]))
+        and period.last_service_on <= date.fromisoformat(str(trip["ends_on"]))
         and (
             _nfc(str(trip["region"])) in searchable_regions
             or str(trip.get("region_alias")) in searchable_regions

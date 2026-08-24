@@ -393,8 +393,23 @@ def import_trip_schedule(
     if not isinstance(raw, list) or not raw:
         raise ValueError("trip_schedule_root_invalid")
     inserted = 0
+    legacy_shape = {"tab", "mm", "dd", "region", "window"}
+    explicit_shape = {
+        "tab", "event_year", "starts_on", "ends_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
+    explicit_service_shape = {
+        "tab", "event_year", "service_start_on", "service_end_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
     for index, row in enumerate(raw):
-        if not isinstance(row, dict) or not isinstance(row.get("tab"), str):
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("tab"), str)
+            or set(row) not in (
+                legacy_shape, explicit_shape, explicit_service_shape,
+            )
+        ):
             raise ValueError(f"trip_schedule_row_invalid:{index}")
         _, created = _insert_source(db, "trip_schedule", str(row["tab"]), dict(row))
         inserted += int(created)

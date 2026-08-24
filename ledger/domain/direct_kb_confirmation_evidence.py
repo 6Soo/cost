@@ -545,7 +545,7 @@ def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Pa
     target_identity = None
     try:
         for name, data in files.items():
-            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=stagefd)
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600, dir_fd=stagefd)
             try:
                 view = memoryview(data)
                 while view:

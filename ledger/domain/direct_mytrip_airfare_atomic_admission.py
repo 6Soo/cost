@@ -139,7 +139,7 @@ def _publish(manifest,files,output):
   if r45._identity(os.stat(out.parent,follow_symlinks=False))!=pid:raise ValueError("r59_parent_identity_changed")
   stage=Path(tempfile.mkdtemp(prefix=".r59-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700)
   for n,d in files.items():
-   fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+   fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
    try:
     view=memoryview(d)
     while view:

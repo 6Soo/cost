@@ -209,9 +209,11 @@ def load_verified_trip_target_schedule(
     This lookup is for validating an already authenticated external service
     fact.  It is not the allocator's generic schedule.
     """
-    from ledger.domain.direct_verified_ota_lodging import load_trip_schedule
+    from ledger.domain.direct_verified_ota_lodging import (
+        load_authoritative_trip_schedule,
+    )
 
-    result = load_trip_schedule(db)
+    result = load_authoritative_trip_schedule(db)
     for row in load_geographic_trip_context(db, required=False):
         target = str(row["tab"])
         if target in result:
@@ -224,9 +226,11 @@ def load_allocation_trip_schedule(
     db: sqlite3.Connection,
 ) -> dict[str, dict[str, object]]:
     """Load only canonical trips accepted by the normal allocator."""
-    from ledger.domain.direct_verified_ota_lodging import load_trip_schedule
+    from ledger.domain.direct_verified_ota_lodging import (
+        load_authoritative_trip_schedule,
+    )
 
-    return load_trip_schedule(db)
+    return load_authoritative_trip_schedule(db)
 
 
 def context_manifest(context: Iterable[Mapping[str, object]]) -> list[dict[str, object]]:

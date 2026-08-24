@@ -445,42 +445,71 @@ def ensure_trip(
     starts_on: str | None,
     ends_on: str | None,
 ) -> int:
+    status = (
+        "planned"
+        if starts_on is not None and ends_on is not None
+        else "candidate_only"
+    )
     db.execute(
         """
-        INSERT INTO trips(code, name, region, starts_on, ends_on)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO trips(code, name, region, starts_on, ends_on, status)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(code) DO UPDATE SET
             name=excluded.name,
             region=COALESCE(excluded.region, trips.region),
             starts_on=COALESCE(excluded.starts_on, trips.starts_on),
-            ends_on=COALESCE(excluded.ends_on, trips.ends_on)
+            ends_on=COALESCE(excluded.ends_on, trips.ends_on),
+            status=CASE
+                WHEN excluded.starts_on IS NOT NULL
+                 AND excluded.ends_on IS NOT NULL THEN 'planned'
+                ELSE trips.status
+            END
         """,
-        (code, code, region or None, starts_on, ends_on),
+        (code, code, region or None, starts_on, ends_on, status),
     )
     return int(db.execute("SELECT id FROM trips WHERE code=?", (code,)).fetchone()[0])
 
 
 def load_trips(db: sqlite3.Connection, path: Path) -> set[str]:
+    """Import trip names without promoting legacy windows to date authority.
+
+    The legacy snapshot is still needed to recognize historical target codes,
+    but its ``mm/dd/window`` values are not a service period.  Keep those
+    targets in the relational table as candidate-only rows with null dates;
+    explicit schedule authority is loaded through the direct-source path.
+    """
     raw = json.loads(path.read_text(encoding="utf-8"))
     codes: set[str] = set()
     for item in raw:
         code = item["tab"]
-        start = date(2026, int(item["mm"]), int(item["dd"]))
-        end = start + timedelta(days=max(1, int(item.get("window", 7))) - 1)
-        ensure_trip(db, code, item.get("region", ""), start.isoformat(), end.isoformat())
+        starts_on = item.get("starts_on")
+        ends_on = item.get("ends_on")
+        if isinstance(starts_on, str) and isinstance(ends_on, str):
+            # Explicitly dated imports are accepted only when the source has
+            # supplied both endpoints.  Do not synthesize them from mm/dd.
+            date.fromisoformat(starts_on)
+            date.fromisoformat(ends_on)
+            if date.fromisoformat(ends_on) < date.fromisoformat(starts_on):
+                raise ValueError("trip_schedule_date_order_invalid")
+            ensure_trip(db, code, item.get("region", ""), starts_on, ends_on)
+        else:
+            ensure_trip(db, code, item.get("region", ""), None, None)
+            db.execute(
+                """UPDATE trips SET starts_on=NULL, ends_on=NULL,
+                          status='candidate_only' WHERE code=?""",
+                (code,),
+            )
         codes.add(code)
     return codes
 
 
 def infer_trip(db: sqlite3.Connection, code: str) -> int:
+    """Create a target name without inferring a service period from its code."""
     match = TRIP_CODE_RE.match(code or "")
     if not match:
         raise ValueError(f"여행 코드 형식을 해석할 수 없습니다: {code}")
-    mm = int(match.group(1) or match.group(3))
-    dd = int(match.group(2) or 1)
     region = match.group(4)
-    start = date(2026, mm, dd)
-    return ensure_trip(db, code, region, start.isoformat(), None)
+    return ensure_trip(db, code, region, None, None)
 
 
 def ensure_target(db: sqlite3.Connection, code: str, kind: str) -> int:

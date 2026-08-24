@@ -334,7 +334,7 @@ def build_trip_cancel_lifecycle_evidence(documents_dir:Path,provenance_path:Path
     os.chmod(stage_path,0o700);stagefd=os.open(stage_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd);published=False;targetfd=None;target_identity=None
     try:
         for name,data in files.items():
-            fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600,dir_fd=stagefd)
+            fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600,dir_fd=stagefd)
             try:
                 view=memoryview(data)
                 while view:view=view[os.write(fd,view):]

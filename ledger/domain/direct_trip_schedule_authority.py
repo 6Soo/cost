@@ -45,6 +45,7 @@ AUTHORITATIVE_KINDS = {
 CANDIDATE_ONLY_KINDS = {"legacy_window_candidate"}
 AUTHORITY_STATUSES = {"authoritative", "candidate_only"}
 END_SEMANTICS = "inclusive_last_service_date"
+EXCLUSIVE_SERVICE_END_SEMANTICS = "exclusive_service_end"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -113,6 +114,51 @@ class ScheduleRecord:
             "authority_status": self.authority_status,
             "end_semantics": self.end_semantics,
         }
+
+
+@dataclass(frozen=True)
+class NormalizedServicePeriod:
+    """A service period with one explicit end-date convention.
+
+    OTA lodging facts use a checkout-exclusive ``service_end_on``.  Schedule
+    authority records use an inclusive last-service date.  Keeping both forms
+    here prevents callers from independently reimplementing the easy-to-miss
+    ``checkout - 1 day`` rule.
+    """
+
+    service_start_on: date
+    service_end_on_exclusive: date
+    last_service_on: date
+
+    @property
+    def end_semantics(self) -> str:
+        return "exclusive_checkout_date"
+
+
+def normalize_service_period(
+    service_start_on: str | date,
+    service_end_on: str | date,
+) -> NormalizedServicePeriod:
+    """Validate and normalize an OTA/service period.
+
+    ``service_end_on`` is exclusive for lodging and other reservation facts.
+    No date is inferred from a payment date, month/day template, or window.
+    """
+
+    def as_date(value: str | date, field: str) -> date:
+        if isinstance(value, date):
+            return value
+        return _iso_date(value, field)
+
+    start = as_date(service_start_on, "service_start_on")
+    end = as_date(service_end_on, "service_end_on")
+    if end <= start:
+        raise ValueError("booking_service_period_invalid")
+    return NormalizedServicePeriod(
+        service_start_on=start,
+        service_end_on_exclusive=end,
+        last_service_on=end - timedelta(days=1),
+    )
 
 
 def validate_record(raw: object, index: int = 0) -> ScheduleRecord:
@@ -239,18 +285,14 @@ def match_service_period(
     authoritative_only: bool = True,
 ) -> list[ScheduleRecord]:
     """Return containing schedules using checkout-exclusive booking dates."""
-    start = _iso_date(service_start_on, "service_start_on")
-    end = _iso_date(service_end_on, "service_end_on")
-    if end <= start:
-        raise ValueError("booking_service_period_invalid")
-    last_night = end - timedelta(days=1)
+    period = normalize_service_period(service_start_on, service_end_on)
     return sorted(
         (
             record
             for record in records
             if (not authoritative_only or record.is_authoritative)
-            and record.starts_on <= start
-            and last_night <= record.ends_on
+            and record.starts_on <= period.service_start_on
+            and period.last_service_on <= record.ends_on
         ),
         key=lambda record: record.trip_code,
     )

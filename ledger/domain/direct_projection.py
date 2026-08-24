@@ -899,6 +899,12 @@ def project_confirmed_full_axis_allocations(
                        "ends_on", "service_year", "source_sha256"}),
             frozenset({"tab", "mm", "dd", "region", "window", "starts_on",
                        "ends_on", "service_year", "source_kind", "source_sha256"}),
+            frozenset({
+                "tab", "event_year", "service_year", "mm", "dd", "region",
+                "window", "starts_on", "ends_on", "authority_kind",
+                "authority_status", "end_semantics", "source_kind",
+                "source_sha256",
+            }),
         }
         if (frozenset(trip_keys) not in valid_trip_keys
                 or (int(amount) <= 0 and not signed_reversal)):
@@ -909,7 +915,8 @@ def project_confirmed_full_axis_allocations(
             """INSERT INTO trips(code,name,region,starts_on,ends_on,status)
                VALUES (?,?,?,?,?,'planned')
                ON CONFLICT(code) DO UPDATE SET name=excluded.name,region=excluded.region,
-                 starts_on=excluded.starts_on,ends_on=excluded.ends_on""",
+                 starts_on=excluded.starts_on,ends_on=excluded.ends_on,
+                 status='planned'""",
             (target_code, target_code, trip["region"], start.isoformat(), end.isoformat()))
         trip_id = int(db.execute("SELECT id FROM trips WHERE code=?", (target_code,)).fetchone()[0])
         db.execute(

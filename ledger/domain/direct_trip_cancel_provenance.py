@@ -320,7 +320,7 @@ def create_provenance(directory: Path, key_path: Path, pypdf_python: Path, outpu
     data = _sealed(unsigned, key)
     if output.parent.resolve(strict=True) != root or os.path.lexists(output):
         raise FileExistsError("r44_provenance_output_exists_or_wrong_parent")
-    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         view = memoryview(data)
         while view:

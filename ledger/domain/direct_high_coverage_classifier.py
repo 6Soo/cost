@@ -41,9 +41,7 @@ from ledger.domain.source_adapters import (
     OTA_LIFECYCLE_PARSER_VERSION,
     OTA_STATUS_RULE_VERSION,
 )
-from ledger.domain.direct_verified_ota_lodging import (
-    load_trip_schedule,
-)
+from ledger.domain.direct_verified_ota_lodging import load_trip_schedule
 from ledger.domain.direct_geographic_trip_context import (
     context_manifest,
     is_taiwan_marker,
@@ -4198,6 +4196,8 @@ def _build_expected(
     training = _load_training(db)
     current = _load_current(db, run_id)
     owner_decisions = load_current_owner_decisions(db)
+    # Keep legacy windows available for explainable candidate generation only;
+    # direct_projection's allocation path uses explicit authority.
     schedule = load_trip_schedule(db)
     try:
         pg_mail_records = load_pg_mail_records(db)

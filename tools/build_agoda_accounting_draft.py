@@ -6,8 +6,10 @@ only proposed classification and allocation rows.  It never creates journal
 entries or authoritative posting rows.
 
 Trip attribution is deliberately fail-closed: a booking is assigned to a trip
-only when its complete lodging service period fits exactly one imported 2026
-trip window.  Missing or ambiguous windows remain ``여행_미배정``.
+only when its complete lodging service period fits exactly one imported,
+explicitly dated schedule authority.  The legacy ``mm/dd/window`` source is
+retained for audit/candidate reporting but cannot assign a target.  Missing or
+ambiguous authority remains ``여행_미배정``.
 """
 
 from __future__ import annotations
@@ -28,7 +30,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from ledger.domain.direct_sources import import_trip_schedule
-from ledger.domain.direct_verified_ota_lodging import load_trip_schedule
+from ledger.domain.direct_verified_ota_lodging import (
+    load_authoritative_trip_schedule,
+)
 
 
 RULE_ID = "agoda-linked-lodging-accounting-draft-v1"
@@ -117,12 +121,57 @@ def validate_trip_schedule_document(path: Path) -> list[dict[str, object]]:
         raise ValueError("trip_schedule_root_invalid")
     result: list[dict[str, object]] = []
     seen: set[str] = set()
+    legacy_shape = {"tab", "mm", "dd", "region", "window"}
+    explicit_shape = {
+        "tab", "event_year", "starts_on", "ends_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
+    explicit_service_shape = {
+        "tab", "event_year", "service_start_on", "service_end_on", "region",
+        "authority_kind", "authority_status", "end_semantics",
+    }
     for index, value in enumerate(raw):
-        if not isinstance(value, dict) or set(value) != {
-            "tab", "mm", "dd", "region", "window",
-        }:
+        if not isinstance(value, dict) or set(value) not in (
+            legacy_shape, explicit_shape, explicit_service_shape,
+        ):
             raise ValueError(f"trip_schedule_row_shape_invalid:{index}")
         row = dict(value)
+        if set(row) in (explicit_shape, explicit_service_shape):
+            if (
+                not isinstance(row["tab"], str)
+                or row["tab"] != row["tab"].strip()
+                or not row["tab"]
+                or row["tab"] in seen
+                or not isinstance(row["region"], str)
+                or not row["region"].strip()
+                or type(row["event_year"]) is not int
+                or row["authority_status"] not in {"authoritative", "candidate_only"}
+                or not isinstance(row["authority_kind"], str)
+                or not isinstance(row["end_semantics"], str)
+            ):
+                raise ValueError(f"trip_schedule_row_invalid:{index}")
+            if set(row) == explicit_shape:
+                if row["end_semantics"] != "inclusive_last_service_date":
+                    raise ValueError(f"trip_schedule_row_invalid:{index}")
+                start_value, end_value = row["starts_on"], row["ends_on"]
+            else:
+                if row["end_semantics"] != "exclusive_service_end":
+                    raise ValueError(f"trip_schedule_row_invalid:{index}")
+                start_value, end_value = row["service_start_on"], row["service_end_on"]
+            try:
+                start = date.fromisoformat(str(start_value))
+                end = date.fromisoformat(str(end_value))
+            except ValueError as exc:
+                raise ValueError(f"trip_schedule_row_invalid:{index}") from exc
+            invalid_order = (
+                end < start
+                or set(row) == explicit_service_shape and end <= start
+            )
+            if invalid_order or not start.year <= row["event_year"] <= end.year:
+                raise ValueError(f"trip_schedule_row_invalid:{index}")
+            seen.add(str(row["tab"]))
+            result.append(row)
+            continue
         if (
             not isinstance(row["tab"], str)
             or row["tab"] != row["tab"].strip()
@@ -968,7 +1017,7 @@ def main() -> None:
         imported = import_trip_schedule(db, trip_schedule_path)
         if imported["records"] != len(schedule_document):
             raise ValueError("trip_schedule_import_count_mismatch")
-        schedule = load_trip_schedule(db)
+        schedule = load_authoritative_trip_schedule(db)
         rows = build_draft_rows(scope, schedule, trip_schedule_sha256)
         first_changes = materialize_draft(db, rows, schedule)
         db.commit()
@@ -1002,7 +1051,7 @@ def main() -> None:
             rebuilt, "trip_schedule", trip_schedule_path, trip_schedule_sha256
         )
         import_trip_schedule(rebuilt, trip_schedule_path)
-        rebuilt_schedule = load_trip_schedule(rebuilt)
+        rebuilt_schedule = load_authoritative_trip_schedule(rebuilt)
         rebuilt_scope = load_link_scope(
             rebuilt,
             input_database_sha256=input_db_sha256,

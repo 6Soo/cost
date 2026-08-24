@@ -264,7 +264,7 @@ def merge_page_databases(
                 for page, path in zip(ALL_PAGE_ORDER, input_paths)
             ):
                 raise RuntimeError("input page changed before publication")
-            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | os.O_WRONLY, 0o600)
         except FileExistsError as exc:
             raise RuntimeError("merged staging destination is locked") from exc
         os.close(lock_fd)

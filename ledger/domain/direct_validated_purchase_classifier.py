@@ -429,6 +429,8 @@ def _build_expected(db: object, run_id: str) -> dict[str, object]:
     associations = _historical_associations(training, current)
     seeds = _learning_seeds(training, associations)
     candidates = _current_candidates(current, associations)
+    # This classifier is a candidate generator.  Final allocation/posting is
+    # still gated by the strict schedule loader in direct_projection.
     trips = load_trip_schedule(db)
     groups: dict[str, dict[object, list[dict[str, object]]]] = {
         name: defaultdict(list) for name in (

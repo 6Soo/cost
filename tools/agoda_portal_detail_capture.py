@@ -1917,7 +1917,7 @@ def _secure_create_work_db(
     work_path = _require_tmp(path)
     _secure_private_parent(work_path)
     try:
-        file_descriptor = os.open(work_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        file_descriptor = os.open(work_path, os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
         raise CaptureError("work_database_already_exists_use_resume") from exc
     os.close(file_descriptor)
@@ -3567,7 +3567,7 @@ def _browser_lock_path(work_path: Path, run_id: str) -> Path:
 def _acquire_browser_lock(work_path: Path, run_id: str) -> tuple[Path, int]:
     lock_path = _browser_lock_path(work_path, run_id)
     try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | os.O_WRONLY, 0o600)
     except FileExistsError as exc:
         raise CaptureError("agoda_browser_actor_is_already_locked") from exc
     return lock_path, descriptor
