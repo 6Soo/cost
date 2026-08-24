@@ -2,7 +2,8 @@
 
 ## 모델 라우팅 규칙 (2026-08-04)
 
-- 기본 초안·설계·운영 판단: GPT-5.6 Luna max
+- 기본 초안·설계·운영 판단: GPT-5.6 Luna max — 단 일반 조사·단순 구현·문서 초안 실행은 전역 개정
+  (2026-08-24) 준용으로 agy `gemini-3.7-flash-high` 우선 위임(위임 전 고위험 사전판정·민감정보 최소화)
 - 모든 실질 답변의 독립 반박·검증: GPT-5.6 Sol medium
 - 저추론·단순 구현·일반 웹검색: Paseo의 `agy` provider(로컬 ACP bridge)로만 AGY 호출
 - Paseo `agy` provider unavailable 시 `AGY_ACP_UNAVAILABLE`을 기록하고 Codex Luna max로 폴백
