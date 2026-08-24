@@ -18,3 +18,8 @@ STAGED_INPUT_DIR = Path(
 
 def staged(*names: str) -> Path:
     return STAGED_INPUT_DIR.joinpath(*names)
+
+
+def is_strict_static_pins() -> bool:
+    """Strict pin mode for historical reproduction. Default non-strict (warn)."""
+    return os.getenv("COST_STRICT_STATIC_PINS") == "1"

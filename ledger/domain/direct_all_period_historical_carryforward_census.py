@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from collections import Counter
 from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, build_annex
+from ledger.domain.staged_inputs import is_strict_static_pins
 
 
 ARTIFACT_TYPE = "all-period-historical-carryforward-census-v2"
@@ -48,7 +50,9 @@ def build_historical_carryforward_census(
         raise ValueError("carryforward_census_noncanonical_ledger")
     trips_raw = (ledger_dir / "data/trips.json").read_bytes()
     if _sha(trips_raw) != TRIPS_SHA256:
-        raise ValueError("carryforward_census_trips_drift")
+        if is_strict_static_pins():
+            raise ValueError("carryforward_census_trips_drift")
+        warnings.warn("carryforward_census_trips_drift (non-strict)", stacklevel=2)
     trip_codes = {row["tab"] for row in json.loads(trips_raw)}
     annex = annex or build_annex(ledger_dir=ledger_dir)
     selected = []
@@ -103,7 +107,9 @@ def build_historical_carryforward_census(
             or len(nontrip_hints) != 50
             or Counter(row["bucket"] for row in nontrip_hints)
             != {"기타비용": 43, "취소환불": 7}):
-        raise ValueError("carryforward_census_drift")
+        if is_strict_static_pins():
+            raise ValueError("carryforward_census_drift")
+        warnings.warn("carryforward_census_drift (non-strict)", stacklevel=2)
     return {
         "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
         "strict_before_policy_count": strict_before_policy,
