@@ -6,7 +6,7 @@
 - 모든 실질 답변의 독립 반박·검증: GPT-5.6 Sol medium
 - 저추론·단순 구현·일반 웹검색: Paseo의 `agy` provider(로컬 ACP bridge)로만 AGY 호출
 - Paseo `agy` provider unavailable 시 `AGY_ACP_UNAVAILABLE`을 기록하고 Codex Luna max로 폴백
-- `tools/gemini.mjs` 직접 실행과 `GEMINI_API_KEY` 기반 직접 Gemini API 호출은 AGY 경로로 금지
+- Gemini 호출은 AGY(ACP) 경로만 유효 — 구 `tools/gemini.mjs`·API 키 직접 호출은 금지(스크립트는 2026-08-24 삭제됨)
 
 실질적인 작업은 `Luna 초안`을 먼저 실행하고 `Sol 독립 반박`을 백그라운드로 병렬 진행한다.
 일반 실행·중간 보고는 Sol을 기다리지 않는다. 외부 게시·전기·배포·결제·보안 변경 같은
@@ -55,6 +55,6 @@ Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상�
 `notifyOnFinish=false`를 사용하고 부모가 단일 요약을 전달한다.
 
 저추론 위임은 `mcp__paseo__create_agent`에 `provider: "agy"`를 지정해 Paseo local ACP bridge를 사용한다.
-Paseo `agy` provider가 없으면 `AGY_ACP_UNAVAILABLE`을 기록하고 Luna max로 폴백한다. `tools/gemini.mjs` 직접 실행이나
-API 키를 요구하는 레거시 래퍼를 AGY 호출로 우회하지 않는다.
+Paseo `agy` provider가 없으면 `AGY_ACP_UNAVAILABLE`을 기록하고 Luna max로 폴백한다. 구 브리지
+스크립트(`tools/gemini.mjs` 등)는 2026-08-24 삭제됐으며 어떤 경로로도 부활시키지 않는다.
 전체 설계·구현·검증 사이클은 `bash ~/.orca/bin/cycle.sh <워크트리> "<과제>"`를 사용한다.

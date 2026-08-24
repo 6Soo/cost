@@ -13,7 +13,8 @@
 2. **저추론·쓰기·웹검색·구현**에서 AGY는 Paseo의 `agy` provider
    (`AGY (Antigravity CLI)`, local ACP bridge)를 통해서만 호출한다. 에이전트 위임은
    `mcp__paseo__create_agent`에 `provider: "agy"`를 지정하고, 후속 작업은 같은 agent에 보낸다.
-   `tools/gemini.mjs` 직접 실행이나 `GEMINI_API_KEY`를 요구하는 직접 Gemini API 경로는 AGY 호출로 사용하지 않는다.
+    직접 Gemini API 경로(`tools/gemini.mjs`·`GEMINI_API_KEY`)는 사용하지 않는다 — 해당 스크립트는
+    2026-08-24 삭제됐고 AGY(ACP) 호출이 유일한 Gemini 경로다.
    Paseo `agy` provider가 unavailable이면 `AGY_ACP_UNAVAILABLE`로 기록하고 GPT-5.6 Luna max로 즉시 폴백한다.
    ACP를 실제로 사용하지 않았다면 AGY를 사용했다고 보고하지 않는다.
 3. **사용자 판단이 필요해 보이는 사안**도 Luna 초안을 먼저 진행하고 Sol medium 검토를
@@ -136,7 +137,8 @@ Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 �
 Claude Code 고유 기능은 **다른 에이전트로 이전되지 않는다**: 서브에이전트 위임(Agent/Task), Skill,
 백그라운드 Workflow, PR 웹훅 구독. `CLAUDE.md`의 "GLM 서브에이전트/모델 위임"도 Claude 세션 안에서만
 성립한다. 다른 에이전트에서도 AGY는 Paseo의 `agy` provider(local ACP bridge)를 우선 사용한다.
-`tools/gemini.mjs` 직접 셸 호출과 `GEMINI_API_KEY` 기반 직접 Gemini API 호출은 AGY 경로로 금지한다.
+직접 Gemini API 호출(`tools/gemini.mjs`·`GEMINI_API_KEY`)은 금지 — 스크립트 자체도 2026-08-24 삭제됐고
+Gemini의 유일 경로는 Paseo `agy` provider(local ACP bridge)다.
 ACP 도구가 없으면 `AGY_ACP_UNAVAILABLE`을 남기고 Luna max로 폴백한다.
 
 ---
