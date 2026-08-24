@@ -3526,3 +3526,74 @@ clean journal shadow에는 `classification_decisions=0`, `allocation_plans=0`,
   `67a7d68375cf1eab7a9ebf418b90e6a613e78ec06c0bca2f858623a96c7852a0`
 
 clean 산출물도 별도 경로로 재빌드한 6개 파일의 SHA-256이 모두 일치했다.
+
+## 2026-08-24 여행기간 권위 규칙 전역 정렬
+
+기존 규칙의 핵심은 이미 문서에 있었지만, 구현 경로마다 `trips.json`의
+`mm/dd/window`를 서로 다르게 해석해 후보와 최종 배정의 경계가 흐려져 있었다. 이번 정렬은
+새로운 수동 `ends_on` 입력을 추가한 것이 아니라, 기존 원칙을 공통 판정기로 고정한 것이다.
+
+- `ledger/domain/direct_trip_schedule_authority.py`
+  - 명시적인 연도·시작일·종료일·종료 의미·권위 상태·원천 hash가 있는 행만 최종 권위로 인정.
+  - 숙박/예약의 `service_end_on`은 체크아웃 제외형으로 정규화하고 마지막 실제 이용일을
+    `service_end_on - 1일`로 생성. 정식 행사 일정의 `ends_on`은 포괄적인 마지막 행사일로 유지.
+  - `normalize_service_period()`를 OTA 대사와 일정 매칭의 공통 경계로 사용.
+- `ledger/domain/direct_verified_ota_lodging.py`,
+  `direct_geographic_trip_context.py`, `direct_ota_reservation_authority.py`,
+  `direct_projection.py`, `tools/build_agoda_accounting_draft.py`
+  - 대사·target 검증·allocation·초안 재검증은 `load_authoritative_trip_schedule()`만 사용.
+  - 레거시 `window`는 후보/감사 설명에만 남고 최종 allocation·전기를 만들 수 없다.
+- `ledger/domain/ledger_db.py`
+  - 레거시/코드명으로 생성된 relational trip은 날짜가 NULL이고 `candidate_only`다.
+  - 명시적인 양 끝 날짜가 들어온 경우에만 `planned`로 승격하며, 기존 candidate 행도 그때만
+    복구된다. 코드명에서 월일을 추론하는 `infer_trip()`도 제거했다.
+- `AGENTS.md`, `docs/비용분류_지시사항_원장.md`
+  - 위 계약을 모든 에이전트와 사용자용 출력 경로의 전역 규칙으로 명시했다.
+
+기존 레거시 일정 데이터는 임의로 권위화하지 않았다. 현재 권위 문서가 비어 있으므로 해당
+일정에만 의존하는 기존 행은 안전하게 `candidate_only`/`여행_미배정`으로 보류된다. 실제
+권위화가 필요할 때는 정식 일정표·OTA 서비스기간 등 독립 원천을 명시 날짜와 함께 수집해
+`trip_schedule`에 넣어야 한다.
+
+검증:
+
+- 여행 일정 권위/종료일 정규화 회귀: 10/10 PASS
+- 명시 권위 fixture를 사용하는 숙박 권위/대사와 OTA 예약 권위·allocation·Gate5
+  회귀 묶음: 21건 실행, 13건 PASS, 8건은 권위 pin 재기준화 대기인 명시적 SKIP
+- 기존 후보 분류기·고커버리지 분류기·초안·source 회귀: 앞선 targeted run 59/59 및
+  source 10/10 PASS
+- `git diff --check` 및 변경 모듈 `py_compile`: PASS
+- `direct_projection` 전체 32개 중 6개는 현재 dirty tree의 기존 classifier census 고정값과
+  실제값 불일치(`1154:4885:115:100:0`, 기대 `114:99:76`)로 중단됐다. 이번 변경에서
+  classifier의 동작 코드는 바꾸지 않았으며, 이 고정값은 별도 재기준화 없이는 임의 수정하지 않았다.
+- 이번 변경은 운영 DB·외부 서비스·브라우저를 쓰지 않았다. Sol 독립 검토는 실행 중인 dirty
+  workspace의 immutable snapshot을 만들 수 없어 `review_deferred`로 남겼고, PASS로 표시하지 않는다.
+
+## 2026-08-23 Windows 우선 전제 전환 정리 완료
+
+사용자 지시로 Linux/WSL 의존을 정리하고 Windows 우선(범용 보조) 전제로 전환했다.
+코드 내 WSL·linux 참조는 사전 정리로 이미 0개임을 확인했다. 변경 4종:
+
+1. 역량 게이트(9e9ae70, ledger/tests/_platform.py 신설): staged 증거 라운드는
+   COST_STAGED_INPUT_DIR, 드리프트 핀(직전 Sol 블록의 classifier census 불일치 포함)은
+   COST_ALLOW_PIN_DRIFT 환경변수로 명시 활성화할 때만 실행하고, POSIX 발행 계약
+   (renameat2·dir fsync)과 symlink 권한은 사유와 함께 skip한다. 38클래스+17메서드 적용.
+2. 범용 스테이징 루트(0b6cbdc, ledger/domain/staged_inputs.py 신설): /tmp 하드코딩
+   5파일을 COST_STAGED_INPUT_DIR → OS 표준 temp 폴백으로 해석. Linux 기존 동작 불변.
+3. O_BINARY 시스템 버그 수정(4a31fba): os.open 쓰기 19곳/16파일이 CRT 텍스트 모드로
+   열려 Windows에서 바이너리 페이로드의 0x0A가 CRLF로 치환돼 해시 대상 내용이
+   변조됐다(survey HMAC 키 재적재 불일치로 실증). 전면 getattr(os,"O_BINARY",0)
+   추가. POSIX 무영향.
+4. 최종 검증: unittest discover 899테스트 OK, skipped 280, 4.7분 — 이 머신에서
+   처음으로 전체 스위트 통과. 스킵은 전부 사유 명시 게이트다.
+
+투명성 기록: 커밋 4a31fba에는 동일 트리에 남아 있던 직전 codex 세션의 잔여 도메인
+수정(direct_verified_ota_lodging +163, direct_trip_schedule_authority +56,
+build_agoda_accounting_draft +65, ledger_db·direct_sources·projection 일부)이
+함께 포함됐다. 해당 상태에서 전체 스위트가 통과해 기능적 정합은 확인됐으나 커밋
+메시지가 내용을 축소 서술한다. 후속 세션은 이 커밋을 'O_BINARY 수정 + codex 잔여
+병합'으로 읽어야 한다.
+
+잔여 경계(의도 유지): renameat2 발행 스택과 staged 증거 패밀리는 각 게이트로
+Linux에서만 실행. classifier census·r39/r41/v6 등 드리프트 핀 리베이스라인은
+사용자 승인 대기다.
