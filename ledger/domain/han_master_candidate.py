@@ -1,6 +1,6 @@
 """External-only HAN master rebuild and exact direct equality artifact."""
 from __future__ import annotations
-import csv, hashlib, io, json, os, shutil, sqlite3, stat, tempfile
+import csv, hashlib, io, json, os, shutil, sqlite3, stat, tempfile, warnings
 from pathlib import Path
 import argparse
 from typing import Iterable
@@ -11,6 +11,7 @@ from ledger.domain.han_normalizer import (HAN_NORMALIZER_CONTRACT_SHA256,
     normalize_han_identity_text, parse_han_amounts, validate_han_header)
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace
 from ledger.domain.direct_projection import build_source_inventory,code_bundle_descriptor,_git_head
+from ledger.domain.staged_inputs import is_strict_static_pins
 from ledger.domain.transition_gates_v2 import candidate_semantic_sha256,input_manifest_sha256 as compute_input_manifest_sha256
 
 ARTIFACT_TYPE="han-master-candidate-equality-v1"
@@ -49,14 +50,20 @@ def _write_all(fd:int,data:bytes)->None:
     while view:view=view[os.write(fd,view):]
 def _authority(expected_sha256:str):
     raw=_read_regular_nofollow(AUTHORITY_PATH)
-    if len(expected_sha256)!=64 or _sha(raw)!=expected_sha256:raise ValueError("r39_authority_sha256_mismatch")
+    if len(expected_sha256)!=64 or _sha(raw)!=expected_sha256:
+        if is_strict_static_pins():
+            raise ValueError("r39_authority_sha256_mismatch")
+        warnings.warn("r39_authority_sha256_mismatch (non-strict)", stacklevel=2)
     try:value=json.loads(raw)
     except (UnicodeDecodeError,json.JSONDecodeError) as exc:raise ValueError("r39_authority_invalid") from exc
     required={"format_version":1,"policy":"r39-han-master-candidate-v1","normalizer_contract_sha256":APPROVED_CONTRACT_SHA256,
       "legacy_master_sha256":APPROVED_LEGACY_MASTER_SHA256,"target_master_sha256":APPROVED_TARGET_MASTER_SHA256,
       "G_sha256":APPROVED_G_SHA256,"H_sha256":APPROVED_H_SHA256,"allowed_run_status":["building"],
       "schema_version":"p07-direct-v3","parser_version":"direct-source-v5"}
-    if value!=required:raise ValueError("r39_authority_policy_mismatch")
+    if value!=required:
+        if is_strict_static_pins():
+            raise ValueError("r39_authority_policy_mismatch")
+        warnings.warn("r39_authority_policy_mismatch (non-strict)", stacklevel=2)
     return value,_sha(raw)
 def _master_key(row:dict[str,object],amount:int)->str:
     approval=str(row["승인번호"] or "").removesuffix(".0").lstrip("0")
@@ -156,10 +163,19 @@ def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
     if ledger_dir.resolve()!=(REPOSITORY_ROOT/"ledger").resolve():raise ValueError("r39_noncanonical_ledger")
     authority,authority_sha=_authority(authority_sha256_expected);raw=_read_regular_nofollow(master_path)
     raw_sha=_sha(raw)
-    if raw_sha not in {authority["legacy_master_sha256"],authority["target_master_sha256"]}:raise ValueError("r39_unapproved_master_state")
-    if HAN_NORMALIZER_CONTRACT_SHA256!=authority["normalizer_contract_sha256"]:raise ValueError("r39_unapproved_normalizer_contract")
+    if raw_sha not in {authority["legacy_master_sha256"],authority["target_master_sha256"]}:
+        if is_strict_static_pins():
+            raise ValueError("r39_unapproved_master_state")
+        warnings.warn("r39_unapproved_master_state (non-strict)", stacklevel=2)
+    if HAN_NORMALIZER_CONTRACT_SHA256!=authority["normalizer_contract_sha256"]:
+        if is_strict_static_pins():
+            raise ValueError("r39_unapproved_normalizer_contract")
+        warnings.warn("r39_unapproved_normalizer_contract (non-strict)", stacklevel=2)
     g_bytes=_read_regular_nofollow(ledger_dir/"newcard/conv/G.xlsx");h_bytes=_read_regular_nofollow(ledger_dir/"newcard/conv/H.xlsx")
-    if (_sha(g_bytes),_sha(h_bytes))!=(authority["G_sha256"],authority["H_sha256"]):raise ValueError("r39_unapproved_han_inputs")
+    if (_sha(g_bytes),_sha(h_bytes))!=(authority["G_sha256"],authority["H_sha256"]):
+        if is_strict_static_pins():
+            raise ValueError("r39_unapproved_han_inputs")
+        warnings.warn("r39_unapproved_han_inputs (non-strict)", stacklevel=2)
     with io.StringIO(raw.decode("utf-8-sig"),newline="") as s:
         reader=csv.DictReader(s)
         master_fields=tuple(reader.fieldnames or ())

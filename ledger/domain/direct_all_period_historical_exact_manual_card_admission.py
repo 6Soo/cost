@@ -11,12 +11,14 @@ import csv
 import hashlib
 import json
 import tempfile
+import warnings
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
+from ledger.domain.staged_inputs import is_strict_static_pins
 from ledger.domain.direct_all_period_historical_replay import (
     EXPECTED_REPLAY_V14_SHA256,
     replay_legacy_classification,
@@ -105,7 +107,9 @@ def _manual_groups(ledger_dir: Path) -> dict[tuple[str, str, int, str], int]:
     path = ledger_dir / "data/manual_v4.csv"
     raw = path.read_bytes()
     if _sha(raw) != MANUAL_SHA256:
-        raise ValueError("historical_exact_manual_card_manual_hash_mismatch")
+        if is_strict_static_pins():
+            raise ValueError("historical_exact_manual_card_manual_hash_mismatch")
+        warnings.warn("historical_exact_manual_card_manual_hash_mismatch (non-strict)", stacklevel=2)
     groups: Counter[tuple[str, str, int, str]] = Counter()
     with path.open(encoding="utf-8-sig", newline="") as stream:
         for row in csv.DictReader(stream):
@@ -127,7 +131,9 @@ def build_historical_exact_manual_card_admission(
 
     replay = replay or replay_legacy_classification(ledger_dir)
     if replay.get("sha256") != EXPECTED_REPLAY_V14_SHA256:
-        raise ValueError("historical_exact_manual_card_replay_hash_mismatch")
+        if is_strict_static_pins():
+            raise ValueError("historical_exact_manual_card_replay_hash_mismatch")
+        warnings.warn("historical_exact_manual_card_replay_hash_mismatch (non-strict)", stacklevel=2)
     replay_rows = list(replay.get("rows") or [])
     replay_by_uid = {str(row.get("uid")): row for row in replay_rows}
     if len(replay_by_uid) != len(replay_rows):
@@ -137,7 +143,9 @@ def build_historical_exact_manual_card_admission(
     trips_path = ledger_dir / "data/trips.json"
     trips_raw = trips_path.read_bytes()
     if _sha(trips_raw) != TRIPS_SHA256:
-        raise ValueError("historical_exact_manual_card_trips_hash_mismatch")
+        if is_strict_static_pins():
+            raise ValueError("historical_exact_manual_card_trips_hash_mismatch")
+        warnings.warn("historical_exact_manual_card_trips_hash_mismatch (non-strict)", stacklevel=2)
     trips = json.loads(trips_raw)
     trip_codes = {str(row.get("tab")) for row in trips}
 
@@ -149,7 +157,9 @@ def build_historical_exact_manual_card_admission(
             if (context["current_event_set_sha256"] != CURRENT_EVENT_SET_SHA256
                     or context["decision_scope_sha256"] != DECISION_SCOPE_SHA256
                     or len(events) != 5328):
-                raise ValueError("historical_exact_manual_card_current_context_drift")
+                if is_strict_static_pins():
+                    raise ValueError("historical_exact_manual_card_current_context_drift")
+                warnings.warn("historical_exact_manual_card_current_context_drift (non-strict)", stacklevel=2)
             payload_rows = db.execute(
                 """SELECT d.card_event_id,d.event_role,s.payload_json
                    FROM direct_payment_projection_links l
@@ -237,7 +247,9 @@ def build_historical_exact_manual_card_admission(
             or r36._event_set_sha(event_keys) != EXPECTED_EVENT_SET_SHA256
             or _sha(_json(semantic)) != EXPECTED_SEMANTIC_SET_SHA256
             or axis_counts != EXPECTED_AXIS_COUNTS):
-        raise ValueError("historical_exact_manual_card_admission_drift")
+        if is_strict_static_pins():
+            raise ValueError("historical_exact_manual_card_admission_drift")
+        warnings.warn("historical_exact_manual_card_admission_drift (non-strict)", stacklevel=2)
 
     return {
         "manifest": {

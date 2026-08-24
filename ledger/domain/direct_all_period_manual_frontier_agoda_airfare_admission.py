@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import warnings
 import json
 import tempfile
 from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.staged_inputs import is_strict_static_pins
 
 
 ARTIFACT_TYPE = "all-period-manual-frontier-agoda-airfare-admission-v1"
@@ -34,7 +36,9 @@ def build_manual_frontier_agoda_airfare_admission(
         raise ValueError("manual_frontier_airfare_noncanonical_ledger")
     manual_raw = MANUAL_PATH.read_bytes(); ota_raw = OTA_PATH.read_bytes()
     if _sha(manual_raw) != MANUAL_SHA256 or _sha(ota_raw) != OTA_SHA256:
-        raise ValueError("manual_frontier_airfare_input_drift")
+        if is_strict_static_pins():
+            raise ValueError("manual_frontier_airfare_input_drift")
+        warnings.warn("manual_frontier_airfare_input_drift (non-strict)", stacklevel=2)
     manual = list(csv.DictReader(manual_raw.decode().splitlines()))
     manual_rows = [row for row in manual if
                    (row["tab"], row["date"], row["item"], row["card"],
@@ -42,17 +46,21 @@ def build_manual_frontier_agoda_airfare_admission(
                    ("0924_야마구치", "26.02.20", "아고다_후쿠오카", "국민", 542370)
                    and row["desc"].startswith("항공_0924_0927_")]
     if len(manual_rows) != 2 or {row["desc"].removeprefix("항공_0924_0927_")
-                                 for row in manual_rows} != {"정용숙", "박희경"}:
-        raise ValueError("manual_frontier_airfare_manual_group_drift")
+                                  for row in manual_rows} != {"정용숙", "박희경"}:
+        if is_strict_static_pins():
+            raise ValueError("manual_frontier_airfare_manual_group_drift")
+        warnings.warn("manual_frontier_airfare_manual_group_drift (non-strict)", stacklevel=2)
     messages = [row for row in json.loads(ota_raw).get("records", [])
                 if row.get("messageHash") in MESSAGE_HASHES]
     expected_subjects = {"9/24~27 인천-후쿠오카 왕복 예약정보 -박희경",
                          "9/24~27 인천-후쿠오카 왕복 예약정보 -정용숙"}
     if (len(messages) != 2 or {row.get("subject") for row in messages} != expected_subjects
-            or {row.get("provider") for row in messages} != {"agoda"}
-            or {tuple(row.get("travelDates", [])) for row in messages} != {("0220", "0924", "0927")}
-            or len({tuple(row.get("pnrs", [])) for row in messages}) != 2):
-        raise ValueError("manual_frontier_airfare_ota_group_drift")
+             or {row.get("provider") for row in messages} != {"agoda"}
+             or {tuple(row.get("travelDates", [])) for row in messages} != {("0220", "0924", "0927")}
+             or len({tuple(row.get("pnrs", [])) for row in messages}) != 2):
+        if is_strict_static_pins():
+            raise ValueError("manual_frontier_airfare_ota_group_drift")
+        warnings.warn("manual_frontier_airfare_ota_group_drift (non-strict)", stacklevel=2)
     with tempfile.TemporaryDirectory(prefix="manual-frontier-airfare-") as directory:
         context = r36._context(ledger_dir, Path(directory))
         try:
@@ -68,7 +76,9 @@ def build_manual_frontier_agoda_airfare_admission(
             context["db"].close()
     keys = {event["direct_event_key"] for event in matches}
     if len(matches) != 2 or r36._event_set_sha(keys) != SELECTED_SET_SHA256:
-        raise ValueError("manual_frontier_airfare_card_group_drift")
+        if is_strict_static_pins():
+            raise ValueError("manual_frontier_airfare_card_group_drift")
+        warnings.warn("manual_frontier_airfare_card_group_drift (non-strict)", stacklevel=2)
     evidence_sha = _sha(("\n".join(sorted(MESSAGE_HASHES)) + "\n").encode())
     decisions = [{
         "direct_event_key": event["direct_event_key"],

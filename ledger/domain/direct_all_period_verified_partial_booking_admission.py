@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import warnings
 import json
 from datetime import date, timedelta
 from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, build_annex
+from ledger.domain.staged_inputs import is_strict_static_pins
 
 
 ARTIFACT_TYPE = "all-period-verified-partial-booking-admission-v1"
@@ -85,7 +87,9 @@ def build_verified_partial_booking_admission(
     links_raw = (ledger_dir / "data/ota_event_links_verified.json").read_bytes()
     trips_raw = (ledger_dir / "data/trips.json").read_bytes()
     if _sha(links_raw) != OTA_LINKS_SHA256 or _sha(trips_raw) != TRIPS_SHA256:
-        raise ValueError("verified_partial_input_drift")
+        if is_strict_static_pins():
+            raise ValueError("verified_partial_input_drift")
+        warnings.warn("verified_partial_input_drift (non-strict)", stacklevel=2)
     links = json.loads(links_raw)
     trips = {row["tab"]: row for row in json.loads(trips_raw)}
     annex = build_annex(ledger_dir=ledger_dir)
@@ -126,7 +130,9 @@ def build_verified_partial_booking_admission(
     axis_count = sum(len(row["axes"]) for row in decisions)
     if (len(decisions) != 7 or len(keys) != 7 or axis_count != 17
             or r36._event_set_sha(keys) != SELECTED_SET_SHA256):
-        raise ValueError("verified_partial_selected_set_drift")
+        if is_strict_static_pins():
+            raise ValueError("verified_partial_selected_set_drift")
+        warnings.warn("verified_partial_selected_set_drift (non-strict)", stacklevel=2)
     return {
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,

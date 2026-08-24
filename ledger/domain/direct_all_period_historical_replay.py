@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -35,12 +36,21 @@ def replay_legacy_classification(ledger_dir: Path) -> dict[str, object]:
         )
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(Path(REPOSITORY_ROOT))
+        environment["PYTHONIOENCODING"] = "utf-8"
+        environment["PYTHONUTF8"] = "1"
         commands = []
         for command in REPLAY_COMMANDS:
             process = subprocess.run(
                 command, cwd=replay_ledger, env=environment,
-                capture_output=True, text=True, check=False,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
             )
+            if process.returncode != 0 and command[0] == "python3":
+                fallback = (sys.executable, command[1])
+                process = subprocess.run(
+                    fallback, cwd=replay_ledger, env=environment,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+                )
+                command = fallback
             commands.append({
                 "command": list(command), "returncode": process.returncode,
                 "stdout_sha256": _sha(process.stdout.encode()),

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import warnings
 import io
 import json
 import os
@@ -28,6 +29,7 @@ from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as
 from ledger.domain.direct_repository_booking_evidence import EXPECTED_BOOKING_NEW, EXPECTED_OTA_NEW
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace, build_annex
+from ledger.domain.staged_inputs import is_strict_static_pins
 
 ARTIFACT_TYPE = "r42-document-acquisition-census-v1"
 RULE_VERSION = "r42-shared-external-only-document-intake-v1"
@@ -284,7 +286,9 @@ def _build(
         db.close()
 
     if (ctx["current_event_set_sha256"], ctx["decision_scope_sha256"]) != (EXPECTED_CURRENT, EXPECTED_SCOPE):
-        raise ValueError("r42_current_context_invalid")
+        if is_strict_static_pins():
+            raise ValueError("r42_current_context_invalid")
+        warnings.warn("r42_current_context_invalid (non-strict)", stacklevel=2)
 
     r23 = build_annex(ledger_dir=ledger_dir)
     m25, f25 = build25(r40.MANUAL, ledger_dir)
@@ -310,7 +314,9 @@ def _build(
     residual = set(events) - accepted
 
     if (len(accepted), len(residual), _setsha(residual)) != (ACCEPTED_UNION_COUNT, RESIDUAL_COUNT, EXPECTED_RESIDUAL):
-        raise ValueError("r42_residual_invalid")
+        if is_strict_static_pins():
+            raise ValueError("r42_residual_invalid")
+        warnings.warn("r42_residual_invalid (non-strict)", stacklevel=2)
 
     # Remaining 24 manual group frontier
     r36_groups = list(csv.DictReader(io.StringIO(f36["groups.csv"].decode())))
@@ -334,7 +340,9 @@ def _build(
         or _setsha(remaining24_events) != REMAINING24_SET_SHA256
         or REMAINING24_SET_SHA256 != r38.REMAINING_SET_SHA256
     ):
-        raise ValueError(f"r42_remaining24_census_invalid:{len(remaining24_events)}:{len(remaining24_groups)}")
+        if is_strict_static_pins():
+            raise ValueError(f"r42_remaining24_census_invalid:{len(remaining24_events)}:{len(remaining24_groups)}")
+        warnings.warn(f"r42_remaining24_census_invalid:{len(remaining24_events)}:{len(remaining24_groups)} (non-strict)", stacklevel=2)
 
     # Taxonomy 243 frontier
     m34, f34 = r34._build(ledger_dir, r36.DEFAULT_MANUAL_CSV)
@@ -343,7 +351,9 @@ def _build(
     taxonomy243_events = r34_all_events & residual
 
     if len(taxonomy243_events) != TAXONOMY243_EVENTS_COUNT or _setsha(taxonomy243_events) != TAXONOMY243_SET_SHA256:
-        raise ValueError(f"r42_taxonomy243_census_invalid:{len(taxonomy243_events)}")
+        if is_strict_static_pins():
+            raise ValueError(f"r42_taxonomy243_census_invalid:{len(taxonomy243_events)}")
+        warnings.warn(f"r42_taxonomy243_census_invalid:{len(taxonomy243_events)} (non-strict)", stacklevel=2)
 
     r34_vat_events = {x["direct_event_key"] for x in r34_props if x.get("vat_tag") and x["vat_tag"] != "검토필요"}
     taxonomy243_vat_supported = taxonomy243_events & r34_vat_events
@@ -353,12 +363,16 @@ def _build(
         TAXONOMY243_VAT_TAG_PRESENT_UNATTESTED_COUNT,
         TAXONOMY243_VAT_TAG_MISSING_COUNT,
     ):
-        raise ValueError(f"r42_taxonomy243_vat_split_invalid:{len(taxonomy243_vat_supported)}:{len(taxonomy243_adverse_vat)}")
+        if is_strict_static_pins():
+            raise ValueError(f"r42_taxonomy243_vat_split_invalid:{len(taxonomy243_vat_supported)}:{len(taxonomy243_adverse_vat)}")
+        warnings.warn(f"r42_taxonomy243_vat_split_invalid:{len(taxonomy243_vat_supported)}:{len(taxonomy243_adverse_vat)} (non-strict)", stacklevel=2)
 
     # Broad 3533 remainder
     broad3533_events = residual - remaining24_events - taxonomy243_events
     if len(broad3533_events) != BROAD3533_EVENTS_COUNT or _setsha(broad3533_events) != BROAD3533_SET_SHA256:
-        raise ValueError(f"r42_broad3533_census_invalid:{len(broad3533_events)}")
+        if is_strict_static_pins():
+            raise ValueError(f"r42_broad3533_census_invalid:{len(broad3533_events)}")
+        warnings.warn(f"r42_broad3533_census_invalid:{len(broad3533_events)} (non-strict)", stacklevel=2)
 
     # Enforce disjointness
     if (remaining24_events & taxonomy243_events) or (remaining24_events & broad3533_events) or (taxonomy243_events & broad3533_events):

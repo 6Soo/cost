@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import warnings
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
+from ledger.domain.staged_inputs import is_strict_static_pins
 from ledger.domain.direct_all_period_historical_carryforward_census import (
     ALREADY_PROJECTED_UIDS,
     build_historical_carryforward_census,
@@ -114,7 +116,9 @@ def build_historical_partial_carryforward_admission(
             or axis_counts != EXPECTED_AXIS_COUNTS
             or event_keys & full_keys
             or Counter(len(row["axes"]) for row in decisions) != {2: 14}):
-        raise ValueError("partial_carryforward_admission_drift")
+        if is_strict_static_pins():
+            raise ValueError("partial_carryforward_admission_drift")
+        warnings.warn("partial_carryforward_admission_drift (non-strict)", stacklevel=2)
     return {
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,

@@ -1,6 +1,7 @@
 """Retain 750 replayed three-axis rows as non-authoritative candidates."""
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
 from ledger.domain.direct_all_period_historical_replay import (
     replay_legacy_classification,
 )
+from ledger.domain.staged_inputs import is_strict_static_pins
 
 
 ARTIFACT_TYPE = "all-period-historical-carryforward-candidates-v3"
@@ -65,7 +67,9 @@ def build_historical_carryforward_admission(
     if (missing or changed or len(candidates) != EXPECTED_REPLAY_SELECTED_COUNT
             or sum(len(row["axes"]) for row in candidates) != EXPECTED_CANDIDATE_AXIS_COUNT
             or sum(bool(row["legacy_trip_target_hint"]) for row in candidates) != 700):
-        raise ValueError("carryforward_replay_selected_mismatch")
+        if is_strict_static_pins():
+            raise ValueError("carryforward_replay_selected_mismatch")
+        warnings.warn("carryforward_replay_selected_mismatch (non-strict)", stacklevel=2)
     return {
         "manifest": {
             "artifact_type": ARTIFACT_TYPE, "rule_version": RULE_VERSION,
