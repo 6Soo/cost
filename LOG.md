@@ -3600,9 +3600,9 @@ Linux에서만 실행. classifier census·r39/r41/v6 등 드리프트 핀 리베
 ## 2026-08-25 Phase 1-2 완료 — 위변조 핀 경량화 + POSIX 어댑터 (Sol high 총괄)
 
 사용자 지시("데이터의 핵심은 파싱과 중복제거, 보안은 문제 없다")에 따라
-Sol high·AGY low 병렬 검토 후 타겟 완화를 실행했다.
+Sol high·AGY low 병렬 검토 후 타겟 완화를 실행했다. (주: AGY 3.6-low 호출은 규칙 위반 — 2026-08-24 갱신으로 3.7-flash-high여야 했음)
 
-검토 결과: AGY low 조건부 PASS(플래그 방식만), Sol high FAIL(블랭킷 불가,
+검토 결과: AGY low 조건부 PASS(플래그 방식만), Sol high FAIL(블랭킷 불가, (주: AGY 3.6-low 호출은 규칙 위반 — 2026-08-24 갱신으로 3.7-flash-high여야 했음)
 타겟만) → Sol high 총괄로 아래 3티어 경계 확정:
 - 정적 저장소 핀(MAIL_SHA/INPUT_SHA/고정 카운트): 기본 warn, COST_STRICT_STATIC_PINS=1일 때만 raise
 - 운영 정확성(멤버십·중복·동시성 격리·금액 표현·리니지 해시): 하드 유지
@@ -3630,5 +3630,5 @@ Ran 745 tests in 258s → OK (skipped=268). 이 머신에서 처음으로 green 
 
 ### 모델 라우팅 기록
 Sol high(codex/gpt-5.6-sol, worktree powerful-buffalo)가 총괄·경계 확정.
-AGY low(agy/gemini-3.6-flash-low, worktree sordid-blobfish)가 2차 의견 제공.
+AGY low(agy/gemini-3.6-flash-low, worktree sordid-blobfish)가 2차 의견 제공. (주: AGY 3.6-low 호출은 규칙 위반 — 2026-08-24 갱신으로 3.7-flash-high여야 했음)
 본 세션(opencode)이 구현·검증 수행. 두 검토자 모두 read-only 격리 스냅샷에서 동작.
