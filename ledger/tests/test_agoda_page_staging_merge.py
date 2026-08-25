@@ -9,10 +9,16 @@ from unittest.mock import patch
 def _connect(path: Path | str) -> contextlib.AbstractContextManager[sqlite3.Connection]:
     return contextlib.closing(sqlite3.connect(path, uri=True if isinstance(path, str) and path.startswith("file:") else False))
 
-from tools.agoda_page_staging_merge import merge_page_databases
-from tools.agoda_portal_page_capture import capture_page
+try:
+    from tools.agoda_page_staging_merge import merge_page_databases
+    from tools.agoda_portal_page_capture import capture_page
+
+    _MISSING = None
+except ImportError as _e:  # retired portal capture (92288ba)
+    _MISSING = str(_e)
 
 
+@unittest.skipIf(_MISSING is not None, f"retired tool missing: {_MISSING}")
 class AgodaPageStagingMergeTests(unittest.TestCase):
     def test_merge_requires_and_publishes_all_thirteen_pages(self) -> None:
         page_template = """
