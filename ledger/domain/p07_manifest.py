@@ -27,11 +27,13 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 def _sealed_file_bytes(path:Path)->bytes:
-    try:fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    from ledger.domain.posix_publication import open_nofollow, verify_regular_single_link
+    try:fd=open_nofollow(path)
     except OSError as exc:raise ValueError("candidate_db_seal_open_failed") from exc
     try:
+        verify_regular_single_link(fd)
         meta=os.fstat(fd)
-        if not stat.S_ISREG(meta.st_mode) or meta.st_nlink!=1 or stat.S_IMODE(meta.st_mode)!=0o400:
+        if os.name!="nt" and stat.S_IMODE(meta.st_mode)!=0o400:
             raise ValueError("candidate_db_seal_invalid")
         chunks=[]
         while True:

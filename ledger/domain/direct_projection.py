@@ -1202,9 +1202,8 @@ def _atomic_replace_json(path: Path, payload: dict[str, object]) -> None:
         while view:view=view[os.write(descriptor,view):]
         os.fsync(descriptor);os.close(descriptor);descriptor=-1
         os.replace(temporary, path)
-        parent_fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
-        try:os.fsync(parent_fd)
-        finally:os.close(parent_fd)
+        from ledger.domain.posix_publication import fsync_dir
+        fsync_dir(path.parent)
     finally:
         if descriptor>=0:os.close(descriptor)
         temporary.unlink(missing_ok=True)
@@ -1224,18 +1223,16 @@ def _remove_sqlite_artifacts(path: Path) -> None:
         candidate.unlink(missing_ok=True)
 
 def _seal_private_directory(path:Path,names:tuple[str,...])->None:
+    from ledger.domain.posix_publication import fsync_dir
     for name in names:
         target=path/name;os.chmod(target,0o400)
-        fd=os.open(target,os.O_RDONLY)
-        try:os.fsync(fd)
-        finally:os.close(fd)
-    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
-    try:os.fsync(fd)
-    finally:os.close(fd)
+        if os.name=="posix":
+            fd=os.open(target,os.O_RDONLY)
+            try:os.fsync(fd)
+            finally:os.close(fd)
+    fsync_dir(path)
     os.chmod(path,0o500)
-    parent_fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
-    try:os.fsync(parent_fd)
-    finally:os.close(parent_fd)
+    fsync_dir(path.parent)
 
 
 def _remove_new_artifact_directory(path: Path) -> None:

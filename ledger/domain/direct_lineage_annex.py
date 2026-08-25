@@ -75,26 +75,10 @@ def _events_bytes(envelopes: list[dict[str, object]]) -> bytes:
 
 
 def _install_noreplace(stage: Path, target: Path) -> None:
+    from ledger.domain.posix_publication import rename_noreplace
     if os.path.lexists(target):
         raise FileExistsError("r23_output_exists")
-    try:
-        renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2")
-    except AttributeError:
-        renameat2 = None
-    if renameat2 is not None:
-        renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-        renameat2.restype = ctypes.c_int
-        parent_fd = os.open(target.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            result = renameat2(parent_fd, os.fsencode(stage.name), parent_fd, os.fsencode(target.name), 1)
-        finally:
-            os.close(parent_fd)
-        if result == 0:
-            return
-        if ctypes.get_errno() == errno.EEXIST:
-            raise FileExistsError("r23_output_exists")
-        raise OSError(ctypes.get_errno(), "renameat2")
-    raise OSError("r23_atomic_noreplace_unsupported")
+    rename_noreplace(stage, target)
 
 
 def _build_temp_db(
