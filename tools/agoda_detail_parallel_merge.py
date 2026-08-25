@@ -36,23 +36,11 @@ try:
         _terminal_kind_matches_detail_status,
         _utc_now,
     )
-except ModuleNotFoundError:
-    from agoda_portal_detail_capture import (
-        CaptureError,
-        SourceBooking,
-        SourceSnapshot,
-        TERMINAL_SOURCE_RESERVATION_STATUSES,
-        _attestation_membership_is_valid,
-        _browser_lock_path,
-        _canonical_json,
-        _file_sha256,
-        _load_source_snapshot,
-        _require_tmp,
-        _secure_create_work_db,
-        _sha256_text,
-        _terminal_kind_matches_detail_status,
-        _utc_now,
-    )
+except ModuleNotFoundError as _retired_err:
+    raise ImportError(
+        'tools/agoda_portal_detail_capture was retired in commit 92288ba; '
+        'use tools/agoda_paseo_batch_import.py instead.'
+    ) from _retired_err
 
 
 class ParallelMergeError(CaptureError):

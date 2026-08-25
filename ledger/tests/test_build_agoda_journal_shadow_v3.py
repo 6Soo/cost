@@ -5,7 +5,7 @@ from tools.build_agoda_journal_shadow_v3 import build_rows
 
 
 class AgodaJournalShadowV3Tests(unittest.TestCase):
-    def test_legacy_candidate_is_unresolved_and_balanced_inputs_are_two_lines(self):
+    def test_missing_authority_is_unresolved_and_balanced_inputs_are_two_lines(self):
         db = sqlite3.connect(":memory:")
         db.executescript(
             """
@@ -14,18 +14,18 @@ class AgodaJournalShadowV3Tests(unittest.TestCase):
               booking_number TEXT, amount_krw INTEGER, payment_lane TEXT,
               payment_year INTEGER, service_year INTEGER, occurred_on TEXT,
               target_match_status TEXT, target_authority TEXT,
-              allocation_target TEXT, legacy_window_candidate_targets_json TEXT,
+              allocation_target TEXT,
               authority_candidate_targets_json TEXT
             );
             """
         )
         db.execute(
             """INSERT INTO direct_agoda_accounting_draft_v3_authorities VALUES
-            (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 "a" * 64, 1, 2, "1700000001", 1234, "2026년 결제", 2026, 2026,
-                "2026-01-01", "legacy_window_candidate_only", "candidate_only",
-                "여행_미배정", '["0408_교토"]', "[]",
+                "2026-01-01", "authority_missing", "none",
+                "여행_미배정", "[]",
             ),
         )
         batches, lines = build_rows(db, "b" * 64)

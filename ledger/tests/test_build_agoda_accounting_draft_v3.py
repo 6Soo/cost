@@ -30,28 +30,19 @@ class AgodaAccountingDraftV3Tests(unittest.TestCase):
             "booking_evidence_set_sha256": "e" * 64,
         }
 
-    def test_legacy_unique_is_candidate_only_and_2025_lane_is_separate(self):
-        legacy = [
-            ScheduleRecord(
-                "0408_교토", 2026, __import__("datetime").date(2026, 4, 8),
-                __import__("datetime").date(2026, 4, 14), "교토",
-                "legacy_window_candidate", "ledger/data/trips.json#/1", "l" * 64,
-                "candidate_only",
-            )
-        ]
+    def test_without_authority_is_unassigned_and_2025_lane_is_separate(self):
         rows = build_rows(
             self.db,
             [self.source(1, "2026-04-08", "2026-04-10"), self.source(2, "2025-12-20", "2025-12-21")],
             [],
-            legacy,
             input_database_sha256="a" * 64,
             input_audit_sha256="b" * 64,
             authority_document_sha256="c" * 64,
-            legacy_schedule_sha256="d" * 64,
         )
-        self.assertEqual(rows[0]["target_match_status"], "legacy_window_candidate_only")
+        self.assertEqual(rows[0]["target_match_status"], "authority_missing")
         self.assertEqual(rows[0]["allocation_target"], "여행_미배정")
-        self.assertEqual(rows[0]["old_window_match_status"], "unique_service_period")
+        self.assertNotIn("legacy_window_candidate_targets", rows[0])
+        self.assertNotIn("old_window_match_status", rows[0])
         self.assertEqual(rows[1]["payment_lane"], "2025년 결제")
         self.assertEqual(rows[1]["target_match_status"], "authority_missing")
 
@@ -65,9 +56,9 @@ class AgodaAccountingDraftV3Tests(unittest.TestCase):
             )
         ]
         rows = build_rows(
-            self.db, [self.source(1, "2026-04-08", "2026-04-10")], authority, [],
+            self.db, [self.source(1, "2026-04-08", "2026-04-10")], authority,
             input_database_sha256="a" * 64, input_audit_sha256="b" * 64,
-            authority_document_sha256="c" * 64, legacy_schedule_sha256="d" * 64,
+            authority_document_sha256="c" * 64,
         )
         self.assertEqual(rows[0]["target_match_status"], "bound_unique")
         self.assertEqual(rows[0]["allocation_target"], "0408_교토")

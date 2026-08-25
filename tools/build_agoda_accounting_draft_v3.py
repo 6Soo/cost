@@ -1,10 +1,10 @@
 """Build the year-safe, authority-gated Agoda accounting draft v3.
 
-This is deliberately a new artifact.  The v1/v2 drafts remain available for
-comparison, but their legacy ``window`` matches are never promoted here.  A
-row can be target-bound only when the supplied v3 schedule document contains a
-unique authoritative record with explicit dates.  Legacy windows are retained
-as explainable candidates only.
+The active accounting path uses only the explicit trip-schedule authority
+document.  Historical ``trips.json``/``mm/dd/window`` data is not read here:
+it remains available only for replay of old artifacts.  A row can be
+target-bound only when the supplied schedule document contains a unique
+authoritative record with explicit dates.
 """
 
 from __future__ import annotations
@@ -26,11 +26,16 @@ from ledger.domain.direct_trip_schedule_authority import (
     ScheduleRecord,
     canonical_json,
     file_sha256,
-    legacy_window_candidates,
     load_document,
     match_service_period,
     manifest,
     sha256_value,
+)
+from ledger.domain.manual_ledger_booking_link import ManualBookingRow
+from ledger.domain.manual_tab_overlap_resolution import (
+    OverlapDecision,
+    load_verified_manual_rows,
+    resolve_overlap_target,
 )
 from tools.build_agoda_accounting_draft import (
     copy_database,
@@ -45,7 +50,6 @@ UNASSIGNED_TARGET = "여행_미배정"
 MATCH_STATUSES = {
     "bound_unique",
     "authority_ambiguous",
-    "legacy_window_candidate_only",
     "authority_missing",
 }
 
@@ -64,6 +68,16 @@ def _payment_occurred_on(db: sqlite3.Connection, payment_id: int) -> str:
     return value
 
 
+def _payment_merchant(db: sqlite3.Connection, payment_id: int) -> str:
+    try:
+        row = db.execute(
+            "SELECT merchant FROM payment_transactions WHERE id=?", (payment_id,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return ""
+    return "" if row is None or row[0] is None else str(row[0])
+
+
 def _year(value: str, field: str, payment_id: int) -> int:
     try:
         return date.fromisoformat(value).year
@@ -79,15 +93,16 @@ def build_rows(
     db: sqlite3.Connection,
     scope: Iterable[Mapping[str, object]],
     authoritative: Iterable[ScheduleRecord],
-    legacy_candidates: Iterable[ScheduleRecord],
     *,
     input_database_sha256: str,
     input_audit_sha256: str,
     authority_document_sha256: str,
-    legacy_schedule_sha256: str,
+    overlap_manual_rows: Iterable[ManualBookingRow] = (),
+    overlap_resolution_sha256: str | None = None,
+    overlap_resolution_document_sha256: str = "",
 ) -> list[dict[str, object]]:
     authoritative = tuple(authoritative)
-    legacy_candidates = tuple(legacy_candidates)
+    overlap_manual_rows = tuple(overlap_manual_rows)
     authority_manifest_sha256 = sha256_value(manifest(authoritative))
     rows: list[dict[str, object]] = []
     for source in sorted(scope, key=lambda item: int(item["payment_id"])):
@@ -97,12 +112,28 @@ def build_rows(
         occurred_on = _payment_occurred_on(db, payment_id)
         payment_year = _year(occurred_on, "payment_date", payment_id)
         service_year = _year(service_start, "service_start_on", payment_id)
-        explicit = match_service_period(
+        explicit_candidates = match_service_period(
             service_start, service_end, authoritative, authoritative_only=True
         )
-        legacy = match_service_period(
-            service_start, service_end, legacy_candidates, authoritative_only=False
-        )
+        explicit = explicit_candidates
+        overlap_decision: OverlapDecision | None = None
+        if len(explicit_candidates) > 1 and overlap_resolution_sha256 is not None:
+            overlap_decision = resolve_overlap_target(
+                candidate_targets=[record.trip_code for record in explicit_candidates],
+                occurred_on=occurred_on,
+                amount_krw=int(source["amount_krw"]),
+                merchant=_payment_merchant(db, payment_id),
+                service_start_on=service_start,
+                service_end_on=service_end,
+                manual_rows=overlap_manual_rows,
+                resolution_sha256=overlap_resolution_sha256 or "",
+            )
+            if overlap_decision is not None:
+                explicit = tuple(
+                    record
+                    for record in explicit_candidates
+                    if record.trip_code == overlap_decision.selected_target
+                )
         if len(explicit) == 1:
             target_match_status = "bound_unique"
             allocation_target = explicit[0].trip_code
@@ -117,13 +148,6 @@ def build_rows(
             candidate_targets = [record.trip_code for record in explicit]
             target_type = "unassigned"
             posting_eligible = False
-        elif legacy:
-            target_match_status = "legacy_window_candidate_only"
-            allocation_target = UNASSIGNED_TARGET
-            target_authority = "candidate_only"
-            candidate_targets = []
-            target_type = "unassigned"
-            posting_eligible = False
         else:
             target_match_status = "authority_missing"
             allocation_target = UNASSIGNED_TARGET
@@ -131,6 +155,9 @@ def build_rows(
             candidate_targets = []
             target_type = "unassigned"
             posting_eligible = False
+
+        if explicit_candidates:
+            candidate_targets = [record.trip_code for record in explicit_candidates]
 
         payload = {
             "rule_id": RULE_ID,
@@ -149,17 +176,14 @@ def build_rows(
             "event_year": service_year,
             "authority_document_sha256": authority_document_sha256,
             "authority_manifest_sha256": authority_manifest_sha256,
-            "legacy_schedule_sha256": legacy_schedule_sha256,
+            "overlap_resolution_document_sha256": overlap_resolution_document_sha256,
             "authority_candidate_targets": candidate_targets,
-            "legacy_window_candidate_targets": [
-                record.trip_code for record in legacy
-            ],
-            "old_window_match_status": (
-                "unique_service_period"
-                if len(legacy) == 1
-                else "service_target_ambiguous"
-                if legacy
-                else "service_target_missing"
+            "overlap_resolution": (
+                overlap_decision.as_dict(
+                    resolution_document_sha256=overlap_resolution_sha256 or ""
+                )
+                if overlap_decision is not None
+                else None
             ),
             "target_match_status": target_match_status,
             "target_authority": target_authority,
@@ -207,15 +231,9 @@ def create_tables(db: sqlite3.Connection) -> None:
           payment_lane TEXT NOT NULL,
           authority_document_sha256 TEXT NOT NULL CHECK(length(authority_document_sha256)=64),
           authority_manifest_sha256 TEXT NOT NULL CHECK(length(authority_manifest_sha256)=64),
-          legacy_schedule_sha256 TEXT NOT NULL CHECK(length(legacy_schedule_sha256)=64),
           authority_candidate_targets_json TEXT NOT NULL,
-          legacy_window_candidate_targets_json TEXT NOT NULL,
-          old_window_match_status TEXT NOT NULL CHECK(old_window_match_status IN (
-            'unique_service_period','service_target_ambiguous','service_target_missing'
-          )),
           target_match_status TEXT NOT NULL CHECK(target_match_status IN (
-            'bound_unique','authority_ambiguous','legacy_window_candidate_only',
-            'authority_missing'
+            'bound_unique','authority_ambiguous','authority_missing'
           )),
           target_authority TEXT NOT NULL CHECK(target_authority IN (
             'authoritative_explicit_period','authoritative_conflict','candidate_only','none'
@@ -236,14 +254,9 @@ def create_tables(db: sqlite3.Connection) -> None:
           input_database_sha256 TEXT NOT NULL CHECK(length(input_database_sha256)=64),
           input_audit_sha256 TEXT NOT NULL CHECK(length(input_audit_sha256)=64),
           authority_document_sha256 TEXT NOT NULL CHECK(length(authority_document_sha256)=64),
-          legacy_schedule_sha256 TEXT NOT NULL CHECK(length(legacy_schedule_sha256)=64),
           row_count INTEGER NOT NULL CHECK(row_count>=0),
-          old_unique_count INTEGER NOT NULL CHECK(old_unique_count>=0),
-          old_ambiguous_count INTEGER NOT NULL CHECK(old_ambiguous_count>=0),
-          old_missing_count INTEGER NOT NULL CHECK(old_missing_count>=0),
           bound_unique_count INTEGER NOT NULL CHECK(bound_unique_count>=0),
           authority_ambiguous_count INTEGER NOT NULL CHECK(authority_ambiguous_count>=0),
-          legacy_candidate_only_count INTEGER NOT NULL CHECK(legacy_candidate_only_count>=0),
           authority_missing_count INTEGER NOT NULL CHECK(authority_missing_count>=0),
           payment_2025_count INTEGER NOT NULL CHECK(payment_2025_count>=0),
           payment_2026_count INTEGER NOT NULL CHECK(payment_2026_count>=0),
@@ -263,12 +276,11 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
               booking_evidence_set_sha256,payment_id,booking_id,booking_number,
               service_start_on,service_end_on,occurred_on,payment_year,service_year,
               event_year,payment_lane,authority_document_sha256,authority_manifest_sha256,
-              legacy_schedule_sha256,authority_candidate_targets_json,
-              legacy_window_candidate_targets_json,old_window_match_status,
+              authority_candidate_targets_json,
               target_match_status,target_authority,target_type,allocation_target,
               account,cost_type,amount_krw,decision_status,posting_eligible,
               draft_sha256,payload_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 row["draft_id"], row["link_authority_id"], row["input_database_sha256"],
                 row["input_audit_sha256"], row["booking_evidence_set_sha256"],
@@ -276,10 +288,9 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
                 row["service_start_on"], row["service_end_on"], row["occurred_on"],
                 row["payment_year"], row["service_year"], row["event_year"],
                 row["payment_lane"], row["authority_document_sha256"],
-                row["authority_manifest_sha256"], row["legacy_schedule_sha256"],
+                row["authority_manifest_sha256"],
                 canonical_json(row["authority_candidate_targets"]),
-                canonical_json(row["legacy_window_candidate_targets"]),
-                row["old_window_match_status"], row["target_match_status"],
+                row["target_match_status"],
                 row["target_authority"], row["target_type"], row["allocation_target"],
                 row["account"], row["cost_type"], row["amount_krw"],
                 row["decision_status"], row["posting_eligible"], row["draft_sha256"],
@@ -290,19 +301,12 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
     def count(status: str) -> int:
         return sum(row["target_match_status"] == status for row in rows)
 
-    def old_count(status: str) -> int:
-        return sum(row["old_window_match_status"] == status for row in rows)
-
     payload = {
         "rule_id": RULE_ID,
         **hashes,
         "row_count": len(rows),
-        "old_unique_count": old_count("unique_service_period"),
-        "old_ambiguous_count": old_count("service_target_ambiguous"),
-        "old_missing_count": old_count("service_target_missing"),
         "bound_unique_count": count("bound_unique"),
         "authority_ambiguous_count": count("authority_ambiguous"),
-        "legacy_candidate_only_count": count("legacy_window_candidate_only"),
         "authority_missing_count": count("authority_missing"),
         "payment_2025_count": sum(row["payment_year"] == 2025 for row in rows),
         "payment_2026_count": sum(row["payment_year"] == 2026 for row in rows),
@@ -313,17 +317,14 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
     db.execute(
         """INSERT INTO direct_agoda_accounting_draft_v3_manifest(
           manifest_id,input_database_sha256,input_audit_sha256,authority_document_sha256,
-          legacy_schedule_sha256,row_count,old_unique_count,old_ambiguous_count,
-          old_missing_count,bound_unique_count,authority_ambiguous_count,
-          legacy_candidate_only_count,authority_missing_count,payment_2025_count,
+          row_count,bound_unique_count,authority_ambiguous_count,
+          authority_missing_count,payment_2025_count,
           payment_2026_count,total_amount_krw,posting_eligible,payload_json)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             manifest_id, hashes["input_database_sha256"], hashes["input_audit_sha256"],
-            hashes["authority_document_sha256"], hashes["legacy_schedule_sha256"],
-            payload["row_count"], payload["old_unique_count"], payload["old_ambiguous_count"],
-            payload["old_missing_count"], payload["bound_unique_count"],
-            payload["authority_ambiguous_count"], payload["legacy_candidate_only_count"],
+            hashes["authority_document_sha256"], payload["row_count"],
+            payload["bound_unique_count"], payload["authority_ambiguous_count"],
             payload["authority_missing_count"], payload["payment_2025_count"],
             payload["payment_2026_count"], payload["total_amount_krw"], 0,
             canonical_json(payload),
@@ -337,16 +338,32 @@ def build_artifact(
     input_audit: Path,
     output_database: Path,
     authority_document: Path,
-    legacy_schedule: Path,
     detail_output: Path,
     audit_output: Path,
+    *,
+    overlap_resolution_document: Path | None = None,
+    manual_workbook: Path | None = None,
 ) -> dict[str, object]:
     if output_database.exists():
         raise ValueError(f"output_exists:{output_database}")
     input_database_sha256 = file_sha256(input_database)
     input_audit_sha256 = file_sha256(input_audit)
     authoritative, authority_document_sha256 = load_document(authority_document)
-    legacy, legacy_schedule_sha256 = legacy_window_candidates(legacy_schedule)
+    overlap_resolution: Mapping[str, object] | None = None
+    overlap_manual_rows: tuple[ManualBookingRow, ...] = ()
+    overlap_resolution_sha256 = ""
+    if overlap_resolution_document is not None:
+        if manual_workbook is None:
+            raise ValueError("manual_overlap_workbook_required")
+        overlap_resolution = json.loads(
+            overlap_resolution_document.read_text(encoding="utf-8")
+        )
+        if not isinstance(overlap_resolution, dict):
+            raise ValueError("manual_overlap_resolution_document_invalid")
+        overlap_resolution_sha256 = file_sha256(overlap_resolution_document)
+        overlap_manual_rows = load_verified_manual_rows(
+            manual_workbook, overlap_resolution
+        )
     copy_database(input_database, output_database)
     db = sqlite3.connect(output_database)
     db.row_factory = sqlite3.Row
@@ -364,10 +381,17 @@ def build_artifact(
             "input_database_sha256": input_database_sha256,
             "input_audit_sha256": input_audit_sha256,
             "authority_document_sha256": authority_document_sha256,
-            "legacy_schedule_sha256": legacy_schedule_sha256,
+            "overlap_resolution_document_sha256": overlap_resolution_sha256,
         }
         rows = build_rows(
-            db, scope, authoritative, legacy, **hashes
+            db,
+            scope,
+            authoritative,
+            overlap_manual_rows=overlap_manual_rows,
+            overlap_resolution_sha256=(
+                overlap_resolution_sha256 if overlap_resolution_document is not None else None
+            ),
+            **hashes,
         )
         summary = materialize(db, rows, hashes)
         db.commit()
@@ -383,7 +407,6 @@ def build_artifact(
                 "integrity_check": integrity,
                 "foreign_key_check": foreign_keys,
                 "authority_records": len(authoritative),
-                "legacy_candidate_records": len(legacy),
                 "posting_tables_present": {
                     name: table_count(db, name)
                     for name in (
@@ -423,7 +446,14 @@ def main() -> None:
         default=ROOT / "ledger/data/trip_schedule_authority_v3.json",
     )
     parser.add_argument(
-        "--legacy-schedule", type=Path, default=ROOT / "ledger/data/trips.json"
+        "--overlap-resolution-document",
+        type=Path,
+        default=ROOT / "ledger/data/agoda_overlap_resolution_v1.json",
+    )
+    parser.add_argument(
+        "--manual-workbook",
+        type=Path,
+        default=ROOT / "ledger/data/ledger_current.xlsx",
     )
     parser.add_argument("--detail-output", type=Path, required=True)
     parser.add_argument("--audit-output", type=Path, required=True)
@@ -431,8 +461,10 @@ def main() -> None:
     result = build_artifact(
         args.input_database.resolve(), args.input_audit.resolve(),
         args.output_database.resolve(), args.authority_document.resolve(),
-        args.legacy_schedule.resolve(), args.detail_output.resolve(),
+        args.detail_output.resolve(),
         args.audit_output.resolve(),
+        overlap_resolution_document=args.overlap_resolution_document.resolve(),
+        manual_workbook=args.manual_workbook.resolve(),
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 

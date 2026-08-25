@@ -1,9 +1,9 @@
 """Build a balanced, non-posting journal shadow from accounting draft v3.
 
 The v3 shadow keeps payment year and service/event assignment separate.  It
-uses ``숙박비`` only for an explicit authoritative unique schedule match; all
-legacy-window-only, ambiguous, or missing rows debit ``미확정여행원가`` and
-remain ``여행_미배정``.  No journal or posting table is written.
+    uses ``숙박비`` only for an explicit authoritative unique schedule match;
+ambiguous or missing rows debit ``미확정여행원가`` and remain
+``여행_미배정``.  No journal or posting table is written.
 """
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ def build_rows(db: sqlite3.Connection, source_database_sha256: str) -> tuple[lis
         """SELECT draft_id,payment_id,booking_id,booking_number,amount_krw,
                   payment_lane,payment_year,service_year,occurred_on,
                   target_match_status,target_authority,allocation_target,
-                  legacy_window_candidate_targets_json,authority_candidate_targets_json
+                  authority_candidate_targets_json
            FROM direct_agoda_accounting_draft_v3_authorities ORDER BY payment_id"""
     )
     column_names = [str(item[0]) for item in cursor.description]
@@ -139,11 +139,7 @@ def build_rows(db: sqlite3.Connection, source_database_sha256: str) -> tuple[lis
         shadow_cohort = "target_bound" if bound else "target_unresolved"
         assigned_target = str(item["allocation_target"]) if bound else UNASSIGNED_TARGET
         debit_account = BOUND_DEBIT_ACCOUNT if bound else UNRESOLVED_DEBIT_ACCOUNT
-        suggested = json.loads(
-            item["authority_candidate_targets_json"]
-            if item["authority_candidate_targets_json"] != "[]"
-            else item["legacy_window_candidate_targets_json"]
-        )
+        suggested = json.loads(item["authority_candidate_targets_json"])
         payload = {
             "rule_id": RULE_ID,
             "source_database_sha256": source_database_sha256,

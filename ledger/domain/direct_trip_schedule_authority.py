@@ -1,10 +1,9 @@
 """Strict, year-aware trip schedule authority for Agoda accounting.
 
-The legacy ``ledger/data/trips.json`` document contains a start month/day and
-``window``.  That is useful for finding candidates, but it is not an
-authoritative service period.  This module keeps that distinction explicit:
-only records with explicit dates and ``authority_status='authoritative'`` may
-bind a payment to a trip.
+The active accounting path accepts only records with explicit dates and
+``authority_status='authoritative'``.  The old ``trips.json`` month/day
+format is retained only by the historical replay adapter below; it is not a
+candidate source for current allocation or posting.
 
 Schedule dates are inclusive last-service dates.  A lodging booking's
 ``service_end_on`` is checkout-exclusive, so matching uses the booking's last
@@ -142,7 +141,7 @@ def normalize_service_period(
     """Validate and normalize an OTA/service period.
 
     ``service_end_on`` is exclusive for lodging and other reservation facts.
-    No date is inferred from a payment date, month/day template, or window.
+    No date is inferred from a payment date or an unstructured label.
     """
 
     def as_date(value: str | date, field: str) -> date:

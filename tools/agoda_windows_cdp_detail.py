@@ -40,20 +40,11 @@ try:
         shard_for,
         write_private_json,
     )
-except ModuleNotFoundError:
-    from agoda_portal_detail_capture import (
-        SourceBooking,
-        _canonical_json,
-        _parse_detail_tree,
-        _sha256_text,
-    )
-    from agoda_windows_cdp_capture import (
-        ALLOWED_TABS,
-        SHARDS,
-        CaptureError,
-        census,
-        census_from_selected,
-        load_hmac_key,
+except ModuleNotFoundError as _retired_err:
+    raise ImportError(
+        'tools/agoda_portal_detail_capture was retired in commit 92288ba; '
+        'use tools/agoda_paseo_batch_import.py instead.'
+    ) from _retired_err
         run_bridge,
         shard_for,
         write_private_json,

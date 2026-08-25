@@ -3632,3 +3632,30 @@ Ran 745 tests in 258s → OK (skipped=268). 이 머신에서 처음으로 green 
 Sol high(codex/gpt-5.6-sol, worktree powerful-buffalo)가 총괄·경계 확정.
 AGY low(agy/gemini-3.6-flash-low, worktree sordid-blobfish)가 2차 의견 제공. (주: AGY 3.6-low 호출은 규칙 위반 — 2026-08-24 갱신으로 3.7-flash-high여야 했음)
 본 세션(opencode)이 구현·검증 수행. 두 검토자 모두 read-only 격리 스냅샷에서 동작.
+
+## 2026-08-25 활성 회계 경로의 legacy window 제거
+
+사용자 지시에 따라 새 Agoda accounting draft/journal shadow 경로에서
+`trips.json`의 `mm/dd/window`를 완전히 제거했다. 과거 원본과 기존 산출물은 재현·감사용으로
+보존하지만, 현재 allocation·대사·shadow 생성은 명시적인 trip schedule authority만 읽는다.
+
+- `tools/build_agoda_accounting_draft_v3.py`
+  - legacy schedule 입력·후보 매칭·`legacy_window_candidate_only` 상태 제거
+  - draft 테이블/manifest의 legacy window 컬럼·카운트 제거
+  - authority 없는 29건은 모두 `authority_missing`/`여행_미배정`으로 유지
+- `tools/build_agoda_journal_shadow_v3.py`
+  - legacy 후보 컬럼을 읽지 않고 명시 권위 후보만 사용
+- `docs/비용분류_지시사항_원장.md`
+  - window는 현행 비용 경로에서 읽지 않으며 과거 재현용으로만 보존한다고 정렬
+
+windowless 산출물:
+
+- draft DB: `outputs/agoda-card-accounting-draft-v3-windowless-v2-20260825.sqlite`
+  - SHA-256 `127b087acb78dc7eba2174086230fabbd2a311e051ca9ea2417c229a0c057a31`
+  - 77건, 권위 배정 48건, 권위 미확정 29건, 총 20,546,481원
+- journal shadow DB: `outputs/agoda-card-journal-shadow-v3-windowless-v2-20260825.sqlite`
+  - SHA-256 `d6330eebe2721da71cfadbebdfd70c4ddfcb6bc0e982965609c7c3f5d10db8fb`
+  - 77 batch/154 line, 차변·대변 각 20,546,481원
+  - 실제 posting 0건, FK violation 0건, integrity `ok`
+
+독립 재빌드에서 draft와 shadow DB/audit SHA-256이 각각 일치했다. 관련 회귀 34/34 PASS.
