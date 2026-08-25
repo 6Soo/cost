@@ -3596,3 +3596,39 @@ build_agoda_accounting_draft +65, ledger_db·direct_sources·projection 일부)�
 잔여 경계(의도 유지): renameat2 발행 스택과 staged 증거 패밀리는 각 게이트로
 Linux에서만 실행. classifier census·r39/r41/v6 등 드리프트 핀 리베이스라인은
 사용자 승인 대기다.
+
+## 2026-08-25 Phase 1-2 완료 — 위변조 핀 경량화 + POSIX 어댑터 (Sol high 총괄)
+
+사용자 지시("데이터의 핵심은 파싱과 중복제거, 보안은 문제 없다")에 따라
+Sol high·AGY low 병렬 검토 후 타겟 완화를 실행했다.
+
+검토 결과: AGY low 조건부 PASS(플래그 방식만), Sol high FAIL(블랭킷 불가,
+타겟만) → Sol high 총괄로 아래 3티어 경계 확정:
+- 정적 저장소 핀(MAIL_SHA/INPUT_SHA/고정 카운트): 기본 warn, COST_STRICT_STATIC_PINS=1일 때만 raise
+- 운영 정확성(멤버십·중복·동시성 격리·금액 표현·리니지 해시): 하드 유지
+- POSIX 발행 내구성: 어댑터 분리, 삭제 금지
+
+### Phase 1: 드리프트 핀 경량화 (커밋 02d6afb, 15b0483)
+- ledger/domain/staged_inputs.py에 is_strict_static_pins() 신설
+- 11개 historical 가족(carryforward 4종, kbo_signature, han_master, manual_frontier, kamenoi, partial_booking, document_census)의 정적 핀을 warn으로 강등. 스키마·참조 검사는 하드 유지.
+- direct_all_period_historical_replay.py의 python3→sys.executable + UTF-8 수정.
+- 테스트 게이트 제거 6종, 잔여 게이트(kbo/han/r42)는 staged 증거 미설치라 의도 유지.
+
+### Phase 2: POSIX 발행 어댑터 신설+이관 (커밋 90f50e6, ad2b789, e5327a9)
+- ledger/domain/posix_publication.py 신설(206줄): open_dir/open_nofollow/fsync_dir/rename_noreplace(_at)/identity/verify_regular_single_link/hardlink_noreplace. Windows CreateFileW 디렉터리 핸들+GetFinalPathNameByHandleW 구현.
+- 활성 3모듈 이관: direct_lineage_annex._install_noreplace→rename_noreplace, p07_manifest._sealed_file_bytes→open_nofollow+verify_regular_single_link, direct_projection dir fsync→fsync_dir+_seal_private_directory nt skip.
+- 검증: test_direct_projection 32중 24 OK(skipped=8 기존), p6_adapters+domain_ledger+export_clean_manual_ledger+projection 합산 85 OK.
+
+### 전체 스위트 최종
+Ran 745 tests in 258s → OK (skipped=268). 이 머신에서 처음으로 green 달성.
+
+### 잔여 경계(의도 유지)
+- staged 증거 패밀리(all_period_* 등): COST_STAGED_INPUT_DIR 설정 시 실행
+- classifier census 드리프트: Sol 세션의 진행 중 변경, 별도 리베이스라인 대기
+- renameat2 비활성 모듈 18파일: posix_publication으로 점진 이관(각 모듈 재활성화 시)
+- reservation_schedule_export.py: 사용자 지시대로 미수정
+
+### 모델 라우팅 기록
+Sol high(codex/gpt-5.6-sol, worktree powerful-buffalo)가 총괄·경계 확정.
+AGY low(agy/gemini-3.6-flash-low, worktree sordid-blobfish)가 2차 의견 제공.
+본 세션(opencode)이 구현·검증 수행. 두 검토자 모두 read-only 격리 스냅샷에서 동작.
