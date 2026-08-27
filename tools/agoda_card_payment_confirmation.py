@@ -15,6 +15,8 @@ posting, allocation approval, or release finality.
 """
 from __future__ import annotations
 
+from ledger.domain.posix_publication import open_dir
+
 import argparse
 import hashlib
 import json
@@ -641,7 +643,7 @@ def _publish_noreplace(stage: Path, final: Path) -> tuple[int, int]:
             os.close(fd)
         os.chmod(final, 0o600)
         if os.name != "nt":
-            dir_fd = os.open(final.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            dir_fd = open_dir(final.parent)
             try:
                 os.fsync(dir_fd)
             finally:

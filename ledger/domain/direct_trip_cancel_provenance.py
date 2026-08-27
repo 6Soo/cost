@@ -75,7 +75,7 @@ def _read_regular(directory: Path, name: str) -> bytes:
         try:
             before = os.fstat(fd)
             verify_regular_single_link(fd, mode=0o600)
-            if before.st_uid != os.getuid():
+            if (os.name=="posix" and before.st_uid != os.getuid()):
                 raise ValueError("r44_private_file_invalid")
             chunks = []
             while True:
@@ -102,7 +102,7 @@ def _private_dir(directory: Path) -> Path:
         raise ValueError("r44_private_input_inside_repository")
     st = resolved.stat()
     if (not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o700 or
-            st.st_uid != os.getuid()):
+            (os.name=="posix" and st.st_uid != os.getuid())):
         raise ValueError("r44_private_directory_invalid")
     return resolved
 
@@ -161,7 +161,7 @@ def _validate_runtime(python:Path) -> Path:
     module=requested.parent.parent/"lib/python3.12/site-packages/pypdf/__init__.py"
     for path in (executable,cfg,module):
         st=path.stat()
-        if not stat.S_ISREG(st.st_mode) or st.st_uid not in {0,os.getuid()}:raise ValueError("r44_pdf_runtime_invalid")
+        if not stat.S_ISREG(st.st_mode) or st.st_uid not in ({0} | (set() if os.name!="posix" else {os.getuid()})):raise ValueError("r44_pdf_runtime_invalid")
     tree_count,tree_sha=_package_tree_commitment(module.parent)
     if (str(executable),_sha(executable.read_bytes()),_sha(cfg.read_bytes()),_sha(module.read_bytes()),tree_count,tree_sha)!=(
         PINNED_RUNTIME["executable_path"],PINNED_RUNTIME["executable_sha256"],PINNED_RUNTIME["pyvenv_cfg_sha256"],PINNED_RUNTIME["pypdf_module_sha256"],

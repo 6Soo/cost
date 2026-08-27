@@ -93,7 +93,7 @@ def _read_private(directory: Path) -> tuple[bytes, dict[str, object]]:
         dst = os.fstat(dfd)
         directory_identity = (dst.st_dev, dst.st_ino, dst.st_mode, dst.st_uid, dst.st_nlink, dst.st_ctime_ns)
         expected_names = {"message.eml", "binding.json"}
-        if (not stat.S_ISDIR(dst.st_mode) or dst.st_uid != os.getuid() or
+        if (not stat.S_ISDIR(dst.st_mode) or (os.name=="posix" and dst.st_uid != os.getuid()) or
                 stat.S_IMODE(dst.st_mode) != 0o700 or set(os.listdir(dfd)) != expected_names):
             raise ValueError("r49_private_directory_invalid")
         captured = {}
@@ -102,8 +102,8 @@ def _read_private(directory: Path) -> tuple[bytes, dict[str, object]]:
             fd = open_at(dfd, name)
             try:
                 before = os.fstat(fd)
-                if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
-                        stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1):
+                if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_uid != os.getuid()) or
+                        stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_nlink != 1)):
                     raise ValueError("r49_private_file_invalid")
                 chunks = []
                 while True:
@@ -282,7 +282,7 @@ def _parse_provider_message(raw: bytes, binding: dict[str, object]) -> dict[str,
 def _manual_and_trip(binding: dict[str, object]) -> tuple[dict[str, str], str]:
     path = r36.DEFAULT_MANUAL_CSV
     info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+    if not stat.S_ISREG(info.st_mode) or (os.name=="posix" and info.st_uid != os.getuid()) or info.st_nlink != 1:
         raise ValueError("r49_manual_file_invalid")
     fd = open_nofollow(path)
     try:
@@ -475,15 +475,15 @@ def _privacy_scan(files: dict[str, bytes], binding: dict[str, object]) -> None:
 def _capture_dirfd(dirfd: int) -> dict[str, bytes]:
     dst = os.fstat(dirfd)
     if (not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode) != 0o700 or
-            dst.st_uid != os.getuid() or set(os.listdir(dirfd)) != set(FILES)):
+            (os.name=="posix" and dst.st_uid != os.getuid()) or set(os.listdir(dirfd)) != set(FILES)):
         raise ValueError("r49_package_shape_invalid")
     result = {}
     for name in FILES:
         fd = open_at(dirfd, name)
         try:
             before = os.fstat(fd)
-            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
-                    stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1):
+            if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_uid != os.getuid()) or
+                    stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_nlink != 1)):
                 raise ValueError("r49_package_shape_invalid")
             chunks = []
             while True:

@@ -101,7 +101,7 @@ def _read_private(directory: Path, name: str) -> bytes:
         raise ValueError("r43_private_directory_invalid") from exc
     try:
         dst=os.fstat(dirfd)
-        if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or dst.st_uid!=os.getuid():
+        if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or (os.name=="posix" and dst.st_uid!=os.getuid()):
             raise ValueError("r43_private_directory_invalid")
         try:
             fd=open_at(dirfd, name)
@@ -110,7 +110,7 @@ def _read_private(directory: Path, name: str) -> bytes:
         try:
             before=os.fstat(fd)
             verify_regular_single_link(fd, mode=0o600)
-            if stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():
+            if stat.S_IMODE(before.st_mode)!=0o600 or (os.name=="posix" and before.st_uid!=os.getuid()):
                 raise ValueError("r43_private_file_invalid")
             chunks=[]
             while True:

@@ -204,7 +204,7 @@ def _capture_package(directory: Path, filenames=FILES) -> dict[str, bytes]:
         if (
             not stat.S_ISDIR(dm.st_mode)
             or stat.S_IMODE(dm.st_mode) != 0o700
-            or dm.st_uid != os.getuid()
+            or (os.name=="posix" and dm.st_uid != os.getuid())
             or set(os.listdir(dirfd)) != set(filenames)
         ):
             raise ValueError("r42_package_shape_invalid")

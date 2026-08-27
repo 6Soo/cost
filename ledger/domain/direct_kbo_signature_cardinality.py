@@ -84,7 +84,7 @@ def _capture(directory:Path):
  out={}
  try:
   dm=os.fstat(dfd)
-  if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
+  if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
   for name in FILES:
    try:fd=open_at(dfd, name)
    except OSError as exc:raise ValueError("r46_package_file_invalid") from exc
@@ -106,7 +106,7 @@ def _capture(directory:Path):
 
 def _capture_dirfd(dfd:int):
  dm=os.fstat(dfd)
- if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
+ if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
  out={}
  for name in FILES:
   fd=open_at(dfd, name)
@@ -235,7 +235,7 @@ def build_kbo_signature_cardinality(output:Path|None=None,ledger_dir:Path=REPOSI
      view=view[n:]
     os.fsync(fd)
    finally:os.close(fd)
-  sfd=open_at(pfd, stage_name);stage_id=_identity(os.fstat(sfd));os.fsync(sfd)
+  sfd=open_at(pfd, stage_name);stage_id=_identity(os.fstat(sfd));fsync_dir(sfd)
   if _capture_dirfd(sfd)!=files:raise ValueError("r46_stage_verify_failed")
   if _identity(os.fstat(pfd))!=parent_id or _identity(os.stat(output.parent,follow_symlinks=False))!=parent_path_id:raise ValueError("r46_publication_identity_changed")
   _rename_noreplace_at(pfd,stage_name,output.name);published=True

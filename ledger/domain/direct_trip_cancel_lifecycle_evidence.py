@@ -293,14 +293,14 @@ def _fs_identity(st):return (st.st_dev,st.st_ino)
 
 def _capture_dirfd(dirfd:int):
     dst=os.fstat(dirfd)
-    if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or dst.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(FILES):raise ValueError("r44_package_shape_invalid")
+    if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or (os.name=="posix" and dst.st_uid!=os.getuid()) or set(os.listdir(dirfd))!=set(FILES):raise ValueError("r44_package_shape_invalid")
     result={}
     for name in FILES:
         fd=open_at(dirfd, name)
         try:
             before=os.fstat(fd)
             verify_regular_single_link(fd, mode=0o600)
-            if stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():raise ValueError("r44_package_shape_invalid")
+            if stat.S_IMODE(before.st_mode)!=0o600 or (os.name=="posix" and before.st_uid!=os.getuid()):raise ValueError("r44_package_shape_invalid")
             chunks=[]
             while True:
                 chunk=os.read(fd,1024*1024)
@@ -331,7 +331,7 @@ def build_trip_cancel_lifecycle_evidence(documents_dir:Path,provenance_path:Path
     os.chmod(stage_path,0o700);stagefd=open_at(parentfd, stage_name);published=False;targetfd=None;target_identity=None
     try:
         for name,data in files.items():
-            fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600,dir_fd=stagefd)
+            fd=open_at(stagefd, name, os.O_WRONLY|os.O_CREAT|os.O_EXCL)
             try:
                 view=memoryview(data)
                 while view:view=view[os.write(fd,view):]

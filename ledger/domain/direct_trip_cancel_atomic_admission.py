@@ -155,7 +155,7 @@ def _privacy(files):
 
 def _capture_dirfd(dfd:int):
  dm=os.fstat(dfd)
- if (not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or
+ if (not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or
      set(os.listdir(dfd))!=set(FILES)):raise ValueError("r55_package_shape_invalid")
  result={}
  for name in FILES:

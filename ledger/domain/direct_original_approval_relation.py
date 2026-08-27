@@ -63,7 +63,7 @@ def _capture_package(directory:Path,filenames=FILES)->dict[str,bytes]:
     actual={}
     try:
         dm=os.fstat(dirfd)
-        if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(filenames):raise ValueError("r40_package_shape_invalid")
+        if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dirfd))!=set(filenames):raise ValueError("r40_package_shape_invalid")
         for name in filenames:
             try:fd=open_at(dirfd, name)
             except OSError as exc:raise ValueError("r40_package_file_invalid") from exc

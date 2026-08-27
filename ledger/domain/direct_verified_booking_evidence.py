@@ -17,6 +17,7 @@ from pathlib import Path
 
 from ledger.domain.direct_external_manual_evidence import _build_package as _build_r25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _build_temp_db, _install_noreplace, build_annex
+from ledger.domain.posix_publication import open_dir
 
 ARTIFACT_TYPE = "r26-verified-booking-evidence-v1"
 RULE_VERSION = "r26-booking-token-approval-family-v1"
@@ -106,7 +107,7 @@ def _load_json(path: Path) -> tuple[object, bytes]:
 
 
 def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    descriptor = open_dir(path)
     try: os.fsync(descriptor)
     finally: os.close(descriptor)
 

@@ -124,8 +124,8 @@ def _private_bytes_at(dirfd: int, name: str) -> bytes:
     fd = open_at(dirfd, name)
     try:
         before = os.fstat(fd)
-        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
-                stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1):
+        if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_uid != os.getuid()) or
+                stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_nlink != 1)):
             raise ValueError("r45_private_file_invalid")
         chunks = []
         while True:
@@ -145,7 +145,7 @@ def _private_bytes_at(dirfd: int, name: str) -> bytes:
 def _open_private_dir(path: Path) -> int:
     fd = open_dir(path)
     st = os.fstat(fd)
-    if (not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or
+    if (not stat.S_ISDIR(st.st_mode) or (os.name=="posix" and st.st_uid != os.getuid()) or
             stat.S_IMODE(st.st_mode) != 0o700):
         os.close(fd)
         raise ValueError("r45_private_file_invalid")
@@ -475,7 +475,7 @@ def _identity(st):
 def _capture_dirfd(dirfd: int):
     dst = os.fstat(dirfd)
     if (not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode) != 0o700 or
-            dst.st_uid != os.getuid() or set(os.listdir(dirfd)) != set(FILES)):
+            (os.name=="posix" and dst.st_uid != os.getuid()) or set(os.listdir(dirfd)) != set(FILES)):
         raise ValueError("r45_package_shape_invalid")
     result = {}
     for name in FILES:
@@ -483,8 +483,8 @@ def _capture_dirfd(dirfd: int):
         try:
             before = os.fstat(fd)
             verify_regular_single_link(fd)
-            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
-                    stat.S_IMODE(before.st_mode) != 0o600 or before.st_uid != os.getuid()):
+            if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_nlink != 1) or
+                    stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_uid != os.getuid())):
                 raise ValueError("r45_package_shape_invalid")
             chunks = []
             while True:

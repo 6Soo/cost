@@ -57,13 +57,13 @@ def _private_bytes(path: Path) -> bytes:
     dfd = open_dir(directory)
     try:
         dst = os.fstat(dfd)
-        if (dst.st_mode & 0o777) != 0o700 or dst.st_uid != os.getuid():
+        if (dst.st_mode & 0o777) != 0o700 or (os.name=="posix" and dst.st_uid != os.getuid()):
             raise ValueError("r43_authenticated_directory_invalid")
         fd = open_at(dfd, path.name)
         try:
             before = os.fstat(fd)
-            if (not stat.S_ISREG(before.st_mode) or (before.st_mode & 0o777) != 0o600 or before.st_uid != os.getuid()
-                    or before.st_nlink != 1):
+            if (not stat.S_ISREG(before.st_mode) or (before.st_mode & 0o777) != 0o600 or (os.name=="posix" and before.st_uid != os.getuid())
+                    or (os.name=="posix" and before.st_nlink != 1)):
                 raise ValueError("r43_authenticated_file_invalid")
             chunks = []
             while True:
