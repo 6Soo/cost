@@ -8,7 +8,8 @@ from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain import direct_narrow_service_classification as r37
 from ledger.domain import direct_structured_lodging_evidence as r38
 from ledger.domain.han_normalizer import HAN_NORMALIZER_CONTRACT_SHA256,HAN_NORMALIZER_VERSION
-from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT,build_annex,_install_noreplace
+from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, build_annex, _install_noreplace
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as BOOKING_RELATIONS
 from ledger.domain.direct_repository_booking_evidence import EXPECTED_BOOKING_NEW,EXPECTED_OTA_NEW
@@ -57,19 +58,19 @@ def _validate_normalization_authority(ledger_dir:Path,inventory):
     return _sha(_json(NORMALIZATION_CONTRACTS))
 
 def _capture_package(directory:Path,filenames=FILES)->dict[str,bytes]:
-    flags=os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0)
-    try:dirfd=os.open(directory,flags)
+    try:dirfd=open_dir(directory)
     except OSError as exc:raise ValueError("r40_package_directory_invalid") from exc
     actual={}
     try:
         dm=os.fstat(dirfd)
         if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(filenames):raise ValueError("r40_package_shape_invalid")
         for name in filenames:
-            try:fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dirfd)
+            try:fd=open_at(dirfd, name)
             except OSError as exc:raise ValueError("r40_package_file_invalid") from exc
             try:
                 before=os.fstat(fd)
-                if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600:raise ValueError("r40_package_file_invalid")
+                verify_regular_single_link(fd, mode=0o600)
+                if stat.S_IMODE(before.st_mode)!=0o600:raise ValueError("r40_package_file_invalid")
                 chunks=[]
                 while True:
                     chunk=os.read(fd,1024*1024)
@@ -157,7 +158,7 @@ def build_original_approval_relation(output:Path|None=None,ledger_dir:Path=REPOS
                     while view:view=view[os.write(fd,view):]
                     os.fsync(fd)
                 finally:os.close(fd)
-            fd=os.open(stage,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+            fd=open_dir(stage)
             try:os.fsync(fd)
             finally:os.close(fd)
             expected={name:data for name,data in files.items()}
@@ -168,7 +169,7 @@ def build_original_approval_relation(output:Path|None=None,ledger_dir:Path=REPOS
             try:
                 if _capture_package(output)!=expected:raise ValueError("r40_post_install_bytes_mismatch")
             except Exception as exc:raise PublicationIntegrityError(output,manifest["package_set_sha256"]) from exc
-            try:fd=os.open(parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+            try:fd=open_dir(parent)
             except OSError as exc:raise PublicationDurabilityError(output,manifest["package_set_sha256"]) from exc
             try:
                 try:os.fsync(fd)
@@ -185,7 +186,7 @@ def build_original_approval_relation(output:Path|None=None,ledger_dir:Path=REPOS
 def reconcile_publication(error:PublicationDurabilityError|PublicationIntegrityError,ledger_dir:Path=REPOSITORY_ROOT/"ledger"):
     if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r40_reconcile_state_invalid")
     first=verify_original_approval_relation(error.output,ledger_dir)
-    fd=os.open(error.output.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    fd=open_dir(error.output.parent)
     try:os.fsync(fd)
     finally:os.close(fd)
     second=verify_original_approval_relation(error.output,ledger_dir)

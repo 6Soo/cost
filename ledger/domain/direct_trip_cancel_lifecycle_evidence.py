@@ -24,6 +24,7 @@ from ledger.domain import direct_structured_lodging_evidence as r38
 from ledger.domain import direct_trip_cancel_provenance as auth
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace, build_annex
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 from ledger.domain.direct_original_approval_relation import BOOKING_RELATIONS, EXPECTED_BOOKING_NEW, EXPECTED_OTA_NEW, MANUAL
 
 ARTIFACT_TYPE = "r44-trip-cancel-complete-lifecycle-v1"
@@ -295,10 +296,11 @@ def _capture_dirfd(dirfd:int):
     if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or dst.st_uid!=os.getuid() or set(os.listdir(dirfd))!=set(FILES):raise ValueError("r44_package_shape_invalid")
     result={}
     for name in FILES:
-        fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dirfd)
+        fd=open_at(dirfd, name)
         try:
             before=os.fstat(fd)
-            if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():raise ValueError("r44_package_shape_invalid")
+            verify_regular_single_link(fd, mode=0o600)
+            if stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():raise ValueError("r44_package_shape_invalid")
             chunks=[]
             while True:
                 chunk=os.read(fd,1024*1024)
@@ -312,13 +314,8 @@ def _capture_dirfd(dirfd:int):
 
 
 def _rename_noreplace_at(parentfd:int,source:str,target:str):
-    try:fn=getattr(ctypes.CDLL(None,use_errno=True),"renameat2")
-    except AttributeError as exc:raise OSError("r44_atomic_noreplace_unsupported") from exc
-    fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint];fn.restype=ctypes.c_int
-    if fn(parentfd,os.fsencode(source),parentfd,os.fsencode(target),1)==0:return
-    code=ctypes.get_errno()
-    if code==errno.EEXIST:raise FileExistsError("r44_output_exists")
-    raise OSError(code,"r44_renameat2")
+    from ledger.domain.posix_publication import rename_noreplace_at as _pub_rename_at
+    return _pub_rename_at(parentfd, source, target)
 
 
 def build_trip_cancel_lifecycle_evidence(documents_dir:Path,provenance_path:Path,key_path:Path,pypdf_python:Path,output:Path|None=None):
@@ -328,10 +325,10 @@ def build_trip_cancel_lifecycle_evidence(documents_dir:Path,provenance_path:Path
     out=output.resolve();parent=out.parent.resolve(strict=True)
     if REPOSITORY_ROOT.resolve() in (out,*out.parents):raise ValueError("r44_output_inside_repository")
     if os.path.lexists(out):raise FileExistsError(out)
-    parentfd=os.open(output.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0));parent_identity=_fs_identity(os.fstat(parentfd))
+    parentfd=open_dir(output.parent);parent_identity=_fs_identity(os.fstat(parentfd))
     if _fs_identity(os.stat(output.parent,follow_symlinks=False))!=parent_identity:os.close(parentfd);raise ValueError("r44_parent_identity_changed")
-    stage_path=Path(tempfile.mkdtemp(prefix=".r44-stage-",dir=f"/proc/self/fd/{parentfd}"));stage_name=stage_path.name
-    os.chmod(stage_path,0o700);stagefd=os.open(stage_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd);published=False;targetfd=None;target_identity=None
+    stage_path=Path(tempfile.mkdtemp(prefix=".r44-stage-",dir=path_from_fd(parentfd)));stage_name=stage_path.name
+    os.chmod(stage_path,0o700);stagefd=open_at(parentfd, stage_name);published=False;targetfd=None;target_identity=None
     try:
         for name,data in files.items():
             fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600,dir_fd=stagefd)
@@ -340,17 +337,17 @@ def build_trip_cancel_lifecycle_evidence(documents_dir:Path,provenance_path:Path
                 while view:view=view[os.write(fd,view):]
                 os.fsync(fd)
             finally:os.close(fd)
-        os.fsync(stagefd)
+        fsync_dir(stagefd)
         if _capture_dirfd(stagefd)!=files:raise ValueError("r44_stage_verify_failed")
         if (_fs_identity(os.fstat(parentfd))!=parent_identity or
                 _fs_identity(os.stat(output.parent,follow_symlinks=False))!=parent_identity):raise ValueError("r44_parent_identity_changed")
         _rename_noreplace_at(parentfd,stage_name,out.name);published=True;os.close(stagefd);stagefd=None
-        targetfd=os.open(out.name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd);target_identity=_fs_identity(os.fstat(targetfd))
+        targetfd=open_at(parentfd, out.name);target_identity=_fs_identity(os.fstat(targetfd))
         try:
             if _capture_dirfd(targetfd)!=files:raise ValueError("r44_post_install_bytes_mismatch")
         except Exception as exc:raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity) from exc
         try:
-            os.fsync(parentfd)
+            fsync_dir(parentfd)
         except OSError as exc:raise PublicationDurabilityError(out,manifest["package_set_sha256"],parent_identity,target_identity) from exc
         if (_fs_identity(os.fstat(parentfd))!=parent_identity or _fs_identity(os.fstat(targetfd))!=target_identity or
                 _fs_identity(os.stat(output.parent,follow_symlinks=False))!=parent_identity):raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
@@ -376,13 +373,13 @@ def reconcile_publication(error,documents_dir:Path,provenance_path:Path,key_path
     if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r44_reconcile_state_invalid")
     if error.parent_identity is None or error.target_identity is None:raise ValueError("r44_reconcile_identity_missing")
     manifest,expected=_build(documents_dir,provenance_path,key_path,pypdf_python)
-    parentfd=os.open(error.parent_path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+    parentfd=open_dir(error.parent_path)
     try:
         if _fs_identity(os.fstat(parentfd))!=error.parent_identity:raise ValueError("r44_reconcile_parent_identity_mismatch")
-        targetfd=os.open(error.target_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd)
+        targetfd=open_at(parentfd, error.target_name)
         try:
             if _fs_identity(os.fstat(targetfd))!=error.target_identity or _capture_dirfd(targetfd)!=expected:raise ValueError("r44_reconcile_target_identity_mismatch")
-            os.fsync(parentfd)
+            fsync_dir(parentfd)
             if (_fs_identity(os.fstat(parentfd))!=error.parent_identity or _fs_identity(os.fstat(targetfd))!=error.target_identity or
                     _capture_dirfd(targetfd)!=expected):raise ValueError("r44_reconcile_identity_changed")
         finally:os.close(targetfd)

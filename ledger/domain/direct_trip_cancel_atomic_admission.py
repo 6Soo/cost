@@ -14,6 +14,7 @@ from ledger.domain import direct_kb_confirmation_evidence as r45
 from ledger.domain import direct_agoda_customer_service_evidence as r49
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_dir_at, open_nofollow, open_at, path_from_fd, verify_regular_single_link, fsync_dir, rename_noreplace_at, identity as posix_identity
 
 ARTIFACT_TYPE="r55-trip-cancel-atomic4-full-v1"
 RULE_VERSION="r55-raw-manual-provider-unordered-complete-group-v1"
@@ -38,12 +39,12 @@ def _csv(fields,rows):
 
 def _read_manual(path:Path=MANUAL):
  if path.resolve()!=MANUAL.resolve():raise ValueError("r55_manual_pin_invalid")
- flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
- try:fd=os.open(path,flags)
+ try:fd=open_nofollow(path)
  except OSError as exc:raise ValueError("r55_manual_file_invalid") from exc
  try:
   before=os.fstat(fd)
-  if (not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or
+  if not stat.S_ISREG(before.st_mode):raise ValueError("r55_manual_file_invalid")
+  if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or
       stat.S_IMODE(before.st_mode) not in {0o600,0o644}):raise ValueError("r55_manual_file_invalid")
   chunks=[]
   while True:
@@ -158,11 +159,12 @@ def _capture_dirfd(dfd:int):
      set(os.listdir(dfd))!=set(FILES)):raise ValueError("r55_package_shape_invalid")
  result={}
  for name in FILES:
-  try:fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dfd)
+  try:fd=open_at(dfd,name)
   except OSError as exc:raise ValueError("r55_package_file_invalid") from exc
   try:
    before=os.fstat(fd)
-   if (not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or
+   if not stat.S_ISREG(before.st_mode):raise ValueError("r55_package_file_invalid")
+   if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or
        stat.S_IMODE(before.st_mode)!=0o600):raise ValueError("r55_package_file_invalid")
    chunks=[]
    while True:
@@ -177,7 +179,7 @@ def _capture_dirfd(dfd:int):
  return result
 
 def _capture(directory:Path):
- try:dfd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ try:dfd=open_dir(directory)
  except OSError as exc:raise ValueError("r55_package_directory_invalid") from exc
  try:return _capture_dirfd(dfd)
  finally:os.close(dfd)
@@ -196,9 +198,9 @@ def build_trip_cancel_atomic_admission(documents_dir,provenance_path,key_path,py
  out=output.resolve();
  if Path(REPOSITORY_ROOT).resolve() in (out,*out.parents):raise ValueError("r55_output_inside_repository")
  if os.path.lexists(out):raise FileExistsError(out)
- pfd=os.open(out.parent,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0));parent_id=r45._identity(os.fstat(pfd))
+ pfd=open_dir(out.parent);parent_id=r45._identity(os.fstat(pfd))
  if r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:os.close(pfd);raise ValueError("r55_parent_identity_changed")
- stage=Path(tempfile.mkdtemp(prefix=".r55-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700);published=False
+ stage=Path(tempfile.mkdtemp(prefix=".r55-stage-",dir=path_from_fd(pfd)));os.chmod(stage,0o700);published=False
  try:
   for n,d in files.items():
    p=stage/n;fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
@@ -210,19 +212,19 @@ def build_trip_cancel_atomic_admission(documents_dir,provenance_path,key_path,py
      v=v[z:]
     os.fsync(fd)
    finally:os.close(fd)
-  dfd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0));os.fsync(dfd);os.close(dfd)
-  sfd=os.open(stage.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+  dfd=open_dir(stage);fsync_dir(dfd);os.close(dfd)
+  sfd=open_dir_at(pfd,stage.name)
   try:
    if _capture_dirfd(sfd)!=files:raise ValueError("r55_stage_verify_failed")
   finally:os.close(sfd)
   if r45._identity(os.fstat(pfd))!=parent_id or r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:raise ValueError("r55_parent_identity_changed")
-  r45._rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True
-  tfd=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd);target_id=r45._identity(os.fstat(tfd))
+  rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True
+  tfd=open_dir_at(pfd,out.name);target_id=r45._identity(os.fstat(tfd))
   try:
    if _capture_dirfd(tfd)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_id,target_id)
-   try:os.fsync(pfd)
+   try:fsync_dir(pfd)
    except OSError as exc:raise PublicationDurabilityError(out,manifest["package_set_sha256"],parent_id,target_id) from exc
-   check=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+   check=open_dir_at(pfd,out.name)
    try:
     if (r45._identity(os.fstat(check))!=target_id or r45._identity(os.fstat(tfd))!=target_id or
         r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id or _capture_dirfd(tfd)!=files or
@@ -240,7 +242,7 @@ def build_trip_cancel_atomic_admission(documents_dir,provenance_path,key_path,py
 
 def verify_trip_cancel_atomic_admission(directory,*args,**kwargs):
  manifest,expected=_build(*args,**kwargs)
- before=r45._identity(os.stat(directory,follow_symlinks=False));dfd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ before=r45._identity(os.stat(directory,follow_symlinks=False));dfd=open_dir(directory)
  try:
   if (r45._identity(os.fstat(dfd))!=before or _capture_dirfd(dfd)!=expected or
       r45._identity(os.stat(directory,follow_symlinks=False))!=before):raise ValueError("r55_package_or_context_mismatch")
@@ -249,13 +251,13 @@ def verify_trip_cancel_atomic_admission(directory,*args,**kwargs):
 
 def reconcile_publication(error,*args,**kwargs):
  if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r55_reconcile_state_invalid")
- manifest,expected=_build(*args,**kwargs);pfd=os.open(error.parent_path,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ manifest,expected=_build(*args,**kwargs);pfd=open_dir(error.parent_path)
  try:
   if r45._identity(os.fstat(pfd))!=error.parent_identity or r45._identity(os.stat(error.parent_path,follow_symlinks=False))!=error.parent_identity:raise ValueError("r55_reconcile_parent_identity_mismatch")
-  tfd=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+  tfd=open_dir_at(pfd,error.target_name)
   try:
    if r45._identity(os.fstat(tfd))!=error.target_identity or _capture_dirfd(tfd)!=expected:raise ValueError("r55_reconcile_target_identity_mismatch")
-   os.fsync(pfd);check=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+   fsync_dir(pfd);check=open_dir_at(pfd,error.target_name)
    try:
     if (r45._identity(os.fstat(check))!=error.target_identity or _capture_dirfd(tfd)!=expected or
         _capture_dirfd(check)!=expected or r45._identity(os.stat(error.output,follow_symlinks=False))!=error.target_identity):raise ValueError("r55_reconcile_identity_changed")

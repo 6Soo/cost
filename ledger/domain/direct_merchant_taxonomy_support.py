@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ledger.domain.direct_external_manual_evidence import _build_package as _build_r25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _build_temp_db, _install_noreplace, build_annex
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as R26_RELATIONS
 from ledger.domain.direct_repository_booking_evidence import EXPECTED_BOOKING_NEW, EXPECTED_OTA_NEW
 
@@ -132,7 +133,7 @@ def _regular(path: Path):
     except OSError as exc: raise ValueError("r34_package_file_invalid") from exc
     if not stat.S_ISREG(st.st_mode) or st.st_nlink!=1: raise ValueError("r34_package_file_invalid")
 def _fsync(path: Path):
-    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    fd=open_dir(path)
     try: os.fsync(fd)
     finally: os.close(fd)
 

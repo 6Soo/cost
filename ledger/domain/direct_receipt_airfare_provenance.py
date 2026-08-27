@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Mapping
 
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 
 SCHEMA_VERSION = 2
 PURPOSE = "r43_receipt_airfare_evidence"
@@ -53,13 +54,12 @@ def _private_bytes(path: Path) -> bytes:
     if root in (path, *path.parents):
         raise ValueError("r43_authenticated_input_inside_repository")
     directory = path.parent
-    dfd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                  getattr(os, "O_NOFOLLOW", 0))
+    dfd = open_dir(directory)
     try:
         dst = os.fstat(dfd)
         if (dst.st_mode & 0o777) != 0o700 or dst.st_uid != os.getuid():
             raise ValueError("r43_authenticated_directory_invalid")
-        fd = os.open(path.name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=dfd)
+        fd = open_at(dfd, path.name)
         try:
             before = os.fstat(fd)
             if (not stat.S_ISREG(before.st_mode) or (before.st_mode & 0o777) != 0o600 or before.st_uid != os.getuid()

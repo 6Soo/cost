@@ -45,10 +45,6 @@ except ModuleNotFoundError as _retired_err:
         'tools/agoda_portal_detail_capture was retired in commit 92288ba; '
         'use tools/agoda_paseo_batch_import.py instead.'
     ) from _retired_err
-        run_bridge,
-        shard_for,
-        write_private_json,
-    )
 
 
 class DetailRunError(RuntimeError):

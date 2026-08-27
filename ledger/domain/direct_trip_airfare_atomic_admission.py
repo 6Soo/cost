@@ -18,6 +18,7 @@ from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
 from ledger.domain import direct_trip_cancel_atomic_admission as r55
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_dir_at, open_nofollow, open_at, path_from_fd, verify_regular_single_link, fsync_dir, rename_noreplace_at, identity as posix_identity
 
 ARTIFACT_TYPE="r57-trip-airfare-atomic2-full-v1"
 RULE_VERSION="r57-receipt-manual-current-unordered-complete-group-v1"
@@ -44,12 +45,12 @@ def _csv(fields,rows):
  return s.getvalue().encode()
 
 def _secure_read(path:Path,pin:str):
- flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0)
- try:fd=os.open(path,flags)
+ try:fd=open_nofollow(path)
  except OSError as exc:raise ValueError("r57_manual_file_invalid") from exc
  try:
   before=os.fstat(fd)
-  if not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or stat.S_IMODE(before.st_mode) not in {0o600,0o644}:raise ValueError("r57_manual_file_invalid")
+  if not stat.S_ISREG(before.st_mode):raise ValueError("r57_manual_file_invalid")
+  if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or stat.S_IMODE(before.st_mode) not in {0o600,0o644}):raise ValueError("r57_manual_file_invalid")
   data=b""
   while True:
    b=os.read(fd,1<<20)
@@ -59,10 +60,10 @@ def _secure_read(path:Path,pin:str):
   if ident(before)!=ident(after):raise ValueError("r57_manual_changed_during_read")
  finally:os.close(fd)
  if _sha(data)!=pin:raise ValueError("r57_manual_pin_invalid")
- try:check=os.open(path,flags)
+ try:check=open_nofollow(path)
  except OSError as exc:raise ValueError("r57_manual_identity_changed") from exc
  try:
-  if ident(os.fstat(check))!=ident(before):raise ValueError("r57_manual_identity_changed")
+  if posix_identity(os.fstat(check))!=posix_identity(before):raise ValueError("r57_manual_identity_changed")
  finally:os.close(check)
  return data
 
@@ -155,13 +156,14 @@ def _privacy(files):
 def _capture_dirfd(dfd:int):
  dm=os.fstat(dfd)
  if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dfd))!=set(FILES):raise ValueError("r57_package_shape_invalid")
- result={};identity=lambda x:(x.st_dev,x.st_ino,x.st_size,x.st_mtime_ns,x.st_ctime_ns,x.st_mode,x.st_uid,x.st_nlink)
+ result={}
  for name in FILES:
-  try:fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dfd)
+  try:fd=open_at(dfd, name)
   except OSError as exc:raise ValueError("r57_package_file_invalid") from exc
   try:
    before=os.fstat(fd)
-   if not stat.S_ISREG(before.st_mode) or before.st_uid!=os.getuid() or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600:raise ValueError("r57_package_file_invalid")
+   if not stat.S_ISREG(before.st_mode):raise ValueError("r57_package_file_invalid")
+   if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600):raise ValueError("r57_package_file_invalid")
    chunks=[]
    while True:
     b=os.read(fd,1<<20)
@@ -173,7 +175,7 @@ def _capture_dirfd(dfd:int):
  return result
 
 def _capture(directory:Path):
- try:dfd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ try:dfd=open_dir(directory)
  except OSError as exc:raise ValueError("r57_package_directory_invalid") from exc
  try:return _capture_dirfd(dfd)
  finally:os.close(dfd)
@@ -192,9 +194,9 @@ def build_trip_airfare_atomic_admission(*args,output=None,**kwargs):
  out=output.resolve()
  if Path(REPOSITORY_ROOT).resolve() in (out,*out.parents):raise ValueError("r57_output_inside_repository")
  if os.path.lexists(out):raise FileExistsError(out)
- pfd=os.open(out.parent,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0));parent_id=r55.r45._identity(os.fstat(pfd))
- if r55.r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:os.close(pfd);raise ValueError("r57_parent_identity_changed")
- stage=Path(tempfile.mkdtemp(prefix=".r57-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700);published=False
+ pfd=open_dir(out.parent);parent_id=posix_identity(os.fstat(pfd))
+ if posix_identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:os.close(pfd);raise ValueError("r57_parent_identity_changed")
+ stage=Path(tempfile.mkdtemp(prefix=".r57-stage-",dir=path_from_fd(pfd)));os.chmod(stage,0o700);published=False
  try:
   for n,d in files.items():
    fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
@@ -206,21 +208,21 @@ def build_trip_airfare_atomic_admission(*args,output=None,**kwargs):
      view=view[z:]
     os.fsync(fd)
    finally:os.close(fd)
-  dfd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0));os.fsync(dfd);os.close(dfd)
-  sfd=os.open(stage.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+  dfd=open_dir(stage);fsync_dir(dfd);os.close(dfd)
+  sfd=open_dir_at(pfd,stage.name)
   try:
    if _capture_dirfd(sfd)!=files:raise ValueError("r57_stage_verify_failed")
   finally:os.close(sfd)
-  if r55.r45._identity(os.fstat(pfd))!=parent_id or r55.r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:raise ValueError("r57_parent_identity_changed")
-  r55.r45._rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True
-  tfd=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd);target_id=r55.r45._identity(os.fstat(tfd))
+  if posix_identity(os.fstat(pfd))!=parent_id or posix_identity(os.stat(out.parent,follow_symlinks=False))!=parent_id:raise ValueError("r57_parent_identity_changed")
+  rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True
+  tfd=open_dir_at(pfd,out.name);target_id=posix_identity(os.fstat(tfd))
   try:
    if _capture_dirfd(tfd)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_id,target_id)
-   try:os.fsync(pfd)
+   try:fsync_dir(pfd)
    except OSError as exc:raise PublicationDurabilityError(out,manifest["package_set_sha256"],parent_id,target_id) from exc
-   check=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+   check=open_dir_at(pfd,out.name)
    try:
-    if r55.r45._identity(os.fstat(check))!=target_id or r55.r45._identity(os.fstat(tfd))!=target_id or r55.r45._identity(os.stat(out.parent,follow_symlinks=False))!=parent_id or _capture_dirfd(tfd)!=files or _capture_dirfd(check)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_id,target_id)
+    if posix_identity(os.fstat(check))!=target_id or posix_identity(os.fstat(tfd))!=target_id or posix_identity(os.stat(out.parent,follow_symlinks=False))!=parent_id or _capture_dirfd(tfd)!=files or _capture_dirfd(check)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_id,target_id)
    finally:os.close(check)
   finally:os.close(tfd)
  except (PublicationIntegrityError,PublicationDurabilityError):raise
@@ -233,23 +235,23 @@ def build_trip_airfare_atomic_admission(*args,output=None,**kwargs):
  return {"manifest":manifest,"output":str(out)}
 
 def verify_trip_airfare_atomic_admission(directory,*args,**kwargs):
- manifest,expected=_build(*args,**kwargs);before=r55.r45._identity(os.stat(directory,follow_symlinks=False));dfd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ manifest,expected=_build(*args,**kwargs);before=posix_identity(os.stat(directory,follow_symlinks=False));dfd=open_dir(directory)
  try:
-  if r55.r45._identity(os.fstat(dfd))!=before or _capture_dirfd(dfd)!=expected or r55.r45._identity(os.stat(directory,follow_symlinks=False))!=before:raise ValueError("r57_package_or_context_mismatch")
+  if posix_identity(os.fstat(dfd))!=before or _capture_dirfd(dfd)!=expected or posix_identity(os.stat(directory,follow_symlinks=False))!=before:raise ValueError("r57_package_or_context_mismatch")
  finally:os.close(dfd)
  return manifest
 
 def reconcile_publication(error,*args,**kwargs):
  if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r57_reconcile_state_invalid")
- manifest,expected=_build(*args,**kwargs);pfd=os.open(error.parent_path,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0))
+ manifest,expected=_build(*args,**kwargs);pfd=open_dir(error.parent_path)
  try:
-  if r55.r45._identity(os.fstat(pfd))!=error.parent_identity or r55.r45._identity(os.stat(error.parent_path,follow_symlinks=False))!=error.parent_identity:raise ValueError("r57_reconcile_parent_identity_mismatch")
-  tfd=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+  if posix_identity(os.fstat(pfd))!=error.parent_identity or posix_identity(os.stat(error.parent_path,follow_symlinks=False))!=error.parent_identity:raise ValueError("r57_reconcile_parent_identity_mismatch")
+  tfd=open_dir_at(pfd,error.target_name)
   try:
-   if r55.r45._identity(os.fstat(tfd))!=error.target_identity or _capture_dirfd(tfd)!=expected:raise ValueError("r57_reconcile_target_identity_mismatch")
-   os.fsync(pfd);check=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+   if posix_identity(os.fstat(tfd))!=error.target_identity or _capture_dirfd(tfd)!=expected:raise ValueError("r57_reconcile_target_identity_mismatch")
+   fsync_dir(pfd);check=open_dir_at(pfd,error.target_name)
    try:
-    if r55.r45._identity(os.fstat(check))!=error.target_identity or _capture_dirfd(tfd)!=expected or _capture_dirfd(check)!=expected or r55.r45._identity(os.stat(error.output,follow_symlinks=False))!=error.target_identity:raise ValueError("r57_reconcile_identity_changed")
+    if posix_identity(os.fstat(check))!=error.target_identity or _capture_dirfd(tfd)!=expected or _capture_dirfd(check)!=expected or posix_identity(os.stat(error.output,follow_symlinks=False))!=error.target_identity:raise ValueError("r57_reconcile_identity_changed")
    finally:os.close(check)
   finally:os.close(tfd)
  finally:os.close(pfd)

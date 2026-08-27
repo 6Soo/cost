@@ -9,6 +9,7 @@ from ledger.domain import direct_kb_confirmation_evidence as r45
 from ledger.domain import direct_agoda_customer_service_evidence as r49
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 
 ARTIFACT_TYPE="r59-mytrip-airfare-atomic2x2-full-v1";RULE_VERSION="r59-a0-domestic-llc-unordered-two-complete-groups-v1"
 FILES=("manifest.json","groups.csv","proposals.csv")
@@ -134,10 +135,10 @@ def _publish(manifest,files,output):
  out=output.resolve();
  if output.parent.is_symlink() or Path(REPOSITORY_ROOT).resolve() in (out,*out.parents):raise ValueError("r59_output_invalid")
  if os.path.lexists(out):raise FileExistsError(out)
- pfd=os.open(out.parent,os.O_RDONLY|os.O_DIRECTORY|getattr(os,"O_NOFOLLOW",0));pid=r45._identity(os.fstat(pfd));stage=None;published=False
+ pfd=open_dir(out.parent);pid=r45._identity(os.fstat(pfd));stage=None;published=False
  try:
   if r45._identity(os.stat(out.parent,follow_symlinks=False))!=pid:raise ValueError("r59_parent_identity_changed")
-  stage=Path(tempfile.mkdtemp(prefix=".r59-stage-",dir=f"/proc/self/fd/{pfd}"));os.chmod(stage,0o700)
+  stage=Path(tempfile.mkdtemp(prefix=".r59-stage-",dir=path_from_fd(pfd)));os.chmod(stage,0o700)
   for n,d in files.items():
    fd=os.open(stage/n,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
    try:
@@ -148,17 +149,17 @@ def _publish(manifest,files,output):
      view=view[z:]
     os.fsync(fd)
    finally:os.close(fd)
-  dfd=os.open(stage,os.O_RDONLY|os.O_DIRECTORY);os.fsync(dfd);os.close(dfd);sfd=os.open(stage.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=pfd)
+  dfd=open_dir(stage);fsync_dir(dfd);os.close(dfd);sfd=open_at(pfd, stage.name)
   try:
    if r57._capture_dirfd(sfd)!=files:raise ValueError("r59_stage_invalid")
   finally:os.close(sfd)
   if r45._identity(os.fstat(pfd))!=pid or r45._identity(os.stat(out.parent,follow_symlinks=False))!=pid:raise ValueError("r59_parent_identity_changed")
-  r45._rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True;tfd=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=pfd);tid=r45._identity(os.fstat(tfd))
+  rename_noreplace_at(pfd,stage.name,out.name);stage=None;published=True;tfd=open_at(pfd, out.name);tid=r45._identity(os.fstat(tfd))
   try:
    if r57._capture_dirfd(tfd)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],pid,tid)
-   try:os.fsync(pfd)
+   try:fsync_dir(pfd)
    except OSError as exc:raise PublicationDurabilityError(out,manifest["package_set_sha256"],pid,tid) from exc
-   check=os.open(out.name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=pfd)
+   check=open_at(pfd, out.name)
    try:
     if r45._identity(os.fstat(check))!=tid or r45._identity(os.fstat(tfd))!=tid or r45._identity(os.stat(out.parent,follow_symlinks=False))!=pid or r57._capture_dirfd(tfd)!=files or r57._capture_dirfd(check)!=files:raise PublicationIntegrityError(out,manifest["package_set_sha256"],pid,tid)
    finally:os.close(check)
@@ -172,7 +173,7 @@ def _publish(manifest,files,output):
   os.close(pfd)
  return {"manifest":manifest,"output":str(out)}
 def verify_mytrip_airfare_atomic_admission(directory,*args,**kwargs):
- m,e=_build(*args,**kwargs);before=r45._identity(os.stat(directory,follow_symlinks=False));dfd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+ m,e=_build(*args,**kwargs);before=r45._identity(os.stat(directory,follow_symlinks=False));dfd=open_dir(directory)
  try:
   if r45._identity(os.fstat(dfd))!=before or r57._capture_dirfd(dfd)!=e or r45._identity(os.stat(directory,follow_symlinks=False))!=before:raise ValueError("r59_package_or_context_mismatch")
  finally:os.close(dfd)
@@ -180,13 +181,13 @@ def verify_mytrip_airfare_atomic_admission(directory,*args,**kwargs):
 def reconcile_publication(error,*args,**kwargs):
  if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r59_reconcile_state_invalid")
  m,e=_build(*args,**kwargs)
- pfd=os.open(error.parent_path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+ pfd=open_dir(error.parent_path)
  try:
   if r45._identity(os.fstat(pfd))!=error.parent_identity or r45._identity(os.stat(error.parent_path,follow_symlinks=False))!=error.parent_identity:raise ValueError("r59_reconcile_parent_mismatch")
-  tfd=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=pfd)
+  tfd=open_at(pfd, error.target_name)
   try:
    if r45._identity(os.fstat(tfd))!=error.target_identity or r57._capture_dirfd(tfd)!=e:raise ValueError("r59_reconcile_target_mismatch")
-   os.fsync(pfd);check=os.open(error.target_name,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=pfd)
+   fsync_dir(pfd);check=open_at(pfd, error.target_name)
    try:
     if r45._identity(os.fstat(check))!=error.target_identity or r57._capture_dirfd(tfd)!=e or r57._capture_dirfd(check)!=e or r45._identity(os.stat(error.output,follow_symlinks=False))!=error.target_identity:raise ValueError("r59_reconcile_identity_changed")
    finally:os.close(check)

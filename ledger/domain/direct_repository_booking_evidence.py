@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ledger.domain.direct_external_manual_evidence import _build_package as _build_r25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _build_temp_db, _install_noreplace, build_annex
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 import ledger.domain.direct_verified_booking_evidence as r26_contract
 from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as R26_RELATIONS, RULE_SHA256 as R26_RULE_SHA256
 
@@ -133,7 +134,7 @@ def _regular_single_link(path: Path, code: str) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    descriptor = open_dir(path)
     try: os.fsync(descriptor)
     finally: os.close(descriptor)
 

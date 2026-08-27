@@ -8,6 +8,7 @@ from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.staged_inputs import is_strict_static_pins
 from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 
 ARTIFACT_TYPE="r46-kbo-signature-cardinality-conflict-v1"
 RULE_VERSION="raw-locator-cardinality-authority-group-support-v1"
@@ -56,10 +57,10 @@ def _select_live_events(by_source):
  return selected,r45
 
 def _read_pinned(path:Path,digest:str):
- fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0))
+ fd=open_nofollow(path)
  try:
   a=os.fstat(fd)
-  if not stat.S_ISREG(a.st_mode) or a.st_nlink!=1:raise ValueError("r46_input_invalid")
+  verify_regular_single_link(fd)
   chunks=[]
   while True:
    b=os.read(fd,1<<20)
@@ -78,19 +79,19 @@ def _recheck_pinned(path:Path,digest:str,identity):
  return data
 
 def _capture(directory:Path):
- flags=os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0)
- try:dfd=os.open(directory,flags)
+ try:dfd=open_dir(directory)
  except OSError as exc:raise ValueError("r46_package_directory_invalid") from exc
  out={}
  try:
   dm=os.fstat(dfd)
   if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
   for name in FILES:
-   try:fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0),dir_fd=dfd)
+   try:fd=open_at(dfd, name)
    except OSError as exc:raise ValueError("r46_package_file_invalid") from exc
    try:
     a=os.fstat(fd)
-    if not stat.S_ISREG(a.st_mode) or a.st_nlink!=1 or stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
+    verify_regular_single_link(fd, mode=0o600)
+    if stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
     chunks=[]
     while True:
      b=os.read(fd,1<<20)
@@ -108,10 +109,11 @@ def _capture_dirfd(dfd:int):
  if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or dm.st_uid!=os.getuid() or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
  out={}
  for name in FILES:
-  fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dfd)
+  fd=open_at(dfd, name)
   try:
    a=os.fstat(fd)
-   if not stat.S_ISREG(a.st_mode) or a.st_nlink!=1 or stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
+   verify_regular_single_link(fd, mode=0o600)
+   if stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
    chunks=[]
    while True:
     b=os.read(fd,1<<20)
@@ -124,13 +126,8 @@ def _capture_dirfd(dfd:int):
  return out
 
 def _rename_noreplace_at(pfd:int,source:str,target:str):
- fn=getattr(ctypes.CDLL(None,use_errno=True),"renameat2",None)
- if fn is None:raise OSError("r46_atomic_noreplace_unsupported")
- fn.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int,ctypes.c_char_p,ctypes.c_uint];fn.restype=ctypes.c_int
- if fn(pfd,os.fsencode(source),pfd,os.fsencode(target),1)==0:return
- err=ctypes.get_errno()
- if err==errno.EEXIST:raise FileExistsError("r46_output_exists")
- raise OSError(err,"r46_renameat2")
+ from ledger.domain.posix_publication import rename_noreplace_at as _pub_rename_at
+ return _pub_rename_at(pfd, source, target)
 
 def _live(ledger_dir:Path):
  if ledger_dir.resolve()!=(REPOSITORY_ROOT/"ledger").resolve():raise ValueError("r46_noncanonical_ledger")
@@ -201,13 +198,13 @@ def verify_kbo_signature_cardinality_package(directory:Path,ledger_dir:Path=REPO
 
 def reconcile_kbo_signature_cardinality(output:Path,ledger_dir:Path=REPOSITORY_ROOT/"ledger"):
  """Verify an already-published package, fsync its pinned parent, then recapture."""
- parent=output.parent.resolve(strict=True);pfd=os.open(parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0));tfd=None
+ parent=output.parent.resolve(strict=True);pfd=open_dir(parent);tfd=None
  try:
   parent_id=_identity(os.fstat(pfd));path_id=_identity(os.stat(output.parent,follow_symlinks=False));manifest,expected=_build(ledger_dir)
-  try:tfd=os.open(output.name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd);target_id=_identity(os.fstat(tfd));actual=_capture_dirfd(tfd)
+  try:tfd=open_at(pfd, output.name);target_id=_identity(os.fstat(tfd));actual=_capture_dirfd(tfd)
   except Exception as exc:raise PublicationIntegrityError(output,manifest["package_set_sha256"],parent_id) from exc
   if actual!=expected:raise PublicationIntegrityError(output,manifest["package_set_sha256"],parent_id,target_id)
-  try:os.fsync(pfd)
+  try:fsync_dir(pfd)
   except OSError as exc:raise PublicationDurabilityError(output,manifest["package_set_sha256"],parent_id,target_id) from exc
   try:
    if _identity(os.fstat(pfd))!=parent_id or _identity(os.stat(output.parent,follow_symlinks=False))!=path_id or _identity(os.fstat(tfd))!=target_id or _capture_dirfd(tfd)!=expected:raise ValueError("r46_reconcile_mismatch")
@@ -221,12 +218,12 @@ def build_kbo_signature_cardinality(output:Path|None=None,ledger_dir:Path=REPOSI
  manifest,files=_build(ledger_dir)
  if output is None:return manifest,files
  if output.parent.is_symlink() or os.path.lexists(output):raise FileExistsError("r46_output_invalid")
- parent=output.parent.resolve(strict=True);pfd=os.open(parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0));parent_id=_identity(os.fstat(pfd));parent_path_id=_identity(os.stat(output.parent,follow_symlinks=False))
+ parent=output.parent.resolve(strict=True);pfd=open_dir(parent);parent_id=_identity(os.fstat(pfd));parent_path_id=_identity(os.stat(output.parent,follow_symlinks=False))
  try:parent.relative_to(REPOSITORY_ROOT.resolve())
  except ValueError:pass
  else:
   os.close(pfd);raise ValueError("r46_output_inside_repository")
- stage=Path(tempfile.mkdtemp(prefix=f".{output.name}-",dir=f"/proc/self/fd/{pfd}"));stage_name=stage.name;stage_path=Path(f"/proc/self/fd/{pfd}")/stage_name;os.chmod(stage_path,0o700);published=False;target_id=None;targetfd=None
+ stage=Path(tempfile.mkdtemp(prefix=f".{output.name}-",dir=path_from_fd(pfd)));stage_name=stage.name;stage_path=path_from_fd(pfd)/stage_name;os.chmod(stage_path,0o700);published=False;target_id=None;targetfd=None
  try:
   for name,data in files.items():
    fd=os.open(stage_path/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL | getattr(os, "O_BINARY", 0),0o600)
@@ -238,15 +235,15 @@ def build_kbo_signature_cardinality(output:Path|None=None,ledger_dir:Path=REPOSI
      view=view[n:]
     os.fsync(fd)
    finally:os.close(fd)
-  sfd=os.open(stage_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd);stage_id=_identity(os.fstat(sfd));os.fsync(sfd)
+  sfd=open_at(pfd, stage_name);stage_id=_identity(os.fstat(sfd));os.fsync(sfd)
   if _capture_dirfd(sfd)!=files:raise ValueError("r46_stage_verify_failed")
   if _identity(os.fstat(pfd))!=parent_id or _identity(os.stat(output.parent,follow_symlinks=False))!=parent_path_id:raise ValueError("r46_publication_identity_changed")
   _rename_noreplace_at(pfd,stage_name,output.name);published=True
   try:
-   targetfd=os.open(output.name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd);target_id=_identity(os.fstat(targetfd))
+   targetfd=open_at(pfd, output.name);target_id=_identity(os.fstat(targetfd))
    if _identity(os.fstat(pfd))!=parent_id or _identity(os.stat(output.parent,follow_symlinks=False))!=parent_path_id or _capture_dirfd(targetfd)!=files:raise ValueError("r46_post_install_mismatch")
   except Exception as exc:raise PublicationIntegrityError(output,manifest["package_set_sha256"],parent_id,target_id) from exc
-  try:os.fsync(pfd)
+  try:fsync_dir(pfd)
   except OSError as exc:raise PublicationDurabilityError(output,manifest["package_set_sha256"],parent_id,target_id) from exc
   try:
    if _identity(os.fstat(pfd))!=parent_id or _identity(os.stat(output.parent,follow_symlinks=False))!=parent_path_id or _identity(os.fstat(targetfd))!=target_id or _capture_dirfd(targetfd)!=files:raise ValueError("r46_post_fsync_mismatch")

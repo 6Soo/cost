@@ -26,6 +26,7 @@ from ledger.domain import direct_document_acquisition_census as r42
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain import direct_trip_cancel_lifecycle_evidence as r44
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 
 ARTIFACT_TYPE = "r45-kb-confirmation-group-evidence-v1"
 RULE_VERSION = "r45-kb-atomic-three-permutation-v1"
@@ -120,8 +121,7 @@ def _strict_json(data: bytes, label: str):
 def _private_bytes_at(dirfd: int, name: str) -> bytes:
     if not re.fullmatch(r"[0-9]{2}\.(?:json|html)|manifest\.json", name):
         raise ValueError("r45_private_filename_invalid")
-    fd = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
-                 getattr(os, "O_CLOEXEC", 0), dir_fd=dirfd)
+    fd = open_at(dirfd, name)
     try:
         before = os.fstat(fd)
         if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
@@ -143,8 +143,7 @@ def _private_bytes_at(dirfd: int, name: str) -> bytes:
 
 
 def _open_private_dir(path: Path) -> int:
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                 getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    fd = open_dir(path)
     st = os.fstat(fd)
     if (not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or
             stat.S_IMODE(st.st_mode) != 0o700):
@@ -480,10 +479,10 @@ def _capture_dirfd(dirfd: int):
         raise ValueError("r45_package_shape_invalid")
     result = {}
     for name in FILES:
-        fd = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
-                     getattr(os, "O_CLOEXEC", 0), dir_fd=dirfd)
+        fd = open_at(dirfd, name)
         try:
             before = os.fstat(fd)
+            verify_regular_single_link(fd)
             if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
                     stat.S_IMODE(before.st_mode) != 0o600 or before.st_uid != os.getuid()):
                 raise ValueError("r45_package_shape_invalid")
@@ -504,18 +503,8 @@ def _capture_dirfd(dirfd: int):
 
 
 def _rename_noreplace_at(parentfd: int, source: str, target: str):
-    try:
-        function = getattr(ctypes.CDLL(None, use_errno=True), "renameat2")
-    except AttributeError as exc:
-        raise OSError("r45_atomic_noreplace_unsupported") from exc
-    function.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-    function.restype = ctypes.c_int
-    if function(parentfd, os.fsencode(source), parentfd, os.fsencode(target), 1) == 0:
-        return
-    code = ctypes.get_errno()
-    if code == errno.EEXIST:
-        raise FileExistsError("r45_output_exists")
-    raise OSError(code, "r45_renameat2")
+    from ledger.domain.posix_publication import rename_noreplace_at as _pub_rename_at
+    return _pub_rename_at(parentfd, source, target)
 
 
 def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Path | None = None):
@@ -529,23 +518,21 @@ def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Pa
         raise ValueError("r45_output_inside_repository")
     if os.path.lexists(out):
         raise FileExistsError(out)
-    parentfd = os.open(output.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                       getattr(os, "O_NOFOLLOW", 0))
+    parentfd = open_dir(output.parent)
     parent_identity = _identity(os.fstat(parentfd))
     if _identity(os.stat(output.parent, follow_symlinks=False)) != parent_identity:
         os.close(parentfd)
         raise ValueError("r45_parent_identity_changed")
-    stage = Path(tempfile.mkdtemp(prefix=".r45-stage-", dir=f"/proc/self/fd/{parentfd}"))
+    stage = Path(tempfile.mkdtemp(prefix=".r45-stage-", dir=path_from_fd(parentfd)))
     stage_name = stage.name
     os.chmod(stage, 0o700)
-    stagefd = os.open(stage_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                      getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
+    stagefd = open_at(parentfd, stage_name)
     published = False
     targetfd = None
     target_identity = None
     try:
         for name, data in files.items():
-            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600, dir_fd=stagefd)
+            fd = open_at(stagefd, name, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
             try:
                 view = memoryview(data)
                 while view:
@@ -553,7 +540,7 @@ def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Pa
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        os.fsync(stagefd)
+        fsync_dir(stagefd)
         if _capture_dirfd(stagefd) != files:
             raise ValueError("r45_stage_verify_failed")
         if (_identity(os.fstat(parentfd)) != parent_identity or
@@ -563,8 +550,7 @@ def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Pa
         published = True
         os.close(stagefd)
         stagefd = None
-        targetfd = os.open(out.name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                           getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
+        targetfd = open_at(parentfd, out.name)
         target_identity = _identity(os.fstat(targetfd))
         try:
             if _capture_dirfd(targetfd) != files:
@@ -573,7 +559,7 @@ def build_kb_confirmation_evidence(pin_dir: Path, envelope_dir: Path, output: Pa
             raise PublicationIntegrityError(out, manifest["package_set_sha256"],
                                             parent_identity, target_identity) from exc
         try:
-            os.fsync(parentfd)
+            fsync_dir(parentfd)
         except OSError as exc:
             raise PublicationDurabilityError(out, manifest["package_set_sha256"],
                                              parent_identity, target_identity) from exc
@@ -612,18 +598,16 @@ def reconcile_publication(error, pin_dir: Path, envelope_dir: Path):
     if not isinstance(error, (PublicationDurabilityError, PublicationIntegrityError)):
         raise ValueError("r45_reconcile_state_invalid")
     manifest, expected = _build(pin_dir, envelope_dir)
-    parentfd = os.open(error.parent_path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                       getattr(os, "O_NOFOLLOW", 0))
+    parentfd = open_dir(error.parent_path)
     try:
         if _identity(os.fstat(parentfd)) != error.parent_identity:
             raise ValueError("r45_reconcile_parent_identity_mismatch")
-        targetfd = os.open(error.target_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                           getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
+        targetfd = open_at(parentfd, error.target_name)
         try:
             if (_identity(os.fstat(targetfd)) != error.target_identity or
                     _capture_dirfd(targetfd) != expected):
                 raise ValueError("r45_reconcile_target_identity_mismatch")
-            os.fsync(parentfd)
+            fsync_dir(parentfd)
             if (_identity(os.fstat(parentfd)) != error.parent_identity or
                     _identity(os.fstat(targetfd)) != error.target_identity or
                     _capture_dirfd(targetfd) != expected):

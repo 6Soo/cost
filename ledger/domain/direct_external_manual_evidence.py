@@ -15,6 +15,7 @@ from collections import Counter, defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 
 from ledger.domain.direct_lineage_annex import (
     CLASSIFIED_SHA256,
@@ -466,11 +467,11 @@ def build_external_manual_evidence(manual_csv: Path, *, ledger_dir: Path = REPOS
             for name, data in files.items():
                 with (stage / name).open("wb") as stream:
                     stream.write(data); stream.flush(); os.fsync(stream.fileno())
-            directory = os.open(stage, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)); os.fsync(directory); os.close(directory)
+            directory = open_dir(stage); fsync_dir(directory); os.close(directory)
             verify_external_manual_evidence(stage, manual_csv=manual_csv, ledger_dir=ledger_dir, current=False)
             _install_noreplace(stage, target)
-            parent_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try: os.fsync(parent_fd)
+            parent_fd = open_dir(parent)
+            try: fsync_dir(parent_fd)
             finally: os.close(parent_fd)
         except Exception:
             shutil.rmtree(stage, ignore_errors=True); raise

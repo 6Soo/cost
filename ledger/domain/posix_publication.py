@@ -59,6 +59,40 @@ def open_nofollow(path: Path, flags: int = os.O_RDONLY) -> int:
     return os.open(path, flags | O_NOFOLLOW | O_CLOEXEC)
 
 
+def open_at(dir_fd: int, name: str, flags: int = os.O_RDONLY) -> int:
+    """Open a file relative to a directory descriptor without following symlinks."""
+    if os.name == "nt":
+        parent = Path(_fd_to_path_windows(dir_fd))
+        if not parent.is_dir():
+            raise PermissionError(f"invalid directory handle: fd={dir_fd}")
+        return os.open(str(parent / name), flags | O_BINARY)
+    return os.open(name, flags | O_NOFOLLOW | O_CLOEXEC, dir_fd=dir_fd)
+
+
+def open_dir_at(dir_fd: int, name: str) -> int:
+    """Open a directory relative to a directory descriptor."""
+    if os.name == "nt":
+        parent = Path(_fd_to_path_windows(dir_fd))
+        if not parent.is_dir():
+            raise PermissionError(f"invalid directory handle: fd={dir_fd}")
+        return _open_dir_windows(parent / name)
+    return os.open(name, os.O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC, dir_fd=dir_fd)
+
+
+def path_from_fd(fd: int) -> Path:
+    """Best-effort real path of a directory descriptor.
+
+    Lets callers keep stage directories inside the pinned parent so the
+    later no-replace rename stays on the same filesystem, on both platforms.
+    """
+    if os.name == "nt":
+        recovered = _fd_to_path_windows(fd)
+        if not recovered:
+            raise PermissionError(f"cannot recover directory path: fd={fd}")
+        return Path(recovered)
+    return Path(f"/proc/self/fd/{fd}")
+
+
 def verify_regular_single_link(fd: int, mode: int | None = None) -> None:
     """POSIX contract check: regular file, exactly one link, optional mode.
 

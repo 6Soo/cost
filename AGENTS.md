@@ -1,36 +1,9 @@
 # AGENTS.md — 어느 에이전트로 열든 먼저 읽을 진입점
 
+> Apply global agent rules from `C:\AX\AGENTS.md` first; keep only project-specific rules here.
+
 이 저장소는 여러 에이전트(Claude Code, Antigravity, Gemini CLI, Cursor 등)로 열릴 수 있다.
 **Antigravity 등은 `CLAUDE.md`를 자동 로드하지 않으므로 이 파일이 공통 진입점이다.**
-
-## 모델 라우팅·상호검증 규칙 (2026-07-29 사용자 지시, 최우선)
-
-이 절은 `CLAUDE.md`를 포함한 과거 모델 위임 규칙과 충돌할 때 우선한다.
-
-1. **기본 초안·설계 모델은 GPT-5.6 Luna max**로 둔다. 필요한 실질 작업에는
-   **GPT-5.6 Sol medium의 별도 문맥 독립 반박·검증**을 붙이되, 검토는 기본적으로
-   백그라운드에서 병렬 진행한다. 일반 작업의 실행·진행·중간 보고는 Sol 결과를 기다리지 않는다.
-2. **저추론·쓰기·웹검색·구현**에서 AGY는 Paseo의 `agy` provider
-   (`AGY (Antigravity CLI)`, local ACP bridge)를 통해서만 호출한다. 에이전트 위임은
-   `mcp__paseo__create_agent`에 `provider: "agy"`를 지정하고, 후속 작업은 같은 agent에 보낸다.
-    직접 Gemini API 경로(`tools/gemini.mjs`·`GEMINI_API_KEY`)는 사용하지 않는다 — 해당 스크립트는
-    2026-08-24 삭제됐고 AGY(ACP) 호출이 유일한 Gemini 경로다.
-   Paseo `agy` provider가 unavailable이면 `AGY_ACP_UNAVAILABLE`로 기록하고 GPT-5.6 Luna max로 즉시 폴백한다.
-   ACP를 실제로 사용하지 않았다면 AGY를 사용했다고 보고하지 않는다.
-   `AGY_ACP_UNAVAILABLE` 선언은 실제 `create_agent` 호출 실패 후에만 허용한다. 도구 이름·설명에
-   "agy/acp"가 없다는 이유(이름 기반 필터)로 경로 부재를 판정하지 않는다 — Paseo MCP 도구는
-   generic 이름(`create_agent` 등)이며 "agy"는 파라미터 값이다. 판정 전에 세션 내 역대 성공한
-   `paseo` MCP 호출 기록(compaction 이전이라도 timeline/로그)을 먼저 확인한다.
-3. **사용자 판단이 필요해 보이는 사안**도 Luna 초안을 먼저 진행하고 Sol medium 검토를
-   병렬로 붙인다. Sol 결과가 늦어도 실행 가능한 작업은 계속한다. 외부 게시·전기·배포·결제·
-   보안 변경처럼 되돌리기 어렵거나 고위험인 최종 확정만 독립 검토 PASS를 게이트로 삼는다.
-4. 미완료 작업은 안전성·의존성·효과를 기준으로 우선순위화하고, 되묻지 않고 실행 가능한
-   읽기·분석·로컬 구현·검증을 순서대로 자동 수행한다.
-5. 위 자동 진행 규칙은 파괴적 작업, 운영 데이터 변경, 외부 메시지 전송, 배포, 결제 또는
-   새 권한 부여를 묵시적으로 허가하지 않는다. 그런 작업은 정확한 대상과 복구 경로를 확인하고,
-   저장소의 기존 승인 게이트와 실행 환경의 안전 규칙을 따른다.
-6. 모델 호출·폴백·상호검증 결과는 최종 보고나 최신 `LOG.md` 세션 핸드오프에 사용 모델,
-   수용·기각한 핵심 판단, 미완료 사유가 드러나도록 기록한다.
 
 ## 여행기간·행사기간 권위 규칙 (2026-08-24 전역 적용)
 
@@ -44,49 +17,15 @@
    마지막 행사일을 주면 그 날짜를 보존하고, OTA 숙박 원천이 `service_start_on`과
    체크아웃 제외형 `service_end_on`을 주면 시스템 공통 정규화기가 `service_end_on - 1일`을
    권위 일정의 포괄적 마지막 이용일로 만든다. 두 의미를 섞지 않는다.
-4. 레거시 `mm/dd/window`는 원문 보존·후보 생성·누락/중복 감사 설명에만 사용한다.
-   `window`를 행사기간, 여행 대상, allocation, 전기의 근거로 승격하지 않는다. 권위 일정에
-   명시 날짜가 없으면 결과를 `검토필요`/`여행_미배정`으로 남기고 재무 부작용을 만들지 않는다.
-5. 후보 분류기는 레거시 window를 설명용으로 참조할 수 있지만 결과는 `candidate_only`다.
-   후보를 확정하는 경계에서는 반드시 `load_authoritative_trip_schedule`을 다시 읽어야 한다.
+4. 레거시 `mm/dd/window`는 현행 파이프라인에서 읽지 않는다. 과거 원문과 산출물은
+   재현·감사용으로만 보존하며, 행사기간·여행 대상·allocation·전기의 입력으로 사용하지
+   않는다. 권위 일정에 명시 날짜가 없으면 결과를 `검토필요`/`여행_미배정`으로 남긴다.
+5. 현행 후보·확정 경계는 명시 권위 일정과 다음 권위 여행 시작일에서 계산한 전날 경계만
+   사용한다. `load_authoritative_trip_schedule`을 다시 읽어 권위 여부를 확인한다.
    이 규칙은 Agoda, OTA 예약, 숙박, 항공, 현지사용, 취소·환불 및 모든 미래 연도에 동일하다.
 6. 사용자용 `기간` 표시는 별도 표현 규칙이다. 숙박·렌트는 실제 예약/이용기간이 없으면
    공란이며 행사 전체기간을 채우지 않는다. 보험은 보장기간 우선, 행사기간 fallback은
    화면 표시만 가능하고 분류·대사·전기 근거가 아니다.
-
-## 병렬 실행·Sol 검토 격리 규칙 (2026-08-21 사용자 확정)
-
-Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 규칙은 과거의 권한 폭주,
-해시 재검토 루프, 브라우저 작업 중복, 잘못된 Paseo 알림이 다시 발생하지 않도록 한다.
-
-1. 실행 워커와 Sol 검토자는 같은 로컬 workspace, 같은 dirty working tree, 같은 SQLite/DB,
-   같은 브라우저 세션·탭을 공유하지 않는다. 검토에는 실행 시작 시점의 immutable snapshot 또는
-   별도 `worktree`를 사용한다. 고정 snapshot을 만들 수 없으면 검토를 시작하지 말고
-   `review_deferred`로 기록한다.
-2. Sol 검토자는 read-only 역할이다. 파일 편집·생성, DB/JSON/output 쓰기, 브라우저·UIA 조작,
-   외부 서비스 호출, 다른 agent/terminal/schedule 실행·종료를 하지 않는다. 테스트가 필요하면
-   반드시 격리 snapshot에서 실행하며 실행 워커의 작업공간에는 `__pycache__`·임시파일도 만들지 않는다.
-3. 검토자는 실행 워커의 critical path가 아니다. 실행 워커는 검토의 권한 요청·지연·실패를 기다리지
-   않는다. 검토 결과에는 snapshot digest, 검토 범위, `PASS`/`FAIL` 또는 `BLOCKED` 하나와 근거를
-   한 번만 남긴다. 같은 명령·같은 requestId의 재요청은 반복하지 않는다.
-4. 읽기 전용 명령에 권한이 필요하면 허용된 명령을 한 번에 묶어 요청한다. 권한이 거부·만료되면
-   한 번만 `review_blocked`로 끝내며, 권한 요청을 재귀적으로 만들거나 사용자에게 연쇄 알림을 보내지 않는다.
-5. 동일 scope의 실행 agent가 이미 있으면 새 실행 agent나 새 검토 agent를 추가하지 않는다. 먼저
-   `list_agents`와 pending permission을 확인하고 기존 agent의 상태를 재사용한다. idle/blocked 상태를
-   새 prompt와 권한 요청으로 무한 재개하지 않는다.
-6. 검토 agent 생성 시 `notifyOnFinish=false`를 사용하고 user-facing desktop notification을
-   기본적으로 만들지 않는다. 필요한 완료 보고는 부모 agent의 단일 결과로 전달하고, 알림이
-   불가피하면 task scope와 agent 역할을 제목에 명시한다.
-   원문 assistant message나 과거 task의 본문을 현재 작업명·알림 본문으로 재사용하지 않는다.
-7. 브라우저·외부 시스템이 `ERR_BLOCKED_BY_CLIENT`, session ownership, UIA target ambiguity 등으로
-   막히면 동일 경로를 반복 실행하지 않고 정확한 failure code 하나로 중단한다. Sol 검토를 추가로
-   띄워 브라우저를 재시도하게 하지 않는다.
-8. Sol 검토는 항상 `background=true`로 시작하고 부모 실행을 block하지 않는다. 부모는 검토 완료를
-   기다리거나 반복 polling하지 않으며, 실행 결과가 먼저 나오면 `review_pending` 상태로 보고할 수
-   있다. 검토 결과는 다음 안전한 경계에서 한 번만 수용·기각한다.
-9. Sol 검토가 권한·추가 입력·브라우저 접근을 요구하면 그 검토만 `review_blocked`로 남기고
-   본 작업은 계속한다. 검토를 재개하기 위해 본 작업을 멈추거나 사용자에게 권한 승인 루프를
-   전가하지 않는다.
 
 10. Agoda 예약 목록·상세 수집은 이 작업공간에서 Paseo IAB 브라우저 도구만 사용한다. Edge,
     Windows UIA/CDP, 기존 `msedge` supervisor, 또는 다른 브라우저로 폴백하지 않는다. Paseo
@@ -122,7 +61,6 @@ Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 �
      종료한다. `browser_new_tab`이 timeout이면 즉시 재호출하지 말고 먼저
      `browser_list_tabs`로 결과를 확인한다. 새 tab이 있으면 그 tab만 사용하고, 없다는
      확정이 없으면 `NAVIGATION_STATE_UNKNOWN`으로 종료한다. 추가 워커·중복 탭은 만들지 않는다.
-
 ## 시작 시 반드시 읽을 순서
 1. **`LOG.md` 맨 아래 최신 "세션 핸드오프" 블록** — 지금 무엇이 끝났고 다음에 뭘 할지.
 2. **`CLAUDE.md`** — 모델 위임·LLM 브리지 규칙(Claude 세션 한정 규칙 포함).
@@ -136,16 +74,6 @@ Sol 독립 검토는 품질 게이트이지 실행 워커가 아니다. 다음 �
 - **비용분류 파이프라인**(`ledger/`, Python): 카드 4장 + 수기장부 → 분류·대사 → 2분기 매출확인자료 산출.
   실행 순서는 `LOG.md` §4.
 - **Apps Script 엔진**(`apps-script/`, GAS): 카드 RAW → 장부 자동전기. scriptId·계정은 `LOG.md` §3.
-
-## 에이전트 차이 (넘어가지 않는 것)
-Claude Code 고유 기능은 **다른 에이전트로 이전되지 않는다**: 서브에이전트 위임(Agent/Task), Skill,
-백그라운드 Workflow, PR 웹훅 구독. `CLAUDE.md`의 "GLM 서브에이전트/모델 위임"도 Claude 세션 안에서만
-성립한다. 다른 에이전트에서도 AGY는 Paseo의 `agy` provider(local ACP bridge)를 우선 사용한다.
-직접 Gemini API 호출(`tools/gemini.mjs`·`GEMINI_API_KEY`)은 금지 — 스크립트 자체도 2026-08-24 삭제됐고
-Gemini의 유일 경로는 Paseo `agy` provider(local ACP bridge)다.
-ACP 도구가 없으면 `AGY_ACP_UNAVAILABLE`을 남기고 Luna max로 폴백한다.
-
----
 
 ## Antigravity 동등 MCP 설정
 
@@ -188,9 +116,6 @@ ACP 도구가 없으면 `AGY_ACP_UNAVAILABLE`을 남기고 Luna max로 폴백한
 코드/파이프라인 작업(Python 재현·워크북 생성)은 **MCP 없이도 가능**(입력이 `ledger/data/`에 커밋돼 있음).
 그러나 **메일 대사·드라이브 원장 최신화·초안 저장은 수동**이 된다. 참고로 이 세션이 만든 메일 초안 등
 산출물은 계정별 위치(예: **Gmail 임시보관함**)에 있을 수 있으니 인수 시 확인하라.
-
----
-
 ## 최신 세션 인계
 
 작업을 이어받을 때는 `LOG.md`보다 먼저 가장 최근 날짜의
@@ -205,32 +130,6 @@ ACP 도구가 없으면 `AGY_ACP_UNAVAILABLE`을 남기고 Luna max로 폴백한
 ## Legacy CLAUDE.md content preserved
 
 # CLAUDE.md
-
-## 모델 라우팅 규칙 (2026-08-04)
-
-- 기본 초안·설계·운영 판단: GPT-5.6 Luna max — 단 일반 조사·단순 구현·문서 초안 실행은 전역 개정
-  (2026-08-24) 준용으로 agy `gemini-3.7-flash-high` 우선 위임(위임 전 고위험 사전판정·민감정보 최소화)
-- 모든 실질 답변의 독립 반박·검증: GPT-5.6 Sol medium
-- 저추론·단순 구현·일반 웹검색: Paseo의 `agy` provider(로컬 ACP bridge)로만 AGY 호출
-- Paseo `agy` provider unavailable 시 `AGY_ACP_UNAVAILABLE`을 기록하고 Codex Luna max로 폴백
-- Gemini 호출은 AGY(ACP) 경로만 유효 — 구 `tools/gemini.mjs`·API 키 직접 호출은 금지(스크립트는 2026-08-24 삭제됨)
-
-실질적인 작업은 `Luna 초안`을 먼저 실행하고 `Sol 독립 반박`을 백그라운드로 병렬 진행한다.
-일반 실행·중간 보고는 Sol을 기다리지 않는다. 외부 게시·전기·배포·결제·보안 변경 같은
-고위험 최종 확정만 Sol PASS를 게이트로 삼는다. 단순 인사·상태 확인·모델 프로브는 반박을
-생략할 수 있다. 비용·카드·고객정보가 포함된 작업은 PII 규칙과 증거 원칙을 먼저 적용하며,
-원문 고객 데이터를 외부 모델에 전달하지 않는다.
-
-## Sol 검토 격리·권한 규칙
-
-Sol은 실행 워커와 같은 workspace·dirty tree·DB·브라우저를 공유하지 않는다. 실행 시점의
-immutable snapshot 또는 별도 worktree가 없으면 검토를 보류한다. Sol 검토는 read-only이며
-파일·DB·output·브라우저·UIA·외부 서비스·다른 agent를 변경하지 않는다.
-
-검토는 실행 워커의 critical path가 아니다. `background=true`로 시작한다. 읽기 명령 권한은 한 번에 묶고, 거부·만료 시
-`review_blocked` 한 건으로 끝낸다. 동일 명령·requestId를 반복 요청하지 않으며, 검토 agent는
-`notifyOnFinish=false`로 만들고 user-facing 알림을 만들지 않는다. 브라우저 오류나 session ownership/UIA ambiguity는 같은
-경로를 반복하지 않고 단일 failure code로 보존한다.
 
 Agoda 예약 수집의 브라우저 공급자는 Paseo IAB로 고정한다. Edge, Windows UIA/CDP 및 `msedge`
 supervisor로 폴백하지 않으며, Paseo IAB unavailable/timeout은 동일 전용 세션에서만
@@ -261,6 +160,3 @@ Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상�
      호출하지 않는다. 브라우저 워커와 백그라운드 검토 워커는
 `notifyOnFinish=false`를 사용하고 부모가 단일 요약을 전달한다.
 
-저추론 위임은 `mcp__paseo__create_agent`에 `provider: "agy"`를 지정해 Paseo local ACP bridge를 사용한다.
-Paseo `agy` provider가 없으면 `AGY_ACP_UNAVAILABLE`을 기록하고 Luna max로 폴백한다. 구 브리지
-스크립트(`tools/gemini.mjs` 등)는 2026-08-24 삭제됐으며 어떤 경로로도 부활시키지 않는다.

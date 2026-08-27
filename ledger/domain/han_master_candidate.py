@@ -9,7 +9,8 @@ from ledger import cardindex, ingest
 from ledger.domain.han_normalizer import (HAN_NORMALIZER_CONTRACT_SHA256,
     HAN_NORMALIZER_VERSION, is_han_transaction, normalize_han_components,
     normalize_han_identity_text, parse_han_amounts, validate_han_header)
-from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace
+from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain.direct_projection import build_source_inventory,code_bundle_descriptor,_git_head
 from ledger.domain.staged_inputs import is_strict_static_pins
 from ledger.domain.transition_gates_v2 import candidate_semantic_sha256,input_manifest_sha256 as compute_input_manifest_sha256
@@ -31,12 +32,12 @@ def _sha(data:bytes)->str:return hashlib.sha256(data).hexdigest()
 def _json(x:object)->bytes:return (json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(",",":"),allow_nan=False)+"\n").encode()
 def _set_sha(values:Iterable[str])->str:return _sha(_json(sorted(values)))
 def _read_regular_nofollow(path:Path,*,mode:int|None=None)->bytes:
-    flags=os.O_RDONLY|getattr(os,"O_CLOEXEC",0)|getattr(os,"O_NOFOLLOW",0)
-    try:fd=os.open(path,flags)
+    try:fd=open_nofollow(path)
     except OSError as exc:raise ValueError("r39_regular_file_open_failed") from exc
     try:
         st=os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_nlink!=1 or (mode is not None and stat.S_IMODE(st.st_mode)!=mode):
+        verify_regular_single_link(fd)
+        if (mode is not None or stat.S_IMODE(st.st_mode)!=mode):
             raise ValueError("r39_regular_file_invalid")
         chunks=[]
         while True:
@@ -264,13 +265,13 @@ def _build(ledger_dir:Path,master_path:Path,*,candidate_db:Path,run_id:str,
 class PublicationDurabilityError(OSError):
     def __init__(self,output:Path,sha:str):super().__init__("r39_published_but_parent_fsync_failed");self.output=output;self.expected_package_sha256=sha;self.published=True;self.parent_fsync=False
 def _fsync(path:Path):
-    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0));
+    fd=open_dir(path);
     try:os.fsync(fd)
     finally:os.close(fd)
 def verify_candidate(directory:Path,*,candidate_db:Path,run_id:str,input_manifest_sha256:str,candidate_semantic_sha256_expected:str,
                      authority_sha256_expected:str,ledger_dir:Path=REPOSITORY_ROOT/"ledger",master_path:Path|None=None,
                      verification_mode:str="pending"):
-    flags=os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0);fd=os.open(directory,flags)
+    fd=open_dir(directory)
     try:dst=os.fstat(fd)
     finally:os.close(fd)
     expected_dir_mode=0o700 if verification_mode=="pending" else 0o500

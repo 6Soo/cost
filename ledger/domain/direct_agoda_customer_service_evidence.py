@@ -28,6 +28,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from ledger.domain import direct_kb_confirmation_evidence as r45
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 
 ARTIFACT_TYPE = "r49-provider-customer-service-evidence-v1"
 RULE_VERSION = "r49-signed-row-singleton-manual-ref-v1"
@@ -87,8 +88,7 @@ def _csv(fields, rows) -> bytes:
 
 
 def _read_private(directory: Path) -> tuple[bytes, dict[str, object]]:
-    dfd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                  getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+    dfd = open_dir(directory)
     try:
         dst = os.fstat(dfd)
         directory_identity = (dst.st_dev, dst.st_ino, dst.st_mode, dst.st_uid, dst.st_nlink, dst.st_ctime_ns)
@@ -99,8 +99,7 @@ def _read_private(directory: Path) -> tuple[bytes, dict[str, object]]:
         captured = {}
         identities = {}
         for name in sorted(expected_names):
-            fd = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
-                         getattr(os, "O_CLOEXEC", 0), dir_fd=dfd)
+            fd = open_at(dfd, name)
             try:
                 before = os.fstat(fd)
                 if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
@@ -135,7 +134,7 @@ def _read_private(directory: Path) -> tuple[bytes, dict[str, object]]:
                 set(os.listdir(dfd)) != expected_names):
             raise ValueError("r49_private_directory_changed")
         for name in sorted(expected_names):
-            fd = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=dfd)
+            fd = open_at(dfd, name)
             try:
                 st = os.fstat(fd)
                 now = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns,
@@ -285,7 +284,7 @@ def _manual_and_trip(binding: dict[str, object]) -> tuple[dict[str, str], str]:
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
         raise ValueError("r49_manual_file_invalid")
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    fd = open_nofollow(path)
     try:
         before = os.fstat(fd); chunks=[]
         while True:
@@ -480,8 +479,7 @@ def _capture_dirfd(dirfd: int) -> dict[str, bytes]:
         raise ValueError("r49_package_shape_invalid")
     result = {}
     for name in FILES:
-        fd = os.open(name, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) |
-                     getattr(os, "O_CLOEXEC", 0), dir_fd=dirfd)
+        fd = open_at(dirfd, name)
         try:
             before = os.fstat(fd)
             if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or
@@ -530,19 +528,19 @@ def build_agoda_customer_service_evidence(private_dir: Path, output: Path | None
         raise ValueError("r49_output_inside_repository")
     if os.path.lexists(out):
         raise FileExistsError(out)
-    parentfd = os.open(output.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    parentfd = open_dir(output.parent)
     parent_identity = r45._identity(os.fstat(parentfd))
     if r45._identity(os.stat(output.parent, follow_symlinks=False)) != parent_identity:
         os.close(parentfd); raise ValueError("r49_parent_identity_changed")
     stage = None; stagefd=None; targetfd=None; published=False; target_identity=None
     try:
-        stage = Path(tempfile.mkdtemp(prefix=".r49-stage-", dir=f"/proc/self/fd/{parentfd}"))
+        stage = Path(tempfile.mkdtemp(prefix=".r49-stage-", dir=path_from_fd(parentfd)))
         stage_name = stage.name
         os.chmod(stage, 0o700)
-        stagefd = os.open(stage_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
+        stagefd = open_at(parentfd, stage_name)
         try:
             for name, data in files.items():
-                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600, dir_fd=stagefd)
+                fd = open_at(stagefd, name, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
                 try:
                     view = memoryview(data)
                     while view:
@@ -552,33 +550,33 @@ def build_agoda_customer_service_evidence(private_dir: Path, output: Path | None
                     os.fsync(fd)
                 finally:
                     os.close(fd)
-            os.fsync(stagefd)
+            fsync_dir(stagefd)
             if _capture_dirfd(stagefd) != files:
                 raise ValueError("r49_stage_verify_failed")
         finally: pass
         if (r45._identity(os.fstat(parentfd)) != parent_identity or
                 r45._identity(os.stat(output.parent, follow_symlinks=False)) != parent_identity):
             raise ValueError("r49_parent_identity_changed")
-        r45._rename_noreplace_at(parentfd, stage_name, out.name)
+        rename_noreplace_at(parentfd, stage_name, out.name)
         published=True; stage=None; os.close(stagefd);stagefd=None
-        targetfd = os.open(out.name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0), dir_fd=parentfd)
+        targetfd = open_at(parentfd, out.name)
         target_identity=r45._identity(os.fstat(targetfd))
         try:
             if _capture_dirfd(targetfd) != files:
                 raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
-            checkfd=os.open(out.name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd)
+            checkfd=open_at(parentfd, out.name)
             try:
                 if r45._identity(os.fstat(checkfd)) != target_identity or _capture_dirfd(checkfd)!=files:
                     raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
             finally: os.close(checkfd)
-            try: os.fsync(parentfd)
+            try: fsync_dir(parentfd)
             except OSError as exc: raise PublicationDurabilityError(out,manifest["package_set_sha256"],parent_identity,target_identity) from exc
             if (r45._identity(os.stat(output.parent,follow_symlinks=False)) != parent_identity or
                     r45._identity(os.fstat(targetfd)) != target_identity):
                 raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
             if _capture_dirfd(targetfd) != files:
                 raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
-            checkfd=os.open(out.name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=parentfd)
+            checkfd=open_at(parentfd, out.name)
             try:
                 if r45._identity(os.fstat(checkfd)) != target_identity or _capture_dirfd(checkfd)!=files:
                     raise PublicationIntegrityError(out,manifest["package_set_sha256"],parent_identity,target_identity)
@@ -597,8 +595,7 @@ def verify_agoda_customer_service_evidence(directory: Path, private_dir: Path,
                                             ledger_dir: Path = Path(REPOSITORY_ROOT) / "ledger"):
     manifest, expected = _build(private_dir, ledger_dir)
     expected_identity=r45._identity(os.stat(directory,follow_symlinks=False))
-    directoryfd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) |
-                          getattr(os, "O_NOFOLLOW", 0))
+    directoryfd = open_dir(directory)
     try:
         actual = _capture_dirfd(directoryfd)
         if r45._identity(os.fstat(directoryfd)) != expected_identity or r45._identity(os.stat(directory,follow_symlinks=False)) != expected_identity:
@@ -615,21 +612,21 @@ def reconcile_publication(error, private_dir: Path, ledger_dir: Path = Path(REPO
     if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):
         raise ValueError("r49_reconcile_state_invalid")
     manifest,expected=_build(private_dir,ledger_dir)
-    pfd=os.open(error.parent_path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+    pfd=open_dir(error.parent_path)
     try:
         if r45._identity(os.fstat(pfd)) != error.parent_identity: raise ValueError("r49_reconcile_parent_identity_mismatch")
         if r45._identity(os.stat(error.parent_path,follow_symlinks=False)) != error.parent_identity:
             raise ValueError("r49_reconcile_parent_identity_mismatch")
-        tfd=os.open(error.target_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+        tfd=open_at(pfd, error.target_name)
         try:
             if r45._identity(os.fstat(tfd)) != error.target_identity or _capture_dirfd(tfd)!=expected:
                 raise ValueError("r49_reconcile_target_identity_mismatch")
-            os.fsync(pfd)
+            fsync_dir(pfd)
             if (r45._identity(os.fstat(pfd)) != error.parent_identity or
                     r45._identity(os.stat(error.parent_path,follow_symlinks=False)) != error.parent_identity or
                     r45._identity(os.fstat(tfd)) != error.target_identity or _capture_dirfd(tfd)!=expected):
                 raise ValueError("r49_reconcile_identity_changed")
-            checkfd=os.open(error.target_name,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0),dir_fd=pfd)
+            checkfd=open_at(pfd, error.target_name)
             try:
                 if r45._identity(os.fstat(checkfd)) != error.target_identity or _capture_dirfd(checkfd)!=expected:
                     raise ValueError("r49_reconcile_identity_changed")

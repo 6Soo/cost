@@ -44,7 +44,10 @@ class AgodaAccountingDraftV3Tests(unittest.TestCase):
         self.assertNotIn("legacy_window_candidate_targets", rows[0])
         self.assertNotIn("old_window_match_status", rows[0])
         self.assertEqual(rows[1]["payment_lane"], "2025년 결제")
-        self.assertEqual(rows[1]["target_match_status"], "authority_missing")
+        self.assertEqual(rows[1]["target_match_status"], "payment_year_terminal")
+        self.assertEqual(rows[1]["target_authority"], "payment_year_terminal")
+        self.assertEqual(rows[1]["target_type"], "other")
+        self.assertEqual(rows[1]["allocation_target"], "2025년 결제")
 
     def test_explicit_unique_authority_can_bind(self):
         authority = [

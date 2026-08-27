@@ -33,6 +33,7 @@ BOUND_DEBIT_ACCOUNT = "숙박비"
 UNRESOLVED_DEBIT_ACCOUNT = "미확정여행원가"
 CREDIT_ACCOUNT = "법인카드미지급금"
 UNASSIGNED_TARGET = "여행_미배정"
+PAYMENT_YEAR_TERMINAL_STATUS = "payment_year_terminal"
 
 
 def _load_audit(path: Path, database: Path) -> tuple[dict[str, Any], str]:
@@ -64,7 +65,9 @@ def create_tables(db: sqlite3.Connection) -> None:
           assigned_target TEXT NOT NULL,
           suggested_targets_json TEXT NOT NULL,
           target_authority TEXT NOT NULL,
-          shadow_cohort TEXT NOT NULL CHECK(shadow_cohort IN ('target_bound','target_unresolved')),
+          shadow_cohort TEXT NOT NULL CHECK(shadow_cohort IN (
+            'target_bound','target_unresolved','payment_year_terminal'
+          )),
           amount_krw INTEGER NOT NULL CHECK(amount_krw>0),
           debit_account TEXT NOT NULL CHECK(debit_account IN ('숙박비','미확정여행원가')),
           credit_account TEXT NOT NULL CHECK(credit_account='법인카드미지급금'),
@@ -136,8 +139,15 @@ def build_rows(db: sqlite3.Connection, source_database_sha256: str) -> tuple[lis
             and item["target_authority"] == "authoritative_explicit_period"
             and item["allocation_target"] != UNASSIGNED_TARGET
         )
-        shadow_cohort = "target_bound" if bound else "target_unresolved"
-        assigned_target = str(item["allocation_target"]) if bound else UNASSIGNED_TARGET
+        terminal = item["target_match_status"] == PAYMENT_YEAR_TERMINAL_STATUS
+        shadow_cohort = (
+            "target_bound" if bound
+            else "payment_year_terminal" if terminal
+            else "target_unresolved"
+        )
+        assigned_target = (
+            str(item["allocation_target"]) if bound or terminal else UNASSIGNED_TARGET
+        )
         debit_account = BOUND_DEBIT_ACCOUNT if bound else UNRESOLVED_DEBIT_ACCOUNT
         suggested = json.loads(item["authority_candidate_targets_json"])
         payload = {

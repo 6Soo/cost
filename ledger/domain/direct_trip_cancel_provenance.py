@@ -16,6 +16,7 @@ from html import unescape
 from pathlib import Path
 
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 
 ARTIFACT_TYPE = "r44-trip-cancel-provenance-v2"
 DOMAIN = b"cost:r44:trip-cancel:provenance:v2\0"
@@ -68,14 +69,13 @@ def _json(value: object) -> bytes:
 
 
 def _read_regular(directory: Path, name: str) -> bytes:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-    dirfd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+    dirfd = open_dir(directory)
     try:
-        fd = os.open(name, flags, dir_fd=dirfd)
+        fd = open_at(dirfd, name)
         try:
             before = os.fstat(fd)
-            if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or
-                    stat.S_IMODE(before.st_mode) != 0o600 or before.st_uid != os.getuid()):
+            verify_regular_single_link(fd, mode=0o600)
+            if before.st_uid != os.getuid():
                 raise ValueError("r44_private_file_invalid")
             chunks = []
             while True:
@@ -320,7 +320,7 @@ def create_provenance(directory: Path, key_path: Path, pypdf_python: Path, outpu
     data = _sealed(unsigned, key)
     if output.parent.resolve(strict=True) != root or os.path.lexists(output):
         raise FileExistsError("r44_provenance_output_exists_or_wrong_parent")
-    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     try:
         view = memoryview(data)
         while view:
@@ -328,7 +328,7 @@ def create_provenance(directory: Path, key_path: Path, pypdf_python: Path, outpu
         os.fsync(fd)
     finally:
         os.close(fd)
-    dfd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)); os.fsync(dfd); os.close(dfd)
+    dfd = open_dir(root); fsync_dir(dfd); os.close(dfd)
     return {"status": "created", "provenance_sha256": _sha(data), "messages": 9, "lifecycles": 2}
 
 

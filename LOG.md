@@ -3659,3 +3659,43 @@ windowless 산출물:
   - 실제 posting 0건, FK violation 0건, integrity `ok`
 
 독립 재빌드에서 draft와 shadow DB/audit SHA-256이 각각 일치했다. 관련 회귀 34/34 PASS.
+
+## 2026-08-26 2025 결제연도와 행사연도 분리 수정
+
+2025년 행사가 계속 미배정으로 보이던 원인은 데이터 자체가 남아서가 아니라,
+`occurred_on`의 결제연도와 숙박 `service_start_on`의 행사/서비스 연도를
+v3 생성기의 동일한 missing-authority 분기로 처리한 버그였다. 2025년 결제 중
+독립적인 2026년 서비스 기간이 명시된 2건은 기존처럼 2026 권위 일정에 연결되고,
+나머지 2025년 서비스 4건은 2025년 행사 후보로 재추적하지 않고 사용자 확정
+터미널 레인 `2025년 결제`로 닫는다. 이 레인은 회계 전기나 임의 여행 배정을
+허용하지 않는다.
+
+- `tools/build_agoda_accounting_draft_v3.py`: `payment_year_terminal` 상태와
+  `payment_2025_terminal_count` manifest를 추가했다.
+- `tools/build_agoda_journal_shadow_v3.py`: 동일 4건을
+  `payment_year_terminal` shadow cohort와 `2025년 결제` 표시 대상으로 보존했다.
+- 결과: 전체 77건, 2025 결제 6건(2025 terminal 4건 + 2026 명시 연결 2건),
+  2026 결제 71건, 권위 연결 48건, 2026 권위 미확정 25건, terminal 금액
+  613,993원, 전체 금액 20,546,481원. 실제 전기는 여전히 0건이다.
+- 새 draft DB SHA-256: `27b0aaf335630e6ae5271470f920c7b88687b7664df40371153d3f81eb044842`
+- 새 journal shadow DB SHA-256: `5d404c4a93742a0cad4d31d2b76f91e124c086d6977c426be288b1f5195ceee3`
+- 동일 입력 반복 생성에서 draft/shadow DB·detail·audit SHA-256이 모두 일치했다.
+- 관련 회귀 35/35 PASS.
+
+## 2026-08-26 reservation export 재개 및 다음 세션 인계
+
+reservation 일정 export 계약·스크립트와 cost의 검증/멱등 import 경계는 구현되어 있다.
+다만 실제 Production export 재실행에서 `URL_INVALID`가 발생했다. 현재
+`C:\AX\reservation\.env.local`에는 `TURSO_DATABASE_URL`과 `TURSO_AUTH_TOKEN` 이름이
+있지만 값이 유효한 Turso URL/token이 아닌 placeholder 형식이었다. 따라서 Production
+자료를 cost에 import했다고 보고하지 않았고, 기존 quarantine demo export도 권위 자료로
+승격하지 않았다.
+
+다음 세션은 `docs/handoff/2026-08-26/README.md`의 순서대로 실제 Production 환경변수를
+동기화하고 export 파일을 만든 뒤, 격리 cost DB에 두 번 import하여 두 번째 삽입 0건과
+`posting_created=false`를 확인해야 한다. export 전에는 `trip_schedule` 권위 연결과
+Agoda draft 재산출을 진행하지 않는다.
+
+격리 demo export로 import 경계만 smoke 검증한 결과는 첫 import 3 records/7 inserts,
+두 번째 import 0 inserts, `idempotent=true`, `posting_created=false`, integrity `ok`,
+foreign-key 위반 0건이었다. 이 결과는 Production 데이터의 완료를 의미하지 않는다.

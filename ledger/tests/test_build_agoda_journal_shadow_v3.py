@@ -37,6 +37,35 @@ class AgodaJournalShadowV3Tests(unittest.TestCase):
         self.assertEqual(sum(line["amount_krw"] for line in lines if line["side"] == "credit"), 1234)
         db.close()
 
+    def test_2025_terminal_keeps_display_lane_without_becoming_a_trip(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript(
+            """
+            CREATE TABLE direct_agoda_accounting_draft_v3_authorities(
+              draft_id TEXT, payment_id INTEGER, booking_id INTEGER,
+              booking_number TEXT, amount_krw INTEGER, payment_lane TEXT,
+              payment_year INTEGER, service_year INTEGER, occurred_on TEXT,
+              target_match_status TEXT, target_authority TEXT,
+              allocation_target TEXT,
+              authority_candidate_targets_json TEXT
+            );
+            """
+        )
+        db.execute(
+            """INSERT INTO direct_agoda_accounting_draft_v3_authorities VALUES
+            (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "c" * 64, 2, 3, "1700000002", 2345, "2025년 결제", 2025, 2025,
+                "2025-12-20", "payment_year_terminal", "payment_year_terminal",
+                "2025년 결제", "[]",
+            ),
+        )
+        batches, lines = build_rows(db, "d" * 64)
+        self.assertEqual(batches[0]["shadow_cohort"], "payment_year_terminal")
+        self.assertEqual(batches[0]["assigned_target"], "2025년 결제")
+        self.assertEqual(len(lines), 2)
+        db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

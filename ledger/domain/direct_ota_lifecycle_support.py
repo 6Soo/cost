@@ -5,14 +5,15 @@ from email.utils import parsedate_to_datetime
 from datetime import date,datetime,timezone
 from collections import Counter,defaultdict
 from pathlib import Path
-from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT,_install_noreplace
+from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain import direct_verified_booking_evidence as r26
 from ledger.domain import direct_repository_booking_evidence as r27
 from ledger.domain import direct_original_approval_relation as r40
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain import direct_narrow_service_classification as r37
 from ledger.domain import direct_structured_lodging_evidence as r38
-from ledger.domain.direct_lineage_annex import build_annex
+from ledger.domain.direct_lineage_annex import build_annex, _install_noreplace
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 
 ARTIFACT_TYPE="r41-ota-lifecycle-support-v1"
@@ -370,7 +371,7 @@ def build_ota_lifecycle_support(output:Path|None=None,ledger_dir:Path=REPOSITORY
      while view:view=view[os.write(fd,view):]
      os.fsync(fd)
     finally:os.close(fd)
-   fd=os.open(stage,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+   fd=open_dir(stage)
    try:os.fsync(fd)
    finally:os.close(fd)
    if r40._capture_package(stage,FILES)!=files:raise ValueError("r41_stage_invalid")
@@ -378,7 +379,7 @@ def build_ota_lifecycle_support(output:Path|None=None,ledger_dir:Path=REPOSITORY
    try:
     if r40._capture_package(output,FILES)!=files:raise ValueError("r41_post_install_mismatch")
    except Exception as exc:raise PublicationIntegrityError(output,manifest["package_set_sha256"]) from exc
-   try:fd=os.open(parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+   try:fd=open_dir(parent)
    except OSError as exc:raise PublicationDurabilityError(output,manifest["package_set_sha256"]) from exc
    try:
     try:os.fsync(fd)
@@ -398,7 +399,7 @@ def verify_ota_lifecycle_support(directory:Path,ledger_dir:Path=REPOSITORY_ROOT/
 def reconcile_ota_lifecycle_publication(error,ledger_dir:Path=REPOSITORY_ROOT/"ledger"):
  if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r41_reconcile_state_invalid")
  first=verify_ota_lifecycle_support(error.output,ledger_dir)
- try:fd=os.open(error.output.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+ try:fd=open_dir(error.output.parent)
  except OSError as exc:raise PublicationDurabilityError(error.output,error.package_set_sha256) from exc
  try:
   try:os.fsync(fd)

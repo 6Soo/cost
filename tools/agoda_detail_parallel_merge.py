@@ -161,7 +161,9 @@ def _table_names(connection: sqlite3.Connection) -> set[str]:
 def _fsync_directory(path: Path) -> None:
     if os.name == "nt":
         return
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    from ledger.domain.posix_publication import open_dir
+
+    descriptor = open_dir(path)
     try:
         os.fsync(descriptor)
     finally:

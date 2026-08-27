@@ -25,6 +25,7 @@ from ledger.domain.direct_external_manual_evidence import (
     _manual,
 )
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain.direct_merchant_taxonomy_support import _build as _build_r34, _event_set_sha
 
 ARTIFACT_TYPE = "r36-manual-group-taxonomy-evidence-v1"
@@ -114,7 +115,7 @@ def _regular_single(path: Path, code: str) -> None:
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1: raise ValueError(code)
 
 def _fsync_dir(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    descriptor = open_dir(path)
     try: os.fsync(descriptor)
     finally: os.close(descriptor)
 

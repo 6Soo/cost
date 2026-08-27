@@ -22,6 +22,7 @@ from ledger.domain import direct_document_acquisition_census as r42
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain import direct_receipt_airfare_provenance as r43auth
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 
 ARTIFACT_TYPE = "r43-receipt-airfare-evidence-v1"
 RULE_VERSION = "r43-six-pinned-airfare-receipts-v1"
@@ -95,7 +96,7 @@ def _csv(fields, rows) -> bytes:
 
 def _read_private(directory: Path, name: str) -> bytes:
     try:
-        dirfd=os.open(directory,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+        dirfd=open_dir(directory)
     except OSError as exc:
         raise ValueError("r43_private_directory_invalid") from exc
     try:
@@ -103,12 +104,13 @@ def _read_private(directory: Path, name: str) -> bytes:
         if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or dst.st_uid!=os.getuid():
             raise ValueError("r43_private_directory_invalid")
         try:
-            fd=os.open(name,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_CLOEXEC",0),dir_fd=dirfd)
+            fd=open_at(dirfd, name)
         except OSError as exc:
             raise ValueError("r43_private_file_invalid") from exc
         try:
             before=os.fstat(fd)
-            if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():
+            verify_regular_single_link(fd, mode=0o600)
+            if stat.S_IMODE(before.st_mode)!=0o600 or before.st_uid!=os.getuid():
                 raise ValueError("r43_private_file_invalid")
             chunks=[]
             while True:
@@ -278,14 +280,14 @@ def build_receipt_airfare_evidence(documents_dir: Path, provenance_path: Path,
                 while view:view=view[os.write(fd,view):]
                 os.fsync(fd)
             finally:os.close(fd)
-        fd=os.open(stage,os.O_RDONLY|getattr(os,"O_DIRECTORY",0));os.fsync(fd);os.close(fd)
+        fd=open_dir(stage);os.fsync(fd);os.close(fd)
         if _capture_package(stage)!=files:raise ValueError("r43_stage_verify_failed")
         _install_noreplace(stage,out)
         published=True
         try:
             if _capture_package(out)!=files:raise ValueError("r43_post_install_bytes_mismatch")
         except Exception as exc:raise PublicationIntegrityError(out,manifest["package_set_sha256"]) from exc
-        try:fd=os.open(parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+        try:fd=open_dir(parent)
         except OSError as exc:raise PublicationDurabilityError(out,manifest["package_set_sha256"]) from exc
         try:
             try:os.fsync(fd)
@@ -309,7 +311,7 @@ def verify_receipt_airfare_evidence(directory: Path, documents_dir: Path,
 def reconcile_publication(error:PublicationDurabilityError|PublicationIntegrityError,documents_dir:Path,provenance_path:Path,key_path:Path,pypdf_python:Path):
     if not isinstance(error,(PublicationDurabilityError,PublicationIntegrityError)):raise ValueError("r43_reconcile_state_invalid")
     first=verify_receipt_airfare_evidence(error.output,documents_dir,provenance_path,key_path,pypdf_python)
-    try:fd=os.open(error.output.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)|getattr(os,"O_NOFOLLOW",0))
+    try:fd=open_dir(error.output.parent)
     except OSError as exc:raise PublicationDurabilityError(error.output,error.package_set_sha256) from exc
     try:
         try:os.fsync(fd)

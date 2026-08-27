@@ -29,6 +29,7 @@ from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as
 from ledger.domain.direct_repository_booking_evidence import EXPECTED_BOOKING_NEW, EXPECTED_OTA_NEW
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace, build_annex
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 from ledger.domain.staged_inputs import is_strict_static_pins
 
 ARTIFACT_TYPE = "r42-document-acquisition-census-v1"
@@ -193,9 +194,8 @@ class PublicationIntegrityError(OSError):
 
 
 def _capture_package(directory: Path, filenames=FILES) -> dict[str, bytes]:
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        dirfd = os.open(directory, flags)
+        dirfd = open_dir(directory)
     except OSError as exc:
         raise ValueError("r42_package_directory_invalid") from exc
     actual = {}
@@ -210,16 +210,13 @@ def _capture_package(directory: Path, filenames=FILES) -> dict[str, bytes]:
             raise ValueError("r42_package_shape_invalid")
         for name in filenames:
             try:
-                fd = os.open(
-                    name,
-                    os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
-                    dir_fd=dirfd,
-                )
+                fd = open_at(dirfd, name)
             except OSError as exc:
                 raise ValueError("r42_package_file_invalid") from exc
             try:
                 before = os.fstat(fd)
-                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600:
+                verify_regular_single_link(fd, mode=0o600)
+                if stat.S_IMODE(before.st_mode) != 0o600:
                     raise ValueError("r42_package_file_invalid")
                 chunks = []
                 while True:
@@ -551,7 +548,7 @@ def build_document_acquisition_census(
                     os.fsync(fd)
                 finally:
                     os.close(fd)
-            fd = os.open(stage, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            fd = open_dir(stage)
             try:
                 os.fsync(fd)
             finally:
@@ -566,7 +563,7 @@ def build_document_acquisition_census(
             except Exception as exc:
                 raise PublicationIntegrityError(output, manifest["package_set_sha256"]) from exc
             try:
-                fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                fd = open_dir(parent)
             except OSError as exc:
                 raise PublicationDurabilityError(output, manifest["package_set_sha256"]) from exc
             try:
@@ -614,7 +611,7 @@ def reconcile_publication(
         raise ValueError("r42_reconcile_state_invalid")
     first = verify_document_acquisition_census(error.output, ledger_dir, documents_dir)
     try:
-        fd = os.open(error.output.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        fd = open_dir(error.output.parent)
     except OSError as exc:
         raise PublicationDurabilityError(error.output, error.package_set_sha256) from exc
     try:

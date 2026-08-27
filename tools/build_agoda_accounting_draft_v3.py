@@ -50,6 +50,7 @@ UNASSIGNED_TARGET = "여행_미배정"
 MATCH_STATUSES = {
     "bound_unique",
     "authority_ambiguous",
+    "payment_year_terminal",
     "authority_missing",
 }
 
@@ -148,6 +149,17 @@ def build_rows(
             candidate_targets = [record.trip_code for record in explicit]
             target_type = "unassigned"
             posting_eligible = False
+        elif payment_year == 2025:
+            # A 2025 payment without independently verified 2026 service
+            # evidence is a user-facing terminal lane, not a missing 2026
+            # trip. Keep the payment fact and its year; do not manufacture a
+            # trip code or silently drop it from the accounting scope.
+            target_match_status = "payment_year_terminal"
+            allocation_target = "2025년 결제"
+            target_authority = "payment_year_terminal"
+            candidate_targets = []
+            target_type = "other"
+            posting_eligible = False
         else:
             target_match_status = "authority_missing"
             allocation_target = UNASSIGNED_TARGET
@@ -233,12 +245,13 @@ def create_tables(db: sqlite3.Connection) -> None:
           authority_manifest_sha256 TEXT NOT NULL CHECK(length(authority_manifest_sha256)=64),
           authority_candidate_targets_json TEXT NOT NULL,
           target_match_status TEXT NOT NULL CHECK(target_match_status IN (
-            'bound_unique','authority_ambiguous','authority_missing'
+            'bound_unique','authority_ambiguous','payment_year_terminal','authority_missing'
           )),
           target_authority TEXT NOT NULL CHECK(target_authority IN (
-            'authoritative_explicit_period','authoritative_conflict','candidate_only','none'
+            'authoritative_explicit_period','authoritative_conflict',
+            'payment_year_terminal','candidate_only','none'
           )),
-          target_type TEXT NOT NULL CHECK(target_type IN ('trip','unassigned')),
+          target_type TEXT NOT NULL CHECK(target_type IN ('trip','other','unassigned')),
           allocation_target TEXT NOT NULL,
           account TEXT NOT NULL,
           cost_type TEXT NOT NULL,
@@ -257,6 +270,7 @@ def create_tables(db: sqlite3.Connection) -> None:
           row_count INTEGER NOT NULL CHECK(row_count>=0),
           bound_unique_count INTEGER NOT NULL CHECK(bound_unique_count>=0),
           authority_ambiguous_count INTEGER NOT NULL CHECK(authority_ambiguous_count>=0),
+          payment_2025_terminal_count INTEGER NOT NULL CHECK(payment_2025_terminal_count>=0),
           authority_missing_count INTEGER NOT NULL CHECK(authority_missing_count>=0),
           payment_2025_count INTEGER NOT NULL CHECK(payment_2025_count>=0),
           payment_2026_count INTEGER NOT NULL CHECK(payment_2026_count>=0),
@@ -307,6 +321,7 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
         "row_count": len(rows),
         "bound_unique_count": count("bound_unique"),
         "authority_ambiguous_count": count("authority_ambiguous"),
+        "payment_2025_terminal_count": count("payment_year_terminal"),
         "authority_missing_count": count("authority_missing"),
         "payment_2025_count": sum(row["payment_year"] == 2025 for row in rows),
         "payment_2026_count": sum(row["payment_year"] == 2026 for row in rows),
@@ -318,14 +333,15 @@ def materialize(db: sqlite3.Connection, rows: list[dict[str, object]], hashes: M
         """INSERT INTO direct_agoda_accounting_draft_v3_manifest(
           manifest_id,input_database_sha256,input_audit_sha256,authority_document_sha256,
           row_count,bound_unique_count,authority_ambiguous_count,
-          authority_missing_count,payment_2025_count,
+          payment_2025_terminal_count,authority_missing_count,payment_2025_count,
           payment_2026_count,total_amount_krw,posting_eligible,payload_json)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             manifest_id, hashes["input_database_sha256"], hashes["input_audit_sha256"],
             hashes["authority_document_sha256"], payload["row_count"],
             payload["bound_unique_count"], payload["authority_ambiguous_count"],
-            payload["authority_missing_count"], payload["payment_2025_count"],
+            payload["payment_2025_terminal_count"], payload["authority_missing_count"],
+            payload["payment_2025_count"],
             payload["payment_2026_count"], payload["total_amount_krw"], 0,
             canonical_json(payload),
         ),

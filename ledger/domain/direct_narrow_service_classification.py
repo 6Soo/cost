@@ -21,6 +21,7 @@ from pathlib import Path
 
 from ledger.domain import direct_manual_group_taxonomy_evidence as r36
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, _install_noreplace
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
 
 ARTIFACT_TYPE="r37-narrow-service-classification-v1"
 RULE_VERSION="r37-complete-group-positive-highway-toll-v1"
@@ -307,7 +308,7 @@ def verify_narrow_service_classification(directory: Path, *, ledger_dir: Path=RE
     return {"status":"valid","analysis_run_id":manifest["analysis_run_id"],"proposals":2,"deferred":26,"confirmed_count":0,"gate5_credit":0}
 
 def _fsync_dir(path: Path) -> None:
-    fd=os.open(path,os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    fd=open_dir(path)
     try: os.fsync(fd)
     finally: os.close(fd)
 
