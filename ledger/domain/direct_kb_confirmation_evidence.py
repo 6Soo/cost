@@ -125,7 +125,7 @@ def _private_bytes_at(dirfd: int, name: str) -> bytes:
     try:
         before = os.fstat(fd)
         if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_uid != os.getuid()) or
-                stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_nlink != 1)):
+                (os.name=="posix" and stat.S_IMODE(before.st_mode) != 0o600) or (os.name=="posix" and before.st_nlink != 1)):
             raise ValueError("r45_private_file_invalid")
         chunks = []
         while True:
@@ -146,7 +146,7 @@ def _open_private_dir(path: Path) -> int:
     fd = open_dir(path)
     st = os.fstat(fd)
     if (not stat.S_ISDIR(st.st_mode) or (os.name=="posix" and st.st_uid != os.getuid()) or
-            stat.S_IMODE(st.st_mode) != 0o700):
+            (os.name=="posix" and stat.S_IMODE(st.st_mode) != 0o700)):
         os.close(fd)
         raise ValueError("r45_private_file_invalid")
     return fd
@@ -158,7 +158,7 @@ def verify_private_pin(pin_dir: Path, envelope_dir: Path) -> dict[str, object]:
     try:
         pin_identity = _identity(os.fstat(pinfd))
         envelope_identity = _identity(os.fstat(envelopefd))
-        envelope_names = set(os.listdir(envelopefd))
+        envelope_names = set(os.listdir(path_from_fd(envelopefd)))
         expected_envelopes = {f"{index:02d}.html" for index in range(1, 24)}
         if envelope_names != expected_envelopes:
             raise ValueError("r45_envelope_census_invalid")
@@ -239,11 +239,11 @@ def verify_private_pin(pin_dir: Path, envelope_dir: Path) -> dict[str, object]:
             approvals.add(approval)
             commitments.append({key: member[key] for key in sorted(member) if key != "opaque_member"})
         pin_set_sha = _sha(_json(commitments))
-        if (set(os.listdir(pinfd)) != expected_files or len(approvals) != 3 or
+        if (set(os.listdir(path_from_fd(pinfd))) != expected_files or len(approvals) != 3 or
                 pin_set_sha != EXPECTED_PRIVATE_PIN_SET_SHA256 or
                 _identity(os.fstat(pinfd)) != pin_identity or
                 _identity(os.fstat(envelopefd)) != envelope_identity or
-                set(os.listdir(envelopefd)) != expected_envelopes or
+                set(os.listdir(path_from_fd(envelopefd))) != expected_envelopes or
                 {name: _private_bytes_at(envelopefd, name) for name in sorted(expected_envelopes)} !=
                 envelope_bytes):
             raise ValueError("r45_pin_census_invalid")
@@ -474,8 +474,8 @@ def _identity(st):
 
 def _capture_dirfd(dirfd: int):
     dst = os.fstat(dirfd)
-    if (not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode) != 0o700 or
-            (os.name=="posix" and dst.st_uid != os.getuid()) or set(os.listdir(dirfd)) != set(FILES)):
+    if (not stat.S_ISDIR(dst.st_mode) or (os.name=="posix" and stat.S_IMODE(dst.st_mode) != 0o700) or
+            (os.name=="posix" and dst.st_uid != os.getuid()) or set(os.listdir(path_from_fd(dirfd))) != set(FILES)):
         raise ValueError("r45_package_shape_invalid")
     result = {}
     for name in FILES:
@@ -484,7 +484,7 @@ def _capture_dirfd(dirfd: int):
             before = os.fstat(fd)
             verify_regular_single_link(fd)
             if (not stat.S_ISREG(before.st_mode) or (os.name=="posix" and before.st_nlink != 1) or
-                    stat.S_IMODE(before.st_mode) != 0o600 or (os.name=="posix" and before.st_uid != os.getuid())):
+                    (os.name=="posix" and stat.S_IMODE(before.st_mode) != 0o600) or (os.name=="posix" and before.st_uid != os.getuid())):
                 raise ValueError("r45_package_shape_invalid")
             chunks = []
             while True:

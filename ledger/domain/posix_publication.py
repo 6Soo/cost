@@ -13,6 +13,11 @@ import os
 import stat
 from pathlib import Path
 
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None  # Windows-only CRT bridge
+
 O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
@@ -49,7 +54,8 @@ def _open_dir_windows(path: Path) -> int:
     )
     if handle == INVALID_HANDLE_VALUE or handle == 0xFFFFFFFFFFFFFFFF:
         raise PermissionError(f"cannot open directory handle: {path}")
-    return handle
+    # Return a CRT fd so callers can use os.listdir/os.fstat/os.close on it.
+    return msvcrt.open_osfhandle(handle, os.O_RDONLY)
 
 
 def open_nofollow(path: Path, flags: int = os.O_RDONLY) -> int:
@@ -205,13 +211,18 @@ def _renameat2_at(parent_fd: int, old_name: str, new_name: str) -> None:
 
 
 def _fd_to_path_windows(fd: int) -> str:
-    """Best-effort recovery of a path from a Windows directory handle."""
+    """Best-effort recovery of a path from a Windows directory descriptor.
+
+    Callers pass a CRT fd (from open_dir/open_osfhandle); convert it back to
+    the underlying Win32 HANDLE before calling GetFinalPathNameByHandleW.
+    """
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     buf = ctypes.create_unicode_buffer(4096)
     GetFinalPathNameByHandleW = getattr(kernel32, "GetFinalPathNameByHandleW", None)
     if GetFinalPathNameByHandleW is None:
         return ""
-    length = GetFinalPathNameByHandleW(fd, buf, len(buf), 0)
+    handle = msvcrt.get_osfhandle(fd)
+    length = GetFinalPathNameByHandleW(handle, buf, len(buf), 0)
     if length == 0:
         return ""
     result = buf.value

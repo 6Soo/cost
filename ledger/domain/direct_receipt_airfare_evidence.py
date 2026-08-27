@@ -101,7 +101,7 @@ def _read_private(directory: Path, name: str) -> bytes:
         raise ValueError("r43_private_directory_invalid") from exc
     try:
         dst=os.fstat(dirfd)
-        if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=0o700 or (os.name=="posix" and dst.st_uid!=os.getuid()):
+        if not stat.S_ISDIR(dst.st_mode) or (os.name=="posix" and stat.S_IMODE(dst.st_mode)!=0o700) or (os.name=="posix" and dst.st_uid!=os.getuid()):
             raise ValueError("r43_private_directory_invalid")
         try:
             fd=open_at(dirfd, name)
@@ -110,7 +110,7 @@ def _read_private(directory: Path, name: str) -> bytes:
         try:
             before=os.fstat(fd)
             verify_regular_single_link(fd, mode=0o600)
-            if stat.S_IMODE(before.st_mode)!=0o600 or (os.name=="posix" and before.st_uid!=os.getuid()):
+            if (os.name=="posix" and stat.S_IMODE(before.st_mode)!=0o600) or (os.name=="posix" and before.st_uid!=os.getuid()):
                 raise ValueError("r43_private_file_invalid")
             chunks=[]
             while True:
@@ -220,7 +220,7 @@ def _build(documents_dir: Path, provenance_path: Path, key_path: Path,
     d=documents_dir.resolve();
     if REPOSITORY_ROOT.resolve() in (d,*d.parents):raise ValueError("r43_private_input_inside_repository")
     st=d.stat()
-    if not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode)!=0o700 or d.is_symlink():raise ValueError("r43_private_directory_invalid")
+    if not stat.S_ISDIR(st.st_mode) or (os.name=="posix" and stat.S_IMODE(st.st_mode)!=0o700) or d.is_symlink():raise ValueError("r43_private_directory_invalid")
     p=provenance_path.resolve()
     if REPOSITORY_ROOT.resolve() in (p,*p.parents):raise ValueError("r43_private_input_inside_repository")
     authenticated=r43auth.verify_authenticated_inputs(d,p,key_path,DOCS,pypdf_python)

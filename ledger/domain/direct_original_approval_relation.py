@@ -9,7 +9,7 @@ from ledger.domain import direct_narrow_service_classification as r37
 from ledger.domain import direct_structured_lodging_evidence as r38
 from ledger.domain.han_normalizer import HAN_NORMALIZER_CONTRACT_SHA256,HAN_NORMALIZER_VERSION
 from ledger.domain.direct_lineage_annex import REPOSITORY_ROOT, build_annex, _install_noreplace
-from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity
+from ledger.domain.posix_publication import open_dir, open_nofollow, open_at, verify_regular_single_link, fsync_dir, rename_noreplace, rename_noreplace_at, identity as posix_identity, path_from_fd
 from ledger.domain.direct_external_manual_evidence import _build_package as build25
 from ledger.domain.direct_verified_booking_evidence import EXPECTED_RELATIONS as BOOKING_RELATIONS
 from ledger.domain.direct_repository_booking_evidence import EXPECTED_BOOKING_NEW,EXPECTED_OTA_NEW
@@ -63,14 +63,14 @@ def _capture_package(directory:Path,filenames=FILES)->dict[str,bytes]:
     actual={}
     try:
         dm=os.fstat(dirfd)
-        if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dirfd))!=set(filenames):raise ValueError("r40_package_shape_invalid")
+        if not stat.S_ISDIR(dm.st_mode) or (os.name=="posix" and stat.S_IMODE(dm.st_mode)!=0o700) or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(path_from_fd(dirfd)))!=set(filenames):raise ValueError("r40_package_shape_invalid")
         for name in filenames:
             try:fd=open_at(dirfd, name)
             except OSError as exc:raise ValueError("r40_package_file_invalid") from exc
             try:
                 before=os.fstat(fd)
                 verify_regular_single_link(fd, mode=0o600)
-                if stat.S_IMODE(before.st_mode)!=0o600:raise ValueError("r40_package_file_invalid")
+                if (os.name=="posix" and stat.S_IMODE(before.st_mode)!=0o600):raise ValueError("r40_package_file_invalid")
                 chunks=[]
                 while True:
                     chunk=os.read(fd,1024*1024)

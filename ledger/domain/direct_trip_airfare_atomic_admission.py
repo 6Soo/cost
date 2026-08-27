@@ -155,7 +155,7 @@ def _privacy(files):
 
 def _capture_dirfd(dfd:int):
  dm=os.fstat(dfd)
- if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dfd))!=set(FILES):raise ValueError("r57_package_shape_invalid")
+ if not stat.S_ISDIR(dm.st_mode) or (os.name=="posix" and stat.S_IMODE(dm.st_mode)!=0o700) or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(path_from_fd(dfd)))!=set(FILES):raise ValueError("r57_package_shape_invalid")
  result={}
  for name in FILES:
   try:fd=open_at(dfd, name)
@@ -163,7 +163,7 @@ def _capture_dirfd(dfd:int):
   try:
    before=os.fstat(fd)
    if not stat.S_ISREG(before.st_mode):raise ValueError("r57_package_file_invalid")
-   if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600):raise ValueError("r57_package_file_invalid")
+   if os.name=="posix" and (before.st_uid!=os.getuid() or before.st_nlink!=1 or (os.name=="posix" and stat.S_IMODE(before.st_mode)!=0o600)):raise ValueError("r57_package_file_invalid")
    chunks=[]
    while True:
     b=os.read(fd,1<<20)

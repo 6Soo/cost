@@ -84,14 +84,14 @@ def _capture(directory:Path):
  out={}
  try:
   dm=os.fstat(dfd)
-  if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
+  if not stat.S_ISDIR(dm.st_mode) or (os.name=="posix" and stat.S_IMODE(dm.st_mode)!=0o700) or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(path_from_fd(dfd)))!=set(FILES):raise ValueError("r46_package_shape_invalid")
   for name in FILES:
    try:fd=open_at(dfd, name)
    except OSError as exc:raise ValueError("r46_package_file_invalid") from exc
    try:
     a=os.fstat(fd)
     verify_regular_single_link(fd, mode=0o600)
-    if stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
+    if (os.name=="posix" and stat.S_IMODE(a.st_mode)!=0o600):raise ValueError("r46_package_file_invalid")
     chunks=[]
     while True:
      b=os.read(fd,1<<20)
@@ -106,14 +106,14 @@ def _capture(directory:Path):
 
 def _capture_dirfd(dfd:int):
  dm=os.fstat(dfd)
- if not stat.S_ISDIR(dm.st_mode) or stat.S_IMODE(dm.st_mode)!=0o700 or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(dfd))!=set(FILES):raise ValueError("r46_package_shape_invalid")
+ if not stat.S_ISDIR(dm.st_mode) or (os.name=="posix" and stat.S_IMODE(dm.st_mode)!=0o700) or (os.name=="posix" and dm.st_uid!=os.getuid()) or set(os.listdir(path_from_fd(dfd)))!=set(FILES):raise ValueError("r46_package_shape_invalid")
  out={}
  for name in FILES:
   fd=open_at(dfd, name)
   try:
    a=os.fstat(fd)
    verify_regular_single_link(fd, mode=0o600)
-   if stat.S_IMODE(a.st_mode)!=0o600:raise ValueError("r46_package_file_invalid")
+   if (os.name=="posix" and stat.S_IMODE(a.st_mode)!=0o600):raise ValueError("r46_package_file_invalid")
    chunks=[]
    while True:
     b=os.read(fd,1<<20)

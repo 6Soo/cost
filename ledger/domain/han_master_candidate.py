@@ -37,7 +37,7 @@ def _read_regular_nofollow(path:Path,*,mode:int|None=None)->bytes:
     try:
         st=os.fstat(fd)
         verify_regular_single_link(fd)
-        if (mode is not None or stat.S_IMODE(st.st_mode)!=mode):
+        if (mode is not None or (os.name=="posix" and stat.S_IMODE(st.st_mode)!=mode)):
             raise ValueError("r39_regular_file_invalid")
         chunks=[]
         while True:
@@ -276,7 +276,7 @@ def verify_candidate(directory:Path,*,candidate_db:Path,run_id:str,input_manifes
     finally:os.close(fd)
     expected_dir_mode=0o700 if verification_mode=="pending" else 0o500
     expected_file_mode=0o600 if verification_mode=="pending" else 0o400
-    if not stat.S_ISDIR(dst.st_mode) or stat.S_IMODE(dst.st_mode)!=expected_dir_mode or (os.name=="posix" and dst.st_uid!=os.getuid()):raise ValueError("r39_package_directory_invalid")
+    if not stat.S_ISDIR(dst.st_mode) or (os.name=="posix" and stat.S_IMODE(dst.st_mode)!=expected_dir_mode) or (os.name=="posix" and dst.st_uid!=os.getuid()):raise ValueError("r39_package_directory_invalid")
     if directory.is_symlink() or {x.name for x in directory.iterdir()}!=set(FILES):raise ValueError("r39_package_shape_invalid")
     actual={}
     for name in FILES:

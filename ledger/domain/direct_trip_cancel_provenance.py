@@ -101,7 +101,7 @@ def _private_dir(directory: Path) -> Path:
     if REPOSITORY_ROOT.resolve() in (resolved, *resolved.parents):
         raise ValueError("r44_private_input_inside_repository")
     st = resolved.stat()
-    if (not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode) != 0o700 or
+    if (not stat.S_ISDIR(st.st_mode) or (os.name=="posix" and stat.S_IMODE(st.st_mode) != 0o700) or
             (os.name=="posix" and st.st_uid != os.getuid())):
         raise ValueError("r44_private_directory_invalid")
     return resolved
