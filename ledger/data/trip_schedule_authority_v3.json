@@ -51,7 +51,7 @@
     {
       "trip_code": "0214_조신에쓰",
       "event_year": 2026,
-      "starts_on": "2026-02-14",
+      "starts_on": "2026-02-09",
       "ends_on": "2026-02-18",
       "region": "조신에쓰고원",
       "authority_kind": "explicit_trip_registry",
@@ -63,7 +63,7 @@
     {
       "trip_code": "0220_미야코지마",
       "event_year": 2026,
-      "starts_on": "2026-02-20",
+      "starts_on": "2026-02-18",
       "ends_on": "2026-02-24",
       "region": "미야코지마",
       "authority_kind": "explicit_trip_registry",
