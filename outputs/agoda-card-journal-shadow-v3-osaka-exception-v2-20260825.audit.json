@@ -1,0 +1,30 @@
+{
+  "artifact_kind": "agoda_journal_shadow_v3",
+  "authoritative_posting": false,
+  "batch_count": 77,
+  "credit_total_krw": 20546481,
+  "database_sha256": "626c3cd12f8145f4192fdc88e51e581a61592df90ba0c42ef370a7e9667ecd0d",
+  "debit_total_krw": 20546481,
+  "external_posting": false,
+  "foreign_key_check": [],
+  "input_audit_artifact_sha256": "015dc945ab63558747749788b24b07827f4efe04b4f715738ae70cb85926505a",
+  "input_audit_manifest_id": "2f17ca2f6f76039b8fdb013df159d5fdc06ebf26e838abeb2de625fb6c9fece6",
+  "input_audit_sha256": "015dc945ab63558747749788b24b07827f4efe04b4f715738ae70cb85926505a",
+  "integrity_check": [
+    "ok"
+  ],
+  "line_count": 154,
+  "manifest_id": "10d510625ca59f9f7e573d76a4d663a3615bceb8c7ac6232fed220eae1e9e3db",
+  "posting_status": "shadow_only",
+  "posting_tables_present": {
+    "direct_accounting_posting_batches": 0,
+    "direct_accounting_posting_lines": 0,
+    "journal_entries": 0
+  },
+  "rule_id": "agoda-linked-lodging-journal-shadow-v3",
+  "source_database_sha256": "e9b47549b691dbc4233e621722d84d8a63eaefc5977662c73a397fdb1992ecb4",
+  "target_bound_count": 48,
+  "target_bound_total_krw": 14195850,
+  "target_unresolved_count": 29,
+  "target_unresolved_total_krw": 6350631
+}

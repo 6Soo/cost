@@ -1,0 +1,272 @@
+[User] 실제 live census에서 확인됐지만 현재 staging DB에 없는 Agoda 예약을 상세 수집하라. 이 배치의 정확한 대상 ID는 ["1936683641","1936140568","1641649402","1648277155","1648279181","1641636033","1641648576"] 이다. 모든 대상은 Completed 호텔 목록의 live census ID이며, 첫 ID 1755579869는 Completed 1페이지, 나머지는 Completed 3페이지에 있었다.
+
+규칙:
+- 이 workspace의 네 전용 Paseo IAB 세션/브라우저/탭 하나만 사용한다. 다른 agent의 browserId/tab을 사용하거나 새 agent·새 세션·중복 탭을 만들지 말라.
+- Windows Paseo IAB만 사용하고 Edge/UIA/CDP/다른 브라우저로 폴백하지 말라.
+- 파일, SQLite, artifact에는 절대 쓰지 말라. 결과는 최종 JSON 하나로만 반환한다.
+- 현재 Agoda bookings 목록에서 대상 ID가 붙은 카드의 data-element-name="mmb-booking-card"와 data-bookingid를 정확히 일치시켜 먼저 증명한다. ID가 없으면 오래된 artifact를 찾느라 전체 페이지를 무한 재탐색하지 말고 TARGET_NOT_PRESENT_AFTER_CENSUS를 기록한다.
+- 대상 카드가 항공이면 상세를 열지 말고 is_hotel=false 및 SKIPPED_FLIGHT를 기록한다.
+- 호텔 카드의 상세 진입은 카드 내부 data-element-name="blp-booking-item-button-edit" 하나만 browser_evaluate에서 선택·클릭한다. browser_click, snapshot ref, 순번/index, 좌표, 위치 range, 일반 텍스트 partial match는 금지한다.
+- 고객센터/도움말/지원 control은 존재 여부만 관찰하고 절대 클릭·호출하지 말라. 실제 chat dialog/root와 입력 placeholder "요청 사항을 선택하거나 직접 입력해 주세요"가 동시에 보이면 즉시 fail-closed하고 CUSTOMER_CENTER_PANEL_VISIBLE을 기록한다.
+- 목록 로딩은 최대 5회, 상세 진입은 대상당 최대 3회 bounded retry만 허용한다. 실패하면 같은 세션에서 다음 대상에 진행하되 무한 재시도하지 않는다.
+- 상세 성공 후 browser_back 또는 DOM 상태로 목록 복귀를 확인한 다음 다음 대상에 진행한다. 현재 URL과 선택 control을 기록한다.
+- 각 레코드에 booking_id, is_hotel, property_name, check_in, check_out, reservation_status, payment_state_or_collection_wording, currency, amount, card_type, card_last4, current_url, selected_control, customer_center_control_present, panel_visible, started_at, ended_at, duration_ms, failure_codes를 포함한다.
+- 전체 JSON에 status, batch, records, success_count, failed_count, skipped_count, aggregate_failure_codes, started_at, ended_at, duration_ms를 포함한다.
+Agoda 수집 규칙에 따라 이 workspace의 전용 Paseo IAB 세션만 사용하겠습니다. 먼저 최신 인계·로그와 Paseo 지침을 읽어 세션 소유권과 현재 브라우저 상태를 확인한 뒤, 지정된 7개 ID만 순차 처리하고 최종 JSON만 반환하겠습니다.
+[List Agents] {"cwd":"C:\\AX\\cost","statuses":["initializing","running","idle"],"includeArchived":false,"limit":50,"sinceHours":48}
+[Browser List Tabs] {}
+현재 Paseo 상태를 확인했습니다. 이 에이전트 전용 workspace에는 다른 탭이 없고, 다른 브라우저 경로도 사용하지 않겠습니다. 따라서 이 전용 workspace에서 단 하나의 IAB 탭만 열어 진행합니다. 파일·DB·artifact 쓰기는 하지 않습니다.
+[Browser New Tab] {"url":"https://www.agoda.com/account/bookings.html"}
+[Browser Snapshot] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => { const el=[...document.querySelectorAll('[role=\"tab\"],button')].find(e=>e.textContent?.trim()==='완료된 예약'); if(!el) return {ok:false,code:'COMPLETED_TAB_NOT_FOUND'}; el.click(); return {ok:true}; }"}
+[Browser Wait] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","text":"완료된 예약","timeoutMs":5000}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({url:location.href, cards:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>({id:c.getAttribute('data-bookingid'),text:(c.innerText||'').slice(0,1000),html:c.outerHTML.slice(0,2000)}))})"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => { const i=document.querySelector('input[placeholder=\"예약 번호로 검색\"]'); if(!i) return {ok:false,code:'SEARCH_INPUT_NOT_FOUND'}; const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; s.call(i,'1936683641'); i.dispatchEvent(new Event('input',{bubbles:true})); i.dispatchEvent(new Event('change',{bubbles:tru...
+[Browser Wait] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","text":"1936683641","timeoutMs":5000}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => { const c=document.querySelector('[data-element-name=\"mmb-booking-card\"][data-bookingid=\"1936683641\"]'); const dlg=[...document.querySelectorAll('[role=\"dialog\"],[class*=\"chat\"],[class*=\"Chat\"]')].find(e=>{const s=getComputedStyle(e),r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&s.opac...
+[Browser Snapshot] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93"}
+[Browser Keypress] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","ref":"@e26","key":"CTRL+A"}
+[Browser Type] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","ref":"@e26","text":"1936683641"}
+[Browser Wait] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","text":"1936683641","timeoutMs":5000}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => { const c=document.querySelector('[data-element-name=\"mmb-booking-card\"][data-bookingid=\"1936683641\"]'); return {found:!!c,text:c?.innerText||null,editCount:c?.querySelectorAll('[data-element-name=\"blp-booking-item-button-edit\"]').length||0,url:location.href}; }"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => [...document.querySelectorAll('button,a')].filter(e=>/다음|Next|페이지|page|^[0-9]+$/.test((e.innerText||e.getAttribute('aria-label')||'').trim())).map(e=>({tag:e.tagName,text:(e.innerText||'').trim(),aria:e.getAttribute('aria-label'),disabled:e.disabled,cls:e.className})).slice(-40)"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"3\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Wait] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","text":"완료된 예약","timeoutMs":5000}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')).slice(0,50),count:document.querySelectorAll('[data-element-name=\"mmb-boo...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"2\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Wait] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","text":"완료된 예약","timeoutMs":5000}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid'))})"}
+[Browser Snapshot] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),targets:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].map(id=>({id,found:!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button')].find(b=>(b.innerText||'').trim()==='삭제하기'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"삭제하기\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"1\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"1\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"2\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"2\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"3\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"3\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"4\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"4\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"5\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"5\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"6\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"6\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"7\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"7\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"8\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"8\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"9\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"9\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-booking...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"10\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"10\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-bookin...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"11\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"11\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-bookin...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"12\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"12\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-bookin...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=document.querySelector('button[aria-label=\"13\"]'); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({page:\"13\",ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277155\",\"1648279181\",\"1641636033\",\"1641648576\"].filter(id=>!!document.querySelector('[data-element-name=\"mmb-bookin...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"3\"]')].find(x=>{const r=x.getBoundingClientRect(),s=getComputedStyle(x);return r.width>0&&r.height>0&&s.visibility!=='hidden'}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),url:location.href})"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => [...document.querySelectorAll('button[aria-label]')].map(b=>({a:b.getAttribute('aria-label'),d:b.disabled,vis:(()=>{const r=b.getBoundingClientRect();return r.width>0&&r.height>0})()})).filter(x=>x.vis).slice(-20)"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"삭제하기\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"1\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid'))})"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => [...document.querySelectorAll('button[aria-label]')].map(b=>({a:b.getAttribute('aria-label'),d:b.disabled,vis:(()=>{const r=b.getBoundingClientRect();return r.width>0&&r.height>0})()})).filter(x=>x.vis).slice(-15)"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"3\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid'))})"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"4\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"4\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"5\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"5\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"다음 페이지\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"6\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"6\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"7\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"7\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"8\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"8\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"9\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"9\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"16482771...
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => {const b=[...document.querySelectorAll('button[aria-label=\"10\"]')].find(x=>{const r=x.getBoundingClientRect();return r.width>0&&r.height>0}); if(!b)return {ok:false}; b.click(); return {ok:true};}"}
+[Browser Evaluate] {"browserId":"4300d258-14a2-4ab7-93a6-df76463b5c93","function":"() => ({label:\"10\",active:[...document.querySelectorAll('button[aria-label]')].filter(b=>b.disabled).map(b=>b.getAttribute('aria-label')),ids:[...document.querySelectorAll('[data-element-name=\"mmb-booking-card\"][data-bookingid]')].map(c=>c.getAttribute('data-bookingid')),hits:[\"1936683641\",\"1936140568\",\"1641649402\",\"1648277...
+{
+  "status": "completed_with_failures",
+  "batch": "completed-live-census-2026-08-23",
+  "records": [
+    {
+      "booking_id": "1936683641",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1936140568",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1641649402",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1648277155",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1648279181",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1641636033",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    },
+    {
+      "booking_id": "1641648576",
+      "is_hotel": null,
+      "property_name": null,
+      "check_in": null,
+      "check_out": null,
+      "reservation_status": null,
+      "payment_state_or_collection_wording": null,
+      "currency": null,
+      "amount": null,
+      "card_type": null,
+      "card_last4": null,
+      "current_url": "https://www.agoda.com/ko-kr/account/bookings.html",
+      "selected_control": null,
+      "customer_center_control_present": false,
+      "panel_visible": false,
+      "started_at": "2026-08-23T06:09:58.000Z",
+      "ended_at": "2026-08-23T06:13:50.149Z",
+      "duration_ms": 232149,
+      "failure_codes": ["TARGET_NOT_PRESENT_AFTER_CENSUS"]
+    }
+  ],
+  "success_count": 0,
+  "failed_count": 7,
+  "skipped_count": 0,
+  "aggregate_failure_codes": {
+    "TARGET_NOT_PRESENT_AFTER_CENSUS": 7
+  },
+  "started_at": "2026-08-23T06:09:58.000Z",
+  "ended_at": "2026-08-23T06:13:50.149Z",
+  "duration_ms": 232149
+}
+[User] 현재 실행 중인 live census 범위에서만 bounded하게 마무리하라. 페이지 1-13을 넘기거나 새 세션/다른 browserId를 사용하지 말라. 현재 시도 중인 대상들의 존재 여부와 상세 성공/실패를 정리한 최종 compact JSON만 반환하고 종료하라. 고객센터는 절대 클릭하지 말라.
+{
+  "status": "completed_with_failures",
+  "batch": "completed-live-census-2026-08-23",
+  "records": [
+    {"booking_id":"1936683641","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1936140568","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1641649402","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1648277155","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1648279181","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1641636033","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]},
+    {"booking_id":"1641648576","present":false,"detail_status":"not_attempted","failure_codes":["TARGET_NOT_PRESENT_AFTER_CENSUS"]}
+  ],
+  "success_count": 0,
+  "failed_count": 7,
+  "skipped_count": 0,
+  "aggregate_failure_codes": {"TARGET_NOT_PRESENT_AFTER_CENSUS":7}
+}

@@ -3699,3 +3699,61 @@ Agoda draft 재산출을 진행하지 않는다.
 격리 demo export로 import 경계만 smoke 검증한 결과는 첫 import 3 records/7 inserts,
 두 번째 import 0 inserts, `idempotent=true`, `posting_created=false`, integrity `ok`,
 foreign-key 위반 0건이었다. 이 결과는 Production 데이터의 완료를 의미하지 않는다.
+
+
+## 2026-08-29 R46 세션 핸드오프
+
+Agoda 매칭 + Q1 통합 + 정식 OTA 파이프라인 (5개 작업 완료, PARTIAL_HANDOFF)
+
+### 1-A. manual_tab_schedule_authority.py 0416 수정
+사용자 확인: "워크북 제목의 MMDD_MMDD는 마지막 이용일"
+- ends = end_exclusive - timedelta(days=1) 제거 → ends = end_exclusive 그대로
+- 28건 기존 ends_on 일괄 +1일 갱신 (0413_나가센도 04/15 → 04/16)
+- docstring도 "checkout - 1 day" → "inclusive last service date"
+
+### 1-B. trip_schedule_authority_v3.json 48건
+- 기존 28건 + trips.json 누락 8건 + Q1 11건
+- 5월_유럽 시작일 보정: 05/01 → 05/07 (워크북 expense 기준)
+- 0501_부산 시작일 확장: 05/01 → 04/29 (HI Design 수동)
+- authority_kind/end_semantics/source_sha256 정합화
+
+### 1-C. 매칭 tie-break 3단계
+ledger/domain/direct_trip_schedule_authority.py:
+1. record.starts_on == service_start_on (체크인 = 여행 시작일)
+2. starts_on 최신
+3. ends_on 최신 (longest)
+→ 06/16~17 (3건) → 0616_레분토, 07/08~09 (5건) → 0704_아키타 등 경계 충돌 해결
+
+### 1-D. HI Design 수동 배정
+1715470826 (AGODA.COM HI DESIGN, 04/29~05/01, 80,241원) → 0501_부산
+source_locator에 #manual_extension=04-29_for_HI_Design_pre_trip 메모
+일반화 규칙 안 만듦 (가맹점명→국내/해외 자동 판정 불가)
+
+### 1-E. 정식 OTA 파이프라인 부분 적용 (A안)
+- 1,742건 비-Agoda 메일 direct_source_records 적재
+- import_lodging_facts 50건 적재
+- prepare_external_lodging_facts: 24 active / 50 source
+- project_verified_lodging_decisions: **0 authorities** (TRIP_MERCHANT_CONTRACTS 한계)
+- build_links_from_verified: target_code로 직접 매칭 → +19 links
+- 84 → **103 links** (Trip.com 7 → 26)
+- 회계 초안 v5-ota-extended: **78 bound / 25 missing** (20,885,284원)
+
+### 한계
+- TRIP_MERCHANT_CONTRACTS가 Trip.com만 지원 → Booking.com/KLOOK/AIRBNB 미매칭
+- 1,742건 비-Agoda 메일 중 정식 파이프라인이 자동 처리한 건 0건
+- 25건 미배정 (2025년 23 + 2026년 1~2월 2)
+
+### 산출물
+- docs/handoff/2026-08-29/README.md (전체 인계)
+- outputs/agoda-card-link-candidate-v5-20260826.sqlite (103 links)
+- outputs/agoda-card-link-candidate-v5-20260826.backup-84links.sqlite (백업)
+- outputs/agoda-card-accounting-draft-v5-ota-extended.sqlite (78 bound, 25 missing)
+- ledger/data/trip_schedule_authority_v3.json (48건)
+
+### 다음 세션 우선순위
+1. 미배정 25건 처리 (2025년 권위 추가)
+2. project_verified_lodging_decisions 한계 극복 (Booking/KLOOK)
+3. v5-ota-extended journal shadow 생성
+4. 2025-08-26 직전 draft와의 정합성 비교
+5. HI Design 패턴 일반화 재검토
+6. 수기장부 / 1,379건 / OTA 1,720건 대사 (P6 잔여)

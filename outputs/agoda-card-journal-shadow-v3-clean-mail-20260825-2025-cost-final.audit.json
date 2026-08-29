@@ -1,0 +1,32 @@
+{
+  "account": "기타비용",
+  "accounting_final_amount_krw": 346510948,
+  "accounting_final_count": 2106,
+  "agoda_2025_accounting_final_amount_krw": 2375217,
+  "agoda_2025_accounting_final_count": 6,
+  "allocation_target": "2025년 비용",
+  "artifact": "agoda-card-journal-shadow-v3-clean-mail-20260825-2025-cost-final.sqlite",
+  "artifact_sha256": "abdcec916acedbb5f273226612347b48f42552197f90c2e1623e429bd8a62d09",
+  "candidate_2025_count": 2330,
+  "cost_type": "판관비",
+  "cost_validation_passed": true,
+  "excluded_or_non_purchase_2025_count": 224,
+  "external_posting_performed": false,
+  "idempotency_second_run": "rejected_as_already_projected_and_db_sha_unchanged",
+  "journal_entry_count": 0,
+  "reservation_number_created": false,
+  "run_id": "agoda-card-link-v4-20260823-38f26122dcc8-67b202489893",
+  "service_period_used_for_rule": false,
+  "table_counts": {
+    "allocation_plans": 2106,
+    "cost_allocations": 2106,
+    "direct_2025_cost_accounting": 2106,
+    "direct_2025_cost_accounting_manifests": 1,
+    "direct_2025_payment_terminal_manifests": 1,
+    "direct_2025_payment_terminals": 0,
+    "direct_promotion_evidence": 7434,
+    "journal_entries": 0
+  },
+  "terminal_validation_passed": true,
+  "travel_eligible": false
+}

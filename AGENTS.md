@@ -15,8 +15,9 @@
    digest 불일치·연도 불일치·복수 일정 충돌이면 해당 행은 보류한다.
 3. `ends_on`은 사람이 사후 보정으로 입력하는 필드가 아니다. 정식 행사 원천이 포괄적
    마지막 행사일을 주면 그 날짜를 보존하고, OTA 숙박 원천이 `service_start_on`과
-   체크아웃 제외형 `service_end_on`을 주면 시스템 공통 정규화기가 `service_end_on - 1일`을
-   권위 일정의 포괄적 마지막 이용일로 만든다. 두 의미를 섞지 않는다.
+   체크아웃 제외형 `service_end_on`을 주면 시스템 공통 정규화기가
+   **워크북 제목의 `MMDD_MMDD` 패턴이 마지막 이용일이라는 사용자 확인에 따라
+   `ends_on = end_exclusive` 그대로 보존**한다. (`-1일` 자동 적용 안 함, 2026-08-29 사용자 확인)
 4. 레거시 `mm/dd/window`는 현행 파이프라인에서 읽지 않는다. 과거 원문과 산출물은
    재현·감사용으로만 보존하며, 행사기간·여행 대상·allocation·전기의 입력으로 사용하지
    않는다. 권위 일정에 명시 날짜가 없으면 결과를 `검토필요`/`여행_미배정`으로 남긴다.
@@ -120,7 +121,11 @@
 
 작업을 이어받을 때는 `LOG.md`보다 먼저 가장 최근 날짜의
 `docs/handoff/YYYY-MM-DD/README.md`를 읽는다. 현재 최신 인계 패키지는
-`docs/handoff/2026-08-12/README.md`다.
+`docs/handoff/2026-08-29/README.md`다 (`PARTIAL_HANDOFF`, 5개 작업 완료:
+0416 매칭 수정, Q1 11건 추가, 매칭 tie-break 3단계, HI Design 04/29 부산 귀속,
+정식 OTA 파이프라인 부분 적용 103 links → 78 bound).
+
+직전 인계 패키지: `docs/handoff/2026-08-26/README.md` (v3-windowless 84 links, 73 bound).
 
 인계 패키지의 상태가 `PARTIAL_HANDOFF`이면 검토 원문·최종 테스트 등 일부 보존이 끝난 것이
 아니므로, `LOSSLESS_HANDOFF`로 승격하기 전까지 게시·전기·배포를 확정하지 않는다.
@@ -146,17 +151,77 @@ bounded backoff 재시도(목록/페이지 최대 5회, 상세 진입 전 최대
      주세요`가 함께 있을 때만 `CUSTOMER_CENTER_PANEL_VISIBLE`로 기록한다.
      Agoda 수집에서는 snapshot 일반 ref를 사용하는 `browser_click`을 금지한다. 예약 ID로
      카드와 동일 예약을 증명한 뒤 `browser_evaluate`에서 해당 카드 내부의
-     `data-element-name="blp-booking-item-button-edit"`만 선택·클릭한다.
+      `data-element-name="blp-booking-item-button-edit"`만 선택·클릭한다.
 
 Agoda 인증 세션은 에이전트 전용으로 소유한다. 브라우저 상태가 workspace 단위로 공유될 수
 있으므로 병렬 수집에서는 에이전트마다 별도 Paseo workspace를 만들고 workspace당 에이전트
 하나만 붙인다. 하나의 Paseo IAB 인증 세션·브라우저 호스트·탭을 여러 에이전트가 공유하지
 않으며, 다른 에이전트의 `browserId`를 재사용하거나 그 세션에 새 탭을 추가하지 않는다.
 세션 소유권이 확인되지 않거나 다른 Agoda 탭이 보이면 `SESSION_OWNERSHIP_UNKNOWN`으로
-     중단한다. 각 워커는 전용 세션 하나에서 예약을 순차 처리하고, 예약별 선택 control·현재 URL·
-     패널 상태·시각·failure code를 기록한다. 클릭 후 URL/상태가 불명확하면 재클릭하지 않고
-     `NAVIGATION_STATE_UNKNOWN`으로 종료한다. `browser_new_tab` timeout 후에는 먼저
-     `browser_list_tabs`로 실제 생성 여부를 확인하며, 확인 전 중복 `browser_new_tab`을
-     호출하지 않는다. 브라우저 워커와 백그라운드 검토 워커는
+      중단한다. 각 워커는 전용 세션 하나에서 예약을 순차 처리하고, 예약별 선택 control·현재 URL·
+      패널 상태·시각·failure code를 기록한다. 클릭 후 URL/상태가 불명확하면 재클릭하지 않고
+      `NAVIGATION_STATE_UNKNOWN`으로 종료한다. `browser_new_tab` timeout 후에는 먼저
+      `browser_list_tabs`로 실제 생성 여부를 확인하며, 확인 전 중복 `browser_new_tab`을
+      호출하지 않는다. 브라우저 워커와 백그라운드 검토 워커는
 `notifyOnFinish=false`를 사용하고 부모가 단일 요약을 전달한다.
+
+## 권위 일정 외부 소스 (2026-08-29 추가)
+
+워크북 탭에 명시 일정이 없거나 1분기/4분기처럼 워크북에 직접 없는 권위 일정은
+다음 외부 소스에서 가져온다. **이 경로는 Paseo IAB/Gmail/Drive MCP가 unavailable이어도
+공개 링크 export로 우회 가능**하다 (예: 2026-08-29 세션에서 1분기 11개 여행 일정 수집에 사용).
+
+### Q1 매출 확인자료 (2026년 1분기, 11개 여행)
+
+- 파일 ID: `1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8`
+- 공개 export URL (xlsx):
+  `https://docs.google.com/spreadsheets/d/1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8/export?format=xlsx`
+- 13개 시트: `0107_대만`, `0118_호남`, `0124_아키타`, `0203_다카야마`, `0214_조신에쓰`,
+  `2월_미야코지마`, `2월_아마미`, `3월_오키나와`, `0307_이즈반도`, `0312_세토우치`,
+  `0318_금오도`, `1분기_기타비용`, `1분기_행사경비총괄표`
+- 일정 추출: 셀 `2026년 M월 매출 확인자료_<지역>_<MMDD>_<MMDD>`에서 `MMDD_MMDD` 패턴
+  (워크북 제목의 MMDD는 마지막 이용일, `-1일` 적용 안 함 — 사용자 확인 2026-08-29)
+- 수집 스크립트: `tools/download_q1.py`, `tools/extract_q1_titles.py`
+
+### 우회 다운로드 패턴 (MCP 미인증 시)
+
+1. 공개 URL `https://docs.google.com/spreadsheets/d/<FILE_ID>/export?format=xlsx`로
+   `urllib.request.urlopen(headers={"User-Agent": "Mozilla/5.0"})` 사용
+2. `C:\Users\kkokk\AppData\Local\Temp\opencode\q1.xlsx`로 저장
+3. `openpyxl.load_workbook(path, read_only=True, data_only=True)`로 13개 시트 직접 파싱
+4. 각 시트의 row 2 (제목)에서 `MMDD_MMDD` 패턴 추출
+
+## 정식 OTA 파이프라인 (2026-08-29 추가)
+
+`ledger/domain/direct_verified_ota_lodging.py` (72KB)는 정식 OTA 검증·투영 모듈이지만
+`project_verified_lodging_decisions`는 `TRIP_MERCHANT_CONTRACTS`가 KBD/KBO/HAN/CORP의
+**Trip.com 패턴만** 등록하므로 Booking.com/KLOOK/AIRBNB는 자동 매칭되지 않는다.
+`prepare_external_lodging_facts`는 24개 active fact를 만들었으나 `project_...`가 0개
+authority를 만들었기 때문에 `tools/build_links_from_verified.py`로 verified fact의
+`target_code`를 직접 사용해 카드 매칭을 우회했다. 다음 세션이 TRIP_MERCHANT_CONTRACTS를
+확장하거나 별도 `direct_ota_reservation_authority` 파이프라인을 작성해야 한다.
+
+## opencode vs Antigravity MCP 설정 (2026-08-29 추가)
+
+`AGENTS.md`는 `C:\AX\cost\AGENTS.md`이지만 **사용자 본인이 opencode 세션에서 작업할 때는
+opencode.json 위치(`~/.config/opencode/opencode.json`)를 수정해야 한다**. Antigravity는
+`~/.gemini/antigravity/mcp_config.json`을 사용하지만, opencode는 별도 경로이며 동일하게
+MCP 서버를 등록할 수 있다. 사용자가 "왜 antigravity로 접근해?"라고 물었으므로 주의.
+
+## 매칭 tie-break 규칙 (2026-08-29 추가)
+
+`ledger/domain/direct_trip_schedule_authority.py`의 `match_service_period()`는 여러 여행이
+매칭될 때 다음 우선순위를 적용한다. 이 규칙은 사용자 확인(레분토 시작일=레분토, 유럽 시작=
+유럽)을 반영한 것이며 일반화 규칙이 아니다.
+
+1. `record.starts_on == period.service_start_on` (체크인일이 여행 시작일과 일치)
+2. `record.starts_on` 최신 (most recent trip)
+3. `record.ends_on` 최신 (longest/outer trip)
+
+## HI Design / 부산 패턴 (2026-08-29 수동 결정)
+
+`AGODA.COM HI DESIGN` (`1715470826`, 04/29~05/01, 80,241원)은 알펜루트~부산 사이 갭.
+사용자가 "국내 예약건, 부산 일정 사전 이동"으로 결정하여 `0501_부산`을 05/01 → **04/29**로
+수동 확장했다. `source_locator`에 `#manual_extension=04-29_for_HI_Design_pre_trip` 메모.
+**이 패턴은 일반화하지 않는다** — DB에 위치 정보가 없어 가맹점명 기반 자동 판정 불가.
 

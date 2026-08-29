@@ -1,0 +1,26 @@
+[User] Iteration 2 Agoda DOM collection. This agent owns the Paseo workspace assigned to it; no other agent may use this workspace.
+
+Use Paseo IAB browser tools only. Never use Edge, CDP, UIA, msedge supervisor, or another browser.
+Before any interaction, call browser_list_tabs and verify that this workspace has no pre-existing Agoda tab owned by another agent. If any other Agoda tab/browserId is present, stop with SESSION_OWNERSHIP_UNKNOWN. Do not use another agent's browserId and do not create duplicate tabs.
+Use DOM only. Navigate only to the authenticated Agoda booking list and the exact same-booking edit control data-element-name="blp-booking-item-button-edit" or visible "예약 확인/변경하기". Never click customer-center, help, support, inquiry, generic buttons, positional indexes, DOM indexes, or location ranges.
+If any visible customer-center panel/support UI is present before or after navigation, do not interact with it; stop with CUSTOMER_CENTER_PANEL_VISIBLE. customer_center_click_count must remain 0.
+Enumerate rows by stable booking_id/detail href. Handle only rows where SHA-256(booking_id UTF-8), first 8 hex as integer, modulo 3 equals SHARD. Do not select by row position.
+Retry transient list/page loading only in this same workspace/session: 5s,15s,30s,60s,120s, max 5. Pre-click detail loading max 3. If click may have happened and route is uncertain, do not click again; record NAVIGATION_STATE_UNKNOWN. No retry for panel, ownership, selector, wrong match, duplicates. Exhaustion is RETRY_EXHAUSTED.
+Do not write files, outputs, DB, or shared working tree. Return compact JSON only with lane, pages, shard, attempted, unique, captured, records, failure_codes, retry_counts, customer_center_click_count, status, evidence_note, model_line.
+
+
+Exclusive assignment:
+lane=U01
+tab=upcoming
+page(s)=1-3
+SHARD=2
+
+For U01, process Upcoming pages 1,2,3 sequentially, only your shard. For C01-C09, process only Completed page 1-3, only your shard. On page 9 record old-year rows as excluded_old_year. Do not access any other page.
+Paseo IAB 전용 수집 작업으로 진행하겠습니다. 먼저 저장소 인계·Paseo 지침을 읽고, 지정 workspace의 탭 소유권을 `browser_list_tabs`로 확인한 뒤 U01 Upcoming 1–3페이지만 순차 처리하겠습니다.
+저장소의 Paseo 지침을 확인했습니다. 브라우저 제어 규칙도 적용해야 하므로 `control-in-app-browser` 스킬을 읽은 뒤, 첫 브라우저 호출은 지정대로 `browser_list_tabs`만 수행하겠습니다.
+[Browser List Tabs] {}
+소유권 확인 결과, 이 Paseo workspace에는 열린 탭이 없었습니다(`tabs: []`). 중복·타 에이전트 세션이 없으므로 새 탭 1개만 만들고, 저장된 인계 기록에서 인증된 예약목록 URL을 확인해 진행하겠습니다.
+[Browser New Tab] {"url":"https://www.agoda.com/ko-kr/account/bookings.html"}
+[Browser Snapshot] {"browserId":"69891206-c541-4688-b444-d7917853a685"}
+[Browser Evaluate] {"browserId":"69891206-c541-4688-b444-d7917853a685","function":"() => {\n    const norm = s => (s || '').replace(/\\s+/g, ' ').trim();\n    const editButtons = [...document.querySelectorAll('[data-element-name=\"blp-booking-item-button-edit\"]')];\n    const rows = editButtons.map((b, i) => {\n      const ids = [];\n      let p = b;\n      for (let depth = 0; depth < 10 && p; depth++, p = p.parent...
+[Browser Evaluate] {"browserId":"69891206-c541-4688-b444-d7917853a685","function":"() => ({\n    url: location.href,\n    panelVisible: !![...document.querySelectorAll('body *')].find(el => {\n      const t = (el.innerText || '').replace(/\\s+/g,' ').trim();\n      return t.length > 0 && t.length < 220 && /(요청 사항을 선택하거나 직접 입력|상담원|채팅을 시작|고객센터 패널|문의하기)/i.test(t) &&\n        !el.matches('button,[data-element-name=\"blp...

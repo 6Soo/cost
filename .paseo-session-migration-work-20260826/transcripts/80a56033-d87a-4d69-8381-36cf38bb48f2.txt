@@ -1,0 +1,415 @@
+[User] 당신은 독립적인 적대적 검토자다. 위 기준안을 직접 만들되, 특히 fail-open, authority 우회, 누락/중복, 멱등성, 회계전기 누락, 브라우저 세션 충돌, 검토 에이전트 지연과 권한/알림 폭주를 반례 중심으로 검토하라. 
+목표: C:\AX\cost와 C:\AX\reservation으로 이어지는 회사 비용 처리 파이프라인 전체를 경량화할 실행 계획을 독립 검토하라.
+범위: reservation 카페/일정 export와 댓글 활동성 증거, cost의 검증·멱등 import·authoritative trip_schedule, OTA/Agoda 브라우저 수집, 카드 RAW/정규화/projection/대사/후보/전기, 테스트·회귀·에이전트 오케스트레이션·권한/알림 비용을 모두 포함한다.
+현재 작업 트리는 dirty일 수 있다. C:\AX\cost와 C:\AX\reservation을 읽기 전용으로 조사하고 시작 시 git status와 핵심 파일의 snapshot digest를 기록하라. 파일·DB·JSON/output·브라우저·외부 서비스는 절대로 수정하지 말고, 권한 요청이나 새 에이전트 생성도 하지 마라.
+결과는 한국어로 다음을 포함하라: (1) 가장 큰 지연/복잡성 병목과 근거, (2) 제거·통합·캐시·증분화할 항목, (3) 품질/회계 안전성을 보존하는 불변식, (4) 단계별 마이그레이션 및 롤백 계획, (5) 측정 지표와 중단 조건, (6) 현재 구조에서 절대 건드리면 안 되는 경계.
+단순한 아이디어가 아니라 실제 저장소 구조에 맞춘 구체적 계획을 내고, 불확실한 사실은 추정이라고 표시하라. 최종 판정은 계획 검토이므로 PASS/FAIL 대신 REVIEW를 사용하라.
+독립 적대적 검토로 진행하겠습니다. 두 저장소에는 어떤 쓰기도 하지 않고, 먼저 각 저장소의 `git status`와 적용 지침·최신 인계 문서를 확인한 뒤 핵심 파일의 SHA-256 스냅샷을 고정해 근거 중심으로 파이프라인 병목과 반례를 추적하겠습니다. 브라우저·DB·외부 서비스·에이전트·권한 요청은 사용하지 않습니다.
+초기 상태에서 두 저장소 모두 dirty임을 확인했습니다. 특히 이번 연결 경계 자체인 reservation export와 cost import가 양쪽 모두 미커밋 상태여서, 현재 결과를 “확정 구조”로 간주하지 않고 검토 시점 스냅샷으로만 다루겠습니다. PowerShell 출력 인코딩을 바로잡아 최신 인계와 구현 파일을 다시 좁혀 읽고, 스냅샷 해시는 변경 파일과 핵심 경계 파일 중심으로 기록하겠습니다.
+# REVIEW — 회사 비용 처리 파이프라인 경량화 계획 독립 검토
+
+검토 시점: 2026-08-25  
+범위: `C:\AX\reservation` → `C:\AX\cost` 전 구간  
+방식: 저장소·Git·소스·기존 산출물만 읽기 전용 조사  
+제외: 테스트 실행, DB 연결/변경, export 생성, 브라우저, 외부 서비스, 권한 요청, 에이전트 생성
+
+최종 판정은 `REVIEW`다. 현재 구조는 회계 안전장치가 비교적 강하지만, 그것이 다수의 버전별 스크립트·스냅샷·중복 검증 체인에 흩어져 있어 실행시간보다 “무엇이 현재 권위 경로인지 판단하는 비용”이 더 큰 병목이다.
+
+## 0. 검토 스냅샷
+
+두 저장소 모두 dirty였다.
+
+- `C:\AX\cost`
+  - 수정: `AGENTS.md`, `direct_ota_lifecycle_support.py`
+  - 신규: reservation import/export 경계 3개 파일과 Agoda shadow/audit 결과 10개
+- `C:\AX\reservation`
+  - 수정: `package.json`
+  - 신규: `scheduleExport.ts`, export CLI, 테스트
+
+따라서 아래 판단은 미커밋 구현을 포함한 작업 트리 스냅샷에 대한 검토이며, 확정된 `main` 설계로 보아서는 안 된다.
+
+핵심 SHA-256:
+
+| 저장소 | 파일 | SHA-256 앞 16자리 |
+|---|---|---|
+| reservation | `src/lib/scheduleExport.ts` | `E2FC67A7C861CFA9` |
+| reservation | `scripts/export-schedule.ts` | `188B47F48BE71E37` |
+| reservation | `tests/scheduleExport.test.ts` | `A9DFB66A3B03F717` |
+| reservation | `src/lib/cafeParse.ts` | `5AB45421B9D37DD4` |
+| reservation | `src/lib/cafeView.ts` | `33E08ED2222CC342` |
+| cost | `ledger/domain/reservation_schedule_export.py` | `4E9507FC17C0DDA5` |
+| cost | `tools/import_reservation_schedule.py` | `6F53B78026018F60` |
+| cost | `direct_trip_schedule_authority.py` | `E2F71F7F13BCFC82` |
+| cost | `direct_ota_lifecycle_support.py` | `60CDA2425F9238E5` |
+| cost | `direct_projection.py` | `34EB34E2632D046D` |
+| cost | `schema.sql` | `C27AE33C7EB8FA65` |
+| cost | `build_agoda_accounting_draft_v3.py` | `49AD95083969B657` |
+| cost | `build_agoda_journal_shadow_v3.py` | `E41AD43EE8D16E14` |
+
+## 1. 가장 큰 지연·복잡성 병목
+
+### 1.1 첫째 병목: 누적형 파이프라인과 현재 권위 상태가 분리되지 않음
+
+가장 위험한 반례는 신규 reservation import 경계에서 발견된다.
+
+`direct_source_records`의 고유키는 다음과 같다.
+
+```text
+(source_kind, source_key, source_sha256)
+```
+
+reservation importer는 권위 일정에 대해:
+
+```text
+source_kind = trip_schedule
+source_key  = trip_code
+source_sha256 = 정규화 일정 payload hash
+```
+
+를 추가한다. 기존 일정이 바뀌면 동일 `trip_code`에 다른 digest의 행이 누적된다. 그런데 생산 권위 로더는 동일 여행 코드의 두 authoritative 행을 만나면:
+
+```text
+trip_schedule_authority_duplicate_target
+```
+
+으로 전체 로드를 중단한다.
+
+이는 fail-open은 아니지만 정상적인 일정 수정이 시스템 전체 권위 로드를 영구 차단하는 fail-stop 반례다. 현재 importer의 “같은 export 두 번 import” 테스트만으로는 이 문제를 발견하지 못한다.
+
+필수 수정 방향은 삭제/덮어쓰기가 아니라 다음 중 하나다.
+
+- `trip_schedule_revision`을 append-only로 유지하고 별도의 단일 current pointer를 둔다.
+- 또는 `(trip_code, authority_generation)`과 명시적 supersession 관계를 둔다.
+- 로더는 “행이 하나인지”가 아니라 “검증된 active revision이 정확히 하나인지”를 검사한다.
+
+단순히 최신 `imported_at`을 택하는 방식은 authority 우회가 되므로 금지해야 한다.
+
+### 1.2 둘째 병목: 너무 많은 세대별 실행물이 현재 경로처럼 공존
+
+실측 구조:
+
+- `direct_*.py`: 65개, 약 29,096행
+- Python 테스트: 91개, 약 17,148행
+- `build_workbook_v*.py`: 13세대
+- Agoda 관련 도구: 27개, Python만 약 10,933행
+- `outputs/`: 140개 파일, 약 339.5MB
+
+특히 Agoda에는 Windows CDP/UIA, headless probe, parallel supervisor와 현재 허용된 Paseo IAB 경로가 함께 남아 있다. 최신 정책상 전자는 사용할 수 없으므로, 실행 디스커버리 경로에 남아 있는 것 자체가 잘못된 폴백·세션 충돌·운영자 오실행 위험이다.
+
+삭제보다는 먼저:
+
+- `active`
+- `historical-replay`
+- `forensics-only`
+- `prohibited`
+
+네 분류의 실행 레지스트리를 만들고, 기본 CLI가 `active`만 노출하도록 해야 한다.
+
+### 1.3 셋째 병목: 전량 재구축과 해시 고정값이 결합됨
+
+`direct_projection.py`는 약 90KB이며 입력 inventory, code bundle, current authority, 여러 검증기, candidate DB, activation 검증을 한 번에 수행한다. 회계적으로 강하지만 작은 입력 변경도 광범위한 재구축·고정 census 갱신을 유발한다.
+
+`direct_ota_lifecycle_support.py`도 다수 선행 R26/R27/R36/R38/R40 체인을 재생성하고 정확한 개수·집합 digest를 고정한다. 누락 탐지에는 유리하지만 경량 증분 처리와 충돌한다.
+
+경량화의 핵심은 검증 제거가 아니라 다음 DAG 단위 캐시다.
+
+```text
+원천 hash
+  → 정규화 hash
+  → 식별/관계 graph hash
+  → 권위 snapshot hash
+  → 후보/결정 hash
+  → allocation hash
+  → journal shadow hash
+```
+
+각 노드는 입력 digest, 규칙 digest, 출력 semantic digest를 가져야 한다. 동일 삼중값이면 재사용하고, 영향받은 하위 노드만 무효화한다.
+
+### 1.4 reservation 댓글 활동성 증거의 불완전성
+
+현재 export는 다음 조건을 모두 만족해야 `activity_confirmed`로 만든다.
+
+- 여행 종료 후 관찰
+- archive 행 존재
+- 목록 댓글 수 존재
+- 수집된 고유 댓글 수 존재
+- 두 수가 동일
+- 댓글 수 10개 이상
+
+기본 방향은 fail-closed다. 다만 반례가 있다.
+
+- `cafe_archive`에 같은 `(fldid, dataid)` 관찰이 여러 개면 조회 순서가 명시되지 않고, JavaScript `Map`의 마지막 행이 승리한다.
+- 삭제 댓글, 중복 comment ID, 답글·시스템 댓글의 의미 차이가 “개수 동일”만으로 은폐될 수 있다.
+- `comment_observed_at`은 content hash에서 제외된다. 멱등성에는 유리하지만 더 오래된 관찰이 더 최신 관찰을 대체하는 것을 막는 순서 규칙이 없다.
+- archive 테이블 부재는 적절히 `activity_unavailable`로 처리하지만, SQL 구조 오류까지 “테이블 없음” 문자열에 걸리면 가용성 부족으로 오인할 가능성이 있다.
+
+활동성은 회계전기 권위가 아닌 부가 증거로 유지하고, 최신 관찰 선정은 명시적인 `observed_at DESC, snapshot_sha256` 규칙과 단조 증가 조건을 가져야 한다.
+
+### 1.5 브라우저 수집 비용과 세션 충돌
+
+정책은 충분히 fail-closed지만 구현 파일은 여러 구식 브라우저 경로를 보존한다. 가장 위험한 반례는:
+
+1. 운영자가 오래된 CDP/UIA 도구를 실행
+2. 동일 Agoda 계정/탭 상태가 Paseo IAB와 겹침
+3. 한쪽 timeout 뒤 다른 쪽이 새 탭 또는 같은 예약을 재진입
+4. 클릭 성공 여부 불명 상태에서 중복 수집 또는 고객센터 진입
+
+경량화는 병렬 워커 확대가 아니라 “인증 세션 하나 + 순차 상태머신 + 체크포인트”가 맞다. Agoda는 네트워크/로그인/DOM 변동 비용이 커서 병렬화 이득보다 세션 소유권 비용이 크다.
+
+### 1.6 검토 에이전트·권한·알림 비용
+
+현재 규칙은 이미 과거 폭주를 방지하도록 상세하지만, 실행 경로가 규칙 문서에 의존한다. 다음 반례를 기계적으로 막아야 한다.
+
+- 동일 scope 검토를 다른 이름으로 중복 생성
+- snapshot이 달라졌는데 같은 검토 결과를 재사용
+- `BLOCKED` 검토를 자동 재개
+- 읽기 명령별 권한 요청 반복
+- background 검토 완료를 부모가 polling
+- 브라우저 실패를 검토 에이전트가 재시도
+- worker마다 desktop 알림 생성
+
+오케스트레이션 상태에는 최소한 다음 고유키가 필요하다.
+
+```text
+(scope_sha256, snapshot_sha256, role)
+```
+
+같은 키는 하나만 실행하고, 종료 상태는 `REVIEWED`, `REVIEW_BLOCKED`, `REVIEW_DEFERRED` 중 하나로 고정해야 한다.
+
+## 2. 제거·통합·캐시·증분화할 항목
+
+### 제거 또는 실행 경로에서 격리
+
+- 정책상 금지된 Agoda CDP/UIA/Edge 도구
+- `build_workbook_v64`~`v75` 같은 과거 세대의 기본 실행 노출
+- 동일 의미의 `clean`, `rebuild`, `final` JSON을 사람이 파일명으로 선택하는 방식
+- 결과와 동일한 대형 SQLite/JSON 스냅샷의 무제한 중복 보존
+- 실행마다 달라지는 timestamp를 semantic identity에 섞는 코드
+
+과거 감사 재현에 필요한 것은 삭제하지 말고 content-addressed archive와 manifest로 이동한다.
+
+### 통합
+
+- reservation TS validator와 cost Python validator의 필드 계약을 단일 JSON Schema 또는 생성된 contract로 통합
+- Agoda `draft → accounting draft → journal shadow`의 공통 lineage/hash/gate 로직 통합
+- 카드 RAW/정규화/import의 고유키·versioning 규칙을 하나의 ingestion kernel로 통합
+- 테스트 게이트를 `unit`, `contract`, `accounting-invariant`, `full-regression`, `environment-bound`로 분리
+- 모든 실행물을 하나의 manifest-driven CLI에서 선택
+
+### 캐시
+
+캐시 키는 최소 다음이어야 한다.
+
+```text
+stage_kind
+input_set_sha256
+rule_contract_sha256
+code_bundle_sha256
+authority_snapshot_sha256
+```
+
+timestamp, 로컬 절대경로, 출력 파일명은 캐시 키에서 제외한다.
+
+### 증분화
+
+- 새 카드 RAW만 정규화
+- 변경된 예약 ID의 OTA evidence component만 재구축
+- 변경된 trip code의 authority resolution만 재평가
+- 영향받은 payment/booking 관계만 후보 재계산
+- allocation semantic hash가 변한 payment만 journal shadow 재생성
+- full regression은 릴리스 경계에서만 수행하고 일상 실행은 영향 범위 테스트 사용
+
+단, 전역 합계·누락 census·차변/대변 합계는 증분 결과를 기존 확정 snapshot에 합친 후 전체 집계로 다시 확인해야 한다.
+
+## 3. 보존해야 할 품질·회계 불변식
+
+다음은 경량화를 이유로 완화하면 안 된다.
+
+1. 원천 보존  
+   RAW는 append-only이며 정규화·projection·후보가 원천을 덮어쓰지 않는다.
+
+2. 권위 분리  
+   `candidate_only`, legacy window, 결제일, 지역명, 댓글 활동성은 trip authority가 아니다.
+
+3. 일정 권위 완전성  
+   `event_year`, 명시 시작·종료일, `end_semantics`, 허용된 `authority_kind`, authoritative 상태, 검증 가능한 source digest가 모두 있어야 한다.
+
+4. active authority 단일성  
+   여행 코드별 active revision은 정확히 하나여야 한다. 0개는 미배정, 2개 이상은 충돌이다.
+
+5. 연도 안전성  
+   2025 결제를 2026 템플릿으로 배정하지 않는다. 결제일은 행사일로 승격되지 않는다.
+
+6. 식별 관계 우선  
+   예약번호·PNR·승인번호 등 typed identity 없이 금액·상호·날짜만으로 관계를 확정하지 않는다.
+
+7. 누락·중복 census  
+   입력 행 수, 고유 이벤트 수, 중복 수, 격리 수, 출력 수가 보존식으로 연결되어야 한다.
+
+8. 멱등성  
+   같은 원천과 같은 규칙을 두 번 처리하면 semantic DB 상태와 회계 결과가 동일해야 한다.
+
+9. 수정 가능성  
+   일정 변경은 이전 revision을 감사 가능하게 보존하면서 active pointer만 원자적으로 이동한다.
+
+10. allocation 보존  
+    payment별 확정 allocation 합계가 결제금액과 일치해야 한다.
+
+11. 회계 완전성  
+    posting 대상 allocation 각각에 대응하는 journal batch가 정확히 하나 존재해야 한다.
+
+12. 분개 균형  
+    batch별·전체 차변 합계와 대변 합계가 일치해야 한다.
+
+13. 미확정 무전기  
+    authority 충돌, 미배정, 관계 불명, 취소/환불 미연결은 실제 전기 대상이 아니다.
+
+14. shadow와 실제 전기 분리  
+    현재 Agoda v3의 `posting_eligible=0`, `shadow_only`, 실제 posting table 미생성 경계는 유지한다.
+
+15. provenance 폐쇄성  
+    journal → allocation → decision → evidence → normalized event → raw source로 역추적 가능해야 한다.
+
+## 4. 단계별 마이그레이션·롤백 계획
+
+### 1단계: 현황 동결과 경로 선언
+
+- 현행 active 실행 경로와 금지/과거 경로를 manifest에 등록
+- 모든 기준 입력·DB·결과의 digest와 핵심 census를 baseline으로 고정
+- 코드는 바꾸지 않고 관찰 지표만 추가
+
+롤백: manifest를 무시하고 기존 명령을 그대로 사용.
+
+### 2단계: reservation–cost 계약 안정화
+
+- export schema를 확정하고 양 언어 validator를 동일 fixture로 검증
+- trip schedule에 revision/supersession/current 개념 추가
+- 같은 export 재수입뿐 아니라 “일정 수정 후 재수입” 테스트 추가
+- 댓글 관찰의 명시적 최신 선정과 퇴행 방지 추가
+
+롤백: 신규 import는 shadow DB에만 적용하고 기존 권위 JSON을 계속 사용.
+
+### 3단계: 단일 ingestion kernel 도입
+
+- card, OTA, reservation export 모두 content-addressed source envelope로 수렴
+- source ingestion과 active authority selection을 분리
+- dedupe, quarantine, lineage를 공통 구현
+
+롤백: source envelope는 유지하고 projection 소비자만 구 구현으로 전환.
+
+### 4단계: DAG 캐시와 증분 projection
+
+- 각 stage의 입력·규칙·출력 digest 기록
+- changed-node 재계산과 full rebuild를 병행
+- 결과 semantic digest, 핵심 row set, 금액 합계를 비교
+
+롤백: 캐시를 무시하는 `--full-rebuild`가 항상 가능해야 한다.
+
+### 5단계: Agoda 순차 수집기 통합
+
+- Paseo IAB 단일 상태머신만 active로 지정
+- 예약별 상태와 failure code를 content-addressed 체크포인트로 저장
+- timeout 후 재클릭 금지와 tab 확인 규칙을 코드 수준에서 강제
+- 구식 브라우저 도구는 실행 불가 archive로 이동
+
+롤백: 신규 수집기를 중단하되 기존 수집 결과는 읽기 전용 evidence로 보존. 다른 브라우저로 폴백하지 않는다.
+
+### 6단계: 후보·allocation·journal shadow 증분화
+
+- 영향 payment만 후보 재계산
+- 확정 decision은 입력 권위가 바뀌어도 자동 삭제하지 않고 stale 상태로 전환
+- journal shadow는 allocation digest가 바뀐 batch만 재생성
+- 전체 차대·누락 census는 매 실행 마지막에 전역 확인
+
+롤백: 마지막 검증된 authority/allocation snapshot을 재활성화하고 shadow를 전량 재생성.
+
+### 7단계: 과거 버전 격리와 보존정책 적용
+
+- 중복 output을 manifest + blob 저장으로 변환
+- 기본 경로에서 과거 workbook/Agoda 세대 제거
+- 법적·회계 보존기간과 재현 요건에 따라 archive 유지
+
+롤백: archive manifest로 해당 세대를 복원하되 active registry에는 자동 복귀시키지 않는다.
+
+## 5. 측정 지표와 중단 조건
+
+### 성능 지표
+
+- 전체 rebuild 시간과 증분 실행 시간
+- stage별 cache hit rate
+- 변경 원천 1건당 재계산 노드 수
+- Agoda 예약 1건당 브라우저 진입·재시도·탭 수
+- full regression과 영향 범위 테스트 시간
+- 검토 에이전트 수, polling 횟수, 권한 요청 수, 알림 수
+- artifact 총용량과 동일 semantic digest 중복 수
+
+초기 목표값은 실측 후 정해야 하며, 다음은 추정 목표다.
+
+- 변경 1건의 증분 처리 시간이 full rebuild의 20% 이하
+- cache hit 80% 이상
+- Agoda 예약당 상세 진입 1회
+- 동일 scope 검토 에이전트 1개 이하
+- 정상 read-only 검토의 권한 요청·desktop 알림 0회
+
+### 안전 지표
+
+- RAW 입력 수와 canonical event 수의 보존식
+- duplicate/quarantine/unresolved 건수
+- trip별 active authority 수
+- stale decision/allocation 수
+- payment별 allocation 차이
+- posting 대상 allocation 대비 journal batch 누락 수
+- 차변–대변 차이
+- authority 없는 journal/posting 수
+- 동일 입력 full rebuild 간 semantic digest 차이
+
+### 즉시 중단 조건
+
+다음 중 하나라도 발생하면 해당 단계의 활성화를 중단하고 이전 snapshot으로 롤백해야 한다.
+
+- trip별 active authority가 2개 이상
+- source digest 불일치 또는 원천 lineage 단절
+- 같은 입력 재실행 시 semantic digest 변동
+- 입력 census가 설명 없이 감소
+- 동일 card event가 서로 다른 결제로 중복 materialize
+- allocation 합계와 payment 금액 불일치
+- posting 대상 allocation의 journal 누락
+- 차변/대변 불균형
+- candidate-only 또는 legacy window가 allocation/posting에 유입
+- 브라우저 session ownership 불명 또는 클릭 후 navigation 상태 불명
+- 검토 에이전트가 실행 workspace·DB·브라우저를 공유
+- 권한 거부 후 자동 재요청 또는 동일 failure 무한 재시도
+- 증분 결과와 full rebuild 결과 불일치
+
+## 6. 절대 건드리면 안 되는 경계
+
+- reservation의 서비스 사실과 cost의 회계 권위 사이의 검증 경계
+- RAW와 정규화 데이터의 분리
+- `candidate_only`와 authoritative의 단방향 차단
+- legacy `mm/dd/window`의 비권위성
+- 결제일과 행사/서비스 기간의 분리
+- OTA 체크아웃 제외형 종료일과 포괄적 행사 종료일의 의미 분리
+- 카드 이벤트 identity와 legacy UID/fingerprint의 분리
+- 취소·환불과 원승인 관계의 보존
+- 확정 decision/allocation의 versioning 및 supersession 이력
+- allocation과 journal의 분리 및 재생성 가능성
+- Agoda shadow와 실제 posting의 분리
+- 외부 전기·배포·DB 변경의 승인 게이트
+- Agoda Paseo IAB 전용 세션 소유권과 fail-closed 동작
+- 실행 워커와 독립 검토자의 workspace·DB·브라우저 격리
+- PII가 reservation export나 외부 검토 문맥으로 넘어가지 않는 경계
+
+## 결론
+
+가장 먼저 해결할 것은 성능 튜닝이 아니라 `trip_schedule`의 revision/current 모델이다. 현행 미커밋 importer는 동일 export 재입력에는 멱등하지만, 정상적인 일정 변경을 처리하면 이전 authoritative 행과 충돌해 전체 권위 로더를 막을 수 있다.
+
+그다음 우선순위는 다음과 같다.
+
+1. active 실행 경로를 하나로 선언
+2. source/authority revision 모델 확립
+3. digest 기반 DAG 캐시 도입
+4. Agoda 단일 순차 상태머신화
+5. 후보→allocation→journal의 영향 범위 증분화
+6. 과거 세대와 중복 output을 content-addressed archive로 격리
+
+실시간 DB 내용, 브라우저 세션 비용, 실제 테스트 소요시간은 이번 읽기 전용 범위에서 확인하지 않았으므로 관련 수치 목표는 추정이다. 그러나 구조적 중복 규모, 권위 수정 충돌 반례, 금지된 브라우저 경로의 공존, 전량 재구축 중심 설계는 저장소 코드에서 직접 확인된 사실이다.

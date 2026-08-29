@@ -1,0 +1,33 @@
+{
+  "artifact_kind": "agoda_2026_authority_pending_shadow",
+  "authority_ambiguous_payment_count": 0,
+  "authority_document_path": "ledger\\data\\trip_schedule_authority_v3.json",
+  "authority_document_sha256": "babf056c140e023a209f8e97824c7e27e9e3a1beb8896c455dacd90331f9abfa",
+  "authority_missing_payment_count": 9,
+  "authority_source_status": "production_reservation_export_missing",
+  "base_artifact": "outputs\\agoda-card-journal-shadow-v3-clean-mail-20260825-2025-cost-final.sqlite",
+  "base_artifact_sha256": "abdcec916acedbb5f273226612347b48f42552197f90c2e1623e429bd8a62d09",
+  "bound_unique_payment_count": 0,
+  "candidate_only_payment_count": 62,
+  "database_sha256": "008b71f0d20d54c6268c463097bf2871284f3e53345a3ea2d890a7b7a31e0fde",
+  "external_posting_performed": false,
+  "first_import_inserted": 71,
+  "idempotent": true,
+  "materialization_rows": 71,
+  "payment_2025_processing_preserved": true,
+  "payment_2026_amount_krw": 18171264,
+  "payment_2026_count": 71,
+  "posting_eligible": false,
+  "reason": "reservation local data/reservations.db is a demo database; production TURSO_DATABASE_URL was not available",
+  "reservation_export_used": false,
+  "run_id": "agoda-2026-authority-pending-20260825",
+  "second_import_inserted": 0,
+  "target_match_amounts_krw": {
+    "authority_missing": 2344565,
+    "legacy_window_candidate_only": 15826699
+  },
+  "target_match_status_counts": {
+    "authority_missing": 9,
+    "legacy_window_candidate_only": 62
+  }
+}

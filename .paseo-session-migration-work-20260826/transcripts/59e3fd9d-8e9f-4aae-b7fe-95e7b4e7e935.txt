@@ -1,0 +1,24 @@
+[User] Iteration 2 Agoda DOM collection. This agent owns the Paseo workspace assigned to it; no other agent may use this workspace.
+
+Use Paseo IAB browser tools only. Never use Edge, CDP, UIA, msedge supervisor, or another browser.
+Before any interaction, call browser_list_tabs and verify that this workspace has no pre-existing Agoda tab owned by another agent. If any other Agoda tab/browserId is present, stop with SESSION_OWNERSHIP_UNKNOWN. Do not use another agent's browserId and do not create duplicate tabs.
+Use DOM only. Navigate only to the authenticated Agoda booking list and the exact same-booking edit control data-element-name="blp-booking-item-button-edit" or visible "예약 확인/변경하기". Never click customer-center, help, support, inquiry, generic buttons, positional indexes, DOM indexes, or location ranges.
+If any visible customer-center panel/support UI is present before or after navigation, do not interact with it; stop with CUSTOMER_CENTER_PANEL_VISIBLE. customer_center_click_count must remain 0.
+Enumerate rows by stable booking_id/detail href. Handle only rows where SHA-256(booking_id UTF-8), first 8 hex as integer, modulo 3 equals SHARD. Do not select by row position.
+Retry transient list/page loading only in this same workspace/session: 5s,15s,30s,60s,120s, max 5. Pre-click detail loading max 3. If click may have happened and route is uncertain, do not click again; record NAVIGATION_STATE_UNKNOWN. No retry for panel, ownership, selector, wrong match, duplicates. Exhaustion is RETRY_EXHAUSTED.
+Do not write files, outputs, DB, or shared working tree. Return compact JSON only with lane, pages, shard, attempted, unique, captured, records, failure_codes, retry_counts, customer_center_click_count, status, evidence_note, model_line.
+
+
+Exclusive assignment:
+lane=C01
+tab=completed
+page(s)=1
+SHARD=2
+
+For U01, process Upcoming pages 1,2,3 sequentially, only your shard. For C01-C09, process only Completed page 1, only your shard. On page 9 record old-year rows as excluded_old_year. Do not access any other page.
+Paseo IAB collection is the active task, so I’m loading the Paseo operating instructions and the repository handoff context before touching the browser. I’ll keep this lane read-only and return only the requested JSON.
+[Browser List Tabs] {}
+The ownership check passed: this Paseo workspace had no open browser tabs, so there is no conflicting Agoda session. I’m locating the repository’s authenticated booking-list route and shard protocol details, then I’ll open exactly one Paseo tab.
+[Browser New Tab] {"url":"https://www.agoda.com/ko-kr/account/bookings.html"}
+[Browser Snapshot] {"browserId":"6f3b9eb3-9abe-4cfc-b182-f5abb8814210"}
+{"lane":"C01","pages":[1],"shard":2,"attempted":0,"unique":0,"captured":0,"records":[],"failure_codes":["CUSTOMER_CENTER_PANEL_VISIBLE"],"retry_counts":{"list_page_load":0,"detail_preclick":0},"customer_center_click_count":0,"status":"stopped","evidence_note":"Authenticated Agoda list loaded; visible customer-center controls detected before Completed navigation. No interaction performed.","model_line":"GPT-5 · high · Paseo DOM ownership/list gate"}

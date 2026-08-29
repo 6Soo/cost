@@ -1,0 +1,21 @@
+[User] 실제 live census에서 확인됐지만 현재 staging DB에 없는 Agoda 예약을 상세 수집하라. 이 배치의 정확한 대상 ID는 ["1648774677","1654553070","1657451233","1612461708","1634025641","1645655205","1631481737"] 이다. 모든 대상은 Completed 호텔 목록의 live census ID이며, 첫 ID 1755579869는 Completed 1페이지, 나머지는 Completed 3페이지에 있었다.
+
+규칙:
+- 이 workspace의 네 전용 Paseo IAB 세션/브라우저/탭 하나만 사용한다. 다른 agent의 browserId/tab을 사용하거나 새 agent·새 세션·중복 탭을 만들지 말라.
+- Windows Paseo IAB만 사용하고 Edge/UIA/CDP/다른 브라우저로 폴백하지 말라.
+- 파일, SQLite, artifact에는 절대 쓰지 말라. 결과는 최종 JSON 하나로만 반환한다.
+- 현재 Agoda bookings 목록에서 대상 ID가 붙은 카드의 data-element-name="mmb-booking-card"와 data-bookingid를 정확히 일치시켜 먼저 증명한다. ID가 없으면 오래된 artifact를 찾느라 전체 페이지를 무한 재탐색하지 말고 TARGET_NOT_PRESENT_AFTER_CENSUS를 기록한다.
+- 대상 카드가 항공이면 상세를 열지 말고 is_hotel=false 및 SKIPPED_FLIGHT를 기록한다.
+- 호텔 카드의 상세 진입은 카드 내부 data-element-name="blp-booking-item-button-edit" 하나만 browser_evaluate에서 선택·클릭한다. browser_click, snapshot ref, 순번/index, 좌표, 위치 range, 일반 텍스트 partial match는 금지한다.
+- 고객센터/도움말/지원 control은 존재 여부만 관찰하고 절대 클릭·호출하지 말라. 실제 chat dialog/root와 입력 placeholder "요청 사항을 선택하거나 직접 입력해 주세요"가 동시에 보이면 즉시 fail-closed하고 CUSTOMER_CENTER_PANEL_VISIBLE을 기록한다.
+- 목록 로딩은 최대 5회, 상세 진입은 대상당 최대 3회 bounded retry만 허용한다. 실패하면 같은 세션에서 다음 대상에 진행하되 무한 재시도하지 않는다.
+- 상세 성공 후 browser_back 또는 DOM 상태로 목록 복귀를 확인한 다음 다음 대상에 진행한다. 현재 URL과 선택 control을 기록한다.
+- 각 레코드에 booking_id, is_hotel, property_name, check_in, check_out, reservation_status, payment_state_or_collection_wording, currency, amount, card_type, card_last4, current_url, selected_control, customer_center_control_present, panel_visible, started_at, ended_at, duration_ms, failure_codes를 포함한다.
+- 전체 JSON에 status, batch, records, success_count, failed_count, skipped_count, aggregate_failure_codes, started_at, ended_at, duration_ms를 포함한다.
+지정된 7개 ID만 대상으로, 기존 전용 Paseo IAB 세션에서 목록 카드 증명 → 호텔 상세 수집 → 목록 복귀 확인 순서로 진행하겠습니다. 파일·DB·아티팩트에는 쓰지 않고 최종 JSON만 반환하겠습니다. 먼저 저장소의 최신 인계와 실행 규칙을 확인한 뒤 세션 소유권을 점검하겠습니다.
+[List Agents] {"cwd":"C:\\AX\\cost","includeArchived":false,"limit":50,"sinceHours":24}
+[Browser List Tabs] {}
+[List Pending Permissions] {}
+현재 이 실행 에이전트에 연결된 Paseo IAB 목록을 확인했지만 탭이 0개이며, 사용자가 금지한 새 탭·새 세션 생성 없이는 접근할 수 없습니다. 다른 에이전트의 browserId를 사용하거나 우회 브라우저를 열지 않고, 이 상태를 `PASEO_BROWSER_UNAVAILABLE`로 단일 보고하겠습니다.
+[Send Agent Prompt] {"agentId":"bdf58685-0475-4384-b34e-7ff02ac01e2f","background":false,"notifyOnFinish":false,"prompt":"worker_done: 현재 batch2 실행 에이전트의 전용 Paseo IAB browser_list_tabs 결과가 0개(No Paseo browser tabs are open)였습니다. 사용자 규칙상 browser_new_tab/새 세션/타 agent browserId 사용이 금지되어 수집을 시작할 수 없습니다. failure code=PASEO_BROWSER_UNAVAILABLE. 이 워커는 추가 재시도·브라우저 생성 없이 종료합니다."}
+{"status":"failed","batch":["1648774677","1654553070","1657451233","1612461708","1634025641","1645655205","1631481737"],"records":[],"success_count":0,"failed_count":7,"skipped_count":0,"aggregate_failure_codes":["PASEO_BROWSER_UNAVAILABLE"],"started_at":"2026-08-23T06:09:30+09:00","ended_at":"2026-08-23T06:10:16+09:00","duration_ms":46000}

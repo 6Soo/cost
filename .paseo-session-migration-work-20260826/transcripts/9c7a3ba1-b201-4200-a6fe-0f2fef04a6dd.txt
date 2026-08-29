@@ -1,0 +1,24 @@
+[User] CANARY ONLY — do not collect bookings and do not click any element.
+
+This agent has exclusive ownership of workspace AGODA-CANARY-panel-gate and must use Paseo IAB browser tools only. Do not use Edge/CDP/UIA, shell browser helpers, or any other browser. Do not write files, outputs, DB, or working tree.
+
+1) Call browser_list_tabs exactly once before opening anything. If any Agoda tab/browserId is already present, return JSON with failure_code SESSION_OWNERSHIP_UNKNOWN and stop.
+2) Call browser_new_tab once for https://www.agoda.com/ko-kr/account/bookings.html. If that call errors or times out, do not call browser_new_tab again. Call browser_list_tabs once; if exactly one newly-created Agoda tab is visible, use it; otherwise return NAVIGATION_STATE_UNKNOWN. Never create a second tab.
+3) After the tab is ready, use browser_snapshot and one browser_evaluate only. Do not click, type, scroll, select, hover, navigate, or invoke any support/help control.
+
+Use this exact read-only DOM classification in browser_evaluate:
+- visible(el): computed display != none, visibility != hidden, opacity != 0, bounding rect width/height > 0.
+- controls_present: any visible element whose data-element-name is blp-booking-item-agoda-customer-service or iris-chat-prompt-button, or whose visible label contains 고객센터/고객 센터/support/help/문의.
+- panel_text_present: a visible element (not merely a hidden template) whose normalized text contains the exact prompt “요청 사항을 선택하거나 직접 입력해 주세요”.
+- panel_heading_present: a visible element whose normalized text contains “아고다 고객 센터”.
+- panel_open = panel_text_present && panel_heading_present.
+The presence of support controls alone is NOT panel_open and must not fail the canary. If panel_open is true, do not interact and return CUSTOMER_CENTER_PANEL_VISIBLE. If only controls_present is true, return CUSTOMER_CENTER_CONTROL_PRESENT as a nonblocking observation.
+Return compact JSON only:
+{"status":"pass|blocked","tab_count":...,"browser_id":...,"url":...,"controls_present":...,"panel_text_present":...,"panel_heading_present":...,"panel_open":...,"failure_codes":[],"duplicate_tab_attempts":0,"customer_center_click_count":0,"note":...,"model_line":"▶ [MODEL] GPT-5.6 Luna · max · isolated Agoda panel-gate canary"}
+I’m using the Paseo skill because this canary requires an exclusive Paseo IAB workspace and strictly read-only browser inspection. I’ll verify the workspace/session context, then follow the exact one-tab/one-snapshot/one-evaluate gate without interacting with the page.
+The Paseo browser tools are available in the current agent context. I’m now performing the required single pre-open tab listing; I will treat any existing Agoda tab or browser ID as an ownership conflict and stop immediately.
+[Browser List Tabs] {}
+[Browser New Tab] {"url":"https://www.agoda.com/ko-kr/account/bookings.html"}
+The single tab-open call timed out. Per the gate, I will not retry opening a tab; I’m doing the one permitted post-timeout tab listing to determine whether exactly one new Agoda tab registered.
+[Browser List Tabs] {}
+{"status":"blocked","tab_count":0,"browser_id":null,"url":null,"controls_present":false,"panel_text_present":false,"panel_heading_present":false,"panel_open":false,"failure_codes":["NAVIGATION_STATE_UNKNOWN"],"duplicate_tab_attempts":0,"customer_center_click_count":0,"note":"browser_new_tab timed out; post-timeout listing showed no Agoda tab. No snapshot, evaluate, or interaction performed.","model_line":"▶ [MODEL] GPT-5.6 Luna · max · isolated Agoda panel-gate canary"}

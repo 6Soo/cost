@@ -1,0 +1,115 @@
+[User] 당신은 안정성·운영 전환 설계자다. 현재 dirty 변경을 보존하면서 단계적 전환, shadow run, 데이터·성능 기준선, 롤백과 회계 안전 게이트를 설계하라. 
+목표: C:\AX\cost와 C:\AX\reservation으로 이어지는 회사 비용 처리 파이프라인 전체를 경량화할 실행 계획을 독립 검토하라.
+범위: reservation 카페/일정 export와 댓글 활동성 증거, cost의 검증·멱등 import·authoritative trip_schedule, OTA/Agoda 브라우저 수집, 카드 RAW/정규화/projection/대사/후보/전기, 테스트·회귀·에이전트 오케스트레이션·권한/알림 비용을 모두 포함한다.
+현재 작업 트리는 dirty일 수 있다. C:\AX\cost와 C:\AX\reservation을 읽기 전용으로 조사하고 시작 시 git status와 핵심 파일의 snapshot digest를 기록하라. 파일·DB·JSON/output·브라우저·외부 서비스는 절대로 수정하지 말고, 권한 요청이나 새 에이전트 생성도 하지 마라.
+결과는 한국어로 다음을 포함하라: (1) 가장 큰 지연/복잡성 병목과 근거, (2) 제거·통합·캐시·증분화할 항목, (3) 품질/회계 안전성을 보존하는 불변식, (4) 단계별 마이그레이션 및 롤백 계획, (5) 측정 지표와 중단 조건, (6) 현재 구조에서 절대 건드리면 안 되는 경계.
+단순한 아이디어가 아니라 실제 저장소 구조에 맞춘 구체적 계획을 내고, 불확실한 사실은 추정이라고 표시하라. 최종 판정은 계획 검토이므로 PASS/FAIL 대신 REVIEW를 사용하라.
+두 저장소를 읽기 전용으로 점검해, 현재 dirty 상태와 핵심 경로의 스냅샷을 먼저 고정한 뒤 실제 구조에 맞춘 전환·롤백 계획을 작성하겠습니다. কোনো 파일·DB·브라우저·외부 서비스는 변경하지 않습니다.
+스냅샷을 기록했습니다. 두 저장소 모두 현재 변경이 있으며, 특히 reservation의 새 일정 export와 cost의 새 importer가 아직 추적되지 않은 상태입니다. 이제 이 경계의 스키마·멱등성·기존 shadow 산출물 흐름을 확인해 경량화 후보를 구체화하겠습니다.
+## REVIEW — 경량화 전환 계획
+
+읽기 전용 조사 완료. 파일·DB·JSON/output·브라우저·외부 서비스는 수정하지 않았고, 테스트도 실행하지 않았습니다.
+
+스냅샷 기준:
+
+- `cost` HEAD `92288ba…cff7`, dirty: 수정 2개·미추적 13개
+- `reservation` HEAD `b9fd92…e8e9`, dirty: 수정 1개·미추적 3개
+- 핵심 신규 경계 SHA-256:
+  - `reservation/src/lib/scheduleExport.ts`: `e2fc67…747f87`
+  - `cost/ledger/domain/reservation_schedule_export.py`: `4e9507…185f7`
+  - `cost/tools/import_reservation_schedule.py`: `6f53b7…1cf20`
+  - `cost/ledger/domain/direct_ota_lifecycle_support.py`: `60cda2…dd7f`
+
+### 1. 가장 큰 병목과 근거
+
+1. **Agoda 산출물의 전체 SQLite 복제 연쇄**  
+   후보 → proposed → accounting draft → journal shadow 단계마다 약 17–18.5MB DB를 복제합니다. `v3`, `clean`, `final`, `rebuild`가 함께 존재하고, 동일 크기·동일 상세 JSON의 중복도 확인됩니다. 이 구조는 계산보다 I/O, 보관, 해시·재검증·검토 대상의 폭발을 만듭니다.
+
+2. **전체 회귀를 매번 수행하는 비용**  
+   cost는 Python 테스트 92개, 약 17,199줄이며, 최근 전체 스위트 기준 899개·약 4.7분입니다. `test_direct_projection`은 과거 304초 제한으로 완주하지 못했습니다. 전체 테스트는 release 후보에만 남기고, 변경 영향 기반 검증을 기본 경로로 내려야 합니다.
+
+3. **Agoda 브라우저 작업의 운영 복잡성**  
+   실제 병목은 CPU가 아니라 인증 세션·opaque 상세 경로·고객센터 패널 fail-closed·재시도 한도입니다. 레거시 Windows/UIA/CDP/supervisor 파일은 현재 차단되어도 코드와 운영 기억을 늘립니다. 현재 IAB 단일 세션 정책은 유지하되, 실행 경로는 하나로 줄여야 합니다.
+
+4. **reservation → cost 일정 경계의 이중 기록**  
+   현재 export/import는 잘 설계된 편입니다. export의 `exported_at`/관찰시각을 내용 해시에서 제외하고, import는 savepoint·source key·두 번째 import 0 insert를 갖습니다. 다만 CLI가 항상 두 번 import하는 검증 방식이라 운영 실행에도 쓰면 불필요한 쓰기와 시간이 생깁니다.
+
+5. **카페 일정/댓글 증거의 반복 질의 가능성** *(추정)*  
+   `scheduleExport.ts`는 tour별 source 원문을 찾는 상관 서브쿼리와 archive 집계를 사용합니다. 현재 규모에서는 작을 수 있으나, 카페 tour가 늘면 export 매번 전체 재계산이 됩니다.
+
+### 2. 제거·통합·캐시·증분화
+
+- `outputs/`의 Agoda 산출물은 “입력 manifest + 단일 canonical DB + semantic audit”로 통합합니다.
+  - `final`, `rebuild`는 동일 semantic hash일 때 별도 산출물이 아니라 검증 기록으로만 보관합니다.
+  - `clean`만 canonical 후보로 승격하고, 기존 파일은 삭제하지 말고 legacy/archive로 분류합니다.
+- SQLite 전체 복제 대신:
+  - immutable 입력 DB의 SHA,
+  - 단계별 append-only `run_manifest`,
+  - 변경된 `booking_id`/`payment_id` 집합,
+  - semantic hash  
+  를 기준으로 변경 파티션만 materialize합니다.
+- reservation export는 `tours`, `cafe_tours`, `cafe_archive`, `cafe_archive_comments`의 watermark 또는 content hash가 변한 tour만 다시 만들고, 변경 없는 레코드는 이전 PII-free record를 재사용합니다.
+- import는 `--verify-idempotency`를 별도 CI/shadow 옵션으로 분리합니다. 운영 import는 한 번만 수행하고, 동일 export hash면 read-only “already imported” 결과를 냅니다.
+- 테스트는 세 계층으로 나눕니다.
+  - PR/작업: 수정 모듈의 단위·계약 테스트
+  - shadow: source→projection→candidate→shadow의 semantic 비교
+  - release: 전체 899개 회귀와 Windows/POSIX 조건별 결과
+- 현재 차단된 legacy Agoda UIA/CDP 도구는 즉시 삭제하지 말고 “차단 shim” 하나로 통합합니다. 실제 IAB 수집 계약만 문서·테스트·실행 manifest에 남깁니다.
+- 알림은 각 worker의 성공 알림을 없애고, run 단위의 `started / blocked / completed` 세 상태만 부모가 요약합니다. 권한 요청도 한 번의 묶음 요청 외에는 재시도하지 않습니다.
+
+### 3. 보존해야 할 불변식
+
+- `trip_schedule` 권위는 `event_year`, 명시 `starts_on`/`ends_on`, inclusive 종료 의미, `authority_kind/status`, source SHA가 모두 있어야 합니다.
+- `mm/dd/window`, 결제일, 상호 지역명은 후보 생성·설명만 가능하며 여행 배정·전기 근거가 될 수 없습니다.
+- 숙박 `service_end_on`은 checkout-exclusive, 일정 `ends_on`은 마지막 서비스일 inclusive입니다. 변환은 중앙 정규화기만 수행합니다.
+- reservation export에는 게시글 본문·댓글 본문·작성자·연락처 등 PII가 절대 포함되지 않습니다. 댓글 활동성은 완결 census·임계값·snapshot SHA가 있는 증거일 뿐 회계 확정 근거가 아닙니다.
+- candidate/proposed/ambiguous/missing은 `posting_eligible=0`을 유지합니다. 1:1 강한 후보 외에는 Cartesian 링크를 만들지 않습니다.
+- 각 shadow batch는 차변=대변, 원천 결속, 금액 통화 의미, idempotency key를 갖고 기존 `journal_entries`와 분리됩니다.
+- 외부 전기는 Gate4 HAN equality, Gate5, Gate6 baseline, release attestation이 모두 충족되기 전에는 0행이어야 합니다.
+- Agoda는 Paseo IAB 전용·세션당 단일 작업자·예약 ID로 증명한 카드 내부 control만 허용·고객센터 패널 실제 표시 시 fail-closed를 유지합니다.
+
+### 4. 단계별 전환·롤백
+
+| 단계 | 실행 | 통과 기준 | 롤백 |
+|---|---|---|---|
+| 0. 동결 | 현재 dirty tree와 모든 입력 SHA를 run manifest로 기록 | 코드·입력·출력 기준선 고정 | 변경 금지, manifest만 새로 생성 |
+| 1. 관측 | 기존 파이프라인과 병렬로 PII-free schedule export 및 changed-set 계산 | 기존 권위 일정과 semantic hash 일치 | 새 export 소비 중지 |
+| 2. Shadow | 증분 candidate/accounting/shadow를 기존 full-copy 결과와 비교 | booking/payment 집합, 금액, blocked 상태, semantic hash 일치 | canonical pointer를 기존 full artifact로 복귀 |
+| 3. 제한 전환 | 신규 manifest를 읽기 전용 projection 및 검토 큐에만 사용 | 누락·중복·권위 위반 0, 성능 목표 충족 | projection reader를 기존 snapshot으로 전환 |
+| 4. 운영 전환 | 신규 경로를 default로 하되 전기는 계속 별도 gate | 2~3회 연속 shadow 동등성, Gate4/5/6 충족 | 즉시 이전 manifest pointer로 rollback |
+| 5. 정리 | legacy 경로를 사용 불가 shim으로 축소 | 한 회계기간 동안 rollback 미발생 | 삭제가 아니라 archive/restore 가능 상태 유지 |
+
+롤백은 DB를 역수정하지 않습니다. **실행 manifest와 reader pointer를 직전 검증된 immutable artifact로 되돌리는 방식**이어야 합니다.
+
+### 5. 측정 지표와 중단 조건
+
+측정 기준선은 첫 단계에서 현재 full run으로 고정합니다.
+
+- 시간: export, import, projection, candidate, shadow, 전체 release 회귀의 p50/p95
+- I/O: 새로 쓴 SQLite/JSON 바이트, full DB copy 횟수, duplicate artifact 비율
+- 증분성: changed tour/booking/payment 수, cache hit율, idempotent 재실행 insert 수
+- 품질: source/target 집합 차이, semantic hash 불일치, 중복 링크, authority 위반, FK/integrity 오류
+- 회계: 차대 합계 차이, posting row 수, blocked 항목의 allocation/journal 생성 수
+- 운영: IAB 세션 소유권 오류, 재시도 소진, customer-center panel 차단, 권한 요청·알림 수
+
+즉시 중단 조건:
+
+- authoritative schedule가 감소·변경되는데 정확한 source SHA 차이가 설명되지 않음
+- candidate/proposed가 allocation·journal·posting으로 새어 나감
+- shadow 금액·batch 수·semantic hash가 기존 기준선과 불일치
+- idempotent 재실행에서 예상 외 insert 또는 source lineage 충돌
+- Agoda 세션 소유권 불명, navigation 상태 불명, 고객센터 패널 실제 표시
+- 전체 테스트가 아닌 **영향 범위 계약 테스트** 실패
+- 새 경로가 기준선보다 느리거나 더 많은 full DB copy를 만드는 상태가 2회 연속 발생
+
+### 6. 절대 건드리면 안 되는 경계
+
+- `load_authoritative_trip_schedule()`를 우회해 legacy window 또는 결제일로 여행을 확정하는 경로
+- reservation의 원문 카페 글·댓글 PII를 cost로 넘기는 경로
+- `proposed`와 `shadow_only`를 final/posting으로 승격하는 편의 플래그
+- Agoda IAB 외 브라우저 자동화, 다른 작업자와의 인증 세션 공유, 일반 버튼 index/ref 기반 상세 진입
+- 기존 원본 카드 RAW, 봉인 staging DB, 기준선 artifact를 in-place 수정하는 작업
+- 실패한 회귀를 삭제·완화하거나 gate 결과를 대체하는 변경
+- 외부 전기·배포·알림 발송을 shadow 성공만으로 허용하는 변경
+
+결론적으로, 현재 구조는 안전 장치 자체는 강하지만 “전체 복제 + 전체 재검증 + 중복 산출물”이 경량화의 주 대상입니다. 먼저 **콘텐츠 주소 기반 manifest와 증분 changed-set**을 도입하고, 전기 경계·권위 일정·IAB 안전계약은 그대로 고정하는 전환이 적합합니다.

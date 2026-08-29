@@ -1,0 +1,15 @@
+{
+  "artifact_kind": "agoda_accounting_draft_v3_ota_extended",
+  "rule_id": "agoda-linked-lodging-accounting-draft-v3-ota-extended",
+  "row_count": 113,
+  "source_scope": 113,
+  "authority_document_sha256": "9f4c647eea11f4798694184146cd426367a9c99e4181f5274405166247b02ae8",
+  "input_database_sha256": "f9f58400e75de8f6f92dfb1551e4adcbfaf89bcd15b99def6230f1f8e5870aee",
+  "input_audit_sha256": "a0340261414df06f5dbac6384e892119e651ce748ba908e73213bfb49e27c72c",
+  "manifest_id": "a134b80e4cf249888bc6da9961e8af6f3503f025f838daad908b0dfd9f19d3eb",
+  "bound_unique_count": 90,
+  "authority_ambiguous_count": 0,
+  "authority_missing_count": 0,
+  "payment_year_terminal_count": 23,
+  "total_amount_krw": 27879494
+}

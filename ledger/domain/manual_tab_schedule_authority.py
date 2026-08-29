@@ -157,9 +157,8 @@ def _parse_title_period(title: str | None) -> tuple[int | None, str | None, str 
 
     Dates are read from the stored workbook title only.  The tab's ``0404``
     prefix is intentionally not treated as a date source, and no duration is
-    inferred when the title omits an end date.  The title's end value is a
-    checkout/departure date, so the authority's inclusive last-service date
-    is one day earlier.
+    inferred when the title omits an end date.  The title's end value is the
+    inclusive last service date (trip last day).
     """
 
     if not title:
@@ -178,7 +177,7 @@ def _parse_title_period(title: str | None) -> tuple[int | None, str | None, str 
         end_exclusive = date(end_year, end_month, end_day)
         if end_exclusive <= starts:
             return event_year, None, None, "explicit_period_invalid"
-        ends = end_exclusive - timedelta(days=1)
+        ends = end_exclusive
     except ValueError:
         return event_year, None, None, "explicit_period_invalid"
     return event_year, starts.isoformat(), ends.isoformat(), None
