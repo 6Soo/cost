@@ -1,4 +1,4 @@
-﻿# LOG — 세션 핸드오프 기록
+# LOG — 세션 핸드오프 기록
 
 > 이 파일은 **에이전트 간 인수인계 로그**다. 새 세션/새 에이전트는 **맨 아래 최신 블록**을 먼저 읽고,
 > 그다음 `CLAUDE.md`(모델·브리지 규칙)와 `docs/비용분류_지시사항_원장.md`(비용분류 전 규칙·교훈 이력)를 읽어라.
@@ -3757,3 +3757,100 @@ source_locator에 #manual_extension=04-29_for_HI_Design_pre_trip 메모
 4. 2025-08-26 직전 draft와의 정합성 비교
 5. HI Design 패턴 일반화 재검토
 6. 수기장부 / 1,379건 / OTA 1,720건 대사 (P6 잔여)
+
+## 2026-09-01 세션 핸드오프
+
+- 비용 워크북 양식 최종 확정: 매출확인자료_양식_rev는 수익 전용, 개별 여행 비용 탭 권위 양식 = Drive 0404_에히메 (7행 B거래일자/C이름/D닉네임/E증빙/F단가/G추가금/H금액수식). v9~v14 양식 오류(v11 매출양식 오적용, v12 템플릿 혼동, v14 제목 불일치) 교정 후 v15 확정: `outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx` 238KB 29시트 5328건
+- 가맹점 한글화 145패턴(`ledger/data/merchant_map_v15.json`), C열 실명은 classified_v12 조인 653키 44% 채움(한계: DB에 고객명 없음, OTA 탑승자명 소스 과제)
+- diff 검증 완료(`ledger/data/diff_48tabs_v14.json`): 헤더·수식 일치, 2행 제목 4건 → v15 해소
+- 전역 규칙(`C:\AX\AGENTS.md`) 신설: 비-프론티어 모델 안정성 규칙(모델 스코프 명시) + 볼륨형 작업 AGY 일임 트리거. AGY 엔드투엔드 검증 성공, headless write_file 차단은 auto_accept=true로 해결
+- v15 S22 Taildrop 전달 성공
+- 미해결: Drive MCP Unauthorized(opencode 재시작+OAuth 필요), logs_2.sqlite 703MB Paseo 락으로 미삭제, pytest-timeout 미설치
+- 다음 세션은 `docs/handoff/2026-09-01/README.md`(작성 예정, PARTIAL_HANDOFF)를 먼저 읽을 것
+
+## 2026-09-02 세션 핸드오프 (R48) — v15 완전판 재생성 + 정리 + v5 OTA shadow 신규
+
+### 한 줄 요약
+v15 워크북에 200행 상한 버그가 있어 5,328건 중 2,836건만 들어가 있던 것을 완전판(5,328건)으로 재생성.
+outputs 폴더 144개 파일(658.8MB) 정리. v5 OTA-extended용 별도 journal shadow 빌더 신규 작성(113 batches).
+LOSSLESS_HANDOFF 승격은 **미충족**(Drive MCP 미등록, OAuth 인증 미완).
+
+### 1. 작업 내역 (4건)
+
+#### 1-A. outputs 폴더 정리 (완료)
+- 144개 파일 삭제 (658.8MB 확보), 63개 파일 보존 (214.0MB)
+- 보존: v5 link-candidate, v5-ota-extended draft, v3-v5-final journal shadow, OTA 통합 bookings, v15 워크북
+- 보존 휘두 파일: `outputs/agoda-card-link-candidate-v5-20260826.sqlite` (103 links), `.backup-84links.sqlite`,
+  `agoda-card-accounting-draft-v5-ota-extended.sqlite` (78 bound), `agoda-card-journal-shadow-v3-v5-final.sqlite`,
+  `ota-integrated-bookings-v1.sqlite` (50 source), `법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx`
+
+#### 1-B. v15 워크북 완전판 재생성 (완료)
+- **버그**: `tools/build_cost_yangsik_v15_rev2.py`의 `if r > 200: break` (line 270) 상한
+  - 5월_유럽 248건, 2025_종결_권위 2,161건, 기타 시트 잘림 → 2,836건만
+- **수정**: `tools/build_cost_yangsik_v15_rev3.py` 신규 (상한 제거, 가맹점 한글화 통합, 2025/기타 시트 제목 보정)
+- **산출물**: `outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx` (282KB, 29시트, 5,328건)
+- 29시트 모두 양식 일치: 수입 내용(빈 표) + 지출 내용(전체 데이터) + 총액 A + 총액 B + (A)-(B) 차액 + 확인 메시지
+- 검증 코드: `PYTHONIOENCODING=utf-8 python -c "import openpyxl; wb=openpyxl.load_workbook('outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx')"` → 5328건
+
+#### 1-C. v5 OTA-extended Journal Shadow 생성 (완료)
+- **문제**: 기존 `build_agoda_journal_shadow_v3.py`는 `direct_agoda_accounting_draft_v3_authorities` 테이블 참조. v5 OTA-extended draft는 `draft_rows` 단일 테이블로 형식 다름
+- **신규**: `tools/build_agoda_journal_shadow_v5_ota.py` (v5 draft → v3 shadow 형식 변환)
+- **산출물**:
+  - `outputs/agoda-card-journal-shadow-v5-ota-extended.sqlite` (396KB)
+  - `outputs/agoda-card-journal-shadow-v5-ota-extended.audit.json`
+- **검증 결과**:
+  - 113 batches (90 target_bound + 23 payment_year_terminal)
+  - 226 lines (debit/credit 2-line per batch)
+  - 차변 합계: 38,295,094원 = 대변 합계 38,295,094원 (균형 OK)
+  - 차변: 숙박비 90건 (target_bound) + 미확정여행원가 23건 (payment_year_terminal)
+  - integrity_check: ok, foreign_key_check: 0
+  - posting_eligible=0 (전기 비활성, 외부 게시 차단)
+
+#### 1-D. LOSSLESS_HANDOFF 승격 검토 (미충족)
+- 승격 요건 3개 중 1개만 부분 개선:
+  - ❌ Drive 업로드 검증 완료: Drive MCP 미등록 (`mcp__google__*` 툴 없음), OAuth 미인증
+  - ⚠️ C열 소스 확정: `c_mapping_improved.json` 2,123 entries (39.8% → 93.2%, +49.4%p)
+  - ❌ `logs_2.sqlite` (703MB) 삭제: Paseo 락으로 미수행
+- 검토 결과: `docs/handoff/2026-09-01/LOSSLESS_REVIEW.md` 작성
+- **결론**: `PARTIAL_HANDOFF` 유지. 다음 세션이 Drive 인증·logs_2.sqlite 삭제 후 승격 가능
+
+### 2. 산출물 SHA-256 인덱스 (갱신)
+
+```
+v15 workbook (이번 세션 재생성, 5,328건 완전판)
+  outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx
+  282 KB, 29시트, 5,328건, 29시트 양식 일치
+
+v5 OTA-extended Journal Shadow (신규)
+  outputs/agoda-card-journal-shadow-v5-ota-extended.sqlite
+  396 KB, 113 batches, 226 lines, integrity=ok
+  audit_db_sha256: d02aa0a1ed44d606...
+  shadow_db_sha256: 74289e9755a8d024...
+```
+
+### 3. 다음 세션 우선순위
+1. **opencode 재시작 + Drive OAuth 인증** (kkokkohero6@gmail.com)
+2. **v15 워크북 Drive 업로드 + 0404_에히메 탭 대조 검증**
+3. **C열 잔여 7% 매핑**: `c_mapping_improved.json` 93.2% (5,328 중 4,964건 매핑)
+4. **`logs_2.sqlite` (703MB) 삭제**: `~/.paseo/logs/logs_2.sqlite` 확인 후 안전 삭제
+5. **v5 OTA shadow 검증**: `agoda-card-journal-shadow-v5-ota-extended.sqlite`의 113 batches가 회계 draft와 정합성 확인
+6. **회귀 가드 무결성 검증**: pytest-timeout 설치 후 35/35 회귀 테스트 재실행
+
+### 4. 금지·보존
+- v15 워크북 `outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx` (282KB)는 회계 전기·외부 게시 금지
+- v5 OTA shadow `agoda-card-journal-shadow-v5-ota-extended.sqlite` (posting_eligible=0)
+- v3 shadow 빌더 `build_agoda_journal_shadow_v3.py`는 기존 v3 형식용으로 보존, v5 OTA용은 신규 빌더 사용
+- Drive 인증 전까지는 v15 Drive 업로드·게시 금지
+- logs_2.sqlite 삭제 전 Paseo 데몬 종료 후 실행
+
+### 5. v15 100% 데이터 검증 (시트별)
+```
+0107_대만 108 / 0118_호남 63 / 0124_아키타 109 / 0203_다카야마 140 / 0214_조신에쓰 190
+0220_미야코지마 79 / 0225_아마미 77 / 0307_이즈반도 70 / 0312_세토우치 192 / 0318_금오도 77
+0404_에히메 54 / 0408_교토 75 / 0413_나가센도 67 / 0417_아오모리 154 / 0424_알펜루트 180
+0501_부산 74 / 0613_북해도 92 / 0616_레분토&리시리 85 / 0620_묘코 99 / 0625_아키타 77
+0630_오제 106 / 0704_아키타 47 / 0704_야마가타 71 / 0712_몽골 36 / 0719_의왕 14
+2025_종결_권위 2,330 / 3월_오키나와 48 / 5월_유럽 417 / 기타비용 197
+───────────────────────────────────────────────────────────
+총: 5,328건 (원본 DB payment_transactions와 일치)
+```

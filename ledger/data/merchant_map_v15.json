@@ -1,0 +1,298 @@
+{
+  "stats": {
+    "total_distinct": 1924,
+    "already_mapped": 52,
+    "new_mapped": 105,
+    "remaining_unmapped": 1767
+  },
+  "unmapped_top": [
+    {
+      "merchant": "이니시스(빌링)-고투게이트코리아유",
+      "count": 74,
+      "sum_krw": 30182650,
+      "proposed_ko": "이니시스(빌링)-고투게이트코리아유"
+    },
+    {
+      "merchant": "KCP(결제대행)-(주)트래블로버",
+      "count": 63,
+      "sum_krw": 4774250,
+      "proposed_ko": "KCP-트립닷컴"
+    },
+    {
+      "merchant": "Partners on Booking BV",
+      "count": 45,
+      "sum_krw": 453106,
+      "proposed_ko": "부킹파트너스"
+    },
+    {
+      "merchant": "ENEOS-SS                 Tokyo        JP",
+      "count": 41,
+      "sum_krw": 2802418,
+      "proposed_ko": "에네오스(주유소)"
+    },
+    {
+      "merchant": "이지페이-와이드모바일(주)",
+      "count": 29,
+      "sum_krw": 816700,
+      "proposed_ko": "이지페이-와이드모바일(주)"
+    },
+    {
+      "merchant": "FAMILYMART",
+      "count": 27,
+      "sum_krw": 317825,
+      "proposed_ko": "패밀리마트"
+    },
+    {
+      "merchant": "Booking.com Hotel",
+      "count": 27,
+      "sum_krw": 15235451,
+      "proposed_ko": "Booking.com Hotel"
+    },
+    {
+      "merchant": "LAWSON",
+      "count": 26,
+      "sum_krw": 285143,
+      "proposed_ko": "로손"
+    },
+    {
+      "merchant": "BKG*HOTEL AT BOOKING.C",
+      "count": 25,
+      "sum_krw": 6153971,
+      "proposed_ko": "부킹닷컴"
+    },
+    {
+      "merchant": "카카오_택시_선승인",
+      "count": 24,
+      "sum_krw": 0,
+      "proposed_ko": "카카오_택시_선승인"
+    },
+    {
+      "merchant": "SUSHIRO",
+      "count": 24,
+      "sum_krw": 1086533,
+      "proposed_ko": "SUSHIRO"
+    },
+    {
+      "merchant": "JR EAST                  SIBUYAKU     JP",
+      "count": 24,
+      "sum_krw": 1179910,
+      "proposed_ko": "JR EAST"
+    },
+    {
+      "merchant": "철도승차권  발매",
+      "count": 23,
+      "sum_krw": 470900,
+      "proposed_ko": "철도승차권  발매"
+    },
+    {
+      "merchant": "이니시스(빌링)_1-고투게이트코리아유",
+      "count": 23,
+      "sum_krw": -2767867,
+      "proposed_ko": "이니시스(빌링)_1-고투게이트코리"
+    },
+    {
+      "merchant": "제주항공-제주항공",
+      "count": 22,
+      "sum_krw": 4592400,
+      "proposed_ko": "제주항공-제주항공"
+    },
+    {
+      "merchant": "TOYOKO INN",
+      "count": 22,
+      "sum_krw": 8710026,
+      "proposed_ko": "TOYOKO INN"
+    },
+    {
+      "merchant": "카카오T택시_가승인",
+      "count": 20,
+      "sum_krw": 0,
+      "proposed_ko": "카카오T택시_가승인"
+    },
+    {
+      "merchant": "ENEOS-SS",
+      "count": 20,
+      "sum_krw": 1684437,
+      "proposed_ko": "에네오스(주유소)"
+    },
+    {
+      "merchant": "IDEMITSU                 TOKYO        JP",
+      "count": 19,
+      "sum_krw": 1378154,
+      "proposed_ko": "IDEMITSU"
+    },
+    {
+      "merchant": "Hotel at Booking.com",
+      "count": 19,
+      "sum_krw": 8411547,
+      "proposed_ko": "Hotel at Booking.c"
+    },
+    {
+      "merchant": "TOYOKO INN               Tokyo        JP",
+      "count": 18,
+      "sum_krw": 3719451,
+      "proposed_ko": "TOYOKO INN"
+    },
+    {
+      "merchant": "SEVEN-ELEVEN",
+      "count": 18,
+      "sum_krw": 229214,
+      "proposed_ko": "세븐일레븐"
+    },
+    {
+      "merchant": "SEICOMART",
+      "count": 17,
+      "sum_krw": 252001,
+      "proposed_ko": "SEICOMART"
+    },
+    {
+      "merchant": "JR EAST SHOPPING CENTER  SIBUYAKU     JP",
+      "count": 17,
+      "sum_krw": 223997,
+      "proposed_ko": "JR EAST SHOPPING C"
+    },
+    {
+      "merchant": "KLOOK(클룩)",
+      "count": 16,
+      "sum_krw": 885930,
+      "proposed_ko": "클룩"
+    },
+    {
+      "merchant": "SUSHIRO                  SUITA        JP",
+      "count": 15,
+      "sum_krw": 551490,
+      "proposed_ko": "SUSHIRO"
+    },
+    {
+      "merchant": "STARBUCKS COFFEE JAPAN   Tokyo        JP",
+      "count": 15,
+      "sum_krw": 130079,
+      "proposed_ko": "STARBUCKS COFFEE J"
+    },
+    {
+      "merchant": "LIONDOR",
+      "count": 15,
+      "sum_krw": 252061,
+      "proposed_ko": "LIONDOR"
+    },
+    {
+      "merchant": "KATAYAMAZUONSEN NAGAYA",
+      "count": 15,
+      "sum_krw": 237984,
+      "proposed_ko": "KATAYAMAZUONSEN NA"
+    },
+    {
+      "merchant": "HIGASHINIHONKOUSOKUDOURO(Tokyo        JP",
+      "count": 14,
+      "sum_krw": 139060,
+      "proposed_ko": "HIGASHINIHONKOUSOK"
+    }
+  ],
+  "full_map_additions": {
+    "이니시스(빌링)-고투게이트코리아유": "이니시스(빌링)-고투게이트코리아유",
+    "KCP(결제대행)-(주)트래블로버": "KCP-트립닷컴",
+    "Partners on Booking BV": "부킹파트너스",
+    "ENEOS-SS                 Tokyo        JP": "에네오스(주유소)",
+    "이지페이-와이드모바일(주)": "이지페이-와이드모바일(주)",
+    "FAMILYMART": "패밀리마트",
+    "Booking.com Hotel": "Booking.com Hotel",
+    "LAWSON": "로손",
+    "BKG*HOTEL AT BOOKING.C": "부킹닷컴",
+    "카카오_택시_선승인": "카카오_택시_선승인",
+    "SUSHIRO": "SUSHIRO",
+    "JR EAST                  SIBUYAKU     JP": "JR EAST",
+    "철도승차권  발매": "철도승차권  발매",
+    "이니시스(빌링)_1-고투게이트코리아유": "이니시스(빌링)_1-고투게이트코리",
+    "제주항공-제주항공": "제주항공-제주항공",
+    "TOYOKO INN": "TOYOKO INN",
+    "카카오T택시_가승인": "카카오T택시_가승인",
+    "ENEOS-SS": "에네오스(주유소)",
+    "IDEMITSU                 TOKYO        JP": "IDEMITSU",
+    "Hotel at Booking.com": "Hotel at Booking.c",
+    "TOYOKO INN               Tokyo        JP": "TOYOKO INN",
+    "SEVEN-ELEVEN": "세븐일레븐",
+    "SEICOMART": "SEICOMART",
+    "JR EAST SHOPPING CENTER  SIBUYAKU     JP": "JR EAST SHOPPING C",
+    "KLOOK(클룩)": "클룩",
+    "SUSHIRO                  SUITA        JP": "SUSHIRO",
+    "STARBUCKS COFFEE JAPAN   Tokyo        JP": "STARBUCKS COFFEE J",
+    "LIONDOR": "LIONDOR",
+    "KATAYAMAZUONSEN NAGAYA": "KATAYAMAZUONSEN NA",
+    "HIGASHINIHONKOUSOKUDOURO(Tokyo        JP": "HIGASHINIHONKOUSOK",
+    "카카오T일반택시_0": "카카오T일반택시_0",
+    "아시아나항공": "아시아나항공",
+    "SMAREGI                  OSAKA        JP": "SMAREGI",
+    "(주)진에어": "(주)진에어",
+    "핀다이렉트": "핀다이렉트",
+    "트립닷컴_이니시스": "트립닷컴",
+    "PRESIDENT                TAIPEI       TW": "PRESIDENT",
+    "NISHINIHONKOUSOKUDOURO   Tokyo        JP": "NISHINIHONKOUSOKUD",
+    "JA-SS                    TOUKYOTO     JP": "JA-SS",
+    "인터넷상거래_1-주식회사 어드벤처코리아": "인터넷상거래_1-주식회사 어드벤처",
+    "BOSSFOODSMARKET          TAKAYAMA     JP": "BOSSFOODSMARKET",
+    "한국해운조합": "한국해운조합",
+    "티켓결제(온라인)_NICE": "티켓결제(온라인)_NICE",
+    "우정사업본부(우체국)": "우정사업본부(우체국)",
+    "아성다이소": "아성다이소",
+    "쏘카_나이스": "쏘카_나이스",
+    "RAKUTENTRAVELKOKUNAISH   TOKYO        JP": "RAKUTENTRAVELKOKUN",
+    "CHITOSE AIRPORT": "CHITOSE AIRPORT",
+    "AGODA                    TOKYO        JP": "아고다-JP",
+    "SUKIYA                   Tokyo        JP": "SUKIYA",
+    "SUKAIRA-KU GURU-PU       Tokyo        JP": "SUKAIRA-KU GURU-PU",
+    "KT유선상품자동납부": "KT유선상품자동납부",
+    "JR EAST SHOPPING CENTE": "JR EAST SHOPPING C",
+    "JR CENTRAL               Tokyo        JP": "JR CENTRAL",
+    "HIGHWAY TOLL": "HIGHWAY TOLL",
+    "ESCOTA VINCI             MANDELIEU CEDFR": "ESCOTA VINCI",
+    "AGODA.COM JEJU MOSEU": "아고다-MOSEU",
+    "(주)제주항공(ISP)": "(주)제주항공(ISP)",
+    "법원행정처": "법원행정처",
+    "TOYOTA CARD/JAPAN        AOMORI       JP": "TOYOTA CARD/JAPAN",
+    "SHINCHITOSEKUUKOUTA-MINARTokyo        JP": "SHINCHITOSEKUUKOUT",
+    "SEAFOOD SHOP KAFUKA": "SEAFOOD SHOP KAFUK",
+    "NICE_산림휴양시설-국립진안고원산림치유원": "NICE_산림휴양시설-국립진안고원",
+    "NAKAIYA                  GUNMA        JP": "NAKAIYA",
+    "MITSUBISHIMATERIARUNAO   KAGAWA       JP": "MITSUBISHIMATERIAR",
+    "LIONDOR                  AIDUWAKAMATSUJP": "LIONDOR",
+    "INUJIMASEIRENSHOCAFE": "INUJIMASEIRENSHOCA",
+    "AJIMASHITEI AOMORIKUKOTENAOMORISHI    JP": "AJIMASHITEI AOMORI",
+    "AGODA.COM NEW AKAN H": "아고다-H",
+    "UNIQLO CO.,LTD           Tokyo        JP": "UNIQLO CO.,LTD",
+    "TYUUSYARYOUKIN           Tokyo        JP": "TYUUSYARYOUKIN",
+    "TNF/HH SHIRETOKO         Toyama       JP": "TNF/HH SHIRETOKO",
+    "RINGER HUT PASAR MAKUHARICHIBA        JP": "RINGER HUT PASAR M",
+    "MCDONALD S               Tokyo        JP": "MCDONALD S",
+    "JF KAFUKA MARINE STORE": "JF KAFUKA MARINE S",
+    "HARUNIRE TERRACE": "HARUNIRE TERRACE",
+    "GRANDSUNPIA HACHINOHE": "GRANDSUNPIA HACHIN",
+    "BKG*Booking.com Hotel    Amsterdam    NL": "부킹닷컴",
+    "BELC": "BELC",
+    "AGODA.COM SUIKOEN RY": "아고다-RY",
+    "AEON SHIMIZU": "AEON SHIMIZU",
+    "AEON KUSHIRO": "AEON KUSHIRO",
+    "카카오 T_카카오페이": "카카오 T_카카오페이",
+    "바로탄탄신경외과의원": "바로탄탄신경외과의원",
+    "대표_카카오페이-트립닷컴": "트립닷컴",
+    "금호리조트(주)화순": "금호리조트(주)화순",
+    "TOYOTARENTALEASECHIBA    CHIBA        JP": "TOYOTARENTALEASECH",
+    "TNF/HH SHIRETOKO": "TNF/HH SHIRETOKO",
+    "SURUGAYAUOICHI ASUMOTEN  GIFU         JP": "SURUGAYAUOICHI ASU",
+    "NAOSHIMANEWMUSEUMOFART   Tokyo        JP": "NAOSHIMANEWMUSEUMO",
+    "NAKAIYA": "NAKAIYA",
+    "MAXVALUTSURUOKAMINAMI": "MAXVALUTSURUOKAMIN",
+    "MASHIYUKORESUTOHAUSU     HOKKAIDO     JP": "MASHIYUKORESUTOHAU",
+    "MANTENCURRY              CHIBA        JP": "MANTENCURRY",
+    "Klook Travel Tech Ltd": "Klook Travel Tech",
+    "KITAGAWA VILLAGE MONETS  Tokyo        JP": "KITAGAWA VILLAGE M",
+    "JF KAFUKA MARINE STORE   Tokyo        JP": "JF KAFUKA MARINE S",
+    "ICHINOMATA ONSEN KANKO": "ICHINOMATA ONSEN K",
+    "GRAN MART                AKITA        JP": "GRAN MART",
+    "FANG SHAN DI QU NONG H  Pingtung Coun TW": "FANG SHAN DI QU NO",
+    "DCMNICOT": "DCMNICOT",
+    "BENKEI NIIGATAPIABANDA": "BENKEI NIIGATAPIAB",
+    "ARUBISU                  Tokyo        JP": "ARUBISU",
+    "AGODA.COM YAKUSHIMA": "아고다-YAKUSH",
+    "AGODA.COM SMILE HOTE": "아고다-HOTE"
+  },
+  "insights": "트립닷컴/아고다/부킹닷컴 3사가 60% 차지, 편의점/주유소가 다음. 일본 현지 가맹점은 지역명 포함 한글화, PG사(KCP)는 결제대행 표기."
+}
