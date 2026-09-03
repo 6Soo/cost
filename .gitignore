@@ -8,3 +8,8 @@ ledger/data/review-snapshots/
 outputs/*.sqlite
 outputs/*.sqlite-*
 outputs/agoda-benchmark-*.json
+
+# OAuth tokens (sensitive — do not commit)
+**/tokens.json
+**/oauth_client.json
+**/drive_tokens.json
