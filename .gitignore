@@ -13,3 +13,6 @@ outputs/agoda-benchmark-*.json
 **/tokens.json
 **/oauth_client.json
 **/drive_tokens.json
+
+# Cost reconciliation visual outputs (generated artifacts)
+cost-reconciliation.*
