@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "verification": "actual_agent_status",
+  "agents": [
+    {
+      "role": "pipeline_diagnostics",
+      "agentId": "7f996b5e-cc3a-400e-b3ea-653a4fcf61a5",
+      "status": "idle",
+      "provider": "codex",
+      "model": "gpt-reserve",
+      "requested_effort": "max",
+      "effective_effort": "max",
+      "updated_at": "2026-09-07T23:43:29.015Z"
+    },
+    {
+      "role": "shadow_amount_and_integrity",
+      "agentId": "2006c45d-9b80-464a-b9ad-c7bed588f19d",
+      "status": "idle",
+      "provider": "codex",
+      "model": "gpt-reserve",
+      "requested_effort": "max",
+      "effective_effort": "max",
+      "updated_at": "2026-09-07T23:48:20.734Z"
+    },
+    {
+      "role": "schedule_end_normalization",
+      "agentId": "dff43cab-f84a-4163-bf46-667ddc530c8d",
+      "status": "idle",
+      "provider": "codex",
+      "model": "gpt-reserve",
+      "requested_effort": "max",
+      "effective_effort": "max",
+      "updated_at": "2026-09-07T11:54:45.962Z"
+    }
+  ],
+  "usage_note": "lastUsage는 마지막 호출 값이므로 전체 토큰 합계로 사용하지 않았습니다."
+}

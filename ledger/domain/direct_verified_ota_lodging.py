@@ -362,6 +362,10 @@ def load_authoritative_trip_schedule(
     is therefore a normalized field produced from the source schedule
     evidence, not a value inferred from a payment date or a user-facing
     activity window.
+
+    For an explicit ``exclusive_service_end`` payload, the user-confirmed
+    workbook convention preserves ``service_end_on`` as the schedule's
+    ``ends_on``; lodging's prior-night ``last_service_on`` remains separate.
     """
 
     rows = db.execute(
@@ -408,7 +412,7 @@ def load_authoritative_trip_schedule(
                 str(payload["service_end_on"]),
             )
             starts_on = period.service_start_on.isoformat()
-            ends_on = period.last_service_on.isoformat()
+            ends_on = period.service_end_on_exclusive.isoformat()
         else:
             if payload["end_semantics"] != END_SEMANTICS:
                 raise ValueError("trip_schedule_authority_end_semantics_invalid")

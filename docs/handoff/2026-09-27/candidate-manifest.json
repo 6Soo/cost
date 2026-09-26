@@ -1,0 +1,267 @@
+{
+  "candidate": "web-ledger phase6 fixed integration candidate",
+  "source_root": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules",
+  "source_commit_base": "phase6-rules working tree (frozen copy)",
+  "excluded": [
+    "__pycache__ / *.pyc",
+    "runtime/ (synthetic board.sqlite, -wal, -shm, operator ledger)",
+    "webledger-exports/ (runtime xlsx output)",
+    "original demo C:\\AX\\cost-design-demos",
+    "main repo C:\\AX\\cost"
+  ],
+  "file_count": 42,
+  "files": [
+    {
+      "path": "webapp/__init__.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\__init__.py",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "webapp/candidate_reader.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\candidate_reader.py",
+      "size": 6422,
+      "sha256": "c2d7506fc468faca0fa83979cec62931b002b6f1a8955c3552b93f5a8bdcf17f"
+    },
+    {
+      "path": "webapp/card_import.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\card_import.py",
+      "size": 25649,
+      "sha256": "36316ac306d9c49573253b11df55e5c181b86d4df8ca63fe2447045e3841392b"
+    },
+    {
+      "path": "webapp/classification_rules.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\classification_rules.py",
+      "size": 31227,
+      "sha256": "282870123107ad4cb249e749ebcc1034e30f35642a7a6bf8a0eca7eb18002857"
+    },
+    {
+      "path": "webapp/cli.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\cli.py",
+      "size": 7500,
+      "sha256": "483eb4d01ad520c568cd9fb2e91014036ae5682441836741f12f08182961f07a"
+    },
+    {
+      "path": "webapp/comparator.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\comparator.py",
+      "size": 3589,
+      "sha256": "2f5087706a900364f2b23d0bae4b1209d9e3e77f30d0cec4a3a7c233e94a176c"
+    },
+    {
+      "path": "webapp/contracts.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\contracts.py",
+      "size": 2890,
+      "sha256": "ce672cb0d528d2bd43f2e9e0a8116340b36dac4317f4fdc0cf311f46872b99d3"
+    },
+    {
+      "path": "webapp/dialog_turn.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\dialog_turn.py",
+      "size": 16245,
+      "sha256": "6174d1bc6aa53de804c0cc35fb8cb72440903780a6ddd3980ec49a2d01d7a097"
+    },
+    {
+      "path": "webapp/income_ledger.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\income_ledger.py",
+      "size": 16376,
+      "sha256": "75dd60f1933f723b092628c4ff852e48bae6648f5aa03e8ff19dd18a904fdbc8"
+    },
+    {
+      "path": "webapp/ledger_board.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\ledger_board.py",
+      "size": 134660,
+      "sha256": "f95ba0cf0fcb6e7a001ea2dec468cdf7a40232ef2eeaf2b0e801977bfb389cb4"
+    },
+    {
+      "path": "webapp/ledger_design.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\ledger_design.py",
+      "size": 50031,
+      "sha256": "6f61a6ea3d3d5a2e7bbcd271ee958cddfb2f5fcd1cd7c9a6f4c6a85b8aa9fbab"
+    },
+    {
+      "path": "webapp/ledger_store.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\ledger_store.py",
+      "size": 285620,
+      "sha256": "fac41adf37483f4750e7fac07aa37bd146b170e1c43589496fe07c558c34a127"
+    },
+    {
+      "path": "webapp/operator_ledger.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\operator_ledger.py",
+      "size": 19754,
+      "sha256": "c9cb6948318d17021514117319db082c73b64cc1d5a90a429ad4f04c619ba4b1"
+    },
+    {
+      "path": "webapp/pages.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\pages.py",
+      "size": 6189,
+      "sha256": "52a2610e55053395da06d59e128909bf659ab0d2d5c2090548b2e867cba88c30"
+    },
+    {
+      "path": "webapp/server.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\server.py",
+      "size": 8402,
+      "sha256": "15253b5ffd00828873991d5524ee3d9f8dafb7280b11b51df31d10401f4e4c1f"
+    },
+    {
+      "path": "webapp/sheets_export.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\sheets_export.py",
+      "size": 16412,
+      "sha256": "3893196b44ae9c3f171df8425ef87e4560df13cb1c0bbe9f46331fa8092b8659"
+    },
+    {
+      "path": "webapp/snapshot_descriptor.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\snapshot_descriptor.py",
+      "size": 4896,
+      "sha256": "683bdcdd7e3c82ab05061a32b1d7618970ec2fbb3a31f8b0ba26bfaae50981bd"
+    },
+    {
+      "path": "webapp/static/fonts/OFL.txt",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\static\\fonts\\OFL.txt",
+      "size": 4418,
+      "sha256": "d31ddd9f2bed32fd7e302a205cf2380ba0de6529152d239ef99cfb6f261bfc04"
+    },
+    {
+      "path": "webapp/static/fonts/PretendardVariable.woff2",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\static\\fonts\\PretendardVariable.woff2",
+      "size": 2057688,
+      "sha256": "9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4"
+    },
+    {
+      "path": "webapp/tests/__init__.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\__init__.py",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "webapp/tests/fixtures.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\fixtures.py",
+      "size": 3221,
+      "sha256": "868efee46cfa0e588ef9fb7c33f812868f442249a99af5fc2bdf1a2e0e0a8e0d"
+    },
+    {
+      "path": "webapp/tests/test_bank_source_identity.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_bank_source_identity.py",
+      "size": 16841,
+      "sha256": "d5f2f86aaef82eef4b2b841d6508c08e55a47f5b22953c2bea95b84b0e924008"
+    },
+    {
+      "path": "webapp/tests/test_card_import.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_card_import.py",
+      "size": 11696,
+      "sha256": "22b6c5eafe2cf6a7a518d36918e57a39cef1d3d9968d17db3a1ba93306658043"
+    },
+    {
+      "path": "webapp/tests/test_checkpoint_tamper.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_checkpoint_tamper.py",
+      "size": 5627,
+      "sha256": "fefcdebd76651559c9bfa98de3619ae3aafd421824555b85265d18b48fd48449"
+    },
+    {
+      "path": "webapp/tests/test_classification_rules.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_classification_rules.py",
+      "size": 92914,
+      "sha256": "c9b578a6671adb26d17f00929d03eec4d9071a00ce478931cd25d6e5c14f135f"
+    },
+    {
+      "path": "webapp/tests/test_dialog_turns.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_dialog_turns.py",
+      "size": 43097,
+      "sha256": "ffcc54b1d46d2e8272ae2b4528841fdb6276c42621b121eb3e9be4818b599aab"
+    },
+    {
+      "path": "webapp/tests/test_income_bank.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_income_bank.py",
+      "size": 32434,
+      "sha256": "e6c7e51214b9e408442f533a1c76f465cbef73d36a2a9488ad75ede4f02a0c1c"
+    },
+    {
+      "path": "webapp/tests/test_ledger_board.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_board.py",
+      "size": 24271,
+      "sha256": "7fef95a6a921c6fde2a3d4f7184a09d0b4e7de9843bd1b88249c8f129af49764"
+    },
+    {
+      "path": "webapp/tests/test_ledger_core.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_core.py",
+      "size": 5715,
+      "sha256": "02bb67dd7c9b981af7fad48130b2c4e5a8da67987cb0c4d2a501fbc496ec0ca0"
+    },
+    {
+      "path": "webapp/tests/test_ledger_design.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_design.py",
+      "size": 21704,
+      "sha256": "93b1e776e6f56cf7fea4030fa2789c8889a5deee2d087e3f1105a018a231f965"
+    },
+    {
+      "path": "webapp/tests/test_ledger_design_refusal.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_design_refusal.py",
+      "size": 18712,
+      "sha256": "116e6dae42e4e296da907116e2c36e08352e255b949ba4c5e45355184fd2fbfa"
+    },
+    {
+      "path": "webapp/tests/test_ledger_design_state.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_design_state.py",
+      "size": 19703,
+      "sha256": "398462586937449f05fa52827cd4605609b17142a786163aa70efead0a840b94"
+    },
+    {
+      "path": "webapp/tests/test_ledger_store.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_ledger_store.py",
+      "size": 17218,
+      "sha256": "7bba7784dd8f77ad3bad425d742da50fefb81480b0867e1ca0e60bf172bd5416"
+    },
+    {
+      "path": "webapp/tests/test_phase0.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_phase0.py",
+      "size": 6758,
+      "sha256": "dc8a7566a186cdbf4356332188998b365826dfaf431d1a0ecb319122f994e65c"
+    },
+    {
+      "path": "webapp/tests/test_replay_ui.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_replay_ui.py",
+      "size": 5097,
+      "sha256": "9f05caaf8bb31f45209de22920567b93846d4ce14506d9c9e97fc87113da9100"
+    },
+    {
+      "path": "webapp/tests/test_rule_dialog_screen.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_rule_dialog_screen.py",
+      "size": 29333,
+      "sha256": "5e704b3b6892ade41f69b3ac9652d07dcf9ff89b45dcf044312f4f97446fc879"
+    },
+    {
+      "path": "webapp/tests/test_rule_dialog_stop.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_rule_dialog_stop.py",
+      "size": 22639,
+      "sha256": "f5bd1038940a1ec6825de2e6b3e02b0b72621aeb66a80e9bc00c49a66f06e9a7"
+    },
+    {
+      "path": "webapp/tests/test_rule_process_ownership.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_rule_process_ownership.py",
+      "size": 22325,
+      "sha256": "7145f84ed540c3018dd3af1d5b4a5f2c9d4e76716e03f1151f7d0d802363e687"
+    },
+    {
+      "path": "webapp/tests/test_sheets_export.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_sheets_export.py",
+      "size": 25729,
+      "sha256": "28e7610b5b8c1b20c93fbfaad9ace85adc438cd56b2f9dac3b1c66d789875572"
+    },
+    {
+      "path": "webapp/tests/test_trip_delete_identity.py",
+      "origin": "C:\\Users\\kkokk\\.paseo\\worktrees\\28lt5mey\\export-review-36982862\\phase6-rules\\webapp\\tests\\test_trip_delete_identity.py",
+      "size": 10783,
+      "sha256": "359bddc6f771cc79e37d9ec46c76171b3aac2c54a94a35d09cb905e8471f45b2"
+    },
+    {
+      "path": "run_candidate.py",
+      "origin": "(generated) integration candidate launcher",
+      "size": 1530,
+      "sha256": "d72dc28fffb3bb65a2e4aad8d5021c6049baddb9c75448010624d11c287eeb25"
+    },
+    {
+      "path": "CANDIDATE_README.md",
+      "origin": "(generated) integration candidate runbook",
+      "size": 2649,
+      "sha256": "35315618e542239243ae9448da8fc25e33a3f3df6c525b7dec5c23d2ee07f59f"
+    }
+  ]
+}

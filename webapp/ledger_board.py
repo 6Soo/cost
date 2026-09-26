@@ -16,16 +16,32 @@ import json
 import secrets
 import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
+
+from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
+                                   question_view, reason_label)
 
 CSRF_TOKEN = secrets.token_hex(16)
 _STORE = None
 _IMPORTER = None
+_MUSE = None
+_GEMINI = None
 
 
 def bind_store(store) -> None:
     global _STORE
     _STORE = store
+
+
+def bind_dialog_adapters(muse=None, gemini=None) -> None:
+    """Server-side provider injection for dialog turns.
+
+    A request body can never choose a provider and never carries a key. When
+    nothing is bound, a turn only waits. The adapters report `is_real_call`
+    themselves; a synthetic adapter must stay marked as not a real call.
+    """
+    global _MUSE, _GEMINI
+    _MUSE, _GEMINI = muse, gemini
 
 
 def bind_importer(importer) -> None:
@@ -131,6 +147,9 @@ EXPENSES = (
         "service_period": "2026-04-09~2026-04-10", "reservation_no": "",
         "evidence_type": "카드", "amount_krw": 100000,
         "source_kind": "카드", "source_event_id": "SRC-C1",
+        "source_merchant": "예시 숙소",
+        "event_kind": "purchase",
+        "card_kind": "K1",
         "classification_state": "auto_classified",
         "classification_basis": "정규화 가맹점·카드 종류·거래 방향 후보 A",
     },
@@ -140,6 +159,9 @@ EXPENSES = (
         "service_period": "2026-04-09~2026-04-10", "reservation_no": "",
         "evidence_type": "카드", "amount_krw": -20000,
         "source_kind": "카드", "source_event_id": "SRC-C2",
+        "source_merchant": "예시 숙소 추소",
+        "event_kind": "cancellation",
+        "card_kind": "K1",
         "classification_state": "auto_classified",
         "classification_basis": "원천 확인 취소 사건, 부호 보존",
     },
@@ -149,6 +171,9 @@ EXPENSES = (
         "service_period": "", "reservation_no": "",
         "evidence_type": "카드", "amount_krw": 30000,
         "source_kind": "카드", "source_event_id": "SRC-C3",
+        "source_merchant": "예시 이동",
+        "event_kind": "purchase",
+        "card_kind": "K2",
         "classification_state": "unclassified",
         "classification_basis": "목적지 없음, 분류대기",
     },
@@ -158,6 +183,9 @@ EXPENSES = (
         "service_period": "2026-04-09~2026-04-10", "reservation_no": "",
         "evidence_type": "카드", "amount_krw": 100000,
         "source_kind": "카드", "source_event_id": "SRC-C4",
+        "source_merchant": "예시 숙소",
+        "event_kind": "purchase",
+        "card_kind": "K1",
         "classification_state": "auto_classified",
         "classification_basis": "C1과 날짜·가맹점 동일, 원천 거래 ID 상이, 별도 사건",
     },
@@ -188,6 +216,36 @@ INCOMES = (
 )
 
 INCOME_KIND_LABEL = {"deposit": "예약금", "balance": "잔금", "additional": "추가금"}
+
+
+def _flag(value) -> bool:
+    """Accept only explicit switches for the rule scope."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
+def local_path(value) -> str:
+    """Accept only a local path of this app as a return target.
+
+    A scheme, a protocol relative address, a host, a backslash or a control
+    character makes the value unusable, so a crafted return_to cannot send the
+    owner to another origin or split a header.
+    """
+    if not isinstance(value, str) or not value:
+        return ""
+    if any(ch in value for ch in ("\r", "\n", "\t", "\\", "\x00")):
+        return ""
+    if not value.startswith("/") or value.startswith("//"):
+        return ""
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc or not parts.path.startswith("/"):
+        return ""
+    allowed = ("/board", "/row", "/rules", "/trips", "/export", "/import", "/income")
+    if not any(parts.path == prefix or parts.path.startswith(prefix + "/")
+               or parts.path.startswith(prefix + "?") for prefix in allowed):
+        return ""
+    return value
 
 
 def esc(value) -> str:
@@ -243,17 +301,17 @@ def find_row(row_id: str):
 
 
 def split_page(source_id: str) -> str:
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
+    from . import ledger_design
+
     if _STORE is None:
-        return layout("배분 편집", f"{top}<div class='wrap'><div class='body'><p>저장소가 없어요.</p></div></div>")
+        return ledger_design.render(ledger_design.shell(
+            '배분 추정', tab_id='', heading='배분 추정',
+            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
     source = _STORE.get_row(source_id)
     if source is None or source["row_kind"] != "income":
-        return layout("배분 편집", f"{top}<div class='wrap'><div class='body'><p>없는 수입 행이에요.</p></div></div>")
+        return ledger_design.render(ledger_design.shell(
+            '배분 편집', tab_id='', heading='배분 편집',
+            body="<div class='sect'><p>없는 수입 행이에요.</p></div>"))
     reflected = _STORE.display_amount(source)
     allocs = _STORE.active_allocations(source_id)
     remainder = reflected - sum(a["amount_krw"] for a in allocs)
@@ -271,17 +329,22 @@ def split_page(source_id: str) -> str:
     for i, a in enumerate(list(allocs) + [{}, {}]):
         aid = a.get("allocation_id", "")
         rows_html += (
-            f"<tr><td><input name='alc_{i}_id' value='{esc(aid)}' readonly></td>"
-            f"<td><input name='alc_{i}_customer' value='{esc(a.get('customer_name', ''))}'></td>"
-            f"<td><select name='alc_{i}_tab'>{tab_options(a.get('display_tab_id'))}</select></td>"
-            f"<td><select name='alc_{i}_kind'>"
+            f"<tr><td data-label='배분 ID'>"
+            f"<input name='alc_{i}_id' value='{esc(aid)}' readonly></td>"
+            f"<td data-label='고객'>"
+            f"<input name='alc_{i}_customer' value='{esc(a.get('customer_name', ''))}'></td>"
+            f"<td data-label='여행'>"
+            f"<select name='alc_{i}_tab'>{tab_options(a.get('display_tab_id'))}</select></td>"
+            f"<td data-label='종류'><select name='alc_{i}_kind'>"
             + "".join(
                 f"<option value='{k}'{' selected' if a.get('income_kind') == k else ''}>"
                 f"{esc(INCOME_KIND_LABEL[k])}</option>"
                 for k in ("deposit", "balance", "additional")
             ) +
             "</td>"
-            f"<td><input name='alc_{i}_amount' value='{esc(a.get('amount_krw', ''))}'></td></tr>"
+            f"<td data-label='금액'>"
+            f"<input name='alc_{i}_amount' value='{esc(a.get('amount_krw', ''))}'>"
+            "</td></tr>"
         )
     principal_fields = ""
     if source.get("source_kind") == "직접 입력":
@@ -291,7 +354,7 @@ def split_page(source_id: str) -> str:
             "<p class='muted'>은행 원천은 정정 경로에서 배분안과 함께 조정해요.</p>"
         )
     body = (
-        "<div class='body'><h2>입금 나누기</h2>"
+        "<div class='sect'><h2>입금 나누기</h2>"
         f"<p>원천 입금액 {source['amount_krw']:,}원 · 현재 장부 반영액 {reflected:,}원 · "
         f"배분한 금액 {reflected - remainder:,}원 · 남은 금액 {remainder:,}원</p>"
         f"<form method='post' action='/api/income/{esc(source_id)}/allocations'>"
@@ -300,14 +363,19 @@ def split_page(source_id: str) -> str:
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"<input type='hidden' name='row_count' value='{len(allocs) + 2}'>"
         f"{principal_fields}"
-        "<div class='scrollx'><table><tr><th>배분 ID</th><th>고객</th><th>여행</th>"
-        f"<th>종류</th><th>금액</th></tr>{rows_html}</table></div>"
+        "<table class='alloc'>"
+        "<colgroup><col style='width:150px'><col><col style='width:230px'>"
+        "<col style='width:120px'><col style='width:140px'></colgroup>"
+        "<thead><tr><th scope='col'>배분 ID</th><th scope='col'>고객</th>"
+        "<th scope='col'>여행</th><th scope='col'>종류</th><th scope='col'>금액</th>"
+        f"</tr></thead><tbody>{rows_html}</tbody></table>"
         "<p class='muted'>금액이 빈 행은 제외돼요. 합계가 반영액을 넘으면 저장하지 않아요. "
         "같은 입금의 배분 표시 날짜는 원천 날짜를 함께 써요.</p>"
         "<button type='submit'>배분안 저장</button></form>"
         f"<p><a href='/row?id={esc(source_id)}'>원천 상세로</a></p></div>"
     )
-    return layout("배분 편집", f"{top}<div class='wrap'>{body}</div>")
+    return ledger_design.render(ledger_design.shell(
+        '배분 추정', tab_id='', heading='배분 추정', body=body))
 
 
 def history_html(row_id: str) -> str:
@@ -640,13 +708,213 @@ def expense_new_page() -> str:
     return layout("수기 지출 추가", f"{top}<div class='wrap'>{body}</div>")
 
 
+RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
+
+
+def _rule_hidden(case_id, request_id, extra=""):
+    return (f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+            f"<input type='hidden' name='case' value='{esc(case_id)}'>"
+            f"<input type='hidden' name='client_request_id' value='{esc(request_id)}'>"
+            f"{extra}")
+
+
+def rule_dialog_page(case_id: str, query: dict) -> str:
+    """Minimal rule dialog screen on top of the existing functional HTML.
+
+    The screen only orchestrates existing endpoints. It never writes a row
+    itself, and a provider answer is shown as a draft the owner must confirm.
+    """
+    from . import ledger_design
+
+    if _STORE is None:
+        return ledger_design.render(ledger_design.shell(
+            '규칙 대화', tab_id='', heading='규칙 대화',
+            body="<div class='sect'><p>저장소가로 연결되지 않아요.</p></div>"))
+    state = _STORE.dialog_page_state(case_id)
+    row = _STORE.get_row(state["row_id"]) if state.get("row_id") else None
+    if row is None:
+        return ledger_design.render(ledger_design.shell(
+            '규칙 대화', tab_id='', heading='규칙 대화',
+            body="<div class='sect'><p>대화에 연결된 행이 없어요.</p></div>"))
+    row_id = esc(row["row_id"])
+    dialog = state["dialog_state"]
+    conv = state["conversation"] or {}
+    pending = state["pending_draft"]
+    rule = state["rule"]
+    provider = state["provider"] or {}
+    real_call = bool(provider.get("is_real_call"))
+    mode_label = "AI 연결됨" if real_call else RULE_MODE_LABEL
+    notice = query.get("msg", [""])[0]
+    parts = []
+
+    parts.append(
+        f"<h3>규칙 대화</h3>"
+        f"<p class='muted'>{esc(row.get('item', ''))} · {esc(row.get('description', ''))}</p>"
+        f"<p><span class='synth'>{esc(mode_label)}</span> "
+        f"<span class='muted'>대화 상태: {esc(dialog_state_label(dialog))}"
+        + (f" · 공급자: {esc(conv.get('active_provider') or '-')}"
+           f" · model: {esc(conv.get('active_model_id') or '-')}"
+           f" · 턴 {conv.get('turn_count', 0)}회" if conv else "")
+        + "</span></p>")
+    if notice:
+        parts.append(f"<p class='muted'>{esc(notice)}</p>")
+    if "PREVIEW_STALE" in notice:
+        parts.append(
+            "<p class='muted'>선택한 행이 바뀌었어요. 아래에서 새 미리보기를 다시 받아 주세요."
+            " 일부 행만 적용되지는 않습니다.</p>")
+    if dialog == "closed":
+        parts.append(
+            "<form method='post' action='/api/classification/dialog/resume'>"
+            + _rule_hidden(case_id, f"ui-resume-{case_id}")
+            + "<button class='btn' type='submit'>대화 재개</button></form>")
+        return ledger_design.render(ledger_design.shell(
+            '규칙 대화', tab_id='', heading='규칙 대화',
+            body=(f"<div class='sect'>{''.join(parts)}"
+                  "<p><a href='/board'>목록으로</a></p></div>")))
+
+    if state["should_not_create_rule"]:
+        parts.append(
+            "<p class='muted'>이번 거래만 적용하기로 하셨습니다. 규칙 초안·영향 미리보기·"
+            "적용은 진행하지 않고, 이미 저장한 행 수정은 그대로 유지합니다.</p>")
+
+    # 근거 자유문: 그대로 저장한다
+    parts.append(
+        "<form method='post' action='/api/classification/dialog/note'>"
+        + _rule_hidden(case_id, f"ui-note-{case_id}")
+        + "<p><label>근거 설명 (자유문)</label>"
+        + f"<input name='note' value='{esc(state['note'])}' size='60'></p>"
+        + "<button class='btn' type='submit'>근거 저장</button></form>")
+
+    # 질문
+    for question in state["questions"]:
+        answered = question["answer"] is not None
+        view = question_view(question)
+        options = "".join(
+            f"<label class='opt'>"
+            f"<input type='radio' name='answer' value='{esc(option['value'])}'"
+            f"{' checked' if question['answer'] == option['value'] else ''}>"
+            f"<span>{esc(option['label'])}</span></label>"
+            for option in view["options"])
+        if answered:
+            parts.append(f"<p class='muted'>답변 완료: {esc(view['answer_label'])}</p>")
+        else:
+            parts.append(
+                f"<form method='post' action='/api/classification/dialog/answer'>"
+                + _rule_hidden(case_id, f"ui-answer-{case_id}-{question['question_key']}",
+                               f"<input type='hidden' name='question_id' value='{esc(question['question_id'])}'>"
+                               f"<input type='hidden' name='expected_row_revision' value='{row.get('revision', 1)}'>")
+                + "<div class='qgroup'>"
+                + f"<p>{esc(view['prompt'])}</p><p>{options}</p>"
+                + "<button class='btn' type='submit'>답변 저장</button></div></form>")
+    if not state["open_questions"]:
+        parts.append("<p class='muted'>더 물을 질문이 없어요.</p>")
+
+    if state["should_not_create_rule"]:
+        parts.append(
+            "<form method='post' action='/api/classification/dialog/close'>"
+            + _rule_hidden(case_id, f"ui-close-{case_id}")
+            + "<button class='btn' type='submit'>대화 닫기</button></form>")
+        return ledger_design.render(ledger_design.shell(
+            '규칙 대화', tab_id=row.get('display_tab_id') or '',
+            heading='규칙 대화',
+            body=(f"<div class='sect'>{''.join(parts)}"
+                  f"<p><a href='/row?id={esc(row_id)}'>내용으로 돌아가기</a> · "
+                  "<a href='/board'>목록으로</a></p></div>")))
+
+    # 합성 턴
+    turn_no = (conv.get("turn_count") or 0) + 1
+    parts.append(
+        "<form method='post' action='/api/classification/conversation/advance'>"
+        + _rule_hidden(case_id, f"ui-turn-{case_id}-{turn_no:02d}")
+        + "<button class='btn' type='submit'>규칙 초안 요청 (합성 턴)</button></form>")
+    if conv.get("turns"):
+        last = conv["turns"][-1]
+        review = last.get("owner_review")
+        parts.append(
+            f"<p class='muted'>최근 턴 {esc(last['turn_id'])}: "
+            f"{esc(last.get('state_label') or last['state'])}"
+            + (f" · 채택 {esc(last['adopted_provider'])}" if last["adopted_provider"] else "")
+            + (f" · 사유 {esc(reason_label(last['reason_code']))}"
+               if last["reason_code"] else "")
+            + (f" · 전환 {last['switch_count']}회" if last["switch_count"] else "")
+            + (f" · 소유권 확인 대기 ({esc(reason_label(review['reason']))})"
+               if review else "")
+            + "</p>")
+    if pending.get("draft_error"):
+        parts.append(f"<p class='muted'>초안 검증 실패: {esc(pending['draft_error']['message'])}</p>")
+
+    if pending.get("rule") and not pending.get("confirmed"):
+        parts.append(
+            "<p class='muted'>검증을 통과한 초안이에요. 저장하면 규칙 초안이 되고, 적용은 "
+            "아래에서 범위를 고른 뒤 따로 합니다.</p>"
+            "<form method='post' action='/api/classification/conversation/confirm-draft'>"
+            + _rule_hidden(case_id, f"ui-confirm-{case_id}-{pending.get('turn_id', '')}")
+            + "<button class='btn' type='submit'>초안 저장</button></form>")
+
+    if rule:
+        parts.append(
+            f"<p class='muted'>저장된 규칙 {esc(rule['rule_id'])} · version {rule['version']}"
+            f" · {esc(rule['status'])}</p>")
+        existing = state.get("last_preview") or {}
+        preview = existing.get("plan") or {}
+        if preview:
+            counts = preview.get("counts", {})
+            amounts = preview.get("amounts", {})
+            rows_html = "".join(
+                f"<tr><td>{esc(c['row_id'])}</td><td>{esc(c['from_tab_id'] or '분류대기')}"
+                f"</td><td>{esc(c['to_tab_id'] or '분류대기')}</td>"
+                f"<td style='text-align:right'>{esc(c['amount_krw'])}</td></tr>"
+                for c in preview.get("candidates", []))
+            excluded_html = "".join(
+                f"<li>{esc(e['row_id'])}: {esc(e['reason'])}</li>"
+                for e in preview.get("excluded", []))
+            parts.append(
+                f"<h4>영향 미리보기 (preview {esc(existing['preview_id'])[:12]}…)</h4>"
+                f"<p class='muted'>포함 {counts.get('included_rows', 0)}건 · 제외 "
+                f"{counts.get('excluded_rows', 0)}건 · 매칭 {counts.get('matched_rows', 0)}건</p>"
+                f"<table class='rules-table'><tr><th>행</th><th>이동 전</th><th>이동 후</th>"
+                f"<th style='text-align:right'>금액</th></tr>{rows_html}</table>"
+                + (f"<ul class='muted'>{excluded_html}</ul>" if excluded_html else "")
+                + "<p class='muted'>합계(전): " + ", ".join(
+                    f"{esc(tab)} {esc(value.get('before'))} → {esc(value.get('after'))}"
+                    for tab, value in amounts.items()) + "</p>")
+        parts.append(
+            "<form method='post' action='/api/classification/rules/preview'>"
+            + _rule_hidden(case_id, f"ui-preview-{case_id}-{turn_no:02d}",
+                           f"<input type='hidden' name='rule_id' value='{esc(rule['rule_id'])}'>")
+            + "<label style='margin-right:12px'><input type='checkbox' name='apply_existing' value='1' checked>"
+            " 기존 행 적용</label>"
+            + "<label><input type='checkbox' name='apply_future' value='1'> 미래 입력 적용</label>"
+            + "<button class='btn' type='submit'>영향 미리보기</button></form>")
+        if preview and existing:
+            selected = ",".join(c["row_id"] for c in preview.get("candidates", []))
+            parts.append(
+                "<form method='post' action='/api/classification/rules/apply'>"
+                + _rule_hidden(case_id, f"ui-apply-{case_id}-{existing['preview_id'][:12]}",
+                               f"<input type='hidden' name='preview_id' value='{esc(existing['preview_id'])}'>"
+                               f"<input type='hidden' name='apply_existing' value='{existing['apply_existing'] and '1' or ''}'>"
+                               f"<input type='hidden' name='apply_future' value='{existing['apply_future'] and '1' or ''}'>"
+                               + (f"<input type='hidden' name='selected_row_ids' value='{esc(selected)}'>" if selected else ""))
+                + "<button class='btn' type='submit'>이 범위로 적용</button></form>")
+    if dialog != "not_started":
+        # Closing a dialog that was never started is refused by the store, so the
+        # control is not offered until there is something to close.
+        parts.append(
+            "<form method='post' action='/api/classification/dialog/close'>"
+            + _rule_hidden(case_id, f"ui-close-{case_id}")
+            + "<button class='btn' type='submit'>대화 닫기</button></form>")
+    body = (f"<div class='sect'>{''.join(parts)}"
+            f"<p class='meta'>행 {row_id} · revision {row.get('revision', 1)}</p>"
+            f"<p><a href='/row?id={row_id}'>내용으로 돌아가기</a> · "
+            "<a href='/board'>목록으로</a></p></div>")
+    return ledger_design.render(ledger_design.shell(
+        '규칙 대화', tab_id=row.get('display_tab_id') or '',
+        heading='규칙 대화', body=body))
+
+
 def trips_page(preview_tab: str = "") -> str:
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a></p></div>"
-    )
+    from . import ledger_design
+
     if _STORE is None:
         body = "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>"
         return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
@@ -663,7 +931,8 @@ def trips_page(preview_tab: str = "") -> str:
             counts = f"조회 실패: {esc(str(exc))}"
         cards.append(
             "<div class='card'>"
-            f"<h3>{esc(t['display_key'])} <span class='muted'>{kind} · rev {t['revision']}</span></h3>"
+            f"<h3>{esc(t['display_key'])} <span class='muted'>{kind}</span></h3>"
+            f"<p class='muted rev-note'>여행 revision {t['revision']}</p>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
             f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 {esc(t['prepared_by_name'])}</p>"
             f"<p>{counts}</p>"
@@ -671,6 +940,7 @@ def trips_page(preview_tab: str = "") -> str:
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='expected_revision' value='{t['revision']}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+            "<input type='hidden' name='return_to' value='/trips'>"
             f"<p><label>표시 이름</label><input name='display_key' value='{esc(t['display_key'])}'></p>"
             f"<p><label>작성일</label><input name='prepared_on' value='{esc(t['prepared_on'])}'></p>"
             f"<p><label>담당자</label><input name='prepared_by_name' value='{esc(t['prepared_by_name'])}'></p>"
@@ -680,6 +950,7 @@ def trips_page(preview_tab: str = "") -> str:
             f"<input type='hidden' name='expected_revision' value='{t['revision']}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
             f"<input type='hidden' name='archived' value='{'0' if t['archived'] else '1'}'>"
+            "<input type='hidden' name='return_to' value='/trips'>"
             f"<button type='submit'>{'복원' if t['archived'] else '보관'}</button></form>"
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
             "</div>"
@@ -704,6 +975,8 @@ def trips_page(preview_tab: str = "") -> str:
                 f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                 f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
                 f"<input type='hidden' name='snapshot' value='{snapshot_json}'>"
+                "<input type='hidden' name='return_to' value="
+                f"'{esc('/trips?preview_tab=' + preview_tab)}'>"
                 "<p><label>처리 방법</label><select name='mode'>"
                 "<option value='move-unclassified'>분류대기로 이동</option>"
                 "<option value='move-trip'>다른 여행으로 이동</option></select></p>"
@@ -714,8 +987,10 @@ def trips_page(preview_tab: str = "") -> str:
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = f"<div class='body'><h2>여행 관리</h2>{preview_html}{''.join(cards)}</div>"
-    return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
+    body = (f"<div class='sect'><h2>여행 관리</h2>{preview_html}"
+            f"{''.join(cards)}</div>")
+    return ledger_design.render(ledger_design.shell(
+        "여행 관리", tab_id="", heading="여행 관리", body=body))
 
 
 def export_page() -> str:
@@ -731,12 +1006,6 @@ def export_page() -> str:
                 f"<label><input type='checkbox' name='tab_ids' value='{esc(t['tab_id'])}'> "
                 f"{esc(t['display_key'])} (보관)</label><br>" for t in arch
             )
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
     counts = ""
     progress_note = ""
     jobs_html = ""
@@ -780,7 +1049,7 @@ def export_page() -> str:
             )
             jobs_html = f"<h3>최근 출력</h3><ul>{items}</ul>"
     body = (
-        "<div class='body'><h2>선택 탭 출력</h2>"
+        "<div class='sect'><h2>선택 탭 출력</h2>"
         f"<form method='post' action='/api/exports/xlsx'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -793,18 +1062,17 @@ def export_page() -> str:
         f"{jobs_html}"
         f"<p class='muted'>양식 {esc('매출자료 양식_rev')} 구조를 복제해요. 회사·제목·작성 정보는 합성 예시예요.</p></div>"
     )
-    return layout("선택 탭 출력", f"{top}<div class='wrap'>{body}</div>")
+    from . import ledger_design
+
+    return ledger_design.render(ledger_design.shell(
+        '선택 탭 출력', tab_id='', heading='선택 탭 출력', body=body))
 
 
 def import_page() -> str:
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
-        "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
-        "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
-    )
+    from . import ledger_design
+
     body = (
-        "<div class='body'><h2>카드 가져오기 (합성 프로필)</h2>"
+        "<div class='sect'><h2>카드 가져오기 (합성 프로필)</h2>"
         "<p class='muted'>합성 CSV만 받아요. 실제 카드 파일 형식은 프로필 확인 뒤에 연결해요.</p>"
         f"<input type='file' id='f' accept='.csv'>"
         f"<button id='up'>올리기</button><p id='msg' class='muted'></p>"
@@ -854,7 +1122,8 @@ def import_page() -> str:
         "+'<p><a href=\"/board?tab=unclassified\">분류대기 열기</a></p>';};"
         "</script></div>"
     )
-    return layout("카드 가져오기", f"{top}<div class='wrap'>{body}</div>")
+    return ledger_design.render(ledger_design.shell(
+        '카드 가져오기', tab_id='', heading='카드 가져오기', body=body))
 
 
 def _shown_amount(row) -> int:
@@ -896,22 +1165,76 @@ def expense_table(rows) -> str:
     ).format(trs=trs if trs else "<tr><td colspan='8' class='muted'>아직 연결된 지출이 없어요</td></tr>")
 
 
+def editable_fields(kind: str, source: str, is_allocation: bool = False):
+    """The (changeable, fixed) field names for a row.
+
+    The save endpoint and the edit form both read this, so the form can never
+    offer a field the endpoint would refuse.
+    """
+    if is_allocation:
+        # An allocation row refuses anything outside its own list, so it has no
+        # separate fixed list to publish.
+        return (("customer_id", "customer_name", "nickname",
+                 "display_tab_id", "income_kind"), ())
+    if kind == "expense" and source in ("카드", ""):
+        return (("display_tab_id", "item", "description", "operator_note"),
+                ("amount_krw", "occurred_on", "source_event_id", "source_kind",
+                 "merchant", "reservation_no"))
+    if kind == "expense":
+        return (("display_tab_id", "item", "description", "operator_note",
+                 "occurred_on", "amount_krw"),
+                ("source_event_id", "source_kind", "merchant", "reservation_no"))
+    if source == "은행":
+        return (("customer_id", "customer_name", "nickname",
+                 "display_tab_id", "operator_note", "income_kind"),
+                ("amount_krw", "occurred_on", "source_event_id", "source_kind"))
+    return (("display_tab_id", "income_kind", "customer_id", "customer_name",
+             "nickname", "occurred_on", "amount_krw", "operator_note"),
+            ("source_event_id", "source_kind"))
+
+
+def learning_case_id(row_id: str) -> str:
+    """The newest learning case of a row, or an empty string."""
+    if _STORE is None:
+        return ""
+    try:
+        found = _STORE.conn.execute(
+            "SELECT case_id FROM board_learning_cases WHERE row_id=?"
+            " ORDER BY created_at DESC LIMIT 1", (row_id,)).fetchone()
+    except Exception:
+        return ""
+    return "" if found is None else found[0]
+
+
+def rule_dialog_link(row_id: str) -> str:
+    """Small link to the rule dialog when the row has a learning case."""
+    case_id = learning_case_id(row_id)
+    if not case_id:
+        return ""
+    return f"<p><a href='/rules?case={esc(case_id)}'>규칙 대화 열기</a></p>"
+
+
 def detail_page(row_id: str, edit: bool = False) -> str:
     kind, row = find_row(row_id)
+    from . import ledger_design
+
     if row is None:
         return layout("행 없음", "<div class='top'><h1>웹 장부</h1></div><div class='body'><p>행이 없어요. 목록으로 돌아가 주세요.</p></div>")
+    from . import ledger_design
+
     if row.get("is_allocation") and _STORE is not None:
         body = allocation_detail_body(row, edit)
-        top = (
-            "<div class='top'><h1>웹 장부"
-            f"<span class='synth'>{SYNTHETIC_MARK}</span></h1></div>"
-        )
-        return layout("배분 행 상세", f"{top}<div class='wrap'><div class='body'>{body}<p><a href='/board'>목록으로</a></p></div></div>")
+        return ledger_design.render(ledger_design.shell(
+            "배분 행 상세", tab_id=row.get("display_tab_id") or "",
+            heading=f"배분 {esc(row_id)}", body=(
+                f"<div class='sect'>{body}"
+                "<p><a href='/board'>목록으로</a></p></div>")))
     if kind == "expense":
         info = (
             f"<li>원천: {esc(row['source_kind'])} {esc(row['source_event_id'])}</li>"
             f"<li>분류 근거: {esc(row['classification_basis'])}</li>"
             f"<li>분류 상태: {esc(row['classification_state'])} (표시만 일반 행)</li>"
+            f"<li>여행 revision {esc(str(row.get('revision', 1)))}</li>"
         )
         if edit:
             if _STORE is None:
@@ -944,6 +1267,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 form = (
                     "<h3>행 편집</h3>"
                     f"<form method='post' action='/api/rows/{esc(row_id)}/save'>"
+                    f"<input type='hidden' name='return_to' value='{esc('/row?id=' + row_id + ('&edit=1' if edit else ''))}'>"
                     f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                     f"<input type='hidden' name='expected_revision' value='{row.get('revision', 1)}'>"
                     f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1039,6 +1363,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 extra = (
                     "<h3>행 편집</h3>"
                     f"<form method='post' action='/api/rows/{esc(row_id)}/save'>"
+                    f"<input type='hidden' name='return_to' value='{esc('/row?id=' + row_id + ('&edit=1' if edit else ''))}'>"
                     f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
                     f"<input type='hidden' name='expected_revision' value='{row.get('revision', 1)}'>"
                     f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
@@ -1111,11 +1436,14 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             elif not edit:
                 extra += f"<p><a href='/income/{esc(row_id)}/split'>입금 나누기</a></p>"
         body = f"<h2>수입 {esc(row['customer_name'])} {_shown_amount(row):,}원</h2><ul>{info}</ul>{extra}"
-    top = (
-        "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1></div>"
-    )
-    return layout("행 상세", f"{top}<div class='wrap'><div class='body'>{body}<p><a href='/board'>목록으로</a></p></div></div>")
+
+    return ledger_design.render(ledger_design.shell(
+        "행 상세", tab_id=row.get("display_tab_id") or "",
+        heading=f"거래 {esc(row_id)}",
+        meta=(f"<span>구분 <b>{'수입' if kind == 'income' else '지출'}</b></span>"
+              + ("<span><a href='/trips'>여행 관리</a></span>" if kind != "income" else "")),
+        body=(f"<div class='sect'>{body}{rule_dialog_link(row_id)}"
+              "<p><a href='/board'>목록으로</a></p></div>")))
 
 
 STATUS_FOR_CODE = {
@@ -1126,6 +1454,19 @@ STATUS_FOR_CODE = {
     "TARGET_NOT_ASSIGNABLE": 422,
     "DELETE_PREVIEW_STALE": 409,
     "CSRF_REQUIRED": 403,
+    "PREVIEW_STALE": 409,
+    "RULE_FIELD_NOT_ALLOWED": 422,
+    "RULE_EFFECT_FORBIDDEN": 422,
+    "RULE_SCOPE_INCOMPLETE": 422,
+    "RULE_CONDITION_TYPE": 422,
+    "RULE_OPERATOR_NOT_ALLOWED": 422,
+    "RULE_TEMPLATE_FORBIDDEN": 422,
+    "RULE_SUPERSEDED": 409,
+    "RULE_ONE_OFF": 422,
+    "RULE_ONE_OFF": 422,
+    "DIALOG_STALE": 409,
+    "DIALOG_CLOSED": 409,
+    "NOT_FOUND": 404,
 }
 
 
@@ -1141,6 +1482,71 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_bytes(self, body: bytes, content_type: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=604800")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _refuse_amount(self, is_form: bool, payload: dict,
+                         row_id: str = "") -> None:
+        if is_form:
+            self._send_form_error("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요",
+                                  payload, str(payload.get("return_to") or ""),
+                                  row_id)
+            return
+        self._send_json({"code": "INVALID_VALUE",
+                         "message": "금액은 정수 원화로 입력해 주세요"}, code=422)
+
+    def _send_form_error(self, code: str, message: str, payload: dict,
+                         return_to: str, row_id: str = "") -> None:
+        """Answer a refused plain form post with the screen, in HTML.
+
+        The typed values are rendered back into the form, escaped, and the
+        answer carries the refusal status. Nothing typed is put in a URL, a
+        referrer or a log. The JSON contract is untouched: only a form post
+        without the JSON content type reaches this method.
+        """
+        from . import ledger_design
+
+        target = local_path(return_to) or "/board"
+        parts = urlsplit(target)
+        query = parse_qs(parts.query)
+        row_id = row_id or ""
+        tab = query.get("tab", [""])[0] or ""
+        if row_id and not tab:
+            _kind, found = find_row(row_id)
+            if found is not None:
+                tab = found.get("display_tab_id") or ""
+        if tab != "unclassified" and tab not in valid_tab_ids():
+            tab = "trip-demo-a" if "trip-demo-a" in valid_tab_ids() else ""
+        draft = {}
+        if row_id and payload:
+            kind, current = find_row(row_id)
+            if current is not None:
+                allowed, _fixed = editable_fields(
+                    kind, current.get("source_kind", ""),
+                    bool(current.get("is_allocation")))
+                for key, value in payload.items():
+                    if key not in allowed:
+                        continue
+                    if value is None or isinstance(value, (str, int, float)):
+                        draft[key] = "" if value is None else str(value)
+        fragment = ledger_design.page(
+            tab, query.get("q", [""])[0], query.get("kind", [""])[0],
+            row_id, error=f"{code}: {message}",
+            archived=query.get("arch", [""])[0], draft=draft, back=target)
+        body = ledger_design.render(fragment).encode("utf-8")
+        self.send_response(STATUS_FOR_CODE.get(code, 422))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_json(self, value: dict, code: int = 200) -> None:
         data = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -1153,8 +1559,43 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         if parsed.path in ("/", "/board"):
+            from . import ledger_design
+
             tab = query.get("tab", ["trip-demo-a"])[0]
-            self._send(board_page(tab, query.get("q", [""])[0]))
+            q = query.get("q", [""])[0]
+            kind = query.get("kind", [""])[0]
+            row_id = query.get("row", [""])[0]
+            base = f"/board?tab={tab}"
+            if q:
+                base += f"&q={q}"
+            if kind:
+                base += f"&kind={kind}"
+            if query.get("arch", [""])[0]:
+                base += f"&arch={query['arch'][0]}"
+            part = (self.headers.get("X-Part")
+                    or query.get("part", [""])[0])
+            if part == "panel":
+                self._send(ledger_design.panel_part(row_id, back=base))
+                return
+            if part == "summary":
+                self._send(ledger_design.summary_part(tab, kind))
+                return
+            fragment = ledger_design.page(
+                tab, q, kind, row_id,
+                message=query.get("msg", [""])[0],
+                archived=query.get("arch", [""])[0])
+            self._send(ledger_design.render(fragment))
+            return
+        if parsed.path.startswith("/assets/fonts/"):
+            from . import ledger_design
+
+            found = ledger_design.static_asset(parsed.path.rsplit("/", 1)[-1])
+            if found is None:
+                self._send("없음", code=404)
+                return
+            body, content_type = found
+            self._send_bytes(body, content_type)
+            return
         elif parsed.path == "/row":
             row_id = query.get("id", [""])[0]
             self._send(detail_page(row_id, edit=query.get("edit", [""])[0] == "1"))
@@ -1183,6 +1624,12 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path.startswith("/income/") and parsed.path.endswith("/split"):
             parts = parsed.path.strip("/").split("/")
             self._send(split_page(parts[1] if len(parts) == 3 else ""))
+        elif parsed.path == "/rules":
+            case_id = query.get("case", [""])[0]
+            if not case_id:
+                self._send(layout("규칙 대화", "<div class='body'><p>대화 사례가 필요해요.</p></div>"), code=404)
+                return
+            self._send(rule_dialog_page(case_id, query))
         elif parsed.path == "/trips":
             self._send(trips_page(query.get("preview_tab", [""])[0]))
         elif parsed.path.startswith("/api/imports/"):
@@ -1194,6 +1641,45 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"code": "NOT_FOUND", "message": "없는 작업이에요"}, code=404)
                 return
             self._send_json(progress, code=200)
+        elif parsed.path == "/api/classification/conversation":
+            if _STORE is None:
+                self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
+                return
+            conversation_id = query.get("conversation_id", [""])[0]
+            if not conversation_id:
+                self._send_json({"code": "INVALID_VALUE", "message": "conversation_id required"}, code=422)
+                return
+            self._send_json(_STORE.conversation_state(conversation_id), code=200)
+        elif parsed.path == "/api/classification/dialog":
+            if _STORE is None:
+                self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
+                return
+            self._send_json(_STORE.rule_dialog_state(query.get("case_id", [""])[0]), code=200)
+        elif parsed.path.endswith("/versions") and parsed.path.startswith(
+                "/api/classification/rules/"):
+            if _STORE is None:
+                self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
+                return
+            rule_id = parsed.path.split("/")[4]
+            history = _STORE.rule_history(rule_id)
+            if history["current"] is None and not history["versions"]:
+                self._send_json({"code": "NOT_FOUND", "message": "NOT_FOUND"}, code=404)
+                return
+            self._send_json(history, code=200)
+        elif parsed.path == "/api/classification/rules":
+            if _STORE is None:
+                self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
+                return
+            self._send_json({"rules": _STORE.list_rules()}, code=200)
+        elif parsed.path.startswith("/api/classification/rules/"):
+            if _STORE is None:
+                self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
+                return
+            rule = _STORE.get_rule(parsed.path.rsplit("/", 1)[-1])
+            if rule is None:
+                self._send_json({"code": "NOT_FOUND", "message": "없는 작업이어요"}, code=404)
+                return
+            self._send_json(rule, code=200)
         else:
             self._send(layout("없음", "<p>없는 주소예요.</p>"), code=404)
 
@@ -1250,6 +1736,35 @@ class Handler(BaseHTTPRequestHandler):
             except CardImportError as exc:
                 self._send_json({"code": exc.code, "message": str(exc)}, code=422)
             return
+        if parsed.path in ("/api/classification/dialog/note",
+                           "/api/classification/dialog/answer",
+                           "/api/classification/dialog/close",
+                           "/api/classification/dialog/resume",
+                           "/api/classification/conversation/advance",
+                           "/api/classification/conversation/confirm-draft",
+                           "/api/classification/rules/preview",
+                           "/api/classification/rules/apply") \
+                and "application/json" not in content_type:
+            self._handle_rule_dialog_form(parsed.path, raw, content_type)
+            return
+        if parsed.path in ("/api/classification/rules/draft",
+                           "/api/classification/rules/preview",
+                           "/api/classification/rules/apply",
+                           "/api/classification/rules/revise",
+                           "/api/classification/rules/supersede",
+                           "/api/classification/rules/scope",
+                           "/api/classification/dialog/open",
+                           "/api/classification/dialog/answer",
+                           "/api/classification/dialog/close",
+                           "/api/classification/dialog/resume",
+                           "/api/classification/conversation/open",
+                           "/api/classification/conversation/turn",
+                           "/api/classification/conversation/late",
+                           "/api/classification/dialog/note",
+                           "/api/classification/conversation/advance",
+                           "/api/classification/conversation/confirm-draft"):
+            self._handle_classification_rules(parsed.path, read_payload, check_csrf)
+            return
         if len(parts) != 4 or parts[0] != "api" or parts[1] != "rows" or parts[3] != "save":
             if parsed.path == "/api/income":
                 self._handle_income_create(read_payload, check_csrf, content_type)
@@ -1286,6 +1801,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json({"code": "NOT_FOUND", "message": "없는 주소예요"}, code=404)
             return
+        is_form = "application/json" not in content_type
         if _STORE is None:
             self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
             return
@@ -1294,22 +1810,40 @@ class Handler(BaseHTTPRequestHandler):
             check_csrf(payload)
             expected_revision = int(payload.get("expected_revision", ""))
         except SaveError as exc:
+            if is_form:
+                self._send_form_error(exc.code, str(exc), {},
+                                      str(payload.get("return_to") or ""),
+                                      parts[2] if len(parts) > 2 else "")
+                return
             self._send_json({"code": exc.code, "message": str(exc)},
                             code=STATUS_FOR_CODE.get(exc.code, 422))
             return
         except (TypeError, ValueError):
+            if is_form:
+                self._send_form_error("INVALID_VALUE", "revision이 필요해요", {},
+                                      str(payload.get("return_to") or ""))
+                return
             self._send_json({"code": "INVALID_VALUE", "message": "revision이 필요해요"}, code=422)
             return
         kind, current_row = find_row(parts[2])
         if current_row is None:
+            if is_form:
+                self._send_form_error("INVALID_VALUE", "없는 행이에요", {},
+                                      str(payload.get("return_to") or ""))
+                return
             self._send_json({"code": "INVALID_VALUE", "message": "없는 행이에요"}, code=422)
             return
         if current_row.get("is_allocation"):
-            allowed = ("customer_id", "customer_name", "nickname",
-                       "display_tab_id", "income_kind")
-            meta = ("csrf", "expected_revision", "client_request_id")
+            allowed, _ = editable_fields(
+                kind, current_row.get("source_kind", ""), True)
+            meta = ("csrf", "expected_revision", "client_request_id", "return_to")
             blocked = [key for key in payload if key not in allowed and key not in meta]
             if blocked:
+                if is_form:
+                    self._send_form_error(
+                        "FIELD_READ_ONLY", f"{blocked[0]}는 배분 행에서 수정할 수 없어요",
+                        payload, str(payload.get("return_to") or ""))
+                    return
                 self._send_json(
                     {"code": "FIELD_READ_ONLY",
                      "message": f"{blocked[0]}는 배분 행에서 수정할 수 없어요"},
@@ -1326,46 +1860,44 @@ class Handler(BaseHTTPRequestHandler):
                     actor="owner",
                 )
             except SaveError as exc:
+                if is_form:
+                    self._send_form_error(exc.code, str(exc), payload,
+                                          str(payload.get("return_to") or ""))
+                    return
                 self._send_json({"code": exc.code, "message": str(exc)},
                                 code=STATUS_FOR_CODE.get(exc.code, 422))
                 return
-            if "application/json" in content_type:
-                self._send_json(result, code=200)
-            else:
+            if is_form:
+                back = str(payload.get("return_to") or "") or f"/row?id={parts[2]}"
                 self.send_response(303)
-                self.send_header("Location", f"/row?id={parts[2]}")
+                self.send_header("Location", back)
                 self.end_headers()
+            else:
+                self._send_json(result, code=200)
             return
         source = current_row.get("source_kind", "")
-        if kind == "expense" and source in ("카드", ""):
-            allowed = ("display_tab_id", "item", "description", "operator_note")
-        elif kind == "expense":
-            allowed = ("display_tab_id", "item", "description", "operator_note",
-                        "occurred_on", "amount_krw")
-        elif source == "은행":
-            allowed = ("customer_id", "customer_name", "nickname",
-                        "display_tab_id", "operator_note", "income_kind")
-        else:
-            allowed = ("display_tab_id", "income_kind", "customer_id", "customer_name",
-                        "nickname", "occurred_on", "amount_krw", "operator_note")
-        meta = ("csrf", "expected_revision", "client_request_id", "change_mode")
-        if kind == "expense" and source in ("카드", ""):
-            fixed = ("amount_krw", "occurred_on", "source_event_id",
-                     "source_kind", "merchant", "reservation_no")
-        elif kind == "expense":
-            fixed = ("source_event_id", "source_kind", "merchant", "reservation_no")
-        elif source == "은행":
-            fixed = ("amount_krw", "occurred_on", "source_event_id", "source_kind")
-        else:
-            fixed = ("source_event_id", "source_kind")
+        allowed, fixed = editable_fields(
+            kind, source, bool(current_row.get("is_allocation")))
+        meta = ("csrf", "expected_revision", "client_request_id", "change_mode",
+                "return_to")
         blocked = [k for k in payload if k in fixed]
         if blocked:
+            if is_form:
+                self._send_form_error(
+                    "FIELD_READ_ONLY", f"{blocked[0]}는 고정 필드라 바꿀 수 없어요",
+                    payload, str(payload.get("return_to") or ""), parts[2])
+                return
             self._send_json(
                 {"code": "FIELD_READ_ONLY",
                  "message": f"{blocked[0]}는 고정 필드라 바꿀 수 없어요"}, code=422)
             return
         unknown = [k for k in payload if k not in allowed and k not in meta]
         if unknown:
+            if is_form:
+                self._send_form_error(
+                    "INVALID_VALUE", f"허용하지 않은 필드예요: {unknown[0]}",
+                    payload, str(payload.get("return_to") or ""), parts[2])
+                return
             self._send_json(
                 {"code": "INVALID_VALUE",
                  "message": f"허용하지 않은 필드예요: {unknown[0]}"}, code=422)
@@ -1374,14 +1906,12 @@ class Handler(BaseHTTPRequestHandler):
         if "amount_krw" in changes:
             raw_amount = changes["amount_krw"]
             if isinstance(raw_amount, bool):
-                self._send_json({"code": "INVALID_VALUE",
-                                 "message": "금액은 정수 원화로 입력해 주세요"}, code=422)
+                self._refuse_amount(is_form, payload, parts[2])
                 return
             try:
                 changes["amount_krw"] = int(str(raw_amount).replace(",", ""))
             except (TypeError, ValueError):
-                self._send_json({"code": "INVALID_VALUE",
-                                 "message": "금액은 정수 원화로 입력해 주세요"}, code=422)
+                self._refuse_amount(is_form, payload, parts[2])
                 return
         try:
             result = _STORE.save(
@@ -1393,15 +1923,21 @@ class Handler(BaseHTTPRequestHandler):
                 actor="owner",
             )
         except SaveError as exc:
+            if is_form:
+                self._send_form_error(exc.code, str(exc), payload,
+                                      str(payload.get("return_to") or ""),
+                                      parts[2])
+                return
             self._send_json({"code": exc.code, "message": str(exc)},
                             code=STATUS_FOR_CODE.get(exc.code, 422))
             return
-        if "application/json" in content_type:
-            self._send_json(result, code=200)
-        else:
+        if is_form:
+            back = str(payload.get("return_to") or "") or f"/row?id={parts[2]}"
             self.send_response(303)
-            self.send_header("Location", f"/row?id={parts[2]}")
+            self.send_header("Location", back)
             self.end_headers()
+        else:
+            self._send_json(result, code=200)
 
     def _handle_income_create(self, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError
@@ -1490,6 +2026,237 @@ class Handler(BaseHTTPRequestHandler):
                              "result": received["result"]}, code=200)
         except BankImportError as exc:
             self._send_json({"code": exc.code, "message": str(exc)}, code=422)
+
+    def _handle_rule_dialog_form(self, path, raw: bytes, content_type: str) -> None:
+        """HTML form post for the rule dialog screen.
+
+        It reuses the same endpoints the JSON path uses and then goes back to
+        the screen, so a double click repeats the same client request id and the
+        server answers idempotently.
+        """
+        from urllib.parse import parse_qs, urlencode
+
+        from .ledger_store import SaveError
+
+        form = {k: (v if len(v) > 1 else v[0])
+                for k, v in parse_qs(raw.decode("utf-8"), keep_blank_values=True).items()}
+        if form.get("csrf") != CSRF_TOKEN:
+            self._send(layout("규칙 대화", "<div class='body'><p>확인 토큰이 없어요.</p></div>"), code=403)
+            return
+        case_id = str(form.get("case") or "")
+        request_id = str(form.get("client_request_id") or "")
+        selected = form.get("selected_row_ids")
+        payload = dict(form)
+        if path.endswith("/dialog/answer"):
+            payload["expected_row_revision"] = form.get("expected_row_revision")
+        if path.endswith("/rules/preview"):
+            payload["apply_existing"] = form.get("apply_existing") in ("1", "on", "true")
+            payload["apply_future"] = form.get("apply_future") in ("1", "on", "true")
+        if path.endswith("/rules/apply"):
+            payload["apply_existing"] = str(form.get("apply_existing") or "") == "1"
+            payload["apply_future"] = str(form.get("apply_future") or "") == "1"
+            if selected is not None and str(selected).strip():
+                payload["selected_row_ids"] = [v for v in str(selected).split(",") if v]
+        message = "처리했습니다"
+        try:
+            if path.endswith("/dialog/note"):
+                _STORE.update_rule_dialog_note(
+                    learning_case_id=case_id, note=str(form.get("note") or ""),
+                    client_request_id=request_id, actor="owner")
+                message = "근거 설명을 저장했습니다"
+            elif path.endswith("/dialog/answer"):
+                _STORE.answer_rule_question(
+                    question_id=str(form.get("question_id") or ""),
+                    answer=str(form.get("answer") or ""),
+                    expected_row_revision=int(form.get("expected_row_revision") or 0),
+                    client_request_id=request_id, actor="owner")
+                message = "답변을 저장했습니다"
+            elif path.endswith("/dialog/close"):
+                _STORE.close_rule_dialog(learning_case_id=case_id,
+                                         client_request_id=request_id, actor="owner")
+                message = "대화를 닫았습니다. 다시 열면 답변이 유지됩니다"
+            elif path.endswith("/dialog/resume"):
+                _STORE.resume_rule_dialog(learning_case_id=case_id,
+                                          client_request_id=request_id, actor="owner")
+                message = "대화를 다시 열었습니다"
+            elif path.endswith("/conversation/advance"):
+                result = _STORE.advance_dialog_conversation(
+                    learning_case_id=case_id, client_request_id=request_id,
+                    muse=_MUSE, gemini=_GEMINI, actor="owner")
+                turn = result.get("turn") or {}
+                if turn.get("state") == "answered":
+                    message = (f"초안을 받았습니다 · 공급자 {turn.get('adopted_provider')}"
+                               f" · 전환 {turn.get('switch_count')}회")
+                else:
+                    message = (f"AI 초안 대기 중입니다 · 사유 {turn.get('reason_code') or '-'}"
+                               " · 행 저장과 확정 규칙 실행은 계속됩니다")
+            elif path.endswith("/conversation/confirm-draft"):
+                _STORE.confirm_dialog_draft(learning_case_id=case_id,
+                                            client_request_id=request_id, actor="owner")
+                message = "규칙 초안을 저장했습니다. 적용 범위를 고르고 적용해 주세요"
+            elif path.endswith("/rules/preview"):
+                result = _STORE.preview_rule(
+                    rule_id=str(form.get("rule_id") or ""),
+                    apply_existing=payload["apply_existing"],
+                    apply_future=payload["apply_future"])
+                counts = result.get("counts", {})
+                message = (f"영향 미리보기: 포함 {counts.get('included_rows', 0)}건"
+                           f" · 제외 {counts.get('excluded_rows', 0)}건")
+            else:
+                result = _STORE.apply_rule(
+                    preview_id=str(form.get("preview_id") or ""),
+                    apply_existing=payload["apply_existing"],
+                    apply_future=payload["apply_future"],
+                    selected_row_ids=payload.get("selected_row_ids"),
+                    client_request_id=request_id, actor="owner")
+                message = (f"적용했습니다 · {result.get('applied_count', 0)}건"
+                           + (" · 미래 적용" if result.get("apply_future") else ""))
+        except SaveError as exc:
+            self._redirect_rule_dialog(case_id, f"{exc.code}: {exc}")
+            return
+        except ValueError:
+            self._redirect_rule_dialog(case_id, "INVALID_VALUE: 값을 확인해 주세요")
+            return
+        self._redirect_rule_dialog(case_id, message)
+
+    def _redirect_rule_dialog(self, case_id: str, message: str) -> None:
+        from urllib.parse import urlencode
+
+        self.send_response(303)
+        self.send_header(
+            "Location",
+            f"/rules?{urlencode({'case': case_id, 'msg': message})}")
+        self.end_headers()
+
+    def _handle_classification_rules(self, path, read_payload, check_csrf) -> None:
+        """Phase 6A rule draft, impact preview, and confirmed apply.
+
+        JSON only. The design template pass adds screens later.
+        """
+        from .ledger_store import SaveError
+
+        if _STORE is None:
+            self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
+            return
+        try:
+            payload = read_payload()
+            check_csrf(payload)
+            if path.endswith("/draft"):
+                raw = payload.get("draft")
+                result = _STORE.create_rule_draft(
+                    draft=raw if isinstance(raw, dict) else {},
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/preview"):
+                result = _STORE.preview_rule(
+                    rule_id=str(payload.get("rule_id") or ""),
+                    apply_existing=_flag(payload.get("apply_existing")),
+                    apply_future=_flag(payload.get("apply_future")))
+            elif path.endswith("/revise"):
+                raw = payload.get("draft")
+                result = _STORE.revise_rule(
+                    rule_id=str(payload.get("rule_id") or ""),
+                    draft=raw if isinstance(raw, dict) else {},
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/supersede"):
+                result = _STORE.supersede_rule(
+                    new_rule_id=str(payload.get("new_rule_id") or ""),
+                    old_rule_id=str(payload.get("old_rule_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/scope"):
+                result = _STORE.update_rule_scope(
+                    rule_id=str(payload.get("rule_id") or ""),
+                    apply_existing=_flag(payload.get("apply_existing")),
+                    apply_future=_flag(payload.get("apply_future")),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/conversation/open"):
+                result = _STORE.open_conversation(
+                    learning_case_id=str(payload.get("learning_case_id")
+                                         or payload.get("case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/conversation/turn"):
+                # The body may not pick a provider. Adapters come from the
+                # server binding only, and no key is accepted or stored.
+                result = _STORE.run_dialog_turn(
+                    conversation_id=str(payload.get("conversation_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    muse=_MUSE, gemini=_GEMINI, actor="owner")
+            elif path.endswith("/conversation/late"):
+                result = _STORE.adopt_late_response(
+                    conversation_id=str(payload.get("conversation_id") or ""),
+                    turn_id=str(payload.get("turn_id") or ""),
+                    attempt_id=str(payload.get("attempt_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/dialog/note"):
+                result = _STORE.update_rule_dialog_note(
+                    learning_case_id=str(payload.get("case")
+                                         or payload.get("learning_case_id") or ""),
+                    note=str(payload.get("note") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/conversation/advance"):
+                result = _STORE.advance_dialog_conversation(
+                    learning_case_id=str(payload.get("case")
+                                         or payload.get("learning_case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    muse=_MUSE, gemini=_GEMINI, actor="owner")
+            elif path.endswith("/conversation/confirm-draft"):
+                result = _STORE.confirm_dialog_draft(
+                    learning_case_id=str(payload.get("case")
+                                         or payload.get("learning_case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/dialog/open"):
+                raw = payload.get("draft")
+                result = _STORE.open_rule_dialog(
+                    learning_case_id=str(payload.get("learning_case_id") or ""),
+                    draft=raw if isinstance(raw, dict) else {},
+                    apply_existing=_flag(payload.get("apply_existing")),
+                    apply_future=_flag(payload.get("apply_future")),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/dialog/answer"):
+                try:
+                    expected_revision = int(payload.get("expected_row_revision", ""))
+                except (TypeError, ValueError):
+                    raise SaveError("INVALID_VALUE", "row revision is required")
+                result = _STORE.answer_rule_question(
+                    question_id=str(payload.get("question_id") or ""),
+                    answer=str(payload.get("answer") or ""),
+                    expected_row_revision=expected_revision,
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/dialog/close"):
+                result = _STORE.close_rule_dialog(
+                    learning_case_id=str(payload.get("learning_case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            elif path.endswith("/dialog/resume"):
+                result = _STORE.resume_rule_dialog(
+                    learning_case_id=str(payload.get("learning_case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+            else:
+                selected = payload.get("selected_row_ids")
+                if selected is not None and not isinstance(selected, list):
+                    raise SaveError("INVALID_VALUE", "선택 한 목록이 다시어요")
+                result = _STORE.apply_rule(
+                    preview_id=str(payload.get("preview_id") or ""),
+                    apply_existing=_flag(payload.get("apply_existing")),
+                    apply_future=_flag(payload.get("apply_future")),
+                    selected_row_ids=selected,
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    actor="owner")
+        except SaveError as exc:
+            self._send_json({"code": exc.code, "message": str(exc)},
+                            code=STATUS_FOR_CODE.get(exc.code, 422))
+            return
+        self._send_json(result, code=200)
 
     def _handle_revert(self, row_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError
@@ -1654,14 +2421,13 @@ class Handler(BaseHTTPRequestHandler):
                 target, manifest = publish_workbook(
                     wb, manifest, output_dir or "webledger-exports", stem)
             except FileExistsError:
-                candidate = Path(output_dir or "webledger-exports") / f"{stem}.xlsx"
-                if (candidate.is_file()
-                        and file_sha256(str(candidate)) == manifest.get("output_sha256")):
-                    target = candidate
-                else:
-                    target, manifest = publish_workbook(
-                        wb, manifest, output_dir or "webledger-exports",
-                        f"{stem}-{job_id[-8:]}")
+                # The stem comes from the input snapshot hash, so a new request
+                # over the same input needs its own file name. The suffix is per
+                # attempt, nothing is overwritten, and a retried request never
+                # reaches here because the stored job answers first.
+                target, manifest = publish_workbook(
+                    wb, manifest, output_dir or "webledger-exports",
+                    f"{stem}-{uuid.uuid4().hex[:8]}")
             manifest["output_path"] = str(target)
             record_job(_STORE.conn, job_id=job_id, tab_ids=ordered,
                        manifest=manifest, status="ready")
@@ -1706,8 +2472,9 @@ class Handler(BaseHTTPRequestHandler):
         if "application/json" in content_type:
             self._send_json(result, code=200)
         else:
+            back = str(payload.get("return_to") or "") or "/trips"
             self.send_response(303)
-            self.send_header("Location", "/trips")
+            self.send_header("Location", back)
             self.end_headers()
 
     def _handle_trip_delete(self, tab_id, read_payload, check_csrf, content_type) -> None:
@@ -1739,8 +2506,9 @@ class Handler(BaseHTTPRequestHandler):
         if "application/json" in content_type:
             self._send_json(result, code=200)
         else:
+            back = str(payload.get("return_to") or "") or "/trips"
             self.send_response(303)
-            self.send_header("Location", "/trips")
+            self.send_header("Location", back)
             self.end_headers()
 
     def _handle_bank_correct(self, row_id, read_payload, check_csrf, content_type) -> None:

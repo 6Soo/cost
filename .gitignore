@@ -1,6 +1,12 @@
 .env
 __pycache__/
 *.pyc
+.pytest_cache/
+/.local-archive/
+/runtime/
+/webledger-exports/
+# Local accounting outputs are preserved, but new files are not published.
+/outputs/
 ledger/data/*.db
 ledger/data/*.db-shm
 ledger/data/*.db-wal

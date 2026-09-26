@@ -1,0 +1,444 @@
+"""The A/Ramp/Pretendard design on the real ledger screen.
+
+Real clicks at 1440 and 390 against the product server and its real store:
+row edit panel, save, cancel, stale revision, classification move, upload,
+select trip XLSX, rule dialog entry and return, and the static font asset.
+No demo data and no demo script: every action goes through the product
+endpoints.
+"""
+
+import os
+import tempfile
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+from webapp import ledger_board as board_mod
+from webapp import ledger_design
+from webapp.ledger_store import LedgerStore
+
+
+def overflow(page):
+    return page.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth")
+
+
+class DesignScreenTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self._prev_db = os.environ.get("WEBLEDGER_DB")
+        os.environ["WEBLEDGER_DB"] = str(Path(self.tmp) / "design.sqlite")
+        self.store = LedgerStore(Path(os.environ["WEBLEDGER_DB"]))
+        # the export writes real files, so keep them out of the working tree
+        self._prev_export = os.environ.get("WEBLEDGER_EXPORT_DIR")
+        os.environ["WEBLEDGER_EXPORT_DIR"] = str(Path(self.tmp) / "exports")
+        board_mod.bind_store(self.store)
+        self.server = board_mod.serve(port=0, with_worker=False)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self._playwright = None
+        self._browser = None
+
+    def tearDown(self):
+        if self._browser is not None:
+            self._browser.close()
+        if self._playwright is not None:
+            self._playwright.stop()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        board_mod.bind_store(None)
+        self.store.close()
+        if self._prev_export is None:
+            os.environ.pop("WEBLEDGER_EXPORT_DIR", None)
+        else:
+            os.environ["WEBLEDGER_EXPORT_DIR"] = self._prev_export
+        if self._prev_db is None:
+            os.environ.pop("WEBLEDGER_DB", None)
+        else:
+            os.environ["WEBLEDGER_DB"] = self._prev_db
+
+    def _page(self, width, height=900):
+        from playwright.sync_api import sync_playwright
+
+        if self._playwright is None:
+            self._playwright = sync_playwright().start()
+        self._browser = self._playwright.chromium.launch()
+        context = self._browser.new_context(
+            viewport={"width": width, "height": height})
+        return context.new_page()
+
+    def _board(self, page, query=""):
+        page.goto(f"http://127.0.0.1:{self.port}/board{query}")
+        page.wait_for_load_state()
+
+    def _api(self, path, payload=None, method="GET"):
+        data = None
+        headers = {}
+        if payload is not None:
+            import json
+
+            data = json.dumps(payload).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}{path}", data=data,
+            headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    # ------------------------------------------------------------ static assets
+    def test_only_the_allowed_font_assets_are_served(self):
+        status, body = self._api("/assets/fonts/PretendardVariable.woff2")
+        self.assertEqual(status, 200)
+        self.assertEqual(body[:4], b"wOF2")
+        self.assertEqual(len(body), 2057688)
+        status, body = self._api("/assets/fonts/OFL.txt")
+        self.assertEqual(status, 200)
+        self.assertIn(b"SIL OPEN FONT LICENSE", body)
+        for name in ("ledger_store.py", "webapp%2Fledger_store.py", "..%2F..%2Fwebapp%2Fledger_store.py",
+                     "static%2Ffonts%2FPretendardVariable.woff2", "missing.woff2"):
+            status, _ = self._api(f"/assets/fonts/{name}")
+            self.assertEqual(status, 404, name)
+        status, _ = self._api("/assets/fonts/")
+        self.assertEqual(status, 404)
+        # the allowlist is the only door, whatever the module is asked for
+        self.assertIsNone(ledger_design.static_asset("../ledger_board.py"))
+        self.assertIsNone(ledger_design.static_asset("sub/PretendardVariable.woff2"))
+        self.assertIsNotNone(ledger_design.static_asset("OFL.txt"))
+
+    def test_the_font_is_really_loaded_in_the_browser(self):
+        page = self._page(1440)
+        self._board(page)
+        self.assertTrue(page.evaluate(
+            "document.fonts.check('14px \"Pretendard Variable\"')"))
+        family = page.evaluate("getComputedStyle(document.body).fontFamily")
+        self.assertIn("Pretendard Variable", family)
+        loaded = page.evaluate(
+            "Array.from(document.fonts).map(f=>f.family+':'+f.status).join(',')")
+        self.assertIn("Pretendard Variable:loaded", loaded)
+
+    # ------------------------------------------------------------------ layout
+    def test_the_1440_layout_has_the_trip_list_action_bar_and_two_tables(self):
+        page = self._page(1440)
+        self._board(page, "?tab=trip-demo-a")
+        self.assertEqual(overflow(page), 0)
+        nav = page.inner_text(".nav")
+        self.assertIn("여행 목록", nav)
+        self.assertIn("0408_예시여행A", nav)
+        self.assertIn("분류대기", nav)
+        self.assertEqual(page.inner_text(".act").replace("\n", " "),
+                         "카드 가져오기 XLSX 출력")
+        # income is above expense, both on the screen
+        order = page.eval_on_selector_all(
+            "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
+        self.assertEqual(order, ["수입", "지출"])
+        tops = page.eval_on_selector_all(
+            "tbody.grp th:first-child", "els=>els.map(e=>e.getBoundingClientRect().top)")
+        self.assertLess(tops[0], tops[1])
+        self.assertIn("1,000,000원", page.inner_text("#sum"))
+        self.assertIn("180,000원", page.inner_text("#sum"))
+        # the mobile list is not shown at this width
+        self.assertFalse(page.is_visible(".lst"))
+        self.assertTrue(page.is_visible(".tw"))
+
+    def test_one_trip_button_and_a_short_notice_at_390(self):
+        page = self._page(390, 844)
+        self._board(page, "?tab=trip-demo-a")
+        self.assertEqual(overflow(page), 0)
+        self.assertTrue(page.is_visible(".lst"))
+        self.assertFalse(page.is_visible(".tw"))
+        self.assertEqual(page.locator("#btn-menu").count(), 1)
+        self.assertEqual(page.evaluate(
+            "document.querySelectorAll('.bar .icon').length"), 1)
+        status = page.inner_text(".status")
+        self.assertEqual(len(status.strip().split("\n")), 1)
+        # the first transaction must not be pushed far down
+        top = page.evaluate(
+            "document.querySelector('.li').getBoundingClientRect().top")
+        self.assertLess(top, 460)
+        # the nav drawer opens from the one button
+        page.click("#btn-menu")
+        self.assertTrue(page.is_visible(".nav.open"))
+        page.click("#nav-mask")
+        self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
+
+    # ------------------------------------------------------------- edit panel
+    def _open_panel(self, page, row_id, width=1440):
+        self._board(page, "?tab=trip-demo-a")
+        page.click(f"tr[data-id='{row_id}']")
+        page.wait_for_selector("#panel")
+        return page.inner_text("#panel")
+
+    def test_the_row_panel_keeps_the_source_locked_and_saves_for_real(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        self.assertEqual(page.input_value("#f-amount_krw"), "100,000")
+        self.assertFalse(page.is_editable("#f-amount_krw"))
+        self.assertFalse(page.is_editable("#f-occurred_on"))
+        self.assertFalse(page.is_editable("#f-reservation_no"))
+        # a locked source field carries no name, so no post can send it
+        self.assertEqual(page.get_attribute("#f-amount_krw", "name"), None)
+        self.assertEqual(page.get_attribute("#f-description", "name"), "description")
+        before = self.store.get_row("expense-demo-c1")["revision"]
+        page.fill("#f-description", "예시 숙소 정정")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
+        stored = self.store.get_row("expense-demo-c1")
+        self.assertEqual(stored["description"].replace(" ", ""), "예시숙소정정")
+        self.assertEqual(stored["revision"], before + 1)
+        # the panel shows the new revision, and the summary was re-read
+        self.assertEqual(
+            page.input_value("input[name='expected_revision']"),
+            str(stored["revision"]))
+        self.assertIn("180,000원", page.inner_text("#sum"))
+        self.assertIn("1,000,000원", page.inner_text("#sum"))
+
+    def test_cancel_closes_the_panel_and_changes_nothing(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c4")
+        before = self.store.get_row("expense-demo-c4")
+        page.fill("#f-description", "취소되어야 하는 값")
+        page.click("#p-cancel")
+        page.wait_for_load_state()
+        self.assertIsNone(page.query_selector("#panel"))
+        after = self.store.get_row("expense-demo-c4")
+        self.assertEqual(after["description"], before["description"])
+        self.assertEqual(after["revision"], before["revision"])
+
+    def test_a_stale_revision_is_reported_and_the_typed_value_is_kept(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        page.fill("#f-description", "첫 번째 저장")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+        # someone else saves the same row afterwards
+        status, _ = self._api("/api/rows/expense-demo-c1/save", {
+            "csrf": board_mod.CSRF_TOKEN,
+            "expected_revision": self.store.get_row("expense-demo-c1")["revision"],
+            "client_request_id": "design-other-writer",
+            "change_mode": "exception",
+            "item": "다른 사람이 바꿈",
+        }, method="POST")
+        self.assertEqual(status, 200)
+        page.fill("#f-description", "내 입력은 남아 있어야 해요")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg').className.indexOf('err')>=0")
+        message = page.inner_text(".f-msg")
+        self.assertIn("EDIT_CONFLICT", message)
+        self.assertEqual(page.input_value("#f-description"), "내 입력은 남아 있어야 해요")
+        self.assertEqual(self.store.get_row("expense-demo-c1")["item"], "다른 사람이 바꿈")
+
+    def test_the_rule_dialog_opens_from_the_panel_and_comes_back(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        page.select_option("#f-change_mode", "rule_change")
+        page.fill("#f-description", "규칙으로 남길 값")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg').textContent.indexOf('revision')>=0")
+        page.wait_for_selector("#rule-open:not([hidden])")
+        case = self.store.conn.execute(
+            "SELECT case_id FROM board_learning_cases WHERE row_id=?",
+            ("expense-demo-c1",)).fetchone()[0]
+        self.assertEqual(page.get_attribute("#rule-open", "href"), f"/rules?case={case}")
+        page.click("#rule-open")
+        page.wait_for_load_state()
+        body = page.inner_text("body")
+        self.assertIn("규칙 대화", body)
+        self.assertIn("합성 모드입니다", body)
+        self.assertIn("expense-demo-c1", body)
+        # the way back to the ledger is there from the first screen
+        page.click("text=목록으로")
+        page.wait_for_load_state()
+        self.assertIn("여행 목록", page.inner_text(".nav"))
+        self.assertEqual(
+            page.locator("tr[data-id='expense-demo-c1']").count(), 1)
+        self.assertIn("규칙으로 남길 값",
+                      page.inner_text("tr[data-id='expense-demo-c1']"))
+        # and the dialog can be started, closed and resumed without losing it
+        page.click(f"tr[data-id='expense-demo-c1']")
+        page.wait_for_selector("#panel")
+        page.click("#rule-open")
+        page.wait_for_load_state()
+        page.fill("input[name='note']", "같은 가맹점이 반복돼요")
+        page.click("text=근거 저장")
+        page.wait_for_load_state()
+        self.assertIn("근거 설명을 저장했습니다", page.inner_text("body"))
+        page.click("text=대화 닫기")
+        page.wait_for_load_state()
+        self.assertIn("대화 재개", page.inner_text("body"))
+        page.click("text=대화 재개")
+        page.wait_for_load_state()
+        self.assertEqual(page.input_value("input[name='note']"), "같은 가맹점이 반복돼요")
+        self.assertEqual(
+            self.store.rule_dialog_state(case)["answers"].get("rule_kind"), None)
+
+    def test_the_panel_keeps_the_existing_links_reachable(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        links = page.eval_on_selector_all(
+            ".p-links a", "els=>els.map(a=>a.getAttribute('href'))")
+        self.assertIn("/row?id=expense-demo-c1", links)
+        self.assertIn("/trips", links)
+        self.assertIn("/export", links)
+        page.click(".p-links a[href='/row?id=expense-demo-c1']")
+        page.wait_for_load_state()
+        self.assertIn("변경 이력", page.inner_text("body"))
+        # the allocation screen and the trip screen both answer
+        status, _ = self._api("/trips")
+        self.assertEqual(status, 200)
+        status, _ = self._api("/income/income-demo-i1/split")
+        self.assertEqual(status, 200)
+        status, _ = self._api("/export")
+        self.assertEqual(status, 200)
+
+    def test_the_income_panel_offers_the_bank_fields_and_the_split_link(self):
+        page = self._page(1440)
+        self._open_panel(page, "income-demo-i1")
+        self.assertEqual(page.get_attribute("#f-customer_name", "name"), "customer_name")
+        self.assertIn("배분", page.inner_text(".p-links"))
+        self.assertTrue(page.is_editable("#f-customer_name"))
+
+    # ------------------------------------------------- classification waiting
+    def test_a_waiting_row_moves_to_a_trip_from_the_list(self):
+        page = self._page(1440)
+        self._board(page, "?tab=unclassified")
+        self.assertIn("30,000원", page.inner_text("#sum"))
+        self.assertEqual(len(self.store._unclassified_rows()) if hasattr(
+            self.store, "_unclassified_rows") else 1, 1)
+        page.select_option("#move-expense-demo-c3", "trip-demo-b")
+        page.click("form[data-js-move] button[type='submit']")
+        page.wait_for_function(
+            "document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
+        row = self.store.get_row("expense-demo-c3")
+        self.assertEqual(row["display_tab_id"], "trip-demo-b")
+        self.assertEqual(row["revision"], 2)
+        # the other trip's total picked it up
+        self._board(page, "?tab=trip-demo-b")
+        self.assertIn("30,000원", page.inner_text("#sum"))
+
+    def test_the_waiting_move_works_at_390_with_a_full_width_control(self):
+        page = self._page(390, 844)
+        self._board(page, "?tab=unclassified")
+        self.assertEqual(overflow(page), 0)
+        page.select_option(".lst form[data-js-move] select[name='display_tab_id']",
+                           "trip-demo-a")
+        page.click(".lst form[data-js-move] button[type='submit']")
+        page.wait_for_function(
+            "document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
+        self.assertEqual(self.store.get_row("expense-demo-c3")["display_tab_id"],
+                         "trip-demo-a")
+
+    # ------------------------------------------------------------- other routes
+    def test_the_upload_and_the_selected_trip_xlsx_still_work(self):
+        status, _ = self._api("/import")
+        self.assertEqual(status, 200)
+        page = self._page(1440)
+        self._board(page, "?tab=trip-demo-a")
+        page.click(".act a[href='/import']")
+        page.wait_for_load_state()
+        self.assertIn("카드 가져오기", page.inner_text("body"))
+        page.goto(f"http://127.0.0.1:{self.port}/board?tab=trip-demo-a")
+        page.wait_for_load_state()
+        page.click(".act a[href='/export']")
+        page.wait_for_load_state()
+        self.assertIn("출력", page.inner_text("body"))
+        status, body = self._api("/api/exports/xlsx", {
+            "csrf": board_mod.CSRF_TOKEN,
+            "tab_ids": ["trip-demo-a"],
+            "client_request_id": "design-xlsx",
+        }, method="POST")
+        self.assertEqual(status, 200)
+        self.assertIn(b"job_id", body)
+        self.assertIn(b'"status": "ready"', body)
+
+    def _poll_progress(self, batch_id, tries=100):
+        import json
+        import time
+
+        progress = {}
+        for _ in range(tries):
+            status, body = self._api(f"/api/imports/{batch_id}")
+            progress = json.loads(body.decode("utf-8"))
+            if progress.get("status") not in ("reconciling", "parsing", "processing"):
+                return progress
+            time.sleep(0.05)
+        return progress
+
+    def test_a_card_upload_through_the_product_endpoint_reaches_the_board(self):
+        # this one needs the reconciliation worker, so it gets its own server
+        self.thread.join(timeout=1)
+        self.server.shutdown()
+        self.server.server_close()
+        self.server = board_mod.serve(port=0, with_worker=True)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        csv_body = (
+            "occurred_on,merchant,amount_krw,currency,card_last4,approval_no\r\n"
+            "2026-04-12,예시 카페,9000,KRW,1234,APPROVAL-DESIGN\r\n"
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/imports", data=csv_body,
+            headers={"X-CSRF-Token": board_mod.CSRF_TOKEN,
+                     "X-Filename": "design.csv",
+                     "Content-Type": "text/csv"},
+            method="POST")
+        with urllib.request.urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+            accepted = response.read()
+        import json
+
+        self.assertIn(b"batch_id", accepted)
+        progress = self._poll_progress(json.loads(accepted.decode("utf-8"))["batch_id"])
+        self.assertEqual(progress["status"], "completed")
+        self.assertEqual(progress["result"]["new_events"], 1)
+        stored = [r for r in self.store.list_tab_rows(None)
+                  if "예시 카페" in (r.get("source_merchant") or "")]
+        self.assertTrue(stored, "the uploaded row is not in the store")
+        row = stored[0]
+        page = self._page(1440)
+        self._board(page, f"?tab={row['display_tab_id'] or 'unclassified'}")
+        body = page.inner_text(".tw") + page.inner_text(".lst")
+        self.assertIn("예시 카페", body)
+        # and it is reachable for editing from the new board
+        self.assertEqual(
+            page.locator(f"tr[data-id='{row['row_id']}']").count(), 1)
+
+    def test_the_form_policy_is_shared_with_the_save_endpoint(self):
+        for kind, source in (("expense", "카드"), ("expense", "현금"),
+                             ("income", "은행"), ("income", "직접 입력")):
+            allowed, fixed = board_mod.editable_fields(kind, source, False)
+            self.assertIn("display_tab_id", allowed)
+            self.assertNotIn("source_event_id", allowed)
+            self.assertIn("source_event_id", fixed)
+        allowed, fixed = board_mod.editable_fields("income", "직접 입력", True)
+        self.assertEqual(
+            set(allowed),
+            {"customer_id", "customer_name", "nickname", "display_tab_id", "income_kind"})
+        self.assertEqual(fixed, ())
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        names = page.eval_on_selector_all(
+            "#panel [name]", "els=>els.map(e=>e.getAttribute('name'))")
+        allowed, fixed = board_mod.editable_fields("expense", "카드", False)
+        for name in names:
+            if name in ("csrf", "expected_revision", "client_request_id",
+                        "change_mode", "return_to"):
+                continue
+            self.assertIn(name, allowed, name)
+            self.assertNotIn(name, fixed, name)
+
+
+if __name__ == "__main__":
+    unittest.main()

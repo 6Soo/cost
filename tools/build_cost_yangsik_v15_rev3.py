@@ -1,3 +1,4 @@
+import argparse
 import pathlib, json, sqlite3, csv
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -85,16 +86,45 @@ cur.execute("SELECT id, merchant, amount_krw, occurred_on FROM payment_transacti
 rows = cur.fetchall()
 conn.close()
 
-# Group by trip (정확한 매칭)
+# Group by trip (Q-SCHEDULE-001 일반 자동선택 확정 2026-09-19).
+# 결제일 단일 날짜가 여러 여행에 포함되면 첫 일치 break가 아니라
+# 시작일 일치 → 최근 시작일 → 늦은 종료일 순으로 자동 선택한다.
+# 끝까지 동률이면 보류(기타비용)로 남긴다.
 by_trip = {}
 for pid, mer, amt, occ in rows:
-    matched = None
-    for rec in auth_loaded:
-        if rec.starts_on.isoformat() <= occ <= rec.ends_on.isoformat():
-            matched = rec.trip_code
-            break
-    if not matched:
+    candidates = [
+        rec.trip_code
+        for rec in auth_loaded
+        if rec.starts_on.isoformat() <= occ <= rec.ends_on.isoformat()
+    ]
+    if not candidates:
         matched = '2025_종결_권위' if occ.startswith('2025') else '기타비용'
+    elif len(candidates) == 1:
+        matched = candidates[0]
+    else:
+        exact = [c for c in candidates if next(
+            rec.starts_on.isoformat() for rec in auth_loaded if rec.trip_code == c
+        ) == occ]
+        if len(exact) == 1:
+            matched = exact[0]
+        else:
+            pool = exact if exact else candidates
+            starts = {
+                c: next(rec.starts_on.isoformat() for rec in auth_loaded if rec.trip_code == c)
+                for c in pool
+            }
+            max_start = max(starts.values())
+            latest = [c for c in pool if starts[c] == max_start]
+            if len(latest) == 1:
+                matched = latest[0]
+            else:
+                ends = {
+                    c: next(rec.ends_on.isoformat() for rec in auth_loaded if rec.trip_code == c)
+                    for c in latest
+                }
+                max_end = max(ends.values())
+                longest = [c for c in latest if ends[c] == max_end]
+                matched = longest[0] if len(longest) == 1 else '기타비용'
     by_trip.setdefault(matched, []).append((pid, mer, amt, occ))
 
 print(f"원본 결제: {len(rows)}건, 시트: {len(by_trip)}개")
@@ -389,6 +419,12 @@ for trip, lst in sorted(by_trip.items()):
     # Page setup
     ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
-wb.save(str(OUT_XLSX))
-print(f"\n생성: {OUT_XLSX} ({OUT_XLSX.stat().st_size/1024:.0f} KB, {len(wb.sheetnames)}시트)")
+parser = argparse.ArgumentParser()
+parser.add_argument("--output", default=str(OUT_XLSX))
+_known, _unknown = parser.parse_known_args()
+_resolved_output = pathlib.Path(_known.output)
+if _resolved_output.resolve() != OUT_XLSX.resolve() and _resolved_output.exists():
+    raise SystemExit(f"output exists, refusing to overwrite: {_resolved_output}")
+wb.save(str(_resolved_output))
+print(f"\n생성: {_resolved_output} ({_resolved_output.stat().st_size/1024:.0f} KB, {len(wb.sheetnames)}시트)")
 print(f"총 지출 데이터: {sum(len(v) for v in by_trip.values())}건")

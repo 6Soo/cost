@@ -4,7 +4,12 @@ Synthetic CSV profile `synthetic-card-v1` first; real card profiles reuse
 the existing ledger parsers later. No originals leave the server.
 
 Columns: occurred_on, merchant, amount_krw, currency, card_last4,
-approval_no, cancel_flag, suggested_tab, memo.
+approval_no, cancel_flag, suggested_tab, memo, card_kind.
+`card_kind` is an optional card source column. It is not a required
+column, so an older profile still parses, and it does not join the
+content digest, so the existing dedupe and conflict contract is
+unchanged. `classify_parsed` is the single place that turns a source
+row into the direction and card kind used by classification rules.
 Required: occurred_on, merchant, amount_krw. Missing required columns or
 bad values keep the source row in import errors, never as a 0-won row.
 
@@ -209,6 +214,7 @@ def classify_parsed(fields: dict):
         "display_tab_id": tab,
         "classification_state": state,
         "memo": (fields.get("memo") or "").strip(),
+        "card_kind": (fields.get("card_kind") or "").strip(),
     }
 
 

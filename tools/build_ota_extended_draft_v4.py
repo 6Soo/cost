@@ -4,6 +4,7 @@ Reads OTA links from candidate DB and creates accounting draft rows directly
 using the same trip authority matching logic.
 """
 
+import argparse
 import json
 import sys
 import sqlite3
@@ -48,6 +49,17 @@ def normalize_service_period(start, end):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-db", default=str(OUTPUT_DB))
+    parser.add_argument("--detail", default=str(DETAIL_JSON))
+    parser.add_argument("--audit", default=str(AUDIT_JSON))
+    args = parser.parse_args()
+    output_db = pathlib.Path(args.output_db)
+    detail_json = pathlib.Path(args.detail)
+    audit_json = pathlib.Path(args.audit)
+    for target in (output_db, detail_json, audit_json):
+        if target.exists():
+            raise SystemExit(f"output exists, refusing to overwrite: {target}")
     input_database_sha256 = file_sha256(SOURCE_DB)
     input_audit_sha256 = file_sha256(SOURCE_AUDIT)
     print(f"Input DB: {input_database_sha256[:16]}...")
@@ -253,15 +265,13 @@ def main():
         "total_amount_krw": total,
     }
 
-    with open(AUDIT_JSON, 'w', encoding='utf-8') as f:
+    with open(audit_json, 'w', encoding='utf-8') as f:
         json.dump(audit, f, ensure_ascii=False, indent=2)
-    with open(DETAIL_JSON, 'w', encoding='utf-8') as f:
+    with open(detail_json, 'w', encoding='utf-8') as f:
         json.dump({"rows": rows}, f, ensure_ascii=False, indent=2)
 
     # Build minimal SQLite database
-    if OUTPUT_DB.exists():
-        OUTPUT_DB.unlink()
-    db = sqlite3.connect(str(OUTPUT_DB))
+    db = sqlite3.connect(str(output_db))
     db.execute('''CREATE TABLE draft_rows(
         rule_id TEXT, payment_id INTEGER, booking_id INTEGER,
         allocation_target TEXT, target_match_status TEXT,
@@ -279,9 +289,9 @@ def main():
     db.close()
 
     print(f"\nFiles written:")
-    print(f"  {OUTPUT_DB}")
-    print(f"  {DETAIL_JSON}")
-    print(f"  {AUDIT_JSON}")
+    print(f"  {output_db}")
+    print(f"  {detail_json}")
+    print(f"  {audit_json}")
 
 
 if __name__ == '__main__':

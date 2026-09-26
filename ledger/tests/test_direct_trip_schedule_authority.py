@@ -39,6 +39,29 @@ def record(**overrides):
     return value
 
 
+def explicit_service_payload(**overrides):
+    value = {
+        "tab": "0420_tokyo",
+        "event_year": 2026,
+        "service_start_on": "2026-04-20",
+        "service_end_on": "2026-04-23",
+        "region": "Tokyo",
+        "authority_kind": "explicit_trip_registry",
+        "authority_status": "authoritative",
+        "end_semantics": "exclusive_service_end",
+    }
+    value.update(overrides)
+    return value
+
+
+def synthetic_schedule_db(*payloads):
+    db = sqlite3.connect(":memory:")
+    db.executescript(Path("ledger/domain/schema.sql").read_text(encoding="utf-8"))
+    raw_bytes = json.dumps(list(payloads), ensure_ascii=False).encode("utf-8")
+    import_trip_schedule(db, Path("synthetic_trip_schedule.json"), raw_bytes=raw_bytes)
+    return db
+
+
 class DirectTripScheduleAuthorityTests(unittest.TestCase):
     def test_explicit_dates_bind_using_checkout_exclusive_end(self):
         records = validate_document({"schema_version": SCHEMA_VERSION, "records": [record()]})
@@ -60,13 +83,13 @@ class DirectTripScheduleAuthorityTests(unittest.TestCase):
             ["0408_교토"],
         )
 
-    def test_two_explicit_overlapping_periods_are_ambiguous(self):
+    def test_two_explicit_overlapping_periods_resolve_to_latest_start(self):
         first = record(trip_code="0404_에히메", starts_on="2026-04-04", ends_on="2026-04-10", region="에히메")
         second = record()
         records = validate_document({"schema_version": SCHEMA_VERSION, "records": [first, second]})
         self.assertEqual(
             [item.trip_code for item in match_service_period("2026-04-08", "2026-04-10", records)],
-            ["0404_에히메", "0408_교토"],
+            ["0408_교토"],
         )
 
     def test_missing_ends_on_is_rejected(self):
@@ -111,7 +134,56 @@ class DirectTripScheduleAuthorityTests(unittest.TestCase):
         self.assertEqual(period.service_end_on_exclusive, date(2026, 4, 11))
         self.assertEqual(period.last_service_on, date(2026, 4, 10))
 
-    def test_legacy_source_is_preserved_as_candidate_but_cannot_be_authority(self):
+    def test_explicit_service_schedule_preserves_cross_year_end(self):
+        payload = explicit_service_payload(
+            tab="1231_cross_year",
+            event_year=2025,
+            service_start_on="2025-12-31",
+            service_end_on="2026-01-02",
+            region="cross_year",
+        )
+        db = synthetic_schedule_db(payload)
+        try:
+            schedule = load_authoritative_trip_schedule(db)
+        finally:
+            db.close()
+        self.assertEqual(schedule["1231_cross_year"]["starts_on"], "2025-12-31")
+        self.assertEqual(schedule["1231_cross_year"]["ends_on"], "2026-01-02")
+
+    def test_explicit_service_schedule_rejects_invalid_period(self):
+        payload = explicit_service_payload(
+            service_start_on="2026-04-23",
+            service_end_on="2026-04-23",
+        )
+        db = synthetic_schedule_db(payload)
+        try:
+            with self.assertRaisesRegex(ValueError, "booking_service_period_invalid"):
+                load_authoritative_trip_schedule(db)
+        finally:
+            db.close()
+
+    def test_explicit_service_schedule_rejects_tampered_source_digest(self):
+        payload = explicit_service_payload()
+        db = synthetic_schedule_db(payload)
+        try:
+            db.execute(
+                """UPDATE direct_source_records SET source_sha256=?
+                   WHERE source_kind='trip_schedule' AND source_key=?""",
+                ("0" * 64, payload["tab"]),
+            )
+            with self.assertRaisesRegex(
+                ValueError, "trip_schedule_authority_payload_digest_invalid"
+            ):
+                load_authoritative_trip_schedule(db)
+        finally:
+            db.close()
+
+    def test_lodging_last_service_on_remains_prior_night(self):
+        period = normalize_service_period("2026-08-27", "2026-08-30")
+        self.assertEqual(period.service_end_on_exclusive, date(2026, 8, 30))
+        self.assertEqual(period.last_service_on, date(2026, 8, 29))
+
+    def test_legacy_candidate_and_explicit_service_end_are_handled(self):
         explicit = {
             "tab": "0414_나가노",
             "event_year": 2026,
@@ -152,7 +224,7 @@ class DirectTripScheduleAuthorityTests(unittest.TestCase):
         self.assertEqual(set(authority), {"0414_나가노", "0420_도쿄"})
         self.assertEqual(authority["0414_나가노"]["window"], 2)
         self.assertEqual(authority["0414_나가노"]["ends_on"], "2026-04-15")
-        self.assertEqual(authority["0420_도쿄"]["ends_on"], "2026-04-22")
+        self.assertEqual(authority["0420_도쿄"]["ends_on"], "2026-04-23")
 
     def test_relational_trip_rows_do_not_infer_dates_from_legacy_or_code(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "validated_at_utc": "2026-09-07T23:51:01.961280+00:00",
+  "git_head": "a48ee4497b58c638640043a74367127a6c7a1081",
+  "changes_state": "local_uncommitted",
+  "handoff_status": "PARTIAL_HANDOFF",
+  "release_eligible": false,
+  "targeted_tests": {
+    "command": "python -W error -m pytest ledger/tests/test_pipeline_audit.py ledger/tests/test_agoda_journal_shadow_v5_ota.py ledger/tests/test_direct_trip_schedule_authority.py ledger/tests/test_direct_ota_reservation_authority.py ledger/tests/test_direct_accounting_shadow.py ledger/tests/test_direct_verified_ota_lodging.py ledger/tests/test_direct_structured_lodging_evidence.py webapp/tests -q --tb=short -rs --timeout=45 --timeout-method=thread --junitxml=docs/handoff/2026-09-08/targeted-tests-final.xml",
+    "collected": 119,
+    "passed": 102,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 16,
+    "warnings": 0,
+    "existing_failures": [
+      "ledger.tests.test_direct_trip_schedule_authority.DirectTripScheduleAuthorityTests::test_two_explicit_overlapping_periods_are_ambiguous"
+    ],
+    "skip_reasons": {
+      "environment-bound: authority pin rebaseline pending approval": 8,
+      "environment-bound: staged evidence round unavailable": 8
+    }
+  },
+  "syntax_checks": {
+    "python_files": 363,
+    "gas_files": 5,
+    "status": "ok"
+  },
+  "audit": {
+    "status": "blocked",
+    "exit_code": 1,
+    "summary": {
+      "passed_stage_count": 7,
+      "required_passed_stage_count": 7,
+      "required_stage_count": 9,
+      "stage_count": 10
+    },
+    "findings": [
+      {
+        "code": "AUDIT_DATABASE_DIGEST_MISMATCH",
+        "path": "outputs/agoda-card-link-candidate-audit-v5-20260826.json",
+        "severity": "error",
+        "stage_id": "ota_card_link_candidate"
+      },
+      {
+        "code": "AUDIT_DIGEST_MISSING",
+        "path": "outputs/agoda-card-accounting-draft-v5-ota-extended.audit.json",
+        "severity": "warning",
+        "stage_id": "ota_extended_draft_candidate"
+      },
+      {
+        "code": "EXTERNAL_STAGE_SKIPPED",
+        "severity": "warning",
+        "stage_id": "gas_external"
+      }
+    ],
+    "recorded_hashes_match_final_files": true
+  },
+  "real_input_rejection": {
+    "error": "v5_audit_database_sha256_missing",
+    "outputs_created": false
+  },
+  "original_artifacts_unchanged": true,
+  "original_artifact_sha256": {
+    "outputs/agoda-card-link-candidate-v5-20260826.sqlite": "c42a889da60fdb8f9e06a966c726609bb459d861591f1ccfacf8e3b6c97507eb",
+    "outputs/agoda-card-accounting-draft-v5-ota-extended.sqlite": "986995d29c5a31174bb60fa5818adb7a7f7bd64b27e4a5b6e899d2819842e37e",
+    "outputs/agoda-card-journal-shadow-v5-ota-extended.sqlite": "d02aa0a1ed44d606d85082fc591a44a43645bfc8e3dfe75b5834e75fff2ae249",
+    "outputs/ota-integrated-bookings-v1.sqlite": "a0d3fd4b90eb4abc8b6def0e003a3b74fa8512e6278e6ed21dc972391f5dceb1",
+    "outputs/법인경리_비용_전체_5328_48tabs_v15_20260901.xlsx": "0d5a63935b6333796f55cf1f06623966c7a52370ff9d43f1ee76ce882d365ea6"
+  },
+  "implementation_sha256": {
+    "tools/pipeline_audit.py": "165c9f7aa5726ecf5e1edcbc803567d6e2cdfcfa6e65f203d253c4183f49e50b",
+    "tools/build_agoda_journal_shadow_v5_ota.py": "d529634703c22cceff43dd73397651126d1329c12abd0c82e406a949abdfd4bd",
+    "tools/build_agoda_journal_shadow_v3.py": "0b883c5e14574b787b32dc84428793e3cc876b60cc6c0a64b180d16dcf0e8f36",
+    "ledger/domain/direct_verified_ota_lodging.py": "1fd336f9a2e4a230af9b3634ab8285d2c760b8606e3b470cff0983e389463d30",
+    "ledger/domain/direct_trip_schedule_authority.py": "1e07f86020c27da3b9ec220bae44fc41f839fe28417c0c66cb6fac4714725b87",
+    "ledger/tests/test_pipeline_audit.py": "7a56a95699727aa7e1fb1e33038bbad8d52e496bb965b64205bdf684e247ccfd",
+    "ledger/tests/test_agoda_journal_shadow_v5_ota.py": "9011d81145e930e452d53c53ef0830e8460b5fde702497174bc1f0acf9c9e825",
+    "ledger/tests/test_direct_trip_schedule_authority.py": "c8f912052fd56428e2774c3277e2d8c9fa42280a12a9a4f3636461307703dd61",
+    "config/pipeline_inventory.json": "cffa1513bca56a93c295d39025a9615289ccaa35f29056c6a0e92a54939ceb84"
+  },
+  "evidence_sha256": {
+    "pipeline-audit.json": "0504b87ed22528c116b6fd488370dbc64477f18bc19923afbbf7fc44e891478f",
+    "targeted-tests.xml": "9b008ebc9cc785ff18c7398e958798c55095b576377f269f95e76be8a44bef2f",
+    "targeted-tests-final.xml": "ddeac88b9e0a2d9237ac7300db81ec98001f131e0907529fca0853ef9b7285d1",
+    "implementation-agents.json": "25a8270ee9d62edd1f70499b3e75e66ae328bce92547834bfb2344c1dc78a83b"
+  }
+}

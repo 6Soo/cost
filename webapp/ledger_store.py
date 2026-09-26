@@ -18,8 +18,10 @@ rejected at the API boundary when present in a save request.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 
 from . import ledger_board as board
@@ -66,6 +68,168 @@ CREATE TABLE IF NOT EXISTS board_learning_cases (
     row_id TEXT NOT NULL,
     event_id TEXT NOT NULL,
     dialog_state TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS classification_rules (
+    rule_id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    base_rule_version INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    apply_existing INTEGER NOT NULL DEFAULT 0,
+    apply_future INTEGER NOT NULL DEFAULT 0,
+    rule_hash TEXT NOT NULL,
+    rule_json TEXT NOT NULL,
+    learning_case_id TEXT NOT NULL DEFAULT '',
+    future_boundary_rowid INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_previews (
+    preview_id TEXT PRIMARY KEY,
+    rule_id TEXT NOT NULL,
+    rule_hash TEXT NOT NULL,
+    rule_version INTEGER NOT NULL,
+    apply_existing INTEGER NOT NULL DEFAULT 0,
+    apply_future INTEGER NOT NULL DEFAULT 0,
+    plan_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_apply_requests (
+    client_request_id TEXT PRIMARY KEY,
+    preview_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS classification_rule_versions (
+    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    base_rule_version INTEGER NOT NULL,
+    previous_version INTEGER,
+    previous_rule_hash TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    rule_hash TEXT NOT NULL,
+    rule_json TEXT NOT NULL,
+    confirmation_json TEXT NOT NULL DEFAULT '{}',
+    actor TEXT NOT NULL DEFAULT 'owner',
+    change_kind TEXT NOT NULL,
+    client_request_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS classification_rule_versions_rule
+    ON classification_rule_versions(rule_id, entry_id);
+CREATE TABLE IF NOT EXISTS rule_lifecycle_requests (
+    client_request_id TEXT PRIMARY KEY,
+    operation TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_supersessions (
+    supersession_id TEXT PRIMARY KEY,
+    new_rule_id TEXT NOT NULL,
+    old_rule_id TEXT NOT NULL,
+    client_request_id TEXT NOT NULL UNIQUE,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_dialogs (
+    case_id TEXT PRIMARY KEY,
+    row_id TEXT NOT NULL,
+    row_revision INTEGER NOT NULL,
+    draft_json TEXT NOT NULL,
+    apply_existing INTEGER NOT NULL DEFAULT 0,
+    apply_future INTEGER NOT NULL DEFAULT 0,
+    dialog_state TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_questions (
+    question_id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    question_key TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    options_json TEXT NOT NULL,
+    answer TEXT,
+    answered_at TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_answer_requests (
+    client_request_id TEXT PRIMARY KEY,
+    question_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_conversations (
+    conversation_id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    rule_id TEXT,
+    rule_version INTEGER,
+    handoff_summary TEXT NOT NULL DEFAULT '',
+    active_provider TEXT,
+    active_model_id TEXT,
+    state TEXT NOT NULL,
+    turn_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_turns (
+    turn_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    process_run_id TEXT NOT NULL DEFAULT '',
+    abandoned_reason TEXT NOT NULL DEFAULT '',
+    adopted_attempt_id TEXT,
+    adopted_provider TEXT,
+    reason_code TEXT,
+    is_real_call INTEGER NOT NULL DEFAULT 0,
+    switch_count INTEGER NOT NULL DEFAULT 0,
+    draft_json TEXT NOT NULL DEFAULT '{}',
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_turn_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    turn_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    slot TEXT NOT NULL,
+    status TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    reason_code TEXT,
+    send_error TEXT,
+    adopted INTEGER NOT NULL DEFAULT 0,
+    is_real_call INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_process_leases (
+    run_id TEXT PRIMARY KEY,
+    pid INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_orphan_reviews (
+    turn_id TEXT PRIMARY KEY,
+    process_run_id TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_turn_requests (
+    client_request_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    request_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rule_late_responses (
+    late_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS income_corrections (
@@ -234,6 +398,84 @@ def _normalize_create_input(fields: dict) -> dict:
     }))
 
 
+# One process-wide run id. Every LedgerStore in this process shares it, so a
+# second connection in the same process never looks like a restart. A restarted
+# process gets a new uuid, so a recycled pid cannot impersonate the old owner.
+_PROCESS_RUN_ID = uuid.uuid4().hex
+_PROCESS_PID = os.getpid()
+
+# A lease is fresh while its heartbeat is inside this window. Overridable only so
+# a test can shorten it; the default is minutes, not seconds.
+LEASE_TTL_SECONDS = float(os.environ.get("WEBLEDGER_RULE_LEASE_TTL", "300"))
+
+
+def _process_alive(pid):
+    """True, False, or None when this process cannot tell.
+
+    Never sends a signal. A pid that cannot be inspected is None, not False, so
+    a turn is never recovered on a guess: the caller keeps it and records the
+    reason for review.
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        ERROR_INVALID_PARAMETER = 87
+        # use_last_error is what makes ctypes.get_last_error() meaningful here.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        ctypes.set_last_error(0)
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            # Only "no such process" proves the owner is gone. Every other
+            # reason for a refused handle stays unknown.
+            return False if ctypes.get_last_error() == ERROR_INVALID_PARAMETER else None
+        try:
+            code = ctypes.c_ulong()
+            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return code.value == STILL_ACTIVE
+            return None
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # The process exists, this one just may not signal it.
+        return True
+    except OSError:
+        return None
+    return True
+
+
+def _lease_age_seconds(heartbeat_at: str) -> float:
+    import datetime as _dt
+
+    try:
+        moment = _dt.datetime.fromisoformat(heartbeat_at)
+    except (TypeError, ValueError):
+        return float("inf")
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_dt.timezone.utc)
+    return (_dt.datetime.now(_dt.timezone.utc) - moment).total_seconds()
+
+
+def _ensure_rule_turn_columns(conn) -> None:
+    """Add the process ownership columns to a database created earlier."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(rule_turns)").fetchall()}
+    if "process_run_id" not in cols:
+        conn.execute("ALTER TABLE rule_turns ADD COLUMN process_run_id TEXT NOT NULL DEFAULT ''")
+    if "abandoned_reason" not in cols:
+        conn.execute("ALTER TABLE rule_turns ADD COLUMN abandoned_reason TEXT NOT NULL DEFAULT ''")
+
+
 def _ensure_correction_columns(conn) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(income_corrections)").fetchall()}
     if "corrected_occurred_on" not in cols:
@@ -267,6 +509,9 @@ def _row_to_record(kind: str, row: dict) -> dict:
             source_event_id=row["source_event_id"],
             classification_state=row.get("classification_state", ""),
             classification_basis=row.get("classification_basis", ""),
+            source_merchant=row.get("source_merchant", ""),
+            event_kind=row.get("event_kind", ""),
+            card_kind=row.get("card_kind", ""),
             operator_note="",
         )
     else:
@@ -297,10 +542,16 @@ class LedgerStore:
             check_same_thread=False,
         )
         self._lock = threading.RLock()
+        # A pending turn belongs to the process that sent it. Every store in
+        # this process shares one run id, so a second connection is not a
+        # restart.
+        self._process_run_id = _PROCESS_RUN_ID
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA_SQL)
         _ensure_correction_columns(self.conn)
+        _ensure_rule_turn_columns(self.conn)
+        self._register_process_lease()
         if first_create:
             self._seed()
         self._ensure_trips()
@@ -766,6 +1017,1677 @@ class LedgerStore:
             client_request_id=client_request_id, changes=None, actor=actor,
         )
 
+    # --- Phase 6A classification rules ---------------------------------
+    # Draft -> impact preview -> confirm/apply. The draft reuses the learning
+    # case that save(change_mode="rule_change") already created. Apply does
+    # not call save(), because save() records every changed field as a manual
+    # override and a rule must not look like a manual lock.
+
+    FUTURE_PATH_CONNECTED = ("card_import.import_row",)
+    FUTURE_PATH_NOT_CONNECTED = (
+        "bank_income", "direct_income", "manual_expense",
+    )
+
+    # Per-source rule condition contract. Only the card source is connected.
+    # Bank income, direct income, and manual expense rows have no card source
+    # keys, so a rule that needs merchant, direction, or card kind does not
+    # match them. Nothing is filled in from the amount sign or from the
+    # editable description.
+    SOURCE_CONDITION_CONTRACT = {
+        "card": {
+            "connected": True,
+            "entry_path": "card_import.import_row",
+            "source_keys": ("source_merchant", "event_kind", "card_kind"),
+            "lineage": "card_import_rows.raw_json -> classify_parsed",
+        },
+        "bank_income": {"connected": False, "reason": "no card source keys"},
+        "direct_income": {"connected": False, "reason": "no card source keys"},
+        "manual_expense": {"connected": False, "reason": "no card source keys"},
+    }
+
+    def card_source_keys(self, row: dict) -> dict:
+        """Read direction, card kind, and source merchant from the card lineage.
+
+        A row imported by this code carries the keys in its payload. A row that
+        predates it is resolved from the stored card source row through the
+        same `classify_parsed` contract, so an existing row and a new upload
+        produce identical keys. No card lineage means no keys, and the caller
+        keeps the condition unmatched instead of guessing.
+        """
+        import json as _json
+
+        from .card_import import classify_parsed
+
+        row_id = str(row.get("row_id") or "")
+        if row.get("source_merchant") or row.get("event_kind") or row.get("card_kind"):
+            return {
+                "source_merchant": str(row.get("source_merchant") or ""),
+                "event_kind": str(row.get("event_kind") or ""),
+                "card_kind": str(row.get("card_kind") or ""),
+            }
+        raw = None
+        if row_id.startswith("imp-") and len(row_id) > 4:
+            found = self.conn.execute(
+                "SELECT raw_json FROM card_import_rows WHERE stable_key LIKE ?"
+                " ORDER BY batch_id, row_index LIMIT 1", (row_id[4:] + "%",)).fetchone()
+            if found:
+                raw = found[0]
+        if raw is None and row.get("source_event_id"):
+            target = str(row["source_event_id"])
+            for (candidate,) in self.conn.execute(
+                    "SELECT raw_json FROM card_import_rows ORDER BY batch_id, row_index"):
+                try:
+                    fields = _json.loads(candidate)
+                except ValueError:
+                    continue
+                if str(fields.get("approval_no") or "").strip() == target:
+                    raw = candidate
+                    break
+        if raw is None:
+            return {}
+        try:
+            fields = _json.loads(raw)
+        except ValueError:
+            return {}
+        ok, event = classify_parsed(fields)
+        if not ok or not isinstance(event, dict):
+            return {}
+        return {
+            "source_merchant": str(event.get("merchant") or ""),
+            "event_kind": str(event.get("event_kind") or ""),
+            "card_kind": str(event.get("card_kind") or ""),
+        }
+
+    def manual_locked_fields(self, row_id: str) -> set:
+        return {r[0] for r in self.conn.execute(
+            "SELECT field FROM board_manual_overrides WHERE row_id=?",
+            (row_id,)).fetchall()}
+
+    def _draft_confirmation(self, rule: dict, case_id: str) -> dict:
+        """User confirmation basis captured with a version record."""
+        dialog = self._dialog_row(case_id) if case_id else None
+        return {
+            "learning_case_id": case_id,
+            "answers": self._dialog_answers(case_id) if case_id else {},
+            "apply_existing": None if dialog is None else bool(dialog[4]),
+            "apply_future": None if dialog is None else bool(dialog[5]),
+            "preview_id": None,
+            "applied_rows": 0,
+        }
+
+    def _lifecycle_replay(self, client_request_id: str, operation: str, request: dict):
+        row = self.conn.execute(
+            "SELECT operation, request_json, result_json FROM rule_lifecycle_requests"
+            " WHERE client_request_id=?", (client_request_id,)).fetchone()
+        if row is None:
+            return None
+        if row[0] != operation or json.loads(row[1]) != request:
+            raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+        return json.loads(row[2])
+
+    def _store_lifecycle_request(self, client_request_id: str, operation: str,
+                                 request: dict, result: dict, created_at: str) -> None:
+        self.conn.execute(
+            "INSERT INTO rule_lifecycle_requests(client_request_id, operation,"
+            " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
+            (client_request_id, operation, _canonical(request), _canonical(result),
+             created_at))
+
+    def _rule_row(self, rule_id: str):
+        return self.conn.execute(
+            "SELECT rule_id, version, base_rule_version, status, apply_existing,"
+            " apply_future, rule_hash, rule_json, learning_case_id,"
+            " future_boundary_rowid, created_at, updated_at"
+            " FROM classification_rules WHERE rule_id=?", (rule_id,)).fetchone()
+
+    @staticmethod
+    def _rule_dict(row) -> dict:
+        rule = json.loads(row[7])
+        return {
+            "rule_id": row[0], "version": row[1], "base_rule_version": row[2],
+            "status": row[3], "apply_existing": bool(row[4]),
+            "apply_future": bool(row[5]), "rule_hash": row[6], "rule": rule,
+            "learning_case_id": row[8], "future_boundary_rowid": row[9],
+            "created_at": row[10], "updated_at": row[11],
+        }
+
+    def get_rule(self, rule_id: str):
+        row = self._rule_row(rule_id)
+        return None if row is None else self._rule_dict(row)
+
+    def list_rules(self) -> list:
+        return [self._rule_dict(r) for r in self.conn.execute(
+            "SELECT rule_id, version, base_rule_version, status, apply_existing,"
+            " apply_future, rule_hash, rule_json, learning_case_id,"
+            " future_boundary_rowid, created_at, updated_at"
+            " FROM classification_rules ORDER BY created_at, rule_id").fetchall()]
+
+    def create_rule_draft(self, *, draft: dict, client_request_id: str,
+                          actor: str = "owner") -> dict:
+        """Validate one structured draft and store it as a draft rule."""
+        from .classification_rules import RuleError, normalize_draft, rule_hash
+
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        rule_id = f"rule-{client_request_id}"
+        case_id = str((draft or {}).get("learning_case_id") or "").strip()
+        with self._lock:
+            self._replay_pending()
+            try:
+                rule = normalize_draft(draft, learning_case_id=case_id, rule_id=rule_id)
+            except RuleError as exc:
+                raise SaveError(exc.code, str(exc))
+            digest = rule_hash(rule)
+            existing = self._rule_row(rule_id)
+            if existing is not None:
+                if existing[6] != digest:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 초안을 보냈어요")
+                return self._rule_dict(existing)
+            if not case_id:
+                raise SaveError("INVALID_VALUE", "규칙 대화 사례가 필요해요")
+            case = self.conn.execute(
+                "SELECT case_id, row_id, dialog_state FROM board_learning_cases WHERE case_id=?",
+                (case_id,)).fetchone()
+            if case is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
+            if self.case_is_one_off(case_id):
+                raise SaveError(
+                    "RULE_ONE_OFF",
+                    "이번 거래만 적용하기로 한 답변이 있어 규칙을 만들지 않아요")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                if self._rule_row(rule_id) is not None:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 초안을 보냈어요")
+                self.conn.execute(
+                    "INSERT INTO classification_rules(rule_id, version, base_rule_version,"
+                    " status, apply_existing, apply_future, rule_hash, rule_json,"
+                    " learning_case_id, future_boundary_rowid, created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (rule_id, rule["version"], rule["base_rule_version"], "draft", 0, 0,
+                     digest, _canonical(rule), case_id, None, created_at, created_at),
+                )
+                self._record_rule_version(
+                    rule_id, rule["version"], rule["base_rule_version"], "draft",
+                    digest, rule, "created", client_request_id, created_at,
+                    previous_version=None, previous_rule_hash="",
+                    confirmation=self._draft_confirmation(rule, case_id),
+                    actor=actor)
+                self.conn.execute(
+                    "UPDATE board_learning_cases SET dialog_state='drafted' WHERE case_id=?",
+                    (case_id,))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return self._rule_dict(self._rule_row(rule_id))
+
+    def _rule_candidate_rows(self, rule: dict) -> list:
+        rows = []
+        for row in self.conn.execute(
+                "SELECT row_id, row_kind, display_tab_id, revision, payload_json"
+                " FROM board_rows WHERE row_kind!='income' ORDER BY rowid").fetchall():
+            payload = json.loads(row[4])
+            payload["row_id"] = row[0]
+            payload["revision"] = row[3]
+            payload.update(self.card_source_keys(payload))
+            rows.append(payload)
+        return rows
+
+    def build_rule_preview(self, rule_id: str, *, apply_existing: bool,
+                           apply_future: bool) -> dict:
+        """Server-side impact preview. Never trusts a client-side count."""
+        from .classification_rules import (condition_source_report, find_conflicts,
+                                           find_same_effect_rules, plan_effect,
+                                           rule_matches)
+        from .contracts import sha256_text
+
+        stored = self.get_rule(rule_id)
+        if stored is None:
+            raise SaveError("INVALID_VALUE", "없는 규칙이에요")
+        if stored["learning_case_id"] and self.case_is_one_off(stored["learning_case_id"]):
+            raise SaveError(
+                "RULE_ONE_OFF",
+                "이번 거래만 적용하기로 한 답변이 있어 미리보기를 만들지 않아요")
+        rule = stored["rule"]
+        candidates = []
+        excluded = []
+        matched_rows = 0
+        if apply_existing:
+            active = [r for r in self.list_rules() if r["status"] == "active"]
+            for row in self._rule_candidate_rows(rule):
+                verdict = rule_matches(rule, row)
+                if not verdict["matched"]:
+                    continue
+                matched_rows += 1
+                conflicts = find_conflicts(rule, row, active)
+                if conflicts:
+                    excluded.append({
+                        "row_id": row["row_id"], "revision": row["revision"],
+                        "reason": "RULE_CONFLICT", "conflicts": conflicts,
+                        "auto_resolved": False,
+                        "resolution": "explicit_supersede_or_narrow_draft"})
+                    continue
+                same_effect = find_same_effect_rules(rule, row, active)
+                locked = sorted(self.manual_locked_fields(row["row_id"]))
+                changes = plan_effect(rule, row, locked)
+                if locked:
+                    excluded.append({
+                        "row_id": row["row_id"], "revision": row["revision"],
+                        "reason": "MANUAL_LOCK", "locked_fields": locked})
+                if not changes:
+                    excluded.append({
+                        "row_id": row["row_id"], "revision": row["revision"],
+                        "reason": "NO_CHANGE"})
+                    continue
+                candidates.append({
+                    "row_id": row["row_id"], "revision": row["revision"],
+                    "amount_krw": row.get("amount_krw"),
+                    "from_tab_id": row.get("display_tab_id"),
+                    "to_tab_id": changes.get("display_tab_id", row.get("display_tab_id")),
+                    "changes": changes,
+                    "locked_fields": locked,
+                    "same_effect_rules": same_effect,
+                })
+        source_report = (condition_source_report(rule, self._rule_candidate_rows(rule))
+                         if apply_existing else {})
+        unavailable_conditions = sorted(
+            field for field, info in source_report.items() if info["missing_source"])
+        plan = {
+            "rule_id": rule_id,
+            "rule_hash": stored["rule_hash"],
+            "rule_version": stored["version"],
+            "base_rule_version": stored["base_rule_version"],
+            "apply_existing": bool(apply_existing),
+            "apply_future": bool(apply_future),
+            "candidates": candidates,
+            "excluded": excluded,
+            "counts": {
+                "matched_rows": matched_rows,
+                "included_rows": len(candidates),
+                "excluded_rows": len(excluded),
+            },
+            "amounts": self._rule_preview_amounts(candidates, rule) if apply_existing else {},
+            "unavailable_conditions": unavailable_conditions,
+            "condition_source_report": source_report,
+            "conflict_policy": {
+                "latest_rule_wins": False,
+                "auto_resolve": False,
+                "requires": "explicit_supersede_or_narrow_draft",
+                "report": "conditions_and_example_row",
+            },
+            "source_condition_contract": {
+                key: value for key, value in self.SOURCE_CONDITION_CONTRACT.items()},
+            "future": {
+                "path_connected": list(self.FUTURE_PATH_CONNECTED),
+                "path_not_connected": list(self.FUTURE_PATH_NOT_CONNECTED),
+                "note": "미래 거래 목록과 금액은 제시하지 않아요",
+            } if apply_future else {
+                "path_connected": [], "path_not_connected": [],
+                "note": "미래 적용이 꺼져 있어요",
+            },
+        }
+        plan["preview_id"] = sha256_text(_canonical({
+            "rule_hash": plan["rule_hash"],
+            "rule_version": plan["rule_version"],
+            "base_rule_version": plan["base_rule_version"],
+            "apply_existing": plan["apply_existing"],
+            "apply_future": plan["apply_future"],
+            "rows": [[c["row_id"], c["revision"]] for c in candidates],
+        }))
+        return plan
+
+    def _rule_preview_amounts(self, candidates, rule=None) -> dict:
+        """Per-tab expense totals before the change and after the projection.
+
+        `before` is the sum of every current expense row in the tab, not only
+        the matched rows, so the preview shows the real tab total.
+        """
+        current = {}
+        for row in self._rule_candidate_rows(rule or {}):
+            tab = str(row.get("display_tab_id") or "unclassified")
+            current[tab] = current.get(tab, 0) + int(row.get("amount_krw") or 0)
+        moving_out = {}
+        moving_in = {}
+        for item in candidates:
+            amount = int(item.get("amount_krw") or 0)
+            source = str(item.get("from_tab_id") or "unclassified")
+            target = str(item.get("to_tab_id") or "unclassified")
+            if source == target:
+                continue
+            moving_out[source] = moving_out.get(source, 0) + amount
+            moving_in[target] = moving_in.get(target, 0) + amount
+        tabs = sorted(set(current) | set(moving_out) | set(moving_in))
+        return {
+            tab: {
+                "before": current.get(tab, 0),
+                "moving_out": moving_out.get(tab, 0),
+                "moving_in": moving_in.get(tab, 0),
+                "after": (current.get(tab, 0) - moving_out.get(tab, 0)
+                          + moving_in.get(tab, 0)),
+            }
+            for tab in tabs
+        }
+
+    def preview_rule(self, *, rule_id: str, apply_existing: bool,
+                     apply_future: bool) -> dict:
+        with self._lock:
+            self._replay_pending()
+            plan = self.build_rule_preview(
+                rule_id, apply_existing=apply_existing, apply_future=apply_future)
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO rule_previews(preview_id, rule_id, rule_hash,"
+                    " rule_version, apply_existing, apply_future, plan_json, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?)",
+                    (plan["preview_id"], rule_id, plan["rule_hash"], plan["rule_version"],
+                     int(apply_existing), int(apply_future), _canonical(plan), _utc_now()))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return plan
+
+    def get_preview(self, preview_id: str):
+        row = self.conn.execute(
+            "SELECT preview_id, rule_id, rule_hash, rule_version, apply_existing,"
+            " apply_future, plan_json FROM rule_previews WHERE preview_id=?",
+            (preview_id,)).fetchone()
+        if row is None:
+            return None
+        return {"preview_id": row[0], "rule_id": row[1], "rule_hash": row[2],
+                "rule_version": row[3], "apply_existing": bool(row[4]),
+                "apply_future": bool(row[5]), "plan": json.loads(row[6])}
+
+    def active_future_rules(self) -> list:
+        return [self._rule_dict(r) for r in self.conn.execute(
+            "SELECT rule_id, version, base_rule_version, status, apply_existing,"
+            " apply_future, rule_hash, rule_json, learning_case_id,"
+            " future_boundary_rowid, created_at, updated_at"
+            " FROM classification_rules WHERE status='active' AND apply_future=1"
+            " ORDER BY created_at, rule_id").fetchall()]
+
+    def apply_rule(self, *, preview_id: str, apply_existing: bool,
+                   apply_future: bool, client_request_id: str,
+                   selected_row_ids=None, actor: str = "owner") -> dict:
+        """Apply one confirmed preview atomically, or reject the whole request."""
+        from .classification_rules import plan_effect
+
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {
+            "preview_id": preview_id,
+            "apply_existing": bool(apply_existing),
+            "apply_future": bool(apply_future),
+            "selected_row_ids": sorted(selected_row_ids) if selected_row_ids is not None else None,
+        }
+        with self._lock:
+            self._replay_pending()
+            existing = self.conn.execute(
+                "SELECT request_json, result_json FROM rule_apply_requests"
+                " WHERE client_request_id=?", (client_request_id,)).fetchone()
+            if existing:
+                if json.loads(existing[0]) != request:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                return json.loads(existing[1])
+            preview = self.get_preview(preview_id)
+            if preview is None:
+                raise SaveError("INVALID_VALUE", "없는 미리보기예요")
+            if bool(preview["apply_existing"]) != bool(apply_existing) or \
+                    bool(preview["apply_future"]) != bool(apply_future):
+                raise SaveError("PREVIEW_STALE", "확인한 적용 범위와 달라요. 새 미리보기를 받아 주세요")
+            stored = self.get_rule(preview["rule_id"])
+            if stored is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙이에요")
+            if stored["status"] == "superseded":
+                raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
+            if stored["learning_case_id"] and self.case_is_one_off(stored["learning_case_id"]):
+                raise SaveError(
+                    "RULE_ONE_OFF",
+                    "이번 거래만 적용하기로 한 답변이 있어 적용하지 않아요")
+            if stored["rule_hash"] != preview["rule_hash"] or stored["version"] != preview["rule_version"]:
+                raise SaveError("PREVIEW_STALE", "규칙이 바뀌었어요. 새 미리보기를 받아 주세요")
+            plan = preview["plan"]
+            candidates = {c["row_id"]: c for c in plan["candidates"]}
+            chosen = sorted(candidates) if request["selected_row_ids"] is None \
+                else request["selected_row_ids"]
+            unknown = [row_id for row_id in chosen if row_id not in candidates]
+            if unknown:
+                raise SaveError("PREVIEW_STALE", "선택한 행이 미리보기 범위와 달라요. 새 미리보기를 받아 주세요")
+            resolved = []
+            for row_id in chosen:
+                item = candidates[row_id]
+                current = self.get_row(row_id)
+                if current is None:
+                    raise SaveError("PREVIEW_STALE", f"선택한 행이 사라졌어요: {row_id}")
+                if current["revision"] != item["revision"]:
+                    raise SaveError("PREVIEW_STALE", f"선택한 행이 바뀌었어요: {row_id}")
+                locked = self.manual_locked_fields(row_id)
+                subject = dict(current)
+                subject.update(self.card_source_keys(current))
+                changes = plan_effect(stored["rule"], subject, locked)
+                if not changes:
+                    raise SaveError("PREVIEW_STALE", f"선택한 행의 변경이 사라졌어요: {row_id}")
+                resolved.append((row_id, current, changes))
+            created_at = _utc_now()
+            applied = []
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                boundary = None
+                if apply_future:
+                    boundary = self.conn.execute(
+                        "SELECT MAX(rowid) FROM board_rows").fetchone()[0]
+                for row_id, current, changes in resolved:
+                    fresh = self.conn.execute(
+                        "SELECT revision FROM board_rows WHERE row_id=?", (row_id,)).fetchone()
+                    if fresh is None or fresh[0] != current["revision"]:
+                        raise SaveError("PREVIEW_STALE", f"선택한 행이 바뀌었어요: {row_id}")
+                    new = dict(current)
+                    for field, value in changes.items():
+                        new[field] = value
+                    new["revision"] = current["revision"] + 1
+                    cursor = self.conn.execute(
+                        "UPDATE board_rows SET display_tab_id=?, revision=?, payload_json=?"
+                        " WHERE row_id=? AND revision=?",
+                        (new.get("display_tab_id"), new["revision"], _canonical(new),
+                         row_id, current["revision"]))
+                    if cursor.rowcount == 0:
+                        raise SaveError("PREVIEW_STALE", f"선택한 행이 바뀌었어요: {row_id}")
+                    self.conn.execute(
+                        "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
+                        " event_id, change_mode, actor, created_at, client_request_id)"
+                        " VALUES (?,?,?,?,?,?,?,?,?)",
+                        (row_id, new["revision"], _canonical(current), _canonical(new), "",
+                         "rule_apply", actor, created_at, f"{client_request_id}-{row_id}"))
+                    self._enqueue_ledger(
+                        outbox_id=f"ledger-{client_request_id}-{row_id}",
+                        stream_id=f"row-{row_id}",
+                        action="correct" if current["revision"] > 1 else "propose",
+                        target=current.get("source_event_id"),
+                        rationale=f"규칙 적용 {preview['rule_id']} revision {new['revision']}",
+                        actor=actor)
+                    applied.append({"row_id": row_id, "revision": new["revision"],
+                                    "changes": changes})
+                status = "active" if (apply_existing or apply_future) else "draft"
+                self.conn.execute(
+                    "UPDATE classification_rules SET status=?, apply_existing=?,"
+                    " apply_future=?, future_boundary_rowid=?, updated_at=?"
+                    " WHERE rule_id=?",
+                    (status, int(apply_existing), int(apply_future), boundary, created_at,
+                     preview["rule_id"]))
+                if stored["learning_case_id"]:
+                    self.conn.execute(
+                        "UPDATE board_learning_cases SET dialog_state='applied' WHERE case_id=?",
+                        (stored["learning_case_id"],))
+                result = {
+                    "outcome": "applied" if applied else "noop",
+                    "rule_id": preview["rule_id"],
+                    "rule_hash": preview["rule_hash"],
+                    "preview_id": preview_id,
+                    "status": status,
+                    "apply_existing": bool(apply_existing),
+                    "apply_future": bool(apply_future),
+                    "applied_rows": applied,
+                    "applied_count": len(applied),
+                    "future_boundary_rowid": boundary,
+                    "request_id": client_request_id,
+                }
+                # Append-only: a confirmed apply writes its own history entry in
+                # the same transaction, so an already committed entry keeps every
+                # field it was written with.
+                self._record_rule_version(
+                    preview["rule_id"], stored["version"], stored["base_rule_version"],
+                    status, stored["rule_hash"], stored["rule"], "apply",
+                    client_request_id, created_at,
+                    previous_version=stored["version"],
+                    previous_rule_hash=stored["rule_hash"],
+                    confirmation={
+                        "learning_case_id": stored["learning_case_id"],
+                        "answers": (self._dialog_answers(stored["learning_case_id"])
+                                    if stored["learning_case_id"] else {}),
+                        "apply_existing": bool(apply_existing),
+                        "apply_future": bool(apply_future),
+                        "preview_id": preview_id,
+                        "preview_rule_hash": preview["rule_hash"],
+                        "applied_rows": len(applied),
+                        "applied_row_ids": [item["row_id"] for item in applied],
+                        "rows_changed": len(applied),
+                        "actor": actor,
+                        "confirmed_at": created_at,
+                    },
+                    actor=actor)
+                self._store_lifecycle_request(
+                    client_request_id, "apply", request, result, created_at)
+                self.conn.execute(
+                    "INSERT INTO rule_apply_requests(client_request_id, preview_id,"
+                    " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
+                    (client_request_id, preview_id, _canonical(request),
+                     _canonical(result), created_at))
+                self.conn.execute("COMMIT")
+            except SaveError:
+                self.conn.execute("ROLLBACK")
+                raise
+            except sqlite3.IntegrityError:
+                self.conn.execute("ROLLBACK")
+                found = self.conn.execute(
+                    "SELECT request_json, result_json FROM rule_apply_requests"
+                    " WHERE client_request_id=?", (client_request_id,)).fetchone()
+                if found and json.loads(found[0]) == request:
+                    return json.loads(found[1])
+                raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            for row_id, _current, _changes in resolved:
+                self._relay_outbox([f"ledger-{client_request_id}-{row_id}"])
+            return result
+
+    def apply_active_rules_to_import(self, record: dict, event: dict) -> list:
+        """Connect active future rules to the real card upload path.
+
+        Only the card import path is connected. Bank income, direct income, and
+        manual expense inserts are not connected and are reported as such.
+        """
+        from .classification_rules import RuleError, plan_effect, rule_matches
+
+        applied = []
+        if not event.get("merchant"):
+            return applied
+        for stored in self.active_future_rules():
+            rule = stored["rule"]
+            subject = dict(record)
+            subject["source_merchant"] = event.get("merchant")
+            subject["event_kind"] = event.get("event_kind")
+            subject["card_kind"] = event.get("card_kind")
+            try:
+                verdict = rule_matches(rule, subject)
+            except RuleError:
+                continue
+            if not verdict["matched"]:
+                continue
+            changes = plan_effect(rule, subject, ())
+            if not changes:
+                continue
+            for field, value in changes.items():
+                record[field] = value
+            applied.append({"rule_id": stored["rule_id"], "changes": changes})
+        return applied
+
+    # --- Phase 6A-2 rule lifecycle and dialog state ---------------------
+    # Nothing here calls a model or a network. The question set is derived
+    # from the case row, the draft, and the answers already stored.
+
+    def _record_rule_version(self, rule_id: str, version: int, base: int, status: str,
+                             digest: str, rule: dict, change_kind: str,
+                             client_request_id: str, created_at: str, *,
+                             previous_version=None, previous_rule_hash: str = "",
+                             confirmation: dict | None = None, actor: str = "owner") -> None:
+        """Persist one full version record.
+
+        The stored `rule_json` is the whole normalized draft, so conditions,
+        effects, scope, exceptions, and the note survive. `previous_version` and
+        `previous_rule_hash` keep the link to the version it was written from,
+        and `confirmation_json` keeps the user confirmation basis: the dialog
+        case, the answers, the chosen scope, and the confirmed preview.
+        """
+        self.conn.execute(
+            "INSERT INTO classification_rule_versions(rule_id, version,"
+            " base_rule_version, previous_version, previous_rule_hash, status,"
+            " rule_hash, rule_json, confirmation_json, actor, change_kind,"
+            " client_request_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (rule_id, version, base, previous_version, previous_rule_hash or "", status,
+             digest, _canonical(rule), _canonical(confirmation or {}), actor,
+             change_kind, client_request_id, created_at))
+
+    def list_rule_versions(self, rule_id: str) -> list:
+        """Return the full stored history of one rule, oldest version first."""
+        history = []
+        for row in self.conn.execute(
+                "SELECT entry_id, version, base_rule_version, previous_version,"
+                " previous_rule_hash, status, rule_hash, rule_json, confirmation_json,"
+                " actor, change_kind, client_request_id, created_at"
+                " FROM classification_rule_versions WHERE rule_id=? ORDER BY entry_id",
+                (rule_id,)).fetchall():
+            rule = json.loads(row[7])
+            history.append({
+                "entry_id": row[0],
+                "version": row[1],
+                "base_rule_version": row[2],
+                "previous_version": row[3],
+                "previous_rule_hash": row[4],
+                "status": row[5],
+                "rule_hash": row[6],
+                "rule": rule,
+                "conditions": rule.get("conditions", {}),
+                "optional_conditions": rule.get("optional_conditions", {}),
+                "effects": rule.get("effects", {}),
+                "scope": rule.get("scope", {}),
+                "exceptions": rule.get("exceptions", []),
+                "note": rule.get("note", ""),
+                "evidence_case_ids": rule.get("evidence_case_ids", []),
+                "confirmation": json.loads(row[8]),
+                "actor": row[9],
+                "change_kind": row[10],
+                "client_request_id": row[11],
+                "created_at": row[12],
+            })
+        return history
+
+    def rule_history(self, rule_id: str) -> dict:
+        """Version history plus the supersession links of one rule."""
+        stored = self.get_rule(rule_id)
+        history = self.list_rule_versions(rule_id)
+        superseded_by = [
+            {"superseded_by": row[0], "client_request_id": row[1], "created_at": row[2]}
+            for row in self.conn.execute(
+                "SELECT new_rule_id, client_request_id, created_at FROM rule_supersessions"
+                " WHERE old_rule_id=? ORDER BY created_at", (rule_id,)).fetchall()
+        ]
+        supersedes = [
+            {"supersedes": row[0], "client_request_id": row[1], "created_at": row[2]}
+            for row in self.conn.execute(
+                "SELECT old_rule_id, client_request_id, created_at FROM rule_supersessions"
+                " WHERE new_rule_id=? ORDER BY created_at", (rule_id,)).fetchall()
+        ]
+        return {
+            "rule_id": rule_id,
+            "current": None if stored is None else {
+                "version": stored["version"], "status": stored["status"],
+                "base_rule_version": stored["base_rule_version"],
+                "rule_hash": stored["rule_hash"],
+                "apply_existing": stored["apply_existing"],
+                "apply_future": stored["apply_future"],
+                "future_boundary_rowid": stored["future_boundary_rowid"],
+            },
+            "versions": history,
+            "version_count": len(history),
+            "version_numbers": sorted({item["version"] for item in history}),
+            "latest_version": history[-1]["version"] if history else None,
+            "superseded_by": superseded_by,
+            "supersedes": supersedes,
+        }
+
+    def revise_rule(self, *, rule_id: str, draft: dict, client_request_id: str,
+                    actor: str = "owner") -> dict:
+        """Create the next version of a rule and reset the confirmation.
+
+        `base_rule_version` records the version this revision was written
+        against, so a preview made for the previous version is refused.
+        """
+        from .classification_rules import RuleError, normalize_draft, rule_hash
+
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        operation = "revise"
+        request = {"rule_id": rule_id, "draft": draft or {}}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._lifecycle_replay(client_request_id, operation, request)
+            if replayed is not None:
+                return replayed
+            stored = self.get_rule(rule_id)
+            if stored is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙이에요")
+            if stored["status"] == "superseded":
+                raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
+            payload = dict(draft or {})
+            payload["rule_id"] = rule_id
+            payload["version"] = stored["version"] + 1
+            payload["base_rule_version"] = stored["version"]
+            try:
+                rule = normalize_draft(
+                    payload, learning_case_id=stored["learning_case_id"], rule_id=rule_id,
+                    version=stored["version"] + 1, base_rule_version=stored["version"])
+            except RuleError as exc:
+                raise SaveError(exc.code, str(exc))
+            digest = rule_hash(rule)
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                fresh = self.get_rule(rule_id)
+                if fresh is None or fresh["version"] != stored["version"]:
+                    raise SaveError("EDIT_CONFLICT", "규칙이 먼저 바뀌었어요. 최신 내용을 확인해 주세요")
+                self.conn.execute(
+                    "UPDATE classification_rules SET version=?, base_rule_version=?,"
+                    " status='draft', apply_existing=0, apply_future=0, rule_hash=?,"
+                    " rule_json=?, updated_at=? WHERE rule_id=?",
+                    (rule["version"], rule["base_rule_version"], digest,
+                     _canonical(rule), created_at, rule_id))
+                self._record_rule_version(
+                    rule_id, rule["version"], rule["base_rule_version"], "draft",
+                    digest, rule, "revise", client_request_id, created_at,
+                    previous_version=stored["version"],
+                    previous_rule_hash=stored["rule_hash"],
+                    confirmation=self._draft_confirmation(rule, stored["learning_case_id"]),
+                    actor=actor)
+                result = self.get_rule(rule_id)
+                self._store_lifecycle_request(client_request_id, operation, request,
+                                              result, created_at)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def supersede_rule(self, *, new_rule_id: str, old_rule_id: str,
+                       client_request_id: str, actor: str = "owner") -> dict:
+        """Explicitly replace an older rule. Never automatic, never by age.
+
+        Rows already changed by the old rule keep their values and their
+        history. Only the future flag of the old rule stops.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        if new_rule_id == old_rule_id:
+            raise SaveError("INVALID_VALUE", "대체할 규칙을 다른 규칙으로 골라 주세요")
+        request = {"new_rule_id": new_rule_id, "old_rule_id": old_rule_id}
+        with self._lock:
+            self._replay_pending()
+            existing = self.conn.execute(
+                "SELECT new_rule_id, old_rule_id, result_json FROM rule_supersessions"
+                " WHERE client_request_id=?", (client_request_id,)).fetchone()
+            if existing:
+                if [existing[0], existing[1]] != [new_rule_id, old_rule_id]:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                return json.loads(existing[2])
+            new_rule = self.get_rule(new_rule_id)
+            old_rule = self.get_rule(old_rule_id)
+            if new_rule is None or old_rule is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙이에요")
+            if old_rule["status"] == "superseded":
+                raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                if self.get_rule(old_rule_id)["status"] != old_rule["status"]:
+                    raise SaveError("EDIT_CONFLICT", "규칙 상태가 먼저 바뀌었어요")
+                self.conn.execute(
+                    "UPDATE classification_rules SET status='superseded', apply_future=0,"
+                    " updated_at=? WHERE rule_id=?", (created_at, old_rule_id))
+                self._record_rule_version(
+                    old_rule_id, old_rule["version"], old_rule["base_rule_version"],
+                    "superseded", old_rule["rule_hash"], old_rule["rule"],
+                    "superseded", client_request_id, created_at,
+                    previous_version=old_rule["version"],
+                    previous_rule_hash=old_rule["rule_hash"],
+                    confirmation={
+                        "superseded_by": new_rule_id,
+                        "applied_existing": old_rule["apply_existing"],
+                        "applied_future": old_rule["apply_future"],
+                        "rows_changed": 0,
+                        "history_kept": True,
+                    },
+                    actor=actor)
+                result = {
+                    "outcome": "superseded", "old_rule_id": old_rule_id,
+                    "new_rule_id": new_rule_id, "old_status": "superseded",
+                    "rows_changed": 0, "history_kept": True,
+                    "request_id": client_request_id,
+                }
+                self.conn.execute(
+                    "INSERT INTO rule_supersessions(supersession_id, new_rule_id,"
+                    " old_rule_id, client_request_id, result_json, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (f"sup-{client_request_id}", new_rule_id, old_rule_id,
+                     client_request_id, _canonical(result), created_at))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def update_rule_scope(self, *, rule_id: str, apply_existing: bool,
+                          apply_future: bool, client_request_id: str,
+                          actor: str = "owner") -> dict:
+        """Change the scope switches of a rule without touching stored rows.
+
+        Turning the future switch off does not revert a row that the rule
+        already changed, and the applied history stays.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        operation = "scope"
+        request = {"rule_id": rule_id, "apply_existing": bool(apply_existing),
+                   "apply_future": bool(apply_future)}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._lifecycle_replay(client_request_id, operation, request)
+            if replayed is not None:
+                return replayed
+            stored = self.get_rule(rule_id)
+            if stored is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙이에요")
+            if stored["status"] == "superseded":
+                raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
+            status = "active" if (apply_existing or apply_future) else stored["status"]
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE classification_rules SET status=?, apply_existing=?,"
+                    " apply_future=?, updated_at=? WHERE rule_id=?",
+                    (status, int(apply_existing), int(apply_future), created_at, rule_id))
+                self._record_rule_version(
+                    rule_id, stored["version"], stored["base_rule_version"], status,
+                    stored["rule_hash"], stored["rule"], "scope",
+                    client_request_id, created_at,
+                    previous_version=stored["version"],
+                    previous_rule_hash=stored["rule_hash"],
+                    confirmation={
+                        "apply_existing": bool(apply_existing),
+                        "apply_future": bool(apply_future),
+                        "rows_changed": 0,
+                        "history_kept": True,
+                    },
+                    actor=actor)
+                result = {
+                    "outcome": "scope_updated", "rule_id": rule_id, "status": status,
+                    "apply_existing": bool(apply_existing),
+                    "apply_future": bool(apply_future), "rows_changed": 0,
+                    "history_kept": True, "request_id": client_request_id,
+                }
+                self._store_lifecycle_request(client_request_id, operation, request,
+                                              result, created_at)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    # ---------------------------------------------------------- dialog state
+    def _dialog_row(self, case_id: str):
+        return self.conn.execute(
+            "SELECT case_id, row_id, row_revision, draft_json, apply_existing,"
+            " apply_future, dialog_state, created_at, updated_at FROM rule_dialogs"
+            " WHERE case_id=?", (case_id,)).fetchone()
+
+    # Question order follows the contract: this-row-only first, then the basis,
+    # then the scope. It is not alphabetical.
+    QUESTION_ORDER = ("rule_kind", "evidence_basis", "trip_scope", "event_year", "period")
+
+    def _question_rows(self, case_id: str):
+        rows = self.conn.execute(
+            "SELECT question_id, question_key, prompt, options_json, answer"
+            " FROM rule_questions WHERE case_id=? ORDER BY created_at, question_id",
+            (case_id,)).fetchall()
+        order = {key: index for index, key in enumerate(self.QUESTION_ORDER)}
+
+        def sort_key(row):
+            return (order.get(row[1], len(order)), row[0])
+
+        return sorted(rows, key=sort_key)
+
+    def conversation_qa(self, case_id: str) -> list:
+        """Structured question rows for provider context and inspection."""
+        return [{"question_key": q[1], "options": json.loads(q[3]), "answer": q[4]}
+                for q in self._question_rows(case_id)]
+
+    def case_is_one_off(self, case_id: str) -> bool:
+        """True when a stored answer means "this transaction only".
+
+        The flag is read back from the saved answers, so it survives a restart
+        and a close/resume cycle without any extra state.
+        """
+        from .classification_rules import dialog_blocks_rule
+
+        if not case_id:
+            return False
+        return dialog_blocks_rule(self._dialog_answers(case_id))
+
+    def _dialog_answers(self, case_id: str) -> dict:
+        return {row[1]: row[4] for row in self._question_rows(case_id)
+                if row[4] is not None}
+
+    def rule_dialog_state(self, case_id: str) -> dict:
+        from .classification_rules import PROVIDER_INFO, dialog_blocks_rule
+
+        row = self._dialog_row(case_id)
+        questions = [
+            {"question_id": q[0], "question_key": q[1], "prompt": q[2],
+             "options": json.loads(q[3]), "answer": q[4], "answered": q[4] is not None}
+            for q in self._question_rows(case_id)
+        ]
+        if row is None:
+            return {"case_id": case_id, "dialog_state": "not_started",
+                    "questions": [], "answers": {}, "provider": PROVIDER_INFO}
+        answers = self._dialog_answers(case_id)
+        one_off = dialog_blocks_rule(answers)
+        # A one-off answer is terminal, so the reported state says so instead of
+        # leaving the screen to infer it from the answers.
+        dialog_state = "one_off" if one_off and row[6] != "closed" else row[6]
+        return {
+            "case_id": case_id, "row_id": row[1], "row_revision": row[2],
+            "draft": json.loads(row[3]),
+            "apply_existing": bool(row[4]), "apply_future": bool(row[5]),
+            "dialog_state": dialog_state, "created_at": row[7], "updated_at": row[8],
+            "questions": questions, "answers": answers,
+            "open_questions": [] if one_off else [q for q in questions if not q["answered"]],
+            "rule_should_not_be_created": one_off,
+            "provider": PROVIDER_INFO,
+        }
+
+    def open_rule_dialog(self, *, learning_case_id: str, draft: dict,
+                         client_request_id: str, apply_existing: bool = False,
+                         apply_future: bool = False, actor: str = "owner") -> dict:
+        """Persist the dialog and ask only the questions that are still needed."""
+        from .classification_rules import (PROVIDER_INFO, MAX_QUESTIONS,
+                                           dialog_blocks_rule, needed_questions)
+
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        with self._lock:
+            self._replay_pending()
+            case = self.conn.execute(
+                "SELECT case_id, row_id FROM board_learning_cases WHERE case_id=?",
+                (learning_case_id,)).fetchone()
+            if case is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
+            row = self.get_row(case[1])
+            if row is None:
+                raise SaveError("INVALID_VALUE", "사례에 연결된 행이 없어요")
+            existing = self._dialog_row(learning_case_id)
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO rule_dialogs(case_id, row_id, row_revision,"
+                    " draft_json, apply_existing, apply_future, dialog_state,"
+                    " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (learning_case_id, case[1], row["revision"], _canonical(draft or {}),
+                     int(apply_existing), int(apply_future), "open",
+                     created_at, created_at))
+                answers = self._dialog_answers(learning_case_id)
+                for spec in needed_questions(draft or {}, answers)[:MAX_QUESTIONS]:
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO rule_questions(question_id, case_id,"
+                        " question_key, prompt, options_json, answer, answered_at,"
+                        " created_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (f"q-{learning_case_id}-{spec['question_key']}", learning_case_id,
+                         spec["question_key"], spec["prompt"],
+                         _canonical(spec["options"]), None, "", created_at))
+                self.conn.execute(
+                    "UPDATE board_learning_cases SET dialog_state='open' WHERE case_id=?",
+                    (learning_case_id,))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            state = self.rule_dialog_state(learning_case_id)
+            state["requested_scope"] = {"apply_existing": bool(apply_existing),
+                                        "apply_future": bool(apply_future)}
+            state["provider"] = PROVIDER_INFO
+            return state
+
+    def answer_rule_question(self, *, question_id: str, answer: str,
+                             expected_row_revision: int, client_request_id: str,
+                             actor: str = "owner") -> dict:
+        """Store one answer. Duplicate request returns the stored result."""
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {"question_id": question_id, "answer": answer,
+                   "expected_row_revision": int(expected_row_revision)}
+        with self._lock:
+            self._replay_pending()
+            existing = self.conn.execute(
+                "SELECT request_json, result_json FROM rule_answer_requests"
+                " WHERE client_request_id=?", (client_request_id,)).fetchone()
+            if existing:
+                if json.loads(existing[0]) != request:
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                return json.loads(existing[1])
+            found = self.conn.execute(
+                "SELECT case_id, question_key, answer FROM rule_questions WHERE question_id=?",
+                (question_id,)).fetchone()
+            if found is None:
+                raise SaveError("INVALID_VALUE", "없는 질문이에요")
+            dialog = self._dialog_row(found[0])
+            if dialog is None:
+                raise SaveError("INVALID_VALUE", "아직 시작하지 않은 대화예요")
+            if dialog[6] == "closed":
+                raise SaveError("DIALOG_CLOSED", "닫은 대화는 다시 연 뒤 답해 주세요")
+            current = self.get_row(dialog[1])
+            if (dialog[2] != int(expected_row_revision)
+                    or current is None or current["revision"] != dialog[2]):
+                raise SaveError(
+                    "DIALOG_STALE",
+                    "대화 중이던 행이 바뀌었어요. 최신 행을 보고 다시 여세요")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE rule_questions SET answer=?, answered_at=? WHERE question_id=?",
+                    (str(answer), created_at, question_id))
+                self.conn.execute(
+                    "UPDATE rule_dialogs SET updated_at=? WHERE case_id=?",
+                    (created_at, found[0]))
+                result = self.rule_dialog_state(found[0])
+                result["answered_question"] = found[1]
+                self.conn.execute(
+                    "INSERT INTO rule_answer_requests(client_request_id, question_id,"
+                    " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
+                    (client_request_id, question_id, _canonical(request),
+                     _canonical(result), created_at))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def close_rule_dialog(self, *, learning_case_id: str, client_request_id: str,
+                          actor: str = "owner") -> dict:
+        """Close the dialog and keep every stored answer and the draft."""
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        with self._lock:
+            self._replay_pending()
+            dialog = self._dialog_row(learning_case_id)
+            if dialog is None:
+                raise SaveError("INVALID_VALUE", "아직 시작하지 않은 대화예요")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE rule_dialogs SET dialog_state='closed', updated_at=?"
+                    " WHERE case_id=?", (created_at, learning_case_id))
+                self.conn.execute(
+                    "UPDATE board_learning_cases SET dialog_state='closed' WHERE case_id=?",
+                    (learning_case_id,))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            state = self.rule_dialog_state(learning_case_id)
+            state["closed"] = True
+            state["request_id"] = client_request_id
+            return state
+
+    def resume_rule_dialog(self, *, learning_case_id: str, client_request_id: str,
+                           actor: str = "owner") -> dict:
+        """Reopen a closed dialog without asking answered questions again."""
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        with self._lock:
+            self._replay_pending()
+            dialog = self._dialog_row(learning_case_id)
+            if dialog is None:
+                raise SaveError("INVALID_VALUE", "아직 시작하지 않은 대화예요")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE rule_dialogs SET dialog_state='open', row_revision=?,"
+                    " updated_at=? WHERE case_id=?",
+                    (self.get_row(dialog[1])["revision"], created_at, learning_case_id))
+                self.conn.execute(
+                    "UPDATE board_learning_cases SET dialog_state='open' WHERE case_id=?",
+                    (learning_case_id,))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            state = self.rule_dialog_state(learning_case_id)
+            state["resumed"] = True
+            state["request_id"] = client_request_id
+            return state
+
+    # --- Phase 6B provider-neutral dialog turns ------------------------
+    # The conversation belongs to the app. Providers are injected by the
+    # server, are never named by a request, and never receive a key.
+
+    def _conversation_row(self, conversation_id: str):
+        return self.conn.execute(
+            "SELECT conversation_id, case_id, rule_id, rule_version, handoff_summary,"
+            " active_provider, active_model_id, state, turn_count, created_at,"
+            " updated_at FROM rule_conversations WHERE conversation_id=?",
+            (conversation_id,)).fetchone()
+
+    def open_conversation(self, *, learning_case_id: str, client_request_id: str,
+                          actor: str = "owner") -> dict:
+        """Create the app-owned conversation for a learning case.
+
+        The conversation keeps the case link, the current rule version, the
+        stored answers, and the handoff summary, so a provider can be replaced
+        without losing the thread.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {"learning_case_id": learning_case_id}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._lifecycle_replay(client_request_id, "conversation_open", request)
+            if replayed is not None:
+                return replayed
+            case = self.conn.execute(
+                "SELECT case_id, row_id FROM board_learning_cases WHERE case_id=?",
+                (learning_case_id,)).fetchone()
+            if case is None:
+                raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
+            existing = self.conn.execute(
+                "SELECT conversation_id FROM rule_conversations WHERE case_id=?",
+                (learning_case_id,)).fetchone()
+            if existing is not None:
+                result = self.conversation_state(existing[0])
+                return result
+            created_at = _utc_now()
+            conversation_id = f"conv-{learning_case_id}"
+            dialog = self._dialog_row(learning_case_id)
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "INSERT INTO rule_conversations(conversation_id, case_id, rule_id,"
+                    " rule_version, handoff_summary, active_provider, active_model_id,"
+                    " state, turn_count, created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (conversation_id, learning_case_id, None, None, "",
+                     None, None, "open", 0, created_at, created_at))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            result = self.conversation_state(conversation_id)
+            self._store_lifecycle_request(client_request_id, "conversation_open",
+                                          request, result, created_at)
+            return result
+
+    def conversation_state(self, conversation_id: str) -> dict:
+        """Rebuild the whole context from storage. Used after a restart too."""
+        from .dialog_turn import (ALLOWED_CONTEXT_FIELDS, EXCLUDED_CONTEXT_FIELDS,
+                                   STATE_LABELS)
+
+        row = self._conversation_row(conversation_id)
+        if row is None:
+            return {"conversation_id": conversation_id, "state": "not_found",
+                    "turns": [], "answers": {}, "context_fields": list(ALLOWED_CONTEXT_FIELDS),
+                    "excluded_context_fields": list(EXCLUDED_CONTEXT_FIELDS)}
+        case = self.conn.execute(
+            "SELECT row_id FROM board_learning_cases WHERE case_id=?", (row[1],)).fetchone()
+        board_row = self.get_row(case[0]) if case else None
+        if board_row is not None:
+            board_row = dict(board_row)
+            board_row.update(self.card_source_keys(board_row))
+        rule = self.get_rule(row[2]) if row[2] else None
+        dialog = self._dialog_row(row[1])
+        # A turn whose owner could not be confirmed stays pending, and the
+        # reason travels with it so nothing silently disappears.
+        reviews = {
+            r[0]: {"reason": r[1], "process_run_id": r[2]}
+            for r in self.conn.execute(
+                "SELECT turn_id, reason, process_run_id FROM rule_orphan_reviews"
+            ).fetchall()}
+        turns = [
+            {
+                "turn_id": t[0], "state": t[1],
+                "state_label": STATE_LABELS.get(t[1], t[1]),
+                "abandoned_reason": t[10],
+                "owner_review": reviews.get(t[0]),
+                "adopted_attempt_id": t[2],
+                "adopted_provider": t[3], "reason_code": t[4],
+                "is_real_call": bool(t[5]), "switch_count": t[6],
+                "draft": json.loads(t[7]), "summary": json.loads(t[8]),
+                "created_at": t[9],
+                "attempts": [
+                    {"attempt_id": a[0], "seq": a[1], "slot": a[2], "status": a[3],
+                     "provider": a[4], "model_id": a[5], "reason_code": a[6],
+                     "send_error": a[7] or None, "adopted": bool(a[8]),
+                     "is_real_call": bool(a[9])}
+                    for a in self.conn.execute(
+                        "SELECT attempt_id, seq, slot, status, provider, model_id,"
+                        " reason_code, send_error, adopted, is_real_call"
+                        " FROM rule_turn_attempts WHERE turn_id=? ORDER BY seq",
+                        (t[0],)).fetchall()
+                ],
+            }
+            for t in self.conn.execute(
+                "SELECT turn_id, state, adopted_attempt_id, adopted_provider,"
+                " reason_code, is_real_call, switch_count, draft_json, summary_json,"
+                " created_at, abandoned_reason FROM rule_turns"
+                " WHERE conversation_id=?"
+                " ORDER BY created_at, turn_id", (conversation_id,)).fetchall()
+        ]
+        late = [
+            {"attempt_id": l[0], "turn_id": l[1], "status": l[2], "reason": l[3]}
+            for l in self.conn.execute(
+                "SELECT attempt_id, turn_id, status, reason FROM rule_late_responses"
+                " WHERE conversation_id=? ORDER BY created_at",
+                (conversation_id,)).fetchall()
+        ]
+        return {
+            "conversation_id": row[0],
+            "case_id": row[1],
+            "rule_id": row[2],
+            "rule_version": row[3],
+            "handoff_summary": row[4],
+            "active_provider": row[5],
+            "active_model_id": row[6],
+            "state": row[7],
+            "turn_count": row[8],
+            "created_at": row[9],
+            "updated_at": row[10],
+            "row_id": board_row.get("row_id") if board_row else None,
+            "row_revision": board_row.get("revision") if board_row else None,
+            "answers": self._dialog_answers(row[1]) if dialog else {},
+            "qa": self.conversation_qa(row[1]),
+            "open_questions": [
+                q["question_key"] for q in (self.rule_dialog_state(row[1])["questions"]
+                                            if dialog else [])
+                if not q["answered"]
+            ],
+            "turns": turns,
+            "late_responses": late,
+            "context_fields": list(ALLOWED_CONTEXT_FIELDS),
+            "excluded_context_fields": list(EXCLUDED_CONTEXT_FIELDS),
+        }
+
+    def run_dialog_turn(self, *, conversation_id: str, client_request_id: str,
+                        muse=None, gemini=None, actor: str = "owner") -> dict:
+        """Run one provider-neutral turn and persist every attempt.
+
+        The draft a provider returns is only stored after the existing draft
+        validator accepts it. Nothing here writes to the ledger: a model answer
+        never changes a row, a trip, or an amount.
+        """
+        from .classification_rules import RuleError, normalize_draft, rule_hash
+        from .dialog_turn import build_context, run_turn
+
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {"conversation_id": conversation_id}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._turn_replay(client_request_id, request)
+            if replayed is not None:
+                return replayed
+            conv = self._conversation_row(conversation_id)
+            if conv is None:
+                raise SaveError("INVALID_VALUE", "없는 대화예요")
+            if self.case_is_one_off(conv[1]):
+                raise SaveError(
+                    "RULE_ONE_OFF",
+                    "이번 거래만 적용하기로 한 답변이 있어 대화를 더 진행하지 않아요")
+            case = self.conn.execute(
+                "SELECT row_id FROM board_learning_cases WHERE case_id=?", (conv[1],)).fetchone()
+            if case is None:
+                raise SaveError("INVALID_VALUE", "대화에 연결된 사례가 없어요")
+            board_row = self.get_row(case[0])
+            if board_row is None:
+                raise SaveError("INVALID_VALUE", "대화에 연결된 행이 없어요")
+            board_row = dict(board_row)
+            board_row.update(self.card_source_keys(board_row))
+            rule = self.get_rule(conv[2]) if conv[2] else None
+            turn_id = f"turn-{conversation_id}-{conv[8] + 1:03d}"
+            context = build_context(
+                conversation_id=conversation_id, turn_id=turn_id, row=board_row,
+                rule=rule, answers=self._dialog_answers(conv[1]),
+                handoff_summary=conv[4],
+                qa=[{"question_key": q[1], "options": json.loads(q[3]), "answer": q[4]}
+                    for q in self._question_rows(conv[1])])
+            # The turn is stored as pending, with its owner, before any provider
+            # is called. If this process stops while the request is in flight,
+            # the turn is already on record and can be recovered. No attempt row
+            # is written yet, so an answer to a send that never finished cannot
+            # be adopted without a validation pass.
+            sending_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO rule_turns(turn_id, conversation_id, state,"
+                    " process_run_id, abandoned_reason, adopted_attempt_id,"
+                    " adopted_provider, reason_code, is_real_call, switch_count,"
+                    " draft_json, summary_json, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (turn_id, conversation_id, "pending", self._process_run_id, "",
+                     None, None, None, 0, 0, "{}", _canonical({"phase": "sending"}),
+                     sending_at))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+
+            outcome = run_turn(turn_id=turn_id, context=context, muse=muse, gemini=gemini)
+
+            draft = outcome.draft
+            draft_error = None
+            stored_draft = {}
+            if outcome.adopted and isinstance(draft, dict):
+                payload = dict(draft)
+                payload["rule_id"] = conv[2] or f"{conversation_id}-draft"
+                try:
+                    stored_draft = normalize_draft(
+                        payload, learning_case_id=conv[1], rule_id=payload["rule_id"],
+                        version=(rule["version"] + 1) if rule else 1,
+                        base_rule_version=rule["version"] if rule else 0)
+                except RuleError as exc:
+                    draft_error = {"code": exc.code, "message": str(exc)}
+                    stored_draft = {}
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                for item in outcome.attempts:
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO rule_turn_attempts(attempt_id, turn_id,"
+                        " seq, slot, status, provider, model_id, reason_code, send_error,"
+                        " adopted, is_real_call, created_at)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (item["attempt_id"], turn_id, item["seq"], item["slot"],
+                         item["status"], item["provider"], item["model_id"],
+                         item.get("reason_code"), item.get("send_error") or "",
+                         int(bool(item.get("adopted"))),
+                         int(bool(item.get("is_real_call"))), created_at))
+                self.conn.execute(
+                    "UPDATE rule_turns SET state=?, process_run_id=?,"
+                    " abandoned_reason='', adopted_attempt_id=?, adopted_provider=?,"
+                    " reason_code=?, is_real_call=?, switch_count=?, draft_json=?,"
+                    " summary_json=? WHERE turn_id=?",
+                    (outcome.state, self._process_run_id,
+                     outcome.adopted_attempt_id, outcome.provider, outcome.reason_code,
+                     int(bool(outcome.is_real_call)), outcome.switch_count,
+                     _canonical({"rule": stored_draft, "draft_error": draft_error,
+                                 "rule_hash": rule_hash(stored_draft) if stored_draft else ""}),
+                     _canonical({"summary": outcome.summary or "", "conv_state": conv[7]}),
+                     turn_id))
+                self.conn.execute(
+                    "UPDATE rule_conversations SET state=?, turn_count=turn_count+1,"
+                    " rule_id=COALESCE(?, rule_id),"
+                    " rule_version=COALESCE(?, rule_version),"
+                    " handoff_summary=COALESCE(?, handoff_summary),"
+                    " active_provider=?, active_model_id=?, updated_at=?"
+                    " WHERE conversation_id=?",
+                    (outcome.state, conv[2],
+                     (rule["version"] + 1) if (rule and stored_draft) else conv[3],
+                     (outcome.summary or "") if outcome.summary else None,
+                     outcome.provider, outcome.model_id, created_at, conversation_id))
+                result = self.conversation_state(conversation_id)
+                result["turn"] = next(t for t in result["turns"] if t["turn_id"] == turn_id)
+                result["draft"] = stored_draft
+                result["draft_error"] = draft_error
+                result["notice"] = (
+                    None if not outcome.switch_count
+                    else "Muse 연결 실패로 Gemini fallback 사용 중"
+                )
+                result["is_real_call"] = bool(outcome.is_real_call)
+                result["request_id"] = client_request_id
+                self._store_turn_request(client_request_id, request, result, created_at)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def adopt_late_response(self, *, conversation_id: str, turn_id: str,
+                            attempt_id: str, client_request_id: str,
+                            actor: str = "owner") -> dict:
+        """Accept or refuse a late answer for a turn that already ran.
+
+        Only the adopted attempt of that turn may still be adopted. Anything
+        else is recorded as refused so it can never overwrite the result.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {"conversation_id": conversation_id, "turn_id": turn_id,
+                   "attempt_id": attempt_id}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._turn_replay(client_request_id, request)
+            if replayed is not None:
+                return replayed
+            if self._conversation_row(conversation_id) is None:
+                raise SaveError("INVALID_VALUE", "없는 대화예요")
+            turn = self.conn.execute(
+                "SELECT turn_id, adopted_attempt_id, state, abandoned_reason"
+                " FROM rule_turns WHERE turn_id=? AND conversation_id=?",
+                (turn_id, conversation_id)).fetchone()
+            known = self.conn.execute(
+                "SELECT turn_id, adopted FROM rule_turn_attempts WHERE attempt_id=?",
+                (attempt_id,)).fetchone()
+            created_at = _utc_now()
+            if turn is None:
+                # The process stopped before the turn was stored. The answer can
+                # never become the result, and the refusal is recorded so it
+                # stays auditable instead of looking like a missing row.
+                status, reason = "refused", "unknown_turn"
+            elif known is None or known[0] != turn_id:
+                status, reason = "refused", "unknown_attempt"
+            elif turn[1] == attempt_id:
+                status, reason = "refused", "already_adopted"
+            elif turn[1] is not None:
+                status, reason = "refused", "stale_attempt"
+            elif turn[2] == "pending" and known is None:
+                # The owner stopped before its send finished. The answer was never
+                # validated here, so it is recorded and refused.
+                status, reason = "refused", "send_never_finished"
+            elif turn[2] == "pending" and not known[1]:
+                # The request is still outstanding, so this answer is the one the
+                # turn has been waiting for.
+                self.conn.execute(
+                    "UPDATE rule_turn_attempts SET adopted=1 WHERE attempt_id=?",
+                    (attempt_id,))
+                self.conn.execute(
+                    "UPDATE rule_turns SET adopted_attempt_id=?, state='answered'"
+                    " WHERE turn_id=?", (attempt_id, turn_id))
+                status, reason = "adopted", "accepted"
+            elif turn[2] == "abandoned":
+                status, reason = "refused", turn[3] or "abandoned_turn"
+            else:
+                # A waiting turn already concluded: every provider answered.
+                status, reason = "refused", "turn_already_concluded"
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO rule_late_responses(late_id, conversation_id,"
+                    " turn_id, attempt_id, status, reason, created_at)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (f"late-{client_request_id}", conversation_id, turn_id, attempt_id,
+                     status, reason, created_at))
+                result = self.conversation_state(conversation_id)
+                result["late"] = {"attempt_id": attempt_id, "status": status,
+                                  "reason": reason, "request_id": client_request_id}
+                self._store_turn_request(client_request_id, request, result, created_at)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def _turn_replay(self, client_request_id: str, request: dict):
+        row = self.conn.execute(
+            "SELECT request_json, result_json FROM rule_turn_requests"
+            " WHERE client_request_id=?", (client_request_id,)).fetchone()
+        if row is None:
+            return None
+        if json.loads(row[0]) != request:
+            raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+        return json.loads(row[1])
+
+    def _store_turn_request(self, client_request_id: str, request: dict,
+                            result: dict, created_at: str) -> None:
+        self.conn.execute(
+            "INSERT INTO rule_turn_requests(client_request_id, conversation_id,"
+            " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
+            (client_request_id, request["conversation_id"], _canonical(request),
+             _canonical(result), created_at))
+
+    # --- Phase 6C minimal dialog service for the functional UI ---------
+    # The UI only orchestrates these calls. A provider never writes a row, and
+    # the free text the user types stays in the app.
+
+    def update_rule_dialog_note(self, *, learning_case_id: str, note: str,
+                                client_request_id: str, actor: str = "owner") -> dict:
+        """Store the user's own explanation. Free text is kept as written."""
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        request = {"learning_case_id": learning_case_id, "note": note}
+        with self._lock:
+            self._replay_pending()
+            replayed = self._lifecycle_replay(client_request_id, "dialog_note", request)
+            if replayed is not None:
+                return replayed
+            dialog = self._dialog_row(learning_case_id)
+            if dialog is None:
+                # The note is the first thing an owner can type, so it opens the
+                # dialog row instead of refusing the input.
+                case = self.conn.execute(
+                    "SELECT row_id FROM board_learning_cases WHERE case_id=?",
+                    (learning_case_id,)).fetchone()
+                if case is None:
+                    raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
+                row = self.get_row(case[0])
+                if row is None:
+                    raise SaveError("INVALID_VALUE", "사례에 연결된 행이 없어요")
+                created_at = _utc_now()
+                self.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self.conn.execute(
+                        "INSERT INTO rule_dialogs(case_id, row_id, row_revision,"
+                        " draft_json, apply_existing, apply_future, dialog_state,"
+                        " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                        (learning_case_id, case[0], row["revision"], _canonical({}),
+                         0, 0, "open", created_at, created_at))
+                    self.conn.execute(
+                        "UPDATE board_learning_cases SET dialog_state='open'"
+                        " WHERE case_id=?", (learning_case_id,))
+                    self.conn.execute("COMMIT")
+                except Exception:
+                    self.conn.execute("ROLLBACK")
+                    raise
+                dialog = self._dialog_row(learning_case_id)
+            draft = json.loads(dialog[3])
+            draft["note"] = str(note or "")
+            created_at = _utc_now()
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE rule_dialogs SET draft_json=?, updated_at=? WHERE case_id=?",
+                    (_canonical(draft), created_at, learning_case_id))
+                result = self.rule_dialog_state(learning_case_id)
+                result["note_saved"] = True
+                result["request_id"] = client_request_id
+                self._store_lifecycle_request(client_request_id, "dialog_note", request,
+                                              result, created_at)
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return result
+
+    def advance_dialog_conversation(self, *, learning_case_id: str,
+                                    client_request_id: str, muse=None, gemini=None,
+                                    actor: str = "owner") -> dict:
+        """Open the conversation if needed, then run one provider turn."""
+        if self.case_is_one_off(learning_case_id):
+            raise SaveError(
+                "RULE_ONE_OFF",
+                "이번 거래만 적용하기로 한 답변이 있어 초안을 만들지 않아요")
+        state = self.conversation_for_case(learning_case_id)
+        if state is None:
+            self.open_conversation(learning_case_id=learning_case_id,
+                                   client_request_id=f"{client_request_id}-open")
+        result = self.run_dialog_turn(
+            conversation_id=f"conv-{learning_case_id}",
+            client_request_id=client_request_id, muse=muse, gemini=gemini,
+            actor=actor)
+        result["dialog"] = self.rule_dialog_state(learning_case_id)
+        return result
+
+    def conversation_for_case(self, case_id: str):
+        row = self.conn.execute(
+            "SELECT conversation_id FROM rule_conversations WHERE case_id=?",
+            (case_id,)).fetchone()
+        return None if row is None else self.conversation_state(row[0])
+
+    def pending_draft_for_case(self, case_id: str) -> dict:
+        """The validated draft a turn produced and the UI may still confirm."""
+        conv = self.conversation_for_case(case_id)
+        if conv is None:
+            return {"rule_id": None, "rule": None, "turn_id": None, "confirmed": False}
+        answered = [t for t in conv["turns"] if t["state"] == "answered"]
+        if not answered:
+            return {"rule_id": None, "rule": None, "turn_id": None, "confirmed": False}
+        last = answered[-1]
+        rule = last["draft"].get("rule") or {}
+        return {
+            "rule_id": last["draft"].get("rule_hash") and rule.get("rule_id"),
+            "rule": rule,
+            "rule_hash": last["draft"].get("rule_hash"),
+            "turn_id": last["turn_id"],
+            "provider": last["adopted_provider"],
+            "draft_error": last["draft"].get("draft_error"),
+            "confirmed": conv["rule_id"] == rule.get("rule_id") and conv["rule_id"] is not None,
+        }
+
+    def confirm_dialog_draft(self, *, learning_case_id: str, client_request_id: str,
+                              actor: str = "owner") -> dict:
+        """Store the turn's validated draft as a rule. Nothing is applied here."""
+        pending = self.pending_draft_for_case(learning_case_id)
+        if not pending["rule"]:
+            raise SaveError("INVALID_VALUE", "아직 저장할 초안이 없어요")
+        # The turn stored a normalized rule, so only the documented input keys
+        # go back into the validator. Output-only keys are dropped here instead
+        # of widening what the validator accepts.
+        allowed = ("conditions", "optional_conditions", "effects", "scope",
+                   "exceptions", "note", "learning_case_id")
+        draft = {key: value for key, value in pending["rule"].items()
+                 if key in allowed}
+        draft["learning_case_id"] = learning_case_id
+        result = self.create_rule_draft(
+            draft=draft,
+            client_request_id=client_request_id, actor=actor)
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute(
+                    "UPDATE rule_conversations SET rule_id=?, rule_version=?, updated_at=?"
+                    " WHERE case_id=?", (result["rule_id"], result["version"],
+                                         _utc_now(), learning_case_id))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+        payload = self.rule_dialog_state(learning_case_id)
+        payload["rule"] = result
+        payload["confirmed"] = True
+        payload["request_id"] = client_request_id
+        return payload
+
+    def dialog_page_state(self, case_id: str) -> dict:
+        """Everything the minimal rule dialog screen needs, in one read."""
+        dialog = self.rule_dialog_state(case_id)
+        conv = self.conversation_for_case(case_id)
+        dialog_row = self._dialog_row(case_id)
+        case_row = self.conn.execute(
+            "SELECT row_id FROM board_learning_cases WHERE case_id=?",
+            (case_id,)).fetchone()
+        last_preview = None
+        if conv and conv.get("rule_id"):
+            found = self.conn.execute(
+                "SELECT preview_id, rule_id, apply_existing, apply_future, plan_json"
+                " FROM rule_previews WHERE rule_id=? ORDER BY created_at DESC LIMIT 1",
+                (conv["rule_id"],)).fetchone()
+            if found is not None:
+                last_preview = {
+                    "preview_id": found[0], "rule_id": found[1],
+                    "apply_existing": bool(found[2]), "apply_future": bool(found[3]),
+                    "plan": json.loads(found[4]),
+                }
+        return {
+            "case_id": case_id,
+            "row_id": (dialog_row[1] if dialog_row
+                       else (case_row[0] if case_row else None)),
+            "row_revision": dialog_row[2] if dialog_row else None,
+            "last_preview": last_preview,
+            "dialog_state": dialog.get("dialog_state", "not_started"),
+            "questions": dialog.get("questions", []),
+            "answers": dialog.get("answers", {}),
+            "open_questions": dialog.get("open_questions", []),
+            "note": (dialog.get("draft") or {}).get("note", ""),
+            "should_not_create_rule": dialog.get("rule_should_not_be_created", False),
+            "one_off": self.case_is_one_off(case_id),
+            "provider": (dialog.get("provider") or {}),
+            "conversation": conv,
+            "pending_draft": self.pending_draft_for_case(case_id),
+            "rule": (conv or {}).get("rule_id") and self.get_rule(conv["rule_id"]),
+        }
+
     def linked_bank_row_ids(self) -> set:
         """Bank income rows attached as evidence to a direct income.
 
@@ -1132,9 +3054,22 @@ class LedgerStore:
             "source_kind": "카드",
             "source_event_id": fields.get("approval_no") or row_id,
             "classification_state": fields.get("classification_state", ""),
+            "source_merchant": str(fields.get("merchant", "")),
+            "event_kind": str(fields.get("event_kind", "")),
+            "card_kind": str(fields.get("card_kind", "")),
             "classification_basis": f"가져오기 {batch_id} {fields.get('event_kind', '')}",
             "operator_note": "",
         }
+        # Phase 6A: active future rules are evaluated on the real card
+        # upload path only. A rule never writes amount, date, or source
+        # fields, and the upload dedupe contract still owns re-upload of an
+        # already existing event, so a re-upload cannot apply a rule twice.
+        rule_applied = self.apply_active_rules_to_import(record, fields)
+        if rule_applied:
+            record["classification_basis"] = (
+                record["classification_basis"] + " "
+                + "영칙적용 "
+                + ",".join(item["rule_id"] for item in rule_applied))
         with self._lock:
             self._replay_pending()
             existing = self.conn.execute(
@@ -3493,7 +5428,87 @@ class LedgerStore:
             except Exception:
                 continue
 
+    def _register_process_lease(self) -> None:
+        """Claim or refresh this process's lease. Called on every store use."""
+        now = _utc_now()
+        self.conn.execute(
+            "INSERT INTO rule_process_leases(run_id, pid, started_at, heartbeat_at)"
+            " VALUES (?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET"
+            " heartbeat_at=excluded.heartbeat_at",
+            (_PROCESS_RUN_ID, _PROCESS_PID, now, now))
+
+    def _turn_owner_state(self, process_run_id: str, alive_probe=None) -> tuple:
+        """Classify the owner of a pending turn.
+
+        Returns (decision, reason). Only a confirmed dead owner may be
+        abandoned. A live owner and an owner this process cannot confirm are both
+        preserved, and the unknown case is recorded for review.
+        """
+        if not process_run_id:
+            return ("preserve", "unknown_owner")
+        lease = self.conn.execute(
+            "SELECT pid, heartbeat_at FROM rule_process_leases WHERE run_id=?",
+            (process_run_id,)).fetchone()
+        if lease is None:
+            # No lease was ever written, so nothing proves the owner is gone.
+            return ("preserve", "unknown_owner")
+        probe = alive_probe or _process_alive
+        alive = probe(lease[0])
+        fresh = _lease_age_seconds(lease[1]) <= LEASE_TTL_SECONDS
+        if alive is None:
+            # The owner cannot be inspected, so it is not confirmed dead.
+            return ("preserve", "owner_state_unknown")
+        if alive and fresh:
+            return ("preserve", "owner_alive")
+        if alive:
+            # The pid is running but the heartbeat is old. A recycled pid looks
+            # exactly like this, so the turn is kept.
+            return ("preserve", "owner_pid_reused")
+        if fresh:
+            # The pid is gone but the lease is still inside its window. The
+            # owner may be shutting down, so the turn is kept.
+            return ("preserve", "owner_still_leased")
+        return ("abandon", "process_restart")
+
+    def _abandon_orphan_turns(self) -> list:
+        """Recover only the turns whose owner is confirmed dead.
+
+        A turn of a live process and a turn of unknown ownership stay pending.
+        Unknown ownership is written to the review table instead of being
+        resolved on a guess.
+        """
+        rows = self.conn.execute(
+            "SELECT turn_id, process_run_id FROM rule_turns WHERE state='pending'"
+            " AND process_run_id<>?", (self._process_run_id,)).fetchall()
+        if not rows:
+            return []
+        now = _utc_now()
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            recovered = []
+            for turn_id, owner in rows:
+                decision, reason = self._turn_owner_state(owner)
+                if decision == "abandon":
+                    self.conn.execute(
+                        "UPDATE rule_turns SET state='abandoned', abandoned_reason=?"
+                        " WHERE turn_id=?", (reason, turn_id))
+                    self.conn.execute(
+                        "DELETE FROM rule_orphan_reviews WHERE turn_id=?", (turn_id,))
+                    recovered.append(turn_id)
+                elif reason not in ("owner_alive",):
+                    self.conn.execute(
+                        "INSERT OR REPLACE INTO rule_orphan_reviews(turn_id,"
+                        " process_run_id, reason, created_at) VALUES (?,?,?,?)",
+                        (turn_id, owner or "", reason, now))
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+        return recovered
+
     def _replay_pending(self) -> None:
+        self._register_process_lease()
+        self._abandon_orphan_turns()
         self._replay_trip_pending()
         self._replay_allocation_pending()
         self._relay_outbox()

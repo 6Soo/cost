@@ -1,0 +1,3 @@
+occurred_on,merchant,amount_krw,currency,card_last4,approval_no,cancel_flag,suggested_tab,memo
+2026-04-09,AGODA TEST,100000,KRW,1111,BW1,,trip-demo-a,
+2026-04-11,UNKNOWN SHOP,30000,KRW,2222,BW2,,,

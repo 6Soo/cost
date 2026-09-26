@@ -303,6 +303,8 @@ def publish_workbook(wb, manifest: dict, output_dir, file_stem: str):
         try:
             os.link(str(tmp_file), str(target))
         except FileExistsError:
+            # A name that is taken is never overwritten. The caller publishes
+            # under its own name instead.
             raise FileExistsError(f"output exists, refusing to overwrite: {target}")
         if not target.exists():
             raise FileNotFoundError(f"atomic publish produced no file: {target}")

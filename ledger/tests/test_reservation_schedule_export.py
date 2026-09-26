@@ -8,7 +8,9 @@ from ledger.domain.ledger_db import initialize
 from ledger.domain.direct_projection import _apply_schema
 from ledger.domain.reservation_schedule_export import (
     EXPORT_SCHEMA_VERSION,
+    EXPORT_SCHEMA_VERSION_V3,
     import_reservation_schedule_export,
+    schedule_export_sha256_v3,
     validate_schedule_export,
 )
 
@@ -18,6 +20,15 @@ def export_document(*records):
         "schema_version": EXPORT_SCHEMA_VERSION,
         "parser_contract": "reservation:cafeParse:R1-1",
         "exported_at": "2026-08-24T00:00:00.000Z",
+        "records": list(records),
+    }
+
+
+def export_document_v3(*records, exported_at="2026-08-24T00:00:00.000Z"):
+    return {
+        "schema_version": EXPORT_SCHEMA_VERSION_V3,
+        "parser_contract": "reservation:cafeParse:R1-1",
+        "exported_at": exported_at,
         "records": list(records),
     }
 
@@ -259,6 +270,152 @@ class ReservationScheduleExportTests(unittest.TestCase):
         )
         self.assertEqual(first["authoritative"], 1)
         self.assertEqual(second["authoritative"], 1)
+
+    def test_v3_reversed_multilingual_rows_are_one_content_identity(self):
+        first_record = record(
+            trip_code="reservation:豈",
+            cafe_fldid="fld-豈",
+            cafe_datanum="701",
+            region="東京",
+            source_locator="https://cafe.daum.net/sixsungwon/fld-豈/701",
+            source_post_sha256="b" * 64,
+            activity_status="activity_unavailable",
+            activity_source_status="no_archived_snapshot",
+            comment_count=None,
+            listed_comment_count=None,
+            fetched_unique_comment_count=None,
+            comment_census_complete=False,
+            comment_observed_at=None,
+            activity_snapshot_sha256=None,
+        )
+        second_record = record(
+            trip_code="reservation:𐀀",
+            cafe_fldid="fld-𐀀",
+            cafe_datanum="702",
+            region="서울",
+            source_locator="https://cafe.daum.net/sixsungwon/fld-𐀀/702",
+            source_post_sha256="c" * 64,
+            activity_status="activity_unavailable",
+            activity_source_status="no_archived_snapshot",
+            comment_count=None,
+            listed_comment_count=None,
+            fetched_unique_comment_count=None,
+            comment_census_complete=False,
+            comment_observed_at=None,
+            activity_snapshot_sha256=None,
+        )
+        first_document = export_document_v3(first_record, second_record)
+        reversed_document = export_document_v3(
+            second_record,
+            first_record,
+            exported_at="2026-08-25T00:00:00.000Z",
+        )
+        first = import_reservation_schedule_export(self.db, first_document)
+        self.db.commit()
+        before = self.db.total_changes
+        second = import_reservation_schedule_export(self.db, reversed_document)
+        self.assertEqual(first["export_sha256"], second["export_sha256"])
+        self.assertEqual(second["inserted"], 0)
+        self.assertEqual(self.db.total_changes, before)
+        self.assertEqual(
+            first["export_sha256"],
+            schedule_export_sha256_v3(first_document),
+        )
+        self.assertEqual(
+            first["export_sha256"],
+            "f52edbf12c116dc1a8f81dd92049dc8a614289fc1a9f7c125e8bfdc079b18e96",
+        )
+        observed_later = export_document_v3(
+            dict(first_record, comment_observed_at="2026-08-25T00:00:00.000Z"),
+            second_record,
+            exported_at="2026-08-25T00:00:00.000Z",
+        )
+        self.assertEqual(
+            first["export_sha256"],
+            schedule_export_sha256_v3(observed_later),
+        )
+
+    def test_v3_hash_matches_shared_fixture_and_business_changes(self):
+        fixture = record(
+            trip_code="reservation:豈",
+            cafe_fldid="fld-豈",
+            cafe_datanum="701",
+            region="東京",
+            source_locator="https://cafe.daum.net/sixsungwon/fld-豈/701",
+            source_post_sha256="b" * 64,
+            activity_status="activity_unavailable",
+            activity_source_status="no_archived_snapshot",
+            comment_count=None,
+            listed_comment_count=None,
+            fetched_unique_comment_count=None,
+            comment_census_complete=False,
+            comment_observed_at=None,
+            activity_snapshot_sha256=None,
+        )
+        document = export_document_v3(fixture)
+        self.assertEqual(
+            schedule_export_sha256_v3(document),
+            "4cce2ce8d8cb79b76f524fa8a8172f59200a59b7aa9fc2818b7f394eb5c5c655",
+        )
+        changed = export_document_v3(
+            record(
+                trip_code="reservation:豈",
+                cafe_fldid="fld-豈",
+                cafe_datanum="701",
+                region="大阪",
+                source_locator="https://cafe.daum.net/sixsungwon/fld-豈/701",
+                source_post_sha256="d" * 64,
+                activity_status="activity_unavailable",
+                activity_source_status="no_archived_snapshot",
+                comment_count=None,
+                listed_comment_count=None,
+                fetched_unique_comment_count=None,
+                comment_census_complete=False,
+                comment_observed_at=None,
+                activity_snapshot_sha256=None,
+            )
+        )
+        self.assertNotEqual(schedule_export_sha256_v3(document), schedule_export_sha256_v3(changed))
+
+    def test_v3_duplicate_trip_code_fails_closed(self):
+        duplicate = record(
+            trip_code="reservation:豈",
+            cafe_fldid="fld-other",
+            cafe_datanum="703",
+            region="제주",
+            source_locator="https://cafe.daum.net/sixsungwon/fld-other/703",
+            activity_status="activity_unavailable",
+            activity_source_status="no_archived_snapshot",
+            comment_count=None,
+            listed_comment_count=None,
+            fetched_unique_comment_count=None,
+            comment_census_complete=False,
+            comment_observed_at=None,
+            activity_snapshot_sha256=None,
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate_trip_code"):
+            validate_schedule_export(export_document_v3(record(trip_code="reservation:豈"), duplicate))
+
+    def test_v3_adds_audit_version_without_replacing_v2_source(self):
+        v2_document = export_document(record())
+        v3_document = export_document_v3(record())
+        import_reservation_schedule_export(self.db, v2_document)
+        self.db.commit()
+        before_v2 = self.db.execute(
+            "SELECT source_sha256, payload_json FROM direct_source_records "
+            "WHERE source_kind='reservation_schedule_export'"
+        ).fetchone()
+        result = import_reservation_schedule_export(self.db, v3_document)
+        self.assertGreater(result["inserted"], 0)
+        roots = self.db.execute(
+            "SELECT redaction_version, source_sha256, payload_json FROM direct_source_records "
+            "WHERE source_kind='reservation_schedule_export' ORDER BY id"
+        ).fetchall()
+        self.assertEqual(len(roots), 2)
+        self.assertEqual(roots[0][0], "reservation-trip-schedule-export-v2")
+        self.assertEqual(roots[0][1], before_v2[0])
+        self.assertEqual(roots[0][2], before_v2[1])
+        self.assertEqual(roots[1][0], EXPORT_SCHEMA_VERSION_V3)
 
 
 if __name__ == "__main__":

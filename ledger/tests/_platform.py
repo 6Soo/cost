@@ -48,8 +48,13 @@ def requires_staged_evidence(reason: str = "staged evidence round unavailable"):
     return unittest.skipUnless(enabled, f"environment-bound: {reason}")
 
 
-def allow_pin_drift(reason: str = "authority pin rebaseline pending approval"):
-    """Skip unless COST_ALLOW_PIN_DRIFT opts into known-stale authority pins."""
+def allow_pin_drift(
+    reason: str = (
+        "explicit regression check switch is off; "
+        "run the original checks with COST_ALLOW_PIN_DRIFT"
+    )
+):
+    """Skip while the explicit regression switch is off; COST_ALLOW_PIN_DRIFT runs the original checks."""
 
     enabled = bool(os.environ.get("COST_ALLOW_PIN_DRIFT"))
     return unittest.skipUnless(enabled, f"environment-bound: {reason}")

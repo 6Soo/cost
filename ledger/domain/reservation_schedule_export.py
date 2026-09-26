@@ -23,9 +23,13 @@ from ledger.domain.direct_trip_schedule_authority import (
 from ledger.domain.direct_verified_ota_lodging import load_authoritative_trip_schedule
 
 
-EXPORT_SCHEMA_VERSION = "reservation-trip-schedule-export-v2"
+EXPORT_SCHEMA_VERSION_V2 = "reservation-trip-schedule-export-v2"
+EXPORT_SCHEMA_VERSION_V3 = "reservation-trip-schedule-export-v3"
+# 기존 호출자는 계속 이 상수를 통해 이 버전을 사용한다.
+EXPORT_SCHEMA_VERSION = EXPORT_SCHEMA_VERSION_V2
 PARSER_CONTRACT = "reservation:cafeParse:R1-1"
-REDACTION_VERSION = EXPORT_SCHEMA_VERSION
+REDACTION_VERSION = EXPORT_SCHEMA_VERSION_V2
+REDACTION_VERSION_V3 = EXPORT_SCHEMA_VERSION_V3
 ACTIVITY_COMMENT_THRESHOLD = 10
 ACTIVITY_STATUSES = {
     "activity_confirmed",
@@ -72,6 +76,20 @@ def _canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def _canonical_json_v3(value: object) -> str:
+    """UTF-8 바이트 순서로 키를 정렬하는 삼 버전 정규화 JSON."""
+    if isinstance(value, dict):
+        items = sorted(value.items(), key=lambda item: str(item[0]).encode("utf-8"))
+        return "{" + ",".join(
+            f"{json.dumps(str(key), ensure_ascii=False, separators=(',', ':'))}:"
+            f"{_canonical_json_v3(field_value)}"
+            for key, field_value in items
+        ) + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_canonical_json_v3(item) for item in value) + "]"
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+
+
 def _stable_export_document(value: Mapping[str, object]) -> dict[str, object]:
     return {
         "schema_version": value["schema_version"],
@@ -92,6 +110,29 @@ def _export_sha256(value: Mapping[str, object]) -> str:
     # not change the content identity used by the idempotent import boundary.
     return hashlib.sha256(
         _canonical_json(_stable_export_document(value)).encode("utf-8")
+    ).hexdigest()
+
+
+def _stable_export_document_v3(value: Mapping[str, object]) -> dict[str, object]:
+    records = [
+        {
+            key: field_value
+            for key, field_value in dict(record).items()
+            if key != "comment_observed_at"
+        }
+        for record in value["records"]
+    ]
+    records.sort(key=lambda record: str(record["trip_code"]).encode("utf-8"))
+    return {
+        "schema_version": value["schema_version"],
+        "parser_contract": value["parser_contract"],
+        "records": records,
+    }
+
+
+def _export_sha256_v3(value: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        _canonical_json_v3(_stable_export_document_v3(value)).encode("utf-8")
     ).hexdigest()
 
 
@@ -159,6 +200,31 @@ def _load_raw(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != ROOT_KEYS:
         raise ValueError("reservation_schedule_export_root_invalid")
     if value["schema_version"] != EXPORT_SCHEMA_VERSION:
+        raise ValueError("reservation_schedule_export_schema_version_invalid")
+    if value["parser_contract"] != PARSER_CONTRACT:
+        raise ValueError("reservation_schedule_export_parser_contract_invalid")
+    exported_at = _text(value["exported_at"], "exported_at")
+    try:
+        datetime.fromisoformat(exported_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("reservation_schedule_exported_at_invalid") from exc
+    if not isinstance(value["records"], list):
+        raise ValueError("reservation_schedule_export_records_invalid")
+    return value
+
+
+def _load_raw_v3(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
+    if isinstance(raw, bytes):
+        value = _strict_json_bytes(raw, "reservation_schedule_export")
+    elif isinstance(raw, str):
+        value = _strict_json_bytes(raw.encode("utf-8"), "reservation_schedule_export")
+    elif isinstance(raw, Mapping):
+        value = dict(raw)
+    else:
+        raise ValueError("reservation_schedule_export_root_invalid")
+    if not isinstance(value, dict) or set(value) != ROOT_KEYS:
+        raise ValueError("reservation_schedule_export_root_invalid")
+    if value["schema_version"] != EXPORT_SCHEMA_VERSION_V3:
         raise ValueError("reservation_schedule_export_schema_version_invalid")
     if value["parser_contract"] != PARSER_CONTRACT:
         raise ValueError("reservation_schedule_export_parser_contract_invalid")
@@ -339,9 +405,9 @@ def _validate_record(raw: object, index: int, observation_date: str) -> dict[str
     }
 
 
-def validate_schedule_export(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
-    """Validate and return a normalized, still-PII-free export document."""
-    document = _load_raw(raw)
+def _validate_loaded_schedule_export(
+    document: Mapping[str, object],
+) -> dict[str, object]:
     records = [
         _validate_record(value, index, str(document["exported_at"])[:10])
         for index, value in enumerate(document["records"])
@@ -355,6 +421,38 @@ def validate_schedule_export(raw: bytes | str | Mapping[str, object]) -> dict[st
         "exported_at": document["exported_at"],
         "records": records,
     }
+
+
+def validate_schedule_export_v2(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
+    """기존 이 버전 입력을 기존 규칙 그대로 검증한다."""
+    return _validate_loaded_schedule_export(_load_raw(raw))
+
+
+def validate_schedule_export_v3(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
+    """삼 버전 입력을 검증하고 중복 여행 코드를 닫힌 상태로 거부한다."""
+    return _validate_loaded_schedule_export(_load_raw_v3(raw))
+
+
+def _schema_version_hint(raw: bytes | str | Mapping[str, object]) -> object:
+    try:
+        if isinstance(raw, bytes):
+            value = _strict_json_bytes(raw, "reservation_schedule_export")
+        elif isinstance(raw, str):
+            value = _strict_json_bytes(raw.encode("utf-8"), "reservation_schedule_export")
+        elif isinstance(raw, Mapping):
+            value = raw
+        else:
+            return None
+        return value.get("schema_version") if isinstance(value, Mapping) else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def validate_schedule_export(raw: bytes | str | Mapping[str, object]) -> dict[str, object]:
+    """두 버전의 입력을 버전별 계약으로 검증한다."""
+    if _schema_version_hint(raw) == EXPORT_SCHEMA_VERSION_V3:
+        return validate_schedule_export_v3(raw)
+    return validate_schedule_export_v2(raw)
 
 
 def _trip_schedule_payload(record: Mapping[str, object]) -> dict[str, object]:
@@ -399,8 +497,14 @@ def import_reservation_schedule_export(
     reported as candidate-only; it cannot affect allocation or posting.
     """
     document = validate_schedule_export(raw)
-    export_sha256 = _export_sha256(document)
-    stable_document = _stable_export_document(document)
+    is_v3 = document["schema_version"] == EXPORT_SCHEMA_VERSION_V3
+    export_sha256 = _export_sha256_v3(document) if is_v3 else _export_sha256(document)
+    stable_document = (
+        _stable_export_document_v3(document)
+        if is_v3
+        else _stable_export_document(document)
+    )
+    redaction_version = REDACTION_VERSION_V3 if is_v3 else REDACTION_VERSION
     root_key = source_key or f"reservation-export:{export_sha256}"
     if not root_key.strip() or "\n" in root_key:
         raise ValueError("reservation_schedule_source_key_invalid")
@@ -413,7 +517,7 @@ def import_reservation_schedule_export(
             "reservation_schedule_export",
             root_key,
             stable_document,
-            REDACTION_VERSION,
+            redaction_version,
         )
         inserted = int(root_created)
         authoritative_count = 0
@@ -435,7 +539,7 @@ def import_reservation_schedule_export(
                 "reservation_schedule_record",
                 f"{trip_code}:{export_sha256}",
                 lineage,
-                REDACTION_VERSION,
+                redaction_version,
             )
             inserted += int(record_created)
             activity_status = str(record["activity_status"])
@@ -461,7 +565,7 @@ def import_reservation_schedule_export(
                     "reservation_schedule_activity",
                     f"{trip_code}:{activity_snapshot_sha256}",
                     activity_payload,
-                    REDACTION_VERSION,
+                    redaction_version,
                 )
                 inserted += int(activity_created)
                 comment_observed_at = record["comment_observed_at"]
@@ -476,7 +580,7 @@ def import_reservation_schedule_export(
                         "reservation_schedule_activity_observation",
                         f"{trip_code}:{activity_snapshot_sha256}:{comment_observed_at}",
                         observation_payload,
-                        REDACTION_VERSION,
+                        redaction_version,
                     )
                     inserted += int(observation_created)
             if record["authority_status"] != "authoritative":
@@ -492,7 +596,7 @@ def import_reservation_schedule_export(
                 "trip_schedule",
                 trip_code,
                 payload,
-                REDACTION_VERSION,
+                redaction_version,
             )
             inserted += int(schedule_created)
             authoritative_count += 1
@@ -516,3 +620,34 @@ def import_reservation_schedule_export(
         "activity_counts": activity_counts,
         "export_sha256": export_sha256,
     }
+
+
+def schedule_export_sha256_v3(
+    raw: bytes | str | Mapping[str, object],
+) -> str:
+    """삼 버전 문서의 순서 불변 의미 해시를 반환한다."""
+    document = validate_schedule_export_v3(raw)
+    return _export_sha256_v3(document)
+
+
+def schedule_export_sha256(
+    raw: bytes | str | Mapping[str, object],
+) -> str:
+    """버전에 맞는 예약 일정 의미 해시를 반환한다."""
+    document = validate_schedule_export(raw)
+    return (
+        _export_sha256_v3(document)
+        if document["schema_version"] == EXPORT_SCHEMA_VERSION_V3
+        else _export_sha256(document)
+    )
+
+
+def import_reservation_schedule_export_v3(
+    db: sqlite3.Connection,
+    raw: bytes | str | Mapping[str, object],
+    *,
+    source_key: str | None = None,
+) -> dict[str, object]:
+    """삼 버전만 받는 명시적 가져오기 진입점."""
+    validate_schedule_export_v3(raw)
+    return import_reservation_schedule_export(db, raw, source_key=source_key)
