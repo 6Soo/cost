@@ -1,0 +1,414 @@
+"""Phase 2 save/store tests (synthetic DB only).
+
+Covers DETAILED_CONTRACT section 9 save scenarios: C1 move totals,
+lost-response retry, reused request id, illegal amount change, memo-only,
+revision conflict, restart persistence, and no cascade to C2.
+"""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from webapp.ledger_store import LedgerStore, SaveError
+
+
+def make_store():
+    directory = tempfile.mkdtemp()
+    return LedgerStore(Path(directory) / "webledger.sqlite")
+
+
+class SaveTotalsTests(unittest.TestCase):
+    def test_c1_move_updates_both_tabs(self):
+        store = make_store()
+        try:
+            result = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-to-b", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b", "operator_note": "사용자 확인"},
+            )
+            self.assertEqual(result["outcome"], "saved")
+            self.assertEqual(result["revision"], 2)
+            self.assertEqual(store.tab_totals("trip-demo-a")["expense"], 80000)
+            self.assertEqual(store.tab_totals("trip-demo-b")["expense"], 100000)
+            self.assertEqual(store.tab_totals("trip-demo-a")["profit"], 920000)
+            self.assertEqual(store.tab_totals("trip-demo-b")["profit"], -100000)
+        finally:
+            store.close()
+
+    def test_c2_stays_when_c1_moves(self):
+        store = make_store()
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-x", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            row = store.get_row("expense-demo-c2")
+            self.assertEqual(row["display_tab_id"], "trip-demo-a")
+        finally:
+            store.close()
+
+
+class RetryTests(unittest.TestCase):
+    def test_lost_response_retry_single_event(self):
+        store = make_store()
+        try:
+            first = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-retry", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            second = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-retry", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            self.assertEqual(first, second)
+            self.assertEqual(len(store.list_history("expense-demo-c1")), 1)
+            self.assertEqual(store.tab_totals("trip-demo-b")["expense"], 100000)
+        finally:
+            store.close()
+
+    def test_same_id_different_content_rejected(self):
+        store = make_store()
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-dup", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            with self.assertRaises(SaveError) as ctx:
+                store.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="save-c1-dup", change_mode="exception",
+                    changes={"display_tab_id": "trip-demo-a"},
+                )
+            self.assertEqual(ctx.exception.code, "REQUEST_ID_REUSED")
+            self.assertEqual(store.tab_totals("trip-demo-b")["expense"], 100000)
+        finally:
+            store.close()
+
+
+class ValidationTests(unittest.TestCase):
+    def test_amount_change_rejected_whole(self):
+        store = make_store()
+        try:
+            with self.assertRaises(SaveError) as ctx:
+                store.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="save-c1-amount", change_mode="exception",
+                    changes={"amount_krw": 999},
+                )
+            self.assertEqual(ctx.exception.code, "FIELD_READ_ONLY")
+            self.assertEqual(store.tab_totals("trip-demo-a")["expense"], 180000)
+            self.assertEqual(store.list_history("expense-demo-c1"), [])
+        finally:
+            store.close()
+
+    def test_revision_conflict_no_overwrite(self):
+        store = make_store()
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-first", change_mode="exception",
+                changes={"operator_note": "첫 저장"},
+            )
+            with self.assertRaises(SaveError) as ctx:
+                store.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="save-c1-stale", change_mode="exception",
+                    changes={"operator_note": "낡은 저장"},
+                )
+            self.assertEqual(ctx.exception.code, "EDIT_CONFLICT")
+            self.assertEqual(store.get_row("expense-demo-c1")["operator_note"], "첫 저장")
+        finally:
+            store.close()
+
+    def test_memo_only_keeps_totals(self):
+        store = make_store()
+        try:
+            result = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-memo", change_mode="exception",
+                changes={"operator_note": "오탈자 수정"},
+            )
+            self.assertEqual(result["outcome"], "saved")
+            self.assertIsNone(result["learning_case_id"])
+            self.assertEqual(store.tab_totals("trip-demo-a")["expense"], 180000)
+        finally:
+            store.close()
+
+    def test_rule_change_creates_waiting_case(self):
+        store = make_store()
+        try:
+            result = store.save(
+                row_id="expense-demo-c3", expected_revision=1,
+                client_request_id="save-c3-rule", change_mode="rule_change",
+                changes={"display_tab_id": "trip-demo-a"},
+            )
+            self.assertIsNotNone(result["learning_case_id"])
+            row = self.conn_case(store, result["learning_case_id"])
+            self.assertEqual(row[0], "waiting")
+        finally:
+            store.close()
+
+    def conn_case(self, store, case_id):
+        return store.conn.execute(
+            "SELECT dialog_state FROM board_learning_cases WHERE case_id=?", (case_id,)
+        ).fetchone()
+
+    def test_restart_keeps_state(self):
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "webledger.sqlite"
+        store = LedgerStore(path)
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-restart", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+        finally:
+            store.close()
+        reopened = LedgerStore(path)
+        try:
+            self.assertEqual(reopened.tab_totals("trip-demo-b")["expense"], 100000)
+            self.assertEqual(len(reopened.list_history("expense-demo-c1")), 1)
+        finally:
+            reopened.close()
+
+
+class UnclassifiedNormalizeTests(unittest.TestCase):
+    """R07: 문자열 미배정 정규화·메모 전용 학습 미생성·왕복 보존."""
+
+    def test_string_unclassified_saved_as_null(self):
+        store = make_store()
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-uncl", change_mode="exception",
+                changes={"display_tab_id": "unclassified"},
+            )
+            row = store.get_row("expense-demo-c1")
+            self.assertIsNone(row["display_tab_id"])
+            self.assertIn(
+                "expense-demo-c1",
+                [r["row_id"] for r in store.list_tab_rows(None)],
+            )
+        finally:
+            store.close()
+
+    def test_memo_only_rule_change_creates_no_case(self):
+        store = make_store()
+        try:
+            result = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-memorule", change_mode="rule_change",
+                changes={"operator_note": "메모만"},
+            )
+            self.assertIsNone(result["learning_case_id"])
+            self.assertEqual(store.get_row("expense-demo-c1")["display_tab_id"], "trip-demo-a")
+        finally:
+            store.close()
+
+    def test_trip_unclassified_roundtrip_keeps_totals(self):
+        store = make_store()
+        try:
+            before = store.tab_totals("trip-demo-a")["expense"]
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-out", change_mode="exception",
+                changes={"display_tab_id": None},
+            )
+            self.assertEqual(store.tab_totals("trip-demo-a")["expense"], before - 100000)
+            store.save(
+                row_id="expense-demo-c1", expected_revision=2,
+                client_request_id="save-c1-back", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-a"},
+            )
+            self.assertEqual(store.tab_totals("trip-demo-a")["expense"], before)
+        finally:
+            store.close()
+
+
+class TripMetaTests(unittest.TestCase):
+    """D1: 작성 정보·보관·삭제 미리보기·적용."""
+
+    def test_meta_save_and_archive(self):
+        store = make_store()
+        try:
+            result = store.save_trip_meta(
+                tab_id="trip-demo-a", expected_revision=1,
+                client_request_id="trip-t1", display_key="봄 여행 / 정산",
+            )
+            self.assertEqual(result["revision"], 2)
+            trip = store.get_trip("trip-demo-a")
+            self.assertEqual(trip["display_key"], "봄 여행 / 정산")
+            self.assertTrue(trip["prepared_on"])
+            self.assertEqual(trip["prepared_by_name"], "테스트 소유자")
+            store.save_trip_meta(
+                tab_id="trip-demo-a", expected_revision=2,
+                client_request_id="trip-t2", archived=True,
+            )
+            self.assertEqual(len(store.list_trips()), 1)
+            self.assertEqual(len(store.list_trips(include_archived=True)), 2)
+        finally:
+            store.close()
+
+    def test_delete_moves_and_stale_rejected(self):
+        store = make_store()
+        try:
+            preview = store.preview_tab_delete("trip-demo-a")
+            self.assertEqual(preview["income_total"], 1000000)
+            result = store.apply_tab_delete(
+                tab_id="trip-demo-a", expected_revision=preview["snapshot"]["tab_revision"],
+                mode="move-trip", destination="trip-demo-b",
+                snapshot=preview["snapshot"], client_request_id="trip-del-1",
+            )
+            self.assertEqual(result["outcome"], "deleted")
+            self.assertEqual(store.tab_totals("trip-demo-b")["income"], 1000000)
+            self.assertTrue(store.get_trip("trip-demo-a")["deleted"])
+            again = store.apply_tab_delete(
+                tab_id="trip-demo-a", expected_revision=preview["snapshot"]["tab_revision"],
+                mode="move-trip", destination="trip-demo-b",
+                snapshot=preview["snapshot"], client_request_id="trip-del-1",
+            )
+            self.assertEqual(again["outcome"], "deleted")
+        finally:
+            store.close()
+
+    def test_delete_stale_preview_rejected(self):
+        store = make_store()
+        try:
+            preview = store.preview_tab_delete("trip-demo-a")
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="trip-stale-add", change_mode="exception",
+                changes={"operator_note": "x"},
+            )
+            with self.assertRaises(SaveError) as ctx:
+                store.apply_tab_delete(
+                    tab_id="trip-demo-a",
+                    expected_revision=preview["snapshot"]["tab_revision"],
+                    mode="move-unclassified", destination=None,
+                    snapshot=preview["snapshot"], client_request_id="trip-del-stale",
+                )
+            self.assertEqual(ctx.exception.code, "DELETE_PREVIEW_STALE")
+        finally:
+            store.close()
+
+
+class RevertTests(unittest.TestCase):
+    """D2: 직전 수정 되돌리기."""
+
+    def test_memo_revert_and_double_locked(self):
+        store = make_store()
+        try:
+            store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="rv-1", change_mode="exception",
+                changes={"operator_note": "B"},
+            )
+            result = store.revert_row(
+                row_id="expense-demo-c1", expected_revision=2,
+                client_request_id="rv-2",
+            )
+            self.assertEqual(result["outcome"], "reverted")
+            self.assertEqual(result["revision"], 3)
+            self.assertEqual(store.get_row("expense-demo-c1")["operator_note"], "")
+            self.assertEqual(len(store.list_history("expense-demo-c1")), 2)
+            retry = store.revert_row(
+                row_id="expense-demo-c1", expected_revision=2,
+                client_request_id="rv-2",
+            )
+            self.assertEqual(retry["revision"], 3)
+            self.assertEqual(len(store.list_history("expense-demo-c1")), 2)
+            with self.assertRaises(SaveError) as ctx:
+                store.revert_row(
+                    row_id="expense-demo-c1", expected_revision=3,
+                    client_request_id="rv-3",
+                )
+            self.assertEqual(ctx.exception.code, "INVALID_VALUE")
+        finally:
+            store.close()
+
+
+class ConcurrentRevisionTests(unittest.TestCase):
+    """8.2 R01: 두 연결이 같은 revision을 보면 하나만 성공한다."""
+
+    def test_stale_read_loses_conflict(self):
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "webledger.sqlite"
+        first = LedgerStore(path)
+        second = LedgerStore(path)
+        try:
+            stale = first.get_row("expense-demo-c1")
+            second.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="conc-2", change_mode="exception",
+                changes={"operator_note": "second"},
+            )
+            first.get_row = lambda rid: (
+                dict(stale, revision=1) if rid == "expense-demo-c1"
+                else LedgerStore.get_row(first, rid)
+            )
+            with self.assertRaises(SaveError) as ctx:
+                first.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="conc-1", change_mode="exception",
+                    changes={"operator_note": "first"},
+                )
+            self.assertEqual(ctx.exception.code, "EDIT_CONFLICT")
+            histories = [h for h in second.list_history("expense-demo-c1")
+                         if h["revision"] == 2]
+            self.assertEqual(len(histories), 1)
+            self.assertEqual(
+                second.get_row("expense-demo-c1")["operator_note"], "second")
+        finally:
+            first.close()
+            second.close()
+
+
+class CrashRecoveryTests(unittest.TestCase):
+    """R01: ledger.append 위치 중단 후 재시작·동일 요청 재전송은 저장 재사용."""
+
+    def test_crash_before_ledger_replays_same_result(self):
+        directory = tempfile.mkdtemp()
+        path = Path(directory) / "webledger.sqlite"
+        store = LedgerStore(path)
+        try:
+            def boom(*args, **kwargs):
+                raise KeyboardInterrupt("injected at ledger.append")
+            store.ledger.append = boom
+            with self.assertRaises(KeyboardInterrupt):
+                store.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="save-c1-crash", change_mode="exception",
+                    changes={"display_tab_id": "trip-demo-b"},
+                )
+        finally:
+            store.close()
+        reopened = LedgerStore(path)
+        try:
+            result = reopened.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="save-c1-crash", change_mode="exception",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            self.assertEqual(result["outcome"], "saved")
+            self.assertEqual(result["revision"], 2)
+            self.assertFalse(result["ledger_pending"])
+            self.assertEqual(len(reopened.list_history("expense-demo-c1")), 1)
+            self.assertEqual(reopened.tab_totals("trip-demo-b")["expense"], 100000)
+            with self.assertRaises(SaveError) as ctx:
+                reopened.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="save-c1-crash", change_mode="exception",
+                    changes={"display_tab_id": "trip-demo-a"},
+                )
+            self.assertEqual(ctx.exception.code, "REQUEST_ID_REUSED")
+        finally:
+            reopened.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

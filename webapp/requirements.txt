@@ -1,0 +1,5 @@
+# webapp runtime dependency
+# 검증 환경: Python 3.12.10, openpyxl 3.1.5
+# 사용처: webapp/sheets_export.py (XLSX 생성)
+# 이 파일은 선언만 한다. 설치는 하지 않는다.
+openpyxl>=3.1.5,<4
