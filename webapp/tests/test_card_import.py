@@ -125,6 +125,49 @@ class ImportBasicsTests(unittest.TestCase):
         finally:
             store.close()
 
+    def test_receipt_and_execution_are_separate_so_a_read_answers_immediately(self):
+        """R03: a read in the gap between receipt and execution must answer.
+
+        Receipt commits on its own and returns, the sweep runs afterwards, so a
+        read while a batch is still outstanding has to report the current state:
+        not a block, not a failure, and not a finished result that has not
+        happened yet. This is the path a browser takes when it comes back to a
+        job it started. The resume half is
+        `test_restart_resumes_without_reupload`.
+        """
+        importer, store = make_importer()
+        try:
+            received = importer.receive(GOOD_CSV.encode("utf-8"), "cards.csv")
+            batch_id = received["batch_id"]
+            self.assertFalse(received["reused"])
+            self.assertIn(received["status"], ("accepted", "reconciling"))
+
+            # the read answers, and says the work is not finished
+            during = importer.progress(batch_id)
+            self.assertIsNotNone(during,
+                                 "the status read answered nothing mid-flight")
+            self.assertEqual(during["batch_id"], batch_id)
+            self.assertIn(during["status"], ("accepted", "reconciling"))
+            self.assertFalse(during["result"],
+                             "an unfinished batch reported a result")
+            self.assertEqual(during["new_events"], 0)
+
+            # a batch nobody heard of answers None, which the board turns into a
+            # 404 rather than inventing a job
+            self.assertIsNone(importer.progress("imp-not-a-real-batch"))
+
+            # the ledger itself is readable in the same gap
+            self.assertIsNotNone(store.list_tab_rows("trip-demo-a"))
+
+            # and processing it later is what produces the result
+            importer.process(batch_id)
+            done = importer.progress(batch_id)
+            self.assertIn(done["status"], ("completed", "completed_with_issues"))
+            self.assertTrue(done["result"])
+            self.assertGreater(done["new_events"], 0)
+        finally:
+            store.close()
+
     def test_progress_counts(self):
         importer, store = make_importer()
         try:

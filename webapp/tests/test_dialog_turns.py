@@ -103,14 +103,43 @@ class TurnPolicyTests(unittest.TestCase):
         self.assertEqual(len(muse.calls) + len(gemini.calls), 2)
 
     def test_free_quota_exhausted_waits_without_extra_switch(self):
+        # DETAILED_CONTRACT 7: a spent free quota parks the dialogue and keeps
+        # the row, the draft and the answers. It must not spend the one allowed
+        # switch, because Gemini is billed under the same quota and a second
+        # attempt would turn a wait into a wrong answer.
         muse = SyntheticAdapter("muse", MUSE_MODEL, status="failed",
                                 reason_code="free_quota_exhausted")
         gemini = SyntheticAdapter("gemini", GEMINI_MODEL, status="failed",
                                   reason_code="free_quota_exhausted")
         outcome = run_turn(turn_id="t4", context={}, muse=muse, gemini=gemini)
         self.assertEqual(outcome.state, "waiting")
-        self.assertEqual(outcome.switch_count, 1)
+        self.assertEqual(outcome.switch_count, 0)
         self.assertEqual(outcome.reason_code, "free_quota_exhausted")
+        self.assertEqual(len(outcome.attempts), 1)
+        # the fallback was not even asked
+        self.assertEqual(gemini.calls, [])
+
+    def test_a_healthy_fallback_is_still_not_used_after_a_quota_wait(self):
+        # The point of the rule above: the turn waits rather than adopting an
+        # answer the operator's own quota decision was meant to pause.
+        muse = SyntheticAdapter("muse", MUSE_MODEL, status="failed",
+                                reason_code="free_quota_exhausted")
+        gemini = SyntheticAdapter("gemini", GEMINI_MODEL, status="ok",
+                                  draft={"conditions": {"card_kind": "체크"}})
+        outcome = run_turn(turn_id="t4b", context={}, muse=muse, gemini=gemini)
+        self.assertEqual(outcome.state, "waiting")
+        self.assertEqual(outcome.switch_count, 0)
+        self.assertIsNone(outcome.adopted_attempt_id)
+        self.assertEqual(gemini.calls, [])
+
+    def test_an_exhausted_budget_also_waits_without_switching(self):
+        muse = SyntheticAdapter("muse", MUSE_MODEL, status="failed",
+                                reason_code="budget_exhausted")
+        gemini = SyntheticAdapter("gemini", GEMINI_MODEL, status="ok", draft={})
+        outcome = run_turn(turn_id="t4c", context={}, muse=muse, gemini=gemini)
+        self.assertEqual(outcome.state, "waiting")
+        self.assertEqual(outcome.switch_count, 0)
+        self.assertEqual(gemini.calls, [])
 
     def test_missing_gemini_leaves_the_turn_waiting(self):
         muse = SyntheticAdapter("muse", MUSE_MODEL, status="failed",

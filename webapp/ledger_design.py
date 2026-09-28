@@ -172,7 +172,12 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  padding:16px 20px;border-bottom:1px solid var(--line)}
 .p-hd h2{font-size:15px;font-weight:700}
 .p-amt{font-size:20px;font-weight:700;letter-spacing:-.012em;margin-top:2px}
-.p-bd{padding:20px;overflow:auto;flex:1 1 auto}
+/* The save form is a flex child of .panel, so it has to pass the column on.
+   Without this .p-bd grows to its content height, stops being a scroller and
+   pushes the 저장/취소 footer past the panel bottom, where it cannot be
+   reached on a short viewport. */
+.panel form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.p-bd{padding:20px;overflow:auto;flex:1 1 auto;min-height:0}
 .p-sub{font-size:12.5px;color:var(--mut);margin-bottom:14px;word-break:break-all}
 .f{margin-bottom:14px}
 .f label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
@@ -253,6 +258,20 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 }
 .p-ft{display:flex;gap:8px;padding:16px 20px;border-top:1px solid var(--line)}
 .p-ft .btn{flex:1}
+/* The save and cancel shortcuts are printed on the buttons, so the keyboard
+   path is discoverable without a manual (DETAILED_CONTRACT 12.3). */
+.kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+ line-height:1;padding:2px 4px;margin:0 1px;border:1px solid var(--line);
+ border-radius:3px;background:var(--bg);color:var(--mut);font-weight:600}
+/* A field the server refused is marked with text and a symbol, never by
+   colour alone, and it is the first thing a screen reader reaches. */
+.f-err{border-color:var(--bad)!important;box-shadow:0 0 0 2px rgba(180,35,24,.18)}
+.f-flag{display:block;font-size:12px;font-weight:600;color:var(--bad);
+ margin-top:4px}
+.f-flag::before{content:"\26A0 "}
+@media (max-width:390px){
+ .kbd{display:none}
+}
 
 .btn{height:34px;padding:0 12px;border:1px solid var(--line);border-radius:4px;
  background:var(--paper);font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);
@@ -402,8 +421,9 @@ SCRIPT = """
       var link=document.getElementById('rule-open');
       if(link) link.href='/rules?case='+encodeURIComponent(body.learning_case_id);
      }
-     say(slot,'저장했습니다 (revision '+body.revision+')',false);
-    }else{
+      say(slot,'저장했습니다 (revision '+body.revision+')',false);
+      clearDirty(form);
+     }else{
      say(slot,'옮겼습니다. 목록과 합계가 갱신되었어요',false);
     }
     if(isSave){refreshSummary();}
@@ -414,13 +434,137 @@ SCRIPT = """
     }
     return;
    }
-   say(slot,(body.code||'ERROR')+': '+(body.message||'저장하지 못했어요'),true);
-  }).catch(function(){
-   say(slot,'요청을 보내지 못했어요. 연결을 확인해 주세요',true);
+    say(slot,(body.code||'ERROR')+': '+(body.message||'저장하지 못했어요'),true);
+    flagField(form,body,slot);
+   }).catch(function(){
+    say(slot,'요청을 보내지 못했어요. 연결을 확인해 주세요',true);
+   });
   });
- });
-})();
-"""
+
+  // ---------------------------------------------------- keyboard (contract 12.3)
+  //
+  // Enter alone must never save a row quietly, and it must not steal the
+  // newline in a note. Ctrl+Enter is the explicit save and it is printed on
+  // the button. Escape cancels the open edit without touching anything that
+  // was already saved, asks before dropping unsaved input, and puts focus
+  // back on the row the panel came from.
+  function hasUnsaved(form){
+   var base=form.querySelector("input[name='expected_revision']");
+   if(!base) return false;
+   var start=form.getAttribute('data-dirty-from')||'';
+   var dirty=false;
+   Array.prototype.forEach.call(form.elements,function(el){
+    if(!el.name||el.name==='csrf'||el.name==='client_request_id'
+     ||el.name==='expected_revision'||el.name==='return_to') return;
+    if(el.type==='checkbox'||el.type==='radio'){
+     if(String(el.checked)!==String(el.getAttribute('data-was')==='1')) dirty=true;
+     return;
+    }
+    if(!start&&el.value!==''&&el.value!==el.getAttribute('placeholder')) {}
+    if(el.value!==(el.defaultValue||'')) dirty=true;
+   });
+   return dirty;
+  }
+  function markDirty(form){
+   if(form.getAttribute('data-dirty')) return;
+   form.setAttribute('data-dirty','1');
+   reportUnsaved();
+  }
+  function clearDirty(form){form.removeAttribute('data-dirty');reportUnsaved();}
+  // APP_SPEC 4.1: the global top area shows the unsaved row count. It is
+  // derived from the same dirty marks the Escape guard uses, so the number
+  // and the warning cannot disagree.
+  function reportUnsaved(){
+   var slot=document.getElementById('unsaved-count');
+   if(!slot) return;
+   var n=document.querySelectorAll('form[data-dirty="1"]').length;
+   slot.textContent=n?(n+'건 저장되지 않은 변경'):'저장되지 않은 변경 없음';
+  }
+  // 4.1 also asks that leaving the page with an unsaved edit confirm first.
+  window.addEventListener('beforeunload',function(ev){
+   if(!document.querySelector('form[data-dirty="1"]')) return;
+   ev.preventDefault();ev.returnValue='';
+  });
+  reportUnsaved();
+
+  // A refused field is named next to the input and focused first, so the
+  // error is not communicated by colour alone.
+  function flagField(form,body,slot){
+   var field=body&&(body.field||body.field_name);
+   if(!field) return;
+   var input=form.querySelector("[name='"+field+"']");
+   if(!input) return;
+   input.classList.add('f-err');
+   input.setAttribute('aria-invalid','true');
+   var flag=document.createElement('span');
+   flag.className='f-flag';
+   flag.id='f-flag';
+   flag.textContent=(body.message||'이 칸을 확인해 주세요');
+   if(input.parentNode&&!input.parentNode.querySelector('.f-flag')){
+    input.parentNode.appendChild(flag);
+   }
+   try{input.focus();input.select&&input.select();}catch(e){}
+  }
+  function clearFlags(form){
+   Array.prototype.forEach.call(form.querySelectorAll('.f-err'),function(el){
+    el.classList.remove('f-err');el.removeAttribute('aria-invalid');
+   });
+   Array.prototype.forEach.call(form.querySelectorAll('.f-flag'),function(el){
+    el.parentNode.removeChild(el);
+   });
+  }
+
+  document.addEventListener('keydown',function(e){
+   var form=e.target.closest&&e.target.closest('form[data-js-save]');
+   // Ctrl+Enter is the one key that saves, from anywhere in the panel form.
+   if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)&&form){
+    e.preventDefault();
+    if(typeof form.requestSubmit==='function') form.requestSubmit();
+    else form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
+    return;
+   }
+   if(e.key==='Enter'&&form&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+    // A textarea keeps its newline. A single-line field is not a save: it
+    // just does nothing, so a stray Enter cannot write a row.
+    var tag=(e.target.tagName||'').toLowerCase();
+    if(tag==='textarea') return;
+    if(e.target.type==='button'||e.target.type==='submit') return;
+    e.preventDefault();
+    return;
+   }
+   if(e.key==='Escape'){
+    var panel=document.getElementById('panel');
+    if(!panel) return;
+    var f=panel.querySelector('form[data-js-save]');
+    if(f&&f.getAttribute('data-dirty')&&!window.confirm(
+     '저장하지 않은 변경이 있어요. 저장하지 않고 닫을까요?')) return;
+    // The edit was discarded, so it is no longer unsaved. Leaving the
+    // mark on would fire the 4.1 leave-confirm for a decision the
+    // user just made, so the mark goes before the navigation.
+    if(f) f.removeAttribute('data-dirty');
+    reportUnsaved();
+    // Return focus to the row the panel was opened from.
+    var opener=document.getElementById('panel')&&
+     document.querySelector('tr[data-id][aria-selected="true"]');
+    if(opener){
+     var target=opener.querySelector('button,td,a')||opener;
+     try{target.focus();}catch(e){}
+    }
+    goBack();
+   }
+  });
+  // Any change marks the panel dirty so Escape knows to ask.
+  document.addEventListener('input',function(e){
+   var form=e.target.closest&&e.target.closest('form[data-js-save]');
+   if(form) markDirty(form);
+  });
+  // A finished save leaves nothing unsaved.
+  document.addEventListener('submit',function(e){
+   var form=e.target;
+   if(form.matches&&form.matches('form[data-js-save]')) clearFlags(form);
+  },true);
+ })();
+ """
 
 
 # ----------------------------------------------------------------- fragments
@@ -457,6 +601,14 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
             f"{totals['income']:,}원", trip["tab_id"] == tab_id))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
+    # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
+    # so it is not drawn for a viewer at all rather than drawn and refused.
+    if board.current_role() == "owner":
+        sections.append((
+            "<h2 class='nav-sec'>여행 추가</h2>",
+            "<ul class='nav-list' id='new-trip'>"
+            "<li><a class='nv nv-add' id='add-trip' href='/trips#new-trip-form'>"
+            "<span class='nm'>+ 탭 추가</span></a></li></ul>"))
     if not query or "분류대기" in query:
         sections.append(("<h2 class='nav-sec'>분류대기</h2>",
                          "<ul class='nav-list'>" + entry(
@@ -563,14 +715,34 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         + "</form>")
 
 
-def _summary_html(incomes, expenses) -> str:
+def _summary_html(incomes, expenses, *, filtered=None, whole=None) -> str:
+    """The totals bar.
+
+    DETAILED 12.2: with a filter on, the whole total and the result total get
+    separate names, and the whole total is never quietly replaced by the result.
+    `filtered` is (income, expense, count_income, count_expense) for the rows
+    the filter left visible; `whole` is the same for the unfiltered tab.
+    """
     income = sum(board._shown_amount(r) for r in incomes)
     expense = sum(board._shown_amount(r) for r in expenses)
+    if filtered is None or whole is None:
+        return (
+            f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
+            f"<div><i>지출</i><b>{_money(expense)}</b></div>"
+            f"<div><i>차액</i><b>{_money(income - expense)}</b></div>"
+            f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>")
+    fincome, fexpense, finc, fexp = filtered
+    wincome, wexpense, winc, wexp = whole
     return (
-        f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
-        f"<div><i>지출</i><b>{_money(expense)}</b></div>"
-        f"<div><i>차액</i><b>{_money(income - expense)}</b></div>"
-        f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>")
+        f"<div class='sum tnum' id='sum'>"
+        f"<div><i>전체 수입</i><b>{_money(wincome)}</b></div>"
+        f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
+        f"<div><i>검색 결과 수입</i><b>{_money(fincome)}</b></div>"
+        f"<div><i>검색 결과 지출</i><b>{_money(fexpense)}</b></div>"
+        f"<div><i>검색 결과 차액</i>"
+        f"<b>{_money(fincome - fexpense)}</b></div>"
+        f"<span class='n'>전체 수입 {winc}건 · 전체 지출 {wexp}건"
+        f" · 검색 결과 수입 {finc}건 · 검색 결과 지출 {fexp}건</span></div>")
 
 
 def _trip_options(current="", blank_label=None) -> str:
@@ -674,7 +846,13 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
         + f"<tbody class='grp'><tr><th scope='colgroup' colspan='5'>지출</th>"
-        f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
+        # DETAILED 15: the manual-expense button sits beside the expense section
+        # heading, in the same group row, not only in a page-level nav line.
+        # It goes in the amount cell so the section heading itself stays the
+        # word it is, and the heading text is what the layout checks read.
+        f"<th class='num'>{_money(expense_total)}"
+        "<a class='btn' id='add-manual-expense' href='/expense/new'>"
+        "수기 지출 추가</a></th></tr></tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back)
         + "</table></div>")
@@ -824,8 +1002,10 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         f"<div class='p-links'>{' · '.join(x for x in links if x)}</div>"
         "</div>"
         "<div class='p-ft'>"
-        "<button class='btn primary' type='submit'>저장</button>"
-        f"<a class='btn' id='p-cancel' href='{board.esc(back)}'>취소</a>"
+        "<button class='btn primary' type='submit'>저장 "
+        "<kbd class='kbd'>Ctrl</kbd>+<kbd class='kbd'>Enter</kbd></button>"
+        f"<a class='btn' id='p-cancel' href='{board.esc(back)}'>취소 "
+        "<kbd class='kbd'>Esc</kbd></a>"
         "</div></form></aside>")
 
 
@@ -843,19 +1023,55 @@ def state_query(tab_id: str, query: str = "", kind: str = "", archived: str = ""
     return "&".join(parts)
 
 
+def _last_saved_at(tab_id: str) -> str:
+    """When this tab's rows were last saved, for the global header.
+
+    APP_SPEC 4.1 puts `저장되지 않은 변경 1건`과 마지막 저장 시각 in the global
+    top area. The time is read from the append-only change ledger, so it is the
+    real last save rather than a value the page made up.
+    """
+    if _STORE_missing():
+        return ""
+    try:
+        if tab_id:
+            row = board._STORE.conn.execute(
+                "SELECT MAX(r.created_at) FROM board_revisions r"
+                " JOIN board_rows b ON b.row_id = r.row_id"
+                " WHERE b.display_tab_id=? AND r.kind<>'conflict'",
+                (tab_id,)).fetchone()
+        else:
+            row = board._STORE.conn.execute(
+                "SELECT MAX(created_at) FROM board_revisions"
+                " WHERE kind<>'conflict'").fetchone()
+    except Exception:
+        return ""
+    if not row or not row[0]:
+        return "저장 기록이 없어요"
+    return str(row[0])
+
+
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           meta: str = "", body: str, query: str = "", kind: str = "",
           archived: str = "", aside: str = "") -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
+    # APP_SPEC 4.1: the global top area carries the unsaved row count and the
+    # last saved time. The count is filled in by the script as edits become
+    # dirty; the time is the ledger's own last save for this tab.
+    role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     main = (
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
         f"<h1>{heading}<span class='synth'>{board.SYNTHETIC_MARK}</span></h1>"
         + (f"<p class='period'>{period}</p>" if period else "")
         + (f"<p class='meta'>{meta}</p>" if meta else "")
-        + "</div><div class='act'>"
+        + f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
+        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
+        f" · 마지막 저장 {_last_saved_at(tab_id)}"
+        + (f" · {board.esc(role_note)}" if role_note else "")
+        + "</p>"
+        "</div><div class='act'>"
         "<a class='btn' href='/import'>카드 가져오기</a>"
         "<a class='btn primary' href='/export'>XLSX 출력</a>"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
@@ -892,6 +1108,9 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         expenses = []
     elif kind == "ex":
         incomes = []
+    # DETAILED 12.2: the whole totals are kept beside the filtered ones, so a
+    # filter never quietly replaces the whole total with the result total.
+    whole_income, whole_expense = list(incomes), list(expenses)
     if query:
         def keep(row):
             blob = " ".join(str(row.get(key) or "") for key in (
@@ -921,7 +1140,12 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         f"{_head_html(trip)}"
         f"{_bar_html(query, kind, tab_id, archived)}{status}"
-        f"{_summary_html(incomes, expenses)}"
+        # APP_SPEC 4.1: the same global state line the shared shell carries.
+        f"<p class='meta' id='global-state' data-role='"
+        f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
+        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
+        f" · 마지막 저장 {_last_saved_at(tab_id)}</p>"
+        f"{_summary_html(incomes, expenses, **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
         f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
         "</main>")
@@ -944,20 +1168,63 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
                        error=error, message=message, back=back, draft=draft or {})
 
 
-def summary_part(tab_id: str, kind: str = "") -> str:
+def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
     if _STORE_missing():
         return ""
     if tab_id == "unclassified":
-        incomes = [r for r in board._income_rows() if r.get("display_tab_id") is None]
-        expenses = board._unclassified_rows()
+        whole_income = [r for r in board._income_rows()
+                        if r.get("display_tab_id") is None]
+        whole_expense = board._unclassified_rows()
     else:
-        incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
-        expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
+        whole_income = [r for r in board._income_rows()
+                        if r.get("display_tab_id") == tab_id]
+        whole_expense = [r for r in board._expense_rows()
+                         if r.get("display_tab_id") == tab_id]
     if kind == "in":
-        expenses = []
+        whole_expense = []
     elif kind == "ex":
-        incomes = []
-    return _summary_html(incomes, expenses)
+        whole_income = []
+
+    def totals(rows_in, rows_ex):
+        return (sum(board._shown_amount(r) for r in rows_in),
+                sum(board._shown_amount(r) for r in rows_ex),
+                len(rows_in), len(rows_ex))
+
+    if not query:
+        return _summary_html(whole_income, whole_expense)
+    # DETAILED 12.2: a filter separates the names; the whole total stays whole.
+    needle = query.strip()
+    shown_in = [r for r in whole_income if _matches(r, needle)]
+    shown_ex = [r for r in whole_expense if _matches(r, needle)]
+    return _summary_html(
+        shown_in, shown_ex,
+        filtered=totals(shown_in, shown_ex),
+        whole=totals(whole_income, whole_expense))
+
+
+def _matches(row: dict, needle: str) -> bool:
+    """Does this row contain the search text, over the fields the screen shows."""
+    if not needle:
+        return True
+    hay = " ".join(str(row.get(f) or "") for f in (
+        "occurred_on", "item", "description", "customer_name", "nickname",
+        "reservation_no", "service_period", "source_merchant", "operator_note",
+        "display_tab_id", "income_kind", "evidence_type"))
+    return needle in hay
+
+
+def _totals_kw(query, shown_in, shown_ex, whole_in, whole_ex) -> dict:
+    """The summary's keyword arguments, split only when a filter is on."""
+    if not query:
+        return {}
+
+    def totals(rows_in, rows_ex):
+        return (sum(board._shown_amount(r) for r in rows_in),
+                sum(board._shown_amount(r) for r in rows_ex),
+                len(rows_in), len(rows_ex))
+
+    return {"filtered": totals(shown_in, shown_ex),
+            "whole": totals(whole_in, whole_ex)}
 
 
 def _STORE_missing() -> bool:

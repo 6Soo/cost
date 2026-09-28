@@ -476,6 +476,42 @@ def _ensure_rule_turn_columns(conn) -> None:
         conn.execute("ALTER TABLE rule_turns ADD COLUMN abandoned_reason TEXT NOT NULL DEFAULT ''")
 
 
+def _ensure_trip_tab_columns(conn) -> None:
+    """Add the APP_SPEC 3 tab-model columns to a database created earlier.
+
+    Section 3 lists `event_year`, `tab_kind`, `authority_status`,
+    `source_sha256` and `sort_order` as logical responsibilities and says not to
+    add a new table when the existing schema can carry them. They are added here
+    as columns with defaults, so a database written before this change keeps
+    every row and reads the new fields at their neutral values.
+
+    `tab_lifecycle` is deliberately not a column: `archived` and `deleted`
+    already hold it, and a third copy would be free to disagree with them. It is
+    derived on read instead.
+    """
+    cols = {row[1] for row in conn.execute(
+        "PRAGMA table_info(trip_tabs)").fetchall()}
+    if "event_year" not in cols:
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN event_year INTEGER NOT NULL DEFAULT 0")
+    if "tab_kind" not in cols:
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN tab_kind TEXT NOT NULL DEFAULT 'trip'")
+    if "authority_status" not in cols:
+        # Never 'authoritative' by default: section 3 says making a screen tab
+        # is not what makes a schedule authoritative, and 4.2 says a tab with no
+        # authority basis is needs_review.
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN authority_status TEXT NOT NULL"
+            " DEFAULT 'needs_review'")
+    if "source_sha256" not in cols:
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN source_sha256 TEXT NOT NULL DEFAULT ''")
+    if "sort_order" not in cols:
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+
+
 def _ensure_correction_columns(conn) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(income_corrections)").fetchall()}
     if "corrected_occurred_on" not in cols:
@@ -551,6 +587,7 @@ class LedgerStore:
         self.conn.executescript(SCHEMA_SQL)
         _ensure_correction_columns(self.conn)
         _ensure_rule_turn_columns(self.conn)
+        _ensure_trip_tab_columns(self.conn)
         self._register_process_lease()
         if first_create:
             self._seed()
@@ -659,12 +696,89 @@ class LedgerStore:
                     out.append(self._remainder_display_row(source))
         return out
 
+    def record_conflict(self, *, row_id: str, expected_revision: int,
+                        attempted: dict, client_request_id: str = "",
+                        actor: str = "owner") -> dict:
+        """Note that a save was refused because the row had moved on.
+
+        APP_SPEC 9 lists `충돌` among the states that are told apart "in the DB
+        and in the row detail", and section 8 asks the export dialog for the
+        number of rows in conflict. Section 6 says to reuse the existing
+        append-only change ledger rather than add a table, so this writes one
+        `board_revisions` row with `kind='conflict'`.
+
+        It is a note, not a save: the row's revision, values and totals are not
+        touched, and the refused request is not recorded as a request result. It
+        is written in its own transaction after the save was rolled back, so the
+        one-transaction guarantee of a save (REVIEW R01) is unchanged.
+        """
+        current = self.get_row(row_id)
+        if current is None:
+            return {}
+        note = {
+            "row_id": row_id, "expected_revision": expected_revision,
+            "current_revision": current.get("revision"),
+            "attempted": attempted,
+            "at": _utc_now(),
+        }
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
+                " event_id, change_mode, actor, created_at, client_request_id,"
+                " kind, reverts_event_id) VALUES (?,?,?,?,?,?,?,?,?,?,'')",
+                (row_id, int(current.get("revision") or 0),
+                 _canonical(current), _canonical(note), "", "conflict", actor,
+                 _utc_now(), str(client_request_id or ""), "conflict"),
+            )
+            self.conn.commit()
+        return note
+
+    def row_conflict(self, row_id: str):
+        """The unresolved conflict on this row, or None.
+
+        Resolved means: the row's newest ledger event is not a conflict note. A
+        later successful save therefore clears it, which is the only way it
+        should clear.
+        """
+        row = self.conn.execute(
+            "SELECT kind FROM board_revisions WHERE row_id=?"
+            " ORDER BY revision DESC, id DESC LIMIT 1", (row_id,)).fetchone()
+        if row is None or (row[0] or "save") != "conflict":
+            return None
+        last = self.conn.execute(
+            "SELECT revision, new_json, actor, created_at, client_request_id"
+            " FROM board_revisions WHERE row_id=? AND kind='conflict'"
+            " ORDER BY revision DESC, id DESC LIMIT 1", (row_id,)).fetchone()
+        if last is None:
+            return None
+        try:
+            note = json.loads(last[1])
+        except ValueError:
+            note = {}
+        return {"row_id": row_id, "revision": last[0], "actor": last[2],
+                "created_at": last[3], "client_request_id": last[4],
+                "expected_revision": note.get("expected_revision"),
+                "current_revision": note.get("current_revision"),
+                "attempted": note.get("attempted") or {}}
+
+    def conflicting_row_ids(self) -> set:
+        """Every row whose newest ledger event is a conflict note."""
+        rows = self.conn.execute(
+            "SELECT row_id, kind FROM board_revisions"
+            " ORDER BY row_id, revision, id").fetchall()
+        newest = {}
+        for row_id, kind in rows:
+            newest[row_id] = kind or "save"
+        return {row_id for row_id, kind in newest.items() if kind == "conflict"}
+
     def list_history(self, row_id: str):
         try:
             rows = self.conn.execute(
                 "SELECT revision, prev_json, new_json, event_id, change_mode, actor, created_at,"
                 " client_request_id, kind, reverts_event_id FROM board_revisions"
-                " WHERE row_id=? ORDER BY revision",
+                # a conflict note carries the row's current revision, so `id`
+                # breaks the tie and keeps it after the save it refused
+                " WHERE row_id=? ORDER BY revision, id",
                 (row_id,),
             ).fetchall()
             return [
@@ -2280,12 +2394,18 @@ class LedgerStore:
         }
 
     def run_dialog_turn(self, *, conversation_id: str, client_request_id: str,
-                        muse=None, gemini=None, actor: str = "owner") -> dict:
+                        muse=None, gemini=None, actor: str = "owner",
+                        operator: dict = None) -> dict:
         """Run one provider-neutral turn and persist every attempt.
 
         The draft a provider returns is only stored after the existing draft
         validator accepts it. Nothing here writes to the ledger: a model answer
         never changes a row, a trip, or an amount.
+
+        `operator` carries the values the owner has already chosen, so a
+        provider's prose can become a *candidate* rule without the model
+        inventing a trip or a year. It is supplied by the server, never taken
+        from provider text, and its absence simply means no candidate is built.
         """
         from .classification_rules import RuleError, normalize_draft, rule_hash
         from .dialog_turn import build_context, run_turn
@@ -2348,6 +2468,7 @@ class LedgerStore:
 
             draft = outcome.draft
             draft_error = None
+            candidate_report = None
             stored_draft = {}
             if outcome.adopted and isinstance(draft, dict):
                 payload = dict(draft)
@@ -2359,6 +2480,28 @@ class LedgerStore:
                         base_rule_version=rule["version"] if rule else 0)
                 except RuleError as exc:
                     draft_error = {"code": exc.code, "message": str(exc)}
+                    stored_draft = {}
+            elif outcome.adopted and outcome.summary:
+                # The provider answered in prose. That is turned into a
+                # candidate here, and only into a candidate: it is validated by
+                # the same rule validator, it is stored as a draft, and the
+                # owner still has to confirm it and preview the impact before
+                # anything is applied. A model answer never applies itself.
+                from . import rule_text
+
+                try:
+                    candidate = rule_text.rule_candidate(
+                        text=outcome.summary, row=board_row,
+                        learning_case_id=conv[1],
+                        rule_id=conv[2] or f"{conversation_id}-draft",
+                        version=(rule["version"] + 1) if rule else 1,
+                        base_rule_version=rule["version"] if rule else 0,
+                        operator=operator)
+                    stored_draft = candidate["rule"]
+                    candidate_report = rule_text.candidate_report(candidate)
+                except (rule_text.TextRuleError, RuleError) as exc:
+                    draft_error = {"code": getattr(exc, "code", "INVALID_VALUE"),
+                                   "message": str(exc)}
                     stored_draft = {}
             created_at = _utc_now()
             self.conn.execute("BEGIN IMMEDIATE")
@@ -2401,6 +2544,10 @@ class LedgerStore:
                 result["turn"] = next(t for t in result["turns"] if t["turn_id"] == turn_id)
                 result["draft"] = stored_draft
                 result["draft_error"] = draft_error
+                # A candidate is never applied. This flag is the record that the
+                # preview and the owner confirm are still outstanding.
+                result["candidate"] = candidate_report
+                result["requires_owner_confirm"] = bool(candidate_report)
                 result["notice"] = (
                     None if not outcome.switch_count
                     else "Muse 연결 실패로 Gemini fallback 사용 중"
@@ -2572,8 +2719,15 @@ class LedgerStore:
 
     def advance_dialog_conversation(self, *, learning_case_id: str,
                                     client_request_id: str, muse=None, gemini=None,
-                                    actor: str = "owner") -> dict:
-        """Open the conversation if needed, then run one provider turn."""
+                                    actor: str = "owner",
+                                    operator: dict = None) -> dict:
+        """Open the conversation if needed, then run one provider turn.
+
+        `operator` is the owner's already-chosen target trip, passed through to
+        the turn so a prose answer can become a candidate without the model
+        choosing a trip or a year. It is optional; without it the turn still
+        runs and simply produces no candidate from prose.
+        """
         if self.case_is_one_off(learning_case_id):
             raise SaveError(
                 "RULE_ONE_OFF",
@@ -2585,7 +2739,7 @@ class LedgerStore:
         result = self.run_dialog_turn(
             conversation_id=f"conv-{learning_case_id}",
             client_request_id=client_request_id, muse=muse, gemini=gemini,
-            actor=actor)
+            actor=actor, operator=operator)
         result["dialog"] = self.rule_dialog_state(learning_case_id)
         return result
 
@@ -3609,17 +3763,31 @@ class LedgerStore:
 
     @staticmethod
     def _trip_dict(row) -> dict:
+        archived = bool(row[7])
+        deleted = bool(row[8])
         return {
             "tab_id": row[0], "display_key": row[1], "destination": row[2],
             "starts_on": row[3], "ends_on": row[4], "prepared_on": row[5],
-            "prepared_by_name": row[6], "archived": bool(row[7]),
-            "deleted": bool(row[8]), "revision": row[9],
+            "prepared_by_name": row[6], "archived": archived,
+            "deleted": deleted, "revision": row[9],
+            # APP_SPEC 3: these five are separate responsibilities and are
+            # never folded into the display name or the archive flag.
+            "event_year": row[10], "tab_kind": row[11],
+            "authority_status": row[12], "source_sha256": row[13],
+            "sort_order": row[14],
+            # derived, so it cannot disagree with the two stored flags
+            "tab_lifecycle": "deleted" if deleted else (
+                "archived" if archived else "active"),
         }
+
+    _TRIP_COLUMNS = ("tab_id, display_key, destination, starts_on, ends_on,"
+                     " prepared_on, prepared_by_name, archived, deleted, revision,"
+                     " event_year, tab_kind, authority_status, source_sha256,"
+                     " sort_order")
 
     def list_trips(self, include_archived: bool = False) -> list:
         rows = self.conn.execute(
-            "SELECT tab_id, display_key, destination, starts_on, ends_on,"
-            " prepared_on, prepared_by_name, archived, deleted, revision"
+            f"SELECT {self._TRIP_COLUMNS}"
             " FROM trip_tabs WHERE deleted=0 ORDER BY starts_on, tab_id"
         ).fetchall()
         trips = [self._trip_dict(r) for r in rows]
@@ -3629,12 +3797,201 @@ class LedgerStore:
 
     def get_trip(self, tab_id: str):
         row = self.conn.execute(
-            "SELECT tab_id, display_key, destination, starts_on, ends_on,"
-            " prepared_on, prepared_by_name, archived, deleted, revision"
-            " FROM trip_tabs WHERE tab_id=?",
+            f"SELECT {self._TRIP_COLUMNS} FROM trip_tabs WHERE tab_id=?",
             (tab_id,),
         ).fetchone()
         return self._trip_dict(row) if row else None
+
+    def find_trip_by_schedule(self, starts_on: str, destination: str):
+        """The live trip already standing for this date and destination.
+
+        APP_SPEC 3: a new tab on a date and destination that already exists must
+        not add a second row, and whether the two should be merged is not
+        decided here. The caller shows the existing tab instead.
+        """
+        row = self.conn.execute(
+            f"SELECT {self._TRIP_COLUMNS} FROM trip_tabs"
+            " WHERE deleted=0 AND starts_on=? AND destination=?"
+            " ORDER BY tab_id LIMIT 1",
+            (starts_on, destination),
+        ).fetchone()
+        return self._trip_dict(row) if row else None
+
+    def create_trip(self, *, starts_on: str, destination: str,
+                    ends_on: str = "", display_key=None, tab_kind: str = "trip",
+                    source_sha256: str = "",
+                    client_request_id: str, actor: str = "owner") -> dict:
+        """Create one trip tab. APP_SPEC 3, the `새 탭 추가` contract.
+
+        `starts_on` and `destination` are required. The internal `tab_id` is
+        made here, and a date and destination that already has a live tab returns
+        that tab without adding a row and without deciding a merge.
+
+        `authority_status` starts at `needs_review` and this call never sets it to
+        `authoritative`: section 3 says creating a screen tab is not what makes a
+        schedule authoritative, and section 4.2 says a tab with no authority
+        basis is made `needs_review` rather than confirmed on its own. The
+        authoritative value still has to come from its own source with its own
+        digest.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        import re as _re
+
+        starts_on = str(starts_on or "").strip()
+        destination = str(destination or "").strip()
+        ends_on = str(ends_on or "").strip()
+        source_sha256 = str(source_sha256 or "").strip()
+        if not starts_on:
+            raise SaveError("INVALID_VALUE", "여행 시작 날짜를 입력해 주세요")
+        if not _valid_date(starts_on):
+            raise SaveError("INVALID_VALUE", "여행 시작 날짜 형식이 달라요")
+        if not destination:
+            raise SaveError("INVALID_VALUE", "행선지를 입력해 주세요")
+        if ends_on:
+            if not _valid_date(ends_on):
+                raise SaveError("INVALID_VALUE", "여행 종료 날짜 형식이 달라요")
+            if ends_on < starts_on:
+                raise SaveError("INVALID_VALUE",
+                                "종료일이 시작일보다 앞이에요")
+        if tab_kind not in ("trip", "overhead", "closing", "other"):
+            raise SaveError("INVALID_VALUE", "탭 종류가 알아볼 수 없어요")
+        if display_key is not None and not str(display_key).strip():
+            raise SaveError("INVALID_VALUE", "표시 이름이 비었어요")
+        if source_sha256 and not _re.fullmatch(r"[0-9a-f]{64}", source_sha256):
+            raise SaveError("INVALID_VALUE", "일정 근거 해시 형식이 달라요")
+
+        # The request identity binds to the payload, so a retry of the same id
+        # with different content is refused instead of silently accepted.
+        identity = _canonical({
+            "op": "create-trip", "starts_on": starts_on,
+            "destination": destination, "ends_on": ends_on,
+            "display_key": None if display_key is None else str(display_key),
+            "tab_kind": tab_kind, "source_sha256": source_sha256,
+        })
+
+        with self._lock:
+            self._replay_pending()
+            existing = self.conn.execute(
+                "SELECT result_json FROM trip_tab_requests WHERE client_request_id=?",
+                (client_request_id,),
+            ).fetchone()
+            if existing:
+                stored = json.loads(existing[0])
+                if stored.get("identity") != identity:
+                    raise SaveError("REQUEST_ID_REUSED",
+                                    "같은 요청 ID로 다른 내용을 보냈어요")
+                return stored["result"]
+
+            # Section 3: the same date and destination shows the tab that is
+            # already there. No second row, and no merge decision either way.
+            already = self.find_trip_by_schedule(starts_on, destination)
+            if already is not None:
+                result = {"outcome": "existing", "created": False,
+                          "tab_id": already["tab_id"],
+                          "revision": already["revision"],
+                          "merge_decided": False, "trip": already,
+                          "ledger_pending": False}
+                self.conn.execute(
+                    "INSERT INTO trip_tab_requests(client_request_id, tab_id,"
+                    " expected_revision, result_json, ledger_pending, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (client_request_id, already["tab_id"], already["revision"],
+                     _canonical({"identity": identity, "result": result}),
+                     0, _utc_now()),
+                )
+                self.conn.commit()
+                return result
+
+            event_year = int(starts_on[:4])
+            name = (str(display_key).strip() if display_key is not None
+                    else f"{starts_on[5:7]}{starts_on[8:10]}_{destination}")
+            tab_id = f"trip-{uuid.uuid4().hex[:12]}"
+            created_at = _utc_now()
+            next_order = self.conn.execute(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM trip_tabs"
+            ).fetchone()[0]
+            record = {"tab_id": tab_id, "display_key": name,
+                      "destination": destination, "starts_on": starts_on,
+                      "ends_on": ends_on, "event_year": event_year,
+                      "tab_kind": tab_kind,
+                      # 4.2: a tab with no authority basis is needs_review and is
+                      # never confirmed just because the screen made it.
+                      "authority_status": "needs_review",
+                      "source_sha256": source_sha256, "sort_order": next_order,
+                      "archived": False, "deleted": False, "revision": 1,
+                      "tab_lifecycle": "active"}
+            result = {"outcome": "created", "created": True, "tab_id": tab_id,
+                      "revision": 1, "merge_decided": False,
+                      "trip": record, "ledger_pending": True}
+
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                dup = self.conn.execute(
+                    "SELECT result_json FROM trip_tab_requests WHERE client_request_id=?",
+                    (client_request_id,),
+                ).fetchone()
+                if dup:
+                    raise SaveError("__REPLAY__", "retry")
+                self.conn.execute(
+                    "INSERT INTO trip_tabs(tab_id, display_key, destination,"
+                    " starts_on, ends_on, event_year, tab_kind, authority_status,"
+                    " source_sha256, sort_order, prepared_on, prepared_by_name,"
+                    " archived, deleted, revision)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (tab_id, name, destination, starts_on, ends_on, event_year,
+                     tab_kind, "needs_review", source_sha256, next_order,
+                     _seoul_today(),
+                     SYNTHETIC_OWNER_NAME, 0, 0, 1),
+                )
+                self.conn.execute(
+                    "INSERT INTO trip_tab_history(tab_id, revision, change_kind,"
+                    " prev_json, new_json, event_id, actor, created_at,"
+                    " client_request_id) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (tab_id, 1, "create", _canonical({}), _canonical(record),
+                     "", actor, created_at, client_request_id),
+                )
+                self.conn.execute(
+                    "INSERT INTO trip_tab_requests(client_request_id, tab_id,"
+                    " expected_revision, result_json, ledger_pending, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (client_request_id, tab_id, 0,
+                     _canonical({"identity": identity, "result": result}),
+                     1, created_at),
+                )
+                self._enqueue_ledger(
+                    outbox_id=f"ledger-trip-{client_request_id}",
+                    stream_id=f"trip-{tab_id}",
+                    action="propose",
+                    target=None,
+                    rationale=f"여행 탭 생성 {tab_id} {starts_on} {destination}",
+                    actor=actor,
+                )
+                self.conn.execute("COMMIT")
+            except SaveError as exc:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                if exc.code == "__REPLAY__":
+                    found = self.conn.execute(
+                        "SELECT result_json FROM trip_tab_requests"
+                        " WHERE client_request_id=?",
+                        (client_request_id,),
+                    ).fetchone()
+                    if found:
+                        return json.loads(found[0])["result"]
+                    raise SaveError("REQUEST_ID_REUSED",
+                                    "같은 요청 ID로 다른 내용을 보냈어요")
+                raise
+            except sqlite3.IntegrityError:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise SaveError("EDIT_CONFLICT",
+                                "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+            return result
 
     def save_trip_meta(self, *, tab_id: str, expected_revision: int,
                        client_request_id: str, display_key=None,

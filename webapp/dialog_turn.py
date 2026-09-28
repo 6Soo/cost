@@ -13,10 +13,15 @@ handoff summary. This module holds that policy and nothing else:
 * if both providers fail, the turn waits. Row saves and already confirmed
   rules do not depend on this module.
 
-No real network call exists here. `synthetic_adapter` is marked
-`is_real_call = False` and must not be reported as a Muse or Gemini call.
-The real provider protocols are not modelled here on purpose: only the
-injection seam exists, and no API key is read, stored, or logged anywhere.
+No real network call exists in this module. `synthetic_adapter` is marked
+`is_real_call = False` and must not be reported as a Muse or Gemini call. No
+API key is read, stored, or logged anywhere.
+
+The provider protocols themselves live in `provider_transport.py`, which models
+the request and reply shapes of both providers over an injected transport. This
+module stays provider-neutral on purpose: it decides *whether* an attempt is
+adopted and *whether* one switch is allowed, and it never learns a wire format.
+The key comes from `provider_config`, which is read server-side only.
 """
 
 from __future__ import annotations
@@ -144,6 +149,17 @@ TRANSPORT_REASONS = {
     "connection_refused": "connection_refused",
     "timeout": "timeout",
     "service_unavailable": "service_error",
+    # A reason the transport can raise that is *not* an outage to route around.
+    # Without these, an adapter reporting `not_configured` would be collapsed
+    # into `service_error` and would spend the single fallback on a provider
+    # the owner deliberately left unconfigured.
+    "not_configured": "not_configured",
+    "free_quota_exhausted": "free_quota_exhausted",
+    "budget_exhausted": "budget_exhausted",
+    "rate_limited": "rate_limited",
+    "auth_failed": "auth_failed",
+    "service_error": "service_error",
+    "provider_refused": "provider_refused",
 }
 
 
@@ -333,8 +349,33 @@ def build_context(*, conversation_id, turn_id, row, rule=None, answers=None,
     return {key: payload[key] for key in ALLOWED_CONTEXT_FIELDS}
 
 
-def run_turn(*, turn_id, context, muse=None, gemini=None):
-    """Run one turn. At most one provider switch, at most two attempts."""
+def send_attempt(adapter, request, max_retries=None):
+    """One attempt, with an optional bounded retry for a transient limit.
+
+    An adapter that provides its own bounded send is used as-is. A plain
+    synthetic adapter is sent once: the retry budget belongs to the real
+    transport layer, and adding a sleep loop to the test stand-in would only
+    make the suite slow without testing anything new.
+    """
+    retry = getattr(adapter, "send_with_bounded_retry", None)
+    if callable(retry):
+        return retry(request, max_attempts=max_retries)
+    return adapter.send(request)
+
+
+def run_turn(*, turn_id, context, muse=None, gemini=None, max_retries=None,
+             expire_attempts=None):
+    """Run one turn. At most one provider switch, at most two attempts.
+
+    `max_retries` bounds a retry *inside* one attempt for a transient limit. It
+    never produces a second `attempt_id`, so a retry cannot be mistaken for a
+    second provider attempt in the turn record.
+
+    `expire_attempts` is a callable given the provider name before its send. It
+    lets the caller mark an attempt from an earlier, still-outstanding request
+    as expired before one new attempt is opened, which is what the contract asks
+    for when the PC connection drops mid-question.
+    """
     attempts = []
     adopted = None
     switch_count = 0
@@ -350,8 +391,15 @@ def run_turn(*, turn_id, context, muse=None, gemini=None):
         request = dict(context)
         request["attempt_id"] = attempt_id
         request["slot"] = slot
+        if expire_attempts is not None:
+            try:
+                expired = expire_attempts(adapter.name)
+            except Exception:  # noqa: BLE001 - expiry must not block a send
+                expired = []
+            if expired:
+                request["expired_attempt_ids"] = list(expired)
         try:
-            result = adapter.send(request)
+            result = send_attempt(adapter, request, max_retries)
         except Exception as exc:  # noqa: BLE001 - classified below
             reason_code, safe_label = classify_send_error(exc)
             failed = ProviderResult(
@@ -396,7 +444,13 @@ def run_turn(*, turn_id, context, muse=None, gemini=None):
             reason_code=first[2].reason_code, is_real_call=False, switch_count=0)
     else:
         reason = first[2].reason_code if first else "not_configured"
-        if reason in EXPLICIT_FAILURES:
+        # A waiting reason leaves the turn parked. DETAILED_CONTRACT 7: a spent
+        # free quota, an exhausted budget, or a provider that was never
+        # configured must not spend the one allowed switch, because the
+        # fallback cannot answer either and a second attempt would only turn a
+        # wait into a wrong answer. The row, the rule draft, and the recorded
+        # answers are all untouched, and the next turn starts over.
+        if reason in EXPLICIT_FAILURES and reason not in WAITING_FAILURES:
             second = attempt(gemini, "fallback")
             if second is not None:
                 # The switch happened and is recorded for the audit even when

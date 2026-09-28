@@ -58,8 +58,13 @@ class ViewStateTests(unittest.TestCase):
         if self._pw is None:
             self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch()
-        return self._browser.new_context(
+        page = self._browser.new_context(
             viewport={"width": width, "height": height}).new_page()
+        # APP_SPEC 4.1 raises a native leave-confirm when an edit is unsaved.
+        # Playwright does not answer it, so the harness does.
+        page.on("dialog", lambda d: d.accept()
+                if d.type == "beforeunload" else None)
+        return page
 
     def _url(self, query=""):
         return f"http://127.0.0.1:{self.port}/board{query}"

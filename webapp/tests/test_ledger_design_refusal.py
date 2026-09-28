@@ -64,7 +64,13 @@ class RefusalAndShellTests(unittest.TestCase):
         context = self._browser.new_context(
             viewport={"width": width, "height": height},
             java_script_enabled=script)
-        return context.new_page()
+        page = context.new_page()
+        # APP_SPEC 4.1 raises a native leave-confirm when an edit is
+        # unsaved. Playwright does not answer that one, so the factory
+        # does. Other dialogs are left to a test's own handler.
+        page.on("dialog", lambda d: d.accept()
+                if d.type == "beforeunload" else None)
+        return page
 
     def _form_post(self, path, fields):
         body = urllib.parse.urlencode(fields).encode("utf-8")

@@ -293,6 +293,179 @@ class IncomeSplitTests(unittest.TestCase):
         finally:
             store.close()
 
+    def test_13_1_a_split_row_shows_its_own_amount_not_the_source_total(self):
+        """13.1: 화면 행의 금액은 해당 배분액이고, 원금은 따로 유지된다."""
+        store = make_store()
+        try:
+            created = self.make_source(store, request_id="s13-1-src")
+            sid = created["row_id"]
+            store.save_allocations(
+                source_row_id=sid, expected_source_revision=1,
+                allocations=[
+                    {"customer_name": "U1", "display_tab_id": "trip-demo-a",
+                     "income_kind": "deposit", "amount_krw": 300000},
+                    {"customer_name": "U2", "display_tab_id": "trip-demo-b",
+                     "income_kind": "balance", "amount_krw": 200000},
+                ],
+                client_request_id="s13-1-plan")
+            live = {a["allocation_id"]: a
+                    for a in store.active_allocations(sid)}
+            self.assertEqual(len(live), 2)
+            for allocation in live.values():
+                # the row shows the allocation amount, never the source total
+                self.assertIn(allocation["amount_krw"], (300000, 200000))
+                self.assertNotEqual(allocation["amount_krw"], 500000)
+            # the source total is untouched by a split
+            self.assertEqual(store.get_row(sid)["amount_krw"], 500000)
+            # and the two rows add back up to it
+            self.assertEqual(sum(a["amount_krw"] for a in live.values()),
+                             500000)
+        finally:
+            store.close()
+
+    def test_13_2_an_allocation_keeps_its_id_across_a_move(self):
+        """13.2: 정렬·여행 이동·탭 삭제 후 이동으로 새 ID를 만들지 않는다."""
+        store = make_store()
+        try:
+            created = self.make_source(store, request_id="s13-2-src")
+            sid = created["row_id"]
+            store.save_allocations(
+                source_row_id=sid, expected_source_revision=1,
+                allocations=[
+                    {"customer_name": "U1", "display_tab_id": "trip-demo-a",
+                     "income_kind": "deposit", "amount_krw": 300000},
+                    {"customer_name": "U2", "display_tab_id": "trip-demo-b",
+                     "income_kind": "balance", "amount_krw": 200000},
+                ],
+                client_request_id="s13-2-plan")
+            l1 = next(a for a in store.active_allocations(sid)
+                      if a["display_tab_id"] == "trip-demo-a")
+            l2_id = next(a["allocation_id"] for a in store.active_allocations(sid)
+                         if a["display_tab_id"] == "trip-demo-b")
+            original_id = l1["allocation_id"]
+
+            store.update_allocation(
+                allocation_id=original_id, expected_source_revision=2,
+                client_request_id="s13-2-move",
+                changes={"display_tab_id": "trip-demo-b"})
+
+            moved = store.get_allocation(original_id)
+            self.assertEqual(moved["allocation_id"], original_id)
+            self.assertEqual(moved["display_tab_id"], "trip-demo-b")
+            # the sibling row is a different row and is not disturbed
+            sibling = store.get_allocation(l2_id)
+            self.assertEqual(sibling["display_tab_id"], "trip-demo-b")
+            self.assertEqual(sibling["customer_name"], "U2")
+            self.assertEqual(sibling["amount_krw"], 200000)
+        finally:
+            store.close()
+
+    def test_13_2_a_stale_plan_cannot_overwrite_a_newer_allocation(self):
+        """13.2: 낡은 전체 배분안이 새 결과를 덮어쓰지 못한다."""
+        store = make_store()
+        try:
+            created = self.make_source(store, request_id="s13-2b-src")
+            sid = created["row_id"]
+            store.save_allocations(
+                source_row_id=sid, expected_source_revision=1,
+                allocations=[
+                    {"customer_name": "U1", "display_tab_id": "trip-demo-a",
+                     "income_kind": "deposit", "amount_krw": 300000},
+                ],
+                client_request_id="s13-2b-plan")
+            l1 = store.active_allocations(sid)[0]
+            # one allocation moves, which advances the source version
+            store.update_allocation(
+                allocation_id=l1["allocation_id"], expected_source_revision=2,
+                client_request_id="s13-2b-move",
+                changes={"display_tab_id": "trip-demo-b"})
+            # an editor holding the old whole-plan view now saves it
+            with self.assertRaises(SaveError) as ctx:
+                store.save_allocations(
+                    source_row_id=sid, expected_source_revision=2,
+                    allocations=[{"customer_name": "U9",
+                                  "display_tab_id": "trip-demo-a",
+                                  "income_kind": "deposit",
+                                  "amount_krw": 500000}],
+                    client_request_id="s13-2b-stale")
+            self.assertEqual(ctx.exception.code, "EDIT_CONFLICT")
+            # the newer destination survived
+            self.assertEqual(store.get_allocation(l1["allocation_id"])
+                             ["display_tab_id"], "trip-demo-b")
+            # and a stale single-row edit is refused on the same version bound
+            with self.assertRaises(SaveError) as ctx2:
+                store.update_allocation(
+                    allocation_id=l1["allocation_id"],
+                    expected_source_revision=2,
+                    client_request_id="s13-2b-stale-edit",
+                    changes={"display_tab_id": "trip-demo-a"})
+            self.assertEqual(ctx2.exception.code, "EDIT_CONFLICT")
+        finally:
+            store.close()
+
+    def test_13_3_an_unassigned_allocation_and_a_remainder_are_different(self):
+        """13.3: 미배정 배분은 여행 없는 활성 배분, 미배분 잔액은 원금에서
+        활성 배분 합계를 뺀 값이다. 둘은 같은 분류대기에 보일 수 있지만
+        업무 의미가 다르다."""
+        store = make_store()
+        try:
+            created = self.make_source(store, request_id="s13-3-src")
+            sid = created["row_id"]
+
+            def revision():
+                return store.get_row(sid)["revision"]
+
+            store.save_allocations(
+                source_row_id=sid, expected_source_revision=1,
+                allocations=[
+                    {"customer_name": "U2", "display_tab_id": "trip-demo-b",
+                     "income_kind": "balance", "amount_krw": 200000},
+                    # decided amount, customer and kind, but no trip
+                    {"customer_name": "U3", "display_tab_id": None,
+                     "income_kind": "deposit", "amount_krw": 100000},
+                ],
+                client_request_id="s13-3-plan")
+
+            actives = store.active_allocations(sid)
+            unassigned = [a for a in actives if not a.get("display_tab_id")]
+            remainder = store.split_remainder(sid)
+
+            # the unassigned row is a real allocation and keeps its own identity
+            self.assertEqual(len(unassigned), 1)
+            self.assertEqual(unassigned[0]["customer_name"], "U3")
+            self.assertEqual(unassigned[0]["income_kind"], "deposit")
+            self.assertTrue(unassigned[0]["allocation_id"])
+
+            # the remainder is 500000 - 200000 - 100000, and the unassigned
+            # amount is not counted a second time
+            self.assertEqual(remainder, 200000)
+            self.assertEqual(sum(a["amount_krw"] for a in actives)
+                             + remainder, 500000)
+
+            # a remainder is displayed as a derived row, not as a new income
+            listed = store.list_tab_rows(None)
+            shown = [r for r in listed if r.get("is_remainder")]
+            self.assertEqual(len(shown), 1)
+            self.assertEqual(shown[0]["amount_krw"], 200000)
+            self.assertEqual(shown[0]["source_row_id"], sid)
+
+            # and when everything is allocated the remainder row disappears
+            store.save_allocations(
+                source_row_id=sid, expected_source_revision=revision(),
+                allocations=[
+                    {"customer_name": "U2", "display_tab_id": "trip-demo-b",
+                     "income_kind": "balance", "amount_krw": 200000},
+                    {"customer_name": "U3", "display_tab_id": None,
+                     "income_kind": "deposit", "amount_krw": 300000},
+                ],
+                client_request_id="s13-3-full")
+            self.assertEqual(store.split_remainder(sid), 0)
+            self.assertEqual(
+                [r for r in store.list_tab_rows(None) if r.get("is_remainder")],
+                [])
+        finally:
+            store.close()
+
     def test_partial_split_remainder_and_over_rejected(self):
         store = make_store()
         try:
@@ -613,6 +786,77 @@ class AllocationEditTests(unittest.TestCase):
                 )
             self.assertEqual(ctx.exception.code, "INVALID_VALUE")
             self.assertIn("비활성", str(ctx.exception))
+        finally:
+            store.close()
+
+    def test_the_revert_scope_is_one_row_and_there_is_no_whole_plan_restore(self):
+        """REVIEW 수정 D: 개별 행 되돌리기는 허용하되 전체 배분안 복원 기능은 없다.
+
+        The contract keeps two things apart: an operator may undo one allocation
+        row they just moved, and there is no feature that rolls a whole
+        allocation plan back. The second is a *capability that must not exist*,
+        so it is asserted by name rather than by behaviour.
+        """
+        store = make_store()
+        try:
+            created = store.create_direct_income(
+                fields={
+                    "display_tab_id": None, "occurred_on": "2026-04-01",
+                    "amount_krw": 500000, "income_kind": "deposit",
+                    "customer_id": None, "customer_name": "P1", "nickname": "",
+                    "memo": "",
+                },
+                client_request_id="rv-scope-src",
+            )
+            store.save_allocations(
+                source_row_id=created["row_id"], expected_source_revision=1,
+                allocations=[
+                    {"customer_name": "U1", "display_tab_id": "trip-demo-a",
+                     "income_kind": "deposit", "amount_krw": 300000},
+                    {"customer_name": "U2", "display_tab_id": "trip-demo-b",
+                     "income_kind": "balance", "amount_krw": 200000},
+                ],
+                client_request_id="rv-scope-plan",
+            )
+            live = {a["allocation_id"]: a
+                    for a in store.active_allocations(created["row_id"])}
+            l1 = next(a for a in live.values()
+                      if a["display_tab_id"] == "trip-demo-a")
+            l2 = next(a for a in live.values()
+                      if a["display_tab_id"] == "trip-demo-b")
+            l2_before = dict(l2)
+
+            # 1. no whole-plan restore exists under any plausible name
+            for name in dir(store):
+                lowered = name.lower()
+                if "plan" in lowered and ("revert" in lowered
+                                          or "restore" in lowered
+                                          or "rollback" in lowered):
+                    self.fail(f"a whole-plan restore appeared: {name}")
+            # the only revert entry point is the per-row one
+            self.assertTrue(hasattr(store, "revert_row"))
+
+            # 2. one row can be moved and undone, and the sibling is untouched
+            edited = store.update_allocation(
+                allocation_id=l1["allocation_id"],
+                expected_source_revision=2,
+                client_request_id="rv-scope-edit",
+                changes={"display_tab_id": "trip-demo-b"},
+            )
+            self.assertEqual(edited["outcome"], "saved")
+            reverted = store.revert_row(
+                row_id=l1["allocation_id"],
+                expected_revision=edited["revision"],
+                client_request_id="rv-scope-revert",
+            )
+            self.assertEqual(reverted["outcome"], "reverted")
+            self.assertEqual(store.get_allocation(l1["allocation_id"])["display_tab_id"],
+                             "trip-demo-a")
+
+            # 3. the sibling kept its own values throughout
+            after = store.get_allocation(l2["allocation_id"])
+            for field in ("customer_name", "amount_krw", "display_tab_id"):
+                self.assertEqual(after[field], l2_before[field], field)
         finally:
             store.close()
 

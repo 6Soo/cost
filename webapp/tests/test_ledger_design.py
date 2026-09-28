@@ -69,7 +69,13 @@ class DesignScreenTests(unittest.TestCase):
         self._browser = self._playwright.chromium.launch()
         context = self._browser.new_context(
             viewport={"width": width, "height": height})
-        return context.new_page()
+        page = context.new_page()
+        # APP_SPEC 4.1 raises a native leave-confirm when an edit is
+        # unsaved. Playwright does not answer that one, so the factory
+        # does. Other dialogs are left to a test's own handler.
+        page.on("dialog", lambda d: d.accept()
+                if d.type == "beforeunload" else None)
+        return page
 
     def _board(self, page, query=""):
         page.goto(f"http://127.0.0.1:{self.port}/board{query}")
@@ -168,6 +174,87 @@ class DesignScreenTests(unittest.TestCase):
         page.click("#nav-mask")
         self.assertFalse(page.evaluate("document.getElementById('nav').className.includes('open')"))
 
+    def test_the_panel_footer_stays_reachable_and_two_saves_work_at_390(self):
+        # The save form is a flex child of .panel. If the form does not pass the
+        # column on, .p-bd keeps growing with its content instead of scrolling,
+        # and the first save adds a .f-msg line that pushes the 저장/취소 footer
+        # past the panel bottom. The second save then cannot be clicked at all.
+        # Assert the flow, not a fixed geometry: the footer starts on screen,
+        # the first save happens by real click, the body scrolls if it has to,
+        # the footer is still on screen, and the second save lands.
+        page = self._page(390, 844)
+        # at 390 the table is hidden and the row lives in the vertical list
+        self._board(page, "?tab=trip-demo-a")
+        page.click(".lst .li[data-id='expense-demo-c1']")
+        page.wait_for_selector("#panel")
+        self.assertEqual(overflow(page), 0)
+
+        inner_height = page.evaluate("window.innerHeight")
+
+        def footer_box():
+            return page.eval_on_selector(
+                "#panel button[type='submit']",
+                "e=>{const r=e.getBoundingClientRect();"
+                "return {top:r.top, bottom:r.bottom};}")
+
+        def body_scroll():
+            return page.eval_on_selector(
+                "#panel .p-bd",
+                "e=>({sh:e.scrollHeight, ch:e.clientHeight,"
+                "oy:getComputedStyle(e).overflowY})")
+
+        # 1. the footer starts inside the viewport
+        for selector in ("#panel button[type='submit']", "#p-cancel"):
+            box = page.eval_on_selector(
+                selector, "e=>{const r=e.getBoundingClientRect();"
+                          "return {top:r.top, bottom:r.bottom};}")
+            self.assertLessEqual(box["bottom"], inner_height, selector)
+            self.assertGreaterEqual(box["top"], 0, selector)
+
+        # 2. the first save by real click
+        before = self.store.get_row("expense-demo-c1")["revision"]
+        page.fill("#f-description", "390 첫 번째 저장")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg')"
+            "&&document.querySelector('.f-msg').textContent"
+            ".indexOf('revision')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
+        self.assertEqual(
+            self.store.get_row("expense-demo-c1")["revision"], before + 1)
+        self.assertEqual(overflow(page), 0)
+
+        # 3. after the save the body scrolls if it has to, and does scroll
+        scroll = body_scroll()
+        self.assertEqual(scroll["oy"], "auto")
+        self.assertGreaterEqual(scroll["sh"], scroll["ch"])
+        if scroll["sh"] > scroll["ch"]:
+            moved = page.eval_on_selector(
+                "#panel .p-bd",
+                "e=>{e.scrollTop=e.scrollHeight;return e.scrollTop;}")
+            self.assertGreater(moved, 0)
+
+        # 4. the footer is still on screen after the message grew the body
+        box = footer_box()
+        self.assertLessEqual(box["bottom"], inner_height)
+        self.assertGreaterEqual(box["top"], 0)
+
+        # 5. the second save by real click, and it lands
+        page.fill("#f-description", "390 두 번째 저장")
+        page.click("#panel button[type='submit']")
+        page.wait_for_function(
+            "document.querySelector('.f-msg')"
+            "&&document.querySelector('.f-msg').textContent"
+            ".indexOf('revision')>=0")
+        self.assertIn("저장했습니다", page.inner_text(".f-msg"))
+        stored = self.store.get_row("expense-demo-c1")
+        self.assertEqual(stored["revision"], before + 2)
+        self.assertEqual(stored["description"].replace(" ", ""),
+                         "390두번째저장")
+        self.assertLessEqual(footer_box()["bottom"],
+                             page.evaluate("window.innerHeight"))
+        self.assertEqual(overflow(page), 0)
+
     # ------------------------------------------------------------- edit panel
     def _open_panel(self, page, row_id, width=1440):
         self._board(page, "?tab=trip-demo-a")
@@ -212,6 +299,119 @@ class DesignScreenTests(unittest.TestCase):
         after = self.store.get_row("expense-demo-c4")
         self.assertEqual(after["description"], before["description"])
         self.assertEqual(after["revision"], before["revision"])
+
+    def test_enter_alone_does_not_save_and_ctrl_enter_does(self):
+        # DETAILED_CONTRACT 12.3: Enter must not quietly save a whole row, and
+        # the shortcut that does is printed on the button.
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        before = self.store.get_row("expense-demo-c1")
+        page.fill("#f-description", "엔터로는 저장되면 안 됨")
+        page.focus("#f-description")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+        mid = self.store.get_row("expense-demo-c1")
+        self.assertEqual(mid["description"], before["description"])
+        self.assertEqual(mid["revision"], before["revision"])
+        # the visible hint names the shortcut
+        self.assertIn("Ctrl", page.inner_text("#panel .p-ft"))
+        # the explicit shortcut saves. Wait for the finished reply rather than
+        # the "saving" placeholder, then let the store settle before reading it.
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function(
+            "() => document.querySelector('.f-msg')"
+            ".textContent.indexOf('저장했습니다')>=0")
+        after = before
+        for _ in range(100):
+            after = self.store.get_row("expense-demo-c1")
+            if after["revision"] == before["revision"] + 1:
+                break
+            page.wait_for_timeout(50)
+        self.assertEqual(after["description"], "엔터로는 저장되면 안 됨")
+        self.assertEqual(after["revision"], before["revision"] + 1)
+
+    def test_enter_in_a_note_keeps_its_newline(self):
+        # A note needs line breaks, so Enter there must not be swallowed and
+        # must not turn into a save.
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        before = self.store.get_row("expense-demo-c1")
+        page.click("#f-operator_note")
+        page.keyboard.type("첫 줄")
+        page.keyboard.press("Enter")
+        page.keyboard.type("둘째 줄")
+        value = page.input_value("#f-operator_note")
+        self.assertIn("\n", value)
+        self.assertTrue(value.startswith("첫 줄"))
+        # a newline in a note is not a save
+        page.wait_for_timeout(300)
+        self.assertEqual(self.store.get_row("expense-demo-c1")["revision"],
+                         before["revision"])
+
+    def test_escape_asks_before_dropping_an_unsaved_edit(self):
+        # Escape cancels the current edit and never undoes a saved change.
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        before = self.store.get_row("expense-demo-c1")
+        page.fill("#f-description", "버려질 값")
+        # One handler for both presses: the first refuses, the second accepts.
+        answers = [False, True]
+        asked = []
+        page.on("dialog", lambda d: (asked.append(d.message),
+                                     d.accept() if answers.pop(0) else d.dismiss()))
+        # refuse the confirmation: the panel stays and the draft stays
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(400)
+        self.assertEqual(len(asked), 1)
+        self.assertIsNotNone(page.query_selector("#panel"))
+        self.assertEqual(page.input_value("#f-description"), "버려질 값")
+        # accept it: the panel closes and nothing was written
+        page.keyboard.press("Escape")
+        page.wait_for_function("() => !document.querySelector('#panel')")
+        page.wait_for_load_state()
+        self.assertIsNone(page.query_selector("#panel"))
+        self.assertEqual(len(asked), 2)
+        after = self.store.get_row("expense-demo-c1")
+        self.assertEqual(after["description"], before["description"])
+        self.assertEqual(after["revision"], before["revision"])
+
+    def test_escape_closes_a_clean_panel_without_asking(self):
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        asked = []
+        page.on("dialog", lambda d: (asked.append(d.message), d.dismiss()))
+        page.keyboard.press("Escape")
+        page.wait_for_function("() => !document.querySelector('#panel')")
+        page.wait_for_load_state()
+        self.assertIsNone(page.query_selector("#panel"))
+        # nothing was edited, so there is nothing to confirm
+        self.assertEqual(asked, [])
+
+    def test_a_refused_field_is_named_next_to_the_input_and_focused(self):
+        # The error is not colour alone and the first error takes focus.
+        page = self._page(1440)
+        self._open_panel(page, "expense-demo-c1")
+        before = self.store.get_row("expense-demo-c1")
+        page.evaluate("""() => {
+            const f = document.querySelector("form[data-js-save]");
+            const bad = document.createElement("input");
+            bad.name = "amount_krw"; bad.type = "text"; bad.id = "probe-amount";
+            f.appendChild(bad);
+        }""")
+        page.fill("#probe-amount", "999999")
+        page.keyboard.press("Control+Enter")
+        page.wait_for_function(
+            "document.querySelector('.f-msg').className.indexOf('err')>=0")
+        self.assertEqual(page.get_attribute("#probe-amount", "aria-invalid"),
+                         "true")
+        # the field carries a text flag, not only a colour
+        self.assertIsNotNone(page.query_selector("#probe-amount ~ .f-flag, "
+                                                 ".f-flag"))
+        self.assertEqual(page.evaluate(
+            "() => document.activeElement.id"), "probe-amount")
+        # the fixed amount was not changed
+        self.assertEqual(self.store.get_row("expense-demo-c1")["amount_krw"],
+                         before["amount_krw"])
 
     def test_a_stale_revision_is_reported_and_the_typed_value_is_kept(self):
         page = self._page(1440)

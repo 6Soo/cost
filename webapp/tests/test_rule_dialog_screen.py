@@ -73,6 +73,10 @@ class RuleDialogScreenTests(unittest.TestCase):
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport={"width": width, "height": height})
         page = context.new_page()
+        # APP_SPEC 4.1 raises a native leave-confirm when an edit is unsaved.
+        # Playwright does not answer it, so the harness does.
+        page.on("dialog", lambda d: d.accept()
+                if d.type == "beforeunload" else None)
         return browser, page
 
     def _save_row(self, page, row_id, revision, changes, change_mode, request_id):

@@ -5,6 +5,8 @@ A income 1000000, expense 180000, profit 820000; U1 800000, U2 200000;
 unclassified 30000 excluded from A expense. All synthetic.
 """
 
+import json
+import re
 import unittest
 
 from webapp.ledger_board import (
@@ -37,44 +39,6 @@ class SyntheticTotalsTests(unittest.TestCase):
 
     def test_cancel_row_keeps_sign(self):
         self.assertEqual(trip_expense_total("trip-demo-a"), 100000 - 20000 + 100000)
-
-
-class BoardPageTests(unittest.TestCase):
-    def test_board_shows_synthetic_mark_and_totals(self):
-        page = board_page("trip-demo-a")
-        self.assertIn("합성 자료", page)
-        self.assertIn("1,000,000원", page)
-        self.assertIn("180,000원", page)
-        self.assertIn("820,000원", page)
-
-    def test_board_has_no_candidate_badge(self):
-        page = board_page("trip-demo-a")
-        self.assertNotIn("후보", page)
-        self.assertNotIn("badge", page)
-
-    def test_income_above_expense(self):
-        page = board_page("trip-demo-a")
-        self.assertLess(page.index("수입 내용"), page.index("지출 내용"))
-
-    def test_detail_shows_basis(self):
-        page = detail_page("expense-demo-c1")
-        self.assertIn("합성 자료", page)
-        self.assertIn("원천", page)
-        self.assertIn("분류 근거", page)
-
-    def test_edit_form_save_disabled(self):
-        page = detail_page("expense-demo-c1", edit=True)
-        self.assertIn("disabled", page)
-        self.assertNotIn("저장됐습니다", page)
-
-    def test_unknown_row(self):
-        page = detail_page("no-such-row")
-        self.assertIn("행이 없어요", page)
-
-    def test_mobile_layout_present(self):
-        page = board_page("trip-demo-a")
-        self.assertIn("@media (max-width:760px)", page)
-        self.assertIn("scrollx", page)
 
 
 class BoardApiTests(unittest.TestCase):
@@ -585,6 +549,105 @@ class BoardApiTests(unittest.TestCase):
         })
         self.assertEqual(status, 422)
         self.assertEqual(result["code"], "INVALID_VALUE")
+
+    def _get_html(self, path):
+        """The body a browser actually receives, from the real route.
+
+        These are product behaviours, so they are asserted on the served
+        response. The board tests used to call `board_page()`, which the router
+        stopped calling, so they could not fail for any reason the product would
+        ever see.
+        """
+        import urllib.error
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self.port}{path}", timeout=10) as resp:
+                self.assertEqual(resp.status, 200)
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            self.fail(f"GET {path} -> {exc.code}: {exc.read()[:200]!r}")
+
+    def test_board_shows_synthetic_mark_and_totals(self):
+        page = self._get_html("/board?tab=trip-demo-a")
+        self.assertIn("합성 자료", page)
+        self.assertIn("1,000,000원", page)
+        self.assertIn("180,000원", page)
+        self.assertIn("820,000원", page)
+
+    def test_the_routed_board_shows_no_classification_state_column(self):
+        """APP_SPEC 4.3, on the page the server actually serves.
+
+        4.3 forbids a 분류 상태 열, a dot, a badge and row colouring in the 기본 표,
+        and requires 후보 and 자동분류 rows to look like ordinary rows.
+        """
+        page = self._get_html("/board?tab=trip-demo-a")
+        for word in ("후보", "미분류", "auto_classified", "classification_state",
+                     "검토필요"):
+            self.assertNotIn(word, page, word)
+        self.assertNotIn("badge", page)
+        for classes in re.findall(r"<tr[^>]*class='([^']*)'", page):
+            self.assertNotIn("candidate", classes)
+            self.assertNotIn("unclassified", classes)
+        # an auto-classified row and a cancellation row both still render, as
+        # ordinary rows carrying no state marker
+        self.assertIn("취소", page)
+        self.assertNotIn(">대기<", page)
+
+    def test_income_above_expense_on_the_routed_page(self):
+        # 4.3 requires the 상단 수입 / 하단 지출 split. The served page marks the
+        # two areas with `tbody class='grp'` group headers, so the order is
+        # asserted on those rather than on heading text the router dropped.
+        page = self._get_html("/board?tab=trip-demo-a")
+        groups = re.findall(r"colgroup'[^>]*>([^<]*)<", page)
+        self.assertEqual(groups, ["수입", "지출"])
+        self.assertEqual(re.findall(r"<tbody[^>]*>", page)[0],
+                         "<tbody class='grp'>")
+        self.assertLess(page.index(">수입<"), page.index(">지출<"))
+
+    def test_mobile_layout_present_on_the_routed_page(self):
+        # The narrow-screen rules live in the served stylesheet. The old 760px
+        # breakpoint and `scrollx` belonged to the unrouted function.
+        page = self._get_html("/board?tab=trip-demo-a")
+        self.assertIn("@media (max-width:759px)", page)
+        self.assertIn(".lst{display:block", page)
+        # the trip list moves behind a button, per 17.1
+        self.assertIn("#btn-menu", page)
+
+    def test_detail_shows_basis(self):
+        page = self._get_html("/row?id=expense-demo-c1")
+        self.assertIn("합성 자료", page)
+        self.assertIn("원천", page)
+        self.assertIn("분류 근거", page)
+
+    def test_edit_form_save_disabled(self):
+        page = self._get_html("/row?id=expense-demo-c1&edit=1")
+        self.assertIn("disabled", page)
+        self.assertNotIn("저장됐습니다", page)
+
+    def test_unknown_row_returns_404_before_rendering(self):
+        """The route guards the row lookup, so no page is ever rendered.
+
+        `detail_page` still carries an "행이 없어요" fallback, but `/row` calls
+        `find_row` first and returns `RESOURCE_NOT_FOUND` as JSON, so the
+        fallback is unreachable for this product. Asserting it described
+        behaviour that cannot occur; the 404 is what ships.
+        """
+        import urllib.error
+        import urllib.request
+
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}/row?id=no-such-row", timeout=10)
+        self.assertEqual(caught.exception.code, 404)
+        payload = json.loads(caught.exception.read().decode("utf-8"))
+        self.assertEqual(payload["code"], "RESOURCE_NOT_FOUND")
+        self.assertIn("없는 행이에요", payload["message"])
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 if __name__ == "__main__":

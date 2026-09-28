@@ -109,6 +109,127 @@ class ExportBasicsTests(unittest.TestCase):
         self.assertNotEqual(first, second)
         self.assertTrue(len(second) <= 31)
 
+    def test_guard_text_catches_a_formula_behind_leading_whitespace(self):
+        # Excel trims leading whitespace on entry, so a tab or a space in front
+        # of "=" would still arrive as a formula. The guard has to look past it.
+        for prefix in ("", " ", "\t", "  \t ", "\r\n"):
+            with self.subTest(prefix=repr(prefix)):
+                guarded = guard_text(f"{prefix}=1+1")
+                # The point is that the *first* character Excel sees is an
+                # apostrophe, whatever whitespace was in front of the "=".
+                self.assertTrue(guarded.startswith("'"),
+                                f"{guarded!r} is not neutralised")
+                # and the whitespace that Excel would have trimmed is gone, so
+                # there is nothing in front of the apostrophe to re-appear
+                self.assertEqual(guarded, "'=1+1")
+        # the same for the other formula starters
+        for starter in ("+", "-", "@"):
+            self.assertTrue(guard_text(f"\t{starter}cmd").startswith("'"))
+        # a leading space in front of ordinary text is left alone
+        self.assertEqual(guard_text(" 일반 "), " 일반 ")
+
+    def test_a_free_typed_trip_title_cannot_become_a_sheet_name_formula(self):
+        # The trip title is free operator text and it is used verbatim as the
+        # sheet name, so it is the one entry point the cell guard does not cover.
+        store = make_store()
+        try:
+            trip = store.get_trip("trip-demo-a")
+            store.save_trip_meta(
+                tab_id="trip-demo-a", expected_revision=trip["revision"],
+                client_request_id="x-title-formula", display_key="=1+1")
+            self.assertEqual(store.get_trip("trip-demo-a")["display_key"], "=1+1")
+            wb, manifest = build_workbook(store, ["trip-demo-a"])
+            name = wb.sheetnames[0]
+            self.assertTrue(name.startswith("'"),
+                            f"sheet name {name!r} was not neutralised")
+            self.assertFalse(name.startswith("="))
+            # and the only formulas in the sheet are the three intended totals
+            formulas = [c.value for row in wb[name].iter_rows() for c in row
+                        if c.data_type == "f"]
+            self.assertEqual(len(formulas), 3)
+            self.assertTrue(all(str(f).startswith("=SUM") or str(f).startswith("=C")
+                                for f in formulas), formulas)
+        finally:
+            store.close()
+
+    def test_an_owner_name_cannot_become_a_formula_cell(self):
+        # The owner name printed on the sheet is free text too.
+        store = make_store()
+        try:
+            trip = store.get_trip("trip-demo-a")
+            store.save_trip_meta(
+                tab_id="trip-demo-a", expected_revision=trip["revision"],
+                client_request_id="x-name-formula",
+                prepared_by_name="=HYPERLINK(\"http://x\")")
+            wb, _ = build_workbook(store, ["trip-demo-a"])
+            ws = wb[wb.sheetnames[0]]
+            found = [c.value for row in ws.iter_rows() for c in row
+                     if isinstance(c.value, str) and "HYPERLINK" in c.value]
+            self.assertTrue(found)
+            for value in found:
+                self.assertTrue(value.startswith("'"), value)
+            self.assertEqual([c.value for row in ws.iter_rows() for c in row
+                              if c.data_type == "f" and "HYPERLINK" in str(c.value)],
+                             [])
+        finally:
+            store.close()
+
+    def test_the_output_carries_the_template_sheet_metadata(self):
+        """REVIEW 10절이 지적한 비식별 양식 메타데이터.
+
+        All six merges, the eight column widths, the landscape orientation and
+        the margins have to survive into the generated file, because the sheet
+        is printed as well as read. The company name and the operator name stay
+        synthetic: the real header values are a separate, external input.
+        """
+        from openpyxl import load_workbook
+
+        store = make_store()
+        try:
+            wb, manifest = build_workbook(store, ["trip-demo-a"])
+            name = wb.sheetnames[0]
+            ws = wb[name]
+
+            # the six merges the original template uses
+            merged = {str(r) for r in ws.merged_cells.ranges}
+            for expected in ("C2:H2", "B6:H6", "C31:H31",
+                             "B33:H33", "C85:H85", "C87:H87"):
+                self.assertIn(expected, merged)
+
+            # the eight column widths
+            expected_widths = {"A": 2.63, "B": 17.5, "C": 14.63, "D": 16.38,
+                               "E": 11.88, "F": 12.38, "G": 11.25, "H": 14.88}
+            for column, width in expected_widths.items():
+                self.assertAlmostEqual(
+                    ws.column_dimensions[column].width, width, places=2,
+                    msg=f"column {column}")
+
+            # print setup
+            self.assertEqual(ws.page_setup.orientation, "landscape")
+            margins = ws.page_margins
+            self.assertAlmostEqual(margins.left, 0.7, places=3)
+            self.assertAlmostEqual(margins.right, 0.7, places=3)
+            self.assertAlmostEqual(margins.top, 0.75, places=3)
+            self.assertAlmostEqual(margins.bottom, 0.75, places=3)
+            self.assertEqual(margins.header, 0)
+            self.assertEqual(margins.footer, 0)
+
+            # and it must survive a write/read round trip, not just the object
+            directory = tempfile.mkdtemp()
+            target, _ = publish_workbook(wb, manifest, directory,
+                                          "fmt-round")
+            again = load_workbook(target)
+            reloaded = again[name]
+            self.assertEqual(reloaded.page_setup.orientation, "landscape")
+            self.assertAlmostEqual(reloaded.page_margins.left, 0.7, places=3)
+            self.assertEqual(reloaded.page_margins.footer, 0)
+            self.assertAlmostEqual(reloaded.column_dimensions["B"].width, 17.5,
+                                   places=2)
+            self.assertIn("C2:H2",
+                          {str(r) for r in reloaded.merged_cells.ranges})
+        finally:
+            store.close()
+
     def test_formula_guard(self):
         self.assertEqual(guard_text("=1+1"), "'=1+1")
         self.assertEqual(guard_text("+82"), "'+82")

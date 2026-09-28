@@ -77,7 +77,16 @@ def _utc_now() -> str:
 
 
 def sanitize_sheet_name(display_key: str, used: set) -> str:
-    base = "".join("_" if c in FORBIDDEN_SHEET_CHARS else c for c in display_key)[:28]
+    """A sheet name that Excel accepts and that no free text can make odd.
+
+    Forbidden characters are replaced, and a leading formula character is
+    escaped as well. A sheet name is not a formula cell, so this is not formula
+    injection, but a title the operator typed free-hand must not end up as a
+    sheet called `=1+1`: it reads as an error, it breaks a name that is meant to
+    be a trip label, and it is the one place the trip title is used verbatim.
+    """
+    text = guard_text(display_key)
+    base = "".join("_" if c in FORBIDDEN_SHEET_CHARS else c for c in text)[:28]
     name = base or "sheet"
     suffix = 1
     while name in used:
@@ -88,9 +97,17 @@ def sanitize_sheet_name(display_key: str, used: set) -> str:
 
 
 def guard_text(value) -> str:
+    """Neutralise a free string that would otherwise read as a formula.
+
+    The leading characters Excel treats as the start of a formula are escaped.
+    Leading whitespace and control characters are stripped first, because Excel
+    trims them on entry: a tab in front of `=` would otherwise slip past the
+    check and still arrive as a formula.
+    """
     text = "" if value is None else str(value)
-    if text[:1] in ("=", "+", "-", "@"):
-        return "'" + text
+    stripped = text.lstrip(" \t\r\n\v\f")
+    if stripped[:1] in ("=", "+", "-", "@"):
+        return "'" + stripped
     return text
 
 
@@ -185,14 +202,18 @@ def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPL
         ws["B2"] = COMPANY_TEXT
         ws["B2"].alignment = center
         ws.merge_cells(TITLE_MERGE)
-        ws["C2"] = trip["display_key"]
+        # The title, the date and the owner name are free operator text. They
+        # were relying on `data_type = "s"` alone to stay text, which is a
+        # fragile openpyxl property; they go through the same guard as every
+        # other free field so the defence does not depend on that assignment.
+        ws["C2"] = guard_text(trip["display_key"])
         ws["C2"].alignment = center
         ws["C2"].data_type = 's'
         ws.merge_cells(SEPARATOR_MERGE_1)
         ws["D4"] = "작성일자"
-        ws["E4"] = trip.get("prepared_on", "")
+        ws["E4"] = guard_text(trip.get("prepared_on", ""))
         ws["G4"] = "담당자"
-        ws["H4"] = trip.get("prepared_by_name", "")
+        ws["H4"] = guard_text(trip.get("prepared_by_name", ""))
         ws["H4"].data_type = 's'
         for cell in ("D4", "E4", "G4", "H4"):
             ws[cell].alignment = center

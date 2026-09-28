@@ -605,6 +605,52 @@ class SourceLineageTests(unittest.TestCase):
         self.assertEqual(preview["condition_source_report"]["merchant_normalized"]
                          ["missing_source"], 0)
 
+    def test_the_four_scope_combinations_are_each_accepted_and_independent(self):
+        """DETAILED 17.3: 규칙 미리보기의 네 가지 범위 선택.
+
+        The two switches are independent, so all four combinations have to be a
+        valid request and the flags have to come back exactly as sent. A preview
+        that quietly forced one switch on would make the owner's choice a lie.
+        """
+        store = make_store()
+        try:
+            case_id = store.save(
+                row_id="expense-demo-c1",
+                expected_revision=store.get_row("expense-demo-c1")["revision"],
+                client_request_id="scope4-move", change_mode="rule_change",
+                changes={"display_tab_id": "trip-demo-b"})["learning_case_id"]
+            store.open_rule_dialog(
+                learning_case_id=case_id,
+                draft={"conditions": {"merchant_normalized":
+                                      {"op": "eq", "value": "아구다호텔"}},
+                       "effects": {"item": "호텔 숙박"}},
+                client_request_id="scope4-dialog")
+            rule = store.create_rule_draft(
+                draft={"conditions": {"merchant_normalized":
+                                      {"op": "eq", "value": "아구다호텔"}},
+                       "effects": {"item": "호텔 숙박"},
+                       "learning_case_id": case_id},
+                client_request_id="scope4-draft")
+            rule_id = rule["rule_id"]
+
+            seen = {}
+            for existing in (False, True):
+                for future in (False, True):
+                    plan = store.build_rule_preview(
+                        rule_id, apply_existing=existing, apply_future=future)
+                    key = (existing, future)
+                    seen[key] = plan
+                    # the request is answered, and the switches came back as sent
+                    self.assertEqual(plan["apply_existing"], existing, key)
+                    self.assertEqual(plan["apply_future"], future, key)
+                    self.assertIn("candidates", plan)
+                    self.assertIsNotNone(plan.get("preview_id"))
+            # all four really were distinct requests
+            ids = {plan["preview_id"] for plan in seen.values()}
+            self.assertEqual(len(ids), 4)
+        finally:
+            store.close()
+
     def test_existing_and_future_conditions_agree(self):
         first = (self.HEADER + "2026-04-09,AGODA TEST,100000,KRW,1111,EQ1,,,,K1\n").encode("utf-8")
         existing_id = self._upload("equal-existing.csv", first)[0]
@@ -1735,7 +1781,7 @@ class RuleHistoryApiTests(RuleApiTests):
     def test_versions_endpoint_404_for_unknown_rule(self):
         status, body = self._get("/api/classification/rules/rule-missing/versions")
         self.assertEqual(status, 404)
-        self.assertEqual(body["code"], "NOT_FOUND")
+        self.assertEqual(body["code"], "RESOURCE_NOT_FOUND")
 
     def test_revise_over_http_then_history(self):
         case = learning_case(self.store)

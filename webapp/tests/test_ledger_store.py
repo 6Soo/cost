@@ -17,6 +17,86 @@ def make_store():
     return LedgerStore(Path(directory) / "webledger.sqlite")
 
 
+class LedgerEventBoundaryTests(unittest.TestCase):
+    """R01: the operator event must not diverge from the board save.
+
+    The operator ledger is a separate database, which is exactly why the
+    boundary has to be checked rather than assumed. The queue row is written
+    inside the outer transaction and the relay happens only after the commit,
+    so an outer failure can never leave an event behind on its own.
+    """
+
+    def test_a_failed_outer_save_leaves_no_ledger_event(self):
+        store = make_store()
+        try:
+            self.assertEqual(len(store.ledger.all_events()), 0)
+            # enqueue inside an open transaction, then roll the outer one back
+            store.conn.execute("BEGIN IMMEDIATE")
+            store._enqueue_ledger(
+                outbox_id="r01-rollback", stream_id="row-expense-demo-c1",
+                action="correct", target="evt-1",
+                rationale="outer failure probe", actor="local-operator")
+            inside = store.conn.execute(
+                "SELECT COUNT(*) FROM ledger_outbox").fetchone()[0]
+            self.assertEqual(inside, 1, "the enqueue did not happen at all")
+            store.conn.execute("ROLLBACK")
+            # the queue row went with the transaction
+            self.assertEqual(store.conn.execute(
+                "SELECT COUNT(*) FROM ledger_outbox").fetchone()[0], 0)
+            # and no event was appended to the separate ledger
+            self.assertEqual(len(store.ledger.all_events()), 0)
+        finally:
+            store.close()
+
+    def test_a_committed_save_relays_once_and_a_second_relay_adds_nothing(self):
+        store = make_store()
+        try:
+            result = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="r01-committed", change_mode="exception",
+                changes={"item": "정상 저장"})
+            self.assertEqual(result["outcome"], "saved")
+            after_save = len(store.ledger.all_events())
+            self.assertEqual(after_save, 1,
+                             "the relay did not happen after the commit")
+            # relaying again must not duplicate the event
+            store._relay_outbox()
+            store._relay_outbox()
+            self.assertEqual(len(store.ledger.all_events()), after_save)
+            # and the queue row is marked relayed
+            self.assertEqual(store.conn.execute(
+                "SELECT COUNT(*) FROM ledger_outbox WHERE relayed=0"
+            ).fetchone()[0], 0)
+        finally:
+            store.close()
+
+    def test_the_same_request_id_with_different_content_is_refused(self):
+        store = make_store()
+        try:
+            first = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="r01-reuse", change_mode="exception",
+                changes={"item": "첫 번째 값"})
+            # the same id and the same content replays the stored result
+            again = store.save(
+                row_id="expense-demo-c1", expected_revision=1,
+                client_request_id="r01-reuse", change_mode="exception",
+                changes={"item": "첫 번째 값"})
+            self.assertEqual(again, first)
+            # the same id with different content is refused
+            with self.assertRaises(SaveError) as ctx:
+                store.save(
+                    row_id="expense-demo-c1", expected_revision=1,
+                    client_request_id="r01-reuse", change_mode="exception",
+                    changes={"item": "다른 내용"})
+            self.assertEqual(ctx.exception.code, "REQUEST_ID_REUSED")
+            # nothing was written by the refused attempt
+            self.assertEqual(store.get_row("expense-demo-c1")["item"],
+                             "첫 번째 값")
+        finally:
+            store.close()
+
+
 class SaveTotalsTests(unittest.TestCase):
     def test_c1_move_updates_both_tabs(self):
         store = make_store()
