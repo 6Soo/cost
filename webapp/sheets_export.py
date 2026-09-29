@@ -32,6 +32,95 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from .space_guard import SpaceRefused, free_bytes, reserve, reserve_conn
+
+# Bytes a workbook costs on top of its rows: styles, shared strings, the zip
+# directory. A fixed allowance, not a promise of an exact size.
+EXPORT_OVERHEAD_BYTES = 256 * 1024
+
+# Per row, generous enough that a wide sheet still fits inside it.
+EXPORT_BYTES_PER_ROW = 2 * 1024
+
+SourceFileRefused = SpaceRefused
+
+# Bytes one export-job row costs.
+WRITE_JOB_BYTES = 4 * 1024
+
+# The size model below is measured, not guessed. Building real workbooks gave:
+# an empty single-sheet export 5,512 bytes; the marginal sheet cost 1,114 bytes
+# (1 sheet 5,595 -> 24 sheets 31,216); the marginal row cost 30 bytes (290 extra
+# rows cost 8,620). The constants are deliberate over-estimates of those
+# measurements, because a refusal that is slightly pessimistic costs a retry
+# while a refusal that is optimistic costs a half-written file.
+EXPORT_BASE_BYTES = 64 * 1024
+EXPORT_BYTES_PER_SHEET = 8 * 1024
+EXPORT_BYTES_PER_ROW = 256
+
+
+def export_size_estimate(manifest: dict) -> dict:
+    """Bytes a manifest's workbook is expected to need, from the real shape.
+
+    `build_workbook` records `income_rows` and `expense_rows` per tab, and that
+    is the only shape a real manifest has. The first version read `row_count`
+    and `rows`, which no real manifest contains, so every real export estimated
+    zero rows and asked only for the fixed overhead: a full-volume check that
+    passed. Reading the keys that are actually produced is the whole fix.
+
+    A tab that reports no row count is counted as a sheet and flagged, not
+    treated as zero rows, because "unknown" and "empty" are different answers.
+    """
+    tabs = manifest.get("tabs") if isinstance(manifest, dict) else None
+    if not isinstance(tabs, list):
+        return {"bytes": None, "sheets": None, "rows": None,
+                "shape_known": False,
+                "note": "manifest has no tabs list, so the size is unknown; "
+                        "an unknown size is not a small size"}
+    sheets = 0
+    rows = 0
+    complete = True
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            complete = False
+            continue
+        sheets += 1
+        income = tab.get("income_rows")
+        expense = tab.get("expense_rows")
+        if not isinstance(income, int) or isinstance(income, bool):
+            income = tab.get("row_count")
+        if not isinstance(expense, int) or isinstance(expense, bool):
+            expense = tab.get("row_count")
+        counted = False
+        for value in (income, expense):
+            if isinstance(value, int) and not isinstance(value, bool):
+                rows += max(0, value)
+                counted = True
+        if not counted:
+            complete = False
+    needed = (EXPORT_BASE_BYTES + sheets * EXPORT_BYTES_PER_SHEET
+              + rows * EXPORT_BYTES_PER_ROW)
+    return {"bytes": needed, "sheets": sheets, "rows": rows,
+            "shape_known": complete,
+            "note": "" if complete else
+            "some tabs did not report row counts; only the base and sheet "
+            "costs were added for them"}
+
+
+def reserve_export_space(output_dir, manifest: dict) -> dict:
+    """Refuse a new output the volume cannot hold.
+
+    Returns the estimate, so a caller can report what it asked for rather than
+    a number it never measured.
+    """
+    estimate = export_size_estimate(manifest)
+    if estimate["bytes"] is None:
+        # Unknown shape. Ask for the base plus a wide sheet allowance so a real
+        # manifest that lost a key still gets a bound that is hard to under-run.
+        estimate = dict(estimate,
+                        bytes=EXPORT_BASE_BYTES + 32 * EXPORT_BYTES_PER_SHEET)
+    reserve(output_dir, estimate["bytes"], code="EXPORT_NO_SPACE",
+            what="새 출력 파일을 만드는 데")
+    return estimate
+
 TEMPLATE_VERSION = "sales-confirm-rev-p6-synthetic"
 
 COMPANY_CELL = "B2"
@@ -300,7 +389,28 @@ def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPL
 
 def publish_workbook(wb, manifest: dict, output_dir, file_stem: str):
     output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # SPEC_REFINEMENT 19.3: a new output is one of the first things refused when
+    # the volume is full, and the refusal names the reason.
+    #
+    # The space check comes before the directory is created, and that ordering is
+    # the point. `mkdir` on a full volume fails with an OSError that says
+    # nothing about why, so creating the directory first turns a clear refusal
+    # into an opaque error -- and it also leaves a half-created directory behind
+    # for a file that was never written. When the parent already exists the
+    # check needs no new space, so the two orders are the same operation.
+    if not output_dir.is_dir():
+        reserve_export_space(output_dir.parent, manifest)
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise SpaceRefused(
+                "EXPORT_NO_SPACE",
+                f"출력 폴더를 만들지 못했어요: {output_dir} ({exc}). "
+                f"이미 저장된 원천·출력은 지우지 않았습니다.",
+                free=free_bytes(output_dir.parent), needed=0,
+                path=output_dir, reason="mkdir_failed") from exc
+    else:
+        reserve_export_space(output_dir, manifest)
     target = output_dir / f"{file_stem}.xlsx"
     fd = None
     tmp_file = None
@@ -375,19 +485,24 @@ def _ensure_job_columns(conn) -> None:
 def record_job(conn, *, job_id: str, tab_ids: list, manifest: dict, status: str) -> None:
     conn.executescript(EXPORT_JOBS_SCHEMA)
     _ensure_job_columns(conn)
-    conn.execute(
-        "INSERT OR REPLACE INTO ledger_export_jobs(job_id, tab_ids_json,"
-        " input_snapshot_sha256, template_version, output_sha256, output_path,"
-        " status, created_at)"
-        " VALUES (?,?,?,?,?,?,?,?)",
-        (job_id, json.dumps(list(tab_ids), ensure_ascii=False),
-         manifest.get("input_snapshot_sha256", ""),
-         manifest.get("template_version", ""),
-         manifest.get("output_sha256"),
-         manifest.get("output_path"),
-         status, _utc_now()),
-    )
-    conn.commit()
+    # 19.3: this row is part of the same state change as the output itself. The
+    # schema script above is left alone on purpose -- it is what makes the table
+    # exist, and refusing on it could block the very write that needs it.
+    with reserve_conn(conn, WRITE_JOB_BYTES, code="EXPORT_JOB_NO_SPACE",
+                      what="출력 작업 기록을 남기는 데"):
+        conn.execute(
+            "INSERT OR REPLACE INTO ledger_export_jobs(job_id, tab_ids_json,"
+            " input_snapshot_sha256, template_version, output_sha256, output_path,"
+            " status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?)",
+            (job_id, json.dumps(list(tab_ids), ensure_ascii=False),
+             manifest.get("input_snapshot_sha256", ""),
+             manifest.get("template_version", ""),
+             manifest.get("output_sha256"),
+             manifest.get("output_path"),
+             status, _utc_now()),
+        )
+        conn.commit()
 
 
 def get_job(conn, job_id: str):

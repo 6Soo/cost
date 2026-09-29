@@ -224,7 +224,12 @@ def cmd_ops_health(args):
     if config.db_path.is_file():
         from .ledger_store import LedgerStore
 
-        store = LedgerStore(config.db_path)
+        # seed_demo=False: a read or an inspection must not add the demo
+        # board to a real ledger. SPEC_REFINEMENT 18.3 5항 forbids
+        # synthetic rows at an operational start, and a health command is
+        # exactly where that would be done by accident -- two fake trips in
+        # a database nobody asked to have them in.
+        store = LedgerStore(config.db_path, seed_demo=False)
     try:
         report = ops.health_check(config, store)
     finally:
@@ -240,7 +245,7 @@ def cmd_ops_backup(args):
     from .ledger_store import LedgerStore
 
     config = _ops_config(args, secrets=args.secret or ())
-    store = LedgerStore(config.db_path)
+    store = LedgerStore(config.db_path, seed_demo=False)
     try:
         manifest = ops.make_backup_bundle(config, store, label=args.label or "")
     finally:
@@ -259,7 +264,7 @@ def cmd_ops_restore(args):
     config = _ops_config(args, secrets=args.secret or ())
 
     def factory(path):
-        store = LedgerStore(path)
+        store = LedgerStore(path, seed_demo=False)
         from . import access_control
 
         access_control.attach_to_ledger_store(store).ensure_schema()
@@ -281,7 +286,7 @@ def cmd_ops_drill(args):
     config = _ops_config(args, secrets=args.secret or ())
 
     def factory(path):
-        store = LedgerStore(path)
+        store = LedgerStore(path, seed_demo=False)
         from . import access_control
 
         access_control.attach_to_ledger_store(store).ensure_schema()
@@ -329,6 +334,100 @@ def cmd_ops_dry_run(args):
     return 0 if run["ok"] else 2
 
 
+@_ops_guard
+def cmd_ops_reservation_sync(args):
+    """Rehearse a Reservation access snapshot, or apply it to a named DB."""
+    from . import access_control
+    from . import ops
+    from .ledger_store import LedgerStore
+
+    config = _ops_config(args, secrets=args.secret or ())
+    payload = args.snapshot.read_bytes()
+    target = Path(args.db) if args.db else config.db_path
+
+    if args.dry_run or args.db is None:
+        report = ops.rehearse_reservation_sync(
+            payload, target, keep_copy=args.keep_copy)
+    else:
+        # The applied path is the other actor's importer, reused rather than
+        # reimplemented, so a rehearsal and the real import cannot differ.
+        import json as _json
+        import sqlite3 as _sqlite3
+        import tempfile as _tempfile
+
+        from . import ops as _ops
+
+        snapshot = _ops.parse_reservation_snapshot(payload)
+        # `sqlite3.connect` creates a database that is not there. Applying a
+        # snapshot to a path that does not exist would produce an empty file
+        # with the access tables and no ledger in it, and report that as a
+        # successful import. The target has to already be a ledger.
+        if not Path(str(target)).is_file():
+            raise _ops.OpsError(
+                "RESERVATION_TARGET_MISSING",
+                f"예약 접근을 적용할 DB가 없어요: {target}\n"
+                f"빈 파일이 새로 만들어지면 장부가 없는 빈 DB가 됩니다. "
+                f"적용할 대상은 이미 존재하는 장부 DB여야 합니다.")
+        conn = _sqlite3.connect(str(target))
+        try:
+            store = access_control.AccessStore(conn)
+            result = store.sync_reservation_access_snapshot(snapshot=snapshot)
+            again = store.sync_reservation_access_snapshot(snapshot=snapshot)
+        finally:
+            conn.close()
+        report = dict(result)
+        report.update({"rehearsal": False, "applied_to_real_database": True,
+                       "idempotent": bool(again["ignored_stale_or_equal"]),
+                       "snapshot_digest": snapshot["digest"]})
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True,
+                     default=str))
+    # A rehearsal that ran is a success even though it changed nothing. An apply
+    # that ran and whose second pass changed nothing is also a success. Reading
+    # the *first* pass's `ignored_stale_or_equal` instead reported every first
+    # apply as a failure, because on a first apply that counter is legitimately
+    # zero.
+    if report.get("rehearsal"):
+        ok = True
+    elif report.get("recoverable"):
+        ok = True
+    else:
+        ok = bool(report.get("idempotent"))
+    return 0 if ok else 2
+
+
+@_ops_guard
+def cmd_ops_migrate_rehearsal(args):
+    """Seal both sources and report what a cutover would still have to decide."""
+    from . import ops
+
+    _ops_config(args, secrets=args.secret or ())
+    report = ops.rehearse_migration(
+        left_db=args.left, right_db=args.right, work_dir=args.work_dir,
+        migration_db=args.migration_db,
+        left_gate=args.left_gate_report, right_gate=args.right_gate_report,
+        comparison_id=args.comparison_id)
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True,
+                     default=str))
+    # A rehearsal that found something undecidable is still a successful
+    # rehearsal. It fails only when it could not run at all, which is a raise.
+    return 0
+
+
+@_ops_guard
+def cmd_ops_smoke(args):
+    """Answer whether this process could serve a request right now."""
+    from . import ops
+
+    config = _ops_config(args, secrets=args.secret or ())
+    # No store is opened here. The report reads the database read-only, so
+    # running `ops smoke` on a host that has not created one yet reports a
+    # missing database instead of quietly creating one.
+    report = ops.smoke_report(config)
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True,
+                     default=str))
+    return 0 if report["ok"] else 2
+
+
 def _write_unit(args, config, manifest):
     """Write the unit example if asked, and never install it."""
     from . import ops
@@ -349,7 +448,7 @@ def cmd_ops_report(args):
     from .ledger_store import LedgerStore
 
     config = _ops_config(args, secrets=args.secret or ())
-    store = LedgerStore(config.db_path)
+    store = LedgerStore(config.db_path, seed_demo=False)
     try:
         report = ops.readiness_report(config, store)
     finally:
@@ -504,6 +603,49 @@ def build_parser():
         "actions", help="only the states an operator has to act on")
     _add_ops_config(p, with_keep=False)
     p.set_defaults(func=cmd_ops_actions)
+
+    p = ops_sub.add_parser(
+        "smoke", help="could this process answer a request right now")
+    _add_ops_config(p, with_keep=False)
+    p.set_defaults(func=cmd_ops_smoke)
+
+    p = ops_sub.add_parser(
+        "reservation-sync",
+        help="rehearse a Reservation access snapshot, or apply it to a named db")
+    _add_ops_config(p, with_keep=False)
+    p.add_argument("--snapshot", required=True, type=Path,
+                   help="the snapshot document; parsed by the same code the "
+                        "import uses")
+    p.add_argument("--db", type=Path,
+                   help="target database; without it the snapshot is rehearsed "
+                        "against a copy and nothing is written")
+    p.add_argument("--dry-run", action="store_true",
+                   help="force a rehearsal even when --db is given")
+    p.add_argument("--keep-copy", action="store_true",
+                   help="keep the rehearsal copy for inspection")
+    p.set_defaults(func=cmd_ops_reservation_sync)
+
+    p = ops_sub.add_parser(
+        "migrate-rehearsal",
+        help="seal both sources, compare them, and never apply")
+    _add_ops_config(p, with_keep=False)
+    p.add_argument("--left", required=True, type=Path, help="left sealed source")
+    p.add_argument("--right", required=True, type=Path,
+                   help="right sealed source")
+    p.add_argument("--work-dir", required=True, type=Path,
+                   help="where the rehearsal works. Each source is copied here "
+                        "byte for byte and the copy is what gets sealed, so "
+                        "nothing is written next to a real source")
+    p.add_argument("--migration-db", required=True, type=Path,
+                   help="a database the rehearsal may record the comparison in; "
+                        "never a source")
+    p.add_argument("--left-gate-report", type=Path,
+                   help="gate report for the left source; it carries the "
+                        "candidate_semantic_sha256 a seal must bind to")
+    p.add_argument("--right-gate-report", type=Path,
+                   help="gate report for the right source")
+    p.add_argument("--comparison-id", default="rehearsal")
+    p.set_defaults(func=cmd_ops_migrate_rehearsal)
     return parser
 
 
@@ -518,7 +660,7 @@ def cmd_ops_actions(args):
     from .ledger_store import LedgerStore
 
     config = _ops_config(args, secrets=args.secret or ())
-    store = LedgerStore(config.db_path)
+    store = LedgerStore(config.db_path, seed_demo=False)
     try:
         report = ops.action_required_report(config, store)
     finally:

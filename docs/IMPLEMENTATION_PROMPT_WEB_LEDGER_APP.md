@@ -9,14 +9,35 @@
 전달문이다. 현재 세션은 명세 구체화만 수행한다. 문서 열람이나 `계속`·`재개`를
 구현 착수 지시로 해석하지 않는다.
 
-[현재 — 2026-09-27] 이 문서는 여전히 요구사항의 정보다. 다만 구현은 이미
-시작됐고 Phase 6~9까지 로컬 구현이 완료됐다. 기준 커밋 `1486a37`, 작업트리
-미커밋, 최근 전체 검사 `624 passed, 85 subtests passed in 190.57s`. 닫히지 않은 것은
-외부 자원에 의존하는 것(실제 Google OIDC, 실제 예약 API, 실제 AI 호출과
-키·유료 승인, AI Studio 실제 등급 확인, 운영 DB와 실제 기준본 이관, 호스팅,
-배포, 실물 기기, 실제 Excel 인쇄)뿐이며 `ops.EXTERNAL_CONDITIONS`에 남아 있다.
+[현재 — 2026-09-29] 이 문서는 여전히 요구사항의 정보다. 로컬 Phase 1~9와
+Reservation → COST snapshot 동기화 경계, 후속 명세 19.3의 용량 거부까지
+구현·감사가 완료됐다. 최근 전체 검사는
+`930 passed, 1 skipped, 128 subtests passed in 383.41s`다. 이제 중심 과제는 새 기능
+구현보다 외부 운영 연결이다. 실제 호스팅과 배포, 실제 Google OAuth/OIDC
+클라이언트·시크릿·콜백, 실제 Reservation API endpoint·인증·전송, 운영 DB와 실제
+기준본 이관, 운영 전환이 남아 있다. 유료 자원이 필요해질 때만 별도 승인을 받는다.
+
+로컬에서 닫을 수 있는 항목은 닫혔고, 남은 것은 아래 외부 6건이다. 이 문서의
+`875 passed` 값은 2026-09-29 오전 기준이며 현재 값보다 낮다.
+
+이번 세션에서 `SpaceBunny`는 제품 기능이나 구현 대상 이름이 아니라 **Paseo로 호출하는
+구현 에이전트**를 뜻한다고 사용자가 명시했다. 기존 감시 대상은
+`36982862-21d6-4f6b-b51c-921d4c981881`이며, 사용자가 새 대상을 정하지 않는 한 자동으로
+다른 구현자로 갈아타지 않는다. 단순 running·idle·재개·정상 finished는 사용자에게
+알리지 않고, permission·error·사용자 판단이 필요한 큰 상태 변화·최종 완료만 알린다.
+최근 해당 과거 agent ID는 직접 확인에서 `not_found`가 나온 적이 있고, 일부 agent 관련
+호출은 플랫폼 보안 판정 오류로 차단된 적이 있으므로 현재 실행 중이라고 추정해서는 안 된다.
+별도 작업자 `01a0e8b6-d88a-7fa1-af1d-7a2fceb52218`은 Reservation snapshot 동기화를
+완료했지만 기존 감시 대상의 자동 대체자는 아니다.
+
+호스팅은 기존 Render·Vercel을 검토한 뒤 사용자가 다음 대상으로 Railway를 선택했다.
+사용자는 Railway 로그인과 이후 Google 로그인을 완료했다고 보고했다. 그 과정에서 한때
+`토큰 교환이 거절됐어요 (HTTP 400)`가 있었으므로, Railway 프로젝트 생성·환경 변수·배포 URL·
+실제 production callback 성공은 보고만으로 완료 처리하지 않고 직접 검증해야 한다.
+
 현재 상태의 단일 출처는
 [handoff/2026-09-27/README.md](handoff/2026-09-27/README.md)와
+[WEB_LEDGER_IMPLEMENTATION_LOG.md](WEB_LEDGER_IMPLEMENTATION_LOG.md)의 2026-09-29 절,
 [WEB_LEDGER_PHASES.md](WEB_LEDGER_PHASES.md)의 "현재 상태" 절이다.
 
 최신 제출 정정: 구현 검토 9절을 우선 확인한다. 현재 재실행은 94개 통과·1개 실패이며 출력 모듈은 8절 검토 이후 변경되지 않았다. 본 저장소 문서와 격리 공간 문서가 다르므로 최신 계약은 `C:\AX\cost\docs`에서 읽는다. 과거 83개 통과 보고를 최종 수용 근거로 재사용하지 않는다.
@@ -29,8 +50,8 @@ task_id: WEB-LEDGER-001
 작성자: 코디네이터
 구현 모델: opencode/muse-spark-1.3-contributor-free
 작업 방식: 격리 작업공간, 단일 작성자, 원본과 운영 출력 보존
-구현 상태: 합성 Phase 1~4 결과와 격리 공간 Phase 5 초안 존재. 보완 기준은 WEB_LEDGER_IMPLEMENTATION_REVIEW.md
-명세 갱신: 2026-09-25
+구현 상태: 로컬 Phase 1~9 + Reservation snapshot sync + 19.3 용량 거부 완료. 외부 운영 연결 단계
+명세 갱신: 2026-09-29
 ```
 
 ## 반드시 읽을 자료

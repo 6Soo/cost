@@ -2,6 +2,139 @@
 
 상태: PARTIAL_HANDOFF. 로컬 웹 장부 구현과 운영 서비스 완성을 구분한다.
 
+## 2026-09-29 추가 인계 2 — 19.3 용량 거부와 체인 실행 감사
+
+`docs/WEB_LEDGER_IMPLEMENTATION_LOG.md` 맨 위 절에 근거가 있다.
+
+### 이 세션의 권위 실행값
+
+- 전체 회귀: **`930 passed, 1 skipped, 128 subtests passed in 383.41s`**, exit 0
+- 신규 `webapp/tests/test_space_guard.py` **18건** 통과
+- `test_ops_surfaces.py` 19건 → **25건**
+- **돌연변이 13건 전건 검출, 생존 0**
+- 직전 `924 passed, 128 subtests` 대비 +6, 회귀 0
+- 기준 커밋 `99041a4`, 작업트리 미커밋. **commit·push·배포 없음.**
+
+### 새로 닫은 요구사항: 19.3 용량 거부
+
+19.3 전체가 이전까지 **구현돼 있지 않았다**(health 한 줄만 있었고 거부는 없었음).
+`webapp/space_guard.py`를 추가해 명세가 정한 순서대로 넣었다.
+
+1. 카드 파일 접수 → `IMPORT_NO_SPACE` (배치 행 생성 전, 거절된 파일은 접수로 기록 안 함)
+2. 새 출력 생성 → `EXPORT_NO_SPACE` (임시 파일 생성 전)
+3. 행 저장 → `SAVE_NO_SPACE` (성공으로 위장하지 않음)
+
+- 이미 저장된 장부·원천·출력은 지우지 않는다.
+- **이미 완료된 요청의 재실행은 거절하지 않는다.** 쓰기가 아니기 때문이다.
+- `health_check`에 `free_space_headroom` 추가: 거부 전 경고, fatal 아님.
+- 기준값은 `space_guard` 한 곳에만 있고 `ops`가 참조한다.
+
+### 체인 실행에서 발견한 결함 2건 (각 명령 단독으로는 보이지 않음)
+
+1. **쓰기 가능성 판정이 실제 장부에서 항상 실패.** `board_revisions` NOT NULL 8개에
+   열 4개만 넣어, 한 번이라도 저장된 장부를 전부 "쓰기 불가"로 보고했다.
+   `PRAGMA table_info` 기반으로 고쳤고, revision이 있는 장부에 대한 검사를 추가했다.
+2. **`ops restore`가 백업이 출력한 이름으로 죽음.** `backup`은 이름만 출력하는데
+   그대로 넘기면 `FileNotFoundError` traceback + exit 1. `resolve_bundle`이
+   `data_root/backups/`에서 이름을 찾고 없으면 `BUNDLE_NOT_FOUND`로 거절한다.
+   전체 경로 형태는 계속 동작한다.
+
+### 게이트는 양쪽 다 확인해야 한다
+
+- 준비 완료된 루트 → **기동함**(전부 거절하는 게이트는 게이트가 아니다)
+- 빈 루트 → **exit 2, `SMOKE_FAILED`, DB 미생성**
+
+health → backup → restore(이름) → drill → smoke → 게이트를 한 순서로 실제 프로세스로
+돌려 전부 통과했다(근거는 구현 기록의 표).
+
+### `EXTERNAL_CONDITIONS` 상태 표시 정정
+
+`code_status`가 코드 상태와 어긋나 있었다. 이 필드는 "코드가 없는 것"과 "외부 입력이
+없는 것"을 구분하는 것이 목적이므로 정정했다.
+
+| 항목 | 이전 | 지금 |
+|---|---|---|
+| `HOSTING-RESOURCE` | `not_implemented` | `operational_readiness_implemented_awaits_resource` |
+| `PRODUCTION-DB` | `phase8_synthetic_only` | `synthetic_rehearsal_only_awaits_real_sources` |
+| `DEPLOY` | `dry_run_only` | `gated_and_dry_run_only_awaits_deployment` |
+
+### 다음 세션이 알아야 할 남은 것
+
+- **19.3 성공 경로**: 이 파일시스템을 실제로 채워 진짜 `ENOSPC`를 관측하지 못했다.
+  여유 공간 조회를 강제 대체해 판정 경로를 검증했지만, 저장 계층이 실제로 내는
+  오류는 관측 범위 밖이다.
+- **18.3(5) 스키마 마이그레이션 실행기**: 조건 *검사*는 있으나 버전 마이그레이션
+  실행기는 이 세션에서 만들지 않았다.
+- **이관 seal 성공 경로**: 실제 gate report 산출물이 있어야 재현된다.
+- **19.2 외부 노출 금지**: 코드 경로는 확인했지만 실제 노출은 호스팅 자원 없이 닫을 수 없다.
+
+### 여전히 외부에서만 닫히는 것 (6건, 이번 세션에 하나도 닫지 않음)
+
+- `HOSTING-RESOURCE` — 자원 미 provisioned
+- `GOOGLE-OIDC-CLIENT` — 구현 완료, 실제 client·callback 없음
+- `RESERVATION-API` — 스냅샷 동기화 구현 완료, live transport 없음
+- `PRODUCTION-DB` — 합성 이관 연습만 가능, 실제 기준본·운영 DB 없음
+- `PAID-RESOURCE` — 승인 없음
+- `DEPLOY` — 게이트·dry-run까지, 배포 없음
+
+`webapp/access_control.py`, `webapp/google_oidc.py`, 예약 스냅샷 3파일,
+`test_access_control_phase7.py`는 **다른 주체**의 작업. 이번 세션은 이 파일들의
+내용을 한 줄도 바꾸지 않았고, `webapp/space_guard.py`를 새 모듈로 추가해
+쓰기 경로 3곳에서만 **호출**했다.
+
+## 2026-09-29 추가 인계 — 운영 준비·smoke·readiness 게이트
+
+`docs/WEB_LEDGER_IMPLEMENTATION_LOG.md` 맨 위 절에 전체 근거가 있다. 여기서는
+다음 세션이 바로 알아야 할 것만 적는다.
+
+### 이번 세션의 권위 실행값
+
+- 전체 회귀: **`906 passed, 128 subtests passed in 308.54s`**, 종료 코드 0
+- 신규 `webapp/tests/test_ops_surfaces.py` **19건** 통과
+- **돌연변이 7건 전건 검출, 생존 0** (복원 후 스위트 OK)
+- 직전 기준 `887 passed, 128 subtests` 대비 +19, 회귀 0
+- 기준 커밋은 `99041a4`(OIDC 미포함). 이전 문서의 `1486a37`은 아님.
+
+### 새 명령
+
+```powershell
+python -m webapp.cli ops smoke --secret <NAME>
+python -m webapp.cli ops reservation-sync --snapshot <file> [--db <file>] --secret <NAME>
+python -m webapp.cli ops migrate-rehearsal --left <a> --right <b> --work-dir <w> `
+  --migration-db <m> --left-gate-report <lg> --right-gate-report <rg> --secret <NAME>
+python run_candidate.py --data-root <d> --require-ready     # production이면 암묵히 켜짐
+```
+
+### 다음 세션이 먼저 알아야 할 계약
+
+1. **이관 seal에는 gate report가 필수다.** `verify_snapshot`은
+   `candidate_semantic_sha256`가 없는 descriptor를 거부하고, 이 값은 sealer가 계산하지
+   않으며 **상류 gate report**에서 온다. `migrate-rehearsal`에 gate report 없이
+   부르면 `SNAPSHOT_NOT_SEALED` 거부를 낸다(traceback 아님). 실제 Reservation/
+   Google 파이프라인 산출물 없이는 이 명령의 성공 경로를 로컬에서 만들 수 없다.
+2. **seal은 후보 옆에 descriptor를 쓴다.** 그래서 `rehearse_migration`은
+   `work_dir`에 바이트 동일 사본을 떠 그 복사본을 seal한다. source 디렉터리에는 아무것도
+   쓰지 않는다(검사로 확인).
+3. **예약 파서는 revision/시각이 정확히 일치해야 한다.**
+   `snapshot_revision == int(exported_at.timestamp()*1000)`.
+4. **demo 시드는 `seed_demo`로 제어된다.** 기본값 `True`(개발용 보드 유지),
+   `run_candidate`는 production에서 `False`. `SPEC_REFINEMENT 18.3 5항`.
+5. **`ops smoke`와 readiness 게이트는 DB를 만들지 않는다.** 읽기 전용으로 열어
+   없는 DB는 "없음"으로 보고한다. 쓰기 가능성은 사본에 실제 쓰기+롤백으로 판정한다.
+
+### 여전히 외부에서만 닫히는 것
+
+`ops.EXTERNAL_CONDITIONS` 6건은 그대로다. 이번 세션은 **어느 것도 닫지 않았다**.
+- `HOSTING-RESOURCE` — 자원 미 provisioned
+- `GOOGLE-OIDC-CLIENT` — 구현 완료, 실제 client·callback 없음
+- `RESERVATION-API` — 스냅샷 동기화 구현 완료, live transport 없음
+- `PRODUCTION-DB` — 합성 DB만 사용
+- `PAID-RESOURCE` — 승인 없음
+- `DEPLOY` — 배포 없음
+
+commit·push·배포·실제 API 호출은 하지 않았다. `webapp/access_control.py`와 예약
+동기화 3파일은 **다른 주체**의 작업이므로 건드리지 않았고 되돌리지도 않았다.
+
 ## 새 채팅 재개 정보 — 2026-09-27 최신
 
 새 채팅은 이 문서와 `docs/WEB_LEDGER_IMPLEMENTATION_LOG.md`의 맨 위 최신
@@ -529,7 +662,7 @@ external-only 6항목의 **필요한 외부 입력 · 실행 명령 · 성공 �
 | 항목 | 필요한 외부 입력 | 실행 명령 | 성공 근거 한 줄 |
 | --- | --- | --- | --- |
 | HOSTING-RESOURCE | 계정·카드, VM, 영속 디스크, 실제 경로 | `ops health --environment production` | `ok:true`, 임시 루트면 `TEMP_DATA_ROOT`로 거부 |
-| GOOGLE-OIDC-CLIENT | 클라이언트 ID·시크릿, 콜백 주소, 소유자 `sub` | `ops health` | `synthetic_sessions.ok:true`, 첫 로그인은 owner 아님 |
+| GOOGLE-OIDC-CLIENT | 클라이언트 ID·시크릿, 콜백 주소, 소유자 `sub` | `ops health` | `google_oidc_connected.ok:true`, 첫 로그인은 viewer, logout 후 쿠키 거부 |
 | RESERVATION-API | 엔드포인트, 인증 방식, 배정 페이로드 형태 | `ops actions` + owner `/api/tabs` | 담당 해제 반영, 종료 여행 조회 유지 |
 | PRODUCTION-DB | 실제 기준 워크북, 운영 DB 경로, 이관 범위 | `ops drill --target <별도> --runbook` | `recoverable:true`, `content_compared:true` |
 | PAID-RESOURCE | 사용자 승인 | (없음 — 요건이 없음) | `state:not_approved` 유지 |
@@ -738,6 +871,8 @@ Git 내부를 제외한 1,408개 파일의 경로, 크기, 수정 시각을 순�
 
 ## 2026-09-27 · HOSTING 준비 완료 (사용자 계속 요청)
 
+**Google OIDC.** 구현은 끝났고 자격 증명만 남았습니다. `GOOGLE-OIDC-CLIENT` 는 여전히 external-only 다 — Google 이 발급하는 실제 클라이언트와 등록된 콜백이 없기 때문입니다. `code_status` 는 `synthetic_session_only` 에서 `implemented_awaits_client` 로 바뀌었습니다.
+
 **바인딩.** `127.0.0.1` 하드코딩은 없어졌다. 기본값은 그대로 루프백이므로
 기존 동작은 바뀌지 않는다. 정답은 reverse proxy 였다 — 명세 19.2가
 "외부에는 HTTPS 앱 경로만 제공하고 SQLite·원천 디렉터리·작업자 관리 포트는
@@ -783,3 +918,164 @@ health 문면의 자기모순. 변이 15건 전건 탐지 확인, 검사 자체 
 
 **하지 않은 것**: 계정 생성, 결제, VM 자원, 실제 배포, commit, push.
 `HOSTING-RESOURCE` 은 external-only 로 남는다.
+
+## 2026-09-27 · Google OIDC 실제 연결 (사용자 계속 요청)
+
+`webapp/google_oidc.py` 가 생겼다. 합성 seam 이 아니라 실제 Authorization Code
++OIDC 흐름이고, 설정되면 브라우저를 Google 로 보낸다.
+
+```
+WEBLEDGER_GOOGLE_CLIENT_ID, WEBLEDGER_GOOGLE_CLIENT_SECRET
+WEBLEDGER_SESSION_SECRET, WEBLEDGER_PUBLIC_BASE_URL
+WEBLEDGER_OWNER_GOOGLE_SUB   # 선택. 있을 때만 owner bootstrap
+```
+
+- 계정 키는 **`sub`**. email 은 표시 속성일 뿐 조회 키가 아니다.
+- **첫 로그인은 항상 viewer.** owner 는 `WEBLEDGER_OWNER_GOOGLE_SUB` 이 설정되고
+  sub 가 일치하며 아직 owner 가 없을 때만 bootstrap 된다. 설정 빠뜨리면 실수 owner 가
+  아니라 owner 가 없다.
+- 쿠키는 `Secure; HttpOnly; SameSite=Lax`, HMAC 서명, 그리고 계정의
+  `session_generation` 과 결합된다. 로그아웃·권한 해제·비활성화가 세대를 옮기면
+  들고 있던 쿠키는 거부된다.
+- `/auth/login` · `/auth/callback` · `/access/logout` (GET·POST 둘 다 쿠키 삭제) ·
+  `/auth/state`. 미설정 상태에서 로그인 라우트는 503 이고 조용히 어디로 보내지 않는다.
+- id_token 검증은 `google-auth`. 라이브러리가 없으면 로그인을 **거부**한다.
+- `google_oidc_connected` 가 `ops health`·`ops dry-run` 에 들어갔다. health 의 이 줄은
+  항상 보고되고 **production 에서만 fatal** 이다.
+- `requirements.txt` 에 `google-auth` 추가 (`openpyxl` 보존). 없으면 로그인이
+  거부되므로 선택 사항이 아니다.
+
+**고친 결함 2건**: `google_oidc_connected` 를 처음부터 fatal 로 둔 것(기존 Phase 9
+검사 4건이 깨졌고 그게 맞는 신호였음), 거절 페이지가 거절 코드를 말하지 않던 것.
+
+**보존 파일 3개 무손상 확인**: `run_candidate.py`(HOSTING 거절 3종 + 새
+`MIXED_AUTH_PATHS`), `test_ops_hosting_bind.py`(40건 통과), `requirements.txt`.
+
+**변이 19건 전건 탐지.** 검사 공백 2건(`ops health` 라인 미검사, 다른 sub 의 owner
+승격)도 추가로 닫았다. 러너 결함 3건(메서드 탐색, 동일명 정의, 모듈 함수)도
+고쳤다.
+
+**하지 않은 것**: 실제 Google 계정·클라이언트 ID·시크릿 생성이나 사용, 실제
+네트워크 호출, `pip install`, commit, push, deploy. 테스트의 두 비밀 값은 자리표시자
+문자열이며 제품 코드에는 0건이다.
+
+
+### base 가 이 턴 도중에 바뀌었습니다
+
+`HEAD: 1486a37 유지` 라고 적으려 했으나, 그대로 둘 수 없었습니다.
+
+- `99041a4` — "Complete web ledger hosting readiness and access controls" 가 이 턴 도중 **제가 아닌 주체에 의해** 만들어졌습니다
+  (`6Soo <31435325+6Soo@users.noreply.github.com> / Mon Sep 28 14:44:48 2026 +0900`).
+- `git status -sb` 는 `## main...origin/main`. ahead 표기가 없으므로 그 commit 은
+  `origin/main` 에도 반영돼 있습니다.
+- 그 commit 은 HOSTING 까지의 작업을 담고 있고, **제 OIDC 파일은 담고 있지
+  않습니다** (`webapp/google_oidc.py`, `webapp/tests/test_google_oidc.py`,
+  `requirements.txt`).
+- 이 턴의 OIDC 작업은 그대로 **커밋되지 않은 채 작업트리에** 있습니다:
+  수정 6개, 미추적 3개.
+
+저는 이 턴 동안 `git commit` 도 `git push` 도 실행하지 않았습니다. 요청대로
+작업트리에 남긴 상태이고, base 이동은 제가 일으킨 것이 아니므로 되돌리지도
+않았습니다. 다만 검증값 표의 HEAD 표기를 실제로 맞췄습니다.
+
+같은 주체가 `test_ops_hosting_bind.py` 에
+`test_production_entry_binds_fail_closed_access_before_serving` 를 추가해 둔
+상태였고, 그 검사도 통과합니다(1 passed). 제가 쓴 검사가 아닙니다.
+
+**한 번의 flaky.** 전체 suite 를 네 번 돌려 한 번
+`test_a_waiting_row_moves_to_a_trip_from_the_list` (Playwright) 가 실패했습니다.
+격리 실행과 같은 파일 연속 3번 실행에서는 매번 통과했습니다. 부하 의존으로 보고
+기록으로 남깁니다. 이 테스트는 4번 중 1번 실패한 상태이므로 **닫히지 않은 위험**이며,
+전체 suite 한 번의 통과를 근거 삼으면 안 됩니다.
+
+## 2026-09-27 · `/access/me` 의 `google_oidc_connected` 결함 (실 배포에서 발견)
+
+**증상.** Railway 에서 Google OAuth 로그인이 성공하는데 `/access/me` 가
+`google_oidc_connected: false` 를 반환했다. 같은 프로세스의 `ops health` 와
+`/auth/state` 는 `true` 였다.
+
+**원인.** `webapp/ledger_board.py` 의 `access_control_render_viewer_status` 에
+`"google_oidc_connected": False` 가 **상수**로 들어 있었다. 로그인이 실제로 동작하는
+프로세스에서도 이 라우트는 언제나 거짓을 말했다.
+
+**수정.**
+- `ledger_board.google_oidc_connection_state()` 추가 — 바인딩된 흐름을
+  `google_oidc.connection_state` 에 넘긴다. `ops.health` 가 읽던 바로 그 함수다.
+- `/access/me` 는 그 값을 읽고, **왜** 그 값인지 볼 수 있도록 상태 덩어리를 함께
+  실었다(비밀 값 없음 — 존재 여부와 모양만).
+- `ops.google_oidc_state` 의 **fallback 을 제거했다.** 같은 값을 계산하는 두 길이가
+  이 결함의 온상이었으므로 한 길만 남겼다.
+
+**주의.** `identity_source` 는 "이 세션이 어디서 왔는지"이고
+`google_oidc_connected` 는 "이 배포에 실제 로그인이 있는가" 다. 예를 들어
+`google-auth` 가 없으면 지금 세션만 서 있는 상태라 `false` 가 정상이다.
+
+**변이를 되돌린 뒤 소스 잔여물은 0건입니다.** 하드코딩된
+`"google_oidc_connected": False`, `if False`, 환경변수 참조, 예전
+`ops.google_oidc_state` fallback 흔적, 쿠키 표식 변이 흔적을 모두 검사했고
+두 파일 모두 다시 파싱됩니다.
+
+**변이 5건 전건 CAUGHT.** 그 과정에서 검사 공백 2건도 닫았다 — 판정 대신
+`configured` 를 읽는 변이(`google-auth` 없음 상태를 경로 수준에서 검사하도록
+추가), 그리고 `ops` 우회 변이(행동이 동일해 결함 형태가 아니어서 fallback 을 코드에서
+지움). 소스 문자열 검색으로 "헬퍼를 부른다"를 확인하던 검사는 **행동 검사**로 바꿨다
+(문자열 검색은 호출을 우회해도 통과한다).
+
+```
+관련:  253 passed, 42 subtests passed in 89.42s
+전체:  887 passed, 128 subtests passed in 425.51s
+```
+
+`test_google_oidc.py` 67건 → 79건. commit·push·deploy 하지 않았다.
+
+
+### 최종 실행값과 이 작업트리의 동시 작업
+
+```
+python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
+  → 887 passed, 128 subtests passed in 425.51s
+```
+
+이 결함을 고치면서 **전체 suite 를 세 번** 돌렸다. 세 번 모두
+`887 passed, 128 subtests` 로 같고 소요 시간만 달랐다
+(448.80s / 425.51s). 지난 턴에 한 번 나왔던 Playwright flaky 는 이번엔 없었다.
+
+**주의 — 이 작업트리에서 다른 주체가 작업 중입니다.** `git status` 에는 제가 건드리지
+않은 변경이 있습니다:
+
+   - docs/IMPLEMENTATION_PROMPT_WEB_LEDGER_APP.md
+   - webapp/access_control.py
+   - webapp/tests/test_access_control_phase7.py
+   - webapp/tests/test_ops_hosting_bind.py
+   - ledger/domain/reservation_access_snapshot.py
+   - tools/import_reservation_access.py
+   - webapp/tests/test_reservation_access_sync.py
+
+`ledger/domain/reservation_access_snapshot.py`,
+`tools/import_reservation_access.py`,
+`webapp/tests/test_reservation_access_sync.py` 는 예약 접근 동기화 쪽 작업으로
+보이며 제 `/access/me` 수정과는 무관합니다. `webapp/access_control.py` 와
+`test_access_control_phase7.py` 도 제가 이 결함 작업에서 건드리지 않았습니다.
+
+따라서 위 887건은 **그 변경을 포함한 수치**입니다. 제 수정만의 수치가 아닙니다.
+같은 저장소를 다른 주체가 쓰는 동안에는 전체 실행값을 단독 근거 삼지 말고, 변경된
+파일 목록과 함께 읽어야 합니다.
+
+이번 턴에 제가 쓴 파일은 이 다섯 개입니다:
+`webapp/ledger_board.py`, `webapp/ops.py`,
+`webapp/tests/test_google_oidc.py`,
+`docs/WEB_LEDGER_IMPLEMENTATION_LOG.md`,
+`docs/handoff/2026-09-27/README.md`.
+
+**동시 작업 주의.** 이 턴에 `git status` 에 제가 건드리지 않은 변경이 있고, 예약 접근
+동기화 쪽 새 파일 세 개(`ledger/domain/reservation_access_snapshot.py`,
+`tools/import_reservation_access.py`, `webapp/tests/test_reservation_access_sync.py`)
+가 나타났습니다. 다른 주체의 작업으로 보입니다. 전체 suite 네 번 모두
+`887 passed, 128 subtests` (448.80s / 425.51s / 448.80s / 390.31s) 로
+같았고, 이 값은 **그 변경을 포함**합니다. 문서 복구 뒤 다시 돌린 값도
+같은 건수였고 시간만 달랐습니다. 이 저장소가 동시 사용되는 동안에는 실행값을 단독 근거로
+쓰지 마세요.
+
+이번 턴에 제가 쓴 파일: `webapp/ledger_board.py`, `webapp/ops.py`,
+`webapp/tests/test_google_oidc.py`, `docs/WEB_LEDGER_IMPLEMENTATION_LOG.md`,
+`docs/handoff/2026-09-27/README.md`.

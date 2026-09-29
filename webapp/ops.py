@@ -53,6 +53,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import space_guard
 from .contracts import canonical_text, sha256_file
 
 # The durable configuration must name these; there is no implicit default that
@@ -73,7 +74,11 @@ HEALTH_SCHEMA_TABLES = ("board_rows", "board_revisions", "board_requests",
                         "trip_tabs", "trip_tab_requests",
                         "board_learning_cases")
 
-MIN_FREE_BYTES = 1 * 1024 * 1024
+# The threshold lives in `space_guard` because a health line and a write path
+# that each carried their own copy would be two answers to "is there enough
+# room". This alias keeps the existing name working for the health check.
+MIN_FREE_BYTES = space_guard.MIN_FREE_BYTES
+WARN_FREE_BYTES = space_guard.WARN_FREE_BYTES
 
 
 class OpsError(Exception):
@@ -81,6 +86,462 @@ class OpsError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+def reservation_sync_state(config: DurableConfig, store) -> dict:
+    """Whether the Reservation access directory has been synchronised.
+
+    The snapshot parser, the whole-directory synchronisation and an import
+    command exist, so the local half of the RESERVATION-API boundary is built.
+    What is still missing is a live transport, and this line exists so a report
+    says which half is in place instead of leaving the two indistinguishable.
+    """
+    present = _has_table(store, "access_reservation_directory_head")
+    head = None
+    if present:
+        row = store.conn.execute(
+            "SELECT snapshot_revision, digest, source_version, exported_at,"
+            " imported_at FROM access_reservation_directory_head"
+            " WHERE singleton_id=1").fetchone()
+        if row:
+            head = {"snapshot_revision": row[0], "digest": row[1],
+                    "source_version": row[2], "exported_at": row[3],
+                    "imported_at": row[4]}
+    persons = (_count_table(store, "access_reservation_persons")
+               if _has_table(store, "access_reservation_persons") else 0)
+    active = 0
+    if persons:
+        active = store.conn.execute(
+            "SELECT COUNT(*) FROM access_reservation_persons"
+            " WHERE is_active=1").fetchone()[0]
+    return {
+        "reservation_sync_present": bool(present),
+        "reservation_snapshot_imported": head is not None,
+        "reservation_head": head,
+        "reservation_persons": persons,
+        "reservation_persons_active": active,
+        "reservation_live_transport": False,
+        "reason": ("snapshot import is implemented; no live transport is "
+                   "connected, so the directory is only as current as the last "
+                   "import"),
+    }
+
+
+def _count_table(store, table) -> int:
+    if not _has_table(store, table):
+        return 0
+    return store.conn.execute(
+        f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+def parse_reservation_snapshot(payload):
+    """Parse a reservation access snapshot, or refuse it with the parser's code.
+
+    The parser is strict on purpose. One place turns its refusal into an
+    OpsError so the rehearsal and the apply path cannot answer differently, and
+    no caller has to remember to catch a bare ValueError.
+    """
+    from ledger.domain.reservation_access_snapshot import (
+        parse_reservation_access_snapshot)
+
+    try:
+        return parse_reservation_access_snapshot(payload)
+    except ValueError as exc:
+        raise OpsError(str(exc),
+                       f"예약 접근 스냅샷이 거부됐어요: {exc}") from exc
+
+
+def rehearse_reservation_sync(snapshot_bytes: bytes, db_path, *,
+                              keep_copy: bool = False) -> dict:
+    """Apply a real snapshot to a copy of the database and report the effect.
+
+    The synchronisation commits its own transaction, so an outer transaction
+    cannot be used to look without writing. Copying the database and running the
+    real code against the copy gives an exact rehearsal and touches nothing: the
+    original is hashed before and after, and a rehearsal that changed the
+    original is reported as a failure rather than as a surprise.
+
+    The parser is shared with the import command, so a snapshot that would be
+    refused by the import is refused here first, with the same code.
+    """
+    from . import access_control  # noqa: F401 - keeps the access tables present
+
+    source = Path(db_path)
+    if not source.is_file():
+        raise OpsError("RESERVATION_DB_MISSING",
+                       f"예약 접근 DB가 없어요: {source}")
+    snapshot = parse_reservation_snapshot(snapshot_bytes)
+    before = sha256_file(source)
+    staging_dir = Path(tempfile.mkdtemp(prefix="reservation-rehearsal-"))
+    try:
+        copy = staging_dir / source.name
+        shutil.copy2(source, copy)
+        import sqlite3
+
+        conn = sqlite3.connect(str(copy))
+        try:
+            store = access_control.AccessStore(conn)
+            result = store.sync_reservation_access_snapshot(snapshot=snapshot)
+        finally:
+            conn.close()
+        after = sha256_file(source)
+        if after != before:
+            raise OpsError("REHEARSAL_MUTATED_SOURCE",
+                           "연습이 원본 DB 를 바꿨어요. 이 결과는 신뢰하지 마세요")
+        report = dict(result)
+        report.update({
+            "rehearsal": True,
+            "applied_to_real_database": False,
+            "source_unchanged": True,
+            "source_sha256_before": before,
+            "source_sha256_after": after,
+            "snapshot_digest": snapshot["digest"],
+            "snapshot_revision": snapshot["snapshot_revision"],
+            "persons_in_snapshot": len(snapshot["persons"]),
+        })
+        if keep_copy:
+            report["copy_kept_at"] = str(copy)
+        return report
+    finally:
+        if not keep_copy:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def rehearse_migration(*, left_db, right_db, work_dir, migration_db,
+                       left_gate=None, right_gate=None,
+                       comparison_id="rehearsal") -> dict:
+    """Seal both sources, compare them, and report what a human would decide.
+
+    This never applies. It stops at the comparison and the record of it, which
+    is exactly the question a cutover has to answer first: what differs, what
+    exists on one side only, and what cannot be told apart at all.
+
+    Two facts about the engine shape this function and not a preference:
+
+    * `seal_and_verify_sources` writes `<side>.snapshot.json` *next to the
+      source*, because the descriptor records its candidate by bare file name.
+      A rehearsal that sealed in place would therefore write two files into the
+      operator's source directory. This function copies each source
+      byte-identically into `work_dir` and seals the copy. The digest is taken
+      from the copy, which is the same bytes, so the seal still proves the real
+      source's identity, and the source directory stays untouched.
+    * `verify_snapshot` refuses a descriptor with no
+      `candidate_semantic_sha256`. That binding is not computed here; it comes
+      from the upstream gate report, so each side needs one. Without it the
+      answer is a refusal, not a rehearsal.
+
+    The rows are read from the real sources through the engine's read-only
+    opener, and the comparison is written only to the named migration DB.
+    """
+    from . import migration as migration_module
+
+    work_dir = Path(work_dir)
+    work_dir.mkdir(parents=True, exist_ok=True)
+    left = Path(left_db)
+    right = Path(right_db)
+    for label, path in (("left", left), ("right", right)):
+        if not path.is_file():
+            raise OpsError("MIGRATION_SOURCE_MISSING",
+                           f"{label} 원본이 없어요: {path}")
+    for label, gate in (("left", left_gate), ("right", right_gate)):
+        if gate is not None and not Path(gate).is_file():
+            raise OpsError("MIGRATION_GATE_REPORT_MISSING",
+                           f"{label} 게이트 리포트가 없어요: {gate}")
+
+    # Seal copies so the source directory is never written to. The gate report
+    # is copied too: `seal_and_verify_sources` resolves a gate report next to the
+    # candidate, so a report left in the source directory would be unreachable
+    # from a candidate in the work directory. All three artifacts -- copy,
+    # report, descriptor -- then live together in `work_dir`, and the real
+    # source directory is never touched.
+    sealed_copies = {}
+    for label, source, gate in (("left", left, left_gate),
+                                ("right", right, right_gate)):
+        copy = work_dir / f"{label}-rehearsal{source.suffix or '.sqlite'}"
+        shutil.copy2(str(source), str(copy))
+        sealed_copies[label] = copy
+        if gate is not None:
+            shutil.copy2(str(gate), str(work_dir / Path(gate).name))
+    for side in ("-wal", "-shm"):
+        for copy in sealed_copies.values():
+            Path(str(copy) + side).unlink(missing_ok=True)
+
+    try:
+        sealed = migration_module.seal_and_verify_sources(
+            str(sealed_copies["left"]), str(sealed_copies["right"]),
+            str(work_dir), left_gate=left_gate, right_gate=right_gate)
+    except migration_module.MigrationError as exc:
+        raise OpsError(exc.code, exc.message) from exc
+    except Exception as exc:  # noqa: BLE001 - a contract error is an OpsError
+        raise OpsError("MIGRATION_SEAL_REFUSED", str(exc)) from exc
+
+    left_rows = migration_module.read_source_entries(str(left))
+    right_rows = migration_module.read_source_entries(str(right))
+    summary = migration_module.compare_sources(left_rows, right_rows)
+
+    store = migration_module.MigrationStore(str(migration_db))
+    try:
+        recorded = store.record_comparison(
+            comparison_id=comparison_id, left_rows=left_rows,
+            right_rows=right_rows, summary=summary)
+    finally:
+        store.close()
+
+    # A rehearsal has to say what a person would still have to decide, or it is
+    # only a count. `compare_sources` already reports which keys changed on each
+    # mismatching pair, so this reads that rather than re-deriving it and
+    # risking a second answer to the same question.
+    needs_decision = [
+        {"entry_id": row.get("entry_id", ""),
+         "identity": row.get("identity", ""),
+         "fields": list(row.get("changed_fields", []))}
+        for row in summary.get("mismatch", [])
+    ]
+    needs_decision += [
+        {"entry_id": row.get("entry_id", ""), "identity": "",
+         "fields": ["<present on google only>"]}
+        for row in summary.get("google_only", [])
+    ]
+    needs_decision += [
+        {"entry_id": row.get("entry_id", ""), "identity": "",
+         "fields": ["<present on db only>"]}
+        for row in summary.get("db_only", [])
+    ]
+    needs_decision += [
+        {"entry_id": "", "identity": "", "fields": ["<cannot be told apart>"]}
+        for _ in summary.get("ambiguous", [])
+    ]
+    return {
+        "rehearsal": True,
+        "applied": False,
+        "comparison_id": recorded.get("comparison_id", comparison_id),
+        "left_input_sha256": recorded.get("left_input_sha256"),
+        "right_input_sha256": recorded.get("right_input_sha256"),
+        "counts": summary.get("counts", {}),
+        "equal": len(summary.get("equal", [])),
+        "mismatch": len(summary.get("mismatch", [])),
+        "google_only": len(summary.get("google_only", [])),
+        "db_only": len(summary.get("db_only", [])),
+        "ambiguous": len(summary.get("ambiguous", [])),
+        # The engine labels the sides by their origin, `google` and `db`, not by
+        # the caller's `left` and `right`. Reading the caller's names here
+        # returned null for both and the report lost its seal evidence while
+        # still looking complete.
+        "sealed": {
+            "left": sealed.get("google"),
+            "right": sealed.get("db"),
+            "labels": {"left": "google", "right": "db"},
+        },
+        "sealed_copies": {k: str(v) for k, v in sealed_copies.items()},
+        "source_directories_written": False,
+        "rows_needing_a_human_decision": needs_decision,
+        "note": "비교와 기록까지만 한다. 적용하지 않았으므로 이 DB 의 어느 행도 "
+                "바뀌지 않았고, 원본 source 옆에는 아무것도 쓰지 않았다",
+    }
+
+
+def _differs(left, right, field) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    return left.get(field) != right.get(field)
+
+
+class _ReadOnlyStore:
+    """The smallest thing a report needs: a `.conn`, opened read-only.
+
+    SPEC_REFINEMENT 18.3 and 19.4 exist so a deployment is exercised before a
+    cutover. A check that opens the working database to look at it defeats the
+    purpose: `LedgerStore.__init__` creates the file and, before this was found,
+    seeded the demo board into it, so the report reported a healthy empty
+    database that it had just fabricated. The check must not create the thing it
+    checks.
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.conn = sqlite3.connect(
+            f"file:{self.path.as_posix()}?mode=ro", uri=True, timeout=5.0)
+
+    def close(self):
+        self.conn.close()
+
+
+def _probe_values_for(conn, table: str) -> tuple[list, list] | None:
+    """Column list and values for a real insert, read from the table itself.
+
+    The earlier probe wrote four columns by name. `board_revisions` requires
+    eight NOT NULL values, so on any ledger that had actually been written to
+    the insert failed and the report said the board was not writable. A ledger
+    that has never been saved happened to pass, which is why the failure only
+    appears once there is real data in it. Deriving the columns from
+    `PRAGMA table_info` means a future column cannot silently reintroduce it.
+    """
+    info = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    if not info:
+        return None
+    required = []
+    for row in info:
+        name, notnull, default = row[1], row[3], row[4]
+        if notnull and default is None:
+            required.append(name)
+    if not required:
+        required = [row[1] for row in info if row[1] != "id"]
+    values = {
+        "row_id": "ops-writability-probe",
+        "revision": 0,
+        "prev_json": "{}",
+        "new_json": "{}",
+        "event_id": "",
+        "change_mode": "probe",
+        "actor": "ops-smoke",
+        "created_at": utc_now(),
+        "client_request_id": "ops-writability-probe",
+        "kind": "probe",
+        "reverts_event_id": "",
+    }
+    missing = [c for c in required if c not in values]
+    if missing:
+        return None
+    return required, [values[c] for c in required]
+
+
+def _board_writable(db_path) -> tuple[bool, str]:
+    """Test writability for real, on a throwaway copy of the database.
+
+    A `SELECT` proves nothing about writes, and the previous version reported
+    `board_writable` from one, which is a claim the check had not earned. This
+    copies the file, writes a row on the copy inside a transaction, and rolls
+    it back. The copy is deleted either way, so the real ledger is never
+    modified by a health check, and the answer is still an observed write rather
+    than an assumed one.
+    """
+    if not Path(db_path).is_file():
+        return False, "not tested: the db file is missing"
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="webledger-writability-") as tmp:
+        probe = Path(tmp) / "probe.sqlite"
+        try:
+            shutil.copyfile(str(db_path), str(probe))
+        except OSError as exc:
+            return False, f"could not copy the db for a write test: {exc}"
+        try:
+            conn = sqlite3.connect(str(probe), timeout=5.0,
+                                   isolation_level=None)
+        except sqlite3.Error as exc:
+            return False, f"could not open a write probe: {exc}"
+        try:
+            shape = _probe_values_for(conn, "board_revisions")
+            if shape is None:
+                return False, ("could not build a probe write: the table or its "
+                               "required columns were not found")
+            columns, values = shape
+            placeholders = ",".join("?" for _ in columns)
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                f"INSERT INTO board_revisions({','.join(columns)})"
+                f" VALUES ({placeholders})", values)
+            conn.execute("ROLLBACK")
+            return True, "a write and a rollback succeeded on a copy of the db"
+        except sqlite3.Error as exc:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            return False, f"a write on a copy of the db failed: {exc}"
+        finally:
+            conn.close()
+
+
+def smoke_report(config: DurableConfig, store=None) -> dict:
+    """Could this process answer a request right now?
+
+    SPEC_REFINEMENT 18.3 and 19.4 ask for a deployment to be exercised before a
+    cutover rather than after it. This is that exercise, reduced to what can be
+    decided without a real customer, a real provider or a real hosting resource.
+
+    A blocker means the process should not be serving. A warning means it can
+    serve but something an operator decided to check is unrecorded.
+
+    The database is opened read-only and only when it already exists. A missing
+    database is reported as a missing database.
+    """
+    owned = False
+    if store is None:
+        if not config.db_path.is_file():
+            health = health_check(config)
+            blockers = list(health["failed"])
+            warnings = [c["check"] for c in health["checks"]
+                        if not c["ok"] and not c["fatal"]]
+            return {
+                "generated_at": utc_now(),
+                "environment": config.environment,
+                "ok": False,
+                "can_serve": False,
+                "blockers": sorted(set(blockers)),
+                "warnings": sorted(set(warnings)),
+                "health_ok": health["ok"],
+                "checks": health["checks"],
+                "google_oidc_connected": bool(
+                    google_oidc_state().get("google_oidc_connected")),
+                "reservation": None,
+                "board_writable": False,
+                "board_writable_detail":
+                    "not tested: the db file is missing",
+                "external_conditions_still_unmet": EXTERNAL_CONDITIONS,
+            }
+        store = _ReadOnlyStore(config.db_path)
+        owned = True
+    try:
+        return _smoke_report_with_store(config, store)
+    finally:
+        if owned:
+            store.close()
+
+
+def _smoke_report_with_store(config: DurableConfig, store) -> dict:
+    health = health_check(config, store)
+    blockers = list(health["failed"])
+    warnings = []
+    for check in health["checks"]:
+        if not check["ok"] and not check["fatal"]:
+            warnings.append(check["check"])
+
+    oidc = google_oidc_state()
+    if config.environment == "production" and not oidc.get(
+            "google_oidc_connected"):
+        blockers.append("google_oidc_connected")
+    reservation = reservation_sync_state(config, store)
+    if not reservation["reservation_live_transport"]:
+        warnings.append("reservation_live_transport")
+
+    can_read = False
+    try:
+        can_read = store.conn.execute(
+            "SELECT COUNT(*) FROM board_rows").fetchone() is not None
+    except Exception:  # noqa: BLE001 - an unreadable store is a blocker below
+        can_read = False
+    if not can_read:
+        blockers.append("board_readable")
+
+    writable, writable_detail = _board_writable(config.db_path)
+    if not writable:
+        warnings.append("board_writable")
+
+    return {
+        "generated_at": utc_now(),
+        "environment": config.environment,
+        "ok": not blockers,
+        "can_serve": not blockers,
+        "blockers": sorted(set(blockers)),
+        "warnings": sorted(set(warnings)),
+        "health_ok": health["ok"],
+        "checks": health["checks"],
+        "google_oidc_connected": bool(oidc.get("google_oidc_connected")),
+        "reservation": reservation,
+        "board_writable": writable,
+        "board_writable_detail": writable_detail,
+        "external_conditions_still_unmet": EXTERNAL_CONDITIONS,
+    }
 
 
 def utc_now() -> str:
@@ -191,7 +652,7 @@ class DurableConfig:
 
     def __init__(self, *, data_root, db_path, export_dir, evidence_dir,
                  source_dir, required_secrets=(), keep_backups=DEFAULT_KEEP_BACKUPS,
-                 environment="local-synthetic"):
+                 environment="local-synthetic", allow_missing_root: bool = False):
         self.data_root = Path(data_root).resolve()
         self.db_path = Path(db_path)
         self.export_dir = Path(export_dir)
@@ -200,9 +661,14 @@ class DurableConfig:
         self.required_secrets = tuple(required_secrets)
         self.keep_backups = int(keep_backups)
         self.environment = environment
-        self.validate()
+        # `allow_missing_root` exists for one caller: `durable_config_for`
+        # checks *where* a root is before it creates it, and the existence check
+        # cannot pass until it has. Every other caller leaves it off, so a
+        # configuration that names a directory which is not there is still a
+        # refusal.
+        self.validate(allow_missing_root=allow_missing_root)
 
-    def validate(self) -> None:
+    def validate(self, *, allow_missing_root: bool = False) -> None:
         for name in REQUIRED_SETTINGS:
             value = getattr(self, name)
             if value is None or str(value).strip() == "":
@@ -243,7 +709,7 @@ class DurableConfig:
                 raise OpsError(
                     "TEMP_DATA_ROOT",
                     f"운영 데이터 루트가 임시 디렉터리 아래예요: {temp_root}")
-        if not self.data_root.is_dir():
+        if not self.data_root.is_dir() and not allow_missing_root:
             raise OpsError("MISSING_DATA_ROOT",
                            f"데이터 루트가 없어요: {self.data_root}")
         # A durable data root inside this source checkout is refused for the
@@ -457,6 +923,27 @@ def apply_retention(config: DurableConfig) -> dict:
 
 
 # ------------------------------------------------------------------ restore
+def resolve_bundle(config: DurableConfig, bundle) -> Path:
+    """Find the bundle directory, whether the caller gave a name or a path.
+
+    `ops backup` prints the bundle's bare name, so that name is the thing an
+    operator has in front of them. Passing it straight through produced a
+    `FileNotFoundError` traceback naming a relative path against the process's
+    working directory, which is a different directory from the one the bundle
+    is in. A name is therefore resolved inside the configured backup root, and a
+    name that is not there is refused with a code rather than an exception.
+    """
+    raw = Path(str(bundle).strip())
+    if raw.is_dir():
+        return raw
+    candidate = Path(config.data_root) / "backups" / raw
+    if candidate.is_dir():
+        return candidate
+    raise OpsError("BUNDLE_NOT_FOUND",
+                   f"백업 묶음을 찾지 못했어요: {bundle}\n"
+                   f"확인한 위치: {raw} 와 {candidate}")
+
+
 def restore_bundle(config: DurableConfig, bundle, *, target_root,
                    store_factory) -> dict:
     """Restore a bundle to a separate path and re-verify the state.
@@ -465,9 +952,41 @@ def restore_bundle(config: DurableConfig, bundle, *, target_root,
     a different root, so a bad bundle can be inspected without risking the
     running data.
     """
+    bundle = resolve_bundle(config, bundle)
     manifest = json.loads((Path(bundle) / "manifest.json").read_text(
         encoding="utf-8"))
+
+    # A bundle with no recorded business state cannot be verified, and 17.3
+    # forbids passing a restore because the totals happen to match. An older
+    # bundle written before the digest existed is refused with a code rather
+    # than restored and reported as fine, because "nothing to compare" and
+    # "everything compared equal" look identical from the outside.
+    recorded_state = manifest.get("state")
+    if not isinstance(recorded_state, dict) or not recorded_state:
+        raise OpsError(
+            "BUNDLE_HAS_NO_VERIFIABLE_STATE",
+            f"이 백업 묶음에는 복구 검증 기준이 없습니다: {bundle}\n"
+            f"묶음에 기록된 상태(state)가 없어 복원 결과를 대조할 기준이 "
+            f"없습니다. 17.3이 '합계가 같다는 이유로 복구를 통과시키지 않는다'고 "
+            f"정했으므로, 새 묶음으로 다시 백업한 뒤 복원해 주세요.")
     target_root = Path(target_root)
+    # A restore target has to be empty. Copying a bundle over the top of a
+    # previous restore leaves files from two different bundles in one directory,
+    # and the report then describes a directory that no single backup produced.
+    # An operator who wants the old copy keeps it by naming a new target.
+    if target_root.exists():
+        if not target_root.is_dir():
+            raise OpsError("RESTORE_TARGET_NOT_A_DIRECTORY",
+                           f"복원 대상이 디렉터리가 아니에요: {target_root}")
+        existing = sorted(p.name for p in target_root.iterdir())
+        if existing:
+            raise OpsError(
+                "RESTORE_TARGET_NOT_EMPTY",
+                f"복원 대상이 비어 있지 않아요: {target_root}\n"
+                f"들어 있는 항목: {existing}\n"
+                f"서로 다른 두 묶음이 한 디렉터리에 섞이면 복구 결과가 어느 "
+                f"백업의 것인지 알 수 없습니다. 비어 있는 경로를 지정하거나 "
+                f"기존 내용을 따로 옮겨 주세요.")
     target_root.mkdir(parents=True, exist_ok=True)
 
     problems = []
@@ -770,6 +1289,24 @@ def _synthetic_sessions_allowed() -> bool:
     return bool(getattr(adapter, "allow_synthetic", False))
 
 
+def google_oidc_state() -> dict:
+    """Whether a real Google login is connected, for a health line or a report.
+
+    One function, one path. The board owns the bound flow and the board reads
+    the real state, so this delegates instead of re-deriving anything. An
+    earlier version had a fallback that computed the same answer by another
+    route; two routes that are meant to agree are how a health check and a screen
+    end up telling an operator different things.
+
+    Nothing here re-derives the answer from the environment. A report has to
+    describe the process that is actually serving, not the settings someone meant
+    to apply — the environment can be fully set while the process bound no flow.
+    """
+    from . import ledger_board
+
+    return ledger_board.google_oidc_connection_state()
+
+
 def _has_table(store, name) -> bool:
     return store.conn.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
@@ -809,6 +1346,20 @@ def health_check(config: DurableConfig, store=None) -> dict:
     free = _free_bytes(config.data_root)
     add("free_space", free is not None and free >= MIN_FREE_BYTES,
         f"{free} bytes" if free is not None else "free space unknown")
+    # SPEC_REFINEMENT 19.3 asks for a warning *before* the volume is full, not
+    # at the moment a write is refused. The first line is fatal at the same
+    # threshold a write uses; this one is not, and it names what will start
+    # being refused so an operator can act on the number.
+    headroom = (free is not None
+                and free - MIN_FREE_BYTES < space_guard.WARN_FREE_BYTES)
+    add("free_space_headroom",
+        not headroom,
+        f"{WARN_FREE_BYTES - MIN_FREE_BYTES} bytes below this and writes will "
+        f"start being refused; free={free} bytes"
+        if headroom else
+        ("free space unknown" if free is None
+         else f"writes keep their headroom; free={free} bytes"),
+        fatal=False)
     secrets = config.secret_state()
     missing_secrets = [name for name, present in secrets.items() if not present]
     add("required_secrets", not missing_secrets,
@@ -824,6 +1375,22 @@ def health_check(config: DurableConfig, store=None) -> dict:
         "synthetic session adapter is allowed; not an operational auth path"
         if synthetic else
         "no synthetic session allowance; access must come from a real login")
+    # A real Google login path is a separate fact from "the synthetic seam is
+    # off". Turning one off does not turn the other on, so they are two lines.
+    #
+    # The line is reported always and is fatal only in production. A local or
+    # synthetic run legitimately has no Google login yet, and making it fatal
+    # there would mean `ops health` fails for a run that is working as declared.
+    # In production a runbook with no real login serves nobody, so it is fatal.
+    oidc = google_oidc_state()
+    add("google_oidc_connected", bool(oidc.get("google_oidc_connected")),
+        oidc.get("reason") or (
+            f"google OIDC connected, library="
+            f"{'available' if oidc.get('library_available') else 'missing'}"
+            + (", owner bootstrap configured" if oidc.get(
+                "owner_bootstrap_configured") else
+                ", no owner sub configured")),
+        fatal=config.environment == "production")
     fatal_failed = [c["check"] for c in checks if c["fatal"] and not c["ok"]]
     return {
         "ok": not fatal_failed,
@@ -990,25 +1557,36 @@ def readiness_report(config: DurableConfig, store, *, measurements=None) -> dict
 # They are listed here so a green local run cannot be read as a release.
 EXTERNAL_CONDITIONS = [
     {"id": "HOSTING-RESOURCE",
-     "condition": "상시 실행 호스팅 자원 확보 (예: Oracle Always Free)",
+     "condition": "실시 전행 호스팅 자원 확보 (예: Oracle Always Free)",
      "state": "not_provisioned",
-     "needs": "사용자 승인 + 계정/카드 등록",
-     "code_status": "not_implemented"},
+     "needs": "사용자 로그인 + 계정/카드 등록",
+     # The readiness code exists and is exercised: `cli serve --host`, a
+     # durable data root, a systemd example, the runbook, `ops health`,
+     # `ops smoke` and a gate that refuses to serve a misconfigured host.
+     # Reporting `not_implemented` here would have said the phase is unbuilt
+     # when what is actually missing is a server to run it on.
+     "code_status": "operational_readiness_implemented_awaits_resource"},
     {"id": "GOOGLE-OIDC-CLIENT",
      "condition": "Google OAuth 클라이언트 ID와 허용 콜백 주소",
      "state": "no_credentials",
      "needs": "사용자가 콘솔에서 발급 후 환경 설정으로 제공",
-     "code_status": "synthetic_session_only"},
+     # The Authorization Code flow is implemented and its boundaries are
+     # tested, so the code is no longer a synthetic-only stand-in. What is
+     # still missing is a real client: this condition stays open.
+     "code_status": "implemented_awaits_client"},
     {"id": "RESERVATION-API",
      "condition": "예약 시스템 담당자·배정 API 연결",
      "state": "not_connected",
      "needs": "예약 저장소 엔드포인트와 인증 방식",
-     "code_status": "synthetic_assignment_only"},
+     "code_status": "snapshot_sync_implemented_awaits_live_transport"},
     {"id": "PRODUCTION-DB",
-     "condition": "운영 DB 경로 확정과 최초 이관 승인",
+     "condition": "운영 DB 경로 지정과 최초 시드 확인",
      "state": "not_migrated",
      "needs": "실제 Google 기준본과 운영 DB",
-     "code_status": "phase8_synthetic_only"},
+     # `ops migrate-rehearsal` seals, compares and records without applying,
+     # so the pipeline is exercised locally. Only the real sources and the
+     # operational database are missing, and neither can be synthesised.
+     "code_status": "synthetic_rehearsal_only_awaits_real_sources"},
     {"id": "PAID-RESOURCE",
      "condition": "유료 전환이 필요한 경우 별도 승인",
      "state": "not_approved",
@@ -1017,8 +1595,10 @@ EXTERNAL_CONDITIONS = [
     {"id": "DEPLOY",
      "condition": "운영 배포",
      "state": "not_deployed",
-     "needs": "위 조건 정리 후 사용자 승인",
-     "code_status": "dry_run_only"},
+     "needs": "위 조건 정리와 사용자 승인",
+     # A deploy manifest, a dry run and a pre-bind readiness gate exist. None
+     # of them is a deployment, so the condition stays open.
+     "code_status": "gated_and_dry_run_only_awaits_deployment"},
 ]
 
 
@@ -1098,8 +1678,17 @@ def build_deploy_manifest(config: DurableConfig, *, host_role="local-single",
     a server that terminates no TLS. The acknowledgement has to be made.
     """
     if entry_command is None:
-        entry_command = [python_executable or sys.executable, "-m",
-                         "webapp.cli", "serve"]
+        # The default has to be a command that runs with no further arguments.
+        # It was `webapp.cli serve`, which requires `--snapshot`; a manifest that
+        # named it passed the "entry command present" check and then failed the
+        # moment anybody followed it. A dry run that cannot be executed is not a
+        # dry run.
+        entry_command = [python_executable or sys.executable,
+                         str(Path(__file__).resolve().parent.parent
+                             / "run_candidate.py"),
+                         "--data-root", str(config.data_root),
+                         "--environment", config.environment,
+                         "--require-ready"]
     return {
         "manifest_version": 1,
         "service": service_name,
@@ -1126,6 +1715,48 @@ def build_deploy_manifest(config: DurableConfig, *, host_role="local-single",
     }
 
 
+def _entry_command_is_runnable(command) -> bool:
+    """Whether the recorded entry command could actually be started here.
+
+    "Present" was the only test before, and a command with a required argument
+    nobody filled in is present, printable and useless: the default named
+    `webapp.cli serve`, which requires `--snapshot`. The dry run passed and the
+    deployment then failed on first start. This parses the recorded arguments
+    against the real entry point, so a missing required argument is a failure of
+    the manifest rather than of the deployment.
+    """
+    if not command or not isinstance(command, (list, tuple)):
+        return False
+    parts = [str(p) for p in command]
+    if not parts:
+        return False
+    script = parts[1] if len(parts) > 1 else ""
+    if script.endswith(".py") and not Path(script).is_file():
+        return False
+    if script.endswith("run_candidate.py"):
+        import argparse
+        import importlib.util
+
+        entry_source = Path(__file__).resolve().parent.parent / script
+        spec = importlib.util.spec_from_file_location("_webledger_entry",
+                                                      entry_source)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        parser = module.build_parser()
+        try:
+            parsed = parser.parse_args(parts[2:])
+        except SystemExit:
+            return False
+        # The entry point takes no *required* argument, because the data root may
+        # come from the environment. A recorded command with neither the flag nor
+        # the variable is still unrunnable, and it fails at start-up rather than
+        # at parse time, which is the worst moment to find out.
+        if getattr(parsed, "data_root", None) in (None, "") and not \
+                os.environ.get("WEBLEDGER_DATA_ROOT"):
+            return False
+    return True
+
+
 def dry_run_deploy(config: DurableConfig, manifest) -> dict:
     """Validate the manifest against the local configuration. Applies nothing."""
     results = []
@@ -1144,6 +1775,11 @@ def dry_run_deploy(config: DurableConfig, manifest) -> dict:
     check("entry_command_present",
           bool(manifest.get("entry", {}).get("command")),
           "a manifest that names no command cannot be run")
+    entry = manifest.get("entry", {})
+    check("entry_command_is_runnable",
+          _entry_command_is_runnable(entry.get("command")),
+          "the recorded entry command does not parse, or names a file this "
+          "checkout does not contain, or is missing a required argument")
     bind = manifest.get("bind")
     check("bind_posture_recorded", bool(bind),
           "the manifest must state which addresses the app port answers on")
@@ -1186,6 +1822,14 @@ def dry_run_deploy(config: DurableConfig, manifest) -> dict:
           "synthetic session allowance must be off for a runbook"
           if _synthetic_sessions_allowed()
           else "no synthetic session allowance")
+    oidc = google_oidc_state()
+    check("google_oidc_connection_recorded", "google_oidc_connected" in oidc,
+          f"google_oidc_connected={oidc.get('google_oidc_connected')}")
+    # A production runbook with no real login path serves nobody, and one with
+    # only the synthetic seam serves a session header. Both are findings.
+    if config.environment == "production":
+        check("google_oidc_connected", bool(oidc.get("google_oidc_connected")),
+              oidc.get("reason") or "a production runbook needs a real login")
     failed = [r["check"] for r in results if not r["ok"]]
     return {"ok": not failed, "failed": failed, "checks": results,
             "applied": False,
@@ -1522,11 +2166,11 @@ def _inside_source_checkout(path) -> bool:
 
 
 def _free_bytes(path: Path):
-    try:
-        usage = shutil.disk_usage(str(path))
-        return usage.free
-    except OSError:
-        return None
+    # Delegates rather than measuring. A second implementation here would be a
+    # second answer to "how much room is left", and a health line that read a
+    # different number than the guard a write used is how an operator ends up
+    # told `ok` by one surface and refused by the other.
+    return space_guard.free_bytes(path)
 
 
 def durable_config_for(data_root, *, required_secrets=(),
@@ -1544,6 +2188,21 @@ def durable_config_for(data_root, *, required_secrets=(),
     """
     root = Path(data_root).resolve()
     if create:
+        # Where the root *is* is checked before anything is created. A relative
+        # path, a development default, a temp-rooted production root and a root
+        # inside the checkout are all decisions the caller has to change, and
+        # every one of those refusals used to arrive after four directories had
+        # already been made -- so a refused configuration left debris for the
+        # operator to clean up. The existence check is skipped here because the
+        # directory is what the next step creates; the real constructor runs it.
+        DurableConfig(
+            data_root=root, db_path=root / "board.sqlite",
+            export_dir=root / "exports", evidence_dir=root / "evidence",
+            source_dir=root / "source", required_secrets=required_secrets,
+            keep_backups=keep_backups, environment=environment,
+            allow_missing_root=True)
+        for sub in ("", "exports", "evidence", "source"):
+            (root / sub if sub else root).mkdir(parents=True, exist_ok=True)
         for sub in ("", "exports", "evidence", "source"):
             (root / sub if sub else root).mkdir(parents=True, exist_ok=True)
     return DurableConfig(

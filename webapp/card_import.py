@@ -37,10 +37,47 @@ import io
 import json
 import sqlite3
 
+from .space_guard import (IMPORT_FILE_OVERHEAD_BYTES, IMPORT_ROW_BYTES,
+                           SpaceRefused, reserve, reserve_conn)
+
 PROFILE_ID = "synthetic-card-v1"
 REQUIRED_COLUMNS = ("occurred_on", "merchant", "amount_krw")
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 CHUNK_SIZE = 50
+
+# Bytes one import summary update costs.
+IMPORT_SUMMARY_BYTES = 4 * 1024
+
+
+def _database_file(conn) -> str:
+    """The file this connection writes to, for a free-space probe.
+
+    `PRAGMA database_list` is the connection's own answer. Guessing from an
+    attribute would be a second source of truth about where the ledger lives,
+    and a probe on the wrong volume is a probe of the wrong disk.
+    """
+    row = conn.execute("PRAGMA database_list").fetchone()
+    if row and row[2]:
+        return row[2]
+    return "."
+
+
+def reserve_acceptance_space(content: bytes, conn) -> None:
+    """Refuse a card file the volume cannot hold.
+
+    Raises `SpaceRefused` before the caller writes a batch row, so a refused
+    file leaves no trace and cannot be mistaken for a received one. The file's
+    own bytes plus a fixed allowance for the rows it will produce is what is
+    asked for; the allowance is stated as an allowance.
+    """
+    reserve(_database_file(conn),
+            len(content) + IMPORT_FILE_OVERHEAD_BYTES,
+            code="IMPORT_NO_SPACE", what="카드 파일을 받는 데")
+
+
+# The output path raises the same class. One name at the seam keeps a caller
+# from having to know which module a refusal came from.
+SourceFileRefused = SpaceRefused
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS card_import_batches (
@@ -237,6 +274,11 @@ class CardImporter:
     def receive(self, content: bytes, file_name: str) -> dict:
         if len(content) > MAX_UPLOAD_BYTES:
             raise ImportError("IMPORT_TOO_LARGE", "파일이 너무 커요")
+        # SPEC_REFINEMENT 19.3: a volume that cannot hold the file refuses the
+        # *acceptance*, before any batch row exists, so a file that was never
+        # received is not recorded as received. The digest is computed first so
+        # a re-upload of a file that is already stored is answered from the
+        # existing batch rather than refused for space it does not need.
         digest = _sha256_bytes(content)
         batch_id = f"imp-{digest[:16]}"
         existing = self.conn.execute(
@@ -246,6 +288,7 @@ class CardImporter:
         if existing:
             return {"batch_id": existing[0], "reused": True,
                     "status": existing[1], "result": json.loads(existing[2])}
+        reserve_acceptance_space(content, self.conn)
         rows = parse_csv(content)
         self.conn.execute("BEGIN IMMEDIATE")
         try:
@@ -310,7 +353,14 @@ class CardImporter:
 
 
     def process(self, batch_id: str, limit: int | None = None) -> dict:
-        """Reconcile parsed rows from cursor. Returns batch summary."""
+        """Reconcile parsed rows from cursor. Returns batch summary.
+
+        19.3: the file was already accepted, so the space it needs was already
+        reserved once. This loop writes the parsed rows, their events and their
+        decisions, so it reserves for the rows it is about to write rather than
+        assuming the acceptance reservation covered them. A refusal here leaves
+        the batch at its cursor, which is what makes the retry honest.
+        """
         limit = CHUNK_SIZE if limit is None else limit
         rows = self.conn.execute(
             "SELECT row_index, stable_key, raw_json, status FROM card_import_rows"
@@ -318,6 +368,16 @@ class CardImporter:
             " WHERE batch_id=?) AND status='parsed' ORDER BY row_index LIMIT ?",
             (batch_id, batch_id, limit),
         ).fetchall()
+        # Nothing to write, so nothing to reserve for. Reserving anyway would
+        # refuse an empty batch on a full volume for no reason.
+        if not rows:
+            return self._process_rows(batch_id, rows)
+        with reserve_conn(self.conn, len(rows) * IMPORT_ROW_BYTES,
+                          code="IMPORT_ROW_NO_SPACE",
+                          what="가져온 카드 행을 기록하는 데"):
+            return self._process_rows(batch_id, rows)
+
+    def _process_rows(self, batch_id: str, rows) -> dict:
         for row_index, key, raw_json, _ in rows:
             fields = json.loads(raw_json)
             ok, event = classify_parsed(fields)
@@ -457,11 +517,17 @@ class CardImporter:
             "placed_trips": counters.get("placed_trips", 0),
             "placed_unclassified": counters.get("placed_unclassified", 0),
         }
-        self.conn.execute(
-            "UPDATE card_import_batches SET status=?, result_json=? WHERE batch_id=?",
-            (status, json.dumps(result, ensure_ascii=False), batch_id),
-        )
-        self.conn.commit()
+        # 19.3: the summary is the record that says the import finished, so a
+        # volume that cannot take it must not be told the import completed. The
+        # refusal leaves the batch status as it was, which is the honest state.
+        with reserve_conn(self.conn, IMPORT_SUMMARY_BYTES,
+                          code="IMPORT_SUMMARY_NO_SPACE",
+                          what="가져오기 결과를 기록하는 데"):
+            self.conn.execute(
+                "UPDATE card_import_batches SET status=?, result_json=? WHERE batch_id=?",
+                (status, json.dumps(result, ensure_ascii=False), batch_id),
+            )
+            self.conn.commit()
         return result
 
     def progress(self, batch_id: str):

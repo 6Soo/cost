@@ -26,6 +26,11 @@ from pathlib import Path
 
 from . import ledger_board as board
 from .operator_ledger import LedgerError, OperatorLedger
+from .space_guard import SpaceRefused, reserve
+
+# Bytes one row save is assumed to need. A row is small; the number exists so
+# the refusal says how much it wanted, not because the estimate is precise.
+SAVE_BYTES_PER_ROW = 8 * 1024
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS board_rows (
@@ -367,6 +372,19 @@ class SaveError(Exception):
         self.code = code
 
 
+def space_refused_as_save_error(exc: SpaceRefused) -> SaveError:
+    """Carry a space refusal in the shape the save callers already handle.
+
+    Every state-changing path in this store now reserves space inside
+    `_begin_write`, so the refusal arrives from many places rather than one. The
+    caller of `save` already handles `SaveError`; letting a second exception
+    class escape would make every caller learn a second way to be told that a
+    write did not happen. The code is preserved so a caller can still tell a
+    space refusal from an edit conflict.
+    """
+    return SaveError(exc.code, exc.message)
+
+
 def _utc_now() -> str:
     import datetime as _dt
 
@@ -569,7 +587,16 @@ def _row_to_record(kind: str, row: dict) -> dict:
 class LedgerStore:
     """Synthetic working-DB save path with operator-ledger audit trail."""
 
-    def __init__(self, path, ledger: OperatorLedger | None = None):
+    def __init__(self, path, ledger: OperatorLedger | None = None,
+                 seed_demo: bool = True):
+        """Open the working database.
+
+        `seed_demo` defaults to True so every existing caller keeps the demo
+        board a developer expects. SPEC_REFINEMENT 18.3 5항 forbids synthetic
+        seed rows at an *operational* start, so a process that is about to
+        serve a real ledger passes False: an empty data root then stays empty
+        and the operator sees no fabricated trips.
+        """
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         first_create = not self.path.exists()
@@ -578,6 +605,7 @@ class LedgerStore:
             check_same_thread=False,
         )
         self._lock = threading.RLock()
+        self._space_hold = None
         # A pending turn belongs to the process that sent it. Every store in
         # this process shares one run id, so a second connection is not a
         # restart.
@@ -589,9 +617,10 @@ class LedgerStore:
         _ensure_rule_turn_columns(self.conn)
         _ensure_trip_tab_columns(self.conn)
         self._register_process_lease()
-        if first_create:
-            self._seed()
-        self._ensure_trips()
+        if seed_demo:
+            if first_create:
+                self._seed()
+            self._ensure_trips()
         operator_path = self.path.with_suffix(".operator.sqlite")
         if not operator_path.exists():
             OperatorLedger.create(str(operator_path))
@@ -612,6 +641,67 @@ class LedgerStore:
                  today, SYNTHETIC_OWNER_NAME, 0, 0, 1),
             )
         self.conn.commit()
+
+    def _begin_write(self, *, needed_bytes: int = None, code: str = "WRITE_NO_SPACE",
+                     what: str = "데이터를 쓰는 데") -> None:
+        """Open a write transaction, after reserving space for it.
+
+        Every state-changing path in this store funnels through here, which is
+        the point: a new write method cannot join the ones that are protected
+        without adding itself to this one line. The previous version guarded
+        only `save`, and 47 other entry points wrote to the same database
+        without the policy 19.3 describes.
+
+        The reservation is taken before the transaction opens, so a refusal
+        leaves no open transaction and nothing half-applied.
+        """
+        from . import space_guard
+
+        hold = space_guard.reserve_write(
+            self.path,
+            space_guard.WRITE_BYTES if needed_bytes is None else needed_bytes,
+            code=code, what=what)
+        self._space_hold = hold
+        self._space_hold.__enter__()
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+        except BaseException:
+            self._release_write_space()
+            raise
+
+    def _commit_write(self) -> None:
+        """End a guarded write transaction and hand the reserved space back.
+
+        Idempotent on purpose: a path that rolls back and then commits, or
+        rolls back twice, must not double-release or fail. Releasing a
+        reservation that is not held is a no-op.
+        """
+        try:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+            else:
+                self.conn.commit()
+        finally:
+            self._release_write_space()
+
+    def _rollback_write(self) -> None:
+        """Abandon a guarded write transaction and give the space back.
+
+        A rollback is how a refused or failed write returns, so holding the
+        reservation through it would shrink the volume's apparent headroom
+        with every failed attempt until good writes were refused too.
+        """
+        try:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+        finally:
+            self._release_write_space()
+
+    def _release_write_space(self) -> None:
+        hold = getattr(self, "_space_hold", None)
+        if hold is not None:
+            self._space_hold = None
+            hold.__exit__(None, None, None)
 
     def _seed(self) -> None:
         for row in board.EXPENSES:
@@ -722,15 +812,29 @@ class LedgerStore:
             "at": _utc_now(),
         }
         with self._lock:
-            self.conn.execute(
-                "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
-                " event_id, change_mode, actor, created_at, client_request_id,"
-                " kind, reverts_event_id) VALUES (?,?,?,?,?,?,?,?,?,?,'')",
-                (row_id, int(current.get("revision") or 0),
-                 _canonical(current), _canonical(note), "", "conflict", actor,
-                 _utc_now(), str(client_request_id or ""), "conflict"),
-            )
-            self.conn.commit()
+            # This note is written in its own transaction, so it never reaches
+            # `_begin_write`. It still appends a revision row to the same
+            # database, so it takes the same space reservation; a conflict note
+            # that could not be stored would leave the UI showing a state the
+            # database does not have.
+            self._begin_write(code="CONFLICT_NOTE_NO_SPACE",
+                              what="충돌 기록을 남기는 데")
+            try:
+                self.conn.execute(
+                    "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
+                    " event_id, change_mode, actor, created_at, client_request_id,"
+                    " kind, reverts_event_id) VALUES (?,?,?,?,?,?,?,?,?,?,'')",
+                    (row_id, int(current.get("revision") or 0),
+                     _canonical(current), _canonical(note), "", "conflict", actor,
+                     _utc_now(), str(client_request_id or ""), "conflict"),
+                )
+                self._commit_write()
+            except SpaceRefused:
+                self._rollback_write()
+                raise
+            except Exception:
+                self._rollback_write()
+                raise
         return note
 
     def row_conflict(self, row_id: str):
@@ -1000,7 +1104,7 @@ class LedgerStore:
             restored["revision"] = new_revision
             target_event = target.get("event_id") or ""
             outbox_id = f"ledger-{client_request_id}"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM board_rows WHERE row_id=?", (row_id,)
@@ -1076,10 +1180,10 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -1095,7 +1199,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -1109,7 +1213,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -1309,7 +1413,7 @@ class LedgerStore:
                     "RULE_ONE_OFF",
                     "이번 거래만 적용하기로 한 답변이 있어 규칙을 만들지 않아요")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 if self._rule_row(rule_id) is not None:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 초안을 보냈어요")
@@ -1330,9 +1434,9 @@ class LedgerStore:
                 self.conn.execute(
                     "UPDATE board_learning_cases SET dialog_state='drafted' WHERE case_id=?",
                     (case_id,))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return self._rule_dict(self._rule_row(rule_id))
 
@@ -1489,7 +1593,7 @@ class LedgerStore:
             self._replay_pending()
             plan = self.build_rule_preview(
                 rule_id, apply_existing=apply_existing, apply_future=apply_future)
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "INSERT OR REPLACE INTO rule_previews(preview_id, rule_id, rule_hash,"
@@ -1497,9 +1601,9 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?,?,?,?)",
                     (plan["preview_id"], rule_id, plan["rule_hash"], plan["rule_version"],
                      int(apply_existing), int(apply_future), _canonical(plan), _utc_now()))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return plan
 
@@ -1586,7 +1690,7 @@ class LedgerStore:
                 resolved.append((row_id, current, changes))
             created_at = _utc_now()
             applied = []
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 boundary = None
                 if apply_future:
@@ -1678,12 +1782,12 @@ class LedgerStore:
                     " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
                     (client_request_id, preview_id, _canonical(request),
                      _canonical(result), created_at))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             except sqlite3.IntegrityError:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 found = self.conn.execute(
                     "SELECT request_json, result_json FROM rule_apply_requests"
                     " WHERE client_request_id=?", (client_request_id,)).fetchone()
@@ -1691,7 +1795,7 @@ class LedgerStore:
                     return json.loads(found[1])
                 raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             for row_id, _current, _changes in resolved:
                 self._relay_outbox([f"ledger-{client_request_id}-{row_id}"])
@@ -1857,7 +1961,7 @@ class LedgerStore:
                 raise SaveError(exc.code, str(exc))
             digest = rule_hash(rule)
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.get_rule(rule_id)
                 if fresh is None or fresh["version"] != stored["version"]:
@@ -1878,9 +1982,9 @@ class LedgerStore:
                 result = self.get_rule(rule_id)
                 self._store_lifecycle_request(client_request_id, operation, request,
                                               result, created_at)
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -1912,7 +2016,7 @@ class LedgerStore:
             if old_rule["status"] == "superseded":
                 raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 if self.get_rule(old_rule_id)["status"] != old_rule["status"]:
                     raise SaveError("EDIT_CONFLICT", "규칙 상태가 먼저 바뀌었어요")
@@ -1945,9 +2049,9 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?,?)",
                     (f"sup-{client_request_id}", new_rule_id, old_rule_id,
                      client_request_id, _canonical(result), created_at))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -1976,7 +2080,7 @@ class LedgerStore:
                 raise SaveError("RULE_SUPERSEDED", "이미 대체된 규칙이에요")
             status = "active" if (apply_existing or apply_future) else stored["status"]
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE classification_rules SET status=?, apply_existing=?,"
@@ -2003,9 +2107,9 @@ class LedgerStore:
                 }
                 self._store_lifecycle_request(client_request_id, operation, request,
                                               result, created_at)
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -2102,7 +2206,7 @@ class LedgerStore:
                 raise SaveError("INVALID_VALUE", "사례에 연결된 행이 없어요")
             existing = self._dialog_row(learning_case_id)
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "INSERT OR REPLACE INTO rule_dialogs(case_id, row_id, row_revision,"
@@ -2123,9 +2227,9 @@ class LedgerStore:
                 self.conn.execute(
                     "UPDATE board_learning_cases SET dialog_state='open' WHERE case_id=?",
                     (learning_case_id,))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             state = self.rule_dialog_state(learning_case_id)
             state["requested_scope"] = {"apply_existing": bool(apply_existing),
@@ -2167,7 +2271,7 @@ class LedgerStore:
                     "DIALOG_STALE",
                     "대화 중이던 행이 바뀌었어요. 최신 행을 보고 다시 여세요")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE rule_questions SET answer=?, answered_at=? WHERE question_id=?",
@@ -2182,9 +2286,9 @@ class LedgerStore:
                     " request_json, result_json, created_at) VALUES (?,?,?,?,?)",
                     (client_request_id, question_id, _canonical(request),
                      _canonical(result), created_at))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -2199,7 +2303,7 @@ class LedgerStore:
             if dialog is None:
                 raise SaveError("INVALID_VALUE", "아직 시작하지 않은 대화예요")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE rule_dialogs SET dialog_state='closed', updated_at=?"
@@ -2207,9 +2311,9 @@ class LedgerStore:
                 self.conn.execute(
                     "UPDATE board_learning_cases SET dialog_state='closed' WHERE case_id=?",
                     (learning_case_id,))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             state = self.rule_dialog_state(learning_case_id)
             state["closed"] = True
@@ -2227,7 +2331,7 @@ class LedgerStore:
             if dialog is None:
                 raise SaveError("INVALID_VALUE", "아직 시작하지 않은 대화예요")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE rule_dialogs SET dialog_state='open', row_revision=?,"
@@ -2236,9 +2340,9 @@ class LedgerStore:
                 self.conn.execute(
                     "UPDATE board_learning_cases SET dialog_state='open' WHERE case_id=?",
                     (learning_case_id,))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             state = self.rule_dialog_state(learning_case_id)
             state["resumed"] = True
@@ -2286,7 +2390,7 @@ class LedgerStore:
             created_at = _utc_now()
             conversation_id = f"conv-{learning_case_id}"
             dialog = self._dialog_row(learning_case_id)
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "INSERT INTO rule_conversations(conversation_id, case_id, rule_id,"
@@ -2295,9 +2399,9 @@ class LedgerStore:
                     " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (conversation_id, learning_case_id, None, None, "",
                      None, None, "open", 0, created_at, created_at))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             result = self.conversation_state(conversation_id)
             self._store_lifecycle_request(client_request_id, "conversation_open",
@@ -2448,7 +2552,7 @@ class LedgerStore:
             # is written yet, so an answer to a send that never finished cannot
             # be adopted without a validation pass.
             sending_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "INSERT OR REPLACE INTO rule_turns(turn_id, conversation_id, state,"
@@ -2459,9 +2563,9 @@ class LedgerStore:
                     (turn_id, conversation_id, "pending", self._process_run_id, "",
                      None, None, None, 0, 0, "{}", _canonical({"phase": "sending"}),
                      sending_at))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
 
             outcome = run_turn(turn_id=turn_id, context=context, muse=muse, gemini=gemini)
@@ -2504,7 +2608,7 @@ class LedgerStore:
                                    "message": str(exc)}
                     stored_draft = {}
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 for item in outcome.attempts:
                     self.conn.execute(
@@ -2555,9 +2659,9 @@ class LedgerStore:
                 result["is_real_call"] = bool(outcome.is_real_call)
                 result["request_id"] = client_request_id
                 self._store_turn_request(client_request_id, request, result, created_at)
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -2618,7 +2722,7 @@ class LedgerStore:
             else:
                 # A waiting turn already concluded: every provider answered.
                 status, reason = "refused", "turn_already_concluded"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "INSERT OR REPLACE INTO rule_late_responses(late_id, conversation_id,"
@@ -2630,9 +2734,9 @@ class LedgerStore:
                 result["late"] = {"attempt_id": attempt_id, "status": status,
                                   "reason": reason, "request_id": client_request_id}
                 self._store_turn_request(client_request_id, request, result, created_at)
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -2682,7 +2786,7 @@ class LedgerStore:
                 if row is None:
                     raise SaveError("INVALID_VALUE", "사례에 연결된 행이 없어요")
                 created_at = _utc_now()
-                self.conn.execute("BEGIN IMMEDIATE")
+                self._begin_write()
                 try:
                     self.conn.execute(
                         "INSERT INTO rule_dialogs(case_id, row_id, row_revision,"
@@ -2693,15 +2797,15 @@ class LedgerStore:
                     self.conn.execute(
                         "UPDATE board_learning_cases SET dialog_state='open'"
                         " WHERE case_id=?", (learning_case_id,))
-                    self.conn.execute("COMMIT")
+                    self._commit_write()
                 except Exception:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                     raise
                 dialog = self._dialog_row(learning_case_id)
             draft = json.loads(dialog[3])
             draft["note"] = str(note or "")
             created_at = _utc_now()
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE rule_dialogs SET draft_json=?, updated_at=? WHERE case_id=?",
@@ -2711,9 +2815,9 @@ class LedgerStore:
                 result["request_id"] = client_request_id
                 self._store_lifecycle_request(client_request_id, "dialog_note", request,
                                               result, created_at)
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             return result
 
@@ -2787,15 +2891,15 @@ class LedgerStore:
             draft=draft,
             client_request_id=client_request_id, actor=actor)
         with self._lock:
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 self.conn.execute(
                     "UPDATE rule_conversations SET rule_id=?, rule_version=?, updated_at=?"
                     " WHERE case_id=?", (result["rule_id"], result["version"],
                                          _utc_now(), learning_case_id))
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
         payload = self.rule_dialog_state(learning_case_id)
         payload["rule"] = result
@@ -2999,6 +3103,14 @@ class LedgerStore:
                 if stored["row_id"] != row_id or stored["expected_revision"] != expected_revision or stored["changes"] != changes or stored["change_mode"] != change_mode:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 return stored["result"]
+            # SPEC_REFINEMENT 19.3 puts row saving last, and only when even the
+            # minimum headroom is gone: a save is never reported as a success it
+            # did not achieve. The reservation happens inside `_begin_write`
+            # below, which every write in this store now goes through. It is
+            # reached *after* the stored-result replay on purpose: a request
+            # that already completed performs no write, so refusing it for
+            # space it does not need would report a finished request as a new
+            # failure.
             current = self.get_row(row_id)
             if current is None:
                 raise SaveError("INVALID_VALUE", "없는 행이에요")
@@ -3019,7 +3131,8 @@ class LedgerStore:
                     "affected_tab_ids": sorted({t for t in (prev["display_tab_id"], new["display_tab_id"]) if t}),
                     "learning_case_id": None, "request_id": client_request_id,
                 }
-                self.conn.execute("BEGIN IMMEDIATE")
+                self._begin_write(code="SAVE_NO_SPACE",
+                                  what="행을 저장하는 데")
                 try:
                     self.conn.execute(
                         "INSERT INTO board_requests(client_request_id, row_id, expected_revision,"
@@ -3029,9 +3142,12 @@ class LedgerStore:
                                      "changes": changes, "change_mode": change_mode, "result": result}),
                          0, _utc_now()),
                     )
-                    self.conn.execute("COMMIT")
+                    self._commit_write()
+                except SpaceRefused as refused:
+                    self._rollback_write()
+                    raise space_refused_as_save_error(refused) from refused
                 except Exception:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                     raise
                 return result
             new["revision"] = current["revision"] + 1
@@ -3054,7 +3170,13 @@ class LedgerStore:
             ledger_rationale = f"행 저장 {row_id} revision {new['revision']} ({change_mode})"
             outer_txn = self.conn.in_transaction
             if not outer_txn:
-                self.conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self._begin_write(code="SAVE_NO_SPACE",
+                                      what="행을 저장하는 데")
+                except SpaceRefused as refused:
+                    # The reservation is taken before the transaction opens, so
+                    # there is nothing to roll back and nothing was written.
+                    raise space_refused_as_save_error(refused) from refused
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM board_rows WHERE row_id=?", (row_id,)
@@ -3121,11 +3243,11 @@ class LedgerStore:
                      1, created_at),
                 )
                 if not outer_txn:
-                    self.conn.execute("COMMIT")
+                    self._commit_write()
             except SaveError as exc:
                 if not outer_txn:
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                 if exc.code == "__REPLAY__":
@@ -3145,7 +3267,7 @@ class LedgerStore:
             except sqlite3.IntegrityError:
                 if not outer_txn:
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                 found = self.conn.execute(
@@ -3163,7 +3285,7 @@ class LedgerStore:
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
                 if not outer_txn:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 raise
             if outer_txn:
                 return {"outcome": "saved", "row_id": row_id, "revision": new["revision"],
@@ -3237,7 +3359,7 @@ class LedgerStore:
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
             want = {"import": batch_id}
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM board_requests WHERE client_request_id=?",
@@ -3283,10 +3405,10 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -3302,7 +3424,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -3316,7 +3438,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -3466,7 +3588,7 @@ class LedgerStore:
             outbox_id = f"ledger-{client_request_id}"
             alloc_before = self.active_allocations(row_id)
             alloc_after = []
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM board_rows WHERE row_id=?", (row_id,)
@@ -3534,10 +3656,10 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -3546,13 +3668,13 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 return self._replay_correction_request(
                     client_request_id, corrected_amount_krw, date_value, want_plan)
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -3655,7 +3777,7 @@ class LedgerStore:
             new_revision = current["revision"] + 1
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM board_rows WHERE row_id=?", (row_id,)
@@ -3671,7 +3793,7 @@ class LedgerStore:
                 if dup:
                     dup_stored = json.loads(dup[0])
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                     want_dup = {"link-bank": {"bank_batch_id": bank_batch_id,
@@ -3724,16 +3846,16 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -3751,7 +3873,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -3925,7 +4047,7 @@ class LedgerStore:
                       "revision": 1, "merge_decided": False,
                       "trip": record, "ledger_pending": True}
 
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM trip_tab_requests WHERE client_request_id=?",
@@ -3967,10 +4089,10 @@ class LedgerStore:
                     rationale=f"여행 탭 생성 {tab_id} {starts_on} {destination}",
                     actor=actor,
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -3986,7 +4108,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 raise SaveError("EDIT_CONFLICT",
@@ -4050,7 +4172,7 @@ class LedgerStore:
             outbox_id = f"ledger-trip-{client_request_id}"
             ledger_action = ("propose" if current["revision"] == 1
                              and not changes.get("archived", False) else "correct")
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM trip_tabs WHERE tab_id=?", (tab_id,)
@@ -4100,10 +4222,10 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -4117,7 +4239,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -4128,7 +4250,7 @@ class LedgerStore:
                     return json.loads(found[0])["result"]
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_trip_request(client_request_id)
@@ -4287,7 +4409,7 @@ class LedgerStore:
             created_at = _utc_now()
             moved_rows = []
             moved_allocs = []
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM trip_tab_requests WHERE client_request_id=?",
@@ -4396,10 +4518,10 @@ class LedgerStore:
                                             "event_id": None, "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -4415,7 +4537,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -4428,7 +4550,7 @@ class LedgerStore:
                     )
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox(
                 [f"ledger-{client_request_id}:{row_id}" for row_id, _, _, _ in moved_rows]
@@ -4678,7 +4800,7 @@ class LedgerStore:
                     "source_event_id": source.get("source_event_id"),
                     "new_revision": expected_source_revision, "result": result,
                 }
-                self.conn.execute("BEGIN IMMEDIATE")
+                self._begin_write()
                 try:
                     fresh = self.conn.execute(
                         "SELECT revision FROM board_rows WHERE row_id=?", (source_row_id,)
@@ -4697,10 +4819,10 @@ class LedgerStore:
                         (client_request_id, allocation_id, expected_source_revision,
                          _canonical(request_data), created_at),
                     )
-                    self.conn.execute("COMMIT")
+                    self._commit_write()
                 except SaveError as exc:
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                     if exc.code == "__REPLAY__":
@@ -4714,7 +4836,7 @@ class LedgerStore:
                             return json.loads(found[0])["result"]
                     raise
                 except Exception:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                     raise
                 return result
             new_revision = expected_source_revision + 1
@@ -4747,7 +4869,7 @@ class LedgerStore:
                 "source_event_id": source.get("source_event_id"),
                 "new_revision": new_revision, "result": result,
             }
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh_source = self.conn.execute(
                     "SELECT revision, payload_json FROM board_rows WHERE row_id=?",
@@ -4820,10 +4942,10 @@ class LedgerStore:
                     (client_request_id, allocation_id, expected_source_revision,
                      _canonical(request_data), created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -4839,12 +4961,12 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -5039,7 +5161,7 @@ class LedgerStore:
             new_revision = source["revision"] + 1
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 fresh = self.conn.execute(
                     "SELECT revision FROM board_rows WHERE row_id=?", (source_row_id,)
@@ -5101,10 +5223,10 @@ class LedgerStore:
                                  "new_revision": new_revision, "result": result}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError as exc:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 if exc.code == "__REPLAY__":
@@ -5123,7 +5245,7 @@ class LedgerStore:
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -5140,7 +5262,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_alloc_request(client_request_id)
@@ -5201,7 +5323,7 @@ class LedgerStore:
             }
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM board_requests WHERE client_request_id=?",
@@ -5210,7 +5332,7 @@ class LedgerStore:
                 if dup:
                     dup_stored = json.loads(dup[0])
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                     if dup_stored.get("create_input") == want_input:
@@ -5252,16 +5374,16 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -5275,7 +5397,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -5333,7 +5455,7 @@ class LedgerStore:
             }
             created_at = _utc_now()
             outbox_id = f"ledger-{client_request_id}"
-            self.conn.execute("BEGIN IMMEDIATE")
+            self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM board_requests WHERE client_request_id=?",
@@ -5342,7 +5464,7 @@ class LedgerStore:
                 if dup:
                     dup_stored = json.loads(dup[0])
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                     if dup_stored.get("create_input") == want_input:
@@ -5384,16 +5506,16 @@ class LedgerStore:
                                             "ledger_pending": True}}),
                      1, created_at),
                 )
-                self.conn.execute("COMMIT")
+                self._commit_write()
             except SaveError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 raise
             except sqlite3.IntegrityError:
                 try:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 except Exception:
                     pass
                 found = self.conn.execute(
@@ -5407,7 +5529,7 @@ class LedgerStore:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 raise
             self._relay_outbox([outbox_id])
             final = self._finalize_board_request(client_request_id)
@@ -5449,7 +5571,7 @@ class LedgerStore:
             want = {"import": batch_id}
             outer_txn = self.conn.in_transaction
             if not outer_txn:
-                self.conn.execute("BEGIN IMMEDIATE")
+                self._begin_write()
             try:
                 dup = self.conn.execute(
                     "SELECT result_json FROM board_requests WHERE client_request_id=?",
@@ -5459,7 +5581,7 @@ class LedgerStore:
                     dup_stored = json.loads(dup[0])
                     if not outer_txn:
                         try:
-                            self.conn.execute("ROLLBACK")
+                            self._rollback_write()
                         except Exception:
                             pass
                     if dup_stored.get("changes") == want:
@@ -5502,18 +5624,18 @@ class LedgerStore:
                      1, created_at),
                 )
                 if not outer_txn:
-                    self.conn.execute("COMMIT")
+                    self._commit_write()
             except SaveError:
                 if not outer_txn:
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                 raise
             except sqlite3.IntegrityError:
                 if not outer_txn:
                     try:
-                        self.conn.execute("ROLLBACK")
+                        self._rollback_write()
                     except Exception:
                         pass
                 found = self.conn.execute(
@@ -5528,7 +5650,7 @@ class LedgerStore:
                 raise SaveError("REQUEST_ID_REUSED", "이미 있는 행이에요")
             except Exception:
                 if not outer_txn:
-                    self.conn.execute("ROLLBACK")
+                    self._rollback_write()
                 raise
             if outer_txn:
                 return {"outcome": "saved", "row_id": row_id, "revision": 1,
@@ -5547,6 +5669,13 @@ class LedgerStore:
             return "correct" if stream_id in self.ledger.streams() else "propose"
         except Exception:
             return default
+
+    def _commit_write(self) -> None:
+        """Commit and hand the reserved space back."""
+        try:
+            self.conn.commit()
+        finally:
+            self._release_write_space()
 
     def _outbox_commit(self) -> None:
         try:
@@ -5642,7 +5771,7 @@ class LedgerStore:
             changes = stored.get("changes", {})
             new_revision = 1 if changes.get("create") or changes.get("import") else expected + 1
         row_id = stored["row_id"]
-        self.conn.execute("BEGIN IMMEDIATE")
+        self._begin_write()
         try:
             self.conn.execute(
                 "UPDATE board_revisions SET event_id=? WHERE row_id=? AND revision=?",
@@ -5670,9 +5799,9 @@ class LedgerStore:
                 " WHERE client_request_id=?",
                 (_canonical(stored), client_request_id),
             )
-            self.conn.execute("COMMIT")
+            self._commit_write()
         except Exception:
-            self.conn.execute("ROLLBACK")
+            self._rollback_write()
             raise
         return stored["result"]
 
@@ -5688,7 +5817,7 @@ class LedgerStore:
             return stored.get("result")
         tab_id = stored["tab_id"]
         new_revision = stored.get("new_revision", stored.get("expected_revision", 1) + 1)
-        self.conn.execute("BEGIN IMMEDIATE")
+        self._begin_write()
         try:
             if stored.get("source") == "trip-delete":
                 for row_id, new_rev, _source_event_id, _prev_rev in stored.get("moved_rows", []):
@@ -5700,7 +5829,7 @@ class LedgerStore:
                         )
             event_id = self._outbox_event(f"ledger-trip-{client_request_id}")
             if not event_id:
-                self.conn.execute("ROLLBACK")
+                self._rollback_write()
                 return None
             self.conn.execute(
                 "UPDATE trip_tab_history SET event_id=? WHERE tab_id=? AND revision=?",
@@ -5713,9 +5842,9 @@ class LedgerStore:
                 " WHERE client_request_id=?",
                 (_canonical(stored), client_request_id),
             )
-            self.conn.execute("COMMIT")
+            self._commit_write()
         except Exception:
-            self.conn.execute("ROLLBACK")
+            self._rollback_write()
             raise
         return stored["result"]
 
@@ -5736,7 +5865,7 @@ class LedgerStore:
         source_row_id = stored["source_row_id"]
         new_revision = stored.get("new_revision",
                                   stored.get("expected_source_revision", 1) + 1)
-        self.conn.execute("BEGIN IMMEDIATE")
+        self._begin_write()
         try:
             self.conn.execute(
                 "UPDATE board_revisions SET event_id=? WHERE row_id=? AND revision=?",
@@ -5749,9 +5878,9 @@ class LedgerStore:
                 " WHERE client_request_id=?",
                 (_canonical(stored), client_request_id),
             )
-            self.conn.execute("COMMIT")
+            self._commit_write()
         except Exception:
-            self.conn.execute("ROLLBACK")
+            self._rollback_write()
             raise
         return stored["result"]
 
@@ -5840,7 +5969,7 @@ class LedgerStore:
         if not rows:
             return []
         now = _utc_now()
-        self.conn.execute("BEGIN IMMEDIATE")
+        self._begin_write()
         try:
             recovered = []
             for turn_id, owner in rows:
@@ -5857,9 +5986,9 @@ class LedgerStore:
                         "INSERT OR REPLACE INTO rule_orphan_reviews(turn_id,"
                         " process_run_id, reason, created_at) VALUES (?,?,?,?)",
                         (turn_id, owner or "", reason, now))
-            self.conn.execute("COMMIT")
+            self._commit_write()
         except Exception:
-            self.conn.execute("ROLLBACK")
+            self._rollback_write()
             raise
         return recovered
 

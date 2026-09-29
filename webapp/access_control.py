@@ -208,6 +208,14 @@ CREATE TABLE IF NOT EXISTS access_trip_assignment_heads (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, tab_id)
 );
+CREATE TABLE IF NOT EXISTS access_reservation_directory_head (
+    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
+    snapshot_revision INTEGER NOT NULL,
+    digest TEXT NOT NULL,
+    source_version TEXT NOT NULL DEFAULT '',
+    exported_at TEXT NOT NULL DEFAULT '',
+    imported_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS access_evidence (
     evidence_id TEXT PRIMARY KEY,
     tab_id TEXT NOT NULL DEFAULT '',
@@ -572,8 +580,13 @@ class AccessStore:
         allowed = set()
         # The cache window is applied per request (SPEC 15.2).
         for row in self.conn.execute(
-                "SELECT tab_id, valid_until FROM access_trip_assignments"
-                " WHERE user_id=? AND state=?", (user_id, ASSIGN_ACTIVE)):
+                "SELECT a.tab_id, a.valid_until"
+                " FROM access_trip_assignments a"
+                " JOIN access_trip_assignment_heads h"
+                "   ON h.user_id=a.user_id AND h.tab_id=a.tab_id"
+                "  AND h.head_snapshot_revision=a.snapshot_revision"
+                "  AND h.state=a.state"
+                " WHERE a.user_id=? AND a.state=?", (user_id, ASSIGN_ACTIVE)):
             until = parse_iso(row[1])
             if until is not None and until <= now:
                 continue
@@ -599,94 +612,335 @@ class AccessStore:
             raise AccessError(RESOURCE_NOT_FOUND, "없는 경로예요")
 
     # ---------------------------------------------------- assignment sync
+    def _prepare_assignment_snapshot(self, *, items: list, complete: bool,
+                                     snapshot_revision: int | None):
+        normalized = []
+        item_revisions = set()
+        for item in items:
+            tab_id = str(item.get("tab_id") or "").strip()
+            if not tab_id:
+                continue
+            state = item.get("state") or ASSIGN_ACTIVE
+            if state not in (ASSIGN_ACTIVE, ASSIGN_REVOKED):
+                raise AccessError("INVALID_VALUE", "invalid assignment state",
+                                  status=422)
+            try:
+                revision = int(item.get("snapshot_revision"))
+            except (TypeError, ValueError):
+                raise AccessError("INVALID_VALUE", "assignment revision required",
+                                  status=422)
+            if revision < 0:
+                raise AccessError("INVALID_VALUE", "invalid assignment revision",
+                                  status=422)
+            item_revisions.add(revision)
+            normalized.append((item, tab_id, state, revision))
+
+        complete_revision = None
+        if snapshot_revision is not None:
+            try:
+                complete_revision = int(snapshot_revision)
+            except (TypeError, ValueError):
+                raise AccessError("INVALID_VALUE", "snapshot revision required",
+                                  status=422)
+            if complete_revision < 0:
+                raise AccessError("INVALID_VALUE", "invalid snapshot revision",
+                                  status=422)
+        elif complete and len(item_revisions) == 1:
+            complete_revision = next(iter(item_revisions))
+        elif complete and len(item_revisions) > 1:
+            raise AccessError(
+                "INVALID_VALUE",
+                "complete snapshot requires an explicit snapshot revision",
+                status=422)
+        return normalized, complete_revision
+
+    def _apply_assignment_snapshot_tx(self, *, user_id: str, normalized: list,
+                                      source_version: str, validity: timedelta,
+                                      now: datetime, complete: bool,
+                                      complete_revision: int | None) -> dict:
+        applied, ignored = [], []
+        mentioned_tabs = set()
+        for item, tab_id, state, revision in normalized:
+            mentioned_tabs.add(tab_id)
+            head = self.conn.execute(
+                "SELECT head_snapshot_revision, state"
+                " FROM access_trip_assignment_heads WHERE user_id=? AND tab_id=?",
+                (user_id, tab_id)).fetchone()
+            if head is not None and revision <= head[0]:
+                ignored.append({"tab_id": tab_id, "snapshot_revision": revision,
+                                "head": head[0], "head_state": head[1]})
+                continue
+            assignment_id = item.get("assignment_id") or uuid.uuid4().hex
+            valid_until = iso(now + validity)
+            self.conn.execute(
+                "INSERT INTO access_trip_assignments("
+                " assignment_id, user_id, tab_id, state, snapshot_revision,"
+                " source_version, observed_at, last_verified_at, valid_until)"
+                " VALUES (?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(assignment_id) DO UPDATE SET"
+                " state=excluded.state,"
+                " snapshot_revision=excluded.snapshot_revision,"
+                " source_version=excluded.source_version,"
+                " observed_at=excluded.observed_at,"
+                " last_verified_at=excluded.last_verified_at,"
+                " valid_until=excluded.valid_until",
+                (assignment_id, user_id, tab_id, state, revision,
+                 source_version or "", iso(now), iso(now), valid_until))
+            self.conn.execute(
+                "INSERT INTO access_trip_assignment_heads("
+                " user_id, tab_id, head_snapshot_revision, state, updated_at)"
+                " VALUES (?,?,?,?,?)"
+                " ON CONFLICT(user_id, tab_id) DO UPDATE SET"
+                " head_snapshot_revision=excluded.head_snapshot_revision,"
+                " state=excluded.state, updated_at=excluded.updated_at",
+                (user_id, tab_id, revision, state, iso(now)))
+            applied.append({"tab_id": tab_id, "state": state,
+                            "snapshot_revision": revision})
+
+        if complete:
+            active_heads = self.conn.execute(
+                "SELECT tab_id, head_snapshot_revision"
+                " FROM access_trip_assignment_heads"
+                " WHERE user_id=? AND state=?",
+                (user_id, ASSIGN_ACTIVE)).fetchall()
+            omitted = [(tab_id, head_revision)
+                       for tab_id, head_revision in active_heads
+                       if tab_id not in mentioned_tabs]
+            if omitted and complete_revision is None:
+                raise AccessError(
+                    "INVALID_VALUE",
+                    "empty complete snapshot requires snapshot revision",
+                    status=422)
+            for tab_id, head_revision in omitted:
+                if complete_revision <= head_revision:
+                    ignored.append({
+                        "tab_id": tab_id,
+                        "snapshot_revision": complete_revision,
+                        "head": head_revision,
+                        "head_state": ASSIGN_ACTIVE,
+                        "omitted_from_complete_snapshot": True,
+                    })
+                    continue
+                assignment_id = uuid.uuid4().hex
+                valid_until = iso(now + validity)
+                self.conn.execute(
+                    "INSERT INTO access_trip_assignments("
+                    " assignment_id, user_id, tab_id, state, snapshot_revision,"
+                    " source_version, observed_at, last_verified_at, valid_until)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (assignment_id, user_id, tab_id, ASSIGN_REVOKED,
+                     complete_revision, source_version or "", iso(now),
+                     iso(now), valid_until))
+                self.conn.execute(
+                    "UPDATE access_trip_assignment_heads"
+                    " SET head_snapshot_revision=?, state=?, updated_at=?"
+                    " WHERE user_id=? AND tab_id=?",
+                    (complete_revision, ASSIGN_REVOKED, iso(now),
+                     user_id, tab_id))
+                applied.append({
+                    "tab_id": tab_id,
+                    "state": ASSIGN_REVOKED,
+                    "snapshot_revision": complete_revision,
+                    "omitted_from_complete_snapshot": True,
+                })
+        return {"applied": applied, "ignored_older": ignored}
+
     def apply_assignment_snapshot(self, *, user_id: str, items: list,
                                   source_version: str,
                                   validity: timedelta = DEFAULT_VALIDITY,
                                   now: datetime | None = None,
-                                  complete: bool = True) -> dict:
+                                  complete: bool = True,
+                                  snapshot_revision: int | None = None) -> dict:
         """Apply one reservation snapshot.
 
-        `items` is the full assignment list of that source version. Every
-        entry carries its own `snapshot_revision` and state. Application is
+        Each item carries its own snapshot_revision and state. Application is
         monotonic per (user, trip): an entry whose revision is not newer than
-        the stored head is ignored, so a revoked-at-5 permission is not
-        restored by an active-at-3 that arrives afterwards.
+        the stored head is ignored, so an older active row cannot restore a
+        permission revoked by a newer row.
 
-        `complete=False` means the page is partial. A trip missing from a
-        partial page is left alone rather than treated as revoked, because a
-        missing row is not evidence of a revocation (SPEC 15.2).
+        complete=False means the page is partial. A trip missing from a partial
+        page is left alone rather than treated as revoked (SPEC 15.2).
+
+        A complete snapshot revokes active assignments omitted from the
+        snapshot. The snapshot-level revision is used for those revoke rows.
+        It may be inferred when every supplied item has the same revision;
+        otherwise snapshot_revision must be provided explicitly.
         """
         if validity <= timedelta(0):
-            raise AccessError("INVALID_VALUE", "유효기간이 필요해요", status=422)
+            raise AccessError("INVALID_VALUE", "validity must be positive", status=422)
         if validity > MAX_REVOCATION_DELAY:
             raise AccessError(
                 "INVALID_VALUE",
-                "유효기간이 해제 지연 상한을 넘어요", status=422)
+                "validity exceeds the maximum revocation delay", status=422)
         now = now or utc_now()
         if not self.account(user_id):
-            raise AccessError(RESOURCE_NOT_FOUND, "계정이 없어요")
-        applied, ignored = [], []
+            raise AccessError(RESOURCE_NOT_FOUND, "account not found")
+
+        normalized, complete_revision = self._prepare_assignment_snapshot(
+            items=items, complete=complete, snapshot_revision=snapshot_revision)
         with self.lock:
             self.conn.execute("BEGIN IMMEDIATE")
             try:
-                for item in items:
-                    tab_id = str(item.get("tab_id") or "").strip()
-                    if not tab_id:
-                        continue
-                    state = item.get("state") or ASSIGN_ACTIVE
-                    if state not in (ASSIGN_ACTIVE, ASSIGN_REVOKED):
-                        raise AccessError("INVALID_VALUE", "배정 상태가 올바르지 않아요",
-                                          status=422)
-                    try:
-                        revision = int(item.get("snapshot_revision"))
-                    except (TypeError, ValueError):
-                        raise AccessError("INVALID_VALUE", "배정 revision이 필요해요",
-                                          status=422)
-                    if revision < 0:
-                        raise AccessError("INVALID_VALUE", "배정 revision이 올바르지 않아요",
-                                          status=422)
-                    head = self.conn.execute(
-                        "SELECT head_snapshot_revision, state"
-                        " FROM access_trip_assignment_heads WHERE user_id=? AND tab_id=?",
-                        (user_id, tab_id)).fetchone()
-                    if head is not None and revision <= head[0]:
-                        ignored.append({"tab_id": tab_id, "snapshot_revision": revision,
-                                        "head": head[0], "head_state": head[1]})
-                        continue
-                    assignment_id = item.get("assignment_id") or uuid.uuid4().hex
-                    valid_until = iso(now + validity)
-                    self.conn.execute(
-                        "INSERT INTO access_trip_assignments("
-                        " assignment_id, user_id, tab_id, state, snapshot_revision,"
-                        " source_version, observed_at, last_verified_at, valid_until)"
-                        " VALUES (?,?,?,?,?,?,?,?,?)"
-                        " ON CONFLICT(assignment_id) DO UPDATE SET"
-                        " state=excluded.state,"
-                        " snapshot_revision=excluded.snapshot_revision,"
-                        " source_version=excluded.source_version,"
-                        " observed_at=excluded.observed_at,"
-                        " last_verified_at=excluded.last_verified_at,"
-                        " valid_until=excluded.valid_until",
-                        (assignment_id, user_id, tab_id, state, revision,
-                         source_version or "", iso(now), iso(now), valid_until))
-                    self.conn.execute(
-                        "INSERT INTO access_trip_assignment_heads("
-                        " user_id, tab_id, head_snapshot_revision, state, updated_at)"
-                        " VALUES (?,?,?,?,?)"
-                        " ON CONFLICT(user_id, tab_id) DO UPDATE SET"
-                        " head_snapshot_revision=excluded.head_snapshot_revision,"
-                        " state=excluded.state, updated_at=excluded.updated_at",
-                        (user_id, tab_id, revision, state, iso(now)))
-                    applied.append({"tab_id": tab_id, "state": state,
-                                    "snapshot_revision": revision})
+                result = self._apply_assignment_snapshot_tx(
+                    user_id=user_id, normalized=normalized,
+                    source_version=source_version, validity=validity, now=now,
+                    complete=complete, complete_revision=complete_revision)
                 self.conn.execute("COMMIT")
             except Exception:
                 self.conn.execute("ROLLBACK")
                 raise
         return {"user_id": user_id, "source_version": source_version or "",
-                "complete": bool(complete), "applied": applied,
-                "ignored_older": ignored,
+                "complete": bool(complete), "applied": result["applied"],
+                "ignored_older": result["ignored_older"],
                 "visible_tabs": sorted(self.visible_tabs(user_id, now=now))}
+
+    def reservation_directory_head(self):
+        row = self.conn.execute(
+            "SELECT snapshot_revision, digest, source_version, exported_at, imported_at"
+            " FROM access_reservation_directory_head WHERE singleton_id=1").fetchone()
+        if not row:
+            return None
+        return {"snapshot_revision": row[0], "digest": row[1],
+                "source_version": row[2], "exported_at": row[3],
+                "imported_at": row[4]}
+
+    def sync_reservation_access_snapshot(self, *, snapshot: dict,
+                                         validity: timedelta = DEFAULT_VALIDITY,
+                                         now: datetime | None = None) -> dict:
+        """Atomically synchronize the complete Reservation access directory."""
+        if validity <= timedelta(0) or validity > MAX_REVOCATION_DELAY:
+            raise AccessError("INVALID_VALUE", "invalid assignment validity", status=422)
+        try:
+            revision = int(snapshot["snapshot_revision"])
+            persons = list(snapshot["persons"])
+            digest = str(snapshot["digest"])
+            source_version = str(snapshot["schema_version"])
+            exported_at = str(snapshot["exported_at"])
+        except (KeyError, TypeError, ValueError):
+            raise AccessError("INVALID_VALUE", "invalid reservation access snapshot",
+                              status=422)
+        if revision < 0 or not digest:
+            raise AccessError("INVALID_VALUE", "invalid reservation access snapshot",
+                              status=422)
+        now = now or utc_now()
+
+        with self.lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                head = self.reservation_directory_head()
+                if head is not None and revision <= head["snapshot_revision"]:
+                    self.conn.execute("ROLLBACK")
+                    return {
+                        "snapshot_revision": revision,
+                        "digest": digest,
+                        "ignored_stale_or_equal": True,
+                        "persons_seen": len(persons),
+                        "persons_deactivated": 0,
+                        "connections_revoked": 0,
+                        "sessions_bumped": 0,
+                        "connected_persons_synced": 0,
+                        "assignments_applied": 0,
+                        "assignments_ignored_older": 0,
+                    }
+
+                source_ids = set()
+                active_people = {}
+                for person in persons:
+                    person_id = str(person["reservation_person_id"])
+                    source_ids.add(person_id)
+                    is_active = bool(person["is_active"])
+                    self.conn.execute(
+                        "INSERT INTO access_reservation_persons("
+                        " reservation_person_id, display_name, nickname, is_active, disambiguator)"
+                        " VALUES (?,?,?,?,?)"
+                        " ON CONFLICT(reservation_person_id) DO UPDATE SET"
+                        " display_name=excluded.display_name,"
+                        " nickname=excluded.nickname,"
+                        " is_active=excluded.is_active",
+                        (person_id, str(person.get("display_name") or ""),
+                         str(person.get("nickname") or ""), 1 if is_active else 0, ""))
+                    if is_active:
+                        active_people[person_id] = person
+
+                known_ids = {row[0] for row in self.conn.execute(
+                    "SELECT reservation_person_id FROM access_reservation_persons")}
+                omitted_ids = known_ids - source_ids
+                if omitted_ids:
+                    placeholders = ",".join("?" for _ in omitted_ids)
+                    self.conn.execute(
+                        f"UPDATE access_reservation_persons SET is_active=0"
+                        f" WHERE reservation_person_id IN ({placeholders})",
+                        tuple(sorted(omitted_ids)))
+
+                inactive_ids = source_ids - set(active_people)
+                revoke_ids = omitted_ids | inactive_ids
+                revoked_users = []
+                if revoke_ids:
+                    placeholders = ",".join("?" for _ in revoke_ids)
+                    rows = self.conn.execute(
+                        f"SELECT connection_id, user_id FROM access_connections"
+                        f" WHERE status=? AND reservation_person_id IN ({placeholders})",
+                        (CONNECTION_ACTIVE, *tuple(sorted(revoke_ids)))).fetchall()
+                    for connection_id, user_id in rows:
+                        stamp = iso(now)
+                        self.conn.execute(
+                            "UPDATE access_connections SET status=?, revision=revision+1,"
+                            " updated_at=?, revoked_at=? WHERE connection_id=?",
+                            (CONNECTION_REVOKED, stamp, stamp, connection_id))
+                        self._bump_generation(user_id)
+                        revoked_users.append(user_id)
+
+                synced = 0
+                assignment_applied = 0
+                assignment_ignored = 0
+                for person_id, person in active_people.items():
+                    rows = self.conn.execute(
+                        "SELECT user_id FROM access_connections"
+                        " WHERE reservation_person_id=? AND status=?",
+                        (person_id, CONNECTION_ACTIVE)).fetchall()
+                    for (user_id,) in rows:
+                        items = [{"tab_id": trip_code, "state": ASSIGN_ACTIVE,
+                                  "snapshot_revision": revision}
+                                 for trip_code in person["assignments"]]
+                        normalized, complete_revision = self._prepare_assignment_snapshot(
+                            items=items, complete=True, snapshot_revision=revision)
+                        result = self._apply_assignment_snapshot_tx(
+                            user_id=user_id, normalized=normalized,
+                            source_version=source_version, validity=validity, now=now,
+                            complete=True, complete_revision=complete_revision)
+                        synced += 1
+                        assignment_applied += len(result["applied"])
+                        assignment_ignored += len(result["ignored_older"])
+
+                imported_at = iso(now)
+                self.conn.execute(
+                    "INSERT INTO access_reservation_directory_head("
+                    " singleton_id, snapshot_revision, digest, source_version,"
+                    " exported_at, imported_at) VALUES (1,?,?,?,?,?)"
+                    " ON CONFLICT(singleton_id) DO UPDATE SET"
+                    " snapshot_revision=excluded.snapshot_revision,"
+                    " digest=excluded.digest,"
+                    " source_version=excluded.source_version,"
+                    " exported_at=excluded.exported_at,"
+                    " imported_at=excluded.imported_at",
+                    (revision, digest, source_version, exported_at, imported_at))
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+
+        return {
+            "snapshot_revision": revision,
+            "digest": digest,
+            "ignored_stale_or_equal": False,
+            "persons_seen": len(persons),
+            "persons_deactivated": len(omitted_ids) + len(inactive_ids),
+            "connections_revoked": len(revoked_users),
+            "sessions_bumped": len(revoked_users),
+            "connected_persons_synced": synced,
+            "assignments_applied": assignment_applied,
+            "assignments_ignored_older": assignment_ignored,
+        }
 
     def assignment_head(self, user_id: str, tab_id: str):
         row = self.conn.execute(

@@ -121,7 +121,7 @@ class AccessStoreTests(unittest.TestCase):
         return self.access.apply_assignment_snapshot(
             user_id=user,
             items=[{"tab_id": tab, "snapshot_revision": revision, "state": state}],
-            source_version=source, validity=validity, now=now)
+            source_version=source, validity=validity, now=now, complete=False)
 
     def link(self, user, person_id, request_id):
         """Approve a pending application for `user` against `person_id`."""
@@ -459,6 +459,102 @@ class AccessStoreTests(unittest.TestCase):
             source_version="src-partial", complete=False)
         self.assertEqual(result["complete"], False)
         self.assertEqual(self.access.visible_tabs(V1), {TRIP_A, TRIP_B})
+
+    def test_a_missing_trip_in_a_complete_snapshot_is_revoked(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "complete-1")
+        self.assign(V1, TRIP_A, revision=1)
+        self.assign(V1, TRIP_B, revision=1)
+        result = self.access.apply_assignment_snapshot(
+            user_id=V1,
+            items=[{"tab_id": TRIP_A, "snapshot_revision": 2,
+                    "state": access_control.ASSIGN_ACTIVE}],
+            source_version="src-complete-2", complete=True,
+            snapshot_revision=2)
+        self.assertEqual(self.access.visible_tabs(V1), {TRIP_A})
+        self.assertEqual(self.access.assignment_head(V1, TRIP_B)["state"],
+                         access_control.ASSIGN_REVOKED)
+        revoked = [row for row in result["applied"]
+                   if row["tab_id"] == TRIP_B]
+        self.assertEqual(len(revoked), 1)
+        self.assertTrue(revoked[0]["omitted_from_complete_snapshot"])
+
+    def test_a_stale_complete_snapshot_cannot_revoke_a_newer_assignment(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "complete-stale-1")
+        self.assign(V1, TRIP_B, revision=5)
+        result = self.access.apply_assignment_snapshot(
+            user_id=V1,
+            items=[{"tab_id": TRIP_A, "snapshot_revision": 3,
+                    "state": access_control.ASSIGN_ACTIVE}],
+            source_version="src-complete-old", complete=True,
+            snapshot_revision=3)
+        self.assertIn(TRIP_B, self.access.visible_tabs(V1))
+        self.assertEqual(self.access.assignment_head(V1, TRIP_B),
+                         {"snapshot_revision": 5,
+                          "state": access_control.ASSIGN_ACTIVE})
+        ignored = [row for row in result["ignored_older"]
+                   if row["tab_id"] == TRIP_B]
+        self.assertEqual(len(ignored), 1)
+        self.assertTrue(ignored[0]["omitted_from_complete_snapshot"])
+
+    def test_a_newer_revoke_hides_an_older_active_assignment_immediately(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "head-1")
+        self.assign(V1, TRIP_A, revision=1)
+        self.assign(V1, TRIP_A, revision=2,
+                    state=access_control.ASSIGN_REVOKED)
+        self.assertEqual(self.access.visible_tabs(V1), set())
+
+    def test_an_empty_complete_snapshot_revokes_all_active_assignments(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "empty-complete-1")
+        self.assign(V1, TRIP_A, revision=1)
+        self.assign(V1, TRIP_B, revision=1)
+        result = self.access.apply_assignment_snapshot(
+            user_id=V1, items=[], source_version="src-empty-2",
+            complete=True, snapshot_revision=2)
+        self.assertEqual(self.access.visible_tabs(V1), set())
+        self.assertEqual(
+            {row["tab_id"] for row in result["applied"]}, {TRIP_A, TRIP_B})
+
+    def test_an_empty_complete_snapshot_without_active_heads_is_harmless(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "empty-complete-2")
+        result = self.access.apply_assignment_snapshot(
+            user_id=V1, items=[], source_version="src-empty",
+            complete=True)
+        self.assertEqual(result["applied"], [])
+        self.assertEqual(result["ignored_older"], [])
+
+    def test_a_mixed_revision_complete_snapshot_requires_snapshot_revision(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "mixed-complete-1")
+        with self.assertRaises(access_control.AccessError):
+            self.access.apply_assignment_snapshot(
+                user_id=V1,
+                items=[
+                    {"tab_id": TRIP_A, "snapshot_revision": 2,
+                     "state": access_control.ASSIGN_ACTIVE},
+                    {"tab_id": TRIP_B, "snapshot_revision": 3,
+                     "state": access_control.ASSIGN_ACTIVE},
+                ],
+                source_version="src-mixed", complete=True)
+        self.assertEqual(self.access.assignment_head(V1, TRIP_A), None)
+        self.assertEqual(self.access.assignment_head(V1, TRIP_B), None)
+
+    def test_empty_complete_snapshot_without_revision_preserves_existing_state(self):
+        self.seed_accounts()
+        self.link(V1, "rp-1", "rollback-complete-1")
+        self.assign(V1, TRIP_B, revision=5)
+        with self.assertRaises(access_control.AccessError):
+            self.access.apply_assignment_snapshot(
+                user_id=V1, items=[], source_version="src-rollback",
+                complete=True)
+        self.assertEqual(self.access.assignment_head(V1, TRIP_A), None)
+        self.assertEqual(
+            self.access.assignment_head(V1, TRIP_B),
+            {"snapshot_revision": 5, "state": access_control.ASSIGN_ACTIVE})
 
     def test_the_validity_window_expires_and_cannot_be_unlimited(self):
         self.seed_accounts()

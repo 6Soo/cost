@@ -13,6 +13,7 @@ service. The unit file is text written to a temporary path.
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -126,13 +127,39 @@ class TheManifestDoesNotBlessAPublicBind(unittest.TestCase):
         self.assertIn("bind_posture_recorded", run["failed"])
 
     def test_the_manifest_names_a_runnable_entry_command(self):
+        """A command that is present, printable and cannot be run is a fiction.
+
+        The default used to be `webapp.cli serve`, which requires `--snapshot`.
+        The dry run only asked whether a command was present, so it passed and
+        the deployment failed on first start. The requirement is that the
+        recorded command could be executed as it stands, which is what the
+        dry run's `entry_command_is_runnable` check now asserts.
+        """
         manifest = ops.build_deploy_manifest(self.config)
         command = manifest["entry"]["command"]
         self.assertTrue(command)
-        # every module it names has to be importable, or the unit example is a
-        # fiction
-        self.assertIn("webapp.cli", command)
-        self.assertIn("serve", command)
+        self.assertTrue(ops._entry_command_is_runnable(command),
+                        f"the default entry command is not runnable: {command}")
+        # Whatever it names, every file in it has to exist in this checkout.
+        for part in command:
+            if part.endswith(".py"):
+                self.assertTrue(pathlib.Path(part).is_file(), part)
+        run = ops.dry_run_deploy(self.config, manifest)
+        self.assertIn("entry_command_is_runnable",
+                      {c["check"]: c["ok"] for c in run["checks"]})
+
+    def test_an_entry_command_missing_a_required_argument_fails_the_dry_run(self):
+        """The defect itself, kept as a check: a required argument left empty."""
+        manifest = ops.build_deploy_manifest(self.config)
+        manifest["entry"]["command"] = [sys.executable,
+                                        str(pathlib.Path(ops.__file__)
+                                            .resolve().parent.parent
+                                            / "run_candidate.py")]
+        self.assertFalse(ops._entry_command_is_runnable(
+            manifest["entry"]["command"]))
+        run = ops.dry_run_deploy(self.config, manifest)
+        self.assertFalse(run["ok"])
+        self.assertIn("entry_command_is_runnable", run["failed"])
 
     def test_a_manifest_without_an_entry_command_fails_the_dry_run(self):
         manifest = ops.build_deploy_manifest(self.config)
@@ -473,6 +500,26 @@ class HealthDescribesWhatItActuallyFound(unittest.TestCase):
 
 
 class TheBoardServerAcceptsAHostAndKeepsLoopback(unittest.TestCase):
+    def test_production_entry_binds_fail_closed_access_before_serving(self):
+        from run_candidate import bind_runtime_access
+        from webapp import access_control, ledger_board
+
+        tmp = Path(tempfile.mkdtemp(prefix="runtime-access-"))
+        server = None
+        try:
+            server = ledger_board.serve(
+                port=0, db_path=tmp / "board.sqlite", with_worker=False)
+            access = bind_runtime_access(server)
+            self.assertTrue(ledger_board.ACCESS_ENFORCEMENT)
+            self.assertIs(ledger_board.access_store(), access)
+            self.assertIsNone(access_control.session_adapter().session_for({}))
+        finally:
+            ledger_board.bind_access(None)
+            if server is not None:
+                server.server_close()
+            ledger_board.bind_store(None)
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def test_serve_defaults_to_loopback(self):
         import inspect
 
@@ -520,6 +567,77 @@ class TheBoardServerAcceptsAHostAndKeepsLoopback(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--host", result.stdout)
         self.assertIn("--behind-proxy", result.stdout)
+
+
+class AStalledClientMustNotHoldUpTheApp(unittest.TestCase):
+    """One silent connection may not delay every other client.
+
+    `serve()` was a plain `HTTPServer`, which accepts one connection and then
+    blocks reading that socket. A browser opens a connection speculatively and
+    sends nothing until it navigates, so that silent socket held the accept
+    queue and the navigation waited behind it. Measured directly, one silent
+    connection delayed a real request past an eight second timeout; the same
+    request against a threading server was answered in 0.05s.
+
+    It showed up as an intermittent `Page.goto: Navigation ... Timeout` in the
+    screen tests (about one run in ten) and it is the same defect for a real
+    user whose connection stalls, so it is pinned here rather than retried away.
+    """
+
+    def test_a_silent_connection_does_not_delay_a_real_request(self):
+        import socket
+        import threading
+        import time
+        from http.server import HTTPServer
+
+        from webapp import ledger_board as board
+
+        tmp = Path(tempfile.mkdtemp(prefix="stall-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        server = board.serve(port=0, db_path=tmp / "board.sqlite",
+                             with_worker=False)
+        self.addCleanup(board.bind_store, None)
+        self.addCleanup(server.server_close)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+        time.sleep(0.2)
+
+        silent = socket.create_connection(("127.0.0.1", port))
+        self.addCleanup(silent.close)
+        time.sleep(0.2)
+
+        started = time.time()
+        conn = socket.create_connection(("127.0.0.1", port))
+        self.addCleanup(conn.close)
+        conn.sendall(b"GET /board HTTP/1.1\r\nHost: x\r\nConnection: close\r\n"
+                     b"\r\n")
+        conn.settimeout(10)
+        head = conn.recv(16)
+        elapsed = time.time() - started
+        self.assertTrue(head.startswith(b"HTTP/"),
+                        f"no response while a silent connection was open; "
+                        f"waited {elapsed:.2f}s")
+        self.assertLess(elapsed, 5.0,
+                        f"a real request waited {elapsed:.2f}s behind a silent "
+                        f"connection, which is the single-threaded accept queue")
+
+    def test_the_server_is_a_threading_one(self):
+        from http.server import ThreadingHTTPServer
+
+        from webapp import ledger_board as board
+
+        tmp = Path(tempfile.mkdtemp(prefix="thread-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        server = board.serve(port=0, db_path=tmp / "board.sqlite",
+                             with_worker=False)
+        self.addCleanup(board.bind_store, None)
+        self.addCleanup(server.server_close)
+        self.assertIsInstance(server, ThreadingHTTPServer)
+        self.assertTrue(server.daemon_threads,
+                        "worker threads must not keep the process alive after "
+                        "the socket closes")
 
 
 if __name__ == "__main__":

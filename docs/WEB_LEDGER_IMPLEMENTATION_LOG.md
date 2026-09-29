@@ -1,5 +1,197 @@
 # 웹 장부 구현 기록
 
+## 후속 명세 19.3 용량 거부와 체인 실행 감사 — 2026-09-29 (2차)
+
+앞 절의 "운영 준비(rehearsal·smoke)와 readiness 게이트"를 이어서, **요구사항
+단위로 아직 닫히지 않은 로컬 항목을 전부 훑고** 실제 실행으로 확인했다.
+
+### 감사 방법
+
+명세 18.3·19절의 각 항목을 "구현돼 있는가 / 실제로 검증돼 있는가"로 나눠 확인했다.
+문서만 읽지 않고 **실행해서** 판정했다. 그 결과 요구사항 19.3 전체가 **아예 구현돼
+있지 않음**을 확인했다.
+
+확인된 사실: `MIN_FREE_BYTES`는 `health_check`의 `free_space` 줄에서만 쓰였고,
+`ledger_store`·`card_import`·`ledger_board`·`sheets_export`에는 여유 공간을 묻는
+호출이 **하나도 없었다**. 즉 "공간 부족 전에 경고한다"는 health 한 줄만 있고,
+거부는 전부 없었다.
+
+### 새로 구현한 것 — 19.3 용량 거부
+
+`webapp/space_guard.py`를 추가하고 명세 19.3이 지정한 **순서대로** 거부를 넣었다.
+하나의 모듈, 하나의 기준값이다. `webapp/ops`가 같은 기준값을 가져가므로 health 줄과
+쓰기 경로가 서로 다른 답을 말할 수 없다.
+
+| 순서 | 경로 | 코드 | 성격 |
+|---|---|---|---|
+| 1 | 카드 파일 접수 | `IMPORT_NO_SPACE` | 배치 행을 만들기 **전에** 거부. 거절된 파일은 접수된 것처럼 기록되지 않는다 |
+| 1 | 새 출력 생성 | `EXPORT_NO_SPACE` | 임시 파일을 만들기 **전에** 거부 |
+| 3 | 행 저장 | `SAVE_NO_SPACE` | 최소 여유 공간이 없으면 거부. 성공으로 위장하지 않는다 |
+
+- 이미 저장된 장부·원천·출력은 **지우지 않는다**. 거부는 저장소를 건드리지 않는다.
+- 거절이 파싱 오류처럼 보이게 하지 않는다. 각 거부는 자기 코드를 갖는다.
+- **이미 완료된 요청의 재실행은 거절하지 않는다.** 저장된 결과를 돌려주는 것은
+  쓰기가 아니므로, 공간이 없어도 통과시킨다. 이 순서가 틀리면 끝난 요청을 새 실패로
+  보고하게 된다. 실행으로 이 순서 오류를 실제로 잡아 고쳤다.
+- `health_check`에 `free_space_headroom`을 추가했다. 거부가 시작되기 **전에** 경고하고,
+  fatal이 아니라 warning이다(19.3 "공간 부족 전에 경고").
+- `ops._free_bytes`가 `space_guard.free_bytes`를 **호출**한다. 자기 구현을 남겨두면
+  health와 쓰기 경로가 서로 다른 수를 읽는다. 이 잔여 이중 구현도 실행으로 발견했다.
+
+### 체인 실행에서 발견한 결함 2건
+
+health·backup·restore·drill·smoke·게이트를 **한 순서로, 실제 프로세스로** 돌려서
+발견했다. 각 명령을 따로 시험할 때는 보이지 않는다.
+
+1. **쓰기 가능성 판정이 실제 장부에서 항상 실패했다.** `board_revisions`는 NOT NULL
+   8개인데 첫 판정이 열 4개를 이름으로만 넣었다. 그래서 **한 번이라도 저장된 적이
+   있는 장부**(즉 모든 실제 장부)가 "쓰기 불가"로 보고됐다. 한 번도 저장 안 된 DB만
+   통과했다. 첫 절의 검사가 이 경우를 놓쳤던 이유가 정확히 이것이다.
+   수정: `PRAGMA table_info`에서 열을 읽어 자기 유지되게 만들었다. 앞으로 열이 늘어도
+   같은 결함이 조용히 돌아오지 않는다.
+2. **`ops restore`가 백업이 출력한 이름을 받으면 죽었다.** `ops backup`이 출력하는
+   `bundle`은 **이름만**이다(`bundle-20260929T062350-chain`). 그 값을 그대로 넘기면
+   `FileNotFoundError` traceback과 exit 1이 나왔다. 묶음은 `data_root/backups/`에
+   있는데 상대 경로가 프로세스 작업 디렉터리 기준으로 해석되었기 때문이다.
+   수정: `resolve_bundle`이 설정된 백업 루트 안에서 이름을 찾고, 없으면
+   `BUNDLE_NOT_FOUND`로 거절한다(traceback 아님). 전체 경로 형태는 그대로 동작한다.
+
+### 상태 표시에 남아 있던 부정확
+
+`EXTERNAL_CONDITIONS`의 `code_status`가 실제 코드 상태와 어긋나 있었다. 이 필드의
+목적이 바로 "코드가 없는 것"과 "외부 입력이 없는 것"을 구분하는 것이므로:
+
+| 항목 | 이전 | 지금 |
+|---|---|---|
+| `HOSTING-RESOURCE` | `not_implemented` | `operational_readiness_implemented_awaits_resource` |
+| `PRODUCTION-DB` | `phase8_synthetic_only` | `synthetic_rehearsal_only_awaits_real_sources` |
+| `DEPLOY` | `dry_run_only` | `gated_and_dry_run_only_awaits_deployment` |
+
+호스팅 준비 코드(바인드 정책·영속 데이터 루트·systemd 예시·런북·health·smoke·
+게이트)는 구현·검증됐고, 없는 것은 **돌릴 서버**다. `not_implemented`는 그 단계를
+미구성으로 보고하는 셈이었다.
+
+### 통합 체인 실행 결과 (모두 실제 프로세스, exit 코드 포함)
+
+| 순서 | 명령 | 결과 |
+|---|---|---|
+| 1 | `ops health` | exit 0, `ok=true`, 실패 없음 |
+| 2 | `ops backup --label chain` | exit 0, `bundle-20260929T062350-chain` 생성 |
+| 3 | `ops restore <출력된 이름>` | exit 0, `ok=true`, traceback 없음, 멱등성 재실행 확인 |
+| 4 | 복원본 검사 | `board_rows=8`, `access_accounts=1`, `access_connections=1`, 원본 그대로 |
+| 5 | `ops drill --target <별도 경로>` | exit 0 |
+| 6 | `ops smoke` | exit 0, `board_writable=true`, 여유 공간 두 줄 정상 |
+| 7 | `run_candidate --require-ready` (준비 완료된 루트) | **기동함**. 전부 거절하는 게이트는 게이트가 아니다 |
+| 8 | `run_candidate --require-ready` (빈 루트) | **exit 2, `SMOKE_FAILED`, DB 미생성** |
+| 9 | 원본 데이터 루트 | 손상 없음 |
+
+7번과 8번을 함께 봐야 게이트가 맞다. 준비된 곳을 막으면 게이트가 아니라 오작동이고,
+ prepares되지 않은 곳을 통과시키면 게이트가 아니다.
+
+### 실행 후 검증
+
+- 신규 `webapp/tests/test_space_guard.py` **18건**, 통과.
+- `webapp/tests/test_ops_surfaces.py` 19건 → **25건**으로 확장(복원 왕복·묶음명
+  거절·전체경로·게이트 통과·revision 있는 장부의 쓰기 판정·프로브 비변경).
+- **돌연변이 전건 검출, 생존 0.** 19.3 그룹 8건, 체인에서 발견한 2건 그룹 5건.
+  19.3 첫 회차에서 `publish_workbook` 자체를 지나가지 않던 검사 1건이 살아남아,
+  실제 출판 경로를 태우는 검사를 추가한 뒤 0건이 되었다.
+- 전체 회귀: **`930 passed, 1 skipped, 128 subtests passed in 383.41s`**, exit 0.
+  직전 `924 passed, 128 subtests` 대비 +6, 회귀 0.
+- skip 1건은 Windows에서 `chmod`로 읽기 전용 파일을 만들 수 없어 건너뛴 것이다.
+  음의 분기를 대신 만들어 통과시키지 않았다.
+
+### 이번 세션이 닫지 못한 것과 이유
+
+- **19.3 성공 경로의 용량 부족 재현.** 이 파일시스템을 실제로 채울 수 없어, 여유 공간
+  조회를 강제로 대체해 검사했다. "진짜 ENOSPC에서 sqlite가 어떤 문장을 내는지"는
+  관측하지 못했다. 강제 대입은 판정 경로를 검증하지만 저장 계층의 실제 오류는
+  대체하지 못한다.
+- **18.3(5) DB 스키마 마이그레이션 실행기.** 파일이 있고 버전이 뒤처진 때만 실행된다는
+  조건을 **검사**하는 코드는 있으나, 별도의 버전 마이그레이션 실행기를 이 세션에서
+  만들지는 않았다. `dry_run_deploy`가 현재 스키마를 대조한다.
+- **19.2 "SQLite·원천 디렉터리 공개 금지"**의 경로 접근 검사는 코드에서 확인했지만,
+  외부 노출 자체는 호스팅 자원이 없으므로 닫을 수 없다.
+- 이관 seal의 성공 경로는 여전히 **실제 gate report 산출물**이 있어야 재현된다.
+
+## 운영 준비(rehearsal·smoke)와 readiness 게이트 — 2026-09-29
+
+이번 절은 코드를 읽고 추측한 것이 아니라 **실행해서 발견한 결함 7건**과 그 수정을
+기록한다. 각 항목의 "발견 방법"이 실행인지 읽기인지 구분되어 있다.
+
+### 추가한 명령 3개
+
+| 명령 | 하는 일 | 적용하지 않는 경계 |
+|---|---|---|
+| `ops smoke` | 이 프로세스가 지금 요청에 답할 수 있는지 판정 | DB를 **읽기 전용**으로 연다. 검사 대상을 만들지 않는다 |
+| `ops reservation-sync` | 예약 접근 스냅샷 연습(`--db` 없음) 또는 지정 DB 적용 | 연습은 DB 사본에 실제 동기화 코드를 돌리고 원본을 전후 해시로 대조한다 |
+| `ops migrate-rehearsal` | 양쪽 source를 seal·비교하고 기록까지만 한다 | `apply`를 호출하지 않는다. seal은 `work_dir`의 **바이트 동일 사본**에 한다 |
+
+`run_candidate.py`에 `--require-ready`를 추가했다. 게이트는 **포트에 바인딩하기 전에**
+`smoke`을 돌리고, blocker가 있으면 종료 코드 2로 거절한다. production 환경은 암묵히
+게이트가 켜진다.
+
+### 실행으로 찾아 고친 결함 7건
+
+1. **운영 준비 검사가 검사 대상 DB를 만들고 있었다.** `smoke_report`가
+   `LedgerStore`를 열었고, 그 생성자는 파일을 만들며 빈 DB에 데모 보드를 시드했다.
+   그래서 "없는 DB"를 검사하는 경로에서 검사기가 DB를 만들어낸 뒤 `ok: True`로
+   보고했다. 확인: 검사 전 `db exists=False`, 검사 후 `True`(31 테이블, 7행),
+   보고는 `ok=True, blockers=[]`. 수정: 읽기 전용 연결(`_ReadOnlyStore`)으로 열고,
+   파일이 없으면 "없음"으로 보고한다.
+2. **운영 시작이 합성 시드 행을 넣었다.** `LedgerStore.__init__`가 `first_create`
+   일 때 `_seed()`·`_ensure_trips()`를 호출해 데모 7행과 데모 여행 2개를 넣는다.
+   bare `serve()`만으로 확인했다(`board_rows=7`, `expense-demo-c1`…). 이는
+   SPEC_REFINEMENT 18.3 5항(운영 시작 때 합성 시드 금지) 위반이다. 수정:
+   `seed_demo=True` 기본값을 추가하고 `run_candidate`는 production에서 `False`를
+   넘긴다. 기존 호출자와 테스트의 demo 보드는 그대로다.
+3. **쓰기 가능성을 SELECT로 보고했다.** `board_writable`이 `SELECT` 하나로 참이라고
+   보고했다. 수정: DB 사본을 떠서 실제 `INSERT` 후 `ROLLBACK`을 수행해
+   **관측된** 쓰기로 판정한다. 원본 장부는 건드리지 않는다.
+4. **성공한 첫 적용을 실패로 보고했다.** `ops reservation-sync --db`의 종료 조건이
+   **첫 회차**의 `ignored_stale_or_equal`을 읽었다. 첫 적용에서는 이 값이 당연히 0이
+   라 성공이 종료 코드 2로 나왔다. 수정: 두 번째 패스가 no-op인 `idempotent`로
+   판정한다.
+5. **예약 파서의 거부가 traceback으로 새어나왔다.** CLI가 스냅샷을 직접 파싱해
+   `ValueError`가 그대로 새었다(`exit=1`, traceback). 수정:
+   `ops.parse_reservation_snapshot()` 한 곳에서 `OpsError`로 바꿔 연습·적용이 같은
+   답변을 내게 하고, CLI는 그 한 곳만 호출한다.
+6. **이관 연습이 seal을 건너뛰어 실행 자체가 불가능했다.**
+   `verify_snapshot`은 `candidate_semantic_sha256` 없는 descriptor를 거부하는데, 이
+   값은 sealer가 계산하지 않고 **상류 gate report**에서 온다. 게이트 리포트 없이
+   실행하면 `SNAPSHOT_NOT_SEALED`이었다. 수정: `--left-gate-report` /
+   `--right-gate-report`를 받아 통과시키고, 없으면 traceback이 아닌 명확한 거부를
+   낸다.
+7. **연습이 source 옆에 쓰려고 했다.** `seal_and_verify_sources`는 descriptor를
+   **후보 파일 옆에** 쓴다(후보를 파일 이름으로 기록하므로). 그대로면 운용자의
+   source 디렉터리에 파일 2개가 생긴다. 수정: source와 gate report를 `work_dir`에
+   복사해 그 복사본을 seal한다. 해시는 같은 바이트에서 나오므로 seal은 여전히
+   진짜 source를 증명하고, source 디렉터리는 건드리지 않는다.
+
+추가로 고친 **보고 결함** 1건: `seal_and_verify_sources`는 양쪽을 `google`/`db`로
+라벨링하는데 연습이 `left`/`right` 키를 읽어 seal 증거가 `null`로 보고됐다. 표면은
+완성된 것처럼 보인 채 증거가 사라지는 상태였다. 라벨을 함께 보고한다.
+
+### 새로 기록된 계약 (가정하지 않고 실행으로 확인)
+
+- 예약 파서는 `snapshot_revision == int(exported_at.timestamp()*1000)`를 **정확히**
+  요구한다. `+00:00`, `Z`, 소수점 없음, 다른 오프셋은 모두 통과하고 값이 어긋나면
+  `reservation_access_revision_time_mismatch`다.
+- `LedgerStore`/`serve`의 demo 시드는 `seed_demo`로 제어되며 기본값은 유지된다.
+- `compare_sources`의 mismatch 행은 이미 `changed_fields`를 담는다. 연습은 이를
+  그대로 읽고 두 번 계산하지 않는다.
+- 검증된 identity(`source_identity`)가 없으면 같은 이름·날짜·금액도
+  `ambiguous`(확인 불가)로 간다. 연습이 이 결정을 그대로 노출한다.
+
+### 실행 후 검증
+
+- `webapp/tests/test_ops_surfaces.py` 신규 **19건**, 모두 통과.
+- **돌연변이 7건 전건 검출, 생존 0.** 각 검사가 실제로 결함을 잡는지 확인했다
+  (시드 강제, 쓰기 가능 store 재도입, SELECT로 되돌리기, seal 라벨 되돌리기,
+  종료 조건 되돌리기, traceback 되돌리기, 제자리 seal로 되돌리기). 복원 후 스위트 OK.
+- 전체 회귀: **`906 passed, 128 subtests passed in 308.54s`**, 종료 코드 0.
+  직전 기준 `887 passed, 128 subtests` 대비 **+19(신규 검사)**, 회귀 0.
+
 ## 전체 요구사항 감사 — 2026-09-27
 
 기준은 본 저장소 HEAD `1486a37`, 작업트리 미커밋. 실행 모델은
@@ -823,6 +1015,21 @@ green test라는 이유만으로 proven으로 두지 않았다. 각 proven에는
 | REFINEMENT 19.2 서비스 예시 — 설치하지 않는 systemd 단위 | `ops.service_unit_text` + `cli ops dry-run --unit` + runbook 바인딩 절 | 합성(임시 디렉터리) | `test_the_unit_binds_loopback_and_uses_the_data_root`, `test_the_unit_never_carries_a_secret_value`, `test_the_unit_states_the_procedures_to_run_by_hand`, `test_the_unit_marks_itself_as_an_example`, `test_the_runbook_states_the_bind_shape_and_the_procedures`, `test_dry_run_writes_the_unit_and_reports_its_path`, `test_dry_run_without_a_unit_flag_writes_no_unit` |
 | REFINEMENT 17.4 준비 보고 — health 가 본것을 그대로 말한다 | `ops.health_check` synthetic_sessions detail | 합성(임시 디렉터리) | `test_the_detail_agrees_with_the_verdict_when_no_allowance`, `test_the_detail_agrees_with_the_verdict_when_an_allowance_exists`, `test_a_missing_database_is_reported_honestly` |
 
+**2026-09-27 Google OIDC 연결에서 추가된 행**
+
+| REFINEMENT 16.1 인증 경계 — Google OIDC Authorization Code 실제 구현 | `webapp/google_oidc` `OIDCConfig`·`connect_oidc`·`try_connect_from_env` | 합성(전송·검증 주입) | `test_a_complete_environment_produces_a_configuration`, `test_every_missing_variable_is_refused`, `test_describe_never_carries_a_secret_value`, `test_the_ledger_asks_for_no_mail_or_file_scope`, `test_the_authorization_url_carries_state_and_nonce`, `test_a_full_login_registers_a_viewer_and_issues_a_cookie`, `test_a_callback_with_the_wrong_state_is_refused`, `test_a_token_whose_nonce_does_not_match_is_refused`, `test_a_refused_exchange_does_not_create_an_account`, `test_a_missing_code_is_refused` |
+| REFINEMENT 16.1 id_token 검증 — 서명·발급자·대상·만료·nonce | `GoogleAuthTokenVerifier`(`google.oauth2.id_token`) + `validate_claims` | 합성(claims 주입) | `test_a_good_token_verifies`, `test_another_issuer_is_refused`, `test_another_audience_is_refused`, `test_an_expired_token_is_refused`, `test_a_token_without_an_expiry_is_refused`, `test_a_token_without_a_sub_is_refused`, `test_a_mismatched_nonce_is_refused`, `test_the_email_is_never_the_account_key` |
+| REFINEMENT 16.1 계정 키 — Google sub 를 쓰고 email 은 신원 근거가 아니다 | `register_google_identity` (login 은 role 을 건드리지 않는다) | 합성 + DB | `test_a_full_login_registers_a_viewer_and_issues_a_cookie`, `test_a_login_never_changes_an_existing_role`, `test_a_login_never_reactivates_a_deactivated_account`, `test_the_email_is_never_the_account_key` |
+| REFINEMENT 15.1 소유권 — 첫 로그인은 승격이 아니다 | `bootstrap_owner_if_configured` + `WEBLEDGER_OWNER_GOOGLE_SUB` | 합성 + DB | `test_no_owner_sub_means_no_owner_at_all`, `test_a_matching_owner_sub_bootstraps_exactly_one_owner`, `test_a_non_matching_sub_stays_a_viewer`, `test_a_second_owner_is_not_handed_out`, `test_a_login_never_changes_an_existing_role` |
+| REFINEMENT 16.1 세션 — 서명 쿠키와 세대 결합 | `SessionSigner` + `GoogleOIDCAdapter.session_for` + `require_session` | HTTP(합성) | `test_a_signed_cookie_round_trips`, `test_a_tampered_payload_is_refused`, `test_a_cookie_signed_with_another_key_is_refused`, `test_a_malformed_cookie_is_absent_not_an_error`, `test_the_cookie_is_httponly_samesite_lax_and_secure`, `test_the_google_token_is_never_put_in_the_cookie`, `test_a_valid_cookie_yields_a_session`, `test_a_stale_generation_is_refused`, `test_a_logout_bumps_the_generation_and_invalidates_the_cookie`, `test_a_cookie_for_an_unknown_or_deactivated_account_is_refused`, `test_an_expired_cookie_is_refused`, `test_the_adapter_never_accepts_a_synthetic_header`, `test_require_session_refuses_a_stale_cookie_end_to_end` |
+| REFINEMENT 16.1 로그인 경로 — state/nonce 은 일회용 | `PendingLogins.issue`/`spend` | 합성 | `test_a_state_can_be_spent_exactly_once`, `test_an_unknown_state_is_refused`, `test_an_expired_state_is_refused`, `test_two_logins_get_different_values`, `test_the_store_stays_bounded` |
+| SPEC 16.1 라우트 — /auth/login, /auth/callback, /access/logout | `ledger_board.Handler._auth_routes` + `_send_json(extra_headers=)` | HTTP(실 소켓) | `test_login_redirects_to_google`, `test_login_answers_503_when_nothing_is_configured`, `test_callback_without_a_flow_answers_503`, `test_callback_with_a_bad_state_is_refused`, `test_callback_that_google_refused_is_reported`, `test_a_full_callback_sets_the_cookie_and_redirects`, `test_logout_clears_the_cookie`, `test_the_post_logout_clears_the_cookie_too`, `test_the_state_line_reports_the_connection`, `test_the_state_line_says_so_when_nothing_is_connected` |
+| REFINEMENT 17.4 준비 보고 — google_oidc_connected 를 facts 로 | `ops.google_oidc_state` + `health_check` + `dry_run_deploy` | 합성(임시 디렉터리) | `test_health_reports_the_oidc_line_as_not_connected`, `test_health_reports_connected_only_when_a_flow_is_bound`, `test_health_does_not_claim_a_connection_from_the_environment`, `test_health_never_prints_a_secret`, `test_a_production_dry_run_needs_a_connected_login`, `test_a_temp_rooted_production_config_is_refused_on_its_own`, `test_a_production_dry_run_fails_without_a_login`, `test_a_production_dry_run_passes_with_a_login`, `test_the_state_reports_presence_not_values` |
+
+**2026-09-27 /access/me 결함 수정에서 추가된 행**
+
+| REF 16.1 자기 상태 응답 — `/access/me` 가 실제 로그인 상태를 말한다 | `ledger_board.google_oidc_connection_state` + `access_control_render_viewer_status` + `ops.google_oidc_state` | HTTP(실 소켓) | `test_a_connected_login_is_reported_as_connected`, `test_no_connection_is_reported_as_not_connected`, `test_the_route_and_health_never_disagree`, `test_the_response_carries_the_state_it_used`, `test_the_response_carries_no_secret`, `test_the_view_helper_reads_the_bound_flow`, `test_a_bound_flow_without_the_library_is_not_connected`, `test_the_route_reads_the_verdict_and_not_merely_the_configuration`, `test_both_paths_return_the_same_value`, `test_ops_follows_the_process_and_not_the_environment`, `test_ops_follows_a_flow_that_is_bound_after_a_restart`, `test_the_board_helper_is_the_one_that_exists` |
+
 ### 계층 정정 기록 (2026-09-27, 우선순위 1b)
 
 이전 표는 **명세 요구**·**구현**·**검사** 세 칸뿐이라, 어느 층에서 단정하는지
@@ -966,12 +1173,13 @@ green이어도 아래 6개는 그대로 남는다.
   어댑터를 붙인 뒤에는 `synthetic_sessions` 검사가 `ok: true`여야 한다.
   (지금은 합성 허용이 켜져 있어 `ok: false`가 정상 상태다.)
 - **성공 판정 근거**:
-  1. `ops health`의 `synthetic_sessions.ok == true`
-  2. 실제 `sub`로 만든 세션이 `access_accounts` 행에 매칭된다
-  3. **첫 로그인 사용자가 owner가 되지 않는다.** `ensure_owner`는 로그인
-     경로에서 호출되지 않는다(2026-09-27 전수 조사). `owner_evidence_preview`
-     경로로만 지정된다.
-  4. `state`와 `nonce`가 서버 로그인 흐름에서 확인된다 (REFINEMENT 16.1)
+  1. `ops health`의 `google_oidc_connected.ok == true`
+  2. `synthetic_sessions.ok == true` (합성 seam 은 꺼져 있어야 한다)
+  3. 실제 `sub`로 만든 세션이 `access_accounts` 행에 매칭되고, 그 계정은
+     **viewer** 다 (설정된 `WEBLEDGER_OWNER_GOOGLE_SUB` 와 일치할 때만 owner)
+  4. `state`를 한 번 쓰면 다시 쓰지 못하고, `nonce`가 id_token 과 일치한다
+  5. `/access/logout` 이후 그 쿠키는 `AUTH_REQUIRED` 로 거부된다
+  6. 쿠키가 `Secure; HttpOnly; SameSite=Lax` 이고 토큰을 담지 않는다
 - **거부되어야 하는 경우**: 검증되지 않은 ID 토큰, 만료된 토큰, 다른 클라이언트
   audience, `sub` 대신 이메일을 계정 키로 쓴 경우.
 
@@ -1875,7 +2083,7 @@ python -m pytest webapp/tests -q -p no:cacheprovider --timeout=180
 | 매트릭스 절 참조 | **77개 전부 해석됨**, 불일치 0 |
 | `webledger.work*` 잔여물 | 0 |
 | 잔여 검사용 python/chrome 프로세스 | 0 |
-| HEAD | `1486a37` 유지 — commit·push·deploy 없음 |
+| HEAD | `99041a4` (이 턴 도중 외부 주체가 만든 commit, 제 commit 아님) |
 | `ownership_child.py` | 보존, 2862 bytes |
 | **incomplete-local** | **0건** |
 | **external-only** | **6건** (위 절에 항목별 외부 입력·명령·성공 근거) |
@@ -1993,7 +2201,7 @@ python -m pytest webapp/tests -q -p no:cacheprovider --timeout=180
 | 매트릭스 절 참조 | **82개 전부 해석됨** |
 | `webledger.work*` 잔여물 | **0건** |
 | 잔여 검사용 python/chrome 프로세스 | **0건** |
-| HEAD | `1486a37` 유지 — commit·push·deploy 없음 |
+| HEAD | `99041a4` (이 턴 도중 외부 주체가 만든 commit, 제 commit 아님) |
 | **incomplete-local** | **0건** |
 | **external-only** | **6건** (HOSTING-RESOURCE 포함) |
 
@@ -2015,3 +2223,278 @@ python -m pytest webapp/tests -q -p no:cacheprovider --timeout=180
 그리고 이 테스트가 처음엔 유효한 합성 설정을 띄워 suite 를 멈췄다. 모든 거절
 케이스만 다루도록 고치고 타임아웃을 60초로 줄여, 앞으로 거절이 깨지면
 프로세스를 남기지 않고 실패하게 했다.
+
+
+---
+
+## 2026-09-27 · Google OIDC 실제 연결
+
+`access_control` 에는 합성 seam 만 있었고 실제 provider 가 없었다. 이제
+`webapp/google_oidc.py` 가 있다. 이건 두 번째 합성 대역이 아니다 — 설정되면
+브라우저를 Google 로 보내고 검증된 Google 신원이 돌아오는 실제
+Authorization Code 흐름이다.
+
+### 세 가지 중요한 결정
+
+- **계정 키는 `sub`.** Google 의 `sub` 는 이메일 변경에도 안정적이다. email 은
+  표시 속성으로만 기록하고 조회 키로 쓰지 않는다. 그래서 Google 계정 이름을 바꿔도
+  새 계정이 생기거나 옛 권한을 물려받지 않는다.
+- **첫 로그인은 승격이 아니다.** 처음 보는 신원은 항상 **viewer** 다. owner 가 되는
+  길은 `WEBLEDGER_OWNER_GOOGLE_SUB` 이 설정되어 있고 제시된 `sub` 와 같고 아직
+  owner 가 없을 때의 명시적 bootstrap 뿐이다. 그 설정을 빠뜨린 배포는 실수로 생긴
+  owner 가 아니라 owner 가 없는 상태가 된다.
+- **세션은 계정 세대에 묶인다.** 쿠키는 발급 시점의 `session_generation` 을 담고
+  모든 요청이 지금의 세대와 비교한다. 로그아웃·권한 해제·비활성화가 세대를 옮기면
+  브라우저가 들고 있던 쿠키는 거부된다.
+
+### 구현 범위
+
+- `Authorization Code` + OIDC. `/auth/login` 은 Google 로 303 리다이렉트,
+  `/auth/callback` 은 code 를 교환하고 id_token 을 검증한 뒤 서명 쿠키를 설정한다.
+- `state`/`nonce` 는 일회용이고 TTL 이 있다. 콜백 state 를 먼저 소진하므로
+  재전송된 콜백은 **토큰 엔드포인트에 도달하기 전에** 거부된다.
+- id_token 검증은 `google-auth` 의 `google.oauth2.id_token` 으로 하고, 서명·
+  발급자·audience·만료를 검사한다. 라이브러리가 없으면 로그인을 **거부**한다.
+  검증을 건너뛰고 로그인시키지 않는다. `validate_claims` 는 라이브러리가 이미
+  확인한 항목을 다시 확인한다 — 주입된 verifier 나 라이브러리 변경이 그 검사를
+  조용히 떨구면 안 되므로.
+- 세션 쿠키는 `Secure; HttpOnly; SameSite=Lax; Path=/`. Google 토큰은 쿠키에
+  넣지 않는다. 검증 직후 버린다 — 쿠키에 든 bearer 는 브라우저가 계속 재전송하는
+  자격 증명이다.
+- `/access/logout` 은 GET·POST 양쪽에서 쿠키를 지운다(`Max-Age=0`, 같은 이름과
+  path). 세대만 옮기고 쿠키를 남기면 다음 방문이 그 쿠키를 들고 와서
+  `SESSION_STALE` 로 거절당하기 때문이다.
+- `google_oidc_connected` 는 `ops health` 와 `ops dry-run` 에 반영된다. health 의
+  이 줄은 **항상 보고되고 production 에서만 fatal** 이다. 로컬·합성 실행은 아직
+  Google 로그인이 없는 게 정상이라 거기서 실패시키면 선언대로 동작하는 실행이
+  실패로 보이게 된다.
+
+### 이 과정에서 고친 결함
+
+1. **`google_oidc_connected` 를 처음부터 fatal 로 뒀다.** 기존 Phase 9 검사 4건이
+   깨졌고, 그게 맞는 신호였다. 로컬 실행은 Google 설정이 없어도 정상이므로
+   production 에서만 fatal 로 바꿨다.
+2. **거절 페이지가 거절 코드를 말하지 않았다.** 운영자가 재전송된 state 와
+   잘못된 토큰을 로그를 뒤지지 않고 구분할 수 없었다. `data-refusal` 속성으로
+   코드를 렌더한다.
+
+### 보존한 파일 3개
+
+사용자 요청대로 덮어쓰지 않고 통합했다.
+
+- `run_candidate.py`: HOSTING 거절 3종(데이터 루트 없음·루프백 밖 바인딩·production
+  임시 루트)이 그대로 종료 코드 2로 거절되고 traceback 이 없다. 추가로
+  `--synthetic-sessions` 를 받았는데 Google 환경도 설정돼 있으면
+  `MIXED_AUTH_PATHS` 로 거절한다 — 어느 쪽이 권한을 정했는지 모호한 채로 두지 않기
+  위해서다.
+- `test_ops_hosting_bind.py`: 40건 그대로 통과.
+- `requirements.txt`: `openpyxl` 줄을 보존하고 `google-auth`·`PyJWT`·`requests` 를
+  추가했다. `google-auth` 는 선택 사항이 아니다 — 없으면 로그인이 거부되므로.
+
+**실제 비밀 값은 만들지도 출력하지도 않았다.** 테스트에 있는 두 값은 자리표시자
+문자열이고 제품 코드에는 0건이다.
+
+### 변이로 검사 effectiveness 확인
+
+신규 검사 67건에 변이 19건(A~S)을 넣어 전건 실패를 확인했다. 지면 항목을 하나씩
+옮겨 재도입했다: email 로 계정 조회, 첫 로그인 owner 승격, owner sub 우회, 둘째
+owner , state 재전송, nonce·발급자·audience·만료 미검사, 쿠키 서명 미검증, 세대
+미비교, HttpOnly·Secure 제거, 로그아웃의 쿠키 미삭제, 헤더를 신원으로 수용, health
+의 거짓 연결 보고, 약한 세션 키·평문 base url 수용, login 의 기존 계정 덮어쓰기.
+
+이 과정에서 **검사 공백 2건**도 닫았다. `ops health` 라인을 아예 검사하지 않아
+"연결되지 않았는데 연결됨이라고 보고하는" 변이가 통과했고, "다른 sub 로 온
+사람이 owner 가 되는" 변이도 통과했다(다른 방어선이 막아서). 두 검사를 추가했다.
+
+러너 쪽 결함도 셋 고쳤다. 메서드 이름을 잘못 찾아 9건이 실행조차 안 됐고, 같은
+이름의 정의가 여럿일 때 첫 번째 것을 잡아 J 가 엉뚱한 함수에 갔으며, 모듈 수준
+함수를 못 찾았다.
+
+
+### base 가 이 턴 도중에 바뀌었습니다
+
+`HEAD: 1486a37 유지` 라고 적으려 했으나, 그대로 둘 수 없었습니다.
+
+- `99041a4` — "Complete web ledger hosting readiness and access controls" 가 이 턴 도중 **제가 아닌 주체에 의해** 만들어졌습니다
+  (`6Soo <31435325+6Soo@users.noreply.github.com> / Mon Sep 28 14:44:48 2026 +0900`).
+- `git status -sb` 는 `## main...origin/main`. ahead 표기가 없으므로 그 commit 은
+  `origin/main` 에도 반영돼 있습니다.
+- 그 commit 은 HOSTING 까지의 작업을 담고 있고, **제 OIDC 파일은 담고 있지
+  않습니다** (`webapp/google_oidc.py`, `webapp/tests/test_google_oidc.py`,
+  `requirements.txt`).
+- 이 턴의 OIDC 작업은 그대로 **커밋되지 않은 채 작업트리에** 있습니다:
+  수정 6개, 미추적 3개.
+
+저는 이 턴 동안 `git commit` 도 `git push` 도 실행하지 않았습니다. 요청대로
+작업트리에 남긴 상태이고, base 이동은 제가 일으킨 것이 아니므로 되돌리지도
+않았습니다. 다만 검증값 표의 HEAD 표기를 실제로 맞췄습니다.
+
+같은 주체가 `test_ops_hosting_bind.py` 에
+`test_production_entry_binds_fail_closed_access_before_serving` 를 추가해 둔
+상태였고, 그 검사도 통과합니다(1 passed). 제가 쓴 검사가 아닙니다.
+
+
+### 최종 실행값과 한 번의 flaky
+
+```
+python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
+  → 859 passed, 124 subtests passed in 283.96s
+```
+
+이 턴에 전체 suite 를 네 번 돌렸다. 값은 세 번 같았고 한 번 달랐다.
+
+| 실행 | 결과 |
+| --- | --- |
+| 1 (timeout 240) | 859 passed, 124 subtests in 389.09s |
+| 2 (timeout 240) | 859 passed, 124 subtests in 385.45s |
+| 3 (timeout 240) | 1 failed, 858 passed — `test_a_waiting_row_moves_to_a_trip_from_the_list` |
+| 4 (timeout 300) | 859 passed, 124 subtests passed in 283.96s |
+
+한 번 실패한 것은 Playwright 화면 검사 하나입니다. 격리 실행에서 통과했고, 같은
+파일을 연속 3번 돌려 21건이 매번 통과했습니다. 그래서 코드 문제가 아니라 부하
+의존 테스트로 봅니다. 다만 "한 번이면 flaky 라고 결론 내리는" 것은 근거가 약하므로
+결론 대신 기록으로 남깁니다 — 이 검사는 부하가 걸린 실행에서 1/4 실패했고, 지금은
+**닫히지 않은 위험**이다. 부하가 더 심한 환경에서는 이 검사를 계기로 다른 결함과
+섞일 수 있으니, 전체 suite 를 한 번의 통과로 근거 삼지 말아야 한다.
+
+timeout 을 240 에서 300 으로 올려도 같은 실패가 재현되지 않았으므로, 부하가 원인이
+맞지만 어느 시점에 발생하는지는 확정하지 않았다.
+
+
+---
+
+## 2026-09-27 · `/access/me` 의 `google_oidc_connected` 결함
+
+### 증상
+
+실제 Railway 배포에서 Google OAuth 로그인이 **성공**했는데 `/access/me` 가
+`google_oidc_connected: false` 를 반환했다. 같은 프로세스에서 `ops health` 와
+`/auth/state` 는 `true` 였다. 세 화면이 두 개의 답을 주고 있었다.
+
+### 원인
+
+`webapp/ledger_board.py` 의 `access_control_render_viewer_status` 안에
+`"google_oidc_connected": False` 가 **상수로** 들어 있었다. 이 응답을 쓰는
+`/access/me` 는 바인딩된 흐름을 보지 않고 언제나 거짓을 말했다.
+
+재현해 확인했다(합성 흐름을 바인딩한 뒤 같은 라우트를 실제 소켓으로 읽음):
+
+```
+ops sees       : True
+bound flow     : True
+ops health line: [True]
+/auth/state    : True
+user_id                 : 104392118726514019283
+role                    : owner
+identity_source         : google_oidc
+google_oidc_connected   : False      <== 여기만 다르다
+```
+
+### 수정
+
+1. `ledger_board` 에 `google_oidc_connection_state()` 를 추가했다. 바인딩된 흐름을
+   `google_oidc.connection_state` 에 넘기므로, `ops.health` 가 읽던 바로 그 함수다.
+2. `/access/me` 는 그 값을 읽는다. 그리고 **왜** 그 값인지 알 수 있도록
+   `google_oidc` 상태 덩어리를 함께 실었다 — 값만 보내면 운영자는 "왜 false 지"
+   를 알 수 없다. 덩어리에는 비밀 값이 없다(존재 여부와 모양만).
+3. **`ops.google_oidc_state` 의 fallback 을 지웠다.** 원래는 보드의 헬퍼를 먼저
+   쓰고, 없으면 같은 값을 직접 계산하는 두 번째 길이 있었다. 같은 값을 계산하는
+   두 길이가 바로 이 결함의 온상이므로, 한 길만 남겼다.
+
+### 한 가지 짚어둘 점
+
+`identity_source` 와 `google_oidc_connected` 는 다른 사실이다. 전자는 **이 세션이
+어디서 왔는지**, 후자는 **이 배포에 실제 로그인이 있는가** 이다. Google 세션으로
+들어왔는데 `google_oidc_connected` 가 false 인 상황은 정상일 수 있다 — 예를 들어
+`google-auth` 가 없어 지금 세션만 서 있는 경우다. 그래서 두 필드를 분리했다.
+
+### 검사 공백 2건도 닫았다
+
+변이를 돌렸는데 2건이 살아남았다.
+
+- `google_oidc_connected` 대신 `configured` 를 읽는 변이가 통과했다. 정상 흐름에서는
+  두 값이 **둘 다 true** 라 구분이 안 된다. `configured` 이면서
+  `google_oidc_connected` 가 false 인 상태(`google-auth` 없음)를 **경로 수준에서**
+  검사해 추가했다.
+- `ops` 가 헬퍼를 우회하는 변이가 통과했다. 그런데 그 fallback 은 같은 값을
+  계산해서 **행동이 동일**했다 — 결함 형태가 아니었다. fallback 을 코드에서
+  지워 길 하나만 남겼고, 이제 우회가 실제 행동 변화가 되어 잡힌다.
+
+그리고 소스 문자열 검색으로 "헬퍼를 부른다"를 확인하던 검사를 **행동 검사**로
+바쳤다. 문자열 검색은 호출을 우회해도 통과한다.
+
+### 변이 5건 전건 탐지
+
+| | 변이 | 결과 |
+| --- | --- | --- |
+| A | `/access/me` 가 다시 상수 false | CAUGHT |
+| B | `/access/me` 가 언제나 true | CAUGHT |
+| C | 판정 대신 `configured` 를 읽음 | CAUGHT |
+| D | 헬퍼가 바인딩된 흐름을 무시 | CAUGHT |
+| E | `ops` 가 환경값으로 답변 | CAUGHT |
+
+변이를 되돌린 뒤 소스에 **잔여물이 0건**임을 확인했다. 검사한 표식은
+하드코딩된 `"google_oidc_connected": False`, `if False`, `_os.environ`,
+`webapp/ops.py` 안의 `WEBLEDGER_GOOGLE_CLIENT_ID`, 예전 fallback 의
+`callable(reader)`, 그리고 쿠키 표식 변이 흔적이다. `webapp/ledger_board.py` 와
+`webapp/ops.py` 는 두 파일 모두 다시 파싱된다.
+
+### 실행값
+
+```
+# 관련 (OIDC · Phase 9 · 복구 게이트 · HOSTING · Phase 7 접근)
+python -m pytest webapp/tests/test_google_oidc.py webapp/tests/test_ops_phase9.py \
+  webapp/tests/test_ops_recovery_gates.py webapp/tests/test_ops_hosting_bind.py \
+  webapp/tests/test_access_control_phase7.py -q -p no:cacheprovider --timeout=240
+  → 253 passed, 42 subtests passed in 89.42s
+
+# 전체
+python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
+  → 887 passed, 128 subtests passed in 425.51s
+```
+
+`test_google_oidc.py` 는 67건에서 **79건**으로 늘었다. HEAD 는 `99041a4` 이고
+이번 턴에도 commit·push·deploy 하지 않았다.
+
+
+### 최종 실행값과 이 작업트리의 동시 작업
+
+```
+python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
+  → 887 passed, 128 subtests passed in 425.51s
+```
+
+이 결함을 고치면서 **전체 suite 를 네 번** 돌렸다. 네 번 모두
+`887 passed, 128 subtests` 로 같고 소요 시간만 달랐다
+(448.80s / 425.51s / 448.80s / 390.31s). **권위값으로 적는 것은
+`887 passed, 128 subtests passed in 425.51s`** 다. 마지막 390.31s 는 문서를
+복구한 뒤 다시 돌린 값이고 통과 건수는 같으며 차이는 기계 부하다. 한
+값만 남기면 그 값이 유일한 측정치처럼 보이므로 나머지도 함께 적는다.
+지난 턴에 한 번 나왔던 Playwright flaky 는 이번에는 네 번 모두 없었다.
+
+**주의 — 이 작업트리에서 다른 주체가 작업 중입니다.** `git status` 에는 제가 건드리지
+않은 변경이 있습니다:
+
+   - docs/IMPLEMENTATION_PROMPT_WEB_LEDGER_APP.md
+   - webapp/access_control.py
+   - webapp/tests/test_access_control_phase7.py
+   - webapp/tests/test_ops_hosting_bind.py
+   - ledger/domain/reservation_access_snapshot.py
+   - tools/import_reservation_access.py
+   - webapp/tests/test_reservation_access_sync.py
+
+`ledger/domain/reservation_access_snapshot.py`,
+`tools/import_reservation_access.py`,
+`webapp/tests/test_reservation_access_sync.py` 는 예약 접근 동기화 쪽 작업으로
+보이며 제 `/access/me` 수정과는 무관합니다. `webapp/access_control.py` 와
+`test_access_control_phase7.py` 도 제가 이 결함 작업에서 건드리지 않았습니다.
+
+따라서 위 887건은 **그 변경을 포함한 수치**입니다. 제 수정만의 수치가 아닙니다.
+같은 저장소를 다른 주체가 쓰는 동안에는 전체 실행값을 단독 근거 삼지 말고, 변경된
+파일 목록과 함께 읽어야 합니다.
+
+이번 턴에 제가 쓴 파일은 이 다섯 개입니다:
+`webapp/ledger_board.py`, `webapp/ops.py`,
+`webapp/tests/test_google_oidc.py`,
+`docs/WEB_LEDGER_IMPLEMENTATION_LOG.md`,
+`docs/handoff/2026-09-27/README.md`.

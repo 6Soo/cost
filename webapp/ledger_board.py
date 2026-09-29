@@ -12,12 +12,14 @@ Expected fixture totals (contract):
 from __future__ import annotations
 
 import html
+import http.cookies
 import json
+import os
 import secrets
 import sqlite3
 import threading
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
@@ -33,6 +35,9 @@ _PROVIDER_CONFIG = None
 _PROVIDER_AUTOWIRE = False
 _PROVIDER_TRANSPORT = None
 _ACCESS = None
+# Phase 7b: the Google OIDC login flow. Unbound unless the deployment set the
+# environment, so an unconfigured server keeps refusing every session.
+_OIDC = None
 # Phase 7: until an access store is bound the board keeps its pre-Phase-7
 # single-operator behaviour, so owner functionality is unchanged. Binding a
 # store turns on server-side role enforcement. The default session adapter
@@ -57,12 +62,12 @@ AUTHORITY_LABELS = {
 _ROLE_LOCAL = threading.local()
 
 
-def resolve_role(headers) -> str:
+def resolve_role(headers, cookies=None) -> str:
     """Decide the role for this request, on the server, from the session only."""
     if not ACCESS_ENFORCEMENT:
         role = "owner"
     else:
-        session = current_session(headers)
+        session = current_session(headers, cookies)
         role = ("owner" if session is not None and is_owner_session(session)
                 else "viewer")
     _ROLE_LOCAL.role = role
@@ -96,6 +101,23 @@ def bind_access(access_store) -> None:
             binder(access_store)
 
 
+def bind_oidc(flow) -> None:
+    """Attach a connected Google login flow, or None to stay fail-closed.
+
+    Binding a flow also binds its session adapter, so from this point every
+    request is decided by a signed cookie. Passing None leaves the previous
+    adapter alone, which is how a test detaches a flow without pretending the
+    board forgot to ask.
+    """
+    global _OIDC
+    _OIDC = flow
+    return _OIDC
+
+
+def oidc_flow():
+    return _OIDC
+
+
 def access_control_session_adapter():
     from . import access_control
 
@@ -106,16 +128,16 @@ def access_store():
     return _ACCESS
 
 
-def current_session(headers):
+def current_session(headers, cookies=None):
     """The session for this request, or None. Never trusts a request body."""
     from . import access_control
 
     if not ACCESS_ENFORCEMENT:
         return None
-    return access_control.session_adapter().session_for(headers)
+    return access_control.session_adapter().session_for(headers, cookies)
 
 
-def require_session(headers):
+def require_session(headers, cookies=None):
     # Imported once at the top: an import inside a branch binds a local name
     # and the later use would raise UnboundLocalError.
     from . import access_control
@@ -177,17 +199,37 @@ def parts_value(path: str) -> str:
     return path.strip("/").split("/")[1] if path.strip("/").count("/") else ""
 
 
+def google_oidc_connection_state() -> dict:
+    """The real Google login connection state, from one place.
+
+    This delegates to the same `google_oidc.connection_state` that
+    `ops.google_oidc_state` uses, so the board, `/auth/state` and `ops health`
+    cannot disagree about whether a login is connected. A second, separately
+    written answer is what let `/access/me` report `false` on a host where the
+    login worked.
+    """
+    from . import google_oidc
+
+    return google_oidc.connection_state(oidc_flow())
+
+
 # ------------------------------------------------- Phase 7 view rendering
 def access_control_render_viewer_status(session, store) -> dict:
     """The viewer's own state, never another person's application list."""
     applications = store.applications_for(session.user_id)
     connection = store.active_connection(session.user_id)
+    # The connection state is a fact about this deployment, read from the bound
+    # flow rather than asserted. `identity_source` above says where *this*
+    # session came from; this says whether a real Google login is available at
+    # all, which is what an operator needs when the two disagree.
+    oidc = google_oidc_connection_state()
     return {
         "user_id": session.user_id,
         "role": store.account_role(session.user_id),
         "email": session.email,
         "identity_source": "synthetic" if session.is_synthetic else "google_oidc",
-        "google_oidc_connected": False,
+        "google_oidc_connected": bool(oidc.get("google_oidc_connected")),
+        "google_oidc": oidc,
         "session_generation": store.session_generation(session.user_id),
         "cache_namespace": session.cache_namespace(),
         "applications": applications,
@@ -2131,13 +2173,206 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep test output quiet
         pass
 
+    def handle_one_request(self):
+        """Serve one request, from the store of the server that accepted it.
+
+        The board's store is a module global, which is right for a process that
+        runs one ledger and wrong the moment a second server exists -- which is
+        every test fixture, and also a graceful restart. A connection kept open
+        by a client can deliver its next request after a teardown has rebound or
+        cleared the global, and the handler then runs against a store that
+        belongs to somebody else or to nobody.
+
+        Re-binding from `self.server` at the start of each request means the
+        handler answers with the ledger of the server that accepted the
+        connection, which is the only store whose answer is correct.
+
+        A client that stops reading is a normal ending and is not an error: the
+        socket is marked for closing rather than raising a traceback from a
+        worker thread.
+        """
+        server_store = getattr(self.server, "card_store", None)
+        if server_store is not None and _STORE is None:
+            # Only when the global was cleared. A teardown that deliberately
+            # rebound a *different* store is respected; a teardown that cleared
+            # it while this connection was still open is not, because the
+            # request that arrives afterwards belongs to the server that
+            # accepted it and has no other store to answer from.
+            bind_store(server_store)
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
     def _send(self, text: str, code: int = 200) -> None:
         data = text.encode("utf-8")
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
+    # ------------------------------------------------- the session cookie
+    def _platform_probe(self, path: str) -> tuple[int, dict]:
+        """Answer a platform probe: no auth, no data, a real answer either way.
+
+        `/healthz` never fails while the process is running, which is what a
+        restart policy needs. `/readyz` fails when the working database is
+        missing or has no schema, so a platform stops sending traffic to a
+        process that cannot answer a request -- and the reason is named in a
+        fixed vocabulary rather than by its output.
+        """
+        body = {"ok": True, "probe": path.lstrip("/")}
+        if path == "/healthz":
+            return 200, body
+        problems = []
+        try:
+            store = _STORE
+        except NameError:  # pragma: no cover - the board always binds one
+            store = None
+        db_path = os.environ.get("WEBLEDGER_DB", "")
+        if store is None:
+            problems.append("store_not_bound")
+        else:
+            db_path = str(getattr(store, "path", db_path))
+            try:
+                conn = store.conn
+                tables = {r[0] for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+            except Exception:  # noqa: BLE001 - an unusable store is not ready
+                tables = set()
+                problems.append("database_unreadable")
+            for required in ("board_rows", "trip_tabs"):
+                if required not in tables:
+                    problems.append(f"missing_table:{required}")
+        body["ok"] = not problems
+        if problems:
+            body["problems"] = sorted(problems)
+        return (200 if body["ok"] else 503), body
+
+    def _cookies(self):
+        """The request's cookies, parsed once per request.
+
+        `BaseHTTPRequestHandler.headers` is an `email.message.Message`, which
+        keeps repeated headers, so a second `Cookie` line is appended rather
+        than replacing the first. A client can send two, and reading only the
+        first would let it hide a cookie from the check.
+        """
+        jar = http.cookies.SimpleCookie()
+        try:
+            for raw in self.headers.get_all("Cookie") or []:
+                jar.load(raw)
+        except (AttributeError, http.cookies.CookieError):
+            return {}
+        return jar
+
+    def _oidc_flow(self):
+        """The connected Google flow, or None when the deployment has none."""
+        return _OIDC
+
+    def _auth_redirect(self, location: str, cookie: str | None = None) -> None:
+        self.send_response(303)
+        self.send_header("Location", location)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        # A redirect that carries a session must never be cached.
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+
+    def _auth_page(self, title: str, body: str, code: int = 200,
+                   refusal: str = "") -> None:
+        # The refusal code is rendered as a data attribute so a support answer
+        # can name it without reading the server log, and so a route can be
+        # checked for the specific refusal it is meant to produce.
+        marker = f'<p data-refusal="{refusal}"></p>' if refusal else ""
+        data = (f"<!doctype html><meta charset=utf-8><title>{title}</title>"
+                f"{marker}{body}").encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(data)
+
+    def _auth_routes(self, query) -> bool:
+        """`/auth/login`, `/auth/callback` and `/access/logout`.
+
+        A deployment with no Google configuration answers 503 on the login
+        routes rather than redirecting somewhere. Silently sending an operator
+        to a page that cannot log in looks like a working login flow.
+        """
+        from . import google_oidc
+        from .google_oidc import OIDCError
+
+        path = urlparse(self.path).path
+        flow = self._oidc_flow()
+
+        if path == "/auth/login":
+            if flow is None:
+                self._auth_page(
+                    "로그인 설정 없음",
+                    "<p>Google 로그인이 연결되어 있지 않아요. "
+                    "배포 환경 설정을 먼저 확인해 주세요.</p>", code=503,
+                   refusal="OIDC_NOT_CONFIGURED")
+                return True
+            try:
+                started = flow.authorization_url(
+                    return_to=(query.get("return_to", ["/board"])[0] or "/board"))
+            except OIDCError as exc:
+                self._auth_page("로그인 불가", f"<p>{exc.message}</p>",
+                                code=exc.status, refusal=exc.code)
+                return True
+            self._auth_redirect(started["url"])
+            return True
+
+        if path == "/auth/callback":
+            if flow is None:
+                self._auth_page("로그인 설정 없음",
+                                "<p>Google 로그인이 연결되어 있지 않아요.</p>",
+                                code=503, refusal="OIDC_NOT_CONFIGURED")
+                return True
+            error = (query.get("error", [""])[0] or "")
+            if error:
+                # Google refused, or the user declined. The description may name
+                # the reason; it never names an account.
+                self._auth_page("로그인 취소",
+                                f"<p>로그인이 완료되지 않았어요 ({error}).</p>",
+                                code=400, refusal=error)
+                return True
+            try:
+                completed = flow.complete(
+                    code=(query.get("code", [""])[0] or ""),
+                    state=(query.get("state", [""])[0] or ""))
+            except OIDCError as exc:
+                self._auth_page("로그인 실패", f"<p>{exc.message}</p>",
+                                code=exc.status, refusal=exc.code)
+                return True
+            self._auth_redirect(completed["return_to"],
+                                cookie=flow.set_cookie(completed["cookie_value"]))
+            return True
+
+        if path == "/access/logout" and self.command == "GET":
+            # Ending a session must also remove the cookie, or the browser
+            # keeps presenting it. The generation moves on the POST route; the
+            # GET is here so a plain link can end a session too, and it clears
+            # the cookie regardless of whether a store is bound.
+            cookie = (flow.clear_cookie() if flow is not None
+                      else google_oidc.clear_cookie_header())
+            self._auth_redirect("/board?msg=" + urlencode({"msg": "로그아웃"}),
+                                cookie=cookie)
+            return True
+
+        if path == "/auth/state":
+            state = google_oidc.connection_state(flow)
+            self._send_json(state)
+            return True
+
+        return False
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
         self.send_response(200)
@@ -2204,11 +2439,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_json(self, value: dict, code: int = 200) -> None:
+    def _send_json(self, value: dict, code: int = 200,
+                   extra_headers: dict | None = None) -> None:
         data = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        for header_name, header_value in (extra_headers or {}).items():
+            self.send_header(header_name, header_value)
         self.end_headers()
         self.wfile.write(data)
 
@@ -2255,7 +2493,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         from . import access_control
 
-        session = require_session(self.headers)
+        session = require_session(self.headers, self._cookies())
         path = parsed.path
 
         # The access screens answer for both roles.
@@ -2366,7 +2604,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         from . import access_control
 
-        session = require_session(self.headers)
+        session = require_session(self.headers, self._cookies())
         path = parsed.path
         payload = self._phase7_payload(content_type, raw)
         store = _ACCESS
@@ -2411,14 +2649,24 @@ class Handler(BaseHTTPRequestHandler):
             # the generation moves, so the client can drop its cached ledger
             # data and any session it still holds is refused.
             generation = _ACCESS.bump_session_generation(session.user_id)
+            # The cookie is removed as well. A logout that only moved the
+            # generation would leave the browser holding a cookie that is stale
+            # but still present, so the next visit would present it and be
+            # refused with SESSION_STALE rather than being asked to log in.
+            from . import google_oidc
+
+            flow = self._oidc_flow()
+            clear = (flow.clear_cookie() if flow is not None
+                     else google_oidc.clear_cookie_header())
             self._send_json({
                 "logged_out": True,
                 "user_id": session.user_id,
                 "session_generation": generation,
                 "cache_namespace": session.cache_namespace(),
+                "cookie_cleared": True,
                 "client_must_clear": ["selected_row", "cached_ledger_data",
                                       "cached_evidence"],
-            })
+            }, extra_headers={"Set-Cookie": clear})
             return True
 
         if path == "/access/providers":
@@ -2530,7 +2778,8 @@ class Handler(BaseHTTPRequestHandler):
                 user_id=str(payload.get("user_id") or ""),
                 items=list(payload.get("items") or []),
                 source_version=str(payload.get("source_version") or ""),
-                complete=bool(payload.get("complete", True)))
+                complete=bool(payload.get("complete", True)),
+                snapshot_revision=payload.get("snapshot_revision"))
             self._send_json({"result": result})
             return True
 
@@ -2564,7 +2813,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
-        resolve_role(self.headers)
+        # The platform's own liveness and readiness probes are answered before
+        # any role is resolved. A PaaS health check carries no login, and a
+        # 401 from a load balancer's probe reads as an unhealthy application. The
+        # two answers are deliberately different questions and deliberately say
+        # nothing about the ledger: `/healthz` is "this process is up", `/readyz`
+        # is "the database is there and has the schema". Neither reports a row
+        # count, a customer name, an amount or a path.
+        if parsed.path in ("/healthz", "/readyz"):
+            code, body = self._platform_probe(parsed.path)
+            # The one `_send_json` on this class, called with its own signature.
+            # A second definition of the same name was defined here first and
+            # silently shadowed the real one, so the probe answered with the
+            # whole `[status, body]` pair as its payload.
+            self._send_json(body, code, {"Cache-Control": "no-store"})
+            return
+        # The login, callback, logout and state routes are answered before role
+        # resolution, because a caller with no session is exactly who needs
+        # them.
+        if self._auth_routes(query):
+            return
+        resolve_role(self.headers, self._cookies())
         if ACCESS_ENFORCEMENT:
             try:
                 self._phase7_get(parsed, query)
@@ -2673,7 +2942,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif parsed.path == "/trips":
             self._send(trips_page(query.get("preview_tab", [""])[0],
-                                  role=resolve_role(self.headers)))
+                                  role=resolve_role(self.headers, self._cookies())))
         elif parsed.path.startswith("/api/imports/"):
             if _IMPORTER is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
@@ -3909,7 +4178,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int = 8751, db_path=None, with_worker: bool = True,
-           host: str = "127.0.0.1") -> HTTPServer:
+           host: str = "127.0.0.1",
+           seed_demo: bool = True) -> ThreadingHTTPServer:
     import os
 
     from .card_import import CardImporter, CardWorker
@@ -3917,13 +4187,24 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
 
     if db_path is None:
         db_path = os.environ.get("WEBLEDGER_DB", "webledger.work.sqlite")
-    store = LedgerStore(db_path)
+    store = LedgerStore(db_path, seed_demo=seed_demo)
     bind_store(store)
     bind_importer(CardImporter(store.conn, store))
     # Loopback stays the default. 19.2 wants only the HTTPS app path exposed,
     # so a different address is the caller's stated decision, not a default
     # this module makes on its own.
-    server = HTTPServer((host, port), Handler)
+    #
+    # A threading server, not a plain one. `HTTPServer` accepts one connection
+    # and then blocks reading that socket, so a client that opens a connection
+    # and sends nothing holds every other client out of the backlog. A browser
+    # does exactly that speculatively before a navigation, which is how this
+    # module served a `Page.goto: Navigation ... Timeout` roughly one run in
+    # ten; measured directly, one silent connection delayed a real request past
+    # an eight second timeout, and a threading server answered the same request
+    # in 0.04s. It is the same defect for a real user whose connection stalls.
+    server = ThreadingHTTPServer((host, port), Handler)
+    # A worker thread must not keep the process alive after the socket closes.
+    server.daemon_threads = True
     worker = None
     if with_worker:
         worker = CardWorker(db_path)
