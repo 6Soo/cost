@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
+from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
@@ -27,6 +28,30 @@ from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
 
 CSRF_TOKEN = secrets.token_hex(16)
 _STORE = None
+_NO_REQUEST_STORE = object()
+_REQUEST_STORE = ContextVar("ledger_request_store", default=_NO_REQUEST_STORE)
+
+
+def _active_store():
+    """Return the store for this request, or the process default outside one."""
+    local = _REQUEST_STORE.get()
+    return _STORE if local is _NO_REQUEST_STORE else local
+
+
+def _store_request_locked(method):
+    """Serialize database work after the HTTP request has been parsed."""
+    def wrapped(self, *args, **kwargs):
+        lock = getattr(self.server, "store_lock", None)
+        if lock is None:
+            return method(self, *args, **kwargs)
+        with lock:
+            return method(self, *args, **kwargs)
+
+    wrapped.__name__ = getattr(method, "__name__", "wrapped")
+    wrapped.__doc__ = getattr(method, "__doc__", None)
+    return wrapped
+
+
 _IMPORTER = None
 _MUSE = None
 _GEMINI = None
@@ -252,11 +277,11 @@ def access_control_render_viewer_board(session, store, tab_id: str) -> str:
     trips = []
     # Trips and rows come from the ledger store; the access store only answers
     # which trips this caller may see.
-    all_trips = _STORE.list_trips(include_archived=True) if _STORE is not None else []
+    all_trips = _active_store().list_trips(include_archived=True) if _active_store() is not None else []
     for trip in all_trips:
         if trip["tab_id"] not in allowed:
             continue
-        rows = _STORE.list_tab_rows(trip["tab_id"]) if _STORE is not None else []
+        rows = _active_store().list_tab_rows(trip["tab_id"]) if _active_store() is not None else []
         income = sum(r["amount_krw"] for r in rows if r["row_kind"] == "income")
         expense = sum(r["amount_krw"] for r in rows if r["row_kind"] != "income")
         trips.append({"tab_id": trip["tab_id"],
@@ -355,14 +380,14 @@ def _operator_choice(case_id, form):
     trip_id = str((form or {}).get("display_tab_id") or "").strip()
     if not trip_id or not trip_id.startswith("trip-"):
         return None
-    if _STORE is None:
+    if _active_store() is None:
         return None
-    case = _STORE.conn.execute(
+    case = _active_store().conn.execute(
         "SELECT row_id FROM board_learning_cases WHERE case_id=?",
         (case_id,)).fetchone()
     if case is None:
         return None
-    row = _STORE.get_row(case[0]) or {}
+    row = _active_store().get_row(case[0]) or {}
     occurred = str(row.get("occurred_on") or "")
     year = int(occurred[:4]) if occurred[:4].isdigit() else None
     if year is None:
@@ -377,10 +402,10 @@ def row_has_conflict(row: dict) -> bool:
     audit ledger cannot disagree (APP_SPEC 9: the state is told apart in the DB
     and in the row detail).
     """
-    if _STORE is None:
+    if _active_store() is None:
         return False
     try:
-        return _STORE.row_conflict(row.get("row_id") or "") is not None
+        return _active_store().row_conflict(row.get("row_id") or "") is not None
     except Exception:
         return False
 
@@ -393,12 +418,12 @@ def _note_row_conflict(row_id, expected_revision, payload, client_request_id) ->
     stored as a request result, so a failed save still changes nothing about the
     ledger's business state (REVIEW R01).
     """
-    if _STORE is None:
+    if _active_store() is None:
         return
     skip = {"csrf", "expected_revision", "client_request_id", "return_to"}
     attempted = {k: v for k, v in (payload or {}).items() if k not in skip}
     try:
-        _STORE.record_conflict(
+        _active_store().record_conflict(
             row_id=row_id, expected_revision=expected_revision,
             attempted=attempted, client_request_id=client_request_id,
             actor="owner")
@@ -650,9 +675,9 @@ def bind_importer(importer) -> None:
 
 
 def live_trips(include_archived: bool = False):
-    if _STORE is None:
+    if _active_store() is None:
         return [dict(t) for t in TRIPS]
-    return _STORE.list_trips(include_archived=include_archived)
+    return _active_store().list_trips(include_archived=include_archived)
 
 
 def valid_tab_ids() -> set:
@@ -664,15 +689,15 @@ def _all_tab_ids() -> list:
 
 
 def _with_display_amount(rows):
-    if _STORE is None:
+    if _active_store() is None:
         return rows
     for r in rows:
         if "display_amount_krw" not in r:
-            projected = _STORE.projected(r)
+            projected = _active_store().projected(r)
             r["display_amount_krw"] = projected["display_amount_krw"]
             r["display_occurred_on"] = projected["display_occurred_on"]
         elif "display_occurred_on" not in r:
-            r["display_occurred_on"] = _STORE.display_occurred_on(r)
+            r["display_occurred_on"] = _active_store().display_occurred_on(r)
     return rows
 
 
@@ -681,15 +706,15 @@ def _shown_date(row) -> str:
 
 
 def _expense_rows():
-    if _STORE is None:
+    if _active_store() is None:
         return [dict(r) for r in EXPENSES]
     seen = {r["row_id"] for r in EXPENSES}
     out = []
     for r in EXPENSES:
-        saved = _STORE.get_row(r["row_id"])
+        saved = _active_store().get_row(r["row_id"])
         out.append(saved if saved is not None else dict(r))
     for tab in _all_tab_ids() + [None]:
-        for saved in _STORE.list_tab_rows(tab):
+        for saved in _active_store().list_tab_rows(tab):
             if saved["row_kind"] == "expense" and saved["row_id"] not in seen:
                 seen.add(saved["row_id"])
                 out.append(saved)
@@ -697,16 +722,16 @@ def _expense_rows():
 
 
 def _income_rows():
-    if _STORE is None:
+    if _active_store() is None:
         return [dict(r) for r in INCOMES]
     out = []
     for r in INCOMES:
-        saved = _STORE.get_row(r["row_id"])
+        saved = _active_store().get_row(r["row_id"])
         out.append(saved if saved is not None else dict(r))
-    if _STORE is not None:
+    if _active_store() is not None:
         seen = {r["row_id"] for r in INCOMES}
         for tab in _all_tab_ids() + [None]:
-            for saved in _STORE.list_tab_rows(tab):
+            for saved in _active_store().list_tab_rows(tab):
                 if saved["row_kind"] == "income" and saved["row_id"] not in seen:
                     seen.add(saved["row_id"])
                     out.append(saved)
@@ -714,13 +739,13 @@ def _income_rows():
 
 
 def _trip_totals(tab_id: str):
-    if _STORE is None:
+    if _active_store() is None:
         return {
             "income": trip_income_total(tab_id),
             "expense": trip_expense_total(tab_id),
             "profit": trip_profit(tab_id),
         }
-    return _STORE.tab_totals(tab_id)
+    return _active_store().tab_totals(tab_id)
 
 
 def _unclassified_rows():
@@ -728,7 +753,7 @@ def _unclassified_rows():
 
 
 def _income_total(rows) -> int:
-    linked = _STORE.linked_bank_row_ids() if _STORE is not None else set()
+    linked = _active_store().linked_bank_row_ids() if _active_store() is not None else set()
     return sum(
         _shown_amount(r) for r in rows if r["row_id"] not in linked
     )
@@ -881,8 +906,8 @@ def unclassified_total() -> int:
 
 
 def find_row(row_id: str):
-    if _STORE is not None:
-        allocation = _STORE.get_allocation_display(row_id)
+    if _active_store() is not None:
+        allocation = _active_store().get_allocation_display(row_id)
         if allocation is not None:
             return ("income", allocation)
     for r in _expense_rows():
@@ -891,11 +916,11 @@ def find_row(row_id: str):
     for r in _income_rows():
         if r["row_id"] == row_id:
             return ("income", r)
-    if _STORE is not None:
-        hidden = _STORE.get_row(row_id)
+    if _active_store() is not None:
+        hidden = _active_store().get_row(row_id)
         if hidden is not None:
-            hidden["display_amount_krw"] = _STORE.display_amount(hidden)
-            hidden["display_occurred_on"] = _STORE.display_occurred_on(hidden)
+            hidden["display_amount_krw"] = _active_store().display_amount(hidden)
+            hidden["display_occurred_on"] = _active_store().display_occurred_on(hidden)
             return (hidden["row_kind"], hidden)
     return (None, None)
 
@@ -903,17 +928,17 @@ def find_row(row_id: str):
 def split_page(source_id: str) -> str:
     from . import ledger_design
 
-    if _STORE is None:
+    if _active_store() is None:
         return ledger_design.render(ledger_design.shell(
             '배분 추정', tab_id='', heading='배분 추정',
             body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
-    source = _STORE.get_row(source_id)
+    source = _active_store().get_row(source_id)
     if source is None or source["row_kind"] != "income":
         return ledger_design.render(ledger_design.shell(
             '배분 편집', tab_id='', heading='배분 편집',
             body="<div class='sect'><p>없는 수입 행이에요.</p></div>"))
-    reflected = _STORE.display_amount(source)
-    allocs = _STORE.active_allocations(source_id)
+    reflected = _active_store().display_amount(source)
+    allocs = _active_store().active_allocations(source_id)
     remainder = reflected - sum(a["amount_krw"] for a in allocs)
     def tab_options(current):
         cur = current or "unclassified"
@@ -979,9 +1004,9 @@ def split_page(source_id: str) -> str:
 
 
 def history_html(row_id: str) -> str:
-    if _STORE is None:
+    if _active_store() is None:
         return ""
-    items = _STORE.list_history(row_id)
+    items = _active_store().list_history(row_id)
     if not items:
         return "<h3>변경 이력</h3><p class='muted'>직접 수정된 변경이 없어요</p>"
     lis = "".join(
@@ -994,7 +1019,7 @@ def history_html(row_id: str) -> str:
     # re-edit from the latest revision. A conflict clears on the next save.
     conflict_html = ""
     try:
-        conflict = _STORE.row_conflict(row_id)
+        conflict = _active_store().row_conflict(row_id)
     except Exception:
         conflict = None
     if conflict:
@@ -1004,7 +1029,7 @@ def history_html(row_id: str) -> str:
             f"이 행은 revision {esc(str(conflict.get('current_revision')))}까지 "
             "바뀌었습니다. 이 저장은 장부에 반영되지 않았습니다. "
             "최신 값을 확인한 뒤 다시 저장해 주세요.</p>")
-    status = _STORE.revert_status(row_id)
+    status = _active_store().revert_status(row_id)
     if status["revertible"]:
         revert_html = (
             "<h3>직전 수정 되돌리기</h3>"
@@ -1027,18 +1052,18 @@ def allocation_revert_status(allocation):
 
     if allocation is None:
         return {"revertible": False, "reason": "없는 배분 행이에요"}
-    stored = _STORE.get_allocation(allocation["row_id"])
+    stored = _active_store().get_allocation(allocation["row_id"])
     if stored is not None:
         allocation = {**allocation, **stored}
     if not allocation.get("active"):
         return {"revertible": False, "reason": "비활성 배분은 되돌릴 수 없어요"}
-    source = _STORE.get_row(allocation["source_row_id"])
+    source = _active_store().get_row(allocation["source_row_id"])
     if source is None:
         return {"revertible": False, "reason": "원천 입금 행이 없어요"}
     if source["revision"] != allocation["source_revision"]:
         return {"revertible": False, "reason": "원천 입금이 바뀌어서 최신 상태를 확인해 주세요"}
     try:
-        changes, history = _STORE._allocation_revert_changes(allocation)
+        changes, history = _active_store()._allocation_revert_changes(allocation)
     except SaveError as exc:
         return {"revertible": False, "reason": str(exc)}
     return {
@@ -1051,7 +1076,7 @@ def allocation_revert_status(allocation):
 
 
 def allocation_history_html(allocation) -> str:
-    rows = _STORE.conn.execute(
+    rows = _active_store().conn.execute(
         "SELECT created_at, client_request_id, reverts_event_id, event_id"
         " FROM income_allocation_history WHERE allocation_id=? ORDER BY id DESC",
         (allocation["row_id"],),
@@ -1086,8 +1111,8 @@ def allocation_history_html(allocation) -> str:
 
 
 def allocation_detail_body(allocation, edit: bool) -> str:
-    source = _STORE.get_row(allocation["source_row_id"])
-    reflected = _STORE.display_amount(source) if source is not None else 0
+    source = _active_store().get_row(allocation["source_row_id"])
+    reflected = _active_store().display_amount(source) if source is not None else 0
     trips = list(live_trips(include_archived=True))
     current_tab = allocation.get("display_tab_id")
     if current_tab is not None and not any(t["tab_id"] == current_tab for t in trips):
@@ -1185,7 +1210,7 @@ def tabs_html(selected: str, query: str = "") -> str:
             f"<div class='amt'>{totals['income']:,}원</div>"
             f"<small>지출 {totals['expense']:,}원</small></a>"
         )
-    if _STORE is not None:
+    if _active_store() is not None:
         archived = [t for t in live_trips(include_archived=True) if t["archived"]]
         if archived and not query:
             links = "".join(
@@ -1223,7 +1248,7 @@ def board_page(tab_id: str, query: str = "") -> str:
         incomes = [r for r in _income_rows() if r["display_tab_id"] == tab_id]
         expenses = [r for r in _expense_rows() if r["display_tab_id"] == tab_id]
         totals = _trip_totals(tab_id)
-        linked = _STORE.linked_bank_row_ids() if _STORE is not None else set()
+        linked = _active_store().linked_bank_row_ids() if _active_store() is not None else set()
         billed = [r for r in incomes if r["row_id"] not in linked]
         customers = sorted({r["customer_id"] for r in billed})
         cust_lines = "".join(
@@ -1233,7 +1258,7 @@ def board_page(tab_id: str, query: str = "") -> str:
         )
         head = f"<h2>{esc(trip['display_key'])} <span class='muted'>{esc(trip['starts_on'])}~{esc(trip['ends_on'])}</span></h2>"
         meta_line = ""
-        if _STORE is not None and trip.get("prepared_on"):
+        if _active_store() is not None and trip.get("prepared_on"):
             meta_line = (
                 f"<p class='muted'>작성일 {esc(trip['prepared_on'])} · 담당자 "
                 f"{esc(trip.get('prepared_by_name', ''))}"
@@ -1341,12 +1366,12 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     """
     from . import ledger_design
 
-    if _STORE is None:
+    if _active_store() is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
             body="<div class='sect'><p>저장소가로 연결되지 않아요.</p></div>"))
-    state = _STORE.dialog_page_state(case_id)
-    row = _STORE.get_row(state["row_id"]) if state.get("row_id") else None
+    state = _active_store().dialog_page_state(case_id)
+    row = _active_store().get_row(state["row_id"]) if state.get("row_id") else None
     if row is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
@@ -1535,7 +1560,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
         # exercise this page directly). Under enforcement the route always
         # passes the role it decided on the server, so nothing is guessed here.
         role = "viewer" if ACCESS_ENFORCEMENT else "owner"
-    if _STORE is None:
+    if _active_store() is None:
         body = "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>"
         return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
     cards = []
@@ -1544,7 +1569,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             continue
         try:
             kind = "보관됨" if t["archived"] else "활성"
-            preview = _STORE.preview_tab_delete(t["tab_id"])
+            preview = _active_store().preview_tab_delete(t["tab_id"])
             counts = (f"수입 {preview['income_count']}건 {preview['income_total']:,}원 · "
                       f"지출 {preview['expense_count']}건 {preview['expense_total']:,}원")
         except Exception as exc:
@@ -1618,7 +1643,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     preview_html = ""
     if preview_tab:
         try:
-            preview = _STORE.preview_tab_delete(preview_tab)
+            preview = _active_store().preview_tab_delete(preview_tab)
             dest_options = "".join(
                 f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>"
                 for t in live_trips() if t["tab_id"] != preview_tab
@@ -1659,7 +1684,7 @@ def export_page() -> str:
         f"{esc(t['display_key'])}</label><br>" for t in live_trips()
     )
     archived = ""
-    if _STORE is not None:
+    if _active_store() is not None:
         arch = [t for t in live_trips(include_archived=True) if t["archived"]]
         if arch:
             archived = "<h3>보관된 여행</h3>" + "".join(
@@ -1669,18 +1694,18 @@ def export_page() -> str:
     counts = ""
     progress_note = ""
     jobs_html = ""
-    if _STORE is not None:
+    if _active_store() is not None:
         from .card_import import CardImporter
 
         lines = []
         for t in live_trips(include_archived=True):
-            rows = _STORE.list_tab_rows(t["tab_id"])
+            rows = _active_store().list_tab_rows(t["tab_id"])
             inc = sum(1 for r in rows if r["row_kind"] == "income")
             exp = sum(1 for r in rows if r["row_kind"] == "expense")
             lines.append(
                 f"<li>{esc(t['display_key'])}: 수입 {inc}행 · 지출 {exp}행"
                 + (" (보관)" if t["archived"] else "") + "</li>")
-        unc = _STORE.list_tab_rows(None)
+        unc = _active_store().list_tab_rows(None)
         unc_inc = sum(1 for r in unc if r["row_kind"] == "income")
         unc_exp = sum(1 for r in unc if r["row_kind"] != "income")
         lines.append(f"<li>분류대기: 수입 {unc_inc}행 · 지출 {unc_exp}행 (출력에 들어가지 않아요)</li>")
@@ -1693,7 +1718,7 @@ def export_page() -> str:
         conflict_total = 0
         per_tab = []
         for t in live_trips(include_archived=True):
-            trows = _STORE.list_tab_rows(t["tab_id"])
+            trows = _active_store().list_tab_rows(t["tab_id"])
             n_review = sum(1 for r in trows if row_needs_review(r))
             n_conflict = sum(1 for r in trows if row_has_conflict(r))
             review_total += n_review
@@ -1714,9 +1739,9 @@ def export_page() -> str:
         if per_tab:
             review_note += f"<ul class='muted'>{''.join(per_tab)}</ul>"
         try:
-            importer = CardImporter(_STORE.conn, _STORE)
+            importer = CardImporter(_active_store().conn, _active_store())
             states = set()
-            for (batch_id,) in _STORE.conn.execute(
+            for (batch_id,) in _active_store().conn.execute(
                     "SELECT batch_id FROM card_import_batches").fetchall():
                 progress = importer.progress(batch_id)
                 if progress:
@@ -1728,7 +1753,7 @@ def export_page() -> str:
             pass
         from .sheets_export import list_jobs
 
-        jobs = list_jobs(_STORE.conn)
+        jobs = list_jobs(_active_store().conn)
         if jobs:
             items = "".join(
                 f"<li>{esc(j['created_at'])} · {len(j['tab_ids'])}개 탭 · "
@@ -1888,10 +1913,10 @@ def editable_fields(kind: str, source: str, is_allocation: bool = False):
 
 def learning_case_id(row_id: str) -> str:
     """The newest learning case of a row, or an empty string."""
-    if _STORE is None:
+    if _active_store() is None:
         return ""
     try:
-        found = _STORE.conn.execute(
+        found = _active_store().conn.execute(
             "SELECT case_id FROM board_learning_cases WHERE row_id=?"
             " ORDER BY created_at DESC LIMIT 1", (row_id,)).fetchone()
     except Exception:
@@ -1915,7 +1940,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
         return layout("행 없음", "<div class='top'><h1>웹 장부</h1></div><div class='body'><p>행이 없어요. 목록으로 돌아가 주세요.</p></div>")
     from . import ledger_design
 
-    if row.get("is_allocation") and _STORE is not None:
+    if row.get("is_allocation") and _active_store() is not None:
         body = allocation_detail_body(row, edit)
         return ledger_design.render(ledger_design.shell(
             "배분 행 상세", tab_id=row.get("display_tab_id") or "",
@@ -1930,7 +1955,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             f"<li>여행 revision {esc(str(row.get('revision', 1)))}</li>"
         )
         if edit:
-            if _STORE is None:
+            if _active_store() is None:
                 form = (
                     "<h3>행 편집 (저장 준비 중)</h3>"
                     "<p class='muted'>저장소가 연결되지 않았어요. 서버를 작업 DB와 함께 실행해 주세요.</p>"
@@ -1991,8 +2016,8 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             f"<li>사건 구분: {esc(row['event_type'])}</li>"
         )
         extra = ""
-        if _STORE is not None and row.get("source_kind") == "은행":
-            corrections = _STORE.list_corrections(row_id)
+        if _active_store() is not None and row.get("source_kind") == "은행":
+            corrections = _active_store().list_corrections(row_id)
             if corrections:
                 lis = "".join(
                     f"<li>{esc(c['corrected_amount_krw'])}원"
@@ -2013,7 +2038,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 "<button type='submit'>정정 기록</button></form>"
                 "<p class='muted'>은행 원본은 그대로 두고 장부 표시만 바꿔요.</p>"
             )
-        elif _STORE is not None and row.get("source_kind") == "직접 입력":
+        elif _active_store() is not None and row.get("source_kind") == "직접 입력":
             options = (
                 "<option value='unclassified'"
                 f"{' selected' if row['display_tab_id'] is None else ''}>"
@@ -2030,7 +2055,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 f"{esc(INCOME_KIND_LABEL[k])}</option>"
                 for k in ("deposit", "balance", "additional")
             )
-            links = _STORE.conn.execute(
+            links = _active_store().conn.execute(
                 "SELECT bank_batch_id, bank_row_index FROM income_source_links WHERE row_id=?",
                 (row_id,),
             ).fetchall()
@@ -2038,7 +2063,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 f"<li>은행 원천 {esc(b)} #{i}</li>" for b, i in links
             )
             link_info = f"<h3>연결된 은행 원천</h3><ul>{link_lines}</ul>" if link_lines else ""
-            candidates = _STORE.find_bank_candidates(row_id)
+            candidates = _active_store().find_bank_candidates(row_id)
             cand_lines = "".join(
                 f"<li>{esc(c['occurred_on'])} · {esc(c['customer_name'])} · "
                 f"{c['amount_krw']:,}원 · {esc(c['row_id'])}</li>"
@@ -2091,10 +2116,10 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             extra = "<p class='muted'>은행 원천 행은 정정 경로로만 바꿀 수 있어요.</p>"
         else:
             extra = f"<p><a href='/row?id={esc(row_id)}&edit=1'>편집</a></p>"
-        if _STORE is not None:
+        if _active_store() is not None:
             if row.get("is_allocation"):
-                source = _STORE.get_row(row["source_row_id"])
-                reflected = _STORE.display_amount(source) if source else 0
+                source = _active_store().get_row(row["source_row_id"])
+                reflected = _active_store().display_amount(source) if source else 0
                 extra = (
                     "<h3>한 입금에서 배분된 내역</h3>"
                     f"<p class='muted'>원천 입금 {reflected:,}원 중 이 배분 {_shown_amount(row):,}원. "
@@ -2103,17 +2128,17 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                     f"<a href='/row?id={esc(row['source_row_id'])}'>원천 상세</a></p>"
                 )
             elif row.get("is_remainder"):
-                source = _STORE.get_row(row["source_row_id"])
-                reflected = _STORE.display_amount(source) if source else 0
+                source = _active_store().get_row(row["source_row_id"])
+                reflected = _active_store().display_amount(source) if source else 0
                 extra = (
                     "<h3>미배분 잔액</h3>"
                     f"<p class='muted'>원천 입금 반영액 {reflected:,}원 중 아직 나누지 않은 금액이에요. "
                     "독립 입금 사건이 아니에요.</p>"
                     f"<p><a href='/income/{esc(row['source_row_id'])}/split'>배분 편집 열기</a></p>"
                 )
-            elif row["row_id"] in _STORE.split_source_ids():
-                allocs = _STORE.active_allocations(row["row_id"])
-                remainder = _STORE.split_remainder(row["row_id"])
+            elif row["row_id"] in _active_store().split_source_ids():
+                allocs = _active_store().active_allocations(row["row_id"])
+                remainder = _active_store().split_remainder(row["row_id"])
                 lines = "".join(
                     f"<li>{esc(a['customer_name'])} · "
                     f"{esc(next((t['display_key'] for t in live_trips(include_archived=True) if t['tab_id'] == a['display_tab_id']), '분류대기'))} · "
@@ -2183,26 +2208,22 @@ class Handler(BaseHTTPRequestHandler):
         cleared the global, and the handler then runs against a store that
         belongs to somebody else or to nobody.
 
-        Re-binding from `self.server` at the start of each request means the
-        handler answers with the ledger of the server that accepted the
-        connection, which is the only store whose answer is correct.
+        A context-local binding from `self.server` means every helper called by
+        this request answers with the ledger of the server that accepted the
+        connection. Another server can handle a request at the same time
+        without replacing this request's store.
 
         A client that stops reading is a normal ending and is not an error: the
         socket is marked for closing rather than raising a traceback from a
         worker thread.
         """
-        server_store = getattr(self.server, "card_store", None)
-        if server_store is not None and _STORE is None:
-            # Only when the global was cleared. A teardown that deliberately
-            # rebound a *different* store is respected; a teardown that cleared
-            # it while this connection was still open is not, because the
-            # request that arrives afterwards belongs to the server that
-            # accepted it and has no other store to answer from.
-            bind_store(server_store)
+        token = _REQUEST_STORE.set(getattr(self.server, "card_store", None))
         try:
             super().handle_one_request()
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
             self.close_connection = True
+        finally:
+            _REQUEST_STORE.reset(token)
 
     def _send(self, text: str, code: int = 200) -> None:
         data = text.encode("utf-8")
@@ -2230,7 +2251,7 @@ class Handler(BaseHTTPRequestHandler):
             return 200, body
         problems = []
         try:
-            store = _STORE
+            store = _active_store()
         except NameError:  # pragma: no cover - the board always binds one
             store = None
         db_path = os.environ.get("WEBLEDGER_DB", "")
@@ -2525,7 +2546,7 @@ class Handler(BaseHTTPRequestHandler):
             # An owner keeps the full board; a viewer only its own trips.
             if not is_owner_session(session):
                 _ACCESS.require_view_tab(session.user_id, tab)
-            rows = (_STORE.list_tab_rows(tab) if _STORE is not None else [])
+            rows = (_active_store().list_tab_rows(tab) if _active_store() is not None else [])
             allowed = (viewer_visible_tabs(session) if not is_owner_session(session)
                        else {r["display_tab_id"] for r in rows})
             projected = access_control.project_rows_for_viewer(
@@ -2586,7 +2607,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path.startswith("/income/"):
             source_id = parts_value(path)
-            row = _STORE.get_row(source_id) if _STORE is not None else None
+            row = _active_store().get_row(source_id) if _active_store() is not None else None
             if row is None:
                 deny_for_viewer()
             _ACCESS.require_view_tab(session.user_id,
@@ -2810,6 +2831,7 @@ class Handler(BaseHTTPRequestHandler):
                                              status=422)
         return {k: v[0] for k, v in form.items()}
 
+    @_store_request_locked
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
@@ -2905,10 +2927,10 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path.startswith("/api/exports/"):
             from .sheets_export import get_job
 
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
                 return
-            job = get_job(_STORE.conn, parsed.path.rsplit("/", 1)[-1])
+            job = get_job(_active_store().conn, parsed.path.rsplit("/", 1)[-1])
             if job is None:
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이에요"}, code=404)
                 return
@@ -2953,41 +2975,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(progress, code=200)
         elif parsed.path == "/api/classification/conversation":
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
                 return
             conversation_id = query.get("conversation_id", [""])[0]
             if not conversation_id:
                 self._send_json({"code": "INVALID_VALUE", "message": "conversation_id required"}, code=422)
                 return
-            self._send_json(_STORE.conversation_state(conversation_id), code=200)
+            self._send_json(_active_store().conversation_state(conversation_id), code=200)
         elif parsed.path == "/api/classification/dialog":
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
                 return
-            self._send_json(_STORE.rule_dialog_state(query.get("case_id", [""])[0]), code=200)
+            self._send_json(_active_store().rule_dialog_state(query.get("case_id", [""])[0]), code=200)
         elif parsed.path.endswith("/versions") and parsed.path.startswith(
                 "/api/classification/rules/"):
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "STORE_UNBOUND"}, code=503)
                 return
             rule_id = parsed.path.split("/")[4]
-            history = _STORE.rule_history(rule_id)
+            history = _active_store().rule_history(rule_id)
             if history["current"] is None and not history["versions"]:
                 self._send_json({"code": "RESOURCE_NOT_FOUND",
                              "message": "없는 경로예요"}, code=404)
                 return
             self._send_json(history, code=200)
         elif parsed.path == "/api/classification/rules":
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
                 return
-            self._send_json({"rules": _STORE.list_rules()}, code=200)
+            self._send_json({"rules": _active_store().list_rules()}, code=200)
         elif parsed.path.startswith("/api/classification/rules/"):
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
                 return
-            rule = _STORE.get_rule(parsed.path.rsplit("/", 1)[-1])
+            rule = _active_store().get_rule(parsed.path.rsplit("/", 1)[-1])
             if rule is None:
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이어요"}, code=404)
                 return
@@ -2995,6 +3017,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(layout("없음", "<p>없는 주소예요.</p>"), code=404)
 
+    @_store_request_locked
     def do_POST(self) -> None:
         from .card_import import ImportError as CardImportError
         from .income_ledger import BankImporter, BankImportError
@@ -3135,7 +3158,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 주소예요"}, code=404)
             return
         is_form = "application/json" not in content_type
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
             return
         try:
@@ -3185,7 +3208,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             changes = {key: payload[key] for key in allowed if key in payload}
             try:
-                result = _STORE.update_allocation(
+                result = _active_store().update_allocation(
                     allocation_id=parts[2],
                     expected_source_revision=expected_revision,
                     changes=changes,
@@ -3253,7 +3276,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._refuse_amount(is_form, payload, parts[2])
                 return
         try:
-            result = _STORE.save(
+            result = _active_store().save(
                 row_id=parts[2],
                 expected_revision=expected_revision,
                 client_request_id=str(payload.get("client_request_id") or ""),
@@ -3326,7 +3349,7 @@ class Handler(BaseHTTPRequestHandler):
                 amount = int(str(payload.get("amount_krw", "")).replace(",", ""))
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요")
-            result = _STORE.create_direct_income(
+            result = _active_store().create_direct_income(
                 fields={
                     "display_tab_id": payload.get("display_tab_id") or None,
                     "occurred_on": str(payload.get("occurred_on") or ""),
@@ -3361,7 +3384,7 @@ class Handler(BaseHTTPRequestHandler):
                 amount = int(str(payload.get("amount_krw", "")).replace(",", ""))
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요")
-            result = _STORE.create_manual_expense(
+            result = _active_store().create_manual_expense(
                 fields={
                     "display_tab_id": payload.get("display_tab_id") or None,
                     "occurred_on": str(payload.get("occurred_on") or ""),
@@ -3388,7 +3411,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_bank_import(self, raw: bytes, filename: str) -> None:
         from .income_ledger import BankImporter, BankImportError
 
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
             return
         token = self.headers.get("X-CSRF-Token") or ""
@@ -3396,7 +3419,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"code": "CSRF_REQUIRED", "message": "확인 토큰이 없어요"}, code=403)
             return
         try:
-            importer = BankImporter(_STORE.conn, _STORE)
+            importer = BankImporter(_active_store().conn, _active_store())
             received = importer.receive(raw, filename)
             self._send_json({"batch_id": received["batch_id"],
                              "reused": received["reused"],
@@ -3437,27 +3460,27 @@ class Handler(BaseHTTPRequestHandler):
         message = "처리했습니다"
         try:
             if path.endswith("/dialog/note"):
-                _STORE.update_rule_dialog_note(
+                _active_store().update_rule_dialog_note(
                     learning_case_id=case_id, note=str(form.get("note") or ""),
                     client_request_id=request_id, actor="owner")
                 message = "근거 설명을 저장했습니다"
             elif path.endswith("/dialog/answer"):
-                _STORE.answer_rule_question(
+                _active_store().answer_rule_question(
                     question_id=str(form.get("question_id") or ""),
                     answer=str(form.get("answer") or ""),
                     expected_row_revision=int(form.get("expected_row_revision") or 0),
                     client_request_id=request_id, actor="owner")
                 message = "답변을 저장했습니다"
             elif path.endswith("/dialog/close"):
-                _STORE.close_rule_dialog(learning_case_id=case_id,
+                _active_store().close_rule_dialog(learning_case_id=case_id,
                                          client_request_id=request_id, actor="owner")
                 message = "대화를 닫았습니다. 다시 열면 답변이 유지됩니다"
             elif path.endswith("/dialog/resume"):
-                _STORE.resume_rule_dialog(learning_case_id=case_id,
+                _active_store().resume_rule_dialog(learning_case_id=case_id,
                                           client_request_id=request_id, actor="owner")
                 message = "대화를 다시 열었습니다"
             elif path.endswith("/conversation/advance"):
-                result = _STORE.advance_dialog_conversation(
+                result = _active_store().advance_dialog_conversation(
                     learning_case_id=case_id, client_request_id=request_id,
                     muse=_MUSE, gemini=_GEMINI, actor="owner",
                     operator=_operator_choice(case_id, form))
@@ -3469,11 +3492,11 @@ class Handler(BaseHTTPRequestHandler):
                     message = (f"AI 초안 대기 중입니다 · 사유 {turn.get('reason_code') or '-'}"
                                " · 행 저장과 확정 규칙 실행은 계속됩니다")
             elif path.endswith("/conversation/confirm-draft"):
-                _STORE.confirm_dialog_draft(learning_case_id=case_id,
+                _active_store().confirm_dialog_draft(learning_case_id=case_id,
                                             client_request_id=request_id, actor="owner")
                 message = "규칙 초안을 저장했습니다. 적용 범위를 고르고 적용해 주세요"
             elif path.endswith("/rules/preview"):
-                result = _STORE.preview_rule(
+                result = _active_store().preview_rule(
                     rule_id=str(form.get("rule_id") or ""),
                     apply_existing=payload["apply_existing"],
                     apply_future=payload["apply_future"])
@@ -3481,7 +3504,7 @@ class Handler(BaseHTTPRequestHandler):
                 message = (f"영향 미리보기: 포함 {counts.get('included_rows', 0)}건"
                            f" · 제외 {counts.get('excluded_rows', 0)}건")
             else:
-                result = _STORE.apply_rule(
+                result = _active_store().apply_rule(
                     preview_id=str(form.get("preview_id") or ""),
                     apply_existing=payload["apply_existing"],
                     apply_future=payload["apply_future"],
@@ -3513,7 +3536,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         from .ledger_store import SaveError
 
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json({"code": "STORE_UNBOUND", "message": "저장이 연결되지 않어요"}, code=503)
             return
         try:
@@ -3521,37 +3544,37 @@ class Handler(BaseHTTPRequestHandler):
             check_csrf(payload)
             if path.endswith("/draft"):
                 raw = payload.get("draft")
-                result = _STORE.create_rule_draft(
+                result = _active_store().create_rule_draft(
                     draft=raw if isinstance(raw, dict) else {},
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/preview"):
-                result = _STORE.preview_rule(
+                result = _active_store().preview_rule(
                     rule_id=str(payload.get("rule_id") or ""),
                     apply_existing=_flag(payload.get("apply_existing")),
                     apply_future=_flag(payload.get("apply_future")))
             elif path.endswith("/revise"):
                 raw = payload.get("draft")
-                result = _STORE.revise_rule(
+                result = _active_store().revise_rule(
                     rule_id=str(payload.get("rule_id") or ""),
                     draft=raw if isinstance(raw, dict) else {},
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/supersede"):
-                result = _STORE.supersede_rule(
+                result = _active_store().supersede_rule(
                     new_rule_id=str(payload.get("new_rule_id") or ""),
                     old_rule_id=str(payload.get("old_rule_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/scope"):
-                result = _STORE.update_rule_scope(
+                result = _active_store().update_rule_scope(
                     rule_id=str(payload.get("rule_id") or ""),
                     apply_existing=_flag(payload.get("apply_existing")),
                     apply_future=_flag(payload.get("apply_future")),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/conversation/open"):
-                result = _STORE.open_conversation(
+                result = _active_store().open_conversation(
                     learning_case_id=str(payload.get("learning_case_id")
                                          or payload.get("case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
@@ -3559,26 +3582,26 @@ class Handler(BaseHTTPRequestHandler):
             elif path.endswith("/conversation/turn"):
                 # The body may not pick a provider. Adapters come from the
                 # server binding only, and no key is accepted or stored.
-                result = _STORE.run_dialog_turn(
+                result = _active_store().run_dialog_turn(
                     conversation_id=str(payload.get("conversation_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     muse=_MUSE, gemini=_GEMINI, actor="owner")
             elif path.endswith("/conversation/late"):
-                result = _STORE.adopt_late_response(
+                result = _active_store().adopt_late_response(
                     conversation_id=str(payload.get("conversation_id") or ""),
                     turn_id=str(payload.get("turn_id") or ""),
                     attempt_id=str(payload.get("attempt_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/dialog/note"):
-                result = _STORE.update_rule_dialog_note(
+                result = _active_store().update_rule_dialog_note(
                     learning_case_id=str(payload.get("case")
                                          or payload.get("learning_case_id") or ""),
                     note=str(payload.get("note") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/conversation/advance"):
-                result = _STORE.advance_dialog_conversation(
+                result = _active_store().advance_dialog_conversation(
                     learning_case_id=str(payload.get("case")
                                          or payload.get("learning_case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
@@ -3587,14 +3610,14 @@ class Handler(BaseHTTPRequestHandler):
                         str(payload.get("case")
                             or payload.get("learning_case_id") or ""), payload))
             elif path.endswith("/conversation/confirm-draft"):
-                result = _STORE.confirm_dialog_draft(
+                result = _active_store().confirm_dialog_draft(
                     learning_case_id=str(payload.get("case")
                                          or payload.get("learning_case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/dialog/open"):
                 raw = payload.get("draft")
-                result = _STORE.open_rule_dialog(
+                result = _active_store().open_rule_dialog(
                     learning_case_id=str(payload.get("learning_case_id") or ""),
                     draft=raw if isinstance(raw, dict) else {},
                     apply_existing=_flag(payload.get("apply_existing")),
@@ -3606,19 +3629,19 @@ class Handler(BaseHTTPRequestHandler):
                     expected_revision = int(payload.get("expected_row_revision", ""))
                 except (TypeError, ValueError):
                     raise SaveError("INVALID_VALUE", "row revision is required")
-                result = _STORE.answer_rule_question(
+                result = _active_store().answer_rule_question(
                     question_id=str(payload.get("question_id") or ""),
                     answer=str(payload.get("answer") or ""),
                     expected_row_revision=expected_revision,
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/dialog/close"):
-                result = _STORE.close_rule_dialog(
+                result = _active_store().close_rule_dialog(
                     learning_case_id=str(payload.get("learning_case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
             elif path.endswith("/dialog/resume"):
-                result = _STORE.resume_rule_dialog(
+                result = _active_store().resume_rule_dialog(
                     learning_case_id=str(payload.get("learning_case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     actor="owner")
@@ -3626,7 +3649,7 @@ class Handler(BaseHTTPRequestHandler):
                 selected = payload.get("selected_row_ids")
                 if selected is not None and not isinstance(selected, list):
                     raise SaveError("INVALID_VALUE", "선택 한 목록이 다시어요")
-                result = _STORE.apply_rule(
+                result = _active_store().apply_rule(
                     preview_id=str(payload.get("preview_id") or ""),
                     apply_existing=_flag(payload.get("apply_existing")),
                     apply_future=_flag(payload.get("apply_future")),
@@ -3649,7 +3672,7 @@ class Handler(BaseHTTPRequestHandler):
                 expected_revision = int(payload.get("expected_revision", ""))
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "revision이 필요해요")
-            result = _STORE.revert_row(
+            result = _active_store().revert_row(
                 row_id=row_id,
                 expected_revision=expected_revision,
                 client_request_id=str(payload.get("client_request_id") or ""),
@@ -3714,7 +3737,7 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 except ValueError:
                     raise SaveError("INVALID_VALUE", "원금은 정수 원화로 입력해 주세요")
-            result = _STORE.save_allocations(
+            result = _active_store().save_allocations(
                 source_row_id=source_id,
                 expected_source_revision=expected_revision,
                 allocations=plan,
@@ -3738,10 +3761,10 @@ class Handler(BaseHTTPRequestHandler):
 
         from .sheets_export import file_sha256, get_job
 
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
             return
-        job = get_job(_STORE.conn, job_id)
+        job = get_job(_active_store().conn, job_id)
         if job is None or not job.get("output_path"):
             self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이에요"}, code=404)
             return
@@ -3787,7 +3810,7 @@ class Handler(BaseHTTPRequestHandler):
             seen = set()
             ordered = [t for t in tab_ids if not (t in seen or seen.add(t))]
             job_id = f"xlsx-{payload.get('client_request_id') or uuid.uuid4().hex}"
-            existing = get_job(_STORE.conn, job_id)
+            existing = get_job(_active_store().conn, job_id)
             if existing:
                 if existing["tab_ids"] != ordered:
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
@@ -3799,7 +3822,7 @@ class Handler(BaseHTTPRequestHandler):
                         "Location", f"/api/exports/{job_id}/download")
                     self.end_headers()
                 return
-            wb, manifest = build_workbook(_STORE, ordered)
+            wb, manifest = build_workbook(_active_store(), ordered)
             output_dir = (os.environ.get("WEBLEDGER_EXPORT_DIR", "webledger-exports") or "").strip()
             stem = f"ledger-{manifest['input_snapshot_sha256'][:12]}"
             try:
@@ -3814,9 +3837,9 @@ class Handler(BaseHTTPRequestHandler):
                     wb, manifest, output_dir or "webledger-exports",
                     f"{stem}-{uuid.uuid4().hex[:8]}")
             manifest["output_path"] = str(target)
-            record_job(_STORE.conn, job_id=job_id, tab_ids=ordered,
+            record_job(_active_store().conn, job_id=job_id, tab_ids=ordered,
                        manifest=manifest, status="ready")
-            job = get_job(_STORE.conn, job_id)
+            job = get_job(_active_store().conn, job_id)
         except SaveError as exc:
             self._send_json({"code": exc.code, "message": str(exc)},
                             code=STATUS_FOR_CODE.get(exc.code, 422))
@@ -3845,7 +3868,7 @@ class Handler(BaseHTTPRequestHandler):
             if "archived" in payload:
                 value = payload["archived"]
                 kwargs["archived"] = str(value).strip().lower() not in ("", "0", "false", "no")
-            result = _STORE.save_trip_meta(
+            result = _active_store().save_trip_meta(
                 tab_id=tab_id, expected_revision=expected_revision,
                 client_request_id=str(payload.get("client_request_id") or ""),
                 actor="owner", **kwargs,
@@ -3868,17 +3891,17 @@ class Handler(BaseHTTPRequestHandler):
         The income and expense rows with their state and the current revision, so
         a caller does not have to read the board HTML to learn a row's revision.
         """
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json(
                 {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
                 code=503)
             return
-        if tab_id != "unclassified" and _STORE.get_trip(tab_id) is None:
+        if tab_id != "unclassified" and _active_store().get_trip(tab_id) is None:
             self._send_json(
                 {"code": "RESOURCE_NOT_FOUND", "message": "없는 여행이에요"},
                 code=404)
             return
-        rows = _STORE.list_tab_rows(None if tab_id == "unclassified" else tab_id)
+        rows = _active_store().list_tab_rows(None if tab_id == "unclassified" else tab_id)
         out = []
         for r in rows:
             out.append({
@@ -3906,7 +3929,7 @@ class Handler(BaseHTTPRequestHandler):
         are returned as separate parts, so a caller can tell an agent's proposal
         from a person's save instead of reading one merged blob.
         """
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json(
                 {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
                 code=503)
@@ -3917,7 +3940,7 @@ class Handler(BaseHTTPRequestHandler):
                 {"code": "RESOURCE_NOT_FOUND", "message": "없는 행이에요"}, code=404)
             return
         try:
-            history = _STORE.list_history(row_id)
+            history = _active_store().list_history(row_id)
         except Exception:
             history = []
         source = {"kind": row.get("source_kind") or "",
@@ -3943,7 +3966,7 @@ class Handler(BaseHTTPRequestHandler):
         The filter is applied in the query, so a caller asking for one row or one
         actor is not handed the whole ledger to discard on their side.
         """
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json(
                 {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
                 code=503)
@@ -3967,14 +3990,14 @@ class Handler(BaseHTTPRequestHandler):
         if actor:
             where.append("actor = ?")
             args.append(actor)
-        rows = _STORE.conn.execute(
+        rows = _active_store().conn.execute(
             "SELECT row_id, revision, kind, reverts_event_id, event_id, actor,"
             f" created_at, client_request_id FROM board_revisions WHERE {' AND '.join(where)}"
             " ORDER BY created_at, id", args).fetchall()
         changes = []
         for r in rows:
             if tab_id:
-                current = _STORE.get_row(r[0]) or {}
+                current = _active_store().get_row(r[0]) or {}
                 if (current.get("display_tab_id") or "") != tab_id:
                     continue
             changes.append({
@@ -3994,7 +4017,7 @@ class Handler(BaseHTTPRequestHandler):
         through the display name, its income and expense totals, and how many of
         its rows still need a person's decision.
         """
-        if _STORE is None:
+        if _active_store() is None:
             self._send_json(
                 {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
                 code=503)
@@ -4003,7 +4026,7 @@ class Handler(BaseHTTPRequestHandler):
         for t in live_trips(include_archived=True):
             if t.get("deleted"):
                 continue
-            rows = _STORE.list_tab_rows(t["tab_id"])
+            rows = _active_store().list_tab_rows(t["tab_id"])
             income = sum(_shown_amount(r) for r in rows if r.get("row_kind") == "income")
             expense = sum(_shown_amount(r) for r in rows if r.get("row_kind") != "income")
             needs_review = sum(1 for r in rows if row_needs_review(r))
@@ -4025,7 +4048,7 @@ class Handler(BaseHTTPRequestHandler):
                 "needs_review_rows": needs_review,
                 "conflict_rows": conflicts,
             })
-        unclassified = _STORE.list_tab_rows(None)
+        unclassified = _active_store().list_tab_rows(None)
         unc_income = sum(_shown_amount(r) for r in unclassified
                          if r.get("row_kind") == "income")
         unc_expense = sum(_shown_amount(r) for r in unclassified
@@ -4055,12 +4078,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = read_payload()
             check_csrf(payload)
-            if _STORE is None:
+            if _active_store() is None:
                 self._send_json(
                     {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
                     code=503)
                 return
-            result = _STORE.create_trip(
+            result = _active_store().create_trip(
                 starts_on=str(payload.get("starts_on") or ""),
                 destination=str(payload.get("destination") or ""),
                 ends_on=str(payload.get("ends_on") or ""),
@@ -4098,7 +4121,7 @@ class Handler(BaseHTTPRequestHandler):
             destination = str(payload.get("destination") or "") or None
             if mode == "move-trip" and not destination:
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "옮길 여행을 골라 주세요")
-            result = _STORE.apply_tab_delete(
+            result = _active_store().apply_tab_delete(
                 tab_id=tab_id, expected_revision=expected_revision,
                 mode=mode, destination=destination,
                 snapshot=snapshot,
@@ -4132,7 +4155,7 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "revision이 필요해요")
             date_value = str(payload.get("corrected_occurred_on") or "").strip() or None
-            result = _STORE.correct_bank_income(
+            result = _active_store().correct_bank_income(
                 row_id=row_id,
                 corrected_amount_krw=amount,
                 corrected_occurred_on=date_value,
@@ -4162,7 +4185,7 @@ class Handler(BaseHTTPRequestHandler):
                 expected_revision = int(payload.get("expected_revision", ""))
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "revision이 필요해요")
-            result = _STORE.link_bank_source(
+            result = _active_store().link_bank_source(
                 row_id=row_id,
                 bank_batch_id=str(payload.get("bank_batch_id") or ""),
                 bank_row_index=int(payload.get("bank_row_index", -1)),
@@ -4205,6 +4228,7 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     server = ThreadingHTTPServer((host, port), Handler)
     # A worker thread must not keep the process alive after the socket closes.
     server.daemon_threads = True
+    server.store_lock = threading.RLock()
     worker = None
     if with_worker:
         worker = CardWorker(db_path)

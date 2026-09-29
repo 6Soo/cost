@@ -1,5 +1,9 @@
 # 구현 에이전트 전달문 — 웹 장부 앱
 
+> 최신 운영 정정 — 2026-09-29: `D-WEB-AGENT-002`에 따라 GPT 5.6 Sol Web이 관리·감독·지시하고 Muse Spark 1.3 Free와 SpaceBunny Free가 구현·환경설정을 격리 병렬로 수행한다. [운영 명세](WEB_LEDGER_AGENT_OPERATIONS.md)를 먼저 적용한다. 아래 단일 구현자·SpaceBunny 전담 설명은 이 결정으로 대체된다.
+>
+> 재개 기준은 [최신 인계](handoff/2026-09-29/README.md)의 미해결 감사 항목과 현재 코드다. 아래 930·875·94·83개 검사 및 전체 로컬 완료 문구는 과거 보고이며 현재 수용 근거가 아니다. 기준 코드와 결속된 최신 검증값은 구현 기록 한 곳에서 관리한다. 전체 저장소를 재독하지 말고 담당 파일·함수·계약만 읽는다. 기존 SpaceBunny 실행과 작성 범위를 확인한 뒤 겹치지 않는 Muse 작업을 배정한다.
+
 > [역사 — 대체됨] 2026-09-25 재검토: 격리 공간의 수정 A~D와 83개 검사 통과를
 > 확인했다. 그러나 저장 충돌·원천 동일성·진행 조회·출력 일관성 등의 잔여 결함이
 > 있어 전체 수용은 보류이며 본 저장소에도 미통합이다. 이후 해당 결함은 보완됐고
@@ -9,13 +13,16 @@
 전달문이다. 현재 세션은 명세 구체화만 수행한다. 문서 열람이나 `계속`·`재개`를
 구현 착수 지시로 해석하지 않는다.
 
-[현재 — 2026-09-29] 이 문서는 여전히 요구사항의 정보다. 로컬 Phase 1~9와
-Reservation → COST snapshot 동기화 경계, 후속 명세 19.3의 용량 거부까지
-구현·감사가 완료됐다. 최근 전체 검사는
-`930 passed, 1 skipped, 128 subtests passed in 383.41s`다. 이제 중심 과제는 새 기능
-구현보다 외부 운영 연결이다. 실제 호스팅과 배포, 실제 Google OAuth/OIDC
-클라이언트·시크릿·콜백, 실제 Reservation API endpoint·인증·전송, 운영 DB와 실제
-기준본 이관, 운영 전환이 남아 있다. 유료 자원이 필요해질 때만 별도 승인을 받는다.
+[현재 — 2026-09-29 최종 로컬 판정] 이 문서는 여전히 요구사항의 정보다. 로컬
+Phase 1~9와 Reservation → COST snapshot 동기화 경계, 후속 명세 19.3의 용량 거부,
+health 읽기 전용 검사, 웹 서버의 요청별 저장소 격리와 SQLite 동시 접근 보호까지
+구현·감사·통합 검토가 끝났다. 최신 전체 검사는
+`1033 passed, 1 skipped, 139 subtests passed in 449.58s`다. Sol 최종 검토도 로컬
+구현을 수용했고 추가 로컬 기능은 남지 않았다고 판정했다. 남은 것은 실제 호스팅과
+배포, 실제 Google OAuth/OIDC 클라이언트·시크릿·콜백, 실제 Reservation API
+endpoint·인증·전송, 운영 DB와 실제 기준본 이관, 실제 AI 키·등급 확인과 실물
+모바일·Excel 출력 확인이다. 이 항목들은 로컬 완료와 분리하며 유료 자원이 필요해질
+때만 별도 승인을 받는다.
 
 로컬에서 닫을 수 있는 항목은 닫혔고, 남은 것은 아래 외부 6건이다. 이 문서의
 `875 passed` 값은 2026-09-29 오전 기준이며 현재 값보다 낮다.
@@ -36,7 +43,7 @@ Reservation → COST snapshot 동기화 경계, 후속 명세 19.3의 용량 거
 실제 production callback 성공은 보고만으로 완료 처리하지 않고 직접 검증해야 한다.
 
 현재 상태의 단일 출처는
-[handoff/2026-09-27/README.md](handoff/2026-09-27/README.md)와
+[handoff/2026-09-29/README.md](handoff/2026-09-29/README.md)와
 [WEB_LEDGER_IMPLEMENTATION_LOG.md](WEB_LEDGER_IMPLEMENTATION_LOG.md)의 2026-09-29 절,
 [WEB_LEDGER_PHASES.md](WEB_LEDGER_PHASES.md)의 "현재 상태" 절이다.
 
@@ -48,9 +55,10 @@ Reservation → COST snapshot 동기화 경계, 후속 명세 19.3의 용량 거
 task_id: WEB-LEDGER-001
 목표: 구글 스프레드시트 대신 직접 보고 행 단위로 고칠 수 있는 웹 장부 앱의 첫 구현
 작성자: 코디네이터
-구현 모델: opencode/muse-spark-1.3-contributor-free
-작업 방식: 격리 작업공간, 단일 작성자, 원본과 운영 출력 보존
-구현 상태: 로컬 Phase 1~9 + Reservation snapshot sync + 19.3 용량 거부 완료. 외부 운영 연결 단계
+관리·감독·지시: GPT 5.6 Sol Web
+구현·환경설정: Muse Spark 1.3 Free + SpaceBunny Free
+작업 방식: 구현자별 격리 병렬, 파일·DB·외부 자원별 단독 작성자, Sol의 순차 통합
+구현 상태: 최신 인계의 미해결 항목과 현재 코드 대조 후 판정
 명세 갱신: 2026-09-29
 ```
 
@@ -62,7 +70,7 @@ task_id: WEB-LEDGER-001
 4. `docs/DECISION_REGISTER.md`
 5. `docs/비용분류_지시사항_원장.md`
 6. `docs/WEB_LEDGER_APP_SPEC.md`
-7. `webapp/` 전체와 `ledger/domain/schema.sql`
+7. 담당 `webapp/` 모듈과 직접 의존 함수. DB 변경 때만 `ledger/domain/schema.sql`
 8. `docs/WEB_LEDGER_IMPLEMENTATION_CONTRACT.md`에서 현재 담당 단계의 계약과 수용 시나리오
 9. `docs/WEB_LEDGER_PHASES.md`의 현재 위치와 해당 단계
 10. `docs/WEB_LEDGER_DETAILED_CONTRACT.md`에서 해당 단계의 요청·응답·상태·합성 기대값

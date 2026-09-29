@@ -151,50 +151,124 @@ def parse_reservation_snapshot(payload):
                        f"예약 접근 스냅샷이 거부됐어요: {exc}") from exc
 
 
+def _reservation_uri_ro(path: Path) -> str:
+    return f"file:{path.resolve().as_posix()}?mode=ro"
+
+
+def _reservation_backup_copy(src: Path, dest: Path) -> None:
+    """Copy a database with the SQLite backup API (WAL 포함).
+
+    `shutil.copy2` of the main file alone misses -wal content, so the
+    rehearsal uses the same consistent-copy method as the importer.
+    The source is opened mode=ro and is never mutated here.
+    """
+    src_conn = None
+    dest_conn = None
+    try:
+        src_conn = sqlite3.connect(
+            _reservation_uri_ro(src), uri=True, timeout=10.0)
+        dest_conn = sqlite3.connect(str(dest), timeout=10.0)
+        src_conn.backup(dest_conn)
+    finally:
+        for handle in (dest_conn, src_conn):
+            try:
+                if handle is not None:
+                    handle.close()
+            except sqlite3.Error:
+                pass
+
+
+def _reservation_sidecar_hash(path: Path) -> str:
+    """Hash a sidecar, treating missing/empty as unchanged.
+
+    Merely opening a WAL-mode database mode=ro creates an empty -wal and a
+    -shm file. Those are not mutations: -shm is ephemeral shared memory and
+    is ignored entirely, and a 0-byte -wal/-journal hashes as "".
+    """
+    if not path.is_file():
+        return ""
+    try:
+        if path.stat().st_size == 0:
+            return ""
+    except OSError:
+        return ""
+    return sha256_file(path)
+
+
+def _reservation_fingerprint(path: Path) -> dict:
+    """Hash the main file plus durable WAL/journal sidecars (-shm ignored)."""
+    base = str(path)
+    return {
+        Path(base).name: sha256_file(path),
+        "wal": _reservation_sidecar_hash(Path(base + "-wal")),
+        "journal": _reservation_sidecar_hash(Path(base + "-journal")),
+    }
+
+
 def rehearse_reservation_sync(snapshot_bytes: bytes, db_path, *,
-                              keep_copy: bool = False) -> dict:
+                              keep_copy: bool = False,
+                              allow_empty: bool = False,
+                              allow_large_drop: bool = False) -> dict:
     """Apply a real snapshot to a copy of the database and report the effect.
 
     The synchronisation commits its own transaction, so an outer transaction
-    cannot be used to look without writing. Copying the database and running the
-    real code against the copy gives an exact rehearsal and touches nothing: the
-    original is hashed before and after, and a rehearsal that changed the
-    original is reported as a failure rather than as a surprise.
+    cannot be used to look without writing. Copying the database with the
+    SQLite backup API and running the real code against the copy gives an
+    exact rehearsal and touches nothing: the original (including -wal/-shm
+    sidecars) is fingerprinted before and after, and a rehearsal that changed
+    the original is reported as a failure rather than as a surprise.
 
-    The parser is shared with the import command, so a snapshot that would be
-    refused by the import is refused here first, with the same code.
+    The parser and the access_control guards are shared with the import
+    command (`allow_empty`/`allow_large_drop` included), so a snapshot that
+    would be refused by the import is refused here first, with the same code.
+    A missing target answers RESERVATION_TARGET_MISSING, the same code the
+    importer and `ops reservation-sync` use, and never creates a file.
     """
     from . import access_control  # noqa: F401 - keeps the access tables present
 
     source = Path(db_path)
     if not source.is_file():
-        raise OpsError("RESERVATION_DB_MISSING",
-                       f"예약 접근 DB가 없어요: {source}")
+        raise OpsError("RESERVATION_TARGET_MISSING",
+                       f"예약 접근을 적용할 DB가 없어요: {source}")
     snapshot = parse_reservation_snapshot(snapshot_bytes)
-    before = sha256_file(source)
+    before = _reservation_fingerprint(source)
+    before_main = sha256_file(source)
     staging_dir = Path(tempfile.mkdtemp(prefix="reservation-rehearsal-"))
     try:
         copy = staging_dir / source.name
-        shutil.copy2(source, copy)
-        import sqlite3
+        try:
+            _reservation_backup_copy(source, copy)
+        except sqlite3.Error as exc:
+            text = str(exc).lower()
+            if "unable to open" in text or "no such file" in text:
+                raise OpsError("RESERVATION_TARGET_MISSING",
+                               f"예약 접근을 적용할 DB가 없어요: {source}") from exc
+            if "locked" in text or "busy" in text:
+                raise OpsError(access_control.TEMPORARILY_UNAVAILABLE,
+                               "DB가 바빠요. 같은 스냅샷으로 잠시 뒤 다시 시도해 주세요") from exc
+            raise
+        import sqlite3 as _sqlite3
 
-        conn = sqlite3.connect(str(copy))
+        conn = _sqlite3.connect(str(copy), timeout=10.0)
         try:
             store = access_control.AccessStore(conn)
-            result = store.sync_reservation_access_snapshot(snapshot=snapshot)
+            result = store.sync_reservation_access_snapshot(
+                snapshot=snapshot, allow_empty=allow_empty,
+                allow_large_drop=allow_large_drop)
         finally:
             conn.close()
-        after = sha256_file(source)
+        after = _reservation_fingerprint(source)
         if after != before:
             raise OpsError("REHEARSAL_MUTATED_SOURCE",
                            "연습이 원본 DB 를 바꿨어요. 이 결과는 신뢰하지 마세요")
+        after_main = sha256_file(source)
         report = dict(result)
         report.update({
             "rehearsal": True,
             "applied_to_real_database": False,
             "source_unchanged": True,
-            "source_sha256_before": before,
-            "source_sha256_after": after,
+            "source_sha256_before": before_main,
+            "source_sha256_after": after_main,
             "snapshot_digest": snapshot["digest"],
             "snapshot_revision": snapshot["snapshot_revision"],
             "persons_in_snapshot": len(snapshot["persons"]),

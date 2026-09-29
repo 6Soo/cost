@@ -164,8 +164,16 @@ class ReservationAccessSyncTests(unittest.TestCase):
             snapshot=self.snapshot(self.BASE + 2000, [person("rp-2", "guide-two")]))
         self.link_direct("rp-2", "viewer-2")
         before2 = self.store.session_generation("viewer-2")
+        # An empty directory revokes everyone, so it needs the explicit
+        # override (fail-closed): the old expectation of a silent apply is
+        # replaced by the Sol-approved guard.
+        with self.assertRaises(access_control.AccessError) as refused:
+            self.store.sync_reservation_access_snapshot(
+                snapshot=self.snapshot(self.BASE + 3000, []))
+        self.assertEqual(refused.exception.code,
+                         access_control.SNAPSHOT_EMPTY_REQUIRES_OVERRIDE)
         omitted = self.store.sync_reservation_access_snapshot(
-            snapshot=self.snapshot(self.BASE + 3000, []))
+            snapshot=self.snapshot(self.BASE + 3000, []), allow_empty=True)
         self.assertEqual(omitted["connections_revoked"], 1)
         self.assertEqual(self.store.session_generation("viewer-2"), before2 + 1)
 
@@ -186,6 +194,14 @@ class ReservationAccessImporterTests(unittest.TestCase):
             tmp = Path(tmp)
             input_path = tmp / "snapshot.json"
             db_path = tmp / "access.sqlite"
+            # A missing target is refused fail-closed (no file is created),
+            # so the success path needs a pre-existing ledger DB.
+            seed = sqlite3.connect(str(db_path))
+            try:
+                access_control.AccessStore(seed)
+                seed.commit()
+            finally:
+                seed.close()
             input_path.write_bytes(raw_snapshot(
                 1_800_000_000_000, [person("secret-person-id", "secret-nick")]))
             proc = subprocess.run(

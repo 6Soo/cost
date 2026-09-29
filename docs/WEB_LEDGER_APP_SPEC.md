@@ -1,5 +1,7 @@
 # 웹 장부 앱 상세 명세 초안
 
+> 2026-09-29 운영 보완: 관리·감독·지시는 GPT 5.6 Sol Web, 구현·환경설정은 Muse Spark 1.3 Free와 SpaceBunny Free가 격리 병렬로 담당한다. [에이전트 운영 명세](WEB_LEDGER_AGENT_OPERATIONS.md)와 결정 `D-WEB-AGENT-002`를 적용한다. 제품 기능과 앱 안의 Muse·Gemini 역할은 바꾸지 않는다.
+
 상태: 설계 검토 중
 작성일: 2026-09-21
 최종 설계 정리: 2026-09-24

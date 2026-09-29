@@ -1,7 +1,9 @@
 # AGENTS.md — 어느 에이전트로 열든 먼저 읽을 진입점
 
-> 최신 세션 인계: [2026-09-27](docs/handoff/2026-09-27/README.md).
+> 최신 세션 인계: [2026-09-29](docs/handoff/2026-09-29/README.md).
+> 최신 역할 결정 `D-WEB-AGENT-002`: GPT 5.6 Sol Web의 관리·감독·지시, Muse Spark 1.3 Free와 SpaceBunny Free의 구현·환경설정 병렬 수행. [운영 명세](docs/WEB_LEDGER_AGENT_OPERATIONS.md)를 적용한다. 아래 과거 재개 위치보다 최신 인계의 미해결 항목을 우선한다.
 > 아래 과거 인계 날짜보다 이 링크를 먼저 읽는다. 로컬 구현과 운영 전환은 별개다.
+> 후속 결정 `D-WEB-AGENT-003`: Astra Low가 지속 실행·상태를 관리하며 Sol Web은 phase별 짧은 판단·검토만 수행한다. Muse·SpaceBunny 병렬 구현은 Sol의 판단에 따라 Astra가 실행한다.
 
 > Apply global agent rules from `C:\AX\AGENTS.md` first; keep only project-specific rules here.
 
@@ -110,14 +112,13 @@
 웹 장부 명세의 최신 재개 안내는 `LOG.md`의 2026-09-25 세션 핸드오프와
 `docs/IMPLEMENTATION_PROMPT_WEB_LEDGER_APP.md`다. 명세 완료와 구현 완료를 구분한다.
 구현 재개 지시를 받은 작업자는 `docs/WEB_LEDGER_IMPLEMENTATION_REVIEW.md` 7절의
-수정 A부터 기존 결과를 보완하며 Phase 1을 처음부터 다시 만들지 않는다.
+과거 수정 A를 일괄 재시작하지 않고 최신 인계의 미해결 항목부터 기존 결과를 보완한다.
 
 작업을 이어받을 때는 `LOG.md`보다 먼저 가장 최근 날짜의
 `docs/handoff/YYYY-MM-DD/README.md`를 읽는다. 현재 최신 인계 패키지는
-`docs/handoff/2026-09-08/README.md`다 (`PARTIAL_HANDOFF`, 전체 파이프라인 점검,
-Reserve Max 통합 진단·shadow 금액/감사 검증·일정 종료일 보존 수정).
+`docs/handoff/2026-09-29/README.md`다 (`PARTIAL_HANDOFF`).
 
-직전 인계 패키지: `docs/handoff/2026-09-01/README.md` (9월 2~3일 정정 포함).
+직전 인계 패키지: `docs/handoff/2026-09-27/README.md`. 9월 초 인계는 과거 기록이다.
 
 인계 패키지의 상태가 `PARTIAL_HANDOFF`이면 검토 원문·최종 테스트 등 일부 보존이 끝난 것이
 아니므로, `LOSSLESS_HANDOFF`로 승격하기 전까지 게시·전기·배포를 확정하지 않는다.

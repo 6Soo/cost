@@ -138,6 +138,22 @@ PC가 꺼지면 Gemini도 대기한다는 이전 초안은 오류다. D-WEB-AVAI
 
 ## 새 결정을 기록할 때
 
+### D-WEB-AGENT-002 — 2026-09-29 확정
+
+상태: `CONFIRMED`. 근거: 현재 대화의 명시적 사용자 지시.
+
+GPT 5.6 Sol Web이 관리·감독·지시하고 Muse Spark 1.3 Free와 SpaceBunny Free가 구현과 환경설정을 병렬 수행할 수 있도록 명세를 보완한다. 프로젝트의 SpaceBunny 전담·Muse 감사 전용 제한과 Muse만 기본 구현자로 지정한 설명을 이 범위에서 대체한다. 전역 파일과 다른 프로젝트 설정은 변경하지 않는다.
+
+파일·DB·외부 효과별 단일 작성자, 격리 작업공간, 무료 여부 확인과 개인정보 보호는 유지한다. [에이전트 운영 명세](WEB_LEDGER_AGENT_OPERATIONS.md)의 구체적인 재시도·검증 한도는 이를 실행하기 위한 기술 규약이며 사용자가 각각의 수치를 직접 선택했다는 뜻이 아니다. 이번 요청은 문서 보완이며 실행·배포 완료를 뜻하지 않는다.
+
+### 기록 양식
+
+### D-WEB-AGENT-003 — 2026-09-29 후속 확정
+
+상태: `CONFIRMED`. 근거: 사용자의 지속 실행 구조 정정 지시. `D-WEB-AGENT-002`의 병렬 구현 역할은 유지하되 Sol의 장기 실행·상태 관리 책임을 대체한다. Astra Low가 작업표·phase·worker 상태·검증 증거·미완료 항목과 실행 루프를 계속 관리한다. Sol Web은 phase별 설계·분할·우선순위·워커 지시·통합 검토·충돌 해결만 짧게 판단하고 종료한다. Astra는 Sol의 판단을 임의 재설계하지 않는다. 전체 로그 대신 압축 결과와 필요한 diff를 전달한다. 최종 Sol architecture/integration review 후 Astra가 저장소·실제 테스트·미완료 부재를 확인해야 완료다. 상세 절차는 [운영 명세](WEB_LEDGER_AGENT_OPERATIONS.md)의 현행 정정을 따른다.
+
+### 새 결정 입력 양식
+
 ```text
 decision_id:
 status:

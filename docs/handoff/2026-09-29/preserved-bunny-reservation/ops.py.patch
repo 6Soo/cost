@@ -1,0 +1,141 @@
+diff --git a/webapp/ops.py b/webapp/ops.py
+index 45a50d0..786597b 100644
+--- a/webapp/ops.py
++++ b/webapp/ops.py
+@@ -151,8 +151,111 @@ def parse_reservation_snapshot(payload):
+                        f"예약 접근 스냅샷이 거부됐어요: {exc}") from exc
+ 
+ 
++MIN_PERSONS_IN_SNAPSHOT = 1
++
++# A snapshot that drops more than this share of a known directory is refused.
++# The directory is the source of who may see which trip, so a snapshot that
++# removes most of it is more likely to be a truncated export than a real change,
++# and applying it silently revokes access for a great many people at once.
++MAX_PERSON_DROP_RATIO = 0.5
++
++
++def snapshot_safety_review(snapshot: dict, conn, *, allow_large_drop: bool = False
++                           ) -> dict:
++    """What applying this snapshot would do to the directory, before it does.
++
++    Three questions a rehearsal has to answer before anybody presses apply:
++
++    * would it empty a directory that is not empty now;
++    * would it remove a large share of the people who can see something;
++    * does it name a trip the ledger does not have, or one that was deleted.
++
++    The last one is asked here rather than in the synchronisation code so that
++    the answer travels in the report. An assignment to a trip that does not
++    exist is written and is then meaningless, and the operator has no way to see
++    that from the result.
++    """
++    people = list(snapshot.get("persons") or [])
++    incoming = {str(p.get("reservation_person_id")) for p in people}
++    review = {
++        "persons_in_snapshot": len(people),
++        "empties_the_directory": False,
++        "large_drop": False,
++        "unknown_trip_codes": [],
++        "deleted_trip_codes": [],
++        "refuse": False,
++        "refuse_code": "",
++        "notes": [],
++    }
++
++    known = set()
++    try:
++        known = {str(row[0]) for row in conn.execute(
++            "SELECT reservation_person_id FROM access_reservation_persons")}
++    except Exception:  # noqa: BLE001 - an absent table is a fresh directory
++        known = set()
++    if not known:
++        try:
++            known = {str(row[0]) for row in conn.execute(
++                "SELECT reservation_person_id FROM access_connections")}
++        except Exception:  # noqa: BLE001
++            known = set()
++
++    if known and not people:
++        review["empties_the_directory"] = True
++        review["notes"].append(
++            f"이 스냅샷에는 사람이 0명인데 현재 디렉터리에는 {len(known)}명이 "
++            f"있습니다. 적용하면 모두의 담당이 해제됩니다")
++    if len(people) < MIN_PERSONS_IN_SNAPSHOT and known:
++        review["empties_the_directory"] = True
++
++    lost = {pid for pid in known if pid not in incoming}
++    if known and lost:
++        share = len(lost) / len(known)
++        if share > MAX_PERSON_DROP_RATIO:
++            review["large_drop"] = True
++            review["notes"].append(
++                f"현재 {len(known)}명 중 {len(lost)}명({share:.0%})이 스냅샷에 "
++                f"없어요. 삭제가 맞는지 확인해 주세요")
++
++    # Trips the snapshot names, and what the ledger knows about them.
++    mentioned = set()
++    for person in people:
++        for value in (person.get("assignments") or []):
++            code = str(value).strip()
++            if code:
++                mentioned.add(code)
++    if mentioned:
++        try:
++            live = {str(row[0]) for row in conn.execute(
++                "SELECT tab_id FROM trip_tabs WHERE deleted=0")}
++            removed = {str(row[0]) for row in conn.execute(
++                "SELECT tab_id FROM trip_tabs WHERE deleted=1")}
++        except Exception:  # noqa: BLE001 - no trip table is a board with no trips
++            live, removed = set(), set()
++        review["unknown_trip_codes"] = sorted(mentioned - live - removed)
++        review["deleted_trip_codes"] = sorted(mentioned & removed)
++        if review["deleted_trip_codes"]:
++            review["notes"].append(
++                f"삭제된 여행을 가리키는 배정이 있어요: "
++                f"{review['deleted_trip_codes']}")
++        if review["unknown_trip_codes"]:
++            review["notes"].append(
++                f"장부에 없는 여행 코드가 있어요: {review['unknown_trip_codes']}")
++
++    if review["empties_the_directory"] or (
++            review["large_drop"] and not allow_large_drop):
++        review["refuse"] = True
++        review["refuse_code"] = ("SNAPSHOT_EMPTIES_DIRECTORY"
++                                 if review["empties_the_directory"]
++                                 else "SNAPSHOT_LARGE_DROP")
++    return review
++
++
+ def rehearse_reservation_sync(snapshot_bytes: bytes, db_path, *,
+-                              keep_copy: bool = False) -> dict:
++                              keep_copy: bool = False,
++                              allow_large_drop: bool = False,
++                              allow_empty: bool = False) -> dict:
+     """Apply a real snapshot to a copy of the database and report the effect.
+ 
+     The synchronisation commits its own transaction, so an outer transaction
+@@ -180,6 +283,15 @@ def rehearse_reservation_sync(snapshot_bytes: bytes, db_path, *,
+ 
+         conn = sqlite3.connect(str(copy))
+         try:
++            review = snapshot_safety_review(snapshot, conn,
++                                           allow_large_drop=allow_large_drop)
++            if review["refuse"] and not allow_empty:
++                raise OpsError(
++                    review["refuse_code"],
++                    "이 스냅샷은 그대로 적용하면 안 돼요.\n"
++                    + "\n".join(f"- {n}" for n in review["notes"])
++                    + "\n정말 적용해야 하면 --allow-empty 를 붙여서 다시 "
++                      "실행해 주세요.")
+             store = access_control.AccessStore(conn)
+             result = store.sync_reservation_access_snapshot(snapshot=snapshot)
+         finally:
+@@ -198,6 +310,7 @@ def rehearse_reservation_sync(snapshot_bytes: bytes, db_path, *,
+             "snapshot_digest": snapshot["digest"],
+             "snapshot_revision": snapshot["snapshot_revision"],
+             "persons_in_snapshot": len(snapshot["persons"]),
++            "safety_review": review,
+         })
+         if keep_copy:
+             report["copy_kept_at"] = str(copy)

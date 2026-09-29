@@ -2498,3 +2498,68 @@ python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
 `webapp/tests/test_google_oidc.py`,
 `docs/WEB_LEDGER_IMPLEMENTATION_LOG.md`,
 `docs/handoff/2026-09-27/README.md`.
+
+## 2026-09-29 Astra 지속 실행 작업표
+
+현재 phase: P1 안전성 잔여 수정의 분할 결정. 역할 기준 `D-WEB-AGENT-003`.
+최신 진행: health commit `313ef4634d27953a77e7210831baed89444ff22f`를 Sol 수용 후 원본에 통합했다. 부모의 신규 회귀 재검증은 3 tests OK, 0.496초다. 예약 Muse `bfada5fa-acba-423b-a236-598f88e3eef7`는 이 commit 기반 새 workspace `wks_49d0166d57101bba`에서 보완 중이다. 기존 예약 변경 네 파일은 SHA-256 확인과 함께 복사했으며 공통 규칙도 전달했다. Bunny는 체크포인트 결과를 제출했으나 간헐 실패 2종이 남아 미수용이다. Sol에 제한된 후속 진단 결정을 요청했다. 전체 suite 재반복은 지시하지 않았다.
+진행 갱신: Sol의 P1 분할과 후속 분할 정정을 수용했다. SpaceBunny는 원본 `ledger_board.py` 및 직접 관련 platform/access 테스트로 범위를 축소하는 지시를 받았다. Muse `3a14b7ed-0fa5-46bc-a00c-31dc28bece85`는 새 `wks_8bfd61889ca94a39` / `muse/p1-health-readonly-20260929`에서 `cli.py`와 신규 health 회귀 검사만 작성한다. 최신 운영 명세를 전달했고 생성 직전 그 외 변경이 없는 것을 확인했다.
+
+기존 `muse-audit-fixes-20260929`에는 작성자 미확정 예약 변경이 발견돼 그 공간에 막 생성한 워커 `94d398ff-8d87-4469-985d-9788c2729243`를 즉시 취소했다. 변경은 보존한다. 예약 변경은 `test_reservation_audit_fixes.py`와 `test_reservation_access_sync.py` 실행에서 **27 passed, 2 failed in 22.70s**다. 두 실패는 빈 snapshot 자동 해제 및 없는 DB 자동 생성이라는 이전 기대값과 새 안전 거부의 충돌이다. 백업 전 AccessStore 초기화, WAL 미포함 파일 복사, 백업 이름 충돌과 존재 확인 경합은 Sol 검토 요청 중이며 아직 수용·통합하지 않았다. 테스트 성공 수로 이 위험을 닫지 않는다.
+이 절의 상태 작성자는 Astra Low다. 과거 테스트 수치는 현재 후보의 검증값으로 쓰지 않는다.
+Sol 예약 검토 결정: 기존 변경은 조건부 재사용한다. health Muse 완료 후 예약 전용 Muse 턴에서 AccessStore 초기화 전 일관 백업, SQLite backup을 통한 WAL 커밋 내용 포함, 동일 방식의 dry-run, 고유 백업 이름, `mode=rw` 계열 missing DB 원자적 거절, 백업 무결성 확인을 보완한다. 기존 빈 snapshot 자동 해제와 missing DB 생성 기대값은 최신 안전 요구에 맞게 수정하되 회귀 근거를 남긴다. 예약 writer 범위는 parser/access_control/importer 및 예약 테스트, Bunny는 ledger_board 범위를 유지한다. 이 결정은 아직 구현 완료가 아니다.
+Sol 후속 통합 결정 실행: Bunny의 범위 축소 전 미완성 `cli.py`·`ops.py`는 [보존 manifest](handoff/2026-09-29/preserved-bunny-reservation/manifest.json)에 파일 원문·patch SHA-256과 함께 보존하고 기준 `5c1db336`으로 복원했다. 복원 직전 해시 일치도 확인했다. 순서는 health Muse 수용·통합 → 해당 상태에서 예약 Muse가 cli reservation-sync/ops rehearsal까지 공통 예약 계약으로 보완 → 예약 검사 → Bunny ledger_board 결과 별도 통합이다. 미완성 변경을 완료 후보로 합치지 않는다.
+
+| 항목 | 담당·상태 | 증거·다음 동작 |
+|---|---|---|
+| P1-DECISION | Sol `afe8152b-f066-4236-8673-925f49a9fa76`, 짧은 판단 요청 | 장기 실행 중단 완료. 도구 호출 없이 ownership 정리·파일 분할·acceptance·최소 검사 결정만 요청함 |
+| P1-BUNNY-EXISTING | SpaceBunny `36982862-21d6-4f6b-b51c-921d4c981881`, 마지막 관측 running | `ledger_board.py` 변경과 platform/access 안정성 검사 중. 기존 넓은 할당 범위를 Sol 판단에 따라 정리하기 전 중복 배정 금지 |
+| P1-OPS-READONLY | 미배정, 재현 완료 | `ops health`가 합성 DB 테이블을 1개에서 32개로 늘리고 exit0. 감독 기록의 재현을 acceptance에 연결 |
+| P1-IMPORT-MISSING-DB | 미배정, 재현 완료 | 독립 예약 importer가 없는 합성 DB를 생성하고 exit0. 지정 경로 오류 시 무생성 거부가 필요 |
+| P1-MUSE-WORKSPACE | 준비 | `wks_c3715977bc7cb896`, `muse/audit-fixes-20260929`, 기준 `5c1db336`. 최신 미커밋 규칙을 위임 전에 전달할 것 |
+| MODEL-FREE | 공급자 목록 확인 완료 | OpenCode Zen의 두 지정 모델 input/output/cache 비용 0 확인. 실제 워커 실행 성공은 별도 기록 |
+| P2-REMAINDER | 미완료 | 저장공간·예약·DB 이관·Railway 감사 잔여를 수용 근거에 연결. 완료 주장만으로 닫지 않음 |
+| FINAL-REVIEW | 미착수 | Sol 전체 architecture/integration review와 Astra 저장소·검사·미해결 부재 확인 후 완료 가능 |
+
+최종 감독 근거: [SUPERVISOR_REVIEW.md](handoff/2026-09-29/SUPERVISOR_REVIEW.md). 실제 변경·검증 결과는 제출 시 기준 digest와 결속해 이 작업표에 갱신한다.
+
+### 2026-09-29 현재 진행 갱신
+
+health 읽기 전용 수정과 예약 안전성 수정은 현재 작업트리에 반영했다. 예약 Muse 커밋 `395f7a3`은 Sol의 짧은 통합 검토에서 수용되었고, 부모가 현재 작업트리에서 관련 검사 75개 통과와 1개 건너뜀을 다시 확인했다. 예약 검사 29개와 운영 표면·안전성·health 검사를 함께 실행했으며 결과는 `75 passed, 1 skipped in 69.64s`다. 변경 파일의 구문 검사와 `git diff --check`도 통과했다.
+
+예약 수정의 핵심은 SQLite backup API를 통한 WAL 포함 백업, dry-run의 동일 백업 경로, 충돌하지 않는 백업 이름, `mode=rw` 방식의 없는 DB 거부, 백업 무결성 검사, 빈 snapshot과 큰 감소에 대한 명시 override, cli·ops·importer의 공통 guard다. 없는 DB를 만들던 독립 importer 경로와 읽기 점검 중 스키마를 만들던 health 경로를 회귀 검사로 닫았다.
+
+SpaceBunny는 웹 서버 간헐 실패 두 건에 대해 계측을 시도했지만 계측이 실행 시점을 바꿔 대상 실패를 재현하지 못했고, 추가 코드 변경도 하지 않았다. Sol은 추가 추적과 제품 수정을 보류하고, `ledger_board.py`의 검증되지 않은 docstring 한 줄은 되돌리도록 결정했다. 따라서 다음 잔여 항목은 `waiting_row_moves_to_a_trip`와 `viewer_read_refusal_never_reveals_the_row`의 간헐 실패 원인 미분리 상태다. 이 항목은 예약 수정과 분리해 보류한다.
+
+현재 작업 상태는 **P1 안전성 수정 수용, 웹 서버 flaky 두 건 보류, 전체 완료 아님**이다. 전체 suite와 최종 Sol architecture/integration review는 웹 서버 잔여 위험을 별도 기록한 뒤에 수행한다.
+
+최종 Sol architecture/integration review 결과는 **조건부 수용**이다. health와 예약 변경의 구조·범위·검사 근거는 수용했지만, 웹 서버 두 flaky의 원인 미분리와 acceptance 미달, 고정된 최종 후보의 전체 suite 1회 미실행 때문에 전체 프로젝트 완료 표시는 보류한다. 현재 phase는 **로컬 예약·health 안전성 통합 완료, 웹 서버 flaky 두 건 보류, 최종 전체 회귀 전**으로 기록한다. 코드가 더 바뀌지 않는 최종 후보가 확정되면 전체 suite만 1회 실행하고, 배포와 외부 운영 조건은 별도 미완료로 유지한다.
+
+## 2026-09-29 최신 최종 검토와 로컬 완료 판정
+
+앞 절 이후 웹 서버의 두 간헐 문제를 재현하고 원인을 분리했다. 두 서버가 모듈
+전역 저장소를 함께 읽던 문제는 요청별 `ContextVar`로 서버의 저장소를 결속해
+해결했다. 같은 서버의 요청 스레드들이 하나의 SQLite 연결을 동시에 사용하던
+문제는 서버별 `RLock`으로 `do_GET`과 `do_POST` 처리 구간을 직렬화해 해결했다.
+소켓을 읽는 `handle_one_request` 전체에는 잠금을 걸지 않아 silent preconnect를
+해결한 `ThreadingHTTPServer` 동작을 보존했다.
+
+변경 파일은 `webapp/ledger_board.py`와
+`webapp/tests/test_ledger_server_store_isolation.py`다. 새 회귀 2개는 다음 조건으로
+검증했다.
+
+| 검증 | 결과 |
+|---|---|
+| 두 서버 저장소 격리와 한 서버 동시 요청 회귀 묶음 5회 | 매회 `2 passed` |
+| `test_platform_start.py`, `test_access_control_phase7.py`, `test_ledger_design.py` 묶음 5회 | 매회 `91 passed` |
+| 전체 `webapp/tests` fresh 실행 | `1033 passed, 1 skipped, 139 subtests passed in 449.58s` |
+| `compileall`와 `git diff --check` | 통과 |
+
+최종 Sol architecture/integration review는 로컬 구현을 수용했다. 현재 로컬 기능상
+추가로 닫아야 할 항목은 없다. 서버 하나가 단일 SQLite 연결과 잠금을 공유하므로
+처리량이 제한되는 점은 기능 오류가 아닌 후속 성능 개선 사항으로 기록한다.
+
+외부 조건은 로컬 완료와 분리한다. 실제 Railway 환경 설정과 배포, 비밀값 주입,
+운영 DB 보호·백업, Google OIDC callback, Reservation API, 실제 AI 연결과 등급,
+실물 모바일과 Excel 출력은 실제 외부 증거가 생기기 전까지 운영 완료로 표시하지
+않는다. 따라서 현재 phase는 **로컬 구현·검증·최종 검토 완료, 외부 운영 조건 대기**다.

@@ -215,6 +215,28 @@ def _ops_guard(func):
     return wrapper
 
 
+class _HealthReadOnlyStore:
+    """health용 읽기 전용 핸들. 스키마를 만들지 않는다.
+
+    LedgerStore는 seed_demo=False여도 SCHEMA_SQL 실행과 lease 등록으로
+    파일·테이블을 만든다. health는 검사 대상을 만들면 안 되므로
+    mode=ro 연결만 열어 ops.health_check의 store_readable 확인에 쓴다.
+    """
+
+    def __init__(self, path):
+        import sqlite3
+
+        self.path = Path(path)
+        self.conn = sqlite3.connect(
+            f"file:{self.path.as_posix()}?mode=ro", uri=True, timeout=5.0)
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+
 @_ops_guard
 def cmd_ops_health(args):
     from . import ops
@@ -222,14 +244,7 @@ def cmd_ops_health(args):
     config = _ops_config(args, secrets=args.secret or ())
     store = None
     if config.db_path.is_file():
-        from .ledger_store import LedgerStore
-
-        # seed_demo=False: a read or an inspection must not add the demo
-        # board to a real ledger. SPEC_REFINEMENT 18.3 5항 forbids
-        # synthetic rows at an operational start, and a health command is
-        # exactly where that would be done by accident -- two fake trips in
-        # a database nobody asked to have them in.
-        store = LedgerStore(config.db_path, seed_demo=False)
+        store = _HealthReadOnlyStore(config.db_path)
     try:
         report = ops.health_check(config, store)
     finally:
@@ -339,42 +354,62 @@ def cmd_ops_reservation_sync(args):
     """Rehearse a Reservation access snapshot, or apply it to a named DB."""
     from . import access_control
     from . import ops
-    from .ledger_store import LedgerStore
+
+    from . import ops as _ops
 
     config = _ops_config(args, secrets=args.secret or ())
     payload = args.snapshot.read_bytes()
     target = Path(args.db) if args.db else config.db_path
+    guards = {"allow_empty": bool(getattr(args, "allow_empty", False)),
+              "allow_large_drop": bool(getattr(args, "allow_large_drop", False))}
 
     if args.dry_run or args.db is None:
         report = ops.rehearse_reservation_sync(
-            payload, target, keep_copy=args.keep_copy)
+            payload, target, keep_copy=args.keep_copy, **guards)
     else:
-        # The applied path is the other actor's importer, reused rather than
-        # reimplemented, so a rehearsal and the real import cannot differ.
-        import json as _json
+        # Same guard contract as the importer and the rehearsal: the parser
+        # and access_control refuse with the same codes, and the same
+        # allow_empty/allow_large_drop flags confirm a destructive directory.
         import sqlite3 as _sqlite3
-        import tempfile as _tempfile
-
-        from . import ops as _ops
 
         snapshot = _ops.parse_reservation_snapshot(payload)
-        # `sqlite3.connect` creates a database that is not there. Applying a
-        # snapshot to a path that does not exist would produce an empty file
-        # with the access tables and no ledger in it, and report that as a
-        # successful import. The target has to already be a ledger.
-        if not Path(str(target)).is_file():
+        # mode=rw refuses a missing target atomically instead of creating an
+        # empty file with only access tables and no ledger in it. The target
+        # has to already be a ledger.
+        try:
+            conn = _sqlite3.connect(
+                f"file:{Path(str(target)).resolve().as_posix()}?mode=rw",
+                uri=True, timeout=10.0)
+        except _sqlite3.Error as exc:
             raise _ops.OpsError(
                 "RESERVATION_TARGET_MISSING",
                 f"예약 접근을 적용할 DB가 없어요: {target}\n"
                 f"빈 파일이 새로 만들어지면 장부가 없는 빈 DB가 됩니다. "
-                f"적용할 대상은 이미 존재하는 장부 DB여야 합니다.")
-        conn = _sqlite3.connect(str(target))
+                f"적용할 대상은 이미 존재하는 장부 DB여야 합니다.") from exc
         try:
-            store = access_control.AccessStore(conn)
-            result = store.sync_reservation_access_snapshot(snapshot=snapshot)
-            again = store.sync_reservation_access_snapshot(snapshot=snapshot)
-        finally:
-            conn.close()
+            try:
+                store = access_control.AccessStore(conn)
+                result = store.sync_reservation_access_snapshot(
+                    snapshot=snapshot, **guards)
+                again = store.sync_reservation_access_snapshot(
+                    snapshot=snapshot, **guards)
+            except access_control.AccessError as exc:
+                raise _ops.OpsError(
+                    exc.code or "SYNC_FAILED",
+                    str(exc.message or exc.code)) from exc
+            except _sqlite3.OperationalError as exc:
+                text = str(exc).lower()
+                if "locked" in text or "busy" in text:
+                    raise _ops.OpsError(
+                        access_control.TEMPORARILY_UNAVAILABLE,
+                        "DB가 바빠요. 같은 스냅샷으로 잠시 뒤 다시 시도해 주세요") from exc
+                raise
+            finally:
+                conn.close()
+        except _ops.OpsError:
+            # A refused apply must not leave an empty file behind when the
+            # target was missing: mode=rw already guarantees that.
+            raise
         report = dict(result)
         report.update({"rehearsal": False, "applied_to_real_database": True,
                        "idempotent": bool(again["ignored_stale_or_equal"]),
@@ -623,6 +658,10 @@ def build_parser():
                    help="force a rehearsal even when --db is given")
     p.add_argument("--keep-copy", action="store_true",
                    help="keep the rehearsal copy for inspection")
+    p.add_argument("--allow-empty", action="store_true",
+                   help="explicitly confirm applying an empty person list")
+    p.add_argument("--allow-large-drop", action="store_true",
+                   help="explicitly confirm a directory shrunk below half")
     p.set_defaults(func=cmd_ops_reservation_sync)
 
     p = ops_sub.add_parser(

@@ -1,0 +1,13 @@
+{
+  "base": "5c1db3366334b3c467e7be7318d2608597534d42",
+  "files": {
+    "webapp/cli.py": {
+      "before_sha256": "ec97b3a05e319e20306bd11b6dcacdc781c95875fda69e50caf3b760d5a3437b",
+      "patch_sha256": "eb993b60a3cb661727c373373775f9f0c61ad0ea7f6bdf140c16be006ef4b567"
+    },
+    "webapp/ops.py": {
+      "before_sha256": "38546136e26c1fc4bb3a2340f45cac94f71a9c787d4b501d26e8fb788eb61786",
+      "patch_sha256": "82a66c6712a4a254dd75156ae13698a509ccd543c75ed1de8bf6468524517826"
+    }
+  }
+}

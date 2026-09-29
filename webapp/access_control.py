@@ -75,6 +75,22 @@ CONNECTION_REVOKED = "revoked"
 ASSIGN_ACTIVE = "active"
 ASSIGN_REVOKED = "revoked"
 
+# Sync refusal codes. Every one is raised as AccessError with the status shown
+# so the importer and the ops rehearsal can map them to stable exit codes.
+# Stale (older revision) is NOT an error: it answers ignored_stale_or_equal.
+SNAPSHOT_CONFLICT = "SNAPSHOT_CONFLICT"  # same revision, different digest: 409
+SNAPSHOT_EMPTY_REQUIRES_OVERRIDE = "SNAPSHOT_EMPTY_REQUIRES_OVERRIDE"  # 409
+SNAPSHOT_LARGE_DROP_REQUIRES_OVERRIDE = "SNAPSHOT_LARGE_DROP_REQUIRES_OVERRIDE"  # 409
+UNKNOWN_TRIP = "UNKNOWN_TRIP"  # assignment names a trip that is not there: 422
+
+# SQLite wait policy for the reservation sync path. Matches the board store
+# (`ledger_store` sets the same value): wait up to 5s for a lock, then answer
+# TEMPORARILY_UNAVAILABLE (503, retry with the same request) instead of
+# crashing. The importer opens its connection with timeout=10.0 on top.
+BUSY_TIMEOUT_MS = 5000
+TRANSIENT_SQLITE_MARKERS = ("database is locked", "database table is locked",
+                            "database is busy")
+
 # Rows a viewer may receive. Everything else, including the internal memo, the
 # change history and anything the AI conversation produced, is not here.
 VIEWER_ROW_FIELDS = (
@@ -216,6 +232,18 @@ CREATE TABLE IF NOT EXISTS access_reservation_directory_head (
     exported_at TEXT NOT NULL DEFAULT '',
     imported_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS access_reservation_sync_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    snapshot_revision INTEGER NOT NULL,
+    digest TEXT NOT NULL DEFAULT '',
+    source_version TEXT NOT NULL DEFAULT '',
+    persons_seen INTEGER NOT NULL DEFAULT 0,
+    outcome TEXT NOT NULL,
+    error_code TEXT NOT NULL DEFAULT '',
+    persons_deactivated INTEGER NOT NULL DEFAULT 0,
+    connections_revoked INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS access_evidence (
     evidence_id TEXT PRIMARY KEY,
     tab_id TEXT NOT NULL DEFAULT '',
@@ -263,6 +291,12 @@ def canonical(value) -> str:
 
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _is_transient_sqlite(exc: BaseException) -> bool:
+    """True when the database is locked/busy and the same request may retry."""
+    text = str(exc).lower()
+    return any(marker in text for marker in TRANSIENT_SQLITE_MARKERS)
 
 
 # --------------------------------------------------------------- identity
@@ -376,6 +410,7 @@ class AccessStore:
         with self.lock:
             self.conn.executescript(SCHEMA_SQL)
             self._migrate_columns()
+            self.conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             self.conn.commit()
 
     def _migrate_columns(self) -> None:
@@ -390,6 +425,15 @@ class AccessStore:
             self.conn.execute(
                 "ALTER TABLE access_accounts ADD COLUMN"
                 " session_generation INTEGER NOT NULL DEFAULT 1")
+        head_present = {r[1] for r in self.conn.execute(
+            "PRAGMA table_info(access_reservation_directory_head)")}
+        if "persons_seen" not in head_present:
+            # Older heads counted nobody. A legacy head reports 0, which
+            # disables the large-drop ratio once (fail-open exactly once) and
+            # every later head carries the real count.
+            self.conn.execute(
+                "ALTER TABLE access_reservation_directory_head ADD COLUMN"
+                " persons_seen INTEGER NOT NULL DEFAULT 0")
 
     # ------------------------------------------------------- request reuse
     def _replay(self, scope: str, client_request_id: str, payload: dict):
@@ -779,7 +823,15 @@ class AccessStore:
         normalized, complete_revision = self._prepare_assignment_snapshot(
             items=items, complete=complete, snapshot_revision=snapshot_revision)
         with self.lock:
-            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if _is_transient_sqlite(exc):
+                    raise AccessError(
+                        TEMPORARILY_UNAVAILABLE,
+                        "잠시 저장할 수 없어요. 같은 요청으로 다시 확인해 주세요",
+                        status=503)
+                raise
             try:
                 result = self._apply_assignment_snapshot_tx(
                     user_id=user_id, normalized=normalized,
@@ -787,7 +839,10 @@ class AccessStore:
                     complete=complete, complete_revision=complete_revision)
                 self.conn.execute("COMMIT")
             except Exception:
-                self.conn.execute("ROLLBACK")
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
                 raise
         return {"user_id": user_id, "source_version": source_version or "",
                 "complete": bool(complete), "applied": result["applied"],
@@ -796,18 +851,96 @@ class AccessStore:
 
     def reservation_directory_head(self):
         row = self.conn.execute(
-            "SELECT snapshot_revision, digest, source_version, exported_at, imported_at"
+            "SELECT snapshot_revision, digest, source_version, exported_at, imported_at,"
+            " persons_seen"
             " FROM access_reservation_directory_head WHERE singleton_id=1").fetchone()
         if not row:
             return None
         return {"snapshot_revision": row[0], "digest": row[1],
                 "source_version": row[2], "exported_at": row[3],
-                "imported_at": row[4]}
+                "imported_at": row[4], "persons_seen": row[5]}
+
+    # ------------------------------------------------- sync attempt audit
+    def _log_sync_attempt(self, *, revision: int, digest: str,
+                          source_version: str, persons_seen: int,
+                          outcome: str, error_code: str = "",
+                          persons_deactivated: int = 0,
+                          connections_revoked: int = 0) -> None:
+        """Record one sync attempt, including refusals.
+
+        The log lives beside the directory head so an operator can answer
+        "what tried to change access and what was the answer" without
+        replaying snapshots. It is written in its own commit AFTER the main
+        transaction rolled back or committed, so a refusal is recorded even
+        though it changed nothing else. Best effort: logging must never turn
+        a successful sync into a failure.
+        """
+        try:
+            with self.lock:
+                self.conn.execute(
+                    "INSERT INTO access_reservation_sync_attempts("
+                    " attempt_id, snapshot_revision, digest, source_version,"
+                    " persons_seen, outcome, error_code, persons_deactivated,"
+                    " connections_revoked, created_at)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (uuid.uuid4().hex, revision, digest or "",
+                     source_version or "", persons_seen, outcome,
+                     error_code or "", persons_deactivated,
+                     connections_revoked, iso(utc_now())))
+                self.conn.commit()
+        except Exception:
+            pass
+
+    def list_sync_attempts(self, *, limit: int = 50) -> list:
+        """Newest sync attempts first, for the audit trail and the tests."""
+        rows = self.conn.execute(
+            "SELECT snapshot_revision, digest, source_version, persons_seen,"
+            " outcome, error_code, persons_deactivated, connections_revoked,"
+            " created_at FROM access_reservation_sync_attempts"
+            " ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (max(1, int(limit)),)).fetchall()
+        return [{"snapshot_revision": r[0], "digest": r[1],
+                 "source_version": r[2], "persons_seen": r[3],
+                 "outcome": r[4], "error_code": r[5],
+                 "persons_deactivated": r[6], "connections_revoked": r[7],
+                 "created_at": r[8]} for r in rows]
+
+    def _known_trip_ids(self) -> set | None:
+        """Live trip directory, or None when there is no trip table at all."""
+        row = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name='trip_tabs'").fetchone()
+        if not row:
+            return None
+        return {r[0] for r in self.conn.execute("SELECT tab_id FROM trip_tabs")}
 
     def sync_reservation_access_snapshot(self, *, snapshot: dict,
-                                         validity: timedelta = DEFAULT_VALIDITY,
-                                         now: datetime | None = None) -> dict:
-        """Atomically synchronize the complete Reservation access directory."""
+                                          validity: timedelta = DEFAULT_VALIDITY,
+                                          now: datetime | None = None,
+                                          allow_empty: bool = False,
+                                          allow_large_drop: bool = False) -> dict:
+        """Atomically synchronize the complete Reservation access directory.
+
+        Fail-closed guards, in order:
+
+        * older revision: ignored as stale, never applied;
+        * same revision with a different digest: refused as SNAPSHOT_CONFLICT
+          (409) instead of silently ignored, so a forked export cannot hide
+          behind an equal revision;
+        * empty person list: refused as SNAPSHOT_EMPTY_REQUIRES_OVERRIDE (409)
+          unless ``allow_empty`` is set, so an empty export is never read as
+          "everyone left";
+        * every assigned trip code must exist in ``trip_tabs`` (UNKNOWN_TRIP,
+          422), so a typo cannot mint an invisible permission;
+        * a directory that shrank to less than half its previous size is
+          refused as SNAPSHOT_LARGE_DROP_REQUIRES_OVERRIDE (409) unless
+          ``allow_large_drop`` is set, so a truncated export cannot revoke
+          everyone at once.
+
+        Every attempt -- applied, ignored, or refused -- is recorded in
+        ``access_reservation_sync_attempts``. A locked database answers
+        TEMPORARILY_UNAVAILABLE (503) instead of raising.
+        """
         if validity <= timedelta(0) or validity > MAX_REVOCATION_DELAY:
             raise AccessError("INVALID_VALUE", "invalid assignment validity", status=422)
         try:
@@ -824,12 +957,37 @@ class AccessStore:
                               status=422)
         now = now or utc_now()
 
+        def refused(outcome: str, code: str, message: str, status: int):
+            self._log_sync_attempt(
+                revision=revision, digest=digest,
+                source_version=source_version, persons_seen=len(persons),
+                outcome=outcome, error_code=code)
+            raise AccessError(code, message, status=status)
+
         with self.lock:
-            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if _is_transient_sqlite(exc):
+                    self._log_sync_attempt(
+                        revision=revision, digest=digest,
+                        source_version=source_version,
+                        persons_seen=len(persons),
+                        outcome="transient_unavailable",
+                        error_code=TEMPORARILY_UNAVAILABLE)
+                    raise AccessError(
+                        TEMPORARILY_UNAVAILABLE,
+                        "잠시 저장할 수 없어요. 같은 요청으로 다시 확인해 주세요",
+                        status=503)
+                raise
             try:
                 head = self.reservation_directory_head()
-                if head is not None and revision <= head["snapshot_revision"]:
+                if head is not None and revision < head["snapshot_revision"]:
                     self.conn.execute("ROLLBACK")
+                    self._log_sync_attempt(
+                        revision=revision, digest=digest,
+                        source_version=source_version,
+                        persons_seen=len(persons), outcome="ignored_stale")
                     return {
                         "snapshot_revision": revision,
                         "digest": digest,
@@ -842,6 +1000,68 @@ class AccessStore:
                         "assignments_applied": 0,
                         "assignments_ignored_older": 0,
                     }
+                if head is not None and revision == head["snapshot_revision"]:
+                    if digest == head["digest"]:
+                        self.conn.execute("ROLLBACK")
+                        self._log_sync_attempt(
+                            revision=revision, digest=digest,
+                            source_version=source_version,
+                            persons_seen=len(persons),
+                            outcome="ignored_idempotent")
+                        return {
+                            "snapshot_revision": revision,
+                            "digest": digest,
+                            "ignored_stale_or_equal": True,
+                            "persons_seen": len(persons),
+                            "persons_deactivated": 0,
+                            "connections_revoked": 0,
+                            "sessions_bumped": 0,
+                            "connected_persons_synced": 0,
+                            "assignments_applied": 0,
+                            "assignments_ignored_older": 0,
+                        }
+                    self.conn.execute("ROLLBACK")
+                    refused("conflict", SNAPSHOT_CONFLICT,
+                            "같은 revision인데 내용이 달라요. 내보내기를 확인해 주세요",
+                            409)
+
+                if not persons and not allow_empty:
+                    self.conn.execute("ROLLBACK")
+                    refused("empty_requires_override",
+                            SNAPSHOT_EMPTY_REQUIRES_OVERRIDE,
+                            "빈 명단은 적용하지 않아요. 전체 해지가 맞다면 명시적으로 확인해 주세요",
+                            409)
+
+                prior_seen = head["persons_seen"] if head is not None else 0
+                # An explicitly confirmed empty list already says "everyone
+                # left", so it does not need the large-drop flag as well.
+                if (persons and head is not None and prior_seen > 0
+                        and len(persons) * 2 < prior_seen
+                        and not allow_large_drop):
+                    self.conn.execute("ROLLBACK")
+                    refused("large_drop_requires_override",
+                            SNAPSHOT_LARGE_DROP_REQUIRES_OVERRIDE,
+                            "명단이 절반 이하로 줄었어요. 잘린 내보내기가 아닌지 확인해 주세요",
+                            409)
+
+                wanted_trips = set()
+                for person in persons:
+                    if person.get("is_active"):
+                        for trip_code in person.get("assignments") or []:
+                            wanted_trips.add(str(trip_code))
+                if wanted_trips:
+                    known = self._known_trip_ids()
+                    if known is None:
+                        self.conn.execute("ROLLBACK")
+                        refused("unknown_trip", UNKNOWN_TRIP,
+                                "여행 목록을 확인할 수 없어요. 장부 DB에 적용해 주세요",
+                                422)
+                    unknown = sorted(wanted_trips - known)[:20]
+                    if unknown:
+                        self.conn.execute("ROLLBACK")
+                        refused("unknown_trip", UNKNOWN_TRIP,
+                                "없는 여행 코드가 있어요: " + ", ".join(unknown),
+                                422)
 
                 source_ids = set()
                 active_people = {}
@@ -916,19 +1136,62 @@ class AccessStore:
                 self.conn.execute(
                     "INSERT INTO access_reservation_directory_head("
                     " singleton_id, snapshot_revision, digest, source_version,"
-                    " exported_at, imported_at) VALUES (1,?,?,?,?,?)"
+                    " exported_at, imported_at, persons_seen) VALUES (1,?,?,?,?,?,?)"
                     " ON CONFLICT(singleton_id) DO UPDATE SET"
                     " snapshot_revision=excluded.snapshot_revision,"
                     " digest=excluded.digest,"
                     " source_version=excluded.source_version,"
                     " exported_at=excluded.exported_at,"
-                    " imported_at=excluded.imported_at",
-                    (revision, digest, source_version, exported_at, imported_at))
+                    " imported_at=excluded.imported_at,"
+                    " persons_seen=excluded.persons_seen",
+                    (revision, digest, source_version, exported_at, imported_at,
+                     len(persons)))
                 self.conn.execute("COMMIT")
+            except AccessError:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
+            except sqlite3.OperationalError as exc:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                if _is_transient_sqlite(exc):
+                    self._log_sync_attempt(
+                        revision=revision, digest=digest,
+                        source_version=source_version,
+                        persons_seen=len(persons),
+                        outcome="transient_unavailable",
+                        error_code=TEMPORARILY_UNAVAILABLE)
+                    raise AccessError(
+                        TEMPORARILY_UNAVAILABLE,
+                        "잠시 저장할 수 없어요. 같은 요청으로 다시 확인해 주세요",
+                        status=503)
+                self._log_sync_attempt(
+                    revision=revision, digest=digest,
+                    source_version=source_version,
+                    persons_seen=len(persons), outcome="db_error",
+                    error_code="DB_UNAVAILABLE")
+                raise
             except Exception:
-                self.conn.execute("ROLLBACK")
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                self._log_sync_attempt(
+                    revision=revision, digest=digest,
+                    source_version=source_version,
+                    persons_seen=len(persons), outcome="error",
+                    error_code="SYNC_FAILED")
                 raise
 
+        self._log_sync_attempt(
+            revision=revision, digest=digest, source_version=source_version,
+            persons_seen=len(persons), outcome="applied",
+            persons_deactivated=len(omitted_ids) + len(inactive_ids),
+            connections_revoked=len(revoked_users))
         return {
             "snapshot_revision": revision,
             "digest": digest,
@@ -1093,16 +1356,39 @@ class AccessStore:
 
     # ------------------------------------------------- owner decisions
     def register_reservation_person(self, *, reservation_person_id: str,
-                                    display_name: str, nickname: str = "",
-                                    disambiguator: str = "",
-                                    is_active: bool = True) -> dict:
+                                     display_name: str, nickname: str = "",
+                                     disambiguator: str = "",
+                                     is_active: bool = True) -> dict:
         """Synthetic stand-in for the reservation system's person directory.
 
         The owner picks one id from this list. A shared name is not an
         identity, so `disambiguator` exists to tell duplicates apart and the
         approval path refuses to guess.
+
+        Labels follow the snapshot parser policy (length cap, no control
+        characters). An empty `disambiguator` never clears a stored one: it
+        means "no change", so re-registering a person without the field keeps
+        the value that told duplicates apart.
         """
+        from ledger.domain.reservation_access_snapshot import (
+            DISPLAY_NAME_MAX_LEN, check_label_text)
+        try:
+            person_id = check_label_text(reservation_person_id,
+                                         "reservation_person_id")
+            display_name = check_label_text(display_name, "display_name",
+                                            allow_empty=True,
+                                            max_len=DISPLAY_NAME_MAX_LEN)
+            nickname = check_label_text(nickname, "nickname", allow_empty=True)
+            disambiguator = check_label_text(disambiguator, "disambiguator",
+                                             allow_empty=True)
+        except ValueError as exc:
+            raise AccessError("INVALID_VALUE", f"담당자 이름이 올바르지 않아요: {exc}",
+                              status=422)
         with self.lock:
+            if not disambiguator:
+                existing = self.reservation_person(person_id)
+                if existing and existing.get("disambiguator"):
+                    disambiguator = existing["disambiguator"]
             self.conn.execute(
                 "INSERT INTO access_reservation_persons(reservation_person_id,"
                 " display_name, nickname, is_active, disambiguator)"
@@ -1111,10 +1397,10 @@ class AccessStore:
                 " display_name=excluded.display_name, nickname=excluded.nickname,"
                 " is_active=excluded.is_active,"
                 " disambiguator=excluded.disambiguator",
-                (reservation_person_id, display_name or "", nickname or "",
+                (person_id, display_name or "", nickname or "",
                  1 if is_active else 0, disambiguator or ""))
             self.conn.commit()
-        return self.reservation_person(reservation_person_id)
+        return self.reservation_person(person_id)
 
     def reservation_person(self, reservation_person_id: str):
         row = self.conn.execute(

@@ -1,6 +1,8 @@
 ﻿# 2026-09-29 웹 장부 세션 인계
 
-상태: `PARTIAL_HANDOFF`
+상태: `LOCAL_COMPLETE_EXTERNAL_PENDING`
+
+> 후속 사용자 결정 `D-WEB-AGENT-002`: GPT 5.6 Sol Web이 관리·감독·지시하고 Muse Spark 1.3 Free와 SpaceBunny Free가 구현·환경설정을 격리 병렬로 맡는다. [운영 명세](../../WEB_LEDGER_AGENT_OPERATIONS.md)를 적용한다. 아래 SpaceBunny 전담·Muse 감사 전용·새 구현자 금지는 당시 기록이며 이 결정으로 대체된다. 실행 중 SpaceBunny는 보존하고 작성 범위가 겹치지 않을 때만 Muse 작업을 배정한다. 이번 명세 개정에서 에이전트를 실제로 재구성하지 않았다.
 
 이 문서는 2026-09-29 세션에서 진행한 웹 장부 구현, 병렬 감사, 호스팅 준비, 인증 문제 확인, 사용자 결정, 에이전트 운용 상태를 다음 세션에 넘기기 위한 최신 인계다. 이전 `docs/handoff/2026-09-27/README.md`의 내용을 대체하지 않고 그 뒤에 이어지는 최신 상태만 기록한다.
 
@@ -242,3 +244,27 @@ agent: `09b6225f-e018-48cb-ae33-d75b825e00e7`
 - 외부 조건은 로컬 완료와 분리해서 명시돼 있다.
 
 이 문서는 세션 이동용 최신 인계다. 다음 세션에서는 `docs/handoff/2026-09-29/README.md`를 가장 먼저 읽는다.
+
+## 9. 최신 최종 판정 — 2026-09-29
+
+웹 서버 잔여 문제는 두 원인으로 확인하고 수정했다. 서버마다 모듈 전역 저장소를
+공유하던 문제는 요청별 `ContextVar` 결속으로 고쳤고, 하나의 SQLite 연결을 여러
+요청 스레드가 동시에 사용하던 문제는 서버별 `RLock`으로 `do_GET`과 `do_POST`의
+처리 구간을 직렬화해 고쳤다. 소켓을 읽는 전체 요청 처리에는 잠금을 걸지 않아
+silent preconnect 대응인 `ThreadingHTTPServer` 동작은 유지했다.
+
+변경 파일은 `webapp/ledger_board.py`와
+`webapp/tests/test_ledger_server_store_isolation.py`다. 두 서버 저장소 격리와 한
+서버 동시 요청 회귀 묶음은 각각 5회 모두 통과했고, 관련 기존 검사 묶음도 5회
+모두 `91 passed`였다. 최종 전체 검사는 다음과 같다.
+
+```text
+python -m pytest webapp/tests -q -p no:cacheprovider --timeout=300
+1033 passed, 1 skipped, 139 subtests passed in 449.58s
+```
+
+Sol의 최종 architecture/integration review는 로컬 구현을 수용했으며 추가로 닫아야
+할 로컬 기능은 없다고 판정했다. 실제 Railway 설정·비밀값 주입·운영 DB와 백업·실제
+Google OIDC callback·예약 API·AI 연결·배포 후 smoke·실물 모바일과 Excel 출력은
+실제 외부 증거가 필요한 조건으로 남겨 둔다. 따라서 로컬 프로젝트는 완료 상태이고,
+외부 운영 전환은 별도 조건 대기 상태다.

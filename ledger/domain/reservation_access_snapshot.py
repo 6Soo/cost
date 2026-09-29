@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from datetime import datetime, timezone
 from typing import Mapping
 
@@ -26,6 +27,12 @@ PERSON_KEYS = {
 }
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
 
+# Display labels are shown in the access UI and in owner decisions, so they
+# get the tightest cap. Stable ids and trip codes only need a sanity cap that
+# stops a corrupt export from becoming a huge row.
+DISPLAY_NAME_MAX_LEN = 100
+TEXT_MAX_LEN = 200
+
 
 def _canonical(value: object) -> str:
     return json.dumps(
@@ -37,13 +44,32 @@ def _canonical(value: object) -> str:
     )
 
 
-def _text(value: object, field: str, *, allow_empty: bool = False) -> str:
-    if not isinstance(value, str) or "\n" in value or "\r" in value:
+def check_label_text(value: object, field: str, *, allow_empty: bool = False,
+                     max_len: int = TEXT_MAX_LEN) -> str:
+    """Validate a human-visible label or a stable id.
+
+    Newlines were the only thing refused before, so a tab, a bell or a
+    zero-width control could pass the parser and reach the access UI or the
+    owner decision list. Every Unicode control (category Cc: ``\\n``, ``\\r``,
+    ``\\t``, ``\\x00``-``\\x1f``, ``\\x7f``-``\\x9f``) is now refused, and the
+    stripped value must fit the cap. Raises the same ``ValueError`` shape the
+    parser already uses so every caller maps it the same way.
+    """
+    if not isinstance(value, str):
         raise ValueError(f"reservation_access_{field}_invalid")
     value = value.strip()
     if not allow_empty and not value:
         raise ValueError(f"reservation_access_{field}_invalid")
+    if len(value) > max_len:
+        raise ValueError(f"reservation_access_{field}_too_long")
+    for char in value:
+        if unicodedata.category(char) == "Cc":
+            raise ValueError(f"reservation_access_{field}_invalid")
     return value
+
+
+def _text(value: object, field: str, *, allow_empty: bool = False) -> str:
+    return check_label_text(value, field, allow_empty=allow_empty)
 
 
 def _revision(value: object) -> int:
@@ -118,7 +144,9 @@ def parse_reservation_access_snapshot(
             raise ValueError("reservation_access_person_id_duplicate")
         person_ids.add(person_id)
 
-        display_name = _text(raw_person["display_name"], "display_name", allow_empty=True)
+        display_name = check_label_text(raw_person["display_name"], "display_name",
+                                          allow_empty=True,
+                                          max_len=DISPLAY_NAME_MAX_LEN)
         nickname = _text(raw_person["nickname"], "nickname")
         if nickname:
             if nickname in nicknames:
