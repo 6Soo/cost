@@ -2563,3 +2563,24 @@ SpaceBunny는 웹 서버 간헐 실패 두 건에 대해 계측을 시도했지�
 운영 DB 보호·백업, Google OIDC callback, Reservation API, 실제 AI 연결과 등급,
 실물 모바일과 Excel 출력은 실제 외부 증거가 생기기 전까지 운영 완료로 표시하지
 않는다. 따라서 현재 phase는 **로컬 구현·검증·최종 검토 완료, 외부 운영 조건 대기**다.
+
+### 외부 단계의 정확한 입력과 현재 판정
+
+Sol의 후속 판정에 따라 Railway용 별도 `railway.toml`이나 `--port $PORT` 추가는
+필요하지 않다. `run_candidate.py`가 Railway가 주는 `PORT` 환경값을 직접 읽고,
+현재 `Procfile`은 production 안전 진입점과 readiness 검사를 사용한다. 실제 서비스의
+Python 버전을 로컬 검증값인 3.12.10에 맞추려면 Railway 환경 변수
+`RAILPACK_PYTHON_VERSION=3.12.10`을 서비스 설정으로 넣는다.
+
+전체 운영 완료에 필요한 외부 입력은 다음 여섯 묶음이다. HOSTING-RESOURCE에는
+Railway 프로젝트와 서비스, persistent volume, volume 경로가 필요하다.
+GOOGLE-OIDC-CLIENT에는 OAuth client ID·secret·허용 callback·최초 owner 식별자가
+필요하다. RESERVATION-API에는 endpoint·인증·payload 형식이 필요하다.
+PRODUCTION-DB에는 실제 기준 자료와 최초 이관 승인, 운영 DB 경로가 필요하다.
+PAID-RESOURCE는 비용이 생길 때만 별도 승인을 받고, 무료 자원으로 끝나면
+`not_applicable`로 남긴다. DEPLOY에는 readiness 통과 뒤 실제 배포를 실행해도 된다는
+최종 승인이 필요하다.
+
+현재는 이 입력과 외부 성공 증거가 없으므로 `LOCAL_COMPLETE_EXTERNAL_PENDING`을
+유지한다. 실제 resource·persistent storage·OIDC·예약 연결·운영 DB 이관·배포 후
+smoke 결과가 생기기 전에는 전체 프로젝트를 production 완료로 올리지 않는다.

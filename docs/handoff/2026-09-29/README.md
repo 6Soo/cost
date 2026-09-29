@@ -268,3 +268,14 @@ Sol의 최종 architecture/integration review는 로컬 구현을 수용했으�
 Google OIDC callback·예약 API·AI 연결·배포 후 smoke·실물 모바일과 Excel 출력은
 실제 외부 증거가 필요한 조건으로 남겨 둔다. 따라서 로컬 프로젝트는 완료 상태이고,
 외부 운영 전환은 별도 조건 대기 상태다.
+
+Sol의 외부 조건 검토 결과, `run_candidate.py`가 Railway의 `PORT`를 직접 읽으므로
+`Procfile`에 `--port $PORT`를 덧붙일 필요가 없다. 별도 `railway.toml`도 필수는
+아니다. Railway에서 로컬 검증 환경과 같은 Python 버전을 고정하려면 서비스 변수
+`RAILPACK_PYTHON_VERSION=3.12.10`을 설정하면 된다.
+
+외부 단계에서 받아야 할 입력은 Railway 프로젝트·서비스·persistent volume과 경로,
+Google OAuth client ID·secret·callback·최초 owner 식별자, 예약 API endpoint·인증·
+payload 형식, 실제 기준 자료와 운영 DB 이관 승인, 필요할 때의 비용 승인, 그리고
+readiness 통과 뒤 실제 배포 승인이다. 이 입력과 배포 후 smoke 증거가 없으므로
+전체 상태는 계속 `LOCAL_COMPLETE_EXTERNAL_PENDING`이다.
