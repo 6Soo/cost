@@ -303,3 +303,16 @@ Aside CLI에서 기본 계정을 `u1`로 바꾸고 기본 모델을 `aside/glm-5
 현재 로컬 HEAD `08ab403`과 운영 배포의 동일 원천 해시는 확인되지 않았고, 운영에는
 owner 식별자·예약 API·실제 운영 DB 이관 증거가 없다. 배포 요금 잔액이 제한된 상태라
 최신 코드 재배포와 변수 변경은 별도 실행 단계로 남긴다.
+
+### 11. 사용자 자료 사용과 초기 접근 범위
+
+- 최초 관리자는 사용자가 확인한 `kkokkohero6@gmail.com` Google 계정으로 둔다.
+  실제 설정값은 이메일이 아니라 Google ID token의 `sub` 식별자다.
+- 실제 예약 API가 확인되지 않았으므로 초기 운영은 관리자 전용으로 연다. 이 상태에서는
+  별도 예약 API 없이 장부 자료를 검증할 수 있고, 직원별 조회가 필요해질 때 예약
+  snapshot 연동을 추가한다.
+- 최신 Google Sheets 내보내기인 `ledger/data/ledger_latest.xlsx`를 기준 장부로 사용하고,
+  `ledger/data/classified_v14.csv`, `ledger/master_ledger.csv`, 일정 권위 자료는 검산과
+  누락 확인에만 사용한다. 같은 내용을 두 원천에서 합산하지 않는다.
+- 운영 이관은 원천 해시를 기록한 한 번의 import와 백업 검증으로 진행한다. 현재 Railway의
+  합성 자료는 실제 자료와 섞지 않고 먼저 보존한다.

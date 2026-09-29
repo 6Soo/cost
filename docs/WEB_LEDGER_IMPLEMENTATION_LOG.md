@@ -2605,3 +2605,18 @@ GitHub 원천 연결은 없다. persistent volume은 `/data`에 연결되어 있
 따라서 운영 서비스는 존재하지만 최신 로컬 HEAD `08ab403`과 동일 원천인지 확인되지 않았고,
 owner 설정·예약 API·실제 운영 DB 이관·최신 코드 배포 뒤 smoke가 남아 있다. Railway는
 제한 trial 잔액을 표시하고 있으므로 최신 코드 배포와 변수 변경은 별도 외부 실행으로 둔다.
+
+### 2026-09-29 · 사용자 자료를 이용한 초기 운영 범위
+
+사용자는 최초 관리자로 `kkokkohero6@gmail.com` Google 계정을 확인했고, 실제 설정에는
+이메일이 아니라 Google ID token의 `sub` 식별자를 사용한다.
+
+실제 예약 API의 주소와 형식이 아직 없으므로 초기 운영은 관리자 전용으로 둔다. 따라서
+첫 자료 이관에는 예약 API를 요구하지 않고, 직원별 여행 배정이 필요해질 때 검증된 예약
+snapshot을 추가한다.
+
+자료 원천은 최신 Google Sheets 내보내기 `ledger/data/ledger_latest.xlsx`를 기준으로
+삼는다. `ledger/data/classified_v14.csv`, `ledger/master_ledger.csv`,
+`ledger/data/trip_schedule_authority_v3.json`은 검산·일정 근거·누락 확인에만 사용한다.
+두 원천의 같은 행을 합쳐 금액을 더하지 않으며, 원천 해시를 묶은 단일 import와 백업을
+통해 Railway의 합성 자료와 실제 자료를 분리한다.
