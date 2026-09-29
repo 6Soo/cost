@@ -2584,3 +2584,24 @@ PAID-RESOURCE는 비용이 생길 때만 별도 승인을 받고, 무료 자원�
 현재는 이 입력과 외부 성공 증거가 없으므로 `LOCAL_COMPLETE_EXTERNAL_PENDING`을
 유지한다. 실제 resource·persistent storage·OIDC·예약 연결·운영 DB 이관·배포 후
 smoke 결과가 생기기 전에는 전체 프로젝트를 production 완료로 올리지 않는다.
+
+### 2026-09-29 · Aside CLI 전환 뒤 실제 Railway 읽기 전용 점검
+
+Aside 기본 계정을 `u1`로 전환하고 기본 모델을 `aside/glm-5.3-flash`로 설정했다.
+읽기 전용 점검에서 Railway 프로젝트 `stellar-possibility`의
+`empowering-encouragement` 서비스가 온라인이고 공개 주소가
+`https://empowering-encouragement-production-e5b6.up.railway.app`임을 확인했다.
+
+현재 배포 식별자는 `c88fba3b`이며 CLI 배포다. 시작 명령은
+`python run_candidate.py --port $PORT --host 0.0.0.0 --behind-proxy --environment production`이고,
+GitHub 원천 연결은 없다. persistent volume은 `/data`에 연결되어 있고 크기는 500MB다.
+서비스 변수 이름은 `WEBLEDGER_DATA_ROOT`, `WEBLEDGER_GOOGLE_CLIENT_ID`,
+`WEBLEDGER_GOOGLE_CLIENT_SECRET`, `WEBLEDGER_PUBLIC_BASE_URL`,
+`WEBLEDGER_SESSION_SECRET` 다섯 개만 직접 설정되어 있었다. 값은 읽거나 기록하지 않았다.
+
+`/auth/state`는 `google_oidc_connected=true`와 `library_available=true`를 보였지만
+`owner_google_sub_present=false`, `owner_bootstrap_configured=false`였다. 현재 배포의
+`/healthz`와 `/readyz`는 인증 요구로 응답했고, 로그인 뒤 `/access/me`는 viewer 상태였다.
+따라서 운영 서비스는 존재하지만 최신 로컬 HEAD `08ab403`과 동일 원천인지 확인되지 않았고,
+owner 설정·예약 API·실제 운영 DB 이관·최신 코드 배포 뒤 smoke가 남아 있다. Railway는
+제한 trial 잔액을 표시하고 있으므로 최신 코드 배포와 변수 변경은 별도 외부 실행으로 둔다.

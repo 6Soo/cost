@@ -279,3 +279,27 @@ Google OAuth client ID·secret·callback·최초 owner 식별자, 예약 API end
 payload 형식, 실제 기준 자료와 운영 DB 이관 승인, 필요할 때의 비용 승인, 그리고
 readiness 통과 뒤 실제 배포 승인이다. 이 입력과 배포 후 smoke 증거가 없으므로
 전체 상태는 계속 `LOCAL_COMPLETE_EXTERNAL_PENDING`이다.
+
+### 10. Aside CLI와 실제 Railway 상태 점검 — 2026-09-29
+
+Aside CLI에서 기본 계정을 `u1`로 바꾸고 기본 모델을 `aside/glm-5.3-flash`로
+설정했다. 이 설정으로 Railway를 읽기 전용 점검했다.
+
+- Railway 프로젝트 `stellar-possibility`와 서비스 `empowering-encouragement`가
+  이미 존재하고 온라인 상태다.
+- 공개 주소는 `https://empowering-encouragement-production-e5b6.up.railway.app`이고,
+  persistent volume은 `/data`에 연결되어 있으며 크기는 500MB다.
+- 현재 배포 식별자는 `c88fba3b`이고 CLI 배포다. 시작 명령은
+  `python run_candidate.py --port $PORT --host 0.0.0.0 --behind-proxy --environment production`이다.
+  GitHub 원천 연결은 없다.
+- `/auth/state`는 OIDC 설정과 `google-auth` 연결을 확인했지만
+  `owner_google_sub_present=false`와 `owner_bootstrap_configured=false`다.
+  `/healthz`와 `/readyz`는 현재 배포에서 인증 요구로 응답했고, 로그인 뒤
+  `/access/me`는 viewer 상태였다.
+- 직접 설정된 변수 이름은 `WEBLEDGER_DATA_ROOT`, `WEBLEDGER_GOOGLE_CLIENT_ID`,
+  `WEBLEDGER_GOOGLE_CLIENT_SECRET`, `WEBLEDGER_PUBLIC_BASE_URL`,
+  `WEBLEDGER_SESSION_SECRET` 다섯 개다. 값은 기록하지 않았다.
+
+현재 로컬 HEAD `08ab403`과 운영 배포의 동일 원천 해시는 확인되지 않았고, 운영에는
+owner 식별자·예약 API·실제 운영 DB 이관 증거가 없다. 배포 요금 잔액이 제한된 상태라
+최신 코드 재배포와 변수 변경은 별도 실행 단계로 남긴다.
