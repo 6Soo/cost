@@ -279,11 +279,18 @@ class TheVolumeIsNamedWhereAnOperatorWillLook(unittest.TestCase):
     """P4-7: the data root has to be a mounted path, and said so."""
 
     def test_the_docs_name_the_data_root_variable_and_a_volume_path(self):
-        for rel in ("docs/WEB_LEDGER_IMPLEMENTATION_LOG.md",
-                    "docs/handoff/2026-09-27/README.md"):
-            text = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertIn("WEBLEDGER_DATA_ROOT", text,
-                          f"{rel} does not name the data root variable")
+        text = (ROOT / "docs/operations.md").read_text(encoding="utf-8")
+        self.assertIn("WEBLEDGER_DATA_ROOT", text,
+                      "docs/operations.md does not name the data root variable")
+        self.assertIn("절대 경로", text,
+                      "docs/operations.md does not say the data root is absolute")
+        self.assertIn("/srv/web-ledger/data", text,
+                      "docs/operations.md does not give a persistent volume path")
+        self.assertTrue(
+            ("지속" in text and "마운트" in text)
+            or "persistent" in text.lower()
+            or "volume" in text.lower(),
+            "docs/operations.md does not say the data root is a persistent mount")
 
     def test_the_config_refuses_a_relative_root(self):
         """The first half of the volume contract: no working-directory data."""

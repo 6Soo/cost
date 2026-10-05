@@ -57,6 +57,11 @@ SYNTHETIC_DIRECTORY = "C:\\synthetic\\reserve-source.json.d"
 RESERVE_SOURCE_CONFIG = "C:\\synthetic\\reserve-source.json"
 SYNTHETIC_ROSTER = "C:\\synthetic\\roster.csv"
 
+#: The one-shot operator restart marker, as the runner joins it. It is a control
+#: file, not configuration: its existence is checked and it is never opened, so
+#: it is the one existence probe a run without configuration may still make.
+RESTART_REQUEST = CHECKOUT + "\\.web-ledger-restart-request"
+
 POWERSHELL_TIMEOUT = 300
 
 LAUNCHER = CHECKOUT + "\\tools\\launch_web_ledger.py"
@@ -98,6 +103,22 @@ def executable_lines(path):
             if line.strip() and not line.strip().startswith("#")]
 
 
+def region(lines, opener, closer):
+    """Index ranges of executable lines between two anchors, inclusive of opener.
+
+    A region is a slice of the file, not a count. Anchoring on the text either
+    side of a block is what lets a test say *which* block a statement is in, which
+    is the difference between "there are three stops" and "these three stops are
+    each inside a block that proved what it was stopping".
+    """
+    try:
+        start = lines.index(opener)
+        end = lines.index(closer, start + 1)
+    except ValueError:
+        return []
+    return [(start, end + 1)]
+
+
 def ps_map(items):
     """A PowerShell hashtable literal for a fixed set of synthetic values.
 
@@ -125,7 +146,7 @@ def ps_map(items):
 def harness(*, listeners=(), processes=(), port_table_fails=False,
             process_list_fails=False, task_description=None, task_present=False,
             exit_on_start=0, tunnel_answers=0, unreadable_command_line=0,
-            files=None):
+            files=None, stop_releases_port=True):
     """A PowerShell session in which nothing real can happen.
 
     `listeners` and `processes` are the machine's actual state, so every
@@ -153,6 +174,7 @@ $script:tick = 0
 # absent, so a path the runner invents cannot quietly resolve.
 $script:files = {ps_map(files)}
 $script:reads = @()
+$script:stopReleasesPort = ${'true' if stop_releases_port else 'false'}
 
 function Test-Path {{
     param([string]$LiteralPath, [string]$Path, $PathType, $ErrorAction)
@@ -177,21 +199,34 @@ function Get-Content {{
     return $script:files[$target]
 }}
 function Remove-Item {{
-    # Only the environment provider is reached, and only to clear a variable
-    # this session set. Any path-shaped removal is refused, so a test cannot
-    # delete a file even by accident.
+    # Two removals are allowed, and nothing else can be reached.
     #
-    # `Env:NAME` carries the provider separator and its backslash in the name
-    # itself, so the name is trimmed of leading separators before it is handed to
-    # the .NET call. Substring(4) alone would leave the backslash attached,
-    # which silently clears nothing and makes the runner's else-branch look
-    # tested when it is not.
+    # The environment provider clears a variable this session set. `Env:NAME`
+    # carries the provider separator and its backslash in the name itself, so the
+    # name is trimmed of leading separators before it is handed to the .NET call.
+    # Substring(4) alone would leave the backslash attached, which silently
+    # clears nothing and makes the runner's else-branch look tested when it is not.
+    #
+    # A path is removable only when it is the restart marker named here. The
+    # synthetic map is not a whitelist: any key in it would do, and the map
+    # exists to make files *readable*, so allowing removal by membership would
+    # turn the map into a delete permission over anything a test put in it. One
+    # exact path, compared exactly, keeps the protection that was here before:
+    # nothing outside the environment provider is reachable.
     param([string]$LiteralPath, [string]$Path, [switch]$Recurse,
           [switch]$Force, [switch]$Confirm, $ErrorAction)
     $target = if ($LiteralPath) {{ $LiteralPath }} else {{ $Path }}
     Write-Host ("MOCK-REMOVE " + $target)
     if ($target -notlike 'Env:*') {{
-        throw 'MOCK-REFUSE-FILE-REMOVAL ' + $target
+        if ($target -cne '{RESTART_REQUEST}') {{
+            throw 'MOCK-REFUSE-FILE-REMOVAL ' + $target
+        }}
+        if (-not $script:files.ContainsKey($target)) {{
+            throw 'MOCK-REFUSE-UNKNOWN-FILE-REMOVAL ' + $target
+        }}
+        $script:files.Remove($target)
+        Write-Host ("MOCK-REMOVED-FILE " + $target)
+        return
     }}
     $name = $target.Substring(4).TrimStart([char]92)
     if ([string]::IsNullOrWhiteSpace($name)) {{
@@ -313,8 +348,21 @@ function Start-Process {{
     return [pscustomobject]@{{ Id = (9000 + $script:starts); HasExited = $exited }}
 }}
 function Stop-Process {{
+    # A stopped process releases its port, so the listener goes with it. Without
+    # that, any code that stops something and then waits for the port would wait
+    # out its whole deadline here and fail for a reason that exists only in the
+    # mock. The process is dropped from the process list for the same reason: the
+    # next probe has to be able to see that it is gone.
     param($Id, [switch]$Force, $ErrorAction)
     Write-Host ("MOCK-STOP id=" + $Id)
+    if ($script:stopReleasesPort) {{
+        $script:listeners = @($script:listeners | Where-Object {{
+            [string]$_.OwningProcess -ne "$Id"
+        }})
+    }}
+    $script:processes = @($script:processes | Where-Object {{
+        [string]$_.ProcessId -ne "$Id"
+    }})
 }}
 function Get-ScheduledTask {{
     param($TaskName, $ErrorAction)
@@ -379,7 +427,7 @@ def run_runner(**kwargs):
     mocks = {key: kwargs.pop(key) for key in list(kwargs)
              if key in ("listeners", "processes", "port_table_fails",
                         "process_list_fails", "exit_on_start", "tunnel_answers",
-                        "unreadable_command_line", "files")}
+                        "unreadable_command_line", "files", "stop_releases_port")}
     # The runner ends in `exit`, which takes the whole session with it, so nothing
     # is printed after the invocation. Everything a test needs is reported by the
     # mocks while the run is still going.
@@ -534,6 +582,102 @@ class PortProbeTests(unittest.TestCase):
             with self.subTest(**kwargs):
                 _code, output = run_runner(**kwargs)
                 self.assertNotIn("MOCK-STOP", output)
+
+
+class RestartRequestTests(unittest.TestCase):
+    def test_a_live_board_is_restarted_only_with_a_request(self):
+        for requested in (False, True):
+            with self.subTest(requested=requested):
+                code, output = run_runner(
+                    watch=1, files={RESTART_REQUEST: ""} if requested else {},
+                    listeners=[{"LocalAddress": "127.0.0.1", "LocalPort": BOARD_PORT,
+                                "OwningProcess": 4242}],
+                    processes=[{"ProcessId": 4242, "CommandLine": LAUNCHER}])
+                self.assertEqual(code, 0, output)
+                if requested:
+                    self.assertEqual(re.findall(r"MOCK-STOP id=(\d+)", output), ["4242"])
+                    removed = "MOCK-REMOVED-FILE " + RESTART_REQUEST
+                    self.assertIn(removed, output)
+                    self.assertIn("restart [BOARD]", output)
+                    self.assertIn("started [board]", output)
+                    self.assertLess(output.index("MOCK-STOP"), output.index(removed))
+                    self.assertLess(output.index(removed), output.index("MOCK-START"))
+                else:
+                    self.assertIn("noop [BOARD]", output)
+                    self.assertNotIn("MOCK-STOP", output)
+                    self.assertNotIn("MOCK-REMOVED-FILE", output)
+                    self.assertEqual(board_command(output), "", output)
+
+    def test_a_free_port_stops_only_the_exact_stale_launcher_and_port(self):
+        for command in (f"python {LAUNCHER} --port {BOARD_PORT}",
+                        f'python "{LAUNCHER}" --port "{BOARD_PORT}"'):
+            with self.subTest(command=command):
+                code, output = run_runner(
+                    watch=1, files={RESTART_REQUEST: ""},
+                    processes=[
+                        {"ProcessId": 4242, "CommandLine": command},
+                        {"ProcessId": 4243, "CommandLine": command},
+                        {"ProcessId": 5001, "CommandLine": f"python {LAUNCHER}.other --port {BOARD_PORT}"},
+                        {"ProcessId": 5002, "CommandLine": f"python {LAUNCHER} --port {BOARD_PORT}0"},
+                        {"ProcessId": 5003, "CommandLine": f"python {LAUNCHER}"},
+                        {"ProcessId": 5004, "CommandLine": ""},
+                        {"ProcessId": 5005, "CommandLine": f"python C:\\other\\launch_web_ledger.py --port {BOARD_PORT}"},
+                    ])
+                self.assertEqual(code, 0, output)
+                self.assertEqual(re.findall(r"MOCK-STOP id=(\d+)", output), ["4243", "4242"])
+                self.assertIn("MOCK-REMOVED-FILE " + RESTART_REQUEST, output)
+                self.assertIn("started [board]", output)
+
+    def test_foreign_and_unknown_ownership_preserve_the_request(self):
+        cases = (
+            {"processes": [{"ProcessId": 4242, "CommandLine": r"python C:\other\thing.py"}]},
+            {"processes": [{"ProcessId": 4242}]},
+            {"port_table_fails": True},
+            {"process_list_fails": True},
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                code, output = run_runner(
+                    watch=1, files={RESTART_REQUEST: ""},
+                    listeners=[{"LocalAddress": "127.0.0.1", "LocalPort": BOARD_PORT,
+                                "OwningProcess": 4242}], **case)
+                self.assertNotEqual(code, 0, output)
+                self.assertIn("LEDGER_PROCESS_IDENTITY_UNVERIFIED", output)
+                self.assertNotIn("MOCK-STOP", output)
+                self.assertNotIn("MOCK-REMOVED-FILE", output)
+                self.assertNotIn("MOCK-START", output)
+
+    def test_a_port_that_does_not_release_preserves_the_request_and_starts_nothing(self):
+        code, output = run_runner(
+            watch=1, files={RESTART_REQUEST: ""}, stop_releases_port=False,
+            listeners=[{"LocalAddress": "127.0.0.1", "LocalPort": BOARD_PORT,
+                        "OwningProcess": 4242}],
+            processes=[{"ProcessId": 4242, "CommandLine": LAUNCHER}])
+        self.assertNotEqual(code, 0, output)
+        self.assertEqual(re.findall(r"MOCK-STOP id=(\d+)", output), ["4242"])
+        self.assertIn("LEDGER_RESTART_PORT_NOT_FREE", output)
+        self.assertNotIn("MOCK-REMOVED-FILE", output)
+        self.assertNotIn("MOCK-START", output)
+
+    def test_file_removal_allows_only_the_exact_request_and_consumes_the_map_entry(self):
+        for target, allowed in ((RESTART_REQUEST, True), (REVIEW_CONFIG, False),
+                                (RESTART_REQUEST + ".other", False)):
+            with self.subTest(target=target):
+                body = harness(files={RESTART_REQUEST: "", target: "synthetic"})
+                body += f"""
+try {{ Remove-Item -LiteralPath '{target}' -Force }}
+catch {{ Write-Host ('MOCK-DENIED ' + $_.Exception.Message) }}
+Write-Host ('MOCK-MAP-PRESENT ' + $script:files.ContainsKey('{target}'))
+"""
+                code, output = _invoke(body)
+                self.assertEqual(code, 0, output)
+                self.assertIn("MOCK-MAP-PRESENT " + ("False" if allowed else "True"), output)
+                if allowed:
+                    self.assertIn("MOCK-REMOVED-FILE " + target, output)
+                    self.assertNotIn("MOCK-DENIED", output)
+                else:
+                    self.assertIn("MOCK-REFUSE-FILE-REMOVAL " + target, output)
+                    self.assertNotIn("MOCK-REMOVED-FILE", output)
 
 
 class TunnelIdentityTests(unittest.TestCase):
@@ -977,10 +1121,23 @@ class ReserveSourceConfigHandoverTests(unittest.TestCase):
         The link screen shows configuration-required, so the launcher must not go
         looking for a roster to fill it in. The mock answers from a fixed map, so
         a path the launcher invented would have printed as an existence check.
+
+        The one existence check that does happen is the restart-request marker,
+        and this used to be `assertNotIn("MOCK-EXISTS", output)`, which was a
+        blanket ban written before the marker existed. It did not say which path
+        must not be probed, so it would equally have hidden a new file search. The
+        check is now on the paths: nothing is read, and the only existence probe
+        is the marker, which names no roster and opens nothing.
         """
         _code, output = run_runner(mode="Run", files=self.files(self.VALID_CONFIG))
         self.assertNotIn("MOCK-READ", output)
-        self.assertNotIn("MOCK-EXISTS", output)
+        probed = [line for line in output.splitlines()
+                  if line.startswith("MOCK-EXISTS ")]
+        self.assertEqual([line[len("MOCK-EXISTS "):] for line in probed],
+                         [RESTART_REQUEST], output)
+        # And the configuration that is sitting in the map is still not consulted.
+        for value in (RESERVE_SOURCE_CONFIG, SYNTHETIC_ROSTER):
+            self.assertNotIn(value, output)
         self.assertIn("MOCK-START", output)
         self.assertEqual(self.reserve_env(output), "")
 
@@ -1053,8 +1210,8 @@ class IsolationTests(unittest.TestCase):
     #: file's own functions has to be mocked, or it would really run.
     SAFE_BUILTINS = {
         "Get-Date", "Join-Path", "Split-Path", "Set-StrictMode",
-        "Where-Object", "Select-Object", "Write-Host", "Out-Null", "Start-Sleep",
-        "Exit",
+        "Where-Object", "Select-Object", "Sort-Object", "Write-Host", "Out-Null",
+        "Start-Sleep", "Exit",
     }
 
     def external_cmdlets(self, path):
@@ -1149,14 +1306,65 @@ class IsolationTests(unittest.TestCase):
                     self.assertNotIn(value, line, f"{path.name} echoes {value}: {line}")
 
     def test_the_legacy_server_is_named_in_one_place_and_stopped_in_one_place(self):
+        """One name, and every stop accounted for by name rather than by count.
+
+        The count this replaced was `exactly one Stop-Process in the runner`. It
+        held while there was one place to stop anything, and it did not say which
+        place that was, so the moment a second guarded stop was added the test had
+        to be either loosened to a number or deleted. A number says nothing about
+        safety: three unguarded stops would pass it exactly as one guarded stop
+        did.
+
+        So the stops are located instead. Every `Stop-Process` in the runner has
+        to sit inside one of two named regions — the legacy migration function, or
+        the explicit restart-request block — and both regions have to carry the
+        identity proof that makes stopping safe. A stop anywhere else is a stop
+        with nothing proved about its target, which is what this asserts against.
+        """
         for path in (RUNNER, INSTALLER):
             for line in executable_lines(path):
                 if "serve_review.py" in line:
                     self.assertIn("LegacyEntryName", line, f"{path.name}: {line}")
-        stops = [line for line in executable_lines(RUNNER) if "Stop-Process" in line]
-        self.assertEqual(len(stops), 1, stops)
         self.assertEqual([line for line in executable_lines(INSTALLER)
                           if "Stop-Process" in line], [])
+
+        lines = executable_lines(RUNNER)
+        legacy = region(lines, "function Stop-LegacyEntry {",
+                        "function Start-HostChildWhenFree {")
+        restart = region(lines,
+                         '$restartRequest = Join-Path $Checkout ".web-ledger-restart-request"',
+                         "$refused = Start-HostRunner -Children $plan")
+        self.assertTrue(legacy, "Stop-LegacyEntry was not found")
+        self.assertTrue(restart, "the restart-request block was not found")
+
+        stops = [(index, line) for index, line in enumerate(lines)
+                 if "Stop-Process" in line]
+        self.assertEqual(len(stops), 3, stops)
+        for index, line in stops:
+            in_legacy = any(a <= index < b for a, b in legacy)
+            in_restart = any(a <= index < b for a, b in restart)
+            self.assertTrue(
+                in_legacy or in_restart,
+                f"Stop-Process outside both guarded regions: {line}")
+
+        # The legacy stop is reached only after the exact script path and the
+        # exact port have been re-read from the command line, so what is stopped
+        # is proved rather than assumed.
+        legacy_lines = [lines[index] for a, b in legacy for index in range(a, b)]
+        self.assertIn("Stop-Process", "\n".join(legacy_lines))
+        self.assertIn("Get-ProcessCommandLine", "\n".join(legacy_lines))
+        self.assertIn("-notlike", "\n".join(legacy_lines))
+        self.assertIn("--port", "\n".join(legacy_lines))
+
+        # The restart block stops in two shapes and both are proved: the listener
+        # whose probe said Ours, and otherwise only processes carrying this plan's
+        # exact launcher marker together with this exact port.
+        restart_lines = [lines[index] for a, b in restart for index in range(a, b)]
+        joined = "\n".join(restart_lines)
+        self.assertIn('$probe.State -eq "Ours"', joined)
+        self.assertIn("LEDGER_PROCESS_IDENTITY_UNVERIFIED", joined)
+        self.assertIn("$board.Marker", joined)
+        self.assertIn('"--port", "$BoardPort"', joined)
 
     def test_the_accepted_entry_page_and_the_legacy_server_are_untouched(self):
         self.assertIn("ledger.foresttour.kr/review",

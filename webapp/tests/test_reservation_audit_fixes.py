@@ -7,6 +7,7 @@ trip codes below are invented for the tests.
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -304,9 +305,11 @@ class ImporterCliTests(unittest.TestCase):
         return db_path
 
     def _run(self, *argv: str) -> subprocess.CompletedProcess:
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
         return subprocess.run(
             [sys.executable, str(IMPORTER), *argv],
-            cwd=ROOT, text=True, capture_output=True, check=False)
+            cwd=ROOT, text=True, encoding="utf-8", env=env,
+            capture_output=True, check=False)
 
     def test_apply_backs_up_and_reports_counts_without_identity_data(self):
         with tempfile.TemporaryDirectory() as tmp:

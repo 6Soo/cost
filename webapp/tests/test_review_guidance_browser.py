@@ -14,8 +14,22 @@ class GuidanceBrowserTests(ReviewBrowserFixture):
         visible = card.inner_text()
         self.assertNotIn(self.ref_of(0), visible)
         self.assertNotIn("APPROVAL-0001", visible)
-        self.assertIn("내 답변·수정 요청", visible)
-        self.assertLess(card.bounding_box()["height"], 620)
+        self.assertIn("검토 메모·요청 내용", visible)
+        self.assertEqual(
+            card.locator("label").filter(has_text="검토 메모·요청 내용").get_attribute("for"),
+            card.locator("textarea").get_attribute("id"))
+        # The current memo explanation is part of the collapsed card. Keep the
+        # usable mobile contract: the card and its input/actions fit in one
+        # viewport after scrolling to it, rather than a legacy pixel budget.
+        page.evaluate("document.fonts.ready")
+        self.assertLessEqual(card.bounding_box()["height"], page.viewport_size["height"])
+        card.scroll_into_view_if_needed()
+        for control in (card.locator("textarea"),
+                        card.get_by_role("button", name="답변 저장", exact=True),
+                        card.get_by_role("button", name="저장된 답변 보기", exact=True)):
+            bounds = control.bounding_box()
+            self.assertGreaterEqual(bounds["y"], 0)
+            self.assertLessEqual(bounds["y"] + bounds["height"], page.viewport_size["height"])
         self.assertEqual(card.locator(".review-evidence[open]").count(), 0)
         self.assertEqual(card.locator(".guidance-rule[open]").count(), 0)
         card.locator(".review-evidence > summary").click()

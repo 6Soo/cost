@@ -18,9 +18,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from webapp.ledger_store import (
-    LEASE_TTL_SECONDS,
     _PROCESS_PID,
     _PROCESS_RUN_ID,
     LedgerStore,
@@ -35,7 +35,11 @@ from webapp.tests.test_dialog_turns import (
     open_ready_dialog,
 )
 
-CHILD = Path(r"C:\Users\kkokk\AppData\Local\Temp\opencode\ownership_child.py")
+#: The child is a module in this repository, not a path on one machine. Run as
+#: `-m` from the checkout root, so the restart boundary is checked with the same
+#: files whoever runs the suite.
+CHILD_MODULE = "webapp.tests.ownership_child"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SHORT_LEASE = "1"
 
 
@@ -49,16 +53,39 @@ def child_env():
 
 def start_child(db_path, mode, tag):
     proc = subprocess.Popen(
-        [sys.executable, str(CHILD), str(db_path), mode, tag],
+        [sys.executable, "-m", CHILD_MODULE, str(db_path), mode, tag],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         env=child_env(), text=True, encoding="utf-8", errors="replace",
-        cwd=str(Path(__file__).resolve().parents[2]),
+        cwd=str(PROJECT_ROOT),
     )
-    line = proc.stdout.readline()
-    if not line:
-        proc.wait(timeout=10)
-        raise AssertionError(f"child produced no result: {proc.stderr.read()}")
-    return proc, json.loads(line)
+    try:
+        line = proc.stdout.readline()
+        if not line:
+            proc.wait(timeout=10)
+            raise AssertionError(f"child produced no result: {proc.stderr.read()}")
+        return proc, json.loads(line)
+    except BaseException:
+        close_child(proc)
+        raise
+
+
+def close_child(proc):
+    try:
+        if proc.poll() is None:
+            try:
+                proc.stdin.write("x\n")
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+    finally:
+        for pipe in (proc.stdin, proc.stdout, proc.stderr):
+            if pipe is not None:
+                pipe.close()
 
 
 def wait_lease_to_age(seconds):
@@ -222,15 +249,12 @@ class LiveChildProcessTests(unittest.TestCase):
         self.store = None
 
     def tearDown(self):
-        if self.proc is not None and self.proc.poll() is None:
-            self.proc.stdin.write("x")
-            self.proc.stdin.flush()
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        if self.store is not None:
-            self.store.close()
+        try:
+            if self.proc is not None:
+                close_child(self.proc)
+        finally:
+            if self.store is not None:
+                self.store.close()
 
     def test_a_running_child_keeps_its_pending_turn_and_its_own_answer(self):
         self.proc, info = start_child(self.path, "live", "p7-live")
@@ -264,33 +288,59 @@ class DeadOwnerRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         self.path = Path(self.directory) / "dead.sqlite"
-        os.environ["WEBLEDGER_RULE_LEASE_TTL"] = SHORT_LEASE
         import webapp.ledger_store as store_mod
 
+        # Both the environment value and the module constant are process-wide, so
+        # both are restored to what they were, through addCleanup rather than
+        # tearDown: a failing assertion in the test body still restores them, and
+        # a short lease cannot outlive this class and reach a later test.
+        previous_env = os.environ.get("WEBLEDGER_RULE_LEASE_TTL")
+        previous_ttl = store_mod.LEASE_TTL_SECONDS
+        self.addCleanup(self._restore, previous_env, previous_ttl)
+        os.environ["WEBLEDGER_RULE_LEASE_TTL"] = SHORT_LEASE
         store_mod.LEASE_TTL_SECONDS = float(SHORT_LEASE)
         self.store = None
+
+    @staticmethod
+    def _restore(previous_env, previous_ttl):
+        import webapp.ledger_store as store_mod
+
+        if previous_env is None:
+            os.environ.pop("WEBLEDGER_RULE_LEASE_TTL", None)
+        else:
+            os.environ["WEBLEDGER_RULE_LEASE_TTL"] = previous_env
+        store_mod.LEASE_TTL_SECONDS = previous_ttl
 
     def tearDown(self):
         if self.store is not None:
             self.store.close()
-        import webapp.ledger_store as store_mod
-
-        store_mod.LEASE_TTL_SECONDS = float(
-            os.environ.get("WEBLEDGER_RULE_LEASE_TTL", "300"))
 
     def test_a_turn_of_a_process_that_exited_is_recovered(self):
         proc, info = start_child(self.path, "exit", "p7-dead")
+        self.addCleanup(close_child, proc)
         proc.wait(timeout=15)
         self.assertIsNotNone(proc.returncode)
         self.assertFalse(_process_alive(info["pid"]))
-        # the lease is still inside its window, so the owner is not confirmed
+        # Pin the age at the inclusive one-second boundary: scheduler delays
+        # must not turn this assertion into the expired-lease case. PID checks
+        # and the child's persisted lease remain real; expiry below uses time.
         self.store = LedgerStore(self.path)
-        self.store.open_conversation(
-            learning_case_id=info["case_id"], client_request_id="p7-dead-early")
-        state = self.store.conversation_state(info["conversation_id"])
+        with patch("webapp.ledger_store._lease_age_seconds", return_value=float(SHORT_LEASE)):
+            self.store.open_conversation(
+                learning_case_id=info["case_id"], client_request_id="p7-dead-early")
+            state = self.store.conversation_state(info["conversation_id"])
         stored = [t for t in state["turns"] if t["turn_id"] == info["turn_id"]][0]
         self.assertEqual(stored["state"], "pending")
         self.assertEqual(stored["owner_review"]["reason"], "owner_still_leased")
+
+        owner = self.store.conn.execute(
+            "SELECT process_run_id FROM rule_turns WHERE turn_id=?",
+            (info["turn_id"],)).fetchone()[0]
+        for age, expected in ((1.0, ("preserve", "owner_still_leased")),
+                              (1.000001, ("abandon", "process_restart"))):
+            with self.subTest(age=age):
+                with patch("webapp.ledger_store._lease_age_seconds", return_value=age):
+                    self.assertEqual(self.store._turn_owner_state(owner), expected)
 
         # after the lease window the owner is confirmed gone
         wait_lease_to_age(float(SHORT_LEASE))
@@ -467,6 +517,39 @@ def _now():
 
 
 class LeaseHelperTests(unittest.TestCase):
+    def test_child_cleanup_reaps_the_process_and_closes_every_pipe(self):
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.readline()"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        try:
+            self.assertIsNone(proc.poll())
+        finally:
+            close_child(proc)
+        self.assertIsNotNone(proc.returncode)
+        self.assertTrue(all(pipe.closed for pipe in (proc.stdin, proc.stdout, proc.stderr)))
+
+    def test_dead_owner_cleanup_restores_absent_and_existing_ttl_values(self):
+        import webapp.ledger_store as store_mod
+
+        original_env = os.environ.get("WEBLEDGER_RULE_LEASE_TTL")
+        original_ttl = store_mod.LEASE_TTL_SECONDS
+        try:
+            for previous_env in (None, "137.25"):
+                with self.subTest(previous_env=previous_env):
+                    DeadOwnerRecoveryTests._restore(previous_env, 137.25)
+                    fixture = DeadOwnerRecoveryTests()
+                    try:
+                        fixture.setUp()
+                        self.assertEqual(os.environ["WEBLEDGER_RULE_LEASE_TTL"], SHORT_LEASE)
+                        self.assertEqual(store_mod.LEASE_TTL_SECONDS, float(SHORT_LEASE))
+                    finally:
+                        fixture.doCleanups()
+                    self.assertEqual(os.environ.get("WEBLEDGER_RULE_LEASE_TTL"), previous_env)
+                    self.assertEqual(store_mod.LEASE_TTL_SECONDS, 137.25)
+        finally:
+            DeadOwnerRecoveryTests._restore(original_env, original_ttl)
+
     def test_a_dead_pid_is_never_reported_alive(self):
         proc = subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(0.01)"])
@@ -480,7 +563,9 @@ class LeaseHelperTests(unittest.TestCase):
         self.assertIs(_process_alive(0x7FFFFFF0), False)
 
     def test_the_default_window_is_not_a_short_one(self):
-        self.assertGreaterEqual(LEASE_TTL_SECONDS, 60)
+        import webapp.ledger_store as store_mod
+
+        self.assertGreaterEqual(store_mod.LEASE_TTL_SECONDS, 60)
 
 
 if __name__ == "__main__":

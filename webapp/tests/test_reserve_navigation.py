@@ -144,7 +144,13 @@ class OwnerEntryLinkTests(_Base):
         source is unconfigured would leave the owner unable to discover that a
         configuration is needed at all, except by already knowing the address.
         """
-        self.assertIsNone(os.environ.get("WEBLEDGER_RESERVE_SOURCE"))
+        from webapp import reserve_link as reserve_link_mod
+        saved = os.environ.pop(reserve_link_mod.CONFIG_ENV, None)
+        self.addCleanup(
+            lambda: os.environ.__setitem__(reserve_link_mod.CONFIG_ENV, saved)
+            if saved is not None
+            else os.environ.pop(reserve_link_mod.CONFIG_ENV, None))
+        self.assertIsNone(os.environ.get(reserve_link_mod.CONFIG_ENV))
         markup = self.header("owner")
         self.assertIn(f"id='{ENTRY_ID}'", markup)
 

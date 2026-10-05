@@ -60,6 +60,7 @@ class LinkFixture(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.db_path = self.tmp / "access.sqlite"
         self.conn = sqlite3.connect(str(self.db_path))
+        self.addCleanup(self.conn.close)
         self.store = access_control.AccessStore(self.conn)
         self.store.create_account(user_id=OWNER, role=access_control.ROLE_OWNER,
                                   display_name="owner")
@@ -959,6 +960,19 @@ class HttpBoundaryTests(LinkFixture):
     """
 
     def setUp(self):
+        from webapp import ledger_board
+        from webapp import access_control as _ac
+
+        # Shared process state is saved before any mutation and the restore is
+        # registered first, so normal and exceptional exits both restore it.
+        self._prev_db_env = os.environ.get("WEBLEDGER_DB")
+        self._prev_board_store = ledger_board._STORE
+        self._prev_access = getattr(ledger_board, "_ACCESS", None)
+        self._prev_sessions = _ac.session_adapter()
+        self.server = None
+        self.served = None
+        self._server_thread = None
+        self.addCleanup(self._restore_http_shared_state)
         super().setUp()
         self.configure([source_person("rp-1", "합성 담당자",
                                       ["reservation:cafeParse:ALFA"])])
@@ -966,14 +980,14 @@ class HttpBoundaryTests(LinkFixture):
         self.store.create_account(user_id="syn-staff-3",
                                   role=access_control.ROLE_VIEWER,
                                   display_name="staff3")
-        from webapp import ledger_board
-        from webapp import access_control as _ac
 
         self.board = ledger_board
-        self._previous_access = getattr(ledger_board, "_ACCESS", None)
         os.environ["WEBLEDGER_DB"] = str(self.tmp / "board.sqlite")
+        # Do not let serve/bind_access mutate the adapter saved for restoration.
+        _ac.bind_synthetic_sessions(True)
         self.server = ledger_board.serve(port=0, with_worker=False,
                                         seed_demo=False)
+        self.addCleanup(self._close_served)
         self.addCleanup(self._stop_server)
         # The server answers on its own thread, so the store it is given opens its
         # connection across threads — the same database file as the fixture's
@@ -981,22 +995,49 @@ class HttpBoundaryTests(LinkFixture):
         self.served = access_control.AccessStore(sqlite3.connect(
             str(self.db_path), check_same_thread=False, isolation_level=None,
             timeout=5.0))
-        self.addCleanup(self.served.conn.close)
         self.port = self.server.server_address[1]
         import threading
-        thread = threading.Thread(target=self.server.serve_forever,
-                                  daemon=True)
-        thread.start()
+        self._server_thread = threading.Thread(
+            target=self.server.serve_forever, daemon=True)
+        self._server_thread.start()
         ledger_board.bind_access(self.served)
-        _ac.bind_synthetic_sessions(True)
-        self.addCleanup(ledger_board.bind_access, self._previous_access)
+
+    def _restore_http_shared_state(self):
+        from webapp import ledger_board
+        from webapp import access_control as _ac
+
+        if self._prev_db_env is None:
+            os.environ.pop("WEBLEDGER_DB", None)
+        else:
+            os.environ["WEBLEDGER_DB"] = self._prev_db_env
+        ledger_board.bind_store(self._prev_board_store)
+        ledger_board.bind_access(self._prev_access)
+        _ac.bind_sessions(self._prev_sessions)
 
     def _stop_server(self):
+        server = getattr(self, "server", None)
+        if server is None:
+            return
+        thread = getattr(self, "_server_thread", None)
+        if thread is not None and thread.is_alive():
+            server.shutdown()
         try:
-            self.server.shutdown()
-            self.server.server_close()
+            server.server_close()
         except Exception:
             pass
+        if thread is not None:
+            try:
+                thread.join(timeout=5)
+            except Exception:
+                pass
+        try:
+            server.card_store.close()
+        except Exception:
+            pass
+
+    def _close_served(self):
+        if self.served is not None:
+            self.served.conn.close()
 
     def call(self, path, body=None, user=None, csrf=None, origin=None,
              headers=None):

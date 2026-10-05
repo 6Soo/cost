@@ -321,8 +321,10 @@ def test_export_rejects_malformed_oversize_and_unknown_decisions(live_server):
     status, headers_out, data = _raw(port, "POST", "/api/export", headers, b"{oops")
     assert status == 400
     assert json.loads(data.decode("utf-8")) == {"error": {"code": "MALFORMED_BODY"}}
-    big = b"a" * (2 * 1024 * 1024 + 100)
-    status, headers_out, data = _raw(port, "POST", "/api/export", headers, big)
+    # The server rejects an oversized declared length before reading a body.
+    # Sending that discarded body races the early response on Windows sockets.
+    oversized_headers = dict(headers, **{"Content-Length": str(2 * 1024 * 1024 + 100)})
+    status, headers_out, data = _raw(port, "POST", "/api/export", oversized_headers)
     assert status == 413
     assert json.loads(data.decode("utf-8")) == {"error": {"code": "BODY_TOO_LARGE"}}
     body = json.dumps({"decisions": [{"ref": "없는참조", "value": "REJECT"}]}).encode("utf-8")

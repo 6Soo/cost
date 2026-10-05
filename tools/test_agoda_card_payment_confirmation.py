@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tools import agoda_card_payment_confirmation as confirmation
+from tools import prepare_review_template as publication
 
 
 BASE_DB = Path("/tmp/classification-mvp-20260815/candidate.db")
@@ -19,6 +19,9 @@ class AgodaCardPaymentConfirmationTests(unittest.TestCase):
     def test_private_artifact_revalidates_against_base(self):
         if not all(path.exists() for path in (BASE_DB, STAGING_DB, OUTPUT_DB, REPORT)):
             self.skipTest("private Agoda candidate artifact is not present")
+        # Historical private-artifact verification is not a startup dependency
+        # of the current synthetic publication tests.
+        from tools import agoda_card_payment_confirmation as confirmation
         result = confirmation.verify(
             base_db=BASE_DB,
             output_db=OUTPUT_DB,
@@ -32,6 +35,7 @@ class AgodaCardPaymentConfirmationTests(unittest.TestCase):
     def test_verify_rejects_tampered_report(self):
         if not all(path.exists() for path in (BASE_DB, STAGING_DB, OUTPUT_DB, REPORT)):
             self.skipTest("private Agoda candidate artifact is not present")
+        from tools import agoda_card_payment_confirmation as confirmation
         with tempfile.TemporaryDirectory(prefix="agoda-confirmation-test-") as tmp:
             tmp_path = Path(tmp)
             output = tmp_path / "candidate.db"
@@ -57,9 +61,13 @@ class AgodaCardPaymentConfirmationTests(unittest.TestCase):
             final = root / "final"
             stage.write_bytes(b"new")
             final.write_bytes(b"old")
-            with self.assertRaises(FileExistsError):
-                confirmation._publish_noreplace(stage, final)
+            # Keep the no-overwrite contract against a current repository CLI,
+            # rather than restoring the removed private candidate builder.
+            with self.assertRaises(publication._CliError) as caught:
+                publication._publish(str(final), stage.read_bytes(), [])
+            self.assertEqual(caught.exception.code, publication.CODE_OUTPUT_EXISTS)
             self.assertEqual(final.read_bytes(), b"old")
+            self.assertEqual(stage.read_bytes(), b"new")
 
     def test_noreplace_cleans_only_its_own_link_after_failure(self):
         with tempfile.TemporaryDirectory(prefix="agoda-confirmation-test-") as tmp:
@@ -67,10 +75,15 @@ class AgodaCardPaymentConfirmationTests(unittest.TestCase):
             stage = root / "stage"
             final = root / "final"
             stage.write_bytes(b"new")
-            with mock.patch.object(confirmation.os, "fsync", side_effect=OSError("test")):
-                with self.assertRaises(OSError):
-                    confirmation._publish_noreplace(stage, final)
+            failure = publication._CliError(publication.CODE_INPUT_CHANGED_DURING_READ)
+            # The input changes after the hard link was published. Only that
+            # link may be removed during rollback.
+            with mock.patch.object(publication, "_reverify", side_effect=[None, failure]):
+                with self.assertRaises(publication._CliError) as caught:
+                    publication._publish(str(final), stage.read_bytes(), [object()])
+            self.assertEqual(caught.exception.code, failure.code)
             self.assertFalse(final.exists())
+            self.assertEqual(list(root.iterdir()), [stage])
 
     def test_noreplace_does_not_delete_replaced_inode(self):
         with tempfile.TemporaryDirectory(prefix="agoda-confirmation-test-") as tmp:
@@ -78,35 +91,23 @@ class AgodaCardPaymentConfirmationTests(unittest.TestCase):
             stage = root / "stage"
             final = root / "final"
             stage.write_bytes(b"new")
-            real_lstat = confirmation.os.lstat
-            final_lookup_count = 0
+            checks = 0
 
-            def lstat_with_competitor(path):
-                nonlocal final_lookup_count
-                info = real_lstat(path)
-                if Path(path) == final:
-                    final_lookup_count += 1
-                    if final_lookup_count <= 2:
-                        return os.stat_result(
-                            (
-                                info.st_mode,
-                                info.st_ino,
-                                info.st_dev + 1,
-                                info.st_nlink,
-                                info.st_uid,
-                                info.st_gid,
-                                info.st_size,
-                                info.st_atime,
-                                info.st_mtime,
-                                info.st_ctime,
-                            )
-                        )
-                return info
+            def reverify_with_competitor(_input):
+                nonlocal checks
+                checks += 1
+                if checks == 2:
+                    final.unlink()
+                    final.write_bytes(b"other process")
+                    raise publication._CliError(publication.CODE_INPUT_CHANGED_DURING_READ)
 
-            with mock.patch.object(confirmation.os, "lstat", side_effect=lstat_with_competitor):
-                with self.assertRaisesRegex(RuntimeError, "published_inode_changed"):
-                    confirmation._publish_noreplace(stage, final)
-            self.assertEqual(final.read_bytes(), b"new")
+            with mock.patch.object(publication, "_reverify", side_effect=reverify_with_competitor):
+                with self.assertRaises(publication._CliError) as caught:
+                    publication._publish(str(final), stage.read_bytes(), [object()])
+            self.assertEqual(caught.exception.code, publication.CODE_INPUT_CHANGED_DURING_READ)
+            self.assertEqual(final.read_bytes(), b"other process")
+            self.assertEqual(stage.read_bytes(), b"new")
+            self.assertEqual(set(root.iterdir()), {stage, final})
 
 
 if __name__ == "__main__":

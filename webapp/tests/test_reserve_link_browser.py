@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import pathlib
+import shutil
 import sqlite3
 import sys
 import threading
@@ -34,9 +35,24 @@ class LinkBrowserFixture(unittest.TestCase):
     def setUp(self):
         if sync_playwright is None:
             self.skipTest("playwright is not installed")
+        # Save shared process state before any mutation, and register the
+        # restore first so it runs even when a later step in setUp fails.
+        self._prev_db_env = os.environ.get("WEBLEDGER_DB")
+        self._prev_config_env = os.environ.get(reserve_link.CONFIG_ENV)
+        self._prev_board_store = ledger_board._STORE
+        self._prev_access = getattr(ledger_board, "_ACCESS", None)
+        self._prev_sessions = access_control.session_adapter()
+        self.server = None
+        self.served = None
+        self._server_thread = None
+        self.playwright = None
+        self.browser = None
+        self.addCleanup(self._restore_shared_state)
         self.tmp = pathlib.Path(__import__("tempfile").mkdtemp())
+        self.addCleanup(self._remove_tmp)
         self.db_path = self.tmp / "access.sqlite"
         conn = sqlite3.connect(str(self.db_path))
+        self.addCleanup(conn.close)
         self.store = access_control.AccessStore(conn)
         self.store.create_account(user_id=OWNER,
                                   role=access_control.ROLE_OWNER,
@@ -53,9 +69,6 @@ class LinkBrowserFixture(unittest.TestCase):
             conn.execute("INSERT OR IGNORE INTO trip_tabs(tab_id, display_key)"
                          " VALUES (?,?)", (event, event))
         conn.commit()
-        # Kept open: the assertions below read through it. `AccessStore` owns the
-        # connection it was handed.
-        self.addCleanup(conn.close)
 
         self.configure([source_person("rp-1", "합성 담당자",
                                       ["reservation:cafeParse:ALFA",
@@ -63,27 +76,94 @@ class LinkBrowserFixture(unittest.TestCase):
         self.grant("rp-1", "syn-staff-1")
 
         os.environ["WEBLEDGER_DB"] = str(self.tmp / "board.sqlite")
+        # bind_access also mutates the current adapter's store. Use a fixture
+        # adapter before serve can bind it, keeping the saved adapter untouched.
+        access_control.bind_synthetic_sessions(True)
+        self.addCleanup(self._close_served)
         self.server = ledger_board.serve(port=0, with_worker=False,
                                         seed_demo=False)
+        self.addCleanup(self._stop_server)
         self.served = access_control.AccessStore(sqlite3.connect(
             str(self.db_path), check_same_thread=False, isolation_level=None,
             timeout=5.0))
         ledger_board.bind_access(self.served)
-        access_control.bind_synthetic_sessions(True)
         self.port = self.server.server_address[1]
-        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        thread.start()
+        self._server_thread = threading.Thread(
+            target=self.server.serve_forever, daemon=True)
+        self._server_thread.start()
         self.playwright = sync_playwright().start()
+        self.addCleanup(self._stop_playwright)
         self.browser = self.playwright.chromium.launch()
-        self.addCleanup(self._close)
+        self.addCleanup(self._close_browser)
 
-    def _close(self):
+    def _restore_shared_state(self):
+        # Restore only the shared process state this fixture mutates.
+        if self._prev_db_env is None:
+            os.environ.pop("WEBLEDGER_DB", None)
+        else:
+            os.environ["WEBLEDGER_DB"] = self._prev_db_env
+        if self._prev_config_env is None:
+            os.environ.pop(reserve_link.CONFIG_ENV, None)
+        else:
+            os.environ[reserve_link.CONFIG_ENV] = self._prev_config_env
+        ledger_board.bind_store(self._prev_board_store)
+        ledger_board.bind_access(self._prev_access)
+        access_control.bind_sessions(self._prev_sessions)
+
+    def _close_browser(self):
+        browser = getattr(self, "browser", None)
+        if browser is None:
+            return
         try:
-            self.browser.close()
-            self.playwright.stop()
-            self.server.shutdown()
-            self.server.server_close()
-            self.served.conn.close()
+            browser.close()
+        except Exception:
+            pass
+
+    def _stop_playwright(self):
+        playwright = getattr(self, "playwright", None)
+        if playwright is None:
+            return
+        try:
+            playwright.stop()
+        except Exception:
+            pass
+
+    def _stop_server(self):
+        server = getattr(self, "server", None)
+        if server is None:
+            return
+        thread = getattr(self, "_server_thread", None)
+        if thread is not None and thread.is_alive():
+            server.shutdown()
+        try:
+            server.server_close()
+        except Exception:
+            pass
+        if thread is not None:
+            try:
+                thread.join(timeout=5)
+            except Exception:
+                pass
+        try:
+            server.card_store.close()
+        except Exception:
+            pass
+
+    def _close_served(self):
+        served = getattr(self, "served", None)
+        if served is None:
+            return
+        try:
+            served.conn.close()
+        except Exception:
+            pass
+
+    def _remove_tmp(self):
+        tmp = getattr(self, "tmp", None)
+        if tmp is None:
+            return
+        try:
+            shutil.rmtree(str(tmp), ignore_errors=True)
         except Exception:
             pass
 
@@ -363,6 +443,104 @@ class LinkScreenTests(LinkBrowserFixture):
         self.assertEqual(self.visible_tabs(), set())
         self.assertEqual(self.store.conn.execute(
             "SELECT COUNT(*) FROM access_trip_assignments").fetchone()[0], 0)
+
+
+class EnvIsolationRegressionTests(unittest.TestCase):
+    """Shared-state restore on normal teardown and on launch failure.
+
+    Synthetic values only. The first test runs the HTTP fixture without a
+    browser; the second forces a browser launch failure so the server and
+    synthetic globals set up before the failure are still restored.
+    """
+
+    def _snapshot(self):
+        sessions = access_control.session_adapter()
+        return (
+            os.environ.get("WEBLEDGER_DB"),
+            os.environ.get(reserve_link.CONFIG_ENV),
+            ledger_board._STORE,
+            getattr(ledger_board, "_ACCESS", None),
+            sessions,
+            getattr(sessions, "_access", None),
+        )
+
+    def _assert_snapshot(self, snapshot):
+        db_env, config_env, store, access, sessions, session_access = snapshot
+        self.assertEqual(os.environ.get("WEBLEDGER_DB"), db_env)
+        self.assertEqual(os.environ.get(reserve_link.CONFIG_ENV), config_env)
+        self.assertIs(ledger_board._STORE, store)
+        self.assertIs(getattr(ledger_board, "_ACCESS", None), access)
+        self.assertIs(access_control.session_adapter(), sessions)
+        self.assertIs(getattr(sessions, "_access", None), session_access)
+
+    def test_http_boundary_teardown_restores_shared_state(self):
+        from webapp.tests.test_reserve_link import HttpBoundaryTests
+        from unittest import mock
+
+        previous_sessions = access_control.session_adapter()
+        self.addCleanup(access_control.bind_sessions, previous_sessions)
+        access_control.bind_sessions(access_control.SyntheticSessionAdapter(
+            allow_synthetic=True, access_store=object()))
+        with mock.patch.dict(os.environ, {
+                "WEBLEDGER_DB": "synthetic-ambient-db",
+                reserve_link.CONFIG_ENV: "synthetic-ambient-config"}):
+            snapshot = self._snapshot()
+            fixture = HttpBoundaryTests("test_the_owner_reaches_the_plan")
+            fixture.setUp()
+            try:
+                self.assertEqual(
+                    os.environ.get("WEBLEDGER_DB"), str(fixture.tmp / "board.sqlite"))
+            finally:
+                self.assertTrue(fixture.doCleanups())
+            self._assert_snapshot(snapshot)
+
+    def test_browser_launch_failure_still_restores_shared_state(self):
+        import unittest.mock as mock
+
+        previous_sessions = access_control.session_adapter()
+        self.addCleanup(access_control.bind_sessions, previous_sessions)
+        access_control.bind_sessions(access_control.SyntheticSessionAdapter(
+            allow_synthetic=True, access_store=object()))
+        snapshot = self._snapshot()
+        fixture = LinkScreenTests(
+            "test_the_screen_reads_the_source_and_offers_the_ledger_events")
+        with mock.patch(
+                "webapp.tests.test_reserve_link_browser.sync_playwright") as factory:
+            factory.return_value.start.return_value.chromium.launch.side_effect = (
+                RuntimeError("synthetic launch failure"))
+            with self.assertRaises(RuntimeError):
+                fixture.setUp()
+        try:
+            self.assertIsNotNone(fixture.server)
+            thread = getattr(fixture, "_server_thread", None)
+            self.assertIsNotNone(thread)
+        finally:
+            self.assertTrue(fixture.doCleanups())
+        self.assertFalse(thread.is_alive())
+        self._assert_snapshot(snapshot)
+
+    def test_setup_failure_before_server_thread_starts_still_restores_state(self):
+        import unittest.mock as mock
+
+        snapshot = self._snapshot()
+        fixture = LinkScreenTests(
+            "test_the_screen_reads_the_source_and_offers_the_ledger_events")
+        real_bind = ledger_board.bind_access
+
+        def refuse_fixture_access(store):
+            if store is fixture.served:
+                raise RuntimeError("synthetic access binding failure")
+            return real_bind(store)
+
+        # The server and its SQLite store exist, but serve_forever has not
+        # started yet. shutdown must not wait for a thread that never ran.
+        with mock.patch.object(ledger_board, "bind_access", side_effect=refuse_fixture_access):
+            with self.assertRaises(RuntimeError):
+                fixture.setUp()
+        self.assertIsNone(fixture._server_thread)
+        self.assertTrue(fixture.doCleanups())
+        self.assertEqual(fixture.server.socket.fileno(), -1)
+        self._assert_snapshot(snapshot)
 
 
 if __name__ == "__main__":
