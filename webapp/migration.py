@@ -746,6 +746,399 @@ class MigrationStore:
                 for r in rows]
 
 
+# ------------------------------------------------- Phase B read-only plan
+# Sol-approved Phase B: deterministic, read-only eligible-import plan. This
+# section adds no DB apply/write API and does not touch the synthetic
+# SQLite-to-SQLite `compare_sources` / `MigrationStore` / `run_import` path
+# above. It performs no filesystem or database I/O and never calls
+# `MigrationStore` mutation methods or `run_import`.
+REVIEWED_PLAN_MATCHED_DISPOSITION = "matched"
+
+
+def _reviewed_plan_id(snapshot_sha256: str, ref: str, chosen_key: str) -> str:
+    """Deterministic plan id over canonical structured fields.
+
+    Hashes a canonical mapping instead of delimiter-joined text, so refs or
+    keys containing a delimiter can never collide.
+    """
+    payload = {
+        "snapshot_sha256": snapshot_sha256,
+        "source_ref_snapshot_only": ref,
+        "chosen_candidate_key": chosen_key,
+    }
+    return "rip-" + hashlib.sha256(
+        canonical_text(payload).encode("utf-8")).hexdigest()[:16]
+
+
+def _reviewed_plan_digest(snapshot_sha256, eligible_entries,
+                          refused_records) -> str:
+    """Canonical digest over allowlisted eligible and refused plan material.
+
+    Builds the hashed structure itself from the given eligible entries and
+    refused output records, keeping only stable fields. From each refused
+    record only the stable identity, disposition, binding, approval flag,
+    chosen key, candidate fingerprint/count and `reason_code` are kept.
+    Display prose (`reason`) and `review_note` are excluded by the
+    allowlist, so prose-only edits leave the digest unchanged.
+    """
+    entries = [{
+        "source_ref_snapshot_only": e["source_ref_snapshot_only"],
+        "review_snapshot_sha256": e["review_snapshot_sha256"],
+        "chosen_candidate_key": e["chosen_candidate_key"],
+        "candidate_transaction_keys": list(e["candidate_transaction_keys"]),
+        "plan_id": e["plan_id"],
+    } for e in eligible_entries]
+    refused = [{
+        "source_ref_snapshot_only": r["source_ref_snapshot_only"],
+        "disposition": r["disposition"],
+        "reason_code": r["reason_code"],
+        "review_snapshot_sha256": r["review_snapshot_sha256"],
+        "approved": r["approved"],
+        "chosen_candidate_key": r["chosen_candidate_key"],
+        "candidate_fingerprint": r["candidate_fingerprint"],
+        "candidate_count": r["candidate_count"],
+    } for r in refused_records]
+    refused.sort(key=lambda e: canonical_text(e))
+    core = {
+        "snapshot_sha256": snapshot_sha256,
+        "entries": entries,
+        "refused": refused,
+    }
+    return hashlib.sha256(
+        canonical_text(core).encode("utf-8")).hexdigest()
+
+
+def build_reviewed_import_plan(snapshot_sha256, review_rows) -> dict:
+    """Build a deterministic, read-only eligible-import plan for one snapshot.
+
+    Accepted input shape: already-normalized synthetic dict fixtures only::
+
+        snapshot_sha256: str -- current snapshot hash this plan is built for.
+            Must be type str and non-blank (empty or whitespace-only is
+            blank and refused); no coercion is applied.
+        review_rows: iterable of dicts, each holding exactly:
+          - source_ref_snapshot_only: str (required; empty or whitespace-only
+            is blank and refused; an accepted value is kept byte-for-byte
+            with no trimming; exact type)
+          - candidate_count: None, omitted, or exact int >= 0
+            (type(value) is int; bool, float, string and negatives are refused;
+            when present must equal len(candidate_transaction_keys))
+          - candidate_transaction_keys: list/tuple of str, never a string
+            (each entry must satisfy type(entry) is str and be non-blank:
+            empty or whitespace-only entries are refused; duplicates are
+            refused; accepted keys are kept byte-for-byte)
+          - disposition: str (only exact "matched" may be eligible; the
+            caller sets this only after a human explicitly approves and
+            selects a candidate; raw manifest values such as
+            "candidate_review_required" and "unmatched_review_required" are
+            refused, as are "unmatched", blank and unknown)
+          - approved: bool (required; type(value) is bool and must be True;
+            truthy non-bool values such as 1 or "approve" are refused)
+          - chosen_candidate_key: str (required explicit target-side plan
+            identity; empty or whitespace-only is blank and refused; never
+            inferred, even for a single candidate; kept byte-for-byte)
+          - review_note: str (optional; preserved when present, never required;
+            excluded from the plan digest)
+          - review_snapshot_sha256: str (required decision-to-snapshot
+            binding; empty or whitespace-only is blank and refused, otherwise
+            must equal `snapshot_sha256` exactly)
+
+    The external review manifest is never read or edited here.
+
+    Identity and scope
+    ------------------
+    `(snapshot_sha256, source_ref_snapshot_only)` is a same-snapshot
+    review-plan identity only. It is not a cross-snapshot or persistent
+    business identity: a changed snapshot hash never inherits a prior
+    snapshot's approval because the row binding must equal the current
+    `snapshot_sha256`, otherwise the row is refused.
+
+    Fail-closed rules (each unresolved row is preserved in `refused` with a
+    `reason_code`, never dropped and never auto-selected):
+
+    * snapshot/ref/binding/disposition/chosen key/candidate entries that are
+      not strings, empty or whitespace-only where a value is required, or
+      otherwise mistyped
+    * `candidate_count` that is bool, float, string or negative
+    * binding missing or not exactly equal to the current snapshot hash
+    * zero candidates, or inconsistent count/list (string list, blank or
+      whitespace-only entry, non-string entry, duplicate entries, or
+      count/list length mismatch)
+    * any `disposition` other than exact "matched"
+    * `approved` anything other than boolean True
+    * missing chosen key or a chosen key not in the candidate list
+    * duplicate `(snapshot_sha256, source_ref_snapshot_only)` within one call
+
+    Determinism and purity
+    ----------------------
+    Candidate order is not meaningful: eligible entries carry
+    `candidate_transaction_keys` sorted, refused-row candidate fingerprints
+    carry their items sorted, and the digest covers the sorted sets.
+    Eligible and refused lists are sorted by
+    `source_ref_snapshot_only`, and the digest helper sorts the allowlisted
+    refused material by its canonical form so input order never moves the
+    digest. Plan ids hash
+    canonical structured fields via `canonical_text` (never delimiter-joined
+    text). `plan_digest` covers the current snapshot hash, each eligible row
+    (snapshot binding, sorted candidate set, chosen key) and every refused
+    row (stable row identity/source ref, disposition, stable `reason_code`,
+    plus safe identity fields for changed binding/candidate input:
+    binding, approval flag, chosen key, candidate fingerprint and count).
+    Display prose (`reason`) and `review_note` are excluded from the digest,
+    so prose-only edits leave it unchanged. Identical inputs give identical
+    order, ids and digests. This function has no filesystem or database
+    side effects and never calls `MigrationStore` mutation methods or
+    `run_import`.
+    """
+    snapshot_is_str = type(snapshot_sha256) is str
+    # Whitespace-only is blank, like ref/chosen/binding: short-circuit keeps
+    # this safe for a non-string snapshot (no .strip() call on it).
+    snapshot_empty = (not snapshot_is_str) or (snapshot_sha256.strip() == "")
+    snapshot = snapshot_sha256 if snapshot_is_str else ""
+    try:
+        rows = list(review_rows) if review_rows is not None else []
+    except TypeError:
+        rows = []
+
+    normalized: list[dict] = []
+    for index, raw in enumerate(rows):
+        if not isinstance(raw, dict):
+            normalized.append({"index": index, "row_invalid": True})
+            continue
+        row = raw
+        ref_val = row.get("source_ref_snapshot_only")
+        binding_val = row.get("review_snapshot_sha256")
+        disposition_val = row.get("disposition")
+        chosen_val = row.get("chosen_candidate_key")
+        approved_val = row.get("approved")
+        note_val = row.get("review_note")
+        note = note_val if type(note_val) is str else ""
+
+        raw_candidates = row.get("candidate_transaction_keys")
+        candidates: list[str] = []
+        candidates_error = False
+        candidates_missing = ("candidate_transaction_keys" not in row
+                              or raw_candidates is None)
+        if candidates_missing or isinstance(raw_candidates, str):
+            candidates_error = True
+        elif isinstance(raw_candidates, (list, tuple)):
+            seen: set[str] = set()
+            for item in raw_candidates:
+                # Whitespace-only entries are blank and refused. Accepted
+                # values are kept byte-for-byte: nothing is trimmed here.
+                if type(item) is not str or item.strip() == "":
+                    candidates_error = True
+                    candidates = []
+                    break
+                if item in seen:
+                    candidates_error = True
+                    candidates = []
+                    break
+                seen.add(item)
+                candidates.append(item)
+        else:
+            candidates_error = True
+        # Stable, prose-free fingerprint of the candidate input so the plan
+        # digest binds changed candidate input for refused rows too. Valid
+        # candidate strings are recorded byte-for-byte; a raw string
+        # container itself is an invalid container, so it carries only its
+        # stable kind marker, never its raw value. Mistyped entries carry
+        # only a stable type marker, never repr(). Items are sorted by
+        # canonical form so candidate order and list-vs-tuple never drift
+        # the digest where the candidate set is the same.
+        if isinstance(raw_candidates, str):
+            candidates_fp: dict = {"kind": "string"}
+        elif isinstance(raw_candidates, (list, tuple)):
+            fp_items = []
+            for entry in raw_candidates:
+                if type(entry) is str:
+                    fp_items.append({"key": entry})
+                else:
+                    fp_items.append({
+                        "non_string_type": type(entry).__name__,
+                    })
+            fp_items.sort(key=canonical_text)
+            candidates_fp = {"kind": "sequence", "items": fp_items}
+        elif candidates_missing:
+            candidates_fp = {"kind": "missing"}
+        else:
+            candidates_fp = {"kind": "invalid",
+                             "type": type(raw_candidates).__name__}
+
+        count_present = ("candidate_count" in row
+                         and row.get("candidate_count") is not None)
+        count = None
+        count_error = False
+        if count_present:
+            count_val = row.get("candidate_count")
+            if type(count_val) is not int or count_val < 0:
+                count_error = True
+            else:
+                count = count_val
+        normalized.append({
+            "index": index,
+            "row_invalid": False,
+            "ref_val": ref_val,
+            "binding_val": binding_val,
+            "disposition_val": disposition_val,
+            "chosen_val": chosen_val,
+            "approved_val": approved_val,
+            "note": note,
+            "candidates": candidates,
+            "candidates_error": candidates_error,
+            "candidates_fp": candidates_fp,
+            "count": count,
+            "count_error": count_error,
+        })
+
+    ref_counts: dict[str, int] = {}
+    for item in normalized:
+        if item.get("row_invalid"):
+            continue
+        ref_val = item["ref_val"]
+        if type(ref_val) is str and ref_val != "":
+            ref_counts[ref_val] = ref_counts.get(ref_val, 0) + 1
+
+    eligible: list[dict] = []
+    refused: list[dict] = []
+
+    def refuse(item, ref_text, code, reason):
+        # The refused output record carries the display fields (`reason`,
+        # `review_note`) together with the stable digest fields (identity,
+        # disposition, reason code, binding, approval flag, chosen key,
+        # candidate fingerprint/count). `_reviewed_plan_digest` allowlists
+        # the stable subset itself, so prose-only edits never move it.
+        disp_val = item.get("disposition_val")
+        bind_val = item.get("binding_val")
+        chosen_raw = item.get("chosen_val")
+        appr_val = item.get("approved_val")
+        refused.append({
+            "source_ref_snapshot_only": ref_text,
+            "disposition": disp_val if type(disp_val) is str else "",
+            "reason_code": code,
+            "reason": reason,
+            "review_note": item.get("note", ""),
+            "review_snapshot_sha256": bind_val if type(bind_val) is str else "",
+            "approved": True if type(appr_val) is bool and appr_val is True
+            else False,
+            "chosen_candidate_key": chosen_raw if type(chosen_raw) is str
+            else "",
+            "candidate_fingerprint": item.get("candidates_fp",
+                                              {"kind": "missing"}),
+            "candidate_count": item.get("count"),
+        })
+
+    for item in normalized:
+        if item.get("row_invalid"):
+            refuse(item, "", "INVALID_ROW_TYPE",
+                   "row is not a mapping; refused fail-closed")
+            continue
+        ref_val = item["ref_val"]
+        ref_text = ref_val if type(ref_val) is str else ""
+        if not snapshot_is_str:
+            refuse(item, ref_text, "INVALID_SNAPSHOT_HASH_TYPE",
+                   "current snapshot hash is not a string; refused fail-closed")
+            continue
+        if snapshot_empty:
+            refuse(item, ref_text, "MISSING_SNAPSHOT_HASH",
+                   "snapshot hash is missing; refused without a current snapshot")
+            continue
+        if type(ref_val) is not str:
+            refuse(item, ref_text, "INVALID_REF_TYPE",
+                   "source ref is not a string; refused without coercion")
+            continue
+        if ref_val == "" or ref_val.strip() == "":
+            refuse(item, ref_text, "MISSING_REF",
+                   "source ref is blank; refused without a plan identity")
+            continue
+        if ref_counts.get(ref_val, 0) > 1:
+            refuse(item, ref_text, "DUPLICATE_REF",
+                   f"duplicate (snapshot, ref) {ref_val!r} in the same snapshot;"
+                   " refused without choosing one")
+            continue
+        binding_val = item["binding_val"]
+        if type(binding_val) is not str:
+            refuse(item, ref_text, "INVALID_BINDING_TYPE",
+                   "decision-to-snapshot binding is not a string; refused")
+            continue
+        if binding_val.strip() == "":
+            refuse(item, ref_text, "MISSING_BINDING",
+                   "decision-to-snapshot binding is missing; refused fail-closed")
+            continue
+        if binding_val != snapshot:
+            refuse(item, ref_text, "BINDING_MISMATCH",
+                   "binding does not equal the current snapshot hash;"
+                   " a changed snapshot never inherits a prior approval")
+            continue
+        candidates = item["candidates"]
+        if item["candidates_error"] or item["count_error"]:
+            refuse(item, ref_text, "INCONSISTENT_CANDIDATES",
+                   "candidate count/list is inconsistent or mistyped;"
+                   " refused without guessing")
+            continue
+        if item["count"] is not None and item["count"] != len(candidates):
+            refuse(item, ref_text, "INCONSISTENT_CANDIDATES",
+                   f"candidate_count {item['count']} !="
+                   f" {len(candidates)} listed keys; refused without guessing")
+            continue
+        if len(candidates) == 0:
+            refuse(item, ref_text, "ZERO_CANDIDATES",
+                   "no candidate transaction keys; refused without a target")
+            continue
+        disposition_val = item["disposition_val"]
+        if type(disposition_val) is not str:
+            refuse(item, ref_text, "INVALID_DISPOSITION_TYPE",
+                   "disposition is not a string; refused without coercion")
+            continue
+        if disposition_val != REVIEWED_PLAN_MATCHED_DISPOSITION:
+            refuse(item, ref_text, "UNMATCHED_DISPOSITION",
+                   f"disposition {disposition_val!r} is not 'matched';"
+                   " raw review states stay refused until validly normalized")
+            continue
+        approved_val = item["approved_val"]
+        if type(approved_val) is not bool or approved_val is not True:
+            refuse(item, ref_text, "NOT_APPROVED",
+                   "approved is not boolean True; refused without approval")
+            continue
+        chosen_val = item["chosen_val"]
+        if type(chosen_val) is not str:
+            refuse(item, ref_text, "INVALID_SELECTED_KEY_TYPE",
+                   "chosen candidate key is not a string; refused")
+            continue
+        if chosen_val == "" or chosen_val.strip() == "":
+            refuse(item, ref_text, "MISSING_SELECTED_KEY",
+                   "chosen candidate key is blank;"
+                   " the selection is never inferred")
+            continue
+        if chosen_val not in candidates:
+            refuse(item, ref_text, "SELECTION_NOT_IN_CANDIDATES",
+                   "chosen key is not in the candidate list; refused"
+                   " without guessing")
+            continue
+        sorted_keys = sorted(candidates)
+        plan_id = _reviewed_plan_id(snapshot, ref_val, chosen_val)
+        eligible.append({
+            "source_ref_snapshot_only": ref_val,
+            "chosen_candidate_key": chosen_val,
+            "candidate_transaction_keys": sorted_keys,
+            "review_snapshot_sha256": binding_val,
+            "plan_id": plan_id,
+            "review_note": item["note"],
+        })
+
+    eligible.sort(key=lambda e: e["source_ref_snapshot_only"])
+    refused.sort(key=lambda e: (e["source_ref_snapshot_only"], e["reason_code"]))
+    plan_digest = _reviewed_plan_digest(snapshot, eligible, refused)
+    return {
+        "snapshot_sha256": snapshot,
+        "eligible": eligible,
+        "refused": refused,
+        "counts": {"eligible": len(eligible), "refused": len(refused),
+                   "total": len(normalized)},
+        "plan_digest": plan_digest,
+    }
+
+
 def sha256_short(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 

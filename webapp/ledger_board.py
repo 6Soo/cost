@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import html
 import http.cookies
+import datetime as dt
 import json
 import os
 import secrets
@@ -27,6 +28,43 @@ from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
 
 CSRF_TOKEN = secrets.token_hex(16)
+
+# ------------------------------------------------------- the review feature
+# Fixed refusal messages for the actual-source review. A code and a sentence a
+# user can act on, and nothing else: no path, no digest, no value, no file
+# content. The same code always means the same thing, so a log line built from
+# it cannot carry source data either.
+_REVIEW_MESSAGES = {
+    "REVIEW_UNAVAILABLE": "실제 자료 검토가 설정되지 않았어요.",
+    "REVIEW_CONFIG_INVALID": "실제 자료 설정이 올바르지 않아요.",
+    "REVIEW_SOURCE_DRIFT": "실제 자료가 설정과 달라졌어요. 다시 확인해 주세요.",
+    "REVIEW_REVISION_CONFLICT": "다른 기기에서 더 최근 결정을 저장했어요.",
+    "REVIEW_SOURCE_BINDING_CONFLICT": "실제 자료가 바뀐 데이터에서 왔어요. 페이지를 다시 불러오고 실제 자료를 다시 확인해 주세요.",
+    "REVIEW_DECISIONS_UNAVAILABLE": "결정 저장소를 열 수 없어요.",
+    "REVIEW_INTERNAL_ERROR": "결정을 처리하지 못했어요.",
+}
+
+#: Codes that are the caller's fault rather than the deployment's, so they are
+#: answered 400 instead of 503. The list is the core's own decision vocabulary.
+_REVIEW_CLIENT_CODES = frozenset((
+    "INVALID_ARGUMENT", "DECISION_SHAPE_INVALID", "DECISION_DUPLICATE_REF",
+    "DECISION_UNKNOWN_REF", "DECISION_VALUE_INVALID", "INSUFFICIENT_EVIDENCE",
+    "EXPORT_BINDING_MISMATCH",
+))
+
+#: The published origin, when there is one. Set, it is the only origin a review
+#: write may come from, exactly and with no scheme fallback. Left unset, only this
+#: server's own listening address is accepted, which is the local synthetic case.
+_REVIEW_PUBLIC_BASE_URL_ENV = "WEBLEDGER_PUBLIC_BASE_URL"
+
+_REVIEW_UNCONFIGURED_PAGE = (
+    "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+    "<title>실제 자료 검토</title></head><body>"
+    "<h1>실제 자료 검토를 쓸 수 없어요</h1>"
+    "<p>실제 자료 검토는 서버 설정이 없거나 설정된 자료가 바뀌어서 지금은 열 수 "
+    "없어요. 예제 자료로 대신 보여주지 않아요.</p>"
+    "<p><a href='/board'>장부로 돌아가기</a></p></body></html>"
+)
 _STORE = None
 _NO_REQUEST_STORE = object()
 _REQUEST_STORE = ContextVar("ledger_request_store", default=_NO_REQUEST_STORE)
@@ -91,11 +129,13 @@ def resolve_role(headers, cookies=None) -> str:
     """Decide the role for this request, on the server, from the session only."""
     if not ACCESS_ENFORCEMENT:
         role = "owner"
+        session = None
     else:
         session = current_session(headers, cookies)
         role = ("owner" if session is not None and is_owner_session(session)
                 else "viewer")
     _ROLE_LOCAL.role = role
+    _ROLE_LOCAL.session = session
     return role
 
 
@@ -105,6 +145,17 @@ def current_role() -> str:
     if role is not None:
         return role
     return "viewer" if ACCESS_ENFORCEMENT else "owner"
+
+
+def current_request_session():
+    """The session decided for the request being served on this thread, or None.
+
+    A renderer that has to narrow what it draws asks for this rather than
+    re-reading the request, so the session it filters by is the same one the
+    role was decided from. It is per thread, so one request's session can never
+    reach another request's screen on the same server.
+    """
+    return getattr(_ROLE_LOCAL, "session", None)
 
 
 def bind_store(store) -> None:
@@ -231,11 +282,28 @@ def google_oidc_connection_state() -> dict:
     `ops.google_oidc_state` uses, so the board, `/auth/state` and `ops health`
     cannot disagree about whether a login is connected. A second, separately
     written answer is what let `/access/me` report `false` on a host where the
-    login worked.
+    login worked. The access store is passed so the presence-only owner
+    fields (`owner_exists`, `bootstrap_open`) describe this process without
+    exposing any sub value.
     """
     from . import google_oidc
 
-    return google_oidc.connection_state(oidc_flow())
+    return google_oidc.connection_state(oidc_flow(), _ACCESS)
+
+
+def _bootstrap_guidance(*, role, oidc: dict) -> str:
+    """Operator next step for owner bootstrap. Presence only, no sub values."""
+    if role == "owner":
+        return "owner already set; this session is owner"
+    if not bool((oidc or {}).get("google_oidc_connected")):
+        return "Google login is not connected; check deployment settings"
+    if bool((oidc or {}).get("owner_exists")):
+        return "owner already exists; no bootstrap; ask the owner for access"
+    if not bool((oidc or {}).get("owner_bootstrap_configured")):
+        return ("no owner yet and no owner sub configured; copy own_google_sub"
+                " to WEBLEDGER_OWNER_GOOGLE_SUB, restart, then log in again")
+    return ("owner sub is configured and no owner exists yet; the next login"
+            " whose sub matches the configured value bootstraps")
 
 
 # ------------------------------------------------- Phase 7 view rendering
@@ -248,13 +316,23 @@ def access_control_render_viewer_status(session, store) -> dict:
     # session came from; this says whether a real Google login is available at
     # all, which is what an operator needs when the two disagree.
     oidc = google_oidc_connection_state()
+    role = store.account_role(session.user_id)
+    # Self-discovery only: an operator learns their own Google sub from their
+    # own authenticated response so they can configure WEBLEDGER_OWNER_GOOGLE_SUB.
+    # No other account identifier is included here, and the configured owner
+    # value itself is never echoed.
+    own_google_sub = (session.user_id if not session.is_synthetic
+                      and session.provider == "google" else "")
     return {
         "user_id": session.user_id,
-        "role": store.account_role(session.user_id),
+        "role": role,
         "email": session.email,
         "identity_source": "synthetic" if session.is_synthetic else "google_oidc",
         "google_oidc_connected": bool(oidc.get("google_oidc_connected")),
         "google_oidc": oidc,
+        "own_google_sub": own_google_sub,
+        "owner_exists": bool(oidc.get("owner_exists")),
+        "bootstrap_guidance": _bootstrap_guidance(role=role, oidc=oidc),
         "session_generation": store.session_generation(session.user_id),
         "cache_namespace": session.cache_namespace(),
         "applications": applications,
@@ -292,19 +370,18 @@ def access_control_render_viewer_board(session, store, tab_id: str) -> str:
                       "income_krw": income, "expense_krw": expense,
                       "balance_krw": income - expense,
                       "row_count": len(rows)})
-    items = "".join(
-        f"<li><a href='/board?tab={esc(t['tab_id'])}'>{esc(t['display_key'])}</a>"
-        f" — {esc(t['starts_on'])}~{esc(t['ends_on'])}"
-        f" · 수입 {t['income_krw']:,}원 · 지출 {t['expense_krw']:,}원"
-        f" · 차액 {t['balance_krw']:,}원</li>"
-        for t in trips)
-    if not trips:
-        body = ("<div class='sect'><h2>담당 여행</h2>"
-                "<p>현재 배정된 여행이 없습니다</p></div>")
-    else:
-        body = (f"<div class='sect'><h2>담당 여행</h2><ul>{items}</ul></div>")
+    # The live refresh replaces this one block, and it is built by the same
+    # renderer from the same allowlist, so a refreshed viewer board is
+    # indistinguishable from a freshly loaded one and cannot widen the scope.
+    body = f"<div id='live-viewer'>{ledger_design.viewer_trips_html(trips)}</div>"
+    from . import live_sync
+
+    config = live_sync.client_config(
+        live_sync.viewer_token(_active_store(), allowed),
+        tab_id or "", role="viewer")
     return ledger_design.render(ledger_design.shell(
-        "담당 여행", tab_id=tab_id or "", heading="담당 여행", body=body))
+        "담당 여행", tab_id=tab_id or "", heading="담당 여행", body=body),
+        live_config=config)
 
 
 def access_control_render_viewer_row(session, projected) -> str:
@@ -688,6 +765,26 @@ def _all_tab_ids() -> list:
     return [t["tab_id"] for t in live_trips(include_archived=True)]
 
 
+def default_board_tab() -> str:
+    """Which tab `/board` opens on when the request names none.
+
+    It used to default to `trip-demo-a`, one of this module's example trips. On a
+    store that has never been seeded that trip does not exist, so `/board` opened
+    on a trip the reader has never heard of, showing the head "여행을 선택해 주세요"
+    and a rail with no selected tab. It is also a hard-coded example id in a code
+    path a real deployment runs.
+
+    So the default is a question about the data rather than a constant: the first
+    real trip, and the 분류대기 bucket when there is no trip at all. An empty store
+    opens on 분류대기, which is a screen that exists and says so, instead of on a
+    trip that does not.
+    """
+    trips = live_trips()
+    if trips:
+        return trips[0]["tab_id"]
+    return "unclassified"
+
+
 def _with_display_amount(rows):
     if _active_store() is None:
         return rows
@@ -705,37 +802,36 @@ def _shown_date(row) -> str:
     return row.get("display_occurred_on", row["occurred_on"])
 
 
+def _persisted_rows(kind: str):
+    """Every row of one kind that the bound store actually holds.
+
+    This is the only source of rows when a store is bound, and that is the point of
+    it. The earlier version walked the module-level `EXPENSES`/`INCOMES` and, for
+    each one, fell back to the static dict when the store had no such row. A store
+    opened with `seed_demo=False` therefore showed the whole example board while
+    its own `board_rows` table was empty, which is what an operator saw: the page
+    said 합성 자료 and listed trips that had never been imported. The rows below
+    come from `list_tab_rows`, which also returns the allocation projections and
+    the split remainders, so a store that has only allocations still shows them.
+    """
+    out = []
+    for tab in _all_tab_ids() + [None]:
+        for saved in _active_store().list_tab_rows(tab):
+            if saved["row_kind"] == kind:
+                out.append(saved)
+    return _with_display_amount(out)
+
+
 def _expense_rows():
     if _active_store() is None:
         return [dict(r) for r in EXPENSES]
-    seen = {r["row_id"] for r in EXPENSES}
-    out = []
-    for r in EXPENSES:
-        saved = _active_store().get_row(r["row_id"])
-        out.append(saved if saved is not None else dict(r))
-    for tab in _all_tab_ids() + [None]:
-        for saved in _active_store().list_tab_rows(tab):
-            if saved["row_kind"] == "expense" and saved["row_id"] not in seen:
-                seen.add(saved["row_id"])
-                out.append(saved)
-    return _with_display_amount(out)
+    return _persisted_rows("expense")
 
 
 def _income_rows():
     if _active_store() is None:
         return [dict(r) for r in INCOMES]
-    out = []
-    for r in INCOMES:
-        saved = _active_store().get_row(r["row_id"])
-        out.append(saved if saved is not None else dict(r))
-    if _active_store() is not None:
-        seen = {r["row_id"] for r in INCOMES}
-        for tab in _all_tab_ids() + [None]:
-            for saved in _active_store().list_tab_rows(tab):
-                if saved["row_kind"] == "income" and saved["row_id"] not in seen:
-                    seen.add(saved["row_id"])
-                    out.append(saved)
-    return _with_display_amount(out)
+    return _persisted_rows("income")
 
 
 def _trip_totals(tab_id: str):
@@ -759,6 +855,63 @@ def _income_total(rows) -> int:
     )
 
 SYNTHETIC_MARK = "합성 자료"
+
+
+def example_row_ids() -> set:
+    """The ids this module's example data defines."""
+    return {r["row_id"] for r in EXPENSES} | {r["row_id"] for r in INCOMES}
+
+
+def _store_holds_only_the_examples() -> bool:
+    """Is every row in the bound store one of this module's example rows?
+
+    A store opened with `seed_demo=True` writes those rows into the database, so
+    from here there is no way to tell a seeded store from an imported one by
+    looking at the ids. That is the whole question the badge has to answer, and
+    it can be answered: a store holding nothing but the example ids, on the
+    example trips, is the example board whether or not it was written by the
+    seeder. The moment a row of its own is there, it is not.
+    """
+    rows = _expense_rows() + _income_rows()
+    if not rows:
+        return False
+    examples = example_row_ids()
+    if any(r["row_id"] not in examples for r in rows):
+        return False
+    example_tabs = {t["tab_id"] for t in TRIPS}
+    tabs = {r.get("display_tab_id") for r in rows} - {None}
+    return not tabs or tabs <= example_tabs
+
+
+def data_status_mark() -> str:
+    """여행·가져온 카드 자료·장부 기록을 구분해 실제 저장 상태를 표시한다."""
+    if _active_store() is None or _store_holds_only_the_examples():
+        return SYNTHETIC_MARK
+    store = _active_store()
+    parts = []
+    trip_count = len(live_trips())
+    if trip_count:
+        parts.append(f"여행 {trip_count}개")
+    with store._lock:
+        if store.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transactions'").fetchone():
+            cards = store.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state!='preserved'").fetchone()[0]
+            if cards:
+                parts.append(f"카드 자료 {cards:,}건")
+    count = len(_expense_rows()) + len(_income_rows())
+    parts.append(f"장부 기록 {count:,}건")
+    return " · ".join(parts)
+
+
+def nav_data_note() -> str:
+    """The sidebar's one line about where the rows came from.
+
+    It said 합성 자료만 적용돼요, which is false on any store serving real rows and
+    for the same reason as the badge. It reports the same number instead, or says
+    the screen is showing the in-memory example board when that is what it is.
+    """
+    if _active_store() is None:
+        return f"지금은 {SYNTHETIC_MARK}만 보여요."
+    return "화면의 행은 이 서버에 저장된 값이에요."
 
 TRIPS = (
     {"tab_id": "trip-demo-a", "display_key": "0408_예시여행A", "starts_on": "2026-04-08", "ends_on": "2026-04-14", "destination": "예시여행A"},
@@ -1279,7 +1432,7 @@ def board_page(tab_id: str, query: str = "") -> str:
         tables = income_table(incomes) + expense_table(expenses)
     top = (
         "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
+        f"<span class='synth'>{data_status_mark()}</span></h1>"
         "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
@@ -1297,7 +1450,7 @@ def income_new_page() -> str:
     )
     top = (
         "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
+        f"<span class='synth'>{data_status_mark()}</span></h1>"
         "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
@@ -1326,7 +1479,7 @@ def expense_new_page() -> str:
     )
     top = (
         "<div class='top'><h1>웹 장부"
-        f"<span class='synth'>{SYNTHETIC_MARK}</span></h1>"
+        f"<span class='synth'>{data_status_mark()}</span></h1>"
         "<p><a href='/board'>장부</a> · <a href='/import'>카드 가져오기</a> · "
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
@@ -1554,6 +1707,7 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
 
 def trips_page(preview_tab: str = "", role: str = "") -> str:
     from . import ledger_design
+    from .sheets_export import _assignee_confirmed
 
     if not role:
         # Called without a request (local single-user mode, and the tests that
@@ -1563,23 +1717,63 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     if _active_store() is None:
         body = "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>"
         return layout("여행 관리", f"{top}<div class='wrap'>{body}</div>")
+    store = _active_store()
+    profile = (store.owner_profile() if store is not None
+               and hasattr(store, "owner_profile")
+               else {"company_name": "", "assignee_name": "", "revision": 0})
     cards = []
+    from app.reserve_trips import registrations, sync_status as reserve_sync_status, KST
+    reserve_trips = registrations(store)
+    sync_status = reserve_sync_status(store)
+    if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1' and role == 'owner':
+        note = ('조회 중입니다.' if sync_status.get('status') == 'running' else
+                '최근 동기화에서 새 여행 '+str(sync_status.get('created',0))+'개를 등록했습니다.'
+                if sync_status.get('status') == 'ok' else
+                '여행 목록을 가져오지 못했습니다. 다음 0시에 다시 확인합니다.'
+                if sync_status.get('status') == 'failed' else '다음 0시에 조회합니다.')
+        next_run = sync_status.get('next_run_at')
+        next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
+                     if next_run else '')
+        cards.append("<div class='card'><h3>출발 예정 여행 자동 등록</h3>"
+                     "<p>여행글 댓글이 5개 이상이고 출발일이 오늘 이후이면 장부에 등록합니다. 한국 시간 매일 0시에 하루 한 번 조회합니다.</p>"
+                     f"<p>{note} · 등록된 여행 {len(reserve_trips)}개</p>"
+                     + (f"<p>다음 조회: {next_note} (한국 시간)</p>" if next_note else '')
+                     + "<p>여행 정보와 일정은 저장되어 있습니다. 수입·지출은 실제 내역을 장부에 기록하면 표시됩니다. "
+                     "<a href='/import'>카드 분류 결과 보기</a></p></div>")
     for t in live_trips(include_archived=True):
         if t.get("deleted"):
             continue
         try:
             kind = "보관됨" if t["archived"] else "활성"
+            registration = reserve_trips.get(t['tab_id'])
+            if registration and not t['archived']:
+                from app.reserve_trips import today
+                status = registration['departure_status']
+                kind = ('출발일·댓글 확인 필요' if status != 'scheduled' else
+                        '출발 예정' if t['starts_on'] >= today() else '출발한 여행')
             preview = _active_store().preview_tab_delete(t["tab_id"])
             counts = (f"수입 {preview['income_count']}건 {preview['income_total']:,}원 · "
                       f"지출 {preview['expense_count']}건 {preview['expense_total']:,}원")
         except Exception as exc:
             counts = f"조회 실패: {esc(str(exc))}"
+        # A trip whose assignee has a value but no recorded origin. It is reported,
+        # never rewritten: quietly replacing it would destroy a record whose true
+        # author is unknown, and the owner confirms it on this same form.
+        assignee_shown = str(t.get("prepared_by_name") or "")
+        assignee_note = ""
+        if assignee_shown and not _assignee_confirmed(
+                getattr(store, "conn", None), t["tab_id"],
+                t.get("assignee_source") or "", assignee_shown):
+            assignee_note = (
+                " <span class='muted warntext'>· 담당자 확인이 필요해요"
+                " (출처가 기록되지 않은 값이에요)</span>")
         cards.append(
             "<div class='card'>"
             f"<h3>{esc(t['display_key'])} <span class='muted'>{kind}</span></h3>"
             f"<p class='muted rev-note'>여행 revision {t['revision']}</p>"
             f"<p class='muted'>{esc(t['starts_on'])}~{esc(t['ends_on'])} · {esc(t['destination'])}</p>"
-            f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 {esc(t['prepared_by_name'])}</p>"
+            f"<p class='muted'>작성일 {esc(t['prepared_on'])} · 담당자 "
+            f"{esc(assignee_shown) if assignee_shown else '미입력'}{assignee_note}</p>"
             # APP_SPEC 3 keeps the schedule authority and the tab kind apart from
             # the display name, so the screen states them rather than implying
             # them through the name.
@@ -1587,6 +1781,10 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"종류 {esc(t.get('tab_kind') or 'trip')} · "
             f"권위 {esc(AUTHORITY_LABELS.get(t.get('authority_status'), '미확정'))}</p>"
             f"<p>{counts}</p>"
+            + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
+               f"<a href='{esc(registration['source_url'])}' target='_blank' rel='noopener'>여행글 보기</a></p>"
+               if registration else '')
+            +
             f"<form method='post' action='/api/trips/{esc(t['tab_id'])}/meta'>"
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='expected_revision' value='{t['revision']}'>"
@@ -1594,7 +1792,15 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "<input type='hidden' name='return_to' value='/trips'>"
             f"<p><label>표시 이름</label><input name='display_key' value='{esc(t['display_key'])}'></p>"
             f"<p><label>작성일</label><input name='prepared_on' value='{esc(t['prepared_on'])}'></p>"
-            f"<p><label>담당자</label><input name='prepared_by_name' value='{esc(t['prepared_by_name'])}'></p>"
+            f"<p><label>담당자</label><input name='prepared_by_name' value='{esc(assignee_shown)}'>"
+            # The marker is a hidden field that is always submitted, and the
+            # confirmation is a separate tick. An unchecked checkbox sends
+            # nothing at all, so making the flag itself the checkbox would leave
+            # an un-ticked form indistinguishable from a plain JSON caller.
+            + f"<input type='hidden' name='assignee_form' value='1'>"
+            + (f"<label class='muted'><input type='checkbox' name='assignee_confirmed' value='1'>"
+               "이 담당자가 맞다고 확인해요</label>" if assignee_note else "")
+            + "</p>"
             "<button type='submit'>정보 저장</button></form>"
             f"<form method='post' action='/api/trips/{esc(t['tab_id'])}/meta'>"
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
@@ -1612,13 +1818,40 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
     # hiding fields inside an owner response), and the endpoint refuses the
     # write itself.
     create_html = ""
+    profile_html = ""
     if role == "owner":
+        # The owner's own company name and default assignee. Owner-only, because
+        # it is the source for what every new trip is stamped with, and an empty
+        # field is a legitimate state rather than something to guess at.
+        profile_html = (
+            "<div class='card'><h3>회사·담당자 정보</h3>"
+            "<form method='post' action='/api/owner-profile' id='owner-profile-form'>"
+            f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
+            f"<input type='hidden' name='expected_revision' value='{profile['revision']}'>"
+            f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
+            "<input type='hidden' name='return_to' value='/trips'>"
+            "<p><label>회사명</label>"
+            f"<input name='company_name' value='{esc(profile['company_name'])}'></p>"
+            "<p><label>기본 담당자명</label>"
+            f"<input name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
+            "<p class='muted'>기본 담당자명은 지금부터 새로 만드는 여행에 복사돼요."
+            "이미 있는 여행의 담당자와 작성일은 바뀌지 않아요. "
+            "값을 비워 두면 새 여행의 담당자는 비어 있고, 그때는 아래에서 직접 입력해 주세요."
+            "</p>"
+            "<button type='submit'>출처 정보 저장</button></form></div>")
+        assignee_hint = (
+            ""
+            if profile["assignee_name"]
+            else "<p class='muted warntext'>기본 담당자명이 아직 없어요. "
+                 "이 여행의 담당자는 비어 저장돼요. 출처 정보를 먼저 입력하거나,"
+                 " 만들어진 뒤 여행 정보에서 담당자를 입력해 주세요.</p>")
         create_html = (
             "<div class='card'><h3>새 탭 추가</h3>"
             "<form method='post' action='/api/tabs' id='new-trip-form'>"
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
+            f"{assignee_hint}"
             "<p><label>날짜</label>"
             "<input name='starts_on' placeholder='YYYY-MM-DD' required></p>"
             "<p><label>행선지</label>"
@@ -1672,28 +1905,57 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = (f"<div class='sect'><h2>여행 관리</h2>{create_html}{preview_html}"
+    body = (f"<div class='sect'><h2>여행 관리</h2>{profile_html}{create_html}{preview_html}"
             f"{''.join(cards)}</div>")
     return ledger_design.render(ledger_design.shell(
         "여행 관리", tab_id="", heading="여행 관리", body=body))
 
 
 def export_page() -> str:
-    options = "".join(
-        f"<label><input type='checkbox' name='tab_ids' value='{esc(t['tab_id'])}' checked> "
-        f"{esc(t['display_key'])}</label><br>" for t in live_trips()
-    )
+    from .sheets_export import assignee_needs_confirmation
+
+    store = _active_store()
+    active_trips = live_trips()
+    archived_trips = ([t for t in live_trips(include_archived=True) if t["archived"]]
+                      if store is not None else [])
+    # Only the trips this page actually offers are judged. A deleted trip is not
+    # on the page at all, and counting it would put a number here that names
+    # nothing the owner can see. One call to the one decision function, so the
+    # screen and the export cannot drift apart.
+    shown_ids = [t["tab_id"] for t in active_trips + archived_trips]
+    unconfirmed = set(assignee_needs_confirmation(store, shown_ids)
+                      if store is not None else [])
+
+    def trip_option(trip, suffix="", checked=True):
+        tab_id = trip["tab_id"]
+        note = ""
+        if tab_id in unconfirmed:
+            # The trip keeps the selection the page already gave it. Silently
+            # unticking one would decide the owner's selection for them, and the
+            # export they did not expect would be missing a trip. The note is
+            # what is added.
+            note = (" <span class='muted warntext'>담당자 확인이 필요해요"
+                    " (출처가 기록되지 않은 값이 있어요) · "
+                    "<a href='/trips'>여행 관리에서 확인</a></span>")
+        return (f"<label><input type='checkbox' name='tab_ids'"
+                f" value='{esc(tab_id)}'"
+                + (" checked>" if checked else ">")
+                + f" {esc(trip['display_key'])}{esc(suffix)}{note}</label><br>")
+
+    options = "".join(trip_option(t) for t in active_trips)
     archived = ""
-    if _active_store() is not None:
-        arch = [t for t in live_trips(include_archived=True) if t["archived"]]
-        if arch:
-            archived = "<h3>보관된 여행</h3>" + "".join(
-                f"<label><input type='checkbox' name='tab_ids' value='{esc(t['tab_id'])}'> "
-                f"{esc(t['display_key'])} (보관)</label><br>" for t in arch
-            )
+    if archived_trips:
+        archived = "<h3>보관된 여행</h3>" + "".join(
+            trip_option(t, " (보관)", checked=False) for t in archived_trips
+        )
     counts = ""
     progress_note = ""
     jobs_html = ""
+    # `review_note` is built further down inside the store branch, but the body
+    # below uses it either way. Leaving it undefined made `export_page()` raise
+    # `UnboundLocalError` whenever no store was bound, so the page could not be
+    # rendered at all in that state rather than showing its empty form.
+    review_note = ""
     if _active_store() is not None:
         from .card_import import CardImporter
 
@@ -1772,10 +2034,17 @@ def export_page() -> str:
         "<p class='muted'>저장된 장부 버전으로 출력해요. 미저장 초안은 서버에 없어서 섞이지 않아요. "
         "미확정 행도 화면대로 들어가고 파일에는 상태 표시를 넣지 않아요.</p>"
         f"{progress_note}"
-        "<button type='submit'>출력</button></form>"
+        + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
+            + str(len(unconfirmed))
+            + "개가 있어요. 해당 여행을 선택하면 확인 전에는 출력할 수 없어요. "
+            "<a href='/trips'>여행 관리에서 확인</a></p>")
+           if unconfirmed else "")
+        + "<button type='submit'>출력</button></form>"
         f"<h3>범위 안내</h3>{counts}"
         f"{jobs_html}"
-        f"<p class='muted'>양식 {esc('매출자료 양식_rev')} 구조를 복제해요. 회사·제목·작성 정보는 합성 예시예요.</p></div>"
+        f"<p class='muted'>양식 {esc('매출자료 양식_rev')} 구조를 복제해요. 회사명은 "
+        "여행 관리의 출처 정보에 저장한 값이 쓰이고, 비어 있으면 칸이 비어요. "
+        "제목·작성일·담당자는 저장된 여행의 값 그대로예요.</p></div>"
     )
     from . import ledger_design
 
@@ -2175,6 +2444,9 @@ STATUS_FOR_CODE = {
     "PROVIDER_CONFIG_UNBOUND": 503,
     "EDIT_CONFLICT": 409,
     "REQUEST_ID_REUSED": 409,
+    # An export naming an assignee whose origin was never recorded. Refused whole
+    # rather than produced with a marker on the sheet.
+    "ASSIGNEE_UNCONFIRMED": 409,
     "FIELD_READ_ONLY": 422,
     "INVALID_VALUE": 422,
     "TARGET_NOT_ASSIGNABLE": 422,
@@ -2194,7 +2466,123 @@ STATUS_FOR_CODE = {
 }
 
 
+def _login_entry_body(has_login: bool) -> str:
+    """Pretty static first-screen login card, no query reflection."""
+    style = (
+        "<style>"
+        "body{margin:0;background:#faf6ec;}"
+        ".lg-wrap{box-sizing:border-box;display:flex;align-items:center;"
+        "justify-content:center;min-height:100vh;margin:0;padding:28px 16px;"
+        "background:#faf6ec;}"
+        ".lg-card{box-sizing:border-box;width:100%;max-width:440px;"
+        "background:#fffdf8;border:1px solid #e7ddc6;border-radius:18px;"
+        "padding:32px 28px;text-align:center;"
+        "box-shadow:0 12px 32px rgba(47,93,58,.12),"
+        "0 2px 6px rgba(60,50,30,.06);"
+        "font-family:system-ui,-apple-system,'Segoe UI',Roboto,"
+        "'Noto Sans KR',sans-serif;color:#2b2a26;}"
+        ".lg-logo{display:flex;justify-content:center;margin:0 0 12px;}"
+        ".lg-badge{width:52px;height:52px;border-radius:16px;"
+        "background:#eef3e8;border:1px solid #d8e2cc;display:flex;"
+        "align-items:center;justify-content:center;}"
+        ".lg-brand{margin:0 0 4px;font-size:13px;letter-spacing:.12em;"
+        "color:#5f7a63;font-weight:700;}"
+        ".lg-title{margin:0 0 10px;font-size:28px;line-height:1.25;"
+        "color:#234a2d;}"
+        ".lg-desc{margin:0 0 20px;font-size:15px;line-height:1.65;"
+        "color:#5b5546;}"
+        ".lg-btn{box-sizing:border-box;display:flex;align-items:center;"
+        "justify-content:center;gap:10px;min-height:52px;width:100%;"
+        "padding:12px 16px;border-radius:12px;background:#2f5d3a;color:#fff;"
+        "font-size:17px;font-weight:700;line-height:1.4;text-decoration:none;"
+        "border:1px solid #2f5d3a;}"
+        ".lg-btn:hover{background:#26492f;border-color:#26492f;}"
+        ".lg-btn:focus-visible{outline:3px solid #1b3a23;outline-offset:3px;}"
+        ".lg-g{width:22px;height:22px;border-radius:50%;background:#fff;"
+        "display:inline-flex;align-items:center;justify-content:center;"
+        "flex:none;}"
+        ".lg-note{margin:16px 0 0;font-size:13.5px;line-height:1.6;"
+        "color:#6b6455;}"
+        ".lg-setup{box-sizing:border-box;margin:0;border:1px dashed #b9c4ab;"
+        "border-radius:12px;background:#f2f5ec;padding:14px;font-size:14px;"
+        "line-height:1.65;color:#43563f;}"
+        "@media (max-width:360px){.lg-card{padding:26px 20px;}"
+        ".lg-title{font-size:24px;}}"
+        "@media (prefers-contrast:more){.lg-card{border-color:#234a2d;}"
+        ".lg-desc,.lg-note{color:#2b2a26;}"
+        ".lg-btn{text-decoration:underline;}}"
+        "@media (forced-colors:active){.lg-card{border:2px solid CanvasText;}"
+        ".lg-btn{forced-color-adjust:auto;}}"
+        "</style>"
+    )
+    logo = (
+        "<span class=\"lg-badge\" aria-hidden=\"true\">"
+        "<svg viewBox=\"0 0 32 32\" width=\"30\" height=\"30\">"
+        "<path d=\"M16 3 L24 14 H20.5 L26 22 H6 L11.5 14 H8 Z\" "
+        "fill=\"#2f5d3a\"/>"
+        "<rect x=\"14.7\" y=\"22\" width=\"2.6\" height=\"6\" rx=\"1\" "
+        "fill=\"#7a5a3a\"/>"
+        "<path d=\"M9 27.5 H23\" stroke=\"#7a5a3a\" stroke-width=\"1.6\" "
+        "stroke-linecap=\"round\"/>"
+        "</svg></span>"
+    )
+    google_g = (
+        "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\">"
+        "<path d=\"M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47"
+        "c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 "
+        "3.56-8.82z\" fill=\"#4285F4\"/>"
+        "<path d=\"M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3"
+        "c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29"
+        "v3.09C3.26 21.3 7.31 24 12 24z\" fill=\"#34A853\"/>"
+        "<path d=\"M5.27 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29"
+        "V6.62H1.29C.47 8.24 0 10.06 0 12s.47 3.76 1.29 5.38l3.98-3.09z\" "
+        "fill=\"#FBBC05\"/>"
+        "<path d=\"M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42"
+        "C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09"
+        "C6.22 6.86 8.87 4.75 12 4.75z\" fill=\"#EA4335\"/>"
+        "</svg>"
+    )
+    if has_login:
+        action = (
+            "<a class=\"lg-btn\" href=\"/auth/login\">"
+            "<span class=\"lg-g\" aria-hidden=\"true\">"
+            + google_g +
+            "</span><span>Google 계정으로 로그인</span></a>"
+        )
+    else:
+        action = (
+            "<p class=\"lg-setup\">Google 로그인이 연결되어 있지 않아요. "
+            "배포 환경 설정을 먼저 확인해 주세요.</p>"
+        )
+    return (
+        "<meta name=\"viewport\" "
+        "content=\"width=device-width, initial-scale=1\">"
+        + style +
+        "<main class=\"lg-wrap\"><div class=\"lg-card\">"
+        "<div class=\"lg-logo\">" + logo + "</div>"
+        "<p class=\"lg-brand\">숲길따라</p>"
+        "<h1 class=\"lg-title\">웹 장부</h1>"
+        "<p class=\"lg-desc\">여행별 수입과 지출을 차분히 정리하는 "
+        "장부입니다.</p>"
+        + action +
+        "<p class=\"lg-note\">로그인 후 소유자의 승인이 필요합니다.</p>"
+        "</div></main>"
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
+    def end_headers(self):
+        # Authentication responses own their cookies, including logout clearing.
+        path = self.path.split("?", 1)[0]
+        if not path.startswith("/auth/") and path != "/access/logout":
+            adapter = access_control_session_adapter()
+            renew = getattr(adapter, "renewal_cookie_header", None)
+            if renew is not None:
+                header = renew(self.headers)
+                if header:
+                    self.send_header("Set-Cookie", header)
+        super().end_headers()
+
     def log_message(self, *args):  # keep test output quiet
         pass
 
@@ -2226,11 +2614,16 @@ class Handler(BaseHTTPRequestHandler):
             _REQUEST_STORE.reset(token)
 
     def _send(self, text: str, code: int = 200) -> None:
+        # `no-store` on every HTML answer. The board is a live ledger: a browser
+        # or proxy that may reuse a page or a fragment would show a stale ledger
+        # and call it current, and the cross-screen change check compares against
+        # the same database, so a cached copy would make the two disagree.
         data = text.encode("utf-8")
         try:
             self.send_response(code)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
@@ -2342,8 +2735,10 @@ class Handler(BaseHTTPRequestHandler):
                    refusal="OIDC_NOT_CONFIGURED")
                 return True
             try:
+                from . import card_flow
+                default_return = "/" if card_flow.enabled() else "/board"
                 started = flow.authorization_url(
-                    return_to=(query.get("return_to", ["/board"])[0] or "/board"))
+                    return_to=(query.get("return_to", [default_return])[0] or default_return))
             except OIDCError as exc:
                 self._auth_page("로그인 불가", f"<p>{exc.message}</p>",
                                 code=exc.status, refusal=exc.code)
@@ -2389,7 +2784,10 @@ class Handler(BaseHTTPRequestHandler):
             return True
 
         if path == "/auth/state":
-            state = google_oidc.connection_state(flow)
+            # Presence only: whether a login is connected and whether the
+            # bootstrap window is open. No sub value is exposed here; an
+            # operator learns their own sub from authenticated /access/me.
+            state = google_oidc.connection_state(flow, _ACCESS)
             self._send_json(state)
             return True
 
@@ -2434,7 +2832,10 @@ class Handler(BaseHTTPRequestHandler):
             if found is not None:
                 tab = found.get("display_tab_id") or ""
         if tab != "unclassified" and tab not in valid_tab_ids():
-            tab = "trip-demo-a" if "trip-demo-a" in valid_tab_ids() else ""
+            # The row's own trip is gone, or the URL asked for one that never
+            # existed. Fall back to a trip that does, and to 분류대기 when the
+            # store has none, rather than to a hard-coded example id.
+            tab = default_board_tab()
         draft = {}
         if row_id and payload:
             kind, current = find_row(row_id)
@@ -2466,6 +2867,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        # Default no-store, so a ledger answer cannot be served from a cache. A
+        # caller may still override it, and the health probes do not need to
+        # change: a liveness answer holds no ledger data either way.
+        self.send_header("Cache-Control", "no-store")
         for header_name, header_value in (extra_headers or {}).items():
             self.send_header(header_name, header_value)
         self.end_headers()
@@ -2491,6 +2896,28 @@ class Handler(BaseHTTPRequestHandler):
             if exc.status == 404:
                 self._send("없음", code=404)
                 return
+            if (exc.code == access_control.AUTH_REQUIRED and exc.status == 401
+                    and getattr(self, "command", "") == "GET"):
+                try:
+                    req_path = urlparse(self.path).path
+                except Exception:  # noqa: BLE001 - a bad target stays JSON
+                    req_path = ""
+                if req_path in ("/", "/board", "/review", "/import"):
+                    try:
+                        accept = self.headers.get("Accept") or ""
+                    except Exception:  # noqa: BLE001 - no header stays JSON
+                        accept = ""
+                    accept_lower = str(accept).lower()
+                    wants_json = ("application/json" in accept_lower
+                                  and "text/html" not in accept_lower)
+                    if not wants_json:
+                        if self._oidc_flow() is None:
+                            login_body = _login_entry_body(False)
+                        else:
+                            login_body = _login_entry_body(True)
+                        self._auth_page("웹 장부", login_body, code=401,
+                                        refusal="AUTH_REQUIRED")
+                        return
             self._send_json({"code": exc.code, "message": exc.message},
                             code=exc.status)
             return
@@ -2505,12 +2932,25 @@ class Handler(BaseHTTPRequestHandler):
              "message": "요청을 처리하지 못했어요. 같은 요청으로 다시 확인해 주세요",
              "retry_same_client_request_id": True}, code=500)
 
-    def _phase7_get(self, parsed, query) -> None:
+    def _phase7_get(self, parsed, query) -> bool:
         """Server-side read decision for this request.
 
         SPEC 15.3: the session and the role are checked on the server for every
         read. A viewer gets its own trip list, and any trip it may not read
         answers 404 rather than 403.
+
+        The return value says whether the request has been answered here.
+        `True` means this function wrote the whole response; `False` means it
+        deliberately wrote nothing so `do_GET` should go on to the owner's own
+        rendering. There is no third case: every route below either answers or
+        raises, and a raise is turned into a refusal by `_phase7_refuse`.
+
+        Why it has to be returned rather than left to the caller: an answer written
+        here used to fall through into the owner's rendering in `do_GET`, and a
+        second response went out on the same connection. A viewer's `/board` then
+        carried an owner `live-config`, with an owner token, as a second body. The
+        first response is what a normal client reads, so the leak was invisible
+        except over a raw socket.
         """
         from . import access_control
 
@@ -2520,13 +2960,13 @@ class Handler(BaseHTTPRequestHandler):
         # The access screens answer for both roles.
         if path == "/access/me":
             self._send_json(access_control_render_viewer_status(session, _ACCESS))
-            return
+            return True
         if path == "/access/admin":
             if not is_owner_session(session):
                 # the account management screen is an owner action
                 deny_for_viewer(action=True)
             self._send(access_control_render_owner_admin(session, _ACCESS))
-            return
+            return True
         if path == "/access/providers":
             if not is_owner_session(session):
                 # configuring a provider key is an owner action
@@ -2535,10 +2975,45 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(
                     {"code": "PROVIDER_CONFIG_UNBOUND",
                      "message": "제공자 설정이 연결되지 않았어요"}, code=503)
-                return
+                return True
             self._send(access_control_render_provider_config(
                 session, _PROVIDER_CONFIG.public_status()))
-            return
+            return True
+        if path in ("/reserve-links", "/api/reserve-link/plan",
+                    "/api/reserve-link/state"):
+            # Owner-only, like the review screen it feeds. A viewer learns neither
+            # the source roster nor the link set.
+            if not is_owner_session(session):
+                deny_for_viewer(action=True)
+            self._reserve_link_response(path)
+            return True
+        if path == "/api/review/apply/plan":
+            # A plan is a read, but it is a read of the owner's choices against
+            # the real source, so it sits behind the same owner gate as the
+            # comparison itself rather than being published to a viewer.
+            if not is_owner_session(session):
+                deny_for_viewer(action=True)
+            self._send_json(self._review_apply_plan())
+            return True
+        if path in ("/review", "/api/review/model", "/api/review/guidance"):
+            if not is_owner_session(session):
+                # The comparison is over the actual source and every card
+                # candidate. It is an owner action, so the refusal is about the
+                # action and not about whether a particular row exists.
+                deny_for_viewer(action=True)
+            from . import card_flow
+            if path=='/review' and card_flow.enabled():
+                return False
+            if self._handle_review_get(path, query):
+                return True
+            return False
+        if path == "/api/live/state":
+            # SPEC 15.3: the session and the role are decided on the server for
+            # every poll, exactly as for a page load. A poll is a read, so a
+            # trip the caller may not read answers 404 rather than 403, and the
+            # token is computed only over the trips this caller may read.
+            self._live_sync_state(session, query)
+            return True
         if path == "/access/rows":
             tab = query.get("tab", [""])[0]
             if not tab:
@@ -2563,7 +3038,7 @@ class Handler(BaseHTTPRequestHandler):
                                         "expense_krw": expense,
                                         "balance_krw": income - expense},
                              "row_count": len(projected)})
-            return
+            return True
         if path.startswith("/evidence/preview/"):
             evidence_id = path.rsplit("/", 1)[-1]
             try:
@@ -2572,14 +3047,17 @@ class Handler(BaseHTTPRequestHandler):
             except access_control.AccessError:
                 deny_for_viewer()
             self._send_json(preview)
-            return
+            return True
         if path.startswith("/evidence/original/"):
             # There is no original-evidence route for anyone on the board.
             deny_for_viewer()
 
         if is_owner_session(session):
-            # An owner keeps every existing screen unchanged.
-            return
+            # An owner keeps every existing screen unchanged. `False` means this
+            # path deliberately answered nothing, so `do_GET` carries on to the
+            # owner's own rendering. Saying `True` here would be the bug in reverse:
+            # the owner would get a blank 200 instead of the board.
+            return False
         if any(path == p or path.startswith(p + "/")
                for p in access_control.OWNER_ONLY_PATHS):
             # /export, /import, /trips, /rules, xlsx job lookup and download are
@@ -2591,7 +3069,7 @@ class Handler(BaseHTTPRequestHandler):
             if tab:
                 _ACCESS.require_view_tab(session.user_id, tab)
             self._send(access_control_render_viewer_board(session, _ACCESS, tab))
-            return
+            return True
         if path == "/row":
             row_id = query.get("id", [""])[0]
             kind, row = find_row(row_id)
@@ -2604,7 +3082,7 @@ class Handler(BaseHTTPRequestHandler):
             if projected is None:
                 deny_for_viewer()
             self._send(access_control_render_viewer_row(session, projected))
-            return
+            return True
         if path.startswith("/income/"):
             source_id = parts_value(path)
             row = _active_store().get_row(source_id) if _active_store() is not None else None
@@ -2613,8 +3091,56 @@ class Handler(BaseHTTPRequestHandler):
             _ACCESS.require_view_tab(session.user_id,
                                      row.get("display_tab_id") or "")
             self._send(access_control_render_viewer_income(session, row))
-            return
+            return True
         deny_for_viewer()
+
+    def _live_sync_state(self, session, query) -> None:
+        """The cross-screen change check, decided on the server every time.
+
+        Two answers. A `?token=` poll gets JSON with the current token and
+        whether it moved. An `X-Part: live-state` request gets the page
+        fragments, and only the caller's own: the owner sees its own board, a
+        viewer sees the trips its allowlist names and nothing else.
+
+        Both are `no-store`. A cached poll would make a screen report a stale
+        ledger as current, which is the one thing a change check must not do.
+        """
+        from . import live_sync
+
+        tab = query.get("tab", [""])[0]
+        q = query.get("q", [""])[0]
+        kind = query.get("kind", [""])[0]
+        arch = query.get("arch", [""])[0]
+        row_id = query.get("row", [""])[0]
+        presented = query.get("token", [""])[0]
+        # No access store bound means the single-operator server, where this
+        # request is already the owner's own read.
+        owner = session is None or is_owner_session(session)
+        if owner:
+            token = live_sync.owner_token(_active_store(), tab)
+        else:
+            allowed = viewer_visible_tabs(session)
+            if tab:
+                # A trip the caller may not read is 404, the same answer the page
+                # load gives, so polling cannot be used to map what exists.
+                _ACCESS.require_view_tab(session.user_id, tab)
+            token = live_sync.viewer_token(_active_store(), allowed)
+        wants_fragments = (self.headers.get("X-Part") or "") == "live-state"
+        if wants_fragments:
+            if owner:
+                body = live_sync.owner_fragments(
+                    _active_store(), tab, q, kind, row_id, arch)
+            else:
+                body = live_sync.viewer_fragments(
+                    session, _ACCESS, _active_store(), tab)
+            self._send(body)
+            return
+        self._send_json(
+            {"tab": tab, "token": token,
+             "changed": live_sync.tokens_differ(presented, token),
+             "role": "owner" if owner else "viewer",
+             "poll_interval_ms": live_sync.POLL_INTERVAL_MS},
+            extra_headers={"Cache-Control": "no-store"})
 
     def _phase7_write(self, parsed, content_type: str, raw: bytes) -> bool:
         """Server-side write decision, taken before the body is dispatched.
@@ -2804,6 +3330,32 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"result": result})
             return True
 
+        if path in ("/api/review/decisions", "/api/review/export",
+                    "/api/review/apply", "/api/reserve-link/links",
+                    "/api/reserve-link/apply", "/api/review/guidance/save",
+                    "/api/review/guidance/rule-preview", "/api/review/guidance/rule-apply"):
+            if not is_owner_session(session):
+                # Saving a decision is an owner action. A viewer never reaches
+                # the body, so the decision cannot be written on their behalf.
+                # Applying them is further along still, and is on the same gate.
+                deny_for_viewer(action=True)
+            if "application/json" not in (content_type or ""):
+                self._send_json({"code": "CONTENT_TYPE_MISMATCH",
+                                 "message": "JSON으로만 보낼 수 있어요"},
+                                code=415)
+                return True
+            if not self._review_write_guards(payload):
+                return True
+            if path == "/api/review/apply":
+                self._handle_review_apply(payload)
+                return True
+            if path in ("/api/reserve-link/links", "/api/reserve-link/apply"):
+                self._reserve_link_write(path, payload)
+                return True
+            if path.startswith("/api/review/guidance/"):
+                return self._handle_review_guidance(path, payload)
+            return self._handle_review_post(path, payload)
+
         if is_owner_session(session):
             return False
         # Every other write is an owner capability: row saves, moves, the rule
@@ -2811,6 +3363,506 @@ class Handler(BaseHTTPRequestHandler):
         # refusal is decided before the body reaches a handler, so it never
         # depends on whether the named resource exists.
         deny_for_viewer(action=True)
+
+    def _review_leads_here(self) -> bool:
+        """Should a bare `/` or `/board` open the review instead of the board?
+
+        Three things have to be true, and all three are about the data rather
+        than about the request: a review has to be configured, the operational
+        board has to be empty, and the configured source has to still be exactly
+        what its manifest bound. The first is cheap to refuse, the second is the
+        user's actual situation, and the third is what stops a changed source from
+        sending someone to a page that will only refuse.
+        """
+        from . import real_review
+
+        service = self._review_service()
+        if service is None:
+            return False
+        try:
+            if not service.is_available():
+                return False
+        except Exception:
+            return False
+        if live_trips():
+            return False
+        return not (_expense_rows() or _income_rows())
+
+    # ------------------------------------------------- the review routes
+    def _review_service(self):
+        from . import real_review
+
+        return real_review.active_service()
+
+    def _review_config_error(self) -> str:
+        from . import real_review
+
+        return real_review.config_error()
+
+    def _review_refuse(self, code: str, status: int = 409) -> None:
+        from . import real_review
+
+        self._send_json({"code": code, "message": _REVIEW_MESSAGES.get(
+            code, "실제 자료 검토를 진행할 수 없어요")}, code=status)
+
+    def _handle_review_get(self, path: str, query: dict) -> bool:
+        """`/review` and `/api/review/model`, for an owner, answered here.
+
+        The role has already been decided by `_phase7_get` before this is
+        called. A refusal is answered with a fixed code and no path, no value and
+        no file content, because this route reads real source data.
+        """
+        if path == "/api/review/guidance":
+            return self._handle_review_guidance(path, {
+                "ref": query.get("ref", [""])[0],
+                "binding": query.get("binding", [""])[0],
+            })
+        from . import real_review
+        from . import real_review_ui
+
+        service = self._review_service()
+        if service is None:
+            # Not configured, or configured with something unusable. Either way the
+            # feature is unavailable and it never falls back to anything that could
+            # be mistaken for real data. A manifest that was set but refused is
+            # named as such, because "not set" and "set and broken" are different
+            # things for whoever is looking at it.
+            if path == "/api/review/model":
+                self._review_refuse(self._review_config_error()
+                                    or real_review.CODE_UNAVAILABLE, 503)
+            else:
+                self._send(_REVIEW_UNCONFIGURED_PAGE, code=503)
+            return True
+        try:
+            if path == "/api/review/model":
+                # `?state_only=1` is the two-second poll: the binding, the revision
+                # and the counts, with no source rows and no choices. The full
+                # comparison is read on load and when that revision moves.
+                wanted = (query.get("state_only", [""])[0] or "").strip()
+                if wanted not in ("", "0"):
+                    if wanted != "1":
+                        self._review_refuse("INVALID_ARGUMENT", 400)
+                        return True
+                    self._send_json(service.state_only_payload())
+                else:
+                    self._send_json(service.model_payload())
+            else:
+                self._send(real_review_ui.render_real_review_ui(CSRF_TOKEN))
+        except real_review.RealReviewError as exc:
+            if path == "/api/review/model":
+                self._review_refuse(exc.code, 503)
+            else:
+                self._send(_REVIEW_UNCONFIGURED_PAGE, code=503)
+        except Exception:
+            if path == "/api/review/model":
+                self._review_refuse(real_review.CODE_INTERNAL, 500)
+            else:
+                self._send(_REVIEW_UNCONFIGURED_PAGE, code=503)
+        return True
+
+    def _review_allowed_origin(self) -> set:
+        """The origins a review write may come from, and no others.
+
+        A configured `WEBLEDGER_PUBLIC_BASE_URL` is the whole answer: the write
+        must come from exactly that origin. The request's own `Host` is not used
+        as an alternative, because a Host header is chosen by whoever is making the
+        request, and accepting `http://` of it as well as `https://` would accept
+        a downgrade the published app never offers.
+
+        With nothing configured the origin is this server's own address, built
+        from the socket it is listening on rather than from a header. That is what
+        a local synthetic run uses, and it is the only case that can reach a
+        review at all.
+        """
+        configured = os.environ.get(_REVIEW_PUBLIC_BASE_URL_ENV, "").strip()
+        if configured:
+            parts = urlsplit(configured if "//" in configured
+                             else "https://" + configured)
+            origin = f"{parts.scheme}://{parts.netloc}"
+            return {origin.rstrip("/")}
+        host, port = self.server.server_address[0], self.server.server_address[1]
+        return {f"http://{host}:{port}"}
+
+    def _review_write_guards(self, payload: dict) -> bool:
+        """Origin and CSRF for a review write. False means already refused.
+
+        The Origin has to be one this server will accept, and only that: a
+        cross-site form or fetch sends the attacker's origin, so this is what stops
+        a page elsewhere from saving a decision into someone's review.
+
+        The CSRF token is the board's existing one and is compared with `!=`,
+        exactly as every other write on this server does. Requiring both is not
+        redundant: the Origin check is a header a browser controls, and the token
+        is one a cross-site reader cannot read.
+        """
+        origin = (self.headers.get("Origin") or "").strip().rstrip("/")
+        if not origin:
+            self._review_refuse("ORIGIN_REQUIRED", 403)
+            return False
+        if origin not in self._review_allowed_origin():
+            self._review_refuse("ORIGIN_MISMATCH", 403)
+            return False
+        token = payload.get("csrf") or self.headers.get("X-CSRF-Token") or ""
+        if token != CSRF_TOKEN:
+            self._review_refuse("CSRF_REQUIRED", 403)
+            return False
+        return True
+
+    # -- explicit reservation-to-ledger links ---------------------------
+    def _reserve_link_payload(self) -> dict:
+        """Everything the owner screen shows, in one payload.
+
+        Three states, and they are different states rather than one with empty
+        fields: no configuration, a configured source, and a configured source the
+        ledger has no events for yet. Pending input is never filled in with example
+        data — an owner looking at placeholder rows cannot tell them from real
+        ones.
+        """
+        from . import reserve_link
+
+        config = reserve_link.load_source_config()
+        if not config.get("configured"):
+            return {"configured": False, "code": config.get("code", ""),
+                    "choices": reserve_link.ledger_event_choices(self._reserve_store()),
+                    "counts": {"choices": len(
+                        reserve_link.ledger_event_choices(
+                            self._reserve_store()))}}
+        store = self._reserve_store()
+        try:
+            snapshot = reserve_link.read_source(config)
+        except reserve_link.ReserveLinkError as exc:
+            # The configuration exists but the file no longer answers to it. The
+            # screen says so and shows nothing else, rather than a stale roster.
+            return {"configured": True, "readable": False, "code": exc.code,
+                    "choices": reserve_link.ledger_event_choices(store),
+                    "counts": {"choices": len(
+                        reserve_link.ledger_event_choices(store))}}
+        plan = reserve_link.build_plan(store, snapshot)
+        return {
+            "configured": True,
+            "readable": True,
+            "binding": plan["binding"],
+            "link_version": plan["link_version"],
+            "link_revision": plan["link_revision"],
+            "link_digest": plan["link_digest"],
+            "apply_digest": plan["apply_digest"],
+            "applicable": plan["applicable"],
+            "refusal_code": plan.get("refusal_code", ""),
+            "counts": plan["counts"],
+            "per_identifier": plan["per_identifier"],
+            "unlinked": plan["unlinked"],
+            "persons": [{"reservation_person_id": item["reservation_person_id"],
+                         "display_name": item["display_name"],
+                         "is_active": item["is_active"],
+                         "assignments": item["assignments"],
+                         "connected": len(item["connected"])}
+                        for item in plan["persons"]],
+            "choices": reserve_link.ledger_event_choices(store),
+        }
+
+    def _reserve_store(self):
+        """The access store these links live in.
+
+        The links are access records, so they belong to `_ACCESS` — the store the
+        server is enforcing with — and not to the ledger store, which does not know
+        what a reservation identifier is.
+        """
+        return _ACCESS if _ACCESS is not None else None
+
+    def _reserve_link_response(self, path: str) -> None:
+        from . import reserve_link
+
+        if path == "/reserve-links":
+            from . import reserve_link_ui
+            # Nothing is interpolated into the document: the screen fetches the
+            # payload over the authenticated route, so a copy of this HTML carries
+            # no source identifier and no person.
+            self._send(reserve_link_ui.render_reserve_link_ui(CSRF_TOKEN))
+            return
+        payload = self._reserve_link_payload()
+        if path == "/api/reserve-link/state":
+            payload = {"configured": payload.get("configured", False),
+                       "link_revision": payload.get("link_revision", 0),
+                       "link_version": payload.get("link_version", 0),
+                       "link_digest": payload.get("link_digest", ""),
+                       "binding": payload.get("binding"),
+                       "counts": payload.get("counts", {})}
+        self._send_json(payload)
+
+    def _reserve_owner_id(self) -> str:
+        """The account id of the owner whose session just passed the gate.
+
+        `current_session` is the same resolution the gate itself used, so this
+        cannot disagree with it: if the gate let the request through, this is that
+        owner, and it is read-only.
+        """
+        try:
+            resolved = current_session(self.headers, self._cookies())
+        except Exception:
+            return ""
+        return getattr(resolved, "user_id", "") or ""
+
+    def _reserve_link_write(self, path: str, payload: dict) -> None:
+        """Save links, or run the apply. Both owner-only, both CSRF-checked."""
+        from . import access_control, ledger_apply, real_review, reserve_link
+
+        store = self._reserve_store()
+        if store is None:
+            self._review_refuse("STORE_UNBOUND", 503)
+            return
+        config = reserve_link.load_source_config()
+        if not config.get("configured"):
+            self._review_refuse(reserve_link.CODE_CONFIG_REQUIRED, 409)
+            return
+        try:
+            snapshot = reserve_link.read_source(config)
+        except reserve_link.ReserveLinkError as exc:
+            self._review_refuse(exc.code, 409)
+            return
+        # The owner is already proven by the gate the caller passed. This asks the
+        # access store for the account id behind that same decision rather than
+        # re-deciding it, so a link can never be attributed to somebody the server
+        # has not just identified.
+        owner_id = self._reserve_owner_id()
+        if not owner_id:
+            self._review_refuse(real_review.CODE_UNAVAILABLE, 403)
+            return
+        try:
+            if path == "/api/reserve-link/links":
+                result = reserve_link.save_links(store, snapshot, payload,
+                                                 owner_id=owner_id)
+            else:
+                result = reserve_link.apply_plan(
+                    store, snapshot,
+                    request_id=payload.get("request_id"),
+                    presented_binding=payload.get("source_binding"),
+                    presented_link_revision=payload.get("link_revision"),
+                    presented_apply_digest=payload.get("apply_digest"),
+                    owner_id=owner_id)
+        except reserve_link.ReserveLinkError as exc:
+            # A malformed request is the caller's to fix (400); a stale one is a
+            # conflict the caller resolves by re-reading (409). Both are refusals,
+            # but they ask different things of the person holding the screen.
+            if exc.code in (reserve_link.CODE_APPLY_TARGET_UNAVAILABLE,
+                            reserve_link.CODE_APPLY_TARGET_DELETED,
+                            reserve_link.CODE_APPLY_TARGET_MISSING,
+                            reserve_link.CODE_FIELD_INVALID,
+                            reserve_link.CODE_FIELD_MISSING,
+                            reserve_link.CODE_IDENTIFIER_NOT_IN_SOURCE,
+                            reserve_link.CODE_TARGET_NOT_FOUND,
+                            reserve_link.CODE_TARGET_DELETED,
+                            reserve_link.CODE_DUPLICATE_TARGET,
+                            reserve_link.CODE_SOURCE_HASH_MISMATCH,
+                            reserve_link.CODE_SOURCE_UNREADABLE):
+                self._review_refuse(exc.code, 400)
+                return
+            self._review_refuse(exc.code, 409)
+            return
+        except (real_review.RealReviewError, access_control.AccessError) as exc:
+            # Both carry a fixed code and a status. `save_links` reports a stale
+            # source or a link set another device changed by raising `AccessError`,
+            # and it was landing on the generic handler below — a 500, which told
+            # the caller the product had broken, gave the screen no code to show,
+            # and read as "try again" when the real answer is "re-read and decide".
+            # The code and status are carried through unchanged, so nothing about
+            # the refusal itself is restated here.
+            self._review_refuse(exc.code, exc.status or 409)
+            return
+        except Exception as exc:
+            from .ledger_store import SaveError
+
+            if isinstance(exc, SaveError):
+                self._review_refuse(exc.code, 409)
+                return
+            self._review_refuse("REVIEW_INTERNAL_ERROR", 500)
+            return
+        self._send_json(result)
+
+    def _review_apply_plan(self) -> dict:
+        """The owner's plan, or a refusal in a fixed code.
+
+        Nothing is written here. Building the plan reads the stored bundle and the
+        stored choices, so what the owner is shown is exactly what an apply would
+        use — and an unsaved choice on the screen is not part of it.
+        """
+        from . import ledger_apply
+
+        service = self._review_service()
+        store = _active_store()
+        if service is None:
+            return {"code": self._review_config_error() or "REVIEW_UNAVAILABLE",
+                    "counts": {}}
+        try:
+            plan = ledger_apply.build_apply_plan(service, store)
+        except ledger_apply.ApplyPlanError as exc:
+            self._review_refuse(exc.code, 400)
+            return {}
+        # The facts themselves are not echoed. The owner is told the counts, the
+        # binding they were made against and the per-ref codes, which is what a
+        # decision needs; the seventeen columns stay on disk where they came from.
+        return {
+            "binding": plan["binding"],
+            "choices_revision": plan["choices_revision"],
+            "snapshot_sha256": plan["snapshot_sha256"],
+            "plan_digest": plan["plan_digest"],
+            # The counts say which of two units each one is counting. The owner is
+            # looking at review rows on screen and card transactions in the
+            # ledger, and adding the two together would be a number about
+            # nothing.
+            "counts": plan["counts"],
+            "units": plan["units"],
+            "held_refs": plan["held_refs"],
+            "conflicts": plan["conflicts"],
+            "already_applied": plan["already_applied"],
+            "transactions": [{"ref": item["ref"],
+                              "source_event_key": item["chosen_candidate_key"],
+                              "fact_digest": item["fact_digest"]}
+                             for item in plan["transactions"]],
+        }
+
+    def _handle_review_apply(self, payload: dict) -> None:
+        """Run the plan, once, after checking everything it depends on.
+
+        Owner-only, CSRF-checked and exact-origin checked by the caller, the same
+        as a decision save. There is no automatic path into here: this runs only
+        when the owner asks for it by name.
+        """
+        from . import ledger_apply, real_review
+
+        store = _active_store()
+        if store is None:
+            self._review_refuse("STORE_UNBOUND", 503)
+            return
+        # Every part of the request has to be here, and has to be the right shape.
+        #
+        # A missing field is not filled in with a default. `plan_digest` absent
+        # would otherwise mean "trust whatever the server plans now", and
+        # `transactions` absent would mean "apply everything currently approved" —
+        # so a request that names only a request id would write real rows. Both are
+        # refused before anything is read or written.
+        required = {
+            "request_id": str,
+            "binding": str,
+            "plan_digest": str,
+            "choices_revision": int,
+        }
+        for field, kind in required.items():
+            value = payload.get(field)
+            if type(value) is not kind or value == "":
+                self._review_refuse(ledger_apply.CODE_PLAN_INPUT_INVALID, 400)
+                return
+        # Present and a list. An *empty* list is not refused here: it is a plan with
+        # nothing in it, and the core answers that with its own code so the owner
+        # is told "nothing to apply" rather than "your request was malformed".
+        if not isinstance(payload.get("transactions"), list):
+            self._review_refuse(ledger_apply.CODE_PLAN_INPUT_INVALID, 400)
+            return
+        try:
+            result = ledger_apply.apply_apply_plan(
+                self._review_service(), store,
+                request_id=payload["request_id"],
+                presented_binding=payload["binding"],
+                presented_revision=payload["choices_revision"],
+                presented_plan_digest=payload["plan_digest"],
+                presented_transactions=payload["transactions"])
+        except ledger_apply.ApplyPlanError as exc:
+            # Nothing here is worth retrying on its own: the bundle moved, the
+            # choices moved, or there is nothing to write. The owner is told which
+            # and the plan is read again.
+            self._review_refuse(exc.code, 409)
+            return
+        except real_review.RealReviewError as exc:
+            self._review_refuse(exc.code, 409)
+            return
+        except Exception as exc:
+            from .ledger_store import SaveError
+
+            if isinstance(exc, SaveError):
+                self._review_refuse(exc.code, 409)
+                return
+            self._review_refuse("REVIEW_INTERNAL_ERROR", 500)
+            return
+        self._send_json({
+            "counts": result["counts"],
+            "request_id": result["request_id"],
+            "binding": result["binding"],
+            "choices_revision": result["choices_revision"],
+            "conflicts": result["conflicts"],
+        })
+
+    def _handle_review_guidance(self, path: str, payload: dict) -> bool:
+        """Owner-only source answers and classification previews, behind CSRF."""
+        from . import real_review
+        from .review_guidance import GuidanceService, GuidanceError
+
+        review = self._review_service()
+        if review is None:
+            self._review_refuse(self._review_config_error()
+                                or real_review.CODE_UNAVAILABLE, 503)
+            return True
+        try:
+            guidance = GuidanceService(review, _active_store())
+            if path == "/api/review/guidance":
+                result = guidance.get(payload.get("ref"), payload.get("binding"))
+            elif path == "/api/review/guidance/save":
+                result = guidance.save(**{key: payload.get(key) for key in (
+                    "ref", "binding", "note", "item", "description",
+                    "expected_revision", "request_id")})
+            elif path == "/api/review/guidance/rule-preview":
+                result = guidance.rule_preview(**{key: payload.get(key) for key in (
+                    "ref", "binding", "note", "item", "description",
+                    "condition_candidate_key", "apply_existing", "apply_future", "request_id")})
+            else:
+                result = guidance.apply_rule(**{key: payload.get(key) for key in (
+                    "ref", "binding", "preview_id", "apply_existing", "apply_future", "request_id")})
+            self._send_json(result)
+        except GuidanceError as exc:
+            status = 409 if "CONFLICT" in exc.code or "STALE" in exc.code else 422
+            self._send_json({"code": exc.code, "message": exc.message}, code=status)
+        except real_review.RealReviewError as exc:
+            self._review_refuse(exc.code, 409 if "CONFLICT" in exc.code else 503)
+        except Exception:
+            self._review_refuse(real_review.CODE_INTERNAL, 500)
+        return True
+
+    def _handle_review_post(self, path: str, payload: dict) -> bool:
+        """`/api/review/decisions` and `/api/review/export`, for an owner."""
+        from . import real_review
+
+        service = self._review_service()
+        if service is None:
+            self._review_refuse(self._review_config_error()
+                                or real_review.CODE_UNAVAILABLE, 503)
+            return True
+        try:
+            if path == "/api/review/decisions":
+                decisions = payload.get("decisions")
+                expected = payload.get("expected_revision")
+                if type(decisions) is not list or type(expected) is not int \
+                        or isinstance(expected, bool):
+                    self._review_refuse(
+                        real_review.CODE_INTERNAL, 400)
+                    return True
+                saved = service.save_decisions(decisions, expected,
+                                               payload.get("binding"))
+                self._send_json({"revision": saved["revision"]})
+            else:
+                decisions = payload.get("decisions")
+                if decisions is not None and type(decisions) is not list:
+                    self._review_refuse(real_review.CODE_INTERNAL, 400)
+                    return True
+                self._send_json(service.export(decisions, payload.get("binding")))
+        except real_review.RealReviewError as exc:
+            if exc.code in (real_review.CODE_REVISION_CONFLICT,
+                            real_review.CODE_BINDING_CONFLICT):
+                self._review_refuse(exc.code, 409)
+            elif exc.code in _REVIEW_CLIENT_CODES:
+                self._review_refuse(exc.code, 400)
+            else:
+                self._review_refuse(exc.code, 503)
+        except Exception:
+            self._review_refuse(real_review.CODE_INTERNAL, 500)
+        return True
 
     def _phase7_payload(self, content_type: str, raw: bytes) -> dict:
         if "application/json" in content_type:
@@ -2848,7 +3900,7 @@ class Handler(BaseHTTPRequestHandler):
             # A second definition of the same name was defined here first and
             # silently shadowed the real one, so the probe answered with the
             # whole `[status, body]` pair as its payload.
-            self._send_json(body, code, {"Cache-Control": "no-store"})
+            self._send_json(body, code)
             return
         # The login, callback, logout and state routes are answered before role
         # resolution, because a caller with no session is exactly who needs
@@ -2857,15 +3909,46 @@ class Handler(BaseHTTPRequestHandler):
             return
         resolve_role(self.headers, self._cookies())
         if ACCESS_ENFORCEMENT:
+            # `_phase7_get` reports whether it answered. When it did, the request
+            # is finished: falling through would render the owner's board and write
+            # a second response on this connection. Only an owner pass-through
+            # (`False`) continues below.
             try:
-                self._phase7_get(parsed, query)
+                if self._phase7_get(parsed, query):
+                    return
             except Exception as exc:
                 self._phase7_refuse(exc)
                 return
+        from . import card_flow
+        if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
+            return
+        if card_flow.enabled() and parsed.path == '/review':
+            self.send_response(303)
+            self.send_header('Location', '/import')
+            self.send_header('Content-Length', '0')
+            self.send_header('Cache-Control', 'no-store')
+            self.end_headers()
+            return
         if parsed.path in ("/", "/board"):
             from . import ledger_design
 
-            tab = query.get("tab", ["trip-demo-a"])[0]
+            # An owner whose operational board is empty is sent to the actual
+            # source comparison, because that is the work waiting for them. Only
+            # when the request named no tab at all: `/board?tab=unclassified` is
+            # a deliberate request for the operational board and is answered as
+            # one. Only when the configured source is still exactly what was
+            # bound, so a broken or changed manifest cannot bounce anyone into a
+            # page that cannot answer. Only here, which is the owner
+            # pass-through: a viewer was answered inside `_phase7_get` above and
+            # never reaches this line.
+            if "tab" not in query and not card_flow.enabled() and self._review_leads_here():
+                self.send_response(303)
+                self.send_header("Location", "/review")
+                self.send_header("Content-Length", "0")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+            tab = query.get("tab", [default_board_tab()])[0]
             q = query.get("q", [""])[0]
             kind = query.get("kind", [""])[0]
             row_id = query.get("row", [""])[0]
@@ -2884,11 +3967,38 @@ class Handler(BaseHTTPRequestHandler):
             if part == "summary":
                 self._send(ledger_design.summary_part(tab, kind, q))
                 return
+            from . import live_sync
+
             fragment = ledger_design.page(
                 tab, q, kind, row_id,
                 message=query.get("msg", [""])[0],
                 archived=query.get("arch", [""])[0])
-            self._send(ledger_design.render(fragment))
+            self._send(ledger_design.render(
+                fragment, live_config=live_sync.client_config(
+                    live_sync.owner_token(_active_store(), tab), tab, q, kind,
+                    role="owner",
+                    archived=query.get("arch", [""])[0], selected=row_id)))
+            return
+        if parsed.path == "/api/live/state":
+            # Only reachable when no access store is bound: the enforcement branch
+            # above answers this path itself and returns.
+            #
+            # This branch must never run for an authenticated caller. `_phase7_get`
+            # has already written the session-checked answer by the time control
+            # gets here, so writing a second one would put two documents on the
+            # same connection — the second computed from `session=None`, which
+            # means the owner scope, for a caller who may only read one trip. A
+            # client that reads the first Content-Length sees the right answer and
+            # a client that reads the whole stream sees both. The guard below makes
+            # that unrepresentable rather than merely unlikely.
+            if ACCESS_ENFORCEMENT:
+                # A refusal or an answer was already written above. Writing
+                # anything now is the second response this block exists to prevent.
+                return
+            # The single-operator server has no access store, so there is no
+            # session to check. The token is still computed from the database, so
+            # a restart cannot look like an edit here either.
+            self._live_sync_state(None, query)
             return
         if parsed.path.startswith("/assets/fonts/"):
             from . import ledger_design
@@ -3059,6 +4169,9 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        from . import card_flow
+        if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
+            return
         if parsed.path == "/api/imports":
             if _IMPORTER is None:
                 self._send_json({"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"}, code=503)
@@ -3139,6 +4252,12 @@ class Handler(BaseHTTPRequestHandler):
                 # log in again before this body is read, so this path answers
                 # under the same rule as the tab paths that exist.
                 self._handle_trip_create(read_payload, check_csrf, content_type)
+                return
+            if len(parts) == 2 and parts[0] == "api" and parts[1] == "owner-profile":
+                # The owner boundary is not decided here: `_phase7_write` has
+                # already refused a viewer on any write, exactly as it does for
+                # the tab and trip paths.
+                self._handle_owner_profile(read_payload, check_csrf, content_type)
                 return
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "trips" and parts[3] == "meta":
                 self._handle_trip_meta(parts[2], read_payload, check_csrf, content_type)
@@ -3794,8 +4913,9 @@ class Handler(BaseHTTPRequestHandler):
         from pathlib import Path
 
         from .ledger_store import SaveError
-        from .sheets_export import (build_workbook, file_sha256, get_job,
-                                    publish_workbook, record_job)
+        from .sheets_export import (UnconfirmedAssigneeError, build_workbook,
+                                    file_sha256, get_job, publish_workbook,
+                                    record_job)
 
         try:
             payload = read_payload()
@@ -3844,11 +4964,61 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"code": exc.code, "message": str(exc)},
                             code=STATUS_FOR_CODE.get(exc.code, 422))
             return
+        except UnconfirmedAssigneeError as exc:
+            # Refused whole, before any sheet exists. The trips are named so the
+            # owner can go and confirm them through the explicit trip meta path;
+            # no file is produced carrying a name nobody claimed.
+            self._send_json(exc.as_payload(), code=exc.status)
+            return
         if "application/json" in content_type:
             self._send_json(job, code=200)
         else:
             self.send_response(303)
             self.send_header("Location", f"/api/exports/{job_id}/download")
+            self.end_headers()
+
+    def _handle_owner_profile(self, read_payload, check_csrf, content_type) -> None:
+        """`POST /api/owner-profile`: the owner names the company and default assignee.
+
+        Owner-only, CSRF-checked and revision-checked, reusing the same
+        `_phase7_write` boundary every other write in this handler sits behind, so
+        a viewer is refused before the body is read and no new gate is introduced.
+
+        An empty name is stored rather than refused: "not set yet" is a real state
+        for a default, and a field that can be filled once but never cleared is
+        worse than one that starts empty.
+        """
+        from .ledger_store import SaveError
+
+        try:
+            payload = read_payload()
+            check_csrf(payload)
+            try:
+                expected_revision = int(payload.get("expected_revision", ""))
+            except (TypeError, ValueError):
+                raise SaveError("INVALID_VALUE", "revision이 필요해요")
+            kwargs = {}
+            for key in ("company_name", "assignee_name"):
+                if key in payload:
+                    kwargs[key] = payload[key]
+            store = _active_store()
+            if store is None:
+                raise SaveError("INVALID_VALUE", "저장소가 연결되지 않았어요")
+            result = store.save_owner_profile(
+                expected_revision=expected_revision,
+                client_request_id=str(payload.get("client_request_id") or ""),
+                actor="owner", **kwargs,
+            )
+        except SaveError as exc:
+            self._send_json({"code": exc.code, "message": str(exc)},
+                            code=STATUS_FOR_CODE.get(exc.code, 422))
+            return
+        if "application/json" in content_type:
+            self._send_json(result, code=200)
+        else:
+            back = str(payload.get("return_to") or "") or "/trips"
+            self.send_response(303)
+            self.send_header("Location", back)
             self.end_headers()
 
     def _handle_trip_meta(self, tab_id, read_payload, check_csrf, content_type) -> None:
@@ -3862,12 +5032,38 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError):
                 raise SaveError("INVALID_VALUE", "revision이 필요해요")
             kwargs = {}
-            for key in ("display_key", "prepared_on", "prepared_by_name"):
+            for key in ("display_key", "prepared_on"):
                 if key in payload:
                     kwargs[key] = payload[key]
             if "archived" in payload:
                 value = payload["archived"]
                 kwargs["archived"] = str(value).strip().lower() not in ("", "0", "false", "no")
+            if "prepared_by_name" in payload:
+                # A caller that sends the field on its own is stating the
+                # assignee, which is the existing contract and is honoured here.
+                #
+                # The trip form is the one caller that must not: it carries every
+                # field on the trip, so a rename alone would arrive carrying the
+                # assignee too, and saving it would record that the owner
+                # confirmed a name they never looked at. The form says so by
+                # sending `assignee_confirmed`, and then the value is compared
+                # against what the server holds — so a changed name is an
+                # explicit edit and an unchanged one counts only when the owner
+                # ticked the confirmation.
+                explicit_form = "assignee_form" in payload
+                submitted = str(payload.get("prepared_by_name") or "")
+                if not explicit_form:
+                    kwargs["prepared_by_name"] = payload["prepared_by_name"]
+                else:
+                    confirmed = str(payload.get("assignee_confirmed") or "")
+                    ticked = confirmed.strip().lower() not in ("", "0", "false", "no")
+                    current = _active_store().get_trip(tab_id)
+                    held = str((current or {}).get("prepared_by_name") or "")
+                    if submitted != held or ticked:
+                        kwargs["prepared_by_name"] = submitted
+                    # Otherwise the field is dropped here on the server. Hiding
+                    # it in the page with script would leave the promotion
+                    # reachable by anyone who posts the form by hand.
             result = _active_store().save_trip_meta(
                 tab_id=tab_id, expected_revision=expected_revision,
                 client_request_id=str(payload.get("client_request_id") or ""),
@@ -4212,7 +5408,8 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
         db_path = os.environ.get("WEBLEDGER_DB", "webledger.work.sqlite")
     store = LedgerStore(db_path, seed_demo=seed_demo)
     bind_store(store)
-    bind_importer(CardImporter(store.conn, store))
+    from . import card_flow
+    bind_importer(None if card_flow.enabled() else CardImporter(store.conn, store))
     # Loopback stays the default. 19.2 wants only the HTTPS app path exposed,
     # so a different address is the caller's stated decision, not a default
     # this module makes on its own.
@@ -4230,7 +5427,7 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     server.daemon_threads = True
     server.store_lock = threading.RLock()
     worker = None
-    if with_worker:
+    if with_worker and not card_flow.enabled():
         worker = CardWorker(db_path)
         worker.start()
     server.card_worker = worker

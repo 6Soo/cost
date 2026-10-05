@@ -13,7 +13,20 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Mapping
 
-from ledger.domain.direct_sources import _strict_json_bytes
+def _strict_json_bytes(raw_bytes, label):
+    def unique_pairs(pairs):
+        result = {}
+        for key,value in pairs:
+            if key in result:
+                raise ValueError(f'{label}_duplicate_key:{key}')
+            result[key]=value
+        return result
+    try:
+        return json.loads(raw_bytes.decode('utf-8'),object_pairs_hook=unique_pairs,
+                          parse_constant=lambda value: (_ for _ in ()).throw(
+                              ValueError(f'{label}_nonfinite:{value}')))
+    except (UnicodeDecodeError,json.JSONDecodeError) as exc:
+        raise ValueError(f'{label}_json_invalid') from exc
 
 
 SCHEMA_VERSION = "reservation-access-snapshot-v1"

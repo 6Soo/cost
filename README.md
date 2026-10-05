@@ -1,83 +1,35 @@
-# 숲길여행 비용처리 자동화
+# 숲길여행 비용처리
 
-최신 재개 안내는 [2026-09-27 세션 인계](docs/handoff/2026-09-27/README.md)다.
-웹 장부는 `python run_candidate.py`로 합성 데이터와 함께 실행한다.
-Phase 6 규칙 대화와 A/Ramp/Pretendard 화면을 포함하며 실제 AI와 운영 배포는 미완료다.
+카드 파일 업로드 → 규칙으로 자동 분류 → 미확정 거래만 확인 → 결과 미리보기 → 장부에 기록.
 
-주식회사 숲길여행의 법인카드 비용처리(분류 → 장부 기록 → 시각화)를 자동화한다.
+[메인 화면](https://ledger.foresttour.kr/)에서 저장된 카드 자료, 확인할 거래, 장부 기록과 출발 예정 여행을 확인한다. [카드 검토 화면](https://ledger.foresttour.kr/import)에서는 기존 실제 자료 다섯 개를 카드사·거래 기간·건수로 선택하며 확인할 거래가 많은 자료부터 연다. 이전 변환용 파일명은 상세 정보에서만 표시하고 원본은 그대로 보존한다. 새 파일은 `새 카드 파일 추가`를 열어 올린다. 답변을 저장하면 즉시 다시 분류하며, 같은 조건에 재사용할 규칙도 저장할 수 있다. 장부 기록은 미리보기를 확인하고 버튼을 누를 때만 수행한다.
 
-> **이어받는 세션은 [`AGENTS.md`](AGENTS.md)부터 읽을 것** — 최신 핸드오프와 작업별
-> 필독 문서의 순서는 이 공통 진입점에서 관리한다.
+2026-10-05 운영 확인 기준으로 카드 자료 1,676건과 확인할 거래 116건이 저장돼 있다. 과거 완료 결과, 예약 자료와 사용자 허용 추론을 참고한 분류에는 근거와 확신 정도를 표시한다. 정리 완료된 2025년과 2026년 1분기 3,652건은 내부에 보존하고 검토 화면과 신규 장부 기록에서 제외한다. 실제 장부 기록은 아직 0건이며, 카드 분류 결과와 장부 기록 건수는 별도로 표시한다.
 
-여러 에이전트의 목표와 반복 실행 기준은 [공통 실행 규약](docs/AGENT_EXECUTION_CONTRACT.md)에,
-확정된 판단과 사용자 답변 대기는 [결정 등록부](docs/DECISION_REGISTER.md)에 정리되어 있다.
-의미 해시와 반복 실행 검증의 최신 결과는 [멱등 실행 추가 인계](docs/handoff/2026-09-08/IDEMPOTENCY_UPDATE.md)에 있다.
+장부의 정본은 운영 SQLite 하나다. 로컬과 웹의 수정은 같은 DB에 저장하며 카드 검토 화면은 다른 기기의 변경을 주기적으로 불러온다. XLSX와 Google Sheets는 출력 대상이다.
 
-전체 실행 경로의 최신 점검과 개선 설계는
-[`docs/PIPELINE_REVIEW_2026-09-07.md`](docs/PIPELINE_REVIEW_2026-09-07.md)에 있다.
-보존된 v15 워크북과 v5 OTA shadow는 행수·합계 확인만으로 회계 정본으로 사용하면 안 된다.
-아래 초기 설계 설명과 현재 코드·운영 상태의 차이도 이 점검 문서에서 확인한다.
+[여행 관리 화면](https://ledger.foresttour.kr/trips)에는 reserve 모집글의 댓글이 5개 이상인 출발 예정 여행을 자동 등록한다. 한국 시간 매일 0시에 하루 한 번 조회하며, 명시된 출발일이 오늘 이후인 여행을 중복 없이 등록한다. 2026-10-05 확인 기준으로 전체 여행 40개와 출발 예정 여행 16개가 있다.
 
-최신 구현과 검증 기록은 [2026-09-08 인계](docs/handoff/2026-09-08/README.md)에 있다.
-로컬 진단은 다음 명령으로 실행한다. 원본 파일을 바꾸지 않으며 외부 전기를 실행하지 않는다.
+PC 장부는 거래 테이블과 우측 편집 패널을 중심으로 검색·수정·저장·이전과 다음 거래 이동을 연결한다. 모바일은 두 줄 거래 목록을 사용한다. 카드 검토는 한 페이지 20건을 접기형 목록으로 표시한다. 원본 정보는 필요할 때 펼쳐 보고, 미저장 입력과 저장 중인 요청은 이동과 자동 갱신에서 보호한다.
+
+## 실행
+
+개발용 합성 자료는 운영 자료와 분리한다.
 
 ```powershell
-python -m tools.pipeline_audit --root . --inventory config/pipeline_inventory.json
+$env:WEBLEDGER_CARD_FLOW='1'
+$env:WEBLEDGER_UNIFIED_DB='1'
+python run_candidate.py --data-root C:\AX\cost-dev-data --environment local-synthetic --synthetic-sessions
 ```
 
-진단에서 `ok`는 실제 검사한 파일·구조 항목의 통과를 뜻한다. 전체 업무 정확성이나 게시 승인을
-뜻하지 않으며, 현재 보존 자료의 감사 해시 불일치는 오류로 보고된다.
+- [업무 규칙](docs/business_rules.md)
+- [구조](docs/architecture.md)
+- [카드 처리와 API](docs/card_pipeline.md)
+- [OTA 메일 대조](docs/ota_mail.md)
+- [카드 자료 수집 기준](docs/card_downloads.md)
+- [장부 화면과 검증](webapp/DESIGN_REVIEW.md)
+- [운영 상태와 검증](docs/operations.md)
 
-## 왜 Google Apps Script인가 (핵심 설계 결정)
+화면·데이터 관련 검사는 통과했다. 전체 웹 검사는 778개와 하위 검증 67개 통과 후 기존 서버 시작 테스트 3개 실패에서 중단됐다. 변경 전 사본에서도 같은 실패를 확인했으며 상세 결과는 운영 문서에 기록했다. 원본 자료, 운영 DB, 실행 로그와 인계 백업은 로컬에 보존하고 Git에 추가하지 않는다.
 
-- **Apps Script는 사용자의 구글 계정 권한으로 구글 서버에서 실행**된다.
-  - `SpreadsheetApp.openById()` 로 관련 시트 5개(+앞으로 만들 시트)를 **추가 공유 0회**로 접근.
-  - 읽기·장부 기록·셀 색칠 전부 계정 내부에서 처리 → 데이터가 밖으로 나가지 않음.
-- 실행 전 해당 계정의 권한과 현재 배포 상태를 확인해야 한다. 로컬 Google Workspace
-  커넥터 접근 가능 여부도 실제 읽기 호출로 확인하며, 특정 앱이나 환경 이름만으로 단정하지 않는다.
-
-이 리포는 그 Apps Script 코드와 설계 문서의 **원본(source of truth)** 이다.
-
-## 대상 시트
-
-| 역할 | 스프레드시트 ID | 비고 |
-|---|---|---|
-| RAW 카드내역 ①| `1nYxV9UM9rMRjEhnhdc8evE2xb3z6RxgWd5f5ci6PPdE` | 카드사 다운로드분 업로드 |
-| RAW 카드내역 ②| `11jjbN882fdQDcIexuzX-l0yBw02VgIna1jhnJNMkN_o` | |
-| RAW 카드내역 ③| `1SiOftobiUJSxSdvBEKL9AmxgQkjzkzDjs2O_8SBoyh4` | |
-| 26년 1분기 **완료** 장부 | `1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8` | 학습(정답) 자료 |
-| 26년 **진행** 장부 | `1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU` | 기록 대상 |
-
-## 프로세스 (현재 → 재설계)
-
-원래 4단계:
-1. (수동) 카드사에서 사용내역 받아 RAW 시트 업로드
-2. 내역을 보고 어떤 비용인지 **추론**
-3. 판단 완료분을 가공해 **장부 시트에 전기**
-4. RAW 시트에 **배경색**으로 상태 표기 (완료 / 매출취소 / 흰색=미분류)
-
-재설계: **2~4단계를 한 번의 "정산 실행"으로 통합**하고 멱등(idempotent)하게.
-자세한 내용은 [`docs/design.md`](docs/design.md).
-
-## 로드맵 — 미해결 3과제는 전부 "이메일"로 수렴
-
-법인카드 수집 API, 트립닷컴/아고다/부킹 실사용일, 네이버페이/카카오페이 내역 —
-셋 다 오픈 API가 없고, 실질 해법이 전부 **이메일 파싱**이다.
-→ 개별 프로젝트로 흩어지지 말고 **이메일 인제스천 계층 하나**로 통합 설계.
-자세한 내용은 [`docs/roadmap.md`](docs/roadmap.md).
-
-## 구성
-
-```
-apps-script/      운영 Google Apps Script 자동전기·메일 연동 코드
-ledger/           Python 비용분류 파이프라인과 버전별 레거시 빌더
-ledger/domain/    SQLite 기반 v2 도메인 모델·직접 적재·전환 게이트
-ledger/tests/     v2 도메인·원천 어댑터·전환 회귀 테스트
-ledger/data/      재현 입력, 레거시 정본, 생성 워크북
-ledger/baselines/ v2 회귀 기준선과 전환 게이트 결과
-docs/             설계·운영·비용분류 규칙·세션 인계 문서
-tools/            파이프라인 빌더·읽기 전용 진단·선택적 LLM 브리지
-```
-
-현재 운영 정본과 v2 병렬 경로, 주요 진입 명령, 브랜치 정리 기준은
-[`docs/REPOSITORY_STRUCTURE.md`](docs/REPOSITORY_STRUCTURE.md)에 정리되어 있다.
+변경 전 코드와 문서는 .local-archive/lightweight-20261003/before.zip에 보존했다. 운영 데이터는 별도로 백업했다. 재부팅과 앱 재설치 없이 운영 전환했다.

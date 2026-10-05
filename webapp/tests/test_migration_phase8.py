@@ -7,6 +7,7 @@ then only read. `test_the_sources_are_never_written` checks the originals are
 byte-identical afterwards.
 """
 
+import copy
 import json
 import os
 import sqlite3
@@ -486,6 +487,570 @@ class Phase8ImportTests(unittest.TestCase):
             self.assertEqual(row[1], "")
         finally:
             store.close()
+
+
+class ReviewedImportPlanTests(unittest.TestCase):
+    """Sol-approved Phase B: deterministic read-only eligible-import plan.
+
+    Synthetic dict fixtures only. No workbook, CSV, customer data, DB or
+    external service is touched here except the no-side-effects check, which
+    reuses the synthetic importer temporary DBs from this file.
+    """
+
+    SNAP = "a" * 64
+    OTHER_SNAP = "b" * 64
+
+    def row(self, ref, keys, *, disposition="matched", approved=True,
+            chosen=None, note="", binding=None, count="auto"):
+        if isinstance(keys, (list, tuple)):
+            candidates = list(keys)
+        else:
+            candidates = keys
+        payload = {
+            "source_ref_snapshot_only": ref,
+            "candidate_transaction_keys": candidates,
+            "disposition": disposition,
+            "approved": approved,
+            "chosen_candidate_key": chosen,
+            "review_note": note,
+            "review_snapshot_sha256": self.SNAP if binding is None else binding,
+        }
+        if count == "auto":
+            if isinstance(candidates, list):
+                payload["candidate_count"] = len(candidates)
+        elif count != "omit":
+            payload["candidate_count"] = count
+        return payload
+
+    def test_empty_decisions_zero_eligible(self):
+        plan = migration.build_reviewed_import_plan(self.SNAP, [])
+        self.assertEqual(plan["counts"], {"eligible": 0, "refused": 0, "total": 0})
+        self.assertEqual(plan["eligible"], [])
+        self.assertEqual(plan["refused"], [])
+        self.assertEqual(plan["snapshot_sha256"], self.SNAP)
+        self.assertTrue(plan["plan_digest"])
+
+    def test_single_candidate_unapproved_refused(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1"], approved=False,
+                                 chosen="tx-1", note="n1")])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"], "NOT_APPROVED")
+        self.assertEqual(plan["refused"][0]["review_note"], "n1")
+
+    def test_single_candidate_explicit_approval_eligible(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1"], approved=True,
+                                 chosen="tx-1", note="ok")])
+        self.assertEqual(plan["counts"]["eligible"], 1)
+        item = plan["eligible"][0]
+        self.assertEqual(item["source_ref_snapshot_only"], "ref-001")
+        self.assertEqual(item["chosen_candidate_key"], "tx-1")
+        self.assertEqual(item["review_note"], "ok")
+        self.assertTrue(item["plan_id"].startswith("rip-"))
+
+    def test_single_candidate_missing_or_wrong_selection_refused(self):
+        missing = self.row("ref-001", ["tx-1"], approved=True,
+                           chosen="", note="m")
+        wrong = self.row("ref-002", ["tx-1"], approved=True,
+                         chosen="tx-9", note="w")
+        none_row = dict(self.row("ref-003", ["tx-1"], approved=True,
+                                 note="n"))
+        none_row["chosen_candidate_key"] = None
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [missing, wrong, none_row])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        by_ref = {r["source_ref_snapshot_only"]: r for r in plan["refused"]}
+        self.assertEqual(by_ref["ref-001"]["reason_code"], "MISSING_SELECTED_KEY")
+        self.assertEqual(by_ref["ref-002"]["reason_code"],
+                         "SELECTION_NOT_IN_CANDIDATES")
+        self.assertEqual(by_ref["ref-003"]["reason_code"],
+                         "INVALID_SELECTED_KEY_TYPE")
+        # the selection is never inferred from the single candidate
+        self.assertEqual(by_ref["ref-001"]["review_note"], "m")
+
+    def test_multi_blank_hold_reject_refused(self):
+        rows = [
+            self.row("ref-001", ["tx-1", "tx-2"], approved=False, chosen="tx-1"),
+            self.row("ref-002", ["tx-1", "tx-2"], approved=False,
+                     chosen="tx-1"),
+            self.row("ref-003", ["tx-1", "tx-2"], approved=False,
+                     chosen="tx-2"),
+            self.row("ref-004", ["tx-1", "tx-2"], approved="Approve",
+                     chosen="tx-1"),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["counts"]["refused"], 4)
+        for entry in plan["refused"]:
+            self.assertEqual(entry["reason_code"], "NOT_APPROVED")
+
+    def test_multi_approval_with_one_valid_selected_key_eligible(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1", "tx-2"],
+                                 approved=True, chosen="tx-2",
+                                 note="keep")])
+        self.assertEqual(plan["counts"]["eligible"], 1)
+        self.assertEqual(plan["eligible"][0]["chosen_candidate_key"], "tx-2")
+        self.assertEqual(plan["eligible"][0]["review_note"], "keep")
+
+    def test_multi_invalid_ambiguous_selection_refused(self):
+        rows = [
+            self.row("ref-001", ["tx-1", "tx-2"], approved=True,
+                     chosen=""),
+            self.row("ref-002", ["tx-1", "tx-2"], approved=True,
+                     chosen="tx-9"),
+            self.row("ref-003", ["tx-1", "tx-2"], approved=True,
+                     chosen="tx-1,tx-2"),
+            # strict exact match: padded whitespace is not the candidate
+            self.row("ref-004", ["tx-1", "tx-2"], approved=True,
+                     chosen=" tx-1 "),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        by_ref = {r["source_ref_snapshot_only"]: r for r in plan["refused"]}
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(by_ref["ref-001"]["reason_code"], "MISSING_SELECTED_KEY")
+        self.assertEqual(by_ref["ref-002"]["reason_code"],
+                         "SELECTION_NOT_IN_CANDIDATES")
+        self.assertEqual(by_ref["ref-003"]["reason_code"],
+                         "SELECTION_NOT_IN_CANDIDATES")
+        self.assertEqual(by_ref["ref-004"]["reason_code"],
+                         "SELECTION_NOT_IN_CANDIDATES")
+
+    def test_unmatched_approval_refused(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1"], disposition="unmatched",
+                                 approved=True, chosen="tx-1")])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"],
+                         "UNMATCHED_DISPOSITION")
+
+    def test_zero_candidates_and_inconsistent_count_refused(self):
+        zero = self.row("ref-001", [], approved=True, chosen="tx-1")
+        inconsistent = self.row("ref-002", ["tx-1", "tx-2"], approved=True,
+                                chosen="tx-1", count=1)
+        plan = migration.build_reviewed_import_plan(self.SNAP, [zero, inconsistent])
+        by_ref = {r["source_ref_snapshot_only"]: r for r in plan["refused"]}
+        self.assertEqual(by_ref["ref-001"]["reason_code"], "ZERO_CANDIDATES")
+        self.assertEqual(by_ref["ref-002"]["reason_code"],
+                         "INCONSISTENT_CANDIDATES")
+
+    def test_missing_ref_hash_target_binding_refused(self):
+        no_ref = self.row("", ["tx-1"], approved=True, chosen="tx-1")
+        no_binding = self.row("ref-002", ["tx-1"], approved=True,
+                              chosen="tx-1", binding="")
+        bad_binding = self.row("ref-003", ["tx-1"], approved=True,
+                               chosen="tx-1", binding="c" * 64)
+        no_target = self.row("ref-004", ["tx-1"], approved=True,
+                             chosen="")
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [no_ref, no_binding, bad_binding, no_target])
+        by_ref = {r["source_ref_snapshot_only"]: r for r in plan["refused"]}
+        self.assertEqual(by_ref[""]["reason_code"], "MISSING_REF")
+        self.assertEqual(by_ref["ref-002"]["reason_code"], "MISSING_BINDING")
+        self.assertEqual(by_ref["ref-003"]["reason_code"], "BINDING_MISMATCH")
+        self.assertEqual(by_ref["ref-004"]["reason_code"], "MISSING_SELECTED_KEY")
+        # missing current snapshot hash fails closed for every row
+        empty_snap = migration.build_reviewed_import_plan(
+            "", [self.row("ref-009", ["tx-1"], approved=True,
+                          chosen="tx-1")])
+        self.assertEqual(empty_snap["counts"]["eligible"], 0)
+        self.assertEqual(empty_snap["refused"][0]["reason_code"],
+                         "MISSING_SNAPSHOT_HASH")
+
+    def test_duplicate_refs_refused(self):
+        rows = [
+            self.row("ref-dup", ["tx-1"], approved=True, chosen="tx-1"),
+            self.row("ref-dup", ["tx-1"], approved=True, chosen="tx-1"),
+            self.row("ref-ok", ["tx-1"], approved=True, chosen="tx-1"),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(plan["counts"]["eligible"], 1)
+        self.assertEqual(plan["eligible"][0]["source_ref_snapshot_only"], "ref-ok")
+        dups = [r for r in plan["refused"]
+                if r["source_ref_snapshot_only"] == "ref-dup"]
+        self.assertEqual(len(dups), 2)
+        for entry in dups:
+            self.assertEqual(entry["reason_code"], "DUPLICATE_REF")
+
+    def test_changed_snapshot_hash_does_not_reuse_an_approval(self):
+        rows = [self.row("ref-001", ["tx-1"], approved=True,
+                         chosen="tx-1")]
+        first = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(first["counts"]["eligible"], 1)
+        # same rows under a new snapshot hash: the old binding no longer matches
+        second = migration.build_reviewed_import_plan(self.OTHER_SNAP, rows)
+        self.assertEqual(second["counts"]["eligible"], 0)
+        self.assertEqual(second["refused"][0]["reason_code"], "BINDING_MISMATCH")
+
+    def test_deterministic_repeated_plan_and_ordering(self):
+        rows = [
+            self.row("ref-b", ["tx-2"], approved=True, chosen="tx-2"),
+            self.row("ref-a", ["tx-1"], approved=True, chosen="tx-1"),
+            self.row("ref-c", ["tx-3", "tx-4"], approved=True,
+                     chosen="tx-4", note="z"),
+        ]
+        first = migration.build_reviewed_import_plan(self.SNAP, rows)
+        second = migration.build_reviewed_import_plan(self.SNAP, list(rows))
+        self.assertEqual(first, second)
+        self.assertEqual([e["source_ref_snapshot_only"] for e in first["eligible"]],
+                         ["ref-a", "ref-b", "ref-c"])
+        self.assertEqual(first["plan_digest"], second["plan_digest"])
+        ids_first = [e["plan_id"] for e in first["eligible"]]
+        self.assertEqual(len(set(ids_first)), 3)
+        # reversed input still yields the same deterministic order/ids/digest
+        reversed_plan = migration.build_reviewed_import_plan(
+            self.SNAP, list(reversed(rows)))
+        self.assertEqual(reversed_plan["eligible"], first["eligible"])
+        self.assertEqual(reversed_plan["plan_digest"], first["plan_digest"])
+
+    def test_plan_generation_makes_no_db_changes(self):
+        tmp = Path(tempfile.mkdtemp(prefix="phase8-plan-"))
+        left = migration.build_source_db(tmp / "google.sqlite", LEFT,
+                                         side="google")
+        right = migration.build_source_db(tmp / "db.sqlite", RIGHT, side="db")
+        gate = tmp / "gate_report.json"
+        gate.write_text(json.dumps({
+            "run_id": "phase8-plan-run",
+            "candidate_semantic_sha256": "a" * 64,
+        }, ensure_ascii=False), encoding="utf-8")
+        migration_db = tmp / "migration.sqlite"
+        migration.run_import(
+            left_db=left, right_db=right, migration_db=migration_db,
+            work_dir=tmp / "sealed", user_id="syn-owner-O",
+            client_request_id="p8-plan-noop", left_gate=gate, right_gate=gate,
+            decisions={"g2": {"amount_krw": "right"},
+                       "g3": {"occurred_on": "left"}})
+        store = migration.MigrationStore(migration_db)
+        try:
+            before_rows = store.conn.execute(
+                "SELECT COUNT(*) FROM migration_rows").fetchone()[0]
+            before_events = store.conn.execute(
+                "SELECT COUNT(*) FROM migration_events").fetchone()[0]
+            before_requests = store.conn.execute(
+                "SELECT COUNT(*) FROM migration_requests").fetchone()[0]
+        finally:
+            store.close()
+        digest_before = migration.sha256_file(migration_db)
+        rows = [self.row("ref-001", ["tx-1"], approved=True,
+                         chosen="tx-1")]
+        for _ in range(2):
+            plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+            self.assertEqual(plan["counts"]["eligible"], 1)
+        self.assertEqual(migration.sha256_file(migration_db), digest_before)
+        store = migration.MigrationStore(migration_db)
+        try:
+            self.assertEqual(store.conn.execute(
+                "SELECT COUNT(*) FROM migration_rows").fetchone()[0],
+                before_rows)
+            self.assertEqual(store.conn.execute(
+                "SELECT COUNT(*) FROM migration_events").fetchone()[0],
+                before_events)
+            self.assertEqual(store.conn.execute(
+                "SELECT COUNT(*) FROM migration_requests").fetchone()[0],
+                before_requests)
+        finally:
+            store.close()
+
+
+    def test_raw_manifest_dispositions_refused_and_normalized_succeeds(self):
+        raw = [
+            self.row("ref-raw-1", ["tx-1"],
+                     disposition="candidate_review_required",
+                     approved=True, chosen="tx-1"),
+            self.row("ref-raw-2", ["tx-1"],
+                     disposition="unmatched_review_required",
+                     approved=True, chosen="tx-1"),
+        ]
+        refused_plan = migration.build_reviewed_import_plan(self.SNAP, raw)
+        self.assertEqual(refused_plan["counts"]["eligible"], 0)
+        for entry in refused_plan["refused"]:
+            self.assertEqual(entry["reason_code"], "UNMATCHED_DISPOSITION")
+        # the same rows, validly normalized after human approval, succeed
+        normalized = [
+            self.row("ref-raw-1", ["tx-1"], disposition="matched",
+                     approved=True, chosen="tx-1", note="human ok"),
+            self.row("ref-raw-2", ["tx-1"], disposition="matched",
+                     approved=True, chosen="tx-1"),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, normalized)
+        self.assertEqual(plan["counts"]["eligible"], 2)
+        self.assertEqual(plan["eligible"][0]["review_note"], "human ok")
+
+    def test_blank_approval_zero_eligible(self):
+        rows = [
+            self.row("ref-001", ["tx-1"], disposition="matched",
+                     approved=False, chosen="tx-1"),
+            self.row("ref-002", ["tx-1", "tx-2"], disposition="matched",
+                     approved=False, chosen="tx-2"),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        for entry in plan["refused"]:
+            self.assertEqual(entry["reason_code"], "NOT_APPROVED")
+        missing = dict(self.row("ref-003", ["tx-1"], disposition="matched",
+                                chosen="tx-1"))
+        del missing["approved"]
+        plan2 = migration.build_reviewed_import_plan(self.SNAP, [missing])
+        self.assertEqual(plan2["counts"]["eligible"], 0)
+        self.assertEqual(plan2["refused"][0]["reason_code"], "NOT_APPROVED")
+
+    def test_candidate_set_change_changes_digest(self):
+        base = [self.row("ref-001", ["tx-1", "tx-2"], disposition="matched",
+                         approved=True, chosen="tx-1")]
+        changed = [self.row("ref-001", ["tx-1", "tx-3"], disposition="matched",
+                            approved=True, chosen="tx-1")]
+        plan_base = migration.build_reviewed_import_plan(self.SNAP, base)
+        plan_changed = migration.build_reviewed_import_plan(self.SNAP, changed)
+        self.assertEqual(plan_base["counts"]["eligible"], 1)
+        self.assertEqual(plan_changed["counts"]["eligible"], 1)
+        self.assertNotEqual(plan_base["plan_digest"], plan_changed["plan_digest"])
+        # candidate order is not meaningful: reordered keys, same digest
+        reordered = [self.row("ref-001", ["tx-2", "tx-1"], disposition="matched",
+                              approved=True, chosen="tx-1")]
+        plan_reordered = migration.build_reviewed_import_plan(
+            self.SNAP, reordered)
+        self.assertEqual(plan_reordered["eligible"], plan_base["eligible"])
+        self.assertEqual(plan_reordered["plan_digest"], plan_base["plan_digest"])
+        self.assertEqual(plan_base["eligible"][0]["candidate_transaction_keys"],
+                         ["tx-1", "tx-2"])
+        # a tuple reaches the implementation as a tuple (the row helper's
+        # list conversion is bypassed) yet yields the same plan and digest
+        tuple_row = self.row("ref-001", ["tx-1", "tx-2"],
+                             disposition="matched", approved=True,
+                             chosen="tx-1")
+        tuple_row["candidate_transaction_keys"] = ("tx-2", "tx-1")
+        plan_tuple = migration.build_reviewed_import_plan(
+            self.SNAP, [tuple_row])
+        self.assertEqual(plan_tuple["eligible"], plan_base["eligible"])
+        self.assertEqual(plan_tuple["plan_digest"], plan_base["plan_digest"])
+
+    def test_different_string_containers_share_refusal_digest(self):
+        # a raw string container is an invalid container: only its stable
+        # kind marker feeds the digest, never its raw value
+        first = [self.row("ref-001", "tx-1", disposition="matched",
+                          approved=True, chosen="tx-1", count="omit")]
+        second = [self.row("ref-001", "zz-9", disposition="matched",
+                           approved=True, chosen="tx-1", count="omit")]
+        plan_first = migration.build_reviewed_import_plan(self.SNAP, first)
+        plan_second = migration.build_reviewed_import_plan(self.SNAP, second)
+        self.assertEqual(plan_first["refused"][0]["reason_code"],
+                         "INCONSISTENT_CANDIDATES")
+        self.assertEqual(plan_second["refused"][0]["reason_code"],
+                         "INCONSISTENT_CANDIDATES")
+        self.assertEqual(plan_first["plan_digest"], plan_second["plan_digest"])
+
+    def test_changed_valid_snapshot_matching_binding_changes_digest(self):
+        rows = [self.row("ref-001", ["tx-1"], disposition="matched",
+                         approved=True, chosen="tx-1")]
+        first = migration.build_reviewed_import_plan(self.SNAP, rows)
+        other_rows = [self.row("ref-001", ["tx-1"], disposition="matched",
+                               approved=True, chosen="tx-1",
+                               binding=self.OTHER_SNAP)]
+        second = migration.build_reviewed_import_plan(self.OTHER_SNAP,
+                                                      other_rows)
+        self.assertEqual(first["counts"]["eligible"], 1)
+        self.assertEqual(second["counts"]["eligible"], 1)
+        self.assertNotEqual(first["plan_digest"], second["plan_digest"])
+        self.assertNotEqual(first["eligible"][0]["plan_id"],
+                            second["eligible"][0]["plan_id"])
+        # mismatched binding under the new snapshot stays refused
+        stale = migration.build_reviewed_import_plan(self.OTHER_SNAP, rows)
+        self.assertEqual(stale["counts"]["eligible"], 0)
+        self.assertEqual(stale["refused"][0]["reason_code"], "BINDING_MISMATCH")
+
+    def test_strict_typing_rejected(self):
+        rows = [
+            # non-string ref
+            self.row(123, ["tx-1"], approved=True, chosen="tx-1"),
+            # non-string chosen key
+            self.row("ref-int-chosen", ["tx-1"], approved=True, chosen=7),
+            # non-string binding
+            self.row("ref-int-binding", ["tx-1"], approved=True,
+                     chosen="tx-1", binding=12345),
+            # candidate list itself is a string
+            self.row("ref-str-list", "tx-1", approved=True, chosen="tx-1",
+                     count="omit"),
+            # non-string candidate entry
+            self.row("ref-int-entry", ["tx-1", 5], approved=True,
+                     chosen="tx-1", count="omit"),
+            # duplicate candidate entries
+            self.row("ref-dup-entry", ["tx-1", "tx-1"], approved=True,
+                     chosen="tx-1", count="omit"),
+            # candidate_count float / bool / string / negative
+            self.row("ref-float-count", ["tx-1"], approved=True,
+                     chosen="tx-1", count=1.0),
+            self.row("ref-bool-count", ["tx-1"], approved=True,
+                     chosen="tx-1", count=True),
+            self.row("ref-str-count", ["tx-1"], approved=True,
+                     chosen="tx-1", count="1"),
+            self.row("ref-neg-count", ["tx-1"], approved=True,
+                     chosen="tx-1", count=-1),
+            # approved truthy non-bool values
+            self.row("ref-int-approved", ["tx-1"], approved=1, chosen="tx-1"),
+            self.row("ref-str-approved", ["tx-1"], approved="approve",
+                     chosen="tx-1"),
+        ]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["counts"]["refused"], len(rows))
+        by_ref = {r["source_ref_snapshot_only"]: r for r in plan["refused"]}
+        self.assertEqual(by_ref[""]["reason_code"], "INVALID_REF_TYPE")
+        self.assertEqual(by_ref["ref-int-chosen"]["reason_code"],
+                         "INVALID_SELECTED_KEY_TYPE")
+        self.assertEqual(by_ref["ref-int-binding"]["reason_code"],
+                         "INVALID_BINDING_TYPE")
+        for ref in ("ref-str-list", "ref-int-entry", "ref-dup-entry",
+                    "ref-float-count", "ref-bool-count", "ref-str-count",
+                    "ref-neg-count"):
+            self.assertEqual(by_ref[ref]["reason_code"],
+                             "INCONSISTENT_CANDIDATES", ref)
+        for ref in ("ref-int-approved", "ref-str-approved"):
+            self.assertEqual(by_ref[ref]["reason_code"], "NOT_APPROVED", ref)
+        # non-string current snapshot hash fails every row closed
+        bad_snap = migration.build_reviewed_import_plan(
+            12345, [self.row("ref-001", ["tx-1"], approved=True,
+                             chosen="tx-1")])
+        self.assertEqual(bad_snap["counts"]["eligible"], 0)
+        self.assertEqual(bad_snap["refused"][0]["reason_code"],
+                         "INVALID_SNAPSHOT_HASH_TYPE")
+
+    def test_delimiter_collision_tuples_produce_distinct_plan_ids(self):
+        left = [self.row("a|b", ["c"], disposition="matched",
+                         approved=True, chosen="c")]
+        right = [self.row("a", ["b|c"], disposition="matched",
+                          approved=True, chosen="b|c")]
+        plan_left = migration.build_reviewed_import_plan(self.SNAP, left)
+        plan_right = migration.build_reviewed_import_plan(self.SNAP, right)
+        self.assertEqual(plan_left["counts"]["eligible"], 1)
+        self.assertEqual(plan_right["counts"]["eligible"], 1)
+        # old delimiter-joined text would hash the same string for both
+        legacy_left = f"{self.SNAP}|a|b|c"
+        legacy_right = f"{self.SNAP}|a|b|c"
+        self.assertEqual(legacy_left, legacy_right)
+        self.assertNotEqual(plan_left["eligible"][0]["plan_id"],
+                            plan_right["eligible"][0]["plan_id"])
+
+
+    def test_whitespace_only_ref_rejected(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("   ", ["tx-1"], disposition="matched",
+                                 approved=True, chosen="tx-1")])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"], "MISSING_REF")
+
+    def test_whitespace_only_chosen_key_rejected(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1"], disposition="matched",
+                                 approved=True, chosen="  \t ")])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"],
+                         "MISSING_SELECTED_KEY")
+
+    def test_whitespace_only_candidate_entry_rejected(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1", "   "],
+                                 disposition="matched", approved=True,
+                                 chosen="tx-1", count="omit")])
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"],
+                         "INCONSISTENT_CANDIDATES")
+
+    def test_whitespace_only_snapshot_and_binding_refused(self):
+        # a whitespace-only snapshot is blank like a whitespace-only ref:
+        # no eligible plan is built from it, whatever the binding says
+        blank_snap = migration.build_reviewed_import_plan(
+            "   ", [self.row("ref-001", ["tx-1"], disposition="matched",
+                             approved=True, chosen="tx-1", binding="   ")])
+        self.assertEqual(blank_snap["counts"]["eligible"], 0)
+        self.assertEqual(blank_snap["refused"][0]["reason_code"],
+                         "MISSING_SNAPSHOT_HASH")
+        # a whitespace-only binding is blank too, not a mismatched binding
+        blank_binding = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref-001", ["tx-1"], disposition="matched",
+                                 approved=True, chosen="tx-1",
+                                 binding="  \t ")])
+        self.assertEqual(blank_binding["counts"]["eligible"], 0)
+        self.assertEqual(blank_binding["refused"][0]["reason_code"],
+                         "MISSING_BINDING")
+
+    def test_valid_identifiers_preserved_byte_for_byte(self):
+        plan = migration.build_reviewed_import_plan(
+            self.SNAP, [self.row("ref 001", ["tx 1", "tx-1"],
+                                 disposition="matched", approved=True,
+                                 chosen="tx 1", note="n")])
+        self.assertEqual(plan["counts"]["eligible"], 1)
+        item = plan["eligible"][0]
+        self.assertEqual(item["source_ref_snapshot_only"], "ref 001")
+        self.assertEqual(item["chosen_candidate_key"], "tx 1")
+        self.assertEqual(item["candidate_transaction_keys"], ["tx 1", "tx-1"])
+
+    def test_adding_or_removing_refused_row_changes_digest(self):
+        base_rows = [
+            self.row("ref-ok", ["tx-1"], disposition="matched",
+                     approved=True, chosen="tx-1"),
+            self.row("ref-bad", ["tx-9"], disposition="matched",
+                     approved=False, chosen="tx-9"),
+        ]
+        base = migration.build_reviewed_import_plan(self.SNAP, base_rows)
+        added_rows = base_rows + [
+            self.row("ref-bad-2", ["tx-8"], disposition="unmatched",
+                     approved=True, chosen="tx-8"),
+        ]
+        added = migration.build_reviewed_import_plan(self.SNAP, added_rows)
+        removed = migration.build_reviewed_import_plan(self.SNAP, base_rows[:1])
+        self.assertNotEqual(base["plan_digest"], added["plan_digest"])
+        self.assertNotEqual(base["plan_digest"], removed["plan_digest"])
+        # refused-row digest ordering is independent of input order
+        reordered = migration.build_reviewed_import_plan(
+            self.SNAP, list(reversed(added_rows)))
+        self.assertEqual(reordered["plan_digest"], added["plan_digest"])
+
+    def test_refusal_code_change_changes_digest(self):
+        not_approved = [self.row("ref-001", ["tx-1"], disposition="matched",
+                                 approved=False, chosen="tx-1")]
+        unmatched = [self.row("ref-001", ["tx-1"], disposition="unmatched",
+                              approved=True, chosen="tx-1")]
+        plan_a = migration.build_reviewed_import_plan(self.SNAP, not_approved)
+        plan_b = migration.build_reviewed_import_plan(self.SNAP, unmatched)
+        self.assertEqual(plan_a["refused"][0]["reason_code"], "NOT_APPROVED")
+        self.assertEqual(plan_b["refused"][0]["reason_code"],
+                         "UNMATCHED_DISPOSITION")
+        self.assertNotEqual(plan_a["plan_digest"], plan_b["plan_digest"])
+
+    def test_display_prose_only_change_leaves_digest_unchanged(self):
+        rows = [self.row("ref-001", ["tx-1"], disposition="matched",
+                         approved=False, chosen="tx-1", note="first note")]
+        plan = migration.build_reviewed_import_plan(self.SNAP, rows)
+        self.assertEqual(plan["counts"]["eligible"], 0)
+        self.assertEqual(plan["refused"][0]["reason_code"], "NOT_APPROVED")
+        # the same helper the public plan uses, called over the refused
+        # output record itself, reproduces the public digest
+        self.assertEqual(
+            migration._reviewed_plan_digest(
+                plan["snapshot_sha256"], plan["eligible"],
+                [copy.deepcopy(plan["refused"][0])]),
+            plan["plan_digest"])
+        # display-only copy: reason prose and review_note change while every
+        # stable field including the reason code stays fixed
+        altered = copy.deepcopy(plan["refused"][0])
+        altered["reason"] = "entirely different display prose"
+        altered["review_note"] = "entirely different note"
+        self.assertNotEqual(altered["reason"], plan["refused"][0]["reason"])
+        self.assertNotEqual(altered["review_note"],
+                            plan["refused"][0]["review_note"])
+        self.assertEqual(
+            migration._reviewed_plan_digest(
+                plan["snapshot_sha256"], plan["eligible"], [altered]),
+            plan["plan_digest"])
+        # eligible rows: note-only change also leaves the digest unchanged
+        ok_a = [self.row("ref-002", ["tx-2"], disposition="matched",
+                         approved=True, chosen="tx-2", note="one")]
+        ok_b = [self.row("ref-002", ["tx-2"], disposition="matched",
+                         approved=True, chosen="tx-2", note="two")]
+        plan_ok_a = migration.build_reviewed_import_plan(self.SNAP, ok_a)
+        plan_ok_b = migration.build_reviewed_import_plan(self.SNAP, ok_b)
+        self.assertEqual(plan_ok_a["plan_digest"], plan_ok_b["plan_digest"])
 
 
 if __name__ == "__main__":

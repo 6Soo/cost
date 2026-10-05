@@ -49,6 +49,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import http.cookies
 import json
 import os
 import secrets
@@ -78,7 +79,7 @@ COOKIE_NAME = "webledger_session"
 COOKIE_PREFIX = "v1"
 # A short session. The generation check is what ends a session early, not the
 # clock, so this only bounds an idle browser.
-DEFAULT_SESSION_TTL = 8 * 60 * 60
+DEFAULT_SESSION_TTL = 400 * 24 * 60 * 60
 STATE_TTL = 600
 NONCE_BYTES = 32
 STATE_BYTES = 32
@@ -285,7 +286,8 @@ class GoogleAuthTokenVerifier:
                             "google-auth 의 요청 계층이 없어요") from exc
         try:
             return google_id_token.verify_oauth2_token(
-                id_token, google_requests.Request(), audience=audience)
+                id_token, google_requests.Request(), audience=audience,
+                clock_skew_in_seconds=self.clock_skew)
         except Exception as exc:  # noqa: BLE001 - any failure is a refusal
             raise OIDCError("ID_TOKEN_INVALID",
                             f"id_token 을 검증하지 못했어요: {exc}") from exc
@@ -592,17 +594,28 @@ def register_google_identity(access_store, identity: dict, *,
 
 
 def bootstrap_owner_if_configured(access_store, identity: dict, *,
-                                  config: OIDCConfig) -> dict:
+                                  config: OIDCConfig,
+                                  was_created: bool | None = None) -> dict:
     """The one owner bootstrap, and only when the deployment asked for it.
 
     All three have to hold: `WEBLEDGER_OWNER_GOOGLE_SUB` is set, the presented
     `sub` equals it, and no owner exists yet. A mismatch is not an error the
     login fails on; the person simply stays a viewer, because the alternative is
     letting a near-miss decide who owns the ledger.
+
+    A promotion ends prior sessions. `ensure_owner` bumps the account
+    generation when an existing viewer becomes the owner, so cookies issued
+    under the old role are refused. This result reports that invalidation so
+    the callback path can be checked: `session_invalidated` is true only when
+    the account existed before this login and its generation moved. An
+    account created moments earlier in the same login has no prior cookies,
+    so its generation move is not reported as an invalidation.
     """
     configured = (config.owner_google_sub or "").strip()
     result = {"attempted": bool(configured), "promoted": False,
-              "reason": "owner sub not configured"}
+              "reason": "owner sub not configured",
+              "session_invalidated": False, "previous_generation": None,
+              "current_generation": None}
     if not configured:
         return result
     if str(identity.get("sub") or "") != configured:
@@ -614,11 +627,67 @@ def bootstrap_owner_if_configured(access_store, identity: dict, *,
     if existing:
         result["reason"] = f"an owner already exists ({existing[0]})"
         return result
-    account = access_control.AccessStore.ensure_owner(
-        access_store, str(identity["sub"]))
+    user_id = str(identity["sub"])
+    previous = access_store.account(user_id)
+    previous_generation = (previous or {}).get("session_generation")
+    try:
+        account = access_control.AccessStore.ensure_owner(
+            access_store, user_id)
+    except access_control.AccessError as exc:
+        if exc.code != "OWNER_ALREADY_SET":
+            raise
+        # Lost the promotion race after the fast-path check above: another
+        # login committed first. The login itself still succeeds as a viewer;
+        # only the promotion is refused.
+        result["reason"] = exc.message or "an owner already exists"
+        return result
+    current_generation = (account or {}).get("session_generation")
+    moved = bool(
+        previous is not None
+        and isinstance(previous_generation, int)
+        and isinstance(current_generation, int)
+        and current_generation > previous_generation)
+    # An account created moments earlier in this same login never held a
+    # cookie, so its generation move ends no prior session. Only a
+    # pre-existing viewer promotion invalidates.
+    invalidated = bool(moved and was_created is not True)
     result.update({"promoted": True, "reason": "bootstrapped from configuration",
-                   "account": account, "role": access_control.ROLE_OWNER})
+                   "account": account, "role": access_control.ROLE_OWNER,
+                   "previous_generation": previous_generation,
+                   "current_generation": current_generation,
+                   "session_invalidated": invalidated})
     return result
+
+
+def bootstrap_status(access_store=None, config: OIDCConfig | None = None,
+                     *, owner_exists: bool | None = None) -> dict:
+    """Presence-only owner bootstrap state. Never a sub value.
+
+    `owner_exists` says whether an active owner row exists. `configured`
+    says whether the deployment named an owner sub. `bootstrap_open` is true
+    only when a sub is configured and no owner exists yet, which is the single
+    window in which the next matching login promotes. No identifier, email,
+    or secret is included: an operator learns their own sub from their own
+    authenticated `/access/me` response, never from a list here.
+    """
+    if owner_exists is None:
+        try:
+            if access_store is None:
+                owner_exists = False
+            elif hasattr(access_store, "owner_exists"):
+                owner_exists = bool(access_store.owner_exists())
+            else:
+                row = access_store.conn.execute(
+                    "SELECT 1 FROM access_accounts WHERE role='owner'"
+                    " AND is_active=1 LIMIT 1").fetchone()
+                owner_exists = row is not None
+        except Exception:  # noqa: BLE001 - status must stay presence-only
+            owner_exists = False
+    configured = bool(config is not None
+                      and (config.owner_google_sub or "").strip())
+    return {"owner_exists": bool(owner_exists),
+            "owner_bootstrap_configured": configured,
+            "bootstrap_open": bool(configured and not owner_exists)}
 
 
 # ------------------------------------------------------------ the adapter
@@ -706,12 +775,30 @@ class GoogleOIDCAdapter:
                    "gen": int(generation), "jti": secrets.token_urlsafe(16)}
         return self.signer.sign(payload)
 
+    def renewal_cookie_header(self, headers) -> str | None:
+        """Extend an authenticated session when at least one day has elapsed."""
+        session = self.session_for(headers)
+        if session is None:
+            return None
+        payload = self.signer.verify(_read_cookie(headers, None, self.cookie_name))
+        if payload is None:
+            return None
+        now = _now()
+        if (now - int(payload.get("iat", 0)) < 86400
+                and int(payload["exp"]) - now > self.config.session_ttl - 86400):
+            return None
+        value = self.issue_cookie(
+            {"sub": session.user_id, "name": session.display_name,
+             "email": session.email}, generation=session.session_generation)
+        return set_cookie_header(value, max_age=self.config.session_ttl,
+                                 name=self.cookie_name)
+
 
 def _read_cookie(headers, cookies, name: str) -> str:
     """The named cookie from a parsed jar or a raw `Cookie` header."""
     if cookies is not None:
         try:
-            value = cookies.get(name)
+            value = _cookie_value(cookies.get(name))
             if value:
                 return value
         except AttributeError:
@@ -728,6 +815,40 @@ def _read_cookie(headers, cookies, name: str) -> str:
         key, _, value = part.partition("=")
         if key.strip() == name:
             return value.strip().strip('"')
+    return ""
+
+
+def _cookie_value(found) -> str:
+    """The signed value a cookie lookup returned, as a string.
+
+    A parsed jar does not hand back a string. `http.cookies.SimpleCookie` is a
+    dict of `Morsel`, so `jar.get(name)` is a `Morsel` whose signed value is in
+    `.value`. Returning the `Morsel` itself put it straight into
+    `SessionSigner.verify`, where it is not a string and the verification came
+    back `None` — a valid signed session silently reading as no session at all.
+
+    That reads as an authentication bug rather than a parsing one, and it is
+    invisible to every caller that passed a plain dict or read the raw header:
+    only the parsed-jar path broke. So the two shapes a caller can actually
+    produce are handled here, and nothing else is.
+
+    Exactly two: a `Morsel`, whose `.value` must be a `str` to be usable, and a
+    `str` already. Anything else is treated as absent rather than coerced.
+    Coercing an arbitrary object to a string is not in the contract: it would
+    accept a container this never produced and quietly hand its text to the
+    verifier, which is the same class of mistake as the one being fixed.
+
+    Nothing is loosened by reading `.value`. `Morsel.value` is the same string
+    the raw-header path would have found, so a tampered, expired or revoked
+    cookie is still refused by exactly the same fences; this only stops the
+    container object from travelling any further.
+    """
+    if isinstance(found, http.cookies.Morsel):
+        # `Morsel.value` is always a str, so the isinstance is a cheap assertion
+        # that the jar was not built by something else.
+        return found.value if isinstance(found.value, str) else ""
+    if isinstance(found, str):
+        return found
     return ""
 
 
@@ -809,8 +930,9 @@ class LoginFlow:
                                         nonce=pending.nonce)
         linked = register_google_identity(self.access_store, identity,
                                          config=self.config)
-        bootstrap = bootstrap_owner_if_configured(self.access_store, identity,
-                                                 config=self.config)
+        bootstrap = bootstrap_owner_if_configured(
+            self.access_store, identity, config=self.config,
+            was_created=bool(linked.get("created")))
         account = bootstrap.get("account") or linked["account"]
         generation = self.access_store.session_generation(account["user_id"])
         cookie_value = self.adapter.issue_cookie(identity,
@@ -859,21 +981,33 @@ def try_connect_from_env(access_store, *, env=None, session_ttl=None
     return connect_oidc(config, access_store)
 
 
-def connection_state(flow: LoginFlow | None) -> dict:
+def connection_state(flow: LoginFlow | None, access_store=None) -> dict:
     """`google_oidc_connected`, for a health check or a report.
 
-    Reports shape and presence only. No client id value, no secret, no cookie.
+    Reports shape and presence only. No client id value, no secret, no cookie,
+    and no Google sub value. `owner_exists` and `bootstrap_open` are booleans
+    so an operator can tell whether the bootstrap window is still open without
+    learning any account identifier from an unauthenticated surface.
     """
     if flow is None:
+        status = bootstrap_status(access_store, None)
         return {"google_oidc_connected": False,
                 "reason": "no configuration; the board refuses every session",
-                "library": "google-auth", "library_available": False}
+                "library": "google-auth", "library_available": False,
+                "owner_exists": status["owner_exists"],
+                "owner_bootstrap_configured": False,
+                "bootstrap_open": False}
     report = dict(flow.adapter.describe())
+    status = bootstrap_status(
+        access_store if access_store is not None else flow.access_store,
+        flow.config)
     report.update({"google_oidc_connected": bool(flow.verifier.available),
                    "library": "google-auth",
                    "library_available": bool(flow.verifier.available),
                    "owner_bootstrap_configured":
-                       bool(flow.config.owner_google_sub),
+                       status["owner_bootstrap_configured"],
+                   "owner_exists": status["owner_exists"],
+                   "bootstrap_open": status["bootstrap_open"],
                    "pending_logins": flow.pending.pending_count()})
     if not flow.verifier.available:
         report["reason"] = ("google-auth 가 설치되어 있지 않아 로그인이 "

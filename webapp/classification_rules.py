@@ -429,14 +429,15 @@ def plan_effect(rule: dict, row: dict, locked_fields=()) -> dict:
     if merchant is None:
         merchant = row.get("merchant") or ""
     for field, value in rule["effects"].items():
-        if field in locked:
+        target = "description" if field == "description_template" else field
+        if field in locked or target in locked:
             continue
         if field == "description_template":
             new_value = str(value).replace("{merchant}", str(merchant))
         else:
             new_value = value
-        if row.get(field) != new_value:
-            changes[field] = new_value
+        if row.get(target) != new_value:
+            changes[target] = new_value
     return changes
 
 
@@ -451,11 +452,12 @@ def rule_conditions_view(rule: dict) -> dict:
 
 
 def _example_row(rule: dict, row: dict, field: str) -> dict:
+    target = "description" if field == "description_template" else field
     return {
         "row_id": row.get("row_id"),
         "revision": row.get("revision"),
         "field": field,
-        "current_value": row.get(field),
+        "current_value": row.get(target),
         "source_merchant": row.get("source_merchant") or row.get("merchant") or "",
         "event_kind": row.get("event_kind") or "",
         "card_kind": row.get("card_kind") or "",

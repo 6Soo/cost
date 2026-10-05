@@ -72,6 +72,25 @@ class InterruptingWorkbook:
         raise KeyboardInterrupt("injected during workbook save")
 
 
+def make_store_with_owner(company="합성회사", assignee="합성담당자"):
+    """A store whose owner values are set explicitly by this fixture.
+
+    B2 and H4 used to be non-empty because the product carried synthetic
+    defaults. It does not any more: a cell is empty until the owner fills it.
+    These tests care about layout and the formula guard, so the fixture supplies
+    the values rather than the product inventing them.
+    """
+    store = make_store()
+    store.save_owner_profile(expected_revision=0, client_request_id="fixture-p1",
+                             company_name=company, assignee_name=assignee)
+    for row in store.conn.execute(
+            "SELECT tab_id, revision FROM trip_tabs").fetchall():
+        store.save_trip_meta(tab_id=row[0], expected_revision=row[1],
+                             client_request_id=f"fixture-m-{row[0]}",
+                             prepared_by_name=assignee)
+    return store
+
+
 class ExportBasicsTests(unittest.TestCase):
     def test_two_tabs_values_and_totals(self):
         store = make_store()
@@ -325,7 +344,7 @@ class ExportBasicsTests(unittest.TestCase):
             store.close()
 
     def test_title_block_and_merges(self):
-        store = make_store()
+        store = make_store_with_owner()
         try:
             wb, _ = build_workbook(store, ["trip-demo-a"])
             ws = wb["0408_예시여행A"]
@@ -372,7 +391,7 @@ class ExportBasicsTests(unittest.TestCase):
             store.close()
 
     def test_user_string_text_guard_and_atomic_publish(self):
-        store = make_store()
+        store = make_store_with_owner()
         try:
             created = store.create_direct_income(
                 fields={
@@ -426,7 +445,7 @@ class ExportBasicsTests(unittest.TestCase):
             store.close()
 
     def test_atomic_publish_no_overwrite_and_text_guard(self):
-        store = make_store()
+        store = make_store_with_owner()
         try:
             wb, manifest = build_workbook(store, ["trip-demo-a"])
             directory = tempfile.mkdtemp()

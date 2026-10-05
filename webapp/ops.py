@@ -913,7 +913,7 @@ def make_backup_bundle(config: DurableConfig, store, *, label: str = "",
                         "sources": sorted(manifest["source_hashes"].items())}
                        ).encode("utf-8")).hexdigest()
     manifest["state"] = _state_summary(store)
-    if operator_ledger is not None:
+    if operator_ledger is not None and not getattr(operator_ledger, 'embedded', False):
         # reuse the existing operator-ledger backup so the chain and its
         # checkpoint travel with the board
         ledger_copy = target / "operator_ledger.sqlite"
@@ -1249,7 +1249,11 @@ def business_state_digest(store) -> dict:
     parts = {}
     columns_used = {}
     problems = []
-    for table, preferred in _DIGEST_TABLES:
+    cost_tables = ('import_batches','import_batch_rows','transactions','cost_classification_rules',
+                   'review_decisions','ledger_entries','change_log','requests','decision_events',
+                   'review_choice_sets','review_source_guidance','review_guidance_requests',
+                   'review_guidance_previews','review_guidance_results')
+    for table, preferred in list(_DIGEST_TABLES) + [(t, ()) for t in cost_tables]:
         if not _has_table(store, table):
             continue
         present = [r[1] for r in store.conn.execute(f"PRAGMA table_info({table})")]

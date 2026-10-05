@@ -3,6 +3,11 @@ __pycache__/
 *.pyc
 .pytest_cache/
 /.local-archive/
+/docs/handoff/**
+!/docs/handoff/2026-10-01/
+!/docs/handoff/2026-10-01/.gitkeep
+*.sqlite
+*.sqlite-*
 /runtime/
 /webledger-exports/
 # Local accounting outputs are preserved, but new files are not published.

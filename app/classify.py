@@ -1,0 +1,349 @@
+# -*- coding: utf-8 -*-
+"""Decide what a transaction is, and record honestly when that is not knowable.
+
+Order of precedence, highest first:
+
+1. a previous decision on *this* transaction, which is never overwritten;
+2. a confirmed rule that matches;
+3. an unambiguous item pattern.
+
+Everything else is `needs_review`. That is the honest answer for a row with an
+unreadable amount, no rule and no recognizable merchant, and it is the answer
+that keeps a guess out of the ledger.
+
+Three things this module will not do, each because the guess would move real
+money:
+
+* **It does not assign a trip from an OTA name.** `AGODA` is a merchant, not a
+  trip. A rule or a pattern may set an *item*, and the caller may pass a trip
+  that the web app has already validated against an authoritative schedule, but
+  nothing here derives one from the merchant text.
+* **It does not turn a card posting date into a service period.** A card date is
+  when the charge happened, which is frequently not when the service happened.
+* **It does not confirm automatically.** Only `save_decision` sets
+  `user_confirmed`, and only a caller can call it.
+"""
+
+from __future__ import annotations
+
+from .normalize import normalize_merchant
+from .rules import rule_matches, is_booking_or_online
+
+__all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
+           "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED", "STATE_CONFIRMED"]
+
+STATE_NEEDS_REVIEW = "needs_review"
+STATE_CLASSIFIED = "classified"
+STATE_CONFIRMED = "confirmed"
+
+# Only patterns that are unambiguous on their own. Each is (needle, item,
+# description, tabs). A merchant that merely contains a word is not enough: the
+# needle must be the merchant, or the merchant must start with it.
+CLEAR_PATTERNS = (
+    ("주차", "주차비", "주차장 이용", ("T-주차", "T-기타", "T-식비")),
+    ("편의점", "편의점", "편의점 구매", ("T-식비",)),
+    ("gs25", "편의점", "편의점 구매", ("T-식비",)),
+    ("cu", "편의점", "편의점 구매", ("T-식비",)),
+    ("세븐일레븐", "편의점", "편의점 구매", ("T-식비",)),
+    ("taxi", "택시비", "택시 이용", ("T-교통",)),
+    ("택시", "택시비", "택시 이용", ("T-교통",)),
+    ("지하철", "대중교통", "교통비", ("T-교통",)),
+    ("버스", "대중교통", "교통비", ("T-교통",)),
+)
+
+DEFAULT_TAB = 'unclassified'
+
+
+def _pattern_for(merchant_normalized: str):
+    for needle, item, description, tabs in CLEAR_PATTERNS:
+        if merchant_normalized == needle or merchant_normalized.startswith(needle + " "):
+            return item, description, tabs
+    return None
+
+
+def classify_transaction(transaction: dict, *, rules: list,
+                         prior_decision: dict | None = None, trip_resolver=None,allow_defaults=True) -> dict:
+    """확정 근거를 먼저 적용하고 사용자 허용 추론은 원본 거래에만 적용한다."""
+    inferred = [r for r in rules if r.get('optional',{}).get('inferred_assignment')]
+    regular = [r for r in rules if r not in inferred]
+    verdict = _classify_transaction(transaction,rules=regular,prior_decision=prior_decision,
+                                    trip_resolver=trip_resolver,allow_defaults=allow_defaults)
+    if prior_decision or transaction.get('parse_error') or verdict['trip_id'] or verdict['classification_source']=='rule_conflict':
+        return verdict
+    matches = [r for r in inferred if rule_matches(r,transaction)[0]]
+    if not matches:
+        return verdict
+    import json
+    if len({json.dumps([r['effects'].get('item'),r['effects'].get('display_tab_id',''),
+                        r['optional']['inferred_assignment']['trip_id']],sort_keys=True) for r in matches})!=1:
+        return dict(verdict,classification_state=STATE_NEEDS_REVIEW,classification_source='inference_conflict',
+                    classification_basis='추론 배정안이 서로 달라 확인이 필요합니다')
+    rule=min(matches,key=lambda r:({'낮음':0,'중간':1,'높음':2}.get(
+        r['optional']['inferred_assignment']['confidence'],0),r.get('rule_id','')))
+    inference=rule['optional']['inferred_assignment']
+    target=inference['trip_id']
+    if target and (not trip_resolver or trip_resolver(transaction,{'inferred_trip_id':target})!=target):
+        return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
+                    classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
+    exception=rule.get('origin')=='owner-country-exception-20261003'
+    return dict(classification_state=STATE_CLASSIFIED,classification_source='user_exception' if exception else 'inference',
+                classification_basis=('사용자 예외 · ' if exception else '추론 배정 · '+inference['confidence']+' · ')+inference['basis'],
+                item=rule['effects']['item'],description=rule['effects'].get('description',''),
+                display_tab_id=target or 'unclassified',trip_id=target,rule_id=rule.get('rule_id',''))
+
+
+def _classify_transaction(transaction: dict, *, rules: list,
+                          prior_decision=None, trip_resolver=None,allow_defaults=True) -> dict:
+    """One transaction's classification, with the reason attached.
+
+    Returns a dict; it does not write. `classify_batch` is what persists.
+    """
+    if transaction.get("parse_error"):
+        return {"classification_state": STATE_NEEDS_REVIEW,
+                "classification_source": "unreadable",
+                "classification_basis": f"금액을 읽지 못했어요: {transaction['parse_error']}",
+                "item": "", "description": "", "display_tab_id": "",
+                "trip_id": "", "rule_id": ""}
+
+    if prior_decision:
+        return {"classification_state": STATE_CONFIRMED,
+                "classification_source": "previous_decision",
+                "classification_basis": "이 거래에 이미 확정한 답변이 있어요",
+                "item": prior_decision.get("item", ""),
+                "description": prior_decision.get("description", ""),
+                "display_tab_id": prior_decision.get("display_tab_id", ""),
+                "trip_id": prior_decision.get("trip_id", ""),
+                "rule_id": ""}
+
+    merchant_normalized = normalize_merchant(transaction.get("merchant"))
+    defaults=[r for r in rules if r.get('conditions',{}).get('merchant_normalized')=='*'] if allow_defaults else []
+    if allow_defaults:
+        rules=[r for r in rules if r not in defaults]
+
+    # Rules are checked in a stable order so two matching rules cannot silently
+    # disagree run to run: the first rule_id wins, and the winner is recorded.
+    matches = []
+    trip_blocked = None
+    for candidate in rules:
+        trial = transaction
+        target = ''
+        country = candidate.get('optional', {}).get('travel_country')
+        booking = candidate.get('optional', {}).get('booking_period')
+        if country:
+            if is_booking_or_online(transaction) and not booking:
+                continue
+            base = dict(candidate, optional={k:v for k,v in candidate['optional'].items()
+                                             if k != 'travel_country'})
+            if not rule_matches(base, transaction)[0]:
+                continue
+            from .rules import merchant_country
+            actual_country = merchant_country(transaction) if country=='local' else country
+            target = trip_resolver(transaction, actual_country) if trip_resolver and actual_country else ''
+            if not target:
+                trip_blocked = candidate
+                continue
+            trial = dict(transaction, _verified_travel_country=country)
+        elif booking:
+            base = dict(candidate,optional={k:v for k,v in candidate['optional'].items() if k!='booking_period'})
+            if not rule_matches(base,transaction)[0]:
+                continue
+            target = trip_resolver(transaction,booking) if trip_resolver else ''
+            if not target:
+                trip_blocked = candidate
+                continue
+            trial = dict(transaction,_booking_verified=True)
+        matched, reasons = rule_matches(candidate, trial)
+        if matched:
+            matches.append((candidate,reasons,target))
+    # 과거 업종 기본값의 빈 설명은 같은 원행에서 확인한 예약 설명과 충돌하지 않는다.
+    # 사용자가 편집한 규칙이나 다른 항목·여행을 제안한 규칙은 그대로 충돌로 남긴다.
+    verified_ota=[entry for entry in matches if entry[0].get('origin')=='ota-mail-live'
+                  and entry[0].get('optional',{}).get('source_hash')]
+    if verified_ota:
+        # 현재 원행의 예약 증거가 과거 자동 복원 규칙보다 구체적이다.
+        # 직접 수정된 규칙과 사용자 결정은 이 우선순위로 제거하지 않는다.
+        matches=[entry for entry in matches if not (
+            entry[0].get('origin')=='history-recovery-20261003'
+            and entry[0].get('version',1)==1)]
+    provider_defaults=[entry for entry in matches if entry[0].get('optional',{}).get('merchant_family')]
+    if provider_defaults:
+        matches=[entry for entry in matches if not (
+            entry[0].get('origin')=='history-recovery-20261003' and entry[0].get('version',1)==1
+            and entry[0]['effects'].get('item')!=provider_defaults[0][0]['effects'].get('item'))]
+        detailed=[entry for entry in matches if entry not in provider_defaults
+                  and (entry[0].get('optional',{}).get('source_hash') or entry[2])]
+        if any(entry[0]['effects'].get('item')==provider_defaults[0][0]['effects'].get('item') for entry in detailed):
+            matches=[entry for entry in matches if entry not in provider_defaults]
+    source_bound=[entry for entry in matches if entry[0].get('optional',{}).get('source_hash')]
+    matches=[entry for entry in matches if not (
+        entry[0].get('origin')=='history-recovery-20261003' and entry[0].get('version',1)==1
+        and not entry[0].get('optional',{}).get('source_hash')
+        and not entry[0]['effects'].get('description')
+        and any(bound[0]['effects'].get('item')==entry[0]['effects'].get('item')
+                and (bound[2] or bound[0]['effects'].get('display_tab_id',''))==
+                    (entry[2] or entry[0]['effects'].get('display_tab_id','')) for bound in source_bound))]
+    import json
+    if len({json.dumps([r.get('effects'),t],sort_keys=True) for r,_,t in matches}) > 1:
+        return dict(classification_state=STATE_NEEDS_REVIEW,classification_source='rule_conflict',
+                    classification_basis='여러 규칙이 서로 다른 항목을 제안합니다. 확인해 주세요',
+                    item='',description='',display_tab_id='',trip_id='',rule_id='')
+    for rule, reasons, target in sorted(matches, key=lambda pair: pair[0].get('rule_id') or ''):
+        effects = rule.get("effects") or {}
+        return {"classification_state": STATE_CLASSIFIED,
+                "classification_source": "rule",
+                "classification_basis": "확정 규칙: " + ", ".join(reasons),
+                "item": effects.get("item", ""),
+                "description": effects.get("description", ""),
+                "display_tab_id": target or effects.get("display_tab_id", ""),
+                "trip_id": target, "rule_id": rule.get("rule_id", "")}
+
+    if trip_blocked:
+        return dict(classification_state=STATE_NEEDS_REVIEW,classification_source='travel_location_hold',
+                    classification_basis=('예약 이용기간에 맞는 여행을 확인해 주세요' if trip_blocked.get('optional',{}).get('booking_period')
+                                          else '사용 국가와 명시 여행이 맞는지 확인해 주세요'),
+                    item=trip_blocked['effects'].get('item',''),description=trip_blocked['effects'].get('description',''),
+                    display_tab_id='',trip_id='',rule_id=trip_blocked.get('rule_id',''))
+
+    pattern = _pattern_for(merchant_normalized)
+    category = str(transaction.get('description_raw') or '')
+    if category.startswith('card-category:'):
+        industry = category.removeprefix('card-category:').strip()
+        groups = {
+            '식비': {'편의점','슈퍼마켓','슈퍼마켓.마트','한식','일식','일식전문점','중식','양식',
+                     '휴게음식','제과','커피','카페','음식점','일반음식점','서양음식','패스트푸드',
+                     '커피/음료전문점','일반음식점 기타','일식/생선회집','제과점/아이스크림점',
+                     '휴게음식점','패스트푸드점','기타식음료품','커피전문점','제과.제빵','서양식전문점'},
+            '숙박비': {'호텔','숙박','숙박업','여관','모텔','펜션','콘도','리조트','레저용숙박업소','호텔(특급외)'},
+            '교통비': {'택시','버스','철도','지하철','주유소','주차장','고속도로통행료','시내버스','고속.시외버스','여객선'},
+            '항공료': {'항공사','항공','항공운송'},
+            '렌터카': {'렌터카'},
+        }
+        for item, industries in groups.items():
+            if industry in industries:
+                return dict(classification_state=STATE_CLASSIFIED,classification_source='card_category',
+                            classification_basis='카드사 업종: '+industry,item=item,description='',
+                            display_tab_id=DEFAULT_TAB,trip_id='',rule_id='')
+    if pattern:
+        item, description, tabs = pattern
+        return {"classification_state": STATE_CLASSIFIED,
+                "classification_source": "pattern",
+                "classification_basis": "가맹점 이름이 분명해요",
+                "item": item, "description": description,
+                "display_tab_id": DEFAULT_TAB, "trip_id": "", "rule_id": ""}
+
+    # 사용자가 확정한 현지 경비 기본값은 구체적 규칙과 명확한 업종 뒤에만 적용한다.
+    # 예약·온라인 공급자의 결제일을 실제 이용일로 바꾸지 않는다.
+    if defaults and not is_booking_or_online(transaction):
+        return classify_transaction(transaction,rules=defaults,trip_resolver=trip_resolver,allow_defaults=False)
+
+    if is_booking_or_online(transaction):
+        return dict(classification_state=STATE_NEEDS_REVIEW,classification_source='booking_evidence_needed',
+                    classification_basis='예약 자료로 구매 상품과 이용일을 확인해 주세요',
+                    item='',description='',display_tab_id='',trip_id='',rule_id='')
+
+    return {"classification_state": STATE_NEEDS_REVIEW,
+            "classification_source": "",
+            "classification_basis": "확정 규칙과 분명한 가맹점 이름이 없어 확인할래요",
+            "item": "", "description": "", "display_tab_id": "",
+            "trip_id": "", "rule_id": ""}
+
+
+def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
+    """Classify every unconfirmed row in a batch.
+
+    A row a human already decided is skipped entirely, which is how a confirmed
+    classification survives the next upload and the next rule change.
+    """
+    from .db import CODE_NOT_FOUND, StoreError
+
+    active_rules = list_rules_for(store) if rules is None else rules
+    selected = None if transaction_ids is None else frozenset(transaction_ids)
+    rules_by_merchant = {}
+    for rule in active_rules:
+        rules_by_merchant.setdefault(rule['conditions']['merchant_normalized'], []).append(rule)
+    rows = store.conn.execute(
+        "SELECT transaction_id, issuer, card_tail, card_kind,"
+        " transaction_direction, transaction_kind, approval_number,"
+        " original_approval_number, approval_date, posting_date, merchant,"
+        " merchant_normalized, amount_krw, foreign_amount, foreign_currency,"
+        " description_raw, row_index, raw_row_json, parse_error, user_confirmed,"
+        " classification_state,source_hash FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index",
+        (batch_id,)).fetchall()
+    if not rows:
+        exists = store.conn.execute(
+            "SELECT 1 FROM import_batches WHERE batch_id=?", (batch_id,)).fetchone()
+        if exists is None:
+            raise StoreError(CODE_NOT_FOUND, "없는 접수 건이에요")
+        return {"batch_id": batch_id, "counts": {}, "reclassified": 0,
+                "protected": 0, "needs_review": 0, "classified": 0}
+
+    counts = {STATE_NEEDS_REVIEW: 0, STATE_CLASSIFIED: 0, STATE_CONFIRMED: 0}
+    reclassified = protected = 0
+    now = _now()
+    with store.lock:
+        for row in rows:
+            (transaction_id, issuer, card_tail, card_kind, direction, kind,
+             approval_number, original_approval, approval_date, posting_date,
+             merchant, merchant_normalized, amount_krw, foreign_amount,
+             foreign_currency, description_raw, row_index, raw_json, parse_error,
+             user_confirmed, state, source_hash) = row
+            if selected is not None and transaction_id not in selected:
+                continue
+            if user_confirmed:
+                counts[STATE_CONFIRMED] = counts.get(STATE_CONFIRMED, 0) + 1
+                protected += 1
+                continue
+            occurred = approval_date or posting_date
+            if state == 'preserved' or (review_from and occurred and occurred < review_from):
+                counts['preserved'] = counts.get('preserved',0) + 1
+                if state != 'preserved':
+                    store.conn.execute("UPDATE transactions SET classification_state='preserved',"
+                                       "classification_source='user_completed_period',classification_basis=? "
+                                       "WHERE transaction_id=? AND user_confirmed=0",
+                                       ('사용자 확인: 정리 완료된 기간은 내부 보존만 합니다',transaction_id))
+                continue
+            transaction = {
+                "transaction_id": transaction_id, "issuer": issuer,
+                'source_hash':source_hash,
+                "card_tail": card_tail, "card_kind": card_kind,
+                "transaction_direction": direction, "transaction_kind": kind,
+                "approval_number": approval_number,
+                "original_approval_number": original_approval,
+                "approval_date": approval_date, "posting_date": posting_date,
+                "merchant": merchant, "merchant_normalized": merchant_normalized,
+                "amount_krw": amount_krw, "foreign_amount": foreign_amount,
+                "foreign_currency": foreign_currency,
+                "description_raw": description_raw, "parse_error": parse_error,
+                'raw_row': __import__('json').loads(raw_json),
+            }
+            verdict = classify_transaction(transaction, rules=rules_by_merchant.get(merchant_normalized,[])+rules_by_merchant.get('*',[]),
+                                           prior_decision=None, trip_resolver=trip_resolver)
+            counts[verdict["classification_state"]] = counts.get(
+                verdict["classification_state"], 0) + 1
+            if state != verdict["classification_state"]:
+                reclassified += 1
+            store.conn.execute(
+                "UPDATE transactions SET classification_state=?,"
+                " classification_source=?, classification_basis=?, item=?,"
+                " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=? AND user_confirmed=0",
+                (verdict["classification_state"], verdict["classification_source"],
+                 verdict["classification_basis"], verdict["item"],
+                 verdict["description"], verdict["display_tab_id"],
+                 verdict.get("trip_id", ""), transaction_id))
+        store.conn.execute(
+            "UPDATE import_batches SET parsed_at=?, status='classified'"
+            " WHERE batch_id=?", (now, batch_id))
+        store.log_change("batch.classified", batch_id, {"counts": counts})
+    return {"batch_id": batch_id, "counts": counts, "reclassified": reclassified,
+            "protected": protected, "needs_review": counts.get(STATE_NEEDS_REVIEW, 0),
+            "classified": counts.get(STATE_CLASSIFIED, 0)}
+
+
+def list_rules_for(store) -> list:
+    from .rules import list_rules
+    return list_rules(store)
+
+
+def _now() -> str:
+    from .db import utc_now
+    return utc_now()

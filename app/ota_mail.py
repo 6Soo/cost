@@ -1,0 +1,504 @@
+"""보존한 예약 메일과 카드 원행을 엄격하게 대조한다. 메일을 보내지 않는다."""
+import base64
+import collections
+import datetime
+import hashlib
+import html
+import json
+import re
+import unicodedata
+from email.utils import parseaddr, parsedate_to_datetime
+from pathlib import Path
+
+
+def load_messages(directory):
+    """중복 메일은 한 번 읽고 같은 ID의 다른 원문은 충돌로 중단한다."""
+    messages = {}
+    fingerprints = {}
+    for path in sorted(Path(directory).glob('gmail*.json')):
+        for message in json.loads(path.read_text(encoding='utf-8'))['responses']:
+            identity = message['id']
+            payload=message['payload']
+            # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
+            core = dict(id=identity,internal_date=message.get('internal_date'),
+                        headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
+                        text=body_text(payload))
+            digest = hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+            if identity in fingerprints and fingerprints[identity] != digest:
+                raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+            fingerprints[identity] = digest
+            messages[identity] = message
+    return messages
+
+
+def authenticated_headers(message, domains):
+    headers = {h['name'].lower():h['value'] for h in message['payload'].get('headers', [])}
+    domain = parseaddr(headers.get('from',''))[1].split('@')[-1].lower()
+    # domain 뒤 경계를 정확히 확인해 trip.com.example 같은 이름을 허용하지 않는다.
+    canonical = next((base for base in domains if domain == base or domain.endswith('.'+base)), None)
+    if canonical is None:
+        return None
+    signatures = re.findall(r'dkim=pass\s+([^;]+)', headers.get('authentication-results',''), re.I)
+    aligned = any(any(signed == canonical or signed.endswith('.'+canonical)
+                      for signed in re.findall(r'header\.(?:i=@|d=)([a-z0-9.-]+)(?=\s|$)', part, re.I))
+                  for part in signatures)
+    if not aligned:
+        return None
+    return headers, canonical
+
+
+def service_period(text):
+    dates = {}
+    for key,label in (('starts_on','체크인'),('ends_on','체크아웃')):
+        values = set()
+        marker = '(?:'+label+'|'+('check[ -]*in' if key=='starts_on' else 'check[ -]*out')+')'
+        prefix=marker+r'(?:\s*(?:날짜|date))?\s*[:：]?\s*'
+        for year,month,day in re.findall(prefix+r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',text,re.I):
+            try: values.add(datetime.date(int(year),int(month),int(day)).isoformat())
+            except ValueError: return None
+        for value in re.findall(prefix+r'(\d{4}-\d{2}-\d{2})',text,re.I):
+            try: values.add(datetime.date.fromisoformat(value).isoformat())
+            except ValueError: return None
+        weekday=r'(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+)?'
+        for value in re.findall(prefix+weekday+r'([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})',text,re.I):
+            parsed=None
+            for format in ('%B %d, %Y','%b %d, %Y','%B %d %Y','%b %d %Y','%d %B %Y','%d %b %Y'):
+                try:parsed=datetime.datetime.strptime(value,format).date().isoformat();break
+                except ValueError:pass
+            if parsed is None:return None
+            values.add(parsed)
+        if len(values)!=1: return None
+        dates[key]=next(iter(values))
+    return dates if dates['starts_on']<=dates['ends_on'] else None
+
+
+def reservation_cancelled(subject):
+    """취소 조건이나 위약금 안내를 실제 취소 완료로 처리하지 않는다."""
+    return bool(re.search(r'취소(?:가|이)?\s*(?:완료|되었|됐)|취소.*완료|cancelled|canceled|cancellation\s+confirmed',subject,re.I))
+
+
+def scheduled_charge_day(text):
+    """예약 메일에 명시된 자동 결제일만 읽는다. 예약일이나 체크인일은 쓰지 않는다."""
+    values=set()
+    prefix=r'(?:요금\s*자동\s*결제일은|자동\s*결제일|your\s+card\s+will\s+be\s+charged\s+on)\s*[:：\[]?\s*'
+    for value in re.findall(prefix+r'(\d{4}-\d{2}-\d{2}|\d{4}년\s*\d{1,2}월\s*\d{1,2}일|[A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})',text,re.I):
+        parsed=None
+        compact=re.sub(r'\s+',' ',value).strip()
+        for format in ('%Y-%m-%d','%Y년 %m월 %d일','%Y년%m월%d일','%B %d, %Y','%B %d %Y','%b %d, %Y','%b %d %Y','%d %B %Y','%d %b %Y'):
+            try:parsed=datetime.datetime.strptime(compact,format).date();break
+            except ValueError:pass
+        if parsed is None:return None
+        values.add(parsed)
+    return next(iter(values)) if len(values)==1 else None
+
+
+def mail_categories(messages):
+    """본문을 보고서에 복제하지 않고 메일 역할과 지원 범위를 집계한다."""
+    counts=collections.Counter()
+    domains=('trip.com','trip.co.kr','klook.com','agoda.com','booking.com','agoda-messaging.com')
+    for message in messages.values():
+        authenticated=authenticated_headers(message,domains)
+        if not authenticated:
+            counts['unsupported_or_unverified_sender']+=1
+            continue
+        subject=authenticated[0].get('subject','')
+        if re.search(r'환불|refund',subject,re.I):kind='refund_notice'
+        elif re.search(r'취소|cancel',subject,re.I):kind='cancellation_notice'
+        elif re.search(r'결제.*완료|결제가 완료|payment.*(?:confirm|received|successful)',subject,re.I):kind='payment_receipt'
+        elif re.search(r'체크인.*얼마|reminder',subject,re.I):kind='service_reminder'
+        elif re.search(r'예약.*확정|예약내역|booking.*confirm',subject,re.I):kind='reservation_confirmation'
+        else:kind='other_verified_mail'
+        counts[kind]+=1
+    return dict(counts)
+
+
+def decimal_amount(value):
+    """통화 기호 뒤 금액의 천 단위 구분과 소수점을 구분한다."""
+    from decimal import Decimal, InvalidOperation
+    value=value.strip()
+    if ',' in value:
+        if re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?',value):
+            value=value.replace(',','')
+        elif re.fullmatch(r'(?:\d+|\d{1,3}(?:\.\d{3})+),\d{1,2}',value):
+            value=value.replace('.','').replace(',','.')
+        else:
+            raise InvalidOperation('AMBIGUOUS_OTA_AMOUNT')
+    amount=Decimal(value)
+    if not amount.is_finite() or amount<0:raise InvalidOperation('INVALID_OTA_AMOUNT')
+    return amount
+
+
+def body_text(part):
+    body = part.get('body') or {}
+    value = body.get('content') or ''
+    if not value and (body.get('base64_url_content') or body.get('data')):
+        encoded = body.get('base64_url_content') or body['data']
+        value = base64.urlsafe_b64decode(encoded+'='*(-len(encoded)%4)).decode('utf-8','replace')
+    # HTML과 plain text가 함께 있더라도 금액은 아래에서 집합으로 비교한다.
+    value = re.sub(r'<!--.*?-->', '', value, flags=re.S)
+    value = re.sub(r'<(script|style)\b[^>]*>.*?</\1>', '', value, flags=re.I|re.S)
+    value = html.unescape(re.sub('<[^>]*>', '\n', value))
+    return value+'\n'+'\n'.join(body_text(p) for p in (part.get('parts') or []))
+
+
+def sent_day(message, headers):
+    """수신 지연과 결제일을 구분하고 서명된 발송 날짜를 보존한다."""
+    try:
+        sent = parsedate_to_datetime(headers['date'])
+        if sent.tzinfo is None:
+            return None
+        zone = datetime.timezone(datetime.timedelta(hours=9))
+        received = datetime.datetime.fromtimestamp(int(message['internal_date'])/1000, zone)
+        sent = sent.astimezone(zone)
+        # 수신 지연은 허용하되 미래 발송일은 근거로 쓰지 않는다.
+        if sent > received + datetime.timedelta(days=1):
+            return None
+        return sent.date()
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def extract_mail(message):
+    payload = message['payload']
+    authenticated = authenticated_headers(message, ('trip.com','trip.co.kr','klook.com'))
+    if not authenticated:
+        return None
+    headers,domain = authenticated
+    provider = 'trip' if domain in ('trip.com','trip.co.kr') else 'klook' if domain=='klook.com' else ''
+    text = ''.join(c for c in body_text(payload) if unicodedata.category(c)!='Cf')
+    subject = headers.get('subject','')
+    cancelled = reservation_cancelled(subject)
+    refs = set(re.findall(r'예약\s*번호\s*[:：]?\s*([A-Z0-9]{8,20})',text,re.I))
+    ignored_guides=[]
+    if provider=='klook' and '예약내역 안내' in subject and len(refs)>1:
+        markers=list(re.finditer(r'예약\s*번호\s*[:：]?\s*([A-Z0-9]{8,20})',text,re.I))
+        for index,marker in enumerate(markers):
+            section=text[marker.end():markers[index+1].start() if index+1<len(markers) else len(text)]
+            section=re.split(r'합계\s*[:：]',section,maxsplit=1)[0]
+            amounts={int(n.replace(',','')) for n in re.findall(r'₩\s*([0-9][0-9,]*)',section)}
+            if ('이딸로 & 트랜이탈리아 티켓 수령 가이드' in section and
+                    re.search(r'총\s*금액\s*₩\s*0\b',section) and amounts=={0}):
+                ignored_guides.append(marker.group(1))
+        refs-=set(ignored_guides)
+    if len(refs)!=1:
+        return None
+    item = ''
+    if '항공권 예약 확정' in subject:
+        item = '항공료'
+    elif '예약 확정 안내' in subject and '체크인' in text and '체크아웃' in text:
+        item = '숙박비'
+    elif '예약확정' in subject:
+        if '렌터카' in subject:
+            item = '렌터카'
+        elif re.search(r'기차|열차|철도|rail|train|SNCF|EUROSTAR|TGV|RENFE',subject+' '+text[:2500],re.I):
+            item = '교통비'
+        elif re.search(r'입장권|입장료|미술관|박물관',subject):
+            item = '입장료'
+    paid_on = sent_day(message, headers)
+    if paid_on is None:
+        return None
+    paid = set()
+    if provider=='trip' and ('결제 완료 안내' in subject or item=='숙박비'):
+        if item=='숙박비' and not re.search('온라인 사전 결제',text):
+            return None
+        paid = {int(n.replace(',','')) for n in re.findall(
+            r'총\s*금액\s*(?:온라인\s*사전\s*결제\s*)?([0-9][0-9,]*)\s*원',text)}
+        if '결제 완료 안내' in subject and re.search(r'총\s*금액\s*[0-9,]+\s*원\s*운임',text):
+            item = '항공료'
+    elif provider=='klook' and '예약내역 안내' in subject:
+        # 렌터카는 현장 결제분을 포함한 총액 대신 실제 온라인 결제액을 사용한다.
+        paid = {int(n.replace(',','')) for n in re.findall(
+            r'온라인\s*결제(?:\s*완료)?(?:\s*금액은)?\s*₩\s*([0-9][0-9,]*)',text)}
+        if not paid:
+            paid = {int(n.replace(',','')) for n in re.findall(
+                r'(?<![가-힣])금액:\s*₩\s*([0-9][0-9,]*)',text)}
+    period = service_period(text) if item=='숙박비' else None
+    digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+    return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
+                paid_amount_krw=next(iter(paid)) if len(paid)==1 else None,
+                paid_on=paid_on.isoformat(),period=period,source_sha256=digest,
+                reservation_status='cancelled' if cancelled else 'observed',
+                message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)))
+
+
+def shared_lodging_period(facts, *, paid_on, amount_krw):
+    """동액 예약들의 공통 이용기간만 반환하고 개별 예약번호는 고르지 않는다."""
+    options=[f for f in facts if f['provider']=='trip' and f['paid_on']==paid_on
+             and f['paid_amount_krw']==amount_krw]
+    if not options or any(f['item']!='숙박비' or not f['period'] for f in options):
+        return None
+    refs={f['booking_ref'] for f in options}
+    if any(f['booking_ref'] in refs and f['reservation_status']=='cancelled' for f in facts):
+        return None
+    periods={tuple(sorted(f['period'].items())) for f in options}
+    if len(periods)!=1:
+        return None
+    return {'period':dict(next(iter(periods))), 'booking_count':len(refs),
+            'source_digests':sorted({f['source_sha256'] for f in options})}
+
+
+def match_mail(directory, transactions):
+    # 같은 원행을 두 출처에서 전달한 경우만 합친다. 별도 거래는 모호성을 유지한다.
+    unique = {}
+    for index,row in enumerate(transactions):
+        key=(row.get('transaction_id'),row.get('source_hash')) if row.get('transaction_id') and row.get('source_hash') else ('row',index)
+        unique.setdefault(key,row)
+    transactions=list(unique.values())
+    messages=load_messages(directory)
+    facts=[fact for message in messages.values() if (fact:=extract_mail(message))]
+    groups=collections.defaultdict(list)
+    for fact in facts:
+        groups[(fact['provider'],fact['booking_ref'])].append(fact)
+    receipts=collections.defaultdict(list)
+    for (provider,ref), group in groups.items():
+        items={f['item'] for f in group if f['item']}
+        if len(items)!=1:
+            continue
+        periods={tuple(sorted(f['period'].items())) for f in group if f['period']}
+        cancelled=any(f['reservation_status']=='cancelled' for f in group)
+        period=dict(next(iter(periods))) if len(periods)==1 else None
+        if cancelled:period=None
+        for fact in group:
+            if fact['paid_amount_krw'] and fact['paid_amount_krw']>0:
+                receipts[(provider,fact['paid_on'],fact['paid_amount_krw'])].append(
+                    dict(fact,item=next(iter(items)),period=period,
+                         reservation_status='cancelled' if cancelled else 'observed',
+                         period_conflict=len(periods)>1,
+                         evidence_digests=sorted({f['source_sha256'] for f in group})))
+    current=collections.defaultdict(list)
+    for row in transactions:
+        if not row.get('approval_date') or row['approval_date']<'2026-04-01' or row['transaction_direction']!='purchase':
+            continue
+        merchant=row['merchant'].upper()
+        provider='trip' if any(x in merchant for x in ('TRIP.COM','트립닷컴')) else 'klook' if any(x in merchant for x in ('KLOOK','클룩')) else ''
+        if provider:
+            current[(provider,row['approval_date'],row['amount_krw'])].append(row)
+    matches=[]
+    type_only=[]
+    ambiguous=0
+    for key, rows in current.items():
+        options=receipts.get(key,[])
+        identities={(f['booking_ref'],f['item']) for f in options}
+        if len(rows)!=1 or len(identities)!=1:
+            ambiguous+=bool(options)
+            items={f['item'] for f in options}
+            if len(items)==1:
+                for row in rows:
+                    shared=shared_lodging_period([f for group in groups.values() for f in group],
+                                                paid_on=key[1],amount_krw=key[2])
+                    type_only.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
+                                          merchant=row['merchant_normalized'],card_kind=row['card_kind'],
+                                          direction=row['transaction_direction'],item=next(iter(items)),
+                                          shared_period=shared['period'] if shared else None,
+                                          booking_count=shared['booking_count'] if shared else len(identities),
+                                          source_digests=sorted({f['source_sha256'] for f in options})))
+            continue
+        row=rows[0]; fact=min(options,key=lambda f:(f['message_id'],f['source_sha256']))
+        matches.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
+                            merchant=row['merchant_normalized'],card_kind=row['card_kind'],
+                            direction=row['transaction_direction'],**fact))
+    additional=lodging_mail_matches(directory,transactions,messages=messages)
+    by_source={row['source_hash']:row for row in transactions}
+    for fact in additional:
+        row=by_source[fact['source_hash']]
+        matches.append(dict(fact,transaction_id=row.get('transaction_id',fact['source_hash']),
+                            merchant=row['merchant_normalized'],card_kind=row['card_kind'],
+                            direction=row['transaction_direction']))
+    matches.sort(key=lambda f:(f['transaction_id'],f['booking_ref']))
+    rules=[dict(conditions={'merchant_normalized':f['merchant'],'card_kind':f['card_kind'],
+                            'transaction_direction':f['direction']},optional={'source_hash':f['source_hash']},
+                effects={'item':f['item'],'description':'예약 '+f['booking_ref']},
+                origin='history-recovery-20261003',
+                note=f.get('basis') or '지정 Gmail의 서명 검증된 예약 메일과 결제일·원화 금액·유일한 예약번호 대조. 여행 배정은 별도 확인.')
+           for f in matches]
+    rules += [dict(conditions={'merchant_normalized':f['merchant'],'card_kind':f['card_kind'],
+                               'transaction_direction':f['direction']},optional={'source_hash':f['source_hash']},
+                   effects={'item':f['item']},origin='history-recovery-20261003',
+                   note='결제일·금액이 일치하는 예약 후보의 상품 종류가 모두 일치. 예약번호와 여행 연결은 보류.')
+              for f in type_only]
+    review_rows=[row for row in transactions if (row.get('approval_date') or '')>='2026-04-01'
+                 and any(marker in row['merchant'].upper() for marker in
+                         ('TRIP.COM','트립닷컴','KLOOK','클룩','AGODA','아고다','BOOKING','부킹닷컴'))]
+    purchases=[row for row in review_rows if row['transaction_direction']=='purchase']
+    matched={match['source_hash'] for match in matches}
+    kind_only={match['source_hash'] for match in type_only}-matched
+    coverage=dict(review_purchase_rows=len(purchases),
+                  matched_purchase_rows=sum(row['source_hash'] in matched for row in purchases),
+                  kind_only_rows=sum(row['source_hash'] in kind_only for row in purchases),
+                  unmatched_purchase_rows=sum(row['source_hash'] not in matched|kind_only for row in purchases),
+                  non_purchase_rows_preserved=len(review_rows)-len(purchases))
+    unmatched=[]
+    for row in purchases:
+        if row['source_hash'] in matched|kind_only:
+            continue
+        reason='no_exact_payment_evidence'
+        if row.get('amount_krw') is None and not (row.get('foreign_amount') and row.get('foreign_currency')):
+            reason='payment_amount_unavailable'
+        elif (row.get('amount_krw') is None and row.get('foreign_currency')=='USD'):
+            reason='foreign_receipt_or_krw_acquisition_required'
+        unmatched.append(dict(transaction_id=row.get('transaction_id'),source_hash=row['source_hash'],reason=reason))
+    collection_path=Path(directory)/'collection.json'
+    collection=json.loads(collection_path.read_text(encoding='utf-8')) if collection_path.is_file() else {}
+    collection={k:collection[k] for k in ('after','before','query_exhausted','fetched') if k in collection}
+    return {'messages_read':len(messages),'authenticated_facts':len(facts),
+            'mail_collection':collection,
+            'unmatched_reason_counts':dict(collections.Counter(r['reason'] for r in unmatched)),
+            'unmatched_transactions':unmatched,
+            'mail_categories':mail_categories(messages),'coverage':coverage,
+            'additional_lodging_matches':len(additional),
+            'service_period_conflicts':sum(bool(f.get('period_conflict')) for f in matches),
+            'cancelled_reservation_matches':sum(f.get('reservation_status')=='cancelled' for f in matches),
+            'exact_matches':len(matches),'ambiguous_groups':ambiguous,
+            'items':dict(collections.Counter(f['item'] for f in matches)),
+            'type_only_matches':len(type_only),'type_only_candidates':type_only,
+            'matches':matches,'rules':rules}
+
+
+def lodging_mail_matches(directory, transactions, *, messages=None):
+    """숙박의 원화·외화 결제 영수증을 유일한 카드 원행과 이용기간에 연결한다."""
+    from decimal import Decimal, InvalidOperation
+    messages=load_messages(directory) if messages is None else messages
+    facts=[]
+    currency_codes={'¥':'JPY','JPY':'JPY','€':'EUR','EUR':'EUR','US$':'USD','USD':'USD','₩':'KRW','KRW':'KRW'}
+    for message in messages.values():
+        authenticated=authenticated_headers(message,('agoda.com','booking.com'))
+        if not authenticated:
+            continue
+        headers,domain=authenticated
+        text=body_text(message['payload']);subject=headers.get('subject','')
+        refs=set(re.findall(r'(?:예약\s*(?:번호|ID)|Booking ID)\s*[:：]?\s*(\d{6,15})',text+' '+subject,re.I))
+        if len(refs)!=1:
+            continue
+        period=service_period(text)
+        amounts=set()
+        for currency,amount in re.findall(
+                r'(?:총\s*금액|총\s*지불\s*금액|총\s*요금|Total(?:\s+price)?)\s*'
+                r'(¥|€|US\$|₩|EUR|JPY|USD|KRW)\s*([0-9][0-9,.]*)',text,re.I):
+            try:amounts.add((currency_codes.get(currency,currency.upper()),decimal_amount(amount)))
+            except InvalidOperation:pass
+        paid_on=sent_day(message,headers)
+        if paid_on is None:continue
+        cancelled=reservation_cancelled(subject)
+        paid=not cancelled and bool(re.search(r'결제가 완료|결제\s*완료|Payment confirmation|payment.*(?:received|successful)',subject,re.I))
+        scheduled=scheduled_charge_day(text) if domain=='agoda.com' and not cancelled else None
+        evidence_kind='payment_receipt' if paid else 'scheduled_charge' if scheduled else ''
+        if not paid and scheduled:
+            paid_on=scheduled
+        digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
+        facts.append(dict(provider='agoda' if domain=='agoda.com' else 'booking',booking_ref=next(iter(refs)),
+                          period=period,amounts=amounts,paid_on=paid_on,paid=paid,
+                          cancelled=cancelled,source_sha256=digest,evidence_kind=evidence_kind))
+    periods=collections.defaultdict(set)
+    for fact in facts:
+        if fact['period']:periods[(fact['provider'],fact['booking_ref'])].add(tuple(sorted(fact['period'].items())))
+    cancelled={(f['provider'],f['booking_ref']) for f in facts if f['cancelled']}
+    candidates=collections.defaultdict(list)
+    rows_by_receipt=collections.defaultdict(set)
+    for row in transactions:
+        if row['transaction_direction']!='purchase' or (row['approval_date'] or '')<'2026-04-01':continue
+        merchant=row['merchant'].upper()
+        provider='agoda' if 'AGODA' in merchant or '아고다' in merchant else 'booking' if 'BOOKING' in merchant or '부킹닷컴' in merchant else ''
+        if not provider:continue
+        try:
+            occurred=datetime.date.fromisoformat(row['approval_date'])
+            krw=row.get('amount_krw')
+            amounts={('KRW',Decimal(str(krw)))} if krw is not None and krw>0 else set()
+            if row.get('foreign_amount') and row.get('foreign_currency'):
+                amounts.add((row['foreign_currency'],Decimal(str(row['foreign_amount'])).copy_abs()))
+        except (InvalidOperation,ValueError):continue
+        for fact in facts:
+            common=amounts & fact['amounts']
+            valid={pair for pair in common if abs((occurred-fact['paid_on']).days)<=(0 if pair[0]=='KRW' else 1)}
+            if (fact['provider']==provider and (fact['paid'] or fact['evidence_kind']=='scheduled_charge') and
+                    valid):
+                identity=(provider,fact['booking_ref'])
+                candidates[row['source_hash']].append(fact);rows_by_receipt[identity].add(row.get('transaction_id',row['source_hash']))
+    result=[]
+    for source_hash,options in candidates.items():
+        identities={(f['provider'],f['booking_ref']) for f in options}
+        if len(identities)!=1:continue
+        identity=next(iter(identities));service_periods=periods[identity]
+        if identity in cancelled:continue
+        if len(rows_by_receipt[identity])!=1 or len(service_periods)!=1:continue
+        period=dict(next(iter(service_periods)))
+        result.append(dict(source_hash=source_hash,item='숙박비',period=period,booking_ref=identity[1],
+                           strict_service_period=True,confidence='중간',
+                           source_sha256=options[0]['source_sha256'],evidence_kind=options[0]['evidence_kind'],
+                            basis=('서명 검증된 예약의 자동 결제 예정일과 실제 카드 거래' if options[0]['evidence_kind']=='scheduled_charge' else '서명 검증된 결제 메일')+
+                                 '의 통화·금액·결제일이 유일하게 일치(원화는 같은 날, 외화는 하루 이내); 예약 '+identity[1]+
+                                 '의 이용기간 '+period['starts_on']+'~'+period['ends_on']+'을 참고한 추론'))
+    return result
+
+
+def europe_stays(directory):
+    """사용자가 지정한 숙박 메일로 확인되는 유럽 체류 범위를 보존한다."""
+    messages=load_messages(directory)
+    stays=[]
+    selected={}
+    cancellations={}
+    cancel_messages={}
+    for message in messages.values():
+        authenticated=authenticated_headers(message,('trip.com','agoda-messaging.com'))
+        if not authenticated:
+            continue
+        headers,domain=authenticated
+        subject=headers.get('subject','')
+        text=''.join(c for c in body_text(message['payload']) if unicodedata.category(c)!='Cf')
+        if re.search('취소|cancel',subject,re.I):
+            for ref in re.findall(r'예약\s*번호\s*[:：]?\s*(\d{16})',text):
+                if int(message['internal_date'])>cancellations.get(ref,0):
+                    cancellations[ref]=int(message['internal_date'])
+                    cancel_messages[ref]=message
+            continue
+        ref='';period=None;countries=set()
+        if domain=='trip.com':
+            if not ('예약 확정 안내' in subject or '체크인이 얼마 남지' in subject):
+                continue
+            refs=set(re.findall(r'예약\s*번호\s*[:：]?\s*(\d{16})',text))
+            dates=[]
+            for label in ('체크인','체크아웃'):
+                matches=set(re.findall(label+r'\s*[:：]?\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',text))
+                if len(matches)==1:
+                    dates.append(datetime.date(*map(int,next(iter(matches)))).isoformat())
+            if len(refs)==1 and len(dates)==2:
+                ref=next(iter(refs));period={'starts_on':dates[0],'ends_on':dates[1]}
+            lines=[s.strip() for s in text.splitlines() if s.strip()]
+            addresses=[' '.join(lines[i+1:i+4]) for i,line in enumerate(lines) if line in ('주소','Address')]
+            for name,code in [('프랑스','FR'),('France','FR'),('이탈리아','IT'),('Italy','IT'),('오스트리아','AT'),('Austria','AT')]:
+                if any(name in address for address in addresses):countries.add(code)
+        else:
+            # 숙소 응답 메일의 예약 ID와 연도가 명시된 이용기간을 함께 읽는다.
+            match=re.search(r'Booking ID:\s*(\d{8,12})\s*\(([A-Za-z]+) (\d{1,2})-(\d{1,2}), (\d{4})\)',subject)
+            if not match:
+                continue
+            ref,month,start,end,year=match.groups()
+            try:
+                number=datetime.datetime.strptime(month,'%B').month
+                period={'starts_on':datetime.date(int(year),number,int(start)).isoformat(),
+                        'ends_on':datetime.date(int(year),number,int(end)).isoformat()}
+            except ValueError:
+                continue
+            if 'Salzburg' in subject or 'innsbruck' in subject.lower():countries.add('AT')
+            if 'Casa di Franz' in subject or 'Hotel La Pioppa' in subject:countries.add('IT')
+        if not period or not countries or not ('2026-05-01'<=period['starts_on']<='2026-06-10'):
+            continue
+        stays.append(dict(booking_ref=ref,**period,countries=sorted(countries),message_id=message['id']))
+        selected[message['id']]=message
+    if not stays:
+        return None
+    # 같은 예약의 서로 다른 이용기간은 최신 확인 메일로 정해진 경우만 허용한다.
+    latest={}
+    for stay in stays:
+        previous=latest.get(stay['booking_ref'])
+        if previous is None or int(messages[stay['message_id']]['internal_date'])>int(messages[previous['message_id']]['internal_date']):
+            latest[stay['booking_ref']]=stay
+    final=[stay for ref,stay in latest.items()
+           if cancellations.get(ref,0)<int(messages[stay['message_id']]['internal_date'])]
+    if not final:
+        return None
+    return {'starts_on':min(s['starts_on'] for s in final),'ends_on':max(s['ends_on'] for s in final),
+            'countries':sorted({c for s in final for c in s['countries']}), 'stays':final,
+            'cancelled_booking_refs':sorted(ref for ref,stay in latest.items() if stay not in final),
+            'messages':[selected[s['message_id']] for s in latest.values()]
+                       +[cancel_messages[ref] for ref in latest if ref in cancel_messages],
+            'instruction':'2026-10-03 사용자 지시: OTA 숙박메일로 유럽 일정을 파악. 체크아웃 날짜를 그대로 보존.'}

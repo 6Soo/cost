@@ -12,6 +12,7 @@ an explicit allowlist, so a path can never escape it.
 from __future__ import annotations
 
 import json
+import urllib.parse
 import uuid
 from pathlib import Path
 from urllib.parse import quote
@@ -123,19 +124,19 @@ h1,h2,p{margin:0}
 .meta{font-size:12.5px;color:var(--mut);margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .meta a{color:var(--mut)}
 .act{margin-left:auto;display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
-.bar{display:flex;align-items:center;gap:10px;padding:12px 24px;border-bottom:1px solid var(--line);
+.bar{display:flex;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid var(--line);
  flex-wrap:wrap}
 #q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line);border-radius:4px;
  padding:0 8px;background:var(--paper)}
 #kind{height:32px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
  padding:0 6px;font-weight:500}
 .crumb{font-size:12.5px;color:var(--mut)}
-.status{padding:8px 24px;font-size:12.5px;color:var(--grn);border-bottom:1px solid var(--line2);
- min-height:33px}
+.status{padding:7px 24px;font-size:12.5px;color:var(--grn);border-bottom:1px solid var(--line2);
+ min-height:30px}
 .status.hint{color:var(--mut)}
 .status.err{color:var(--neg)}
 
-.sum{display:flex;align-items:baseline;gap:28px;padding:14px 24px;border-bottom:1px solid var(--line);
+.sum{display:flex;align-items:baseline;gap:28px;padding:11px 24px;border-bottom:1px solid var(--line);
  flex-wrap:wrap}
 .sum div{display:flex;align-items:baseline;gap:7px}
 .sum i{font-style:normal;font-size:12px;color:var(--mut)}
@@ -144,15 +145,29 @@ h1,h2,p{margin:0}
 
 .tw{padding:0 0 28px}
 table{width:100%;table-layout:fixed;border-collapse:collapse}
-th,td{padding:0 12px;height:40px;border-bottom:1px solid var(--line2);
+th,td{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);
  text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-thead th{position:sticky;top:0;z-index:2;height:34px;background:var(--paper);
- font-size:13px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
-tbody.grp th{height:32px;background:var(--bg);font-size:13px;font-weight:600;color:var(--mut);
+thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
+ font-size:12.5px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line);
+ box-shadow:0 1px 0 var(--line)}
+/* 거래처·내용: the counterparty and the content share one cell, so the amount sits
+   against the line that explains it. The first line is what the row is, the
+   second is who it was with, and both are the row's own values: a merchant equal
+   to the content is not printed twice. */
+td.c-party{white-space:normal;line-height:1.35}
+.s-main{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap}
+.s-sub{display:block;font-size:11.5px;color:var(--mut);overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap}
+td.c-note{font-size:13px;color:var(--mut)}
+td.c-amt{font-weight:600}
+tbody.grp th{height:30px;background:var(--bg);font-size:12.5px;font-weight:600;color:var(--mut);
  border-bottom:1px solid var(--line)}
-tbody.grp div{display:flex;justify-content:space-between;gap:8px}
+tbody.grp td{height:30px;background:var(--bg);text-align:right}
+tbody.grp .btn{height:24px;font-size:12px}
 tr[data-id]{cursor:pointer}
 tr[data-id]:hover{background:var(--grn-lt)}
+tr[data-id]:focus-visible{outline:2px solid var(--grn);outline-offset:-2px}
 tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
 .num{text-align:right}
 .a-in{color:var(--grn);font-weight:500}
@@ -161,6 +176,10 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .tag{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);
  border-radius:3px;color:var(--mut)}
 .tag.in{border-color:#CFE3D7;background:var(--grn-lt);color:var(--grn-dk)}
+/* Waiting and cancelled are said in words, not by colour alone, and both come
+   from the row itself: no travel assigned, or a cancellation in the source. */
+.tag.wait{border-color:#E8D8B4;background:#FBF4E6;color:var(--warn)}
+.tag.cancel{text-decoration:line-through}
 .empty td{color:var(--mut);text-align:center;height:64px}
 .psel{height:30px;width:132px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
  font-size:12.5px;padding:0 4px}
@@ -168,8 +187,9 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 
 .panel{width:400px;flex:0 0 400px;background:var(--paper);border-left:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0}
+.panel:focus{outline:none}
 .p-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
- padding:16px 20px;border-bottom:1px solid var(--line)}
+ padding:14px 16px;border-bottom:1px solid var(--line)}
 .p-hd h2{font-size:15px;font-weight:700}
 .p-amt{font-size:20px;font-weight:700;letter-spacing:-.012em;margin-top:2px}
 /* The save form is a flex child of .panel, so it has to pass the column on.
@@ -177,7 +197,18 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
    pushes the 저장/취소 footer past the panel bottom, where it cannot be
    reached on a short viewport. */
 .panel form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
-.p-bd{padding:20px;overflow:auto;flex:1 1 auto;min-height:0}
+.p-bd{padding:16px;overflow:auto;flex:1 1 auto;min-height:0}
+/* The source identifier, the revision and the source kind are a support answer,
+   not a working day. They are folded away by default and one click away, and the
+   values themselves are unchanged: this moves them, it does not tidy them. */
+.p-src{margin:0 0 14px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.p-src>summary{cursor:pointer;padding:7px 10px;font-size:12px;color:var(--mut);
+ list-style:none;user-select:none}
+.p-src>summary::-webkit-details-marker{display:none}
+.p-src>summary::after{content:" 더보기";color:var(--grn-dk)}
+.p-src[open]>summary::after{content:" 접기"}
+.p-src[open]>summary{border-bottom:1px solid var(--line2)}
+.p-src .p-sub{margin:0;padding:9px 10px;line-height:1.7}
 .p-sub{font-size:12.5px;color:var(--mut);margin-bottom:14px;word-break:break-all}
 .f{margin-bottom:14px}
 .f label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
@@ -193,6 +224,27 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .p-links a{color:var(--grn-dk)}
 .sect{margin:0;padding:20px 24px;border-bottom:1px solid var(--line)}
 .sect h2{font-size:16px;font-weight:700;margin-bottom:10px}
+/* The actual-source preview. Cards rather than a table, at every width: it
+   holds a source locator, which is long and has no spaces to break on, and a
+   table would either overflow sideways on a phone or clip the one value a
+   reader needs to check against the original. A card cannot overflow that way. */
+.src-preview{margin:0.75rem 0;padding:12px 16px;border:1px solid var(--line);
+ border-radius:4px;background:var(--bg)}
+.src-preview h2{font-size:15px;font-weight:700;margin-bottom:6px}
+.src-hd{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.src-hd h2{margin-bottom:0}
+.src-list{list-style:none;margin:0;padding:0}
+.src-row{border-top:1px solid var(--line2);padding:8px 0}
+.src-row:first-child{border-top:0}
+.src-line{display:flex;gap:8px;margin:0 0 2px;font-size:13px;align-items:baseline}
+.src-line span{flex:0 0 4.5em;color:var(--mut);font-size:12px}
+.src-line b{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.src-line code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+ font-size:12px;overflow-wrap:anywhere}
+@media (max-width:759px){
+ .src-line{flex-wrap:wrap}
+ .src-line span{flex:0 0 100%}
+}
 .sect h3{font-size:14px;font-weight:600;margin:18px 0 8px}
 .sect p{margin:0 0 8px;font-size:13.5px}
 .sect .kv{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--mut)}
@@ -256,8 +308,14 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .page-body input,.page-body select,.page-body textarea{min-width:0;width:100%;font-size:16px}
  .page-body button,.page-body a.btn{height:44px;width:100%;justify-content:center}
 }
-.p-ft{display:flex;gap:8px;padding:16px 20px;border-top:1px solid var(--line)}
-.p-ft .btn{flex:1}
+.p-ft{display:flex;align-items:center;gap:6px;padding:12px 16px;border-top:1px solid var(--line)}
+/* 저장/취소 carry the panel footer and stay equal. The two walking buttons are
+   shown only when there is a row to walk to, and they keep their width so the
+   footer does not reflow as the position beside them changes. */
+.p-ft .btn{flex:1 1 auto;min-width:0}
+.p-ft .p-nav{flex:0 0 auto;padding:0 9px;font-weight:500}
+.p-count{flex:0 0 auto;font-size:11.5px;color:var(--mut);white-space:nowrap;
+ padding:0 2px}
 /* The save and cancel shortcuts are printed on the buttons, so the keyboard
    path is discoverable without a manual (DETAILED_CONTRACT 12.3). */
 .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
@@ -273,14 +331,15 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .kbd{display:none}
 }
 
-.btn{height:34px;padding:0 12px;border:1px solid var(--line);border-radius:4px;
- background:var(--paper);font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);
+.btn{height:32px;padding:0 10px;border:1px solid var(--line);border-radius:4px;
+ background:var(--paper);font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
 .btn:hover{background:var(--bg)}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
 .btn.primary:hover{background:var(--grn-dk)}
-.btn[disabled]{opacity:.6;cursor:default}
-.icon{width:34px;height:34px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
+.btn[disabled]{opacity:.45;cursor:default}
+.btn[disabled]:hover{background:var(--paper)}
+.icon{width:32px;height:32px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
  cursor:pointer;font-size:14px;line-height:1}
 #btn-menu{display:none;font-size:15px}
 [hidden]{display:none!important}
@@ -308,27 +367,38 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .period{font-size:12.5px}
  .act{margin-left:auto;width:auto}
  .act .btn{height:40px;padding:0 10px;font-size:13.5px}
- .bar{padding:8px 16px;gap:8px}
- #q{flex:1 1 0;min-width:0;width:auto;max-width:none;height:40px}
- #kind{flex:0 0 96px;min-width:0}
- .bar .crumb{display:none}
- #q,#kind,.psel,.f input,.f select,.f textarea,.nav-q input{font-size:16px}
- #kind{height:40px}
- .status{padding:8px 16px;font-size:12.5px}
- .sum{padding:12px 16px;gap:16px}
- .sum .n{margin-left:0}
- .p-bd{padding:16px}
- .p-ft{padding:12px 16px}
- .li{width:100%;min-height:44px;display:flex;align-items:center;gap:8px;padding:9px 16px;
-  border:0;border-bottom:1px solid var(--line2);background:var(--paper);text-align:left;cursor:pointer}
- .li .d{font-size:13px;color:var(--mut);white-space:nowrap}
- .li .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
- .li .a{margin-left:auto;white-space:nowrap;font-size:15px;font-weight:600}
- .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
- .li.pend{align-items:flex-start;flex-wrap:wrap;white-space:normal;padding-top:12px;padding-bottom:12px}
- .li.pend .psel{margin-top:8px}
- .lg{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;
-  background:var(--bg);font-size:12px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
+  .bar{padding:8px 16px;gap:8px}
+  #q{flex:1 1 0;min-width:0;width:auto;max-width:none;height:40px}
+  #kind{flex:0 0 96px;min-width:0;height:40px}
+  .bar .crumb{display:none}
+  #q,#kind,.psel,.f input,.f select,.f textarea,.nav-q input{font-size:16px}
+  .status{padding:8px 16px;font-size:12.5px}
+  .sum{padding:12px 16px;gap:16px}
+  .sum .n{margin-left:0}
+  .p-bd{padding:16px}
+  .p-ft{padding:12px 16px;position:sticky;bottom:0;background:var(--paper)}
+  .lst{overflow-x:hidden}
+  .nv{min-height:44px}
+  .li{width:100%;max-width:100%;min-height:64px;display:flex;flex-direction:column;
+   align-items:stretch;justify-content:center;gap:4px;padding:10px 16px;
+   border:0;border-bottom:1px solid var(--line2);background:var(--paper);text-align:left;cursor:pointer;
+   overflow:hidden}
+  .li .m-row{display:flex;align-items:center;gap:8px;min-width:0}
+  .li .d{font-size:12.5px;color:var(--mut);white-space:nowrap;flex:0 0 auto}
+  .li .m-cat{font-size:13px;font-weight:600;flex:0 1 auto;min-width:0;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+  .li .t{flex:1 1 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+  .li .a{margin-left:auto;flex:0 0 auto;white-space:nowrap;font-size:15px;font-weight:600}
+  .li .tag{flex:0 0 auto}
+  .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+  .li.pend{white-space:normal;padding-top:12px;padding-bottom:4px}
+  .lst form[data-js-move]{display:flex;gap:8px;align-items:center;padding:0 16px 12px;
+   border-bottom:1px solid var(--line2);max-width:100%}
+  .lst form[data-js-move] .psel{flex:1 1 0;min-width:0;margin-top:0}
+  .lst form[data-js-move] .btn{flex:0 0 76px;min-width:76px}
+  .lg{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;
+   background:var(--bg);font-size:12px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
 }
 """
 
@@ -348,27 +418,151 @@ SCRIPT = """
   el.textContent=text;
   el.className=bad?'f-msg err':'f-msg';
  }
- function goBack(){location.href=main.dataset.base;}
- function openPanel(id){
-  var url=new URL(location.href); url.searchParams.set('row',id);
-  fetch(url.toString(),{headers:{'X-Part':'panel'}})
-   .then(function(r){return r.text();})
-   .then(function(html){
-    document.getElementById('panel-slot').innerHTML=html;
-    var row=document.querySelector("tr[data-id='"+id+"']");
-    if(row) row.setAttribute('aria-selected','true');
-   });
- }
+function goBack(){location.href=main.dataset.base;}
+  // ------------------------------------------- the panel's own state, read only
+  function panel(){return document.getElementById('panel');}
+  function panelForm(){var p=panel();return p?p.querySelector('form[data-js-save]'):null;}
+  function panelRow(){var p=panel();return p?(p.getAttribute('data-row')||''):'';}
+  // The rows that are on screen, in the order they are on screen. Both markups
+  // are read — the desktop table's rows and the phone list's buttons — and a
+  // layout only ever renders one of them, so this is a walk over what a reader
+  // can see either way. A row inside a hidden section has no boxes at all and is
+  // not walked past: the position beside the buttons counts real rows only.
+  function visibleRowIds(){
+   var out=[],rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]');
+   for(var i=0;i<rows.length;i++){
+    if(!rows[i].getClientRects().length) continue;
+    out.push(rows[i].getAttribute('data-id'));
+   }
+   return out;
+  }
+  // The open row is in the address, so a refresh and a shared link both come back
+  // to the same row. `replaceState` and not a navigation: the panel is already
+  // open, and a history entry per row would make the browser's back button walk
+  // through every row the reader looked at.
+  function setRowParam(id){
+   if(!window.history||!window.history.replaceState) return;
+   var url=new URL(location.href);
+   if(id) url.searchParams.set('row',id);
+   else url.searchParams.delete('row');
+   try{window.history.replaceState(null,'',url.toString());}catch(e){}
+  }
+  // Exactly one selected row, always, in whichever markup is on screen. The mark
+  // is set from the panel's own row rather than added to whatever was clicked, so
+  // a second click cannot leave two rows looking selected, and a live refresh
+  // that replaced the list cannot leave none.
+  function markSelection(){
+   var cur=panelRow();
+   var rows=document.querySelectorAll('.tw tr[data-id],.lst .li[data-id]');
+   for(var i=0;i<rows.length;i++){
+    if(rows[i].getAttribute('data-id')===cur) rows[i].setAttribute('aria-selected','true');
+    else rows[i].removeAttribute('aria-selected');
+   }
+  }
+  // Show the two walking buttons only when there is somewhere to walk, and say
+  // which row of how many. Both come from the rows on screen, so they are absent
+  // rather than wrong when the open row is not among them.
+  function syncNav(){
+   var prev=document.getElementById('p-prev'),next=document.getElementById('p-next'),
+    count=document.getElementById('p-count');
+   if(!prev||!next||!count||!panel()) return;
+   var ids=visibleRowIds(),i=ids.indexOf(panelRow());
+   if(i<0){
+    prev.hidden=true;next.hidden=true;count.textContent='';return;
+   }
+   // A button with no row to walk to is not shown at all. One row of six is a
+   // real position and is still said; the two ends of a one row list are the
+   // same row, so offering them would be offering a move that cannot happen.
+   prev.hidden=(i<=0);
+   next.hidden=(i>=ids.length-1);
+   count.textContent=(i+1)+' / '+ids.length;
+  }
+  var panelLoading=false;
+  function openPanel(id){
+   // The row that is already open needs no panel and no question: re-fetching it
+   // would throw away what was typed for no gain.
+   if(!id||id===panelRow()) return;
+   if(!canLeavePanel()) return;
+   panelLoading=true;
+   var slot=document.getElementById('panel-slot');
+   slot.inert=true;slot.setAttribute('aria-busy','true');
+   var url=new URL(location.href); url.searchParams.set('row',id);
+   fetch(url.toString(),{headers:{'X-Part':'panel'}})
+    .then(function(r){if(!r.ok) throw new Error('PANEL_LOAD_FAILED');return r.text();})
+    .then(function(html){
+     var content=document.createElement('div');content.innerHTML=html;
+     if(!content.querySelector('#panel')) throw new Error('PANEL_LOAD_FAILED');
+     releasePanel();
+     slot.innerHTML=html;
+     markSelection();
+     syncNav();
+     // Focus the panel, not a field in it: a field that holds the keyboard stops
+     // the cross-screen refresh from applying, and a reader who only opened a row
+     // has not started editing one.
+     var p=panel();
+     if(p){try{p.focus({preventScroll:true});}catch(e){try{p.focus();}catch(e2){}}}
+     setRowParam(id);
+    }).catch(function(){
+     say((panelForm()&&panelForm().querySelector('.f-msg'))||document.getElementById('status'),
+      '거래를 불러오지 못했어요. 입력은 그대로 남아 있습니다. 다시 시도해 주세요',true);
+    }).finally(function(){panelLoading=false;slot.inert=false;slot.removeAttribute('aria-busy');});
+  }
+  function closePanel(){
+   if(!canLeavePanel()) return;
+   releasePanel();
+   goBack();
+  }
+  // Previous/next over the rows on screen. A step that would leave the list does
+  // nothing, which is what the disabled button already says.
+  function stepRow(delta){
+   var ids=visibleRowIds(),i=ids.indexOf(panelRow());
+   if(i<0) return;
+   var target=ids[i+delta];
+   if(!target) return;
+   openPanel(target);
+  }
+  // The one guard every way out of the panel shares: the close button, Escape,
+  // another row, and the previous/next buttons all pass through here. A save in
+  // flight is not interrupted — the answer is not on screen yet — and a typed edit
+  // is only dropped after the reader says so.
+  function canLeavePanel(){
+   if(panelLoading) return false;
+   if(document.querySelector('form[data-saving="1"]')){
+    var slot=(panelForm()&&panelForm().querySelector('.f-msg'))||
+     document.getElementById('status');
+    say(slot,'저장하는 중이에요. 저장이 끝난 뒤 이동해 주세요',false);
+    return false;
+   }
+   var f=panelForm();
+   if(f&&f.getAttribute('data-dirty')&&!window.confirm(
+    '저장하지 않은 변경이 있어요. 저장하지 않고 이동할까요?')) return false;
+   return true;
+  }
+  // Leaving is a decision, so the dirty mark goes with it and a change that was
+  // held back for this panel is asked for again straight away.
+  function releasePanel(){
+   var f=panelForm();
+   if(f) f.removeAttribute('data-dirty');
+   reportUnsaved();
+   window.dispatchEvent(new Event('ledger:saved'));
+  }
  function refreshSummary(){
   var url=new URL(location.href);
   fetch(url.toString()+'&part=summary',{headers:{'X-Part':'summary'}})
    .then(function(r){return r.text();})
    .then(function(html){document.getElementById('sum').outerHTML=html;});
  }
- document.addEventListener('click',function(e){
-  if(e.target.id==='p-close'){e.preventDefault();goBack();return;}
-  // The chrome buttons come first. The trip button sits inside the search form
-  // now, so the form guard below would otherwise swallow it.
+document.addEventListener('click',function(e){
+   if(e.target.closest('#p-cancel')&&document.querySelector('form[data-saving="1"]')){
+    e.preventDefault();canLeavePanel();return;
+   }
+   if(e.target.id==='p-close'){e.preventDefault();closePanel();return;}
+   // The two walking buttons live inside the save form, so they are answered
+   // before the form guard below would swallow them.
+   if(e.target.closest('#p-prev')){e.preventDefault();stepRow(-1);return;}
+   if(e.target.closest('#p-next')){e.preventDefault();stepRow(1);return;}
+   // The chrome buttons come first. The trip button sits inside the search form
+   // now, so the form guard below would otherwise swallow it.
   if(e.target.closest('#btn-menu')){
    var open=nav.classList.toggle('open'); mask.hidden=!open;
    e.target.setAttribute('aria-expanded',open?'true':'false'); return;
@@ -395,10 +589,15 @@ SCRIPT = """
    if(el.type==='checkbox'||el.type==='radio'){ if(el.checked) payload[el.name]=el.value; return; }
    payload[el.name]=el.value;
   });
-  say(slot,isSave?'저장하는 중입니다':'옮기는 중입니다',false);
-  post(form.getAttribute('action'),payload).then(function(res){
-   var body=res.body||{};
-   if(res.ok&&body.outcome){
+   say(slot,isSave?'저장하는 중입니다':'옮기는 중입니다',false);
+   // A save in flight is a reason not to swap the screen underneath it. The
+   // cross-screen refresh reads this same mark, so the two behaviours cannot
+   // disagree about whether an edit is still happening.
+   form.setAttribute('data-saving','1');
+   post(form.getAttribute('action'),payload).then(function(res){
+    form.removeAttribute('data-saving');
+    var body=res.body||{};
+    if(res.ok&&body.outcome){
     if(isSave){
      var rev=form.querySelector("input[name='expected_revision']");
      if(rev&&body.revision) rev.value=body.revision;
@@ -423,21 +622,34 @@ SCRIPT = """
      }
       say(slot,'저장했습니다 (revision '+body.revision+')',false);
       clearDirty(form);
+      // The row's own identity did not change, so the position beside the walking
+      // buttons and the one selected row are read again from the live DOM.
+      markSelection();
+      syncNav();
      }else{
      say(slot,'옮겼습니다. 목록과 합계가 갱신되었어요',false);
     }
     if(isSave){refreshSummary();}
-    else{
-     var next=new URL(location.href);
-     next.searchParams.set('msg','옮겼습니다. 목록과 합계가 갱신되었어요');
-     location.href=next.toString();
-    }
+else{
+      var next=new URL(location.href);
+      next.searchParams.set('msg','옮겼습니다. 목록과 합계가 갱신되었어요');
+      // The row is no longer in the list this screen was showing, so the address
+      // stops naming it. Leaving `row` behind would reopen a panel for a row that
+      // is not in the table the reader is looking at.
+      next.searchParams.delete('row');
+      location.href=next.toString();
+     }
     return;
    }
     say(slot,(body.code||'ERROR')+': '+(body.message||'저장하지 못했어요'),true);
     flagField(form,body,slot);
    }).catch(function(){
     say(slot,'요청을 보내지 못했어요. 연결을 확인해 주세요',true);
+   }).then(function(){
+    // A save that finished, succeeded or not, is the moment a deferred
+    // cross-screen change is wanted. The refresh listens for this and asks
+    // again immediately rather than waiting out its interval.
+    window.dispatchEvent(new Event('ledger:saved'));
    });
   });
 
@@ -514,45 +726,58 @@ SCRIPT = """
    });
   }
 
-  document.addEventListener('keydown',function(e){
-   var form=e.target.closest&&e.target.closest('form[data-js-save]');
-   // Ctrl+Enter is the one key that saves, from anywhere in the panel form.
-   if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)&&form){
-    e.preventDefault();
-    if(typeof form.requestSubmit==='function') form.requestSubmit();
-    else form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
-    return;
-   }
-   if(e.key==='Enter'&&form&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
-    // A textarea keeps its newline. A single-line field is not a save: it
-    // just does nothing, so a stray Enter cannot write a row.
-    var tag=(e.target.tagName||'').toLowerCase();
-    if(tag==='textarea') return;
-    if(e.target.type==='button'||e.target.type==='submit') return;
-    e.preventDefault();
-    return;
-   }
-   if(e.key==='Escape'){
-    var panel=document.getElementById('panel');
-    if(!panel) return;
-    var f=panel.querySelector('form[data-js-save]');
-    if(f&&f.getAttribute('data-dirty')&&!window.confirm(
-     '저장하지 않은 변경이 있어요. 저장하지 않고 닫을까요?')) return;
-    // The edit was discarded, so it is no longer unsaved. Leaving the
-    // mark on would fire the 4.1 leave-confirm for a decision the
-    // user just made, so the mark goes before the navigation.
-    if(f) f.removeAttribute('data-dirty');
-    reportUnsaved();
-    // Return focus to the row the panel was opened from.
-    var opener=document.getElementById('panel')&&
-     document.querySelector('tr[data-id][aria-selected="true"]');
-    if(opener){
-     var target=opener.querySelector('button,td,a')||opener;
-     try{target.focus();}catch(e){}
+document.addEventListener('keydown',function(e){
+    // A row is focusable, so it has to answer the keyboard the way a button
+    // does. Enter and Space open it; without this a keyboard reader could focus
+    // a row and do nothing with it.
+    if(e.key==='Enter'||e.key===' '||e.key==='Spacebar'){
+     var tr=e.target.closest&&e.target.closest('tr[data-id]');
+     if(tr&&!(e.target.closest&&e.target.closest('button,select,input,textarea,a'))){
+      e.preventDefault();
+      openPanel(tr.getAttribute('data-id'));
+      return;
+     }
     }
-    goBack();
-   }
-  });
+    var form=e.target.closest&&e.target.closest('form[data-js-save]');
+    // Ctrl+Enter is the one key that saves, from anywhere in the panel form.
+    if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)&&form){
+     e.preventDefault();
+     if(typeof form.requestSubmit==='function') form.requestSubmit();
+     else form.dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
+     return;
+    }
+    if(e.key==='Enter'&&form&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
+     // A textarea keeps its newline. A single-line field is not a save: it
+     // just does nothing, so a stray Enter cannot write a row.
+     var tag=(e.target.tagName||'').toLowerCase();
+     if(tag==='textarea') return;
+     if(e.target.type==='button'||e.target.type==='submit') return;
+     e.preventDefault();
+     return;
+    }
+    if(e.key==='Escape'){
+     if(!panel()) return;
+     // The same guard the close button and the row walk use: a refused answer
+     // leaves the panel and the draft exactly as they were.
+     if(!canLeavePanel()) return;
+     releasePanel();
+     // Return focus to the row the panel was opened from.
+     var opener=document.querySelector('tr[data-id][aria-selected="true"]');
+     if(opener){
+      var target=opener.querySelector('button,td,a')||opener;
+      try{target.focus();}catch(e){}
+     }
+     goBack();
+    }
+   });
+  // A finished save, and a row list that another screen replaced, both mean the
+  // selection and the position beside the walking buttons have to be read again.
+  window.addEventListener('ledger:saved',function(){markSelection();syncNav();});
+  var region=document.getElementById('live-rows');
+  if(region&&window.MutationObserver){
+   new MutationObserver(function(){markSelection();syncNav();})
+    .observe(region,{childList:true,subtree:true});
+  }
   // Any change marks the panel dirty so Escape knows to ask.
   document.addEventListener('input',function(e){
    var form=e.target.closest&&e.target.closest('form[data-js-save]');
@@ -573,6 +798,37 @@ def _money(value) -> str:
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
+    """The whole trip rail: the brand, the search box, the region, the footer.
+
+    The search box sits outside the swappable region on purpose. It holds what the
+    user typed, and a refresh that replaced it would take the caret and the text
+    with it.
+    """
+    search = (
+        "<form class='nav-q' method='get' action='/board'>"
+        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
+        f"{f'<input type=hidden name=kind value={board.esc(kind)}>' if kind else ''}"
+        "<label class='sr' for='tripq'>여행 검색</label>"
+        f"<input id='tripq' name='q' type='search' placeholder='여행 이름·코드'"
+        f" value='{board.esc(query)}' autocomplete='off'></form>")
+    return (
+        "<aside class='nav' id='nav' aria-label='여행 목록'>"
+        "<div class='nav-hd'><p class='brand'>숲길여행 법인카드"
+        f"<small>{board.data_status_mark()}</small></p></div>"
+        f"{search}"
+        + nav_region(tab_id, query, kind, archived)
+        + f"<p class='nav-ft'>{board.nav_data_note()}</p></aside>"
+        "<div class='nav-mask' id='nav-mask' hidden></div>")
+
+
+def _nav_region_inner(tab_id: str, query: str, kind: str = "",
+                      archived: str = "") -> str:
+    """The trip rail region's contents, without the region's own element.
+
+    One renderer for this markup. The page puts it inside `nav_region`, and a live
+    fragment carries the same string, so a refreshed rail and a freshly loaded one
+    cannot disagree about the selected trip, the archived drawer, or a total.
+    """
     state = state_query(tab_id, query, kind, archived)
     drawer_open = archived in ("1", "open", "true")
 
@@ -586,6 +842,15 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
 
     sections = []
     trips = board.live_trips(include_archived=True)
+    # A viewer's rail lists only the trips its allowlist names. The rail is
+    # rendered by the shared chrome, so without this the `+ 탭 추가` control was
+    # correctly hidden from a viewer while the trip names beside it were not:
+    # a trip the viewer may not read was still named, and its total was still
+    # shown. The role is decided on the server for this request, so the filter
+    # is the server's own answer and not anything the request asked for.
+    if board.current_role() == "viewer":
+        allowed = board.viewer_visible_tabs(board.current_request_session())
+        trips = [t for t in trips if t["tab_id"] in allowed]
     active = [t for t in trips if not t.get("archived") and not t.get("deleted")]
     archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")]
     unclassified = board._unclassified_rows()
@@ -609,7 +874,10 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
             "<ul class='nav-list' id='new-trip'>"
             "<li><a class='nv nv-add' id='add-trip' href='/trips#new-trip-form'>"
             "<span class='nm'>+ 탭 추가</span></a></li></ul>"))
-    if not query or "분류대기" in query:
+    # 분류대기 is the unassigned bucket. A viewer is never assigned it, so the
+    # control is not drawn for a viewer rather than drawn and refused. Its count
+    # is every unassigned row in the whole ledger, which is not the viewer's data.
+    if board.current_role() == "owner" and (not query or "분류대기" in query):
         sections.append(("<h2 class='nav-sec'>분류대기</h2>",
                          "<ul class='nav-list'>" + entry(
                              "분류대기",
@@ -650,22 +918,37 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
                 f"<span class='nm'>{board.esc(trip['display_key'])}</span></a>"
                 f"{view}{restore}</li>")
         arch_head += f"<ul class='nav-list' id='archived'>{''.join(rows)}</ul>"
-    search = (
-        "<form class='nav-q' method='get' action='/board'>"
-        f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
-        f"{f'<input type=hidden name=kind value={board.esc(kind)}>' if kind else ''}"
-        "<label class='sr' for='tripq'>여행 검색</label>"
-        f"<input id='tripq' name='q' type='search' placeholder='여행 이름·코드'"
-        f" value='{board.esc(query)}' autocomplete='off'></form>")
-    return (
-        "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><p class='brand'>숲길여행 법인카드"
-        "<small>합성 자료 · Ramp 방향 · Pretendard</small></p></div>"
-        f"{search}"
-        + "".join(head + body for head, body in sections)
-        + arch_head
-        + "<p class='nav-ft'>합성 자료만 적용돼요.</p></aside>"
-        "<div class='nav-mask' id='nav-mask' hidden></div>")
+    return "".join(head + body for head, body in sections) + arch_head
+
+
+def nav_region(tab_id: str, query: str = "", kind: str = "",
+               archived: str = "") -> str:
+    """The trip rail's own element: the one region a live refresh replaces.
+
+    This is the single renderer for that region, and the full page embeds exactly
+    what this returns. The alternative — rendering the whole rail and slicing the
+    region back out of the string — is how a fragment ends up carrying the sidebar
+    footer and the mask element that sit after it, which then arrive as a second
+    `nav-mask` and a stray footer on every refresh.
+
+    It returns the region's *outer* element, so a caller that only wants the inner
+    markup has to say so rather than guess where the region ended.
+    """
+    return (f"<div id='live-nav'>{_nav_region_inner(tab_id, query, kind, archived)}"
+            "</div>")
+
+
+def nav_part(tab_id: str, query: str = "", kind: str = "",
+             archived: str = "") -> str:
+    """The swappable part of the trip rail, for a live refresh.
+
+    The inner markup only, without the region's own element: the live sync adds
+    that wrapper itself, so a bundle written here and a page rendered here cannot
+    end up with two elements carrying the same id.
+    """
+    if _STORE_missing():
+        return ""
+    return _nav_region_inner(tab_id, query, kind, archived)
 
 
 def _head_html(trip) -> str:
@@ -684,13 +967,234 @@ def _head_html(trip) -> str:
                 "<span><a href='/trips'>여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
-        f"<h1>{title}<span class='synth'>{board.SYNTHETIC_MARK}</span></h1>"
+        f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
         f"<p class='period'>{period}</p>"
         f"<p class='meta'>{meta}</p></div>"
         "<div class='act'>"
-        "<a class='btn' href='/import'>카드 가져오기</a>"
+        + _reserve_link_link_html()
+        + _review_link_html()
+        + "<a class='btn' href='/import'>카드 가져오기</a>"
         "<a class='btn primary' href='/export'>XLSX 출력</a>"
         "</div></div>")
+
+
+def _reserve_link_link_html() -> str:
+    """The link to the reservation-event linking screen, for an owner only.
+
+    The screen is reachable from the ledger header so that a feature does not
+    need its address typed in. Two conditions decide whether the link is drawn,
+    and each exists for a reason:
+
+    * The role. A viewer is refused the route itself, and a link a viewer can
+      see but cannot open is worse than no link at all. The route decides the
+      role again on every request, so this markup is a convenience and never the
+      decision.
+    * Not the configuration. This is the one place where the two header links
+      differ on purpose. The review link is hidden when no review is configured,
+      because opening it would show nothing useful. The linking screen instead
+      answers "설정이 필요해요" when the source is not configured, and that answer
+      is the reason to show the link: hiding it would leave an installation with
+      no configured source unable to find out that one is needed. Hiding it here
+      would make the configuration-required state unreachable except by knowing
+      the address, which is the same gap this link exists to close.
+
+    Nothing here reads the roster, and nothing searches for one.
+    """
+    if board.current_role() != "owner":
+        return ""
+    return ("<a class='btn' id='reserve-link' href='/reserve-links'>"
+            "예약 행사 연결</a>")
+
+
+def _review_link_html() -> str:
+    """The link to the actual-source comparison, when one is configured.
+
+    Rendered only when a review is configured, so an installation without one
+    has no dead link. The owner page is the only place it appears: a viewer is
+    refused the route itself, and a link they can see but cannot open is worse
+    than no link. The route decides the role again on every request, so this
+    markup is a convenience and never the decision.
+    """
+    from . import real_review
+
+    if real_review.active_service() is None:
+        return ""
+    return "<a class='btn' id='review-link' href='/review'>실제 자료 검토</a>"
+
+
+def _source_sheet_name(locator: str) -> str:
+    """The sheet an explicit source reference names, or "" when it names none.
+
+    A locator looks like `시트명!$A$5|$B$5 (row 5)`. Only the part before the
+    first `!` is the sheet, and only a locator that has one is used: matching a
+    trip to a sheet by anything else — a prefix, a date, a settlement day, a
+    "looks like the same trip" judgement — is a guess, and a guessed trip's
+    source rows would sit under the wrong name.
+    """
+    text = str(locator or "")
+    if "!" not in text:
+        return ""
+    return text.split("!", 1)[0].strip()
+
+
+def _saved_review_choices(service) -> dict:
+    """The review screen's saved decisions, read only, or {} when unavailable.
+
+    Read for display only. Nothing here writes, and no choice is created,
+    cleared or changed — a screen that renders state must not be able to move
+    it. A read that fails leaves the original per-row decision visible, so the
+    screen degrades to what the snapshot itself carried rather than to nothing.
+    """
+    try:
+        state = service.state()
+    except Exception:
+        return {}
+    choices = (state or {}).get("choices")
+    return choices if isinstance(choices, dict) else {}
+
+
+def _source_rows_for_trip(trip) -> list:
+    """The source rows whose sheet is exactly this trip's display key.
+
+    An exact string equality, once. Nothing here infers: no dates, no amounts,
+    no ordering, no "only one trip could match". A trip with no sheet of its own
+    gets nothing, which is the honest answer.
+    """
+    if not trip:
+        return []
+    if board.current_role() != "owner":
+        return []
+    wanted = str(trip.get("display_key") or "")
+    if not wanted:
+        return []
+    try:
+        from . import real_review
+
+        service = real_review.active_service()
+        if service is None:
+            return []
+        model = service.model()
+        saved = _saved_review_choices(service)
+    except Exception:
+        # An unbound, unreadable or refused service leaves the ledger exactly as
+        # it was. A screen that failed to read the source must not also fail to
+        # show the ledger.
+        return []
+    rows = []
+    for row in (model or {}).get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        source = row.get("source")
+        if not isinstance(source, dict):
+            continue
+        if _source_sheet_name(source.get("sourceLocator")) != wanted:
+            continue
+        # The snapshot's own decision, and a saved choice when there is one. A
+        # blank decision stays blank: it is never promoted to something.
+        decision = saved.get(row.get("ref"))
+        if not isinstance(decision, str) or not decision.strip():
+            decision = str(row.get("decision") or "")
+        rows.append({"source": source, "decision": decision})
+    return rows
+
+
+def _source_preview_html(trip) -> str:
+    """The trip's actual source rows, shown beside the ledger, read only.
+
+    The reason this exists: a trip with nothing in the ledger shows an empty
+    ledger and no way to tell "nothing happened" from "nothing has been entered
+    yet". The source is what tells those apart.
+
+    Three things it must not do:
+
+    * **Not be a ledger total.** It is headed as the actual source, before it
+      reaches the ledger, and it sits outside `#live-sum`, so the saved totals
+      above are untouched and cannot be read as including it.
+    * **Not decide anything.** No approval, no selection, no write. The only
+      control is a link to the comparison screen, which is where decisions are
+      made.
+    * **Not guess the trip.** Only a sheet whose name is exactly this trip's
+      display key is shown.
+    """
+    from . import card_flow
+    if card_flow.enabled():
+        return ""
+    rows = _source_rows_for_trip(trip)
+    sheet = _source_sheet_name(
+        (rows[0]["source"].get("sourceLocator") if rows else "")) or (
+            str(trip.get("display_key") or "") if rows else "")
+    if not rows:
+        return ""
+    items = []
+    for entry in rows:
+        source = entry["source"]
+        cells = source.get("fieldcells") or []
+        # Built raw and escaped once, at the end. Escaping here and then again
+        # in the fallback below would turn a literal `&` into `&amp;amp;` on
+        # screen, which is a worse answer than the raw text it replaced.
+        labelled = " · ".join(
+            f"{cell.get('label') or ''} {cell.get('value') or ''}"
+            for cell in cells
+            if isinstance(cell, dict) and str(cell.get("label") or "").strip())
+        decision = entry["decision"]
+        decision_text = ("미검토" if not decision.strip() else decision)
+        # Which block this row is. A row from before the kind existed has none,
+        # and reads as an expense row so an existing installation is unchanged.
+        block_kind = str(source.get("block_kind") or "expense")
+        if block_kind not in ("income", "expense", "unknown"):
+            block_kind = "expense"
+        income = block_kind == "income"
+        if income:
+            decision_text = "입금 원본 조회"
+        badge = {"income": "입금",
+                 "expense": "지출"}.get(block_kind, "구분 확인 필요")
+        evidence = source.get("evidence_status") == "available"
+        content = str(source.get("description") or labelled or "-")
+        if income:
+            components = source.get("income_components") or {}
+            content = " · ".join(
+                f"{label} {components[label]}원"
+                for label in ("예약금", "잔금", "추가금")
+                if str(components.get(label) or "").strip()) or "-"
+        items.append(
+            f"<li class='src-row' data-block-kind='{board.esc(block_kind)}'>"
+            f"<p class='src-line'><span>종류</span>"
+            f"<b>{board.esc(badge)}</b></p>"
+            + ((f"<p class='src-line'><span>이름</span><b>"
+                f"{board.esc(source.get('customer_name') or '-')}</b></p>"
+                f"<p class='src-line'><span>닉네임</span><b>"
+                f"{board.esc(source.get('nickname') or '-')}</b></p>")
+               if income else "")
+            + f"<p class='src-line'><span>날짜</span>"
+            f"<b>{board.esc(source.get('date') or '-')}</b></p>"
+            f"<p class='src-line'><span>금액</span>"
+            f"<b class='tnum'>{board.esc(source.get('amount') or '-')}</b></p>"
+            + (f"<p class='src-line'><span>내용</span><b>"
+               f"{board.esc(content)}</b></p>" if content != "-" else "")
+            + "<p class='src-line'><span>원본 위치</span>"
+              f"<code>{board.esc(source.get('sourceLocator') or '-')}</code></p>"
+            + f"<p class='src-line'><span>검토 상태</span>"
+              f"<b>{board.esc(decision_text)}</b>"
+            + ("" if evidence else
+               " <span class='muted'>· 원본 머리글 확인 필요</span>")
+            + "</p></li>")
+    # Percent-encoded, not just escaped. A sheet name is free text and can hold
+    # `&`, `+`, `#` or a space, all of which mean something else inside a query
+    # string; escaping alone would produce a link that opens the wrong search.
+    review_href = "/review?q=" + urllib.parse.quote(sheet, safe="")
+    # The button sits with the heading rather than after the rows. A trip with
+    # dozens of source rows pushes a trailing link far past the fold, and the
+    # control a reader wants first becomes the one they have to scroll to.
+    return (
+        f"<section class='src-preview' id='src-preview'>"
+        f"<div class='src-hd'><h2>실제 원천 자료 · 입금과 지출</h2>"
+        f"<a class='btn' id='src-review-link' href='{board.esc(review_href)}'>"
+        f"실제 자료 검토</a></div>"
+        f"<p class='muted'>원천 시트 <code>{board.esc(sheet)}</code> 의 "
+        f"{len(items)}행이에요. 원천 자료입니다. 저장된 장부 합계와 별도로 "
+        f"표시합니다. 검토에서 차이를 확인하세요. 여기서 결정하지 않아요.</p>"
+        f"<ul class='src-list'>{''.join(items)}</ul>"
+        f"</section>")
 
 
 def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
@@ -780,52 +1284,124 @@ def _row_amount_class(row) -> str:
     return "a-in" if row.get("row_kind") == "income" else "a-ex"
 
 
+def _row_party_main(row) -> str:
+    """무엇에 대한 거래였는지를 한 줄로. 용도 설명이 가장 먼저 읽힌다.
+
+    The first line of the row is what the reader is looking for, so the typed
+    content comes first and the counterparty is the line under it. A row whose
+    description is empty falls back to the counterparty and then to nothing: a
+    blank cell says "no value" on its own, and an invented label would not.
+    """
+    for key in ("description", "customer_name"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return str(row.get("source_merchant") or "").strip() or "-"
+
+
+def _row_party_sub(row) -> str:
+    """The counterparty under the first line, or "" when it would only repeat it.
+
+    A merchant equal to the first line is not printed twice, and the income
+    nickname stands in when there is no merchant.
+    """
+    main = _row_party_main(row)
+    for key in ("source_merchant", "nickname"):
+        value = str(row.get(key) or "").strip()
+        if value and value != main:
+            return value
+    return ""
+
+
+def _row_item(row) -> str:
+    """분류: the typed 항목, or the income kind, or "-" when the row has neither.
+
+    Filled from what the row holds, not from the section it sits in: a waiting
+    expense has no 여행 and still has a 항목.
+    """
+    value = str(row.get("item") or "").strip()
+    if value:
+        return value
+    if row.get("row_kind") == "income":
+        return _income_kind_label(row)
+    return "-"
+
+
+def _row_tag_class(row) -> str:
+    """The tag's modifier for a row the store marks as waiting or cancelled.
+
+    Both states are the row's own: no travel assigned, or a cancellation in the
+    source. Nothing here concludes work that has not happened.
+    """
+    meter = _row_kind_meter(row)
+    if meter == "대기":
+        return " wait"
+    if meter == "취소":
+        return " cancel"
+    return ""
+
+
+def _party_cell(row) -> str:
+    """거래처·내용: the counterparty and what the transaction was, in one cell.
+
+    One cell rather than two columns, because reading a ledger is a single left
+    to right pass: the amount has to sit against the line that explains it.
+    """
+    main = f"<span class='s-main'>{board.esc(_row_party_main(row))}</span>"
+    sub = _row_party_sub(row)
+    if sub:
+        main += f"<span class='s-sub'>{board.esc(sub)}</span>"
+    return f"<td class='c-party'>{main}</td>"
+
+
+def _move_form(row, move_back: str) -> str:
+    """The travel picker a waiting row carries, in the 메모 column as before."""
+    rid = row["row_id"]
+    return (
+        "<form method='post' action='/api/rows/"
+        f"{board.esc(rid)}/save' data-js-move class='row-move'>"
+        f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
+        f"<input type='hidden' name='expected_revision' value='{row.get('revision', 1)}'>"
+        "<input type='hidden' name='client_request_id' value='"
+        f"{uuid.uuid4().hex}'>"
+        "<input type='hidden' name='change_mode' value='exception'>"
+        f"<input type='hidden' name='return_to' value='{board.esc(move_back)}'>"
+        "<label class='sr' for='move-" + board.esc(rid) + "'>이동할 여행</label>"
+        f"<select class='psel' id='move-{board.esc(rid)}' name='display_tab_id'>"
+        f"{_trip_options('', '분류대기(여행 미정)')}</select>"
+        "<button class='btn' type='submit'>이동</button></form>")
+
+
 def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> str:
     if not rows:
-        return ("<tbody class='grp'><tr><th scope='colgroup'>"
-                f"{'수입' if kind == 'income' else '지출'}</th></tr></tbody>"
-                "<tbody><tr class='empty'><td colspan='6'>"
+        return ("<tbody><tr class='empty'><td colspan='6'>"
                 f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
                 "</td></tr></tbody>")
     body = []
     for row in rows:
         rid = row["row_id"]
         amount = board._shown_amount(row)
-        note = row.get("operator_note") or ""
-        move = ""
-        if unclassified:
-            move = (
-                "<form method='post' action='/api/rows/"
-                f"{board.esc(rid)}/save' data-js-move class='row-move'>"
-                f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
-                f"<input type='hidden' name='expected_revision' value='{row.get('revision', 1)}'>"
-                "<input type='hidden' name='client_request_id' value='"
-                f"{uuid.uuid4().hex}'>"
-                "<input type='hidden' name='change_mode' value='exception'>"
-                f"<input type='hidden' name='return_to' value='{board.esc(move_back)}'>"
-                "<label class='sr' for='move-" + board.esc(rid) + "'>이동할 여행</label>"
-                f"<select class='psel' id='move-{board.esc(rid)}' name='display_tab_id'>"
-                f"{_trip_options('', '분류대기(여행 미정)')}</select>"
-                "<button class='btn' type='submit'>이동</button></form>")
+        meter = _row_kind_meter(row)
+        # A keyboard reader reaches a row the way a pointer reader does, so the row
+        # itself is focusable and Enter or Space opens it. `tabindex` is what
+        # makes that possible; the click path is unchanged underneath.
         body.append(
-            f"<tr data-id='{board.esc(rid)}'"
+            f"<tr data-id='{board.esc(rid)}' tabindex='0'"
             f"{' aria-selected=\"true\"' if rid == selected else ''}>"
-            f"<td class='tnum'>{board.esc(board._shown_date(row))}</td>"
-            f"<td><span class='tag{' in' if _row_kind_meter(row) == '수입' else ''}'>"
-            f"{_row_kind_meter(row)}</span></td>"
-            f"<td>{board.esc(row.get('item') or _income_kind_label(row))}</td>"
-            f"<td>{board.esc(row.get('description') or row.get('customer_name') or '-')}</td>"
-            f"<td>{board.esc(note or row.get('source_merchant') or '')}</td>"
-            f"<td class='num tnum {_row_amount_class(row)}'>{_money(amount)}</td>"
-            f"</tr>" if not move else
-            f"<tr data-id='{board.esc(rid)}'"
-            f"{' aria-selected=\"true\"' if rid == selected else ''}>"
-            f"<td class='tnum'>{board.esc(board._shown_date(row))}</td>"
-            f"<td><span class='tag'>{_row_kind_meter(row)}</span></td>"
-            f"<td>{board.esc(row.get('item') or '-')}</td>"
-            f"<td>{board.esc(row.get('description') or '-')}</td>"
-            f"<td>{move}</td>"
-            f"<td class='num tnum {_row_amount_class(row)}'>{_money(amount)}</td>"
+            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
+            f"{_party_cell(row)}"
+            f"<td class='c-item'>{board.esc(_row_item(row))}</td>"
+            f"<td class='c-kind'><span class='tag{' in' if meter == '수입' else ''}"
+            f"{_row_tag_class(row)}'>{meter}</span></td>"
+            + (f"<td class='c-note'>{_move_form(row, move_back)}</td>"
+               if unclassified else
+               # Only the operator's own note. The counterparty is already on the
+               # row in 거래처·내용, and printing the merchant here as well would
+               # show the same word twice in one row.
+               "<td class='c-note'>"
+               f"{board.esc(row.get('operator_note') or '')}"
+               "</td>")
+            + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
             f"</tr>")
     return f"<tbody>{''.join(body)}</tbody>"
 
@@ -833,11 +1409,17 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
 def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board") -> str:
     head = (
         "<div class='tw'><table id='tbl'>"
-        "<caption class='sr'>거래 명역역. 수입은 위, 지출은 아래에 있습니다.</caption>"
-        "<colgroup><col style='width:122px'><col style='width:64px'><col style='width:106px'>"
-        "<col><col style='width:22%'><col style='width:132px'></colgroup>"
-        "<thead><tr><th scope='col'>날짜</th><th scope='col'>구분</th><th scope='col'>항목</th>"
-        "<th scope='col'>용도</th><th scope='col' id='h5'>메모</th>"
+        "<caption class='sr'>거래 내역. 수입은 위, 지출은 아래에 있습니다.</caption>"
+        # Six columns, and the widths are given to the fixed ones so the counterparty
+        # and content column takes whatever is left. The amount is the last column
+        # and stays right-aligned, because a ledger is read by comparing the
+        # amount column down, not across.
+        "<colgroup><col style='width:108px'><col><col style='width:104px'>"
+        "<col style='width:62px'><col style='width:20%'>"
+        "<col style='width:126px'></colgroup>"
+        "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
+        "<th scope='col'>분류</th><th scope='col'>구분</th>"
+        "<th scope='col' id='h5'>메모</th>"
         "<th scope='col' class='num'>금액</th></tr></thead>")
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
@@ -845,14 +1427,10 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='5'>수입</th>"
         f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
-        + f"<tbody class='grp'><tr><th scope='colgroup' colspan='5'>지출</th>"
-        # DETAILED 15: the manual-expense button sits beside the expense section
-        # heading, in the same group row, not only in a page-level nav line.
-        # It goes in the amount cell so the section heading itself stays the
-        # word it is, and the heading text is what the layout checks read.
-        f"<th class='num'>{_money(expense_total)}"
-        "<a class='btn' id='add-manual-expense' href='/expense/new'>"
-        "수기 지출 추가</a></th></tr></tbody>"
+        + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
+        "<td colspan='4'><a class='btn' id='add-manual-expense' href='/expense/new'>"
+        "수기 지출 추가</a></td>"
+        f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back)
         + "</table></div>")
@@ -874,18 +1452,34 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 f"{uuid.uuid4().hex}'>"
                 "<input type='hidden' name='change_mode' value='exception'>"
                 f"<input type='hidden' name='return_to' value='{board.esc(move_back)}'>"
-                f"<select class='psel' name='display_tab_id'>"
+                f"<label class='sr' for='mobile-move-{board.esc(rid)}'>이동할 여행</label>"
+                f"<select class='psel' id='mobile-move-{board.esc(rid)}' name='display_tab_id'>"
                 f"{_trip_options('', '분류대기(여행 미정)')}</select>"
                 "<button class='btn' type='submit'>이동</button></form>")
         cls = "li pend" if unclassified else "li"
+        # Two-line business summary only: date, kind tag, category, vendor,
+        # purpose, amount. The origin detail lives in the edit panel, so no
+        # per-row details element here (density first).
+        kind = _row_kind_meter(row)
+        cat = row.get("item") or _income_kind_label(row) or "-"
+        purpose = row.get("description") or row.get("customer_name") or "-"
+        vendor = (row.get("source_merchant") or row.get("customer_name")
+                  or row.get("nickname") or "")
+        if vendor and "".join(vendor.split()) != "".join(purpose.split()):
+            headline = f"{vendor} · {purpose}"
+        else:
+            headline = purpose
+        tag_cls = "tag in" if kind == "수입" else "tag"
         return (
             f"<button class='{cls}' type='button' data-id='{board.esc(rid)}'"
-            f"{' aria-selected=\"true\"' if rid == selected else ''}>"
-            f"<span class='d tnum'>{board.esc(board._shown_date(row))}</span>"
-            f"<span class='t'>{board.esc(row.get('item') or _income_kind_label(row))}"
-            f" {board.esc(row.get('description') or row.get('customer_name') or '')}</span>"
+            f"{' aria-selected="true"' if rid == selected else ''}>"
+            f"<span class='m-row'><span class='d tnum'>"
+            f"{board.esc(board._shown_date(row))}</span>"
+            f"<span class='{tag_cls}'>{board.esc(kind)}</span>"
+            f"<span class='m-cat'>{board.esc(cat)}</span>"
             f"<span class='a tnum {_row_amount_class(row)}'>"
-            f"{_money(board._shown_amount(row))}</span></button>{move}")
+            f"{_money(board._shown_amount(row))}</span></span>"
+            f"<span class='t'>{board.esc(headline)}</span></button>{move}")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
@@ -921,14 +1515,26 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
             return draft[name]
         return stored
 
-    fields.append("<div class='grid2'>")
-    fields.append(text_field("occurred_on", "거래 날짜 (고정)",
-                             board._shown_date(row), ro="occurred_on" in fixed))
-    fields.append(text_field("amount_krw", "거래 금액 (고정)", f"{amount:,}",
-                             ro="amount_krw" in fixed))
-    fields.append("</div>")
-    fields.append(text_field("reservation_no", "예약번호 (고정)",
+    # A field the endpoint fixes is a record, not a decision, so it is folded away
+    # with the source identifiers. A field the endpoint allows stays in the open
+    # form: an income row's date and amount are editable, and a locked input the
+    # reader cannot reach is not an edit form.
+    locked = []
+    editable_source = []
+    date_field = text_field("occurred_on",
+                            "거래 날짜" if "occurred_on" not in fixed else "거래 날짜 (고정)",
+                            board._shown_date(row), ro="occurred_on" in fixed)
+    amount_field = text_field(
+        "amount_krw", "거래 금액" if "amount_krw" not in fixed else "거래 금액 (고정)",
+        f"{amount:,}", ro="amount_krw" in fixed)
+    (locked if "occurred_on" in fixed else editable_source).append(date_field)
+    (locked if "amount_krw" in fixed else editable_source).append(amount_field)
+    locked.append(text_field("reservation_no", "예약번호 (고정)",
                              row.get("reservation_no", ""), ro=True))
+    if len(editable_source) == 2:
+        fields.append("<div class='grid2'>" + "".join(editable_source) + "</div>")
+    else:
+        fields.extend(editable_source)
 
     current_tab = value_of("display_tab_id", row.get("display_tab_id") or "")
     fields.append(
@@ -982,7 +1588,11 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
     links.append(f"<a href='/export'>선택 탭 출력</a>")
     links.append(rule_link)
     return (
-        "<aside class='panel' id='panel' aria-label='거래 상세 편집 패널'>"
+        # `data-row` is which row this panel belongs to. The browser reads it to
+        # move to the previous or next row that is actually on screen and to keep
+        # exactly one row marked as selected, so the two cannot drift apart.
+        "<aside class='panel' id='panel' tabindex='-1'"
+        f" data-row='{board.esc(row['row_id'])}' aria-label='거래 상세 편집 패널'>"
         "<div class='p-hd'><div>"
         f"<h2>거래 상세</h2><p class='p-amt tnum'>{_money(amount)}</p></div>"
         "<button class='icon' id='p-close' type='button' aria-label='패널 닫기'>×</button>"
@@ -994,14 +1604,31 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"<input type='hidden' name='return_to' value='{board.esc(back)}'>"
         "<div class='p-bd'>"
+        # The source identifier, the revision, the source kind and every field the
+        # endpoint fixes are what a support answer needs and what a working day
+        # does not, so they are folded away here and opened on demand. Nothing is
+        # removed and no input loses its selector or its missing name: a locked
+        # field is still the same input with no `name`, so no post can send it.
+        f"{''.join(fields)}{note}"
+        "<details class='p-src'>"
+        "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
         f" · revision {rev} · {board.esc(row.get('source_kind') or '')}</p>"
-        f"{''.join(fields)}{note}"
+        f"{''.join(locked)}"
+        "</details>"
         "<p class='src'>원천 날짜·금액·예약번호는 읽기 전용이에요. 여행·항목·용도·메모는 "
-        "운영자가 정합니다. 실제 AI 연결 전에는 규칙 초안이 원천을 바꾸지 않습니다.</p>"
+        "수정할 수 있습니다.</p>"
         f"<div class='p-links'>{' · '.join(x for x in links if x)}</div>"
         "</div>"
         "<div class='p-ft'>"
+        # The two walking buttons start hidden and are shown by the script from
+        # the rows that are on screen. A button that cannot go anywhere is not
+        # drawn, so nothing here promises a move the ledger cannot make.
+        "<button class='btn p-nav' type='button' id='p-prev' hidden"
+        " aria-label='이전 거래'>이전</button>"
+        "<button class='btn p-nav' type='button' id='p-next' hidden"
+        " aria-label='다음 거래'>다음</button>"
+        "<span class='p-count tnum' id='p-count'></span>"
         "<button class='btn primary' type='submit'>저장 "
         "<kbd class='kbd'>Ctrl</kbd>+<kbd class='kbd'>Enter</kbd></button>"
         f"<a class='btn' id='p-cancel' href='{board.esc(back)}'>취소 "
@@ -1063,7 +1690,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     main = (
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
-        f"<h1>{heading}<span class='synth'>{board.SYNTHETIC_MARK}</span></h1>"
+        f"<h1>{heading}<span class='synth'>{board.data_status_mark()}</span></h1>"
         + (f"<p class='period'>{period}</p>" if period else "")
         + (f"<p class='meta'>{meta}</p>" if meta else "")
         + f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
@@ -1071,6 +1698,11 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         f" · 마지막 저장 {_last_saved_at(tab_id)}"
         + (f" · {board.esc(role_note)}" if role_note else "")
         + "</p>"
+        # The cross-screen refresh reports here. The element always exists, so a
+        # deferred change, a lost connection and a revoked permission all have
+        # somewhere to say so on any screen that carries the shell.
+        + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
+        "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
         "<a class='btn' href='/import'>카드 가져오기</a>"
         "<a class='btn primary' href='/export'>XLSX 출력</a>"
@@ -1089,18 +1721,17 @@ def _selected_trip(tab_id: str):
                  if t["tab_id"] == tab_id), None)
 
 
-def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
-         error: str = "", message: str = "", archived: str = "",
-         draft: dict = None, back: str = "") -> str:
-    """The main ledger screen in the new design."""
-    if _STORE_missing():
-        return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
-    trip = _selected_trip(tab_id)
+def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
+    """The rows this tab and filter show, and the unfiltered totals beside them.
+
+    DETAILED 12.2: the whole totals are kept beside the filtered ones, so a filter
+    never quietly replaces the whole total with the result total. The live refresh
+    calls this too, so a refreshed row list and a freshly loaded one are the same
+    rows for the same tab and filter.
+    """
     if tab_id == "unclassified":
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") is None]
         expenses = board._unclassified_rows()
-    elif trip is None:
-        incomes = expenses = []
     else:
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") == tab_id]
         expenses = [r for r in board._expense_rows() if r.get("display_tab_id") == tab_id]
@@ -1108,8 +1739,6 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         expenses = []
     elif kind == "ex":
         incomes = []
-    # DETAILED 12.2: the whole totals are kept beside the filtered ones, so a
-    # filter never quietly replaces the whole total with the result total.
     whole_income, whole_expense = list(incomes), list(expenses)
     if query:
         def keep(row):
@@ -1119,7 +1748,17 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
             return query in blob
         incomes = [r for r in incomes if keep(r)]
         expenses = [r for r in expenses if keep(r)]
+    return incomes, expenses, whole_income, whole_expense
 
+
+def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
+         error: str = "", message: str = "", archived: str = "",
+         draft: dict = None, back: str = "") -> str:
+    """The main ledger screen in the new design."""
+    if _STORE_missing():
+        return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
+    trip = _selected_trip(tab_id)
+    incomes, expenses, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     status = ""
     if error:
@@ -1145,9 +1784,15 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
         "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
         f" · 마지막 저장 {_last_saved_at(tab_id)}</p>"
+        # The live refresh replaces the totals and the two row lists as one block,
+        # and the edit panel sits outside it so an open panel is never rewritten.
+        f"<div id='live-sum'>"
         f"{_summary_html(incomes, expenses, **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
-        f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
-        f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
+        f"</div>"
+        f"{_source_preview_html(trip)}"
+        f"{rows_region(tab_id, query, kind, selected, archived, back)}"
+        "<p class='meta' id='live-status-wrap' aria-live='polite'>"
+        "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</main>")
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
@@ -1202,6 +1847,68 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
         whole=totals(whole_income, whole_expense))
 
 
+def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = "",
+                archived: str = "", back: str = "") -> str:
+    """The two row lists inside the one element a live refresh replaces.
+
+    One renderer, embedded by the full page and re-rendered for a fragment, so the
+    two cannot disagree about which rows exist, which one is selected, or which
+    move form a row carries.
+    """
+    if _STORE_missing():
+        return ""
+    incomes, expenses, _whole_income, _whole_expense = _selected_rows(
+        tab_id, query, kind)
+    unclassified = tab_id == "unclassified"
+    back = back or ("/board?" + state_query(tab_id, query, kind, archived))
+    return (f"<div id='live-rows'>"
+            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
+            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
+            f"</div>")
+
+
+def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
+              archived: str = "") -> str:
+    """The row lists' contents for a live fragment, without the region's element.
+
+    The live sync adds that wrapper, so a bundle written here and a page rendered
+    here cannot both carry `id='live-rows'` and end up with the id twice on screen.
+
+    No "is this a real trip" test here. `분류대기` is not a trip in `trip_tabs`, so
+    a guard that asked `_selected_trip` would return an empty fragment for the
+    unassigned bucket, and the rows waiting there would never appear however often
+    something was added to it or moved into it.
+    """
+    if _STORE_missing():
+        return ""
+    incomes, expenses, _whole_income, _whole_expense = _selected_rows(
+        tab_id, query, kind)
+    unclassified = tab_id == "unclassified"
+    back = "/board?" + state_query(tab_id, query, kind, archived)
+    return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
+            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}")
+
+
+def viewer_trips_html(trips) -> str:
+    """A viewer's own trips with their totals, for the viewer board and its
+    live refresh alike.
+
+    The caller passes trips that have already been filtered by the access store.
+    This function only renders them, so there is no path here that could name a
+    trip the viewer was not given.
+    """
+    if not trips:
+        return ("<div class='sect'><h2>담당 여행</h2>"
+                "<p>현재 배정된 여행이 없습니다</p></div>")
+    items = "".join(
+        f"<li><a href='/board?tab={board.esc(t['tab_id'])}'>{board.esc(t['display_key'])}</a>"
+        f" — {board.esc(t['starts_on'])}~{board.esc(t['ends_on'])}"
+        f" · 수입 {t['income_krw']:,}원 · 지출 {t['expense_krw']:,}원"
+        f" · 차액 {t['balance_krw']:,}원</li>"
+        for t in trips)
+    return f"<div class='sect'><h2>담당 여행</h2><ul>{items}</ul></div>"
+
+
 def _matches(row: dict, needle: str) -> bool:
     """Does this row contain the search text, over the fields the screen shows."""
     if not needle:
@@ -1231,10 +1938,19 @@ def _STORE_missing() -> bool:
     return getattr(board, "_STORE", None) is None
 
 
-def render(page_html: str, title: str = "웹 장부") -> str:
-    """Wrap a design fragment in the document with the design stylesheet."""
+def render(page_html: str, title: str = "웹 장부", live_config: str = "") -> str:
+    """Wrap a design fragment in the document with the design stylesheet.
+
+    `live_config` is the JSON the cross-screen refresh script reads. It is
+    optional so a screen that has nothing to poll (a login page, a rule dialog)
+    simply carries no script rather than an empty one that asks for nothing.
+    """
+    from . import live_sync
+
+    live = (f"{live_config}<script>{live_sync.SCRIPT}</script>"
+            if live_config else "")
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>{board.esc(title)}</title><style>{STYLE}</style></head>"
-        f"<body>{page_html}<script>{SCRIPT}</script></body></html>")
+        f"<body>{page_html}<script>{SCRIPT}</script>{live}</body></html>")

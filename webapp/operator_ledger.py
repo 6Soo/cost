@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 
 from .contracts import (
@@ -128,12 +129,13 @@ def build_payload(fields: dict) -> dict:
 
 
 class OperatorLedger:
-    def __init__(self, path, checkpoint_path=None):
+    def __init__(self, path, checkpoint_path=None, *, connection=None):
         self.path = Path(path)
-        self.checkpoint_path = Path(
+        self.embedded = connection is not None
+        self.checkpoint_path = None if self.embedded else Path(
             checkpoint_path or f"{self.path}.checkpoint.json"
         )
-        self.conn = sqlite3.connect(
+        self.conn = connection if connection is not None else sqlite3.connect(
             str(self.path),
             timeout=5.0,
             isolation_level=None,
@@ -143,6 +145,44 @@ class OperatorLedger:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.execute("PRAGMA foreign_keys=ON")
+
+    @classmethod
+    def in_database(cls, connection, path, *, legacy_path=None):
+        """같은 장부 트랜잭션에 감사 이력을 보존한다. 옛 DB는 읽기만 한다."""
+        connection.executescript(SCHEMA_SQL)
+        connection.executescript(TRIGGER_SQL)
+        if legacy_path is not None and Path(legacy_path).is_file():
+            with closing(sqlite3.connect(Path(legacy_path).resolve().as_uri() + '?mode=ro',
+                                         uri=True)) as source:
+                old = cls.__new__(cls)
+                old.conn, old._lock = source, threading.RLock()
+                if not old.verify_chain()['ok']:
+                    raise ChainViolation('legacy audit chain is invalid')
+                connection.execute('BEGIN IMMEDIATE')
+                try:
+                    for table, key in (('ledger_meta', 'key'), ('decision_events', 'event_id')):
+                        columns = [r[1] for r in source.execute(f'PRAGMA table_info({table})')]
+                        if not columns:
+                            raise LedgerError('legacy audit schema is missing')
+                        for row in source.execute(f'SELECT * FROM {table}'):
+                            identity = row[columns.index(key)]
+                            current = connection.execute(
+                                f'SELECT {",".join(columns)} FROM {table} WHERE {key}=?',
+                                (identity,)).fetchone()
+                            if current is not None:
+                                if tuple(current) != tuple(row):
+                                    raise LedgerError('legacy audit content conflict')
+                            else:
+                                connection.execute(
+                                    f'INSERT INTO {table} ({",".join(columns)}) VALUES '
+                                    f'({",".join("?" for _ in columns)})', row)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+        connection.execute("INSERT OR IGNORE INTO ledger_meta VALUES ('schema_version','1')")
+        connection.execute("INSERT OR IGNORE INTO ledger_meta VALUES ('base_candidate_semantic_sha256','')")
+        return cls(path, connection=connection)
 
     @classmethod
     def create(cls, path, base_candidate_semantic_sha256="", actor_local_id="local-operator"):
@@ -227,6 +267,16 @@ class OperatorLedger:
         if client_request_id:
             existing = self.find_by_client_request(client_request_id)
             if existing:
+                if self.embedded and any((
+                    existing['stream_id'] != stream_id,
+                    existing['action'] != action,
+                    existing['target_direct_event_key'] != target_direct_event_key,
+                    existing['axes_json'] != axes_json,
+                    existing['evidence_refs_json'] != canonical_text(evidence_refs),
+                    existing['rationale'] != rationale.strip(),
+                    existing['actor_local_id'] != actor_local_id,
+                )):
+                    raise LedgerError('same audit request has different content')
                 return existing, False
         base = base_candidate_semantic_sha256 or self.meta(
             "base_candidate_semantic_sha256"
@@ -282,8 +332,10 @@ class OperatorLedger:
         payload = build_payload(fields)
         event_hash = domain_event_hash(payload)
         event_id = sha256_bytes((event_hash + ":" + prev_hash).encode("utf-8"))[:32]
+        own_transaction = not self.conn.in_transaction
         try:
-            self.conn.execute("BEGIN IMMEDIATE")
+            if own_transaction:
+                self.conn.execute("BEGIN IMMEDIATE")
             self.conn.execute(
                 "INSERT INTO decision_events ("
                 "sequence_no, stream_id, event_id, supersedes_event_id, action,"
@@ -313,12 +365,15 @@ class OperatorLedger:
                     event_hash,
                 ),
             )
-            self.conn.execute("COMMIT")
+            if own_transaction:
+                self.conn.execute("COMMIT")
         except sqlite3.IntegrityError as exc:
-            self.conn.execute("ROLLBACK")
+            if own_transaction:
+                self.conn.execute("ROLLBACK")
             raise LedgerError(f"insert rejected: {exc}") from exc
         except sqlite3.Error:
-            self.conn.execute("ROLLBACK")
+            if own_transaction:
+                self.conn.execute("ROLLBACK")
             raise
         event = self.get_event(event_id)
         self._write_checkpoint()
@@ -444,6 +499,8 @@ class OperatorLedger:
 
     @_locked
     def _write_checkpoint(self):
+        if self.embedded:
+            return
         doc = {
             "version": 1,
             "db_file": self.path.name,
@@ -455,6 +512,8 @@ class OperatorLedger:
 
     @_locked
     def verify_checkpoint(self):
+        if self.embedded:
+            return {"ok": self.verify_chain()["ok"], "status": "same_database"}
         db_heads = self._checkpoint_heads_from_db()
         if not self.checkpoint_path.is_file():
             return {
@@ -524,6 +583,8 @@ class OperatorLedger:
     @_locked
     def backup(self, backup_path):
         backup_path = Path(backup_path)
+        if backup_path.resolve() == self.path.resolve():
+            raise LedgerError('backup must not replace the original database')
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         if backup_path.exists():
             backup_path.unlink()
@@ -532,6 +593,8 @@ class OperatorLedger:
             self.conn.backup(target)
         finally:
             target.close()
+        if self.embedded:
+            return {"backup_db": str(backup_path), "backup_checkpoint": None}
         backup_cp = Path(f"{backup_path}.checkpoint.json")
         _atomic_write_json(backup_cp, self._load_checkpoint())
         return {"backup_db": str(backup_path), "backup_checkpoint": str(backup_cp)}

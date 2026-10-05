@@ -17,11 +17,13 @@ rejected at the API boundary when present in a save request.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import threading
 import uuid
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from . import ledger_board as board
@@ -73,6 +75,24 @@ CREATE TABLE IF NOT EXISTS board_learning_cases (
     row_id TEXT NOT NULL,
     event_id TEXT NOT NULL,
     dialog_state TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+-- A rule learned from a reviewed source row, rather than from a board row.
+--
+-- `board_learning_cases` is keyed to a real ledger row, because a rule learned
+-- from that row must be able to point back at it. A reviewed source row has no
+-- board row to point at, and inventing one would put a row id in the record that
+-- names nothing. So the proof lives here instead: which review binding and which
+-- source ref were verified when the case was registered.
+--
+-- `context_json` holds derived facts only — a hash of the ref, a normalised
+-- merchant, a card kind. Never a person, a reservation number or a note.
+CREATE TABLE IF NOT EXISTS classification_source_cases (
+    case_id TEXT PRIMARY KEY,
+    binding TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    candidate_key TEXT NOT NULL,
+    context_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS classification_rules (
@@ -263,6 +283,11 @@ CREATE TABLE IF NOT EXISTS trip_tabs (
     ends_on TEXT NOT NULL DEFAULT '',
     prepared_on TEXT NOT NULL DEFAULT '',
     prepared_by_name TEXT NOT NULL DEFAULT '',
+    -- Where `prepared_by_name` came from: 'owner_profile', 'manual', 'seed', or
+    -- '' for a row written before this column existed. It is provenance, not a
+    -- flag, so a person who genuinely typed the same string as the old demo
+    -- placeholder is not treated as a placeholder by comparing text.
+    assignee_source TEXT NOT NULL DEFAULT '',
     archived INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     revision INTEGER NOT NULL DEFAULT 1
@@ -285,6 +310,42 @@ CREATE TABLE IF NOT EXISTS trip_tab_requests (
     expected_revision INTEGER NOT NULL,
     result_json TEXT NOT NULL,
     ledger_pending INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+-- One row: the owner-entered company name and default assignee. These are the
+-- source for NEW trips only. A trip keeps the values it was created with, so
+-- changing this row never rewrites a trip that already exists — which is what
+-- stops a name change from silently overwriting a record whose true author is
+-- unknown.
+CREATE TABLE IF NOT EXISTS owner_profile (
+    profile_id TEXT PRIMARY KEY,
+    company_name TEXT NOT NULL DEFAULT '',
+    assignee_name TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT '',
+    actor TEXT NOT NULL DEFAULT '',
+    client_request_id TEXT NOT NULL DEFAULT ''
+);
+-- The audit for that row, in the same shape as `trip_tab_history`: what it was,
+-- what it became, who changed it and under which request. Written in the same
+-- transaction as the change, so a profile and its history cannot disagree.
+CREATE TABLE IF NOT EXISTS owner_profile_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    revision INTEGER NOT NULL,
+    change_kind TEXT NOT NULL,
+    prev_json TEXT NOT NULL,
+    new_json TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    client_request_id TEXT NOT NULL
+);
+-- The request ledger for that row, matching `trip_tab_requests`: the same
+-- request id replays its stored result, and the same request id with different
+-- input is a conflict rather than a second write.
+CREATE TABLE IF NOT EXISTS owner_profile_requests (
+    client_request_id TEXT PRIMARY KEY,
+    input_digest TEXT NOT NULL,
+    result_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS income_allocations (
@@ -320,6 +381,33 @@ CREATE TABLE IF NOT EXISTS ledger_outbox (
     relayed INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+-- The reviewed source facts, kept verbatim.
+--
+-- `facts_json` is the card master's seventeen original columns exactly as the
+-- source stated them, and `fact_digest` is over those columns alone. Both dates
+-- are kept, the sign is kept, the currency is kept, and the cancellation flag is
+-- kept, because a summary of a card fact is a different fact.
+CREATE TABLE IF NOT EXISTS source_fact_rows (
+    source_event_key TEXT PRIMARY KEY,
+    row_id TEXT NOT NULL UNIQUE,
+    fact_digest TEXT NOT NULL,
+    facts_json TEXT NOT NULL,
+    workbook_ref TEXT NOT NULL,
+    review_ref TEXT NOT NULL,
+    review_snapshot_sha256 TEXT NOT NULL,
+    applied_request_id TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+);
+-- One apply request, and the digest of the inputs it was made from. A repeated
+-- request id with a different digest is a conflict rather than a second run.
+CREATE TABLE IF NOT EXISTS source_fact_applies (
+    request_id TEXT PRIMARY KEY,
+    input_digest TEXT NOT NULL,
+    binding TEXT NOT NULL,
+    choices_revision INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS income_allocation_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     allocation_id TEXT NOT NULL,
@@ -334,7 +422,42 @@ CREATE TABLE IF NOT EXISTS income_allocation_history (
 );
 """
 
-SYNTHETIC_OWNER_NAME = "테스트 소유자"
+#: The assignee written into a trip before the owner ever named one. It is kept
+#: only so trips that already carry it can be *reported* as unconfirmed, never so
+#: a new trip can be stamped with it: a placeholder that reaches a saved record
+#: becomes a claim the ledger then makes about who wrote something.
+LEGACY_SYNTHETIC_OWNER_NAME = "테스트 소유자"
+
+
+def owner_assignee_default(conn) -> str:
+    """The owner-entered default assignee, or "" when there is not one yet.
+
+    There is no fallback name here on purpose. Before the owner has set one, a
+    new trip's assignee is empty and the screen asks for it, because inventing a
+    value would turn "nobody has confirmed this" into a fact on the record.
+    """
+    try:
+        row = conn.execute(
+            "SELECT assignee_name FROM owner_profile WHERE profile_id='owner'"
+        ).fetchone()
+    except Exception:
+        return ""
+    if not row:
+        return ""
+    return str(row[0] or "").strip()
+
+
+def company_name_default(conn) -> str:
+    """The owner-entered company name, or "" when there is not one yet."""
+    try:
+        row = conn.execute(
+            "SELECT company_name FROM owner_profile WHERE profile_id='owner'"
+        ).fetchone()
+    except Exception:
+        return ""
+    if not row:
+        return ""
+    return str(row[0] or "").strip()
 
 
 def _seoul_today() -> str:
@@ -528,6 +651,13 @@ def _ensure_trip_tab_columns(conn) -> None:
     if "sort_order" not in cols:
         conn.execute(
             "ALTER TABLE trip_tabs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+    if "assignee_source" not in cols:
+        # Added empty on purpose. Filling it for existing rows would be a
+        # migration: it would assert where a historical value came from, and for
+        # these rows nobody knows. An empty source reads as "unconfirmed", which
+        # is the true state, and the owner resolves it by editing the trip.
+        conn.execute(
+            "ALTER TABLE trip_tabs ADD COLUMN assignee_source TEXT NOT NULL DEFAULT ''")
 
 
 def _ensure_correction_columns(conn) -> None:
@@ -621,24 +751,38 @@ class LedgerStore:
             if first_create:
                 self._seed()
             self._ensure_trips()
+        already_unified = self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='decision_events'").fetchone()
+        self._embedded_audit = ledger is None and (
+            os.environ.get('WEBLEDGER_UNIFIED_DB') == '1' or bool(already_unified))
         operator_path = self.path.with_suffix(".operator.sqlite")
-        if not operator_path.exists():
-            OperatorLedger.create(str(operator_path))
-        self.ledger = ledger or OperatorLedger(operator_path)
+        if self._embedded_audit:
+            self.ledger = OperatorLedger.in_database(
+                self.conn, self.path, legacy_path=operator_path)
+        else:
+            if not operator_path.exists():
+                OperatorLedger.create(str(operator_path))
+            self.ledger = ledger or OperatorLedger(operator_path)
 
     def _ensure_trips(self) -> None:
         count = self.conn.execute("SELECT COUNT(*) FROM trip_tabs").fetchone()[0]
         if count:
             return
         today = _seoul_today()
+        assignee = owner_assignee_default(self.conn)
+        # The demo seed says where its assignee came from, so a fixture that
+        # prints on an exported sheet is distinguishable from a row whose author
+        # nobody recorded.
+        source = "owner_profile" if assignee else "seed"
         for trip in board.TRIPS:
             self.conn.execute(
                 "INSERT INTO trip_tabs(tab_id, display_key, destination, starts_on,"
-                " ends_on, prepared_on, prepared_by_name, archived, deleted, revision)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " ends_on, prepared_on, prepared_by_name, assignee_source,"
+                " archived, deleted, revision)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (trip["tab_id"], trip["display_key"], trip.get("destination", ""),
                  trip.get("starts_on", ""), trip.get("ends_on", ""),
-                 today, SYNTHETIC_OWNER_NAME, 0, 0, 1),
+                 today, assignee, source, 0, 0, 1),
             )
         self.conn.commit()
 
@@ -721,6 +865,9 @@ class LedgerStore:
 
     def close(self) -> None:
         with self._lock:
+            audit_connection = getattr(self.ledger, 'conn', None)
+            if audit_connection is not None and audit_connection is not self.conn:
+                audit_connection.close()
             self.conn.close()
 
     def get_row(self, row_id: str):
@@ -1406,7 +1553,9 @@ class LedgerStore:
             case = self.conn.execute(
                 "SELECT case_id, row_id, dialog_state FROM board_learning_cases WHERE case_id=?",
                 (case_id,)).fetchone()
-            if case is None:
+            if case is None and self.conn.execute(
+                    "SELECT case_id FROM classification_source_cases"
+                    " WHERE case_id=?", (case_id,)).fetchone() is None:
                 raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
             if self.case_is_one_off(case_id):
                 raise SaveError(
@@ -2140,6 +2289,76 @@ class LedgerStore:
         """Structured question rows for provider context and inspection."""
         return [{"question_key": q[1], "options": json.loads(q[3]), "answer": q[4]}
                 for q in self._question_rows(case_id)]
+
+    def register_review_rule_case(self, *, case_id: str, binding: str,
+                                  source_ref: str, candidate_key: str,
+                                  context: dict) -> dict:
+        """원천 검토에서 배운 규칙의 근거를 등록합니다.
+
+        같은 근거로 다시 등록하면 이미 있는 것을 그대로 돌려줍니다. 반면 같은
+        사례 ID에 다른 근거를 붙이지는 못하게 했습니다. 근거 두 개를 가리킬 수
+        있는 사례 ID는 검증할 수 없는 ID이기 때문입니다.
+
+        `context`에는 파생된 사실만 둡니다. 이름, 예약번호, 메모는 넣지 않고
+        원천 참조와 그 해시를 함께 남깁니다.
+        """
+        from .contracts import sha256_text
+
+        for label, value in (("사례 ID", case_id), ("바인딩", binding),
+                             ("원천 참조", source_ref), ("후보 키", candidate_key)):
+            if not value or not isinstance(value, str):
+                raise SaveError("INVALID_VALUE", f"{label}가 필요해요")
+        payload = _canonical(dict(context or {}))
+        with self._lock:
+            self._replay_pending()
+            found = self.conn.execute(
+                "SELECT binding, source_ref, candidate_key, context_json"
+                " FROM classification_source_cases WHERE case_id=?",
+                (case_id,)).fetchone()
+            if found is not None:
+                if (found[0] != binding or found[1] != source_ref
+                        or found[2] != candidate_key or found[3] != payload):
+                    raise SaveError("REQUEST_ID_REUSED",
+                                    "같은 사례 번호에 다른 근거가 있어요")
+                return {"case_id": case_id, "binding": binding,
+                        "source_ref": source_ref, "candidate_key": candidate_key,
+                        "source_ref_sha256": sha256_text(source_ref),
+                        "created": False}
+            created_at = _utc_now()
+            self._begin_write()
+            try:
+                self.conn.execute(
+                    "INSERT INTO classification_source_cases(case_id, binding,"
+                    " source_ref, candidate_key, context_json, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (case_id, binding, source_ref, candidate_key, payload, created_at))
+                self._commit_write()
+            except Exception:
+                self._rollback_write()
+                raise
+            return {"case_id": case_id, "binding": binding,
+                    "source_ref": source_ref, "candidate_key": candidate_key,
+                    "source_ref_sha256": sha256_text(source_ref), "created": True}
+
+    def review_rule_case(self, case_id: str):
+        """등록된 원천 사례 근거를 읽습니다. 없으면 None. 읽기 전용."""
+        import json as _json
+
+        try:
+            found = self.conn.execute(
+                "SELECT case_id, binding, source_ref, candidate_key, context_json"
+                " FROM classification_source_cases WHERE case_id=?",
+                (case_id,)).fetchone()
+        except Exception:
+            return None
+        if found is None:
+            return None
+        try:
+            context = _json.loads(found[4])
+        except Exception:
+            context = {}
+        return {"case_id": found[0], "binding": found[1], "source_ref": found[2],
+                "candidate_key": found[3], "context": context}
 
     def case_is_one_off(self, case_id: str) -> bool:
         """True when a stored answer means "this transaction only".
@@ -3452,6 +3671,327 @@ class LedgerStore:
                 "ledger_pending": True,
             }
 
+
+    # ------------------------------------------- reviewed source facts
+    def apply_reviewed_source_facts(self, *, request_id: str, input_digest: str,
+                                    expected_binding: str,
+                                    expected_choices_revision: int,
+                                    items: list, verify=None,
+                                    actor: str = "owner") -> dict:
+        """Write reviewed card facts into the ledger, once, from the source itself.
+
+        This is not `import_row`, and it must not be replaced by it. `import_row`
+        takes an approval number or a generated row number as the event's
+        identity, decides the cost item from the merchant's name, applies the
+        active classification rules, and drops the memo. Every one of those is
+        wrong for a fact a person looked at in the review and approved: the
+        identity has to be the transaction's own key so the same transaction
+        cannot become two expenses, and nothing may be decided from a merchant's
+        name or from a rule that was written before the transaction existed.
+
+        So the write here keeps the seventeen original columns exactly, decides
+        nothing, and makes the second write of the same key a no-op rather than a
+        second expense.
+
+        `items` is a list of dicts with `source_event_key`, `facts` (the
+        seventeen columns as a mapping), `workbook_ref`, `review_ref` and
+        `review_snapshot_sha256`.
+
+        Everything below happens in one transaction: the idempotency record, each
+        fact, each board row, each revision, the request result and the audit
+        event left waiting for its retry path. An exception part-way rolls the
+        whole thing back, so a retry of the same request reproduces the same
+        result rather than half of it.
+        """
+        created_at = _utc_now()
+        with self._lock:
+            # The existing retry path. An audit event left waiting by an earlier
+            # write goes out through here rather than through a second queue this
+            # method would have to keep in step with.
+            self._replay_pending()
+            # Answered before any transaction is opened, so a repeat of a
+            # completed request is a read rather than a rollback.
+            if type(request_id) is not str or request_id == "":
+                raise SaveError("APPLY_REQUEST_INVALID", "요청 식별자가 필요해요")
+            done = self.conn.execute(
+                "SELECT input_digest, result_json FROM source_fact_applies"
+                " WHERE request_id=?", (request_id,)).fetchone()
+            if done is not None:
+                if done[0] != input_digest:
+                    raise SaveError(
+                        "APPLY_REQUEST_INPUT_CONFLICT",
+                        "같은 요청 식별자로 다른 입력이에요")
+                self._relay_request_outbox(request_id)
+                return json.loads(done[1])
+
+            self._begin_write()
+            try:
+                # Re-checked inside the transaction. Two applies of the same
+                # request that start together are serialised by BEGIN IMMEDIATE,
+                # and the loser has to see the winner's record, not start over.
+                again = self.conn.execute(
+                    "SELECT input_digest, result_json FROM source_fact_applies"
+                    " WHERE request_id=?", (request_id,)).fetchone()
+                if again is not None:
+                    if again[0] != input_digest:
+                        raise SaveError(
+                            "APPLY_REQUEST_INPUT_CONFLICT",
+                            "같은 요청 식별자로 다른 입력이에요")
+                    self._rollback_write()
+                    self._relay_request_outbox(request_id)
+                    return json.loads(again[1])
+
+                # The caller's own check runs *inside* this transaction, with
+                # the writes already begun. That is what binds the active bundle
+                # and the saved choice version to the write itself: a bundle that
+                # moved, or a choice saved by another device, between the plan and
+                # this line raises here and everything below — the facts, the
+                # rows, the revisions, the request record and the audit events —
+                # is rolled back together. Nothing is half applied.
+                applied, unchanged, conflicts = [], [], []
+                for index, item in enumerate(items):
+                    # Checked before *every* write, not once at the start.
+                    #
+                    # A single check at the top of the transaction leaves the rest
+                    # of the loop unguarded: another writer that saves a decision,
+                    # or replaces the source, while this loop is running lands
+                    # between the check and the commit and its change is committed
+                    # against. Re-checking here, and once more after the loop,
+                    # means the last thing that happens before the commit is a
+                    # check of the inputs the commit is based on.
+                    if verify is not None:
+                        verify()
+                    outcome = self._apply_one_source_fact(
+                        item, request_id=request_id, index=index,
+                        actor=actor, created_at=created_at,
+                        applied=applied, unchanged=unchanged,
+                        conflicts=conflicts)
+                    assert outcome in ("applied", "unchanged", "conflict")
+                if verify is not None:
+                    verify()
+
+                result = {
+                    "outcome": "applied",
+                    "request_id": request_id,
+                    "binding": expected_binding,
+                    "choices_revision": expected_choices_revision,
+                    "input_digest": input_digest,
+                    "applied": applied,
+                    "unchanged": unchanged,
+                    "conflicts": conflicts,
+                    "counts": {"applied": len(applied),
+                               "unchanged": len(unchanged),
+                               "conflicts": len(conflicts)},
+                }
+                self.conn.execute(
+                    "INSERT INTO source_fact_applies(request_id, input_digest,"
+                    " binding, choices_revision, result_json, created_at)"
+                    " VALUES (?,?,?,?,?,?)",
+                    (request_id, input_digest, expected_binding,
+                     expected_choices_revision,
+                     json.dumps(result, ensure_ascii=False, sort_keys=True),
+                     created_at))
+                self._commit_write()
+            except SaveError:
+                self._rollback_write()
+                raise
+            except Exception:
+                self._rollback_write()
+                raise
+
+            # After the commit, on the existing relay path. A failure here leaves
+            # the row waiting with relayed=0 and is retried by the next write. It
+            # is never a reason to make another row.
+            self._relay_outbox()
+            return result
+
+    def resume_audit_relay(self, request_id: str) -> None:
+        """Send this request's waiting audit events. See `_relay_request_outbox`."""
+        self._relay_request_outbox(request_id)
+
+    @staticmethod
+    def _owns_outbox_id(outbox_id, prefix: str) -> bool:
+        """Is this outbox row one of the request's own events?
+
+        Two things had to be established before this was right, and both were
+        wrong at first.
+
+        A `LIKE` pattern built from the request id is not a literal: `_` matches
+        any one character and `%` matches any run of them, so `request_a` claimed
+        `requestXa`'s events. Escaping the pattern would have fixed that pair and
+        left the next one.
+
+        A prefix match alone is not enough either. `request` and `request-child`
+        share a prefix, so `ledger-request-` also matches
+        `ledger-request-child-0`, and relaying another request's backlog under
+        this one is exactly the mistake the scoping exists to prevent.
+
+        So ownership is proved rather than assumed: the row must begin with this
+        request's literal prefix, and the remainder must be the decimal index this
+        store appends. `child-0` is not a decimal index, so a longer request id is
+        not mistaken for this one, and no character of either id is ever a pattern.
+        """
+        if type(outbox_id) is not str or not outbox_id.startswith(prefix):
+            return False
+        tail = outbox_id[len(prefix):]
+        # `isdigit` alone would accept other scripts' digits, so `isascii` is
+        # checked first: the index this store writes is ASCII.
+        return bool(tail) and tail.isascii() and tail.isdigit()
+
+    def _relay_request_outbox(self, request_id: str) -> None:
+        """Resume this request's own audit events, through the existing path.
+
+        A request that committed while the audit ledger was refusing still left
+        events waiting with `relayed=0`. The retry of that request is when they go
+        out — which is what `_replay_pending` does for any other write, so a client
+        that retries gets the audit trail completed rather than a cached answer
+        whose audit event quietly never arrives.
+
+        Only this request's events, and proved as above: an unrelated request's
+        backlog is not this request's to flush, and flushing it would put one
+        request's audit events under another's identity.
+        """
+        prefix = "ledger-" + request_id + "-"
+        with self._lock:
+            rows = self.conn.execute(
+                "SELECT outbox_id FROM ledger_outbox WHERE relayed=0").fetchall()
+        pending = [row[0] for row in rows
+                   if self._owns_outbox_id(row[0], prefix)]
+        if pending:
+            self._relay_outbox(pending)
+
+    def source_fact_apply(self, request_id: str):
+        """What one request id already did: its input digest and its result.
+
+        Read before any of the checks that would refuse a retry, because a retry
+        after a lost response presents the *original* plan, and that plan is no
+        longer what a fresh plan says once the transactions are applied.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT input_digest, result_json FROM source_fact_applies"
+                " WHERE request_id=?", (request_id,)).fetchone()
+        if row is None:
+            return None
+        return {"input_digest": row[0], "result": json.loads(row[1])}
+
+    def applied_source_fact(self, source_event_key: str):
+        """What this ledger holds for one transaction key, or None.
+
+        Read by the plan so the owner is shown what is already there before being
+        asked to write anything.
+        """
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT row_id, fact_digest FROM source_fact_rows"
+                " WHERE source_event_key=?", (source_event_key,)).fetchone()
+        if row is None:
+            return None
+        return {"row_id": row[0], "fact_digest": row[1]}
+
+    def _apply_one_source_fact(self, item, *, request_id, index, actor,
+                               created_at, applied, unchanged, conflicts):
+        """One transaction key's worth of work. See the caller for the why."""
+        key = item["source_event_key"]
+        facts = item["facts"]
+        digest = _source_fact_digest(facts)
+        existing = self.conn.execute(
+            "SELECT row_id, fact_digest FROM source_fact_rows"
+            " WHERE source_event_key=?", (key,)).fetchone()
+        if existing is not None:
+            if existing[1] != digest:
+                # The key is the same and the source says something different.
+                # Overwriting would rewrite an approved fact, and minting a new
+                # key would make one transaction into two. It stays a conflict for
+                # a person to look at.
+                conflicts.append({"source_event_key": key,
+                                  "row_id": existing[0],
+                                  "code": "APPLY_SOURCE_FACT_CONFLICT"})
+                return "conflict"
+            # The same key and the same facts. Nothing is written, so nothing the
+            # user has since edited on that row is reset, and no second expense or
+            # second voucher appears.
+            unchanged.append({"source_event_key": key, "row_id": existing[0]})
+            return "unchanged"
+
+        row_id = f"src-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:16]}"
+        approval_date = str(facts.get("승인일", "") or "")
+        posting_date = str(facts.get("매입일", "") or "")
+        record = {
+            "row_id": row_id,
+            "row_kind": "expense",
+            # Nothing decides the tab for a reviewed card fact. A trip assignment
+            # comes from the owner's schedule, not from a merchant's name.
+            "display_tab_id": None,
+            "revision": 1,
+            # Both dates are kept in their own fields below. This one column has
+            # to hold one date, so it takes whichever the source stated; a
+            # transaction with only one of the two is not inventing the other.
+            "occurred_on": approval_date or posting_date,
+            "source_approval_date": approval_date,
+            "source_posting_date": posting_date,
+            # The cost item is left empty. Naming an expense category by matching
+            # a merchant's name is a guess, and a guess recorded as a fact is
+            # worse than an empty field the owner fills in.
+            "item": "",
+            "description": str(facts.get("가맹점", "") or ""),
+            "service_period": "",
+            "reservation_no": "",
+            "evidence_type": "카드",
+            "amount_krw": _source_amount(facts.get("원화금액")),
+            "source_local_amount": str(facts.get("현지금액", "") or ""),
+            "source_currency": str(facts.get("통화", "") or ""),
+            "source_kind": "카드",
+            # The transaction's own key. This is what makes a second write of the
+            # same transaction the same event rather than a new one.
+            "source_event_id": key,
+            "source_issuer": str(facts.get("카드사", "") or ""),
+            "source_card_last4": str(facts.get("카드4", "") or ""),
+            "source_approval_number": str(facts.get("승인번호", "") or ""),
+            "source_cancelled": str(facts.get("취소여부", "") or ""),
+            "source_origin": str(facts.get("출처", "") or ""),
+            "source_fact_digest": digest,
+            "classification_state": "unclassified",
+            "source_merchant": str(facts.get("가맹점", "") or ""),
+            "event_kind": str(facts.get("구분", "") or ""),
+            "card_kind": str(facts.get("카드사", "") or ""),
+            "classification_basis": f"검토 반영 {item['review_ref']}",
+            # The review note is the person's own words about the transaction, so
+            # it is carried. A later edit to it is not reset by a repeated apply,
+            # because a repeated apply writes nothing.
+            "operator_note": str(item.get("review_note", "") or ""),
+        }
+        self.conn.execute(
+            "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision,"
+            " payload_json) VALUES (?,?,?,?,?)",
+            (row_id, "expense", None, 1, _canonical(record)))
+        self.conn.execute(
+            "INSERT INTO board_revisions(row_id, revision, prev_json, new_json,"
+            " event_id, change_mode, actor, created_at, client_request_id, kind,"
+            " reverts_event_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (row_id, 1, _canonical({}), _canonical(record), "", "exception",
+             actor, created_at, f"{request_id}-{index}", "save", ""))
+        self.conn.execute(
+            "INSERT INTO source_fact_rows(source_event_key, row_id, fact_digest,"
+            " facts_json, workbook_ref, review_ref, review_snapshot_sha256,"
+            " applied_request_id, applied_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (key, row_id, digest,
+             # Column order as the master stated it, not sorted: the stored fact
+             # is read back by a person comparing it with the source file.
+             json.dumps(facts, ensure_ascii=False),
+             str(item.get("workbook_ref", "") or ""),
+             str(item.get("review_ref", "") or ""),
+             str(item.get("review_snapshot_sha256", "") or ""),
+             request_id, created_at))
+        self._enqueue_ledger(
+            outbox_id=f"ledger-{request_id}-{index}",
+            stream_id=f"row-{row_id}", action="propose",
+            target=key,
+            rationale=f"검토 반영 {item['review_ref']} {key}", actor=actor)
+        applied.append({"source_event_key": key, "row_id": row_id})
+        return "applied"
+
+
     def _latest_correction(self, row_id: str):
         try:
             return self.conn.execute(
@@ -3897,6 +4437,10 @@ class LedgerStore:
             "event_year": row[10], "tab_kind": row[11],
             "authority_status": row[12], "source_sha256": row[13],
             "sort_order": row[14],
+            # Provenance of `prepared_by_name`. Empty means this row was written
+            # before the column existed, so nobody recorded where the name came
+            # from — not that the name is wrong.
+            "assignee_source": row[15] if len(row) > 15 else "",
             # derived, so it cannot disagree with the two stored flags
             "tab_lifecycle": "deleted" if deleted else (
                 "archived" if archived else "active"),
@@ -3905,7 +4449,7 @@ class LedgerStore:
     _TRIP_COLUMNS = ("tab_id, display_key, destination, starts_on, ends_on,"
                      " prepared_on, prepared_by_name, archived, deleted, revision,"
                      " event_year, tab_kind, authority_status, source_sha256,"
-                     " sort_order")
+                     " sort_order, assignee_source")
 
     def list_trips(self, include_archived: bool = False) -> list:
         rows = self.conn.execute(
@@ -4055,16 +4599,18 @@ class LedgerStore:
                 ).fetchone()
                 if dup:
                     raise SaveError("__REPLAY__", "retry")
+                new_assignee = owner_assignee_default(self.conn)
                 self.conn.execute(
                     "INSERT INTO trip_tabs(tab_id, display_key, destination,"
                     " starts_on, ends_on, event_year, tab_kind, authority_status,"
                     " source_sha256, sort_order, prepared_on, prepared_by_name,"
-                    " archived, deleted, revision)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " assignee_source, archived, deleted, revision)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (tab_id, name, destination, starts_on, ends_on, event_year,
                      tab_kind, "needs_review", source_sha256, next_order,
                      _seoul_today(),
-                     SYNTHETIC_OWNER_NAME, 0, 0, 1),
+                     new_assignee, "owner_profile" if new_assignee else "",
+                     0, 0, 1),
                 )
                 self.conn.execute(
                     "INSERT INTO trip_tab_history(tab_id, revision, change_kind,"
@@ -4115,6 +4661,168 @@ class LedgerStore:
                                 "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
             return result
 
+    def owner_profile(self) -> dict:
+        """The owner-entered company name and default assignee.
+
+        Reads as an empty profile rather than None when nothing has been saved,
+        so every caller gets the same shape and no caller has to invent a
+        fallback name.
+        """
+        try:
+            row = self.conn.execute(
+                "SELECT company_name, assignee_name, revision, updated_at"
+                " FROM owner_profile WHERE profile_id='owner'").fetchone()
+        except Exception:
+            return {"company_name": "", "assignee_name": "", "revision": 0,
+                    "updated_at": "", "configured": False}
+        if not row:
+            return {"company_name": "", "assignee_name": "", "revision": 0,
+                    "updated_at": "", "configured": False}
+        return {"company_name": row[0] or "", "assignee_name": row[1] or "",
+                "revision": row[2], "updated_at": row[3] or "",
+                "configured": True}
+
+    def save_owner_profile(self, *, expected_revision: int, client_request_id: str,
+                           company_name=None, assignee_name=None,
+                           actor: str = "owner") -> dict:
+        """Save the owner profile under the same CAS, replay and audit rules as a trip.
+
+        Everything that decides the outcome is read *inside* the write
+        transaction, after `BEGIN IMMEDIATE`. Reading the current revision before
+        opening one leaves a gap: two connections can both read revision 0, both
+        decide they are first, and the second write silently overwrites the
+        first. Here the second transaction waits, then re-reads and refuses.
+
+        The same applies to the replay check. A retry that arrives while the
+        original is still in flight must find the finished request and return its
+        result, not miss it and write again.
+
+        The update is conditional on the revision the caller presented, so even a
+        path that got here without re-reading cannot write over a newer value.
+
+        A saved, an unchanged and a replayed request all return the same shape,
+        so a retry cannot be told apart from its first answer by shape alone.
+        An empty name is stored, not refused: "not set yet" is a legitimate state
+        for a default, and refusing it would leave a field that can be filled once
+        and never cleared.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        with self._lock:
+            self._replay_pending()
+            self._begin_write()
+            try:
+                existing = self.conn.execute(
+                    "SELECT input_digest, result_json FROM owner_profile_requests"
+                    " WHERE client_request_id=?", (client_request_id,)).fetchone()
+                row = self.conn.execute(
+                    "SELECT company_name, assignee_name, revision FROM owner_profile"
+                    " WHERE profile_id='owner'").fetchone()
+                current = {
+                    "company_name": (row[0] or "") if row else "",
+                    "assignee_name": (row[1] or "") if row else "",
+                    "revision": row[2] if row else 0,
+                }
+                company = (current["company_name"] if company_name is None
+                           else str(company_name).strip())
+                assignee = (current["assignee_name"] if assignee_name is None
+                            else str(assignee_name).strip())
+                # The identity is the *explicit input*, not the values it resolves
+                # to. Filling an omitted field from the current profile here would
+                # make the same request carry a different meaning after the
+                # profile changed: a retry of the original save would be refused as
+                # a different request, and the owner would see a conflict for a
+                # request they had not changed. An omitted field is recorded as
+                # omitted, so "not mentioned" stays distinguishable from
+                # "explicitly set to nothing".
+                identity_input = {
+                    "expected_revision": expected_revision,
+                    "actor": actor,
+                    "company_name": ({"given": False} if company_name is None
+                                     else {"given": True, "value": company}),
+                    "assignee_name": ({"given": False} if assignee_name is None
+                                      else {"given": True, "value": assignee}),
+                }
+                digest = hashlib.sha256(
+                    _canonical(identity_input).encode("utf-8")).hexdigest()
+                if existing is not None:
+                    if existing[0] != digest:
+                        raise SaveError(
+                            "EDIT_CONFLICT",
+                            "같은 요청 번호에 다른 내용이 왔어요. 새로 저장해 주세요")
+                    # The stored row is the result itself, so the first answer and
+                    # this one are the same value and not merely the same fields.
+                    self.conn.commit()
+                    return json.loads(existing[1])
+                if current["revision"] != expected_revision:
+                    raise SaveError(
+                        "EDIT_CONFLICT",
+                        "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                now = _utc_now()
+                if company == current["company_name"] and assignee == current["assignee_name"]:
+                    result = {"outcome": "unchanged", "revision": current["revision"],
+                              "company_name": company, "assignee_name": assignee,
+                              "updated_at": now}
+                    # The no-op still records its request, so a retry of it replays
+                    # rather than re-deciding against a later revision.
+                    self._record_owner_profile_request(
+                        client_request_id, digest, result, now, actor,
+                        current, current, "noop")
+                    self.conn.commit()
+                    return result
+                revision = current["revision"] + 1
+                if row is None:
+                    self.conn.execute(
+                        "INSERT INTO owner_profile(profile_id, company_name,"
+                        " assignee_name, revision, updated_at, actor,"
+                        " client_request_id) VALUES ('owner',?,?,?,?,?,?)",
+                        (company, assignee, revision, now, actor, client_request_id))
+                else:
+                    updated = self.conn.execute(
+                        "UPDATE owner_profile SET company_name=?, assignee_name=?,"
+                        " revision=?, updated_at=?, actor=?, client_request_id=?"
+                        " WHERE profile_id='owner' AND revision=?",
+                        (company, assignee, revision, now, actor,
+                         client_request_id, expected_revision))
+                    if updated.rowcount != 1:
+                        # The conditional write refused. Nothing is recorded, so the
+                        # caller can retry with the revision it now sees.
+                        raise SaveError(
+                            "EDIT_CONFLICT",
+                            "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                result = {"outcome": "saved", "revision": revision,
+                          "company_name": company, "assignee_name": assignee,
+                          "updated_at": now}
+                self._record_owner_profile_request(
+                    client_request_id, digest, result, now, actor,
+                    current, {"company_name": company, "assignee_name": assignee,
+                              "revision": revision}, "save")
+                self.conn.commit()
+                return result
+            except Exception:
+                self.conn.rollback()
+                raise
+
+    def _record_owner_profile_request(self, client_request_id, digest, result,
+                                      created_at, actor, prev, new,
+                                      change_kind) -> None:
+        """The request row and the audit row, written together.
+
+        Both go in the caller's transaction on purpose. An audit trail that can
+        disagree with the change it describes is worse than none, because it is
+        read as if it were reliable.
+        """
+        self.conn.execute(
+            "INSERT INTO owner_profile_requests(client_request_id, input_digest,"
+            " result_json, created_at) VALUES (?,?,?,?)",
+            (client_request_id, digest, _canonical(result), created_at))
+        self.conn.execute(
+            "INSERT INTO owner_profile_history(revision, change_kind, prev_json,"
+            " new_json, actor, created_at, client_request_id)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (result["revision"], change_kind, _canonical(prev),
+             _canonical(new), actor, created_at, client_request_id))
+
     def save_trip_meta(self, *, tab_id: str, expected_revision: int,
                        client_request_id: str, display_key=None,
                        prepared_on=None, prepared_by_name=None,
@@ -4147,6 +4855,10 @@ class LedgerStore:
                 if not str(prepared_by_name).strip():
                     raise SaveError("INVALID_VALUE", "담당자 이름이 비었어요")
                 changes["prepared_by_name"] = str(prepared_by_name)
+                # An owner typing the assignee is the owner confirming it, so the
+                # provenance becomes `manual` whatever the text happens to be.
+                # This is what resolves a row whose source was never recorded.
+                changes["assignee_source"] = "manual"
             if archived is not None:
                 changes["archived"] = bool(archived)
             new = dict(current)
@@ -4189,8 +4901,10 @@ class LedgerStore:
                     raise SaveError("__REPLAY__", "retry")
                 cursor = self.conn.execute(
                     "UPDATE trip_tabs SET display_key=?, prepared_on=?,"
-                    " prepared_by_name=?, archived=?, revision=? WHERE tab_id=? AND revision=?",
+                    " prepared_by_name=?, assignee_source=?, archived=?,"
+                    " revision=? WHERE tab_id=? AND revision=?",
                     (new["display_key"], new["prepared_on"], new["prepared_by_name"],
+                     new.get("assignee_source", current.get("assignee_source", "") or ""),
                      1 if new["archived"] else 0, new_revision, tab_id, expected_revision),
                 )
                 if cursor.rowcount == 0:
@@ -5687,6 +6401,20 @@ class LedgerStore:
     def _enqueue_ledger(self, *, outbox_id: str, stream_id: str, action: str,
                         target, rationale: str, actor: str) -> None:
         """같은 쓰기 트랜잭션 안에 정본 사건 payload를 남긴다. 호출자는 트랜잭션 소유."""
+        if self._embedded_audit:
+            if not self.conn.in_transaction:
+                raise LedgerError('audit requires the board transaction')
+            event, _ = self.ledger.append(
+                stream_id=stream_id, action=action,
+                target_direct_event_key=target, rationale=rationale,
+                actor_local_id=actor, client_request_id=outbox_id)
+            # 기존 화면의 event_id 조회용 호환 기록이다. 전달 작업은 만들지 않는다.
+            self.conn.execute(
+                'INSERT OR IGNORE INTO ledger_outbox(outbox_id,stream_id,action,'
+                'target_direct_event_key,rationale,actor_local_id,event_id,relayed,created_at)'
+                ' VALUES (?,?,?,?,?,?,?,1,?)',
+                (outbox_id,stream_id,action,target,rationale,actor,event['event_id'],_utc_now()))
+            return
         self.conn.execute(
             "INSERT OR IGNORE INTO ledger_outbox(outbox_id, stream_id, action,"
             " target_direct_event_key, rationale, actor_local_id,"
@@ -6009,3 +6737,34 @@ class LedgerStore:
                 self._finalize_board_request(client_request_id)
             except Exception:
                 continue
+
+
+def _source_fact_digest(facts: dict) -> str:
+    """A digest of the source facts alone, with no column dropped.
+
+    Deliberately not the ledger's row digest: this covers the seventeen columns
+    as they arrived, so an edit a user made on the board afterwards does not make
+    the next apply look like a changed source, and a changed source is not hidden
+    by an edit.
+    """
+    canonical = json.dumps(facts, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _source_amount(value) -> int:
+    """원화금액 as an integer, sign and zero kept.
+
+    A zero and a negative are facts. Rounding them away, or treating an absolute
+    value as the amount, would turn a cancellation into a purchase.
+    """
+    if value is None:
+        return 0
+    text = str(value).strip().replace(",", "")
+    if text == "":
+        return 0
+    try:
+        return int(Decimal(text))
+    except (InvalidOperation, ValueError, ArithmeticError):
+        raise SaveError("APPLY_SOURCE_AMOUNT_INVALID",
+                        "원천 금액을 읽지 못했어요") from None

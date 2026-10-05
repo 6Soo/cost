@@ -62,6 +62,9 @@ ROLE_VIEWER = "viewer"
 AUTH_REQUIRED = "AUTH_REQUIRED"
 ACTION_FORBIDDEN = "ACTION_FORBIDDEN"
 RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
+#: A source event identifier that the owner has not linked to a ledger event, and
+#: that is not a ledger event code either. Refuses the whole roster.
+UNLINKED_SOURCE_IDENTIFIER = "RESERVE_SOURCE_UNLINKED"
 TEMPORARILY_UNAVAILABLE = "TEMPORARILY_UNAVAILABLE"
 
 APPLICATION_PENDING = "pending"
@@ -91,6 +94,17 @@ BUSY_TIMEOUT_MS = 5000
 TRANSIENT_SQLITE_MARKERS = ("database is locked", "database table is locked",
                             "database is busy")
 
+# At most one active owner may exist. Enforced by a partial unique index
+# (fresh databases) with the transactional check in `ensure_owner` as the
+# authority for the error code. The index is the cross-connection backstop:
+# the in-process lock cannot serialize two `AccessStore` instances on
+# separate SQLite connections, so the check-then-act sequence alone still
+# races. A second committed owner answers OWNER_ALREADY_SET, never success.
+SINGLE_ACTIVE_OWNER_INDEX_SQL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS access_single_active_owner"
+    " ON access_accounts(role, is_active)"
+    " WHERE role='owner' AND is_active=1"
+)
 # Rows a viewer may receive. Everything else, including the internal memo, the
 # change history and anything the AI conversation produced, is not here.
 VIEWER_ROW_FIELDS = (
@@ -222,15 +236,90 @@ CREATE TABLE IF NOT EXISTS access_trip_assignment_heads (
     head_snapshot_revision INTEGER NOT NULL,
     state TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    -- Which link version last wrote this head, and which apply digest it came
+    -- from. Without these, a head written by one link version is
+    -- indistinguishable from one written by another at the same source
+    -- revision, and the ordering below would treat a link correction as stale.
+    head_link_version INTEGER NOT NULL DEFAULT 0,
+    head_apply_digest TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (user_id, tab_id)
 );
 CREATE TABLE IF NOT EXISTS access_reservation_directory_head (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id=1),
     snapshot_revision INTEGER NOT NULL,
     digest TEXT NOT NULL,
+    -- Which link version produced this head. Without it the same-revision gate
+    -- below cannot tell a genuine repeat from a link correction against an
+    -- unchanged source, and answers "nothing to do" to a correction that has to
+    -- move permissions.
+    link_version INTEGER NOT NULL DEFAULT 0,
     source_version TEXT NOT NULL DEFAULT '',
     exported_at TEXT NOT NULL DEFAULT '',
     imported_at TEXT NOT NULL
+);
+-- The explicit link between an opaque source event identifier and the ledger
+-- event it actually refers to.
+--
+-- The source identifier is stored exactly as the export stated it. It is opaque:
+-- nothing here strips a `reservation:` prefix, and nothing infers a ledger event
+-- from a name, an amount or a date. A source identifier is either linked by the
+-- owner naming a target, or it is not linked at all.
+CREATE TABLE IF NOT EXISTS reserve_event_links (
+    source_event_key TEXT NOT NULL,
+    -- One source identifier may legitimately name several ledger events, and each
+    -- one has to be chosen by the owner. So the pair is the key: the target is
+    -- part of the row's identity rather than a single value hanging off the
+    -- source, which is what a single-target column could not hold.
+    target_tab_id TEXT NOT NULL,
+    link_digest TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    linked_by TEXT NOT NULL,
+    linked_at TEXT NOT NULL,
+    PRIMARY KEY (source_event_key, target_tab_id)
+);
+-- The link set as a whole, so an apply can name exactly what it applied and a
+-- later apply can tell "same links" from "links changed under the same source".
+CREATE TABLE IF NOT EXISTS reserve_link_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    link_version INTEGER NOT NULL DEFAULT 0,
+    link_digest TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS reserve_link_saves (
+    request_id TEXT PRIMARY KEY,
+    input_digest TEXT NOT NULL,
+    source_binding TEXT NOT NULL,
+    link_revision INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+-- One apply, and what it was made from. `apply_digest` includes the link version
+-- and digest, so a link edit re-applied against an unchanged source is a new
+-- apply rather than a silent no-op under the existing same-revision guard.
+-- One row per apply *request*, holding everything that request presented.
+--
+-- The apply record is keyed by the plan digest, which identifies what was applied;
+-- this one is keyed by the request id, which identifies the request. Both are
+-- needed: a client that lost a response resends the original request after the
+-- links have moved on, and the answer it is owed is the original receipt rather
+-- than a fresh run of the current links.
+CREATE TABLE IF NOT EXISTS reserve_link_apply_requests (
+    request_id TEXT PRIMARY KEY,
+    input_digest TEXT NOT NULL,
+    apply_digest TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reserve_link_applies (
+    apply_digest TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    source_revision INTEGER NOT NULL,
+    source_digest TEXT NOT NULL,
+    link_version INTEGER NOT NULL,
+    link_digest TEXT NOT NULL,
+    sync_schema_version TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS access_reservation_sync_attempts (
     attempt_id TEXT PRIMARY KEY,
@@ -391,6 +480,23 @@ def bind_synthetic_sessions(allow: bool = True) -> None:
 
 
 # --------------------------------------------------------------- the store
+class _BindingRefused(Exception):
+    """A caller-supplied binding check refused, on the caller's own terms.
+
+    Carries its code and status through the sync's transaction so the refusal
+    reaches the owner as itself. Defined here rather than in `reserve_link` because
+    this is the sync that has to roll back and re-raise it correctly.
+    """
+
+    def __init__(self, code: str, message: str, *, outcome: str,
+                 status: int = 409):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.outcome = outcome
+        self.status = status
+
+
 class AccessStore:
     """Roles, the link application flow, and assignment snapshots.
 
@@ -410,6 +516,7 @@ class AccessStore:
         with self.lock:
             self.conn.executescript(SCHEMA_SQL)
             self._migrate_columns()
+            self._migrate_owner_index()
             self.conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
             self.conn.commit()
 
@@ -425,15 +532,57 @@ class AccessStore:
             self.conn.execute(
                 "ALTER TABLE access_accounts ADD COLUMN"
                 " session_generation INTEGER NOT NULL DEFAULT 1")
-        head_present = {r[1] for r in self.conn.execute(
+        head_cols = {r[1] for r in self.conn.execute(
+            "PRAGMA table_info(access_trip_assignment_heads)")}
+        if "head_link_version" not in head_cols:
+            # A head written before explicit links existed has no link version.
+            # It keeps 0, which orders it before every link-driven write, so the
+            # first link-corrected apply can still move it.
+            self.conn.execute(
+                "ALTER TABLE access_trip_assignment_heads ADD COLUMN"
+                " head_link_version INTEGER NOT NULL DEFAULT 0")
+        if "head_apply_digest" not in head_cols:
+            self.conn.execute(
+                "ALTER TABLE access_trip_assignment_heads ADD COLUMN"
+                " head_apply_digest TEXT NOT NULL DEFAULT ''")
+        directory_present = {r[1] for r in self.conn.execute(
             "PRAGMA table_info(access_reservation_directory_head)")}
-        if "persons_seen" not in head_present:
+        if "link_version" not in directory_present:
+            # Heads written before explicit links existed carry 0, which orders
+            # them before the first link-driven apply.
+            self.conn.execute(
+                "ALTER TABLE access_reservation_directory_head ADD COLUMN"
+                " link_version INTEGER NOT NULL DEFAULT 0")
+        if "persons_seen" not in directory_present:
             # Older heads counted nobody. A legacy head reports 0, which
             # disables the large-drop ratio once (fail-open exactly once) and
             # every later head carries the real count.
             self.conn.execute(
                 "ALTER TABLE access_reservation_directory_head ADD COLUMN"
                 " persons_seen INTEGER NOT NULL DEFAULT 0")
+
+    def _migrate_owner_index(self) -> None:
+        """Enforce a single active owner on databases created before it.
+
+        A database that already holds two or more active owners (from the
+        earlier check-then-act race) refuses to open with OWNER_CONFLICT
+        instead of opening with an ambiguous authority. The migration never
+        chooses, deactivates, or deletes an owner: removing a duplicated
+        owner is an operator decision made with local database access, not
+        a migration. The connection is rolled back before refusing so the
+        caller gets a clean connection back.
+        """
+        active_owners = self.conn.execute(
+            "SELECT COUNT(*) FROM access_accounts"
+            " WHERE role='owner' AND is_active=1").fetchone()[0]
+        if active_owners > 1:
+            self._rollback_quietly()
+            raise AccessError(
+                "OWNER_CONFLICT",
+                f"활성 소유자가 {active_owners}명이에요. 자동으로 고르거나"
+                " 비활성화하지 않아요. 운영자가 직접 확인해 주세요",
+                status=500)
+        self.conn.execute(SINGLE_ACTIVE_OWNER_INDEX_SQL)
 
     # ------------------------------------------------------- request reuse
     def _replay(self, scope: str, client_request_id: str, payload: dict):
@@ -481,7 +630,14 @@ class AccessStore:
     def create_account(self, *, user_id: str, role: str, display_name: str = "",
                        email: str = "", is_active: bool = True,
                        is_synthetic: bool = True) -> dict:
-        """Create an account with an explicit role. Never auto-promotes."""
+        """Create an account with an explicit role. Never auto-promotes.
+
+        A direct `role="owner"` write is refused with OWNER_ALREADY_SET when a
+        different active owner exists, so the single-owner rule cannot be
+        bypassed around `ensure_owner`. The login/bootstrap path still uses
+        `ensure_owner`, which additionally ends prior sessions on promotion;
+        this setter never moves the session generation.
+        """
         user_id = (user_id or "").strip()
         if not user_id:
             raise AccessError("INVALID_VALUE", "사용자 ID가 필요해요", status=422)
@@ -489,18 +645,69 @@ class AccessStore:
             raise AccessError("INVALID_VALUE", "역할이 올바르지 않아요", status=422)
         now = iso(utc_now())
         with self.lock:
-            self.conn.execute(
-                "INSERT INTO access_accounts(user_id, display_name, email, role,"
-                " is_active, is_synthetic, created_at, updated_at)"
-                " VALUES (?,?,?,?,?,?,?,?)"
-                " ON CONFLICT(user_id) DO UPDATE SET"
-                " display_name=excluded.display_name, email=excluded.email,"
-                " role=excluded.role, is_active=excluded.is_active,"
-                " updated_at=excluded.updated_at",
-                (user_id, display_name or "", email or "", role,
-                 1 if is_active else 0, 1 if is_synthetic else 0, now, now))
-            self.conn.commit()
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if _is_transient_sqlite(exc):
+                    raise AccessError(
+                        TEMPORARILY_UNAVAILABLE,
+                        "잠시 저장할 수 없어요. 같은 요청으로 다시 확인해 주세요",
+                        status=503)
+                raise
+            try:
+                if role == ROLE_OWNER and is_active:
+                    existing = self.conn.execute(
+                        "SELECT user_id FROM access_accounts WHERE role=?"
+                        " AND is_active=1", (ROLE_OWNER,)).fetchone()
+                    if existing and existing[0] != user_id:
+                        self.conn.execute("ROLLBACK")
+                        raise AccessError(
+                            "OWNER_ALREADY_SET",
+                            f"이미 소유자가 {existing[0]}로 정해져 있어요",
+                            status=409)
+                self.conn.execute(
+                    "INSERT INTO access_accounts(user_id, display_name, email, role,"
+                    " is_active, is_synthetic, created_at, updated_at)"
+                    " VALUES (?,?,?,?,?,?,?,?)"
+                    " ON CONFLICT(user_id) DO UPDATE SET"
+                    " display_name=excluded.display_name, email=excluded.email,"
+                    " role=excluded.role, is_active=excluded.is_active,"
+                    " updated_at=excluded.updated_at",
+                    (user_id, display_name or "", email or "", role,
+                     1 if is_active else 0, 1 if is_synthetic else 0, now, now))
+                self.conn.execute("COMMIT")
+            except AccessError:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
+            except sqlite3.IntegrityError:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                existing = self.conn.execute(
+                    "SELECT user_id FROM access_accounts WHERE role=?"
+                    " AND is_active=1", (ROLE_OWNER,)).fetchone()
+                if role == ROLE_OWNER and existing and existing[0] != user_id:
+                    raise AccessError(
+                        "OWNER_ALREADY_SET",
+                        f"이미 소유자가 {existing[0]}로 정해져 있어요", status=409)
+                raise
+            except Exception:
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
         return self.account(user_id)
+
+    def _rollback_quietly(self) -> None:
+        try:
+            self.conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
 
     def ensure_owner(self, user_id: str) -> dict:
         """The single owner bootstrap, and it only runs when none exists.
@@ -508,18 +715,94 @@ class AccessStore:
         SPEC 15.1: ownership is deployment configuration or this explicit
         call, never the first account to arrive. A second call is refused so
         the owner cannot be handed out by a race.
+
+        The owner check, the promotion and the generation bump run in one
+        `BEGIN IMMEDIATE` transaction, so two stores on separate connections
+        cannot both promote: the loser waits on the write lock, then sees the
+        committed owner and answers OWNER_ALREADY_SET. The partial unique
+        index is the backstop for the same race. A promotion from viewer to
+        owner ends prior sessions by bumping the generation, so cookies
+        issued under the old role are refused instead of silently gaining
+        owner rights (SPEC 15.3). The promotion preserves the account's
+        display name, email and synthetic flag: a Google login must not turn
+        synthetic by being promoted. A fresh owner account has no prior
+        sessions to end, so its generation stays at 1. An already-owner
+        account is returned unchanged without moving the generation, so a
+        repeated call does not log the owner out.
         """
+        user_id = (user_id or "").strip()
+        if not user_id:
+            raise AccessError("INVALID_VALUE", "사용자 ID가 필요해요", status=422)
         with self.lock:
-            existing = self.conn.execute(
-                "SELECT user_id FROM access_accounts WHERE role=?"
-                " AND is_active=1", (ROLE_OWNER,)).fetchone()
-            if existing:
-                if existing[0] != user_id:
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if _is_transient_sqlite(exc):
+                    raise AccessError(
+                        TEMPORARILY_UNAVAILABLE,
+                        "잠시 저장할 수 없어요. 같은 요청으로 다시 확인해 주세요",
+                        status=503)
+                raise
+            try:
+                existing = self.conn.execute(
+                    "SELECT user_id FROM access_accounts WHERE role=?"
+                    " AND is_active=1", (ROLE_OWNER,)).fetchone()
+                if existing:
+                    if existing[0] != user_id:
+                        self.conn.execute("ROLLBACK")
+                        raise AccessError(
+                            "OWNER_ALREADY_SET",
+                            f"이미 소유자가 {existing[0]}로 정해져 있어요",
+                            status=409)
+                    self.conn.execute("ROLLBACK")
+                    return self.account(user_id)
+                previous = self.conn.execute(
+                    "SELECT display_name, email, is_active, is_synthetic,"
+                    " session_generation FROM access_accounts"
+                    " WHERE user_id=?", (user_id,)).fetchone()
+                now = iso(utc_now())
+                if previous is None:
+                    self.conn.execute(
+                        "INSERT INTO access_accounts(user_id, display_name,"
+                        " email, role, is_active, is_synthetic,"
+                        " session_generation, created_at, updated_at)"
+                        " VALUES (?,?,?,?,?,?,1,?,?)",
+                        (user_id, "", "", ROLE_OWNER, 1, 1, now, now))
+                else:
+                    self.conn.execute(
+                        "UPDATE access_accounts SET role=?, is_active=1,"
+                        " session_generation=session_generation+1,"
+                        " updated_at=? WHERE user_id=?",
+                        (ROLE_OWNER, now, user_id))
+                self.conn.execute("COMMIT")
+            except AccessError:
+                self._rollback_quietly()
+                raise
+            except sqlite3.IntegrityError:
+                self._rollback_quietly()
+                existing = self.conn.execute(
+                    "SELECT user_id FROM access_accounts WHERE role=?"
+                    " AND is_active=1", (ROLE_OWNER,)).fetchone()
+                if existing and existing[0] != user_id:
                     raise AccessError(
                         "OWNER_ALREADY_SET",
                         f"이미 소유자가 {existing[0]}로 정해져 있어요", status=409)
                 return self.account(user_id)
-        return self.create_account(user_id=user_id, role=ROLE_OWNER)
+            except Exception:
+                self._rollback_quietly()
+                raise
+        return self.account(user_id)
+
+    def owner_exists(self) -> bool:
+        """Presence only: whether an active owner account exists.
+
+        Returns no identifier. Callers that need the owner sub already hold
+        local DB access; HTTP surfaces must not list it.
+        """
+        row = self.conn.execute(
+            "SELECT 1 FROM access_accounts WHERE role=? AND is_active=1"
+            " LIMIT 1", (ROLE_OWNER,)).fetchone()
+        return row is not None
 
     def account(self, user_id: str):
         row = self.conn.execute(
@@ -701,18 +984,24 @@ class AccessStore:
     def _apply_assignment_snapshot_tx(self, *, user_id: str, normalized: list,
                                       source_version: str, validity: timedelta,
                                       now: datetime, complete: bool,
-                                      complete_revision: int | None) -> dict:
+                                      complete_revision: int | None,
+                                      link_version: int = 0,
+                                      apply_digest: str = "") -> dict:
         applied, ignored = [], []
         mentioned_tabs = set()
         for item, tab_id, state, revision in normalized:
             mentioned_tabs.add(tab_id)
             head = self.conn.execute(
-                "SELECT head_snapshot_revision, state"
+                "SELECT head_snapshot_revision, state, head_link_version"
                 " FROM access_trip_assignment_heads WHERE user_id=? AND tab_id=?",
                 (user_id, tab_id)).fetchone()
-            if head is not None and revision <= head[0]:
+            if head is not None and self._is_stale_head(
+                    self._head_order(head[0], head[2]),
+                    self._head_order(revision, link_version)):
                 ignored.append({"tab_id": tab_id, "snapshot_revision": revision,
-                                "head": head[0], "head_state": head[1]})
+                                "head": head[0], "head_state": head[1],
+                                "head_link_version": head[2],
+                                "applied_link_version": link_version})
                 continue
             assignment_id = item.get("assignment_id") or uuid.uuid4().hex
             valid_until = iso(now + validity)
@@ -730,38 +1019,54 @@ class AccessStore:
                 " valid_until=excluded.valid_until",
                 (assignment_id, user_id, tab_id, state, revision,
                  source_version or "", iso(now), iso(now), valid_until))
+            # The head records which link version and which apply wrote it, so the
+            # next comparison knows what it is comparing against rather than only
+            # a number it cannot interpret.
             self.conn.execute(
                 "INSERT INTO access_trip_assignment_heads("
-                " user_id, tab_id, head_snapshot_revision, state, updated_at)"
-                " VALUES (?,?,?,?,?)"
+                " user_id, tab_id, head_snapshot_revision, state, updated_at,"
+                " head_link_version, head_apply_digest)"
+                " VALUES (?,?,?,?,?,?,?)"
                 " ON CONFLICT(user_id, tab_id) DO UPDATE SET"
                 " head_snapshot_revision=excluded.head_snapshot_revision,"
-                " state=excluded.state, updated_at=excluded.updated_at",
-                (user_id, tab_id, revision, state, iso(now)))
+                " state=excluded.state, updated_at=excluded.updated_at,"
+                " head_link_version=excluded.head_link_version,"
+                " head_apply_digest=excluded.head_apply_digest",
+                (user_id, tab_id, revision, state, iso(now), int(link_version),
+                 apply_digest or ""))
             applied.append({"tab_id": tab_id, "state": state,
-                            "snapshot_revision": revision})
+                            "snapshot_revision": revision,
+                            "link_version": int(link_version)})
 
         if complete:
             active_heads = self.conn.execute(
-                "SELECT tab_id, head_snapshot_revision"
+                "SELECT tab_id, head_snapshot_revision, head_link_version"
                 " FROM access_trip_assignment_heads"
                 " WHERE user_id=? AND state=?",
                 (user_id, ASSIGN_ACTIVE)).fetchall()
-            omitted = [(tab_id, head_revision)
-                       for tab_id, head_revision in active_heads
+            omitted = [(tab_id, head_revision, head_link_version)
+                       for tab_id, head_revision, head_link_version in active_heads
                        if tab_id not in mentioned_tabs]
             if omitted and complete_revision is None:
                 raise AccessError(
                     "INVALID_VALUE",
                     "empty complete snapshot requires snapshot revision",
                     status=422)
-            for tab_id, head_revision in omitted:
-                if complete_revision <= head_revision:
+            for tab_id, head_revision, head_link_version in omitted:
+                # Same pair comparison as the grant path, and for the same reason:
+                # a link correction on an unchanged source is a *newer* decision
+                # about that source, so the trip it no longer mentions has to be
+                # revocable. Without this the omission is refused as stale and the
+                # old trip's permission survives the correction.
+                if self._is_stale_head(
+                        self._head_order(head_revision, head_link_version),
+                        self._head_order(complete_revision, link_version)):
                     ignored.append({
                         "tab_id": tab_id,
                         "snapshot_revision": complete_revision,
                         "head": head_revision,
                         "head_state": ASSIGN_ACTIVE,
+                        "head_link_version": head_link_version,
                         "omitted_from_complete_snapshot": True,
                     })
                     continue
@@ -777,13 +1082,15 @@ class AccessStore:
                      iso(now), valid_until))
                 self.conn.execute(
                     "UPDATE access_trip_assignment_heads"
-                    " SET head_snapshot_revision=?, state=?, updated_at=?"
+                    " SET head_snapshot_revision=?, state=?, updated_at=?,"
+                    " head_link_version=?, head_apply_digest=?"
                     " WHERE user_id=? AND tab_id=?",
                     (complete_revision, ASSIGN_REVOKED, iso(now),
-                     user_id, tab_id))
+                     int(link_version), apply_digest or "", user_id, tab_id))
                 applied.append({
                     "tab_id": tab_id,
                     "state": ASSIGN_REVOKED,
+                    "link_version": int(link_version),
                     "snapshot_revision": complete_revision,
                     "omitted_from_complete_snapshot": True,
                 })
@@ -851,14 +1158,18 @@ class AccessStore:
 
     def reservation_directory_head(self):
         row = self.conn.execute(
-            "SELECT snapshot_revision, digest, source_version, exported_at, imported_at,"
-            " persons_seen"
-            " FROM access_reservation_directory_head WHERE singleton_id=1").fetchone()
+            "SELECT snapshot_revision, digest, link_version, source_version,"
+            " exported_at, imported_at, persons_seen"
+            " FROM access_reservation_directory_head WHERE singleton_id=1"
+        ).fetchone()
         if not row:
             return None
+        # `link_version` travels with the head so a repeat of one apply can be told
+        # apart from a link correction against the same source.
         return {"snapshot_revision": row[0], "digest": row[1],
-                "source_version": row[2], "exported_at": row[3],
-                "imported_at": row[4], "persons_seen": row[5]}
+                "link_version": row[2], "source_version": row[3],
+                "exported_at": row[4], "imported_at": row[5],
+                "persons_seen": row[6]}
 
     # ------------------------------------------------- sync attempt audit
     def _log_sync_attempt(self, *, revision: int, digest: str,
@@ -914,11 +1225,106 @@ class AccessStore:
             return None
         return {r[0] for r in self.conn.execute("SELECT tab_id FROM trip_tabs")}
 
+    # -- the explicit link set -------------------------------------------
+    @staticmethod
+    def _head_order(revision: int, link_version: int) -> tuple:
+        """How a head compares to an incoming apply, as one ordered key.
+
+        The source revision alone cannot order these two cases:
+
+        * the same source revision applied twice with a corrected link — the rows
+          are byte-identical to the first apply, so a revision comparison calls
+          the correction stale and the permission never moves; and
+        * a per-trip revocation made deliberately against a source the owner has
+          since moved on from — which must not come back because a link edit
+          arrived.
+
+        So the key is the pair. Source revision first, because the source is the
+        authority on who belongs to which trip; link version second, because a
+        link edit is a later decision *about the same source* and so must win
+        over what that same source wrote earlier, while still losing to a source
+        that is genuinely newer.
+
+        A head with a higher link version than the apply is therefore not stale,
+        and neither is a head whose source revision is higher.
+        """
+        return (int(revision), int(link_version))
+
+    @staticmethod
+    def _is_stale_head(head_order: tuple, incoming_order: tuple) -> bool:
+        """True when the incoming apply is not newer than what is stored.
+
+        Equality counts as stale, so replaying one apply writes nothing twice.
+        """
+        return incoming_order <= head_order
+    def reserve_link_state(self) -> dict:
+        """The link set's version and digest, or the empty state.
+
+        `link_version` only ever increases, and `link_digest` covers the whole
+        set, so "the links changed" is answerable without reading every row.
+        """
+        row = self.conn.execute(
+            "SELECT link_version, link_digest, revision FROM reserve_link_state"
+            " WHERE id=1").fetchone()
+        if row is None:
+            return {"link_version": 0, "link_digest": "", "revision": 0,
+                    "links": {}}
+        pairs = {}
+        for source, target in self.conn.execute(
+                "SELECT source_event_key, target_tab_id FROM reserve_event_links"
+                " ORDER BY source_event_key, target_tab_id"):
+            pairs.setdefault(source, []).append(target)
+        return {"link_version": int(row[0]), "link_digest": str(row[1]),
+                "revision": int(row[2]), "links": pairs}
+
+    def resolve_reserve_codes(self, code: str, link_map: dict | None = None
+                              ) -> list:
+        """Every ledger event code one source identifier names, with its origin.
+
+        A list, not a single value: the owner may connect one source identifier to
+        several ledger events, each named explicitly, and the roster has to grant
+        all of them. It is never widened — the returned codes are exactly the
+        targets the owner saved, plus the identifier itself when it already *is* a
+        ledger event code.
+
+        The `reservation:` prefix is not stripped. It is part of an opaque key the
+        export chose, and removing it would be the first step of inferring a ledger
+        event from something that is not one.
+        """
+        text = str(code)
+        links = self.reserve_link_state()["links"] if link_map is None \
+            else link_map
+        out = []
+        for target in links.get(text, []) or []:
+            out.append((target, "link"))
+        if self._tab_exists(text):
+            out.append((text, "exact"))
+        return out
+
+    def _tab_exists(self, tab_id: str) -> bool:
+        """Is this already a live ledger event code?
+
+        Goes through `_known_trip_ids`, which is the store's own answer to that
+        question and which reports "cannot tell" as None rather than raising.
+        Querying `trip_tabs` directly here would raise on an access database that
+        has no ledger tables yet, and a link screen must still render in that
+        state — with nothing to link to, not with an error.
+        """
+        known = self._known_trip_ids()
+        if known is None:
+            return False
+        return tab_id in known
+
     def sync_reservation_access_snapshot(self, *, snapshot: dict,
                                           validity: timedelta = DEFAULT_VALIDITY,
                                           now: datetime | None = None,
                                           allow_empty: bool = False,
-                                          allow_large_drop: bool = False) -> dict:
+                                          allow_large_drop: bool = False,
+                                          link_map: dict | None = None,
+                                          link_version: int = 0,
+                                          apply_digest: str = "",
+                                          on_commit=None,
+                                          verify_binding=None) -> dict:
         """Atomically synchronize the complete Reservation access directory.
 
         Fail-closed guards, in order:
@@ -1001,7 +1407,14 @@ class AccessStore:
                         "assignments_ignored_older": 0,
                     }
                 if head is not None and revision == head["snapshot_revision"]:
-                    if digest == head["digest"]:
+                    # Identical source *and* identical links: a genuine repeat, and
+                    # nothing to do. A link correction arrives here too — same
+                    # revision, same digest, different links — and it must go on
+                    # through, because its whole purpose is to move permissions the
+                    # previous apply put somewhere else.
+                    if (digest == head["digest"]
+                            and int(link_version) <= int(
+                                head.get("link_version", 0) or 0)):
                         self.conn.execute("ROLLBACK")
                         self._log_sync_attempt(
                             revision=revision, digest=digest,
@@ -1020,10 +1433,33 @@ class AccessStore:
                             "assignments_applied": 0,
                             "assignments_ignored_older": 0,
                         }
-                    self.conn.execute("ROLLBACK")
-                    refused("conflict", SNAPSHOT_CONFLICT,
-                            "같은 revision인데 내용이 달라요. 내보내기를 확인해 주세요",
-                            409)
+                    links_are_newer = int(link_version) > int(
+                        head.get("link_version", 0) or 0)
+                    if digest != head["digest"] and not links_are_newer:
+                        # Same revision, different digest, same links: two different
+                        # exports claiming one revision. Refused, because that is a
+                        # forked export and something has to give.
+                        self.conn.execute("ROLLBACK")
+                        refused("conflict", SNAPSHOT_CONFLICT,
+                                "같은 revision인데 내용이 달라요. 내보내기를 확인해 주세요",
+                                409)
+                    # Identical source, newer links: falls through on purpose.
+                    #
+                    # This is the link correction the whole mechanism exists for. The
+                    # source bytes are the same, so there is nothing new to import
+                    # and nothing new to refuse; what moved is the owner's decision
+                    # about which ledger events those identifiers mean, and the
+                    # assignment pass below is what applies it. Refusing here would
+                    # make a correction inexpressible — the owner could save a
+                    # corrected link and never be able to run it.
+                    #
+                    # It is safe to fall through because everything the correction
+                    # rests on is still checked: the resolved identifiers are proven
+                    # against `trip_tabs` below, the heads compare by the
+                    # (revision, link_version) pair, and the apply identity in
+                    # `reserve_link` covers the source digest and the link digest
+                    # together. A forged revision cannot buy a pass, because a
+                    # newer link version is only ever written by a saved link change.
 
                 if not persons and not allow_empty:
                     self.conn.execute("ROLLBACK")
@@ -1044,11 +1480,45 @@ class AccessStore:
                             "명단이 절반 이하로 줄었어요. 잘린 내보내기가 아닌지 확인해 주세요",
                             409)
 
+                # Resolve every assigned code before anything is written.
+                #
+                # A code is resolved by an explicit link the owner saved, or
+                # because it already *is* a ledger event code. One unresolvable
+                # code refuses the whole roster here, before any row is written,
+                # and it is not downgraded to a partial roster: a partial roster
+                # would read as "these people lost their trips", which is a
+                # revocation the owner never asked for.
+                resolved_links = (self.reserve_link_state()["links"]
+                                  if link_map is None else dict(link_map))
                 wanted_trips = set()
+                unresolved: list[str] = []
                 for person in persons:
                     if person.get("is_active"):
                         for trip_code in person.get("assignments") or []:
-                            wanted_trips.add(str(trip_code))
+                            code = str(trip_code)
+                            targets = self.resolve_reserve_codes(
+                                code, resolved_links)
+                            if not targets and code not in unresolved:
+                                unresolved.append(code)
+                            for target, _origin in targets:
+                                wanted_trips.add(target)
+                if unresolved:
+                    # `UNKNOWN_TRIP`, and the message callers already parse, byte
+                    # for byte.
+                    #
+                    # Two reasons for that. A caller that maps `UNKNOWN_TRIP` to
+                    # "fix the roster and retry" keeps working unchanged; and the
+                    # importer writes this text to a structured stdout that its
+                    # callers decode under the ambient locale, so a new Korean
+                    # string here produced bytes a cp949 reader could not decode
+                    # and the refusal itself broke an unrelated contract. What is
+                    # new is *when* it is decided — before any row is written, so
+                    # it cannot land as a partial roster — and that is recorded as
+                    # `unlinked_source_identifier` in the sync attempt.
+                    self.conn.execute("ROLLBACK")
+                    refused("unlinked_source_identifier", UNKNOWN_TRIP,
+                            "없는 여행 코드가 있어요: "
+                            + ", ".join(sorted(unresolved)[:20]), 422)
                 if wanted_trips:
                     known = self._known_trip_ids()
                     if known is None:
@@ -1119,15 +1589,24 @@ class AccessStore:
                         " WHERE reservation_person_id=? AND status=?",
                         (person_id, CONNECTION_ACTIVE)).fetchall()
                     for (user_id,) in rows:
-                        items = [{"tab_id": trip_code, "state": ASSIGN_ACTIVE,
+                        # One source identifier can name several ledger events, so
+                        # each becomes its own assignment. An identifier with no
+                        # targets reached here, because the guard above refused the
+                        # whole roster first.
+                        items = [{"tab_id": target,
+                                  "state": ASSIGN_ACTIVE,
                                   "snapshot_revision": revision}
-                                 for trip_code in person["assignments"]]
+                                 for code in person["assignments"]
+                                 for target, _origin in
+                                 self.resolve_reserve_codes(code,
+                                                            resolved_links)]
                         normalized, complete_revision = self._prepare_assignment_snapshot(
                             items=items, complete=True, snapshot_revision=revision)
                         result = self._apply_assignment_snapshot_tx(
                             user_id=user_id, normalized=normalized,
                             source_version=source_version, validity=validity, now=now,
-                            complete=True, complete_revision=complete_revision)
+                            complete=True, complete_revision=complete_revision,
+                            link_version=link_version, apply_digest=apply_digest)
                         synced += 1
                         assignment_applied += len(result["applied"])
                         assignment_ignored += len(result["ignored_older"])
@@ -1135,17 +1614,45 @@ class AccessStore:
                 imported_at = iso(now)
                 self.conn.execute(
                     "INSERT INTO access_reservation_directory_head("
-                    " singleton_id, snapshot_revision, digest, source_version,"
-                    " exported_at, imported_at, persons_seen) VALUES (1,?,?,?,?,?,?)"
+                    " singleton_id, snapshot_revision, digest, link_version,"
+                    " source_version, exported_at, imported_at, persons_seen)"
+                    " VALUES (1,?,?,?,?,?,?,?)"
                     " ON CONFLICT(singleton_id) DO UPDATE SET"
                     " snapshot_revision=excluded.snapshot_revision,"
                     " digest=excluded.digest,"
+                    " link_version=excluded.link_version,"
                     " source_version=excluded.source_version,"
                     " exported_at=excluded.exported_at,"
                     " imported_at=excluded.imported_at,"
                     " persons_seen=excluded.persons_seen",
-                    (revision, digest, source_version, exported_at, imported_at,
-                     len(persons)))
+                    (revision, digest, int(link_version), source_version,
+                     exported_at, imported_at, len(persons)))
+                # The caller's own rows, written here so they cannot exist without
+                # this roster write and cannot be missing when it happened. A
+                # failure in here rolls the whole roster back with everything else.
+                #
+                # The counts are computed first so they can be handed to the callback:
+                # an apply record that does not carry what it applied would answer a
+                # retry with less than the original run said.
+                # The caller's own binding check, run here: inside this
+                # transaction, after every write, immediately before the COMMIT.
+                #
+                # This is the only placement that closes the window. A check before
+                # the transaction proves the inputs were right at some earlier
+                # moment, and between that moment and the COMMIT another writer can
+                # change the links on a separate connection, or the source file can
+                # change on disk. Both are exactly what the roster rows just written
+                # would then be wrong about. Raising here rolls the whole roster
+                # back, so a stale apply leaves nothing.
+                if verify_binding is not None:
+                    verify_binding(self.conn)
+                if on_commit is not None:
+                    on_commit(self.conn, {
+                        "connected_persons_synced": synced,
+                        "assignments_applied": assignment_applied,
+                        "assignments_ignored_older": assignment_ignored,
+                        "connections_revoked": len(revoked_users),
+                    })
                 self.conn.execute("COMMIT")
             except AccessError:
                 try:
@@ -1153,6 +1660,22 @@ class AccessStore:
                 except sqlite3.Error:
                     pass
                 raise
+            except _BindingRefused as refusal:
+                # The caller's binding check refused. Nothing is written, the
+                # attempt is recorded with its own outcome so it is visible as a
+                # refused apply rather than a failed import, and the refusal keeps
+                # its own code — it is not this method's to restate.
+                try:
+                    self.conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                self._log_sync_attempt(
+                    revision=revision, digest=digest,
+                    source_version=source_version,
+                    persons_seen=len(persons),
+                    outcome=refusal.outcome, error_code=refusal.code)
+                raise AccessError(refusal.code, refusal.message,
+                                  status=refusal.status) from None
             except sqlite3.OperationalError as exc:
                 try:
                     self.conn.execute("ROLLBACK")
@@ -1559,6 +2082,19 @@ class AccessStore:
             "SELECT connection_id FROM access_connections"
             " WHERE user_id=? AND status=?", (user_id, CONNECTION_ACTIVE)).fetchone()
         return self.connection(row[0]) if row else None
+
+    def _active_person_connections(self, reservation_person_id: str) -> list:
+        """Which accounts are currently connected to this source person.
+
+        Read-only, and it answers "none" as an empty list rather than an error: a
+        roster with nobody approved against it is a state the owner is told about,
+        not a failure.
+        """
+        rows = self.conn.execute(
+            "SELECT user_id, connection_id FROM access_connections"
+            " WHERE reservation_person_id=? AND status=?",
+            (reservation_person_id, CONNECTION_ACTIVE)).fetchall()
+        return [{"user_id": row[0], "connection_id": row[1]} for row in rows]
 
     def _active_connection(self, user_id: str):
         row = self.conn.execute(

@@ -1,0 +1,197 @@
+"""모바일 화면에서 업로드·답변·미리보기·기록을 실제 HTTP로 검증한다."""
+import os
+import tempfile
+import threading
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from playwright.sync_api import sync_playwright
+from webapp import ledger_board
+from webapp.tests.test_card_flow import CARD
+
+
+class CardFlowBrowserTests(unittest.TestCase):
+    def test_home_shows_saved_work_and_card_names_without_uploading_or_booking(self):
+        from app import Pipeline
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite', with_worker=False, seed_demo=False)
+            pipe = Pipeline(server.card_store.conn)
+            batch = pipe.receive(CARD, 'H.xlsx')['batch_id']
+            original = pipe.get_batch(batch)['summary']['content_sha256']
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            errors = []
+            try:
+                with sync_playwright() as api:
+                    browser = api.chromium.launch(headless=True)
+                    page = browser.new_page(viewport={'width':390,'height':844})
+                    page.on('pageerror', lambda e:errors.append(str(e)))
+                    response = page.goto(f'http://127.0.0.1:{server.server_address[1]}/')
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(page.url.endswith('/'))
+                    self.assertTrue(page.get_by_role('heading', name='장부 현황', exact=False).is_visible())
+                    self.assertEqual(page.locator('input[type=file]').count(), 0)
+                    self.assertNotIn('H.xlsx', page.locator('body').inner_text())
+                    self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
+                    page.get_by_role('link', name='카드 분류 결과 확인', exact=True).click()
+                    page.locator('[data-batch]').wait_for()
+                    self.assertIn('국민카드 사용내역', page.locator('[data-batch]').inner_text())
+                    self.assertNotIn('H.xlsx', page.locator('[data-batch]').inner_text())
+                    self.assertFalse(page.locator('#newupload').evaluate('(el) => el.open'))
+                    page.locator('#summary').get_by_role('heading', name='국민카드 사용내역').wait_for()
+                    self.assertNotIn('H.xlsx', page.locator('#summary').inner_text())
+                    page.locator('#summary summary').click()
+                    self.assertIn('H.xlsx', page.locator('#summary').inner_text())
+                    self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
+                    self.assertEqual(pipe.get_batch(batch)['summary']['content_sha256'], original)
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
+                    self.assertEqual(errors, [])
+                    page.locator('nav').get_by_role('link', name='장부', exact=True).click()
+                    self.assertIn('/board', page.url)
+                    self.assertNotIn('/import', page.url)
+                    browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close(); thread.join(timeout=3); ledger_board.bind_store(None)
+
+    def test_low_confidence_assignment_is_editable_and_does_not_require_approval_to_preview(self):
+        from app import Pipeline
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+            ledger_board.bind_access(None)
+            server=ledger_board.serve(port=0,db_path=Path(directory)/'board.sqlite',with_worker=False,seed_demo=False)
+            pipe=Pipeline(server.card_store.conn)
+            batch=pipe.receive(CARD,'synthetic-inference.csv')['batch_id']
+            row=pipe.get_batch(batch)['rows'][0]
+            pipe.save_rule({'conditions':{'merchant_normalized':row['merchant']},
+                            'optional':{'source_hash':row['source_hash'],'inferred_assignment':{
+                                'trip_id':'','confidence':'낮음','basis':'상품 설명을 참고한 공통 경비 추론'}},
+                            'effects':{'item':'소모품비'},'origin':'owner-authorized-inference-20261003'})
+            pipe.classify_batch(batch)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            errors=[]
+            try:
+                with sync_playwright() as api:
+                    browser=api.chromium.launch(headless=True)
+                    page=browser.new_page(viewport={'width':390,'height':844})
+                    page.on('pageerror',lambda e:errors.append(str(e)))
+                    page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                    page.get_by_text('확인 권장 · 추론으로 배정했습니다.',exact=False).wait_for()
+                    self.assertTrue(page.get_by_role('button',name='미리본 1건을 장부에 기록').is_enabled())
+                    self.assertEqual(page.locator('#preview').get_by_text('추론 배정',exact=True).count(),1)
+                    page.locator('#preview summary').click()
+                    self.assertIn('공통 경비 추론',page.locator('#preview details').inner_text())
+                    page.locator('form[data-index] input[name=item]').fill('사무용품비')
+                    page.get_by_role('button',name='답변 저장하고 다시 분류').click()
+                    page.wait_for_function("document.querySelector('#preview').innerText.includes('사무용품비')")
+                    pipe.classify_batch(batch)
+                    actual=pipe.get_batch(batch)['rows'][0]
+                    self.assertTrue(actual['user_confirmed'])
+                    self.assertEqual(actual['item'],'사무용품비')
+                    self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+                    self.assertEqual(errors,[])
+                    browser.close()
+            finally:
+                server.shutdown();server.server_close();server.card_store.close();thread.join(timeout=3);ledger_board.bind_store(None)
+
+    def test_existing_batch_pages_and_scoped_rule_edit(self):
+        from app import Pipeline
+        from tests.card_pipeline.fixtures import make_csv,domestic_row
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+            ledger_board.bind_access(None)
+            server=ledger_board.serve(port=0,db_path=Path(directory)/'board.sqlite',with_worker=False,seed_demo=False)
+            pipe=Pipeline(server.card_store.conn)
+            rows=[domestic_row(merchant='합성 질문 '+str(n),amount=100+n,approval='Q'+str(n)) for n in range(25)]
+            rows.append(domestic_row(merchant='합성 자동분류',amount=200,approval='AUTO'))
+            batch=pipe.receive(make_csv(rows),'synthetic-existing.csv')['batch_id']
+            auto=next(r for r in pipe.get_batch(batch)['rows'] if r['merchant']=='합성 자동분류')
+            pipe.save_rule({'rule_id':'synthetic-scope','conditions':{'merchant_normalized':'합성 자동분류'},
+                            'optional':{'source_hash':auto['source_hash'],'amount_range':{'min':200,'max':200}},
+                            'effects':{'item':'소모품'}})
+            pipe.classify_batch(batch)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            errors=[]
+            try:
+                with sync_playwright() as browser_api:
+                    browser=browser_api.chromium.launch(headless=True)
+                    page=browser.new_page(viewport={'width':390,'height':844})
+                    page.on('pageerror',lambda e:errors.append(str(e)))
+                    page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                    page.get_by_role('button',name='다음 20건').wait_for()
+                    self.assertEqual(page.locator('form[data-index]').count(),20)
+                    page.get_by_role('button',name='다음 20건').click()
+                    self.assertEqual(page.locator('form[data-index]').count(),5)
+                    page.locator('[data-edit]').click()
+                    page.get_by_role('heading',name='수정 · 합성 자동분류').wait_for()
+                    self.assertEqual(page.locator('form[data-index]').first.locator('input[name=item]').input_value(),'소모품')
+                    page.locator('#rules summary').click()
+                    page.locator('#rulefilter').fill('자동분류')
+                    page.locator('[data-rule]').click()
+                    page.locator('#ruleform input[name=rule_item]').fill('사무용품')
+                    page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
+                    page.get_by_text('규칙을 저장하고 분류에 적용했습니다.',exact=False).wait_for()
+                    rule=pipe.list_rules()[0]
+                    self.assertEqual(rule['optional'],{'source_hash':auto['source_hash'],'amount_range':{'min':200,'max':200}})
+                    self.assertEqual(rule['effects']['item'],'사무용품')
+                    self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+                    self.assertEqual(errors,[])
+                    browser.close()
+            finally:
+                server.shutdown();server.server_close();server.card_store.close();thread.join(timeout=3);ledger_board.bind_store(None)
+
+    def test_mobile_full_flow_and_reupload(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0,db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False,seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever,daemon=True)
+            thread.start()
+            errors=[]
+            try:
+                with sync_playwright() as browser_api:
+                    browser = browser_api.chromium.launch(headless=True)
+                    page = browser.new_page(viewport={'width':390,'height':844})
+                    page.on('pageerror',lambda e:errors.append(str(e)))
+                    page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                    page.locator('#file').set_input_files({'name':'synthetic.csv','mimeType':'text/csv','buffer':CARD})
+                    page.get_by_role('button',name='업로드하고 분류').click()
+                    page.get_by_role('heading',name='합성상점').wait_for()
+                    self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
+                    page.locator('input[name=item]').fill('소모품')
+                    page.locator('textarea[name=note]').fill('사무실 소모품입니다')
+                    page.locator('input[name=reuse_rule]').check()
+                    page.get_by_role('button',name='답변 저장하고 다시 분류').click()
+                    page.get_by_role('button',name='미리본 1건을 장부에 기록').wait_for()
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+                    screenshot=Path('C:/AX/cost/.local-archive/lightweight-20261003/card-flow-mobile.png')
+                    page.screenshot(path=str(screenshot),full_page=True)
+                    page.get_by_role('button',name='미리본 1건을 장부에 기록').click()
+                    page.get_by_text('장부 기록 결과를 저장했습니다.',exact=False).wait_for()
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
+                    self.assertEqual(len(server.card_store.list_tab_rows(None)),1)
+                    page.locator('#rules summary').click()
+                    page.locator('#ruleform input[name=merchant]').fill('합성상점')
+                    page.locator('#ruleform input[name=rule_item]').fill('사무용품')
+                    page.get_by_role('button',name='규칙 저장하고 다시 분류').click()
+                    page.get_by_text('규칙을 저장하고 분류에 적용했습니다.',exact=False).wait_for()
+                    self.assertEqual(server.card_store.list_tab_rows(None)[0]['item'],'소모품')
+                    page.get_by_role('button',name='업로드하고 분류').click()
+                    page.get_by_text('분류가 끝났습니다.',exact=True).wait_for()
+                    self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)
+                    self.assertEqual(errors,[])
+                    browser.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                server.card_store.close()
+                thread.join(timeout=3)
+                ledger_board.bind_store(None)
+
+
+if __name__=='__main__':
+    unittest.main()

@@ -1,4 +1,4 @@
-"""Phase 5 selected-tab xlsx export (synthetic working DB only).
+"""Phase 5 selected-tab xlsx export.
 
 Layout follows the documented 매출자료 양식_rev positions
 (IMPLEMENTATION_CONTRACT section 8, REVIEW section 4): company B2,
@@ -6,8 +6,18 @@ title C2:H2 (merged), prepared date D4(label) E4(value), assignee
 G4(label) H4(value); income headers B7:H7, 23 income slots B8:H30,
 C31 SUM(H8:H30), expense headers B34:H34, 50 expense slots B35:H84,
 C85 SUM(H35:H84), C87 C31-C85. The real template file is not read;
-the layout contract is the source. Company/title/meta values are
-synthetic examples and reported as such, never copied from a template.
+the layout contract is the source; no template file is read.
+
+B2 carries the company name the owner saved under the owner profile, and
+is empty when none has been saved. Title, prepared date and assignee are the
+stored trip's own values. Nothing here is a placeholder, and nothing is
+guessed from a template, an email or a model.
+
+A trip whose assignee has a value but no recorded origin refuses the whole
+export with ASSIGNEE_UNCONFIRMED, before any sheet exists. Printing such a
+value would put a name on a document that nobody claimed, and writing a
+marker instead would put a status word on the exported sheet, which the
+output rules forbid.
 
 One file, one sheet per selected tab in the chosen order. Sheet names
 come from stored display names with Excel limits and stable numeric
@@ -25,6 +35,7 @@ never in the workbook.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -134,7 +145,12 @@ PREPARED_LABEL_CELL = "D4"
 PREPARED_VALUE_CELL = "E4"
 ASSIGNEE_LABEL_CELL = "G4"
 ASSIGNEE_VALUE_CELL = "H4"
-COMPANY_TEXT = "회사명(합성 예시)"
+COMPANY_CELL = "B2"
+
+#: Written to B2 when the owner has not set a company name. An empty cell, not a
+#: placeholder: a blank says "not entered", while any text here would be printed
+#: on an exported document as though it were the company's name.
+COMPANY_TEXT = ""
 
 COLUMN_WIDTHS = {
     1: 2.63,  # A
@@ -205,6 +221,161 @@ def input_snapshot_hash(snapshot: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+#: Refused export, when a selected trip carries an assignee whose origin nobody
+#: recorded. Not a warning and not a partial file: the request is refused whole,
+#: so no sheet is produced carrying a name nobody claimed. Writing a status word
+#: into the form instead would cross the existing rule that the output carries no
+#: status markers, and the owner would receive a document with text on it.
+UNCONFIRMED_ASSIGNEE_CODE = "ASSIGNEE_UNCONFIRMED"
+
+
+class UnconfirmedAssigneeError(Exception):
+    """A selected trip has an assignee whose origin was never recorded."""
+
+    def __init__(self, tab_ids):
+        self.code = UNCONFIRMED_ASSIGNEE_CODE
+        self.tab_ids = list(tab_ids)
+        self.status = 409
+        super().__init__(UNCONFIRMED_ASSIGNEE_CODE)
+
+    def as_payload(self) -> dict:
+        return {"code": self.code,
+                "tab_ids": list(self.tab_ids),
+                "message": "담당자 출처가 확인되지 않은 여행이 있어 출력을 진행하지 않아요."}
+
+
+#: Provenance values that already answer "where did this assignee come from".
+#: `''` is absent from this set on purpose: an empty source is the unconfirmed
+#: case, and it is decided by provenance rather than by comparing the text, so a
+#: person who genuinely typed the old placeholder string is not caught by it.
+CONFIRMED_ASSIGNEE_SOURCES = frozenset({"owner_profile", "manual", "seed"})
+
+
+def _assignee_confirmed(conn, tab_id: str, source: str, assignee: str = "") -> bool:
+    """Whether this trip's assignee was recorded by somebody.
+
+    A recorded provenance answers it. When the column is empty the trip predates
+    it, so the trip's own history is asked instead.
+
+    The history question is deliberately narrow, because every metadata save
+    writes a full `new_json` — including one that only renamed the trip. Reading
+    "the snapshot mentions an assignee" as confirmation would let an unrelated
+    title edit silently promote an unconfirmed name into a confirmed one. So the
+    evidence has to be one of exactly two things:
+
+    * a saved `assignee_source` of `manual` — the owner typed it;
+    * the assignee actually *changed* between the previous and the new snapshot,
+      which only a save that presented the field can produce; or
+    * an earlier successful request for this tab whose recorded changes named
+      `prepared_by_name` and whose value is the value the trip still holds.
+
+    That last one is what a confirmation looks like when it saves the same text
+    it is confirming: the save is a no-op on the row, so it changes nothing and
+    appears in history only as another identical snapshot. The *request* ledger
+    is where the owner's act is recorded, and it must require all three of an
+    explicit `prepared_by_name`, a match with the value on the trip, and a row
+    that exists at all — a request whose changes held only a display name is not
+    evidence and is not counted as any.
+
+    An owner who confirms by re-saving the same text therefore gets through.
+    """
+    if (source or "") in CONFIRMED_ASSIGNEE_SOURCES:
+        return True
+    # A blank assignee has no name to claim, so there is nothing to refuse. Only
+    # a *value* whose origin is unknown is a problem; refusing an empty cell
+    # would block every export of a trip the owner has not yet named, which is
+    # the normal state of a newly created trip.
+    if not str(assignee or "").strip():
+        return True
+    if conn is None:
+        return False
+    current_value = str(assignee or "").strip()
+    try:
+        rows = conn.execute(
+            "SELECT prev_json, new_json FROM trip_tab_history WHERE tab_id=?"
+            " ORDER BY revision", (tab_id,)).fetchall()
+    except Exception:
+        rows = []
+    for prev_blob, new_blob in rows:
+        new_saved = _history_json(new_blob)
+        if not isinstance(new_saved, dict):
+            continue
+        if str(new_saved.get("assignee_source") or "") in CONFIRMED_ASSIGNEE_SOURCES:
+            return True
+        prev_saved = _history_json(prev_blob)
+        if not isinstance(prev_saved, dict):
+            continue
+        if (str(prev_saved.get("prepared_by_name") or "").strip()
+                != str(new_saved.get("prepared_by_name") or "").strip()):
+            return True
+    # The request ledger, for a confirmation that saved the value it confirmed.
+    try:
+        requests = conn.execute(
+            "SELECT result_json FROM trip_tab_requests WHERE tab_id=?"
+            " ORDER BY rowid", (tab_id,)).fetchall()
+    except Exception:
+        return False
+    for (blob,) in requests:
+        stored = _history_json(blob)
+        if not isinstance(stored, dict):
+            continue
+        changes = stored.get("changes")
+        if not isinstance(changes, dict) or "prepared_by_name" not in changes:
+            continue
+        if str(changes.get("prepared_by_name") or "").strip() == current_value:
+            return True
+    return False
+
+
+def assignee_needs_confirmation(store, tab_ids=None) -> list:
+    """Trips whose assignee has a value nobody recorded, as tab ids.
+
+    The selection screen asks this so it can say something before the request is
+    made, and the export itself asks the same question when the request arrives.
+    Both call `_assignee_confirmed` — deliberately one function behind a public
+    name rather than a second copy of the rule. A copy would drift, and the
+    failure mode of a drift here is quiet: the screen would stop warning about a
+    trip the export still refuses, which looks like the screen losing track
+    rather than the two disagreeing.
+
+    A blank assignee is never in this list: there is no name to have failed to
+    confirm. Confirmed origins, and rows whose confirmation the request ledger
+    already recorded, are never in it either.
+    """
+    conn = getattr(store, "conn", None)
+    if tab_ids is None:
+        reader = getattr(store, "get_trip", None)
+        if not callable(reader):
+            return []
+        try:
+            tab_ids = [row[0] for row in store.conn.execute(
+                "SELECT tab_id FROM trip_tabs ORDER BY sort_order, tab_id")]
+        except Exception:
+            return []
+    needs = []
+    for tab_id in tab_ids:
+        try:
+            trip = store.get_trip(tab_id) or {}
+        except Exception:
+            continue
+        if not _assignee_confirmed(conn, tab_id,
+                                   str(trip.get("assignee_source") or ""),
+                                   trip.get("prepared_by_name", "")):
+            needs.append(tab_id)
+    return needs
+
+
+def _history_json(blob):
+    if blob is None:
+        return None
+    if isinstance(blob, dict):
+        return blob
+    try:
+        return json.loads(blob)
+    except Exception:
+        return None
+
+
 def _trip_meta(store, tab_id: str) -> dict:
     trip = store.get_trip(tab_id) if hasattr(store, "get_trip") else None
     if trip is None:
@@ -251,6 +422,71 @@ def build_workbook(store, tab_ids: list, template_version: str = TEMPLATE_VERSIO
                 store.conn.execute("ROLLBACK")
 
 
+@contextlib.contextmanager
+def _read_snapshot(conn):
+    """One consistent read for a whole export, when the store has a connection.
+
+    A store without one (a test double, or a caller that passes rows in) simply
+    gets no transaction rather than an error, because refusing to export there
+    would be a new failure this function is not supposed to introduce.
+    """
+    if conn is None:
+        yield conn
+        return
+    began = False
+    try:
+        conn.execute("BEGIN")
+        began = True
+    except Exception:
+        # Already inside a transaction the caller owns. Read inside it as-is
+        # rather than committing somebody else's work.
+        began = False
+    try:
+        yield conn
+    finally:
+        if began:
+            try:
+                conn.execute("COMMIT")
+            except Exception:
+                pass
+
+
+def _assignee_source(store, tab_id: str) -> str:
+    try:
+        trip = store.get_trip(tab_id)
+    except Exception:
+        return ""
+    if not trip:
+        return ""
+    return str(trip.get("assignee_source") or "")
+
+
+def _owner_company_name(conn) -> str:
+    """The company name the owner entered, or "" when none has been entered.
+
+    Takes the connection rather than the store so it can be read inside the same
+    read transaction as everything else in one export. A company name read
+    before a transaction and a trip read inside it could come from different
+    points in time, and the file would then disagree with its own manifest.
+    """
+    try:
+        row = conn.execute(
+            "SELECT company_name FROM owner_profile WHERE profile_id='owner'"
+        ).fetchone()
+    except Exception:
+        return ""
+    if not row:
+        return ""
+    return str(row[0] or "").strip()
+
+
+#: Written where an assignee value exists but nobody ever recorded where it came
+#: from. The alternative — printing the stored value — would put a name on an
+#: exported document that nobody claimed, which is the same claim the empty
+#: assignee used to make.
+UNCONFIRMED_ASSIGNEE_TEXT = "확인 필요"
+
+
 def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPLATE_VERSION):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment
@@ -261,13 +497,31 @@ def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPL
     used: set = set()
     manifest_tabs = []
     snapshot_tabs = []
-    for tab_id in tab_ids:
-        trip = _trip_meta(store, tab_id)
-        incomes, expenses = _export_rows(store, tab_id)
-        corrections = []
-        for row in incomes:
-            if row.get("source_kind") == "은행" and hasattr(store, "list_corrections"):
-                corrections.extend(store.list_corrections(row["row_id"]))
+    # One read transaction for the whole export: the company name, every trip,
+    # every row, and therefore the manifest and the input hash all come from the
+    # same point in time. Read outside one, a profile saved mid-export would put
+    # a new company name beside rows from the older state, and the file would
+    # disagree with its own hash and manifest.
+    conn = getattr(store, "conn", None)
+    with _read_snapshot(conn):
+        company_name = _owner_company_name(conn)
+        unconfirmed = [tab_id for tab_id in tab_ids
+                       if not _assignee_confirmed(conn, tab_id,
+                                               _assignee_source(store, tab_id),
+                                               _trip_meta(store, tab_id).get("prepared_by_name", ""))]
+        if unconfirmed:
+            # Refused whole, before any sheet exists. Nothing partial is produced.
+            raise UnconfirmedAssigneeError(unconfirmed)
+        read = []
+        for tab_id in tab_ids:
+            trip = _trip_meta(store, tab_id)
+            incomes, expenses = _export_rows(store, tab_id)
+            corrections = []
+            for row in incomes:
+                if row.get("source_kind") == "은행" and hasattr(store, "list_corrections"):
+                    corrections.extend(store.list_corrections(row["row_id"]))
+            read.append((tab_id, trip, incomes, expenses, corrections))
+    for tab_id, trip, incomes, expenses, corrections in read:
         allocs = [dict(r) for r in incomes if r.get("is_allocation")]
         snapshot_tabs.append({
             "tab_id": tab_id, "trip": trip, "incomes": incomes,
@@ -288,7 +542,11 @@ def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPL
         ws.page_setup.orientation = "landscape"
         ws.page_margins = PageMargins(left=0.7, right=0.7, top=0.75, bottom=0.75, header=0, footer=0)
         
-        ws["B2"] = COMPANY_TEXT
+        # The owner-entered company name, through the same guard as every
+        # other free string. Empty when nothing has been entered: a blank cell
+        # says "not entered", while any text here would be printed as the
+        # company's name on a document.
+        ws["B2"] = guard_text(company_name)
         ws["B2"].alignment = center
         ws.merge_cells(TITLE_MERGE)
         # The title, the date and the owner name are free operator text. They
@@ -374,14 +632,20 @@ def _build_workbook_snapshot(store, tab_ids: list, template_version: str = TEMPL
             "income_rows": len(incomes), "expense_rows": len(expenses),
             "prepared_on": trip.get("prepared_on", ""),
             "prepared_by_name": trip.get("prepared_by_name", ""),
+            "assignee_source": trip.get("assignee_source", "") or "",
+            "company_name": company_name,
         })
     manifest = {
         "template_version": template_version,
+        "company_name": company_name,
         "tab_order": list(tab_ids),
         "tabs": manifest_tabs,
         "input_snapshot_sha256": input_snapshot_hash(
+            # The company name is part of the input, not decoration around it:
+            # it is printed on every sheet, so an export whose hash ignored it
+            # could call two different documents the same input.
             {"tabs": list(tab_ids), "trip_sheets": snapshot_tabs,
-             "template_version": template_version}),
+             "template_version": template_version, "company_name": company_name}),
         "created_at": _utc_now(),
     }
     return wb, manifest

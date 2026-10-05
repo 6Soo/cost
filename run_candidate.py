@@ -93,7 +93,7 @@ def describe_oidc(flow) -> str:
     if not state.get("google_oidc_connected"):
         if state.get("library_available") is False and flow is not None:
             return f"설정됨, 하지만 google-auth 가 없어 로그인 거절 ({state.get('reason')})"
-        return f"연결 안 됨 — {state.get('reason')}"
+        return f"연결 안 됨 - {state.get('reason')}"
     owner = ("owner sub 설정됨" if state.get("owner_bootstrap_configured")
              else "owner sub 미설정 (첫 로그인은 viewer)")
     return (f"연결됨 (account key = {state.get('account_key')}, "
@@ -262,6 +262,7 @@ def main(argv=None) -> int:
 
     from webapp import ledger_board as board_mod
 
+    os.environ['WEBLEDGER_DB'] = str(config.db_path)
     server = board_mod.serve(port=port, db_path=config.db_path,
                              with_worker=not args.no_worker, host=args.host,
                              # SPEC_REFINEMENT 18.3 5항: an operational start
@@ -275,8 +276,13 @@ def main(argv=None) -> int:
         server.server_close()
         print(f"refused [{exc.code}]: {exc.message}", file=sys.stderr)
         return 2
+    reserve_stop = None
+    if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1':
+        from app.reserve_trips import start_sync
+        reserve_stop = start_sync(server.card_store, os.environ['WEBLEDGER_TRIP_AUTHORITY'],
+            config.db_path.parent / 'evidence')
     print(f"serving fixed candidate on http://{args.host}:{port}")
-    print(f"bind shape: {bind['shape']} — {bind['note']}")
+    print(f"bind shape: {bind['shape']} - {bind['note']}")
     print(f"data root: {config.data_root}")
     print(f"db: {config.db_path}")
     print(f"readiness: {smoke}")
@@ -296,6 +302,8 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if reserve_stop is not None:
+            reserve_stop.set()
         worker = getattr(server, "card_worker", None)
         if worker is not None:
             worker.stop(timeout=5)

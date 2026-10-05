@@ -81,6 +81,30 @@ class DesignScreenTests(unittest.TestCase):
         page.goto(f"http://127.0.0.1:{self.port}/board{query}")
         page.wait_for_load_state()
 
+    def _wait_for_reload(self, page, tab):
+        """Wait for the reload the move does on its own to have finished.
+
+        A successful move writes its status line and then navigates to the same
+        `unclassified` board with the message in the query string, so the screen
+        ends up saying the same thing twice. Waiting on the status text alone can be
+        satisfied by the document that is on screen *before* that navigation, and the
+        next `goto` then races a navigation the browser has already started: two
+        navigations at once, and the later one can time out waiting for a load event
+        that the earlier one cancelled.
+
+        So the wait is on the arrival, not on the text: the query string carrying the
+        message is the one thing only the reloaded document can have, and the load
+        state is read after it rather than instead of it. Nothing here widens a
+        timeout or relaxes what is checked, it only stops the test reading the
+        previous document's status as if the page had settled.
+        """
+        page.wait_for_url(
+            lambda url: "tab=" + tab in url and "msg=" in url,
+            wait_until="load")
+        page.wait_for_function(
+            "document.getElementById('status')"
+            "&&document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
+
     def _api(self, path, payload=None, method="GET"):
         data = None
         headers = {}
@@ -138,8 +162,13 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("여행 목록", nav)
         self.assertIn("0408_예시여행A", nav)
         self.assertIn("분류대기", nav)
+        # The action bar is pinned exactly, because a button appearing here
+        # without a decision is how a rail grows by accident. The review button
+        # is absent because no review is configured in this environment; the
+        # reservation-linking button is present because it does not depend on
+        # one (RESERVE-NAVIGATION-001).
         self.assertEqual(page.inner_text(".act").replace("\n", " "),
-                         "카드 가져오기 XLSX 출력")
+                         "예약 행사 연결 카드 가져오기 XLSX 출력")
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
@@ -518,8 +547,9 @@ class DesignScreenTests(unittest.TestCase):
             self.store, "_unclassified_rows") else 1, 1)
         page.select_option("#move-expense-demo-c3", "trip-demo-b")
         page.click("form[data-js-move] button[type='submit']")
-        page.wait_for_function(
-            "document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
+        # the move reloads the bucket it came from; wait for that to land before
+        # reading the store or going anywhere else
+        self._wait_for_reload(page, "unclassified")
         row = self.store.get_row("expense-demo-c3")
         self.assertEqual(row["display_tab_id"], "trip-demo-b")
         self.assertEqual(row["revision"], 2)
@@ -534,8 +564,10 @@ class DesignScreenTests(unittest.TestCase):
         page.select_option(".lst form[data-js-move] select[name='display_tab_id']",
                            "trip-demo-a")
         page.click(".lst form[data-js-move] button[type='submit']")
-        page.wait_for_function(
-            "document.getElementById('status').textContent.indexOf('옮겼습니다')>=0")
+        # same reload as the desktop form: this one is a control-width and overflow
+        # test, so it does not navigate afterwards, but the status it can read is
+        # the one on the reloaded document rather than the one about to be discarded
+        self._wait_for_reload(page, "unclassified")
         self.assertEqual(self.store.get_row("expense-demo-c3")["display_tab_id"],
                          "trip-demo-a")
 

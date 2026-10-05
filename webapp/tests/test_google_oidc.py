@@ -17,6 +17,8 @@ import urllib.error
 import urllib.request
 from http.server import HTTPServer
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 from webapp import access_control
 from webapp import google_oidc
@@ -658,6 +660,23 @@ class RouteTests(unittest.TestCase):
         self.assertIn("accounts.google.com", location)
         self.assertIn("state=", location)
         self.assertIn("nonce=", location)
+
+    def test_card_flow_login_uses_home_and_preserves_an_explicit_board_target(self):
+        flow = make_flow(self.store, claims=good_claims())
+        ledger_board.bind_oidc(flow)
+        with patch.dict(os.environ, {"WEBLEDGER_CARD_FLOW": "1"}):
+            for path, target in (("/auth/login", "/"),
+                                 ("/auth/login?return_to=%2Fboard", "/board")):
+                with self.subTest(path=path):
+                    status, headers, _ = self._get(path)
+                    self.assertEqual(status, 303)
+                    params = parse_qs(urlparse(headers["Location"]).query)
+                    flow.verifier.default_claims = good_claims(nonce=params["nonce"][0])
+                    status, headers, _ = self._get(
+                        f"/auth/callback?code=auth-code&state={params['state'][0]}")
+                    self.assertEqual(status, 303)
+                    self.assertEqual(headers["Location"], target)
+                    self.assertIn(google_oidc.COOKIE_NAME, headers["Set-Cookie"])
 
     def test_login_answers_503_when_nothing_is_configured(self):
         status, _, body = self._get("/auth/login")
