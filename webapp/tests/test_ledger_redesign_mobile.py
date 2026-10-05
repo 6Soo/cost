@@ -144,6 +144,80 @@ class LedgerRedesignMobileTests(unittest.TestCase):
         self.assertTrue(page.is_visible(".nav.open"))
         page.click("#nav-mask")
 
+    def test_mobile_expense_new_link_visible_and_clickable(self):
+        # 4폭 + 경계 759: .tw 숨김/.lst 표시에서 지출 헤더 링크를 실제 클릭한다.
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch()
+        try:
+            for width, height in [(375, 844), (390, 844), (391, 844),
+                                  (430, 900), (759, 844)]:
+                with self.subTest(width=width, height=height):
+                    ctx = browser.new_context(
+                        viewport={"width": width, "height": height})
+                    page = ctx.new_page()
+                    page.on("dialog", lambda d: d.accept()
+                            if d.type == "beforeunload" else None)
+                    page.goto(f"http://127.0.0.1:{self.port}"
+                              "/board?tab=trip-demo-a")
+                    page.wait_for_load_state()
+                    page.evaluate("document.fonts.ready.then(()=>0)")
+                    self.assertFalse(page.is_visible(".tw"),
+                                     f"{width}px에서 .tw는 숨김")
+                    self.assertTrue(page.is_visible(".lst"),
+                                    f"{width}px에서 .lst는 표시")
+                    link = page.locator(
+                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                    self.assertEqual(link.count(), 1, f"{width}px 링크 1개")
+                    self.assertTrue(link.is_visible(), f"{width}px 링크 visible")
+                    self.assertIn("수기 지출 추가", link.inner_text())
+                    self.assertIn("btn", link.get_attribute("class"))
+                    link.click()
+                    page.wait_for_load_state()
+                    self.assertIn("/expense/new", page.url, f"{width}px 진입")
+                    self.assertIn("수기 지출 추가", page.content())
+                    ctx.close()
+        finally:
+            browser.close()
+            pw.stop()
+
+    def test_mobile_expense_new_link_with_empty_expenses(self):
+        # 빈 지출 목록(kind=in)에서도 같은 링크로 /expense/new 진입한다.
+        html = ledger_design._mobile_html(
+            board_mod._income_rows(), [],
+            selected="", unclassified=False)
+        self.assertIn("id='add-manual-expense-mobile'", html)
+        self.assertIn("href='/expense/new'", html)
+        self.assertIn("지출 내역이 없어요", html)
+        from playwright.sync_api import sync_playwright
+        pw = sync_playwright().start()
+        browser = pw.chromium.launch()
+        try:
+            for query in ["?tab=trip-demo-a&kind=in",
+                          "?tab=trip-demo-a&q=없는검색어000"]:
+                with self.subTest(query=query):
+                    ctx = browser.new_context(
+                        viewport={"width": 390, "height": 844})
+                    page = ctx.new_page()
+                    page.on("dialog", lambda d: d.accept()
+                            if d.type == "beforeunload" else None)
+                    page.goto(f"http://127.0.0.1:{self.port}/board{query}")
+                    page.wait_for_load_state()
+                    page.evaluate("document.fonts.ready.then(()=>0)")
+                    self.assertTrue(page.is_visible(".lst"))
+                    link = page.locator(
+                        ".lst #add-manual-expense-mobile[href='/expense/new']")
+                    self.assertEqual(link.count(), 1)
+                    self.assertTrue(link.is_visible())
+                    link.click()
+                    page.wait_for_load_state()
+                    self.assertIn("/expense/new", page.url)
+                    self.assertIn("수기 지출 추가", page.content())
+                    ctx.close()
+        finally:
+            browser.close()
+            pw.stop()
+
 
 
 if __name__ == "__main__":

@@ -185,6 +185,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  font-size:12.5px;padding:0 4px}
 .lst{display:none}
 
+#panel-slot{display:flex;min-height:0}
 .panel{width:400px;flex:0 0 400px;background:var(--paper);border-left:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0}
 .panel:focus{outline:none}
@@ -644,6 +645,7 @@ else{
     say(slot,(body.code||'ERROR')+': '+(body.message||'저장하지 못했어요'),true);
     flagField(form,body,slot);
    }).catch(function(){
+    form.removeAttribute('data-saving');
     say(slot,'요청을 보내지 못했어요. 연결을 확인해 주세요',true);
    }).then(function(){
     // A save that finished, succeeded or not, is the moment a deferred
@@ -1487,7 +1489,9 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         "<div class='lst'>"
         f"<p class='lg'><span>수입</span><span class='tnum'>{_money(income_total)}</span></p>"
         f"{''.join(item(r) for r in incomes) or '<p class=\"muted\" style=\"padding:12px 16px\">수입 내역이 없어요</p>'}"
-        f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span></p>"
+        f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
+        "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
+        "수기 지출 추가</a></p>"
         f"{''.join(item(r) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
 
