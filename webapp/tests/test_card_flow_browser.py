@@ -77,7 +77,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page=browser.new_page(viewport={'width':390,'height':844})
                     page.on('pageerror',lambda e:errors.append(str(e)))
                     page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
-                    page.get_by_text('확인 권장 · 추론으로 배정했습니다.',exact=False).wait_for()
+                    page.get_by_text('비용 항목 확인 권장',exact=True).wait_for()
                     self.assertTrue(page.get_by_role('button',name='미리본 1건을 장부에 기록').is_enabled())
                     self.assertEqual(page.locator('#preview').get_by_text('추론 배정',exact=True).count(),1)
                     page.locator('#preview summary').click()
@@ -92,6 +92,104 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
                     self.assertEqual(errors,[])
+                    browser.close()
+            finally:
+                server.shutdown();server.server_close();server.card_store.close();thread.join(timeout=3);ledger_board.bind_store(None)
+
+    def test_review_evidence_labels_render_distinct_reasons_without_generic_warning(self):
+        synthetic_state = {
+            'batch_id':'synthetic-evidence',
+            'summary':{
+                'display_name':'synthetic evidence', 'period_start':'2026-07-01',
+                'period_end':'2026-07-31', 'row_count':5, 'filename':'synthetic.csv',
+                'counts':{'classified':3, 'needs_review':2, 'confirmed':1},
+            },
+            'preview':{'digest':'synthetic-digest', 'rows':[]},
+            'trips':[{'id':'trip-jp', 'name':'일본', 'available':True}],
+            'rows':[
+                {
+                    'transaction_id':'booking-trip', 'revision':1, 'merchant':'AGODA',
+                    'approval_date':'2026-07-11', 'posting_date':'2026-07-11', 'amount_krw':1301996,
+                    'classification_state':'needs_review', 'classification_source':'inference',
+                    'classification_basis':'추론 배정 · 낮음 · 일정 근거', 'item':'숙박비',
+                    'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'description':'', 'note':'',
+                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'review_evidence_labels':['예약 근거 있음','여행 배정 확인 권장'],
+                },
+                {
+                    'transaction_id':'mail-unlinked', 'revision':1, 'merchant':'TRIP.COM',
+                    'approval_date':'2026-07-12', 'posting_date':'2026-07-12', 'amount_krw':64814,
+                    'classification_state':'needs_review', 'classification_source':'rule',
+                    'classification_basis':'예약 연결 확인 필요', 'item':'숙박비',
+                    'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
+                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'review_evidence_labels':['메일 있음 · 연결 확인 필요','분류 확인 권장'],
+                },
+                {
+                    'transaction_id':'cancel-refund', 'revision':1, 'merchant':'TRIP.COM',
+                    'approval_date':'2026-04-22', 'posting_date':'2026-04-22', 'amount_krw':-337406,
+                    'classification_state':'needs_review', 'classification_source':'rule',
+                    'classification_basis':'취소 정산 확인', 'item':'숙박비',
+                    'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
+                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'review_hold':{'kind':'refund_pending','reason':'카드 환불 원행 확인 필요'},
+                    'review_evidence_labels':['취소 메일 있음','환불 확인 필요'],
+                },
+                {
+                    'transaction_id':'no-link', 'revision':1, 'merchant':'AGODA',
+                    'approval_date':'2026-07-12', 'posting_date':'2026-07-12', 'amount_krw':273560,
+                    'classification_state':'needs_review', 'classification_source':'inference',
+                    'classification_basis':'추론 배정 · 낮음 · 예약 연결 없음', 'item':'',
+                    'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
+                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'review_evidence_labels':['메일 연결 없음','분류 확인 권장'],
+                },
+                {
+                    'transaction_id':'confirmed', 'revision':1, 'merchant':'AGODA',
+                    'approval_date':'2026-07-13', 'posting_date':'2026-07-13', 'amount_krw':100000,
+                    'classification_state':'confirmed', 'classification_source':'inference',
+                    'classification_basis':'사용자 확정', 'item':'숙박비',
+                    'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'description':'', 'note':'',
+                    'user_confirmed':1, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'review_evidence_labels':['예약 근거 있음'],
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+            ledger_board.bind_access(None)
+            server=ledger_board.serve(port=0,db_path=Path(directory)/'board.sqlite',with_worker=False,seed_demo=False)
+            thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+            try:
+                with sync_playwright() as api:
+                    browser=api.chromium.launch(headless=True)
+                    for width,height in ((390,844),(1440,900)):
+                        with self.subTest(width=width):
+                            page=browser.new_page(viewport={'width':width,'height':height})
+                            def route_api(route):
+                                path=route.request.url.split('?',1)[0]
+                                if path.endswith('/api/imports/rules'):
+                                    route.fulfill(status=200,content_type='application/json',body='{"rules":[]}')
+                                elif path.endswith('/api/imports/synthetic-evidence'):
+                                    import json
+                                    route.fulfill(status=200,content_type='application/json',body=json.dumps(synthetic_state,ensure_ascii=False))
+                                elif path.endswith('/api/imports'):
+                                    route.fulfill(status=200,content_type='application/json',body='{"batches":[{"batch_id":"synthetic-evidence","display_name":"synthetic evidence","period_start":"2026-07-01","period_end":"2026-07-31","rows":5,"questions":4}]}')
+                                else:
+                                    route.continue_()
+                            page.route('**/api/imports**', route_api)
+                            page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                            page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).first.wait_for()
+                            self.assertGreater(page.get_by_text('예약 근거 있음 · 여행 배정 확인 권장',exact=True).count(),0)
+                            self.assertGreater(page.get_by_text('메일 있음 · 연결 확인 필요 · 분류 확인 권장',exact=True).count(),0)
+                            page.locator('#holds summary').click()
+                            self.assertGreater(page.get_by_text('취소 메일 있음 · 환불 확인 필요',exact=True).count(),0)
+                            self.assertGreater(page.get_by_text('메일 연결 없음 · 분류 확인 권장',exact=True).count(),0)
+                            self.assertEqual(page.get_by_text('확인 권장',exact=True).count(),0)
+                            self.assertEqual(page.locator('#questions .review-item[open]').count(),1)
+                            self.assertLessEqual(page.locator('#questions .review-item').first.locator('summary').evaluate('el=>el.getBoundingClientRect().height'),96)
+                            self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),width)
+                            page.close()
                     browser.close()
             finally:
                 server.shutdown();server.server_close();server.card_store.close();thread.join(timeout=3);ledger_board.bind_store(None)

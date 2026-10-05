@@ -6,6 +6,72 @@ from pathlib import Path
 from urllib.parse import unquote
 
 
+_OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고다', 'BOOKING', '부킹닷컴')
+
+
+def _is_ota_row(row):
+    merchant = str(row.get('merchant') or row.get('merchant_normalized') or '').upper()
+    return any(marker.upper() in merchant for marker in _OTA_MARKERS)
+
+
+def _mail_evidence_from_report(report, source_hashes):
+    """이미 계산된 OTA 메일 대조 결과를 화면 표시용 사실로만 줄인다."""
+    wanted = set(source_hashes)
+    evidence = {}
+    for fact in report.get('matches', []):
+        source = fact.get('source_hash')
+        if source not in wanted:
+            continue
+        current = evidence.setdefault(source, {})
+        if fact.get('reservation_status') == 'cancelled':
+            current['cancellation_mail'] = True
+        else:
+            current['booking_match'] = True
+    exact = set(evidence)
+    for fact in report.get('type_only_candidates', []):
+        source = fact.get('source_hash')
+        if source in wanted and source not in exact:
+            evidence.setdefault(source, {})['mail_link_uncertain'] = True
+    linked = exact | {f.get('source_hash') for f in report.get('type_only_candidates', [])}
+    for fact in report.get('unmatched_transactions', []):
+        source = fact.get('source_hash')
+        if source in wanted and source not in linked:
+            evidence.setdefault(source, {})['mail_link_absent'] = True
+    return evidence
+
+
+def _review_evidence_labels(row, mail_evidence=None):
+    """영구 상태를 만들지 않고 기존 사실을 사람이 읽을 문구로 번역한다."""
+    evidence = mail_evidence or {}
+    labels = []
+    if evidence.get('cancellation_mail'):
+        labels.append('취소 메일 있음')
+    elif evidence.get('booking_match'):
+        labels.append('예약 근거 있음')
+    elif evidence.get('mail_link_uncertain'):
+        labels.append('메일 있음 · 연결 확인 필요')
+    elif evidence.get('mail_link_absent'):
+        labels.append('메일 연결 없음')
+
+    hold = row.get('review_hold') or {}
+    if hold.get('kind') == 'refund_pending':
+        labels.append('환불 확인 필요')
+
+    if not row.get('user_confirmed') and hold.get('kind') != 'refund_pending':
+        if row.get('classification_source') == 'inference':
+            target = row.get('trip_id') or row.get('display_tab_id') or ''
+            if target not in ('', 'unclassified'):
+                labels.append('여행 배정 확인 권장')
+            elif row.get('classification_state') == 'classified' and row.get('item'):
+                labels.append('비용 항목 확인 권장')
+            else:
+                labels.append('분류 확인 권장')
+        elif row.get('classification_state') == 'needs_review':
+            labels.append('분류 확인 권장')
+
+    return list(dict.fromkeys(labels))[:3]
+
+
 def enabled():
     return os.environ.get('WEBLEDGER_CARD_FLOW') == '1'
 
@@ -302,6 +368,40 @@ class CardFlow:
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','owner',entry['now'],row_id))
 
+    def review_mail_evidence(self, rows):
+        """OTA 근거를 읽기 전용으로 대조하고 같은 자료에는 메모리 캐시를 재사용한다."""
+        ota_rows = [row for row in rows if _is_ota_row(row) and row.get('source_hash')]
+        if not ota_rows:
+            return {}
+        mail_dir = Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
+        if not mail_dir.is_dir():
+            return {}
+        try:
+            collection = mail_dir/'collection.json'
+            mail_stamp = (mail_dir.stat().st_mtime_ns,
+                          collection.stat().st_mtime_ns if collection.is_file() else 0)
+            with self.board._lock:
+                db_stamp = self.board.conn.execute(
+                    'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM transactions').fetchone()
+            key = (str(mail_dir.resolve()), mail_stamp, tuple(db_stamp))
+            cache = getattr(self.board, '_card_review_mail_cache', None)
+            if cache and cache.get('key') == key:
+                all_evidence = cache['evidence']
+            else:
+                from app.ota_mail import match_mail
+                with self.board._lock:
+                    cursor = self.board.conn.execute('SELECT * FROM transactions')
+                    columns = [field[0] for field in cursor.description]
+                    transactions = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                report = match_mail(mail_dir, transactions)
+                all_evidence = _mail_evidence_from_report(
+                    report, (row.get('source_hash') for row in transactions))
+                self.board._card_review_mail_cache = {'key': key, 'evidence': all_evidence}
+            return {row['source_hash']: all_evidence[row['source_hash']]
+                    for row in ota_rows if row['source_hash'] in all_evidence}
+        except (OSError, ValueError, KeyError, TypeError):
+            return {}
+
     def state(self, batch_id):
         result = self.pipeline.get_batch(batch_id)
         review_from = os.environ.get('WEBLEDGER_REVIEW_FROM','')
@@ -329,6 +429,10 @@ class CardFlow:
         for row in result['rows']:
             if row['transaction_id'] in holds:
                 row['review_hold']=holds[row['transaction_id']]
+        mail_evidence = self.review_mail_evidence(result['rows'])
+        for row in result['rows']:
+            row['review_evidence_labels'] = _review_evidence_labels(
+                row, mail_evidence.get(row.get('source_hash')))
         return result
 
 
@@ -434,10 +538,10 @@ PAGE = '''<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewp
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2-variations"),url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:swap}
 *{box-sizing:border-box}body{margin:0;padding:16px;font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;background:#F7F8F7;color:#202521}main{max-width:900px;margin:auto;min-width:0}
 article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;padding:16px;margin:12px 0;min-width:0}input,select,textarea{font:inherit;max-width:100%;min-width:0;padding:0 8px;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF}input:not([type=checkbox]),select{height:34px}input:not([type=checkbox]),select,textarea{width:100%;margin:6px 0}textarea{height:auto;min-height:64px;padding:8px}button{font:inherit;max-width:100%;padding:0 12px;min-height:34px;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF;color:#202521;font-weight:600;cursor:pointer}button:disabled{opacity:.5}form[data-index] button,#commit,#upload,#ruleform button:not([type=button]){background:#1C7A52;border-color:#1C7A52;color:#fff}h1{font-size:20px}h2{font-size:16px}.small{font-size:13px;color:#657068}.amount{font-size:17px;font-weight:700}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}.hidden{display:none}table{width:100%;table-layout:fixed;border-collapse:collapse}h1,h2,button,p,span,td,th,summary{overflow-wrap:anywhere;word-break:keep-all;min-width:0}td button{padding:0 8px;min-height:34px}td,th{padding:7px 10px;text-align:left;border-bottom:1px solid #EEF1EE;overflow-wrap:anywhere}a{color:#166444}.pv-label{display:none}
-.review-item{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;margin:0 0 8px;min-width:0}.review-item summary{min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer}.review-item summary .ri-date{font-size:13px;color:#657068;font-weight:400;white-space:nowrap}.review-item summary h2{font-size:14px;font-weight:600;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.review-item summary .amount{font-size:14px;margin-left:auto;white-space:nowrap}.ri-flag{font-size:12px;font-weight:600;color:#8A5A12;white-space:nowrap}.ri-body{padding:4px 12px 12px;min-width:0}
+.review-item{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;margin:0 0 8px;min-width:0}.review-item summary{min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;font-size:14px;font-weight:600;cursor:pointer}.review-item summary .ri-date{font-size:13px;color:#657068;font-weight:400;white-space:nowrap}.review-item summary h2{font-size:14px;font-weight:600;margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.review-item summary .amount{font-size:14px;margin-left:auto;white-space:nowrap}.ri-flag{font-size:12px;font-weight:600;color:#8A5A12;max-width:100%;white-space:normal}.ri-body{padding:4px 12px 12px;min-width:0}
 #holds:empty{display:none}#batches{display:grid;gap:8px}#batches p{margin:0;min-width:0}.batch-choice{width:100%;min-height:48px;text-align:left;line-height:1.5;font-size:14px}.batch-choice span{font-size:13px;color:#657068}summary{cursor:pointer;padding:10px 0;min-height:44px;display:flex;align-items:center}details{min-width:0}nav{font-size:14px}
 .flow{margin:12px 0;font-size:13px;color:#657068;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF;padding:8px 12px}
-@media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid #E3E7E3;border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:#657068}.review-item summary{min-height:48px;font-size:14px}}
+@media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid #E3E7E3;border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:#657068}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
 </style><main><nav><a href="/">홈</a> · <a href="/board">장부</a> · <a href="/trips">여행 관리</a></nav><h1>카드 내역 검토</h1>
 <p class="flow">카드 자료 → 확인할 거래 → 미리보기 → 장부 기록</p>
 <section><h2>저장된 카드 자료</h2><p class="small">확인할 거래가 많은 자료부터 표시합니다. 자료를 선택하면 저장된 분류 결과를 이어서 볼 수 있습니다.</p><div id="batches"></div></section>
@@ -448,17 +552,18 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 const csrf=__CSRF__;let model,stamp='',page=0,editing='';const PAGE_SIZE=20;const el=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // 자동갱신이 입력 중인 내용을 덮지 않게 하는 조건. 폼에 focus가 있거나 규칙 편집 중이면 그대로 둔다.
 const busy=()=>!!document.activeElement?.closest('form')||el('rules').open;
-const stateStamp=j=>JSON.stringify([j.batch_id,j.preview.digest,j.rows.map(r=>[r.transaction_id,r.revision,r.classification_state,r.item,r.user_confirmed]),j.trips.map(t=>[t.id,t.available])]);
+const stateStamp=j=>JSON.stringify([j.batch_id,j.preview.digest,j.rows.map(r=>[r.transaction_id,r.revision,r.classification_state,r.item,r.user_confirmed,r.review_evidence_labels]),j.trips.map(t=>[t.id,t.available])]);
 const money=n=>n==null?'금액 확인 필요':Number(n).toLocaleString('ko-KR')+'원';
+const evidence=r=>(r.review_evidence_labels||[]).slice(0,3).join(' · ');
 // 질문과 자동분류 수정창이 함께 쓰는 답변 폼. 기존 저장 경로(form[data-index])를 그대로 쓴다.
 function answerForm(j,r){const hold=r.review_hold?'<p>'+esc(r.review_hold.reason)+'</p><label><input type="checkbox" name="resolve_hold"> 자료 확인을 마쳤으며 보류를 해제하고 이 금액을 기록합니다</label>':'';return '<form data-index="'+j.rows.indexOf(r)+'">'+hold+'<div class="grid"><label>비용 항목<input name="item" value="'+esc(r.item)+'" required></label><label>여행 또는 미배정<select name="display_tab_id"><option value="unclassified">여행 미배정</option>'+j.trips.filter(t=>t.available).map(t=>'<option value="'+esc(t.id)+'"'+(t.id===r.display_tab_id?' selected':'')+'>'+esc(t.name)+'</option>').join('')+'</select></label></div><label>내용<input name="description" value="'+esc(r.description)+'"></label><label>내 답변·수정 이유<textarea name="note" rows="2">'+esc(r.note||'')+'</textarea></label><p><label><input type="checkbox" name="reuse_rule"> 같은 가맹점·카드 종류·거래 구분에 이 비용 항목을 다시 적용</label></p><button '+(r.conflict_reason||r.parse_error?'disabled':'')+'>답변 저장하고 다시 분류</button></form>'}
 let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
 function render(j){if(model?.batch_id!==j.batch_id){page=0;editing=''}model=j;stamp=stateStamp(j);const counts=j.summary.counts;el('summary').className='';el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>이번 자료 '+j.summary.row_count+'건 · 자동분류 '+(counts.classified||0)+'건 · 확인 필요 '+(counts.needs_review||0)+'건 · 답변 확정 '+(counts.confirmed||0)+'건</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
-const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p><p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">확인 후 수정</button></article>').join('')+'</details>':'';
+const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>!r.review_hold&&(r.classification_state==='needs_review'||(r.classification_source==='inference'&&r.classification_basis.startsWith('추론 배정 · 낮음 ·')))&&!r.user_confirmed&&!r.duplicate_of);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
-el('questions').innerHTML=(ed?'<article><h2>수정 · '+esc(ed.merchant)+'</h2><p class="small">지금 확정된 항목과 여행을 고쳐 쓰면 됩니다.</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(r.classification_source==='inference'?'<span class="ri-flag">확인 권장</span>':'')+'</summary><div class="ri-body">'+(r.classification_source==='inference'?'<p class=small>확인 권장 · 추론으로 배정했습니다. 그대로 기록하거나 수정할 수 있습니다.</p>':'')+'<p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건</button></nav>':'');
+el('questions').innerHTML=(ed?'<article><h2>수정 · '+esc(ed.merchant)+'</h2><p class="small">지금 확정된 항목과 여행을 고쳐 쓰면 됩니다.</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(evidence(r)?'<span class="ri-flag">'+esc(evidence(r))+'</span>':'')+'</summary><div class="ri-body"><p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건</button></nav>':'');
 const p=j.preview,ready=p.rows.filter(r=>!r.blocked&&!r.already_booked);el('preview').className='';el('preview').innerHTML='<h2>장부 미리보기</h2><p>기록 가능 '+ready.length+'건 · 나머지는 보류됩니다. 잘못 분류된 항목은 수정해 고칠 수 있습니다.</p><table><thead><tr><th>가맹점</th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+ready.map(r=>'<tr><td><span class="pv-label">가맹점</span>'+esc(r.merchant)+'</td><td><span class="pv-label">항목</span>'+esc(r.item)+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source==='user_exception'?'사용자 예외':'추론 배정')+'</span>':'')+'</td><td><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc(j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 미배정')+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">수정</button></td></tr>').join('')+'</tbody></table><p><button id="commit" '+(!ready.length?'disabled':'')+'>미리본 '+ready.length+'건을 장부에 기록</button></p>';
 el('commit').onclick=async()=>{try{const x=await call('/api/imports/'+model.batch_id+'/commit',JSON.stringify({digest:model.preview.digest,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});render(x);el('status').textContent='장부 기록 결과를 저장했습니다. 장부 화면에서 확인할 수 있습니다.'}catch(e){el('status').textContent=e.message}};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f);try{const j=await call('/api/imports/'+model.batch_id+'/decision',JSON.stringify({transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold'),request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(editing===r.transaction_id)editing='';render(j);el('status').textContent='답변을 적용했습니다. 다시 분류한 결과를 확인해 주세요.'}catch(e){el('status').textContent=e.message}})
