@@ -193,35 +193,73 @@ def home_page(board):
                        and t['starts_on'] >= today()), key=lambda t:(t['starts_on'], t['display_key']))
     posted = len(ledger_board._expense_rows()) + len(ledger_board._income_rows())
     board_tab = upcoming[0]['tab_id'] if upcoming else ledger_board.default_board_tab()
-    items = ''.join(f"<li><a class='home-trip' href='/board?tab={esc(t['tab_id'])}'>"
-                    f"<strong>{esc(t['display_key'])}</strong><span>{esc(t['starts_on'])} ~ {esc(t['ends_on'])}</span></a></li>"
-                    for t in upcoming[:6])
+    def short_date(value):
+        parts = str(value).split('-')
+        return f"{parts[1]}.{parts[2]}" if len(parts) == 3 else str(value)
+
+    items = ''.join(
+        f"<li><a class='home-trip' href='/board?tab={esc(t['tab_id'])}'>"
+        f"<strong>{esc(t['display_key'])}</strong>"
+        f"<span class='home-date' title='{esc(t['starts_on'])} ~ {esc(t['ends_on'])}'>"
+        f"<span class='home-date-full'>{esc(t['starts_on'])} ~ {esc(t['ends_on'])}</span>"
+        f"<span class='home-date-short' aria-hidden='true'>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</span>"
+        "</span></a></li>"
+        for t in upcoming[:6])
     state = sync_status(board)
     next_run = state.get('next_run_at')
     next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
                  if next_run else '')
-    body = ("<style>.home-sum{font-size:13px;color:var(--mut);margin:0 0 12px}"
-            ".home-sum b{color:var(--ink);font-weight:700}"
-            ".home-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}"
-            ".home-trips{list-style:none;margin:0 0 12px;padding:0;border-top:1px solid var(--line)}"
-            ".home-trips li{margin:0}"
-            ".home-trip{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13.5px}"
-            ".home-trip span{font-size:12.5px;color:var(--mut);white-space:nowrap}</style>"
-            "<div class='sect'><p>저장된 카드 자료를 검토하고, 미리보기에서 확인한 결과를 장부에 기록하세요.</p>"
-            f"<p class='home-sum'>카드 자료 <b>{saved:,}건</b> · 확인할 거래 <b>{questions:,}건</b> · "
-            f"장부 기록 <b>{posted:,}건</b> · 출발 예정 여행 <b>{len(upcoming):,}개</b></p>"
-            "<div class='home-actions'><a class='btn primary' href='/import'>카드 분류 결과 확인</a>"
-            f"<a class='btn' href='/board?tab={esc(board_tab)}'>장부 보기</a>"
-            "<a class='btn' href='/trips'>여행 관리</a></div>"
-            + ("<p>카드 원문과 분류 결과는 저장되어 있습니다. 아직 장부에 기록하지 않아 여행별 수입·지출은 0원으로 표시됩니다.</p>"
-               if saved and not posted else '')
-            + f"<h2>출발 예정 여행 {len(upcoming)}개</h2>"
+    body = ("<style>"
+            ".home-overview{padding:20px 24px 16px;border-bottom:1px solid var(--line)}"
+            ".home-status{font-size:13px;color:var(--mut);margin:0 0 12px}"
+            ".home-status b{color:var(--ink);font-weight:700}"
+            ".page-body a.home-review{margin:0!important;background:var(--grn);border-color:var(--grn);color:#fff}"
+            ".page-body a.home-review:hover{background:var(--grn-dk);border-color:var(--grn-dk);color:#fff}"
+            ".home-secondary{display:none}"
+            ".home-travel-section{padding:18px 24px 22px}"
+            ".home-travel-heading{font-size:18px!important;margin:0 0 8px!important}"
+            ".home-trips{list-style:none!important;margin:0 0 8px!important;padding:0!important;border-top:1px solid var(--line)}"
+            ".home-trips li{margin:0!important}"
+            ".home-trip{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:42px;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13.5px;text-decoration:none}"
+            ".home-trip strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--ink)}"
+            ".home-date{flex:0 0 auto;font-size:12.5px;color:var(--mut);white-space:nowrap}"
+            ".home-date-short{display:none}"
+            ".home-all{font-size:13px;margin:8px 0 0!important}"
+            "@media(max-width:759px){"
+            ".home-main .page-hd{padding:20px 16px 6px;border-bottom:0;display:block}"
+            ".home-main .page-hd h1{font-size:24px;line-height:1.2}"
+            ".home-main .page-hd .synth,.home-main .page-hd .meta,.home-main .page-hd .act{display:none}"
+            ".home-overview{padding:0 16px 10px;border-bottom:0}"
+            ".home-status{font-size:13px;line-height:1.35;margin:0 0 12px;white-space:normal}"
+            ".page-body .home-review{display:flex;width:100%;height:46px;margin:0 0 8px!important;justify-content:center;font-size:14px}"
+            ".home-secondary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0}"
+            ".page-body .home-secondary .btn{width:100%;height:36px;margin:0;padding:0 5px;font-size:12.5px;font-weight:600;background:var(--paper);border-color:var(--line-strong);color:var(--ink)}"
+            ".home-travel-section{padding:12px 16px 18px}"
+            ".home-travel-heading{font-size:19px!important;line-height:1.25;margin:0 0 6px!important}"
+            ".home-trip{min-height:48px;padding:0;font-size:14px}"
+            ".home-date{font-size:12.5px}"
+            ".home-date-full{display:none}"
+            ".home-date-short{display:inline}"
+            ".home-all{margin:7px 0 0!important;font-size:12.5px}"
+            ".home-next-note{display:none}"
+            "}"
+            "</style>"
+            "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
+            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<a class='home-review btn primary' href='/import'>카드 검토 {questions:,}건</a>"
+            "<nav class='home-secondary' aria-label='장부 보조 작업'>"
+            "<a class='btn' href='/import'>카드 가져오기</a>"
+            "<a class='btn' href='/export'>XLSX 출력</a>"
+            f"<a class='btn' href='/board?tab={esc(board_tab)}'>장부</a>"
+            "</nav></section>"
+            f"<section class='home-travel-section'><h2 class='home-travel-heading'>출발 예정 여행 {len(upcoming)}</h2>"
             + (f"<ul class='home-trips'>{items}</ul>"
                if items else "<p>등록된 출발 예정 여행이 없습니다.</p>")
-            + "<p><a href='/trips'>전체 여행 보기</a></p>"
-            + (f"<p class='muted'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
-            + "</div>")
-    return ledger_design.render(ledger_design.shell('장부 현황', tab_id='', heading='장부 현황', body=body))
+            + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
+            + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
+            + "</section>")
+    return ledger_design.render(ledger_design.shell(
+        '장부 현황', tab_id='', heading='장부 현황', body=body, home=True))
 
 
 class CardFlow:

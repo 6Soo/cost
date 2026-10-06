@@ -1687,7 +1687,7 @@ def _last_saved_at(tab_id: str) -> str:
 
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
           meta: str = "", body: str, query: str = "", kind: str = "",
-          archived: str = "", aside: str = "") -> str:
+          archived: str = "", aside: str = "", home: bool = False) -> str:
     """The shared chrome for every screen, with the view state in the links."""
     state = state_query(tab_id, query, kind, archived)
     back = f"/board?{state}"
@@ -1695,8 +1695,9 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # last saved time. The count is filled in by the script as edits become
     # dirty; the time is the ledger's own last save for this tab.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
+    main_class = "main home-main" if home else "main"
     main = (
-        f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
+        f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
         f"<h1>{heading}<span class='synth'>{board.data_status_mark()}</span></h1>"
         + (f"<p class='period'>{period}</p>" if period else "")

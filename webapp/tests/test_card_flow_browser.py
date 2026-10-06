@@ -20,6 +20,16 @@ class CardFlowBrowserTests(unittest.TestCase):
             pipe = Pipeline(server.card_store.conn)
             batch = pipe.receive(CARD, 'H.xlsx')['batch_id']
             original = pipe.get_batch(batch)['summary']['content_sha256']
+            for index, (start, end, destination, display_key) in enumerate((
+                    ('2026-10-10', '2026-10-13', '도쿠시마', '1010 도쿠시마'),
+                    ('2026-10-15', '2026-10-20', '오제', '1015 오제'),
+                    ('2026-10-20', '2026-10-24', '알펜루트', '1020 알펜루트'),
+                    ('2026-10-26', '2026-10-30', '가루이자와', '1026 가루이자와'))):
+                server.card_store.create_trip(
+                    starts_on=start, ends_on=end, destination=destination,
+                    display_key=display_key, client_request_id=f'home-mobile-{index}')
+            registered = {trip['tab_id']:{'departure_status':'scheduled'}
+                          for trip in server.card_store.list_trips()}
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             errors = []
@@ -28,14 +38,27 @@ class CardFlowBrowserTests(unittest.TestCase):
                     browser = api.chromium.launch(headless=True)
                     page = browser.new_page(viewport={'width':390,'height':844})
                     page.on('pageerror', lambda e:errors.append(str(e)))
-                    response = page.goto(f'http://127.0.0.1:{server.server_address[1]}/')
+                    with patch('app.reserve_trips.registrations', return_value=registered):
+                        response = page.goto(f'http://127.0.0.1:{server.server_address[1]}/')
                     self.assertEqual(response.status, 200)
                     self.assertTrue(page.url.endswith('/'))
                     self.assertTrue(page.get_by_role('heading', name='장부 현황', exact=False).is_visible())
                     self.assertEqual(page.locator('input[type=file]').count(), 0)
                     self.assertNotIn('H.xlsx', page.locator('body').inner_text())
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
-                    page.get_by_role('link', name='카드 분류 결과 확인', exact=True).click()
+                    self.assertTrue(page.get_by_role('link', name='카드 검토 1건', exact=True).is_visible())
+                    self.assertTrue(page.locator('.home-secondary').is_visible())
+                    self.assertFalse(page.get_by_role('link', name='XLSX 출력', exact=True).evaluate(
+                        "el => el.classList.contains('primary')"))
+                    primary_bg = page.locator('.home-review').evaluate(
+                        "el => getComputedStyle(el).backgroundColor")
+                    secondary_bg = page.locator('.home-secondary .btn').first.evaluate(
+                        "el => getComputedStyle(el).backgroundColor")
+                    self.assertNotEqual(primary_bg, secondary_bg)
+                    visible_trips = page.locator('.home-trip').evaluate_all(
+                        "els => els.filter(el => { const r=el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }).length")
+                    self.assertGreaterEqual(visible_trips, 3)
+                    page.get_by_role('link', name='카드 검토 1건', exact=True).click()
                     page.locator('[data-batch]').wait_for()
                     self.assertIn('국민카드 사용내역', page.locator('[data-batch]').inner_text())
                     self.assertNotIn('H.xlsx', page.locator('[data-batch]').inner_text())
