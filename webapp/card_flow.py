@@ -248,7 +248,7 @@ def home_page(board):
             f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 <b>{posted:,}</b></p>"
             f"<a class='home-review btn primary' href='/import'>카드 검토 {questions:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
-            "<a class='btn' href='/import'>카드 가져오기</a>"
+            "<a class='btn' href='/import'>새 카드 가져오기</a>"
             "<a class='btn' href='/export'>XLSX 출력</a>"
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>장부</a>"
             "</nav></section>"

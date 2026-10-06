@@ -250,7 +250,10 @@ class CardFlowTests(unittest.TestCase):
         self.assertIn("카드 <b>2</b> · 확인 필요 <b>2</b> · 장부 <b>0</b>", html)
         self.assertIn("class='home-review btn primary' href='/import'>카드 검토 2건</a>", html)
         self.assertIn("class='home-secondary'", html)
+        self.assertIn("href='/import'>새 카드 가져오기</a>", html)
         self.assertIn("href='/export'>XLSX 출력</a>", html)
+        self.assertNotIn("class='btn primary' href='/export'>XLSX 출력</a>", html)
+        self.assertNotIn("id='global-state'", html)
         self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
 
     def test_preview_and_choices_revalidate_a_changed_schedule_on_the_next_request(self):

@@ -1696,17 +1696,20 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # dirty; the time is the ledger's own last save for this tab.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     main_class = "main home-main" if home else "main"
+    global_state = "" if home else (
+        f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
+        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
+        f" · 마지막 저장 {_last_saved_at(tab_id)}"
+        + (f" · {board.esc(role_note)}" if role_note else "")
+        + "</p>")
+    export_class = "btn" if home else "btn primary"
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
         f"<h1>{heading}<span class='synth'>{board.data_status_mark()}</span></h1>"
         + (f"<p class='period'>{period}</p>" if period else "")
         + (f"<p class='meta'>{meta}</p>" if meta else "")
-        + f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
-        "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
-        f" · 마지막 저장 {_last_saved_at(tab_id)}"
-        + (f" · {board.esc(role_note)}" if role_note else "")
-        + "</p>"
+        + global_state
         # The cross-screen refresh reports here. The element always exists, so a
         # deferred change, a lost connection and a revoked permission all have
         # somewhere to say so on any screen that carries the shell.
@@ -1714,7 +1717,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
         "<a class='btn' href='/import'>카드 가져오기</a>"
-        "<a class='btn primary' href='/export'>XLSX 출력</a>"
+        f"<a class='{export_class}' href='/export'>XLSX 출력</a>"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"
         f"<div class='page-body'>{body}</div>"
