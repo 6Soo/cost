@@ -249,6 +249,28 @@ def _classify_transaction(transaction: dict, *, rules: list,
 
 
 def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
+    """읽기부터 감사 이력까지 한 번에 처리하고 실패 시 분류 변경을 되돌린다."""
+    with store.lock:
+        nested=store.conn.in_transaction
+        store.conn.execute('SAVEPOINT cost_classify_batch' if nested else 'BEGIN IMMEDIATE')
+        try:
+            result=_classify_batch(store,batch_id,rules=rules,trip_resolver=trip_resolver,
+                                   review_from=review_from,transaction_ids=transaction_ids)
+            if nested:
+                store.conn.execute('RELEASE SAVEPOINT cost_classify_batch')
+            else:
+                store.conn.commit()
+            return result
+        except BaseException:
+            if nested:
+                store.conn.execute('ROLLBACK TO SAVEPOINT cost_classify_batch')
+                store.conn.execute('RELEASE SAVEPOINT cost_classify_batch')
+            else:
+                store.conn.rollback()
+            raise
+
+
+def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
     """Classify every unconfirmed row in a batch.
 
     A row a human already decided is skipped entirely, which is how a confirmed
@@ -267,7 +289,8 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
         " original_approval_number, approval_date, posting_date, merchant,"
         " merchant_normalized, amount_krw, foreign_amount, foreign_currency,"
         " description_raw, row_index, raw_row_json, parse_error, user_confirmed,"
-        " classification_state,source_hash FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index",
+        " classification_state,source_hash,classification_source,classification_basis,item,"
+        " description,display_tab_id,trip_id FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index",
         (batch_id,)).fetchall()
     if not rows:
         exists = store.conn.execute(
@@ -286,7 +309,8 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
              approval_number, original_approval, approval_date, posting_date,
              merchant, merchant_normalized, amount_krw, foreign_amount,
              foreign_currency, description_raw, row_index, raw_json, parse_error,
-             user_confirmed, state, source_hash) = row
+             user_confirmed, state, source_hash, current_source, current_basis,
+             current_item, current_description, current_tab, current_trip) = row
             if selected is not None and transaction_id not in selected:
                 continue
             if user_confirmed:
@@ -322,14 +346,16 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
                 verdict["classification_state"], 0) + 1
             if state != verdict["classification_state"]:
                 reclassified += 1
+            values=(verdict['classification_state'],verdict['classification_source'],
+                    verdict['classification_basis'],verdict['item'],verdict['description'],
+                    verdict['display_tab_id'],verdict.get('trip_id',''))
+            if values==(state,current_source,current_basis,current_item,current_description,current_tab,current_trip):
+                continue
             store.conn.execute(
                 "UPDATE transactions SET classification_state=?,"
                 " classification_source=?, classification_basis=?, item=?,"
                 " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=? AND user_confirmed=0",
-                (verdict["classification_state"], verdict["classification_source"],
-                 verdict["classification_basis"], verdict["item"],
-                 verdict["description"], verdict["display_tab_id"],
-                 verdict.get("trip_id", ""), transaction_id))
+                values+(transaction_id,))
         store.conn.execute(
             "UPDATE import_batches SET parsed_at=?, status='classified'"
             " WHERE batch_id=?", (now, batch_id))

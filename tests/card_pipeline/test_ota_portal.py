@@ -140,12 +140,41 @@ def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monke
                 assert current[field]==original[field]
         assert flow.pipeline.list_rules()==rules
         assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==0
+        if expected_trip:
+            flow.trip_valid=lambda identity:False
+            flow.classify(batch)
+            current=flow.pipeline.get_batch(batch)['rows'][0]
+            assert current['classification_source']=='rule' and current['item']=='숙박비'
+            assert current['trip_id']==''
         flow.pipeline.save_decision(current['transaction_id'],current['revision'],item='사무용품비',
             description='직접 확정',display_tab_id='unclassified',trip_id='',
             request_id='synthetic-answer',tab_validator=flow.tab_valid)
         flow.classify(batch)
         current=flow.state(batch)['rows'][0]
         assert current['item']=='사무용품비' and current['user_confirmed']==1
+    finally:
+        board.close()
+
+
+def test_canonical_conflict_refreshes_portal_cache_even_without_count_change(tmp_path,monkeypatch):
+    from webapp.ledger_store import LedgerStore
+    from webapp.card_flow import CardFlow
+    from tests.card_pipeline.fixtures import make_csv,domestic_row
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
+    monkeypatch.setenv('WEBLEDGER_OTA_MAIL_DIR',str(tmp_path/'no-mail'))
+    monkeypatch.setenv('WEBLEDGER_AGODA_PORTAL_DB',str(portal_database(tmp_path/'portal.sqlite')))
+    board=LedgerStore(tmp_path/'board.sqlite',seed_demo=False)
+    try:
+        flow=CardFlow(board)
+        batch=flow.pipeline.receive(make_csv([domestic_row(merchant='AGODA',amount=30000,
+            approval='synthetic-payment')]),'synthetic.csv')['batch_id']
+        row=flow.pipeline.get_batch(batch)['rows'][0]
+        assert flow.review_mail_evidence([row])[row['source_hash']]['booking_match']
+        board.conn.execute('UPDATE transactions SET conflict_reason=? WHERE transaction_id=?',
+                           ('synthetic source conflict',row['transaction_id']))
+        evidence=flow.review_mail_evidence([row])[row['source_hash']]
+        assert not evidence.get('booking_match')
+        assert evidence.get('mail_link_absent')
     finally:
         board.close()
 

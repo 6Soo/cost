@@ -1254,6 +1254,32 @@ def _verify_bundle_on_disk(bundle: dict) -> None:
         _fail(CODE_CONTEXT_REJECTED)
 
 
+def _replace_config_file(replacement, target):
+    """Atomically replace an existing Windows config while preserving its DACL."""
+    target = pathlib.Path(target)
+    if os.name != "nt" or not target.exists():
+        os.replace(replacement, target)
+        return
+    import ctypes
+    from ctypes import wintypes
+    import uuid
+
+    backup = target.with_name(target.name + "." + uuid.uuid4().hex + ".backup")
+    replace = ctypes.WinDLL("kernel32", use_last_error=True).ReplaceFileW
+    replace.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                        wintypes.DWORD, wintypes.LPVOID, wintypes.LPVOID]
+    replace.restype = wintypes.BOOL
+    if not replace(str(target), str(replacement), str(backup), 0, None, None):
+        error = ctypes.get_last_error()
+        # Some native failure modes move the original to the backup name.
+        # Restore that original if its target disappeared; otherwise retain
+        # the backup for recovery. Never fall back to an ACL-dropping swap.
+        if backup.exists() and not target.exists():
+            os.replace(backup, target)
+        raise ctypes.WinError(error)
+    backup.unlink()
+
+
 def _activate_locked(config_path, bundle: dict) -> str:
     """Point the live config at a staged bundle. The last thing that happens.
 
@@ -1306,7 +1332,7 @@ def _activate_locked(config_path, bundle: dict) -> str:
     try:
         with handle:
             handle.write(text)
-        os.replace(handle.name, str(config_path))
+        _replace_config_file(handle.name, config_path)
     except Exception:
         try:
             os.unlink(handle.name)

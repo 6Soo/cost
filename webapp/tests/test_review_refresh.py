@@ -1941,5 +1941,50 @@ class ActivationVerificationTests(RefreshFixture):
         self.assertFalse(second["no_op"], "a corrupted active source was a no-op")
 
 
+
+
+@unittest.skipUnless(os.name == "nt", "Windows config permissions")
+class ConfigPermissionReplacementTests(unittest.TestCase):
+    def test_atomic_replacement_preserves_explicit_dacl(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "config.json"
+            replacement = pathlib.Path(directory) / "config.new"
+            target.write_text("old", encoding="utf-8")
+            replacement.write_text("new", encoding="utf-8")
+            command = r"""
+$p = $env:COST_TEST_CONFIG
+$a = Get-Acl -LiteralPath $p
+$a.SetAccessRuleProtection($true, $false)
+$s = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$r = [System.Security.AccessControl.FileSystemAccessRule]::new($s, 'FullControl', 'Allow')
+$a.AddAccessRule($r)
+Set-Acl -LiteralPath $p -AclObject $a
+(Get-Acl -LiteralPath $p).GetSecurityDescriptorSddlForm('Access')
+"""
+            environment = dict(os.environ, COST_TEST_CONFIG=str(target))
+            before = subprocess.check_output(
+                ["powershell.exe", "-NoProfile", "-Command", command],
+                env=environment, text=True).strip()
+            review_refresh._replace_config_file(replacement, target)
+            after = subprocess.check_output(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 "(Get-Acl -LiteralPath $env:COST_TEST_CONFIG).GetSecurityDescriptorSddlForm('Access')"],
+                env=environment, text=True).strip()
+            self.assertEqual(before, after)
+            self.assertEqual(target.read_text(encoding="utf-8"), "new")
+            self.assertFalse(replacement.exists())
+            self.assertEqual(list(pathlib.Path(directory).glob("*.backup")), [])
+
+    def test_failed_replacement_keeps_original_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / "config.json"
+            target.write_text("original", encoding="utf-8")
+            with self.assertRaises(OSError):
+                review_refresh._replace_config_file(
+                    pathlib.Path(directory) / "missing.new", target)
+            self.assertEqual(target.read_text(encoding="utf-8"), "original")
+
+
 if __name__ == "__main__":
     unittest.main()

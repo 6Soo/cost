@@ -731,3 +731,53 @@ def test_a_file_is_parsed_once_and_shared():
     first = parse_card_file(content, "a.xlsx")
     second = parse_card_file(content, "a.xlsx")
     assert first is second
+
+
+@pytest.mark.parametrize('inside_transaction',[False,True])
+@pytest.mark.parametrize('failure_point',['row','audit'])
+def test_failed_reclassification_rolls_back_every_row_and_audit(pipe,monkeypatch,inside_transaction,failure_point):
+    import app.classify as classifier
+    batch=pipe.receive(make_csv([
+        domestic_row(merchant='합성상점 하나',amount=1000,approval='ATOMIC-1'),
+        domestic_row(merchant='합성상점 둘',amount=2000,approval='ATOMIC-2'),
+    ]),'synthetic-atomic.csv')['batch_id']
+    if inside_transaction:
+        pipe.store.conn.execute('BEGIN IMMEDIATE')
+        pipe.store.log_change('synthetic.outer','outer',{})
+    tables=('transactions','import_batches','change_log')
+    before={table:pipe.store.conn.execute('SELECT * FROM '+table).fetchall() for table in tables}
+    original=classifier.classify_transaction
+    calls=0
+    def fail_second(*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls==2:
+            raise RuntimeError('SYNTHETIC_CLASSIFICATION_FAILURE')
+        return original(*args,**kwargs)
+    if failure_point=='row':
+        monkeypatch.setattr(classifier,'classify_transaction',fail_second)
+    else:
+        def fail_audit(*args,**kwargs):
+            raise RuntimeError('SYNTHETIC_CLASSIFICATION_FAILURE')
+        monkeypatch.setattr(pipe.store,'log_change',fail_audit)
+    with pytest.raises(RuntimeError,match='SYNTHETIC_CLASSIFICATION_FAILURE'):
+        pipe.classify_batch(batch)
+    assert {table:pipe.store.conn.execute('SELECT * FROM '+table).fetchall() for table in tables}==before
+    assert pipe.store.conn.in_transaction==inside_transaction
+    if inside_transaction:
+        pipe.store.conn.rollback()
+
+
+def test_unchanged_reclassification_does_not_rewrite_transaction_rows(pipe):
+    batch=pipe.receive(make_csv([
+        domestic_row(merchant='합성상점 하나',amount=1000,approval='UNCHANGED-1'),
+        domestic_row(merchant='합성상점 둘',amount=2000,approval='UNCHANGED-2'),
+    ]),'synthetic-unchanged.csv')['batch_id']
+    pipe.classify_batch(batch)
+    before=pipe.store.conn.execute('SELECT * FROM transactions').fetchall()
+    previous_changes=pipe.store.conn.total_changes
+    result=pipe.classify_batch(batch)
+    assert result['reclassified']==0
+    assert pipe.store.conn.execute('SELECT * FROM transactions').fetchall()==before
+    # 재검사 시각과 감사 이력만 쓰고 같은 분류 값은 다시 쓰지 않는다.
+    assert pipe.store.conn.total_changes-previous_changes==2

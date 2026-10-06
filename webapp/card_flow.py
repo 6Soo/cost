@@ -14,6 +14,61 @@ def _is_ota_row(row):
     return any(marker.upper() in merchant for marker in _OTA_MARKERS)
 
 
+def _unchanged_workbook_schedule(record, current_bytes, cache):
+    """원본 증거와 최신 명시 제목을 함께 검증하며 비용 셀 변경만 분리한다."""
+    import io
+    import re
+    import zipfile
+    from datetime import date
+    from openpyxl import load_workbook
+    from xml.etree.ElementTree import ParseError
+
+    path, _, locator = record.source_locator.partition('#')
+    sheet, separator, cell = locator.rpartition('!')
+    if not separator or sheet != record.trip_code or cell not in ('C2', 'D2'):
+        return False
+    books = []
+    try:
+        original_bytes = Path(path).read_bytes()
+        if hashlib.sha256(original_bytes).hexdigest() != record.source_sha256:
+            return False
+        key = (record.source_sha256, hashlib.sha256(current_bytes).hexdigest())
+        if key not in cache:
+            for contents in (original_bytes, current_bytes):
+                books.append(load_workbook(io.BytesIO(contents), read_only=True, data_only=False))
+            original, current = books
+            originals = {page.title:{address:page[address].value for address in ('C2', 'D2')}
+                         for page in original}
+            current_titles = {page.title:{value.value for row in page.iter_rows(min_row=2, max_row=2)
+                              for value in row if isinstance(value.value, str) and '매출 확인자료' in value.value}
+                              for page in current}
+            current_cells = {page.title:{address:page[address].value for address in ('C2', 'D2')}
+                             for page in current}
+            cache[key] = (originals, current_titles, current_cells)
+        originals, current_titles, current_cells = cache[key]
+        if sheet not in originals or sheet not in current_titles:
+            return False
+        title = originals[sheet][cell]
+        if not isinstance(title, str) or title.startswith('=') or '매출 확인자료' not in title:
+            return False
+        years = re.findall(r'(?<!\d)(\d{4})\s*년', title)
+        periods = re.findall(r'(?<!\d)(\d{4})_(\d{4})(?!\d)', title)
+        if len(years) != 1 or len(periods) != 1:
+            return False
+        year = int(years[0])
+        start, end = periods[0]
+        if (year != record.event_year
+                or date(year, int(start[:2]), int(start[2:])) != record.starts_on
+                or date(year, int(end[:2]), int(end[2:])) != record.ends_on):
+            return False
+        return current_cells[sheet][cell] == title and current_titles[sheet] == {title}
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, ParseError):
+        return False
+    finally:
+        for book in books:
+            book.close()
+
+
 def _mail_evidence_from_report(report, source_hashes):
     """이미 계산된 OTA 메일 대조 결과를 화면 표시용 사실로만 줄인다."""
     wanted = set(source_hashes)
@@ -173,8 +228,13 @@ class CardFlow:
     def __init__(self, board):
         from app import Pipeline
         self.board = board
-        self.pipeline = Pipeline(board.conn)
-        self.pipeline.store.lock = board._lock
+        with board._lock:
+            pipeline=getattr(board,'_card_pipeline',None)
+            if pipeline is None or pipeline.store.conn is not board.conn:
+                pipeline=Pipeline(board.conn)
+                pipeline.store.lock=board._lock
+                board._card_pipeline=pipeline
+            self.pipeline=pipeline
 
     def trip_valid(self, trip_id):
         """화면용 여행 탭과 원본으로 검증한 명시 일정이 일치해야 한다."""
@@ -221,9 +281,16 @@ class CardFlow:
                 return False
         else:
             source=Path(service.manifest['snapshot_path'])
-            digest=hashlib.sha256(source.read_bytes()).hexdigest()
+            current_bytes=source.read_bytes()
+            digest=hashlib.sha256(current_bytes).hexdigest()
             if digest!=service.manifest['snapshot_sha256']:
                 return False
+            if digest!=record.source_sha256:
+                if not hasattr(self,'_schedule_title_cache'):
+                    self._schedule_title_cache={}
+                if not _unchanged_workbook_schedule(record,current_bytes,self._schedule_title_cache):
+                    return False
+                digest=record.source_sha256
         return len(matches) == 1 and all((
             matches[0].is_authoritative,
             matches[0].source_sha256 == digest == trip['source_sha256'],
@@ -277,26 +344,21 @@ class CardFlow:
         return candidates[0]['tab_id'] if len(candidates)==1 else ''
 
     def classify(self, batch_id, *, transaction_ids=None):
+        with self.board._lock:
+            return self._classify(batch_id,transaction_ids=transaction_ids)
+
+    def _classify(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
         blocked_inference_sources=set()
-        # 메일 누락 구간도 보존된 전수조사 근거로 대조한다.
-        from app.ota_portal import evidence_path, extend_report
-        mail_dir=Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
-        portal_db=evidence_path(self.board.path.parent)
-        if mail_dir.is_dir() or portal_db.is_file():
-            from app.ota_mail import match_mail
-            cursor=self.board.conn.execute('SELECT * FROM transactions')
-            columns=[field[0] for field in cursor.description]
-            transactions=[dict(zip(columns,row)) for row in cursor.fetchall()]
-            sources={r[0] for r in self.board.conn.execute(
-                'SELECT t.source_hash FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
-                'WHERE b.batch_id=? AND t.user_confirmed=0 AND t.classification_state!=? AND t.conflict_reason=? AND t.parse_error=?',
-                (batch_id,'preserved','',''))}
-            if transaction_ids is not None:
-                selected=set(transaction_ids)
-                sources &= {row['source_hash'] for row in transactions if row['transaction_id'] in selected}
-            report=match_mail(mail_dir,transactions)
-            report=extend_report(report,portal_db,transactions)
+        selected=None if transaction_ids is None else set(transaction_ids)
+        sources={source for source,identity,merchant in self.board.conn.execute(
+            'SELECT t.source_hash,t.transaction_id,t.merchant FROM transactions t '
+            'JOIN import_batch_rows b ON b.transaction_id=t.transaction_id '
+            'WHERE b.batch_id=? AND t.user_confirmed=0 AND t.classification_state!=? '
+            'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'preserved','',''))
+            if (selected is None or identity in selected) and _is_ota_row({'merchant':merchant})}
+        report=self._ota_report() if sources else None
+        if report is not None:
             blocked_inference_sources={f['source_hash'] for f in report['matches']
                 if f.get('reservation_status')=='cancelled' or f.get('period_conflict')}
             blocked_inference_sources.update(f['source_hash'] for f in report.get('type_only_candidates',[])
@@ -305,10 +367,11 @@ class CardFlow:
             evidence.update({f['source_hash']:dict(f,period=f.get('shared_period'))
                              for f in report.get('type_only_candidates',[])})
             verified_trips=None
-            for draft in report['rules']:
-                source=draft['optional']['source_hash']
+            for template in report['rules']:
+                source=template['optional']['source_hash']
                 if source not in sources:
                     continue
+                draft=dict(template,optional=dict(template['optional']),effects=dict(template['effects']))
                 fact=evidence.get(source,{})
                 period=fact.get('period')
                 if period and fact.get('reservation_status')!='cancelled' and not fact.get('period_conflict'):
@@ -332,9 +395,9 @@ class CardFlow:
                      and rule['optional'].get('source_hash') in blocked_inference_sources)]
             return classify_batch(self.pipeline.store,batch_id,
                 rules=active+ota_rules,trip_resolver=self.retail_trip,
-                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=transaction_ids)
+                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
         return self.pipeline.classify_batch(batch_id, trip_resolver=self.retail_trip,
-                                           review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=transaction_ids)
+                                           review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
 
     def project(self, entry):
         """새 전기와 기존 장부 화면의 행을 같은 트랜잭션에서 저장한다."""
@@ -378,41 +441,41 @@ class CardFlow:
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','owner',entry['now'],row_id))
 
-    def review_mail_evidence(self, rows):
-        """OTA 근거를 읽기 전용으로 대조하고 같은 자료에는 메모리 캐시를 재사용한다."""
-        ota_rows = [row for row in rows if _is_ota_row(row) and row.get('source_hash')]
-        if not ota_rows:
-            return {}
-        mail_dir = Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
+    def _ota_report(self):
+        """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""
+        from app.ota_mail import match_mail
         from app.ota_portal import evidence_path, extend_report
+        mail_dir = Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
         portal_db = evidence_path(self.board.path.parent)
         if not mail_dir.is_dir() and not portal_db.is_file():
+            return None
+        paths=list(mail_dir.glob('gmail*.json'))+[mail_dir/'collection.json',portal_db,Path(str(portal_db)+'-wal')]
+        stamps=tuple((str(path.resolve()),path.stat().st_mtime_ns,path.stat().st_size)
+                     for path in sorted(paths) if path.is_file())
+        columns=('transaction_id','source_hash','merchant','merchant_normalized','card_kind','card_tail',
+                 'transaction_direction','approval_date','amount_krw','foreign_currency','foreign_amount',
+                 'duplicate_of','parse_error','conflict_reason')
+        with self.board._lock:
+            rows=[tuple(row) for row in self.board.conn.execute(
+                'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
+            fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+            key=(str(mail_dir.resolve()),str(portal_db.resolve()),stamps,fingerprint)
+            cache=getattr(self.board,'_card_review_mail_cache',None)
+            if cache and cache.get('key')==key:
+                return cache['report']
+            transactions=[dict(zip(columns,row)) for row in rows]
+            report=extend_report(match_mail(mail_dir,transactions),portal_db,transactions)
+            self.board._card_review_mail_cache={'key':key,'report':report}
+            return report
+
+    def review_mail_evidence(self, rows):
+        """같은 대사 결과에서 화면에 필요한 근거만 꺼내며 DB에는 쓰지 않는다."""
+        sources={row['source_hash'] for row in rows if _is_ota_row(row) and row.get('source_hash')}
+        if not sources:
             return {}
         try:
-            collection = mail_dir/'collection.json'
-            mail_stamp = (mail_dir.stat().st_mtime_ns if mail_dir.is_dir() else 0,
-                          collection.stat().st_mtime_ns if collection.is_file() else 0)
-            portal_stamp = (portal_db.stat().st_mtime_ns,portal_db.stat().st_size) if portal_db.is_file() else (0,0)
-            with self.board._lock:
-                db_stamp = self.board.conn.execute(
-                    'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM transactions').fetchone()
-            key = (str(mail_dir.resolve()), mail_stamp, str(portal_db.resolve()), portal_stamp, tuple(db_stamp))
-            cache = getattr(self.board, '_card_review_mail_cache', None)
-            if cache and cache.get('key') == key:
-                all_evidence = cache['evidence']
-            else:
-                from app.ota_mail import match_mail
-                with self.board._lock:
-                    cursor = self.board.conn.execute('SELECT * FROM transactions')
-                    columns = [field[0] for field in cursor.description]
-                    transactions = [dict(zip(columns, row)) for row in cursor.fetchall()]
-                report = match_mail(mail_dir, transactions)
-                report = extend_report(report, portal_db, transactions)
-                all_evidence = _mail_evidence_from_report(
-                    report, (row.get('source_hash') for row in transactions))
-                self.board._card_review_mail_cache = {'key': key, 'evidence': all_evidence}
-            return {row['source_hash']: all_evidence[row['source_hash']]
-                    for row in ota_rows if row['source_hash'] in all_evidence}
+            report=self._ota_report()
+            return _mail_evidence_from_report(report,sources) if report is not None else {}
         except (OSError, ValueError, KeyError, TypeError):
             return {}
 

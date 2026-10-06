@@ -122,6 +122,50 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertEqual(matcher.call_count, 1)
 
+    def test_overwritten_mail_file_refreshes_cancellation_evidence(self):
+        from tests.card_pipeline.test_booking_mail import message
+        from tests.card_pipeline.test_ota_refresh import save
+        batch=self.flow.pipeline.receive(CARD.replace('합성상점'.encode(),b'AGODA'),'synthetic-mail.csv')['batch_id']
+        row=self.flow.pipeline.get_batch(batch)['rows'][0]
+        mail_dir=Path(self.tmp.name)/'ota-mail'
+        mail_dir.mkdir()
+        payment=message('예약번호: 1738864710\n총 금액 KRW 37,000\n체크인: 2026-10-05\n체크아웃: 2026-10-06',
+                        subject='Payment confirmation',domain='agoda.com',sent='2026-10-01')
+        save(mail_dir,[payment])
+        self.assertEqual(self.flow.review_mail_evidence([row]),{row['source_hash']:{'booking_match':True}})
+        directory_stamp=mail_dir.stat()
+        save(mail_dir,[payment,message('예약번호: 1738864710',subject='취소됨 - 합성 예약',
+            domain='agoda.com',identity='synthetic-cancel',sent='2026-10-02')])
+        os.utime(mail_dir,ns=(directory_stamp.st_atime_ns,directory_stamp.st_mtime_ns))
+        self.assertEqual(self.flow.review_mail_evidence([row]),{row['source_hash']:{'cancellation_mail':True}})
+
+    def test_new_flow_reuses_the_existing_pipeline_without_schema_work(self):
+        queries=[]
+        self.board.conn.set_trace_callback(queries.append)
+        try:
+            another=CardFlow(self.board)
+            self.assertIs(another.pipeline,self.flow.pipeline)
+            self.assertFalse(any('CREATE TABLE' in statement.upper() for statement in queries))
+        finally:
+            self.board.conn.set_trace_callback(None)
+
+    def test_classification_and_review_share_evidence_without_repeated_mail_parsing(self):
+        from app.ota_mail import match_mail
+        from tests.card_pipeline.test_booking_mail import message
+        from tests.card_pipeline.test_ota_refresh import save
+        batch=self.flow.pipeline.receive(CARD.replace('합성상점'.encode(),b'AGODA'),'synthetic-cache.csv')['batch_id']
+        row=self.flow.pipeline.get_batch(batch)['rows'][0]
+        mail_dir=Path(self.tmp.name)/'ota-mail'
+        mail_dir.mkdir()
+        save(mail_dir,[message('예약번호: 1738864710\n총 금액 KRW 37,000',
+            subject='Payment confirmation',domain='agoda.com',sent='2026-10-01')])
+        with patch('app.ota_mail.match_mail',wraps=match_mail) as matcher:
+            self.flow.review_mail_evidence([row])
+            self.flow.classify(batch)
+            self.flow.review_mail_evidence(self.flow.pipeline.get_batch(batch)['rows'])
+        self.assertEqual(matcher.call_count,1)
+        self.assertEqual(self.flow.pipeline.get_batch(batch)['rows'][0]['item'],'숙박비')
+
     def decide(self):
         batch = self.flow.pipeline.receive(CARD,'synthetic.csv')['batch_id']
         self.flow.pipeline.classify_batch(batch)
@@ -233,6 +277,94 @@ class CardFlowTests(unittest.TestCase):
         self.assertIn('내 답변·수정 이유',html)
         self.assertIn('장부 미리보기',html)
         self.assertNotIn('<th>칸</th>',html)
+
+
+class WorkbookScheduleRefreshTests(unittest.TestCase):
+    def fixture(self):
+        import hashlib
+        import json
+        from types import SimpleNamespace
+        from openpyxl import Workbook
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        original = root/'original.xlsx'
+        current = root/'current.xlsx'
+        title = '2026년 4월 매출 확인자료_sample_0404_0407'
+        book = Workbook()
+        book.active.title = '0404_sample'
+        book.active['C2'] = title
+        book.save(original)
+        book.active['E5'] = 123
+        book.save(current)
+        book.close()
+        digest = hashlib.sha256(original.read_bytes()).hexdigest()
+        record = dict(trip_code='0404_sample', event_year=2026,
+                      starts_on='2026-04-04', ends_on='2026-04-07', region='sample',
+                      authority_kind='explicit_trip_registry', authority_status='authoritative',
+                      source_locator=str(original)+'#0404_sample!C2', source_sha256=digest,
+                      end_semantics='inclusive_last_service_date')
+        authority = root/'authority.json'
+        authority.write_text(json.dumps(dict(schema_version='trip-schedule-authority-v3',
+                                             records=[record])), encoding='utf-8')
+        trip = dict(display_key='0404_sample', event_year=2026, starts_on=record['starts_on'],
+                    ends_on=record['ends_on'], source_sha256=digest, deleted=0, archived=0)
+        flow = CardFlow.__new__(CardFlow)
+        flow.board = SimpleNamespace(get_trip=lambda identity:trip)
+        service = SimpleNamespace(manifest=dict(snapshot_path=str(current),
+                           snapshot_sha256=hashlib.sha256(current.read_bytes()).hexdigest()))
+        environment = patch.dict(os.environ, {'WEBLEDGER_TRIP_AUTHORITY':str(authority)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        binding = patch('webapp.real_review.active_service', return_value=service)
+        binding.start()
+        self.addCleanup(binding.stop)
+        return flow, original, current, service, trip
+
+    def test_unrelated_transaction_change_preserves_verified_schedule(self):
+        flow, _, _, _, _ = self.fixture()
+        self.assertTrue(flow.trip_valid('synthetic-trip'))
+
+    def test_schedule_changes_remain_blocked(self):
+        import hashlib
+        from openpyxl import load_workbook
+        for change in ('changed-period', 'changed-year', 'missing-title', 'moved-title', 'ambiguous-title', 'formula'):
+            with self.subTest(change=change):
+                flow, _, current, service, _ = self.fixture()
+                self.assertTrue(flow.trip_valid('synthetic-trip'))
+                book = load_workbook(current)
+                if change == 'changed-period':
+                    book.active['C2'] = '2026년 4월 매출 확인자료_sample_0404_0408'
+                elif change == 'changed-year':
+                    book.active['C2'] = '2027년 4월 매출 확인자료_sample_0404_0407'
+                elif change == 'missing-title':
+                    book.active['C2'] = None
+                elif change == 'moved-title':
+                    book.active['D2'] = book.active['C2'].value
+                    book.active['C2'] = None
+                elif change == 'ambiguous-title':
+                    book.active['D2'] = '2026년 4월 매출 확인자료_sample_0404_0408'
+                else:
+                    book.active['C2'] = '="2026년 4월 매출 확인자료_sample_0404_0407"'
+                book.save(current)
+                book.close()
+                service.manifest['snapshot_sha256'] = hashlib.sha256(current.read_bytes()).hexdigest()
+                self.assertFalse(flow.trip_valid('synthetic-trip'))
+
+    def test_changed_proof_or_binding_remains_blocked(self):
+        for change in ('original-proof', 'current-proof', 'board-period', 'board-digest'):
+            with self.subTest(change=change):
+                flow, original, current, _, trip = self.fixture()
+                self.assertTrue(flow.trip_valid('synthetic-trip'))
+                if change == 'original-proof':
+                    original.write_bytes(b'synthetic tampering')
+                elif change == 'current-proof':
+                    current.write_bytes(b'synthetic tampering')
+                elif change == 'board-period':
+                    trip['ends_on'] = '2026-04-08'
+                else:
+                    trip['source_sha256'] = '0'*64
+                self.assertFalse(flow.trip_valid('synthetic-trip'))
 
 
 if __name__ == '__main__':
