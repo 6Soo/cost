@@ -103,6 +103,39 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Hide-ScheduledTaskConsole {
+    try {
+        $self = Get-CimInstance Win32_Process -Filter "ProcessId=$PID" -ErrorAction Stop
+        if (-not $self) { return }
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId=$($self.ParentProcessId)" -ErrorAction Stop
+        if (-not $parent -or [string]$parent.Name -ne "svchost.exe") { return }
+
+        if (-not ("WebLedgerConsoleWindow" -as [type])) {
+            Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class WebLedgerConsoleWindow {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+        }
+        $window = [WebLedgerConsoleWindow]::GetConsoleWindow()
+        if ($window -ne [IntPtr]::Zero) {
+            [WebLedgerConsoleWindow]::ShowWindow($window, 0) | Out-Null
+        }
+    } catch {
+        # Hiding the console is presentation-only. Host startup must continue
+        # even if Windows does not expose the parent process or window handle.
+    }
+}
+
+if ($Mode -eq "Run") {
+    Hide-ScheduledTaskConsole
+}
+
 #: The ownership marker, reported in every line so a log says which subsystem
 #: answered, and matching the marker the installer writes into the task.
 $script:Owner = "LOCAL-HOST-002"

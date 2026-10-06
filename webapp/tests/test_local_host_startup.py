@@ -347,6 +347,9 @@ function Start-Process {{
     $exited = ($script:exitOnStart -gt 0 -and $script:starts -eq $script:exitOnStart)
     return [pscustomobject]@{{ Id = (9000 + $script:starts); HasExited = $exited }}
 }}
+function Add-Type {{
+    param($TypeDefinition)
+}}
 function Stop-Process {{
     # A stopped process releases its port, so the listener goes with it. Without
     # that, any code that stops something and then waits for the port would wait
@@ -515,6 +518,7 @@ class BoardLaunchTests(unittest.TestCase):
     def test_the_task_passes_every_argument_to_the_runner(self):
         _code, output = run_installer()
         self.assertIn("MOCK-REGISTER action=powershell", output)
+        self.assertIn("-WindowStyle Hidden", output)
         self.assertIn("start_web_ledger_host.ps1", output)
         for value in (CHECKOUT, DATA_ROOT, OAUTH_FILE, SESSION_SECRET_FILE,
                       CLOUDFLARE_CONFIG, TUNNEL_ID):
@@ -1198,7 +1202,7 @@ class IsolationTests(unittest.TestCase):
     #: reservation source configuration the owner named on the command line.
     #: They answer from a fixed synthetic map and nothing else.
     MOCKED_CMDLETS = {
-        "Get-NetTCPConnection", "Get-CimInstance", "Start-Process",
+        "Get-NetTCPConnection", "Get-CimInstance", "Start-Process", "Add-Type",
         "Stop-Process", "Get-ScheduledTask", "Register-ScheduledTask",
         "New-ScheduledTaskAction", "New-ScheduledTaskTrigger",
         "New-ScheduledTaskPrincipal", "New-ScheduledTaskSettingsSet",

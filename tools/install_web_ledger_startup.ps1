@@ -207,6 +207,7 @@ function Get-TaskPlan {
     $runner = Join-Path $Checkout "tools\start_web_ledger_host.ps1"
     $arguments = @(
         "-NoProfile",
+        "-WindowStyle", "Hidden",
         "-ExecutionPolicy", "Bypass",
         "-File", $runner,
         "-Mode", "Run",
