@@ -188,18 +188,38 @@ def home_page(board):
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
     pending_booking_ids = set()
+    pending_unknown = False
     try:
+        flow = CardFlow(board)
+        trips = board.list_trips()
+        authority_cache = {
+            trip['tab_id']: flow.trip_valid(trip['tab_id'])
+            for trip in trips
+        }
+
+        def trip_validator(tab_id):
+            return authority_cache.get(tab_id, False)
+
+        def tab_validator(tab_id):
+            return tab_id in ('', 'unclassified') or authority_cache.get(tab_id, False)
+
         for batch in batch_catalog(board):
-            result = ledger_preview.preview(board, batch['batch_id'], review_from=review_from or None)
+            result = ledger_preview.preview(
+                board,
+                batch['batch_id'],
+                trip_validator=trip_validator,
+                tab_validator=tab_validator,
+                review_from=review_from or None,
+            )
             for entry in result.get('rows', []):
                 if entry.get('blocked') or entry.get('already_booked'):
                     continue
                 transaction_id = entry.get('transaction_id')
                 if transaction_id:
                     pending_booking_ids.add(transaction_id)
-    except Exception:
-        pending_booking_ids = set()
-    pending_bookings = len(pending_booking_ids)
+    except (OSError, ValueError, KeyError, TypeError):
+        pending_unknown = True
+    pending_bookings = None if pending_unknown else len(pending_booking_ids)
 
     trips = board.list_trips()
     registered = registrations(board)
@@ -260,7 +280,7 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
-            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 반영 대기 <b>{pending_bookings:,}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 반영 대기 <b>{'-' if pending_bookings is None else f'{pending_bookings:,}'}</b> · 장부 <b>{posted:,}</b></p>"
             f"<a class='home-review btn primary' href='/import'>카드 검토 {questions:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
             "<a class='btn' href='/import'>새 카드 가져오기</a>"
