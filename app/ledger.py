@@ -53,7 +53,7 @@ def _decision_rows(store, batch_id: str):
 
 
 def preview(store, batch_id: str, *, trip_validator=None,
-             tab_validator=None, review_from=None) -> dict:
+             tab_validator=None, review_from=None, entry_metadata=None) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -63,7 +63,12 @@ def preview(store, batch_id: str, *, trip_validator=None,
     *and again inside the commit transaction*. A schedule that has since been
     cancelled, or a tab that has since been closed, stops the row being booked
     rather than reaching the ledger on the strength of a decision made last week.
+
+    `entry_metadata`, if given, is called with a copy of each row that would be
+    booked and returns a dict; only `METADATA_KEYS` from it are merged in.
     """
+    if entry_metadata is not None and not callable(entry_metadata):
+        raise StoreError(CODE_INVALID_INPUT, "메타데이터 함수가 아니에요")
     found = store.conn.execute(
         "SELECT 1 FROM import_batches WHERE batch_id=?", (batch_id,)).fetchone()
     if found is None:
@@ -165,6 +170,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
         seen[key] = entry
 
     ready_now = [e for e in ready if not e.get("blocked")]
+    # Before the digest: only rows a commit would book, so provenance shows in
+    # the preview and changes to it are a stale preview.
+    _merge_metadata(ready_now, entry_metadata)
     result = {
         "batch_id": batch_id,
         "version": PREVIEW_VERSION,
@@ -178,7 +186,24 @@ def preview(store, batch_id: str, *, trip_validator=None,
     return result
 
 
-PREVIEW_VERSION = "ledger-preview-v1"
+PREVIEW_VERSION = "ledger-preview-v2"
+
+# The only keys a caller's entry_metadata may add. A fixed list, so a callback
+# cannot inject `blocked`, `reason` or `now` and steer the commit.
+METADATA_KEYS = ("booking_ref", "service_period", "ota_evidence")
+
+
+def _merge_metadata(entries: list, entry_metadata) -> None:
+    """Add the caller's OTA provenance to rows a commit would book."""
+    if entry_metadata is None:
+        return
+    for entry in entries:
+        metadata = entry_metadata(dict(entry)) or {}
+        if not isinstance(metadata, dict):
+            raise TypeError("entry_metadata 는 dict 를 돌려줘야 해요")
+        for key in METADATA_KEYS:
+            if key in metadata:
+                entry[key] = metadata[key]
 
 
 def _authority_block(entry: dict, trip_validator, tab_validator):
@@ -202,9 +227,11 @@ def preview_digest(result: dict) -> str:
     """A digest over exactly what a commit would write.
 
     Version, batch, and the identity, source text, amount, date and
-    classification of every ready row. A decision taken after the preview was
-    read changes the row, so it changes the digest, so the stale commit is
-    refused.
+    classification of every ready row, plus the OTA provenance attached to it.
+    A decision taken after the preview was read changes the row, so it changes
+    the digest, so the stale commit is refused. Provenance counts as part of the
+    row: a booking reference, service period or `ota_evidence` that now reads
+    differently — including a different digest inside it — is stale too.
     """
     body = {
         "version": result.get("version"),
@@ -215,7 +242,10 @@ def preview_digest(result: dict) -> str:
              "amount_krw": r["amount_krw"],
              "occurred_on": r["occurred_on"],
              "item": r["item"], "description": r["description"],
-             "display_tab_id": r["display_tab_id"], "trip_id": r["trip_id"]}
+             "display_tab_id": r["display_tab_id"], "trip_id": r["trip_id"],
+             "booking_ref": r.get("booking_ref"),
+             "service_period": r.get("service_period"),
+             "ota_evidence": r.get("ota_evidence")}
             for r in result.get("rows", [])
             if not r.get("blocked")
         ],
@@ -230,7 +260,8 @@ def _already_booked(store, transaction_id: str) -> bool:
 
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
-           *, projection=None, trip_validator=None, tab_validator=None,review_from=None) -> dict:
+           *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
+           entry_metadata=None) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -243,6 +274,11 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     a row that no longer passes is reported as unresolved rather than booked. A
     decision taken against a schedule that has since been cancelled must not
     reach the ledger.
+
+    `entry_metadata` is the same callback the caller previewed with, so the
+    digest is recalculated over the same provenance and the entry handed to
+    `projection` is the one that was digested. It is not part of the idempotency
+    key: the digest already covers what it contributes.
     """
     if not request_id or not isinstance(request_id, str):
         raise StoreError(CODE_INVALID_INPUT, "요청 ID가 필요해요")
@@ -257,7 +293,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
         return replay
 
     current = preview(store, batch_id, trip_validator=trip_validator,
-                      tab_validator=tab_validator,review_from=review_from)
+                      tab_validator=tab_validator,review_from=review_from,
+                      entry_metadata=entry_metadata)
     if current["digest"] != preview_digest_value:
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")

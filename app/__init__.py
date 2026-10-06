@@ -66,16 +66,20 @@ class Pipeline:
 
     # ledger
     def preview(self, batch_id: str, *, trip_validator=None,
-                tab_validator=None, review_from=None) -> dict:
+                tab_validator=None, review_from=None,
+                entry_metadata=None) -> dict:
         return preview(self.store, batch_id, trip_validator=trip_validator,
-                       tab_validator=tab_validator,review_from=review_from)
+                       tab_validator=tab_validator,review_from=review_from,
+                       entry_metadata=entry_metadata)
 
     def commit(self, batch_id: str, preview_digest: str, request_id: str,
                *, projection=None, trip_validator=None,
-               tab_validator=None,review_from=None) -> dict:
+               tab_validator=None,review_from=None,
+               entry_metadata=None) -> dict:
         return commit(self.store, batch_id, preview_digest, request_id,
                       projection=projection, trip_validator=trip_validator,
-                      tab_validator=tab_validator,review_from=review_from)
+                      tab_validator=tab_validator,review_from=review_from,
+                      entry_metadata=entry_metadata)
 
     # history
     def changes(self, subject: str = "") -> list:

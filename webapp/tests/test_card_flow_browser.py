@@ -12,6 +12,51 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_verified_ota_metadata_is_visible_before_http_commit(self):
+        import json
+        from webapp.card_flow import CardFlow
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        from tests.card_pipeline.fixtures import make_csv, domestic_row
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':'',
+                 'WEBLEDGER_OTA_MAIL_DIR': str(Path(directory)/'ota-mail')}):
+            mail_dir = Path(directory)/'ota-mail'
+            mail_dir.mkdir()
+            save(mail_dir, [message(hotel())])
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                batch = flow.pipeline.receive(make_csv([domestic_row(merchant='TRIP.COM',
+                    amount=123000, approval='87654321', date='2026-05-01')]), 'synthetic-ota.csv')['batch_id']
+                flow.classify(batch)
+                with sync_playwright() as api:
+                    browser = api.chromium.launch(headless=True)
+                    page = browser.new_page()
+                    for width, height in ((390,844), (1440,900)):
+                        page.set_viewport_size({'width':width, 'height':height})
+                        page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
+                        page.locator('#preview').get_by_text('OTA 예약 근거', exact=False).wait_for()
+                        text = page.locator('#preview').inner_text()
+                        self.assertIn('1111111111111111', text)
+                        self.assertIn('2026-05-22~2026-05-23', text)
+                        self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                    page.locator('#commit').click()
+                    page.get_by_text('장부 기록 결과를 저장했습니다.', exact=False).wait_for()
+                    row = json.loads(server.card_store.conn.execute(
+                        'SELECT payload_json FROM board_rows').fetchone()[0])
+                    self.assertEqual(row['reservation_no'], '1111111111111111')
+                    self.assertEqual(row['service_period'], '2026-05-22~2026-05-23')
+                    browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_home_pending_number_and_unknown_at_mobile_and_desktop_widths(self):
         from webapp.card_flow import CardFlow
         import sqlite3

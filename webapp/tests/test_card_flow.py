@@ -452,5 +452,301 @@ class WorkbookScheduleRefreshTests(unittest.TestCase):
                 self.assertFalse(flow.trip_valid('synthetic-trip'))
 
 
+class OtaPreviewMetadataTests(unittest.TestCase):
+    """합성 OTA 메일만으로 미리보기 메타데이터와 장부 보존을 확인한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {'WEBLEDGER_UNIFIED_DB': '1'})
+        self.env.start()
+        self.board = LedgerStore(Path(self.tmp.name) / 'board.sqlite', seed_demo=False)
+        self.flow = CardFlow(self.board)
+        self.mail_dir = Path(self.tmp.name) / 'ota-mail'
+        self.mail_dir.mkdir()
+        self.mail_env = patch.dict(os.environ, {'WEBLEDGER_OTA_MAIL_DIR': str(self.mail_dir)})
+        self.mail_env.start()
+
+    def tearDown(self):
+        self.mail_env.stop()
+        self.board.close()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def _receive(self, merchant='TRIP.COM', amount=123000, approval='87654321'):
+        from tests.card_pipeline.fixtures import make_csv, domestic_row
+        data = make_csv([domestic_row(merchant=merchant, amount=amount,
+                                      approval=approval, date='2026-05-01')])
+        return self.flow.pipeline.receive(data, 'synthetic.csv')['batch_id']
+
+    def _confirm(self, batch, request_id='synthetic-confirm'):
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'],
+                                         item='숙박비', display_tab_id='unclassified',
+                                         request_id=request_id,
+                                         tab_validator=self.flow.tab_valid)
+        return row
+
+    def _preview_entry(self, batch):
+        state = self.flow.state(batch)
+        rows = state['preview']['rows']
+        ready = [r for r in rows if not r.get('blocked')]
+        self.assertEqual(len(ready), 1)
+        return state, ready[0]
+
+    def test_exact_match_flows_to_board_with_provenance(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        state, entry = self._preview_entry(batch)
+        self.assertEqual(entry.get('booking_ref'), '1111111111111111')
+        self.assertEqual(entry.get('service_period'), '2026-05-22~2026-05-23')
+        self.assertIsInstance(entry.get('ota_evidence'), dict)
+        self.assertTrue(entry['ota_evidence'])
+        digests = (entry.get('ota_evidence') or {}).get('source_digests') or []
+        self.assertTrue(digests)
+        digest = state['preview']['digest']
+        result = self.flow.pipeline.commit(
+            batch, digest, 'synthetic-commit-1',
+            entry_metadata=self.flow.preview_metadata(),
+            projection=self.flow.project,
+            tab_validator=self.flow.tab_valid,
+            trip_validator=self.flow.trip_valid)
+        self.assertEqual(result['applied'], 1)
+        self.assertEqual(
+            self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 1)
+        payload = self.board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0]
+        import json as _json
+        body = _json.loads(payload)
+        self.assertEqual(body['reservation_no'], '1111111111111111')
+        self.assertEqual(body['service_period'], '2026-05-22~2026-05-23')
+        for digest_value in digests:
+            self.assertIn(digest_value, body['classification_basis'])
+
+    def test_ambiguous_shared_period_blanks_ref(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel(), identity='one'),
+                             message(hotel('2222222222222222'), identity='two')])
+        batch = self._receive()
+        self._confirm(batch)
+        state, entry = self._preview_entry(batch)
+        self.assertFalse(entry.get('booking_ref'))
+        self.assertEqual(entry.get('service_period'), '2026-05-22~2026-05-23')
+        self.assertIsInstance(entry.get('ota_evidence'), dict)
+        result = self.flow.pipeline.commit(
+            batch, state['preview']['digest'], 'synthetic-shared-commit',
+            entry_metadata=self.flow.preview_metadata(),
+            projection=self.flow.project,
+            tab_validator=self.flow.tab_valid,
+            trip_validator=self.flow.trip_valid)
+        self.assertEqual(result['applied'], 1)
+        payload = self.board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0]
+        import json as _json
+        body = _json.loads(payload)
+        self.assertFalse(body.get('reservation_no'))
+        self.assertEqual(body.get('service_period'), '2026-05-22~2026-05-23')
+
+    def test_conflict_and_cancelled_leave_metadata_blank(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        cases = {
+            'different-period': [message(hotel(), identity='one'),
+                                 message(hotel(start='2026년 5월 24일',
+                                               end='2026년 5월 25일'), identity='two')],
+            'cancelled': [message(hotel()),
+                          message('예약번호: 1111111111111111', subject='예약 취소 완료',
+                                  identity='cancel', sent='2026-05-02')],
+            'ambiguous-period': [message(hotel(), identity='one'),
+                                message(hotel('2222222222222222', start='2026년 5월 24일',
+                                              end='2026년 5월 25일'), identity='two')],
+            'cancelled-candidate': [message(hotel(), identity='one'),
+                                   message(hotel('2222222222222222'), identity='two'),
+                                   message('예약번호: 2222222222222222', subject='예약 취소 완료',
+                                           identity='cancel', sent='2026-05-02')],
+        }
+        for name, mails in cases.items():
+            with self.subTest(case=name):
+                for child in self.mail_dir.glob('*.json'):
+                    child.unlink()
+                if hasattr(self.flow.board, '_card_review_mail_cache'):
+                    delattr(self.flow.board, '_card_review_mail_cache')
+                save(self.mail_dir, mails)
+                batch = self._receive(approval='synthetic-%s' % name)
+                self._confirm(batch, request_id='synthetic-%s' % name)
+                state, entry = self._preview_entry(batch)
+                self.assertFalse(entry.get('booking_ref'))
+                self.assertFalse(entry.get('service_period'))
+                self.flow.pipeline.commit(batch, state['preview']['digest'], 'commit-'+name,
+                    entry_metadata=self.flow.preview_metadata(), projection=self.flow.project,
+                    tab_validator=self.flow.tab_valid, trip_validator=self.flow.trip_valid)
+                import json
+                body = json.loads(self.board.conn.execute(
+                    'SELECT payload_json FROM board_rows WHERE row_id=?',
+                    ('card-'+entry['transaction_id'],)).fetchone()[0])
+                self.assertEqual(body['reservation_no'], '')
+                self.assertEqual(body['service_period'], '')
+
+    def test_evidence_change_after_preview_is_stale(self):
+        from app.db import StoreError
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        digest = self.flow.state(batch)['preview']['digest']
+        changes = {
+            'ref': [message(hotel('2222222222222222'))],
+            'period': [message(hotel(start='2026년 5월 24일', end='2026년 5월 25일'))],
+            'digest': [message(hotel() + '\n메모 합성', identity='changed')],
+        }
+        for name, mails in changes.items():
+            with self.subTest(change=name):
+                save(self.mail_dir, mails)
+                with self.assertRaises(StoreError) as caught:
+                    self.flow.pipeline.commit(
+                        batch, digest, 'synthetic-stale-%s' % name,
+                        entry_metadata=self.flow.preview_metadata(),
+                        projection=self.flow.project,
+                        tab_validator=self.flow.tab_valid,
+                        trip_validator=self.flow.trip_valid)
+                self.assertEqual(caught.exception.code, 'PREVIEW_STALE')
+        self.assertEqual(
+            self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        self.assertEqual(
+            self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
+
+    def test_replay_writes_once(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        digest = self.flow.state(batch)['preview']['digest']
+        first = self.flow.pipeline.commit(
+            batch, digest, 'synthetic-replay',
+            entry_metadata=self.flow.preview_metadata(),
+            projection=self.flow.project,
+            tab_validator=self.flow.tab_valid,
+            trip_validator=self.flow.trip_valid)
+        second = self.flow.pipeline.commit(
+            batch, digest, 'synthetic-replay',
+            entry_metadata=self.flow.preview_metadata(),
+            projection=self.flow.project,
+            tab_validator=self.flow.tab_valid,
+            trip_validator=self.flow.trip_valid)
+        self.assertEqual(first, second)
+        self.assertEqual(
+            self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 1)
+        self.assertEqual(
+            self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 1)
+
+    def test_projection_failure_rolls_back_both_tables(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        digest = self.flow.state(batch)['preview']['digest']
+
+        def fail(entry):
+            self.flow.project(entry)
+            raise RuntimeError('synthetic projection failure')
+
+        with self.assertRaises(RuntimeError):
+            self.flow.pipeline.commit(
+                batch, digest, 'synthetic-rollback',
+                entry_metadata=self.flow.preview_metadata(),
+                projection=fail,
+                tab_validator=self.flow.tab_valid,
+                trip_validator=self.flow.trip_valid)
+        for table in ('ledger_entries', 'board_rows'):
+            self.assertEqual(
+                self.board.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0], 0)
+
+    def test_resolver_is_lazy_report_once(self):
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        _, row = self._preview_entry(batch)
+        with patch.object(CardFlow, '_ota_report',
+                          wraps=self.flow._ota_report) as spy:
+            resolver = self.flow.preview_metadata()
+            first = resolver(row)
+            second = resolver(row)
+            self.assertEqual(first, second)
+            self.assertEqual(spy.call_count, 1)
+
+    def test_unexpected_report_failure_propagates(self):
+        batch = self._receive()
+        self._confirm(batch, request_id='synthetic-boom')
+        with patch.object(CardFlow, '_ota_report', side_effect=RuntimeError('synthetic boom')):
+            if hasattr(self.flow.board, '_card_review_mail_cache'):
+                delattr(self.flow.board, '_card_review_mail_cache')
+            with self.assertRaises(RuntimeError):
+                self.flow.state(batch)
+            with self.assertRaises(RuntimeError):
+                self.flow.preview_metadata()(self.flow.pipeline.get_batch(batch)['rows'][0])
+
+    def test_uncertain_report_metadata_is_not_projected(self):
+        from app.ota_mail import ledger_metadata
+        entry = dict(transaction_id='synthetic', source_hash='source', item='숙박비',
+                     transaction_direction='purchase')
+        fact = dict(transaction_id='synthetic', source_hash='source', item='숙박비',
+                    booking_ref='ABC123', period={'starts_on':'2026-08-02','ends_on':'2026-08-03'},
+                    reservation_status='observed', source_sha256='digest')
+        for flags in ({'booking_link_conflict':True}, {'period_conflict':True},
+                      {'reservation_status':'evidence_pending'}, {'reservation_status':'refund_pending'},
+                      {'source_sha256':''}, {'period':None}):
+            with self.subTest(flags=flags):
+                metadata = ledger_metadata({'matches':[dict(fact, **flags)]}, entry)
+                self.assertEqual(metadata['booking_ref'], '')
+                self.assertEqual(metadata['service_period'], '')
+
+    def test_digest_protects_each_written_metadata_field(self):
+        from copy import deepcopy
+        from app.ledger import preview_digest
+        from tests.card_pipeline.test_booking_mail import message, hotel
+        from tests.card_pipeline.test_ota_refresh import save
+        save(self.mail_dir, [message(hotel())])
+        batch = self._receive()
+        self._confirm(batch)
+        preview = self.flow.state(batch)['preview']
+        for field, value in (('booking_ref', 'ABC999'), ('service_period', '2026-08-02~2026-08-03'),
+                             ('ota_evidence', {'source_digests':['changed']})):
+            with self.subTest(field=field):
+                changed = deepcopy(preview)
+                changed['rows'][0][field] = value
+                self.assertNotEqual(preview_digest(changed), preview['digest'])
+
+    def test_lodging_period_evidence_digest_is_preserved_and_revalidated(self):
+        from app.db import StoreError
+        from tests.card_pipeline.test_booking_mail import message
+        from tests.card_pipeline.test_ota_refresh import save
+        payment = message('예약번호: 1738864710\n총 금액 KRW 123000',
+                          subject='Payment confirmation', domain='agoda.com', identity='payment')
+        period = message('예약번호: 1738864710\n체크인: 2026-08-02\n체크아웃: 2026-08-03',
+                         domain='agoda.com', identity='period')
+        save(self.mail_dir, [payment, period])
+        batch = self._receive(merchant='AGODA')
+        self._confirm(batch)
+        state, entry = self._preview_entry(batch)
+        self.assertEqual(entry['booking_ref'], '1738864710')
+        self.assertEqual(entry['service_period'], '2026-08-02~2026-08-03')
+        self.assertEqual(len(entry['ota_evidence']['source_digests']), 2)
+        period['payload']['body']['content'] += '\n합성 메모 추가'
+        save(self.mail_dir, [payment, period])
+        with self.assertRaises(StoreError) as caught:
+            self.flow.pipeline.commit(batch, state['preview']['digest'], 'changed-period-evidence',
+                entry_metadata=self.flow.preview_metadata(), projection=self.flow.project,
+                tab_validator=self.flow.tab_valid, trip_validator=self.flow.trip_valid)
+        self.assertEqual(caught.exception.code, 'PREVIEW_STALE')
+        for table in ('ledger_entries', 'board_rows'):
+            self.assertEqual(self.board.conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0], 0)
+
+
 if __name__ == '__main__':
     unittest.main()

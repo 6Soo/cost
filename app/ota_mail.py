@@ -437,9 +437,51 @@ def lodging_mail_matches(directory, transactions, *, messages=None, require_acti
         result.append(dict(source_hash=source_hash,provider=identity[0],item='숙박비',period=period,booking_ref=identity[1],
                            strict_service_period=True,confidence='중간',
                            source_sha256=payment['source_sha256'],evidence_kind=payment['evidence_kind'],
+                           evidence_digests=sorted({f['source_sha256'] for f in facts
+                               if (f['provider'], f['booking_ref']) == identity}),
                            reservation_status='cancelled' if inactive else 'observed',
                            period_conflict=conflict,basis=basis))
     return result
+
+
+def ledger_metadata(report, entry):
+    """기존 대조 결과의 확정 사실만 장부 미리보기에 전달한다. 재대조하지 않는다."""
+    empty = {'booking_ref': '', 'service_period': '', 'ota_evidence': {}}
+    if report is None or entry.get('transaction_direction') != 'purchase':
+        return empty
+    source = entry['source_hash']
+    exact = [f for f in report.get('matches', []) if f['source_hash'] == source]
+    facts = exact or [f for f in report.get('type_only_candidates', []) if f['source_hash'] == source]
+    if not facts or any(f.get('transaction_id', entry['transaction_id']) != entry['transaction_id']
+                        or f.get('item') != entry['item']
+                        or f.get('reservation_status') in ('cancelled', 'refund_pending', 'evidence_pending')
+                        or f.get('evidence_pending') or f.get('refund_pending')
+                        or f.get('period_conflict') or f.get('booking_link_conflict')
+                        for f in facts):
+        return empty
+    # 예약번호 모호성은 matcher의 type-only 결과를 그대로 따른다.
+    refs = {f.get('booking_ref') for f in exact}
+    if exact and (len(refs) != 1 or not next(iter(refs))
+                  or any(f.get('reservation_status') not in ('observed', 'confirmed') for f in exact)):
+        return empty
+    periods = [f.get('period') if exact else f.get('shared_period') for f in facts]
+    if any(p != periods[0] for p in periods):
+        return empty
+    period = periods[0]
+    if not period and (not exact or entry['item'] == '숙박비'):
+        return empty
+    digests = sorted({digest for f in facts for digest in
+                      (list(f.get('source_digests') or []) + list(f.get('evidence_digests') or [])
+                       + [f.get('source_sha256')])
+                      if digest})
+    if not digests:
+        return empty
+    return {'booking_ref': next(iter(refs)) if exact else '',
+            'service_period': period['starts_on'] + '~' + period['ends_on'] if period else '',
+            'ota_evidence': {'kind': 'exact' if exact else 'shared_period',
+                             'source_digests': digests,
+                             'providers': sorted({f['provider'] for f in facts if f.get('provider')}),
+                             'evidence_kinds': sorted({f['evidence_kind'] for f in facts if f.get('evidence_kind')})}}
 
 
 def europe_stays(directory):
