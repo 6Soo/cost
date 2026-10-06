@@ -170,6 +170,8 @@ def batch_catalog(board):
 def home_page(board):
     from . import ledger_board, ledger_design
     from app import ledger as ledger_preview
+    from app.db import StoreError
+    import sqlite3
     from app.reserve_trips import registrations, sync_status, today, KST
     import datetime as dt
     esc = ledger_board.esc
@@ -217,7 +219,7 @@ def home_page(board):
                 transaction_id = entry.get('transaction_id')
                 if transaction_id:
                     pending_booking_ids.add(transaction_id)
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, StoreError, sqlite3.Error):
         pending_unknown = True
     pending_bookings = None if pending_unknown else len(pending_booking_ids)
 

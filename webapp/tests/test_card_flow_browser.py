@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import patch
 from playwright.sync_api import sync_playwright
@@ -11,6 +12,55 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_home_pending_number_and_unknown_at_mobile_and_desktop_widths(self):
+        from webapp.card_flow import CardFlow
+        import sqlite3
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            flow = CardFlow(server.card_store)
+            flow.pipeline.receive(CARD, 'pending-synthetic.csv')
+            server.card_store.conn.execute("UPDATE transactions SET classification_state='classified', "
+                                           "item='소모품비', display_tab_id='unclassified'")
+            server.card_store.conn.commit()
+            for index in range(6):
+                server.card_store.create_trip(starts_on=f'2026-12-{10+index:02}',
+                    ends_on=f'2026-12-{11+index:02}', destination=f'합성 여행 {index}',
+                    client_request_id=f'pending-browser-{index}')
+            registered = {trip['tab_id']:{'departure_status':'scheduled'}
+                          for trip in server.card_store.list_trips()}
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with sync_playwright() as api, patch('app.reserve_trips.registrations', return_value=registered):
+                    browser = api.chromium.launch(headless=True)
+                    page = browser.new_page()
+                    for width, height in ((390,844), (1440,900)):
+                        page.set_viewport_size({'width':width, 'height':height})
+                        for unknown in (False, True):
+                            failure = (patch('app.ledger.preview', side_effect=sqlite3.OperationalError('synthetic'))
+                                       if unknown else nullcontext())
+                            with failure:
+                                self.assertEqual(page.goto(f'http://127.0.0.1:{server.server_address[1]}/').status, 200)
+                            page.evaluate('document.fonts.ready')
+                            self.assertIn('장부 반영 대기 ' + ('-' if unknown else '1'),
+                                          page.locator('.home-status').inner_text())
+                            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                            self.assertTrue(page.locator('.home-review.primary').is_visible())
+                            visible = page.locator('.home-trip').evaluate_all(
+                                'els => els.filter(el => el.getBoundingClientRect().bottom <= innerHeight).length')
+                            self.assertGreaterEqual(visible, 5)
+                            artifact = Path('.local-archive/pending-authority-verification')
+                            artifact.mkdir(parents=True, exist_ok=True)
+                            page.screenshot(path=str(artifact/f'home-{width}-{"unknown" if unknown else "ready"}.png'))
+                    browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_home_shows_saved_work_and_card_names_without_uploading_or_booking(self):
         from app import Pipeline
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
