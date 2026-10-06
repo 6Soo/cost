@@ -23,7 +23,9 @@ def _mail_evidence_from_report(report, source_hashes):
         if source not in wanted:
             continue
         current = evidence.setdefault(source, {})
-        if fact.get('reservation_status') == 'cancelled':
+        if fact.get('booking_link_conflict'):
+            current['booking_link_conflict'] = True
+        elif fact.get('reservation_status') == 'cancelled':
             current['cancellation_mail'] = True
         else:
             current['booking_match'] = True
@@ -44,7 +46,9 @@ def _review_evidence_labels(row, mail_evidence=None):
     """영구 상태를 만들지 않고 기존 사실을 사람이 읽을 문구로 번역한다."""
     evidence = mail_evidence or {}
     labels = []
-    if evidence.get('cancellation_mail'):
+    if evidence.get('booking_link_conflict'):
+        labels.append('예약 근거 충돌 · 연결 확인 필요')
+    elif evidence.get('cancellation_mail'):
         labels.append('취소 메일 있음')
     elif evidence.get('booking_match'):
         labels.append('예약 근거 있음')
@@ -275,9 +279,11 @@ class CardFlow:
     def classify(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
         blocked_inference_sources=set()
-        # 메일 대사를 일회성 과거 복원 명령에만 묶어 두지 않는다.
+        # 메일 누락 구간도 보존된 전수조사 근거로 대조한다.
+        from app.ota_portal import evidence_path, extend_report
         mail_dir=Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
-        if mail_dir.is_dir():
+        portal_db=evidence_path(self.board.path.parent)
+        if mail_dir.is_dir() or portal_db.is_file():
             from app.ota_mail import match_mail
             cursor=self.board.conn.execute('SELECT * FROM transactions')
             columns=[field[0] for field in cursor.description]
@@ -290,6 +296,7 @@ class CardFlow:
                 selected=set(transaction_ids)
                 sources &= {row['source_hash'] for row in transactions if row['transaction_id'] in selected}
             report=match_mail(mail_dir,transactions)
+            report=extend_report(report,portal_db,transactions)
             blocked_inference_sources={f['source_hash'] for f in report['matches']
                 if f.get('reservation_status')=='cancelled' or f.get('period_conflict')}
             blocked_inference_sources.update(f['source_hash'] for f in report.get('type_only_candidates',[])
@@ -312,10 +319,13 @@ class CardFlow:
                     digests=fact.get('source_digests') or fact.get('evidence_digests') or [fact.get('source_sha256')]
                     if len(candidates)==1 and digests and digests[0]:
                         draft['optional']['booking_period']=dict(period,target_code=candidates[0]['display_key'],source_sha256=digests[0])
-                draft['rule_id']='ota-mail-'+source
-                draft['origin']='ota-mail-live'
+                    else:
+                        # 명시 이용기간과 맞지 않는 과거 추론 여행을 다시 붙이지 않는다.
+                        blocked_inference_sources.add(source)
+                draft['origin']='ota-portal-live' if fact.get('evidence_kind')=='portal_payment_claim' else 'ota-mail-live'
+                draft['rule_id']=('ota-portal-' if draft['origin']=='ota-portal-live' else 'ota-mail-')+source
                 ota_rules.append(draft)
-        if ota_rules:
+        if ota_rules or blocked_inference_sources:
             from app.classify import classify_batch
             active=[rule for rule in self.pipeline.list_rules() if not
                     (rule.get('optional',{}).get('inferred_assignment')
@@ -374,16 +384,19 @@ class CardFlow:
         if not ota_rows:
             return {}
         mail_dir = Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
-        if not mail_dir.is_dir():
+        from app.ota_portal import evidence_path, extend_report
+        portal_db = evidence_path(self.board.path.parent)
+        if not mail_dir.is_dir() and not portal_db.is_file():
             return {}
         try:
             collection = mail_dir/'collection.json'
-            mail_stamp = (mail_dir.stat().st_mtime_ns,
+            mail_stamp = (mail_dir.stat().st_mtime_ns if mail_dir.is_dir() else 0,
                           collection.stat().st_mtime_ns if collection.is_file() else 0)
+            portal_stamp = (portal_db.stat().st_mtime_ns,portal_db.stat().st_size) if portal_db.is_file() else (0,0)
             with self.board._lock:
                 db_stamp = self.board.conn.execute(
                     'SELECT COUNT(*),COALESCE(MAX(rowid),0) FROM transactions').fetchone()
-            key = (str(mail_dir.resolve()), mail_stamp, tuple(db_stamp))
+            key = (str(mail_dir.resolve()), mail_stamp, str(portal_db.resolve()), portal_stamp, tuple(db_stamp))
             cache = getattr(self.board, '_card_review_mail_cache', None)
             if cache and cache.get('key') == key:
                 all_evidence = cache['evidence']
@@ -394,6 +407,7 @@ class CardFlow:
                     columns = [field[0] for field in cursor.description]
                     transactions = [dict(zip(columns, row)) for row in cursor.fetchall()]
                 report = match_mail(mail_dir, transactions)
+                report = extend_report(report, portal_db, transactions)
                 all_evidence = _mail_evidence_from_report(
                     report, (row.get('source_hash') for row in transactions))
                 self.board._card_review_mail_cache = {'key': key, 'evidence': all_evidence}

@@ -186,3 +186,102 @@ def test_scheduled_agoda_charge_matches_card_without_claiming_receipt(tmp_path):
     assert match_mail(tmp_path,[row()])['exact_matches']==0
     assert scheduled_charge_day(text+'\n요금 자동 결제일은 [ May 21, 2026 ]입니다.') is None
     assert scheduled_charge_day(text.replace('자동 결제일은','체크인일은')) is None
+
+
+def test_booking_completed_payment_amount_layout_is_read(tmp_path):
+    save(tmp_path,[message('예약번호: 1738864710\n결제 완료\n¥87,560',
+                          subject='결제가 완료되었습니다',domain='booking.com')])
+    card=dict(row(),merchant='BOOKING.COM',foreign_currency='JPY',foreign_amount='87560')
+    result=match_mail(tmp_path,[card])
+    assert result['exact_matches']==1
+    assert result['matches'][0]['period'] is None
+    assert result['matches'][0]['evidence_kind']=='payment_receipt'
+    assert 'booking_period' not in result['rules'][0]['optional']
+    assert result['booking_evidence_gaps']==[{
+        'provider':'booking','booking_ref':'1738864710','source_hash':card['source_hash'],
+        'reason':'service_period_not_collected'}]
+
+
+def test_lodging_payment_link_survives_conflicting_periods(tmp_path):
+    save(tmp_path,[message('예약번호: 1738864710\n총 금액 USD 123.45',
+                          subject='Payment confirmation',domain='agoda.com'),
+        message('예약번호: 1738864710\n체크인: 2026-08-01\n체크아웃: 2026-08-03',
+                subject='Agoda 예약 확정서',domain='agoda.com',identity='stay-one'),
+        message('예약번호: 1738864710\n체크인: 2026-08-02\n체크아웃: 2026-08-03',
+                subject='Agoda 예약 확정서',domain='agoda.com',identity='stay-two')])
+    result=match_mail(tmp_path,[row()])
+    assert result['exact_matches']==1
+    assert result['matches'][0]['period'] is None
+    assert result['matches'][0]['period_conflict']
+    assert result['booking_evidence_gaps']==[]
+
+
+def test_cancelled_booking_keeps_charge_link_but_never_active_trip(tmp_path):
+    save(tmp_path,[message('예약번호: 1738864710\n총 금액 USD 123.45',
+                          subject='Payment confirmation',domain='agoda.com'),
+        message('예약번호: 1738864710',subject='취소됨 - 합성 숙소 예약',
+                domain='agoda.com',identity='cancel',sent='2026-05-03')])
+    result=match_mail(tmp_path,[row()])
+    assert result['exact_matches']==1
+    assert result['matches'][0]['reservation_status']=='cancelled'
+    assert result['matches'][0]['period'] is None
+    assert result['cancelled_reservation_matches']==1
+    assert result['booking_evidence_gaps']==[]
+    assert 'booking_period' not in result['rules'][0]['optional']
+
+
+def test_payment_without_period_still_rejects_unverified_or_duplicate_cards(tmp_path):
+    mail=message('예약번호: 1738864710\n결제 완료\n¥87,560',
+                 subject='결제가 완료되었습니다',domain='booking.com')
+    card=dict(row(),merchant='BOOKING.COM',foreign_currency='JPY',foreign_amount='87560')
+    save(tmp_path,[mail])
+    assert match_mail(tmp_path,[card,dict(card,transaction_id='other',source_hash='b'*64)])['exact_matches']==0
+    mail['payload']['headers'][-1]['value']='dkim=fail header.i=@booking.com'
+    save(tmp_path,[mail])
+    assert match_mail(tmp_path,[card])['exact_matches']==0
+
+
+def test_old_reservation_and_new_receipt_remove_stale_trip_inference(tmp_path,monkeypatch):
+    from webapp.ledger_store import LedgerStore
+    from webapp.card_flow import CardFlow
+    from tests.card_pipeline.fixtures import make_csv,domestic_row
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
+    monkeypatch.setenv('WEBLEDGER_OTA_MAIL_DIR',str(tmp_path))
+    save(tmp_path,[message('예약번호: 1738864710\n결제 완료\nKRW 30,000',
+                          subject='결제가 완료되었습니다',domain='booking.com'),
+        message('예약번호: 1738864710\n체크인: 2026-08-01\n체크아웃: 2026-08-03',
+                subject='숙박 예약이 확정되었습니다',domain='booking.com',identity='stay',sent='2026-03-01')])
+    board=LedgerStore(tmp_path/'board.sqlite',seed_demo=False)
+    try:
+        flow=CardFlow(board)
+        trip=board.create_trip(starts_on='2026-08-01',ends_on='2026-08-03',
+                              destination='합성 여행',client_request_id='synthetic-trip')['tab_id']
+        flow.trip_valid=lambda identity:identity==trip
+        batch=flow.pipeline.receive(make_csv([domestic_row(merchant='BOOKING.COM',amount=30000,
+            approval='synthetic-payment',date='2026-05-01')]),'synthetic.csv')['batch_id']
+        original=flow.pipeline.get_batch(batch)['rows'][0]
+        flow.pipeline.save_rule({'conditions':{'merchant_normalized':'BOOKING.COM'},
+            'optional':{'source_hash':original['source_hash'],'inferred_assignment':{
+                'trip_id':trip,'confidence':'낮음','basis':'결제 뒤 가까운 여행으로 추론'}},
+            'effects':{'item':'숙박비'}})
+        rules=flow.pipeline.list_rules()
+        flow.classify(batch)
+        first=flow.state(batch)['rows'][0]
+        assert first['classification_source']=='rule'
+        assert first['trip_id']==trip
+        assert first['review_evidence_labels']==['예약 근거 있음']
+        assert first['user_confirmed']==0
+        flow.classify(batch)
+        again=flow.state(batch)['rows'][0]
+        for field in ('source_hash','transaction_id','amount_krw','approval_date'):
+            assert original[field]==again[field]
+        assert again['classification_source']=='rule' and again['trip_id']==trip
+        assert flow.pipeline.list_rules()==rules
+        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==0
+        flow.pipeline.save_decision(again['transaction_id'],again['revision'],item='사무용품비',
+            description='직접 확인',display_tab_id='unclassified',trip_id='',
+            request_id='synthetic-answer',tab_validator=flow.tab_valid)
+        flow.classify(batch)
+        assert board.conn.execute('SELECT item,user_confirmed FROM transactions').fetchone()==('사무용품비',1)
+    finally:
+        board.close()

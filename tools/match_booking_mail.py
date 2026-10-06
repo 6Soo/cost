@@ -29,7 +29,7 @@ def main():
         raise ValueError('OTA_REPORT_CANNOT_REPLACE_SOURCE_FILES')
     output.parent.mkdir(parents=True,exist_ok=True)
     output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(json.dumps({k:v for k,v in report.items() if k not in ('matches','rules','type_only_candidates','unmatched_transactions')},ensure_ascii=False))
+    print(json.dumps({k:v for k,v in report.items() if k not in ('matches','rules','type_only_candidates','unmatched_transactions','booking_evidence_gaps')},ensure_ascii=False))
 
 
 if __name__=='__main__':

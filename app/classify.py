@@ -157,7 +157,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
             matches.append((candidate,reasons,target))
     # 과거 업종 기본값의 빈 설명은 같은 원행에서 확인한 예약 설명과 충돌하지 않는다.
     # 사용자가 편집한 규칙이나 다른 항목·여행을 제안한 규칙은 그대로 충돌로 남긴다.
-    verified_ota=[entry for entry in matches if entry[0].get('origin')=='ota-mail-live'
+    verified_ota=[entry for entry in matches if entry[0].get('origin') in ('ota-mail-live','ota-portal-live')
                   and entry[0].get('optional',{}).get('source_hash')]
     if verified_ota:
         # 현재 원행의 예약 증거가 과거 자동 복원 규칙보다 구체적이다.

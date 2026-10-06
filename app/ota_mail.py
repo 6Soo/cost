@@ -74,7 +74,7 @@ def service_period(text):
 
 def reservation_cancelled(subject):
     """취소 조건이나 위약금 안내를 실제 취소 완료로 처리하지 않는다."""
-    return bool(re.search(r'취소(?:가|이)?\s*(?:완료|되었|됐)|취소.*완료|cancelled|canceled|cancellation\s+confirmed',subject,re.I))
+    return bool(re.search(r'취소(?:가|이)?\s*(?:완료|되었|됐|됨)|취소.*완료|cancelled|canceled|cancellation\s+confirmed',subject,re.I))
 
 
 def scheduled_charge_day(text):
@@ -297,7 +297,8 @@ def match_mail(directory, transactions):
         matches.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
                             merchant=row['merchant_normalized'],card_kind=row['card_kind'],
                             direction=row['transaction_direction'],**fact))
-    additional=lodging_mail_matches(directory,transactions,messages=messages)
+    # 결제 연결과 실제 이용기간은 별개다. 취소·기간 미확인은 여행 근거만 막는다.
+    additional=lodging_mail_matches(directory,transactions,messages=messages,require_active_period=False)
     by_source={row['source_hash']:row for row in transactions}
     for fact in additional:
         row=by_source[fact['source_hash']]
@@ -346,6 +347,10 @@ def match_mail(directory, transactions):
             'unmatched_transactions':unmatched,
             'mail_categories':mail_categories(messages),'coverage':coverage,
             'additional_lodging_matches':len(additional),
+            'booking_evidence_gaps':[dict(provider=f['provider'],booking_ref=f['booking_ref'],
+                source_hash=f['source_hash'],reason='service_period_not_collected')
+                for f in additional if f.get('period') is None
+                and f.get('reservation_status')!='cancelled' and not f.get('period_conflict')],
             'service_period_conflicts':sum(bool(f.get('period_conflict')) for f in matches),
             'cancelled_reservation_matches':sum(f.get('reservation_status')=='cancelled' for f in matches),
             'exact_matches':len(matches),'ambiguous_groups':ambiguous,
@@ -354,7 +359,7 @@ def match_mail(directory, transactions):
             'matches':matches,'rules':rules}
 
 
-def lodging_mail_matches(directory, transactions, *, messages=None):
+def lodging_mail_matches(directory, transactions, *, messages=None, require_active_period=True):
     """숙박의 원화·외화 결제 영수증을 유일한 카드 원행과 이용기간에 연결한다."""
     from decimal import Decimal, InvalidOperation
     messages=load_messages(directory) if messages is None else messages
@@ -370,16 +375,17 @@ def lodging_mail_matches(directory, transactions, *, messages=None):
         if len(refs)!=1:
             continue
         period=service_period(text)
+        cancelled=reservation_cancelled(subject)
+        paid=not cancelled and bool(re.search(r'결제가 완료|결제\s*완료|Payment confirmation|payment.*(?:received|successful)',subject,re.I))
         amounts=set()
         for currency,amount in re.findall(
-                r'(?:총\s*금액|총\s*지불\s*금액|총\s*요금|Total(?:\s+price)?)\s*'
+                r'(?:총\s*금액|총\s*지불\s*금액|총\s*요금|Total(?:\s+price)?'+
+                (r'|결제\s*완료' if paid else '')+r')\s*'
                 r'(¥|€|US\$|₩|EUR|JPY|USD|KRW)\s*([0-9][0-9,.]*)',text,re.I):
             try:amounts.add((currency_codes.get(currency,currency.upper()),decimal_amount(amount)))
             except InvalidOperation:pass
         paid_on=sent_day(message,headers)
         if paid_on is None:continue
-        cancelled=reservation_cancelled(subject)
-        paid=not cancelled and bool(re.search(r'결제가 완료|결제\s*완료|Payment confirmation|payment.*(?:received|successful)',subject,re.I))
         scheduled=scheduled_charge_day(text) if domain=='agoda.com' and not cancelled else None
         evidence_kind='payment_receipt' if paid else 'scheduled_charge' if scheduled else ''
         if not paid and scheduled:
@@ -418,15 +424,21 @@ def lodging_mail_matches(directory, transactions, *, messages=None):
         identities={(f['provider'],f['booking_ref']) for f in options}
         if len(identities)!=1:continue
         identity=next(iter(identities));service_periods=periods[identity]
-        if identity in cancelled:continue
-        if len(rows_by_receipt[identity])!=1 or len(service_periods)!=1:continue
-        period=dict(next(iter(service_periods)))
-        result.append(dict(source_hash=source_hash,item='숙박비',period=period,booking_ref=identity[1],
+        if len(rows_by_receipt[identity])!=1:continue
+        inactive=identity in cancelled
+        conflict=len(service_periods)>1
+        if require_active_period and (inactive or len(service_periods)!=1):continue
+        period=dict(next(iter(service_periods))) if len(service_periods)==1 and not inactive else None
+        payment=min(options,key=lambda f:(not f['paid'],f['source_sha256']))
+        basis=(('서명 검증된 예약의 자동 결제 예정일과 실제 카드 거래' if payment['evidence_kind']=='scheduled_charge' else '서명 검증된 결제 메일')+
+               '의 통화·금액·결제일이 유일하게 일치(원화는 같은 날, 외화는 하루 이내); 예약 '+identity[1])
+        if period:
+            basis+='의 이용기간 '+period['starts_on']+'~'+period['ends_on']+'을 참고한 추론'
+        result.append(dict(source_hash=source_hash,provider=identity[0],item='숙박비',period=period,booking_ref=identity[1],
                            strict_service_period=True,confidence='중간',
-                           source_sha256=options[0]['source_sha256'],evidence_kind=options[0]['evidence_kind'],
-                            basis=('서명 검증된 예약의 자동 결제 예정일과 실제 카드 거래' if options[0]['evidence_kind']=='scheduled_charge' else '서명 검증된 결제 메일')+
-                                 '의 통화·금액·결제일이 유일하게 일치(원화는 같은 날, 외화는 하루 이내); 예약 '+identity[1]+
-                                 '의 이용기간 '+period['starts_on']+'~'+period['ends_on']+'을 참고한 추론'))
+                           source_sha256=payment['source_sha256'],evidence_kind=payment['evidence_kind'],
+                           reservation_status='cancelled' if inactive else 'observed',
+                           period_conflict=conflict,basis=basis))
     return result
 
 
