@@ -187,13 +187,19 @@ def home_page(board):
             "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
-    pending_bookings = 0
+    pending_booking_ids = set()
     try:
         for batch in batch_catalog(board):
             result = ledger_preview.preview(board, batch['batch_id'], review_from=review_from or None)
-            pending_bookings += len(result.get('ready', []))
+            for entry in result.get('rows', []):
+                if entry.get('blocked') or entry.get('already_booked'):
+                    continue
+                transaction_id = entry.get('transaction_id')
+                if transaction_id:
+                    pending_booking_ids.add(transaction_id)
     except Exception:
-        pending_bookings = 0
+        pending_booking_ids = set()
+    pending_bookings = len(pending_booking_ids)
 
     trips = board.list_trips()
     registered = registrations(board)
