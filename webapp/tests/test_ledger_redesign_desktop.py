@@ -159,18 +159,28 @@ class DesktopLedgerRedesignTests(unittest.TestCase):
         self._board(page, board_url())
         self.assertEqual(page.eval_on_selector(
             "#tbl thead th", "e=>getComputedStyle(e).position"), "sticky")
-        # a thin border and a 4px radius, measured
+        # Dense rows stay square-edged, while small controls use the softer
+        # radius shared by the rest of the application chrome.
         self.assertEqual(page.eval_on_selector(
             "#tbl tbody td", "e=>getComputedStyle(e).borderBottomWidth"), "1px")
         self.assertEqual(page.eval_on_selector(
-            ".tag", "e=>getComputedStyle(e).borderRadius"), "3px")
+            ".tag", "e=>getComputedStyle(e).borderRadius"), "6px")
         self.assertEqual(page.eval_on_selector(
-            ".act .btn", "e=>getComputedStyle(e).borderRadius"), "4px")
+            ".act .btn", "e=>getComputedStyle(e).borderRadius"), "7px")
         # the amount column is tabular, so digits stack column-wise
         self.assertIn("tabular-nums", page.eval_on_selector(
             "td.c-amt", "e=>getComputedStyle(e).fontVariantNumeric"))
         self.assertEqual(page.eval_on_selector(
             "#tbl thead th:last-child", "e=>getComputedStyle(e).textAlign"), "right")
+
+    def test_filters_use_the_shared_blue_focus_treatment(self):
+        page = self._page()
+        self._board(page, board_url())
+        page.focus("#q")
+        self.assertEqual(page.eval_on_selector(
+            "#q", "e=>getComputedStyle(e).borderColor"), "rgb(34, 102, 245)")
+        self.assertIn("rgba(34, 102, 245, 0.12)", page.eval_on_selector(
+            "#q", "e=>getComputedStyle(e).boxShadow"))
 
     def test_a_waiting_row_says_so_in_words_and_the_rows_are_focusable(self):
         page = self._page()

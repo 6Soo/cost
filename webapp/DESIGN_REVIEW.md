@@ -86,3 +86,19 @@ UI 1차 안정화 완료 — 동결. 모바일 수기 지출 진입, 편집 foot
 직접 실행 증거는 `C:/AX/cost-ui-work/20261005-stabilize/`에 보존했다. `baseline-geometry.json`은 변경 전 모바일 링크 부재와 힌트 측정이며, `final-geometry-confirmed/results.json`은 통합 코드의 열 가지 화면 크기 결과다. `visual/`에는 합성 화면 캡처가 있다. 운영 원본이나 비밀값은 위임 자료에 포함하지 않았다.
 
 최종 실행 결과는 `final-related-ui.log`, `store-card-corrected.log`, `final-breakpoints-confirmed.log`, `final-full-regression.log`에 보존했다. 기존 시작 실패는 `baseline-startup.log`, 변경 전 넓은 검사 결과는 `full-web-baseline.log`, 추가 실패의 개별 재현은 `extra-baseline-isolated.log`로 대조할 수 있다. sqlite 연결 ResourceWarning도 출력됐으며 원인 조사는 이번 범위에서 수행하지 않았다.
+
+## 2026-10-06 Secondhome 시각 체계 비교
+
+실제 Chromium에서 Secondhome 공개 화면과 cost를 같은 크기로 확인했다. 비교 이미지는 `.local-archive/ui-reference-20261006/`의 `reference-desktop.png`, `reference-mobile.png`, `cost-before-desktop.png`, `cost-before-mobile.png`, `cost-after-desktop.png`, `cost-after-mobile.png`, `cost-after-desktop-panel.png`, `cost-after-mobile-panel.png`에 보존했다. 데스크톱은 1440×900, 모바일은 390×844 기준이다. Secondhome은 공개 상태에서 로그인 화면까지만 직접 확인할 수 있었으므로 그 화면에서 확인 가능한 시각 체계와 반응형 표현만 참고했다.
+
+비교 뒤 다음처럼 범위를 정했다.
+
+- 그대로 유지: 232px sidebar, 36px 거래 행, 400px 상세 panel, 데스크톱 table과 모바일 list 전환, green 선택 의미, tabular amount, sticky header, 기존 keyboard와 저장 보호 동작.
+- 가져올 것: 차가운 neutral 배경과 surface 계층, 더 또렷한 border 단계, title/body/muted 글자 위계, 6~8px control radius, blue focus ring, 차분한 hover, badge와 detail panel 간격, mobile header와 action 정리.
+- cost에 맞지 않아 버릴 것: HR card 구조, dashboard, KPI, chart, 기능 card, 과한 radius와 card 분할, gradient, 의미 없는 animation, HR 도메인 요소.
+
+구현은 `ledger_design.py`의 기존 HTML 구조와 동작을 유지한 CSS 중심 시각 조정이다. 업무 순서, 장부 정보 구조, API, DB, 분류 규칙, 저장 계약, 장부 column은 바꾸지 않았다. selected 상태의 green 의미는 유지하고, focus 표현만 blue 계열로 통일했다. input, select, button, badge, source box와 detail panel의 radius와 border, spacing, typography를 같은 계열로 정리했다.
+
+관련 회귀 검사는 61개와 하위 검증 2039개가 통과했다. 실제 Chromium 측정에서도 1440×900과 390×844 모두 문서와 body의 가로 넘침이 0px였다. 데스크톱 상세 panel은 400px 폭을 유지했고 footer 하단은 900px, 모바일 footer 하단은 844px로 저장 action에 접근할 수 있었다.
+
+전체 회귀 결과는 `2198 passed, 4 skipped, 1 failed, 2355 subtests passed`다. 실패한 `test_serve_actually_binds_the_address_it_is_given`은 저장소 루트의 `webledger.work.sqlite`가 생기지 않아야 한다는 검사다. 이번 UI 변경 파일과 무관한지 확인하기 위해 현재 `HEAD`의 깨끗한 임시 worktree에서도 이 검사만 다시 실행했고 동일하게 실패했다. 따라서 전체 회귀를 전부 통과했다고 기록하지 않는다. 이번 범위에서는 `ledger_board.py`, 호스팅 동작, DB 생성 동작과 해당 테스트를 변경하지 않았다.

@@ -63,9 +63,10 @@ STYLE = """
 }
 *{box-sizing:border-box}
 :root{
- --bg:#F7F8F7;--paper:#FFFFFF;--ink:#202521;--mut:#657068;--line:#E3E7E3;
- --line2:#EEF1EE;--sel:#E9F3ED;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
- --warn:#8A5A12;--neg:#A4342A;
+ --bg:#F7F9FC;--paper:#FFFFFF;--ink:#182230;--mut:#667085;--line:#E4E7EC;
+ --line2:#F2F4F7;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;
+ --sel:#ECF5EF;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
+ --warn:#B54708;--neg:#B42318;--bad:#B42318;
 }
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -76,25 +77,27 @@ button,input,select,textarea{font:inherit;color:inherit}
 .tnum{font-variant-numeric:tabular-nums}
 h1,h2,p{margin:0}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-:focus-visible{outline:2px solid var(--grn);outline-offset:1px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
+ box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
 .synth{display:inline-block;font-size:11.5px;line-height:17px;padding:0 7px;border:1px solid var(--line);
- border-radius:3px;color:var(--mut);margin-left:8px;vertical-align:2px}
+ border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
 
 .app{display:flex;height:100dvh;min-height:0}
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
-.nav-hd{padding:16px 16px 12px}
-.brand{font-size:15px;font-weight:700}
+.nav-hd{padding:18px 16px 14px}
+.brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
 .nav-sec{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--mut);letter-spacing:.05em}
 .nav-q{margin:0 12px 6px}
-.nav-q input{width:100%;height:32px;border:1px solid var(--line);border-radius:4px;
+.nav-q input{width:100%;height:32px;border:1px solid var(--line-strong);border-radius:7px;
  background:var(--paper);padding:0 8px;font-size:13px}
 .nav-list{list-style:none;margin:0;padding:0 8px}
 .nv{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 8px;
- border:0;border-left:2px solid transparent;border-radius:0;background:transparent;
+ border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
  font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none}
-.nv:hover{background:var(--line2)}
+.nv:hover{background:var(--hover)}
 .nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
 .nv .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nv .ct{flex:0 0 auto;margin-left:8px;font-size:12px;color:var(--mut);white-space:nowrap}
@@ -103,7 +106,7 @@ h1,h2,p{margin:0}
 .nav-toggle{border-left:2px solid transparent;margin:0 8px;max-width:calc(100% - 16px)}
 .nav-toggle .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav-toggle .ct{flex:0 0 auto}
-.nav-toggle[aria-expanded="true"]{background:var(--line2)}
+.nav-toggle[aria-expanded="true"]{background:var(--hover)}
 .arch-row{display:flex;align-items:center;gap:6px}
 .arch-row .nv{flex:1 1 auto}
 .arch-restore{margin:0;display:flex}
@@ -117,18 +120,18 @@ h1,h2,p{margin:0}
 .nav-mask{display:none}
 
 .main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--paper)}
-.page-hd{display:flex;align-items:flex-start;gap:16px;padding:20px 24px 14px;
+.page-hd{display:flex;align-items:flex-start;gap:16px;padding:22px 24px 16px;
  border-bottom:1px solid var(--line)}
-.page-hd h1{font-size:20px;font-weight:700;letter-spacing:-.012em;line-height:1.25}
+.page-hd h1{font-size:21px;font-weight:700;letter-spacing:-.018em;line-height:1.25}
 .period{font-size:13px;color:var(--mut);margin-top:3px}
 .meta{font-size:12.5px;color:var(--mut);margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px}
 .meta a{color:var(--mut)}
 .act{margin-left:auto;display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
 .bar{display:flex;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid var(--line);
  flex-wrap:wrap}
-#q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line);border-radius:4px;
+#q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line-strong);border-radius:7px;
  padding:0 8px;background:var(--paper)}
-#kind{height:32px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
+#kind{height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
  padding:0 6px;font-weight:500}
 .crumb{font-size:12.5px;color:var(--mut)}
 .status{padding:7px 24px;font-size:12.5px;color:var(--grn);border-bottom:1px solid var(--line2);
@@ -166,22 +169,22 @@ tbody.grp th{height:30px;background:var(--bg);font-size:12.5px;font-weight:600;c
 tbody.grp td{height:30px;background:var(--bg);text-align:right}
 tbody.grp .btn{height:24px;font-size:12px}
 tr[data-id]{cursor:pointer}
-tr[data-id]:hover{background:var(--grn-lt)}
-tr[data-id]:focus-visible{outline:2px solid var(--grn);outline-offset:-2px}
+tr[data-id]:hover{background:var(--hover)}
+tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
 .num{text-align:right}
 .a-in{color:var(--grn);font-weight:500}
 .a-ex{font-weight:500}
 .a-neg{color:var(--neg);font-weight:500}
 .tag{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);
- border-radius:3px;color:var(--mut)}
+ border-radius:6px;color:var(--mut);font-weight:500}
 .tag.in{border-color:#CFE3D7;background:var(--grn-lt);color:var(--grn-dk)}
 /* Waiting and cancelled are said in words, not by colour alone, and both come
    from the row itself: no travel assigned, or a cancellation in the source. */
 .tag.wait{border-color:#E8D8B4;background:#FBF4E6;color:var(--warn)}
 .tag.cancel{text-decoration:line-through}
 .empty td{color:var(--mut);text-align:center;height:64px}
-.psel{height:30px;width:132px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
+.psel{height:30px;width:132px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
  font-size:12.5px;padding:0 4px}
 .lst{display:none}
 
@@ -190,19 +193,19 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  display:flex;flex-direction:column;min-height:0}
 .panel:focus{outline:none}
 .p-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
- padding:14px 16px;border-bottom:1px solid var(--line)}
+ padding:16px 18px;border-bottom:1px solid var(--line)}
 .p-hd h2{font-size:15px;font-weight:700}
-.p-amt{font-size:20px;font-weight:700;letter-spacing:-.012em;margin-top:2px}
+.p-amt{font-size:21px;font-weight:700;letter-spacing:-.018em;margin-top:2px}
 /* The save form is a flex child of .panel, so it has to pass the column on.
    Without this .p-bd grows to its content height, stops being a scroller and
    pushes the 저장/취소 footer past the panel bottom, where it cannot be
    reached on a short viewport. */
 .panel form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
-.p-bd{padding:16px;overflow:auto;flex:1 1 auto;min-height:0}
+.p-bd{padding:18px;overflow:auto;flex:1 1 auto;min-height:0}
 /* The source identifier, the revision and the source kind are a support answer,
    not a working day. They are folded away by default and one click away, and the
    values themselves are unchanged: this moves them, it does not tidy them. */
-.p-src{margin:0 0 14px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.p-src{margin:0 0 15px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
 .p-src>summary{cursor:pointer;padding:7px 10px;font-size:12px;color:var(--mut);
  list-style:none;user-select:none}
 .p-src>summary::-webkit-details-marker{display:none}
@@ -211,16 +214,16 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .p-src[open]>summary{border-bottom:1px solid var(--line2)}
 .p-src .p-sub{margin:0;padding:9px 10px;line-height:1.7}
 .p-sub{font-size:12.5px;color:var(--mut);margin-bottom:14px;word-break:break-all}
-.f{margin-bottom:14px}
-.f label{display:block;font-size:12px;color:var(--mut);margin-bottom:5px}
-.f input,.f select,.f textarea{width:100%;height:36px;border:1px solid var(--line);
- border-radius:4px;padding:0 8px;background:var(--paper);font-weight:500}
+.f{margin-bottom:15px}
+.f label{display:block;font-size:12px;font-weight:500;color:var(--mut);margin-bottom:6px}
+.f input,.f select,.f textarea{width:100%;height:38px;border:1px solid var(--line-strong);
+ border-radius:7px;padding:0 9px;background:var(--paper);font-weight:500}
 .f textarea{height:auto;min-height:64px;padding:8px;resize:vertical}
 .f input[readonly],.f select[disabled]{background:var(--bg);color:var(--mut)}
 .f .err{color:var(--neg);font-size:12.5px;margin-top:6px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .src{font-size:12px;color:var(--mut);background:var(--bg);border:1px solid var(--line);
- border-radius:4px;padding:12px;line-height:1.7}
+ border-radius:8px;padding:12px;line-height:1.7}
 .p-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;font-size:12.5px}
 .p-links a{color:var(--grn-dk)}
 .sect{margin:0;padding:20px 24px;border-bottom:1px solid var(--line)}
@@ -230,7 +233,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
    table would either overflow sideways on a phone or clip the one value a
    reader needs to check against the original. A card cannot overflow that way. */
 .src-preview{margin:0.75rem 0;padding:12px 16px;border:1px solid var(--line);
- border-radius:4px;background:var(--bg)}
+ border-radius:8px;background:var(--bg)}
 .src-preview h2{font-size:15px;font-weight:700;margin-bottom:6px}
 .src-hd{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .src-hd h2{margin-bottom:0}
@@ -250,7 +253,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .sect p{margin:0 0 8px;font-size:13.5px}
 .sect .kv{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--mut)}
 .sect .kv b{color:var(--ink);font-weight:600}
-.card2{border:1px solid var(--line);border-radius:4px;padding:16px;margin:0 0 12px}
+.card2{border:1px solid var(--line);border-radius:8px;padding:16px;margin:0 0 12px}
 .card2 h3{font-size:15px;font-weight:700;margin:0 0 6px}
 .hist{width:100%;font-size:13px}
 .hist th,.hist td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line2);height:auto}
@@ -267,7 +270,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  /* one allocation becomes a labelled field instead of a squeezed row */
  .alloc,.alloc tbody,.alloc tr,.alloc td{display:block;width:100%}
  .alloc thead{display:none}
- .alloc tr{border:1px solid var(--line);border-radius:4px;padding:10px 12px;margin:0 0 10px}
+ .alloc tr{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}
  .alloc td{border-bottom:0;display:grid;grid-template-columns:96px 1fr;gap:10px;
   align-items:center;padding:4px 0}
  .alloc td::before{content:attr(data-label);font-size:12px;color:var(--mut)}
@@ -285,7 +288,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .page-body label{display:inline-block;font-size:12px;color:var(--mut);margin:0 6px 4px 0}
 .page-body input:not([type=radio]):not([type=checkbox]),.page-body select{
  width:auto;min-width:220px;max-width:100%;height:34px;padding:0 8px;
- border:1px solid var(--line);border-radius:4px;background:var(--paper);font-weight:500}
+ border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-weight:500}
 .page-body input[type=radio],.page-body input[type=checkbox]{
  width:18px;height:18px;min-width:0;max-width:18px;margin:0;padding:0;
  accent-color:var(--grn);flex:0 0 auto}
@@ -296,20 +299,21 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .qgroup:last-of-type{border-bottom:0;padding-bottom:0}
 .qgroup p{margin:0 0 6px}
 .page-body textarea{min-width:320px;min-height:64px;padding:8px;
- border:1px solid var(--line);border-radius:4px}
+ border:1px solid var(--line-strong);border-radius:7px}
 .page-body button,.page-body a.btn{
- height:34px;padding:0 12px;margin:6px 6px 0 0;border:1px solid var(--line);
- border-radius:4px;background:var(--paper);font-size:14px;font-weight:600;
+ height:34px;padding:0 12px;margin:6px 6px 0 0;border:1px solid var(--line-strong);
+ border-radius:7px;background:var(--paper);font-size:14px;font-weight:600;
  cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
-.page-body .card{border:1px solid var(--line);border-radius:4px;padding:16px;margin:0 0 12px}
-.page-body table{border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.page-body .card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:0 0 12px}
+.page-body table{border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .page-body td,.page-body th{border-bottom:1px solid var(--line2);height:auto;padding:7px 10px}
 .page-body a{color:var(--grn-dk)}
 @media (max-width:759px){
  .page-body input,.page-body select,.page-body textarea{min-width:0;width:100%;font-size:16px}
  .page-body button,.page-body a.btn{height:44px;width:100%;justify-content:center}
 }
-.p-ft{display:flex;align-items:center;gap:6px;padding:12px 16px;border-top:1px solid var(--line)}
+.p-ft{display:flex;align-items:center;gap:6px;padding:12px 18px;border-top:1px solid var(--line);
+ background:var(--paper)}
 /* 저장/취소 carry the panel footer and stay equal. The two walking buttons are
    shown only when there is a row to walk to, and they keep their width so the
    footer does not reflow as the position beside them changes. */
@@ -321,7 +325,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
    path is discoverable without a manual (DETAILED_CONTRACT 12.3). */
 .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
  line-height:1;padding:2px 4px;margin:0 1px;border:1px solid var(--line);
- border-radius:3px;background:var(--bg);color:var(--mut);font-weight:600}
+ border-radius:5px;background:var(--bg);color:var(--mut);font-weight:600}
 /* A field the server refused is marked with text and a symbol, never by
    colour alone, and it is the first thing a screen reader reaches. */
 .f-err{border-color:var(--bad)!important;box-shadow:0 0 0 2px rgba(180,35,24,.18)}
@@ -332,29 +336,29 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .kbd{display:none}
 }
 
-.btn{height:32px;padding:0 10px;border:1px solid var(--line);border-radius:4px;
+.btn{height:32px;padding:0 10px;border:1px solid var(--line-strong);border-radius:7px;
  background:var(--paper);font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
-.btn:hover{background:var(--bg)}
+.btn:hover{background:var(--hover)}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
 .btn.primary:hover{background:var(--grn-dk)}
 .btn[disabled]{opacity:.45;cursor:default}
 .btn[disabled]:hover{background:var(--paper)}
-.icon{width:32px;height:32px;border:1px solid var(--line);border-radius:4px;background:var(--paper);
+.icon{width:32px;height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
  cursor:pointer;font-size:14px;line-height:1}
 #btn-menu{display:none;font-size:15px}
 [hidden]{display:none!important}
 
 @media (max-width:1099px){
- .panel{position:fixed;top:0;right:0;bottom:0;z-index:30;width:min(400px,100%);
-  box-shadow:-8px 0 24px rgba(32,37,33,.08)}
+.panel{position:fixed;top:0;right:0;bottom:0;z-index:30;width:min(400px,100%);
+  box-shadow:-10px 0 28px rgba(16,24,40,.10)}
 }
 @media (max-width:759px){
  #btn-menu{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center}
  .nav{position:fixed;top:0;left:0;bottom:0;z-index:45;transform:translateX(-100%);
   transition:transform .18s ease;border-right:1px solid var(--line)}
  .nav.open{transform:none}
- .nav-mask{display:block;position:fixed;inset:0;z-index:44;background:rgba(32,37,33,.35)}
+ .nav-mask{display:block;position:fixed;inset:0;z-index:44;background:rgba(16,24,40,.38)}
  .nav-mask[hidden]{display:none!important}
  .tw{display:none}
  .lst{display:block;padding-bottom:24px}
@@ -362,8 +366,8 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  .btn{height:44px;padding:0 14px}
  .icon{width:44px;height:44px}
  .psel{height:44px;width:100%}
- .page-hd{padding:12px 16px 10px;flex-wrap:wrap;gap:8px}
- .page-hd h1{font-size:19px}
+ .page-hd{padding:13px 16px 11px;flex-wrap:wrap;gap:8px}
+ .page-hd h1{font-size:20px}
  .page-hd .meta{display:none}
  .period{font-size:12.5px}
  .act{margin-left:auto;width:auto}
