@@ -1360,7 +1360,7 @@ def tabs_html(selected: str, query: str = "") -> str:
         items.append(
             f"<a class='{cls}' href='/board?tab={esc(t['tab_id'])}'>"
             f"<div>{esc(t['display_key'])}</div>"
-            f"<div class='amt'>{totals['income']:,}원</div>"
+            f"<div class='amt'>{totals['expense']:,}원</div>"
             f"<small>지출 {totals['expense']:,}원</small></a>"
         )
     if _active_store() is not None:

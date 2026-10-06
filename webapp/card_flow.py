@@ -169,6 +169,7 @@ def batch_catalog(board):
 
 def home_page(board):
     from . import ledger_board, ledger_design
+    from app import ledger as ledger_preview
     from app.reserve_trips import registrations, sync_status, today, KST
     import datetime as dt
     esc = ledger_board.esc
@@ -186,6 +187,14 @@ def home_page(board):
             "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
             ('추론 배정 · 낮음 ·%', review_from, review_from)).fetchone()
+    pending_bookings = 0
+    try:
+        for batch in batch_catalog(board):
+            result = ledger_preview.preview(board, batch['batch_id'], review_from=review_from or None)
+            pending_bookings += len(result.get('ready', []))
+    except Exception:
+        pending_bookings = 0
+
     trips = board.list_trips()
     registered = registrations(board)
     upcoming = sorted((t for t in trips if t['tab_id'] in registered
@@ -245,7 +254,7 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
-            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 반영 대기 <b>{pending_bookings:,}</b> · 장부 <b>{posted:,}</b></p>"
             f"<a class='home-review btn primary' href='/import'>카드 검토 {questions:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
             "<a class='btn' href='/import'>새 카드 가져오기</a>"
@@ -463,7 +472,7 @@ class CardFlow:
         record = dict(row_id=row_id, row_kind='expense', revision=1,
                       display_tab_id=board_tab, occurred_on=entry['occurred_on'],
                       item=entry['item'], description=entry['description'],
-                      service_period='', reservation_no='', evidence_type='카드',
+                      service_period=entry.get('service_period',''), reservation_no=entry.get('booking_ref',''), evidence_type='카드',
                       amount_krw=entry['amount_krw'], source_kind='카드',
                       source_event_id=entry['transaction_id'], source_fact_digest=entry['source_hash'],
                       source_merchant=entry['merchant'], source_issuer=source[0],
