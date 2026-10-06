@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.error
@@ -56,6 +57,13 @@ DEFAULT_ATTEMPTS = 3
 #: changed source becomes visible without anyone asking for it. An operator who
 #: wants it faster passes 15.
 DEFAULT_INTERVAL = 30.0
+SOURCE_CONFIG_MAX_BYTES = 64 * 1024
+GOOGLE_SHEETS_SOURCE_TYPE = "google_sheets"
+GOOGLE_SHEETS_EXPORT_FORMAT = "xlsx"
+GOOGLE_SHEETS_EXPORT_URL = (
+    "https://docs.google.com/spreadsheets/d/{spreadsheet_id}/export?format=xlsx"
+)
+_SPREADSHEET_ID = re.compile(r"^[A-Za-z0-9_-]{20,200}$")
 
 #: Bounds on the operator's own numbers, checked before anything is used. A
 #: non-positive or non-finite value is a typo, and a typo that silently meant
@@ -75,6 +83,7 @@ _ALLOWED_TYPES = (
 CODE_SOURCE_UNREACHABLE = review_refresh.CODE_SOURCE_UNREADABLE
 CODE_SOURCE_TOO_LARGE = "REFRESH_SOURCE_TOO_LARGE"
 CODE_SOURCE_WRONG_TYPE = "REFRESH_SOURCE_WRONG_TYPE"
+CODE_SOURCE_CONFIG_INVALID = "REFRESH_SOURCE_CONFIG_INVALID"
 CODE_ARGUMENT = review_refresh.CODE_ARGUMENT
 
 
@@ -112,6 +121,33 @@ def read_text_bounded(path, max_bytes):
         return data.decode("utf-8")
     except UnicodeDecodeError:
         raise SourceUnavailable(CODE_ARGUMENT) from None
+
+
+def load_source_config(path):
+    """Read one explicit source descriptor and refuse anything unexpected."""
+    try:
+        raw = _read_bounded(path, SOURCE_CONFIG_MAX_BYTES)
+        config = json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise SourceUnavailable(CODE_SOURCE_CONFIG_INVALID) from None
+
+    expected = {"source_type", "spreadsheet_id", "export_format"}
+    if not isinstance(config, dict) or set(config) != expected:
+        raise SourceUnavailable(CODE_SOURCE_CONFIG_INVALID)
+    if config["source_type"] != GOOGLE_SHEETS_SOURCE_TYPE:
+        raise SourceUnavailable(CODE_SOURCE_CONFIG_INVALID)
+    if config["export_format"] != GOOGLE_SHEETS_EXPORT_FORMAT:
+        raise SourceUnavailable(CODE_SOURCE_CONFIG_INVALID)
+    spreadsheet_id = config["spreadsheet_id"]
+    if not isinstance(spreadsheet_id, str) or not _SPREADSHEET_ID.fullmatch(spreadsheet_id):
+        raise SourceUnavailable(CODE_SOURCE_CONFIG_INVALID)
+    return config
+
+
+def source_url_from_config(path):
+    config = load_source_config(path)
+    return GOOGLE_SHEETS_EXPORT_URL.format(
+        spreadsheet_id=config["spreadsheet_id"])
 
 
 def fetch_snapshot(url, *, timeout, max_bytes, attempts, opener=None):
@@ -199,8 +235,10 @@ def run_once(args, *, fetcher=None) -> str:
         if args.snapshot:
             snapshot_bytes = _read_bounded(args.snapshot, args.max_bytes)
         else:
+            source_url = (source_url_from_config(args.source_config)
+                          if args.source_config else args.source_url)
             snapshot_bytes = (fetcher or _default_fetcher(args))(
-                args.source_url)
+                source_url)
         master_text = read_text_bounded(args.master, args.max_bytes)
     except SourceUnavailable as exc:
         _record(args, exc.code, None)
@@ -261,6 +299,9 @@ def build_parser():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--snapshot", help="A local workbook file.")
     source.add_argument("--source-url", help="A workbook URL.")
+    source.add_argument(
+        "--source-config",
+        help="An explicit source descriptor; never searched or defaulted.")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
                         help="Seconds per fetch attempt.")
     parser.add_argument("--max-bytes", type=int, default=DEFAULT_MAX_BYTES,

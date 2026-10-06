@@ -1,4 +1,5 @@
 """Check the selected read-only source export without emitting source data."""
+import argparse
 import hashlib
 import io
 import json
@@ -7,14 +8,23 @@ import urllib.error
 import urllib.request
 import zipfile
 
-URL = "https://docs.google.com/spreadsheets/d/1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU/export?format=xlsx"
+from refresh_review_source import source_url_from_config
+
 OUTPUT = Path(__file__).resolve().parents[1] / "docs/handoff/2026-10-01/source-export-probe.json"
 
 
-def main():
+def build_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source-config", required=True)
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    url = source_url_from_config(args.source_config)
     result = {"read_only": True, "source_upload_performed": False, "export_available": False}
     try:
-        request = urllib.request.Request(URL, headers={"User-Agent": "Mozilla/5.0"})
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(request, timeout=30) as response:
             result["http_status"] = response.status
             data = response.read(20 * 1024 * 1024 + 1)

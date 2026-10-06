@@ -1,7 +1,12 @@
-import pathlib, json, sqlite3, openpyxl, urllib.request, sys
+import argparse, pathlib, json, sqlite3, openpyxl, urllib.request, sys
 sys.path.insert(0, r'C:\AX\cost')
 from openpyxl.styles import Font
 from ledger.domain.direct_trip_schedule_authority import load_document
+from tools.refresh_review_source import source_url_from_config
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--source-config', required=True)
+args = parser.parse_args()
 
 TEMPLATE = pathlib.Path(r'C:\Users\kkokk\AppData\Local\Temp\opencode\ledger_full.xlsx')
 SRC = pathlib.Path(r'C:\AX\cost\outputs\agoda-card-link-candidate-v5-20260826.sqlite')
@@ -9,7 +14,7 @@ AUTH = pathlib.Path(r'C:\AX\cost\ledger\data\trip_schedule_authority_v3.json')
 OUT = pathlib.Path(r'C:\AX\cost\outputs\법인경리_비용_전체_5328_48tabs_v12_20260829.xlsx')
 
 if not TEMPLATE.exists():
-    url = 'https://docs.google.com/spreadsheets/d/1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU/export?format=xlsx'
+    url = source_url_from_config(args.source_config)
     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, timeout=30) as r:
         TEMPLATE.write_bytes(r.read())

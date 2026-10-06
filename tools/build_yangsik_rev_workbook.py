@@ -1,10 +1,15 @@
 """양식_rev 7열(거래일자|이름|닉네임|증빙|단가|추가금|금액) 복제+값주입 빌더"""
-import pathlib, json, sqlite3, openpyxl
+import argparse, pathlib, json, sqlite3, openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from copy import copy
+from refresh_review_source import source_url_from_config
 
-TEMPLATE_URL = "https://docs.google.com/spreadsheets/d/1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU/export?format=xlsx"
+parser = argparse.ArgumentParser()
+parser.add_argument('--source-config', required=True)
+args = parser.parse_args()
+
+TEMPLATE_URL = source_url_from_config(args.source_config)
 TEMPLATE_LOCAL = pathlib.Path(r'C:\Users\kkokk\AppData\Local\Temp\opencode\ledger_full.xlsx')
 SRC = pathlib.Path(r'C:\AX\cost\outputs\agoda-card-accounting-draft-v5-ota-extended.sqlite')
 AUTH = pathlib.Path(r'C:\AX\cost\ledger\data\trip_schedule_authority_v3.json')

@@ -18,6 +18,7 @@ import io
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import threading
@@ -1163,6 +1164,166 @@ class CollectorCliTests(RefreshFixture):
         (self.tmp / "snapshot.xlsx").write_bytes(snapshot or self.snapshot)
         (self.tmp / "master.csv").write_text(master or self.master,
                                              encoding="utf-8")
+
+    def write_source_config(self, value=None):
+        config = value if value is not None else {
+            "source_type": "google_sheets",
+            "spreadsheet_id": "syntheticSpreadsheetId_1234567890",
+            "export_format": "xlsx",
+        }
+        path = self.tmp / "source.json"
+        if isinstance(config, str):
+            path.write_text(config, encoding="utf-8")
+        else:
+            path.write_text(json.dumps(config), encoding="utf-8")
+        return path
+
+    def remote_args(self, option, value):
+        argv = ["--config", str(self.config_path),
+                "--master", str(self.tmp / "master.csv"),
+                "--bundle-root", str(self.bundle_root),
+                option, str(value)]
+        return cli.build_parser().parse_args(argv)
+
+    def test_google_source_config_builds_a_fixed_google_export_url(self):
+        path = self.write_source_config()
+        self.assertEqual(
+            cli.source_url_from_config(path),
+            "https://docs.google.com/spreadsheets/d/"
+            "syntheticSpreadsheetId_1234567890/export?format=xlsx")
+
+    def test_invalid_source_config_is_refused_without_fallback(self):
+        valid = {
+            "source_type": "google_sheets",
+            "spreadsheet_id": "syntheticSpreadsheetId_1234567890",
+            "export_format": "xlsx",
+        }
+        invalid = [
+            {**valid, "source_type": "other"},
+            {key: value for key, value in valid.items() if key != "spreadsheet_id"},
+            {**valid, "spreadsheet_id": "bad/id"},
+            {**valid, "export_format": "csv"},
+            {**valid, "unexpected": True},
+            [valid],
+            "{not json",
+        ]
+        for index, value in enumerate(invalid):
+            with self.subTest(index=index):
+                path = self.write_source_config(value)
+                with self.assertRaises(cli.SourceUnavailable) as caught:
+                    cli.source_url_from_config(path)
+                self.assertEqual(caught.exception.code,
+                                 cli.CODE_SOURCE_CONFIG_INVALID)
+
+    def test_source_config_uses_the_existing_bounded_fetch_path(self):
+        grown = build_snapshot([entry(1), entry(2), entry(3)])
+        self.write_inputs(master=build_master(
+            [master_row(index) for index in range(1, 4)]))
+        source_config = self.write_source_config()
+        asked = []
+
+        def fetcher(url):
+            asked.append(url)
+            return grown
+
+        code = cli.run_once(
+            self.remote_args("--source-config", source_config), fetcher=fetcher)
+        self.assertEqual(code, review_refresh.CODE_CONFIG_REPLACED)
+        self.assertEqual(asked, [
+            "https://docs.google.com/spreadsheets/d/"
+            "syntheticSpreadsheetId_1234567890/export?format=xlsx"])
+
+    def test_source_url_and_snapshot_options_remain_supported(self):
+        snapshot_args = cli.build_parser().parse_args([
+            "--config", str(self.config_path),
+            "--master", str(self.tmp / "master.csv"),
+            "--bundle-root", str(self.bundle_root),
+            "--snapshot", str(self.tmp / "snapshot.xlsx")])
+        url_args = cli.build_parser().parse_args([
+            "--config", str(self.config_path),
+            "--master", str(self.tmp / "master.csv"),
+            "--bundle-root", str(self.bundle_root),
+            "--source-url", "https://synthetic.invalid/source.xlsx"])
+        self.assertTrue(snapshot_args.snapshot.endswith("snapshot.xlsx"))
+        self.assertEqual(url_args.source_url,
+                         "https://synthetic.invalid/source.xlsx")
+
+    def test_source_options_are_mutually_exclusive(self):
+        import contextlib
+        import io as _io
+
+        common = ["--config", str(self.config_path),
+                  "--master", str(self.tmp / "master.csv"),
+                  "--bundle-root", str(self.bundle_root)]
+        options = [
+            ("--snapshot", str(self.tmp / "snapshot.xlsx")),
+            ("--source-url", "https://synthetic.invalid/source.xlsx"),
+            ("--source-config", str(self.write_source_config())),
+        ]
+        for left in range(len(options)):
+            for right in range(left + 1, len(options)):
+                argv = common + list(options[left]) + list(options[right])
+                with self.subTest(left=options[left][0], right=options[right][0]):
+                    with contextlib.redirect_stderr(_io.StringIO()):
+                        with self.assertRaises(SystemExit):
+                            cli.build_parser().parse_args(argv)
+
+    def test_source_option_is_required_and_config_is_never_implicit(self):
+        import contextlib
+        import io as _io
+
+        argv = ["--config", str(self.config_path),
+                "--master", str(self.tmp / "master.csv"),
+                "--bundle-root", str(self.bundle_root)]
+        with contextlib.redirect_stderr(_io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cli.build_parser().parse_args(argv)
+
+    def test_watch_and_one_shot_use_the_same_explicit_source_config(self):
+        watch = (PROJECT_ROOT / "tools" / "watch_review_source.ps1").read_text(
+            encoding="utf-8")
+        one_shot = (PROJECT_ROOT / "tools" /
+                    "activate_review_source_refresh.ps1").read_text(
+                        encoding="utf-8")
+        for script in (watch, one_shot):
+            self.assertIn("--source-config", script)
+            self.assertIn("config\\review_source.json", script)
+            self.assertNotIn("--source-url", script)
+        self.assertIn("'--watch', '--interval', '300'", watch)
+
+    def test_collector_tooling_does_not_duplicate_the_authority_spreadsheet_id(self):
+        source = json.loads(
+            (PROJECT_ROOT / "config" / "review_source.json").read_text(
+                encoding="utf-8"))
+        spreadsheet_id = source["spreadsheet_id"]
+        duplicated = []
+        for pattern in ("*.py", "*.ps1"):
+            for path in (PROJECT_ROOT / "tools").glob(pattern):
+                if spreadsheet_id in path.read_text(encoding="utf-8", errors="replace"):
+                    duplicated.append(path.name)
+        self.assertEqual(duplicated, [])
+        for name in (
+                "build_cost_yangsik_workbook.py",
+                "build_yangsik_rev_workbook.py",
+                "probe_selected_source_export.py"):
+            text = (PROJECT_ROOT / "tools" / name).read_text(
+                encoding="utf-8", errors="replace")
+            self.assertIn("--source-config", text)
+
+    def test_source_config_legacy_tools_are_directly_invokable(self):
+        for name in (
+                "build_cost_yangsik_workbook.py",
+                "build_yangsik_rev_workbook.py",
+                "probe_selected_source_export.py"):
+            with self.subTest(name=name):
+                completed = subprocess.run(
+                    [sys.executable, str(PROJECT_ROOT / "tools" / name), "--help"],
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                    check=False)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn("--source-config", completed.stdout)
 
     def test_a_changed_source_is_collected_and_activated(self):
         self.write_inputs(snapshot=build_snapshot(

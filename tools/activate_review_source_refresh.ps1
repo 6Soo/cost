@@ -8,7 +8,7 @@ $arguments = @(
     '--config', 'D:\WebLedgerHost\config\real-review.json',
     '--master', "$root\ledger\master_ledger.csv",
     '--bundle-root', 'D:\WebLedgerHost\review\refreshed',
-    '--source-url', 'https://docs.google.com/spreadsheets/d/1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU/export?format=xlsx',
+    '--source-config', "$root\config\review_source.json",
     '--timeout', '30', '--attempts', '2', '--max-bytes', '20971520'
 )
 $collector = Start-Process 'D:\WebLedgerHost\venv\Scripts\python.exe' -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -Wait
