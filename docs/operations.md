@@ -1,5 +1,13 @@
 # 운영 상태와 경량화 결과
 
+## 2026-10-07 세션 인계 상태
+
+최신 기능 코드 commit은 `9c4dbdac2ab9e6f5f854b07a5ac3fc2f215005ed`이며 원격 main과 일치를 확인했다. 앞선 `b60e54aa489c6eb0d232533659cb5c65950a4ed6`의 홈 반영 대기 검증 후 OTA 메타데이터를 evidence → preview → digest → commit → 장부 행까지 연결했다. 이번 작업은 Git 기록까지만 완료했으며 운영 배포·재시작·운영 DB 쓰기·재분류·source refresh·OTA 재수집을 수행하지 않았다. 현재 운영 PID·health·ready·aggregate를 새로 확인한 결과도 없다.
+
+최신 코드의 targeted 결과는 152 passed, 39 subtests passed다. 실제 Chromium에서 합성 자료로 390×844와 1440×900의 OTA 미리보기 표시·HTTP 기록과 horizontal overflow 0을 검증했다. 전체 회귀는 후속 작업의 최종 revision에서 한 번 실행하도록 보류했다. 알려진 baseline failure `test_serve_actually_binds_the_address_it_is_given`은 이번 작업에서 수정하거나 clean baseline에서 재검증하지 않았다. 아래 과거 전체 회귀의 실패 0 기록을 최신 revision 결과로 해석하지 않는다.
+
+다음 세션의 시작 명령, 보호할 사용자 파일, 변경 책임과 검증 범위는 [인계 문서](session_handoff.md)에 기록한다. 운영 변경 금지는 별도 사용자 지시가 있을 때까지 유지한다.
+
 ## 2026-10-05 저장소 baseline 회귀 부채 정리
 
 시작 기준은 원격 main `60314292fb13e4c657249912995a90cf435f0089`다. `C:/AX/cost-baseline-work/20261005`에 코드·검사·현재 문서만 가져온 격리 작업사본을 만들었으며 원본과 운영 DB는 제외했다. 원 작업사본 `C:/AX/cost`의 미커밋 UI 파일 다섯 개는 해시로 보존을 확인했다.
