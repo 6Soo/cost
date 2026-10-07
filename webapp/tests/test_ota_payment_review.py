@@ -1,0 +1,643 @@
+"""Synthetic contract tests for the isolated OTA payment review surface."""
+import json
+import os
+import sqlite3
+import tempfile
+import threading
+import unittest
+from unittest import mock
+from types import SimpleNamespace
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from webapp import ota_payment_review
+from webapp import card_flow
+
+
+EVENT = {
+    "ota_event_id": "evt-synth-001",
+    "provider": "Synthetic Stay",
+    "booking_ref": "BOOK-SYNTH-001",
+    "event_type": "charge",
+    "paid_on": "2026-09-04",
+    "amount": 12500,
+    "currency": "KRW",
+    "amount_krw": 12500,
+    "service_period": "2026-10-01 to 2026-10-02",
+    "item": "Synthetic room",
+    "status": "HOLD_AMBIGUOUS",
+    "reason": "Two same-date candidates",
+    "source_digest": "digest-synth-001",
+}
+
+
+def cards(count=12):
+    return [{
+        "transaction_id": f"card-{index:02d}",
+        "issuer": "Synthetic Bank",
+        "card_kind": "credit",
+        "card_tail": "2042",
+        "approval_date": "2026-09-04",
+        "posting_date": "2026-09-05",
+        "merchant": f"Merchant {index:02d}",
+        "amount_krw": 12525 if index == 2 else 12500 + index,
+        "foreign_amount": "12.50 USD",
+        "currency": "USD",
+        "authorization_id": f"AUTH-{index:02d}",
+        "approval_number": f"AUTH-{index:02d}",
+        "cancellation_status": "not_cancelled",
+        "refund_status": "no_refund",
+        "transaction_direction": "purchase",
+        "already_linked_event_id": "" if index != 11 else "evt-synth-other",
+    } for index in range(count)]
+
+
+class FakeBackend:
+    def __init__(self):
+        self.calls = []
+        self.stale = False
+        self.proposal_action = None
+
+    def snapshot(self):
+        self.calls.append(("snapshot",))
+        event = {**EVENT, "source_inventory": {"secret": "private-fixture-path"},
+                 "source_digest": "secret-digest", "raw_row_json": "secret-event"}
+        rows = [{**row, "raw_row_json": "secret-card", "classification_private": "secret"}
+                for row in cards()]
+        return {"events": [event], "cards_by_event": {EVENT["ota_event_id"]: rows},
+                "proposals": [{"proposal_id": "proposal-synth-001", "question": "Use this match once?",
+                               "status": "pending", "conditions": {"provider": "Synthetic Stay"}}]}
+
+    def preview(self, event_id, transaction_id):
+        self.calls.append(("preview", event_id, transaction_id))
+        return {"event_id": event_id, "transaction_id": transaction_id,
+                "preview_digest": "preview-synth-current", "difference_krw": 25,
+                "event_amount_krw": 12500, "card_amount_krw": 12525}
+
+    def confirm(self, event_id, transaction_id, preview_digest, *, request_id, user):
+        self.calls.append(("confirm", event_id, transaction_id, preview_digest, request_id, user))
+        if self.stale or preview_digest != "preview-synth-current":
+            raise ota_payment_review.StalePreviewError
+        return {"status": "MATCHED_USER", "transaction_id": transaction_id,
+                "proposal_id": "proposal-synth-001"}
+
+    def answer_proposal(self, proposal_id, action, *, user, conditions=None):
+        self.calls.append(("proposal", proposal_id, action, user, conditions))
+        self.proposal_action = action
+        return {"proposal_id": proposal_id, "status": "answered_once" if action == "once" else "answered",
+                "action": action}
+
+    def refresh_after_import(self, transaction_ids):
+        self.calls.append(("refresh_after_import", list(transaction_ids)))
+
+
+class FakeHandler:
+    def __init__(self, backend, path, raw=None, csrf="token-synth", supplied_csrf="token-synth"):
+        self.backend = backend
+        self.path = path
+        self.raw = raw
+        self.headers = {"X-CSRF-Token": supplied_csrf}
+        self.csrf = csrf
+        self.response = None
+
+    def current_user_id(self):
+        return "synthetic-owner"
+
+    def _send(self, body, code=200):
+        self.response = (code, "text/html", body)
+
+    def _send_json(self, payload, code=200):
+        self.response = (code, "application/json", payload)
+
+
+class FakeCoreStore:
+    writer_calls = 0
+    last_store = None
+
+    def __init__(self, _path):
+        self.calls = []
+        type(self).last_store = self
+
+    def links(self):
+        return {
+            "evt-exact": {"transaction_id": "card-01", "source_digest": "exact-digest"},
+            "evt-user": {"transaction_id": "card-03", "source_digest": "old-user-digest"},
+        }
+
+    def close(self):
+        self.calls.append(("close",))
+
+    def active_rules(self):
+        return []
+
+    def proposals(self):
+        return [{"proposal_id": "proposal-synth-001", "status": "pending",
+                 "question": "Use this match once?", "conditions": {}}]
+
+    def preview(self, _event, _transaction):
+        return {"preview_digest": "core-preview-synth", "event_amount_krw": 12500,
+                "card_amount_krw": 12525, "difference_krw": -25}
+
+    def confirm(self, _event, _transaction, preview_digest, *, request_id, user, allocations=None):
+        type(self).writer_calls += 1
+        self.calls.append(("confirm", preview_digest, request_id, user, allocations))
+        return {"status": "MATCHED_USER"}
+
+    def answer_proposal(self, proposal_id, action, *, user, conditions=None):
+        type(self).writer_calls += 1
+        self.calls.append(("answer", proposal_id, action, user, conditions))
+        return {"proposal_id": proposal_id, "status": "answered"}
+
+    def refresh(self, _events, _transactions, *, changed_transaction_ids=None, changed_event_ids=None):
+        type(self).writer_calls += 1
+        self.calls.append(("refresh", changed_transaction_ids, changed_event_ids))
+        return {"changed_transaction_ids": changed_transaction_ids,
+                "changed_event_ids": changed_event_ids}
+
+
+class FakeCorePayments:
+    occupied_transaction = "card-00"
+
+    def build_ota_payment_events(self, _sources):
+        user_event = {**EVENT, "ota_event_id": "evt-user", "source_digest": "new-user-digest",
+                      "booking_ref": "BOOK-USER"}
+        return [dict(EVENT), user_event]
+
+    def match_ota_payment_events(self, events, _transactions, *, existing_links=None, rules=None):
+        hold = {**events[0], "status": "HOLD_AMBIGUOUS", "reason": "Two same-date candidates"}
+        auto = {"ota_event_id": "evt-auto", "status": "MATCHED_AUTO",
+                "transaction_id": self.occupied_transaction}
+        matched_user = {**events[1], "status": "MATCHED_USER", "transaction_id": "card-03",
+                        "evidence_changed": False}
+        return [hold, auto, matched_user]
+
+    def same_date_cards(self, event, transactions, *, links=None):
+        result = []
+        for transaction in transactions:
+            if transaction.get("approval_date") != event.get("paid_on"):
+                continue
+            row = dict(transaction)
+            row["already_linked_event_id"] = ""
+            for event_id, link in (links or {}).items():
+                if link.get("transaction_id") == row.get("transaction_id"):
+                    row["already_linked_event_id"] = event_id
+            result.append(row)
+        return result
+
+
+class OtaPaymentReviewTests(unittest.TestCase):
+    def setUp(self):
+        FakeCorePayments.occupied_transaction = "card-00"
+        self.environment = mock.patch.dict(os.environ, {
+            "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
+            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+        })
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
+    def test_default_is_disabled_and_isolated_mode_requires_a_separate_review_database(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(ota_payment_review.enabled())
+        with mock.patch.dict(os.environ, {"WEBLEDGER_OTA_REVIEW_MODE": "isolated"}, clear=True):
+            self.assertFalse(ota_payment_review.enabled())
+        with mock.patch.dict(os.environ, {
+            "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
+            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+        }, clear=True):
+            self.assertTrue(ota_payment_review.enabled())
+
+    def test_get_renders_every_card_and_proposal_without_calling_a_write_method(self):
+        backend = FakeBackend()
+        handler = FakeHandler(backend, "/api/imports/ota")
+        handled = ota_payment_review.dispatch(handler, urlsplit(handler.path), csrf="token-synth", backend=backend)
+        self.assertTrue(handled)
+        self.assertEqual(handler.response[0], 200)
+        snapshot = handler.response[2]
+        self.assertEqual(len(snapshot["cards_by_event"][EVENT["ota_event_id"]]), 12)
+        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["merchant"], "Merchant 11")
+        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["approval_number"], "AUTH-11")
+        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["already_linked_event_id"], "evt-synth-other")
+        self.assertIn("다음 결제에도 적용할까요?", snapshot["proposals"][0]["question"])
+        serialized = json.dumps(snapshot)
+        for forbidden in ("raw_row_json", "classification_private", "source_inventory",
+                          "private-fixture-path", "secret-event", "source_digest"):
+            self.assertNotIn(forbidden, serialized)
+        self.assertEqual([call[0] for call in backend.calls], ["snapshot"])
+
+    def test_preview_then_confirm_requires_current_digest_and_records_separate_manual_link(self):
+        backend = FakeBackend()
+        preview = {"event_id": EVENT["ota_event_id"], "transaction_id": "card-02"}
+        request = FakeHandler(backend, "/api/imports/ota/preview", json.dumps(preview).encode())
+        ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw, csrf="token-synth", backend=backend)
+        self.assertEqual(request.response[0], 200)
+        self.assertEqual(request.response[2]["difference_krw"], 25)
+        body = {**preview, "preview_digest": "preview-synth-current", "request_id": "req-synth-001"}
+        confirm = FakeHandler(backend, "/api/imports/ota/confirm", json.dumps(body).encode())
+        ota_payment_review.dispatch(confirm, urlsplit(confirm.path), raw=confirm.raw, csrf="token-synth", backend=backend)
+        self.assertEqual(confirm.response[0], 200)
+        self.assertEqual(confirm.response[2]["status"], "MATCHED_USER")
+        self.assertEqual(backend.calls[-1], ("confirm", "evt-synth-001", "card-02",
+                                             "preview-synth-current", "req-synth-001", "synthetic-owner"))
+
+    def test_stale_preview_is_rejected_and_csrf_is_checked_before_backend_write(self):
+        backend = FakeBackend()
+        backend.stale = True
+        body = {"event_id": "evt-synth-001", "transaction_id": "card-02",
+                "preview_digest": "old-preview", "request_id": "req-synth-stale"}
+        request = FakeHandler(backend, "/api/imports/ota/confirm", json.dumps(body).encode())
+        ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw, csrf="token-synth", backend=backend)
+        self.assertEqual(request.response[0], 409)
+        self.assertEqual(request.response[2]["code"], "STALE_PREVIEW")
+        rejected_backend = FakeBackend()
+        rejected = FakeHandler(rejected_backend, "/api/imports/ota/confirm", json.dumps(body).encode(),
+                               supplied_csrf="wrong-token")
+        ota_payment_review.dispatch(rejected, urlsplit(rejected.path), raw=rejected.raw,
+                                    csrf="token-synth", backend=rejected_backend)
+        self.assertEqual(rejected.response[0], 403)
+        self.assertEqual([call[0] for call in rejected_backend.calls], [])
+        for token, header in (("", ""), ("configured", ""), ("", "configured")):
+            blank_backend = FakeBackend()
+            blank = FakeHandler(blank_backend, "/api/imports/ota/preview", b"{}",
+                                csrf=token, supplied_csrf=header)
+            ota_payment_review.dispatch(blank, urlsplit(blank.path), raw=blank.raw,
+                                        csrf=token, backend=blank_backend)
+            self.assertEqual(blank.response[0], 403)
+            self.assertEqual(blank_backend.calls, [])
+
+    def test_proposal_once_approve_and_edit_are_explicit_and_keep_pending_until_answer(self):
+        backend = FakeBackend()
+        for action in ("once", "approve", "edit"):
+            body = {"proposal_id": "proposal-synth-001", "action": action,
+                    "conditions": {"provider": "Synthetic Stay", "item": "Synthetic room",
+                                   "issuer": "Synthetic Bank", "card_last4": "2042"}}
+            request = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(body).encode())
+            ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw,
+                                        csrf="token-synth", backend=backend)
+            self.assertEqual(request.response[0], 200)
+            self.assertEqual(backend.calls[-1][2], action)
+            if action == "once":
+                self.assertEqual(request.response[2]["status"], "answered_once")
+
+    def test_approval_rejects_unscoped_or_unknown_conditions(self):
+        backend = FakeBackend()
+        for conditions in ({}, {"anything": "broad"}, {"card_last4": "12x4"},
+                           {"date_lag_days": -1}):
+            body = {"proposal_id": "proposal-synth-001", "action": "approve",
+                    "conditions": conditions}
+            request = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(body).encode())
+            ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw,
+                                        csrf="token-synth", backend=backend)
+            self.assertEqual(request.response[0], 422)
+
+    def test_proposal_accepts_signed_exact_krw_delta_and_bounds_date_lag_to_seven_days(self):
+        backend = FakeBackend()
+        body = {"proposal_id": "proposal-synth-001", "action": "approve",
+                "conditions": {"provider": "Synthetic Stay", "item": "Synthetic room",
+                               "issuer": "Synthetic Bank", "card_last4": "2042",
+                               "amount_delta_krw": -4000,
+                               "date_lag_days": 7}}
+        request = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(body).encode())
+        ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(request.response[0], 200)
+        self.assertEqual(backend.calls[-1][-1], body["conditions"])
+        for value in (True, 1.5, "-4000"):
+            invalid = {**body, "conditions": {**body["conditions"], "amount_delta_krw": value}}
+            response = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(invalid).encode())
+            ota_payment_review.dispatch(response, urlsplit(response.path), raw=response.raw,
+                                        csrf="token-synth", backend=backend)
+            self.assertEqual(response.response[0], 422)
+        invalid = {**body, "conditions": {**body["conditions"], "date_lag_days": 8}}
+        response = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(invalid).encode())
+        ota_payment_review.dispatch(response, urlsplit(response.path), raw=response.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(response.response[0], 422)
+
+    def test_card_flow_hook_needs_both_card_import_and_isolated_review_opt_in(self):
+        handler = FakeHandler(FakeBackend(), "/api/imports/ota")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(card_flow.dispatch(handler, urlsplit(handler.path), csrf="token-synth"))
+        with mock.patch.dict(os.environ, {"WEBLEDGER_CARD_FLOW": "1"}, clear=True):
+            self.assertFalse(card_flow.dispatch(handler, urlsplit(handler.path), csrf="token-synth"))
+
+    def test_card_flow_routes_isolated_request_through_the_injected_backend(self):
+        backend = FakeBackend()
+        handler = FakeHandler(backend, "/api/imports/ota")
+        configure = lambda **_kwargs: backend
+        with mock.patch.dict(os.environ, {
+            "WEBLEDGER_CARD_FLOW": "1",
+            "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
+            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+        }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=object()):
+            ota_payment_review.configure_backend_factory(read_factory=configure, write_factory=configure)
+            self.addCleanup(ota_payment_review.configure_backend_factory,
+                            read_factory=None, write_factory=None)
+            handled = card_flow.dispatch(handler, urlsplit(handler.path), csrf="token-synth")
+        self.assertTrue(handled)
+        self.assertEqual(handler.response[0], 200)
+        self.assertEqual(handler.response[2]["events"][0]["ota_event_id"], EVENT["ota_event_id"])
+
+    def test_card_flow_rejects_post_before_creating_backend_when_csrf_is_invalid(self):
+        backend = FakeBackend()
+        factory_calls = []
+        handler = FakeHandler(backend, "/api/imports/ota/confirm", b"{}", supplied_csrf="bad")
+        with mock.patch.dict(os.environ, {
+            "WEBLEDGER_CARD_FLOW": "1",
+            "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
+            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+        }, clear=True):
+            factory = lambda **kwargs: factory_calls.append(kwargs) or backend
+            ota_payment_review.configure_backend_factory(read_factory=factory, write_factory=factory)
+            self.addCleanup(ota_payment_review.configure_backend_factory,
+                            read_factory=None, write_factory=None)
+            handled = card_flow.dispatch(handler, urlsplit(handler.path), raw=handler.raw, csrf="token-synth")
+        self.assertTrue(handled)
+        self.assertEqual(handler.response[0], 403)
+        self.assertEqual(factory_calls, [])
+
+    def test_core_backend_is_read_only_on_snapshot_and_refuses_automatic_or_exactly_linked_cards(self):
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = os.path.join(directory, "board.sqlite")
+            review_path = os.path.join(directory, "review.sqlite")
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            self.addCleanup(board_conn.close)
+            board_conn.execute("CREATE TABLE transactions (transaction_id TEXT, issuer TEXT, approval_date TEXT, posting_date TEXT, merchant TEXT, amount_krw INTEGER, foreign_amount TEXT, authorization_id TEXT, cancellation_status TEXT, refund_status TEXT)")
+            board_conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?)", [
+                (row["transaction_id"], row["issuer"], row["approval_date"], row["posting_date"],
+                 row["merchant"], row["amount_krw"], row["foreign_amount"], row["authorization_id"],
+                 row["cancellation_status"], row["refund_status"]) for row in cards()])
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            Path(review_path).touch()
+            FakeCoreStore.writer_calls = 0
+            payments = FakeCorePayments()
+            backend = CoreOtaPaymentBackend(board, review_path, read_only=True,
+                                            payments=payments, store_type=FakeCoreStore,
+                                            sources={"mail_directories": [], "portal_databases": [],
+                                                     "reference_documents": []})
+            before = Path(review_path).stat().st_mtime_ns
+            snapshot = backend.snapshot()
+            self.assertEqual(len(snapshot["cards_by_event"]["evt-synth-001"]), 12)
+            self.assertEqual(snapshot["cards_by_event"]["evt-synth-001"][0]["already_linked_event_id"], "evt-auto")
+            self.assertEqual(Path(review_path).stat().st_mtime_ns, before)
+            self.assertEqual(FakeCoreStore.writer_calls, 0)
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                backend.preview("evt-synth-001", "card-00")
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                backend.preview("evt-synth-001", "card-01")
+            preview = backend.preview("evt-synth-001", "card-02")
+            self.assertEqual(preview["difference_krw"], 25)
+            FakeCorePayments.occupied_transaction = "card-02"
+            writer_backend = CoreOtaPaymentBackend(board, review_path, read_only=False,
+                                                   payments=payments, store_type=FakeCoreStore,
+                                                   sources={"mail_directories": [], "portal_databases": [],
+                                                            "reference_documents": []})
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                writer_backend.confirm("evt-synth-001", "card-02", preview["preview_digest"],
+                                       request_id="req-synth-002", user="synthetic-owner")
+            self.assertEqual(FakeCoreStore.writer_calls, 0)
+            board_conn.close()
+
+    def test_confirm_passes_fresh_full_card_allocations_even_when_empty(self):
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+
+        class EmptyLinkStore(FakeCoreStore):
+            def links(self):
+                return {}
+
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.execute("""CREATE TABLE transactions (
+                transaction_id TEXT,source_hash TEXT,merchant TEXT,merchant_normalized TEXT,
+                card_kind TEXT,card_tail TEXT,transaction_direction TEXT,approval_date TEXT,
+                amount_krw INTEGER)""")
+            board_conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)", [
+                ("card-00", "hash-00", "TRIP.COM", "trip.com", "credit", "2042", "purchase", "2026-09-04", 12500),
+                ("card-02", "hash-02", "TRIP.COM", "trip.com", "credit", "2042", "purchase", "2026-09-04", 12525),
+                ("card-03", "hash-03", "TRIP.COM", "trip.com", "credit", "2042", "purchase", "2026-09-04", 12500),
+            ])
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            payments = FakeCorePayments()
+            payments.occupied_transaction = "card-00"
+            backend = CoreOtaPaymentBackend(board, str(Path(directory) / "review.sqlite"),
+                                            read_only=False, payments=payments,
+                                            store_type=EmptyLinkStore, sources={})
+            preview = backend.preview("evt-synth-001", "card-02")
+            backend.confirm("evt-synth-001", "card-02", preview["preview_digest"],
+                            request_id="req-allocations", user="synthetic-owner")
+            allocations = EmptyLinkStore.last_store.calls[-1][-1]
+            self.assertEqual(allocations, {"evt-auto": "card-00", "evt-user": "card-03"})
+            backend.close()
+            board_conn.close()
+
+    def test_core_backend_reads_real_core_api_without_creating_review_path_on_first_get(self):
+        from webapp.ota_payment_review import backend_for_request
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            self.addCleanup(board_conn.close)
+            board_conn.execute("CREATE TABLE transactions (transaction_id TEXT, approval_date TEXT)")
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            review_path = Path(directory) / "not-created" / "review.sqlite"
+            with mock.patch.dict(os.environ, {
+                ota_payment_review.REVIEW_DB_ENV: str(review_path),
+                ota_payment_review.SOURCES_ENV: json.dumps({
+                    "mail_directories": [], "portal_databases": [], "reference_documents": []}),
+            }, clear=False):
+                backend = backend_for_request(board, None, read_only=True)
+                self.assertEqual(backend.snapshot(), {"events": [], "cards_by_event": {}, "proposals": []})
+                backend.close()
+            self.assertFalse(review_path.parent.exists())
+            board_conn.close()
+
+    def test_default_source_resolution_uses_registered_manifest_and_legacy_environment_defaults(self):
+        from app import ota_sources
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            data_dir = Path(directory)
+            mail_default = data_dir / "ota-mail"
+            mail_registered = data_dir / "registered-mail"
+            portal_default = data_dir / "agoda-default.sqlite"
+            portal_registered = data_dir / "agoda-registered.sqlite"
+            mail_default.mkdir()
+            mail_registered.mkdir()
+            portal_default.touch()
+            portal_registered.touch()
+            (data_dir / "ota-sources.json").write_text(json.dumps({
+                "schema_version": ota_sources.SCHEMA_VERSION,
+                "mail_directories": [str(mail_registered)],
+                "portal_databases": [str(portal_registered)],
+                "reference_documents": [],
+            }), encoding="utf-8")
+            board_path = data_dir / "board.sqlite"
+            board_conn = sqlite3.connect(board_path)
+            board_conn.execute("CREATE TABLE transactions (transaction_id TEXT)")
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, path=board_path, _lock=threading.RLock())
+            review_path = data_dir / "review.sqlite"
+            with mock.patch.dict(os.environ, {
+                "WEBLEDGER_OTA_REVIEW_DB": str(review_path),
+                "WEBLEDGER_OTA_SOURCES_JSON": "",
+                "WEBLEDGER_OTA_MAIL_DIR": str(mail_default),
+                "WEBLEDGER_AGODA_PORTAL_DB": str(portal_default),
+            }, clear=True):
+                backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
+                self.assertEqual(backend.sources["portal_databases"][0], portal_default)
+            self.assertEqual(set(map(str, backend.sources["mail_directories"])),
+                             {str(mail_default), str(mail_registered)})
+            self.assertEqual(set(map(str, backend.sources["portal_databases"])),
+                             {str(portal_default), str(portal_registered)})
+            backend.close()
+            board_conn.close()
+
+    def test_legacy_binding_requires_unique_complete_evidence_and_pins_exact_transaction(self):
+        from webapp.ota_payment_review import legacy_exact_bindings
+        event = {**EVENT, "provider": "trip", "source_digest": "digest-a",
+                 "source_digests": ["digest-a", "digest-canonical-merge"], "card_last4": "2042"}
+        row = {"transaction_id": "card-legacy", "source_hash": "card-hash",
+               "card_tail": "2042", "issuer": "Synthetic Bank",
+               "transaction_direction": "purchase", "amount_krw": 12500,
+               "foreign_currency": "", "foreign_amount": ""}
+        # Old reports expose source identity and booking facts, but not card amount/currency/card-tail.
+        fact = {"transaction_id": "card-legacy", "source_hash": "card-hash",
+                "provider": "trip", "booking_ref": event["booking_ref"],
+                "source_sha256": "digest-a", "direction": "purchase",
+                "item": "Synthetic room", "period": None, "evidence_kind": "authenticated_mail"}
+        links = legacy_exact_bindings([event], [row], {"matches": [fact]})
+        self.assertEqual(links[event["ota_event_id"]]["transaction_id"], "card-legacy")
+        self.assertTrue(links[event["ota_event_id"]]["legacy_exact"])
+        for changed in (
+                {**fact, "source_sha256": "digest-b"},
+                {**fact, "booking_ref": "OTHER"},
+                {**fact, "direction": "refund"},
+        ):
+            self.assertEqual(legacy_exact_bindings([event], [row], {"matches": [changed]}), {})
+        self.assertEqual(legacy_exact_bindings([event], [row], {"matches": [fact, fact]}), {})
+        self.assertEqual(legacy_exact_bindings([event], [{**row, "amount_krw": 12501}],
+                                               {"matches": [fact]}), {})
+        self.assertEqual(legacy_exact_bindings([event], [{**row, "card_tail": "9999"}],
+                                               {"matches": [fact]}), {})
+
+    def test_proposal_question_states_signed_difference_and_conditions_without_discount_claim(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [], "cards_by_event": {},
+            "proposals": [{"proposal_id": "proposal-synth", "status": "pending", "conditions": {
+                "provider": "Synthetic Stay", "item": "Synthetic room",
+                "issuer": "Synthetic Bank", "card_last4": "2042",
+                "amount_delta_krw": -4000, "date_lag_days": 3,
+            }}],
+        })
+        question = snapshot["proposals"][0]["question"]
+        self.assertIn("OTA 금액보다 카드 금액이 4,000원 적고", question)
+        self.assertIn("Synthetic Stay", question)
+        self.assertIn("Synthetic room", question)
+        self.assertIn("카드 끝 네 자리 2042", question)
+        self.assertIn("결제일 차이는 최대 3일", question)
+        self.assertNotIn("할인", question)
+
+    def test_import_refresh_targets_new_transactions_and_digest_changed_manual_links(self):
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            self.addCleanup(board_conn.close)
+            board_conn.execute("CREATE TABLE transactions (transaction_id TEXT, approval_date TEXT)")
+            board_conn.execute("INSERT INTO transactions VALUES ('card-new-1','2026-09-04')")
+            board_conn.commit()
+            review_path = Path(directory) / "review.sqlite"
+            review_path.touch()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            FakeCoreStore.writer_calls = 0
+            backend = CoreOtaPaymentBackend(board, str(review_path), read_only=False,
+                                            payments=FakeCorePayments(), store_type=FakeCoreStore,
+                                            sources={"mail_directories": [], "portal_databases": [],
+                                                     "reference_documents": []})
+            snapshot = backend.snapshot()
+            changed = next(event for event in snapshot["events"] if event["ota_event_id"] == "evt-user")
+            self.assertTrue(changed["evidence_changed"])
+            self.assertEqual(changed["status"], "MATCHED_USER")
+            refreshed = backend.refresh_after_import(["card-new-1"])
+            self.assertEqual(refreshed["changed_transaction_ids"], ["card-new-1"])
+            self.assertEqual(refreshed["changed_event_ids"], ["evt-user"])
+            self.assertEqual(FakeCoreStore.last_store.calls[-1],
+                             ("refresh", ["card-new-1"], ["evt-user"]))
+            self.assertEqual(FakeCoreStore.writer_calls, 1)
+            backend.close()
+            board_conn.close()
+
+    def test_import_post_passes_only_new_transaction_ids_to_ota_refresh_hook(self):
+        backend = FakeBackend()
+        board = object()
+
+        class FakePipeline:
+            def receive(self, _raw, _filename):
+                return {"batch_id": "synthetic-batch"}
+
+        class FakeFlow:
+            pipeline = FakePipeline()
+
+            def __init__(self, _board):
+                pass
+
+            def classify(self, _batch_id):
+                pass
+
+            def state(self, _batch_id):
+                return {"rows": [{"transaction_id": "new-01"}, {"transaction_id": "new-02"}]}
+
+        handler = FakeHandler(backend, "/api/imports", b"synthetic card file")
+        with mock.patch.dict(os.environ, {
+            "WEBLEDGER_CARD_FLOW": "1", "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
+            "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
+        }, clear=True), mock.patch("webapp.ledger_board._active_store", return_value=board), \
+                mock.patch.object(card_flow, "CardFlow", FakeFlow):
+            adapter = lambda **_kwargs: backend
+            ota_payment_review.configure_backend_factory(read_factory=adapter, write_factory=adapter)
+            self.addCleanup(ota_payment_review.configure_backend_factory,
+                            read_factory=None, write_factory=None)
+            self.assertTrue(card_flow.dispatch(handler, urlsplit(handler.path), raw=handler.raw,
+                                               csrf="token-synth"))
+        self.assertEqual(handler.response[2]["ota_refresh_status"], "refreshed")
+        self.assertEqual(backend.calls[-1], ("refresh_after_import", ["new-01", "new-02"]))
+
+    def test_missing_paid_on_is_shown_as_unknown_and_never_used_to_choose_a_card(self):
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+
+        class NoDatePayments(FakeCorePayments):
+            def build_ota_payment_events(self, _sources):
+                return [{**EVENT, "paid_on": None}]
+
+            def match_ota_payment_events(self, events, *_args, **_kwargs):
+                return [{**events[0], "status": "HOLD_DATE_UNKNOWN", "transaction_id": None,
+                         "reason": "payment_date_not_in_source"}]
+
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.execute("CREATE TABLE transactions (transaction_id TEXT, approval_date TEXT)")
+            board_conn.execute("INSERT INTO transactions VALUES ('card-01','2026-09-04')")
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            review_path = Path(directory) / "review.sqlite"
+            backend = CoreOtaPaymentBackend(board, str(review_path), read_only=True,
+                                            payments=NoDatePayments(), store_type=FakeCoreStore,
+                                            sources={})
+            snapshot = backend.snapshot()
+            self.assertEqual(snapshot["events"][0]["paid_on"], "미확인")
+            self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]], [])
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                backend.preview(EVENT["ota_event_id"], "card-01")
+            backend.close()
+            board_conn.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

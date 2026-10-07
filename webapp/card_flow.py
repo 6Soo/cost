@@ -194,6 +194,12 @@ def enabled():
     return os.environ.get('WEBLEDGER_CARD_FLOW') == '1'
 
 
+def configure_ota_review_backend(*, read_factory=None, write_factory=None):
+    """Override the default core adapter with separate read and write adapters."""
+    from . import ota_payment_review
+    ota_payment_review.configure_backend_factory(read_factory=read_factory, write_factory=write_factory)
+
+
 def batch_display_info(issuers, first='', last=''):
     names = sorted({str(name).strip() for name in issuers if str(name).strip()})
     known = {'국민':'국민카드', '하나':'하나카드', '기업':'기업카드'}
@@ -742,6 +748,33 @@ class CardFlow:
 
 def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     """기존 로그인·소유자 검사 이후에만 호출한다."""
+    from . import ota_payment_review
+    ota_route = ota_payment_review.owns_route(parsed.path)
+    ota_enabled = enabled() and ota_payment_review.enabled()
+    if ota_route:
+        if not ota_enabled:
+            return False
+        if raw is not None and (not csrf or not handler.headers.get('X-CSRF-Token')
+                                or handler.headers.get('X-CSRF-Token') != csrf):
+            handler._send_json({'code':'CSRF_REQUIRED','message':'화면을 새로 연 뒤 다시 시도해 주세요'}, 403)
+            return True
+        from .ledger_board import _active_store
+        board = _active_store()
+        if board is None:
+            handler._send_json({'code':'STORE_UNBOUND','message':'검토 저장소를 연결하지 못했습니다'}, 503)
+            return True
+        try:
+            backend = ota_payment_review.backend_for_request(
+                board, handler, read_only=(raw is None or parsed.path.endswith('/preview')))
+        except Exception:
+            handler._send_json({'code':'OTA_REVIEW_UNAVAILABLE','message':'격리 검토 연결을 사용할 수 없습니다'}, 503)
+            return True
+        try:
+            return ota_payment_review.dispatch(handler, parsed, raw=raw, csrf=csrf, backend=backend)
+        finally:
+            closer = getattr(backend, 'close', None)
+            if closer:
+                closer()
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path == '/import' or parsed.path == '/api/imports'
                             or parsed.path.startswith('/api/imports/')):
         return False
@@ -758,7 +791,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             if parsed.path == '/':
                 handler._send(home_page(board))
             elif parsed.path == '/import':
-                handler._send(page(csrf))
+                body = page(csrf)
+                if ota_payment_review.enabled():
+                    body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
+                handler._send(body)
             elif parsed.path == '/api/imports/rules':
                 handler._send_json({'rules':flow.pipeline.list_rules()})
             elif len(parts) == 3:
@@ -772,7 +808,23 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         if parsed.path == '/api/imports':
             received = flow.pipeline.receive(raw, unquote(handler.headers.get('X-Filename') or 'card.xlsx'))
             flow.classify(received['batch_id'])
-            handler._send_json(flow.state(received['batch_id']))
+            result = flow.state(received['batch_id'])
+            if ota_payment_review.enabled():
+                try:
+                    backend = ota_payment_review.backend_for_request(board, handler, read_only=False)
+                    refresh = getattr(backend, 'refresh_after_import', None)
+                    if refresh:
+                        transaction_ids = [str(row.get('transaction_id') or '')
+                                           for row in result.get('rows', []) if row.get('transaction_id')]
+                        refresh(transaction_ids)
+                    result['ota_refresh_status'] = 'refreshed'
+                except Exception:
+                    result['ota_refresh_status'] = 'unavailable'
+                finally:
+                    closer = getattr(locals().get('backend'), 'close', None)
+                    if closer:
+                        closer()
+            handler._send_json(result)
             return True
         payload = json.loads(raw.decode('utf-8'))
         if parsed.path == '/api/imports/rules':
@@ -847,7 +899,7 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 #holds:empty{display:none}#batches{display:grid;gap:8px}#batches p{margin:0;min-width:0}.batch-choice{width:100%;min-height:48px;text-align:left;line-height:1.5;font-size:14px}.batch-choice span{font-size:13px;color:#657068}summary{cursor:pointer;padding:10px 0;min-height:44px;display:flex;align-items:center}details{min-width:0}nav{font-size:14px}
 .flow{margin:12px 0;font-size:13px;color:#657068;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF;padding:8px 12px}
 @media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid #E3E7E3;border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:#657068}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
-</style><main><nav><a href="/">홈</a> · <a href="/board">장부</a> · <a href="/trips">여행 관리</a></nav><h1>카드 내역 검토</h1>
+</style><body><main><nav><a href="/">홈</a> · <a href="/board">장부</a> · <a href="/trips">여행 관리</a></nav><h1>카드 내역 검토</h1>
 <p class="flow">카드 자료 → 확인할 거래 → 미리보기 → 장부 기록</p>
 <section><h2>저장된 카드 자료</h2><p class="small">확인할 거래가 많은 자료부터 표시합니다. 자료를 선택하면 저장된 분류 결과를 이어서 볼 수 있습니다.</p><div id="batches"></div></section>
 <details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xlsx,.csv"><button id="upload">업로드하고 분류</button></section></details>
@@ -881,4 +933,4 @@ el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('r
 call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);
 setInterval(async()=>{if(!model||document.hidden||el('upload').disabled)return;try{const j=await call('/api/imports/'+model.batch_id);if(stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){el('status').textContent=e.message}},2000);
 call('/api/imports').then(j=>{el('batches').innerHTML=j.batches.map(b=>'<p><button class="batch-choice" data-batch="'+esc(b.batch_id)+'"><strong>'+esc(b.display_name)+'</strong><br><span>'+esc(b.period_start||'거래 기간 미확인')+(b.period_end?' ~ '+esc(b.period_end):'')+' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':'')+'</span></button></p>').join('')||'<p>저장된 카드 자료가 없습니다. 아래에서 새 파일을 추가하세요.</p>';document.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>call('/api/imports/'+b.dataset.batch).then(render).catch(e=>el('status').textContent=e.message));if(!j.batches.length)el('newupload').open=true;return j.batches.length?call('/api/imports/'+j.batches[0].batch_id).then(render):null}).catch(e=>el('status').textContent=e.message);
-</script></html>'''
+</script></body></html>'''

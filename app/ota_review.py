@@ -1,0 +1,382 @@
+"""OTA 수동 연결과 승인 규칙을 전용 검토 데이터베이스에 보존한다."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+from datetime import date
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+from app.ota_payments import (
+    _NO_ALLOCATION_SNAPSHOT,
+    _approved_lag_match, _digest, _direction, _event_amount, _event_is_paid,
+    _rule_scope_valid,
+    _has_corroborator, match_ota_payment_events,
+)
+
+
+def _dump(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def _narrow(conditions):
+    return _rule_scope_valid(conditions)
+
+
+def _proposal_conditions(event, transaction):
+    conditions = {"provider":event.get("provider"), "item":event.get("item"),
+                  "merchant_normalized":transaction.get("merchant_normalized"),
+                  "issuer":transaction.get("issuer"),
+                  "card_last4":transaction.get("card_tail"), "date_lag_days":0}
+    conditions = {key:value for key, value in conditions.items() if value not in (None, "")}
+    warnings = []
+    try:
+        paid_on = date.fromisoformat(event["paid_on"])
+        approval_date = date.fromisoformat(transaction["approval_date"])
+        lag = abs((approval_date - paid_on).days)
+        if lag <= 7:
+            conditions["date_lag_days"] = lag
+        else:
+            warnings.append("date_lag_out_of_supported_range")
+    except (KeyError, TypeError, ValueError):
+        warnings.append("verified_date_pair_required")
+    if (event.get("event_type") != "charge" or event.get("currency") != "KRW" or
+            transaction.get("transaction_direction") != "purchase" or
+            transaction.get("foreign_currency") not in (None, "", "KRW") or
+            transaction.get("currency") not in (None, "", "KRW")):
+        warnings.append("signed_krw_charge_delta_required")
+    else:
+        try:
+            ota_amount = Decimal(str(event["amount_krw"]))
+            card_amount = Decimal(str(transaction["amount_krw"]))
+            delta = card_amount - ota_amount
+            if (not ota_amount.is_finite() or not card_amount.is_finite() or
+                    ota_amount != ota_amount.to_integral_value() or
+                    card_amount != card_amount.to_integral_value() or
+                    ota_amount <= 0 or card_amount <= 0):
+                warnings.append("signed_krw_charge_delta_required")
+            elif -10000 <= delta <= 10000:
+                conditions["amount_delta_krw"] = int(delta)
+            else:
+                warnings.append("amount_delta_out_of_supported_range")
+        except (KeyError, InvalidOperation, TypeError, ValueError):
+            warnings.append("signed_krw_charge_delta_required")
+    return conditions, sorted(set(warnings))
+
+
+class OtaReviewStore:
+    """명시한 분리 SQLite만 사용한다. 기본 경로나 운영 DB를 찾지 않는다."""
+
+    def __init__(self, path):
+        if path is None:
+            raise ValueError("EXPLICIT_REVIEW_DATABASE_REQUIRED")
+        self.path = Path(path)
+        self.conn = None
+        if self.path.is_file():
+            self.conn = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            self.conn.row_factory = sqlite3.Row
+            self._check_isolated()
+
+    def _check_isolated(self):
+        existing_tables = {row[0] for row in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+        if any(not name.startswith("ota_review_") for name in existing_tables):
+            if self.conn:
+                self.conn.close()
+                self.conn = None
+            raise ValueError("REVIEW_DATABASE_NOT_ISOLATED")
+
+    def _ensure_initialized(self):
+        if self.conn:
+            self.conn.close()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.path)
+        self.conn.row_factory = sqlite3.Row
+        self._check_isolated()
+        self.conn.executescript("""
+            PRAGMA foreign_keys=ON;
+            CREATE TABLE IF NOT EXISTS ota_review_links(
+                event_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL UNIQUE,
+                event_json TEXT NOT NULL, transaction_json TEXT NOT NULL,
+                source_digest TEXT, evidence_changed INTEGER NOT NULL DEFAULT 0,
+                evidence_missing INTEGER NOT NULL DEFAULT 0,
+                user TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS ota_review_proposals(
+                proposal_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, transaction_id TEXT NOT NULL,
+                conditions_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+                answer_json TEXT, user TEXT NOT NULL, review_warning TEXT NOT NULL DEFAULT '[]');
+            CREATE TABLE IF NOT EXISTS ota_review_rules(
+                rule_id TEXT PRIMARY KEY, version INTEGER NOT NULL, conditions_json TEXT NOT NULL,
+                source_event_id TEXT NOT NULL, source_transaction_id TEXT NOT NULL,
+                approved_by TEXT NOT NULL, user_confirmation TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, active INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE IF NOT EXISTS ota_review_requests(
+                request_id TEXT PRIMARY KEY, result_json TEXT NOT NULL);
+        """)
+        proposal_columns = {row[1] for row in self.conn.execute(
+            "PRAGMA table_info(ota_review_proposals)")}
+        if "review_warning" not in proposal_columns:
+            self.conn.execute("ALTER TABLE ota_review_proposals ADD COLUMN review_warning TEXT NOT NULL DEFAULT '[]'")
+        self.conn.commit()
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def _has_table(self, name):
+        if not self.conn:
+            return False
+        return self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                                 (name,)).fetchone() is not None
+
+    def links(self):
+        if not self._has_table("ota_review_links"):
+            return {}
+        return {row["event_id"]: {"transaction_id": row["transaction_id"],
+                                  "status": "MATCHED_USER", "source_digest": row["source_digest"],
+                                  "evidence_changed": bool(row["evidence_changed"]),
+                                  "evidence_missing": bool(row["evidence_missing"])}
+                for row in self.conn.execute("SELECT * FROM ota_review_links ORDER BY event_id")}
+
+    def event_snapshots(self):
+        """Read-only snapshots keyed by event ID, including persisted evidence warnings."""
+        if not self._has_table("ota_review_links"):
+            return {}
+        snapshots = {}
+        for row in self.conn.execute(
+                "SELECT event_id,event_json,evidence_changed,evidence_missing FROM ota_review_links ORDER BY event_id"):
+            snapshot = json.loads(row["event_json"])
+            snapshot["_evidence_changed"] = bool(row["evidence_changed"])
+            snapshot["_evidence_missing"] = bool(row["evidence_missing"])
+            snapshots[row["event_id"]] = snapshot
+        return snapshots
+
+    def active_rules(self):
+        if not self._has_table("ota_review_rules"):
+            return []
+        return [{"rule_id": row["rule_id"], "version": row["version"],
+                 "conditions": json.loads(row["conditions_json"]),
+                 "source_event_id": row["source_event_id"], "approved_by": row["approved_by"],
+                 "source_transaction_id": row["source_transaction_id"],
+                 "user_confirmation": json.loads(row["user_confirmation"]),
+                 "created_at": row["created_at"], "active": bool(row["active"]),
+                 "status": "active" if row["active"] else "inactive"}
+                for row in self.conn.execute("SELECT * FROM ota_review_rules WHERE active=1 ORDER BY rule_id")]
+
+    def proposals(self):
+        if not self._has_table("ota_review_proposals"):
+            return []
+        columns = {row[1] for row in self.conn.execute("PRAGMA table_info(ota_review_proposals)")}
+        return [{"proposal_id": row["proposal_id"], "event_id": row["event_id"],
+                 "transaction_id": row["transaction_id"],
+                 "conditions": json.loads(row["conditions_json"]), "status": row["status"],
+                 "review_warnings": json.loads(row["review_warning"] or "[]")
+                     if "review_warning" in columns else []}
+                for row in self.conn.execute("SELECT * FROM ota_review_proposals ORDER BY proposal_id")]
+
+    def _preview_value(self, event, transaction):
+        differences = {}
+        for key, left, right in (
+            ("amount_krw", event.get("amount_krw"), transaction.get("amount_krw")),
+            ("paid_on", event.get("paid_on"), transaction.get("approval_date")),
+            ("card_last4", event.get("card_last4"), transaction.get("card_tail")),
+            ("direction", event.get("event_type"), transaction.get("transaction_direction")),
+        ):
+            if left is not None and right is not None and str(left) != str(right):
+                differences[key] = {"event": left, "transaction": right}
+        value = {"event": event, "transaction": transaction, "differences": differences}
+        value["preview_digest"] = _digest(value)
+        return value
+
+    def preview(self, event, transaction):
+        return self._preview_value(event, transaction)
+
+    def confirm(self, event, transaction, preview_digest, *, request_id, user,
+                allocations=_NO_ALLOCATION_SNAPSHOT):
+        if allocations is _NO_ALLOCATION_SNAPSHOT or allocations is None:
+            raise ValueError("GLOBAL_ALLOCATIONS_REQUIRED")
+        if not isinstance(allocations, (dict, list, tuple)):
+            raise ValueError("INVALID_GLOBAL_ALLOCATIONS")
+        self._ensure_initialized()
+        previous = self.conn.execute("SELECT result_json FROM ota_review_requests WHERE request_id=?",
+                                     (request_id,)).fetchone()
+        if previous:
+            return json.loads(previous[0])
+        current = self._preview_value(event, transaction)
+        if current["preview_digest"] != preview_digest:
+            raise ValueError("STALE_PREVIEW")
+        if not _event_is_paid(event) or _event_amount(event) is None:
+            raise ValueError("VERIFIED_PAYMENT_REQUIRED")
+        if event.get("event_type") == "refund" and event.get("refund_status") not in ("refunded", "refund_completed"):
+            raise ValueError("EXPLICIT_REFUND_VERIFICATION_REQUIRED")
+        transaction_id = transaction.get("transaction_id")
+        event_id = event.get("ota_event_id")
+        if not transaction_id or not event_id:
+            raise ValueError("STABLE_IDENTITIES_REQUIRED")
+        if transaction.get("already_linked_event_id"):
+            raise ValueError("CARD_ALREADY_LINKED")
+        allocation_conflict = False
+        if isinstance(allocations, dict):
+            for key, value in allocations.items():
+                if key == transaction_id or value == transaction_id:
+                    allocation_conflict = True
+                if isinstance(value, dict) and value.get("transaction_id") == transaction_id:
+                    allocation_conflict = True
+        elif allocations:
+            allocation_conflict = any(item.get("transaction_id") == transaction_id
+                                      for item in allocations if isinstance(item, dict))
+        if allocation_conflict:
+            raise ValueError("CARD_ALREADY_LINKED")
+        occupied = self.conn.execute(
+            "SELECT event_id FROM ota_review_links WHERE transaction_id=?", (transaction_id,)).fetchone()
+        if occupied:
+            raise ValueError("CARD_ALREADY_LINKED")
+        conditions, review_warnings = _proposal_conditions(event, transaction)
+        proposal_id = "proposal_" + _digest([event_id, transaction_id])
+        result = {"status": "MATCHED_USER", "ota_event_id": event_id,
+                  "transaction_id": transaction_id, "evidence_changed": False,
+                  "proposal_id": proposal_id, "differences": current["differences"],
+                  "proposal_conditions": conditions, "proposal_review_warnings": review_warnings}
+        with self.conn:
+            self.conn.execute("""INSERT INTO ota_review_links
+                (event_id,transaction_id,event_json,transaction_json,source_digest,user)
+                VALUES(?,?,?,?,?,?)""", (event_id, transaction_id, _dump(event), _dump(transaction),
+                                            event.get("source_digest"), str(user)))
+            self.conn.execute("""INSERT OR IGNORE INTO ota_review_proposals
+                (proposal_id,event_id,transaction_id,conditions_json,user,review_warning)
+                VALUES(?,?,?,?,?,?)""",
+                              (proposal_id, event_id, transaction_id, _dump(conditions), str(user),
+                               _dump(review_warnings)))
+            self.conn.execute("INSERT INTO ota_review_requests(request_id,result_json) VALUES(?,?)",
+                              (request_id, _dump(result)))
+        return result
+
+    def answer_proposal(self, proposal_id, action, *, user, conditions=None):
+        self._ensure_initialized()
+        row = self.conn.execute("SELECT * FROM ota_review_proposals WHERE proposal_id=?",
+                                (proposal_id,)).fetchone()
+        if not row:
+            raise ValueError("PROPOSAL_NOT_FOUND")
+        if row["status"] != "pending":
+            raise ValueError("PROPOSAL_ALREADY_ANSWERED")
+        review_warnings = json.loads(row["review_warning"] or "[]")
+        if action == "approve" and review_warnings:
+            raise ValueError("PROPOSAL_REQUIRES_EDIT")
+        proposed = json.loads(row["conditions_json"])
+        if action == "once":
+            status = "answered_once"
+            selected = proposed
+        elif action in ("approve", "edit"):
+            selected = conditions if conditions is not None else proposed
+            if not _narrow(selected):
+                raise ValueError("RULE_SCOPE_TOO_BROAD")
+            status = "approved" if action == "approve" else "edited"
+        else:
+            raise ValueError("INVALID_PROPOSAL_ACTION")
+        with self.conn:
+            self.conn.execute("UPDATE ota_review_proposals SET status=?,answer_json=? WHERE proposal_id=?",
+                              (status, _dump({"action": action, "conditions": selected, "user": user}), proposal_id))
+            if action == "approve":
+                previous = self.conn.execute("SELECT MAX(version) FROM ota_review_rules").fetchone()[0] or 0
+                rule_id = "rule_" + _digest([proposal_id, selected])
+                self.conn.execute("""INSERT INTO ota_review_rules
+                    (rule_id,version,conditions_json,source_event_id,source_transaction_id,
+                     approved_by,user_confirmation,active) VALUES(?,?,?,?,?,?,?,1)""",
+                                  (rule_id, previous + 1, _dump(selected), row["event_id"],
+                                   row["transaction_id"], str(user),
+                                   _dump({"proposal_id":proposal_id,"action":"approve","user":str(user)})))
+            new_proposal_id = None
+            if action == "edit":
+                new_proposal_id = "proposal_" + _digest([proposal_id, selected])
+                self.conn.execute("""INSERT OR IGNORE INTO ota_review_proposals
+                    (proposal_id,event_id,transaction_id,conditions_json,user) VALUES(?,?,?,?,?)""",
+                                  (new_proposal_id, row["event_id"], row["transaction_id"],
+                                   _dump(selected), str(user)))
+        result = {"proposal_id": proposal_id, "action": action, "active": action == "approve",
+                  "conditions": selected}
+        if action == "edit":
+            result["new_proposal_id"] = new_proposal_id
+        return result
+
+    def refresh(self, events, transactions, *, changed_transaction_ids=None, changed_event_ids=None):
+        changed_transaction_ids = set(changed_transaction_ids or [])
+        changed_event_ids = set(changed_event_ids or [])
+        event_by_id = {event.get("ota_event_id"): event for event in events}
+        stored_links = (self.conn.execute("SELECT * FROM ota_review_links").fetchall()
+                        if self._has_table("ota_review_links") else [])
+        if any((current := event_by_id.get(row["event_id"])) and
+               current.get("source_digest") != row["source_digest"] or
+               row["event_id"] not in event_by_id and not row["evidence_missing"]
+               for row in stored_links):
+            self._ensure_initialized()
+            stored_links = self.conn.execute("SELECT * FROM ota_review_links").fetchall()
+        for row in stored_links:
+            current = event_by_id.get(row["event_id"])
+            if current and not _event_is_paid(current):
+                with self.conn:
+                    self.conn.execute("""UPDATE ota_review_links
+                        SET evidence_changed=?,evidence_missing=1 WHERE event_id=?""",
+                                      (int(current.get("source_digest") != row["source_digest"] or
+                                           row["evidence_changed"]), row["event_id"]))
+                continue
+            if current and (current.get("source_digest") != row["source_digest"] or row["evidence_missing"]):
+                with self.conn:
+                    self.conn.execute("""UPDATE ota_review_links
+                        SET evidence_changed=?,evidence_missing=0,source_digest=?,event_json=? WHERE event_id=?""",
+                                      (int(current.get("source_digest") != row["source_digest"] or row["evidence_changed"]),
+                                       current.get("source_digest"), _dump(current), row["event_id"]))
+            elif not current and not row["evidence_missing"]:
+                with self.conn:
+                    self.conn.execute("UPDATE ota_review_links SET evidence_missing=1 WHERE event_id=?",
+                                      (row["event_id"],))
+        pinned = self.links()
+        if changed_event_ids or changed_transaction_ids:
+            targeted = set(changed_event_ids)
+            targeted.update(identity for identity, link in pinned.items()
+                            if link["transaction_id"] in changed_transaction_ids)
+            changed_rows = [row for row in transactions
+                            if row.get("transaction_id") in changed_transaction_ids]
+            rules = self.active_rules()
+            for event in events:
+                if event.get("ota_event_id") in targeted or not _event_is_paid(event):
+                    continue
+                expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
+                for row in changed_rows:
+                    if _direction(row) != expected_direction:
+                        continue
+                    exact_date = row.get("approval_date") == event.get("paid_on")
+                    if ((exact_date or _approved_lag_match(event, row, rules)) and
+                            _has_corroborator(event, row, rules)):
+                        targeted.add(event.get("ota_event_id"))
+                        break
+            selected = [event for event in events if event.get("ota_event_id") in targeted]
+        else:
+            selected = list(events)
+        selected_ids = {event.get("ota_event_id") for event in selected}
+        for row in self.conn.execute("SELECT * FROM ota_review_links").fetchall() if self._has_table("ota_review_links") else []:
+            current = event_by_id.get(row["event_id"])
+            unusable_current = current is not None and not _event_is_paid(current)
+            missing = row["event_id"] not in event_by_id or unusable_current
+            if missing:
+                if unusable_current and row["event_id"] in selected_ids:
+                    selected = [event for event in selected
+                                if event.get("ota_event_id") != row["event_id"]]
+                    selected_ids.discard(row["event_id"])
+            if missing and row["event_id"] not in selected_ids:
+                snapshot = json.loads(row["event_json"])
+                snapshot["_evidence_missing"] = True
+                selected.append(snapshot)
+                selected_ids.add(row["event_id"])
+        result = match_ota_payment_events(selected, transactions, existing_links=pinned,
+                                          rules=self.active_rules())
+        for item in result:
+            link = pinned.get(item.get("ota_event_id"))
+            if link:
+                item["evidence_changed"] = link["evidence_changed"]
+                item["evidence_missing"] = link["evidence_missing"]
+                item["review_warning"] = ("evidence_missing" if link["evidence_missing"] else
+                                           "evidence_changed" if link["evidence_changed"] else None)
+        return result
