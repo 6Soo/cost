@@ -11,24 +11,64 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 
-def load_messages(directory):
-    """중복 메일은 한 번 읽고 같은 ID의 다른 원문은 충돌로 중단한다."""
+def as_directories(directory):
+    """단일 디렉터리와 목록을 같은 형태로 읽는다. 한 곳만 주면 한 목록이 된다."""
+    if directory is None:
+        return []
+    if isinstance(directory,(str,Path)):
+        return [Path(directory)]
+    return [Path(item) for item in directory]
+
+
+def collection_of(directory):
+    """한 수집 범위의 진행 상태. 여러 범위일 때 각각 남는다."""
+    path=Path(directory)/'collection.json'
+    if not path.is_file():
+        return {}
+    collection=json.loads(path.read_text(encoding='utf-8'))
+    return {key:collection[key] for key in ('after','before','query_exhausted','fetched')
+            if key in collection}
+
+
+def load_messages_from(directories):
+    """여러 디렉터리를 함께 읽는다.
+
+    같은 ID와 같은 본문·서명 헤더는 한 메일로 합친다. 같은 ID인데 본문이
+    다르면 기존과 같이 충돌로 중단한다. 한 디렉터리만 읽었다고 조기 종료하지
+    않고 등록된 모든 범위를 읽은 뒤에 대조를 시작한다.
+    """
     messages = {}
     fingerprints = {}
-    for path in sorted(Path(directory).glob('gmail*.json')):
-        for message in json.loads(path.read_text(encoding='utf-8'))['responses']:
-            identity = message['id']
-            payload=message['payload']
-            # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
-            core = dict(id=identity,internal_date=message.get('internal_date'),
-                        headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
-                        text=body_text(payload))
-            digest = hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-            if identity in fingerprints and fingerprints[identity] != digest:
-                raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-            fingerprints[identity] = digest
-            messages[identity] = message
-    return messages
+    inventory = []
+    for directory in as_directories(directories):
+        path=Path(directory)
+        entry={'kind':'mail_directory','path':str(path),'messages':0,
+               'collection':collection_of(path)}
+        if not path.is_dir():
+            entry['error']='directory_not_found'
+            inventory.append(entry)
+            continue
+        for file_path in sorted(path.glob('gmail*.json')):
+            for message in json.loads(file_path.read_text(encoding='utf-8'))['responses']:
+                identity = message['id']
+                payload=message['payload']
+                # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
+                core = dict(id=identity,internal_date=message.get('internal_date'),
+                            headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
+                            text=body_text(payload))
+                digest = hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+                if identity in fingerprints and fingerprints[identity] != digest:
+                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+                fingerprints[identity] = digest
+                messages[identity] = message
+                entry['messages']+=1
+        inventory.append(entry)
+    return messages, inventory
+
+
+def load_messages(directory):
+    """중복 메일은 한 번 읽고 같은 ID의 다른 원문은 충돌로 중단한다."""
+    return load_messages_from(directory)[0]
 
 
 def authenticated_headers(message, domains):
@@ -237,6 +277,177 @@ def shared_lodging_period(facts, *, paid_on, amount_krw):
             'source_digests':sorted({f['source_sha256'] for f in options})}
 
 
+def reference_records(document):
+    """과거 정규화 인덱스·예약 후보 문서의 예약 번호와 상충 여부만 읽는다.
+
+    원문 대조가 없는 참고 자료다. sha 값이 있어도 검증으로 보지 않는다.
+    구조가 표준 records(list)이든 예약번호 기준 dict이든 예약 번호 집합으로
+    낮춰서 진단에만 쓴다. 중첩된 records/rows/list 항목까지 함께 본다.
+    """
+    raw=json.loads(Path(document).read_text(encoding='utf-8'))
+    entries=[]
+    keyed={}
+    def collect(value, depth=0, booking_key=''):
+        if depth>6:
+            return
+        if isinstance(value,list):
+            for item in value:collect(item,depth+1)
+            return
+        if not isinstance(value,dict):
+            return
+        entries.append((booking_key,value))
+        for key in ('records','rows','list','items','entries'):
+            if key in value:collect(value[key],depth+1)
+    if isinstance(raw,list):
+        collect(raw)
+    elif isinstance(raw,dict):
+        if isinstance(raw.get('records'),list):
+            collect(raw['records'])
+        else:
+            # 예약번호를 바깥 키로 쓰는 형식. 안쪽 값과 함께 그 번호를 유지한다.
+            for key,value in raw.items():
+                if isinstance(value,(dict,list)):collect(value,1,key)
+    refs=collections.defaultdict(set)
+    transactions=collections.defaultdict(set)
+    sources=collections.defaultdict(set)
+    fields=collections.defaultdict(lambda:collections.defaultdict(set))
+    for booking_key,entry in entries:
+        found=_entry_booking_refs(entry)
+        # 항목 안의 명시 예약 번호가 먼저다. 바깥 키는 그것이 없을 때만 쓴다.
+        if (not found and booking_key and booking_key not in STRUCTURAL_KEYS
+                and re.fullmatch(r'[A-Za-z0-9_-]{8,32}',booking_key)
+                and re.search(r'\d',booking_key)):
+            found={booking_key}
+        for ref in found:
+            refs[ref].add(json.dumps(sorted(entry),ensure_ascii=False,default=str))
+            for name,value in _comparable_fields(entry):
+                fields[ref][name].add(json.dumps(value,ensure_ascii=False,default=str,sort_keys=True))
+        # 거래 식별은 명시된 transaction_id·source_hash 만 따른다.
+        # 구형 uid/event_id 는 다른 사물의 다른 이름일 수 있다.
+        marker=json.dumps(sorted(entry),ensure_ascii=False,default=str)
+        for key in ('transaction_id','source_hash'):
+            value=entry.get(key)
+            if isinstance(value,str) and value.strip():
+                (transactions if key=='transaction_id' else sources)[value.strip()].add(marker)
+    # 같은 예약에서 같은 항목의 값이 다를 때만 내용 충돌로 본다.
+    # 다른 메일·다른 보고서가 붙는 것은 정상이라 충돌이 아니다.
+    conflicts=sorted(ref for ref,values in fields.items()
+                     if any(len(seen)>1 for seen in values.values()))
+    return {'booking_refs':sorted(refs),'records':len(entries),
+            'conflicting_booking_refs':conflicts,
+            'comparable_values':{ref:{name:sorted(values) for name,values in fields[ref].items()}
+                                 for ref in sorted(fields)},
+            'transaction_ids':sorted(transactions),'source_hashes':sorted(sources)}
+
+
+# 문서 구조를 설명하는 바깥 키. 예약 번호가 아니다.
+STRUCTURAL_KEYS={'rows','records','list','items','entries','metadata','meta','summary',
+                  'result','results','data','total','totals','count','schema_version'}
+# 같은 예약에서 값이 달라지면 상충으로 볼 항목.
+COMPARABLE_FIELDS=('item','amount','currency','card_last4','status','provider','payment_status',
+                   'check_in','check_out','service_start_on','service_end_on','guests','room')
+
+
+def _entry_booking_refs(entry):
+    """항목 안의 명시 예약 번호만. 내부 숫자 id 는 예약 번호가 아니다."""
+    found=set()
+    for key in ('bookingRefs','booking_ref','booking_number'):
+        value=entry.get(key)
+        items=value if isinstance(value,list) else ([value] if isinstance(value,str) else [])
+        found|={str(item).strip() for item in items if str(item).strip()}
+    value=entry.get('booking_id')
+    if (isinstance(value,str) and value.strip()
+            and (not value.strip().isdigit() or 8<=len(value.strip())<=20)):
+        found.add(value.strip())
+    return found
+
+
+def _comparable_fields(entry):
+    for name in COMPARABLE_FIELDS:
+        if name in entry and entry[name] not in (None,''):
+            yield name,entry[name]
+
+
+def load_reference_documents(documents):
+    """참고 문서들을 모두 읽어 진단용으로 모은다. 결측은 진단으로 남는다."""
+    inventory=[]
+    comparable=collections.defaultdict(lambda:collections.defaultdict(set))
+    index={'by_booking_ref':collections.defaultdict(lambda:{'documents':set(),'conflicting':set()}),
+            'by_transaction_id':collections.defaultdict(lambda:{'documents':set()}),
+            'by_source_hash':collections.defaultdict(lambda:{'documents':set()})}
+    for document in as_directories(documents):
+        path=Path(document)
+        entry={'kind':'reference_document','path':str(path),'records':0,
+               'booking_refs':[],'conflicting_booking_refs':[],
+               'transaction_ids':[],'source_hashes':[]}
+        if not path.is_file():
+            entry['error']='file_not_found'
+            inventory.append(entry)
+            continue
+        try:
+            found=reference_records(path)
+        except (OSError,ValueError) as exc:
+            entry['error']=f'unreadable: {exc}'
+            inventory.append(entry)
+            continue
+        entry['records']=found['records']
+        entry['booking_refs']=found['booking_refs']
+        entry['conflicting_booking_refs']=found['conflicting_booking_refs']
+        entry['transaction_ids']=found['transaction_ids']
+        entry['source_hashes']=found['source_hashes']
+        for ref,fields in found['comparable_values'].items():
+            for field,values in fields.items():
+                comparable[ref][field].update(values)
+        inventory.append(entry)
+        for kind,keys in (('by_booking_ref',found['booking_refs']),
+                          ('by_transaction_id',found['transaction_ids']),
+                          ('by_source_hash',found['source_hashes'])):
+            for key in keys:
+                index[kind].setdefault(key,{'documents':set(),'conflicting':set()})
+                index[kind][key]['documents'].add(str(path))
+        for ref in found['conflicting_booking_refs']:
+            index['by_booking_ref'][ref]['conflicting'].add(ref)
+    for ref,fields in comparable.items():
+        if any(len(values)>1 for values in fields.values()):
+            index['by_booking_ref'][ref]['conflicting'].add(ref)
+    return {'sources':inventory,
+            'errors':[entry for entry in inventory if entry.get('error')],
+            'by_booking_ref':{ref:{'documents':sorted(value['documents']),
+                                   'conflicting':bool(value['conflicting'])}
+                              for ref,value in sorted(index['by_booking_ref'].items())},
+            'by_transaction_id':{key:len(value['documents'])
+                                 for key,value in sorted(index['by_transaction_id'].items())},
+            'by_source_hash':{key:len(value['documents'])
+                              for key,value in sorted(index['by_source_hash'].items())}}
+
+
+def reference_diagnosis(references, row=None, booking_ref=''):
+    """이미 검증된 예약이나 같은 거래에 참고 자료가 얼마나 붙는지를 진단한다.
+
+    참고 자료는 결제 권위가 아니다. 그래서 이 결과는 `reference_only` 로만
+    남고, 매칭 수·분류·보류를 바꾸지 않는다. 본문을 복제하지 않고 개수와
+    사유만 남긴다.
+    """
+    if not references:
+        return None
+    known=references.get('by_booking_ref',{}).get(booking_ref) if booking_ref else None
+    row_hit=0
+    if row:
+        for key,table in (('transaction_id',references.get('by_transaction_id',{})),
+                          ('source_hash',references.get('by_source_hash',{}))):
+            value=row.get(key)
+            if value and value in table:
+                row_hit=max(row_hit,table[value])
+    if not known and not row_hit:
+        return None
+    conflicting=bool(known and known['conflicting'])
+    return {'reason':'reference_only' if not conflicting else 'reference_content_conflict',
+            'unverified_reference':True,
+            'documents':max(row_hit,len(known['documents']) if known else 0),
+            'matched_by':'booking_ref' if known else 'transaction_identity',
+            'conflicting':conflicting}
+
+
 def match_mail(directory, transactions):
     # 같은 원행을 두 출처에서 전달한 경우만 합친다. 별도 거래는 모호성을 유지한다.
     unique = {}
@@ -244,7 +455,7 @@ def match_mail(directory, transactions):
         key=(row.get('transaction_id'),row.get('source_hash')) if row.get('transaction_id') and row.get('source_hash') else ('row',index)
         unique.setdefault(key,row)
     transactions=list(unique.values())
-    messages=load_messages(directory)
+    messages,mail_sources=load_messages_from(directory)
     facts=[fact for message in messages.values() if (fact:=extract_mail(message))]
     groups=collections.defaultdict(list)
     for fact in facts:
@@ -338,11 +549,14 @@ def match_mail(directory, transactions):
         elif (row.get('amount_krw') is None and row.get('foreign_currency')=='USD'):
             reason='foreign_receipt_or_krw_acquisition_required'
         unmatched.append(dict(transaction_id=row.get('transaction_id'),source_hash=row['source_hash'],reason=reason))
-    collection_path=Path(directory)/'collection.json'
-    collection=json.loads(collection_path.read_text(encoding='utf-8')) if collection_path.is_file() else {}
-    collection={k:collection[k] for k in ('after','before','query_exhausted','fetched') if k in collection}
+    collection={entry['path']:entry['collection'] for entry in mail_sources}
+    # 한 곳뿐인 동안은 기존 형태를 그대로 두고, 여러 곳이면 범위를 함께 남긴다.
+    single=next(iter(entry['collection'] for entry in mail_sources
+                     if entry['collection']),{})
     return {'messages_read':len(messages),'authenticated_facts':len(facts),
-            'mail_collection':collection,
+            'mail_sources':mail_sources,'mail_collections':collection,
+            'mail_source_errors':[entry for entry in mail_sources if entry.get('error')],
+            'mail_collection':single,
             'unmatched_reason_counts':dict(collections.Counter(r['reason'] for r in unmatched)),
             'unmatched_transactions':unmatched,
             'mail_categories':mail_categories(messages),'coverage':coverage,
@@ -362,7 +576,7 @@ def match_mail(directory, transactions):
 def lodging_mail_matches(directory, transactions, *, messages=None, require_active_period=True):
     """숙박의 원화·외화 결제 영수증을 유일한 카드 원행과 이용기간에 연결한다."""
     from decimal import Decimal, InvalidOperation
-    messages=load_messages(directory) if messages is None else messages
+    messages=load_messages_from(directory)[0] if messages is None else messages
     facts=[]
     currency_codes={'¥':'JPY','JPY':'JPY','€':'EUR','EUR':'EUR','US$':'USD','USD':'USD','₩':'KRW','KRW':'KRW'}
     for message in messages.values():
@@ -447,7 +661,9 @@ def lodging_mail_matches(directory, transactions, *, messages=None, require_acti
 def ledger_metadata(report, entry):
     """기존 대조 결과의 확정 사실만 장부 미리보기에 전달한다. 재대조하지 않는다."""
     empty = {'booking_ref': '', 'service_period': '', 'ota_evidence': {}}
-    if report is None or entry.get('transaction_direction') != 'purchase':
+    if (report is None or entry.get('transaction_direction') != 'purchase'
+            or report.get('ota_source_errors')
+            or report.get('ota_source_inventory',{}).get('missing')):
         return empty
     source = entry['source_hash']
     exact = [f for f in report.get('matches', []) if f['source_hash'] == source]
@@ -486,7 +702,7 @@ def ledger_metadata(report, entry):
 
 def europe_stays(directory):
     """사용자가 지정한 숙박 메일로 확인되는 유럽 체류 범위를 보존한다."""
-    messages=load_messages(directory)
+    messages=load_messages_from(directory)[0]
     stays=[]
     selected={}
     cancellations={}

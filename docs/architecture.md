@@ -1,5 +1,9 @@
 # 구조
 
+## 현재 OTA 자료 연결
+
+메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](ota_mail.md)의 최신 항목을 따른다.
+
 Import → Normalize → Classify → Review unresolved → Preview → Commit ledger.
 
 app/의 여덟 Python 파일이 카드 처리의 핵심이며 OTA 메일, 여행 수집과 보류 처리는 같은 패키지의 별도 모듈이 담당한다.

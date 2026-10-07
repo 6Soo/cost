@@ -70,7 +70,8 @@ def _unchanged_workbook_schedule(record, current_bytes, cache):
 
 
 def _mail_evidence_from_report(report, source_hashes):
-    """이미 계산된 OTA 메일 대조 결과를 화면 표시용 사실로만 줄인다."""
+    """이미 계산된 OTA 대조 결과를 화면 표시용 사실로만 줄인다."""
+    from app.ota_mail import reference_diagnosis
     wanted = set(source_hashes)
     evidence = {}
     for fact in report.get('matches', []):
@@ -90,11 +91,63 @@ def _mail_evidence_from_report(report, source_hashes):
         if source in wanted and source not in exact:
             evidence.setdefault(source, {})['mail_link_uncertain'] = True
     linked = exact | {f.get('source_hash') for f in report.get('type_only_candidates', [])}
+    diagnoses = {d.get('source_hash'): d.get('reason') for d in report.get('portal_diagnoses', [])}
+    # 이미 대조된 예약 번호도 참고 자료 조회에 쓴다.
+    matched_refs = {f.get('source_hash'): f.get('booking_ref')
+                    for f in report.get('matches', []) if f.get('booking_ref')}
+    references = report.get('reference_sources')
     for fact in report.get('unmatched_transactions', []):
         source = fact.get('source_hash')
         if source in wanted and source not in linked:
-            evidence.setdefault(source, {})['mail_link_absent'] = True
+            current = evidence.setdefault(source, {})
+            # 자료가 있는데 연결이 안 됐다는 사실과 그 원인을 함께 남긴다.
+            # 근거 부재와 자료 부재를 같은 표시로 두지 않는다.
+            current['mail_link_absent'] = True
+            # 구체 원인이 일반 사유보다 먼저다. 무엇이 막혔는지 알 수 있어야 한다.
+            reason = diagnoses.get(source) or fact.get('reason')
+            if reason:
+                current['link_diagnosis'] = reason
+    if references:
+        for source in wanted:
+            current = evidence.setdefault(source, {})
+            row = {'source_hash': source}
+            found = reference_diagnosis(references, row=row,
+                                        booking_ref=matched_refs.get(source, ''))
+            if found:
+                current['reference_only'] = found['reason']
+    inventory = report.get('ota_source_inventory') or {}
+    diagnostics = inventory.get('diagnostics') or []
+    source_errors = report.get('ota_source_errors') or []
+    if diagnostics or source_errors:
+        for source in wanted:
+            current = evidence.setdefault(source, {})
+            if diagnostics:
+                current['source_diagnostic'] = 'registered_source_missing'
+            elif source_errors:
+                current['source_diagnostic'] = 'source_read_failed'
     return evidence
+
+
+def _link_diagnosis_label(reason):
+    """미연결 원인을 사람이 읽을 한 줄로 바꾼다. 원문과 경로는 쓰지 않는다."""
+    labels = {
+        'no_exact_payment_evidence': '결제 근거 미확인 · 연결 필요',
+        'payment_amount_unavailable': '결제 금액 없음 · 연결 필요',
+        'foreign_receipt_or_krw_acquisition_required': '외화 영수증 확인 필요',
+        'future_payment': '결제 예정 · 실제 결제 확인 필요',
+        'amount_mismatch': '같은 카드 예약 후보와 금액 불일치',
+        'missing_period': '이용 기간 미확인 · 확인 필요',
+        'booking_conflict': '예약 내용 충돌 · 확인 필요',
+        'ambiguous_booking': '예약이 여러 건 · 구분 필요',
+        'ambiguous_transaction': '같은 예약의 거래가 여러 건 · 구분 필요',
+        'unverified_payment': '결제 근거 미검증 · 확인 필요',
+        'multiple_real_transactions_same_amount': '동액 거래 여러 건 · 구분 필요',
+        'reference_only': '참고 자료만 있음 · 검증 필요',
+        'reference_content_conflict': '참고 자료 내용 불일치 · 확인 필요',
+        'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
+        'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
+    }
+    return labels.get(reason, '예약 근거 확인 필요')
 
 
 def _review_evidence_labels(row, mail_evidence=None):
@@ -109,9 +162,15 @@ def _review_evidence_labels(row, mail_evidence=None):
         labels.append('예약 근거 있음')
     elif evidence.get('mail_link_uncertain'):
         labels.append('메일 있음 · 연결 확인 필요')
-    elif evidence.get('mail_link_absent'):
-        labels.append('메일 연결 없음')
+    elif _is_ota_row(row):
+        # OTA 거래에만 예약 연결 안내를 붙인다. 다른 가맹점 거래에는 붙이지 않는다.
+        reason = evidence.get('source_diagnostic') or evidence.get('link_diagnosis')
+        labels.append(_link_diagnosis_label(reason))
+        if evidence.get('reference_only'):
+            labels.append('참고 자료만 있음 · 검증 필요')
 
+    if evidence.get('source_diagnostic'):
+        labels.append(_link_diagnosis_label(evidence['source_diagnostic']))
     hold = row.get('review_hold') or {}
     if hold.get('kind') == 'refund_pending':
         labels.append('환불 확인 필요')
@@ -432,7 +491,15 @@ class CardFlow:
             'WHERE b.batch_id=? AND t.user_confirmed=0 AND t.classification_state!=? '
             'AND t.conflict_reason=? AND t.parse_error=?',(batch_id,'preserved','',''))
             if (selected is None or identity in selected) and _is_ota_row({'merchant':merchant})}
-        report=self._ota_report() if sources else None
+        from app import StoreError, ota_sources
+        import sqlite3
+        try:
+            report=self._ota_report() if sources else None
+        except (OSError,ValueError,KeyError,TypeError,sqlite3.Error,ota_sources.OtaSourcesError):
+            raise StoreError('OTA_EVIDENCE_UNAVAILABLE','등록된 예약 근거 자료를 읽지 못했습니다') from None
+        if report is not None and (report.get('ota_source_errors')
+                or report.get('ota_source_inventory',{}).get('missing')):
+            raise StoreError('OTA_EVIDENCE_UNAVAILABLE','등록된 예약 근거 자료를 모두 확인해 주세요')
         if report is not None:
             blocked_inference_sources={f['source_hash'] for f in report['matches']
                 if f.get('reservation_status')=='cancelled' or f.get('period_conflict')}
@@ -477,6 +544,8 @@ class CardFlow:
     def preview_metadata(self):
         """한 미리보기 요청에서는 같은 OTA 대조 결과를 재사용한다."""
         from app.ota_mail import ledger_metadata
+        from app import ota_sources
+        import sqlite3
         report = None
         loaded = False
 
@@ -485,7 +554,10 @@ class CardFlow:
             if not _is_ota_row(entry):
                 return {}
             if not loaded:
-                report = self._ota_report()
+                try:
+                    report = self._ota_report()
+                except (OSError,ValueError,KeyError,TypeError,sqlite3.Error,ota_sources.OtaSourcesError):
+                    report = {'ota_source_errors':[{'error':'source_read_failed'}]}
                 loaded = True
             return ledger_metadata(report, entry)
 
@@ -536,17 +608,41 @@ class CardFlow:
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','owner',entry['now'],row_id))
 
+    def _ota_sources(self):
+        """등록된 OTA 근거 자료를 모두 모은다. 임의로 훑지 않는다."""
+        from app import ota_sources
+        from app.ota_portal import evidence_path
+        data_directory = self.board.path.parent
+        mail_default = os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (data_directory/'ota-mail')
+        sources = ota_sources.resolve_sources(
+            data_directory, mail_default=mail_default, portal_default=evidence_path(data_directory))
+        return sources
+
     def _ota_report(self):
         """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""
-        from app.ota_mail import match_mail
-        from app.ota_portal import evidence_path, extend_report
-        mail_dir = Path(os.environ.get('WEBLEDGER_OTA_MAIL_DIR') or (self.board.path.parent/'ota-mail'))
-        portal_db = evidence_path(self.board.path.parent)
-        if not mail_dir.is_dir() and not portal_db.is_file():
+        from app import ota_sources
+        from app.ota_mail import load_reference_documents, match_mail
+        from app.ota_portal import extend_report
+        sources = self._ota_sources()
+        mail_dirs = sources['mail_directories']
+        portal_dbs = sources['portal_databases']
+        if not sources['missing'] \
+                and not any(Path(directory).is_dir() for directory in mail_dirs) \
+                and not any(Path(database).is_file() for database in portal_dbs) \
+                and not sources['reference_documents']:
             return None
-        paths=list(mail_dir.glob('gmail*.json'))+[mail_dir/'collection.json',portal_db,Path(str(portal_db)+'-wal')]
-        stamps=tuple((str(path.resolve()),path.stat().st_mtime_ns,path.stat().st_size)
-                     for path in sorted(paths) if path.is_file())
+        # 등록된 자료가 없으면 그 사실 자체를 진단으로 남긴다. 조용히 넘어가지 않는다.
+        watched = [sources.get('manifest_path')]
+        for directory in mail_dirs:
+            watched += list(Path(directory).glob('gmail*.json'))+[Path(directory)/'collection.json']
+        for database in portal_dbs:
+            watched += [database, Path(str(database)+'-wal')]
+        watched += list(sources['reference_documents'])
+        # 크기와 시각이 같아도 내용이 다르면 다르다. 그래서 내용 해시를 쓴다.
+        stamps = tuple(sorted(
+            (stamp for stamp in (ota_sources.content_stamp(path) for path in
+                                 {Path(item) for item in watched if Path(item).is_file()})),
+            key=lambda stamp: stamp['path']))
         columns=('transaction_id','source_hash','merchant','merchant_normalized','card_kind','card_tail',
                  'transaction_direction','approval_date','amount_krw','foreign_currency','foreign_amount',
                  'duplicate_of','parse_error','conflict_reason')
@@ -554,25 +650,60 @@ class CardFlow:
             rows=[tuple(row) for row in self.board.conn.execute(
                 'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
             fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
-            key=(str(mail_dir.resolve()),str(portal_db.resolve()),stamps,fingerprint)
+            # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
+            key = (str([str(path) for path in mail_dirs]),
+                   str([str(path) for path in portal_dbs]),
+                   str([str(path) for path in sources['reference_documents']]),
+                   sources['manifest_stamp'], stamps, fingerprint)
             cache=getattr(self.board,'_card_review_mail_cache',None)
             if cache and cache.get('key')==key:
                 return cache['report']
             transactions=[dict(zip(columns,row)) for row in rows]
-            report=extend_report(match_mail(mail_dir,transactions),portal_db,transactions)
+            report=extend_report(match_mail(mail_dirs,transactions),portal_dbs,transactions)
+            references = load_reference_documents(sources['reference_documents'])
+            report['reference_sources']=references
+            report['ota_source_inventory']={
+                'manifest_path':sources['manifest_path'],
+                'manifest_present':sources['manifest_present'],
+                'mail_directories':[str(path) for path in mail_dirs],
+                'portal_databases':[str(path) for path in portal_dbs],
+                'reference_documents':[str(path) for path in sources['reference_documents']],
+                'registered':{key:[str(path) for path in value]
+                              for key,value in sources['registered'].items()},
+                'missing':sources['missing'],
+                'diagnostics':sources['diagnostics'],
+            }
+            # 명시 등록한 자료의 읽기 실패만 오류다. 기본 위치는 있으면 쓰는 자리다.
+            registered={str(Path(item).resolve())
+                        for values in sources['registered'].values() for item in values}
+            report['ota_source_errors']=(
+                [entry for entry in report.get('mail_source_errors',[])
+                 if str(Path(entry['path']).resolve()) in registered]
+                + [entry for entry in report.get('portal_sources',{}).get('errors',[])
+                   if str(Path(entry['path']).resolve()) in registered]
+                + list(references.get('errors',[])))
             self.board._card_review_mail_cache={'key':key,'report':report}
             return report
 
     def review_mail_evidence(self, rows):
         """같은 대사 결과에서 화면에 필요한 근거만 꺼내며 DB에는 쓰지 않는다."""
+        from app import ota_sources
+        import sqlite3
         sources={row['source_hash'] for row in rows if _is_ota_row(row) and row.get('source_hash')}
         if not sources:
             return {}
         try:
             report=self._ota_report()
-            return _mail_evidence_from_report(report,sources) if report is not None else {}
-        except (OSError, ValueError, KeyError, TypeError):
+        except ota_sources.OtaSourcesError:
+            # 목록 파일이 없거나 형식이 틀리면 자료가 없는 것이 아니라 읽지 못한 것이다.
+            return {source:{'mail_link_absent':True,'source_diagnostic':'source_read_failed'}
+                    for source in sources}
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+            return {source:{'mail_link_absent':True,'source_diagnostic':'source_read_failed'}
+                    for source in sources}
+        if report is None:
             return {}
+        return _mail_evidence_from_report(report, sources)
 
     def state(self, batch_id):
         result = self.pipeline.get_batch(batch_id)

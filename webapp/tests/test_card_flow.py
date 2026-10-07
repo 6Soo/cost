@@ -69,9 +69,32 @@ class CardFlowTests(unittest.TestCase):
             'classification_state':'needs_review', 'classification_basis':'추론 배정 · 낮음 · 예약 연결 없음',
             'display_tab_id':'unclassified', 'trip_id':'', 'user_confirmed':0,
         }
+        # 근거가 없다는 것과 자료가 없다는 것은 다르다. 연결 확인을 요청하되
+        # 메일이 없다고 말하지 않는다.
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True}),
-            ['메일 연결 없음', '분류 확인 권장'],
+            ['예약 근거 확인 필요', '분류 확인 권장'],
+        )
+        self.assertEqual(
+            _review_evidence_labels(row, {'mail_link_absent':True,
+                                          'link_diagnosis':'no_exact_payment_evidence'}),
+            ['결제 근거 미확인 · 연결 필요', '분류 확인 권장'],
+        )
+        self.assertEqual(
+            _review_evidence_labels(row, {'mail_link_absent':True,
+                                          'link_diagnosis':'multiple_real_transactions_same_amount'}),
+            ['동액 거래 여러 건 · 구분 필요', '분류 확인 권장'],
+        )
+        self.assertEqual(
+            _review_evidence_labels(row, {'mail_link_absent':True,
+                                          'link_diagnosis':'no_exact_payment_evidence',
+                                          'reference_only':'reference_only'}),
+            ['결제 근거 미확인 · 연결 필요', '참고 자료만 있음 · 검증 필요', '분류 확인 권장'],
+        )
+        self.assertEqual(
+            _review_evidence_labels(row, {'mail_link_absent':True,
+                                          'source_diagnostic':'registered_source_missing'}),
+            ['등록된 근거 자료 없음 · 확인 필요', '분류 확인 권장'],
         )
 
     def test_review_evidence_labels_do_not_warn_again_after_user_confirmation(self):
