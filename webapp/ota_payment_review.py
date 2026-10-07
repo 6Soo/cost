@@ -29,8 +29,9 @@ _EVENT_FIELDS = (
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
     "posting_date", "merchant", "amount_krw", "foreign_amount", "currency",
-    "approval_number", "direction", "refund_status", "cancellation_status",
-    "already_linked_event_id", "already_linked_reason",
+    "approval_number", "direction", "transaction_direction", "refund_status", "cancellation_status",
+    "already_linked_event_id", "already_linked_reason", "selection_disabled",
+    "selection_disabled_reason",
 )
 _CONDITION_FIELDS = (
     "provider", "item", "merchant_normalized", "issuer", "card_last4",
@@ -42,6 +43,16 @@ def _public_period(value):
     if isinstance(value, dict):
         return {key: value[key] for key in ("starts_on", "ends_on") if key in value}
     return value if isinstance(value, (str, int, float, type(None))) else None
+
+
+def _transaction_selection_block_reason(transaction):
+    if transaction.get("duplicate_of"):
+        return "중복 거래라 선택할 수 없습니다."
+    if transaction.get("parse_error"):
+        return "거래 파싱 오류가 있어 선택할 수 없습니다."
+    if transaction.get("conflict_reason"):
+        return "거래 충돌이 있어 선택할 수 없습니다."
+    return ""
 
 
 def _proposal_question(conditions):
@@ -87,7 +98,15 @@ def public_snapshot(snapshot):
             row = {key: source.get(key) for key in _CARD_FIELDS if key in source}
             row.setdefault("approval_number", source.get("approval_number") or source.get("authorization_id"))
             row.setdefault("currency", source.get("foreign_currency") or source.get("currency"))
-            row.setdefault("direction", source.get("transaction_direction") or source.get("direction"))
+            row["direction"] = (source.get("transaction_direction") or source.get("direction") or "미확인")
+            block_reason = _transaction_selection_block_reason(source)
+            safe_reasons = {"중복 거래라 선택할 수 없습니다.",
+                            "거래 파싱 오류가 있어 선택할 수 없습니다.",
+                            "거래 충돌이 있어 선택할 수 없습니다."}
+            if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
+                block_reason = source["selection_disabled_reason"]
+            row["selection_disabled"] = bool(source.get("selection_disabled") or block_reason)
+            row["selection_disabled_reason"] = block_reason
             if row.get("already_linked_event_id"):
                 reason = row.get("already_linked_reason")
                 if reason not in ("자동 연결", "기존 연결", "사용자 확정 연결"):
@@ -452,6 +471,8 @@ class CoreOtaPaymentBackend:
                             if str(row.get("transaction_id")) == transaction_id), None)
         if transaction is None:
             raise InvalidReviewInput("card transaction does not exist")
+        if _transaction_selection_block_reason(transaction):
+            raise InvalidReviewInput("card transaction is not selectable")
         rows = self._event_rows(event, transactions, links)
         visible_ids = {str(row.get("transaction_id")) for row in rows}
         if transaction_id not in visible_ids:
@@ -574,7 +595,7 @@ def render_import_section(csrf: str) -> str:
     root.querySelector('#ota-events').innerHTML=events.length?events.map(event=>{{
       const eventId=esc(event.ota_event_id),rows=cards[event.ota_event_id]||[];
       const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',event.event_type],['결제일',event.paid_on],['결제 금액',String(event.amount??'미확인')+' '+(event.currency||'')],['확인 원화 금액',money(event.amount_krw)],['이용 기간',event.service_period],['항목',event.item],['보류 이유',event.reason],['근거 상태',event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨']];
-      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{esc(event.provider)}} · ${{esc(event.booking_ref)}} · ${{esc(event.status)}}</h3><div class="ota-facts">${{facts.map(([label,value])=>`<div><strong>${{esc(label)}}:</strong> <span class="ota-value">${{esc(value||'미확인')}}</span></div>`).join('')}}</div><h4>같은 결제일 카드 거래 ${{rows.length}}건</h4><div class="ota-cards">${{rows.map(card=>`<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{card.already_linked_event_id||event.evidence_missing?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong>${{esc(card.issuer)}} · ${{esc(card.approval_date||card.transaction_date)}}</strong><span class="ota-card-facts"><span>카드 종류: ${{esc(card.card_kind||'미확인')}}</span><span>카드 끝 네 자리: ${{esc(card.card_tail||'미확인')}}</span><span>승인일: ${{esc(card.approval_date||'미확인')}}</span><span>매입일: ${{esc(card.posting_date||'미확인')}}</span><span>가맹점: ${{esc(card.merchant||'미확인')}}</span><span>원화 금액: ${{money(card.amount_krw)}}</span><span>외화 금액: ${{esc(card.foreign_amount||'없음')}}</span><span>통화: ${{esc(card.currency||'미확인')}}</span><span>승인 번호: ${{esc(card.approval_number||card.authorization_id||'미확인')}}</span><span>취소 상태: ${{esc(card.cancellation_status||'미확인')}}</span><span>환불 상태: ${{esc(card.refund_status||'미확인')}}</span><span>거래 방향: ${{esc(card.direction||'미확인')}}</span><span>이미 연결된 결제: ${{esc(card.already_linked_event_id||'없음')}}</span><span>${{card.already_linked_event_id?esc(card.already_linked_reason||'이미 연결된 거래라 선택할 수 없습니다.'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'선택 가능'}}</span></span></span></label>`).join('')}}</div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>차이 미리 보기</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
+      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{esc(event.provider)}} · ${{esc(event.booking_ref)}} · ${{esc(event.status)}}</h3><div class="ota-facts">${{facts.map(([label,value])=>`<div><strong>${{esc(label)}}:</strong> <span class="ota-value">${{esc(value||'미확인')}}</span></div>`).join('')}}</div><h4>같은 결제일 카드 거래 ${{rows.length}}건</h4><div class="ota-cards">${{rows.map(card=>`<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{card.selection_disabled||card.already_linked_event_id||event.evidence_missing?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong>${{esc(card.issuer)}} · ${{esc(card.approval_date||card.transaction_date)}}</strong><span class="ota-card-facts"><span>카드 종류: ${{esc(card.card_kind||'미확인')}}</span><span>카드 끝 네 자리: ${{esc(card.card_tail||'미확인')}}</span><span>승인일: ${{esc(card.approval_date||'미확인')}}</span><span>매입일: ${{esc(card.posting_date||'미확인')}}</span><span>가맹점: ${{esc(card.merchant||'미확인')}}</span><span>원화 금액: ${{money(card.amount_krw)}}</span><span>외화 금액: ${{esc(card.foreign_amount||'없음')}}</span><span>통화: ${{esc(card.currency||'미확인')}}</span><span>승인 번호: ${{esc(card.approval_number||card.authorization_id||'미확인')}}</span><span>취소 상태: ${{esc(card.cancellation_status||'미확인')}}</span><span>환불 상태: ${{esc(card.refund_status||'미확인')}}</span><span>거래 방향: ${{esc(card.transaction_direction||card.direction||'미확인')}}</span><span>이미 연결된 결제: ${{esc(card.already_linked_event_id||'없음')}}</span><span>${{card.selection_disabled?esc(card.selection_disabled_reason||'선택할 수 없습니다.'):card.already_linked_event_id?esc(card.already_linked_reason||'이미 연결된 거래라 선택할 수 없습니다.'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'선택 가능'}}</span></span></span></label>`).join('')}}</div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>차이 미리 보기</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
     }}).join(''):'<p>검토할 OTA 결제 보류가 없습니다.</p>';
     renderProposals(snapshot.proposals||[]);
     bindEvents();

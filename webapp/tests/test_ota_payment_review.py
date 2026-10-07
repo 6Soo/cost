@@ -639,5 +639,97 @@ class OtaPaymentReviewTests(unittest.TestCase):
             board_conn.close()
 
 
+    def _flagged_backend(self):
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+
+        class Store(FakeCoreStore):
+            def links(self):
+                return {}
+
+        class Payments:
+            def build_ota_payment_events(self, _sources):
+                return [dict(EVENT)]
+
+            def match_ota_payment_events(self, events, *_args, **_kwargs):
+                return [{**events[0], "status": "HOLD_AMBIGUOUS"}]
+
+            def same_date_cards(self, event, transactions, *, links=None):
+                return [dict(row) for row in transactions if row.get("approval_date") == event["paid_on"]]
+
+        directory = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
+        self.addCleanup(directory.cleanup)
+        board_path = Path(directory.name) / "board.sqlite"
+        connection = sqlite3.connect(board_path, check_same_thread=False)
+        self.addCleanup(connection.close)
+        connection.row_factory = sqlite3.Row
+        connection.execute("CREATE TABLE transactions (transaction_id TEXT, approval_date TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT, amount_krw INTEGER, transaction_direction TEXT, direction TEXT)")
+        values = [
+            ("card-duplicate", EVENT["paid_on"], "card-original", "", "", 12500, "purchase", "legacy-duplicate"),
+            ("card-parse-error", EVENT["paid_on"], "", "bad date", "", 12500, "purchase", "legacy-parse"),
+            ("card-conflict", EVENT["paid_on"], "", "", "conflicting source", 12500, "purchase", "legacy-conflict"),
+            ("card-normal", EVENT["paid_on"], "", "", "", 12500, "purchase", "legacy-normal"),
+        ]
+        connection.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?)", values)
+        connection.commit()
+        board = SimpleNamespace(conn=connection, _lock=threading.RLock())
+        Store.writer_calls = 0
+        backend = CoreOtaPaymentBackend(
+            board, str(Path(directory.name) / "review.sqlite"), read_only=False,
+            payments=Payments(), store_type=Store, sources={})
+        self.addCleanup(backend.close)
+        return backend, Store
+
+    def test_flagged_same_date_transactions_remain_visible_disabled_and_confirm_is_rejected(self):
+        backend, store_type = self._flagged_backend()
+        snapshot = backend.snapshot()
+        rows = snapshot["cards_by_event"][EVENT["ota_event_id"]]
+        self.assertEqual([row["transaction_id"] for row in rows], [
+            "card-duplicate", "card-parse-error", "card-conflict", "card-normal"])
+        twice = ota_payment_review.public_snapshot({
+            "events": [], "cards_by_event": {EVENT["ota_event_id"]: rows}, "proposals": []})
+        public_rows = twice["cards_by_event"][EVENT["ota_event_id"]]
+        expected_reasons = ["중복 거래라 선택할 수 없습니다.",
+                            "거래 파싱 오류가 있어 선택할 수 없습니다.",
+                            "거래 충돌이 있어 선택할 수 없습니다."]
+        for row, reason in zip(public_rows[:3], expected_reasons):
+            self.assertTrue(row["selection_disabled"])
+            self.assertEqual(row["selection_disabled_reason"], reason)
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                backend.preview(EVENT["ota_event_id"], row["transaction_id"])
+            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+                backend.confirm(EVENT["ota_event_id"], row["transaction_id"], "digest",
+                                request_id="req-blocked", user="synthetic-owner")
+        self.assertFalse(public_rows[3]["selection_disabled"])
+        for row in public_rows[:3]:
+            handler = FakeHandler(backend, ota_payment_review.ROUTE_PREFIX + "/confirm",
+                                  raw=json.dumps({"event_id": EVENT["ota_event_id"],
+                                                  "transaction_id": row["transaction_id"],
+                                                  "preview_digest": "digest", "request_id": "req-http"}).encode())
+            ota_payment_review.dispatch(handler, urlsplit(handler.path), raw=handler.raw,
+                                        csrf="token-synth", backend=backend)
+            self.assertEqual(handler.response[0], 422)
+            for private_detail in ("bad date", "card-original", "conflicting source"):
+                self.assertNotIn(private_detail, json.dumps(handler.response[2]))
+        self.assertEqual(store_type.writer_calls, 0)
+
+    def test_normal_same_date_transaction_remains_selectable_and_confirmable(self):
+        backend, store_type = self._flagged_backend()
+        preview = backend.preview(EVENT["ota_event_id"], "card-normal")
+        backend.confirm(EVENT["ota_event_id"], "card-normal", preview["preview_digest"],
+                        request_id="req-normal", user="synthetic-owner")
+        self.assertEqual(store_type.writer_calls, 1)
+
+    def test_card_direction_prefers_transaction_direction_then_falls_back(self):
+        raw = {"events": [], "cards_by_event": {"evt-direction": [
+            {"transaction_id": "canonical", "transaction_direction": "refund", "direction": "purchase"},
+            {"transaction_id": "fallback", "transaction_direction": "", "direction": "refund"},
+            {"transaction_id": "unknown", "transaction_direction": None, "direction": None},
+        ]}, "proposals": []}
+        once = ota_payment_review.public_snapshot(raw)["cards_by_event"]["evt-direction"]
+        twice = ota_payment_review.public_snapshot({"events": [], "cards_by_event": {"evt-direction": once},
+                                                     "proposals": []})["cards_by_event"]["evt-direction"]
+        self.assertEqual([row["direction"] for row in twice], ["refund", "refund", "미확인"])
+
+
 if __name__ == "__main__":
     unittest.main()

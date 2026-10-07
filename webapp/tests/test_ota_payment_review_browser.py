@@ -22,6 +22,58 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_flagged_rows_render_disabled_with_safe_reasons_on_mobile_and_desktop(self):
+        rows = []
+        for identity, flag in (("duplicate", "duplicate_of"),
+                               ("parse-error", "parse_error"),
+                               ("conflict", "conflict_reason"),
+                               ("normal", "")):
+            row = {"transaction_id": f"card-{identity}", "issuer": "Synthetic Bank",
+                   "approval_date": "2026-09-04", "amount_krw": 12500,
+                   "merchant": "Synthetic merchant", "transaction_direction": "purchase"}
+            if flag:
+                row[flag] = "synthetic private diagnostic"
+            else:
+                row["direction"] = "refund"
+            rows.append(row)
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "evt-browser", "provider": "Synthetic Stay",
+                        "booking_ref": "BOOK-BROWSER", "event_type": "charge",
+                        "paid_on": "2026-09-04", "status": "HOLD_AMBIGUOUS"}],
+            "cards_by_event": {"evt-browser": rows}, "proposals": []})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                for width, height in ((390, 844), (1440, 900)):
+                    with self.subTest(width=width):
+                        page = browser.new_page(viewport={"width": width, "height": height})
+                        page.set_default_timeout(5000)
+                        page.route("**/api/imports/ota", lambda route: route.fulfill(
+                            status=200, content_type="application/json",
+                            body=json.dumps(snapshot, ensure_ascii=False)))
+                        page.set_content("<base href='http://localhost/'>" +
+                                         ota_payment_review.render_import_section("token-synth"))
+                        page.get_by_text("BOOK-BROWSER", exact=True).wait_for()
+                        visible_rows = page.locator(".ota-card-row")
+                        self.assertEqual(visible_rows.count(), 4)
+                        expected = ["중복 거래라 선택할 수 없습니다.",
+                                    "거래 파싱 오류가 있어 선택할 수 없습니다.",
+                                    "거래 충돌이 있어 선택할 수 없습니다."]
+                        for index, reason in enumerate(expected):
+                            self.assertTrue(visible_rows.nth(index).get_by_role("radio").is_disabled())
+                            self.assertIn(reason, visible_rows.nth(index).inner_text())
+                            self.assertNotIn("synthetic private diagnostic", visible_rows.nth(index).inner_text())
+                        self.assertFalse(visible_rows.nth(3).get_by_role("radio").is_disabled())
+                        self.assertIn("거래 방향: purchase", visible_rows.nth(3).inner_text())
+                        self.assertNotIn("거래 방향: refund", visible_rows.nth(3).inner_text())
+                        visible_rows.nth(3).get_by_role("radio").check()
+                        self.assertTrue(visible_rows.nth(3).get_by_role("radio").is_checked())
+                        self.assertEqual(page.evaluate("document.documentElement.scrollWidth"), width)
+                        page.close()
+            finally:
+                browser.close()
+
     def test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal(self):
         backend = FakeBackend()
 
