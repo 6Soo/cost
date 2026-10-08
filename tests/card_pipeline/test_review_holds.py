@@ -29,6 +29,28 @@ def test_hold_blocks_confirmed_cost_and_invalidates_previous_preview():
     assert current['rows'][0]['blocked']=='review_hold'
     with pytest.raises(StoreError):pipe.commit(batch,old['digest'],'commit',tab_validator=lambda _:True)
     assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
+    projected=[]
+    result=pipe.commit(batch,current['digest'],'held-commit',tab_validator=lambda _:True,
+                       projection=lambda entry:projected.append(entry))
+    assert result['applied']==0
+    assert projected==[]
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
+
+
+def test_synthetic_ota_group_hold_blocks_adapter_projection_and_ledger_commit():
+    pipe,batch,row=setup()
+    hold={row['transaction_id']:{'kind':'ota_group_review',
+        'reason':'synthetic partial OTA group', 'ota_event_ids':['ota-syn-a','ota-syn-b']}}
+    preview=pipe.preview(batch,tab_validator=lambda _:True,additional_holds=hold)
+    assert preview['ready']==0
+    assert preview['rows'][0]['blocked']=='review_hold'
+    assert preview['rows'][0]['review_hold']['kind']=='ota_group_review'
+    projected=[]
+    result=pipe.commit(batch,preview['digest'],'ota-held',tab_validator=lambda _:True,
+                       additional_holds=hold,projection=lambda entry:projected.append(entry))
+    assert result['applied']==0
+    assert projected==[]
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
 
 
 def test_saving_an_answer_keeps_hold_until_explicitly_released():

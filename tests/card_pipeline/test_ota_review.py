@@ -214,6 +214,149 @@ def test_approved_narrow_proposal_becomes_a_versioned_active_rule(tmp_path):
         store.close()
 
 
+def test_user_approved_dynamic_provider_alias_is_versioned_and_used(tmp_path):
+    store = OtaReviewStore(tmp_path / 'user-alias.sqlite')
+    try:
+        current_event = event(card_last4=None)
+        current_card = card(merchant='SYNTHETIC OTA', merchant_normalized='synthetic ota')
+        preview = store.preview(current_event, current_card)
+        store.confirm(current_event, current_card, preview['preview_digest'],
+                      request_id='alias-link', user='synthetic-owner', allocations={})
+        proposal = store.proposals()[0]
+        alias_conditions = {"rule_kind":"provider_alias", "provider":"agoda",
+            "alias":"synthetic ota", "approval_source":"manual_review_link", "alias_version":1}
+        once = store.answer_proposal(proposal['proposal_id'], 'once', user='synthetic-owner')
+        assert once['active'] is False
+        assert store.active_rules() == []
+        # A separate pending proposal is created by the same confirmed link
+        # below to test explicit alias approval rather than one-time use.
+        second_event = event('evt-alias-second', card_last4=None)
+        second_card = card('card-second', merchant='SYNTHETIC OTA',
+                      merchant_normalized='synthetic ota')
+        second_preview = store.preview(second_event, second_card)
+        store.confirm(second_event, second_card, second_preview['preview_digest'],
+                      request_id='alias-link-2', user='synthetic-owner', allocations={})
+        pending = next(p for p in store.proposals() if p['status'] == 'pending')
+        answer = store.answer_proposal(pending['proposal_id'], 'approve', user='synthetic-owner',
+                                       conditions=alias_conditions)
+        assert answer['active'] is True
+        active = store.active_rules()[0]
+        assert active['conditions'] == alias_conditions
+        result = match_ota_payment_events([current_event], [current_card], rules=store.active_rules())
+        assert result[0]['status'] == 'MATCHED_AUTO'
+    finally:
+        store.close()
+
+
+def test_percent_discount_rule_is_inactive_until_explicit_approve_and_once_stays_local(tmp_path):
+    conditions = {"provider":"agoda", "item":"숙박비", "merchant_normalized":"unknown",
+        "issuer":"issuer-x", "card_last4":"1234", "payment_method":"credit",
+        "valid_from":"2026-08-01", "valid_to":"2026-08-31", "minimum_amount_krw":10000,
+        "discount_rate_bps":1000, "discount_cap_krw":5000, "rounding_mode":"half_up"}
+    store = OtaReviewStore(tmp_path / 'percent-rule.sqlite')
+    try:
+        original, transaction = event(), card(payment_method='credit')
+        preview = store.preview(original, transaction)
+        store.confirm(original, transaction, preview['preview_digest'], request_id='percent',
+                      user='synthetic-owner', allocations={})
+        proposal = store.proposals()[0]
+        assert store.active_rules() == []
+        once = store.answer_proposal(proposal['proposal_id'], 'once', user='synthetic-owner')
+        assert once['active'] is False
+        assert store.active_rules() == []
+        # A second explicit link supplies a separately pending approval record.
+        second_event = event('evt-percent-approved')
+        second_card = card('card-percent-approved', payment_method='credit')
+        second_preview = store.preview(second_event, second_card)
+        store.confirm(second_event, second_card, second_preview['preview_digest'],
+                      request_id='percent-approved', user='synthetic-owner', allocations={})
+        pending = next(p for p in store.proposals() if p['status'] == 'pending')
+        approved = store.answer_proposal(pending['proposal_id'], 'approve', user='synthetic-owner',
+                                         conditions=conditions)
+        assert approved['active'] is True
+        next_event = event('evt-percent-next', card_last4='1234')
+        next_card = card('card-percent-next', amount_krw=27000, payment_method='credit')
+        assert match_ota_payment_events([next_event], [next_card],
+               rules=store.active_rules())[0]['status'] == 'MATCHED_AUTO'
+    finally:
+        store.close()
+
+
+def test_frozen_group_order_survives_new_card_and_get_does_not_reallocate(tmp_path):
+    store = OtaReviewStore(tmp_path / 'frozen-group.sqlite')
+    try:
+        events = [event('evt-a', booking_ref='BOOK-A'), event('evt-b', booking_ref='BOOK-B')]
+        cards = [card('card-a', authorization_number='AUTH-A'),
+                 card('card-b', authorization_number='AUTH-B')]
+        initial = match_ota_payment_events(events, cards)
+        mapping = {row['ota_event_id']: row['transaction_id'] for row in initial}
+        frozen = store.confirm_group_order(
+            [row['ota_event_id'] for row in initial], [row['transaction_id'] for row in initial],
+            mapping, user='synthetic-owner', order_snapshot=initial[0]['group_order_snapshot'],
+            request_id='freeze-group-synthetic-001')
+        assert frozen['status'] == 'frozen'
+        replay = store.confirm_group_order(
+            [row['ota_event_id'] for row in initial], [row['transaction_id'] for row in initial],
+            mapping, user='synthetic-owner', order_snapshot=initial[0]['group_order_snapshot'],
+            request_id='freeze-group-synthetic-001')
+        assert replay == frozen
+        with pytest.raises(ValueError, match='GROUP_ORDER_REQUEST_REPLAY_CONFLICT'):
+            store.confirm_group_order(
+                [row['ota_event_id'] for row in initial], [row['transaction_id'] for row in initial],
+                dict(reversed(list(mapping.items()))), user='different-synthetic-owner', replace=True,
+                order_snapshot=initial[0]['group_order_snapshot'], request_id='freeze-group-synthetic-001')
+        count_before = store.conn.execute('SELECT COUNT(*) FROM ota_review_group_pins').fetchone()[0]
+        assert store.group_pins()[0]['mapping'] == mapping
+        assert store.conn.execute('SELECT COUNT(*) FROM ota_review_group_pins').fetchone()[0] == count_before
+        changed = match_ota_payment_events(events, cards + [card('card-c', authorization_number='AUTH-C')],
+                                           frozen_groups=store.group_pins())
+        assert {row['status'] for row in changed} == {'HOLD_GROUP_CHANGED'}
+        assert all(row.get('transaction_id') is None for row in changed)
+        assert all(row['frozen_mapping'] == mapping for row in changed)
+        reordered_events = [event('evt-a', booking_ref='BOOK-Z'), event('evt-b', booking_ref='BOOK-A')]
+        reordered = match_ota_payment_events(reordered_events, cards, frozen_groups=store.group_pins())
+        assert {row['status'] for row in reordered} == {'HOLD_GROUP_CHANGED'}
+        assert all(row['review_warning'] == 'confirm_group_reallocation' for row in reordered)
+        replacement = reordered[0]['proposed_mapping']
+        replaced = store.confirm_group_order(
+            [row['ota_event_id'] for row in reordered], [row['transaction_id'] for row in initial],
+            replacement, user='synthetic-owner', replace=True,
+            order_snapshot=reordered[0]['group_order_snapshot'],
+            request_id='replace-group-order-synthetic-001')
+        assert replaced['version'] == 2
+        assert store.group_pins()[0]['order_snapshot'] == reordered[0]['group_order_snapshot']
+        confirmed = match_ota_payment_events(reordered_events, cards, frozen_groups=store.group_pins())
+        assert {row['status'] for row in confirmed} == {'MATCHED_AUTO'}
+        assert {row['allocation_basis'] for row in confirmed} == {'frozen_user_confirmed_order'}
+    finally:
+        store.close()
+
+
+def test_frozen_group_edge_change_warns_and_keeps_all_pinned_cards_reserved():
+    store = OtaReviewStore(':memory:')
+    try:
+        events = [event('edge-a', booking_ref='BOOK-A', authorization_number='AUTH-A'),
+                  event('edge-b', booking_ref='BOOK-B', authorization_number='AUTH-B')]
+        cards = [card('edge-card-a', authorization_number='AUTH-A'),
+                 card('edge-card-b', authorization_number='AUTH-B')]
+        initial = match_ota_payment_events(events, cards)
+        mapping = {row['ota_event_id']:row['transaction_id'] for row in initial}
+        store.confirm_group_order(
+            [row['ota_event_id'] for row in initial], [row['transaction_id'] for row in initial],
+            mapping, user='synthetic-owner', order_snapshot=initial[0]['group_order_snapshot'],
+            request_id='freeze-edge-synthetic-001')
+        changed_events = [dict(row, authorization_scheme='synthetic-v1') for row in events]
+        changed_cards = [dict(row, authorization_scheme='synthetic-v1') for row in cards]
+        changed = match_ota_payment_events(changed_events, changed_cards, frozen_groups=store.group_pins())
+        assert {row['status'] for row in changed} == {'HOLD_GROUP_CHANGED'}
+        assert all(row['transaction_id'] is None for row in changed)
+        assert all(row['frozen_mapping'] == mapping for row in changed)
+        assert all(set(row['reserved_card_ids']) == {'edge-card-a', 'edge-card-b'} for row in changed)
+        assert all(row['review_warning'] == 'confirm_group_reallocation' for row in changed)
+    finally:
+        store.close()
+
+
 def test_edit_reissues_a_pending_narrow_proposal_without_activating_it(tmp_path):
     store = OtaReviewStore(tmp_path / 'review.sqlite')
     try:
@@ -294,6 +437,55 @@ def test_ui_amount_delta_condition_is_accepted_only_with_narrow_identity(tmp_pat
         store.close()
 
 
+def test_acceptance_07_saved_delta_rules_keep_exact_and_delta_edges_in_their_own_scope(tmp_path):
+    store = OtaReviewStore(tmp_path / 'synthetic-rule-scope.sqlite')
+    try:
+        scopes = [
+            (event('rule-room', provider='agoda', item='room', amount=100000, amount_krw=100000,
+                   card_last4='2042'), card('rule-room-source', merchant_normalized='agoda.com',
+                   card_tail='2042', amount_krw=96000), -4000),
+            (event('rule-hotel', provider='booking', item='hotel', amount=100000, amount_krw=100000,
+                   card_last4='9999'), card('rule-hotel-source', merchant_normalized='booking.com',
+                   card_tail='9999', amount_krw=98000), -2000),
+        ]
+        for index, (candidate, transaction, delta) in enumerate(scopes):
+            preview = store.preview(candidate, transaction)
+            confirmed = store.confirm(candidate, transaction, preview['preview_digest'],
+                request_id=f'scope-source-{index}', user='synthetic-owner', allocations={})
+            conditions = {'provider':candidate['provider'], 'item':candidate['item'],
+                'merchant_normalized':transaction['merchant_normalized'], 'issuer':'issuer-x',
+                'card_last4':transaction['card_tail'], 'currency':'KRW', 'event_type':'charge',
+                'amount_delta_krw':delta}
+            store.answer_proposal(confirmed['proposal_id'], 'approve', user='synthetic-owner',
+                                  conditions=conditions)
+        rules = store.active_rules()
+        assert len(rules) == 2
+        assert {rule['conditions']['item'] for rule in rules} == {'room', 'hotel'}
+        assert {rule['conditions']['provider'] for rule in rules} == {'agoda', 'booking'}
+        assert store.conn.execute('SELECT COUNT(*) FROM ota_review_rules WHERE active=1').fetchone()[0] == 2
+        candidates = [event('rule-room-next', provider='agoda', item='room', amount=100000,
+                            amount_krw=100000, card_last4='2042'),
+                      event('rule-hotel-next', provider='booking', item='hotel', amount=100000,
+                            amount_krw=100000, card_last4='9999'),
+                      event('rule-other-item', provider='agoda', item='flight', amount=100000,
+                            amount_krw=100000, card_last4='7777')]
+        transactions = [card('room-exact', merchant_normalized='agoda.com', card_tail='2042', amount_krw=100000),
+                       card('room-delta', merchant_normalized='agoda.com', card_tail='2042', amount_krw=96000),
+                       card('hotel-exact', merchant_normalized='booking.com', card_tail='9999', amount_krw=100000),
+                       card('hotel-delta', merchant_normalized='booking.com', card_tail='9999', amount_krw=98000),
+                       card('other-exact', merchant_normalized='agoda.com', card_tail='7777', amount_krw=100000),
+                       card('other-delta', merchant_normalized='agoda.com', card_tail='7777', amount_krw=96000)]
+        results = {row['ota_event_id']:row for row in match_ota_payment_events(candidates, transactions, rules=rules)}
+        assert results['rule-room-next']['status'] == 'HOLD_PARTIAL_GROUP'
+        assert set(results['rule-room-next']['candidates']) == {'room-exact', 'room-delta'}
+        assert results['rule-hotel-next']['status'] == 'HOLD_PARTIAL_GROUP'
+        assert set(results['rule-hotel-next']['candidates']) == {'hotel-exact', 'hotel-delta'}
+        assert results['rule-other-item']['status'] == 'MATCHED_AUTO'
+        assert results['rule-other-item']['transaction_id'] == 'other-exact'
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('approval_date', ['2026-08-03', '2026-07-30'])
 @pytest.mark.parametrize('answer_action,expected_status', [('approve','MATCHED_AUTO'), ('once','HOLD_NO_CARD')])
 def test_signed_manual_delta_proposal_only_applies_after_approval(
@@ -306,7 +498,7 @@ def test_signed_manual_delta_proposal_only_applies_after_approval(
         result = store.confirm(original, transaction, preview['preview_digest'],
                                request_id=f'delta-{answer_action}', user='owner', allocations={})
         assert result['proposal_conditions']['amount_delta_krw'] == -4000
-        assert result['proposal_conditions']['date_lag_days'] == 2
+        assert result['proposal_conditions']['date_lag_days'] == (2 if approval_date > '2026-08-01' else -2)
         assert result['proposal_review_warnings'] == []
         proposal = store.proposals()[0]
         assert proposal['conditions'] == result['proposal_conditions']

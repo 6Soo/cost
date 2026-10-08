@@ -6,11 +6,12 @@ import hashlib
 import json
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app import ota_mail, ota_portal
+from app.ota_matching_defaults import load_defaults
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
@@ -399,13 +400,11 @@ def _merge_proven_duplicate_payments(events):
                 right.get("provider"), right.get("booking_ref"), right.get("event_type")):
             return False
         if left.get("payment_id") and right.get("payment_id"):
-            if left["payment_id"] != right["payment_id"]:
-                return False
-            return not _event_semantic_conflict(left, right)
+            return left["payment_id"] == right["payment_id"]
         left_bindings = set(left.get("source_binding_ids") or [])
         right_bindings = set(right.get("source_binding_ids") or [])
         if left_bindings.intersection(right.get("source_ids") or []) or right_bindings.intersection(left.get("source_ids") or []):
-            return not _event_semantic_conflict(left, right)
+            return True
         return False
 
     paired = []
@@ -426,7 +425,8 @@ def _merge_proven_duplicate_payments(events):
         if len(group) == 1:
             merged.append(group[0])
             continue
-        merged.append(_combine_evidence(group))
+        conflict = any(_event_semantic_conflict(group[0], other) for other in group[1:])
+        merged.append(_combine_evidence(group, conflict=conflict))
     return merged
 
 
@@ -464,30 +464,88 @@ def _card_amount(row):
         return None
 
 
-def _descriptor_matches(event, row):
+def _descriptor_matches(event, row, rules=()):
     merchant = str(row.get("merchant_normalized") or row.get("merchant") or "").casefold()
     provider = str(event.get("provider") or "").casefold()
-    names = {"agoda": ("agoda", "아고다"), "trip": ("trip.com", "트립"),
-             "klook": ("klook", "클룩"), "booking": ("booking.com", "booking")}
-    return bool(merchant and any(name in merchant for name in names.get(provider, (provider,))))
+    defaults = load_defaults()
+    records = defaults.get("provider_merchant_alias_records", {}).get(provider, ())
+    approved = [item.get("alias", "") for item in records
+                if item.get("status") == "approved" and item.get("version") and item.get("source")]
+    for rule in rules or ():
+        conditions = rule.get("conditions", {})
+        status = str(rule.get("status") or "").lower()
+        if (("active" in rule and not bool(rule.get("active"))) or status in ("inactive", "revoked")):
+            continue
+        if (conditions.get("rule_kind") == "provider_alias" and _rule_scope_valid(conditions) and
+                conditions.get("provider", "").casefold() == provider and
+                conditions.get("approval_source") and conditions.get("alias_version") and
+                rule.get("approved_by")):
+            approved.append(conditions["alias"])
+    return bool(merchant and any(re.search(rf"(?<!\w){re.escape(name.casefold())}(?!\w)", merchant)
+                                 for name in approved if name))
 
 
 def _rule_scope_valid(conditions):
     if not isinstance(conditions, dict):
         return False
     allowed = {"provider", "item", "merchant_normalized", "issuer", "card_last4",
-               "date_lag_days", "amount_delta_krw"}
+               "date_lag_days", "date_lag_min_days", "date_lag_max_days", "amount_delta_krw",
+               "currency", "event_type", "discount_rate_bps",
+               "discount_cap_krw", "minimum_amount_krw", "rounding_mode",
+               "payment_method", "valid_from", "valid_to", "rule_kind",
+               "approval_source", "alias_version", "alias", "event_issuer_alias"}
     if not set(conditions) <= allowed:
         return False
+    if conditions.get("rule_kind") == "provider_alias":
+        return (bool(conditions.get("provider")) and bool(conditions.get("alias")) and
+                bool(conditions.get("approval_source")) and
+                isinstance(conditions.get("alias_version"), int) and
+                not isinstance(conditions.get("alias_version"), bool) and
+                conditions.get("alias_version") > 0)
+    if conditions.get("rule_kind") == "issuer_alias":
+        return (bool(conditions.get("provider")) and bool(conditions.get("event_issuer_alias")) and
+                bool(conditions.get("issuer")) and bool(conditions.get("approval_source")) and
+                isinstance(conditions.get("alias_version"), int) and
+                not isinstance(conditions.get("alias_version"), bool) and conditions.get("alias_version") > 0)
     if not conditions.get("provider") or not conditions.get("item"):
         return False
     if not (conditions.get("merchant_normalized") or
             (conditions.get("issuer") and conditions.get("card_last4"))):
         return False
     lag = conditions.get("date_lag_days", 0)
+    lag_min, lag_max = conditions.get("date_lag_min_days"), conditions.get("date_lag_max_days")
+    if (lag_min is None) != (lag_max is None):
+        return False
+    if lag_min is not None and ("date_lag_days" in conditions or
+            any(isinstance(value, bool) or not isinstance(value, int) or not -7 <= value <= 7
+                for value in (lag_min, lag_max)) or lag_min > lag_max):
+        return False
     delta = conditions.get("amount_delta_krw", 0)
-    return (isinstance(lag, int) and 0 <= lag <= 7 and isinstance(delta, int)
-            and -10000 <= delta <= 10000)
+    last4 = conditions.get("card_last4")
+    percent = conditions.get("discount_rate_bps")
+    date_bounds = ("valid_from" in conditions, "valid_to" in conditions)
+    date_bounds_valid = (date_bounds == (False, False) or (date_bounds == (True, True) and
+        _valid_iso_day(conditions.get("valid_from")) and _valid_iso_day(conditions.get("valid_to")) and
+        conditions["valid_from"] <= conditions["valid_to"]))
+    percent_valid = (percent is None or (isinstance(percent, int) and not isinstance(percent, bool) and
+                      1 <= percent <= 10000 and isinstance(conditions.get("minimum_amount_krw"), int) and
+                      not isinstance(conditions.get("minimum_amount_krw"), bool) and
+                      conditions["minimum_amount_krw"] > 0 and
+                      isinstance(conditions.get("discount_cap_krw"), int) and
+                      not isinstance(conditions.get("discount_cap_krw"), bool) and
+                      conditions["discount_cap_krw"] > 0 and
+                      conditions.get("rounding_mode") in ("floor", "half_up", "ceiling") and
+                      bool(conditions.get("payment_method")) and
+                      bool(conditions.get("valid_from")) and bool(conditions.get("valid_to"))))
+    return (isinstance(lag, int) and not isinstance(lag, bool) and -7 <= lag <= 7 and isinstance(delta, int)
+            and not isinstance(delta, bool)
+            and -10000 <= delta <= 10000 and
+            date_bounds_valid and
+            percent_valid and
+            (last4 in (None, "") or bool(re.fullmatch(r"\d{4}", str(last4)))) and
+            (conditions.get("currency") is None or
+             bool(re.fullmatch(r"[A-Za-z]{3}", str(conditions["currency"])))) and
+            (conditions.get("event_type") is None or conditions["event_type"] in {"charge", "refund"}))
 
 
 def _rule_matches(event, row, rules):
@@ -499,26 +557,47 @@ def _rule_matches(event, row, rules):
                 rule.get("approved") is True):
             continue
         allowed = {"provider", "item", "merchant_normalized", "issuer", "card_last4",
-                   "date_lag_days", "amount_delta_krw"}
+                   "date_lag_days", "date_lag_min_days", "date_lag_max_days", "amount_delta_krw",
+                   "currency", "event_type", "discount_rate_bps",
+                   "discount_cap_krw", "minimum_amount_krw", "rounding_mode",
+                   "payment_method", "valid_from", "valid_to", "rule_kind",
+                   "approval_source", "alias_version", "alias", "event_issuer_alias"}
         conditions = rule.get("conditions")
         if conditions is None:
             conditions = {key:value for key, value in rule.items() if key in allowed}
         if not _rule_scope_valid(conditions):
             continue
+        if conditions.get("rule_kind") in ("provider_alias", "issuer_alias"):
+            continue
         if conditions.get("provider") != event.get("provider") or conditions.get("item") != event.get("item"):
+            continue
+        if conditions.get("currency") and str(conditions["currency"]).upper() != str(event.get("currency") or "").upper():
+            continue
+        if conditions.get("event_type") and conditions["event_type"] != event.get("event_type"):
+            continue
+        if "valid_from" in conditions and (not event.get("paid_on") or
+                not conditions["valid_from"] <= event["paid_on"] <= conditions["valid_to"]):
             continue
         if conditions.get("merchant_normalized") and conditions["merchant_normalized"] != row.get("merchant_normalized"):
             continue
         if conditions.get("issuer") and conditions["issuer"] != row.get("issuer"):
             continue
-        if conditions.get("card_last4") and not str(row.get("card_tail") or "").endswith(str(conditions["card_last4"])):
+        if conditions.get("card_last4") and str(row.get("card_tail") or "") != str(conditions["card_last4"]):
             continue
+        if conditions.get("discount_rate_bps") is not None:
+            if (str(event.get("event_type")) != "charge" or
+                    _direction(row) != "purchase" or
+                    str(row.get("payment_method") or "") != str(conditions["payment_method"]) or
+                    _event_amount(event) is None or _event_amount(event) < conditions["minimum_amount_krw"] or
+                    not event.get("paid_on") or not conditions["valid_from"] <= event["paid_on"] <= conditions["valid_to"]):
+                continue
         return True
     return False
 
 
 def _approved_delta_match(event, row, rules):
-    if str(event.get("currency") or "").upper() != "KRW" or event.get("amount_krw") is None:
+    if (str(event.get("currency") or "").upper() != "KRW" or event.get("amount_krw") is None or
+            event.get("event_type") != "charge" or _direction(row) != "purchase"):
         return False
     try:
         delta = Decimal(str(row.get("amount_krw"))) - Decimal(str(event["amount_krw"]))
@@ -534,6 +613,32 @@ def _approved_delta_match(event, row, rules):
                 return True
         except (InvalidOperation, TypeError, ValueError):
             continue
+    for rule in rules:
+        conditions = rule.get("conditions", {})
+        rate = conditions.get("discount_rate_bps")
+        if rate is None or not _rule_matches(event, row, [rule]):
+            continue
+        try:
+            from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+            modes = {"floor": ROUND_FLOOR, "half_up": ROUND_HALF_UP, "ceiling": ROUND_CEILING}
+            amount = _event_amount(event)
+            discount = (amount * Decimal(rate) / Decimal(10000)).quantize(Decimal("1"),
+                       rounding=modes[conditions["rounding_mode"]])
+            discount = min(discount, Decimal(conditions["discount_cap_krw"]))
+            if delta == -discount:
+                return True
+        except (InvalidOperation, KeyError, TypeError, ValueError):
+            continue
+    delta = Decimal(str(row.get("amount_krw"))) - Decimal(str(event["amount_krw"]))
+    discount = load_defaults().get("trip_flight_charge_delta", {})
+    step = int(discount.get("step_krw", -1000))
+    low, high = int(discount.get("minimum_delta_krw", -10000)), int(discount.get("maximum_delta_krw", -1000))
+    if (discount.get("enabled") and str(event.get("provider") or "").casefold() == "trip" and
+            str(event.get("item") or "").casefold() in discount.get("item_values", []) and
+            str(event.get("currency") or "").upper() == discount.get("currency") and
+            event.get("event_type") == "charge" and row.get("transaction_direction") == discount.get("direction") and
+            low <= delta <= high and (delta - Decimal(low)) % abs(step) == 0):
+        return True
     return False
 
 
@@ -563,31 +668,94 @@ def _approved_lag_match(event, row, rules):
     if not event.get("paid_on") or not row.get("approval_date"):
         return False
     try:
-        lag = abs((date.fromisoformat(row["approval_date"]) - date.fromisoformat(event["paid_on"])).days)
+        lag = (date.fromisoformat(row["approval_date"]) - date.fromisoformat(event["paid_on"])).days
     except (TypeError, ValueError):
         return False
-    return any(int(rule.get("conditions", rule).get("date_lag_days", 0)) > 0 and
-               lag <= int(rule.get("conditions", rule).get("date_lag_days", 0)) and
-               _rule_matches(event, row, [rule]) for rule in rules)
+    for rule in rules:
+        conditions = rule.get("conditions", rule)
+        low, high = _date_lag_bounds(conditions)
+        if low is None or not _rule_matches(event, row, [rule]):
+            continue
+        if low <= lag <= high and lag != 0:
+            return True
+    return False
+
+
+def _date_lag_bounds(conditions):
+    low, high = conditions.get("date_lag_min_days"), conditions.get("date_lag_max_days")
+    if low is not None and high is not None:
+        if (isinstance(low, int) and not isinstance(low, bool) and
+                isinstance(high, int) and not isinstance(high, bool) and -7 <= low <= high <= 7):
+            return low, high
+        return None, None
+    limit = conditions.get("date_lag_days", 0)
+    if not isinstance(limit, int) or isinstance(limit, bool) or not -7 <= limit <= 7:
+        return None, None
+    return (0, limit) if limit >= 0 else (limit, 0)
+
+
+def _strict_card_identity(event, row, rules=()):
+    hint = str(event.get("card_last4") or "")
+    card_tail = str(row.get("card_tail") or row.get("card_last4") or "")
+    if hint and (not re.fullmatch(r"\d{4}", hint) or card_tail != hint):
+        return False
+    issuer = event.get("card_issuer") or event.get("issuer")
+    row_issuer = str(row.get("issuer") or "")
+    if issuer and str(issuer).casefold() != row_issuer.casefold():
+        alias_ok = any(
+            (rule.get("approved_by") or rule.get("user_confirmation") or rule.get("approved") is True) and
+            rule.get("active", True) and
+            str(rule.get("status") or "").lower() not in ("inactive", "revoked") and
+            (rule.get("conditions") or {}).get("rule_kind") == "issuer_alias" and
+            _rule_scope_valid(rule.get("conditions") or {}) and
+            str((rule.get("conditions") or {}).get("provider")) == str(event.get("provider")) and
+            str((rule.get("conditions") or {}).get("event_issuer_alias", "")).casefold() == str(issuer).casefold() and
+            str((rule.get("conditions") or {}).get("issuer", "")).casefold() == row_issuer.casefold() and
+            (rule.get("conditions") or {}).get("approval_source") and
+            (rule.get("conditions") or {}).get("alias_version")
+            for rule in rules or ())
+        if not alias_ok:
+            return False
+    ota_auth = event.get("authorization_number") or event.get("approval_number")
+    card_auth = row.get("authorization_number") or row.get("approval_number") or row.get("authorization_id")
+    ota_scheme = event.get("authorization_scheme") or event.get("authorization_number_scheme")
+    card_scheme = row.get("authorization_scheme") or row.get("authorization_number_scheme")
+    if ota_auth and card_auth and ota_scheme and card_scheme and ota_scheme == card_scheme:
+        if str(ota_auth).strip() != str(card_auth).strip():
+            return False
+    return True
 
 
 def _has_corroborator(event, row, rules):
     hint = str(event.get("card_last4") or "")
     card = str(row.get("card_tail") or row.get("card_last4") or "")
-    if hint and card.endswith(hint):
+    if hint and card == hint:
         return True
-    if event.get("payment_id") and event["payment_id"] == row.get("ota_payment_id"):
+    ota_auth = event.get("authorization_number") or event.get("approval_number")
+    card_auth = row.get("authorization_number") or row.get("approval_number") or row.get("authorization_id")
+    ota_scheme = event.get("authorization_scheme") or event.get("authorization_number_scheme")
+    card_scheme = row.get("authorization_scheme") or row.get("authorization_number_scheme")
+    if ota_auth and card_auth and ota_scheme and ota_scheme == card_scheme and str(ota_auth) == str(card_auth):
         return True
-    return _descriptor_matches(event, row) or _rule_matches(event, row, rules)
+    ota_payment = event.get("payment_id")
+    card_payment = row.get("payment_id") or row.get("ota_payment_id")
+    ota_payment_scheme = event.get("payment_id_scheme") or event.get("payment_scheme")
+    card_payment_scheme = row.get("payment_id_scheme") or row.get("payment_scheme")
+    if (ota_payment and card_payment and ota_payment_scheme and
+            ota_payment_scheme == card_payment_scheme and str(ota_payment) == str(card_payment)):
+        return True
+    return _descriptor_matches(event, row, rules) or _rule_matches(event, row, rules)
 
 
 def _eligible_cards(event, transactions, links=None, rules=None):
     if not event.get("paid_on"):
         return []
     expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
-    matched = []
+    eligible = []
     for row in transactions:
         if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
+            continue
+        if not _strict_card_identity(event, row, rules):
             continue
         if _direction(row) != expected_direction or not _amount_matches(event, row, rules):
             continue
@@ -601,12 +769,150 @@ def _eligible_cards(event, transactions, links=None, rules=None):
             continue
         copy = dict(row)
         copy["already_linked_event_id"] = (links or {}).get(row.get("transaction_id"))
-        matched.append(copy)
-    return matched
+        eligible.append(copy)
+    # Keep every approved edge. Exact-amount priority belongs to the global
+    # assignment, since pruning here can make a feasible repeated group partial.
+    return eligible
 
 
-def same_date_cards(event, transactions, *, links=None):
-    """가맹점과 금액에 제한 없이 같은 결제일의 모든 카드 행을 돌려준다."""
+def _assign_exact_first(events, options_by_event, *, unavailable=(), excluded_edges=()):
+    """Maximize cardinality, then exact edges, then the approved stable order."""
+    ordered_events = sorted(events, key=lambda item:(str(item.get("booking_ref") or ""),
+                                                      str(item.get("ota_event_id") or "")))
+    event_ids = [str(value.get("ota_event_id") or "") for value in ordered_events]
+    unavailable = set(unavailable)
+    excluded_edges = set(excluded_edges)
+    row_by_card = {str(row.get("transaction_id")):row for identity in event_ids
+                   for row in options_by_event.get(identity, ()) if row.get("transaction_id")}
+    card_ids = sorted((identity for identity in row_by_card if identity not in unavailable),
+        key=lambda identity:(str(row_by_card[identity].get("approval_number") or
+                                 row_by_card[identity].get("authorization_number") or
+                                 row_by_card[identity].get("authorization_id") or ""), identity))
+    if not event_ids or not card_ids:
+        return []
+    source = 0
+    event_base = 1
+    card_base = event_base + len(event_ids)
+    sink = card_base + len(card_ids)
+    graph = [[] for _ in range(sink + 1)]
+    def edge(start, end, capacity, cost):
+        forward = [end, len(graph[end]), capacity, cost]
+        reverse = [start, len(graph[start]), 0, -cost]
+        graph[start].append(forward)
+        graph[end].append(reverse)
+        return forward
+    card_index = {identity:index for index, identity in enumerate(card_ids)}
+    max_stable_cost = (len(card_ids) - 1) * len(event_ids) * (len(event_ids) + 1) // 2
+    exact_priority = max_stable_cost + 1
+    chosen_edges = {}
+    for index, identity in enumerate(event_ids):
+        edge(source, event_base + index, 1, 0)
+        options = options_by_event.get(identity, ())
+        for row in options:
+            card_id = str(row.get("transaction_id") or "")
+            if card_id not in card_index or (identity, card_id) in excluded_edges:
+                continue
+            exact = (str(ordered_events[index].get("currency") or "").upper() != "KRW" or
+                     _event_amount(ordered_events[index]) == _card_amount(row))
+            stable_cost = card_index[card_id] * (len(event_ids) - index)
+            chosen_edges[(identity, card_id)] = edge(event_base + index,
+                card_base + card_index[card_id], 1,
+                stable_cost - (exact_priority if exact else 0))
+    for index in range(len(card_ids)):
+        edge(card_base + index, sink, 1, 0)
+    while True:
+        distances = [None] * len(graph)
+        previous = [None] * len(graph)
+        in_queue = [False] * len(graph)
+        queue = [source]
+        distances[source] = 0
+        in_queue[source] = True
+        cursor = 0
+        while cursor < len(queue):
+            node = queue[cursor]
+            cursor += 1
+            in_queue[node] = False
+            for edge_index, current in enumerate(graph[node]):
+                target, _reverse, capacity, cost = current
+                if capacity <= 0:
+                    continue
+                distance = distances[node] + cost
+                if distances[target] is None or distance < distances[target]:
+                    distances[target] = distance
+                    previous[target] = (node, edge_index)
+                    if not in_queue[target]:
+                        queue.append(target)
+                        in_queue[target] = True
+        if previous[sink] is None:
+            break
+        node = sink
+        while node != source:
+            parent, edge_index = previous[node]
+            current = graph[parent][edge_index]
+            current[2] -= 1
+            graph[node][current[1]][2] += 1
+            node = parent
+    return sorted((identity, card_id) for (identity, card_id), selected in chosen_edges.items()
+                  if selected[2] == 0)
+
+
+def _ambiguous_optimal_singletons(events, options_by_event, selected, unavailable=()):
+    """Return singleton events whose maximum-cardinality exact match is not unique."""
+    unavailable = set(unavailable)
+    event_by_id = {str(event.get("ota_event_id") or ""):event for event in events}
+    card_to_events = defaultdict(set)
+    for identity in event_by_id:
+        for row in options_by_event.get(identity, ()):
+            card_id = str(row.get("transaction_id") or "")
+            if card_id and card_id not in unavailable:
+                card_to_events[card_id].add(identity)
+    adjacency = defaultdict(set)
+    for card_id, identities in card_to_events.items():
+        for identity in identities:
+            adjacency[identity].update(identities - {identity})
+    unresolved = set(event_by_id)
+    ambiguous = set()
+    while unresolved:
+        root = unresolved.pop()
+        component = {root}
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            for neighbor in adjacency[current] & unresolved:
+                unresolved.remove(neighbor)
+                component.add(neighbor)
+                stack.append(neighbor)
+        root_cards = {str(row.get("transaction_id")) for row in options_by_event.get(root, ())
+                      if row.get("transaction_id") and str(row.get("transaction_id")) not in unavailable}
+        if len(component) == 1 and len(root_cards) <= 1:
+            continue
+        component_events = [event_by_id[identity] for identity in component]
+        current_pairs = [(identity, card_id) for identity, card_id in selected if identity in component]
+        current_count = len(current_pairs)
+        current_exact = sum(
+            str(event_by_id[identity].get("currency") or "").upper() != "KRW" or
+            _event_amount(event_by_id[identity]) == _card_amount(next(
+                row for row in options_by_event[identity] if str(row.get("transaction_id")) == card_id))
+            for identity, card_id in current_pairs)
+        for pair in current_pairs:
+            alternative = _assign_exact_first(component_events, options_by_event,
+                unavailable=unavailable, excluded_edges={pair})
+            alternative_count = len(alternative)
+            alternative_exact = 0
+            for identity, card_id in alternative:
+                row = next(row for row in options_by_event[identity]
+                           if str(row.get("transaction_id")) == card_id)
+                alternative_exact += int(str(event_by_id[identity].get("currency") or "").upper() != "KRW" or
+                                         _event_amount(event_by_id[identity]) == _card_amount(row))
+            if alternative_count == current_count and alternative_exact == current_exact:
+                ambiguous.update(component)
+    return ambiguous
+
+
+def same_date_cards(event, transactions, *, links=None, rules=None):
+    """가맹점과 금액에 제한 없이 승인된 날짜 범위의 모든 카드 행을 돌려준다."""
+    if not event.get("paid_on"):
+        return []
     links = links or {}
     linked_by_transaction = {}
     for key, value in links.items():
@@ -615,8 +921,24 @@ def same_date_cards(event, transactions, *, links=None):
         elif not isinstance(value, dict):
             linked_by_transaction[key] = value
     rows = []
+    allowed_dates = {event.get("paid_on")}
+    if event.get("paid_on"):
+        try:
+            paid_on = date.fromisoformat(event["paid_on"])
+            for rule in rules or []:
+                conditions = rule.get("conditions", rule)
+                if not _rule_matches(event, {"merchant_normalized": conditions.get("merchant_normalized"),
+                                             "issuer": conditions.get("issuer"),
+                                             "card_tail": conditions.get("card_last4")}, [rule]):
+                    continue
+                low, high = _date_lag_bounds(conditions)
+                if low is not None:
+                    allowed_dates.update((paid_on + timedelta(days=day)).isoformat()
+                                         for day in range(low, high + 1))
+        except (TypeError, ValueError):
+            pass
     for row in transactions:
-        if row.get("approval_date") != event.get("paid_on"):
+        if row.get("approval_date") not in allowed_dates:
             continue
         copy = dict(row)
         copy["already_linked_event_id"] = linked_by_transaction.get(row.get("transaction_id"))
@@ -627,10 +949,24 @@ def same_date_cards(event, transactions, *, links=None):
         str(row.get("transaction_id") or "")))
 
 
-def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None):
+def _event_group_signature(event):
+    return (event.get("provider"), event.get("item"), event.get("event_type"),
+            event.get("paid_on"), str(event.get("currency") or "").upper(),
+            str(event.get("amount") if event.get("currency") != "KRW" else event.get("amount_krw")))
+
+
+def _card_identity(row):
+    return (str(row.get("issuer") or "").strip().casefold(),
+            str(row.get("card_tail") or row.get("card_last4") or "").strip(),
+            _direction(row))
+
+
+def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None,
+                             frozen_groups=None):
     """검증된 OTA 이벤트와 카드 행을 입력 변경 없이 전역 일대일 대조한다."""
     existing_links = existing_links or {}
     rules = rules or []
+    frozen_groups = frozen_groups or []
     rows = {row.get("transaction_id"): row for row in transactions if row.get("transaction_id")}
     result = []
     claimed = {}
@@ -641,12 +977,277 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
         if transaction_id:
             claimed[transaction_id] = identity
             pinned_counts[transaction_id] += 1
-    options_by_event = {
-        event.get("ota_event_id"): _eligible_cards(event, transactions, rules=rules)
+    pin_owners_by_card = defaultdict(list)
+    for pin in frozen_groups:
+        for transaction_id in pin.get("card_ids", ()):
+            pin_owners_by_card[str(transaction_id)].append(pin)
+    all_events_by_id = {str(event.get("ota_event_id")):event for event in events
+                        if event.get("ota_event_id") is not None}
+    raw_options = {
+        str(event.get("ota_event_id")): _eligible_cards(event, transactions, rules=rules)
         for event in events if not existing_links.get(event.get("ota_event_id"))
     }
+    options_by_event = {}
+    for identity, options in raw_options.items():
+        options_by_event[identity] = [row for row in options
+            if str(row.get("transaction_id")) not in claimed and
+            all(identity in {str(value) for value in pin.get("event_ids", ())}
+                for pin in pin_owners_by_card.get(str(row.get("transaction_id")), ()))]
+    # 동일 조건의 반복 거래를 먼저 나눈 뒤, 후보 카드가 증명하는 카드 정체성별로 묶는다.
+    by_signature = defaultdict(list)
+    signature_by_event = {}
     for event in events:
         identity = event.get("ota_event_id")
+        if identity in existing_links or not _event_is_paid(event) or not event.get("paid_on"):
+            continue
+        signature = _event_group_signature(event)
+        signature_by_event[str(identity)] = signature
+        by_signature[signature].append(event)
+    grouped_results = {}
+    group_specs = []
+    reserved_partial = set(pin_owners_by_card)
+    stale_pin_indexes = set()
+    for pin_index, pin in enumerate(frozen_groups):
+        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
+        pin_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
+        present = [identity for identity in pin_event_ids if identity in all_events_by_id]
+        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
+        stale = (not pin_event_ids or not pin_card_ids or len(present) != len(pin_event_ids) or
+                 None in signatures or len(signatures) != 1)
+        for identity, transaction_id in (pin.get("mapping") or {}).items():
+            identity = str(identity)
+            if identity not in options_by_event or str(transaction_id) not in {
+                    str(row.get("transaction_id")) for row in options_by_event.get(identity, ())}:
+                stale = True
+        if not stale:
+            identity_keys = {_card_identity(row) for identity in pin_event_ids
+                             for row in options_by_event.get(identity, ())}
+            if len(identity_keys) != 1:
+                stale = True
+        if not stale:
+            continue
+        stale_pin_indexes.add(pin_index)
+        current_card_ids = pin_card_ids | {str(row.get("transaction_id"))
+            for identity in present for row in raw_options.get(identity, ()) if row.get("transaction_id")}
+        reserved_partial.update(current_card_ids)
+        for identity in present:
+            event = all_events_by_id[identity]
+            if identity in existing_links:
+                continue
+            grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
+                candidates=sorted(current_card_ids), reason="frozen_group_evidence_changed",
+                review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
+                proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
+                group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
+                ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
+                reserved_card_ids=sorted(current_card_ids))
+    for pin_index, pin in enumerate(frozen_groups):
+        if pin_index in stale_pin_indexes:
+            continue
+        pin_event_ids = {str(identity) for identity in pin.get("event_ids", ())}
+        signatures = {signature_by_event.get(identity) for identity in pin_event_ids}
+        signature = next(iter(signatures))
+        signature_events = by_signature.get(signature, ())
+        if {str(item.get("ota_event_id")) for item in signature_events} != pin_event_ids:
+            stale_pin_indexes.add(pin_index)
+            current_card_ids = {str(identity) for identity in pin.get("card_ids", ())}
+            current_event_ids = {str(item.get("ota_event_id")) for item in signature_events}
+            current_card_ids.update(str(row.get("transaction_id")) for identity in pin_event_ids | current_event_ids
+                                     for row in raw_options.get(identity, ()) if row.get("transaction_id"))
+            reserved_partial.update(current_card_ids)
+            for identity in pin_event_ids | current_event_ids:
+                if identity in all_events_by_id and identity not in existing_links:
+                    event = all_events_by_id[identity]
+                    grouped_results[identity] = dict(event, status="HOLD_GROUP_CHANGED", transaction_id=None,
+                        candidates=sorted(current_card_ids), reason="frozen_group_membership_changed",
+                        review_warning="confirm_group_reallocation", frozen_mapping=pin.get("mapping", {}),
+                        proposed_mapping={}, group_order_snapshot=pin.get("order_snapshot", {}),
+                        group_count={"ota":len(pin_event_ids), "cards":len(current_card_ids)},
+                        ota_group_ids=sorted(pin_event_ids), card_group_ids=sorted(current_card_ids),
+                        reserved_card_ids=sorted(current_card_ids))
+    for group_events in by_signature.values():
+        card_identity_groups = defaultdict(list)
+        for event in group_events:
+            identity = str(event.get("ota_event_id"))
+            if identity in grouped_results:
+                continue
+            identity_keys = {_card_identity(row) for row in options_by_event.get(identity, ())}
+            if len(identity_keys) == 1:
+                card_identity_groups[next(iter(identity_keys))].append(event)
+        for card_identity, identity_events in card_identity_groups.items():
+            event_ids = [event.get("ota_event_id") for event in identity_events]
+            card_ids = {str(row.get("transaction_id")) for identity in event_ids
+                        for row in options_by_event.get(str(identity), ())
+                        if _card_identity(row) == card_identity and row.get("transaction_id")}
+            if not card_ids or (len(identity_events) < 2 and len(card_ids) < 2):
+                continue
+            if len(identity_events) == 1:
+                identity = str(identity_events[0].get("ota_event_id"))
+                overlaps_other = any(other_id != identity and card_ids &
+                    {str(row.get("transaction_id")) for row in other_options}
+                    for other_id, other_options in options_by_event.items())
+                if overlaps_other:
+                    continue
+            sorted_events = sorted(identity_events, key=lambda item: (str(item.get("booking_ref") or ""),
+                                                                       str(item.get("ota_event_id") or "")))
+            card_rows = {str(row.get("transaction_id")):row for identity in event_ids
+                         for row in options_by_event.get(str(identity), ())
+                         if str(row.get("transaction_id")) in card_ids}
+            if (not card_identity[0] or not re.fullmatch(r"\d{4}", card_identity[1]) or
+                    any(event.get("card_last4") and event.get("card_last4") != card_identity[1]
+                        for event in sorted_events)):
+                all_ids = sorted(card_ids)
+                reserved_partial.update(card_ids)
+                for ota in sorted_events:
+                    grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
+                        transaction_id=None, candidates=all_ids,
+                        reason="repeated_group_card_identity_conflict",
+                        group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                        ota_group_ids=sorted(event_ids), card_group_ids=all_ids,
+                        reserved_card_ids=all_ids)
+                continue
+            sorted_cards = sorted(card_ids, key=lambda identity: (
+                str(card_rows[identity].get("approval_number") or card_rows[identity].get("authorization_number") or
+                    card_rows[identity].get("authorization_id") or ""), str(identity)))
+            order_snapshot = {"events":[[str(item.get("ota_event_id")),str(item.get("booking_ref") or "")]
+                                        for item in sorted_events],
+                "cards":[[str(card_id),str(card_rows[card_id].get("approval_number") or
+                           card_rows[card_id].get("authorization_number") or
+                           card_rows[card_id].get("authorization_id") or "")] for card_id in sorted_cards],
+                "event_evidence":[[str(item.get("ota_event_id")),_digest(item)] for item in sorted_events],
+                "card_evidence":[[str(card_id),_digest(card_rows[card_id])] for card_id in sorted_cards],
+                "eligible_edges_digest":_digest([[str(item.get("ota_event_id")), str(card_id)]
+                    for item in sorted_events
+                    for card_id in sorted(str(row.get("transaction_id"))
+                        for row in options_by_event.get(str(item.get("ota_event_id")), ())
+                        if str(row.get("transaction_id")) in card_ids)])}
+            selected_pairs = _assign_exact_first(sorted_events, options_by_event,
+                                                  unavailable=set(claimed))
+            matched_count = len(selected_pairs)
+            current_event_ids = sorted(str(identity) for identity in event_ids)
+            current_card_ids = sorted(card_ids)
+            pin = next((item for item in frozen_groups
+                        if set(map(str, item.get("event_ids", ()))) & set(current_event_ids)), None)
+            if pin:
+                pin_event_ids = set(map(str, pin.get("event_ids", ())))
+                pin_card_ids = set(map(str, pin.get("card_ids", ())))
+                frozen_mapping = {str(key):str(value) for key, value in (pin.get("mapping") or {}).items()}
+                reserved_ids = sorted(pin_card_ids | set(current_card_ids))
+                if (pin_event_ids != set(current_event_ids) or pin_card_ids != set(current_card_ids) or
+                        (pin.get("order_snapshot") and pin["order_snapshot"] != order_snapshot) or
+                        set(frozen_mapping) != set(current_event_ids) or
+                        set(frozen_mapping.values()) != set(current_card_ids)):
+                    for ota in sorted_events:
+                        grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_GROUP_CHANGED",
+                            transaction_id=None, candidates=reserved_ids,
+                            reason="frozen_group_evidence_changed", review_warning="confirm_group_reallocation",
+                            frozen_mapping=pin.get("mapping", {}),
+                            proposed_mapping=dict(selected_pairs),
+                            group_order_snapshot=order_snapshot,
+                            group_count={"ota":len(pin_event_ids | set(current_event_ids)), "cards":len(reserved_ids)},
+                            ota_group_ids=sorted(pin_event_ids | set(current_event_ids)),
+                            card_group_ids=reserved_ids,
+                            reserved_card_ids=reserved_ids)
+                    reserved_partial.update(reserved_ids)
+                    continue
+                selected_pairs = sorted(frozen_mapping.items())
+            group_specs.append({"events": sorted_events, "event_ids": event_ids,
+                                "card_ids": sorted(card_ids),
+                                "pairs": selected_pairs, "matched_count": matched_count,
+                                "card_rows": card_rows, "pin":pin,
+                                "order_snapshot":order_snapshot})
+    # A card candidate shared by separate groups or singleton events makes
+    # every connected component ambiguous. Never claim by iteration order.
+    event_group = {event["ota_event_id"]: spec for spec in group_specs for event in spec["events"]}
+    card_owners = defaultdict(set)
+    for index, spec in enumerate(group_specs):
+        for card_id in spec["card_ids"]:
+            card_owners[card_id].add(index)
+    collision_indices = {index for owners in card_owners.values() if len(owners) > 1 for index in owners}
+    grouped_event_ids = set(event_group) | set(grouped_results)
+    for identity, options in options_by_event.items():
+        if identity in grouped_event_ids:
+            continue
+        for row in options:
+            for index in card_owners.get(row["transaction_id"], ()):
+                collision_indices.add(index)
+                for spec in group_specs:
+                    if identity in {event["ota_event_id"] for event in spec["events"]}:
+                        collision_indices.add(group_specs.index(spec))
+    for index, spec in enumerate(group_specs):
+        sorted_events, card_ids = spec["events"], spec["card_ids"]
+        all_event_ids, all_card_ids = sorted(spec["event_ids"]), sorted(card_ids)
+        if index in collision_indices:
+            for ota in sorted_events:
+                grouped_results[ota["ota_event_id"]] = dict(ota, status="HOLD_AMBIGUOUS",
+                    transaction_id=None, candidates=all_card_ids, reason="overlapping_global_group_candidates",
+                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                    reserved_card_ids=all_card_ids)
+            reserved_partial.update(card_ids)
+            continue
+        if spec["matched_count"] < len(sorted_events) or spec["matched_count"] < len(card_ids):
+            reserved_partial.update(card_ids)
+            status = ("HOLD_AMBIGUOUS" if len(sorted_events) > 1 and len(card_ids) == 1
+                      else "HOLD_PARTIAL_GROUP")
+            for ota in sorted_events:
+                grouped_results[ota["ota_event_id"]] = dict(ota, status=status, transaction_id=None,
+                    candidates=all_card_ids, reason="partial_repeated_payment_group",
+                    matched_count=spec["matched_count"], unmatched_ota_count=max(0, len(sorted_events)-spec["matched_count"]),
+                    unmatched_card_count=max(0, len(card_ids)-spec["matched_count"]),
+                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                    reserved_card_ids=all_card_ids)
+            continue
+        selected = dict(spec["pairs"])
+        if not spec.get("pin") and any(not str(ota.get("card_last4") or "") for ota in sorted_events):
+            reserved_partial.update(card_ids)
+            mapping = {str(identity):str(card_id) for identity, card_id in selected.items()}
+            for ota in sorted_events:
+                grouped_results[ota["ota_event_id"]] = dict(ota,
+                    status="HOLD_GROUP_CONFIRMATION_REQUIRED", transaction_id=None,
+                    candidates=[mapping[str(ota["ota_event_id"])]],
+                    reason="card_hint_missing_requires_user_group_confirmation",
+                    allocation_basis="user_confirmed_group_required", individual_payment_evidence=False,
+                    matched_count=len(selected), unmatched_ota_count=0, unmatched_card_count=0,
+                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                    proposed_mapping=mapping, group_order_snapshot=spec["order_snapshot"],
+                    reserved_card_ids=all_card_ids)
+            continue
+        for ota in sorted_events:
+            identity = ota["ota_event_id"]
+            card_id = selected[identity]
+            allocation_basis = ("frozen_user_confirmed_order" if spec.get("pin")
+                                else "user_approved_stable_order")
+            grouped_results[identity] = dict(ota, status="MATCHED_AUTO", transaction_id=card_id,
+                candidates=[card_id], reason=allocation_basis, allocation_basis=allocation_basis,
+                group_order_frozen=bool(spec.get("pin")),
+                individual_payment_evidence=False, group_count={"ota":len(sorted_events), "cards":len(card_ids)},
+                ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
+                group_order_snapshot=spec["order_snapshot"],
+                rule_delta_krw=(int(_card_amount(spec["card_rows"][card_id]) - _event_amount(ota))
+                                if _card_amount(spec["card_rows"][card_id]) != _event_amount(ota) and
+                                _event_amount(ota) is not None and _card_amount(spec["card_rows"][card_id]) is not None else None),
+                discount_cause_confirmed=False)
+            claimed[card_id] = identity
+    # Resolve remaining singleton candidates as one bipartite problem. Exact
+    # edges win globally; equal best allocations remain a hold.
+    singleton_events = [event for event in events if event.get("ota_event_id") not in grouped_event_ids and
+                        event.get("ota_event_id") not in existing_links and _event_is_paid(event) and
+                        event.get("paid_on")]
+    singleton_events.sort(key=lambda event: str(event.get("ota_event_id") or ""))
+    singleton_unavailable = set(claimed) | reserved_partial
+    singleton_pairs = _assign_exact_first(singleton_events, options_by_event,
+                                           unavailable=singleton_unavailable)
+    singleton_selected = dict(singleton_pairs)
+    singleton_conflicts = _ambiguous_optimal_singletons(
+        singleton_events, options_by_event, singleton_pairs, unavailable=singleton_unavailable)
+    for event in events:
+        identity = event.get("ota_event_id")
+        if identity in grouped_results:
+            result.append(grouped_results[identity])
+            continue
         link = existing_links.get(identity)
         if link:
             transaction_id = link.get("transaction_id") if isinstance(link, dict) else link
@@ -699,29 +1300,69 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                                candidates=[], reason="payment_date_not_in_source"))
             continue
         options = options_by_event.get(identity, [])
+        if identity in singleton_conflicts:
+            reserved_ids = sorted({str(row.get("transaction_id"))
+                                   for candidate_id in singleton_conflicts
+                                   for row in options_by_event.get(candidate_id, ())
+                                   if row.get("transaction_id")})
+            reserved_partial.update(reserved_ids)
+            result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
+                               candidates=[row["transaction_id"] for row in options],
+                               reserved_card_ids=reserved_ids,
+                               reason="equal_optimum_global_singleton_allocations"))
+            continue
+        if any(row.get("transaction_id") in reserved_partial for row in options):
+            result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
+                               candidates=[row["transaction_id"] for row in options],
+                               reserved_card_ids=sorted({str(row.get("transaction_id")) for row in options
+                                                         if row.get("transaction_id") in reserved_partial}),
+                               reason="card_reserved_by_partial_or_ambiguous_group"))
+            continue
         free = [row for row in options if row["transaction_id"] not in claimed]
-        competing = any(other_id != identity and any(
-            row["transaction_id"] == options[0]["transaction_id"] for row in other_options)
-            for other_id, other_options in options_by_event.items()) if len(options) == 1 else False
+        if identity in singleton_selected:
+            free = [row for row in options if row["transaction_id"] == singleton_selected[identity]]
+        competing = False
         if not options:
+            blocked_candidates = [row for row in raw_options.get(str(identity), ())
+                if str(row.get("transaction_id")) in claimed or any(
+                    str(identity) not in {str(value) for value in pin.get("event_ids", ())}
+                    for pin in pin_owners_by_card.get(str(row.get("transaction_id")), ()))]
+            if blocked_candidates:
+                blocked_ids = sorted({str(row.get("transaction_id")) for row in blocked_candidates
+                                      if row.get("transaction_id")})
+                result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
+                                   candidates=blocked_ids, reserved_card_ids=blocked_ids,
+                                   reason="candidate_cards_reserved_by_existing_or_frozen_link"))
+                continue
             wrong_amount = [row for row in transactions
                             if row.get("approval_date") == event.get("paid_on") and
                             _direction(row) == ("refund" if event.get("event_type") == "refund" else "purchase") and
                             row.get("transaction_id") not in claimed and
+                            _strict_card_identity(event, row, rules) and
                             _has_corroborator(event, row, rules)]
             status = "HOLD_AMOUNT_MISMATCH" if wrong_amount else "HOLD_NO_CARD"
             result.append(dict(event, status=status, transaction_id=None,
                                candidates=[row.get("transaction_id") for row in wrong_amount],
                                reason="amount_differs" if wrong_amount else "no_exact_amount_date_direction_card"))
-        elif len(options) != 1 or len(free) != 1 or competing:
+        elif len(free) != 1 or competing:
             result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
                                candidates=[row["transaction_id"] for row in options],
                                reason="global_one_to_one_collision"))
         else:
             row = free[0]
             claimed[row["transaction_id"]] = identity
+            delta = Decimal(str(row.get("amount_krw") or 0)) - Decimal(str(event.get("amount_krw") or 0))
+            has_delta_rule = (_event_amount(event) != _card_amount(row) and
+                              _approved_delta_match(event, row, rules))
+            trip_delta = (has_delta_rule and str(event.get("provider") or "").casefold() == "trip" and
+                          str(event.get("item") or "").casefold() in
+                          load_defaults().get("trip_flight_charge_delta", {}).get("item_values", []))
             result.append(dict(event, status="MATCHED_AUTO", transaction_id=row["transaction_id"],
-                               candidates=[row["transaction_id"]], reason="unique_exact_evidence"))
+                                candidates=[row["transaction_id"]],
+                                reason=("approved_trip_flight_delta" if trip_delta else
+                                        "approved_delta_rule" if has_delta_rule else "unique_exact_evidence"),
+                                rule_delta_krw=int(delta) if has_delta_rule else None,
+                                discount_cause_confirmed=False if trip_delta else None))
     return result
 
 
@@ -752,4 +1393,12 @@ def _decimal_equal(left, right):
     try:
         return Decimal(str(left)) == Decimal(str(right))
     except (InvalidOperation, TypeError, ValueError):
+        return False
+
+
+def _valid_iso_day(value):
+    try:
+        date.fromisoformat(str(value))
+        return True
+    except (TypeError, ValueError):
         return False

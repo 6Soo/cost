@@ -29,14 +29,15 @@ def _proposal_conditions(event, transaction):
     conditions = {"provider":event.get("provider"), "item":event.get("item"),
                   "merchant_normalized":transaction.get("merchant_normalized"),
                   "issuer":transaction.get("issuer"),
-                  "card_last4":transaction.get("card_tail"), "date_lag_days":0}
+                  "card_last4":transaction.get("card_tail"), "date_lag_days":0,
+                  "currency":event.get("currency"), "event_type":event.get("event_type")}
     conditions = {key:value for key, value in conditions.items() if value not in (None, "")}
     warnings = []
     try:
         paid_on = date.fromisoformat(event["paid_on"])
         approval_date = date.fromisoformat(transaction["approval_date"])
-        lag = abs((approval_date - paid_on).days)
-        if lag <= 7:
+        lag = (approval_date - paid_on).days
+        if abs(lag) <= 7:
             conditions["date_lag_days"] = lag
         else:
             warnings.append("date_lag_out_of_supported_range")
@@ -114,11 +115,26 @@ class OtaReviewStore:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, active INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS ota_review_requests(
                 request_id TEXT PRIMARY KEY, result_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS ota_review_group_pins(
+                group_id TEXT PRIMARY KEY, event_ids_json TEXT NOT NULL, card_ids_json TEXT NOT NULL,
+                mapping_json TEXT NOT NULL, confirmed_by TEXT NOT NULL,
+                confirmed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, version INTEGER NOT NULL,
+                order_snapshot_json TEXT NOT NULL DEFAULT '{}');
+            CREATE TABLE IF NOT EXISTS ota_review_group_requests(
+                request_id TEXT PRIMARY KEY, request_digest TEXT NOT NULL, result_json TEXT NOT NULL);
         """)
+        group_request_columns = {row[1] for row in self.conn.execute(
+            "PRAGMA table_info(ota_review_group_requests)")}
+        if "request_digest" not in group_request_columns:
+            self.conn.execute("ALTER TABLE ota_review_group_requests "
+                              "ADD COLUMN request_digest TEXT NOT NULL DEFAULT ''")
         proposal_columns = {row[1] for row in self.conn.execute(
             "PRAGMA table_info(ota_review_proposals)")}
         if "review_warning" not in proposal_columns:
             self.conn.execute("ALTER TABLE ota_review_proposals ADD COLUMN review_warning TEXT NOT NULL DEFAULT '[]'")
+        pin_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(ota_review_group_pins)")}
+        if "order_snapshot_json" not in pin_columns:
+            self.conn.execute("ALTER TABLE ota_review_group_pins ADD COLUMN order_snapshot_json TEXT NOT NULL DEFAULT '{}'")
         self.conn.commit()
 
     def close(self):
@@ -176,6 +192,66 @@ class OtaReviewStore:
                  "review_warnings": json.loads(row["review_warning"] or "[]")
                      if "review_warning" in columns else []}
                 for row in self.conn.execute("SELECT * FROM ota_review_proposals ORDER BY proposal_id")]
+
+    def group_pins(self):
+        """Read frozen ordered mappings without creating or migrating the review DB."""
+        if not self._has_table("ota_review_group_pins"):
+            return []
+        return [{"group_id":row["group_id"], "event_ids":json.loads(row["event_ids_json"]),
+                 "card_ids":json.loads(row["card_ids_json"]), "mapping":json.loads(row["mapping_json"]),
+                 "confirmed_by":row["confirmed_by"], "version":row["version"],
+                 "order_snapshot":json.loads(row["order_snapshot_json"] or "{}")}
+                for row in self.conn.execute("SELECT * FROM ota_review_group_pins ORDER BY group_id")]
+
+    def confirm_group_order(self, event_ids, card_ids, mapping, *, user, replace=False,
+                            order_snapshot=None, request_id=None):
+        event_ids = sorted(set(map(str, event_ids)))
+        card_ids = sorted(set(map(str, card_ids)))
+        if (not event_ids or not card_ids or len(event_ids) != len(card_ids) or
+                set(mapping) != set(event_ids) or set(mapping.values()) != set(card_ids)):
+            raise ValueError("INVALID_GROUP_ORDER_MAPPING")
+        group_id = "group_" + _digest(event_ids)
+        self._ensure_initialized()
+        if not request_id or not str(request_id).strip():
+            raise ValueError("GROUP_ORDER_REQUEST_ID_REQUIRED")
+        request_id = str(request_id).strip()
+        request_payload = {"group_id":group_id, "event_ids":event_ids, "card_ids":card_ids,
+                           "mapping":mapping, "user":str(user), "replace":bool(replace),
+                           "order_snapshot":order_snapshot or {}}
+        request_digest = _digest(request_payload)
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.conn.execute("SELECT request_digest,result_json FROM ota_review_group_requests WHERE request_id=?",
+                                      (request_id,)).fetchone()
+            if prior:
+                if prior[0] != request_digest:
+                    raise ValueError("GROUP_ORDER_REQUEST_REPLAY_CONFLICT")
+                result = json.loads(prior[1])
+                self.conn.commit()
+                return result
+            current = self.conn.execute("SELECT version FROM ota_review_group_pins WHERE group_id=?",
+                                        (group_id,)).fetchone()
+            if current and not replace:
+                raise ValueError("GROUP_ORDER_ALREADY_FROZEN")
+            result = {"status":"frozen", "group_id":group_id, "event_ids":event_ids,
+                      "card_ids":card_ids, "mapping":mapping, "order_snapshot":order_snapshot or {},
+                      "version":int(current[0])+1 if current else 1}
+            if current:
+                self.conn.execute("UPDATE ota_review_group_pins SET event_ids_json=?,card_ids_json=?,mapping_json=?,"
+                    "confirmed_by=?,confirmed_at=CURRENT_TIMESTAMP,version=version+1,order_snapshot_json=? WHERE group_id=?",
+                    (_dump(event_ids), _dump(card_ids), _dump(mapping), str(user), _dump(order_snapshot or {}), group_id))
+            else:
+                self.conn.execute("INSERT INTO ota_review_group_pins"
+                    "(group_id,event_ids_json,card_ids_json,mapping_json,confirmed_by,version,order_snapshot_json)"
+                    " VALUES(?,?,?,?,?,1,?)", (group_id,_dump(event_ids),_dump(card_ids),_dump(mapping),
+                                                str(user),_dump(order_snapshot or {})))
+            self.conn.execute("INSERT INTO ota_review_group_requests(request_id,request_digest,result_json) VALUES(?,?,?)",
+                              (request_id,request_digest,_dump(result)))
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        return result
 
     def _preview_value(self, event, transaction):
         differences = {}
@@ -325,9 +401,9 @@ class OtaReviewStore:
             if current and (current.get("source_digest") != row["source_digest"] or row["evidence_missing"]):
                 with self.conn:
                     self.conn.execute("""UPDATE ota_review_links
-                        SET evidence_changed=?,evidence_missing=0,source_digest=?,event_json=? WHERE event_id=?""",
+                        SET evidence_changed=?,evidence_missing=0 WHERE event_id=?""",
                                       (int(current.get("source_digest") != row["source_digest"] or row["evidence_changed"]),
-                                       current.get("source_digest"), _dump(current), row["event_id"]))
+                                       row["event_id"]))
             elif not current and not row["evidence_missing"]:
                 with self.conn:
                     self.conn.execute("UPDATE ota_review_links SET evidence_missing=1 WHERE event_id=?",

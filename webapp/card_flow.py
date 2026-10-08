@@ -258,6 +258,7 @@ def home_page(board):
     pending_unknown = False
     try:
         flow = CardFlow(board)
+        ota_group_holds = flow.ota_group_holds()
         trips = board.list_trips()
         authority_cache = {
             trip['tab_id']: flow.trip_valid(trip['tab_id'])
@@ -277,6 +278,7 @@ def home_page(board):
                 trip_validator=trip_validator,
                 tab_validator=tab_validator,
                 review_from=review_from or None,
+                additional_holds=ota_group_holds,
             )
             for entry in result.get('rows', []):
                 if entry.get('blocked') or entry.get('already_booked'):
@@ -368,6 +370,7 @@ class CardFlow:
     def __init__(self, board):
         from app import Pipeline
         self.board = board
+        self._ota_group_holds_cache = None
         with board._lock:
             pipeline=getattr(board,'_card_pipeline',None)
             if pipeline is None or pipeline.store.conn is not board.conn:
@@ -729,7 +732,8 @@ class CardFlow:
         result['preview'] = self.pipeline.preview(batch_id, trip_validator=lambda target:available.get(target,False),
                                                   tab_validator=lambda target:target in ('','unclassified') or available.get(target,False),
                                                   review_from=review_from or None,
-                                                  entry_metadata=self.preview_metadata())
+                                                  entry_metadata=self.preview_metadata(),
+                                                  additional_holds=self.ota_group_holds())
         result['trips'] = [dict(id=t['tab_id'],name=t['display_key'],available=available[t['tab_id']]) for t in trips]
         # 원본 전체 셀은 요청했을 때만 제공한다. 검토 화면에는 필요한 필드만 있다.
         for row in result['rows']:
@@ -744,6 +748,41 @@ class CardFlow:
             row['review_evidence_labels'] = _review_evidence_labels(
                 row, mail_evidence.get(row.get('source_hash')))
         return result
+
+    def ota_group_holds(self):
+        """Project partial/contested OTA card reservations into ledger preview guards."""
+        cached = getattr(self, "_ota_group_holds_cache", None)
+        if cached is not None:
+            return cached
+        from . import ota_payment_review
+        if not ota_payment_review.enabled():
+            self._ota_group_holds_cache = {}
+            return self._ota_group_holds_cache
+        backend = ota_payment_review.CoreOtaPaymentBackend.from_host(self.board, read_only=True)
+        try:
+            _events, _transactions, _links, results = backend._data()
+            holds = {}
+            for result in results:
+                for transaction_id in result.get("reserved_card_ids", ()):
+                    hold = holds.setdefault(str(transaction_id), {
+                        "kind":"ota_group_review",
+                        "reason":"OTA repeated payment group is partial or contested",
+                        "ota_event_ids":[]})
+                    hold["ota_event_ids"].append(str(result.get("ota_event_id") or ""))
+            for pin in backend.store.group_pins():
+                event_ids = [str(identity) for identity in pin.get("event_ids", ())]
+                for transaction_id in pin.get("card_ids", ()):
+                    hold = holds.setdefault(str(transaction_id), {
+                        "kind":"ota_group_review",
+                        "reason":"OTA frozen group remains reserved until explicit reallocation",
+                        "ota_event_ids":[]})
+                    hold["ota_event_ids"].extend(event_ids)
+            for hold in holds.values():
+                hold["ota_event_ids"] = sorted(set(hold["ota_event_ids"]))
+            self._ota_group_holds_cache = holds
+            return self._ota_group_holds_cache
+        finally:
+            backend.close()
 
 
 def dispatch(handler, parsed, query=None, raw=None, csrf=''):
@@ -873,7 +912,8 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             result = flow.pipeline.commit(batch_id,payload['digest'],payload['request_id'],projection=flow.project,
                                            trip_validator=flow.trip_valid,tab_validator=flow.tab_valid,
                                            review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),
-                                           entry_metadata=flow.preview_metadata())
+                                           entry_metadata=flow.preview_metadata(),
+                                           additional_holds=flow.ota_group_holds())
             handler._send_json({'result':result, **flow.state(batch_id)})
         else:
             handler._send_json({'code':'NOT_FOUND'},404)

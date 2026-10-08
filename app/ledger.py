@@ -53,7 +53,8 @@ def _decision_rows(store, batch_id: str):
 
 
 def preview(store, batch_id: str, *, trip_validator=None,
-             tab_validator=None, review_from=None, entry_metadata=None) -> dict:
+             tab_validator=None, review_from=None, entry_metadata=None,
+             additional_holds=None) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -77,6 +78,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
     decisions = _decision_rows(store, batch_id)
     from .review_holds import active_holds
     holds=active_holds(store.conn)
+    for transaction_id, hold in (additional_holds or {}).items():
+        holds.setdefault(str(transaction_id), dict(hold) if isinstance(hold, dict) else
+                         {"kind":"external_review_hold", "reason":str(hold)})
     rows: list[dict] = []
     ready: list[dict] = []
     unresolved: list[dict] = []
@@ -261,7 +265,7 @@ def _already_booked(store, transaction_id: str) -> bool:
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
-           entry_metadata=None) -> dict:
+           entry_metadata=None, additional_holds=None) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -294,7 +298,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
 
     current = preview(store, batch_id, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
-                      entry_metadata=entry_metadata)
+                      entry_metadata=entry_metadata, additional_holds=additional_holds)
     if current["digest"] != preview_digest_value:
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")

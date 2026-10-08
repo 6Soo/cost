@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 from contextlib import nullcontext
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -25,17 +26,25 @@ _EVENT_FIELDS = (
     "currency", "amount_krw", "card_last4", "service_period", "item",
     "reservation_status", "payment_status", "evidence_status", "status", "reason",
     "refund_status", "evidence_changed", "evidence_missing", "review_warning",
+    "matched_count", "unmatched_ota_count", "unmatched_card_count", "group_count",
+    "ota_group_ids", "card_group_ids", "allocation_basis", "individual_payment_evidence",
+    "rule_delta_krw", "discount_cause_confirmed", "group_order_frozen",
+    "frozen_mapping", "proposed_mapping",
+    "group_order_snapshot",
 )
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
     "posting_date", "merchant", "amount_krw", "foreign_amount", "currency",
     "approval_number", "direction", "transaction_direction", "refund_status", "cancellation_status",
     "already_linked_event_id", "already_linked_reason", "selection_disabled",
-    "selection_disabled_reason",
+    "selection_disabled_reason", "authorization_number", "authorization_scheme",
 )
 _CONDITION_FIELDS = (
     "provider", "item", "merchant_normalized", "issuer", "card_last4",
-    "amount_delta_krw", "date_lag_days",
+    "amount_delta_krw", "date_lag_days", "date_lag_min_days", "date_lag_max_days",
+    "currency", "event_type", "rule_kind", "alias",
+    "approval_source", "alias_version", "event_issuer_alias", "discount_rate_bps", "discount_cap_krw",
+    "minimum_amount_krw", "rounding_mode", "payment_method", "valid_from", "valid_to",
 )
 
 
@@ -57,6 +66,12 @@ def _transaction_selection_block_reason(transaction):
 
 def _proposal_question(conditions):
     conditions = conditions if isinstance(conditions, dict) else {}
+    if conditions.get("rule_kind") == "provider_alias":
+        return (f"{conditions.get('provider', '')} 가맹점 별칭 {conditions.get('alias', '')}를 "
+                f"출처 {conditions.get('approval_source', '')}, 버전 {conditions.get('alias_version', '')}로 승인할까요?")
+    if conditions.get("rule_kind") == "issuer_alias":
+        return (f"{conditions.get('provider', '')} 결제의 발급사 별칭 {conditions.get('event_issuer_alias', '')}를 "
+                f"카드 발급사 {conditions.get('issuer', '')}에 연결할까요?")
     details = []
     delta = conditions.get("amount_delta_krw")
     if isinstance(delta, int) and not isinstance(delta, bool):
@@ -79,7 +94,7 @@ def _proposal_question(conditions):
     details.extend(identity)
     lag = conditions.get("date_lag_days")
     if isinstance(lag, int) and not isinstance(lag, bool) and lag:
-        details.append(f"결제일 차이는 최대 {lag}일")
+        details.append(f"카드 승인일은 OTA 결제일보다 최대 {abs(lag)}일 {'늦고' if lag > 0 else '빠르고'}")
     return " ".join(details) + " 조건을 다음 결제에도 적용할까요?"
 
 
@@ -331,8 +346,16 @@ class CoreOtaPaymentBackend:
                 events = [display_event if str(event.get("ota_event_id")) == str(event_id) else event
                           for event in events]
         rules = self.store.active_rules()
-        results = self.payments.match_ota_payment_events(
-            events, transactions, existing_links=links, rules=rules)
+        frozen_groups = self.store.group_pins() if callable(getattr(self.store, "group_pins", None)) else []
+        try:
+            results = self.payments.match_ota_payment_events(
+                events, transactions, existing_links=links, rules=rules,
+                frozen_groups=frozen_groups)
+        except TypeError as exc:
+            if "unexpected keyword argument 'frozen_groups'" not in str(exc):
+                raise
+            results = self.payments.match_ota_payment_events(
+                events, transactions, existing_links=links, rules=rules)
         result_ids = {str(result.get("ota_event_id")): index for index, result in enumerate(results)}
         for event_id in stale_manual_ids:
             index = result_ids.get(event_id)
@@ -400,16 +423,30 @@ class CoreOtaPaymentBackend:
         return {event_id: link for event_id, link in cache.get("links", {}).items()
                 if event_id in set(event_ids)}
 
-    def _event_rows(self, event, transactions, links):
-        return [dict(row) for row in self.payments.same_date_cards(event, transactions, links=links)]
+    def _event_rows(self, event, transactions, links, rules=None):
+        try:
+            rows = self.payments.same_date_cards(event, transactions, links=links, rules=rules)
+        except TypeError as exc:
+            if "unexpected keyword argument 'rules'" not in str(exc):
+                raise
+            rows = self.payments.same_date_cards(event, transactions, links=links)
+        return [dict(row) for row in rows]
 
     def _occupied_cards(self, links, results):
         occupied = {}
+        pins = self.store.group_pins() if callable(getattr(self.store, "group_pins", None)) else []
+        for pin in pins:
+            for transaction_id in pin.get("card_ids", ()):
+                occupied.setdefault(str(transaction_id),
+                                    ("|".join(map(str, pin.get("event_ids", ()))), "confirmed_group_reservation"))
         for event_id, link in links.items():
             transaction_id = _link_transaction_id(link)
             if transaction_id:
                 occupied[transaction_id] = (str(event_id), "기존 연결")
         for result in results:
+            for transaction_id in result.get("reserved_card_ids", ()):
+                occupied.setdefault(str(transaction_id),
+                                    (str(result.get("ota_event_id") or ""), "partial_group_reservation"))
             if result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id"):
                 occupied.setdefault(str(result["transaction_id"]),
                                     (str(result.get("ota_event_id") or ""),
@@ -418,6 +455,7 @@ class CoreOtaPaymentBackend:
 
     def snapshot(self):
         events, transactions, links, results = self._data()
+        rules = self.store.active_rules()
         event_by_id = {str(event.get("ota_event_id")): event for event in events}
         occupied = self._occupied_cards(links, results)
         holds, cards_by_event = [], {}
@@ -433,7 +471,10 @@ class CoreOtaPaymentBackend:
             evidence_missing = bool(event_source.get("evidence_missing") or result.get("evidence_missing"))
             is_hold = str(result.get("status") or "").startswith("HOLD")
             is_changed_manual = result.get("status") == "MATCHED_USER" and (source_changed or evidence_missing)
-            if not is_hold and not is_changed_manual:
+            is_ordered_group = result.get("allocation_basis") in (
+                "user_approved_stable_order", "frozen_user_confirmed_order",
+                "user_confirmed_group_required")
+            if not is_hold and not is_changed_manual and not is_ordered_group:
                 continue
             event = {**event_by_id.get(event_id, {}), **result}
             if source_changed:
@@ -449,12 +490,24 @@ class CoreOtaPaymentBackend:
                                    if evidence_missing else
                                    "수동 연결 뒤 결제 근거가 바뀌었습니다. 연결을 유지한 채 다시 확인해 주세요.")
             holds.append(event)
-            rows = self._event_rows(event, transactions, links)
+            rows = self._event_rows(event, transactions, links, rules)
             for row in rows:
+                if result.get("status") in ("HOLD_PARTIAL_GROUP", "HOLD_GROUP_CONFIRMATION_REQUIRED") or is_ordered_group:
+                    row["selection_disabled"] = True
+                    row["selection_disabled_reason"] = (
+                        "반복 결제 묶음이 부분 대응 상태라 개별 연결과 장부 배정을 보류합니다."
+                        if result.get("status") == "HOLD_PARTIAL_GROUP" else
+                        "사용자 승인 순서로 반복 거래를 배정했습니다. 개별 결제 근거가 확인된 연결은 아닙니다.")
                 owner = occupied.get(str(row.get("transaction_id") or ""))
                 if owner:
                     row["already_linked_event_id"] = owner[0]
                     row["already_linked_reason"] = owner[1]
+                    if owner[1] in ("partial_group_reservation", "confirmed_group_reservation"):
+                        row["selection_disabled"] = True
+                        row["selection_disabled_reason"] = (
+                            "\ubd80\ubd84 \ubc18\ubcf5 \uadf8\ub8f9\uc758 \uce74\ub4dc \ud6c4\ubcf4\ub85c \uc608\uc57d\ub418\uc5b4 \uc788\uc5b4 \uac1c\ubcc4 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4."
+                            if owner[1] == "partial_group_reservation" else
+                            "\uc0ac\uc6a9\uc790\uac00 \ud655\uc815\ud55c \ubc18\ubcf5 \uadf8\ub8f9\uc758 \uce74\ub4dc\ub85c \uac1c\ubcc4 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.")
             cards_by_event[event_id] = rows
         proposals = [proposal for proposal in self.store.proposals()
                      if proposal.get("status") == "pending"]
@@ -464,7 +517,9 @@ class CoreOtaPaymentBackend:
         events, transactions, links, results = self._data()
         event = next((row for row in events if str(row.get("ota_event_id")) == event_id), None)
         result = next((row for row in results if str(row.get("ota_event_id")) == event_id), None)
-        if (event is None or result is None or not str(result.get("status") or "").startswith("HOLD")
+        if (event is None or result is None or result.get("status") in
+                ("HOLD_PARTIAL_GROUP", "HOLD_GROUP_CHANGED", "HOLD_GROUP_CONFIRMATION_REQUIRED")
+                or not str(result.get("status") or "").startswith("HOLD")
                 or not event.get("paid_on")):
             raise InvalidReviewInput("only an OTA hold can be manually linked")
         transaction = next((row for row in transactions
@@ -473,7 +528,7 @@ class CoreOtaPaymentBackend:
             raise InvalidReviewInput("card transaction does not exist")
         if _transaction_selection_block_reason(transaction):
             raise InvalidReviewInput("card transaction is not selectable")
-        rows = self._event_rows(event, transactions, links)
+        rows = self._event_rows(event, transactions, links, self.store.active_rules())
         visible_ids = {str(row.get("transaction_id")) for row in rows}
         if transaction_id not in visible_ids:
             raise InvalidReviewInput("card transaction is not on the payment date")
@@ -523,6 +578,44 @@ class CoreOtaPaymentBackend:
         result["status"] = {"once": "answered_once", "approve": "approved", "edit": "edited"}[action]
         return result
 
+    def confirm_group_order(self, event_ids, *, user, replace=False, request_id=None):
+        if self.read_only:
+            raise RuntimeError("read-only OTA backend cannot freeze group order")
+        _events, _transactions, _links, results = self._data()
+        selected = [row for row in results if str(row.get("ota_event_id")) in set(event_ids)]
+        if not selected or len(selected) != len(set(event_ids)):
+            raise InvalidReviewInput("group order proposal is stale or incomplete")
+        if replace:
+            if any(row.get("status") != "HOLD_GROUP_CHANGED" or
+                   row.get("review_warning") != "confirm_group_reallocation" for row in selected):
+                raise InvalidReviewInput("changed group requires a fresh confirmation proposal")
+            mapping = selected[0].get("proposed_mapping") or {}
+        else:
+            allowed = all((row.get("status") == "MATCHED_AUTO" and
+                           row.get("allocation_basis") == "user_approved_stable_order") or
+                          (row.get("status") == "HOLD_GROUP_CONFIRMATION_REQUIRED" and
+                           row.get("allocation_basis") == "user_confirmed_group_required")
+                          for row in selected)
+            if not allowed:
+                raise InvalidReviewInput("group order proposal is stale or incomplete")
+            mapping = {}
+            for row in selected:
+                if row.get("status") == "HOLD_GROUP_CONFIRMATION_REQUIRED":
+                    mapping.update({str(key):str(value) for key,value in
+                                    (row.get("proposed_mapping") or {}).items()})
+                else:
+                    mapping[str(row["ota_event_id"])] = str(row["transaction_id"])
+        expected_events = set(selected[0].get("ota_group_ids", ()))
+        expected_cards = set(selected[0].get("card_group_ids", ()))
+        if set(event_ids) != expected_events or any(set(row.get("ota_group_ids", ())) != expected_events or
+                                                    set(row.get("card_group_ids", ())) != expected_cards
+                                                    for row in selected):
+            raise InvalidReviewInput("group order proposal changed")
+        return self.store.confirm_group_order(sorted(expected_events), sorted(expected_cards), mapping,
+                                              user=user, replace=replace,
+                                              order_snapshot=selected[0].get("group_order_snapshot"),
+                                              request_id=request_id)
+
     def close(self):
         self.store.close()
 
@@ -558,7 +651,7 @@ def render_import_section(csrf: str) -> str:
     token = json.dumps(str(csrf))
     return f'''<section id="ota-review" aria-labelledby="ota-title" data-ota-review>
 <h2 id="ota-title">OTA 결제 보류 검토</h2>
-<p class="small">결제 근거가 있는 예약만 표시합니다. 같은 결제일의 카드 거래를 모두 확인한 뒤 직접 골라 주세요.</p>
+<p class="small">실제 결제 근거가 있는 항목만 표시합니다. 승인한 방향과 날짜 범위의 카드 거래를 확인해 주세요.</p>
 <div id="ota-status" role="status" aria-live="polite">보류 내역을 불러오고 있습니다.</div>
 <div id="ota-events"></div><div id="ota-proposals"></div>
 </section>
@@ -594,24 +687,44 @@ def render_import_section(csrf: str) -> str:
     const events=snapshot.events||[],cards=snapshot.cards_by_event||{{}};
     root.querySelector('#ota-events').innerHTML=events.length?events.map(event=>{{
       const eventId=esc(event.ota_event_id),rows=cards[event.ota_event_id]||[];
-      const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',event.event_type],['결제일',event.paid_on],['결제 금액',String(event.amount??'미확인')+' '+(event.currency||'')],['확인 원화 금액',money(event.amount_krw)],['이용 기간',event.service_period],['항목',event.item],['보류 이유',event.reason],['근거 상태',event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨']];
-      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{esc(event.provider)}} · ${{esc(event.booking_ref)}} · ${{esc(event.status)}}</h3><div class="ota-facts">${{facts.map(([label,value])=>`<div><strong>${{esc(label)}}:</strong> <span class="ota-value">${{esc(value||'미확인')}}</span></div>`).join('')}}</div><h4>같은 결제일 카드 거래 ${{rows.length}}건</h4><div class="ota-cards">${{rows.map(card=>`<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{card.selection_disabled||card.already_linked_event_id||event.evidence_missing?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong>${{esc(card.issuer)}} · ${{esc(card.approval_date||card.transaction_date)}}</strong><span class="ota-card-facts"><span>카드 종류: ${{esc(card.card_kind||'미확인')}}</span><span>카드 끝 네 자리: ${{esc(card.card_tail||'미확인')}}</span><span>승인일: ${{esc(card.approval_date||'미확인')}}</span><span>매입일: ${{esc(card.posting_date||'미확인')}}</span><span>가맹점: ${{esc(card.merchant||'미확인')}}</span><span>원화 금액: ${{money(card.amount_krw)}}</span><span>외화 금액: ${{esc(card.foreign_amount||'없음')}}</span><span>통화: ${{esc(card.currency||'미확인')}}</span><span>승인 번호: ${{esc(card.approval_number||card.authorization_id||'미확인')}}</span><span>취소 상태: ${{esc(card.cancellation_status||'미확인')}}</span><span>환불 상태: ${{esc(card.refund_status||'미확인')}}</span><span>거래 방향: ${{esc(card.transaction_direction||card.direction||'미확인')}}</span><span>이미 연결된 결제: ${{esc(card.already_linked_event_id||'없음')}}</span><span>${{card.selection_disabled?esc(card.selection_disabled_reason||'선택할 수 없습니다.'):card.already_linked_event_id?esc(card.already_linked_reason||'이미 연결된 거래라 선택할 수 없습니다.'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'선택 가능'}}</span></span></span></label>`).join('')}}</div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>차이 미리 보기</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
+      const period=event.service_period&&typeof event.service_period==='object'?`${{event.service_period.starts_on||'미확인'}} ~ ${{event.service_period.ends_on||'미확인'}}`:event.service_period;
+      const group=event.group_count?`${{event.group_count.ota}}건 ↔ ${{event.group_count.cards}}건, 대응 ${{event.matched_count??Math.min(event.group_count.ota,event.group_count.cards)}}건`:'';
+      const basis=event.allocation_basis==='user_approved_stable_order'?'사용자 승인 순서 배정 · 개별 결제 근거 미확인':event.status==='HOLD_PARTIAL_GROUP'?'부분 묶음 · 개별 연결과 장부 기록 차단':'';
+      const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',event.event_type],['결제일',event.paid_on],['결제 금액',String(event.amount??'미확인')+' '+(event.currency||'')],['확인 원화 금액',money(event.amount_krw)],['이용 기간',period],['항목',event.item],['묶음 건수',group],['배정 근거',basis],['보류 이유',event.reason],['근거 상태',event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨']];
+      if(event.ota_group_ids?.length)facts.push(['OTA 거래 ID 전체',event.ota_group_ids.join(', ')]);
+      if(event.card_group_ids?.length)facts.push(['카드 거래 ID 전체',event.card_group_ids.join(', ')]);
+      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{esc(event.provider)}} · ${{esc(event.booking_ref)}} · ${{esc(event.status)}}</h3><div class="ota-facts">${{facts.map(([label,value])=>`<div><strong>${{esc(label)}}:</strong> <span class="ota-value">${{esc(value||'미확인')}}</span></div>`).join('')}}</div><h4>결제일과 승인 규칙 범위의 카드 거래 ${{rows.length}}건</h4><div class="ota-cards">${{rows.map(card=>`<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{card.selection_disabled||card.already_linked_event_id||event.evidence_missing?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong>${{esc(card.issuer)}} · ${{esc(card.approval_date||card.transaction_date)}}</strong><span class="ota-card-facts"><span>카드 종류: ${{esc(card.card_kind||'미확인')}}</span><span>카드 끝 네 자리: ${{esc(card.card_tail||'미확인')}}</span><span>승인일: ${{esc(card.approval_date||'미확인')}}</span><span>매입일: ${{esc(card.posting_date||'미확인')}}</span><span>가맹점: ${{esc(card.merchant||'미확인')}}</span><span>원화 금액: ${{money(card.amount_krw)}}</span><span>외화 금액: ${{esc(card.foreign_amount||'없음')}}</span><span>통화: ${{esc(card.currency||'미확인')}}</span><span>승인 번호: ${{esc(card.approval_number||card.authorization_id||'미확인')}}</span><span>취소 상태: ${{esc(card.cancellation_status||'미확인')}}</span><span>환불 상태: ${{esc(card.refund_status||'미확인')}}</span><span>거래 방향: ${{esc(card.transaction_direction||card.direction||'미확인')}}</span><span>이미 연결된 결제: ${{esc(card.already_linked_event_id||'없음')}}</span><span>${{card.selection_disabled?esc(card.selection_disabled_reason||'선택할 수 없습니다.'):card.already_linked_event_id?esc(card.already_linked_reason||'이미 연결된 거래라 선택할 수 없습니다.'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'선택 가능'}}</span></span></span></label>`).join('')}}</div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>차이 미리 보기</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
     }}).join(''):'<p>검토할 OTA 결제 보류가 없습니다.</p>';
+    const orderGroups=new Map();
+    events.filter(event=>((event.allocation_basis==='user_approved_stable_order'||event.allocation_basis==='user_confirmed_group_required')&&!event.group_order_frozen)||event.review_warning==='confirm_group_reallocation')
+      .forEach(event=>{{const ids=[...(event.ota_group_ids||[])].sort(),replace=event.review_warning==='confirm_group_reallocation';if(ids.length>1)orderGroups.set(ids.join('|'),{{ids,replace,confirmable:(event.group_count?.ota===event.group_count?.cards)&&(event.matched_count??event.group_count?.ota)===event.group_count?.ota&&(!replace||Object.keys(event.proposed_mapping||{{}}).length===event.group_count?.ota)}});}});
+    if(orderGroups.size)root.querySelector('#ota-events').insertAdjacentHTML('beforeend',
+      [...orderGroups.values()].map(group=>`<div class="ota-actions"><p>순서 배정은 개별 결제 근거가 아닙니다. ${{group.replace?(group.confirmable?'구성이 달라졌습니다. 새 제안을 확인해야 합니다.':'구성이 달라져 완전한 대응을 만들 수 없습니다. 새 카드나 OTA 거래가 확인될 때까지 보류합니다.'):'확인 뒤 현재 순서 배정을 고정합니다.'}}</p><button type="button" data-freeze-group="${{esc(encodeURIComponent(JSON.stringify(group)))}}" ${{group.confirmable?'':'disabled'}}>${{group.replace?'새 순서 배정 검토 및 고정':'현재 순서 배정을 확인하고 고정'}}</button></div>`).join(''));
     renderProposals(snapshot.proposals||[]);
-    bindEvents();
+    bindEvents(snapshot);
   }}
   function renderProposals(proposals){{
-    root.querySelector('#ota-proposals').innerHTML=proposals.length?'<h3>검토 질문</h3>'+proposals.map(p=>`<article class="ota-proposal" data-proposal="${{esc(p.proposal_id)}}" data-status="${{esc(p.status)}}"><p>${{esc(p.question||'이 연결을 규칙으로 저장할까요?')}}</p><p>상태: ${{esc(p.status)}}</p><label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="once" checked> 이번 건만</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="approve"> 규칙 저장</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="edit"> 조건 수정</label><div class="ota-proposal-fields" hidden><label>예약 제공자<input name="provider" value="${{esc(p.conditions?.provider||'')}}"></label><label>항목<input name="item" value="${{esc(p.conditions?.item||'')}}"></label><label>가맹점<input name="merchant_normalized" value="${{esc(p.conditions?.merchant_normalized||'')}}"></label><label>카드사<input name="issuer" value="${{esc(p.conditions?.issuer||'')}}"></label><label>카드 끝 네 자리<input name="card_last4" inputmode="numeric" maxlength="4" value="${{esc(p.conditions?.card_last4||'')}}"></label><label>허용 금액 차이<input name="amount_delta_krw" type="number" step="1" value="${{esc(p.conditions?.amount_delta_krw??'')}}"></label><label>허용 날짜 차이<input name="date_lag_days" type="number" min="0" max="7" step="1" value="${{esc(p.conditions?.date_lag_days??'')}}"></label></div><div class="ota-actions"><button type="button" data-answer="${{esc(p.proposal_id)}}">제안에 답하기</button></div></article>`).join(''):'<p>대기 중인 제안이 없습니다.</p>';
+    root.querySelector('#ota-proposals').innerHTML=proposals.length?'<h3>검토 질문</h3>'+proposals.map(p=>`<article class="ota-proposal" data-proposal="${{esc(p.proposal_id)}}" data-status="${{esc(p.status)}}"><p>${{esc(p.question||'이 연결을 규칙으로 저장할까요?')}}</p><p>상태: ${{esc(p.status)}}</p><label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="once" checked> 이번 건만</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="approve"> 규칙 저장</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="edit"> 조건 수정</label><div class="ota-proposal-fields" hidden><label>예약 제공자<input name="provider" value="${{esc(p.conditions?.provider||'')}}"></label><label>항목<input name="item" value="${{esc(p.conditions?.item||'')}}"></label><label>Rule currency<input name="currency" maxlength="3" value="${{esc(p.conditions?.currency||'KRW')}}"></label><label>Event type<select name="event_type"><option value="charge" ${{p.conditions?.event_type==='refund'?'':'selected'}}>charge</option><option value="refund" ${{p.conditions?.event_type==='refund'?'selected':''}}>refund</option></select></label><label>가맹점<input name="merchant_normalized" value="${{esc(p.conditions?.merchant_normalized||'')}}"></label><label>카드사<input name="issuer" value="${{esc(p.conditions?.issuer||'')}}"></label><label>카드 끝 네 자리<input name="card_last4" inputmode="numeric" maxlength="4" value="${{esc(p.conditions?.card_last4||'')}}"></label><label>허용 금액 차이<input name="amount_delta_krw" type="number" step="1" value="${{esc(p.conditions?.amount_delta_krw??'')}}"></label><label>허용 날짜 차이<input name="date_lag_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_days??'')}}"></label><label>Lag lower bound<input name="date_lag_min_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_min_days??'')}}"></label><label>Lag upper bound<input name="date_lag_max_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_max_days??'')}}"></label><label>규칙 종류<select name="rule_kind"><option value="narrow" ${{['provider_alias','issuer_alias'].includes(p.conditions?.rule_kind)?'':'selected'}}>좁은 조건 규칙</option><option value="provider_alias" ${{p.conditions?.rule_kind==='provider_alias'?'selected':''}}>가맹점 별칭 승인</option><option value="issuer_alias" ${{p.conditions?.rule_kind==='issuer_alias'?'selected':''}}>발급사 별칭 승인</option></select></label><label>OTA 발급사 이름<input name="event_issuer_alias" value="${{esc(p.conditions?.event_issuer_alias||'')}}"></label><label>가맹점 별칭<input name="alias" value="${{esc(p.conditions?.alias||p.conditions?.merchant_normalized||'')}}"></label><label>승인 근거 출처<input name="approval_source" value="user_review"></label><label>별칭 규칙 버전<input name="alias_version" type="number" min="1" step="1" value="1"></label><label>할인율 (1/10000 단위)<input name="discount_rate_bps" type="number" min="1" max="10000" step="1" value="${{esc(p.conditions?.discount_rate_bps??'')}}"></label><label>할인 한도 (원)<input name="discount_cap_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.discount_cap_krw??'')}}"></label><label>최소 결제 금액 (원)<input name="minimum_amount_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.minimum_amount_krw??'')}}"></label><label>원 단위 처리<select name="rounding_mode"><option value="floor">내림</option><option value="half_up">반올림</option><option value="ceiling">올림</option></select></label><label>결제 수단<input name="payment_method" value="${{esc(p.conditions?.payment_method||'')}}"></label><label>적용 시작일<input name="valid_from" type="date" value="${{esc(p.conditions?.valid_from||'')}}"></label><label>적용 종료일<input name="valid_to" type="date" value="${{esc(p.conditions?.valid_to||'')}}"></label></div><div class="ota-actions"><button type="button" data-answer="${{esc(p.proposal_id)}}">제안에 답하기</button></div></article>`).join(''):'<p>대기 중인 제안이 없습니다.</p>';
     root.querySelectorAll('.ota-proposal').forEach(proposal=>proposal.querySelectorAll('input[type=radio]').forEach(radio=>radio.addEventListener('change',()=>{{proposal.querySelector('.ota-proposal-fields').hidden=radio.value==='once'||!radio.checked;}})));
     root.querySelectorAll('[data-answer]').forEach(button=>button.addEventListener('click',async()=>{{
       const proposal=button.closest('[data-proposal]'),action=proposal.querySelector('input[type=radio]:checked').value,conditions={{}};
-       if(action!=='once')proposal.querySelectorAll('.ota-proposal-fields input').forEach(field=>{{if(field.value.trim())conditions[field.name]=field.type==='number'?Number(field.value):field.value.trim();}});
-      button.disabled=true;
+       if(action!=='once')proposal.querySelectorAll('.ota-proposal-fields input,.ota-proposal-fields select').forEach(field=>{{const rateSet=[...proposal.querySelectorAll('[name="discount_rate_bps"],[name="discount_cap_krw"],[name="minimum_amount_krw"],[name="payment_method"]')].some(item=>item.value.trim());if(field.value.trim()&&(field.name!=='rounding_mode'||rateSet))conditions[field.name]=field.type==='number'?Number(field.value):field.value.trim();}});
+      if(conditions.date_lag_min_days!==undefined||conditions.date_lag_max_days!==undefined)delete conditions.date_lag_days;
+       button.disabled=true;
       try{{const result=await call('/api/imports/ota/proposal',{{proposal_id:button.dataset.answer,action,conditions,request_id:crypto.randomUUID()}});status.textContent=action==='once'?'규칙 저장 없이 이번 건만 처리했습니다.':action==='approve'?'검토한 조건으로 규칙을 저장했습니다.':'조건 수정을 위해 제안을 다시 열었습니다.';if(action==='edit')render(await call('/api/imports/ota'));else{{proposal.dataset.status=result.status;proposal.querySelector('p:nth-of-type(2)').textContent='상태: '+result.status;}}}}
       catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
   }}
-  function bindEvents(){{
+  function bindEvents(snapshot){{
+    root.querySelectorAll('[data-freeze-group]').forEach(button=>button.addEventListener('click',async()=>{{
+      const payload=JSON.parse(decodeURIComponent(button.dataset.freezeGroup));
+      if(!window.confirm(payload.replace?'바뀐 예약과 카드의 새 순서 배정을 확인하고 고정할까요?':'표시된 순서 배정을 확인하고 고정할까요? 이후 구성이나 순서가 달라지면 다시 확인이 필요합니다.'))return;
+      button.disabled=true;
+      try{{
+        await call('/api/imports/ota/group/confirm',{{event_ids:payload.ids,replace:payload.replace,request_id:crypto.randomUUID()}});
+        render(await call('/api/imports/ota'));status.textContent='확인한 그룹 순서를 고정했습니다.';
+      }}catch(error){{status.textContent=error.message;button.disabled=false;}}
+    }}));
     root.querySelectorAll('.ota-event').forEach(eventCard=>{{
       const button=eventCard.querySelector('[data-preview]'),radios=eventCard.querySelectorAll('input[type=radio]');
       radios.forEach(radio=>radio.addEventListener('change',()=>{{button.disabled=false;eventCard.querySelector('#ota-difference').replaceChildren();}}));
@@ -642,7 +755,10 @@ def _payload(raw: bytes) -> dict:
 
 def _proposal_conditions(action: str, conditions):
     allowed = {"provider", "item", "merchant_normalized", "issuer", "card_last4",
-               "amount_delta_krw", "date_lag_days"}
+               "amount_delta_krw", "date_lag_days", "date_lag_min_days", "date_lag_max_days",
+               "currency", "event_type", "discount_rate_bps", "discount_cap_krw",
+               "minimum_amount_krw", "rounding_mode", "payment_method", "valid_from", "valid_to",
+               "rule_kind", "alias", "approval_source", "alias_version", "event_issuer_alias"}
     if not isinstance(conditions, dict) or set(conditions) - allowed:
         raise InvalidReviewInput
     if action in ("approve", "edit") and not conditions:
@@ -654,7 +770,18 @@ def _proposal_conditions(action: str, conditions):
                 raise InvalidReviewInput
             cleaned[key] = value
         elif key == "date_lag_days":
-            if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 7:
+            if isinstance(value, bool) or not isinstance(value, int) or not -7 <= value <= 7:
+                raise InvalidReviewInput
+            cleaned[key] = value
+        elif key in ("date_lag_min_days", "date_lag_max_days"):
+            if isinstance(value, bool) or not isinstance(value, int) or not -7 <= value <= 7:
+                raise InvalidReviewInput
+            cleaned[key] = value
+        elif key in ("discount_rate_bps", "discount_cap_krw", "minimum_amount_krw", "alias_version"):
+            bounds = {"discount_rate_bps": (1, 10000), "discount_cap_krw": (1, 10_000_000),
+                      "minimum_amount_krw": (1, 100_000_000), "alias_version": (1, 100000)}
+            low, high = bounds[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
                 raise InvalidReviewInput
             cleaned[key] = value
         else:
@@ -663,7 +790,39 @@ def _proposal_conditions(action: str, conditions):
                 raise InvalidReviewInput
             if key == "card_last4" and (len(value) != 4 or not value.isdigit()):
                 raise InvalidReviewInput
+            if key == "rounding_mode" and value not in ("floor", "half_up", "ceiling"):
+                raise InvalidReviewInput
+            if key == "currency" and not re.fullmatch(r"[A-Za-z]{3}", value):
+                raise InvalidReviewInput
+            if key == "event_type" and value not in ("charge", "refund"):
+                raise InvalidReviewInput
+            if key in ("valid_from", "valid_to"):
+                try:
+                    date.fromisoformat(value)
+                except ValueError as exc:
+                    raise InvalidReviewInput from exc
             cleaned[key] = value
+    rate_fields = {"discount_rate_bps", "discount_cap_krw", "minimum_amount_krw",
+                   "rounding_mode", "payment_method"}
+    if set(cleaned) & rate_fields and not rate_fields <= set(cleaned):
+        raise InvalidReviewInput
+    if ("valid_from" in cleaned) != ("valid_to" in cleaned):
+        raise InvalidReviewInput
+    if "valid_from" in cleaned and cleaned["valid_from"] > cleaned["valid_to"]:
+        raise InvalidReviewInput
+    lag_bounds = {"date_lag_min_days", "date_lag_max_days"}
+    if set(cleaned) & lag_bounds and (not lag_bounds <= set(cleaned) or "date_lag_days" in cleaned or
+                                      cleaned["date_lag_min_days"] > cleaned["date_lag_max_days"]):
+        raise InvalidReviewInput
+    if cleaned.get("rule_kind") == "provider_alias":
+        if not all(cleaned.get(key) for key in ("provider", "alias", "approval_source", "alias_version")):
+            raise InvalidReviewInput
+        return cleaned
+    if cleaned.get("rule_kind") == "issuer_alias":
+        if not all(cleaned.get(key) for key in
+                   ("provider", "issuer", "event_issuer_alias", "approval_source", "alias_version")):
+            raise InvalidReviewInput
+        return cleaned
     if action in ("approve", "edit") and (
             not cleaned.get("provider") or not cleaned.get("item") or
             not (cleaned.get("merchant_normalized") or
@@ -715,6 +874,15 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
             conditions = _proposal_conditions(action, payload.get("conditions") or {})
             result = backend.answer_proposal(str(payload["proposal_id"]), action, user=user,
                                              conditions=conditions)
+        elif path == ROUTE_PREFIX + "/group/confirm":
+            event_ids = payload.get("event_ids")
+            if (not isinstance(event_ids, list) or not event_ids or
+                    any(not isinstance(identity, str) or not identity.strip() for identity in event_ids) or
+                    not isinstance(payload.get("request_id"), str) or not payload["request_id"].strip()):
+                raise InvalidReviewInput
+            result = backend.confirm_group_order(event_ids, user=user,
+                                                 replace=payload.get("replace") is True,
+                                                 request_id=payload["request_id"].strip())
         else:
             return _reply_error(handler, "NOT_FOUND", "요청 경로를 찾을 수 없습니다.", 404)
         handler._send_json(result)

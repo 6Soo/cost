@@ -1,0 +1,38 @@
+{
+  "schema_version": "ota-matching-defaults-v1",
+  "provider_merchant_aliases": {
+    "agoda": ["agoda", "아고다"],
+    "trip": ["trip.com", "trip.com korea", "트립닷컴", "트립"],
+    "klook": ["klook", "클룩"],
+    "booking": ["booking.com", "booking", "부킹닷컴"]
+  },
+  "provider_merchant_alias_records": {
+    "agoda": [
+      {"alias": "AGODA.COM", "status": "approved", "version": 1,
+       "source": "user-selected-default-2026-10-08"},
+      {"alias": "agoda", "status": "candidate", "version": 1,
+       "source": "legacy-built-in-not-user-approved"}
+    ],
+    "trip": [
+      {"alias": "trip.com", "status": "candidate", "version": 1,
+       "source": "legacy-built-in-not-user-approved"},
+      {"alias": "trip.com korea", "status": "candidate", "version": 1,
+       "source": "legacy-built-in-not-user-approved"}
+    ],
+    "klook": [{"alias": "klook", "status": "candidate", "version": 1,
+               "source": "legacy-built-in-not-user-approved"}],
+    "booking": [{"alias": "booking.com", "status": "candidate", "version": 1,
+                 "source": "legacy-built-in-not-user-approved"}]
+  },
+  "trip_flight_charge_delta": {
+    "enabled": true,
+    "item_values": ["항공", "항공권", "flight", "airfare"],
+    "currency": "KRW",
+    "direction": "purchase",
+    "minimum_delta_krw": -10000,
+    "maximum_delta_krw": -1000,
+    "step_krw": -1000,
+    "discount_cause_confirmed": false
+  },
+  "provider_date_lag_days": {"minimum": -7, "maximum": 7}
+}
