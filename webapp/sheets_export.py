@@ -770,11 +770,13 @@ def record_job(conn, *, job_id: str, tab_ids: list, manifest: dict, status: str)
 
 
 def get_job(conn, job_id: str):
-    conn.executescript(EXPORT_JOBS_SCHEMA)
-    _ensure_job_columns(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(ledger_export_jobs)")}
+    if not cols:
+        return None
+    output_path = "output_path" if "output_path" in cols else "NULL"
     row = conn.execute(
         "SELECT job_id, tab_ids_json, input_snapshot_sha256, template_version,"
-        " output_sha256, output_path, status, created_at FROM ledger_export_jobs WHERE job_id=?",
+        f" output_sha256, {output_path}, status, created_at FROM ledger_export_jobs WHERE job_id=?",
         (job_id,),
     ).fetchone()
     if row is None:
@@ -788,11 +790,13 @@ def get_job(conn, job_id: str):
 
 
 def list_jobs(conn, limit: int = 20):
-    conn.executescript(EXPORT_JOBS_SCHEMA)
-    _ensure_job_columns(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(ledger_export_jobs)")}
+    if not cols:
+        return []
+    output_path = "output_path" if "output_path" in cols else "NULL"
     rows = conn.execute(
         "SELECT job_id, tab_ids_json, input_snapshot_sha256, template_version,"
-        " output_sha256, output_path, status, created_at FROM ledger_export_jobs"
+        f" output_sha256, {output_path}, status, created_at FROM ledger_export_jobs"
         " ORDER BY created_at DESC LIMIT ?",
         (limit,),
     ).fetchall()

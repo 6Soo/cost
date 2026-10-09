@@ -1957,8 +1957,6 @@ def export_page() -> str:
     # rendered at all in that state rather than showing its empty form.
     review_note = ""
     if _active_store() is not None:
-        from .card_import import CardImporter
-
         lines = []
         for t in live_trips(include_archived=True):
             rows = _active_store().list_tab_rows(t["tab_id"])
@@ -2001,17 +1999,13 @@ def export_page() -> str:
         if per_tab:
             review_note += f"<ul class='muted'>{''.join(per_tab)}</ul>"
         try:
-            importer = CardImporter(_active_store().conn, _active_store())
-            states = set()
-            for (batch_id,) in _active_store().conn.execute(
-                    "SELECT batch_id FROM card_import_batches").fetchall():
-                progress = importer.progress(batch_id)
-                if progress:
-                    states.add(progress["status"])
-            if "reconciling" in states or "parsing" in states:
+            importing = _active_store().conn.execute(
+                "SELECT 1 FROM card_import_batches "
+                "WHERE status IN ('reconciling','parsing') LIMIT 1").fetchone()
+            if importing:
                 progress_note = ("<p class='muted'>내역을 가져오는 중입니다. "
                                  "현재 저장된 내용만 포함합니다.</p>")
-        except Exception:
+        except sqlite3.OperationalError:
             pass
         from .sheets_export import list_jobs
 

@@ -810,6 +810,8 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     user typed, and a refresh that replaced it would take the caret and the text
     with it.
     """
+    pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
+                    if board.current_role() == 'owner' else '')
     search = (
         "<form class='nav-q' method='get' action='/board'>"
         f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
@@ -823,7 +825,10 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         f"<small>{board.data_status_mark()}</small></p></div>"
         f"{search}"
         + nav_region(tab_id, query, kind, archived)
-        + f"<p class='nav-ft'>{board.nav_data_note()}</p></aside>"
+        + "<p class='nav-ft'>금액은 장부에 기록된 수입 합계입니다. "
+        "미기록 거래는 포함하지 않습니다. "
+        + pending_note
+        + f"{board.nav_data_note()}</p></aside>"
         "<div class='nav-mask' id='nav-mask' hidden></div>")
 
 
@@ -869,7 +874,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         listed.append(entry(
             board.esc(trip["display_key"]),
             f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            f"{totals['income']:,}원", trip["tab_id"] == tab_id))
+            f"수입 {totals['income']:,}원", trip["tab_id"] == tab_id))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
     # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
