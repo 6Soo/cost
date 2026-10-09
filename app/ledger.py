@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
+                 CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
                  StoreError, canonical, utc_now)
 
 __all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
@@ -239,6 +240,9 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
         if link["status"] == "excess":
             _block_pair(pair, "refund_exceeds_original", "환불 합계가 원결제보다 커서 보류해요", ready, unresolved)
             continue
+        if bool(original.get("already_booked")) != bool(refund.get("already_booked")):
+            _block_pair(pair, "refund_pair_partially_booked", "원거래와 환불 중 한쪽만 이미 기록돼 함께 보류해요", ready, unresolved)
+            continue
         if original.get("blocked"):
             _block_pair([refund], "refund_pair_incomplete", "원거래가 보류 중이라 환불도 함께 보류해요", ready, unresolved)
             continue
@@ -339,6 +343,23 @@ def _already_booked(store, transaction_id: str) -> bool:
         (transaction_id,)).fetchone() is not None
 
 
+def _check_refund_groups(store, rows) -> None:
+    """Refuse a commit that would leave a refund group half booked. Writes nothing."""
+    from .partial_refund import refund_group, refund_links
+    ready = {r["transaction_id"] for r in rows if not r.get("blocked") and not r.get("already_booked")}
+    links = refund_links(store.conn, [r["transaction_id"] for r in rows])
+    for original_id in {link["original_id"] for link in links.values()}:
+        members = refund_group(store.conn, original_id)
+        booked = [m for m in members if _already_booked(store, m)]
+        if booked and len(booked) != len(members):
+            raise StoreError(CODE_REFUND_PAIR_PARTIALLY_BOOKED,
+                             "원거래와 환불 중 일부만 이미 기록돼 있어 기록하지 않았어요. 확인해 주세요")
+        ready_members = [m for m in members if m in ready]
+        if not booked and 0 < len(ready_members) < len(members):
+            raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                             "환불 묶음을 모두 함께 기록할 수 없어 기록하지 않았어요. 묶인 거래를 함께 확인해 주세요")
+
+
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
            entry_metadata=None, additional_holds=None) -> dict:
@@ -386,6 +407,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     with store.lock:
         store.conn.execute("BEGIN IMMEDIATE")
         try:
+            _check_refund_groups(store, current["rows"])
             for entry in current["rows"]:
                 if entry.get("blocked"):
                     continue
