@@ -1,4 +1,5 @@
 """새 파일 처리와 기존 장부 화면이 같은 거래를 한 번만 기록하는지 확인한다."""
+import json
 import os
 import tempfile
 import unittest
@@ -14,6 +15,25 @@ from webapp.card_flow import (
 CARD = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
         'Date,Post Date,Authorization Code,Cancel,Status\n'
         '국민,1234,domestic,purchase,합성상점,37000,,,37000,2026-10-01,2026-10-02,A123,,매입\n').encode()
+
+# 같은 발급사·카드·승인번호·승인일, 부호만 반대인 결제와 취소. 실제로는 서로 다른 두 거래다.
+PAIR_HEADER = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
+               'Date,Post Date,Authorization Code,Cancel,Status\n').encode('utf-8')
+PAIR_LINES = ('국민,1234,domestic,purchase,합성상점,5800,,,5800,2026-10-01,2026-10-02,58001111,,매입\n'
+              '국민,1234,domestic,cancellation,합성상점,5800,,,5800,2026-10-01,2026-10-02,58001111,취소,취소\n').encode('utf-8')
+PAIR = PAIR_HEADER + PAIR_LINES
+
+
+def _same_approval_from_another_issuer():
+    """승인번호와 카드 끝자리는 같고 발급사만 다른 합성 거래 두 줄."""
+    return ('하나,1234,domestic,purchase,합성상점,5800,,,5800,2026-10-01,2026-10-02,58001111,,매입\n'
+            '하나,1234,domestic,cancellation,합성상점,5800,,,5800,2026-10-01,2026-10-02,58001111,취소,취소\n').encode('utf-8')
+
+
+def _no_approval_line(amount):
+    """승인번호가 없는 합성 거래 한 줄. 같은 줄을 두 번 쓰면 원문은 같고 거래 ID만 다르다."""
+    return ('국민,1234,domestic,purchase,합성상점,%d,,,%d,2026-10-01,2026-10-02,,,매입\n'
+            % (amount, amount)).encode('utf-8')
 
 
 class CardFlowTests(unittest.TestCase):
@@ -233,6 +253,124 @@ class CardFlowTests(unittest.TestCase):
         self.assertTrue(self.flow.tab_valid('unclassified'))
         self.assertFalse(self.flow.tab_valid('unknown'))
 
+    def confirm_all(self, batch, item='합성 비용'):
+        for row in self.flow.pipeline.get_batch(batch)['rows']:
+            self.flow.pipeline.save_decision(row['transaction_id'], row['revision'],
+                                             item=item, display_tab_id='unclassified',
+                                             request_id='confirm-' + row['transaction_id'],
+                                             tab_validator=self.flow.tab_valid)
+        return self.flow.pipeline.get_batch(batch)['rows']
+
+    def commit(self, batch, request_id='commit'):
+        return self.flow.pipeline.commit(batch, self.flow.state(batch)['preview']['digest'],
+                                         request_id, projection=self.flow.project,
+                                         trip_validator=self.flow.trip_valid,
+                                         tab_validator=self.flow.tab_valid)
+
+    def board_payload(self, row_id):
+        return json.loads(self.board.conn.execute(
+            'SELECT payload_json FROM board_rows WHERE row_id=?', (row_id,)).fetchone()[0])
+
+    def insert_legacy(self, row_id, **fields):
+        """거래 ID가 없는 과거 장부 행을 만들어 둔다."""
+        record = dict(row_id=row_id, row_kind='expense', revision=1, display_tab_id=None,
+                      occurred_on='2026-10-01', item='합성 비용', description='',
+                      service_period='', reservation_no='', evidence_type='카드',
+                      amount_krw=5800, source_kind='카드', source_event_id='',
+                      source_fact_digest='', source_merchant='합성상점', source_issuer='국민',
+                      source_card_last4='1234', source_approval_number='58001111',
+                      source_approval_date='2026-10-01', source_posting_date='2026-10-02',
+                      source_local_amount='', source_currency='', event_kind='purchase',
+                      classification_state='confirmed', confirmed_by='owner', memo='')
+        record.update(fields)
+        self.board.conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)',
+                                (row_id, 'expense', None, 1,
+                                 json.dumps(record, ensure_ascii=False, sort_keys=True)))
+        self.board.conn.commit()
+
+    def project_entry(self, row):
+        return dict(row, item='합성 비용', description='', display_tab_id='', trip_id='',
+                    occurred_on=row['approval_date'], now='synthetic-now')
+
+    def test_same_approval_purchase_and_cancellation_both_reach_the_board(self):
+        batch = self.flow.pipeline.receive(PAIR, 'synthetic-pair.csv')['batch_id']
+        rows = self.confirm_all(batch)
+        self.assertEqual(sorted(row['amount_krw'] for row in rows), [-5800, 5800])
+        self.assertEqual(len({row['transaction_id'] for row in rows}), 2)
+        self.assertEqual(self.commit(batch, 'commit-pair')['applied'], 2)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 2)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 2)
+        amounts = sorted(self.board_payload('card-' + row['transaction_id'])['amount_krw']
+                         for row in rows)
+        self.assertEqual(amounts, [-5800, 5800])
+
+    def test_same_card_and_approval_from_another_issuer_is_a_separate_transaction(self):
+        batch = self.flow.pipeline.receive(
+            PAIR_HEADER + PAIR_LINES + _same_approval_from_another_issuer(),
+            'synthetic-issuers.csv')['batch_id']
+        rows = self.confirm_all(batch)
+        self.assertEqual({row['issuer'] for row in rows}, {'국민', '하나'})
+        self.assertEqual({row['approval_number'] for row in rows}, {'58001111'})
+        self.assertEqual(len({row['transaction_id'] for row in rows}), 4)
+        self.assertEqual(self.commit(batch, 'commit-issuers')['applied'], 4)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 4)
+
+    def test_same_source_hash_with_different_ids_keeps_every_real_transaction(self):
+        line = _no_approval_line(9100)
+        batch = self.flow.pipeline.receive(PAIR_HEADER + line + line,
+                                           'synthetic-repeat.csv')['batch_id']
+        rows = self.confirm_all(batch)
+        self.assertEqual(len({row['transaction_id'] for row in rows}), 2)
+        self.assertEqual(len({row['source_hash'] for row in rows}), 1)
+        self.assertEqual(self.commit(batch, 'commit-repeat')['applied'], 2)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 2)
+
+    def test_alias_row_with_the_same_source_event_id_is_blocked_without_approval_number(self):
+        from app.db import StoreError
+        line = _no_approval_line(10100)
+        batch = self.flow.pipeline.receive(PAIR_HEADER + line, 'synthetic-alias.csv')['batch_id']
+        row = self.confirm_all(batch)[0]
+        self.assertEqual(row['approval_number'], '')
+        # 카드 행이 아직 없고, 같은 거래 ID를 가진 별칭 행만 남아 있는 상태.
+        self.insert_legacy('legacy-alias', source_event_id=row['transaction_id'],
+                           source_card_last4='9999', source_approval_number='')
+        with self.assertRaises(StoreError) as caught:
+            self.flow.project(self.project_entry(row))
+        self.assertEqual(caught.exception.code, 'EXISTING_LEDGER_TRANSACTION')
+        self.assertEqual(self.board.conn.execute(
+            "SELECT COUNT(*) FROM board_rows WHERE row_id=?", ('card-' + row['transaction_id'],)
+        ).fetchone()[0], 0)
+
+    def test_legacy_row_blocks_the_exact_purchase_and_the_exact_cancellation(self):
+        from app.db import StoreError
+        # 과거 장부에 결제와 취소가 이미 있다. 뒤에 있는 취소 행이 진짜 중복이어야 막힌다.
+        self.insert_legacy('legacy-buy', amount_krw=5800, event_kind='purchase')
+        self.insert_legacy('legacy-cancel', amount_krw=-5800, event_kind='cancellation')
+        batch = self.flow.pipeline.receive(PAIR, 'synthetic-legacy.csv')['batch_id']
+        rows = self.confirm_all(batch)
+        purchase = next(row for row in rows if row['amount_krw'] == 5800)
+        cancellation = next(row for row in rows if row['amount_krw'] == -5800)
+        for row in (purchase, cancellation):
+            with self.subTest(amount=row['amount_krw']):
+                with self.assertRaises(StoreError) as caught:
+                    self.flow.project(self.project_entry(row))
+                self.assertEqual(caught.exception.code, 'EXISTING_LEDGER_TRANSACTION')
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_rows WHERE row_id LIKE ?', ('card-%',)).fetchone()[0], 0)
+
+    def test_legacy_row_of_another_issuer_or_kind_does_not_block_the_same_approval(self):
+        batch = self.flow.pipeline.receive(PAIR, 'synthetic-narrow.csv')['batch_id']
+        rows = self.confirm_all(batch)
+        purchase = next(row for row in rows if row['amount_krw'] == 5800)
+        # 다른 발급사의 같은 승인번호, 같은 금액, 다른 거래 종류: 어느 쪽도 중복이 아니다.
+        self.insert_legacy('legacy-other-issuer', source_issuer='하나')
+        self.insert_legacy('legacy-other-kind', event_kind='cancellation')
+        self.insert_legacy('legacy-other-amount', amount_krw=10100)
+        self.flow.project(self.project_entry(purchase))
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_rows WHERE row_id=?',
+            ('card-' + purchase['transaction_id'],)).fetchone()[0], 1)
+
     def test_batch_names_come_from_the_card_data_and_keep_the_original_file(self):
         batch = self.flow.pipeline.receive(CARD, 'H.xlsx')['batch_id']
         original = self.board.conn.execute('SELECT filename,content_bytes,content_sha256 FROM import_batches').fetchall()
@@ -319,6 +457,40 @@ class CardFlowTests(unittest.TestCase):
             return home_page(self.board)
         finally:
             ledger_board.bind_store(previous)
+
+    def test_ready_matches_recordable_transactions_before_and_after_commit(self):
+        from app.ledger import recordable_rows
+        trip, batch, row = self.pending_fixture()
+        with patch.object(CardFlow, 'trip_valid', return_value=True):
+            before = self.flow.state(batch)['preview']
+            visible = recordable_rows(before['rows'])
+            self.assertEqual(before['ready'], len(visible))
+            self.assertEqual({r['transaction_id'] for r in visible}, {row['transaction_id']})
+            self.flow.pipeline.commit(batch, before['digest'], 'ready-commit',
+                                      trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+            after = self.flow.state(batch)['preview']
+            self.assertEqual(after['ready'], len(recordable_rows(after['rows'])))
+            self.assertFalse(recordable_rows(after['rows']))
+            self.assertTrue(after['rows'][0]['already_booked'])
+
+    def test_ready_counts_shared_source_transaction_once_and_excludes_blockers(self):
+        from app.ledger import recordable_rows
+        trip, batch, row = self.pending_fixture()
+        second_batch = self.flow.pipeline.receive(
+            CARD + CARD.splitlines(keepends=True)[1].replace(b'A123', b'OTHER'),
+            'shared-source.csv')['batch_id']
+        with patch.object(CardFlow, 'trip_valid', return_value=True):
+            preview = self.flow.state(second_batch)['preview']
+            first_ids = {r['transaction_id'] for r in recordable_rows(self.flow.state(batch)['preview']['rows'])}
+            self.assertEqual(first_ids, {row['transaction_id']})
+            self.assertIn('장부 반영 대기 <b>1</b>', self.pending_home())
+        visible = recordable_rows(preview['rows'])
+        self.assertEqual(preview['ready'], len({r['transaction_id'] for r in visible}))
+        self.assertEqual({r['transaction_id'] for r in visible}, {row['transaction_id']})
+        sample = visible[0]
+        self.assertEqual(recordable_rows([sample, sample]), visible)
+        self.assertFalse(recordable_rows([dict(sample, blocked='needs_review'),
+                                         dict(sample, already_booked=True)]))
 
     def test_home_pending_reuses_valid_authority_once_across_batches(self):
         trip, batch, row = self.pending_fixture()

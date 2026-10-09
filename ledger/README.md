@@ -1,66 +1,18 @@
-# 카드거래 정본 마스터 (AI-Native 파이프라인)
+# 과거 원장 도구와 일정 도메인
 
-주식회사 숲길여행 전 카드(국민·하나·기업) 거래를 단일 정본으로 관리.
+현재 운영 장부의 정본은 `D:/WebLedgerHost/data/board.sqlite`의 `board_rows`다. 이 폴더의 CSV 원장과 워크북 연결 도구는 과거 분석·이관·대조 경로이며 별도 운영 쓰기 경로가 아니다. `classified_v14.csv`와 `master_ledger.csv`를 현재 장부로 덮어쓰지 않는다.
 
-## 파일
-- `master_ledger.csv` — 정본 거래원장(거래키로 멱등 중복제거). 열: 거래키·카드사·카드4·구분·승인일·매입일·가맹점·원화금액·현지금액·통화·승인번호·취소여부·출처·적재일·**기록여부(워크북반영Y/N)**·워크북참조·비고
-- `ingest.py` — 증분 적재기. 6종 원본형식 자동판별→정규화→병합.
-- `link_workbook.py` — 워크북(classified) 대조해 기록여부 갱신.
+## 과거 도구
 
-## 표준 소스(2026-07-20 확정)
-- 국민: 국내매입 + 해외매입 (승인내역은 해외 승인금액 0원이라 금액용 불가)
-- 하나: **승인내역만** (비-승인내역은 거부, 교차검증만)
-- 기업: 승인내역
+- `ingest.py`: 과거 카드 원본의 증분 적재·대조 도구다.
+- `link_workbook.py`: 과거 워크북의 기록 여부를 대조한다.
+- `domain/ledger_db.py`: 분리된 도메인 자료의 검증과 검토 보고서를 만든다.
+- `domain/direct_trip_schedule_authority.py`: 명시 연도·기간·근거 digest를 가진 일정 계약을 정의한다. 현재 카드 흐름에서도 이 일정 검증을 사용한다.
 
-## 사용
-```
-# 원본이 .xls면 먼저 변환
-libreoffice --headless --convert-to xlsx --outdir conv <파일.xls>
-python3 ingest.py conv/<파일>.xlsx        # 없으면추가/있으면병합/같으면버림
-python3 link_workbook.py                   # 기록여부 갱신
-```
+과거 도구를 실행하면 로컬 산출물이 바뀔 수 있으므로 대상과 복구 사본을 확인한다. 기존 CSV 병합 규칙을 현재 거래의 중복 방지 규칙으로 일반화하지 않는다. 같은 원문 해시라도 실제 복수 거래는 보존하고, 결제·취소·환불을 합치지 않는다.
 
-## 병합 규칙
-- 없는 건(신규 거래키) → 추가
-- 있는 건(같은 거래키, 새 필드 있음) → 병합(빈 필드 보강, 기록여부 보존)
-- 같은 건(변화 없음) → 버림
-일자가 겹쳐 재업로드해도 중복 자동 제외(멱등).
+## 현재 기준
 
-## 도메인 분리형 원장 v2
+국민 국내·해외 매입 원본과 승인 보조 자료의 역할은 [카드 수집 문서](../docs/card_downloads.md)를 따른다. 실제 비용 전기는 [현재 카드 파이프라인](../docs/card_pipeline.md)의 미리보기·중복 방지 절차를 사용한다. 사용자 확정과 일정 근거는 [업무 규칙](../docs/business_rules.md)을 따른다.
 
-기존 `classified_v14.csv`는 호환용 산출 정본으로 유지하되, 결제 원천과
-예약·여행귀속·분류판정·장부전기를 분리한 SQLite 모델을 병렬 구축 중이다.
-
-```bash
-python3 domain/ledger_db.py import-legacy
-python3 domain/ledger_db.py validate
-python3 domain/ledger_db.py review-report
-python3 domain/ledger_db.py review-snapshot \
-  --output data/review-snapshots/baseline
-```
-
-`review-snapshot`은 집계값에 대응하는 8개 상세 검토 큐 CSV, 입력 원천 해시,
-요약 지표와 배분대상·여행·계정별 회귀 합계를 생성한다. 이전 스냅샷과 비교하면
-큐별 추가·해소·잔존 거래를 `diff.json`으로 확인할 수 있다.
-
-```bash
-python3 domain/ledger_db.py review-snapshot \
-  --output data/review-snapshots/after-p1 \
-  --compare-to data/review-snapshots/baseline
-```
-
-산출 구조:
-
-```text
-data/review-snapshots/baseline/
-├── manifest.json
-├── summary.json
-├── regression_totals.json
-└── queues/
-    ├── unassigned.csv
-    ├── unresolved_transaction_relations.csv
-    └── ...
-```
-
-스키마는 `domain/schema.sql`, 설계와 전환 게이트는
-`../docs/비용분류_도메인모델_v2.md`를 참고한다.
+과거 48개 여행 목록과 2026-08-29 대사 보고서는 그 시점의 산출물이다. 현재 여행 40개와 권위 검증 상태, 장부 기록 수는 [운영 문서](../docs/operations.md)를 따른다. 과거 종료용 일정이나 카드 결제일을 새로운 OTA 이용기간으로 사용하지 않는다.

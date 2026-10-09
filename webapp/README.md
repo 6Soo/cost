@@ -1,62 +1,33 @@
-# webapp
+# 웹 장부
 
 ## 현재 OTA 자료 연결
 
 메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](../docs/ota_mail.md)의 최신 항목을 따른다.
 
-저장소 루트에서 `python run_candidate.py --port 8765`로 실행할 수 있다.
-이 실행기는 DB와 출력을 Git 제외 경로인 `runtime/`에 둔다.
-아래 직접 모듈 실행법과 기본 DB 설명은 그대로 유효하다.
-현재 상태는 [2026-09-27 인계](../docs/handoff/2026-09-27/README.md)를 우선한다.
+현재 웹 장부는 운영 SQLite, 실제 카드 파일 처리, Google 로그인과 권한 검사, 장부 편집·입금 배분·XLSX 출력을 연결한다. 과거 합성 데모만 존재한다는 설명은 현재 코드에 맞지 않는다. 운영 상태는 [운영 문서](../docs/operations.md), 처리 구조는 [구조 문서](../docs/architecture.md)를 따른다.
 
-합성 데이터로 동작하는 웹 장부 확인용 앱이다. 실제 운영 데이터·운영 DB와 연결되어 있지 않으며, 외부 서비스 연결은 구현돼 있지 않다.
+## 개발 서버
 
-## 합성 DB
-
-- 기본 DB 파일명: `webledger.work.sqlite`
-- 저장 위치: 실행한 작업 경로의 현재 디렉터리
-- 경로 지정: 환경변수 `WEBLEDGER_DB`가 우선한다. 지정이 없으면 기본 파일명을 쓴다.
-- 서버 기동 시 DB 파일이 없으면 새로 만든다. 기존 파일이 있으면 그대로 연다.
-
-## 실행 명령
-
-합성 보드 서버(카드 처리 worker 포함, 기본값 `with_worker=True`):
+저장소 루트에서 운영과 다른 데이터 폴더를 지정한다.
 
 ```powershell
-$env:PYTHONDONTWRITEBYTECODE = "1"
-$env:WEBLEDGER_DB = (Join-Path $env:TEMP "webledger-demo.sqlite")
-python -m webapp.ledger_board --port 8751
+$env:WEBLEDGER_CARD_FLOW='1'
+$env:WEBLEDGER_UNIFIED_DB='1'
+python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environment local-synthetic --synthetic-sessions
 ```
 
-- 주소: `http://127.0.0.1:8751/board`
-- 기본 포트 8751. 종료는 `Ctrl+C`.
-- DB를 후보 폴더나 저장소에 남기지 않으려면 `WEBLEDGER_DB`를 임시 경로로 지정한다.
+`run_candidate.py`는 `--data-root` 또는 `WEBLEDGER_DATA_ROOT`로 지속 데이터 경로를 받는다. 직접 `ledger_board.serve()`를 호출하는 호환 경로는 명시 `db_path`나 `WEBLEDGER_DB`가 없으면 현재 작업 폴더의 `webledger.work.sqlite`를 사용한다. 테스트에서는 임시 DB를 명시한다. 기본 바인딩은 `127.0.0.1`이다.
 
-봉인 스냅샷 재생 서버(읽기 전용 대조 경로):
+## 운영과 인증
 
-```powershell
-python -m webapp.cli serve --snapshot <descriptor 경로> [--ledger <경로>] [--port 8765] [--phase0]
-```
+운영 정본은 `D:/WebLedgerHost/data/board.sqlite`이고 별도 실행기는 `D:/WebLedgerHost/bin/launch_web_ledger.py`다. 설정과 비밀값은 저장소 밖에 둔다. Google 로그인과 소유자·조회 권한, CSRF 및 revision 검사를 유지한다. 비로그인 카드 검토와 API 요청은 401로 거절한다. 합성 세션을 운영 인증으로 사용하지 않는다.
 
-- 봉인된 스냅샷 descriptor가 필수다. 검증에 실패하면 시작하지 않는다.
-- `--phase0`는 쓰기 route를 전부 끈다.
+## 자료와 출력
 
-검사:
+카드 업로드는 현재 CSV와 XLSX를 지원한다. 국민 바이너리 XLS 원본은 읽기 전용 분석 도구에서 검사하지만 웹 업로드에는 직접 넣을 수 없다. 보존 OTA 메일과 Agoda 포털 근거는 읽기 전용으로 대조한다. 웹 요청에서 메일을 보내거나 예약을 만들지 않는다. 카드사 직접 API와 무인 인증서 로그인 성공은 확인되지 않았다.
 
-```powershell
-python -m pytest webapp/tests -q -p no:cacheprovider
-```
+XLSX 생성은 현재 장부 행을 읽는다. 출력 화면과 출력 작업 조회는 기존 카드 importer를 생성하거나 스키마를 쓰지 않는다. Google 로그인 범위와 메일·Drive·Sheets 권한은 별개이며, 로그인만으로 외부 문서 쓰기가 승인되지는 않는다.
 
-의존성은 `webapp/requirements.txt`에 선언돼 있다. 이 선언만으로 설치하지 않으며, 현재 환경은 Python 3.12.10 / openpyxl 3.1.5로 확인됐다.
+## 검증
 
-## 미구현 외부 연결
-
-아래는 모두 이 앱에 연결되어 있지 않다. 구현되지 않았고 이 데모 범위 밖이다.
-
-- Google Sheets / Google Drive 업로드와 공유. XLSX는 로컬 파일로만 만든다.
-- Apps Script 카드 RAW 수집과 `clasp` 배포 경로.
-- 은행 계좌·카드사 직접 API 연결. 카드 데이터는 파일 업로드로만 넣는다.
-- Agoda 예약 수집, Gmail 수신, 메일 파싱.
-- 로그인, OAuth, 사용자 인증, 권한 관리.
-- 외부.origin 허용. 서버는 `127.0.0.1` loopback에만 바인딩한다.
-- 실제 운영 DB, 실제 원본 자료, 배포 환경 연결.
+변경과 관련된 테스트를 먼저 실행한다. 기존 DB를 삭제해 테스트를 통과시키지 않는다. 최신 명령·결과·브라우저 확인 범위는 [운영 문서](../docs/operations.md)에 기록한다. 전체 회귀를 개별 수정마다 반복하지 않는다.

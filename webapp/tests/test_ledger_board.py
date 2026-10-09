@@ -42,6 +42,51 @@ class SyntheticTotalsTests(unittest.TestCase):
 
 
 class BoardApiTests(unittest.TestCase):
+    def test_export_get_does_not_construct_importer_or_write_schema(self):
+        from unittest.mock import patch
+        import urllib.request
+        # `CardWorker`도 `CardImporter`를 만들기 때문에, worker가 살아 있는
+        # 상태로 spy를 켜면 `/export`와 무관한 백그라운드 thread가 생성자를
+        # 호출해 오탐하고 thread 예외를 남긴다. 이 테스트는 HTTP 응답만
+        # 필요하므로 worker 없이 새 서버를 띄워 실제로 관찰되는 경로를
+        # `/export` 하나로 좁힌다. worker가 있는 서버는 아래 준비로 되돌린다.
+        self.restart_server_without_worker()
+        statements = []
+        before = self.store.conn.execute('SELECT type,name,sql FROM sqlite_master ORDER BY name').fetchall()
+        self.store.conn.set_trace_callback(statements.append)
+        try:
+            with patch('webapp.card_import.CardImporter', side_effect=AssertionError('export constructed importer')) as ctor:
+                with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/export') as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertIn('선택 탭 출력', response.read().decode('utf-8'))
+                ctor.assert_not_called()
+            from webapp.sheets_export import get_job, list_jobs
+            get_job(self.store.conn, 'missing-job')
+            list_jobs(self.store.conn)
+            self.assertFalse([s for s in statements if s.lstrip().upper().startswith(('CREATE', 'ALTER', 'DROP', 'INSERT', 'UPDATE', 'DELETE'))])
+            after = self.store.conn.execute('SELECT type,name,sql FROM sqlite_master ORDER BY name').fetchall()
+            self.assertEqual(before, after)
+        finally:
+            self.store.conn.set_trace_callback(None)
+
+    def restart_server_without_worker(self):
+        """같은 DB로 worker 없는 서버를 다시 띄운다. 테스트 종료 시 tearDown이 닫는다."""
+        import threading
+
+        worker = getattr(self.server, "card_worker", None)
+        if worker is not None:
+            worker.stop(timeout=5)
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        # 새 서버에 워커가 없다는 것만 확인한다. stop 은 객체 참조를 지우지
+        # 않으므로 이전 서버의 속성으로는 판단하지 않는다.
+        self.server = self.board_mod.serve(port=0, with_worker=False)
+        self.assertIsNone(self.server.card_worker)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
     def setUp(self):
         import os
         import tempfile

@@ -457,7 +457,7 @@ class TwoPageBoardTests(unittest.TestCase):
                          " document.getElementById('live-nav').innerText")
         # trip A is on screen, and trip B starts with nothing in it
         self.assertIn(TRIP_A, watcher.content())
-        self.assertEqual(self._rail_entry(watcher, "예시여행B"), "0420_예시여행B\n0원")
+        self.assertEqual(self._rail_entry(watcher, "예시여행B"), "0420_예시여행B\n수입 0원")
 
         # an income row moves from trip A to trip B. The rail badge is the income
         # total, so this is the change the badge has to show: an expense move
@@ -477,7 +477,7 @@ class TwoPageBoardTests(unittest.TestCase):
         # income that arrived in it
         self.assertIn(TRIP_A, watcher.content())
         self.assertNotEqual(self._rail_entry(watcher, "예시여행B"),
-                            "0420_예시여행B\n0원",
+                            "0420_예시여행B\n수입 0원",
                             "trip B's rail total should have moved")
 
     def test_two_pages_each_see_the_other_s_save(self):
