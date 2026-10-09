@@ -9,9 +9,22 @@ from them and never stored over either.
 
 from __future__ import annotations
 
-__all__ = ["refund_links"]
+__all__ = ["refund_group", "refund_links"]
 
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
+
+
+def refund_group(conn, original_id: str) -> list:
+    """The original followed by every clean cancellation that names its approval."""
+    found = conn.execute("SELECT issuer, card_tail, approval_number FROM transactions"
+                         " WHERE transaction_id=?", (original_id,)).fetchone()
+    if found is None:
+        return [original_id]
+    issuer, tail, original_no = found
+    siblings = conn.execute("SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'"
+                            f" AND issuer=? AND card_tail=? AND original_approval_number=? AND amount_krw<0 AND {_CLEAN}"
+                            " ORDER BY transaction_id", (issuer, tail, original_no)).fetchall()
+    return [original_id] + [tid for (tid,) in siblings]
 
 
 def refund_links(conn, transaction_ids) -> dict:

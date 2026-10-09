@@ -159,6 +159,93 @@ def test_an_unlinked_cancellation_is_unchanged():
     assert 'refund_link' not in rows['200'] and rows['200'].get('blocked') == 'needs_review'
 
 
+def book_alone(pipe, batch, approval):
+    pipe.store.conn.execute(
+        "INSERT INTO ledger_entries(transaction_id, batch_id, item, description, display_tab_id, trip_id,"
+        " amount_krw, merchant, occurred_on, transaction_direction, source_hash, committed_at)"
+        " SELECT transaction_id, ?, '항공료', '', 'unclassified', '', amount_krw, merchant, approval_date,"
+        " transaction_direction, source_hash, '2026-10-10T00:00:00Z' FROM transactions WHERE approval_number=?",
+        (batch, approval))
+
+
+def test_full_refund_nets_to_zero_and_books_both():
+    pipe, batch = build(refunds=(-1000000,))
+    confirm_original(pipe, batch)
+    rows = by_approval(pipe, preview(pipe, batch))
+    assert rows['200']['refund_link']['status'] == 'full' and rows['200']['refund_link']['net_krw'] == 0
+    done = pipe.commit(batch, preview(pipe, batch)['digest'], 'full-1', tab_validator=OK, trip_validator=OK)
+    assert done['applied'] == 2
+    assert pipe.store.conn.execute('SELECT SUM(amount_krw), COUNT(*) FROM ledger_entries').fetchone() == (0, 2)
+
+
+def test_two_refunds_and_their_original_are_booked_as_one_group():
+    pipe, batch = build(refunds=(-700000, -200000))
+    confirm_original(pipe, batch)
+    done = pipe.commit(batch, preview(pipe, batch)['digest'], 'group-1', tab_validator=OK, trip_validator=OK)
+    assert done['applied'] == 3
+    assert pipe.store.conn.execute('SELECT SUM(amount_krw), COUNT(*) FROM ledger_entries').fetchone() == (100000, 3)
+
+
+def test_retry_of_an_all_booked_group_is_a_noop():
+    pipe, batch = build(refunds=(-700000, -200000))
+    confirm_original(pipe, batch)
+    pipe.commit(batch, preview(pipe, batch)['digest'], 'group-1', tab_validator=OK, trip_validator=OK)
+    again = pipe.commit(batch, preview(pipe, batch)['digest'], 'group-2', tab_validator=OK, trip_validator=OK)
+    assert again['applied'] == 0
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 3
+
+
+def test_original_booked_alone_rejects_the_commit_without_writes():
+    pipe, batch = build()
+    confirm_original(pipe, batch)
+    book_alone(pipe, batch, '100')
+    result = preview(pipe, batch)
+    calls = []
+    with pytest.raises(StoreError) as caught:
+        pipe.commit(batch, result['digest'], 'half-1', tab_validator=OK, trip_validator=OK, projection=calls.append)
+    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
+    assert calls == []
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+
+
+def test_refund_booked_alone_rejects_the_commit_without_writes():
+    pipe, batch = build()
+    confirm_original(pipe, batch)
+    book_alone(pipe, batch, '200')
+    result = preview(pipe, batch)
+    calls = []
+    with pytest.raises(StoreError) as caught:
+        pipe.commit(batch, result['digest'], 'half-2', tab_validator=OK, trip_validator=OK, projection=calls.append)
+    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
+    assert calls == []
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+
+
+def test_one_of_two_refunds_booked_rejects_the_whole_group_without_writes():
+    pipe, batch = build(refunds=(-700000, -200000))
+    confirm_original(pipe, batch)
+    book_alone(pipe, batch, '201')
+    result = preview(pipe, batch)
+    calls = []
+    with pytest.raises(StoreError) as caught:
+        pipe.commit(batch, result['digest'], 'half-3', tab_validator=OK, trip_validator=OK, projection=calls.append)
+    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
+    assert calls == []
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+
+
+def test_a_refund_decision_after_the_preview_makes_the_preview_stale():
+    pipe, batch = build()
+    confirm_original(pipe, batch)
+    result = preview(pipe, batch)
+    refund = next(r for r in pipe.get_batch(batch)['rows'] if r['approval_number'] == '200')
+    pipe.save_decision(refund['transaction_id'], refund['revision'], item='숙박비',
+                       display_tab_id='unclassified', tab_validator=OK, request_id='refund-change')
+    with pytest.raises(StoreError):
+        pipe.commit(batch, result['digest'], 'stale-refund', tab_validator=OK, trip_validator=OK)
+    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+
+
 def test_a_refund_with_two_possible_originals_is_not_linked():
     from app.partial_refund import refund_links
     pipe, batch = build()
