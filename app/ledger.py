@@ -164,6 +164,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
         ready.append(entry)
         rows.append(entry)
 
+    _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_validator)
+
     # Two ready rows that would land on the same transaction, or that share an
     # approval number with different content, are not guessed apart.
     seen: dict[str, dict] = {}
@@ -196,7 +198,74 @@ def preview(store, batch_id: str, *, trip_validator=None,
     return result
 
 
-PREVIEW_VERSION = "ledger-preview-v2"
+PREVIEW_VERSION = "ledger-preview-v3"
+
+_PAIR_UNBLOCKABLE = ("needs_review", "item_missing")
+
+
+def _move(entry, ready, unresolved, to_ready):
+    for bucket in (ready, unresolved):
+        if entry in bucket:
+            bucket.remove(entry)
+    (ready if to_ready else unresolved).append(entry)
+
+
+def _block_pair(entries, code, reason, ready, unresolved):
+    for entry in entries:
+        entry["blocked"] = code
+        entry["reason"] = reason
+        _move(entry, ready, unresolved, False)
+
+
+def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_validator):
+    """A linked refund and its original are decided together or not at all.
+
+    The refund inherits item, tab and trip from its original when it has none of
+    its own; a conflicting classification, an over-refund or any other block on
+    either row holds both. Source amounts are untouched; the net is derived.
+    """
+    from .partial_refund import refund_links
+    by_id = {r["transaction_id"]: r for r in rows}
+    for refund_id, link in refund_links(store.conn, list(by_id)).items():
+        refund = by_id.get(refund_id)
+        original = by_id.get(link["original_id"])
+        if refund is None:
+            continue
+        if original is None:
+            _block_pair([refund], "refund_original_missing",
+                        "환불의 원거래가 이 접수 건에 없어 함께 기록할 수 없어요", ready, unresolved)
+            continue
+        pair = [original, refund]
+        if link["status"] == "excess":
+            _block_pair(pair, "refund_exceeds_original", "환불 합계가 원결제보다 커서 보류해요", ready, unresolved)
+            continue
+        if original.get("blocked"):
+            _block_pair([refund], "refund_pair_incomplete", "원거래가 보류 중이라 환불도 함께 보류해요", ready, unresolved)
+            continue
+        if refund.get("blocked") and refund["blocked"] not in _PAIR_UNBLOCKABLE:
+            _block_pair([original], "refund_pair_incomplete", "환불 거래가 보류 중이라 원거래도 함께 보류해요", ready, unresolved)
+            continue
+        clash = [k for k in ("item", "display_tab_id", "trip_id")
+                 if refund.get(k) and original.get(k) and refund[k] != original[k]]
+        if clash:
+            _block_pair(pair, "refund_pair_mismatch", "환불과 원거래의 분류가 달라 보류해요", ready, unresolved)
+            continue
+        for key in ("item", "display_tab_id", "trip_id", "description"):
+            if not refund.get(key):
+                refund[key] = original.get(key) or ""
+        block = _authority_block(refund, trip_validator, tab_validator)
+        if block or not refund.get("item"):
+            _block_pair(pair, block[0] if block else "refund_pair_incomplete",
+                        block[1] if block else "환불에 이어받을 항목이 없어 함께 보류해요", ready, unresolved)
+            continue
+        if refund.get("blocked"):
+            refund.pop("blocked", None)
+            refund.pop("reason", None)
+            _move(refund, ready, unresolved, True)
+        net = {"gross_krw": link["gross_krw"], "refund_krw": link["refunds_total_krw"],
+               "net_krw": link["net_krw"], "status": link["status"]}
+        refund["refund_link"] = dict(net, role="refund", counterpart_id=original["transaction_id"])
+        original["refund_link"] = dict(net, role="original", counterpart_id=refund_id)
 
 # The only keys a caller's entry_metadata may add. A fixed list, so a callback
 # cannot inject `blocked`, `reason` or `now` and steer the commit.
@@ -255,7 +324,8 @@ def preview_digest(result: dict) -> str:
              "display_tab_id": r["display_tab_id"], "trip_id": r["trip_id"],
              "booking_ref": r.get("booking_ref"),
              "service_period": r.get("service_period"),
-             "ota_evidence": r.get("ota_evidence")}
+             "ota_evidence": r.get("ota_evidence"),
+             "refund_link": r.get("refund_link")}
             for r in result.get("rows", [])
             if not r.get("blocked")
         ],
@@ -352,6 +422,18 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                         raise StoreError(CODE_INVALID_INPUT,
                                          "게시 함수가 아니에요")
                     projection(dict(entry, batch_id=batch_id, now=now))
+            done = set(booked) | set(already)
+            for entry in current["rows"]:
+                link = entry.get("refund_link")
+                if link and not entry.get("blocked") and (
+                        (entry["transaction_id"] in done) != (link["counterpart_id"] in done)):
+                    raise StoreError(CODE_PREVIEW_STALE,
+                                     "환불과 원거래를 함께 기록하지 못해 취소했어요. 다시 확인해 주세요")
+                if link and link["role"] == "refund" and entry["transaction_id"] in booked:
+                    store.log_change("ledger.refund_linked", entry["transaction_id"],
+                                     {"original_id": link["counterpart_id"], "gross_krw": link["gross_krw"],
+                                      "refund_krw": link["refund_krw"], "net_krw": link["net_krw"],
+                                      "status": link["status"]})
             result = {"batch_id": batch_id, "applied": len(booked),
                       "already": len(already), "unresolved": current["unresolved"],
                       "duplicates": current["duplicates"],
