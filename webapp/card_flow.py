@@ -2,11 +2,13 @@
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 from urllib.parse import unquote
 
 
 _OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고다', 'BOOKING', '부킹닷컴')
+_OTA_REPORT_LOCK = threading.Lock()
 
 
 def _is_ota_row(row):
@@ -650,6 +652,15 @@ class CardFlow:
         return sources
 
     def _ota_report(self):
+        """한 조회 안에서는 미리보기와 근거 조회가 같은 대사 결과를 쓴다."""
+        memo = getattr(self, '_request_report', None)
+        if memo is None:
+            return self._compute_ota_report()
+        if not memo:
+            memo.append(self._compute_ota_report())
+        return memo[0]
+
+    def _compute_ota_report(self):
         """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""
         from app import ota_sources
         from app.ota_mail import load_reference_documents, match_mail
@@ -680,17 +691,22 @@ class CardFlow:
         with self.board._lock:
             rows=[tuple(row) for row in self.board.conn.execute(
                 'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
-            fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
-            # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
-            key = (str([str(path) for path in mail_dirs]),
-                   str([str(path) for path in portal_dbs]),
-                   str([str(path) for path in sources['reference_documents']]),
-                   sources['manifest_stamp'], stamps, fingerprint)
+        fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
+        key = (str([str(path) for path in mail_dirs]),
+               str([str(path) for path in portal_dbs]),
+               str([str(path) for path in sources['reference_documents']]),
+               sources['manifest_stamp'], stamps, fingerprint)
+        cache=getattr(self.board,'_card_review_mail_cache',None)
+        if cache and cache.get('key')==key:
+            return cache['report']
+        # 같은 지문의 계산은 한 번만 한다. 계산 중에는 DB 잠금을 잡지 않는다.
+        with _OTA_REPORT_LOCK:
             cache=getattr(self.board,'_card_review_mail_cache',None)
             if cache and cache.get('key')==key:
                 return cache['report']
             transactions=[dict(zip(columns,row)) for row in rows]
-            report=extend_report(match_mail(mail_dirs,transactions),portal_dbs,transactions)
+            report=extend_report(match_mail(mail_dirs,transactions,source_key=repr(stamps)),portal_dbs,transactions)
             references = load_reference_documents(sources['reference_documents'])
             report['reference_sources']=references
             report['ota_source_inventory']={
@@ -737,6 +753,13 @@ class CardFlow:
         return _mail_evidence_from_report(report, sources)
 
     def state(self, batch_id):
+        self._request_report = []
+        try:
+            return self._state(batch_id)
+        finally:
+            self._request_report = None
+
+    def _state(self, batch_id):
         result = self.pipeline.get_batch(batch_id)
         review_from = os.environ.get('WEBLEDGER_REVIEW_FROM','')
         result['rows'] = [r for r in result['rows'] if r['classification_state'] != 'preserved'
@@ -1004,6 +1027,6 @@ el('upload').onclick=async()=>{const f=el('file').files[0];if(!f)return;el('uplo
 el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target),conditions={merchant_normalized:f.get('merchant'),transaction_direction:f.get('direction')};if(f.get('card_kind'))conditions.card_kind=f.get('card_kind');const old=rules.find(r=>r.rule_id===f.get('rule_id'));if(old?.conditions.merchant_normalized==='*')conditions.merchant_normalized='*';const draft={conditions,optional:structuredClone(old?.optional||{}),effects:{item:f.get('rule_item')},note:old?.note||''};delete draft.optional.travel_country;if(f.get('rule_country'))draft.optional.travel_country=f.get('rule_country');if(f.get('rule_description'))draft.effects.description=f.get('rule_description');if(f.get('rule_id'))draft.rule_id=f.get('rule_id');try{const j=await call('/api/imports/rules',JSON.stringify({draft,expected_revision:Number(f.get('version')),batch_id:model?.batch_id,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});renderRules(j.rules);e.target.elements.rule_id.value=j.result.rule_id;e.target.elements.version.value=j.result.version;if(model)render(await call('/api/imports/'+model.batch_id));el('status').textContent='규칙을 저장하고 분류에 적용했습니다. 이미 확정한 답변은 유지됩니다.'}catch(e){el('status').textContent=e.message}};
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};
 call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);
-setInterval(async()=>{if(!model||document.hidden||el('upload').disabled)return;try{const j=await call('/api/imports/'+model.batch_id);if(stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){el('status').textContent=e.message}},2000);
+const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&!el('upload').disabled){const started=Date.now();try{const j=await call('/api/imports/'+model.batch_id);if(stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
 call('/api/imports').then(j=>{el('batches').innerHTML=j.batches.map(b=>'<p><button class="batch-choice" data-batch="'+esc(b.batch_id)+'"><strong>'+esc(b.display_name)+'</strong><br><span>'+esc(b.period_start||'거래 기간 미확인')+(b.period_end?' ~ '+esc(b.period_end):'')+' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':'')+'</span></button></p>').join('')||'<p>저장된 카드 자료가 없습니다. 아래에서 새 파일을 추가하세요.</p>';document.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>call('/api/imports/'+b.dataset.batch).then(render).catch(e=>el('status').textContent=e.message));if(!j.batches.length)el('newupload').open=true;return j.batches.length?call('/api/imports/'+j.batches[0].batch_id).then(render):null}).catch(e=>el('status').textContent=e.message);
 </script></body></html>'''

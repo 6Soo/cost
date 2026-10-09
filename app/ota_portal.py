@@ -454,13 +454,15 @@ def portal_diagnoses(report, transactions, analysis=None):
                 if fact.get('booking_link_conflict') or fact.get('period_conflict')}
     unmatched={fact['source_hash']:fact for fact in report.get('unmatched_transactions',[])}
     analysis=collect_portal_facts(analysis or []) if not isinstance(analysis,dict) else analysis
-    rows={row['source_hash']:row for row in unique_transactions(transactions)}
+    unique_rows=unique_transactions(transactions)
+    rows={row['source_hash']:row for row in unique_rows}
+    agoda_rows=[row for row in unique_rows if is_agoda_purchase(row)]
     booking_rows=defaultdict(set)
     booking_sources=defaultdict(set)
     for fact in analysis['facts'].values():
         for version in fact.values():
-            for row in unique_transactions(transactions):
-                if (is_agoda_purchase(row) and row.get('card_tail')==version['card_last4']
+            for row in agoda_rows:
+                if (row.get('card_tail')==version['card_last4']
                         and (version['currency'],version['amount']) in transaction_amounts(row)):
                     booking_rows[version['booking_ref']].add(row['transaction_id'])
                     booking_sources[version['booking_ref']].add(row['source_hash'])
