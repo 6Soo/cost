@@ -37,19 +37,29 @@ def refund_links(conn, transaction_ids) -> dict:
         "SELECT transaction_id, issuer, card_tail, original_approval_number FROM transactions"
         f" WHERE transaction_id IN ({marks}) AND transaction_direction='cancellation'"
         f" AND original_approval_number!='' AND amount_krw<0 AND {_CLEAN}", ids).fetchall()
+    if not refunds:
+        return {}
+    numbers = sorted({original_no for _, _, _, original_no in refunds})
+    marks = ",".join("?" * len(numbers))
+    # One scan for all candidates; a scan per refund made the card pages crawl.
+    candidates = conn.execute(
+        "SELECT transaction_id, transaction_direction, issuer, card_tail, approval_number,"
+        " original_approval_number, amount_krw FROM transactions"
+        f" WHERE (approval_number IN ({marks}) OR original_approval_number IN ({marks})) AND {_CLEAN}",
+        numbers + numbers).fetchall()
+    purchases, cancels = {}, {}
+    for tid, direction, issuer_, tail_, approval, original, amount in candidates:
+        if direction == 'purchase' and amount > 0:
+            purchases.setdefault((issuer_, tail_, approval), []).append((tid, amount))
+        elif direction == 'cancellation' and original and amount < 0:
+            cancels.setdefault((issuer_, tail_, original), []).append((tid, amount))
     links = {}
     for refund_id, issuer, tail, original_no in refunds:
-        originals = conn.execute(
-            "SELECT transaction_id, amount_krw FROM transactions WHERE transaction_direction='purchase'"
-            f" AND issuer=? AND card_tail=? AND approval_number=? AND amount_krw>0 AND {_CLEAN}",
-            (issuer, tail, original_no)).fetchall()
+        originals = purchases.get((issuer, tail, original_no), [])
         if len(originals) != 1:
             continue
         original_id, gross = originals[0]
-        siblings = conn.execute(
-            "SELECT transaction_id, amount_krw FROM transactions WHERE transaction_direction='cancellation'"
-            f" AND issuer=? AND card_tail=? AND original_approval_number=? AND amount_krw<0 AND {_CLEAN}",
-            (issuer, tail, original_no)).fetchall()
+        siblings = cancels.get((issuer, tail, original_no), [])
         refund_total = sum(amount for _, amount in siblings)
         own = next(amount for tid, amount in siblings if tid == refund_id)
         net = gross + refund_total
