@@ -448,15 +448,32 @@ def reference_diagnosis(references, row=None, booking_ref=''):
             'conflicting':conflicting}
 
 
-def match_mail(directory, transactions):
+_MAIL_SIDE_MEMO = {}
+
+
+def _mail_side(directory, source_key):
+    """메일 파일 내용만으로 정해지는 파싱·추출 결과. 같은 자료 지문이면 거래가 바뀌어도 다시 읽지 않는다."""
+    def read():
+        messages,mail_sources=load_messages_from(directory)
+        facts=[fact for message in messages.values() if (fact:=extract_mail(message))]
+        return messages,mail_sources,facts,lodging_mail_facts(messages)
+    if source_key is None:
+        return read()
+    key=(tuple(str(path) for path in as_directories(directory)), source_key)
+    if key not in _MAIL_SIDE_MEMO:
+        _MAIL_SIDE_MEMO.clear()
+        _MAIL_SIDE_MEMO[key]=read()
+    return _MAIL_SIDE_MEMO[key]
+
+
+def match_mail(directory, transactions, source_key=None):
     # 같은 원행을 두 출처에서 전달한 경우만 합친다. 별도 거래는 모호성을 유지한다.
     unique = {}
     for index,row in enumerate(transactions):
         key=(row.get('transaction_id'),row.get('source_hash')) if row.get('transaction_id') and row.get('source_hash') else ('row',index)
         unique.setdefault(key,row)
     transactions=list(unique.values())
-    messages,mail_sources=load_messages_from(directory)
-    facts=[fact for message in messages.values() if (fact:=extract_mail(message))]
+    messages,mail_sources,facts,lodging_facts=_mail_side(directory,source_key)
     groups=collections.defaultdict(list)
     for fact in facts:
         groups[(fact['provider'],fact['booking_ref'])].append(fact)
@@ -509,7 +526,7 @@ def match_mail(directory, transactions):
                             merchant=row['merchant_normalized'],card_kind=row['card_kind'],
                             direction=row['transaction_direction'],**fact))
     # 결제 연결과 실제 이용기간은 별개다. 취소·기간 미확인은 여행 근거만 막는다.
-    additional=lodging_mail_matches(directory,transactions,messages=messages,require_active_period=False)
+    additional=lodging_mail_matches(directory,transactions,messages=messages,require_active_period=False,facts=lodging_facts)
     by_source={row['source_hash']:row for row in transactions}
     for fact in additional:
         row=by_source[fact['source_hash']]
@@ -573,10 +590,9 @@ def match_mail(directory, transactions):
             'matches':matches,'rules':rules}
 
 
-def lodging_mail_matches(directory, transactions, *, messages=None, require_active_period=True):
-    """숙박의 원화·외화 결제 영수증을 유일한 카드 원행과 이용기간에 연결한다."""
+def lodging_mail_facts(messages):
+    """인증된 숙박 메일의 결제 사실. 메일 내용만 보므로 거래와 무관하게 한 번만 만든다."""
     from decimal import Decimal, InvalidOperation
-    messages=load_messages_from(directory)[0] if messages is None else messages
     facts=[]
     currency_codes={'¥':'JPY','JPY':'JPY','€':'EUR','EUR':'EUR','US$':'USD','USD':'USD','₩':'KRW','KRW':'KRW'}
     for message in messages.values():
@@ -608,6 +624,14 @@ def lodging_mail_matches(directory, transactions, *, messages=None, require_acti
         facts.append(dict(provider='agoda' if domain=='agoda.com' else 'booking',booking_ref=next(iter(refs)),
                           period=period,amounts=amounts,paid_on=paid_on,paid=paid,
                           cancelled=cancelled,source_sha256=digest,evidence_kind=evidence_kind))
+    return facts
+
+
+def lodging_mail_matches(directory, transactions, *, messages=None, require_active_period=True, facts=None):
+    """숙박의 원화·외화 결제 영수증을 유일한 카드 원행과 이용기간에 연결한다."""
+    from decimal import Decimal, InvalidOperation
+    messages=load_messages_from(directory)[0] if messages is None else messages
+    facts=lodging_mail_facts(messages) if facts is None else facts
     periods=collections.defaultdict(set)
     for fact in facts:
         if fact['period']:periods[(fact['provider'],fact['booking_ref'])].add(tuple(sorted(fact['period'].items())))
