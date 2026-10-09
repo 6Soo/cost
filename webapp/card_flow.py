@@ -799,6 +799,16 @@ class CardFlow:
                         "reason":"OTA frozen group remains reserved until explicit reallocation",
                         "ota_event_ids":[]})
                     hold["ota_event_ids"].extend(event_ids)
+            if ota_payment_review.authority():
+                # Unresolved means HOLD: an OTA card row without a settled OTA-first link is not booked.
+                settled = {str(r.get("transaction_id")) for r in results
+                           if r.get("transaction_id") and r.get("status") in ("MATCHED_AUTO", "MATCHED_USER")}
+                for card in _transactions:
+                    identity = str(card.get("transaction_id") or "")
+                    if identity and identity not in settled and identity not in holds and _is_ota_row(card):
+                        holds[identity] = {"kind":"ota_authority_unresolved",
+                                           "reason":"OTA-first 연결이 확정되지 않은 OTA 카드 거래라 기록하지 않아요",
+                                           "ota_event_ids":[]}
             for hold in holds.values():
                 hold["ota_event_ids"] = sorted(set(hold["ota_event_ids"]))
             self._ota_group_holds_cache = holds
