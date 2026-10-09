@@ -6,7 +6,7 @@
 
 항공권 부분 환불 760,200원의 취소 전표(원승인번호 30058735, 카드 끝자리 3820, 매입일 2026-08-03)가 운영에 들어왔다. 원결제 1,056,200원과 원승인번호가 같다. 사용자 보류는 해제하지 않았고 잔여 이용 비용 296,000원과 환불 부분의 분리·전기도 수행하지 않았다.
 
-기존 미커밋 변경은 `feature/pending-docs-and-fixes-20261009`로 커밋해 OTA-first, Trip.com 항공료 보정(PR #15)과 함께 main에 병합했다(PR #16, `0e2b822`). 병합 결과의 표적 검증은 367 passed, 72 subtests다. 운영 체크아웃 `C:/AX/cost`는 위 브랜치(`33fdbbe`)에 있으며 main과의 코드 차이는 사용하지 않는 OTA-first 격리 모듈과 설정이다. 운영 서버는 재시작하지 않았고 `/healthz`, `/readyz`는 200이다. OTA-first를 운영 matcher로 바꾸는 코드 경로는 아직 없다.
+기존 미커밋 변경은 `feature/pending-docs-and-fixes-20261009`로 커밋해 OTA-first, Trip.com 항공료 보정(PR #15)과 함께 main에 병합했다(PR #16, `0e2b822`). 병합 결과의 표적 검증은 367 passed, 72 subtests다. 운영 체크아웃 `C:/AX/cost`는 위 브랜치(`33fdbbe`)에 있으며 main과의 코드 차이는 OTA-first 격리 모듈·설정과 `WEBLEDGER_OTA_REVIEW_MODE=isolated`일 때만 동작하는 연결 코드(`webapp/card_flow.py`, `app/ledger.py`의 `additional_holds`)다. 이 환경 변수가 없으면 기존 동작과 같다. main 코드로 운영 데이터를 읽기 전용 검사한 결과는 정상(`ok = True`)이었다. 운영 서버는 재시작하지 않았고 `/healthz`, `/readyz`는 200이다. OTA-first를 운영 matcher로 바꾸는 코드 경로는 아직 없다.
 
 ## 2026-10-09 격리 OTA review pilot
 

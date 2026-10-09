@@ -8,7 +8,7 @@
 
 OTA-first 격리 pilot은 성공했고 Trip.com 항공료 표기와 정확 가맹점 보정을 main에 병합했다([규칙 문서](ota-matching-rule-defaults.md)). 운영 matcher를 OTA-first로 바꾸는 전환 코드는 아직 없다. 전환하려면 별도 설계와 검증이 필요하다. 활성 규칙은 0건이며 review DB의 미승인 proposal 1건은 "이번 건만"으로 처리했다.
 
-코드 상태: main은 `0e2b822`이고 운영 체크아웃 `C:/AX/cost`는 `feature/pending-docs-and-fixes-20261009`(`33fdbbe`)다. 두 코드의 차이는 사용하지 않는 OTA-first 격리 모듈과 설정이다. 운영 서버는 재시작하지 않았다. 다음에 재시작하거나 체크아웃을 main으로 옮길 때는 복구 사본과 `/healthz`, `/readyz`, 읽기 전용 운영 검사를 함께 수행한다.
+코드 상태: main은 `0e2b822`이고 운영 체크아웃 `C:/AX/cost`는 `feature/pending-docs-and-fixes-20261009`(`33fdbbe`)다. 두 코드의 차이는 OTA-first 격리 모듈·설정과 `WEBLEDGER_OTA_REVIEW_MODE=isolated`일 때만 동작하는 연결 코드다. 이 환경 변수가 없으면 기존 동작과 같고, main 코드의 운영 읽기 전용 검사는 통과했다. 운영 서버는 재시작하지 않았다. 실행 중인 프로세스와 디스크 코드가 섞이지 않도록 체크아웃은 재시작과 함께 main으로 옮긴다. 그때는 복구 사본과 `/healthz`, `/readyz`, 읽기 전용 운영 검사를 함께 수행한다.
 
 2026-10-09 기준이다. 현재 수치는 [운영 문서](operations.md)를 따른다. 과거 단계별 실행과 검증은 [과거 인계](history/handoff-through-20261007.md)에 보존했다.
 
