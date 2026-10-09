@@ -529,6 +529,7 @@ class TheBoardServerAcceptsAHostAndKeepsLoopback(unittest.TestCase):
         self.assertEqual(signature.parameters["host"].default, "127.0.0.1")
 
     def test_serve_actually_binds_the_address_it_is_given(self):
+        import os
         import socket
         import tempfile
 
@@ -537,9 +538,18 @@ class TheBoardServerAcceptsAHostAndKeepsLoopback(unittest.TestCase):
         # A second loopback address, so passing the default cannot pass this
         # test by accident. Binding 127.0.0.2 proves the host is used, not
         # ignored.
-        # The db path is explicit and temporary: without it this would create
-        # `webledger.work.sqlite` in the working directory and leave it there.
+        #
+        # The second half of the assertion is that an explicit db_path creates no
+        # default database. `serve()` falls back to `webledger.work.sqlite` in
+        # the working directory when db_path is omitted, so the check runs with
+        # the working directory moved into a temporary directory of this test's
+        # own. Asserting against the checkout root instead would only report
+        # whether some earlier run had left a file there, which is not what this
+        # test is about, and it would make the result depend on unrelated state.
         tmp = Path(tempfile.mkdtemp(prefix="bind-serve-"))
+        workdir = Path(tempfile.mkdtemp(prefix="bind-serve-cwd-"))
+        previous_cwd = Path.cwd()
+        os.chdir(workdir)
         try:
             for host in ("127.0.0.1", "127.0.0.2"):
                 with self.subTest(host=host):
@@ -554,9 +564,19 @@ class TheBoardServerAcceptsAHostAndKeepsLoopback(unittest.TestCase):
                     finally:
                         server.server_close()
                         ledger_board.bind_store(None)
-            self.assertFalse((REPO / "webledger.work.sqlite").exists())
+            # serve() writes the board and its own operator store beside the
+            # explicit path; neither is the default database name.
+            self.assertIn("board.sqlite", sorted(p.name for p in tmp.iterdir()))
+            self.assertFalse((workdir / "webledger.work.sqlite").exists())
+            self.assertFalse((tmp / "webledger.work.sqlite").exists())
+            self.assertEqual(list(workdir.iterdir()), [],
+                             "serve() created a default database in the working "
+                             "directory even though db_path was explicit")
         finally:
+            os.chdir(previous_cwd)
+            ledger_board.bind_store(None)
             shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(workdir, ignore_errors=True)
 
     def test_the_serve_parser_offers_the_host(self):
         result = subprocess.run(

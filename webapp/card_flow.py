@@ -272,9 +272,7 @@ def home_page(board):
                 tab_validator=tab_validator,
                 review_from=review_from or None,
             )
-            for entry in result.get('rows', []):
-                if entry.get('blocked') or entry.get('already_booked'):
-                    continue
+            for entry in ledger_preview.recordable_rows(result.get('rows', [])):
                 transaction_id = entry.get('transaction_id')
                 if transaction_id:
                     pending_booking_ids.add(transaction_id)
@@ -580,11 +578,7 @@ class CardFlow:
         source = conn.execute('SELECT issuer,card_tail,approval_number,posting_date,'
                               'foreign_amount,foreign_currency,transaction_kind,approval_date FROM transactions '
                               'WHERE transaction_id=?', (entry['transaction_id'],)).fetchone()
-        if source[2] and conn.execute(
-            "SELECT 1 FROM board_rows WHERE json_extract(payload_json,'$.source_card_last4')=? "
-            "AND json_extract(payload_json,'$.source_approval_number')=? "
-            "AND json_extract(payload_json,'$.occurred_on')=? LIMIT 1",
-            (source[1], source[2], entry['occurred_on'])).fetchone():
+        if self._already_projected(source, entry):
             raise StoreError('EXISTING_LEDGER_TRANSACTION', '기존 장부에 같은 승인 거래가 있습니다. 다시 기록하지 않습니다')
         record = dict(row_id=row_id, row_kind='expense', revision=1,
                       display_tab_id=board_tab, occurred_on=entry['occurred_on'],
@@ -607,6 +601,34 @@ class CardFlow:
         conn.execute('INSERT INTO board_revisions(row_id,revision,prev_json,new_json,event_id,'
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','owner',entry['now'],row_id))
+
+    def _already_projected(self, source, entry):
+        """같은 거래를 두 번 기록하지 않으면서 실제 여러 건은 함께 남긴다.
+
+        카드 행이 스스로 가진 거래 ID를 정본으로 삼는다. 같은 승인번호라도 거래 ID가 다른
+        결제와 취소는 서로 다른 거래이므로 합치지 않는다. 거래 ID가 없는 과거 장부 행에만
+        발급사·카드·승인번호·일자·부호 있는 금액·거래 종류가 모두 같은 좁은 조건을 적용한다.
+        원문 해시만으로는 구분하지 않는다. 해시에 행 위치가 들어가지 않아 정당한 여러 건이
+        같은 해시를 공유하기 때문이다.
+        """
+        conn = self.board.conn
+        if conn.execute("SELECT 1 FROM board_rows WHERE json_extract(payload_json,'$.source_event_id')=? "
+                        "LIMIT 1", (entry['transaction_id'],)).fetchone():
+            return True
+        if not source[2]:
+            # 승인번호가 없으면 거래 ID가 유일한 정본이다. 좁은 조건을 쓸 근거가 없다.
+            return False
+        row = conn.execute(
+            "SELECT 1 FROM board_rows WHERE COALESCE(json_extract(payload_json,'$.source_event_id'),'')='' "
+            "AND json_extract(payload_json,'$.source_issuer')=? "
+            "AND json_extract(payload_json,'$.source_card_last4')=? "
+            "AND json_extract(payload_json,'$.source_approval_number')=? "
+            "AND json_extract(payload_json,'$.occurred_on')=? "
+            "AND json_extract(payload_json,'$.amount_krw')=? "
+            "AND COALESCE(json_extract(payload_json,'$.event_kind'),'')=? LIMIT 1",
+            (source[0], source[1], source[2], entry['occurred_on'],
+             entry['amount_krw'], source[6] or '')).fetchone()
+        return bool(row)
 
     def _ota_sources(self):
         """등록된 OTA 근거 자료를 모두 모은다. 임의로 훑지 않는다."""
@@ -747,6 +769,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
+    from app import ota_sources
     board = _active_store()
     if board is None:
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)

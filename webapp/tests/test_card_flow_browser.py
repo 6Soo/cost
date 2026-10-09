@@ -12,6 +12,46 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_api_ready_matches_visible_recordable_count_before_and_after_booking(self):
+        from webapp.card_flow import CardFlow
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                batch = flow.pipeline.receive(CARD, 'ready-synthetic.csv')['batch_id']
+                row = flow.pipeline.get_batch(batch)['rows'][0]
+                flow.pipeline.save_decision(row['transaction_id'], row['revision'],
+                                            item='소모품비', display_tab_id='unclassified',
+                                            tab_validator=flow.tab_valid, request_id='ready-confirm')
+                with sync_playwright() as api:
+                    browser = api.chromium.launch(headless=True)
+                    page = browser.new_page()
+                    base = f'http://127.0.0.1:{server.server_address[1]}'
+                    for booked in (False, True):
+                        for width, height in ((390,844), (1440,900)):
+                            page.set_viewport_size({'width':width, 'height':height})
+                            page.goto(base + '/import')
+                            state = page.request.get(base + '/api/imports/' + batch).json()
+                            count = state['preview']['ready']
+                            page.get_by_role('button', name=f'미리본 {count}건을 장부에 기록').wait_for()
+                            visible = page.locator('#preview tbody tr').count()
+                            self.assertEqual(count, visible)
+                            self.assertEqual(bool(visible), not booked)
+                            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                        if not booked:
+                            page.locator('#commit').click()
+                            page.get_by_text('장부 기록 결과를 저장했습니다.', exact=False).wait_for()
+                    browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_verified_ota_metadata_is_visible_before_http_commit(self):
         import json
         from webapp.card_flow import CardFlow

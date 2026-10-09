@@ -1,59 +1,60 @@
-# 다음 세션 인계
+# 미결 작업과 다음 세션 인계
 
 ## OTA 통합 후 다음 확인
 
 메일·포털·과거 조사 자료를 명시 등록해 함께 읽는 수정은 운영에 적용했다. 현재 결과와 검증은 [OTA 문서](ota_mail.md)의 최신 항목을 따른다. 등록 자료가 바뀌면 다음 조회에서 내용 해시로 대조를 갱신한다. 새로운 수집 자료는 이미 등록한 메일 디렉터리에 저장하거나 `ota-sources.json`에 절대 경로를 추가한다. 후보 문서는 참고 자료로 등록하며 원문 검증 없이 자동 확정하지 않는다.
 
-## 시작 상태
+기존 국민 XLS 1,780개 행을 보존 원본에서 CSV로 변환하고 금액·부호·승인일·매입일·카드 끝자리를 모두 비교했다. 복구 사본 가져오기는 반복 실행 시 전체 테이블이 동일했다. 해외 764개 행 중 481개는 기존 결제와 금액·날짜·카드·가맹점이 겹치지만 승인번호가 없어 개별 동일성을 확정하지 못했다. 운영에 일괄 가져오거나 중복으로 삭제하지 않았다. 조사 근거는 `.local-archive/pending-docs-20261008/converted-source-validation.json`과 `card-source-overlap-analysis.json`이다.
 
-- 저장소는 `C:\AX\cost`, 원격은 `6Soo/cost`, 작업 branch는 `main`이다.
-- 최신 기능 코드 commit은 `9c4dbdac2ab9e6f5f854b07a5ac3fc2f215005ed`다. 이 문서는 이후 문서 commit에 포함되므로 다음 세션에서는 실제 최신 `origin/main`을 다시 확인한다.
-- 운영 배포는 금지되어 있다. 운영 DB 쓰기, 장부 commit, 재분류, source refresh, OTA 재수집과 재시작을 실행하지 않는다. 테스트의 장부 commit은 임시 합성 DB에서만 수행한다.
+2026-10-08 기준이다. 현재 수치는 [운영 문서](operations.md)를 따른다. 과거 단계별 실행과 검증은 [과거 인계](history/handoff-through-20261007.md)에 보존했다.
 
-```powershell
-Set-Location C:\AX\cost
-git fetch origin
-git status --short
-git rev-parse HEAD
-git rev-parse origin/main
-```
+## 현재까지 완료
 
-예상하지 않은 tracked 변경이 있으면 작업을 중단한다. 원격이 전진했다면 diff를 확인하고 최신 코드에 맞춰 판단하며 무조건 reset/rebase하지 않는다. 이 환경의 PowerShell은 `&&`를 지원하지 않아 명령을 줄바꿈으로 실행한다.
+승인·취소 중복 판정, ready 의미 통일, 출력 조회의 쓰기 의존 제거, 여행 목록 수입 안내와 OTA 메타데이터 전달을 적용했다. 최초 615건과 최신 일정 원본으로 검증한 추가 119건을 운영 장부에 기록해 총 734건, 순액 73,702,707원이다. 일정 근거는 최신 원본을 기준으로 정리한다. 과거 일정 사본으로 권위를 우회하지 않는다.
 
-다음 사용자 untracked 파일은 수정·삭제·stage하지 않는다.
+## 남은 작업과 재개 조건
+
+| 항목 | 조사 결과와 다음 조치 |
+| --- | --- |
+| 여행 시트 누락 13개 | 최신 일정 원본에 해당 시트가 없다. 원본에 명시 일정이 복원되거나 동일 여행의 새 공식 근거가 확보되면 기존 기간·사용자 결정과 개별 비교한다. |
+| 몽골·북해도 2개 | 최신 시트는 있지만 명시 종료일이 없다. 종료일을 결제일이나 이름에서 추론해 채우지 않는다. |
+| 항공권 부분 환불 | 실제 국민 취소 전표 760,200원을 원결제 1,056,200원과 정확히 연결했다. 원문 가져오기·부분 취소 연결·반복 처리 검증과 기존 보류 해제 절차가 남았다. 차액 296,000원으로 원결제 자체를 고치지 않는다. |
+| Agoda 146,018원 | 기존 전수조사에서 실제 결제·카드·기간 근거를 찾았다. 이용 완료나 취소 완료 자료와는 구분하며 기존 사용자 보류를 유지한다. 기존 메일·포털을 다시 조사하지 않고 보존된 상세 결과부터 읽는다. |
+| Agoda 64,814원 | 과거 연결은 proposed였고 후보 금액 96,842원과 다르다. 자동 확정하지 않는다. 현재 자료에서 정확 카드 결제 근거를 찾지 못했다는 뜻이며 전수조사 자체가 없다는 뜻이 아니다. |
+| 국민 원본 XLS 반영 | 원본 자료는 이미 보존·검사했다. 직접 웹 업로드 지원과 승인·매입 겹침 연결, 승인번호 없는 복수 거래 보존을 검증한 뒤 별도 적용한다. 원본 전체를 단순 합산하지 않는다. |
+| 카드 무인 로그인 | 기존 공식 자동입력의 입력란 탐지 실패 상태다. 암호를 출력하거나 외부 제품·보안 설정을 우회하지 않는다. 재부팅·복구·재설치는 하지 않는다. |
+| 실제 로그인 브라우저 | 이번 도구 환경에는 로그인된 브라우저가 없었다. 현재의 서버·렌더러 검사와 구분해 남긴다. |
+
+여행 시트 누락 목록: 에히메, 교토, 나가센도, 아오모리, 오사카, 알펜루트, 부산, 6월 북해도, 레분토와 리시리, 묘코, 아키타, 도고, 야쿠시마. 미기록 거래는 일정 차단 926건과 기존 보류 16건이다. 보류 해제나 새 환불 행 생성은 기존 [업무 규칙](business_rules.md)을 따른다.
+
+## 바로 읽을 로컬 증거
+
+- `latest-schedule/plan.json`: 최신 원본과 기존 날짜가 같은 여행 6개의 변경 계획이다.
+- `latest-schedule/candidate-result.json`, `live-result.json`: 복구 사본과 운영 추가 기록의 개별 비교·반복 실행 결과다.
+- `pending-audit.json`, `latest-schedule-comparison.json`: 일정과 현재 차단 내역이다.
+- `refund-link-check.json`, `refund-review.md`: 실제 카드 부분 취소 연결 근거와 검토안이다.
+- `agoda-target-portal-records.json`, `agoda-target-mail-evidence.json`: 146,018원 포털·메일 근거다.
+- `agoda-64814-prior-link.json`, `agoda-64814-portal.json`: 과거 후보와 금액 불일치의 근거다.
+
+위 파일은 모두 `.local-archive/pending-docs-20261008/` 아래에 있으며 고객 원본이나 상세 자료를 Git 또는 외부 에이전트에 보내지 않는다.
+
+## 코드와 테스트 관리
+
+현재 작업 폴더에는 이번 작업과 이전에 승인된 미커밋 변경이 함께 있다. reset·revert·stash·clean으로 없애지 않는다. SpaceBUnny는 코드와 합성 자료만 담은 `C:/AX/cost-zero-code-20261007`에서 구현했다. OTA 통합 중 제공자의 호출 한도 오류가 발생해 위임을 종료하고 작성 코드를 보존했다. 이후 오류 수정·검증·통합·운영 반영은 총괄이 수행했다. 최종 격리 코드도 동기화했다. 같은 파일·운영 DB의 작성자는 하나로 유지한다.
+
+이전 전체 회귀는 종료됐다. `2222 passed, 2 failed, 3 skipped, 2384 subtests passed`이며 로그는 `.local-archive/partial-fixes-20261007/full-regression.log`다. 이후에는 바뀐 범위의 표적 검증만 수행한다. 과거 숫자를 현재 통과 결과로 재사용하거나 전체 회귀를 반복하지 않는다.
+
+사용자 파일 네 개는 수정·삭제·stage하지 않는다.
 
 - `edit_card_flow.py`
 - `pending-card-evidence-utf8.patch`
 - `pending-card-evidence.patch`
 - `webledger.work.operator.sqlite.checkpoint.json`
 
-## 완료한 코드
+운영 조치는 검증된 복구 사본과 적용 전 상태 비교 후 수행한다. 날짜·금액·ID·원본·사용자 확정을 보존한다. 현재 수정과 실행 결과를 먼저 확인하고 Git에는 코드와 문서만 필요한 파일을 명시해 추가한다.
 
-`b60e54aa489c6eb0d232533659cb5c65950a4ed6`은 홈 장부 반영 대기의 권위 검증·batch 중복 제거·이미 기록된 거래 제외와 계산 실패 `-` 표시를 검증했다. 관련 결과는 31 passed, 23 subtests passed였으며 합성 Chromium 390×844·1440×900에서 overflow 0을 확인했다.
+## 최신 표적 검증
 
-`9c4dbdac2ab9e6f5f854b07a5ac3fc2f215005ed`는 OTA 메타데이터 전달 하나만 수정했다. SpaceBunny는 격리 worktree에서 ledger 연결을, Muse Spark 1.3 free는 의미 테스트를 맡았고 총괄이 통합·보완·검증했다.
+SpaceBUnny가 기존 루트 DB 존재에 의존하던 호스팅 검사를 임시 작업 폴더로 격리했고, 출력 HTTP spy 검사는 배경 카드 worker를 멈춘 뒤 worker 없는 서버에서 실행하도록 보완했다. 운영 검사 도구는 일정 보류와 서버 장애를 분리하며 미조회 경로는 검사 미완료로 표시하고 실패 시 비정상 종료한다.
 
-- `app/ota_mail.py`: 기존 report의 exact 또는 shared-period 결과를 `ledger_metadata()`로 읽는다. 취소·충돌·근거 불확실 상태는 확정값으로 전달하지 않는다. 숙박 report에 기간 근거 digest를 보존한다.
-- `app/ledger.py`, `app/__init__.py`: 선택적 `entry_metadata` callback을 preview와 commit에 연결한다. 허용 필드는 `booking_ref`, `service_period`, `ota_evidence`뿐이며 원문 금액·날짜·ID나 eligibility를 변경하지 않는다. preview 버전은 `ledger-preview-v2`다.
-- `webapp/card_flow.py`: 요청별 lazy resolver가 기존 `_ota_report()`를 한 번 읽는다. state와 HTTP commit은 각각 새 resolver를 사용한다. preview의 digest가 보호한 행을 그대로 projection하며 OTA 출처와 digest는 기존 장부 `classification_basis`에 보존한다. 미리보기에도 예약번호·기간을 표시한다.
-- `webapp/tests/test_card_flow.py`, `webapp/tests/test_card_flow_browser.py`: 실제 기존 matcher와 합성 fixture로 전체 전달 경로, 모호성·취소·기간 충돌, stale preview, 멱등성, rollback과 HTTP 기록을 검증한다.
-
-새 DB table/column, matcher, evidence store, workflow 또는 UI 재설계는 추가하지 않았다. `ledger_entries`는 기존 영수증 역할을 유지하고 예약번호·기간은 `board_rows` payload에 저장한다.
-
-## 최신 검증
-
-다음 명령의 최종 결과는 **152 passed, 39 subtests passed**다.
-
-```powershell
-python -m pytest webapp/tests/test_card_flow.py webapp/tests/test_card_flow_browser.py tests/card_pipeline/test_pipeline.py tests/card_pipeline/test_review_holds.py tests/card_pipeline/test_booking_mail.py tests/card_pipeline/test_ota_refresh.py tests/card_pipeline/test_ota_portal.py -q
-```
-
-Chromium 390×844·1440×900에서 OTA 값이 기록 전에 표시되고 HTTP commit 후 장부의 값과 일치하며 horizontal overflow는 0이었다. 모두 임시 합성 DB를 사용했다. 운영 브라우저·현재 운영 health/ready·실제 데이터 aggregate는 이번 작업에서 검증하지 않았다.
-
-최신 revision의 full regression은 실행하지 않았다. 전체 파이프라인 후속 작업의 최종 revision이 확정된 뒤 한 번 실행한다. 알려진 기존 실패 `test_serve_actually_binds_the_address_it_is_given`은 이번 범위에서 고치지 않았고 clean baseline 재현도 이번 세션에서 다시 수행하지 않았다. 과거 문서의 전체 회귀 통과 숫자를 최신 코드의 결과로 사용하지 않는다.
-
-## 후속 범위 판단
-
-OTA 전달 작업은 완료했다. 홈·sidebar·장부 디자인을 다시 손보거나 자동 전기·authority 완화로 범위를 넓히지 않는다. 이전 전체 파이프라인 요청의 hold 별도 표시, sidebar 지출 의미와 staging 미기록 구분, active export의 legacy importer 의존 제거, ready 숫자 의미 통일은 이번 OTA commit에서 수정하거나 완료 여부를 재검증하지 않았다. 다음 작업으로 사용자가 지정하면 최신 코드에서 구현 여부와 테스트를 먼저 확인하고 미완료 부분만 처리한다.
-
-사용자 원본·비밀값은 외부로 전송하지 않는다. 위임에는 코드와 합성 자료만 사용하고 같은 파일·DB의 작성자는 하나로 유지한다. 문서 갱신 후에도 운영 변경 금지는 유지한다. Git stage는 관련 파일을 명시하며 `git add .`를 사용하지 않는다.
+통합 저장소의 호스팅·출력·운영 검사 묶음은 91개와 하위 검사 26개가 통과했다. 운영 읽기 전용 검사도 성공했으며 734개 장부 행, 유효 일정 25개·대기 일정 15개를 구분해 보고한다. 운영 데이터 렌더러는 여행 12개 탭 496건과 분류대기 238건을 확인했다.

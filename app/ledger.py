@@ -24,7 +24,13 @@ import hashlib
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  StoreError, canonical, utc_now)
 
-__all__ = ["preview", "commit", "preview_digest"]
+__all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
+
+
+def recordable_rows(rows):
+    """Unique transactions that can be newly booked from a preview."""
+    return list({row['transaction_id']: row for row in rows
+                 if not row.get('blocked') and not row.get('already_booked')}.values())
 
 
 def _ready_rows(store, batch_id: str, review_from=None):
@@ -176,7 +182,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
     result = {
         "batch_id": batch_id,
         "version": PREVIEW_VERSION,
-        "ready": len(ready_now),
+        "ready": len(recordable_rows(rows)),
         "unresolved": len(unresolved),
         "duplicates": len(duplicates),
         "conflicts": len(conflicts),

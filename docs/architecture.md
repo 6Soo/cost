@@ -19,6 +19,7 @@ app/
   ledger.py         미리보기와 중복 없는 기록
   db.py             저장과 변경 이력
   ota_mail.py       예약 메일 분류와 카드 대조
+  ota_portal.py     보존 Agoda 포털 근거의 읽기 전용 대조
   reserve_trips.py  출발 예정 여행 수집
   review_holds.py   취소·환불과 확인 대기 보호
 webapp/
@@ -38,3 +39,9 @@ tests/card_pipeline/
 파일 fingerprint, stable transaction key, source hash와 기록 여부가 중복 방지의 핵심이다. 별도 shadow, baseline, 전환 gate 없이 처리한다. 명시 일정과 원본 hash 검증은 잘못된 여행 배정을 막기 때문에 유지한다.
 
 AI 호출은 새 카드 처리 흐름에 없다. 규칙과 이전 사용자 결정, 명확한 업종으로 분류하고 나머지를 사람에게 질문한다.
+
+## 현재 실행과 중복 방지
+
+2026-10-08 기준으로 운영 카드 흐름은 기존 단일 DB를 사용한다. `app.ledger.recordable_rows()`는 blocked·already_booked를 제외한 고유 거래를 반환하며 미리보기 ready와 홈 집계가 함께 사용한다. 출력 화면과 작업 조회는 읽기 전용 SELECT를 사용한다. 장부 projection은 거래 ID를 먼저 검사하고 거래 ID가 없는 과거 행에만 카드사·카드·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다. 승인과 취소를 같은 거래로 합치지 않는다.
+
+명시 일정의 원본과 최신 근거가 맞지 않으면 기록을 차단한다. 서버 정상 여부와 모든 여행 일정의 검증 완료 여부는 별개다. 최신 운영 수치와 미결 항목은 [운영 문서](operations.md)를 따른다.

@@ -32,6 +32,30 @@ def make_store():
     return LedgerStore(Path(directory) / "webledger.sqlite")
 
 
+class ReadOnlyJobLookupTests(unittest.TestCase):
+    def test_job_reads_do_not_create_a_missing_table(self):
+        import sqlite3
+        from webapp.sheets_export import get_job, list_jobs
+        with sqlite3.connect(':memory:') as conn:
+            before = conn.execute('SELECT name,sql FROM sqlite_master').fetchall()
+            self.assertIsNone(get_job(conn, 'missing'))
+            self.assertEqual(list_jobs(conn), [])
+            self.assertEqual(before, conn.execute('SELECT name,sql FROM sqlite_master').fetchall())
+
+    def test_legacy_jobs_without_output_path_are_read_without_migration(self):
+        import sqlite3
+        from webapp.sheets_export import get_job, list_jobs, EXPORT_JOBS_SCHEMA
+        with sqlite3.connect(':memory:') as conn:
+            conn.executescript(EXPORT_JOBS_SCHEMA.replace('    output_path TEXT,', ''))
+            conn.execute('INSERT INTO ledger_export_jobs VALUES (?,?,?,?,?,?,?)',
+                         ('old-job', '[]', 'snapshot', 'template', 'digest', 'ready', '2026-10-07'))
+            before = conn.execute('SELECT name,sql FROM sqlite_master').fetchall()
+            job = get_job(conn, 'old-job')
+            self.assertIsNone(job['output_path'])
+            self.assertEqual(list_jobs(conn), [job])
+            self.assertEqual(before, conn.execute('SELECT name,sql FROM sqlite_master').fetchall())
+
+
 def sheet_values(path, name):
     wb = load_workbook(path, read_only=True, data_only=False)
     ws = wb[name]

@@ -26,6 +26,25 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
+    def test_sidebar_names_recorded_income_and_separates_pending_at_both_widths(self):
+        for width in (390, 1440):
+            with self.subTest(width=width):
+                page = self._page(width)
+                self._board(page, '?tab=trip-demo-a')
+                if width == 390:
+                    page.click('#btn-menu')
+                text = page.inner_text('.nav')
+                total = self.store.tab_totals('trip-demo-a')['income']
+                self.assertIn(f'수입 {total:,}원', text)
+                self.assertIn('미기록 거래는 포함하지 않습니다.', text)
+                self.assertEqual(page.locator('.nav-ft a').get_attribute('href'), '/import')
+                self.assertEqual(overflow(page), 0)
+                self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
+                page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
+                page.wait_for_url('**/board?**tab=trip-demo-b**')
+                self.assertEqual(overflow(page), 0)
+                page.close()
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self._prev_db = os.environ.get("WEBLEDGER_DB")
