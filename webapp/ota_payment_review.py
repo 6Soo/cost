@@ -159,6 +159,21 @@ def enabled() -> bool:
             and configured_path.is_absolute())
 
 
+AUTHORITY_ENV = "WEBLEDGER_OTA_AUTHORITY"
+
+
+def mode() -> str:
+    """legacy: off. isolated: review UI and group holds. authority: isolated plus the ledger guard."""
+    if not enabled():
+        return "legacy"
+    return "authority" if os.environ.get(AUTHORITY_ENV) == "authority" else "isolated"
+
+
+def authority() -> bool:
+    """OTA-first decides which OTA card rows may reach the ledger. Needs isolated review config."""
+    return mode() == "authority"
+
+
 def owns_route(path: str) -> bool:
     return path == ROUTE_PREFIX or path.startswith(ROUTE_PREFIX + "/")
 
