@@ -158,3 +158,31 @@
 - 운영 재시작, source refresh, 재수집, 재분류, production authority 전환을 수행하지 않았다. 기존 targeted 14 passed 결과를 재사용했고 추가 테스트·전체 회귀는 실행하지 않았다.
 
 상세 pair 비교와 계산 결과는 `C:/AX/cost/.local-archive/ota-defaults-parity-20261008/`에만 보존한다. 실제 예약·거래 식별자와 원문 자료는 Git에 포함하지 않는다. 앞선 미검증 항목 중 운영 parity는 이 단계에서 확인했으며, 운영 배포와 실제 검토 저장은 여전히 미실행이다.
+
+## Trip.com 항공료 표기와 정확 가맹점 보정 — 2026-10-09
+
+기존에 승인된 Trip.com 항공 차액 규칙이 실제 운영 표기를 놓치고 있어 설정 두 곳만 보정했다. 새 -4,000원 전용 규칙은 만들지 않았다.
+
+- `trip_flight_charge_delta.item_values`에 `항공료`를 추가했다. 기존 `항공`, `항공권`, `flight`, `airfare`는 그대로 유지한다. 항목 동의어 보정이며 새 할인 규칙이 아니다.
+- `provider_merchant_alias_records.trip`에 정확 문자열 `대표_카카오페이-트립닷컴`을 `approved`, version 2, source `user-approved-trip-airfare-exact-descriptor-2026-10-09`로 추가했다.
+- 기존 `trip.com`, `trip.com korea` alias는 candidate 그대로 둔다. 넓은 `트립닷컴`은 승인하지 않았다. 사전 dry-run에서 넓은 별칭은 후보 40건과 HOLD_AMBIGUOUS 2건, 묶음 관련 HOLD 19건을 만들어 영향 범위가 크다고 판단했다.
+- OTA 원천에 카드 끝자리가 없으면 미확인으로 유지한다. 카드 측 후보의 끝자리를 OTA 사실로 승격하지 않는다.
+
+### 검증
+
+- 직접 관련 targeted: `python -m pytest -q tests/card_pipeline/test_trip_airfare_descriptor.py tests/card_pipeline/test_ota_matching_defaults.py` — 77 passed. 전체 회귀는 실행하지 않았다.
+- 새 테스트(`test_trip_airfare_descriptor.py`)는 `항공료` 포함 5개 항목값, 정확 alias의 버전·출처, 다른 Trip.com 표기의 승인 비상속, -1,000~-10,000원 1,000원 단위 유지와 범위 밖 HOLD, 숙박·환불·다른 업체 비적용, 정확 금액 우선, 복수 후보 HOLD, 기존 exact 카드 재사용 금지, OTA 카드 끝자리 미생성을 합성 입력으로 확인한다.
+- 운영 읽기 전용 parity(변경된 실제 설정으로 계산, 운영 DB·review DB 해시 전후 동일):
+
+| 항목 | 결과 |
+|---|---|
+| 기존 exact 200건 변경 / 누락 | 0 / 0 |
+| 카드 중복 배정 | 0 |
+| 수동 연결 overwrite | 0 |
+| 신규 MATCHED_AUTO | 3 (모두 Trip.com 항공료, 날짜 차이 0일, 차액 -4,000원, 후보 1개, OTA 카드 끝자리 미확인) |
+| HOLD | 182 → 179 (HOLD_NO_CARD 120, HOLD_DATE_UNKNOWN 59) |
+| 신규 HOLD_AMBIGUOUS / 신규 그룹 연결 | 0 / 0 |
+| 다른 할인 차액의 신규 연결 | 0 |
+
+- 신규 3건은 모두 기존 `approved_trip_flight_delta` 규칙으로 연결됐다. 같은 날짜 카드 거래를 전부 대조했고 기존 exact·수동 카드와의 충돌은 없었다.
+- 운영 DB 쓰기, review DB 쓰기, production authority 전환, 재시작은 수행하지 않았다.

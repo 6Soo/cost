@@ -125,8 +125,11 @@ def test_agoda_dot_com_alias_has_an_explicit_versioned_source_record():
     record = load_defaults()["provider_merchant_alias_records"]["agoda"][0]
     assert record == {"alias":"AGODA.COM", "status":"approved", "version":1,
                       "source":"user-selected-default-2026-10-08"}
-    assert all(item["status"] != "approved" for item in
-               load_defaults()["provider_merchant_alias_records"]["trip"])
+    trip_records = load_defaults()["provider_merchant_alias_records"]["trip"]
+    assert {item["alias"] for item in trip_records if item["status"] == "approved"} == {
+        "대표_카카오페이-트립닷컴"}
+    assert all(item["status"] == "candidate" for item in trip_records
+               if item["alias"] in {"trip.com", "trip.com korea"})
     result = match([event(provider="agoda", card_last4=None)],
                    [card(merchant="AGODA.COM", merchant_normalized="agoda.com")])[0]
     assert result["status"] == "MATCHED_AUTO"

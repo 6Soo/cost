@@ -17,7 +17,9 @@
       {"alias": "trip.com", "status": "candidate", "version": 1,
        "source": "legacy-built-in-not-user-approved"},
       {"alias": "trip.com korea", "status": "candidate", "version": 1,
-       "source": "legacy-built-in-not-user-approved"}
+       "source": "legacy-built-in-not-user-approved"},
+      {"alias": "대표_카카오페이-트립닷컴", "status": "approved", "version": 2,
+       "source": "user-approved-trip-airfare-exact-descriptor-2026-10-09"}
     ],
     "klook": [{"alias": "klook", "status": "candidate", "version": 1,
                "source": "legacy-built-in-not-user-approved"}],
@@ -26,7 +28,7 @@
   },
   "trip_flight_charge_delta": {
     "enabled": true,
-    "item_values": ["항공", "항공권", "flight", "airfare"],
+    "item_values": ["항공", "항공권", "flight", "airfare", "항공료"],
     "currency": "KRW",
     "direction": "purchase",
     "minimum_delta_krw": -10000,
