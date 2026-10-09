@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from typing import Any
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest import mock
 from types import SimpleNamespace
@@ -17,7 +18,7 @@ from webapp import ota_payment_review
 from webapp import card_flow
 
 
-EVENT = {
+EVENT: dict[str, Any] = {
     "ota_event_id": "evt-synth-001",
     "provider": "Synthetic Stay",
     "booking_ref": "BOOK-SYNTH-001",
@@ -34,7 +35,7 @@ EVENT = {
 }
 
 
-def cards(count=12):
+def cards(count=12) -> list[dict[str, Any]]:
     return [{
         "transaction_id": f"card-{index:02d}",
         "issuer": "Synthetic Bank",
@@ -105,7 +106,7 @@ class FakeHandler:
         self.raw = raw
         self.headers = {"X-CSRF-Token": supplied_csrf}
         self.csrf = csrf
-        self.response = None
+        self.response: Any = None
 
     def current_user_id(self):
         return "synthetic-owner"
@@ -119,7 +120,7 @@ class FakeHandler:
 
 class FakeCoreStore:
     writer_calls = 0
-    last_store = None
+    last_store: Any = None
 
     def __init__(self, _path):
         self.calls = []
@@ -291,11 +292,11 @@ class OtaPaymentReviewTests(unittest.TestCase):
         occupied = backend._occupied_cards({}, [{"ota_event_id":"evt-syn-a",
             "status":"HOLD_PARTIAL_GROUP", "reserved_card_ids":["card-syn-a", "card-syn-b"]}])
         self.assertEqual(set(occupied), {"card-syn-a", "card-syn-b"})
-        self.assertTrue(all(value[1] == "부분 반복 그룹 예약" for value in occupied.values()))
+        self.assertTrue(all(value[1] == "partial_group_reservation" for value in occupied.values()))
         backend.store = SimpleNamespace(group_pins=lambda: [{"event_ids":["missing-a", "missing-b"],
                                                             "card_ids":["frozen-a"]}])
         frozen_occupied = backend._occupied_cards({}, [])
-        self.assertEqual(frozen_occupied["frozen-a"], ("missing-a|missing-b", "고정 반복 그룹 예약"))
+        self.assertEqual(frozen_occupied["frozen-a"], ("missing-a|missing-b", "confirmed_group_reservation"))
 
     def test_removed_frozen_group_card_is_rejected_by_manual_selection(self):
         from webapp.ota_payment_review import CoreOtaPaymentBackend, InvalidReviewInput
@@ -401,7 +402,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                       "issuer": "Synthetic Bank", "card_last4": "2042",
                       "amount_delta_krw": -4000, "date_lag_days": 7}
         for lag in (-7, -1, 0, 1, 7):
-            body = {"proposal_id": "proposal-synth-001", "action": "edit",
+            body: dict[str, Any] = {"proposal_id": "proposal-synth-001", "action": "edit",
                     "conditions": {**conditions, "date_lag_days": lag}}
             request = FakeHandler(backend, "/api/imports/ota/proposal", json.dumps(body).encode())
             ota_payment_review.dispatch(request, urlsplit(request.path), raw=request.raw,
@@ -531,7 +532,9 @@ class OtaPaymentReviewTests(unittest.TestCase):
             "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
             "WEBLEDGER_OTA_REVIEW_DB": "C:/synthetic/review.sqlite",
         }, clear=True):
-            factory = lambda **kwargs: factory_calls.append(kwargs) or backend
+            def factory(**kwargs):
+                factory_calls.append(kwargs)
+                return backend
             ota_payment_review.configure_backend_factory(read_factory=factory, write_factory=factory)
             self.addCleanup(ota_payment_review.configure_backend_factory,
                             read_factory=None, write_factory=None)
@@ -1081,7 +1084,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM ota_review_rules WHERE active=1").fetchone()[0], 1)
             from datetime import date, timedelta
             rows = [{**transaction, "transaction_id":f"range-card-{offset}",
-                     "approval_date":(date.fromisoformat(candidate["paid_on"])+timedelta(days=offset)).isoformat()}
+                     "approval_date":(date.fromisoformat(str(candidate["paid_on"]))+timedelta(days=offset)).isoformat()}
                     for offset in (-2, -1, 0, 1, 2, 3)]
             candidates = payments.same_date_cards(candidate, rows, rules=rules)
             self.assertEqual({row["transaction_id"] for row in candidates},

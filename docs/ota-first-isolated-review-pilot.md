@@ -1,6 +1,38 @@
-# Isolated OTA review pilot 계획
+# Isolated OTA review pilot 실행 기록
 
-## 이번 Git 병합과 실행 경계
+## 2026-10-09 실제 실행 결과
+
+기준 코드는 `main`의 `90296d69180e40266e8b553ea36d595c4ef66af6`이며 시작 시 원격 `origin/main`과 같았다. 운영 DB를 SQLite `mode=ro`와 `PRAGMA query_only=ON`으로 열고, 저장은 저장소 밖의 새 로컬 전용 pilot SQLite에만 수행했다. 운영 checkout과 production 프로세스는 갱신하지 않았다.
+
+시작 기준은 정확 연결 200건, HOLD 183건, 장부 734행이다. 업무 테이블은 74개이며 SQLite 시스템 테이블을 포함하면 75개다. 기존 사용자 결정은 27건, 기존 review hold는 16건이었다. 원본과 manifest를 포함한 파일 963개의 digest, 모든 테이블의 행 digest, schema digest와 DB 파일 지문을 로컬에 보존했다. 원문과 거래 식별자, SQLite 파일, 화면 캡처는 Git에 포함하지 않는다.
+
+대표 HOLD 8건을 선정했다. `HOLD_NO_CARD` 4건은 같은 결제일 카드 목록과 수동 검토를 확인하기 위해, `HOLD_DATE_UNKNOWN` 4건은 날짜가 없을 때 후보를 만들지 않는지 확인하기 위해 골랐다. 이번 실제 결과에는 다른 HOLD 유형이 없어 사례를 만들지 않았다. 390×844와 1440×900의 실제 Chromium 화면에서 날짜가 있는 각 사례의 카드 32행을 모두 표시했고, 날짜 미확인 사례는 카드 0행이었다. 두 화면의 가로 넘침과 JavaScript 오류는 0이었다.
+
+격리 loopback HTTP 프로세스에서 기존 `render_import_section`, OTA `dispatch`와 실제 `CoreOtaPaymentBackend`를 실행했다. 운영 서버 전체를 시작한 것이 아니며 운영 장부 쓰기 경로와 worker는 연결하지 않았다. 대표 사례의 필터만 적용하고 카드 후보를 merchant나 금액으로 줄이지 않았다.
+
+사용자가 앞서 허용한 동일 조건 거래의 승인번호 순서 배정 사례 1건을 실제 core backend의 preview와 confirm 경로로 저장했다. 개별 결제 증빙으로 두 거래를 구분했다고 주장하지 않는다. 별도 review DB의 manual link는 1건, proposal은 1건, active rule과 frozen group은 각각 0건이다. 새 backend와 화면 재조회에서 수동 연결과 proposal이 유지됐고, 검토 화면은 8건에서 7건으로 줄었다. 전체 읽기 전용 계산의 남은 HOLD는 182건이며 운영 HOLD와 운영 authority는 변경하지 않았다.
+
+실제 이미 점유된 카드의 preview와 confirm은 서버에서 모두 거부했다. 실제 운영 거래의 `duplicate_of`, `parse_error`, `conflict_reason` 행은 각각 0건이므로 세 상태를 실제 자료로 검증했다고 표현하지 않는다. 각 상태의 표시·선택 비활성·서버 거부는 합성 회귀에서 검증했다. 실제 full/partial group 사례도 이번 표본에 없어 frozen group을 생성하지 않았다.
+
+proposal은 provider·숙박 항목·가맹점·카드사·카드 끝자리·KRW charge·차액 0원·날짜 차이 0일로 제한된다. 메모리에서만 승인 표시를 주어 dry-run한 결과, 범위에 들어오는 HOLD event는 16건이고 기존 수동 연결 외에 새 자동 연결은 1건이었다. 범위에 들어온 16건 모두를 연결하는 규칙이 아니다. 기존 exact 변경과 중복 카드 배정은 0건이며 실제 규칙 활성화는 수행하지 않았다. 동일 날짜·동일 금액 거래의 개별 대응은 결제 원문만으로 증명되지 않을 수 있으므로 이 분석을 실제 연결 정답의 증명으로 해석하지 않는다.
+
+기존 exact 200건의 OTA event identity, provider, booking, transaction ID와 evidence digest를 직접 비교해 200/200 동일, 변경 0, 누락 0을 확인했다. 각 카드 source hash도 로컬 pair 기록에 보존했다. 수동 연결 재조회는 성공했고 중복 카드 배정과 기존 exact 재사용은 0건이다.
+
+검증 로그와 원본 비교 근거는 저장소 밖의 `C:/AX/ota-review-pilot-local-20261009`에만 보존한다. 이 경로의 review DB와 자료는 로컬 운영 증거이며 배포하거나 commit하지 않는다.
+
+수동 저장과 dry-run 뒤에도 업무 테이블의 전체 행 digest, schema, 사용자 결정, 기존 hold, 장부 734행, 운영 DB 파일 지문과 원본 963개 파일 digest가 모두 같았다. 운영 DB 변경과 원본 변경은 0건이다. 별도 review DB에만 링크 1건과 미승인 제안 1건이 남는다. production authority 전환과 production 재시작은 수행하지 않았다.
+
+OTA 관련 검사 254개와 하위 검사 4개가 통과했다. 새 격리 DB 수명주기 검사와 최종 변경된 UI·서버 검사 묶음은 34개와 하위 검사 4개가 통과했다. 기존 브라우저 fixture의 정확 금액 후보는 새 부분 묶음 보호 경계에 들어가 수동 선택이 차단됐으므로, 수동 연결·이번 건만·규칙 승인 검사의 fixture를 서로 다른 카드 힌트와 확인 가능한 금액 차이 사례로 바꿨다. 부분 묶음 보호 assertion을 약화하지 않았으며 오래된 점유 사유 기대값 두 개만 현재 식별자와 맞췄다.
+
+저장소에는 기존 typecheck 설정이나 frontend build 명령이 없다. 저장소 밖에 mypy를 설치해 변경된 테스트 파일 3개를 `--check-untyped-defs --follow-imports=skip --ignore-missing-imports`로 검사했다. 이 검사는 변경된 테스트 코드의 검사이며 전체 production 코드의 타입 검사로 주장하지 않는다. Python production 실행 경로는 `compileall`로 컴파일했고 생성물은 저장소 밖에 두었다. 별도 frontend production bundle은 사용하는 구조가 아니다.
+
+전체 기존 검증 명령 `python -m pytest -q -ra`의 결과는 **2426 passed / 3 skipped / 2386 subtests passed**, 종료 코드 0, 소요 시간 1211.78초다. skip은 기존 비공개 Agoda 자료 부재 2건과 Windows 파일 권한 제약 1건이다. 새 수명주기 검사는 전체 검사 수집 시작 뒤 추가했으므로 위 전체 건수에는 포함하지 않고 별도로 통과한 최종 targeted 34건에 포함했다. 변경된 테스트 파일 3개의 mypy 검사, Python 실행 코드 `compileall`, `git diff --check`도 종료 코드 0으로 통과했다. 테스트와 문서 외 제품 코드, 설정, 운영 데이터는 변경하지 않았다.
+
+pilot의 저장·재조회·기존 정확 연결 보존과 운영 데이터 불변 검증은 완료했다. 실제 자료에 없는 세 오류 상태와 group의 실제 확인은 실행했다고 주장하지 않는다. 미승인 proposal 1건은 그대로 남겨 두며 다음 사용자 응답 없이 활성화하거나 나머지 HOLD를 처리하지 않는다.
+
+## 2026-10-08 최초 Git 병합 기록
+
+이 절은 최초 병합 당시의 기록이다. 이후 OTA 매칭 기본 규칙이 main에 병합됐으며 이번 pilot 기준은 위의 `90296d69180e40266e8b553ea36d595c4ef66af6`이다. 아래의 실행 금지 범위와 이전 검사 수치는 당시 단계에만 해당하며 2026-10-09의 실제 pilot 결과를 대신하지 않는다.
 
 2026-10-08에 검토를 통과한 `feature/ota-first-review-20261008`의 `ba1c12b4773ad23af55e4f4cb49d6ac35d099b68`을 기존 main `37bd457341d68185d533a243eada64162537f943`에서 fast-forward로 병합했습니다. 병합 당시 feature는 3 commits ahead / 0 behind였고 충돌은 없었습니다. 추가 코드는 수정하지 않았으며 추가 테스트도 실행하지 않았습니다. 이 계획 문서만 별도 커밋합니다.
 
@@ -19,7 +51,7 @@ Git main 병합은 운영 배포나 OTA-first authority 전환을 뜻하지 않�
 
 ## 다음 단계의 목적과 시작 조건
 
-다음 단계는 사용자가 별도로 실행을 승인한 뒤 시작할 isolated OTA review pilot입니다. 현재는 계획만 기록했으며 pilot 프로세스와 review DB를 만들지 않았습니다. OTA-first를 production authority로 전환하지 않습니다.
+아래는 최초 pilot 계획과 보호 조건이다. 2026-10-09 사용자의 실행 지시에 따라 별도 pilot 프로세스와 review DB를 만들고 위 실행 결과를 확인했다. OTA-first를 production authority로 전환하지 않았다.
 
 기존 정확 연결 200건을 유지하고 HOLD 183건만 검토 대상으로 표시합니다. 운영 장부 DB는 읽기 전용으로 사용하고, 수동 연결과 proposal은 운영 장부와 분리된 pilot review DB에만 저장하는 경계를 먼저 확인합니다. pilot 환경 설정은 기존 `WEBLEDGER_OTA_REVIEW_MODE=isolated`와 별도 `WEBLEDGER_OTA_REVIEW_DB`를 사용합니다. 실제 경로와 접근 방식은 pilot 시작 전에 정하며, 이 문서에는 고객 자료나 비밀값을 넣지 않습니다.
 

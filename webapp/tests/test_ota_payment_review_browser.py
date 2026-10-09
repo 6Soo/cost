@@ -199,7 +199,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         "body": {"content": (
                             f"예약번호: {booking}\n체크인: 2026년 10월 1일\n"
                             "체크아웃: 2026년 10월 2일\n주소: 합성 주소\n"
-                            "총 금액\n온라인 사전 결제\n12,500원\n카드 끝자리 2042")},
+                            f"총 금액\n온라인 사전 결제\n{12500 if booking == 'BOOKSYNTHA001' else 13500:,}원\n카드 끝자리 {2042 if booking == 'BOOKSYNTHA001' else 9999}")},
                         "parts": None,
                     },
                 })
@@ -217,8 +217,8 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
                 issuer TEXT, authorization_id TEXT, cancellation_status TEXT,
                 refund_status TEXT)""")
-            rows = [(f"card-{index}", f"hash-{index}", "TRIP.COM", "trip.com", "credit", "2042",
-                     "purchase", "2026-09-04", "2026-09-05", 12500, "", "", "", "", "",
+            rows = [(f"card-{index}", f"hash-{index}", "TRIP.COM", "trip.com", "credit", "2042" if index < 2 else "9999",
+                     "purchase", "2026-09-04", "2026-09-05", 12000 if index < 2 else 13000, "", "", "", "", "",
                      "Synthetic Bank", f"AUTH-{index}", "not_cancelled", "no_refund")
                     for index in range(4)]
             board_conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
