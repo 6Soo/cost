@@ -1,0 +1,135 @@
+import json
+from urllib.parse import urlparse
+
+import pytest
+
+from webapp import google_ledger_page as page
+
+
+def block(total, verified=True):
+    return {"sheet_total": total, "row_sum": total, "total": total, "verified": verified}
+
+
+def copy(sheet, income, expense, verified=True):
+    return {"sheet": sheet, "layout": "rev", "flags": [], "income": block(income, verified),
+            "expense": block(expense, verified)}
+
+
+def snapshot_doc():
+    dup = {"key": "0404_에히메", "closure": "closed", "closure_current": True, "canonical_source": "main",
+           "income_total": 1000, "expense_total": 400, "net": 600, "verified": True,
+           "reported": {"income_total": 1000, "expense_total": 400, "net": 600},
+           "copies": {"main": copy("0404_에히메", 1000, 400), "archive": copy("0404_에히메", 900, 300)},
+           "review": ["DUPLICATE_IN_BOTH"]}
+    mismatch = {"key": "<script>0630", "closure": "open", "closure_current": True, "canonical_source": "main",
+                "income_total": None, "expense_total": None, "net": None, "verified": False,
+                "reported": {"income_total": 5, "expense_total": 2, "net": 3},
+                "copies": {"main": copy("<script>0630", 5, 2, verified=False), "archive": None},
+                "review": ["TOTAL_MISMATCH"]}
+    return {"schema": "google-authority-readonly-v2", "synced_at": "2026-10-11T10:00:00+09:00",
+            "sources": {"main": {"status": "ok", "error_code": None, "stale": False,
+                                 "last_ok_at": "2026-10-11T10:00:00+09:00", "checked_at": "x"},
+                        "archive": {"status": "error", "error_code": "SOURCE_UNREACHABLE", "stale": True,
+                                    "last_ok_at": None, "checked_at": "x"}},
+            "trips": [dup, mismatch], "rows_generation": "gen"}
+
+
+class FakeHandler:
+    def __init__(self, token=""):
+        self.headers = {"X-CSRF-Token": token} if token else {}
+        self.sent = []
+
+    def _send_json(self, value, code=200, extra_headers=None):
+        self.sent.append(("json", code, value))
+
+    def _send(self, text, code=200):
+        self.sent.append(("html", code, text))
+
+
+@pytest.fixture
+def snapshot_file(tmp_path, monkeypatch):
+    path = tmp_path / "snapshot.json"
+    path.write_text(json.dumps(snapshot_doc(), ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", str(path))
+    return path
+
+
+def parsed(path):
+    return urlparse(path)
+
+
+def test_disabled_without_snapshot_setting(monkeypatch):
+    monkeypatch.delenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", raising=False)
+    handler = FakeHandler()
+    assert page.dispatch(handler, parsed("/api/google-ledger"), is_owner=True) is False
+    assert handler.sent == []
+
+
+def test_non_owner_gets_403_json_never_a_page(snapshot_file):
+    for path in ("/google-ledger", "/api/google-ledger"):
+        handler = FakeHandler()
+        assert page.dispatch(handler, parsed(path), is_owner=False) is True
+        assert handler.sent[0][:2] == ("json", 403)
+        assert "0404" not in json.dumps(handler.sent[0][2], ensure_ascii=False)
+
+
+def test_owner_api_hides_rows_and_shows_figures_by_verification(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=True)
+    _, code, payload = handler.sent[0]
+    assert code == 200
+    trips = {t["key"]: t for t in payload["trips"]}
+    assert trips["0404_에히메"]["net"] == 600 and trips["0404_에히메"]["verified"] is True
+    unverified = trips["<script>0630"]
+    assert unverified["net"] is None and unverified["verified"] is False
+    text = json.dumps(payload, ensure_ascii=False)
+    assert "rows" not in text and "PAYEE" not in text
+
+
+def test_owner_html_escapes_titles_and_labels_checks(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
+    _, code, body = handler.sent[0]
+    assert code == 200
+    assert "<script>0630" not in body and "&lt;script&gt;0630" in body
+    assert "메인과 보관에 모두 있음" in body and "Google 합계와 행 합계가 다름" in body
+    assert "SOURCE_UNREACHABLE" in body
+
+
+def test_choice_requires_csrf_and_records_history(snapshot_file):
+    no_token = FakeHandler()
+    page.dispatch(no_token, parsed("/api/google-ledger/choice"), is_owner=True, raw=b"{}", csrf="tok")
+    assert no_token.sent[0][:2] == ("json", 403)
+
+    body = json.dumps({"key": "0404_에히메", "source": "archive"}).encode()
+    handler = FakeHandler(token="tok")
+    page.dispatch(handler, parsed("/api/google-ledger/choice"), is_owner=True, raw=body, csrf="tok")
+    assert handler.sent[0][:2] == ("json", 200)
+    stored = page.load_choices(snapshot_file)
+    assert stored["choices"] == {"0404_에히메": "archive"}
+    assert stored["history"][0]["from"] is None and stored["history"][0]["to"] == "archive"
+
+
+def test_chosen_archive_copy_drives_figures_only_when_verified(snapshot_file):
+    page.record_choice(snapshot_file, key="0404_에히메", source="archive", at="t")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=True)
+    trip = next(t for t in handler.sent[0][2]["trips"] if t["key"] == "0404_에히메")
+    assert trip["chosen_source"] == "archive" and trip["net"] == 600
+
+
+def test_non_owner_cannot_change_choice(snapshot_file):
+    body = json.dumps({"key": "0404_에히메", "source": "archive"}).encode()
+    handler = FakeHandler(token="tok")
+    page.dispatch(handler, parsed("/api/google-ledger/choice"), is_owner=False, raw=body, csrf="tok")
+    assert handler.sent[0][:2] == ("json", 403)
+    assert page.load_choices(snapshot_file)["choices"] == {}
+
+
+def test_unreadable_snapshot_is_503_not_empty_page(tmp_path, monkeypatch):
+    path = tmp_path / "broken.json"
+    path.write_text("{", encoding="utf-8")
+    monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", str(path))
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
+    assert handler.sent[0][:2] == ("json", 503)

@@ -3950,6 +3950,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._phase7_refuse(exc)
                 return
+        from . import google_ledger_page
+        if google_ledger_page.owns_route(parsed.path):
+            if google_ledger_page.dispatch(self, parsed, is_owner=_ROLE_LOCAL.role == "owner"):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
@@ -4200,6 +4204,12 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        from . import google_ledger_page
+        if google_ledger_page.owns_route(parsed.path):
+            resolve_role(self.headers, self._cookies())
+            if google_ledger_page.dispatch(self, parsed, is_owner=_ROLE_LOCAL.role == "owner",
+                                           raw=raw, csrf=CSRF_TOKEN):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
