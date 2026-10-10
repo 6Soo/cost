@@ -119,6 +119,25 @@ def _read_session_secret_file(real: pathlib.Path) -> str:
     return value
 
 
+def apply_ota_review(options: dict) -> None:
+    """OTA review mode comes only from card-flow.json. Absent means legacy, so inherited variables are cleared."""
+    ota = options.get('ota_review') or {}
+    mode = ota.get('mode', 'legacy')
+    for name in ('WEBLEDGER_OTA_REVIEW_MODE', 'WEBLEDGER_OTA_REVIEW_DB', 'WEBLEDGER_OTA_AUTHORITY'):
+        os.environ.pop(name, None)
+    if mode == 'legacy':
+        return
+    if mode not in ('isolated', 'authority'):
+        raise _Refused("OTA_REVIEW_MODE")
+    review_db = pathlib.Path(str(ota.get('review_db', '')))
+    if not review_db.is_absolute():
+        raise _Refused("OTA_REVIEW_DB")
+    os.environ['WEBLEDGER_OTA_REVIEW_MODE'] = 'isolated'
+    os.environ['WEBLEDGER_OTA_REVIEW_DB'] = str(review_db)
+    if mode == 'authority':
+        os.environ['WEBLEDGER_OTA_AUTHORITY'] = 'authority'
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -146,6 +165,7 @@ def main(argv=None) -> int:
                 if options.get('review_from'):
                     datetime.date.fromisoformat(options['review_from'])
                     os.environ['WEBLEDGER_REVIEW_FROM'] = options['review_from']
+                apply_ota_review(options)
     except _Refused as exc:
         print(f"refused [{exc.code}]: 실행 조건을 만족하지 않아요.", file=sys.stderr)
         return 2
