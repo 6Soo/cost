@@ -1,4 +1,4 @@
-﻿"""Preview and confirm read the reconciled snapshot; they never reconcile, and they refuse when anything moved."""
+"""Preview and confirm read the reconciled snapshot; they never reconcile, and they refuse when anything moved."""
 import json
 import os
 import shutil
@@ -150,7 +150,7 @@ class SnapshotActionTests(unittest.TestCase):
                            "request_id": "session-user"}).encode("utf-8")
         env = {"WEBLEDGER_OTA_REVIEW_MODE": "isolated", "WEBLEDGER_OTA_REVIEW_DB": str(self.review_path)}
         with mock.patch.dict(os.environ, env), \
-             mock.patch("webapp.ledger_board.current_request_session",
+             mock.patch("webapp.ledger_board.current_session",
                         return_value=SimpleNamespace(user_id="synthetic-owner")):
             ota_payment_review.dispatch(host, urlsplit("/api/imports/ota/preview"), raw=body, csrf="tok",
                                         backend=self.backend)
