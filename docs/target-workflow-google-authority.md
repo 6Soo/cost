@@ -3,7 +3,7 @@
 > 상태: **사용자와 대화에서 확정된 업무 원칙 + 구현 전 확인이 필요한 항목을 구분한 목표 명세 초안**  
 > 기록일: 2026-10-11 (KST)  
 > 범위: COST 후속 제품 설계. **현재 운영 동작을 변경하거나 현재 코드가 이미 이 명세를 충족한다고 선언하는 문서가 아니다.**  
-> 현재 운영 사실: [operations.md](operations.md), [session_handoff.md](session_handoff.md), [architecture.md](architecture.md). 현재 카드 업무 규칙: [business_rules.md](business_rules.md), [card_downloads.md](card_downloads.md).
+> 현재 운영 사실: [operations.md](operations.md), [session_handoff.md](session_handoff.md), [architecture.md](architecture.md). 현재 카드 업무 규칙: [business_rules.md](business_rules.md), [card_downloads.md](card_downloads.md). **실제 Google 두 장부와 시트 구조 관측:** [google-workbook-layout.md](google-workbook-layout.md).
 
 ## 1. 제품 목적과 최종 권위 — 확정
 
@@ -170,7 +170,7 @@ COST의 주목적은 **법인카드 지출 및 현지 영수증을 자동 추출
 
 ## 9. 구현 전 결정해야 할 미확정 사항 — 질문 목록
 
-Q1. **실제 Google 정본 파일과 구조**: 어떤 Google 스프레드시트/워크북인가? 여행별 시트 이름, 수입·지출 시작 셀, 컬럼/수식, 증빙내용 값(이체·영수증·법인카드)은 어떻게 구성돼 있는가? 시트 파일이 하나인지 분기/연도별 여러 개인지? 실제 자료를 열기 전 추측하지 않는다.
+Q1. **실제 Google 원본 식별은 확인 완료, 전체 시트 복사 계약은 미확정**: 사용자가 제공한 두 문서는 각각 마감/과거 보관(26탭), 활성 메인(43탭)으로 읽기 전용 확인했다. 분기 마감 시 여행 시트가 메인에서 보관으로 옮겨진다. 실측 열 배치 B:H 및 B:I, 증빙유형, 수식/오류와 정확한 원본 링크는 [google-workbook-layout.md](google-workbook-layout.md)를 따른다. 나머지 복사 영역의 병합 셀, 연도 판정, 중복 탭의 권위, 모든 여행별 열 구성을 확인하고 확정해야 한다.
 
 Q2. **지출 출력 단위**: 최종 붙여넣기는 **카드·영수증 거래 한 건당 한 행**인가, 아니면 같은 여행/항목/증빙 등을 합쳐 **항목별 한 행**인가? Google의 현재 기입 방식에 맞춰 결정한다.
 
