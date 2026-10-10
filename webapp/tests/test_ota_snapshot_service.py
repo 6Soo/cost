@@ -26,7 +26,7 @@ def service(keys, reconcile=None, clock=None, persist_path=None, **kwargs):
     def default_reconcile():
         counter["reconcile"] += 1
         return {"public": {"events": [{"ota_event_id": f"e{counter['reconcile']}"}], "cards_by_event": {},
-                           "proposals": []}, "results": [], "links": {}}
+                           "proposals": []}, "results": [], "links": {}, "data": {}}
 
     state = {"key": None}
     key_fn = lambda: state["key"] if state["key"] is not None else keys.pop(0)
@@ -69,7 +69,7 @@ class OtaSnapshotServiceTests(unittest.TestCase):
         def slow():
             calls.append(1)
             gate.wait(5)
-            return {"public": {}, "results": [], "links": {}}
+            return {"public": {}, "results": [], "links": {}, "data": {}}
 
         svc, _, _ = service(["k1"] * 8, reconcile=slow)
         threads = [threading.Thread(target=svc.check_now) for _ in range(8)]
@@ -89,7 +89,7 @@ class OtaSnapshotServiceTests(unittest.TestCase):
             attempts["n"] += 1
             if attempts["n"] == 2:
                 raise RuntimeError("source read failed")
-            return {"public": {"events": [{"ota_event_id": "good"}]}, "results": [], "links": {}}
+            return {"public": {"events": [{"ota_event_id": "good"}]}, "results": [], "links": {}, "data": {}}
 
         svc, _, state = service(["k1"], reconcile=flaky, clock=clock)
         svc.check_now()
@@ -126,7 +126,7 @@ class OtaSnapshotServiceTests(unittest.TestCase):
             restarted, counter, _ = service(["k1"], persist_path=path)
             self.assertEqual(restarted.view()["status"], "refreshing")
             restarted.check_now()
-            self.assertEqual(counter["reconcile"], 0)
+            self.assertEqual(counter["reconcile"], 1)
             self.assertEqual(restarted.view()["status"], "ready")
             self.assertEqual(restarted.view()["current"]["public"]["events"][0]["ota_event_id"], "e1")
 

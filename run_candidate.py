@@ -307,6 +307,8 @@ def main(argv=None) -> int:
         worker = getattr(server, "card_worker", None)
         if worker is not None:
             worker.stop(timeout=5)
+        from webapp import ota_payment_review
+        ota_payment_review.shutdown_snapshot_service(server.card_store)
         server.shutdown()
         server.server_close()
         board_mod.bind_oidc(None)

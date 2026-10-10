@@ -2,7 +2,9 @@
 
 요청은 계산하지 않고 마지막으로 성공한 결과를 돌려준다. 워커 한 개가 입력 지문을 주기적으로
 확인하고, 지문이 바뀌었을 때만 대사를 다시 한다. 워커가 하나이므로 같은 계산이 겹치지 않는다.
-지문이 오래됐거나 마지막 대사가 실패하면 authority 판단은 새 자동 연결을 믿지 않는다.
+
+디스크에는 화면에 필요한 공개 결과와 지문만 저장한다. 미리보기·확정에 필요한 전체 데이터는
+메모리에만 있고, 재시작 뒤에는 워커가 한 번 다시 대사해 채운다. 그 전까지는 행동을 받지 않는다.
 """
 import hashlib
 import json
@@ -17,10 +19,21 @@ CHECK_SECONDS = 60
 FRESH_SECONDS = 150
 RETRY_SECONDS = 60
 FIRST_WAIT_SECONDS = 3
+WORKER_NAME = "ota-snapshot"
 
 
 def _now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_STARTED = []
+
+
+def stop_all(timeout=5):
+    """Stop every worker this process started. Used when a test ends so nothing outlives its store."""
+    for service in list(_STARTED):
+        service.stop(timeout=timeout)
+    _STARTED.clear()
 
 
 def digest(value):
@@ -43,6 +56,7 @@ class OtaSnapshotService:
         self._first_ready = threading.Event()
         self._lock = threading.Lock()
         self._wake = threading.Event()
+        self._stopping = False
         self._current = None
         self._checked_key = None
         self._checked_at = None
@@ -57,25 +71,52 @@ class OtaSnapshotService:
         if start:
             self.ensure_started()
 
+    # lifecycle
+
     def ensure_started(self):
         if not self._autostart:
             return
         with self._lock:
-            if self._thread is None or not self._thread.is_alive():
-                self._thread = threading.Thread(target=self._run, name="ota-snapshot", daemon=True)
-                self._thread.start()
+            if self._stopping:
+                return
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(target=self._run, name=WORKER_NAME, daemon=True)
+            self._thread.start()
+            _STARTED.append(self)
+
+    def stop(self, timeout=10):
+        """Stop the worker and wait for it. Safe to call repeatedly; after it returns nothing runs here."""
+        with self._lock:
+            self._stopping = True
+            thread = self._thread
+        self._wake.set()
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout)
+            if thread.is_alive():
+                raise RuntimeError("OTA snapshot worker did not stop in time")
+        with self._lock:
+            self._thread = None
+
+    def worker_alive(self):
+        with self._lock:
+            return self._thread is not None and self._thread.is_alive()
 
     def _run(self):
-        while True:
+        while not self._stopping:
             self.check_now()
+            if self._stopping:
+                break
             self._wake.wait(self._check_seconds)
             self._wake.clear()
+
+    # worker
 
     def request_check(self, wait_seconds=0):
         """Ask the worker to re-read the input digest soon. Never computes on the caller's thread.
 
-        A caller may wait a bounded time for the worker to publish a newer generation; it never waits for
-        more than `wait_seconds`, so a slow reconciliation only means the answer is still the last good one.
+        A caller may wait a bounded time for the worker to publish a newer result; the wait is bounded by
+        `wait_seconds`, so a slow reconciliation only means the answer is still the last good one.
         """
         with self._lock:
             checks_before = self._checks
@@ -88,7 +129,9 @@ class OtaSnapshotService:
             time.sleep(0.05)
 
     def check_now(self):
-        """One pass: read the input digest, and reconcile only if it differs from the held snapshot."""
+        """One pass: read the input digest, and reconcile only if it differs from the held result."""
+        if self._stopping:
+            return
         try:
             key = self._key_fn()
         except Exception as exc:
@@ -102,7 +145,8 @@ class OtaSnapshotService:
             self._checked_at = self._clock()
             current = self._current
             failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_seconds
-            if (current is not None and current["key"] == key) or failed or self._refreshing:
+            if (current is not None and current["key"] == key and current.get("data") is not None) \
+                    or failed or self._refreshing or self._stopping:
                 return
             self._refreshing = True
         try:
@@ -121,19 +165,21 @@ class OtaSnapshotService:
             self._error = None
             self._failed_key = None
             self._checked_at = self._clock()
+            published = self._current
         self._first_ready.set()
-        self._persist(self._current)
+        self._persist(published)
+
+    # reads
 
     def _fresh_locked(self):
         return (self._current is not None and self._checked_key == self._current["key"]
                 and self._checked_at is not None and self._clock() - self._checked_at < self._fresh_seconds)
 
-    def view(self):
-        """What a request sees now. Never computes; `status` tells the screen what it is looking at.
+    def _has_data_locked(self):
+        return self._current is not None and self._current.get("data") is not None
 
-        With no snapshot yet, a request waits a bounded time for the worker's first result. It never
-        computes itself, so a slow first reconciliation still answers `loading` after the bound.
-        """
+    def view(self):
+        """What a request sees now. Never computes; `status` tells the screen what it is looking at."""
         self.ensure_started()
         if self._autostart:
             if self._current is None:
@@ -143,25 +189,54 @@ class OtaSnapshotService:
                 self.request_check(wait_seconds=self._first_wait)
         with self._lock:
             current, fresh, refreshing, error = self._current, self._fresh_locked(), self._refreshing, self._error
+            has_data = self._has_data_locked()
         if current is None:
             status = "error" if error and not refreshing else "loading"
         elif error:
             status = "error"
-        elif refreshing or not fresh:
+        elif refreshing or not fresh or not has_data:
             status = "refreshing"
         else:
             status = "ready"
+        public = {key: value for key, value in (current or {}).items() if key != "data"}
         return {"status": status, "stale": not fresh, "refreshing": refreshing,
                 "generation": current["generation"] if current else 0,
                 "generated_at": current["generated_at"] if current else None,
                 "snapshot_key": current["key"][:12] if current else None,
-                "last_error": error, "fresh": fresh, "current": current}
+                "last_error": error, "fresh": fresh, "current": public or None}
 
     def held(self):
-        """(current snapshot or None, is_fresh) for holds that must not grant new authority on stale data."""
+        """(current result or None, is_fresh) for holds that must not grant new authority on stale data."""
         self.ensure_started()
         with self._lock:
-            return self._current, self._fresh_locked()
+            current = self._current
+            if current is not None and current.get("data") is None:
+                # Holds need the in-memory result; before it exists, the caller treats every card as unresolved.
+                return None, False
+            return current, self._fresh_locked()
+
+    def action_context(self):
+        """The full in-memory result for a preview or confirm, only while it is fresh and complete.
+
+        Anything else returns (None, reason). A non-fresh state asks the worker to look again, and the
+        caller answers with a refreshing status instead of computing.
+        """
+        self.ensure_started()
+        with self._lock:
+            current, fresh, has_data = self._current, self._fresh_locked(), self._has_data_locked()
+            refreshing = self._refreshing
+        if current is None:
+            reason = "loading"
+        elif not has_data or refreshing:
+            reason = "refreshing"
+        elif not fresh:
+            reason = "stale"
+        else:
+            return current, "ready"
+        self.request_check()
+        return None, reason
+
+    # persistence
 
     def _persist(self, current):
         if self._persist_path is None:
@@ -189,5 +264,6 @@ class OtaSnapshotService:
             return
         self._current = {"key": str(document["key"]), "generation": int(document.get("generation") or 1),
                          "generated_at": document.get("generated_at"), "public": document.get("public") or {},
-                         "results": document.get("results") or [], "links": document.get("links") or {}}
+                         "results": document.get("results") or [], "links": document.get("links") or {},
+                         "data": None}
         self._first_ready.set()

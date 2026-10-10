@@ -56,6 +56,16 @@ def cards(count=12) -> list[dict[str, Any]]:
     } for index in range(count)]
 
 
+def primed(board, backend):
+    """A reconciled snapshot for a synthetic board, built by the same functions the worker uses."""
+    from webapp.ota_snapshot import OtaSnapshotService
+    service = OtaSnapshotService(key_fn=lambda: ota_payment_review.input_key_for(backend),
+                                 reconcile_fn=lambda: ota_payment_review.reconcile_for(backend), start=False)
+    board._ota_snapshot_service = service
+    service.check_now()
+    return service
+
+
 class FakeBackend:
     def __init__(self):
         self.calls = []
@@ -126,10 +136,13 @@ class FakeCoreStore:
         self.calls = []
         type(self).last_store = self
 
+    extra_links: dict = {}
+
     def links(self):
         return {
             "evt-exact": {"transaction_id": "card-01", "source_digest": "exact-digest"},
             "evt-user": {"transaction_id": "card-03", "source_digest": "old-user-digest"},
+            **type(self).extra_links,
         }
 
     def close(self):
@@ -570,6 +583,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                                             payments=payments, store_type=FakeCoreStore,
                                             sources={"mail_directories": [], "portal_databases": [],
                                                      "reference_documents": []})
+            primed(board, backend)
             before = Path(review_path).stat().st_mtime_ns
             snapshot = backend.snapshot()
             self.assertEqual(len(snapshot["cards_by_event"]["evt-synth-001"]), 12)
@@ -582,12 +596,15 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 backend.preview("evt-synth-001", "card-01")
             preview = backend.preview("evt-synth-001", "card-02")
             self.assertEqual(preview["difference_krw"], 25)
-            FakeCorePayments.occupied_transaction = "card-02"
+            # Another manual link now owns card-02: that is a review-database change, so the snapshot's
+            # fingerprint moves and the confirm must be refused as stale rather than written.
+            FakeCoreStore.extra_links = {"evt-other": {"transaction_id": "card-02", "source_digest": "other"}}
+            self.addCleanup(lambda: setattr(FakeCoreStore, "extra_links", {}))
             writer_backend = CoreOtaPaymentBackend(board, review_path, read_only=False,
                                                    payments=payments, store_type=FakeCoreStore,
                                                    sources={"mail_directories": [], "portal_databases": [],
                                                             "reference_documents": []})
-            with self.assertRaises(ota_payment_review.InvalidReviewInput):
+            with self.assertRaises(ota_payment_review.StalePreviewError):
                 writer_backend.confirm("evt-synth-001", "card-02", preview["preview_digest"],
                                        request_id="req-synth-002", user="synthetic-owner")
             self.assertEqual(FakeCoreStore.writer_calls, 0)
@@ -620,6 +637,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             backend = CoreOtaPaymentBackend(board, str(Path(directory) / "review.sqlite"),
                                             read_only=False, payments=payments,
                                             store_type=EmptyLinkStore, sources={})
+            primed(board, backend)
             preview = backend.preview("evt-synth-001", "card-02")
             backend.confirm("evt-synth-001", "card-02", preview["preview_digest"],
                             request_id="req-allocations", user="synthetic-owner")
@@ -826,6 +844,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             snapshot = backend.snapshot()
             self.assertEqual(snapshot["events"][0]["paid_on"], "미확인")
             self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]], [])
+            primed(board, backend)
             with self.assertRaises(ota_payment_review.InvalidReviewInput):
                 backend.preview(EVENT["ota_event_id"], "card-01")
             backend.close()
@@ -870,6 +889,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             board, str(Path(directory.name) / "review.sqlite"), read_only=False,
             payments=Payments(), store_type=Store, sources={})
         self.addCleanup(backend.close)
+        primed(board, backend)
         return backend, Store
 
     def test_flagged_same_date_transactions_remain_visible_disabled_and_confirm_is_rejected(self):
@@ -990,7 +1010,8 @@ class OtaPaymentReviewTests(unittest.TestCase):
                        "evidence_status":"paid_verified", "payment_status":"paid",
                        "source_digest":f"full-source-{index}"} for index in range(3)]
             source = [events]
-            backend = CoreOtaPaymentBackend(SimpleNamespace(conn=board_conn, _lock=threading.RLock()),
+            shared = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            backend = CoreOtaPaymentBackend(shared,
                 str(review_path), read_only=False, payments=payments, store_type=OtaReviewStore, sources={})
             self.addCleanup(backend.close)
             with mock.patch.object(ota_payment_review, "enabled", return_value=True), \
@@ -998,7 +1019,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 snapshot = backend.snapshot()
                 self.assertEqual({row["status"] for row in snapshot["events"]}, {"MATCHED_AUTO"})
                 status, saved = _local_review_request(lambda: CoreOtaPaymentBackend(
-                    SimpleNamespace(conn=board_conn, _lock=threading.RLock()), str(review_path), read_only=False,
+                    shared, str(review_path), read_only=False,
                     payments=payments, store_type=OtaReviewStore, sources={}), "/api/imports/ota/group/confirm",
                     {"event_ids":[row["ota_event_id"] for row in events], "request_id":"full-group-confirmed"})
                 self.assertEqual(status, 200)
@@ -1011,7 +1032,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM ota_review_links").fetchone()[0], 0)
                 connection.close()
                 backend.close()
-                backend = CoreOtaPaymentBackend(SimpleNamespace(conn=board_conn, _lock=threading.RLock()),
+                backend = CoreOtaPaymentBackend(shared,
                     str(review_path), read_only=False, payments=payments, store_type=OtaReviewStore, sources={})
                 self.addCleanup(backend.close)
                 other = {**EVENT, "ota_event_id":"other-ota-event", "booking_ref":"BOOK-OTHER",
@@ -1019,16 +1040,17 @@ class OtaPaymentReviewTests(unittest.TestCase):
                          "payment_status":"paid", "source_digest":"other-source"}
                 source[0] = events + [other]
                 second_snapshot = backend.snapshot()
+                primed(shared, backend)
                 other_cards = second_snapshot["cards_by_event"]["other-ota-event"]
                 self.assertTrue(other_cards)
                 self.assertTrue(all(row.get("already_linked_event_id") for row in other_cards))
                 self.assertTrue(all(row["selection_disabled"] for row in other_cards))
                 preview_status, _ = _local_review_request(lambda: CoreOtaPaymentBackend(
-                    SimpleNamespace(conn=board_conn, _lock=threading.RLock()), str(review_path), read_only=False,
+                    shared, str(review_path), read_only=False,
                     payments=payments, store_type=OtaReviewStore, sources={}), "/api/imports/ota/preview",
                     {"event_id":"other-ota-event", "transaction_id":"full-card-0", "request_id":"reuse-preview"})
                 confirm_status, _ = _local_review_request(lambda: CoreOtaPaymentBackend(
-                    SimpleNamespace(conn=board_conn, _lock=threading.RLock()), str(review_path), read_only=False,
+                    shared, str(review_path), read_only=False,
                     payments=payments, store_type=OtaReviewStore, sources={}), "/api/imports/ota/confirm",
                     {"event_id":"other-ota-event", "transaction_id":"full-card-0",
                      "preview_digest":"synthetic-digest", "request_id":"reuse-confirm"})
