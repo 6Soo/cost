@@ -8,6 +8,7 @@ database, and row contents (names, reservation numbers, payees) are not kept.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import io
@@ -16,6 +17,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 import openpyxl
@@ -340,27 +342,37 @@ def _write_atomic(path: Path, snapshot: dict) -> None:
     os.replace(temporary, path)
 
 
-def load_rows(path: Path) -> dict:
-    if not path.exists():
+def _rows_file(rows_path: Path, generation: str) -> Path:
+    return rows_path.with_name(f"{rows_path.stem}.{generation}{rows_path.suffix}")
+
+
+def load_rows(rows_path: Path, generation: str | None) -> dict:
+    """Rows of the generation the current snapshot names. Never a newer or older file."""
+    if not generation:
         return {}
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_rows_file(rows_path, generation).read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise SnapshotError("ROWS_MISSING") from error
     except (OSError, ValueError) as error:
         raise SnapshotError("ROWS_UNREADABLE") from error
     if not isinstance(data, dict) or data.get("schema") != ROWS_SCHEMA:
         raise SnapshotError("ROWS_SCHEMA_MISMATCH")
+    if data.get("generation") != generation:
+        raise SnapshotError("ROWS_GENERATION_MISMATCH")
     return data.get("sources", {})
 
 
 def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEOUT,
          max_bytes: int = DEFAULT_MAX_BYTES, fetcher=None, now: dt.datetime | None = None) -> dict:
-    """One read of both workbooks. Writes the public snapshot and the private rows file, never Google.
+    """One read of both workbooks. Writes the public snapshot and a private rows file, never Google.
 
-    Row contents (names, reservation numbers) go only to rows_path, which the caller places
-    outside the repository. The public snapshot keeps totals, checks and row-change counts.
+    Rows are written to a new generation file first, then the snapshot names that generation in
+    one atomic replace. A crash before the replace leaves the old snapshot and its old rows
+    intact, so the two never describe different generations.
     """
     previous = load_snapshot(snapshot_path)
-    previous_rows = load_rows(rows_path)
+    previous_rows = load_rows(rows_path, previous.get("rows_generation"))
     if fetcher is None:
         def fetcher(url):
             return _download(url, timeout=timeout, max_bytes=max_bytes)
@@ -372,8 +384,14 @@ def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEO
         sources[role] = record
         if rows is not None:
             private[role] = rows
+    generation = uuid.uuid4().hex
+    _write_atomic(_rows_file(rows_path, generation),
+                  {"schema": ROWS_SCHEMA, "generation": generation, "synced_at": checked_at, "sources": private})
     snapshot = {"schema": SCHEMA, "synced_at": checked_at, "sources": sources,
-                "trips": build_trip_view(sources)}
-    _write_atomic(rows_path, {"schema": ROWS_SCHEMA, "synced_at": checked_at, "sources": private})
+                "trips": build_trip_view(sources), "rows_generation": generation}
     _write_atomic(snapshot_path, snapshot)
+    old = previous.get("rows_generation")
+    if old and old != generation:
+        with contextlib.suppress(OSError):
+            _rows_file(rows_path, old).unlink()
     return snapshot

@@ -374,7 +374,7 @@ def test_public_snapshot_has_no_row_contents_but_private_file_does(tmp_path: Pat
     ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
     public = snapshot_path.read_text(encoding="utf-8")
     assert "PAYEE-SECRET" not in public and "RESV-SECRET" not in public and "INCOME-NAME" not in public
-    assert "PAYEE-SECRET" in rows_path.read_text(encoding="utf-8")
+    assert "PAYEE-SECRET" in _rows_text(snapshot_path, rows_path)
 
 
 def test_row_changes_are_counted_by_position(tmp_path: Path):
@@ -398,7 +398,7 @@ def test_failed_read_keeps_private_rows(tmp_path: Path):
     ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
     ga.sync(snapshot_path, rows_path,
             fetcher=_fetcher({"main": ga.SourceError("SOURCE_UNREACHABLE"), "archive": data}), now=NOW)
-    assert "KEEP-ME" in rows_path.read_text(encoding="utf-8")
+    assert "KEEP-ME" in _rows_text(snapshot_path, rows_path)
 
 
 def test_nonstandard_tab_in_a_real_sync_does_not_break_row_storage(tmp_path: Path):
@@ -412,3 +412,71 @@ def test_nonstandard_tab_in_a_real_sync_does_not_break_row_storage(tmp_path: Pat
     snapshot = _sync(tmp_path / "snapshot.json", fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
     assert {t["key"] for t in snapshot["trips"]} == {"0630_오제", "0909_제주"}
     assert snapshot["sources"]["main"]["status"] == "ok"
+
+
+def _rows_text(snapshot_path: Path, rows_path: Path) -> str:
+    generation = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    return ga._rows_file(rows_path, generation).read_text(encoding="utf-8")
+
+
+def test_crash_before_snapshot_replace_keeps_old_snapshot_and_rows_consistent(tmp_path: Path, monkeypatch):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    first = _row_book([("OLD-PAYEE", "식비", 1000)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": first, "archive": first}), now=NOW)
+    before = snapshot_path.read_text(encoding="utf-8")
+
+    real_write = ga._write_atomic
+    def crash_on_snapshot(path, obj):
+        if path == snapshot_path:
+            raise OSError("disk full")
+        real_write(path, obj)
+    monkeypatch.setattr(ga, "_write_atomic", crash_on_snapshot)
+    changed = _row_book([("NEW-PAYEE", "식비", 9000)])
+    with pytest.raises(OSError):
+        ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": changed, "archive": first}), now=NOW)
+    monkeypatch.setattr(ga, "_write_atomic", real_write)
+
+    assert snapshot_path.read_text(encoding="utf-8") == before
+    assert "OLD-PAYEE" in _rows_text(snapshot_path, rows_path)
+    # The next good run works from the old generation and replaces it cleanly.
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": changed, "archive": first}), now=NOW)
+    assert "NEW-PAYEE" in _rows_text(snapshot_path, rows_path)
+
+
+def test_snapshot_naming_a_missing_rows_generation_is_refused(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    generation = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    ga._rows_file(rows_path, generation).unlink()
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    assert raised.value.code == "ROWS_MISSING"
+
+
+def test_rows_file_from_another_generation_is_refused(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    generation = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    other = json.loads(ga._rows_file(rows_path, generation).read_text(encoding="utf-8"))
+    other["generation"] = "someone-else"
+    ga._rows_file(rows_path, generation).write_text(json.dumps(other), encoding="utf-8")
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    assert raised.value.code == "ROWS_GENERATION_MISMATCH"
+
+
+def test_old_generation_file_is_removed_after_success(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    first = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    second = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    assert first != second
+    assert not ga._rows_file(rows_path, first).exists() and ga._rows_file(rows_path, second).exists()
