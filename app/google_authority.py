@@ -283,15 +283,22 @@ def build_trip_view(sources: dict) -> list[dict]:
         usable = (canonical["layout"] == "rev"
                   and not flags & {"DUPLICATE_IN_SOURCE", "POSSIBLE_DUPLICATE"})
         closure = "closed" if archive else ("unknown" if sources["archive"].get("last_ok_at") is None else "open")
+        verified = usable and canonical["verified"] and not flags & {"SOURCE_STALE"}
+        reported = {
+            "income_total": canonical["income"]["total"] if usable else None,
+            "expense_total": canonical["expense"]["total"] if usable else None,
+            "net": canonical["net"] if usable else None,
+        }
+        # Only verified figures count as totals. What Google displays but COST cannot verify stays in reported.
+        figures = reported if verified else dict.fromkeys(reported)
         view.append({
             "key": title,
             "closure": closure,
             "closure_current": archive_ok and closure != "unknown",
             "canonical_source": canonical_source,
-            "income_total": canonical["income"]["total"] if usable else None,
-            "expense_total": canonical["expense"]["total"] if usable else None,
-            "net": canonical["net"] if usable else None,
-            "verified": usable and canonical["verified"] and not flags & {"SOURCE_STALE"},
+            **figures,
+            "reported": reported,
+            "verified": verified,
             "copies": {"main": _copy(main[0] if main else None), "archive": _copy(archive[0] if archive else None)},
             "review": sorted(flags | set(canonical["flags"])),
         })
