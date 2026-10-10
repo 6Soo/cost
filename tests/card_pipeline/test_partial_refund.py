@@ -10,11 +10,13 @@ HEADER = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency
 OK = lambda _: True
 
 
-def build(gross=1000000, refunds=(-700000,), original_ref='100'):
+def build(gross=1000000, refunds=(-700000,), original_ref='100', extra=False):
     pipe = Pipeline(sqlite3.connect(':memory:', isolation_level=None))
     lines = [f'국민,1234,domestic,purchase,합성항공,{gross},,,{gross},2026-10-01,2026-10-02,A100,,매입']
     for index, amount in enumerate(refunds):
         lines.append(f'국민,1234,domestic,purchase,합성항공,{abs(amount)},,,{abs(amount)},2026-10-0{3 + index},2026-10-0{4 + index},C{200 + index},,매입')
+    if extra:
+        lines.append('국민,1234,domestic,purchase,합성식당,50000,,,50000,2026-10-02,2026-10-03,O300,,매입')
     batch = pipe.receive((HEADER + '\n'.join(lines) + '\n').encode(), 'synthetic.csv')['batch_id']
     conn = pipe.store.conn
     for index, amount in enumerate(refunds):
@@ -256,3 +258,147 @@ def test_a_refund_with_two_possible_originals_is_not_linked():
     conn.execute("UPDATE twin SET transaction_id='twin-id', source_hash='twin-hash'")
     conn.execute("INSERT INTO transactions SELECT * FROM twin")
     assert refund_links(conn, ids) == {}
+
+
+def confirm_other(pipe, batch, item='식비'):
+    other = next(r for r in pipe.get_batch(batch)['rows'] if r['approval_number'] == '300')
+    pipe.save_decision(other['transaction_id'], other['revision'], item=item,
+                       display_tab_id='unclassified', tab_validator=OK, request_id='confirm-other')
+    return other['transaction_id']
+
+
+def group_of(pipe, batch, original_id):
+    return pipe.preview(batch, tab_validator=OK, trip_validator=OK, group_original=original_id)
+
+
+def group_commit(pipe, batch, original_id, request_id, **kwargs):
+    digest = group_of(pipe, batch, original_id)['digest']
+    return pipe.commit(batch, digest, request_id, tab_validator=OK, trip_validator=OK,
+                       group_original=original_id, **kwargs)
+
+
+def ledger_state(pipe):
+    return pipe.store.conn.execute('SELECT COUNT(*), COALESCE(SUM(amount_krw),0) FROM ledger_entries').fetchone()
+
+
+def test_group_preview_holds_only_the_original_and_its_refund():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    scoped = group_of(pipe, batch, original_id)
+    refund_id = pipe.store.conn.execute("SELECT transaction_id FROM transactions WHERE approval_number='200'").fetchone()[0]
+    assert {r['transaction_id'] for r in scoped['rows']} == {original_id, refund_id}
+    assert scoped['ready'] == 2 and scoped['recordable'] is True
+    assert scoped['digest'] != preview(pipe, batch)['digest']
+
+
+def test_group_commit_books_only_the_pair_and_their_net_sum():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    done = group_commit(pipe, batch, original_id, 'group-1')
+    assert done['applied'] == 2
+    assert ledger_state(pipe) == (2, 300000)
+    booked = {r[0] for r in pipe.store.conn.execute('SELECT transaction_id FROM ledger_entries')}
+    other = pipe.store.conn.execute("SELECT transaction_id FROM transactions WHERE approval_number='300'").fetchone()[0]
+    assert other not in booked
+
+
+def test_group_commit_leaves_source_amounts_unchanged():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    before = pipe.store.conn.execute('SELECT approval_number, amount_krw FROM transactions ORDER BY approval_number').fetchall()
+    group_commit(pipe, batch, original_id, 'group-amounts')
+    assert pipe.store.conn.execute('SELECT approval_number, amount_krw FROM transactions ORDER BY approval_number').fetchall() == before
+
+
+def test_stale_original_or_refund_rejects_the_group_commit():
+    for approval in ('100', '200'):
+        pipe, batch = build(extra=True)
+        original_id = confirm_original(pipe, batch)
+        confirm_other(pipe, batch)
+        digest = group_of(pipe, batch, original_id)['digest']
+        row = next(r for r in pipe.get_batch(batch)['rows'] if r['approval_number'] == approval)
+        pipe.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+                           display_tab_id='unclassified', tab_validator=OK, request_id='change-' + approval)
+        with pytest.raises(StoreError) as caught:
+            pipe.commit(batch, digest, 'stale-' + approval, tab_validator=OK, trip_validator=OK,
+                        group_original=original_id)
+        assert caught.value.code == 'PREVIEW_STALE'
+        assert ledger_state(pipe) == (0, 0)
+
+
+def test_partly_booked_group_is_rejected_without_writes():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    book_alone(pipe, batch, '200')
+    with pytest.raises(StoreError) as caught:
+        group_of(pipe, batch, original_id)
+    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
+    assert ledger_state(pipe) == (1, -700000)
+
+
+def test_group_with_a_member_outside_the_batch_is_rejected():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    pipe.store.conn.execute('DELETE FROM import_batch_rows WHERE batch_id=? AND transaction_id IN'
+                            ' (SELECT transaction_id FROM transactions WHERE approval_number=?)', (batch, '200'))
+    with pytest.raises(StoreError) as caught:
+        group_of(pipe, batch, original_id)
+    assert caught.value.code == 'REFUND_GROUP_INCOMPLETE'
+
+
+def test_projection_failure_on_the_second_row_rolls_back_the_pair():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    calls = []
+
+    def projection(entry):
+        calls.append(entry['transaction_id'])
+        if len(calls) == 2:
+            raise RuntimeError('projection failed')
+
+    with pytest.raises(RuntimeError):
+        group_commit(pipe, batch, original_id, 'fail-group', projection=projection)
+    assert ledger_state(pipe) == (0, 0)
+
+
+def test_retry_of_the_same_request_does_not_duplicate_and_a_new_request_is_a_noop():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    first = group_commit(pipe, batch, original_id, 'retry-1')
+    assert group_commit(pipe, batch, original_id, 'retry-1') == first
+    again = group_commit(pipe, batch, original_id, 'retry-2')
+    assert again['applied'] == 0 and again['already'] == 2
+    assert ledger_state(pipe) == (2, 300000)
+
+
+def test_a_subset_of_the_batch_digest_or_a_non_refund_cannot_be_committed_as_a_group():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    confirm_other(pipe, batch)
+    batch_digest = preview(pipe, batch)['digest']
+    with pytest.raises(StoreError) as caught:
+        pipe.commit(batch, batch_digest, 'subset-1', tab_validator=OK, trip_validator=OK,
+                    group_original=original_id)
+    assert caught.value.code == 'PREVIEW_STALE'
+    other_id = pipe.store.conn.execute("SELECT transaction_id FROM transactions WHERE approval_number='300'").fetchone()[0]
+    with pytest.raises(StoreError) as caught:
+        group_of(pipe, batch, other_id)
+    assert caught.value.code == 'INVALID_INPUT'
+    assert ledger_state(pipe) == (0, 0)
+
+
+def test_group_commit_against_a_batch_that_does_not_hold_the_group_is_rejected():
+    pipe, batch = build(extra=True)
+    original_id = confirm_original(pipe, batch)
+    other_batch = pipe.receive((HEADER + '국민,1234,domestic,purchase,합성식당,9000,,,9000,2026-10-02,2026-10-03,O999,,매입\n').encode(),
+                               'other.csv')['batch_id']
+    pipe.classify_batch(other_batch)
+    with pytest.raises(StoreError) as caught:
+        group_of(pipe, other_batch, original_id)
+    assert caught.value.code == 'REFUND_GROUP_INCOMPLETE'
+    assert ledger_state(pipe) == (0, 0)

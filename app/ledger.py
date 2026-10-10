@@ -61,7 +61,7 @@ def _decision_rows(store, batch_id: str):
 
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
-             additional_holds=None) -> dict:
+             additional_holds=None, group_original=None) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -196,7 +196,50 @@ def preview(store, batch_id: str, *, trip_validator=None,
         "rows": rows,
     }
     result["digest"] = preview_digest(result)
+    if group_original is not None:
+        return scope_group(store, result, group_original)
     return result
+
+
+def group_members(store, original_id: str) -> list:
+    """The original and every linked refund, read from the database. A caller never names them."""
+    from .partial_refund import refund_group, refund_links
+    members = refund_group(store.conn, str(original_id))
+    if len(members) < 2:
+        raise StoreError(CODE_INVALID_INPUT, "연결된 환불이 없는 원거래예요")
+    links = refund_links(store.conn, members[1:])
+    if (sorted(links) != sorted(members[1:])
+            or any(link["original_id"] != original_id for link in links.values())):
+        raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                         "환불이 원거래 하나에 명확히 연결되지 않아 함께 기록할 수 없어요")
+    return members
+
+
+def scope_group(store, result: dict, original_id: str) -> dict:
+    """One refund group's rows taken from a whole-batch preview. Writes nothing.
+
+    The group is decided by the database, so a group cannot be shrunk by the
+    caller. Every member must be on this batch and the group must not be half
+    booked; a group that is held as a whole comes back `recordable: False`.
+    """
+    members = group_members(store, original_id)
+    by_id = {row["transaction_id"]: row for row in result["rows"]}
+    if any(member not in by_id for member in members):
+        raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                         "묶인 거래가 이 접수 건에 모두 없어 기록하지 않아요")
+    rows = [by_id[member] for member in members]
+    booked = [bool(row.get("already_booked")) for row in rows]
+    if any(booked) and not all(booked):
+        raise StoreError(CODE_REFUND_PAIR_PARTIALLY_BOOKED,
+                         "원거래와 환불 중 일부만 이미 기록돼 있어 기록하지 않았어요. 확인해 주세요")
+    held = [row for row in rows if row.get("blocked")]
+    scoped = dict(result, rows=rows, scope="refund_group", original_id=original_id, members=members,
+                  ready=len(recordable_rows(rows)), unresolved=len(held),
+                  duplicates=0, conflicts=0)
+    scoped["recordable"] = all(booked) or not held
+    scoped["reason"] = "" if scoped["recordable"] else held[0].get("reason", "")
+    scoped["digest"] = preview_digest(scoped)
+    return scoped
 
 
 PREVIEW_VERSION = "ledger-preview-v3"
@@ -334,6 +377,8 @@ def preview_digest(result: dict) -> str:
             if not r.get("blocked")
         ],
     }
+    if result.get("scope"):
+        body["scope"] = [result["scope"], result.get("original_id")]
     return hashlib.sha256(canonical(body).encode("utf-8")).hexdigest()
 
 
@@ -362,7 +407,7 @@ def _check_refund_groups(store, rows) -> None:
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
-           entry_metadata=None, additional_holds=None) -> dict:
+           entry_metadata=None, additional_holds=None, group_original=None) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -386,19 +431,24 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if not preview_digest_value or not isinstance(preview_digest_value, str):
         raise StoreError(CODE_INVALID_INPUT, "미리보기 값이 필요해요")
 
-    payload_sha = hashlib.sha256(canonical(
-        {"batch_id": batch_id, "digest": preview_digest_value}).encode("utf-8")
-    ).hexdigest()
+    scope = {"batch_id": batch_id, "digest": preview_digest_value}
+    if group_original is not None:
+        scope["group"] = str(group_original)
+    payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()
     replay = store.replay_request(request_id, "commit", payload_sha)
     if replay is not None:
         return replay
 
     current = preview(store, batch_id, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
-                      entry_metadata=entry_metadata, additional_holds=additional_holds)
+                      entry_metadata=entry_metadata, additional_holds=additional_holds,
+                      group_original=group_original)
     if current["digest"] != preview_digest_value:
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
+    if group_original is not None and not current["recordable"]:
+        raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                         current["reason"] or "환불 묶음을 함께 기록할 수 없어 기록하지 않았어요")
 
     booked: list[str] = []
     already: list[str] = []
