@@ -257,3 +257,12 @@ Agoda는 기존 메일과 전수조사 자료를 다시 읽었다. 146,018원 �
 `python -m pytest -q webapp/tests/test_ops_hosting_bind.py webapp/tests/test_verify_lightweight_runtime.py webapp/tests/test_ledger_board.py`는 **91 passed, 26 subtests passed**, 26.40초로 통과했다. 기존 화면 문구 기대값 수정은 앞선 109개 통과 묶음의 실제 브라우저 검사에서 확인했다. 그 실행은 출력 spy 한 건이 실패했으므로 전체 통과로 표시하지 않으며 수정 뒤 위 묶음으로 다시 확인했다.
 
 `python tools/verify_lightweight_runtime.py`는 성공 종료했다. DB 정본 일치와 무결성, 공개 healthz·readyz 200 및 비로그인 import·api/imports 401을 확인했다. 전체 운영 검사 수행 완료는 참이고 일정 검증 완료는 거짓이다. 일정 25개는 유효하며 15개는 대기 중인 상태로 각각 보고한다. 운영 데이터 렌더러에서도 여행 12개 탭의 496건과 분류대기 238건, 표시 합계를 확인했다. 내부·공개 healthz·readyz는 200이며 비로그인 import는 401이다. 실제 로그인 브라우저 확인은 포함하지 않는다. 실행 증거는 `runtime-verification.json`과 `latest-schedule/runtime-after.json`에 보존했다.
+
+
+## 2026-10-11 KB 3채널 승인 증거 경로 배포
+
+PR #56 (`2807e6a`)를 main에 병합하고 `tools/restart_real_review_host.ps1`로 운영 호스트를 재시작했다. 새 프로세스는 PID 32796이며 8751 리스너는 하나다. `/healthz`와 `/readyz`는 200, 비인증 루트는 401이다.
+
+재시작 전 복구 사본 `D:/WebLedgerHost/backups/pre-kb-three-channel-20261011/`를 만들었다. 장부 DB 74개 표와 OTA 검토 DB 6개 표의 행 수가 사본과 같고 두 사본의 `quick_check`는 `ok`다.
+
+운영 장부 DB에는 승인 증거용 빈 표 두 개만 생성됐다. 승인 행은 0이며 거래 6,037건, 장부 736행·73,998,707원, 사용자 확정 28건, 환불 보류 15건, 접수 묶음 7건은 유지됐다. OTA 검토 DB의 기존 연결 1건, 제안 1건, 요청 1건도 유지됐다. 실제 KB 3채널 대사는 격리 복사본에서만 했고 운영 DB에는 KB 행을 넣지 않았다.
