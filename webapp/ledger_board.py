@@ -245,6 +245,9 @@ def _receipts_owner_request() -> bool:
         return False
     session = getattr(_ROLE_LOCAL, "session", None)
     return session is not None and is_owner_session(session)
+def _active_role(user_id) -> str | None:
+    """The role the access store lists right now. A deactivated or removed account has none."""
+    return _ACCESS.account_role(user_id) if _ACCESS else None
 
 
 def is_owner_session(session) -> bool:
@@ -3962,6 +3965,14 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request()):
             return
+        from . import google_ledger_page
+        if google_ledger_page.owns_route(parsed.path):
+            is_owner, viewer = google_ledger_page.caller(
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
+                _active_role)
+            if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
+                                           csrf=CSRF_TOKEN, query=query):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
@@ -4222,6 +4233,15 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request()):
             return
+        from . import google_ledger_page
+        if google_ledger_page.owns_route(parsed.path):
+            resolve_role(self.headers, self._cookies())
+            is_owner, viewer = google_ledger_page.caller(
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
+                _active_role)
+            if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
+                                           raw=raw, csrf=CSRF_TOKEN):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
