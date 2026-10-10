@@ -56,11 +56,21 @@ def test_the_original_cells_are_kept_beside_the_normalized_values():
     assert parsed.rows[0].raw["c7"] == "합성편의점"
 
 
-def test_an_approval_file_is_refused_with_a_clear_reason():
-    with pytest.raises(ParseError) as caught:
-        parse_card_file((DATA / "kb-approval-synthetic.xls").read_bytes(), "kb-approval.xls", use_cache=False)
-    assert caught.value.code == "APPROVAL_FILE_NOT_ACQUIRED"
-    assert "매입" in caught.value.message
+def test_an_approval_file_is_stored_as_evidence_not_a_transaction():
+    from app import source_links
+    import sqlite3
+    pipe = Pipeline(sqlite3.connect(":memory:", isolation_level=None))
+    received = pipe.receive((DATA / "kb-approval-synthetic.xls").read_bytes(), "kb-approval.xls")
+    assert received["channel"] == "approval"
+    assert received["inserted"] == 0
+    assert pipe.store.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+    assert pipe.store.conn.execute("SELECT COUNT(*) FROM approval_evidence").fetchone()[0] > 0
+    summary = source_links.audit(pipe.store.conn)
+    assert summary["approvals"] > 0
+    # 같은 승인 파일을 다시 올려도 증거가 늘지 않는다.
+    again = pipe.receive((DATA / "kb-approval-synthetic.xls").read_bytes(), "kb-approval.xls")
+    assert again["reused"] is True
+    assert pipe.store.conn.execute("SELECT COUNT(*) FROM approval_evidence").fetchone()[0] == summary["approvals"]
 
 
 def test_a_missing_xls_reader_is_reported_not_guessed(monkeypatch):
