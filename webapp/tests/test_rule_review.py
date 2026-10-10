@@ -177,6 +177,9 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             page.click('#rule-approve')
             page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
+            # Re-query: a fresh load of the page shows the saved item, not just the in-page state.
+            page.reload()
+            page.locator('#preview').get_by_text('현지잡비').first.wait_for()
             items = self.items()
             self.assertEqual(items[chosen], '현지잡비')
             self.assertEqual(items[self.tx[0]], '')  # the other merchant's row is untouched
