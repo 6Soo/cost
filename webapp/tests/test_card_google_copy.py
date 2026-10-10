@@ -66,12 +66,18 @@ class CardGoogleCopyTests(unittest.TestCase):
         self.assertEqual(body['row_count'], 1)
 
     def test_browser_copies_the_exact_tsv_and_warns_on_a_second_copy(self):
+        self._copy_flow(390, 844)
+
+    def test_browser_desktop_1440_copies_the_exact_tsv(self):
+        self._copy_flow(1440, 900)
+
+    def _copy_flow(self, width, height):
         trip = self.make_trip()
         batch = self.assign(trip=trip)
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
-                                          viewport={'width': 390, 'height': 844})
+                                          viewport={'width': width, 'height': height})
             page = context.new_page()
             dialogs = []
             page.on('dialog', lambda d: (dialogs.append(d.message), d.accept()))
