@@ -129,3 +129,10 @@ def test_proposal_ids_do_not_repeat_across_restarts():
     importlib.reload(rp)
     second = rp.propose("이 건만 식비로 분류해 줘", rows=[row("t1")], focus=FOCUS)["id"]
     assert first != second and first.startswith("p-") and second.startswith("p-")
+
+
+def test_rows_already_holding_the_item_get_no_second_decision():
+    from app.rule_proposals import decision_payloads
+    rows = [row("t1", item="식비")]
+    proposal = propose("이 건만 식비로 분류해 줘", rows=rows, focus=FOCUS)
+    assert decision_payloads(proposal, rows) == []

@@ -118,6 +118,8 @@ def decision_payloads(proposal: dict, rows: list[dict]) -> list[dict]:
         row = by_id.get(change["transaction_id"])
         if row is None or row.get("user_confirmed") or change.get("exclude"):
             continue
+        if row.get("item") == change["after_item"]:
+            continue  # already has this item; a second decision would only add a revision
         payloads.append({
             "transaction_id": change["transaction_id"],
             "revision": row.get("revision"),
