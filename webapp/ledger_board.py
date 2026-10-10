@@ -3952,9 +3952,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
         from . import google_ledger_page
         if google_ledger_page.owns_route(parsed.path):
-            session = getattr(_ROLE_LOCAL, "session", None)
-            if google_ledger_page.dispatch(self, parsed, is_owner=_ROLE_LOCAL.role == "owner",
-                                           viewer_user_id=session.user_id if session else None,
+            is_owner, viewer = google_ledger_page.caller(
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session)
+            if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
                                            csrf=CSRF_TOKEN):
                 return
         from . import card_flow
@@ -4210,9 +4210,9 @@ class Handler(BaseHTTPRequestHandler):
         from . import google_ledger_page
         if google_ledger_page.owns_route(parsed.path):
             resolve_role(self.headers, self._cookies())
-            session = getattr(_ROLE_LOCAL, "session", None)
-            if google_ledger_page.dispatch(self, parsed, is_owner=_ROLE_LOCAL.role == "owner",
-                                           viewer_user_id=session.user_id if session else None,
+            is_owner, viewer = google_ledger_page.caller(
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session)
+            if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
                                            raw=raw, csrf=CSRF_TOKEN):
                 return
         from . import card_flow

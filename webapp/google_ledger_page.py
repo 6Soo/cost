@@ -132,6 +132,13 @@ def render_html(payload: dict) -> str:
         f"<tbody>{''.join(rows)}</tbody></table></body></html>")
 
 
+def caller(enforced: bool, session, is_owner_of) -> tuple[bool, str | None]:
+    """Fail closed. Owner needs enforcement on and a confirmed owner session; otherwise nobody gets in."""
+    if not enforced or session is None:
+        return False, None
+    return bool(is_owner_of(session)), session.user_id
+
+
 def grants_path(snapshot_path: Path) -> Path:
     return snapshot_path.with_name("google-viewer-grants.json")
 

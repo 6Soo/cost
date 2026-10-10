@@ -191,3 +191,25 @@ def test_invalid_grant_body_is_400_not_500(snapshot_file):
     page.dispatch(bad, parsed("/api/google-ledger/grants"), is_owner=True,
                   raw=json.dumps({"user_id": "", "keys": "x", "granted": True}).encode(), csrf="tok")
     assert bad.sent[0][:2] == ("json", 400)
+
+
+class _Session:
+    def __init__(self, user_id):
+        self.user_id = user_id
+
+
+def test_enforcement_off_never_grants_owner_even_with_a_session():
+    assert page.caller(False, _Session("boss"), lambda s: True) == (False, None)
+
+
+def test_anonymous_request_is_not_owner_when_enforced(snapshot_file):
+    assert page.caller(True, None, lambda s: True) == (False, None)
+    handler = FakeHandler()
+    is_owner, viewer = page.caller(True, None, lambda s: True)
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer)
+    assert handler.sent[0][:2] == ("json", 403)
+
+
+def test_confirmed_owner_session_is_owner_and_viewer_session_is_viewer():
+    assert page.caller(True, _Session("boss"), lambda s: s.user_id == "boss") == (True, "boss")
+    assert page.caller(True, _Session("v1"), lambda s: False) == (False, "v1")
