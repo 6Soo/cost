@@ -133,24 +133,34 @@ def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dic
     return data
 
 
-def _trip_for_owner(trip: dict, choices: dict) -> dict:
-    """Applies the owner's copy choice only where both books hold the trip."""
+# A copy choice never lifts these. They say the figures may be stale or the trip identity is uncertain.
+OWNER_CHOICE_BLOCKERS = {"SOURCE_STALE", "POSSIBLE_DUPLICATE", "DUPLICATE_IN_SOURCE", "COPY_NAME"}
+
+
+def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
+    """Applies the owner's copy choice. A choice selects which copy's figures count; it never clears a block."""
     chosen = choices.get(trip["key"])
     copies = trip.get("copies") or {}
-    if chosen and copies.get("main") and copies.get("archive") and chosen in copies:
-        copy = copies[chosen]
-        verified = copy["layout"] == "rev" and copy["income"]["verified"] and copy["expense"]["verified"]
-        if verified:
-            income, expense = copy["income"]["total"], copy["expense"]["total"]
-            return {**trip, "chosen_source": chosen, "income_total": income, "expense_total": expense,
-                    "net": income - expense, "verified": True}
+    if not chosen or not (copies.get("main") and copies.get("archive")) or chosen not in copies:
+        return {**trip, "chosen_source": trip["canonical_source"]}
+    copy = copies[chosen]
+    blockers = set(trip["review"]) & OWNER_CHOICE_BLOCKERS
+    if any(src.get("status") != "ok" or src.get("stale") for src in sources.values()):
+        blockers.add("SOURCE_NOT_CURRENT")
+    if not trip.get("closure_current"):
+        blockers.add("CLOSURE_NOT_CURRENT")
+    if copy["layout"] != "rev" or not (copy["income"]["verified"] and copy["expense"]["verified"]):
+        blockers.add("COPY_NOT_VERIFIED")
+    if blockers:
         return {**trip, "chosen_source": chosen, "income_total": None, "expense_total": None, "net": None,
-                "verified": False}
-    return {**trip, "chosen_source": trip["canonical_source"]}
+                "verified": False, "blocked_by": sorted(blockers)}
+    income, expense = copy["income"]["total"], copy["expense"]["total"]
+    return {**trip, "chosen_source": chosen, "income_total": income, "expense_total": expense,
+            "net": income - expense, "verified": True, "blocked_by": []}
 
 
 def owner_payload(snapshot: dict, choices: dict) -> dict:
-    trips = [_trip_for_owner(t, choices.get("choices", {})) for t in snapshot["trips"]]
+    trips = [_trip_for_owner(t, choices.get("choices", {}), snapshot["sources"]) for t in snapshot["trips"]]
     return {"synced_at": snapshot.get("synced_at"),
             "sources": {role: {k: src.get(k) for k in ("status", "error_code", "stale", "last_ok_at", "checked_at")}
                         for role, src in snapshot["sources"].items()},

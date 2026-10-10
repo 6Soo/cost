@@ -127,7 +127,9 @@ def test_chosen_archive_copy_drives_figures_only_when_verified(snapshot_file):
     handler = FakeHandler()
     page.dispatch(handler, parsed("/api/google-ledger"), is_owner=True)
     trip = next(t for t in handler.sent[0][2]["trips"] if t["key"] == "0404_에히메")
-    assert trip["chosen_source"] == "archive" and trip["net"] == 600
+    # The fixture's archive sync is in error, so the choice selects a copy but cannot lift the block.
+    assert trip["chosen_source"] == "archive" and trip["net"] is None
+    assert "SOURCE_NOT_CURRENT" in trip["blocked_by"]
 
 
 def test_non_owner_cannot_change_choice(snapshot_file):
@@ -335,3 +337,55 @@ def test_income_detail_and_expense_detail_show_their_own_columns(snapshot_file):
     body = handler.sent[0][2]
     assert "<th>이름</th><th>닉네임</th><th>예약금</th>" in body
     assert "<th>지급처</th><th>분류</th><th>기간</th><th>예약번호</th><th>증빙</th>" in body
+
+
+def _clean_trip(**over):
+    base = {"key": "0404_에히메", "closure": "closed", "closure_current": True, "canonical_source": "main",
+            "income_total": 1000, "expense_total": 400, "net": 600, "verified": True, "review": ["DUPLICATE_IN_BOTH"],
+            "copies": {"main": copy("0404_에히메", 1000, 400), "archive": copy("0404_에히메", 900, 300)}}
+    base.update(over)
+    return base
+
+
+def _clean_sources(**over):
+    ok = {"status": "ok", "stale": False, "last_ok_at": "t", "checked_at": "t"}
+    sources = {"main": dict(ok), "archive": dict(ok)}
+    sources.update(over)
+    return sources
+
+
+def _chosen(trip, sources, choice="archive"):
+    snapshot = {"synced_at": "t", "sources": sources, "trips": [trip]}
+    return page.owner_payload(snapshot, {"choices": {trip["key"]: choice}, "history": []})["trips"][0]
+
+
+def test_clean_archive_choice_counts_the_archive_figures():
+    trip = _chosen(_clean_trip(), _clean_sources())
+    assert trip["verified"] is True and trip["net"] == 600 and trip["blocked_by"] == []
+
+
+def test_a_stale_source_keeps_the_block_even_when_the_archive_copy_is_chosen():
+    stale_main = _clean_sources(main={"status": "error", "stale": True, "last_ok_at": "t", "checked_at": "t"})
+    trip = _chosen(_clean_trip(review=["DUPLICATE_IN_BOTH", "SOURCE_STALE"]), stale_main)
+    assert trip["verified"] is False and trip["net"] is None
+    assert "SOURCE_NOT_CURRENT" in trip["blocked_by"]
+
+
+def test_a_stale_archive_sync_blocks_the_archive_choice():
+    stale_archive = _clean_sources(archive={"status": "error", "stale": True, "last_ok_at": "t", "checked_at": "t"})
+    trip = _chosen(_clean_trip(), stale_archive)
+    assert trip["verified"] is False and "SOURCE_NOT_CURRENT" in trip["blocked_by"]
+
+
+def test_identity_uncertainty_is_not_lifted_by_a_manual_choice():
+    for flag in ("POSSIBLE_DUPLICATE", "COPY_NAME", "DUPLICATE_IN_SOURCE"):
+        trip = _chosen(_clean_trip(review=["DUPLICATE_IN_BOTH", flag]), _clean_sources())
+        assert trip["verified"] is False, flag
+        assert flag in trip["blocked_by"], flag
+
+
+def test_closure_that_is_not_current_or_an_unverified_copy_blocks_the_choice():
+    assert "CLOSURE_NOT_CURRENT" in _chosen(_clean_trip(closure_current=False), _clean_sources())["blocked_by"]
+    unverified = _clean_trip(copies={"main": copy("0404_에히메", 1000, 400),
+                                     "archive": copy("0404_에히메", 900, 300, verified=False)})
+    assert "COPY_NOT_VERIFIED" in _chosen(unverified, _clean_sources())["blocked_by"]
