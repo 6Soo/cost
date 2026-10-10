@@ -26,11 +26,12 @@
 ### 구현 (2026-10-10)
 
 - **탑승자·구간 근거**: 서명 검증된 Trip.com 항공 메일 본문에서 `성 (성) 이름 (이름)` 탑승자와 `가는편/오는편` 구간(날짜·공항·편명)을 예약번호별로 모은다(`app/flight_evidence.py`). 인사말의 이름은 예약자이며 탑승자로 쓰지 않는다. 연도가 없는 결제 완료 안내만 있으면 연도를 추정하지 않고 일정 불완전으로 둔다.
-- **대장 신원**: 신뢰하는 출처(`manual`, `owner_profile`)의 여행 담당자와 소유자 프로필 담당자만 대장 신원이 된다(`app/guide_identity.py`). 메일의 영문 탑승자 이름은 한글 이름에서 변환하지 않는다. 운영자가 `guide-identities.json`(`WEBLEDGER_GUIDE_IDENTITIES`로 경로 변경 가능)에 영문 표기를 명시 등록해야 일치로 인정한다. 파일이 없으면 영문 탑승자는 전부 신원 미확인으로 HOLD다. 성만 같거나 일부만 같거나 띄어쓰기만 다른 이름은 일치로 보지 않는다.
+- **대장 신원**: 대장·가이드 신원과 담당 여행의 authority는 reservation(`6Soo/reservation`)이다. COST는 reservation 내부 API(`/api/internal/guides`, `/api/internal/tours?include_past=1`)를 읽기 전용으로 소비한다(`app/reservation_authority.py`). active 대장의 항공권 영문명(`flight_name_en`)과 실명이 메일 탑승자와 정확히 일치할 때만 대장이다. 영문명이 없는 대장이 있으면 영문 탑승자는 UNKNOWN이며 한글 이름에서 철자를 추정하지 않는다. COST의 `trip_tabs.prepared_by_name`, `owner_profile.assignee_name`, `guide-identities.json`은 신원 authority가 아니다(코드는 deprecated). 성만 같거나 일부만 같거나 띄어쓰기만 다른 이름은 일치로 보지 않는다.
 - **귀속 판단**: 공항·지역 대응표(`config/guide-airfare-airports.json`)에 있는 공항만 여행지와 대조한다. 관문 공항처럼 근거가 약한 공항은 의도적으로 넣지 않았고, 표에 없으면 HOLD다. 구간별로 사전 출국·귀국·여행 사이 이동·중도 합류·조기 이탈을 판정하고, 모든 구간이 같은 여행 하나로 설명될 때만 귀속한다(`app/guide_airfare.py`). 일정 간격 한도(`max_gap_days`)는 설정이다.
-- **연결**: 판정은 OTA 스냅샷 워커에서 계산되고 스냅샷 결과에는 이름 없이 판정·여행·근거 해시만 남는다. 카드 분류는 신선한 스냅샷의 `ATTRIBUTED` 판정만 `guide_airfare_evidence` 소스의 추론 규칙으로 읽는다. 사용자 확정 거래와 환불은 건드리지 않는다. 담당자·여행 일정 권위·메일 근거·파서·공항 대응표·별칭 파일이 바뀌면 스냅샷 입력 지문이 바뀌어 기존 미리보기는 STALE로 거부된다.
+- **연결**: 판정은 OTA 스냅샷 워커에서 계산되고 스냅샷 결과에는 이름 없이 판정·여행·근거 해시만 남는다. 카드 분류는 신선한 스냅샷의 `ATTRIBUTED` 판정만 `guide_airfare_evidence` 소스의 추론 규칙으로 읽는다. 사용자 확정 거래와 환불은 건드리지 않는다. reservation의 대장·여행 자료(영문명·상태·담당 대장·날짜), COST 여행 일정 권위, 메일 근거, 파서, 공항 대응표가 바뀌면 스냅샷 입력 지문이 바뀌어 기존 미리보기는 STALE로 거부된다.
+- **여행 브리지**: reservation 여행과 COST 회계 여행은 제목·목적지·날짜만으로 연결하지 않는다. reservation `cafe_fldid`가 COST reserve 등록(`reserve:{fldid}:{연도}`)과 같고 시작·종료일이 정확히 같거나, 정확한 trip code와 정확한 날짜가 같을 때만 후보이며 결과가 유일해야 한다. 날짜 불일치·키 충돌·한쪽만 있는 여행은 `HOLD_RESERVATION_TRIP_AUTHORITY_MISMATCH`, COST에서 수동 지정된 담당자가 reservation과 다르면 `HOLD_GUIDE_ASSIGNMENT_CONFLICT`, reservation을 읽지 못하면 `HOLD_GUIDE_AUTHORITY_UNAVAILABLE`다. 여행 일정의 회계상 authority는 계속 COST다.
 - **혼합 탑승**: 대장 외 탑승자가 섞이고 원문에서 인별 운임이 분리돼 확인되지 않으면 `HOLD_MIXED_PASSENGERS`다. 인별 운임이 확인돼도 카드 한 건 전체를 장부 한 행으로 쓰므로 자동 기록하지 않고 `HOLD_GUIDE_PORTION_ONLY`로 둔다.
-- **운영 적용 결과(2026-10-10)**: 이 규칙은 삿포로 전용도 직전 여행 전용도 아니다. 현재 `a77c71ff`와 `cb9f03e7`은 메일의 탑승자 2명 모두 대장 신원과 일치하지 않아(예약자 이름은 탑승자가 아니다) 어느 여행에도 귀속하지 않고 HOLD다. 대장 영문 표기 별칭이 등록돼 있지 않으면 영문 탑승자 전체가 신원 미확인 HOLD가 된다.
+- **운영 적용 결과(2026-10-10)**: 이 규칙은 삿포로 전용도 직전 여행 전용도 아니다. reservation authority 기준 재판정에서 대장 13명 중 항공권 영문명이 등록된 대장이 0명이라 매칭된 항공료 27건 모두 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`다. `a77c71ff`·`cb9f03e7`도 마찬가지로 HOLD이며 어느 여행에도 귀속하지 않았다. 대장 영문명은 reservation 관리자 화면 `대장 관리`에서 한 번 등록하면 다음 스냅샷에서 자동 재평가된다.
 
 ## 2026-10-08 일정 정리와 원본 확인
 
