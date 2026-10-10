@@ -1,7 +1,6 @@
 """Single-run lock and failure backoff for the Google authority sync. Never schedules anything itself.
 
-The lock file keeps two runs from reading and writing the same snapshot at once. A lock older
-than STALE_AFTER is taken over, because a run that died leaves its lock behind. The state file
+The lock is an OS file lock, so two runs cannot hold it at once and a dead run releases it. The state file
 records the last success, the last error code and the next time a retry is allowed, so repeated
 failures wait longer instead of hammering Google every hour.
 """
@@ -13,7 +12,6 @@ import json
 import os
 from pathlib import Path
 
-STALE_AFTER = dt.timedelta(minutes=30)
 BACKOFF_BASE = dt.timedelta(minutes=5)
 BACKOFF_CAP = dt.timedelta(hours=1)
 
@@ -22,28 +20,59 @@ class LockHeld(Exception):
     pass
 
 
+def _try_lock(handle) -> None:
+    """OS file lock. The OS drops it when the process dies, so nothing has to be taken over by time."""
+    if os.name == "nt":
+        import msvcrt
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _unlock(handle) -> None:
+    if os.name == "nt":
+        import msvcrt
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 class SyncLock:
+    """Held for the life of the with-block. A live run is never taken over, and release never deletes the file."""
+
     def __init__(self, path: Path, *, now: dt.datetime):
         self.path = path
         self.now = now
+        self._handle = None
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists():
-            started = dt.datetime.fromisoformat(json.loads(self.path.read_text(encoding="utf-8"))["started_at"])
-            if self.now - started < STALE_AFTER:
-                raise LockHeld("SYNC_ALREADY_RUNNING")
-            self.path.unlink()
-        fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump({"started_at": self.now.isoformat(), "pid": os.getpid()}, handle)
+        handle = open(self.path, "a+", encoding="utf-8")
+        try:
+            _try_lock(handle)
+        except OSError:
+            handle.close()
+            raise LockHeld("SYNC_ALREADY_RUNNING") from None
+        handle.seek(0)
+        handle.truncate()
+        handle.write(json.dumps({"started_at": self.now.isoformat(), "pid": os.getpid()}))
+        handle.flush()
+        self._handle = handle
         return self
 
     def __exit__(self, *exc):
         try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
+            self._handle.seek(0)
+            self._handle.truncate()
+            self._handle.flush()
+            _unlock(self._handle)
+        finally:
+            self._handle.close()
+            self._handle = None
         return False
 
 

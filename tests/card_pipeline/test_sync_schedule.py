@@ -15,17 +15,32 @@ def test_second_run_is_refused_while_the_first_holds_the_lock(tmp_path: Path):
         with pytest.raises(ss.LockHeld, match="SYNC_ALREADY_RUNNING"):
             with ss.SyncLock(lock_path, now=T0 + dt.timedelta(minutes=1)):
                 pass
-    assert not lock_path.exists()
+    with ss.SyncLock(lock_path, now=T0 + dt.timedelta(minutes=2)):
+        pass  # released after the first run, so a later run gets it
 
 
-def test_stale_lock_from_a_dead_run_is_taken_over(tmp_path: Path):
+def test_old_timestamp_does_not_let_a_second_run_take_over_a_live_lock(tmp_path: Path):
+    lock_path = tmp_path / "sync.lock"
+    with ss.SyncLock(lock_path, now=T0):
+        with pytest.raises(ss.LockHeld):
+            with ss.SyncLock(lock_path, now=T0 + dt.timedelta(days=2)):
+                pass
+
+
+def test_release_keeps_the_lock_file_and_a_later_run_can_take_it(tmp_path: Path):
     lock_path = tmp_path / "sync.lock"
     with ss.SyncLock(lock_path, now=T0):
         pass
+    assert lock_path.exists()
+    with ss.SyncLock(lock_path, now=T0 + dt.timedelta(hours=1)):
+        pass
+
+
+def test_a_leftover_file_with_no_holder_does_not_block(tmp_path: Path):
+    lock_path = tmp_path / "sync.lock"
     lock_path.write_text('{"started_at": "%s", "pid": 1}' % T0.isoformat(), encoding="utf-8")
-    with ss.SyncLock(lock_path, now=T0 + ss.STALE_AFTER + dt.timedelta(seconds=1)):
-        assert lock_path.exists()
-    assert not lock_path.exists()
+    with ss.SyncLock(lock_path, now=T0 + dt.timedelta(minutes=1)):
+        pass
 
 
 def test_lock_is_released_even_when_the_run_fails(tmp_path: Path):
@@ -33,7 +48,8 @@ def test_lock_is_released_even_when_the_run_fails(tmp_path: Path):
     with pytest.raises(RuntimeError):
         with ss.SyncLock(lock_path, now=T0):
             raise RuntimeError("boom")
-    assert not lock_path.exists()
+    with ss.SyncLock(lock_path, now=T0):
+        pass  # released despite the failure
 
 
 def test_failures_back_off_exponentially_and_cap(tmp_path: Path):
@@ -88,3 +104,28 @@ def test_cli_refuses_while_backing_off_and_does_not_read_google(tmp_path: Path, 
                      error_code="SOURCE_UNREACHABLE")
     monkeypatch.setattr(cli.google_authority, "sync", lambda *a, **k: pytest.fail("must not read Google"))
     assert cli.main(["--snapshot", str(snapshot), "--rows", str(tmp_path / "rows.json")]) == 3
+
+
+def test_a_separate_live_process_keeps_the_lock(tmp_path: Path):
+    import subprocess
+    import sys
+    lock_path = tmp_path / "sync.lock"
+    repo = Path(__file__).resolve().parents[2]
+    script = (
+        "import sys, time, datetime as dt\n"
+        f"sys.path.insert(0, {str(repo)!r})\n"
+        "from app.sync_schedule import SyncLock\n"
+        f"with SyncLock({str(lock_path)!r}, now=dt.datetime.now(dt.timezone.utc)):\n"
+        "    print('held', flush=True)\n"
+        "    time.sleep(4)\n"
+    )
+    holder = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(ss.LockHeld):
+            with ss.SyncLock(lock_path, now=T0 + dt.timedelta(days=1)):
+                pass
+    finally:
+        holder.wait(timeout=30)
+    with ss.SyncLock(lock_path, now=T0):
+        pass  # the holder exited, so the lock is free again
