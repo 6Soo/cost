@@ -832,10 +832,12 @@ class CardFlow:
             return self._ota_group_holds_cache
         backend = ota_payment_review.CoreOtaPaymentBackend.from_host(self.board, read_only=True)
         try:
-            _events, _transactions, _links, results = backend._data()
+            # Read the reconciled snapshot only; a full reconciliation never runs on a preview.
+            current, fresh = ota_payment_review.snapshot_service(self.board).held()
+            results = current["results"] if current is not None else []
             holds = {}
             for result in results:
-                for transaction_id in result.get("reserved_card_ids", ()):
+                for transaction_id in result.get("reserved_card_ids") or ():
                     hold = holds.setdefault(str(transaction_id), {
                         "kind":"ota_group_review",
                         "reason":"OTA repeated payment group is partial or contested",
@@ -849,11 +851,17 @@ class CardFlow:
                         "reason":"OTA frozen group remains reserved until explicit reallocation",
                         "ota_event_ids":[]})
                     hold["ota_event_ids"].extend(event_ids)
-            if ota_payment_review.authority():
-                # Unresolved means HOLD: an OTA card row without a settled OTA-first link is not booked.
-                settled = {str(r.get("transaction_id")) for r in results
-                           if r.get("transaction_id") and r.get("status") in ("MATCHED_AUTO", "MATCHED_USER")}
-                for card in _transactions:
+            if current is None or ota_payment_review.authority():
+                # Unresolved means HOLD. With no reconciled snapshot nothing is settled; with a stale one only
+                # the held links (manual and exact) stay settled, so no new automatic link can be booked.
+                if current is None:
+                    settled = set()
+                elif fresh:
+                    settled = {str(r.get("transaction_id")) for r in results
+                               if r.get("transaction_id") and r.get("status") in ("MATCHED_AUTO", "MATCHED_USER")}
+                else:
+                    settled = {str(transaction_id) for transaction_id in current["links"].values() if transaction_id}
+                for card in backend._transactions():
                     identity = str(card.get("transaction_id") or "")
                     if identity and identity not in settled and identity not in holds and _is_ota_row(card):
                         holds[identity] = {"kind":"ota_authority_unresolved",

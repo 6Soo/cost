@@ -42,6 +42,16 @@ class ApplyOtaReviewTests(unittest.TestCase):
         with self.assertRaises(launcher._Refused):
             launcher.apply_ota_review({'ota_review': {'mode': 'isolated', 'review_db': 'relative.sqlite'}})
 
+    def test_missing_db_path_is_refused(self):
+        with self.assertRaises(launcher._Refused):
+            launcher.apply_ota_review({'ota_review': {'mode': 'isolated'}})
+
+    def test_unrelated_settings_are_left_alone(self):
+        with patch.dict(os.environ, {'WEBLEDGER_TRIP_AUTHORITY': 'trip.json', 'WEBLEDGER_REVIEW_FROM': '2026-04-01'}):
+            launcher.apply_ota_review({'ota_review': {'mode': 'authority', 'review_db': self.db}})
+            self.assertEqual(os.environ['WEBLEDGER_TRIP_AUTHORITY'], 'trip.json')
+            self.assertEqual(os.environ['WEBLEDGER_REVIEW_FROM'], '2026-04-01')
+
     def test_unknown_mode_is_refused(self):
         with self.assertRaises(launcher._Refused):
             launcher.apply_ota_review({'ota_review': {'mode': 'shadow', 'review_db': self.db}})
