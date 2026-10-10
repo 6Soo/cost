@@ -3,7 +3,7 @@
 > 상태: **사용자와 대화에서 확정된 업무 원칙 + 구현 전 확인이 필요한 항목을 구분한 목표 명세 초안**  
 > 기록일: 2026-10-11 (KST)  
 > 범위: COST 후속 제품 설계. **현재 운영 동작을 변경하거나 현재 코드가 이미 이 명세를 충족한다고 선언하는 문서가 아니다.**  
-> 현재 운영 사실: [operations.md](operations.md), [session_handoff.md](session_handoff.md), [architecture.md](architecture.md). 현재 카드 업무 규칙: [business_rules.md](business_rules.md), [card_downloads.md](card_downloads.md). **실제 Google 두 장부와 시트 구조 관측:** [google-workbook-layout.md](google-workbook-layout.md).
+> 현재 운영 사실: [operations.md](operations.md), [session_handoff.md](session_handoff.md), [architecture.md](architecture.md). 현재 카드 업무 규칙: [business_rules.md](business_rules.md), [card_downloads.md](card_downloads.md). **실제 Google 두 장부와 시트 구조 관측:** [google-workbook-layout.md](google-workbook-layout.md). **계정별 열람과 데모:** [access-and-top3-demo.md](access-and-top3-demo.md).
 
 ## 1. 제품 목적과 최종 권위 — 확정
 
@@ -135,7 +135,8 @@ COST의 주목적은 **법인카드 지출 및 현지 영수증을 자동 추출
 ### 웹장부의 두 화면/상태를 섞지 않는다
 
 1. **지출 작성·검토 작업 공간:** 아직 Google에 붙여넣지 않았거나 붙여넣기 확인 전인 카드·영수증 후보; AI 규칙 수정 가능.
-2. **최종 장부/제3자 조회:** **Google에 실제 존재하는 수입·이체·카드·영수증 지출**과 그 여행별 결산만 표시. 제3자 권한의 범위는 확인 후 결정.
+2. **최종 장부/권한별 조회:** **Google에 실제 존재하는 수입·이체·카드·영수증 지출**과 결산을 표시하되, **기본은 owner 본인만 전체 열람**, owner가 승인한 계정은 **계정별 허용 여행만 읽기 전용**으로 제공한다.
+3. **데모 전용 조회:** **Google 확정 회사수익 금액 상위 여행 3건**을 선별하여 이름·닉네임 등 개인정보를 서버에서 제거한 결과만 보여 준다. 수입·지출·수익 금액은 실제 정본 값 사용을 목표로 한다. 공개 범위와 비로그인 접근·선정 갱신 정책은 별도 확인 전까지 미확정이며 실제 데이터 공개는 금지한다. 세부 명세는 [접근제어·데모 정책](access-and-top3-demo.md)을 따른다.
 
 예상 손익 계산에 아직 Google에 없는 미반영 지출을 포함한다면 **예상**이라고 별도 명시한다. 확정 순수익과 섞지 않는다.
 
@@ -183,7 +184,7 @@ Q4. **일본 영수증 세부 사항**: 대부분 JPY 영수증이지만 다른 
 
 Q5. **로컬 AI 구현체**: 응답 가능한 로컬 PC AI가 실제 온디바이스 추론인가, 로컬 PC의 Paseo/OpenCode·Codex와 연결된 클라우드 모델인가? 외부 모델에 허용하는 데이터/로그 범위 및 오프라인 시 대기 정책을 확정한다.
 
-Q6. **제3자 조회 권한**: 대장/가이드/고객 등 어떤 역할에 어떤 여행과 수입·지출·수익 상세를 공개할 것인가? 현재 Google 비공개 정보를 그대로 공개하지 않는다.
+Q6. **권한·데모 — 사용자 원칙 확정(2026-10-11)**: 전체 장부 기본 열람은 owner 본인만, 별도 계정에는 owner가 **계정별로 여행 조회 권한을 부여**한다. 데모는 Google **수익금액 상위 실제 여행 3건**에 대해 성명·닉네임 등 개인정보만 식별 불가능하게 가리고 실제 회계 금액을 보여 준다. **비로그인 공개 여부, 상위 3건 자동 재선정/고정, 마감 여행만 선별할지**는 아직 확인해야 한다. [자세한 요구와 개인정보 검증 경계](access-and-top3-demo.md)를 따른다.
 
 Q7. **마감 동기화**: 매시 정각 읽기 외 마감 직후 수동 새로고침을 허용할지, 마감 확정의 주체와 마감 후 수정을 어떻게 표시할지.
 
