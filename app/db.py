@@ -140,6 +140,41 @@ CREATE TABLE IF NOT EXISTS requests (
     created_at TEXT NOT NULL
 );
 
+-- 승인내역은 거래 발생의 증거일 뿐 회계 금액이 아니다. transactions(매입 정본)에 넣지 않고 따로 둔다.
+CREATE TABLE IF NOT EXISTS approval_evidence (
+    approval_key TEXT PRIMARY KEY,
+    source_hash TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    row_index INTEGER NOT NULL,
+    issuer TEXT NOT NULL,
+    card_tail TEXT NOT NULL,
+    card_kind TEXT NOT NULL,
+    transaction_direction TEXT NOT NULL,
+    approval_number TEXT NOT NULL,
+    approval_date TEXT NOT NULL,
+    approval_time TEXT NOT NULL DEFAULT '',
+    merchant TEXT NOT NULL,
+    amount_krw INTEGER,
+    foreign_amount TEXT NOT NULL DEFAULT '',
+    foreign_currency TEXT NOT NULL DEFAULT '',
+    approval_method TEXT NOT NULL DEFAULT '',
+    raw_row_json TEXT NOT NULL,
+    conflict_reason TEXT NOT NULL DEFAULT '',
+    link_state TEXT NOT NULL DEFAULT 'unreconciled',
+    linked_transaction_id TEXT,
+    link_group TEXT NOT NULL DEFAULT '',
+    link_note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS approval_batch_rows (
+    batch_id TEXT NOT NULL,
+    approval_key TEXT NOT NULL,
+    row_index INTEGER NOT NULL,
+    PRIMARY KEY(batch_id, approval_key, row_index)
+);
+
+CREATE INDEX IF NOT EXISTS approval_evidence_card ON approval_evidence(card_tail, approval_date);
 CREATE INDEX IF NOT EXISTS transactions_batch ON transactions(batch_id);
 CREATE INDEX IF NOT EXISTS transactions_source_hash ON transactions(source_hash);
 CREATE INDEX IF NOT EXISTS transactions_state ON transactions(classification_state);

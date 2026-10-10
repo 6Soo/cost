@@ -148,6 +148,8 @@ class ParsedFile:
     headers: list = field(default_factory=list)
     rows: list = field(default_factory=list)
     issues: list = field(default_factory=list)
+    # approval | domestic_acquired | overseas_acquired | statement
+    channel: str = ""
 
     @property
     def ok_rows(self) -> list:
@@ -168,9 +170,18 @@ def read_cells(content: bytes) -> tuple[str, list[list]]:
 
 
 OLE2_MAGIC = bytes.fromhex("d0cf11e0a1b11ae1")
-# 카드사 매입 확정 파일에는 있고 승인(미확정) 파일에는 없는 열. 승인 파일은 같은 거래를 매입 파일과
-# 다른 이름으로 담아 장부에 중복을 만들 수 있어 받지 않는다.
+# 카드사 매입 확정 파일에는 있고 승인(미확정) 파일에는 없는 열. 이 열이 없고 승인방식이 있으면
+# 승인내역이다. 승인내역은 거래가 아니라 승인 증거로만 저장한다(`_parse_approval`).
 POSTING_HEADERS = ("매입일", "매입일자", "정산일")
+
+
+def _xls_value(cell):
+    """xlrd gives every number as a float. 5400.0 is written 5400, as the same sheet saved as CSV would."""
+    if cell == "":
+        return None
+    if isinstance(cell, float) and cell.is_integer() and abs(cell) < 1e15:
+        return int(cell)
+    return cell
 
 
 def _read_xls(content: bytes) -> list[list]:
@@ -186,15 +197,10 @@ def _read_xls(content: bytes) -> list[list]:
         raise ParseError("UNREADABLE_FILE", "XLS 파일을 열 수 없어요") from None
     try:
         sheet = book.sheet_by_index(0)
-        rows = [[None if cell == "" else cell for cell in sheet.row_values(index)]
+        rows = [[_xls_value(cell) for cell in sheet.row_values(index)]
                 for index in range(sheet.nrows)]
     finally:
         book.release_resources()
-    headers = {re.sub(r"\s+", "", str(v or "")) for row in rows[:20] for v in row}
-    if "승인방식" in headers and not headers.intersection(POSTING_HEADERS):
-        raise ParseError("APPROVAL_FILE_NOT_ACQUIRED",
-                         "승인내역 파일이에요. 매입 확정 전 자료라 중복 거래가 생길 수 있어 받지 않아요. "
-                         "국내 매입 또는 해외 매입 파일을 올려 주세요")
     return rows
 
 
@@ -410,6 +416,102 @@ def _normalize_row(row: ParsedRow, cells: list, header_map: dict | None,
         row.amount_krw = -abs(row.amount_krw)
 
 
+# ------------------------------------------------------------ approvals
+
+_APPROVAL_COLUMNS = {
+    "approval_date": ("승인일", "승인일자"),
+    "approval_time": ("승인시간",),
+    "card": ("카드번호",),
+    "merchant": ("가맹점명", "가맹점"),
+    "amount": ("승인금액",),
+    "scope": ("승인구분",),
+    "method": ("승인방식",),
+    "approval_number": ("승인번호",),
+    "status": ("상태",),
+}
+
+
+def _approval_header_row(cells: list[list]):
+    """Index of the header row when this sheet is an approval list, else None.
+
+    An approval list has `승인방식` and `승인번호` and no posting-date column.
+    """
+    for index, values in enumerate(cells[:20]):
+        names = {re.sub(r"\s+", "", str(v or "")) for v in values}
+        if ("승인방식" in names and "승인번호" in names and "승인일" in names
+                and not names.intersection(POSTING_HEADERS)):
+            return index
+    return None
+
+
+def _approval_amount(value) -> tuple[int | None, str, str]:
+    """(won, foreign amount, currency). `$12.30` and `-$4.00` are dollars, a plain number is won."""
+    if isinstance(value, (int, float)):
+        return int(round(value)), "", ""
+    text = str(value or "").strip()
+    match = re.fullmatch(r"(-?)\$\s*(-?)([\d,]+(?:\.\d+)?)", text)
+    if match:
+        sign = "-" if (match.group(1) or match.group(2)) else ""
+        number = match.group(3).replace(",", "")
+        return None, sign + number, "USD"
+    return to_amount_krw(text, "amount"), "", ""
+
+
+def _parse_approval(cells: list[list], header_index: int, fmt: str, filename: str) -> ParsedFile:
+    names = [_norm_header(v) for v in cells[header_index]]
+    column: dict[str, int] = {}
+    for key, aliases in _APPROVAL_COLUMNS.items():
+        for alias in aliases:
+            if _norm_header(alias) in names:
+                column[key] = names.index(_norm_header(alias))
+                break
+    missing = [k for k in ("approval_date", "card", "merchant", "amount", "approval_number", "status")
+               if k not in column]
+    if missing:
+        raise ParseError("UNKNOWN_FORMAT", "승인내역 열을 알아볼 수 없어요: " + ", ".join(missing))
+    rows: list[ParsedRow] = []
+    issues: list[dict] = []
+    for offset, values in enumerate(cells[header_index + 1:], start=header_index + 1):
+        if not any(str(c or "").strip() for c in values):
+            continue
+        def at(key):
+            index = column.get(key)
+            return values[index] if index is not None and index < len(values) else None
+        row = ParsedRow(row_index=offset + 1, source_row=list(values),
+                        raw={f"c{i}": (None if v is None else str(v)) for i, v in enumerate(values)})
+        row.issuer = "국민"
+        row.card_tail = _card_tail(at("card"))
+        row.card_kind = "해외" if str(at("scope") or "").startswith("해외") else "국내"
+        row.approval_date = to_date(at("approval_date"))
+        row.merchant = str(at("merchant") or "").strip()
+        row.approval_number, _ = _approval_parts(at("approval_number"))
+        status = str(at("status") or "").strip()
+        cancelled = "취소" in status
+        row.transaction_direction = "cancellation" if cancelled else "purchase"
+        row.transaction_kind = "승인취소" if cancelled else "승인"
+        row.description_raw = status
+        try:
+            won, foreign, currency = _approval_amount(at("amount"))
+            row.amount_krw = won
+            row.foreign_amount, row.foreign_currency = foreign, currency
+            if row.card_kind == "국내" and won is None:
+                row.parse_error = "amount_missing"
+        except AmountUnreadable as exc:
+            row.parse_error = str(exc)
+        if not (row.approval_number and row.approval_date and row.card_tail):
+            row.parse_error = row.parse_error or "approval_identity_missing"
+        if row.parse_error:
+            issues.append({"row_index": row.row_index, "error": row.parse_error})
+        rows.append(row)
+    time_index = column.get("approval_time")
+    for row in rows:
+        row.raw["_approval_time"] = str(row.source_row[time_index]) if time_index is not None             and time_index < len(row.source_row) and row.source_row[time_index] is not None else ""
+        method = column.get("method")
+        row.raw["_approval_method"] = str(row.source_row[method]) if method is not None             and method < len(row.source_row) and row.source_row[method] is not None else ""
+    return ParsedFile(filename=filename, parser=f"{fmt}:approval", headers=list(cells[header_index]),
+                      rows=rows, issues=issues, channel="approval")
+
+
 # -------------------------------------------------------------- entrypoint
 
 _CACHE: dict[str, ParsedFile] = {}
@@ -430,6 +532,12 @@ def parse_card_file(content: bytes, filename: str, *,
         if cached is not None:
             return cached
     fmt, cells = read_cells(content)
+    approval_header = _approval_header_row(cells)
+    if approval_header is not None:
+        parsed = _parse_approval(cells, approval_header, fmt, filename)
+        if use_cache:
+            _CACHE[digest] = parsed
+        return parsed
     kind = _detect_profile(cells)
     header_map = None
     profile = None
@@ -487,9 +595,11 @@ def parse_card_file(content: bytes, filename: str, *,
             issues.append({"row_index": row.row_index, "error": row.parse_error})
         rows.append(row)
 
+    channel = ("overseas_acquired" if kind == "foreign_headered"
+               else "domestic_acquired" if kind == "headered" else "statement")
     parsed = ParsedFile(filename=filename, parser=f"{fmt}:{kind}",
                         headers=list(cells[0]) if header_map is not None else [],
-                        rows=rows, issues=issues)
+                        rows=rows, issues=issues, channel=channel)
     if use_cache:
         _CACHE[digest] = parsed
     return parsed

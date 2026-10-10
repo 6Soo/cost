@@ -895,6 +895,7 @@ class CardFlow:
 
     def _state(self, batch_id):
         result = self.pipeline.get_batch(batch_id)
+        approval_batch = result['summary'].get('status') == 'approval_evidence'
         review_from = os.environ.get('WEBLEDGER_REVIEW_FROM','')
         result['rows'] = [r for r in result['rows'] if r['classification_state'] != 'preserved'
                           and (not review_from or not (r['approval_date'] or r['posting_date'])
@@ -905,6 +906,28 @@ class CardFlow:
         dates = sorted(r['approval_date'] or r['posting_date'] for r in result['rows'] if r['approval_date'] or r['posting_date'])
         result['summary'].update(batch_display_info((r['issuer'] for r in result['rows']),
                                                      dates[0] if dates else '', dates[-1] if dates else ''))
+        if approval_batch:
+            from collections import Counter
+            evidence_rows = self.board.conn.execute(
+                "SELECT e.link_state,e.conflict_reason,e.approval_date"
+                " FROM approval_batch_rows b JOIN approval_evidence e USING(approval_key)"
+                " WHERE b.batch_id=? ORDER BY b.row_index", (batch_id,)).fetchall()
+            states = Counter(row[0] for row in evidence_rows)
+            period = [row[2] for row in evidence_rows if row[2]]
+            result['summary'].update({
+                'channel': 'approval',
+                'display_name': '승인 증거 자료',
+                'row_count': len(evidence_rows),
+                'period_start': min(period) if period else '',
+                'period_end': max(period) if period else '',
+            })
+            result['approval_summary'] = {
+                'source_rows': len(evidence_rows),
+                'distinct_evidence': len({row[0] for row in self.board.conn.execute(
+                    "SELECT approval_key FROM approval_batch_rows WHERE batch_id=?", (batch_id,))}),
+                'conflict_rows': sum(bool(row[1]) for row in evidence_rows),
+                'states': dict(states),
+            }
         # 한 조회의 미리보기와 선택지는 같은 검증 결과를 쓴다. 다음 조회와 기록 시에는 다시 검증한다.
         trips=self.board.list_trips()
         available={t['tab_id']:self.trip_valid(t['tab_id']) for t in trips}
@@ -1236,7 +1259,7 @@ function answerForm(j,r){const hold=r.review_hold?'<p>'+esc(r.review_hold.reason
 let rules=[];
 function renderRules(list){rules=list;const term=el('rulefilter').value.toLowerCase(),matches=list.filter(r=>(r.conditions.merchant_normalized+' '+r.effects.item).toLowerCase().includes(term));el('rulelist').innerHTML='<p class="small">'+matches.length+'개 규칙 중 '+Math.min(40,matches.length)+'개 표시 · 검색으로 찾을 수 있습니다.</p>'+matches.slice(0,40).map(r=>'<p><button data-rule="'+rules.indexOf(r)+'">'+esc(r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized)+' → '+esc(r.effects.item)+' · 수정</button></p>').join('');document.querySelectorAll('[data-rule]').forEach(b=>b.onclick=()=>{const r=rules[Number(b.dataset.rule)],f=el('ruleform');f.elements.rule_id.value=r.rule_id;f.elements.version.value=r.version;f.elements.merchant.value=r.conditions.merchant_normalized==='*'?'여행 중 현지경비 기본값':r.conditions.merchant_normalized;f.elements.merchant.readOnly=r.conditions.merchant_normalized==='*';f.elements.card_kind.value=r.conditions.card_kind||'';f.elements.direction.value=r.conditions.transaction_direction||'purchase';f.elements.rule_country.value=r.optional.travel_country||'';f.elements.rule_item.value=r.effects.item||'';f.elements.rule_description.value=r.effects.description||'';f.elements.rule_country.disabled=!!r.optional.inferred_assignment;el('rule_scope').textContent=r.origin==='owner-country-exception-20261003'?'사용자 지정 예외: 조지아·카자흐스탄 거래를 유럽 여행에 배정합니다.':r.optional.inferred_assignment?'이번 거래에만 적용한 추론입니다. 여행은 미리보기의 수정에서 바꿀 수 있습니다.':r.optional.source_hash?'예약 자료로 확인된 해당 원본 거래에만 적용합니다.':r.note||''})}
 async function call(url,body,headers={}){const r=await fetch(url,body==null?{cache:'no-store'}:{method:'POST',headers:{'X-CSRF-Token':csrf,...headers},body}).catch(()=>{throw Error('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.')});if(!(r.headers.get('Content-Type')||'').includes('application/json'))throw Error(r.status===401?'로그인이 필요합니다. 화면을 다시 열어 주세요.':'서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');const j=await r.json();if(!r.ok)throw Error(j.message||j.code);return j}
-function render(j){if(model?.batch_id!==j.batch_id){page=0;editing=''}model=j;stamp=stateStamp(j);const counts=j.summary.counts;el('summary').className='';el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>이번 자료 '+j.summary.row_count+'건 · 자동분류 '+(counts.classified||0)+'건 · 확인 필요 '+(counts.needs_review||0)+'건 · 답변 확정 '+(counts.confirmed||0)+'건</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
+function render(j){if(model?.batch_id!==j.batch_id){page=0;editing=''}model=j;stamp=stateStamp(j);const counts=j.summary.counts;el('summary').className='';const approval=j.summary.channel==='approval',approvalInfo=j.approval_summary||{},states=approvalInfo.states||{};el('summary').innerHTML='<h2>'+esc(j.summary.display_name||'카드 사용내역')+'</h2><p class="small">'+esc(j.summary.period_start||'거래 기간 미확인')+(j.summary.period_end?' ~ '+esc(j.summary.period_end):'')+'</p><p>'+(approval?'승인 증거 '+(approvalInfo.source_rows??j.summary.row_count)+'행 · 1:1 연결 '+(states.linked||0)+'건 · 묶음 연결 '+((states.group_linked||0)+(states.group_partial||0))+'건 · 추가 확인 '+((states.ambiguous||0)+(states.approval_only||0)+(approvalInfo.conflict_rows||0))+'건 · 비용 행 생성 0건':'이번 자료 '+j.summary.row_count+'건 · 자동분류 '+(counts.classified||0)+'건 · 확인 필요 '+(counts.needs_review||0)+'건 · 답변 확정 '+(counts.confirmed||0)+'건')+'</p><details><summary>원본 파일 정보</summary><p>'+esc(j.summary.filename)+'</p></details>';
 const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>!r.review_hold&&(r.classification_state==='needs_review'||(r.classification_source==='inference'&&r.classification_basis.startsWith('추론 배정 · 낮음 ·')))&&!r.user_confirmed&&!r.duplicate_of);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
 el('questions').innerHTML=(ed?'<article><h2>수정 · '+esc(ed.merchant)+'</h2><p class="small">지금 확정된 항목과 여행을 고쳐 쓰면 됩니다.</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(evidence(r)?'<span class="ri-flag">'+esc(evidence(r))+'</span>':'')+'</summary><div class="ri-body"><p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건</button></nav>':'');

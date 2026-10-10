@@ -192,6 +192,18 @@ class CardFlowTests(unittest.TestCase):
         finally:
             self.board.conn.set_trace_callback(None)
 
+    def test_approval_batch_state_shows_evidence_without_accounting_rows(self):
+        approval = Path(__file__).resolve().parents[2] / 'tests' / 'card_pipeline' / 'data' / 'kb-approval-synthetic.xls'
+        receipt = self.flow.pipeline.receive(approval.read_bytes(), 'kb-approval-synthetic.xls')
+        state = self.flow.state(receipt['batch_id'])
+        self.assertEqual(state['summary']['channel'], 'approval')
+        self.assertEqual(state['summary']['row_count'], state['approval_summary']['source_rows'])
+        self.assertGreater(state['approval_summary']['source_rows'], 0)
+        self.assertEqual(state['rows'], [])
+        self.assertEqual(state['preview']['ready'], 0)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0], 0)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+
     def test_classification_and_review_share_evidence_without_repeated_mail_parsing(self):
         from app.ota_mail import match_mail
         from tests.card_pipeline.test_booking_mail import message

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from decimal import Decimal, InvalidOperation
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_REVISION_CONFLICT,
                  CODE_SOURCE_CONFLICT, StoreError, canonical, utc_now)
@@ -29,7 +30,7 @@ from .import_card import ParseError, ParsedRow, parse_card_file
 from .normalize import normalize_merchant
 
 __all__ = ["receive", "get_batch", "save_decision", "transaction_identity",
-           "source_hash_of"]
+           "source_hash_of", "content_key"]
 
 # No built-in list of tabs. The web app owns the real trips — there are far more
 # of them than a hardcoded list could ever hold, and a guess would silently
@@ -49,7 +50,7 @@ def _sha256(data) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def transaction_identity(row: ParsedRow) -> str:
+def transaction_identity(row: ParsedRow, occurrence: int | None = None) -> str:
     """A stable id for the transaction, from what the issuer states.
 
     Approval number alone is not enough: two cards can share one, and so can a
@@ -70,12 +71,42 @@ def transaction_identity(row: ParsedRow) -> str:
         # No approval number at all. Then the identity has to come from the
         # row's own content plus a discriminator, so two real transactions that
         # happen to share a date, merchant and amount stay two rows.
+        # `occurrence` is the n-th identical row inside one file. It replaces the file row
+        # number, so the same economic transaction gets the same id from any file.
         parts.extend([
             row.merchant_normalized,
             "" if row.amount_krw is None else str(row.amount_krw),
-            str(row.row_index),
+            str(row.row_index) if occurrence is None else "#%d" % occurrence,
         ])
+        if occurrence is not None:
+            parts.extend([row.posting_date or "", row.foreign_currency or "",
+                          _plain_number(row.foreign_amount)])
     return _sha256("\x1f".join(parts))
+
+
+def _plain_number(value) -> str:
+    """`5400.0` and `5400` are one amount. Anything that is not a number is kept as text."""
+    text = str(value or "").strip().replace(",", "")
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        return text
+    if not number.is_finite():
+        return text
+    normalized = format(number.normalize(), "f")
+    return "0" if normalized in ("-0", "") else normalized
+
+
+def content_key(row: ParsedRow) -> tuple:
+    """What a source row says about the economic event, without any file position.
+
+    Used for rows that carry no approval number (overseas acquisitions), so the same
+    payment seen in two files is one transaction while two real payments stay two.
+    """
+    return (row.issuer or "", row.card_tail or "", row.transaction_direction or "",
+            row.transaction_kind or "", row.posting_date or "", row.approval_date or "",
+            row.merchant_normalized, "" if row.amount_krw is None else str(row.amount_krw),
+            row.foreign_currency or "", _plain_number(row.foreign_amount))
 
 
 def source_hash_of(row: ParsedRow) -> str:
@@ -158,9 +189,12 @@ def receive(store, content: bytes, filename: str) -> dict:
 
 def _persist(store, batch_id, filename, content_sha, content, parsed, received_at):
     """Insert the batch and its transactions, atomically."""
+    if getattr(parsed, "channel", "") == "approval":
+        return _persist_approvals(store, batch_id, filename, content_sha, content, parsed, received_at)
     now = received_at
     inserted = 0
     reused = 0
+    matched = 0
     conflicts = 0
     unresolved = 0
     with store.lock:
@@ -174,9 +208,23 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                 (batch_id, filename, content_sha, content, len(content),
                  parsed.parser, now, now, len(parsed.rows), len(parsed.issues),
                  "parsed"))
+            plan = _keyless_plan(store, batch_id, parsed.rows)
+            occurrences = {}
             for row in parsed.rows:
-                outcome = _insert_row(store, batch_id, row, now)
-                identity = transaction_identity(row)
+                keyless = plan.get(row.row_index)
+                if keyless is not None and keyless["matched"]:
+                    # The same payment is already recorded: link this file's row to it.
+                    outcome, identity = "reused", keyless["matched"]
+                    matched += 1
+                else:
+                    forced = keyless["identity"] if keyless is not None else None
+                    if forced is None and not row.approval_number and not row.original_approval_number:
+                        key = content_key(row)
+                        occurrence = occurrences.get(key, 0)
+                        occurrences[key] = occurrence + 1
+                        forced = transaction_identity(row, occurrence)
+                    outcome = _insert_row(store, batch_id, row, now, forced)
+                    identity = forced or transaction_identity(row)
                 if outcome == 'conflict':
                     identity = _conflict_id(identity, row.row_index, batch_id)
                 store.conn.execute('INSERT OR IGNORE INTO import_batch_rows VALUES (?,?,?)',
@@ -194,21 +242,71 @@ def _persist(store, batch_id, filename, content_sha, content, parsed, received_a
                 " status='parsed' WHERE batch_id=?",
                 (inserted + reused + conflicts, len(parsed.issues), batch_id))
             store.log_change("batch.received", batch_id,
-                             {"inserted": inserted, "reused": reused,
-                              "conflicts": conflicts, "issues": len(parsed.issues)})
+                             {"inserted": inserted, "reused": reused, "matched_by_content": matched,
+                              "conflicts": conflicts, "issues": len(parsed.issues),
+                              "channel": getattr(parsed, "channel", "")})
             store.conn.execute("COMMIT")
         except Exception:
             store.conn.execute("ROLLBACK")
             raise
+    _reconcile_after_receive(store)
     return {"batch_id": batch_id, "filename": filename, "content_sha256": content_sha,
             "parser": parsed.parser, "received_at": now, "reused": False,
+            "channel": getattr(parsed, "channel", ""),
             "inserted": inserted, "already_present": reused,
+            "matched_by_content": matched,
             "conflicts": conflicts, "unresolved": unresolved,
             "row_count": inserted + reused + conflicts,
             "issues": parsed.issues}
 
 
-def _insert_row(store, batch_id: str, row: ParsedRow, now: str) -> str:
+def _keyless_plan(store, batch_id: str, rows) -> dict:
+    """Decide, for rows without an approval number, which are already recorded.
+
+    Multiset matching on `content_key`: a file with n identical rows against m identical
+    transactions already recorded adds max(0, n - m). Rows are never paired by position,
+    so two real payments of the same amount on the same day stay two, and the same
+    payment arriving in another file is not a second one.
+    """
+    eligible = [row for row in rows
+                if not row.approval_number and not row.original_approval_number
+                and not row.parse_error and row.amount_krw is not None]
+    if not eligible:
+        return {}
+    exact: dict[tuple, list[str]] = {}
+    undated: dict[tuple, list[str]] = {}
+    sql = ("SELECT transaction_id, issuer, card_tail, transaction_direction, transaction_kind, posting_date,"
+           " approval_date, merchant_normalized, amount_krw, foreign_currency, foreign_amount"
+           " FROM transactions WHERE approval_number='' AND original_approval_number=''"
+           " AND parse_error='' AND amount_krw IS NOT NULL AND transaction_id NOT LIKE '%:conflict:%'"
+           " AND issuer IN ({marks}) ORDER BY created_at, transaction_id")
+    issuers = sorted({row.issuer or "" for row in eligible})
+    for record in store.conn.execute(sql.format(marks=",".join("?" * len(issuers))), issuers):
+        key = (record[1], record[2], record[3], record[4], record[5], record[6], record[7],
+               str(record[8]), record[9], _plain_number(record[10]))
+        exact.setdefault(key, []).append(record[0])
+        if not record[6]:
+            undated.setdefault(key[:5] + key[6:], []).append(record[0])
+    used: set[str] = set()
+    seen: dict[tuple, int] = {}
+    plan: dict[int, dict] = {}
+    for row in eligible:
+        key = content_key(row)
+        occurrence = seen.get(key, 0)
+        seen[key] = occurrence + 1
+        pool = list(exact.get(key, ()))
+        if row.approval_date:
+            pool += undated.get(key[:5] + key[6:], [])
+        found = next((candidate for candidate in pool if candidate not in used), None)
+        if found is not None:
+            used.add(found)
+        plan[row.row_index] = {"matched": found,
+                               "identity": transaction_identity(row, occurrence)}
+    return plan
+
+
+def _insert_row(store, batch_id: str, row: ParsedRow, now: str,
+                transaction_id: str | None = None) -> str:
     """One transaction. Returns inserted / reused / conflict.
 
     A transaction already known with the same source text is left exactly as it
@@ -216,7 +314,7 @@ def _insert_row(store, batch_id: str, row: ParsedRow, now: str) -> str:
     transaction already known with *different* source text is recorded as a
     conflict on the incoming row, never as an overwrite.
     """
-    transaction_id = transaction_identity(row)
+    transaction_id = transaction_id or transaction_identity(row)
     source_hash = source_hash_of(row)
     found = store.conn.execute(
         "SELECT source_hash, row_index FROM transactions WHERE transaction_id=?",
@@ -246,10 +344,14 @@ def _insert_row(store, batch_id: str, row: ParsedRow, now: str) -> str:
                          {"batch_id": batch_id, "row_index": row.row_index})
         return "conflict"
 
-    ambiguous = not row.approval_number and store.conn.execute(
-        'SELECT 1 FROM transactions WHERE batch_id<>? AND issuer=? AND card_tail=? '
-        'AND approval_date=? AND merchant_normalized=? LIMIT 1',
-        (batch_id,row.issuer,row.card_tail,row.approval_date,row.merchant_normalized)).fetchone()
+    # 승인번호 없는 행이 다른 파일의 같은 금액·날짜 거래와 가맹점 표기만 다르면, 같은 결제인지
+    # 증명할 수 없으므로 확인 대상으로 둔다. 완전히 같은 행은 위의 다중집합 대사가 이미 처리했다.
+    drift = not row.approval_number and row.amount_krw is not None and store.conn.execute(
+        "SELECT 1 FROM transactions WHERE batch_id<>? AND issuer=? AND card_tail=? AND transaction_direction=?"
+        " AND posting_date=? AND approval_date=? AND amount_krw=? AND foreign_currency=?"
+        " AND merchant_normalized<>? AND approval_number='' LIMIT 1",
+        (batch_id, row.issuer, row.card_tail, row.transaction_direction, row.posting_date,
+         row.approval_date, row.amount_krw, row.foreign_currency, row.merchant_normalized)).fetchone()
     store.conn.execute(
         "INSERT INTO transactions(transaction_id, source_hash, batch_id, issuer,"
         " card_tail, card_kind, transaction_direction, transaction_kind,"
@@ -265,10 +367,85 @@ def _insert_row(store, batch_id: str, row: ParsedRow, now: str) -> str:
          row.foreign_amount, row.foreign_currency, row.description_raw,
          row.row_index, canonical(row.raw), row.parse_error,
          "needs_review", "아직 분류하지 않았어요", now))
-    if ambiguous:
-        store.conn.execute('UPDATE transactions SET conflict_reason=? WHERE transaction_id=?',
-                           ('다른 파일에 승인번호 없는 유사 거래가 있습니다. 중복 여부 확인이 필요합니다', transaction_id))
+    if drift:
+        store.conn.execute("UPDATE transactions SET conflict_reason=? WHERE transaction_id=?",
+                           ("다른 파일에 금액·날짜가 같고 가맹점 표기만 다른 거래가 있습니다. 같은 결제인지 확인이 필요합니다",
+                            transaction_id))
     return "inserted"
+
+
+def _persist_approvals(store, batch_id, filename, content_sha, content, parsed, received_at):
+    """Approval lists are evidence of an event, not an accounting amount.
+
+    They are stored apart from `transactions`, so an approval can never become a second
+    cost. Linking to the acquired transaction is recomputed from the stored sets
+    (`source_links.reconcile`), which keeps the result independent of upload order.
+    """
+    now = received_at
+    stored = 0
+    known = 0
+    conflicts = 0
+    with store.lock:
+        store.conn.execute("BEGIN IMMEDIATE")
+        try:
+            store.conn.execute(
+                "INSERT OR REPLACE INTO import_batches(batch_id, filename,"
+                " content_sha256, content_bytes, byte_size, parser, received_at,"
+                " parsed_at, row_count, error_count, status)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (batch_id, filename, content_sha, content, len(content),
+                 parsed.parser, now, now, len(parsed.rows), len(parsed.issues), "approval_evidence"))
+            for row in parsed.rows:
+                if row.parse_error:
+                    continue
+                key = _sha256("\x1f".join([row.issuer, row.card_tail, row.transaction_direction,
+                                           row.approval_number, row.approval_date]))
+                source_hash = source_hash_of(row)
+                present = store.conn.execute(
+                    "SELECT source_hash FROM approval_evidence WHERE approval_key=?", (key,)).fetchone()
+                if present is None:
+                    store.conn.execute(
+                        "INSERT INTO approval_evidence(approval_key, source_hash, batch_id, row_index, issuer,"
+                        " card_tail, card_kind, transaction_direction, approval_number, approval_date,"
+                        " approval_time, merchant, amount_krw, foreign_amount, foreign_currency,"
+                        " approval_method, raw_row_json, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (key, source_hash, batch_id, row.row_index, row.issuer, row.card_tail, row.card_kind,
+                         row.transaction_direction, row.approval_number, row.approval_date,
+                         row.raw.get("_approval_time", ""), row.merchant, row.amount_krw,
+                         row.foreign_amount, row.foreign_currency, row.raw.get("_approval_method", ""),
+                         canonical(row.raw), now))
+                    stored += 1
+                elif present[0] == source_hash:
+                    known += 1
+                else:
+                    store.conn.execute(
+                        "UPDATE approval_evidence SET conflict_reason=? WHERE approval_key=?",
+                        ("같은 승인번호인데 다른 파일의 금액·가맹점이 달라요", key))
+                    conflicts += 1
+                store.conn.execute("INSERT OR IGNORE INTO approval_batch_rows VALUES (?,?,?)",
+                                   (batch_id, key, row.row_index))
+            store.conn.execute(
+                "UPDATE import_batches SET row_count=?, error_count=?, status='approval_evidence'"
+                " WHERE batch_id=?", (stored + known + conflicts, len(parsed.issues), batch_id))
+            store.log_change("batch.received", batch_id,
+                             {"channel": "approval", "stored": stored, "known": known,
+                              "conflicts": conflicts, "issues": len(parsed.issues)})
+            store.conn.execute("COMMIT")
+        except Exception:
+            store.conn.execute("ROLLBACK")
+            raise
+    summary = _reconcile_after_receive(store)
+    return {"batch_id": batch_id, "filename": filename, "content_sha256": content_sha,
+            "parser": parsed.parser, "received_at": now, "reused": False, "channel": "approval",
+            "inserted": 0, "already_present": known, "approval_stored": stored,
+            "conflicts": conflicts, "unresolved": len(parsed.issues),
+            "row_count": stored + known + conflicts, "issues": parsed.issues,
+            "approval_summary": summary}
+
+
+def _reconcile_after_receive(store):
+    from . import source_links
+    return source_links.reconcile(store)
 
 
 def _conflict_id(transaction_id: str, row_index: int, batch_id: str) -> str:
