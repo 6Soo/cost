@@ -1,5 +1,18 @@
 # 현재 운영 상태
 
+## 2026-10-10 reservation 여행 정본 동기화 수정과 master data 큐
+
+**원인과 수정**: reservation 동기화가 게시판의 글 최대 5개를 차례로 upsert해 마지막 보조 글이 여행 제목·날짜를 덮었다(1115: 원글 1번 `11월15(일)~17`을 보조 글 3·6번의 `11.18~20` 언급이 덮음). reservation PR #15(`2c1dfb5` 이후 main)가 `pickOriginalPost`로 고른 원글만 정본(title/dates/leader/code)을 갱신하게 했다. 보조 글은 `cafe_tours` 증거로만 남고 순서에 무관하다. 원글을 못 읽으면 기존 정본을 유지하고 `tours.source_status`를 `main_unavailable`/`main_unresolved`로 남긴다(다른 글로 대체하지 않음).
+
+**1115 정상화**: 카페 원본에서 원글(1번, 댓글 20)이 `11월15(일)~17/…`이고 파싱 결과가 2026-11-15~17임을 확인한 뒤, 정식 공개 경로 `refresh-tour?fldid=fOzD`로 갱신했다(직접 SQL 없음). reservation 날짜 11/15~11/17 = COST 11/15~11/17이고 정본 글 번호가 3→1로 돌아왔다. 날짜 불일치는 1건→0건이다.
+
+**브리지 커버리지**: fldid 15→16건(날짜까지 일치), 코드 0, 충돌 0, 날짜 불일치 1→0, 연결 불가 24(변화 없음). 연결 불가 24건의 분류(진단 전용, `tools/guide_bridge_report.py`): 원천 없음 14(4~6월 등 reservation 목록에 없는 여행과 다른 계절의 같은 지역), 수동 코드 필요 8(날짜가 정확히 같은 reservation 여행이 하나뿐), 날짜 충돌 1(0924 야마구치: reservation 9/24–9/26, COST 9/24–9/27), 모호 1(10월_도고), 안정 키 복구 가능 0. COST 여행은 워크북 시트 기반이라 카페 원글 키를 갖고 있지 않다. 이전 시도에서 "날짜 충돌 5"로 보였던 4건은 같은 지역의 다른 계절 여행이 걸린 것이었다.
+
+**master data 큐**: reservation 관리자에 `대장 항공권 정보 확인 필요`(`대장 관리` 맨 위)와 `여행 코드 입력 필요`(`투어 관리` 맨 위)가 있다. 읽기는 변경 0이고 저장은 명시 동작뿐이며 변경은 감사 테이블(`guide_flight_name_audit`, `tour_code_audit`)에 남는다. 코드 값을 제안하거나 자동 입력하지 않는다.
+
+**운영 현황**: 대장 13명 중 항공권 영문명 등록 0·후보 유일 1·후보 없음 12. 여행 127건 모두 코드 없음(안전 후보 0). 스냅샷 세대 10(`0e391b2e417e`, authority fresh `0f56c2eb144a`)은 reservation 변경 후 자동으로 재평가됐다(약 9초). 매칭된 항공료 27건 모두 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`, 장부 736행·73,998,707원, 보류 15, 확정 28 그대로. 보호 기준선은 현재 데이터에서 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다.
+
+
 ## 2026-10-10 authority 신선도 쓰기 보호와 master data 입력 구조
 
 **쓰기 보호**: COST PR #47(`0607c68`)과 후속 PR이 reservation authority를 fresh / degraded / unavailable로 나눈다. 화면 유예(`GRACE_SECONDS`=600초)와 쓰기 신선도(`WRITE_FRESH_SECONDS`=90초)는 별개 상수다. degraded·unavailable·90초 초과 상태에서는 새 대장 항공권 규칙을 만들지 않고, `guide_airfare_evidence`로 분류된 미확정 행은 미리보기·확정 시 서버 보류로 막힌다(미리보기는 같은 보류로 다시 계산되어 PREVIEW_STALE). 신선도 상태는 스냅샷 입력 지문과 스냅샷 메타데이터(`authority`: state·digest 앞 12자·오류 코드, 이름 없음)에 들어간다. reservation 호출은 계속 스냅샷 워커에서만 하며 요청 경로 호출은 0이다.
