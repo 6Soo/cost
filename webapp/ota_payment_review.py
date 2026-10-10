@@ -801,8 +801,13 @@ def reconcile_for(backend) -> dict:
         if verdict is not None:
             item["guide_airfare"] = verdict
         published.append(item)
+    try:
+        authority = guide_airfare_review.authority_summary(backend.board)
+    except Exception:
+        authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
     return {
         "public": public_snapshot(backend.snapshot_from(data)),
+        "authority": authority,
         "results": published,
         "links": {str(event_id): _link_transaction_id(link)
                   for event_id, link in links.items() if _link_transaction_id(link)},

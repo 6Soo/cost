@@ -17,8 +17,9 @@ from app import flight_evidence, guide_airfare, guide_identity, reservation_auth
 
 AIRPORTS_ENV = "WEBLEDGER_GUIDE_AIRPORTS"
 TOKEN_FILE_NAME = "reservation-internal-token.txt"
-GRACE_SECONDS = 600
+GRACE_SECONDS = 600           # 화면 연속성용: 마지막 정상본을 보여 줄 수 있는 시간
 MIN_INTERVAL_SECONDS = 45
+WRITE_FRESH_SECONDS = 90      # 장부 기록 근거로 쓸 수 있는 authority 확인 나이. 위 유예와 별개다.
 
 PUBLIC_KEYS = ("status", "code", "trip_id", "trip_name", "candidate_trip_ids", "passenger_count",
                "guide_passenger_count", "mixed", "guide_match", "guide_portion_krw",
@@ -50,8 +51,8 @@ def _token_file(board) -> Path:
 def refresh_authority(board, *, fetcher=None, clock=time.monotonic):
     """Read guides and tours from reservation and cache them on the board. Never raises.
 
-    A failure keeps the last good copy for GRACE_SECONDS so a blip does not recompute everything; after
-    that the state is unavailable and every attribution holds."""
+    State: fresh (this fetch succeeded), degraded (fetch failed, last good copy kept for display for
+    GRACE_SECONDS), unavailable (nothing usable). Only fresh authority may justify a ledger write."""
     previous = getattr(board, "_reservation_authority", None)
     now = clock()
     if previous and now - previous["checked_at"] < MIN_INTERVAL_SECONDS:
@@ -69,12 +70,14 @@ def refresh_authority(board, *, fetcher=None, clock=time.monotonic):
     except Exception:
         code = "unavailable"
     if authority is not None:
-        state = {"authority": authority, "error": "", "checked_at": now, "last_good_at": now,
-                 "digest": authority["digest"]}
-    elif previous and previous.get("authority") is not None and now - previous["last_good_at"] <= GRACE_SECONDS:
-        state = dict(previous, checked_at=now, degraded=code)
+        state = {"authority": authority, "error": "", "fresh": True, "degraded": False, "checked_at": now,
+                 "last_success_at": now, "digest": authority["digest"]}
+    elif (previous and previous.get("authority") is not None and previous.get("last_success_at") is not None
+          and now - previous["last_success_at"] <= GRACE_SECONDS):
+        state = dict(previous, fresh=False, degraded=True, error=code or "unavailable", checked_at=now)
     else:
-        state = {"authority": None, "error": code or "unavailable", "checked_at": now, "last_good_at": None,
+        state = {"authority": None, "error": code or "unavailable", "fresh": False, "degraded": False,
+                 "checked_at": now, "last_success_at": None,
                  "digest": "unavailable:" + (code or "unavailable")}
     board._reservation_authority = state
     return state
@@ -82,7 +85,34 @@ def refresh_authority(board, *, fetcher=None, clock=time.monotonic):
 
 def authority_state(board) -> dict:
     return getattr(board, "_reservation_authority", None) or {
-        "authority": None, "error": "not_loaded", "digest": "authority:not_loaded"}
+        "authority": None, "error": "not_loaded", "fresh": False, "degraded": False, "last_success_at": None,
+        "digest": "authority:not_loaded"}
+
+
+def state_label(state) -> str:
+    if state.get("authority") is None:
+        return "unavailable"
+    return "degraded" if state.get("degraded") else "fresh"
+
+
+def write_authorization(board, *, clock=time.monotonic):
+    """(allowed, code). Pure cache read, never a network call. Display grace is not write authority."""
+    state = authority_state(board)
+    if state.get("authority") is None:
+        return False, "GUIDE_AUTHORITY_UNAVAILABLE"
+    if state.get("degraded") or not state.get("fresh"):
+        return False, "GUIDE_AUTHORITY_DEGRADED"
+    last = state.get("last_success_at")
+    if last is None or clock() - last > WRITE_FRESH_SECONDS:
+        return False, "GUIDE_AUTHORITY_STALE"
+    return True, ""
+
+
+def authority_summary(board) -> dict:
+    """Non-identifying metadata for the snapshot: state, content digest prefix, last error code."""
+    state = authority_state(board)
+    return {"state": state_label(state), "digest": str(state.get("digest") or "")[:12],
+            "error": str(state.get("error") or "")}
 
 
 # COST trips
@@ -126,6 +156,7 @@ def input_digest(board) -> str:
         "parser": flight_evidence.PARSER_VERSION, "identity": guide_identity.IDENTITY_VERSION,
         "engine": guide_airfare.ENGINE_VERSION, "airports": table_digest,
         "authority": authority_state(board)["digest"],
+        "authority_state": state_label(authority_state(board)),
         "registrations": _registrations(board),
         "trips": [{key: trip.get(key) for key in _TRIP_DIGEST_KEYS} for trip in trip_inputs(board)],
     })
@@ -194,6 +225,40 @@ def bridge(authority, trips, registrations):
     return usable, problems
 
 
+def bridge_coverage(authority, trips, registrations) -> dict:
+    """Per authoritative COST trip: how (or why not) it bridges to a reservation tour. Measurement only.
+
+    Categories: fldid, code, both (bridged and date-exact), date_mismatch, conflict (two keys disagree or
+    several tours claim it), unbridgeable (no stable key)."""
+    tours = authority["tours"]
+    by_fldid = {tour["fldid"]: tour for tour in tours}
+    result = {"fldid": [], "code": [], "both": [], "date_mismatch": [], "conflict": [], "unbridgeable": []}
+    for trip in trips:
+        if not trip.get("valid"):
+            continue
+        tab_id = trip["tab_id"]
+        fldid = registrations.get(tab_id)
+        by_key = by_fldid.get(fldid) if fldid else None
+        coded = [tour for tour in tours if tour.get("code") and tour["code"] == trip["display_key"]]
+        if by_key is None and not coded:
+            result["unbridgeable"].append(tab_id)
+            continue
+        distinct = {tour["fldid"] for tour in coded} | ({by_key["fldid"]} if by_key else set())
+        if len(distinct) > 1:
+            result["conflict"].append(tab_id)
+            continue
+        tour = by_key or coded[0]
+        if tour.get("code") and tour["code"] != trip["display_key"]:
+            result["conflict"].append(tab_id)
+        elif tour.get("depart_date") != trip.get("starts_on") or tour.get("return_date") != trip.get("ends_on"):
+            result["date_mismatch"].append(tab_id)
+        elif by_key is not None and coded:
+            result["both"].append(tab_id)
+        else:
+            result["fldid" if by_key is not None else "code"].append(tab_id)
+    return result
+
+
 def _window_problem(problems, legs, gap):
     dates = [_iso(leg.get("departure_on")) for leg in legs]
     dates = [item for item in dates if item]
@@ -260,6 +325,7 @@ def evaluate(board, mail_directories, events, transactions, results) -> dict:
                 verdict.update(status="HOLD", code=hit, trip_id="", trip_name="")
         verdict["booking_ref"] = str(event.get("booking_ref") or "")
         verdict["authority_digest"] = str(state.get("digest") or "")[:12]
+        verdict["authority_state"] = state_label(state)
         verdicts[str(result.get("ota_event_id"))] = verdict
     return verdicts
 

@@ -239,7 +239,7 @@ def test_refresh_keeps_the_last_good_authority_for_the_grace_period_then_fails_c
     assert first["authority"] is not None and first["digest"] == fetch.value["digest"]
     fetch.error = "timeout"
     kept = guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 100.0)
-    assert kept["authority"] is not None and kept["degraded"] == "timeout"
+    assert kept["authority"] is not None and kept["degraded"] is True and kept["error"] == "timeout"
     dead = guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 100.0 + 700.0)
     assert dead["authority"] is None and dead["error"] == "timeout" and dead["digest"] == "unavailable:timeout"
 
@@ -320,6 +320,7 @@ def flow_with(results, monkeypatch, fresh=True):
         "INSERT INTO import_batch_rows VALUES('b','card-1'),('b','card-2');")
     flow = card_flow.CardFlow.__new__(card_flow.CardFlow)
     flow.board = SimpleNamespace(conn=conn, _ota_snapshot_service=Service(results, fresh))
+    guide_airfare_review.refresh_authority(flow.board, fetcher=authority, clock=__import__("time").monotonic)
     monkeypatch.setattr(ota_payment_review, "enabled", lambda: True)
     return flow
 
