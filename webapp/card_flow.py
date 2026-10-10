@@ -561,6 +561,9 @@ class CardFlow:
         from . import ota_payment_review
         if not ota_payment_review.enabled():
             return []
+        from . import guide_airfare_review
+        if not guide_airfare_review.write_authorization(self.board)[0]:
+            return []
         current, fresh = ota_payment_review.snapshot_service(self.board).held()
         if current is None or not fresh:
             return []
@@ -871,10 +874,57 @@ class CardFlow:
         cached = getattr(self, "_ota_group_holds_cache", None)
         if cached is not None:
             return cached
+        guide_holds = self._guide_write_holds()
+        holds = self._ota_group_holds_base()
+        for transaction_id, hold in guide_holds.items():
+            holds.setdefault(transaction_id, hold)
+        self._ota_group_holds_cache = holds
+        return holds
+
+    def _guide_write_holds(self):
+        """대장 항공권 귀속 행은 현재 신선한 reservation authority와 최신 스냅샷이 받쳐 줄 때만 기록한다.
+
+        화면 표시용 유예 캐시는 근거가 아니다. 네트워크를 호출하지 않고 워커가 관리하는 상태만 읽는다."""
+        conn = getattr(self.board, "conn", None)
+        if conn is None:
+            return {}
+        rows = conn.execute(
+            "SELECT transaction_id, trip_id FROM transactions "
+            "WHERE classification_source='guide_airfare_evidence' AND user_confirmed=0").fetchall()
+        if not rows:
+            return {}
+        from . import guide_airfare_review, ota_payment_review
+        allowed, code = guide_airfare_review.write_authorization(self.board)
+        supported = {}
+        if allowed:
+            current, fresh = (ota_payment_review.snapshot_service(self.board).held()
+                              if ota_payment_review.enabled() else (None, False))
+            if current is None or not fresh:
+                allowed, code = False, "GUIDE_SNAPSHOT_STALE"
+            else:
+                digest = guide_airfare_review.authority_summary(self.board)["digest"]
+                for result in current.get("results") or []:
+                    guide = result.get("guide_airfare") or {}
+                    if (guide.get("status") == "ATTRIBUTED" and guide.get("authority_state") == "fresh"
+                            and guide.get("authority_digest") == digest and result.get("transaction_id")):
+                        supported[str(result["transaction_id"])] = str(guide.get("trip_id") or "")
+        holds = {}
+        for transaction_id, trip_id in rows:
+            transaction_id = str(transaction_id)
+            if not allowed:
+                reason, hold_code = "대장 항공권 근거가 현재 확인된 reservation 자료로 뒷받침되지 않아 기록하지 않아요", code
+            elif supported.get(transaction_id) != str(trip_id or ""):
+                reason, hold_code = "대장 항공권 귀속이 최신 확인과 달라 기록하지 않아요", "GUIDE_ATTRIBUTION_CHANGED"
+            else:
+                continue
+            holds[transaction_id] = {"kind": "guide_authority_hold", "code": hold_code, "reason": reason,
+                                     "ota_event_ids": []}
+        return holds
+
+    def _ota_group_holds_base(self):
         from . import ota_payment_review
         if not ota_payment_review.enabled():
-            self._ota_group_holds_cache = {}
-            return self._ota_group_holds_cache
+            return {}
         backend = ota_payment_review.CoreOtaPaymentBackend.from_host(self.board, read_only=True)
         try:
             # Read the reconciled snapshot only; a full reconciliation never runs on a preview.
@@ -914,8 +964,7 @@ class CardFlow:
                                            "ota_event_ids":[]}
             for hold in holds.values():
                 hold["ota_event_ids"] = sorted(set(hold["ota_event_ids"]))
-            self._ota_group_holds_cache = holds
-            return self._ota_group_holds_cache
+            return holds
         finally:
             backend.close()
 
