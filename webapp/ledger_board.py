@@ -4200,6 +4200,12 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        from . import rule_review
+        from . import card_flow as _card_flow_switch
+        if _card_flow_switch.enabled() and rule_review.owns_route(parsed.path):
+            board = _active_store()
+            if board is not None and rule_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=board):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
