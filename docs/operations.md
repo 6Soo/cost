@@ -1,5 +1,15 @@
 # 현재 운영 상태
 
+## 2026-10-10 쌍 전용 기록과 실제 부분 환불 기록, OTA 검토 중단
+
+**쌍 전용 기록(PR #29, 752652c)**: 환불 쌍은 원거래 id로만 요청한다. 서버가 DB에서 묶음(원거래 + 같은 승인번호의 취소 행)을 다시 계산하고, 미리보기는 그 묶음 행만 골라 묶음 전용 digest를 만든다. 묶음 밖 행은 기록되지 않는다. 전체 미기록은 원자적 기록, 전체 기록은 no-op, 일부 기록은 `REFUND_PAIR_PARTIALLY_BOOKED`, 묶음 누락과 막힌 묶음은 `REFUND_GROUP_INCOMPLETE`로 거부한다. 엔드포인트는 `POST /api/imports/{batch}/refund-groups/{original}/commit`이다. 배치 전체 기록은 그대로 남아 있다.
+
+**실제 부분 환불 기록**: 원거래 1056200(30058735)과 취소 행 40739306(−760,200원)을 묶음 버튼으로 한 번 기록했다. 순액 296,000원, 여행 0801_노리쿠라(`trip-ef85af8d7a42`, 사용자 결정 rev 5). 장부는 734행·73,702,707원에서 736행·73,998,707원으로 바뀌었다. 기록은 원거래와 환불 각 1건이고, 중복 0, 기록 이벤트 `ledger.refund_linked` 1건, 원금 불변, 보류 15건과 사용자 결정 28건은 그대로다.
+
+**OTA 검토 UI 중단**: `card-flow.json`에 `ota_review`(isolated) 블록을 넣고 launcher가 이를 읽도록 했다(PR #30). 검토 DB 사본은 `D:\WebLedgerHost\data\ota-review\ota-review.sqlite`이며 기존 pilot 수동 연결 1건, 제안 1건, 요청 1건을 보존했다. 그러나 OTA 검토 목록(`/api/imports/ota`)을 열면 서버 CPU가 60초에 약 75초 늘고 요청을 취소해도 계산이 계속돼 `healthz`가 응답하지 않았다. 설정을 `legacy`로 되돌리고 재시작해 해소했다. 이 목록 계산이 OTA 검토 UI의 차단 요인이다. 목록 계산을 요청 범위로 줄이고, 취소 가능하게 하고, 캐시해야 한다.
+
+**현재 상태**: 운영 모드 `legacy`, `WEBLEDGER_OTA_AUTHORITY` 미설정. OTA 검토 UI 2개 뷰포트 검증, shadow gate 재측정, authority 전환은 하지 않았다. 배포된 `D:\WebLedgerHost\bin\launch_web_ledger.py`에는 OTA 설정 블록만 외과적으로 추가했고(백업 `launch_web_ledger.before-ota-review-20261010.py`), 설정 파일 백업은 `card-flow.before-ota-review-20261010.json`이다.
+
 ## 2026-10-10 카드 자료 화면 부하 원인과 부분 환불 중단 지점
 
 **원인**: `/import`를 열면 첫 자료(973행)가 자동 선택되고, 페이지가 2초마다 그 상세 상태를 요청했다. 상세 상태 한 번마다 OTA 대사가 두 번 계산됐고, 매번 연결된 메일·포털·참조 파일 450여 개의 내용 해시를 다시 읽었다. 거래 지문이 바뀌면 메일 파싱과 포털 대조까지 전부 다시 계산했다(콜드 약 41초). 폴링은 이전 요청이 끝나기를 기다리지 않아 요청이 쌓였다.
