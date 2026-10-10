@@ -13,7 +13,7 @@ EXPENSE = ["거래일자", "항목", "내용", "기간", "예약번호", "증빙
 NOW = dt.datetime(2026, 10, 11, 9, 0, tzinfo=ga.KST)
 
 
-def rev_sheet(wb, title, income_amounts, expense_amounts, *, income_total=None, expense_total=None):
+def rev_sheet(wb, title, income_amounts, expense_amounts):
     ws = wb.create_sheet(title)
     ws["B4"] = "수입 내용"
     for col, label in zip("BCDEFGH", INCOME):
@@ -49,21 +49,6 @@ def workbook_bytes(build) -> bytes:
     return out.getvalue()
 
 
-def test_rev_trip_tab_totals_and_formula_recognition():
-    def build(wb):
-        rev_sheet(wb, "0206_하쿠산", [100000, 50000], [30000, 20000, 5000])
-
-    trips = ga.parse_workbook(workbook_bytes(build))
-    assert len(trips) == 1
-    trip = trips[0]
-    assert trip["key"] == "0206_하쿠산" and trip["copy_name"] is False
-    assert trip["layout"] == "rev"
-    assert (trip["income_total"], trip["expense_total"], trip["net"]) == (150000, 55000, 95000)
-    assert (trip["income_rows"], trip["expense_rows"]) == (2, 3)
-    # Plain values cannot carry a cached formula result, so the total is reported as not cached.
-    assert trip["flags"] == ["TOTAL_NOT_CACHED"]
-
-
 class _Cell:
     def __init__(self, value):
         self.value = value
@@ -77,25 +62,20 @@ class _Sheet:
         return _Cell(self._values.get((row, column)))
 
 
-@pytest.mark.parametrize("cached, expected, flags", [
-    (1050, 1050, set()),
-    (1200, 1200, {"TOTAL_MISMATCH"}),
-    (None, None, {"TOTAL_NOT_CACHED"}),
-    ("#REF!", None, {"FORMULA_ERROR"}),
-])
-def test_sheet_total_is_the_figure_and_disagreement_is_flagged(cached, expected, flags):
-    sheet = _Sheet({(18, 3): cached})
-    found = {(18, 3, 6, 17)}
-    block_flags: set = set()
-    total = ga._check_total(found, 6, 19, sheet, 1050, 12, 6, 17, block_flags)
-    assert total == expected and block_flags == flags
+def test_rev_trip_tab_row_sums_and_formula_recognition():
+    def build(wb):
+        rev_sheet(wb, "0206_하쿠산", [100000, 50000], [30000, 20000, 5000])
 
-
-def test_total_range_that_misses_data_is_flagged():
-    sheet = _Sheet({(33, 3): 1050})
-    block_flags: set = set()
-    ga._check_total({(33, 3, 22, 30)}, 22, 32, sheet, 1050, 12, 22, 32, block_flags)
-    assert block_flags == {"TOTAL_RANGE_MISMATCH"}
+    (trip,) = ga.parse_workbook(workbook_bytes(build))
+    assert trip["sheet"] == "0206_하쿠산" and trip["copy_name"] is False
+    assert trip["layout"] == "rev"
+    assert trip["income"]["row_sum"] == 150000 and trip["expense"]["row_sum"] == 55000
+    assert (trip["income_rows"], trip["expense_rows"]) == (2, 3)
+    # Plain values have no cached formula result, so Google's total is missing and nothing
+    # is substituted from the row sum.
+    assert trip["income"]["total"] is None and trip["expense"]["total"] is None and trip["net"] is None
+    assert trip["verified"] is False
+    assert set(trip["flags"]) == {"TOTAL_NOT_CACHED"}
 
 
 def test_non_trip_sheets_are_ignored():
@@ -105,7 +85,7 @@ def test_non_trip_sheets_are_ignored():
         wb.create_sheet("프리랜서 지급대장")
         rev_sheet(wb, "0630_오제", [10], [4])
 
-    assert [t["key"] for t in ga.parse_workbook(workbook_bytes(build))] == ["0630_오제"]
+    assert [t["sheet"] for t in ga.parse_workbook(workbook_bytes(build))] == ["0630_오제"]
 
 
 def test_legacy_layout_is_reported_not_converted():
@@ -118,7 +98,7 @@ def test_legacy_layout_is_reported_not_converted():
     trip = ga.parse_workbook(workbook_bytes(build))[0]
     assert trip["layout"] == "nonstandard"
     assert trip["flags"] == ["LAYOUT_NOT_STANDARD"]
-    assert trip["income_total"] is None and trip["expense_total"] is None and trip["net"] is None
+    assert trip["income"] is None and trip["expense"] is None and trip["net"] is None
 
 
 def test_error_value_blocks_block_total_instead_of_zeroing_it():
@@ -130,53 +110,118 @@ def test_error_value_blocks_block_total_instead_of_zeroing_it():
 
     trip = ga.parse_workbook(workbook_bytes(build))[0]
     assert "FORMULA_ERROR" in trip["flags"]
-    assert trip["expense_total"] is None and trip["net"] is None
-    assert trip["income_total"] == 100000
+    assert trip["expense"]["total"] is None and trip["expense"]["row_sum"] is None
+    assert trip["net"] is None and trip["verified"] is False
 
 
-def test_copy_name_is_normalized_and_flagged():
+def test_copy_name_keeps_its_own_title_and_is_flagged():
     def build(wb):
         rev_sheet(wb, "0404_에히메의 사본", [1], [1])
 
     trip = ga.parse_workbook(workbook_bytes(build))[0]
-    assert trip["key"] == "0404_에히메" and trip["copy_name"] is True
+    assert trip["sheet"] == "0404_에히메의 사본" and trip["copy_name"] is True
+
+
+@pytest.mark.parametrize("cached, expected, flags", [
+    (1050, 1050, set()),
+    (1200, 1200, {"TOTAL_MISMATCH"}),
+    (None, None, {"TOTAL_NOT_CACHED"}),
+    ("#REF!", None, {"FORMULA_ERROR"}),
+])
+def test_sheet_total_is_the_figure_and_disagreement_is_flagged(cached, expected, flags):
+    sheet = _Sheet({(18, 3): cached})
+    block_flags: set = set()
+    total = ga._check_total({(18, 3, 6, 17)}, 6, 19, sheet, 1050, 12, 6, 17, block_flags)
+    assert total == expected and block_flags == flags
+
+
+def test_total_range_that_misses_data_is_flagged():
+    block_flags: set = set()
+    ga._check_total({(33, 3, 22, 30)}, 22, 32, _Sheet({(33, 3): 1050}), 1050, 12, 22, 32, block_flags)
+    assert block_flags == {"TOTAL_RANGE_MISMATCH"}
+
+
+def test_zero_total_is_a_real_zero_and_missing_is_none():
+    assert ga._block(0, 0, set())["total"] == 0
+    assert ga._block(0, 0, set())["verified"] is True
+    assert ga._block(None, 0, set())["total"] is None
+    assert ga._block(None, 0, set())["verified"] is False
 
 
 def _source(trips, *, status="ok", last_ok="2026-10-11T09:00:00+09:00", stale=False):
     return {"status": status, "trips": trips, "last_ok_at": last_ok, "stale": stale}
 
 
-def _trip(key, *, layout="rev", income=1000, expense=400, copy=False, sheet=None):
-    return {"sheet": sheet or key, "key": key, "copy_name": copy, "layout": layout,
-            "income_total": income if layout == "rev" else None,
-            "expense_total": expense if layout == "rev" else None,
-            "net": income - expense if layout == "rev" else None, "flags": []}
+def _trip(sheet, *, income=1000, expense=400, flags=(), layout="rev", copy=False):
+    def block(value):
+        return {"sheet_total": value, "row_sum": value, "total": value, "verified": True}
+    if layout != "rev":
+        return {"sheet": sheet, "copy_name": copy, "layout": layout, "flags": ["LAYOUT_NOT_STANDARD"],
+                "income": None, "expense": None, "net": None, "verified": False}
+    return {"sheet": sheet, "copy_name": copy, "layout": "rev", "flags": list(flags),
+            "income": block(income), "expense": block(expense), "net": income - expense,
+            "verified": not flags}
+
+
+def _view(sources):
+    return {t["key"]: t for t in ga.build_trip_view(sources)}
 
 
 def test_view_main_only_is_open_and_archive_only_is_closed():
     sources = {"main": _source([_trip("0630_오제")]),
-               "archive": _source([_trip("0107_대만", copy=True, sheet="0107_대만의 사본")])}
-    view = {t["key"]: t for t in ga.build_trip_view(sources)}
+               "archive": _source([_trip("0107_대만의 사본", copy=True)])}
+    view = _view(sources)
     assert view["0630_오제"]["closure"] == "open"
-    assert view["0107_대만"]["closure"] == "closed"
-    assert "ARCHIVE_ONLY" in view["0107_대만"]["review"] and "COPY_NAME" in view["0107_대만"]["review"]
-    assert view["0107_대만"]["canonical_source"] == "archive"
+    assert view["0107_대만의 사본"]["closure"] == "closed"
+    assert {"ARCHIVE_ONLY", "COPY_NAME"} <= set(view["0107_대만의 사본"]["review"])
+    assert view["0107_대만의 사본"]["canonical_source"] == "archive"
 
 
-def test_view_same_trip_in_both_books_prefers_main_and_flags_it():
+def test_same_title_in_both_books_is_one_trip_read_from_main():
     sources = {"main": _source([_trip("0630_오제", income=900, expense=100)]),
                "archive": _source([_trip("0630_오제", income=1000, expense=400)])}
-    (trip,) = ga.build_trip_view(sources)
-    assert trip["canonical_source"] == "main"
-    assert trip["closure"] == "closed"
+    view = ga.build_trip_view(sources)
+    assert len(view) == 1
+    trip = view[0]
+    assert trip["canonical_source"] == "main" and trip["closure"] == "closed"
     assert trip["income_total"] == 900 and trip["net"] == 800
     assert "DUPLICATE_IN_BOTH" in trip["review"]
+    assert trip["copies"]["archive"]["income"]["total"] == 1000
+
+
+def test_copy_name_with_different_title_is_not_merged_with_main():
+    sources = {"main": _source([_trip("0404_에히메")]),
+               "archive": _source([_trip("0404_에히메의 사본", copy=True)])}
+    view = _view(sources)
+    assert set(view) == {"0404_에히메", "0404_에히메의 사본"}
+    for trip in view.values():
+        assert "POSSIBLE_DUPLICATE" in trip["review"]
+        assert trip["income_total"] is None and trip["net"] is None
+        assert "DUPLICATE_IN_BOTH" not in trip["review"]
+
+
+def test_different_year_title_is_not_merged():
+    sources = {"main": _source([_trip("0206_하쿠산")]),
+               "archive": _source([_trip("0206_하쿠산 2026", copy=False)])}
+    view = _view(sources)
+    assert "DUPLICATE_IN_BOTH" not in view["0206_하쿠산"]["review"]
+    assert view["0206_하쿠산"]["closure"] == "open"
+    assert view["0206_하쿠산 2026"]["closure"] == "closed"
+
+
+def test_total_mismatch_shows_google_figure_but_is_not_verified():
+    mismatched = _trip("0630_오제", flags=["TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH"])
+    mismatched["expense"]["verified"] = False
+    mismatched["verified"] = False
+    (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
+    assert trip["expense_total"] == 400 and trip["verified"] is False
+    assert {"TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH"} <= set(trip["review"])
 
 
 def test_view_unknown_closure_until_archive_has_synced_once():
     sources = {"main": _source([_trip("0630_오제")]), "archive": _source([], last_ok=None, status="error")}
     (trip,) = ga.build_trip_view(sources)
-    assert trip["closure"] == "unknown"
+    assert trip["closure"] == "unknown" and trip["closure_current"] is False
 
 
 def _fetcher(payloads):
@@ -203,14 +248,14 @@ def test_sync_writes_snapshot_and_skips_parse_when_unchanged(tmp_path: Path):
     snapshot = ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert snapshot["sources"]["main"]["status"] == "ok"
     assert {t["key"]: t["canonical_source"] for t in snapshot["trips"]} == {
-        "0107_대만": "archive", "0630_오제": "main"}
+        "0107_대만의 사본": "archive", "0630_오제": "main"}
 
     again = ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert again["sources"]["main"]["unchanged"] is True
     assert json.loads(snapshot_path.read_text(encoding="utf-8"))["schema"] == ga.SCHEMA
 
 
-def test_failed_read_keeps_last_good_trips(tmp_path: Path):
+def test_failed_read_keeps_last_good_trips_and_marks_stale(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     main, archive = _good_books()
     ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
@@ -223,8 +268,22 @@ def test_failed_read_keeps_last_good_trips(tmp_path: Path):
     assert main_source["status"] == "error" and main_source["error_code"] == "SOURCE_NOT_FOUND"
     assert main_source["stale"] is True
     assert main_source["last_ok_at"] == NOW.isoformat()
-    assert [t["key"] for t in main_source["trips"]] == ["0630_오제"]
-    assert "SOURCE_STALE" in next(t for t in snapshot["trips"] if t["key"] == "0630_오제")["review"]
+    assert [t["sheet"] for t in main_source["trips"]] == ["0630_오제"]
+    assert snapshot["sources"]["archive"]["status"] == "ok"
+    trip = next(t for t in snapshot["trips"] if t["key"] == "0630_오제")
+    assert "SOURCE_STALE" in trip["review"] and trip["verified"] is False
+
+
+def test_archive_failure_is_not_reported_as_current_closure(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    main, archive = _good_books()
+    ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    snapshot = ga.sync(snapshot_path,
+                       fetcher=_fetcher({"main": main, "archive": ga.SourceError("SOURCE_UNREACHABLE")}),
+                       now=NOW + dt.timedelta(hours=1))
+    closed = next(t for t in snapshot["trips"] if t["key"] == "0107_대만의 사본")
+    assert closed["closure"] == "closed" and closed["closure_current"] is False
+    assert snapshot["sources"]["main"]["status"] == "ok"
 
 
 def test_empty_workbook_never_replaces_known_trips(tmp_path: Path):
@@ -234,7 +293,7 @@ def test_empty_workbook_never_replaces_known_trips(tmp_path: Path):
     empty = workbook_bytes(lambda wb: wb.create_sheet("매출자료 양식_rev"))
     snapshot = ga.sync(snapshot_path, fetcher=_fetcher({"main": empty, "archive": archive}), now=NOW)
     assert snapshot["sources"]["main"]["error_code"] == "SOURCE_NO_TRIP_SHEETS"
-    assert [t["key"] for t in snapshot["sources"]["main"]["trips"]] == ["0630_오제"]
+    assert [t["sheet"] for t in snapshot["sources"]["main"]["trips"]] == ["0630_오제"]
 
 
 def test_corrupt_snapshot_is_not_overwritten(tmp_path: Path):
@@ -245,6 +304,15 @@ def test_corrupt_snapshot_is_not_overwritten(tmp_path: Path):
         ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert raised.value.code == "SNAPSHOT_UNREADABLE"
     assert snapshot_path.read_text(encoding="utf-8") == "{not json"
+
+
+def test_previous_schema_snapshot_is_refused_not_mixed(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    snapshot_path.write_text(json.dumps({"schema": "google-authority-readonly-v1"}), encoding="utf-8")
+    main, archive = _good_books()
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    assert raised.value.code == "SNAPSHOT_SCHEMA_MISMATCH"
 
 
 def test_html_login_page_is_refused_as_wrong_type(monkeypatch):

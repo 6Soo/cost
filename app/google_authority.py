@@ -1,9 +1,9 @@
 """Read-only sync of the Google trip ledgers into a standalone snapshot.
 
 Reads the active main workbook and the archive workbook as xlsx exports, finds the
-trip tabs in the 매출자료 양식_rev layout and keeps only totals and status codes.
-Nothing is written to Google, nothing touches the operating board database, and
-row contents (names, reservation numbers, payees) are not kept.
+trip tabs in the 매출자료 양식_rev layout and keeps only totals, check results and
+status codes. Nothing is written to Google, nothing touches the operating board
+database, and row contents (names, reservation numbers, payees) are not kept.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ SPREADSHEET_IDS = {
     "archive": "1scMHyDERFWZp82gwZMxnz9Hzgy0CJm3TdvqD1sw_9C8",
 }
 EXPORT_URL = "https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
-SCHEMA = "google-authority-readonly-v1"
+SCHEMA = "google-authority-readonly-v2"
 KST = dt.timezone(dt.timedelta(hours=9))
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_BYTES = 64 * 1024 * 1024
@@ -37,6 +37,8 @@ COPY_SUFFIX = re.compile(r"\s*의 사본$")
 SUM_OF_AMOUNTS = re.compile(r"^=\s*SUM\(\s*H(\d+)(?:\s*:\s*H(\d+))?\s*\)$", re.IGNORECASE)
 # A block with any of these cannot be summed safely. Its total is None, never 0.
 BLOCKING_FLAGS = {"FORMULA_ERROR", "AMOUNT_INVALID", "AMOUNT_MISSING", "AMOUNT_NOT_CACHED"}
+# A block with any of these has a total Google shows but COST cannot verify.
+TOTAL_FLAGS = {"TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH", "TOTAL_FORMULA_UNCLEAR", "TOTAL_NOT_CACHED"}
 
 
 class SourceError(Exception):
@@ -57,6 +59,11 @@ def _text(value) -> str:
 
 def _is_date(value) -> bool:
     return isinstance(value, (dt.date, dt.datetime))
+
+
+def _candidate_key(title: str) -> str:
+    """Only for flagging a possible duplicate. Never used to merge two tabs."""
+    return COPY_SUFFIX.sub("", title)
 
 
 def _sum_block(first: int, last: int, ws_f, ws_v, flags: set) -> tuple[int, int, int | None, int | None]:
@@ -95,7 +102,7 @@ def _sum_formulas(ws_f) -> list[tuple[int, int, int, int]]:
 
 
 def _check_total(formulas, first, last, ws_v, computed, rows, first_row, last_row, flags: set) -> int | None:
-    """Compare the sheet's own total with the rows it should sum. Returns the sheet total."""
+    """Find the sheet's own total for a block and report how it compares with the rows."""
     # A total may start on the header row, which holds text and sums to nothing.
     inside = [item for item in formulas if first - 1 <= item[2] and item[3] <= last]
     if len(inside) != 1:
@@ -116,6 +123,13 @@ def _check_total(formulas, first, last, ws_v, computed, rows, first_row, last_ro
     return int(round(cached))
 
 
+def _block(sheet_total: int | None, row_sum: int | None, block_flags: set) -> dict:
+    if block_flags & BLOCKING_FLAGS:
+        return {"sheet_total": None, "row_sum": None, "total": None, "verified": False}
+    verified = sheet_total is not None and sheet_total == row_sum and not (block_flags & TOTAL_FLAGS)
+    return {"sheet_total": sheet_total, "row_sum": row_sum, "total": sheet_total, "verified": verified}
+
+
 def parse_trip_sheet(ws_f, ws_v) -> dict:
     """One trip tab. Nonstandard layouts are reported, never converted."""
     last_row = ws_v.max_row or 0
@@ -127,8 +141,8 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
         elif labels == EXPENSE_HEADER:
             expense_rows.append(row)
     if len(income_rows) != 1 or len(expense_rows) != 1 or income_rows[0] >= expense_rows[0]:
-        return {"layout": "nonstandard", "flags": ["LAYOUT_NOT_STANDARD"], "income_total": None,
-                "expense_total": None, "net": None, "income_rows": None, "expense_rows": None}
+        return {"layout": "nonstandard", "flags": ["LAYOUT_NOT_STANDARD"], "income": None, "expense": None,
+                "net": None, "verified": False, "income_rows": None, "expense_rows": None}
 
     income_header, expense_header = income_rows[0], expense_rows[0]
     formulas = _sum_formulas(ws_f)
@@ -139,26 +153,24 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
     blocks = {"income": (income_header + 1, expense_header - 1), "expense": (expense_header + 1, stop)}
 
     flags: set = set()
-    totals, counts = {}, {}
+    result, counts = {}, {}
     for name, (first, last) in blocks.items():
         block_flags: set = set()
-        row_total, rows, first_row, last_data = _sum_block(first, last, ws_f, ws_v, block_flags)
-        # Google's own total is the figure that counts; the row sum only stands in when it is missing.
-        sheet_total = _check_total(formulas, first, last, ws_v, row_total, rows, first_row, last_data, block_flags)
+        row_sum, rows, first_row, last_data = _sum_block(first, last, ws_f, ws_v, block_flags)
+        sheet_total = _check_total(formulas, first, last, ws_v, row_sum, rows, first_row, last_data, block_flags)
         flags |= block_flags
-        if block_flags & BLOCKING_FLAGS:
-            totals[name] = None
-        else:
-            totals[name] = sheet_total if sheet_total is not None else row_total
+        result[name] = _block(sheet_total, None if block_flags & BLOCKING_FLAGS else row_sum, block_flags)
         counts[name] = rows
 
-    income, expense = totals["income"], totals["expense"]
+    income, expense = result["income"], result["expense"]
+    net = income["total"] - expense["total"] if income["total"] is not None and expense["total"] is not None else None
     return {
         "layout": "rev",
         "flags": sorted(flags),
-        "income_total": income,
-        "expense_total": expense,
-        "net": income - expense if income is not None and expense is not None else None,
+        "income": income,
+        "expense": expense,
+        "net": net,
+        "verified": income["verified"] and expense["verified"],
         "income_rows": counts["income"],
         "expense_rows": counts["expense"],
     }
@@ -170,11 +182,10 @@ def parse_workbook(data: bytes) -> list[dict]:
     trips = []
     for name in values.sheetnames:
         title = name.strip()
-        key = COPY_SUFFIX.sub("", title)
-        if not TRIP_NAME.match(key):
+        if not TRIP_NAME.match(title):
             continue
         trip = parse_trip_sheet(formulas[name], values[name])
-        trips.append({"sheet": title, "key": key, "copy_name": key != title, **trip})
+        trips.append({"sheet": title, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
     return trips
 
 
@@ -238,40 +249,50 @@ def _sync_source(role: str, previous: dict, now: str, fetcher) -> dict:
             "content_sha256": digest, "unchanged": False, "trips": trips}
 
 
-def _closure(archive_trips: list[dict], archive_source: dict) -> str:
-    if archive_trips:
-        return "closed"
-    return "unknown" if archive_source.get("last_ok_at") is None else "open"
+def _copy(trip: dict | None) -> dict | None:
+    if trip is None:
+        return None
+    return {"sheet": trip["sheet"], "layout": trip["layout"], "income": trip["income"],
+            "expense": trip["expense"], "flags": trip["flags"]}
 
 
 def build_trip_view(sources: dict) -> list[dict]:
-    keys = sorted({trip["key"] for source in sources.values() for trip in source.get("trips", [])})
+    """Groups tabs by exact title. Only an exact title match is treated as the same trip."""
+    main_trips = sources["main"].get("trips", [])
+    archive_trips = sources["archive"].get("trips", [])
+    archive_ok = sources["archive"].get("status") == "ok"
     view = []
-    for key in keys:
-        main = [t for t in sources["main"].get("trips", []) if t["key"] == key]
-        archive = [t for t in sources["archive"].get("trips", []) if t["key"] == key]
+    for title in sorted({trip["sheet"] for trip in main_trips + archive_trips}):
+        main = [t for t in main_trips if t["sheet"] == title]
+        archive = [t for t in archive_trips if t["sheet"] == title]
+        other = archive_trips if main else main_trips
         flags: set = set()
         if len(main) > 1 or len(archive) > 1:
             flags.add("DUPLICATE_IN_SOURCE")
-        if any(t["copy_name"] for t in archive):
-            flags.add("COPY_NAME")
         if main and archive:
             flags.add("DUPLICATE_IN_BOTH")
         if archive and not main:
             flags.add("ARCHIVE_ONLY")
-        source_name, canonical = ("main", main[0]) if main else ("archive", archive[0])
-        if sources[source_name].get("stale"):
+        if archive and any(t["copy_name"] for t in archive):
+            flags.add("COPY_NAME")
+        if any(t["sheet"] != title and _candidate_key(t["sheet"]) == _candidate_key(title) for t in other):
+            flags.add("POSSIBLE_DUPLICATE")
+        canonical_source, canonical = ("main", main[0]) if main else ("archive", archive[0])
+        if sources[canonical_source].get("stale"):
             flags.add("SOURCE_STALE")
-        usable = canonical["layout"] == "rev" and "DUPLICATE_IN_SOURCE" not in flags
+        usable = (canonical["layout"] == "rev"
+                  and not flags & {"DUPLICATE_IN_SOURCE", "POSSIBLE_DUPLICATE"})
+        closure = "closed" if archive else ("unknown" if sources["archive"].get("last_ok_at") is None else "open")
         view.append({
-            "key": key,
-            "closure": _closure(archive, sources["archive"]),
-            "canonical_source": source_name,
-            "sheets": {"main": main[0]["sheet"] if main else None,
-                       "archive": archive[0]["sheet"] if archive else None},
-            "income_total": canonical["income_total"] if usable else None,
-            "expense_total": canonical["expense_total"] if usable else None,
+            "key": title,
+            "closure": closure,
+            "closure_current": archive_ok and closure != "unknown",
+            "canonical_source": canonical_source,
+            "income_total": canonical["income"]["total"] if usable else None,
+            "expense_total": canonical["expense"]["total"] if usable else None,
             "net": canonical["net"] if usable else None,
+            "verified": usable and canonical["verified"] and not flags & {"SOURCE_STALE"},
+            "copies": {"main": _copy(main[0] if main else None), "archive": _copy(archive[0] if archive else None)},
             "review": sorted(flags | set(canonical["flags"])),
         })
     return view
