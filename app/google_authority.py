@@ -343,10 +343,19 @@ def build_trip_view(sources: dict) -> list[dict]:
 
 
 def _write_atomic(path: Path, snapshot: dict) -> None:
+    """Writes a temporary file and swaps it in. On Windows a reader holding the old file can block the swap briefly."""
+    import time
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    os.replace(temporary, path)
+    for attempt in range(10):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.02 * (attempt + 1))
 
 
 def _rows_file(rows_path: Path, generation: str) -> Path:
@@ -368,6 +377,47 @@ def load_rows(rows_path: Path, generation: str | None) -> dict:
     if data.get("generation") != generation:
         raise SnapshotError("ROWS_GENERATION_MISMATCH")
     return data.get("sources", {})
+
+
+READ_ATTEMPTS = 4
+READ_RETRY_SECONDS = 0.05
+
+
+def load_consistent(snapshot_path: Path, rows_path: Path) -> tuple[dict, dict]:
+    """Reads the public snapshot and the private rows together and refuses a pair from different runs.
+
+    The rows must be the generation the snapshot names, and for every source the content
+    fingerprint must match. A sync may replace the pair between the two reads; that is retried a few
+    times, so a reader sees one whole run or a clear error, never a mix.
+    """
+    import time
+    last = None
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            snapshot = load_snapshot(snapshot_path)
+            if not snapshot:
+                raise SnapshotError("SNAPSHOT_MISSING")
+            rows = load_rows(rows_path, snapshot.get("rows_generation"))
+            for role, record in snapshot.get("sources", {}).items():
+                if record.get("content_sha256") != rows.get(role, {}).get("content_sha256"):
+                    raise SnapshotError("GENERATION_MISMATCH")
+            return snapshot, rows
+        except SnapshotError as error:
+            last = error
+            transient = ("ROWS_MISSING", "GENERATION_MISMATCH", "SNAPSHOT_UNREADABLE", "ROWS_UNREADABLE")
+            if error.code not in transient or attempt + 1 == READ_ATTEMPTS:
+                break
+            time.sleep(READ_RETRY_SECONDS)
+    raise last
+
+
+def _remove_other_generations(rows_path: Path, *, keep: set) -> None:
+    """Removes orphaned or two-runs-old rows files, which a crash between the two writes can leave behind."""
+    keep_names = {_rows_file(rows_path, g).name for g in keep if g}
+    for candidate in rows_path.parent.glob(f"{rows_path.stem}.*{rows_path.suffix}"):
+        if candidate.name not in keep_names:
+            with contextlib.suppress(OSError):
+                candidate.unlink()
 
 
 def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEOUT,
@@ -395,10 +445,9 @@ def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEO
     _write_atomic(_rows_file(rows_path, generation),
                   {"schema": ROWS_SCHEMA, "generation": generation, "synced_at": checked_at, "sources": private})
     snapshot = {"schema": SCHEMA, "synced_at": checked_at, "sources": sources,
-                "trips": build_trip_view(sources), "rows_generation": generation}
+                "trips": build_trip_view(sources), "rows_generation": generation,
+                "rows_generation_previous": previous.get("rows_generation")}
     _write_atomic(snapshot_path, snapshot)
-    old = previous.get("rows_generation")
-    if old and old != generation:
-        with contextlib.suppress(OSError):
-            _rows_file(rows_path, old).unlink()
+    # A reader that loaded the previous snapshot may still open its rows, so the previous generation stays.
+    _remove_other_generations(rows_path, keep={generation, previous.get("rows_generation")})
     return snapshot

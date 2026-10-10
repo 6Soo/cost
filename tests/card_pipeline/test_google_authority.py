@@ -471,19 +471,121 @@ def test_rows_file_from_another_generation_is_refused(tmp_path: Path):
     assert raised.value.code == "ROWS_GENERATION_MISMATCH"
 
 
-def test_old_generation_file_is_removed_after_success(tmp_path: Path):
+def test_previous_generation_is_kept_for_readers_and_the_oldest_is_removed(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     rows_path = tmp_path / "rows-private.json"
     data = _row_book([("A", "식비", 1)])
-    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
-    first = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
-    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
-    second = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
-    assert first != second
-    assert not ga._rows_file(rows_path, first).exists() and ga._rows_file(rows_path, second).exists()
+    gens = []
+    for minute in range(3):
+        _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW + dt.timedelta(minutes=minute))
+        gens.append(json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"])
+    assert len(set(gens)) == 3
+    assert not ga._rows_file(rows_path, gens[0]).exists()  # two runs old: removed
+    assert ga._rows_file(rows_path, gens[1]).exists()      # previous: kept for a reader in flight
+    assert ga._rows_file(rows_path, gens[2]).exists()      # current
+
 def test_unverified_figures_are_reported_separately_from_totals():
     mismatched = _trip("0630_오제", flags=["TOTAL_MISMATCH"])
     mismatched["verified"] = False
     (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
     assert trip["net"] is None and trip["income_total"] is None
     assert trip["reported"]["net"] == 600
+
+
+def test_reader_gets_a_consistent_pair(tmp_path: Path):
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
+    assert snapshot["schema"] == ga.SCHEMA and "main" in rows
+
+
+def test_reader_refuses_rows_whose_fingerprint_belongs_to_another_run(tmp_path: Path):
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    generation = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    rows_file = ga._rows_file(rows_path, generation)
+    doc = json.loads(rows_file.read_text(encoding="utf-8"))
+    doc["sources"]["main"]["content_sha256"] = "0" * 64
+    rows_file.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.load_consistent(snapshot_path, rows_path)
+    assert raised.value.code == "GENERATION_MISMATCH"
+
+
+def test_reader_refuses_a_missing_snapshot(tmp_path: Path):
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.load_consistent(tmp_path / "none.json", tmp_path / "rows.json")
+    assert raised.value.code == "SNAPSHOT_MISSING"
+
+
+def test_readers_never_see_a_mixed_pair_while_the_writer_swaps_generations(tmp_path: Path):
+    import threading
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    books = [_row_book([("A%d" % i, "식비", 1000 + i)]) for i in range(2)]
+    _sync(snapshot_path, fetcher=_fetcher({"main": books[0], "archive": books[1]}), now=NOW)
+    failures, reads, stop = [], [0], threading.Event()
+
+    def writer():
+        try:
+            for i in range(12):
+                data = books[i % 2]
+                _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": books[(i + 1) % 2]}),
+                      now=NOW + dt.timedelta(minutes=i))
+        except Exception as error:  # a dead writer must still stop the readers
+            failures.append("writer: " + repr(error))
+        finally:
+            stop.set()
+
+    def reader():
+        import time
+        while not stop.is_set():
+            time.sleep(0.002)
+            try:
+                snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
+                for role, record in snapshot["sources"].items():
+                    if record.get("content_sha256") != rows.get(role, {}).get("content_sha256"):
+                        failures.append("mixed pair")
+                reads[0] += 1
+            except ga.SnapshotError as error:
+                failures.append(error.code)
+
+    threads = [threading.Thread(target=reader) for _ in range(3)] + [threading.Thread(target=writer)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+    assert failures == [], failures[:5]
+    assert reads[0] > 0
+    generations = list(tmp_path.glob("rows-private.*.json"))
+    assert len(generations) <= 2  # current and previous only
+
+
+def test_a_crash_between_the_two_writes_leaves_a_readable_pair_and_the_next_run_cleans_up(tmp_path: Path,
+                                                                                       monkeypatch):
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    first = _row_book([("OLD", "식비", 1)])
+    _sync(snapshot_path, fetcher=_fetcher({"main": first, "archive": first}), now=NOW)
+    before = snapshot_path.read_text(encoding="utf-8")
+    real = ga._write_atomic
+
+    def crash_on_snapshot(path, obj):
+        if path == snapshot_path:
+            raise OSError("power loss")
+        real(path, obj)
+
+    newer = _row_book([("NEW", "식비", 2)])
+    monkeypatch.setattr(ga, "_write_atomic", crash_on_snapshot)
+    with pytest.raises(OSError):
+        _sync(snapshot_path, fetcher=_fetcher({"main": newer, "archive": newer}), now=NOW)
+    monkeypatch.setattr(ga, "_write_atomic", real)
+    assert snapshot_path.read_text(encoding="utf-8") == before
+    snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
+    assert "OLD" in json.dumps(rows)
+    orphans = list(tmp_path.glob("rows-private.*.json"))
+    assert len(orphans) == 2  # the old generation and the orphan from the crash
+    _sync(snapshot_path, fetcher=_fetcher({"main": newer, "archive": newer}), now=NOW + dt.timedelta(minutes=5))
+    assert len(list(tmp_path.glob("rows-private.*.json"))) == 2
+    snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
+    assert "NEW" in json.dumps(rows)
