@@ -755,7 +755,17 @@ def input_key_for(backend) -> str:
                    "pins": _store_value(store, "group_pins", []),
                    "events": _store_value(store, "event_snapshots", {})},
         "matching": load_defaults(),
+        "guide_airfare": _guide_input_digest(backend.board),
     })
+
+
+def _guide_input_digest(board) -> str:
+    """Guide identity, trip authority and parser state. An unreadable state is a distinct, stable value."""
+    from . import guide_airfare_review
+    try:
+        return guide_airfare_review.input_digest(board)
+    except Exception as exc:
+        return "unreadable:" + type(exc).__name__
 
 
 def input_key(board) -> str:
@@ -770,11 +780,27 @@ def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
     data = backend._data()
     events, transactions, links, results = data
+    from . import guide_airfare_review
+    try:
+        guide = guide_airfare_review.evaluate(backend.board, backend.sources.get("mail_directories", []),
+                                              events, transactions, results)
+    except Exception as exc:
+        airfare_ids = {str(event.get("ota_event_id")) for event in events
+                       if guide_airfare_review._is_airfare(event.get("item"))}
+        guide = {str(row.get("ota_event_id")): guide_airfare_review.failed(exc) for row in results
+                 if row.get("status") in ("MATCHED_AUTO", "MATCHED_USER")
+                 and str(row.get("ota_event_id")) in airfare_ids}
+    published = []
+    for row in results:
+        item = {key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
+                                              "reserved_card_ids", "allocation_basis")}
+        verdict = guide.get(str(row.get("ota_event_id")))
+        if verdict is not None:
+            item["guide_airfare"] = verdict
+        published.append(item)
     return {
         "public": public_snapshot(backend.snapshot_from(data)),
-        "results": [{key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
-                                                   "reserved_card_ids", "allocation_basis")}
-                    for row in results],
+        "results": published,
         "links": {str(event_id): _link_transaction_id(link)
                   for event_id, link in links.items() if _link_transaction_id(link)},
         # In memory only: actions read it, the disk copy never carries it.
