@@ -3092,6 +3092,72 @@ class LedgerStore:
             "confirmed": conv["rule_id"] == rule.get("rule_id") and conv["rule_id"] is not None,
         }
 
+    def owner_correction_draft(self, *, learning_case_id: str, client_request_id: str,
+                               actor: str = "owner") -> dict:
+        """Build a rule draft from the owner's own saved correction. No model call.
+
+        Conditions come from the card source merchant only: the card ledger rows
+        carry no direction or card kind that a rule could match, and an unmatched
+        condition would make the rule silently do nothing. Effects are exactly the
+        fields the owner changed from the row's first revision.
+        """
+        if not client_request_id or not isinstance(client_request_id, str):
+            raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
+        case = self.conn.execute(
+            "SELECT row_id FROM board_learning_cases WHERE case_id=?",
+            (learning_case_id,)).fetchone()
+        if case is None:
+            raise SaveError("INVALID_VALUE", "없는 규칙 대화 사례예요")
+        row = self.get_row(case[0])
+        if row is None:
+            raise SaveError("INVALID_VALUE", "대화에 연결된 행이 없어요")
+        keys = self.card_source_keys(dict(row, row_id=case[0]))
+        merchant = str(keys.get("source_merchant") or "").strip()
+        if not merchant:
+            raise SaveError("RULE_SOURCE_MISSING",
+                            "카드 원천 가맹점을 읽을 수 없어 규칙 초안을 만들 수 없어요")
+        first = self.conn.execute(
+            "SELECT revision, prev_json, new_json FROM board_revisions WHERE row_id=?"
+            " ORDER BY revision ASC LIMIT 1", (case[0],)).fetchone()
+        # Revision 1 is the creation record (its new_json is the original). A row created without one
+        # starts at its first saved edit, whose prev_json is the original.
+        source = None
+        if first:
+            source = first[2] if first[0] == 1 else first[1]
+        original = json.loads(source) if source else {}
+        effects = {}
+        item = str(row.get("item") or "").strip()
+        if item and item != str(original.get("item") or "").strip():
+            effects["item"] = item
+        tab = str(row.get("display_tab_id") or "").strip()
+        if tab and tab != str(original.get("display_tab_id") or "").strip():
+            effects["display_tab_id"] = tab
+        if not effects:
+            raise SaveError("RULE_NO_CORRECTION",
+                            "저장된 수정 내용이 없어 규칙 초안을 만들 수 없어요. 먼저 항목이나 여행을 수정해 저장해 주세요")
+        draft = {"learning_case_id": learning_case_id,
+                 "conditions": {"merchant_normalized": merchant},
+                 "effects": effects, "note": "소유자 수정 내용에서 만든 초안"}
+        if "display_tab_id" in effects:
+            year = str(row.get("occurred_on") or "")[:4]
+            draft["scope"] = {"trip_id": tab, "event_year": int(year) if year.isdigit() else None,
+                              "applicability": "existing_and_future"}
+        self.open_conversation(learning_case_id=learning_case_id,
+                               client_request_id=client_request_id + "-open", actor=actor)
+        result = self.create_rule_draft(draft=draft, client_request_id=client_request_id, actor=actor)
+        with self._lock:
+            self._begin_write()
+            try:
+                self.conn.execute(
+                    "UPDATE rule_conversations SET rule_id=?, rule_version=?, updated_at=?"
+                    " WHERE case_id=?", (result["rule_id"], result["version"], _utc_now(),
+                                         learning_case_id))
+                self._commit_write()
+            except Exception:
+                self._rollback_write()
+                raise
+        return result
+
     def confirm_dialog_draft(self, *, learning_case_id: str, client_request_id: str,
                               actor: str = "owner") -> dict:
         """Store the turn's validated draft as a rule. Nothing is applied here."""
