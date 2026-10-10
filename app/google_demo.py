@@ -13,9 +13,11 @@ TOP = 3
 
 
 def _eligible(trip: dict) -> bool:
+    # A copy-named archive tab is an identity we cannot confirm for the public, so it waits for a person.
     return (trip["closure"] == PUBLISHABLE_CLOSURE
             and trip["closure_current"]
             and trip["verified"]
+            and "COPY_NAME" not in trip["review"]
             and trip["net"] is not None
             and trip["income_total"] is not None
             and trip["expense_total"] is not None)

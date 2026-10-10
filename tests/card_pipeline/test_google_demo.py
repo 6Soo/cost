@@ -55,3 +55,9 @@ def test_failed_source_keeps_last_safe_projection_and_marks_stale():
 def test_no_snapshot_without_previous_is_preparing_not_real_data():
     demo = build_demo(None)
     assert demo == {"status": "preparing", "stale": True, "reason": "NO_SNAPSHOT", "entries": []}
+
+
+def test_copy_named_tab_is_held_from_public_ranking():
+    trips = [trip("COPY", 999, review=["COPY_NAME", "ARCHIVE_ONLY"]), trip("G1", 100), trip("G2", 90), trip("G3", 80)]
+    demo = build_demo(snap(trips))
+    assert [e["net"] for e in demo["entries"]] == [100, 90, 80]
