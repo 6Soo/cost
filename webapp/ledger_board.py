@@ -3950,6 +3950,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._phase7_refuse(exc)
                 return
+        from . import receipt_review
+        if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN):
+            return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
@@ -4200,6 +4203,9 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        from . import receipt_review
+        if receipt_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
+            return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
