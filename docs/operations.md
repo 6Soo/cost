@@ -2,7 +2,7 @@
 
 ## 2026-10-10 reservation 여행 정본 동기화 수정과 master data 큐
 
-**원인과 수정**: reservation 동기화가 게시판의 글 최대 5개를 차례로 upsert해 마지막 보조 글이 여행 제목·날짜를 덮었다(1115: 원글 1번 `11월15(일)~17`을 보조 글 3·6번의 `11.18~20` 언급이 덮음). reservation PR #15(`2c1dfb5` 이후 main)가 `pickOriginalPost`로 고른 원글만 정본(title/dates/leader/code)을 갱신하게 했다. 보조 글은 `cafe_tours` 증거로만 남고 순서에 무관하다. 원글을 못 읽으면 기존 정본을 유지하고 `tours.source_status`를 `main_unavailable`/`main_unresolved`로 남긴다(다른 글로 대체하지 않음).
+**원인과 수정**: reservation 동기화가 게시판의 글 최대 5개를 차례로 upsert해 마지막 보조 글이 여행 제목·날짜를 덮었다(1115: 원글 1번 `11월15(일)~17`을 보조 글 3·6번의 `11.18~20` 언급이 덮음). reservation PR #15(`18f7a3c`)가 `pickOriginalPost`로 고른 원글만 정본(title/dates/leader/code)을 갱신하게 했다. 보조 글은 `cafe_tours` 증거로만 남고 순서에 무관하다. 원글을 못 읽으면 기존 정본을 유지하고 `tours.source_status`를 `main_unavailable`/`main_unresolved`로 남긴다(다른 글로 대체하지 않음).
 
 **1115 정상화**: 카페 원본에서 원글(1번, 댓글 20)이 `11월15(일)~17/…`이고 파싱 결과가 2026-11-15~17임을 확인한 뒤, 정식 공개 경로 `refresh-tour?fldid=fOzD`로 갱신했다(직접 SQL 없음). reservation 날짜 11/15~11/17 = COST 11/15~11/17이고 정본 글 번호가 3→1로 돌아왔다. 날짜 불일치는 1건→0건이다.
 
