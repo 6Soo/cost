@@ -170,3 +170,18 @@ class SourceContentTests(unittest.TestCase):
                 ota_payments._mail_events([str(mail)])
                 self.assertEqual(parse.call_count, 2)
             ota_payments._MAIL_EVENT_MEMO.clear()
+
+
+def test_authority_metadata_is_published_and_survives_a_restart(tmp_path):
+    from webapp.ota_snapshot import OtaSnapshotService
+    path = tmp_path / "ota-snapshot.json"
+    meta = {"state": "degraded", "digest": "abc123abc123", "error": "timeout"}
+    result = {"public": {}, "results": [], "links": {}, "data": {}, "authority": meta}
+    service = OtaSnapshotService(key_fn=lambda: "k", reconcile_fn=lambda: result, persist_path=path, start=False)
+    service.check_now()
+    assert service.view()["current"]["authority"] == meta
+    service.stop()
+    reloaded = OtaSnapshotService(key_fn=lambda: "k", reconcile_fn=lambda: result, persist_path=path, start=False)
+    assert reloaded.view()["current"]["authority"] == meta
+    assert "CHULSOO" not in path.read_text(encoding="utf-8")
+    reloaded.stop()
