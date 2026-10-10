@@ -8,16 +8,15 @@ already confirmed, writes an audit entry, and a second approval of the same prop
 
 from __future__ import annotations
 
-import itertools
 import json
 import re
+import uuid
 from pathlib import Path
 
 PATTERN_MERCHANT = re.compile(r"^(?:이|같은) 가맹점(?:\s*\S+)?\s*(?:은|는)?\s*(?:앞으로\s*)?(?P<item>\S+?)(?:으로|로)\s*(?:분류|처리)")
 PATTERN_THIS_ONLY = re.compile(r"^이 건(?:만|은)?\s*(?P<item>\S+?)(?:으로|로)\s*(?:분류|처리|바꿔)")
 PATTERN_NOT_COMPANY = re.compile(r"회사 경비 아님")
 PATTERN_ORIGINAL = re.compile(r"(금액|날짜|일자|거래 ?id|승인번호).{0,20}?(바꿔|수정|변경)", re.IGNORECASE)
-_ids = itertools.count(1)
 
 
 def parse(text: str, merchant_hint: str | None = None) -> dict:
@@ -54,7 +53,7 @@ def propose(text: str, *, rows: list[dict], focus: dict) -> dict:
         changes.append({"transaction_id": row["transaction_id"], "amount_krw": row["amount_krw"],
                         "occurred_on": row["occurred_on"], "before_item": row.get("item"), "after_item": new_item,
                         "exclude": parsed["kind"] == "NOT_COMPANY"})
-    return {"id": f"p{next(_ids)}", "status": "proposed", "kind": parsed["kind"], "changes": changes,
+    return {"id": f"p-{uuid.uuid4().hex}", "status": "proposed", "kind": parsed["kind"], "changes": changes,
             "skipped_confirmed": len(skipped), "needs_confirmation": parsed["kind"] == "NOT_COMPANY"}
 
 
@@ -84,13 +83,19 @@ def apply(proposal: dict, *, approved: bool, approved_by: str, rows: list[dict],
     if any(e.get("proposal_id") == proposal["id"] for e in audit.entries()):
         return {"status": "ALREADY_APPLIED", "applied": []}
     by_id = {r["transaction_id"]: r for r in rows}
-    applied = []
+    # Check every change before touching any row, so a stale change never leaves a partial apply.
+    targets = []
     for change in proposal["changes"]:
         row = by_id.get(change["transaction_id"])
         if row is None or row.get("user_confirmed"):
             continue  # a confirmed row is never overwritten by a rule
         if (row["amount_krw"], row["occurred_on"]) != (change["amount_krw"], change["occurred_on"]):
-            raise ValueError("ROW_CHANGED_SINCE_PREVIEW")  # the preview is stale; propose again
+            raise ValueError("ROW_CHANGED_SINCE_PREVIEW")  # nothing applied; propose again
+        if row.get("item", "") != change["before_item"]:
+            raise ValueError("ROW_CHANGED_SINCE_PREVIEW")
+        targets.append((row, change))
+    applied = []
+    for row, change in targets:
         if change["exclude"]:
             row["excluded_from_company"] = True
         else:

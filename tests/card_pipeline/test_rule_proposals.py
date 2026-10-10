@@ -102,3 +102,30 @@ def test_decision_payloads_keep_the_seen_revision_and_skip_exclusions(tmp_path):
                            "reuse_rule": False, "resolve_hold": False}
     excluded = propose("이 거래는 회사 경비 아님", rows=rows, focus=FOCUS)
     assert decision_payloads(excluded, rows) == []
+
+
+def test_one_stale_row_stops_the_whole_batch_with_nothing_applied(tmp_path):
+    rows = [row("t1"), row("t2")]
+    proposal = propose("이 가맹점은 앞으로 현지잡비로 분류해 줘", rows=rows, focus=FOCUS)
+    rows[1]["amount_krw"] = 777  # changed after the preview
+    with pytest.raises(ValueError, match="ROW_CHANGED_SINCE_PREVIEW"):
+        apply(proposal, approved=True, approved_by="owner", rows=rows, audit=AuditLog(tmp_path / "a.json"))
+    assert rows[0]["item"] == "" and rows[1]["item"] == ""
+
+
+def test_row_item_changed_by_someone_else_is_refused(tmp_path):
+    rows = [row("t1")]
+    proposal = propose("이 건만 식비로 분류해 줘", rows=rows, focus=FOCUS)
+    rows[0]["item"] = "교통비"  # another path changed it after the preview
+    with pytest.raises(ValueError, match="ROW_CHANGED_SINCE_PREVIEW"):
+        apply(proposal, approved=True, approved_by="owner", rows=rows, audit=AuditLog(tmp_path / "a.json"))
+    assert rows[0]["item"] == "교통비"
+
+
+def test_proposal_ids_do_not_repeat_across_restarts():
+    import importlib
+    import app.rule_proposals as rp
+    first = propose("이 건만 식비로 분류해 줘", rows=[row("t1")], focus=FOCUS)["id"]
+    importlib.reload(rp)
+    second = rp.propose("이 건만 식비로 분류해 줘", rows=[row("t1")], focus=FOCUS)["id"]
+    assert first != second and first.startswith("p-") and second.startswith("p-")
