@@ -1,20 +1,24 @@
 """Guide-airfare attribution for the OTA snapshot worker.
 
-Runs on the snapshot worker only, never on a request. Passenger names stay in memory while one
-evaluation runs; the returned results carry no names, only the verdict, the trip and an evidence digest.
+The reservation system is the authority for who the guides are and which tours they lead. COST reads it
+read-only on the snapshot worker, bridges each reservation tour to an authoritative COST trip by exact
+key and dates, and attributes the airfare. Nothing here runs a network call on a request thread.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import time
+from datetime import date, timedelta
 from pathlib import Path
 
-from app import flight_evidence, guide_airfare, guide_identity
+from app import flight_evidence, guide_airfare, guide_identity, reservation_authority
 
-REGISTRY_ENV = "WEBLEDGER_GUIDE_IDENTITIES"
-REGISTRY_FILE = "guide-identities.json"
 AIRPORTS_ENV = "WEBLEDGER_GUIDE_AIRPORTS"
+TOKEN_FILE_NAME = "reservation-internal-token.txt"
+GRACE_SECONDS = 600
+MIN_INTERVAL_SECONDS = 45
 
 PUBLIC_KEYS = ("status", "code", "trip_id", "trip_name", "candidate_trip_ids", "passenger_count",
                "guide_passenger_count", "mixed", "guide_match", "guide_portion_krw",
@@ -22,6 +26,9 @@ PUBLIC_KEYS = ("status", "code", "trip_id", "trip_name", "candidate_trip_ids", "
 _TRIP_DIGEST_KEYS = ("tab_id", "display_key", "destination", "starts_on", "ends_on", "prepared_by_name",
                      "assignee_source", "archived", "deleted", "revision", "source_sha256",
                      "authority_status", "event_year", "valid")
+CONFLICT = "HOLD_GUIDE_ASSIGNMENT_CONFLICT"
+MISMATCH = "HOLD_RESERVATION_TRIP_AUTHORITY_MISMATCH"
+UNAVAILABLE = "HOLD_GUIDE_AUTHORITY_UNAVAILABLE"
 
 
 def _digest(value) -> str:
@@ -29,25 +36,56 @@ def _digest(value) -> str:
                                      default=str).encode("utf-8")).hexdigest()
 
 
-def registry_path(board) -> Path:
-    configured = os.environ.get(REGISTRY_ENV, "").strip()
-    if configured:
-        return Path(configured)
-    return Path(board.path).parent / REGISTRY_FILE
-
-
 def airport_table() -> dict:
     configured = os.environ.get(AIRPORTS_ENV, "").strip()
     return guide_airfare.load_airport_table(configured or None)
 
 
-def _load_registry(board):
-    """(registry, error code). A broken registry disables aliases, so English names stay unconfirmed."""
-    try:
-        return guide_identity.load_alias_registry(registry_path(board)), ""
-    except (OSError, ValueError) as exc:
-        return {}, type(exc).__name__
+def _token_file(board) -> Path:
+    return Path(board.path).resolve().parent.parent / "secrets" / TOKEN_FILE_NAME
 
+
+# reservation authority (worker thread only)
+
+def refresh_authority(board, *, fetcher=None, clock=time.monotonic):
+    """Read guides and tours from reservation and cache them on the board. Never raises.
+
+    A failure keeps the last good copy for GRACE_SECONDS so a blip does not recompute everything; after
+    that the state is unavailable and every attribution holds."""
+    previous = getattr(board, "_reservation_authority", None)
+    now = clock()
+    if previous and now - previous["checked_at"] < MIN_INTERVAL_SECONDS:
+        return previous
+    code = ""
+    authority = None
+    try:
+        if fetcher is not None:
+            authority = fetcher()
+        else:
+            token = reservation_authority.configured_token(_token_file(board) if hasattr(board, "path") else None)
+            authority = reservation_authority.fetch_authority(token=token)
+    except reservation_authority.AuthorityUnavailable as exc:
+        code = exc.code
+    except Exception:
+        code = "unavailable"
+    if authority is not None:
+        state = {"authority": authority, "error": "", "checked_at": now, "last_good_at": now,
+                 "digest": authority["digest"]}
+    elif previous and previous.get("authority") is not None and now - previous["last_good_at"] <= GRACE_SECONDS:
+        state = dict(previous, checked_at=now, degraded=code)
+    else:
+        state = {"authority": None, "error": code or "unavailable", "checked_at": now, "last_good_at": None,
+                 "digest": "unavailable:" + (code or "unavailable")}
+    board._reservation_authority = state
+    return state
+
+
+def authority_state(board) -> dict:
+    return getattr(board, "_reservation_authority", None) or {
+        "authority": None, "error": "not_loaded", "digest": "authority:not_loaded"}
+
+
+# COST trips
 
 def trip_inputs(board) -> list[dict]:
     """Every live trip with whether its schedule is currently validated as authoritative."""
@@ -56,22 +94,30 @@ def trip_inputs(board) -> list[dict]:
         return []
     from . import card_flow
     flow = card_flow.CardFlow(board)
-    trips = []
-    for trip in lister():
-        trips.append(dict(trip, valid=bool(flow.trip_valid(trip["tab_id"]))))
-    return trips
+    return [dict(trip, valid=bool(flow.trip_valid(trip["tab_id"]))) for trip in lister()]
 
 
-def _owner_assignee(board) -> str:
-    reader = getattr(board, "owner_profile", None)
-    if not callable(reader):
-        return ""
-    return str((reader() or {}).get("assignee_name") or "")
+def _registrations(board) -> dict:
+    """trip id -> reserve cafe fldid for trips registered from the reservation catalog."""
+    conn = getattr(board, "conn", None)
+    if conn is None:
+        return {}
+    try:
+        rows = conn.execute("SELECT trip_id, source_key FROM reserve_trip_registrations").fetchall()
+    except Exception:
+        return {}
+    registered = {}
+    for trip_id, source_key in rows:
+        parts = str(source_key).split(":")
+        if len(parts) == 3 and parts[0] == "reserve":
+            registered[str(trip_id)] = parts[1]
+    return registered
 
 
 def input_digest(board) -> str:
-    """Everything the attribution reads besides mail content (mail content is in the source stamps)."""
-    registry, registry_error = _load_registry(board) if hasattr(board, "path") else ({}, "")
+    """Everything the attribution reads besides mail content (mail content is in the source stamps).
+
+    Uses the cached reservation authority; it never fetches."""
     try:
         table_digest = guide_airfare.airport_table_digest(airport_table())
     except (OSError, ValueError) as exc:
@@ -79,10 +125,85 @@ def input_digest(board) -> str:
     return _digest({
         "parser": flight_evidence.PARSER_VERSION, "identity": guide_identity.IDENTITY_VERSION,
         "engine": guide_airfare.ENGINE_VERSION, "airports": table_digest,
-        "registry": registry, "registry_error": registry_error,
-        "owner": _owner_assignee(board),
+        "authority": authority_state(board)["digest"],
+        "registrations": _registrations(board),
         "trips": [{key: trip.get(key) for key in _TRIP_DIGEST_KEYS} for trip in trip_inputs(board)],
     })
+
+
+# reservation tour -> COST trip bridge
+
+def _iso(value):
+    try:
+        return date.fromisoformat(value) if isinstance(value, str) and value else None
+    except ValueError:
+        return None
+
+
+def _name(value) -> str:
+    return "".join(guide_identity.normalize_name_part(value).split())
+
+
+def bridge(authority, trips, registrations):
+    """Per guide id: bridged COST trips and problem windows. Exact keys only: the reserve fldid
+    registration or the exact trip code, and in every case exactly the same start and end dates."""
+    guides = {guide["id"]: guide for guide in authority["guides"]}
+    valid = [trip for trip in trips if trip.get("valid") and _iso(trip.get("starts_on")) and _iso(trip.get("ends_on"))]
+    usable, problems = {}, {}
+    claimed = {}
+    for tour in authority["tours"]:
+        guide_id = tour.get("leader_guide_id")
+        if guide_id is None or guide_id not in guides:
+            continue
+        start, end = _iso(tour.get("depart_date")), _iso(tour.get("return_date"))
+        if start is None or end is None:
+            continue
+        window = (start, end)
+        def key_hit(trip):
+            registered = registrations.get(trip["tab_id"])
+            by_fldid = registered is not None and registered == tour["fldid"]
+            by_code = bool(tour.get("code")) and tour["code"] == trip["display_key"]
+            return by_fldid or by_code
+
+        def key_consistent(trip):
+            registered = registrations.get(trip["tab_id"])
+            if registered is not None and registered != tour["fldid"]:
+                return False
+            return not tour.get("code") or tour["code"] == trip["display_key"]
+
+        keyed = [trip for trip in valid if key_hit(trip)]
+        if (len(keyed) == 1 and key_consistent(keyed[0])
+                and keyed[0]["starts_on"] == tour["depart_date"] and keyed[0]["ends_on"] == tour["return_date"]):
+            claimed.setdefault(keyed[0]["tab_id"], []).append((guide_id, tour))
+            continue
+        problems.setdefault(guide_id, []).append((window, MISMATCH))
+    for trip_id, owners in claimed.items():
+        trip = next(item for item in valid if item["tab_id"] == trip_id)
+        for guide_id, tour in owners:
+            window = (_iso(tour["depart_date"]), _iso(tour["return_date"]))
+            if len(owners) > 1:
+                problems.setdefault(guide_id, []).append((window, MISMATCH))
+                continue
+            guide = guides[guide_id]
+            prepared = _name(trip.get("prepared_by_name"))
+            if (trip.get("assignee_source") == "manual" and prepared
+                    and prepared not in {_name(guide.get("real_name")), _name(guide.get("nickname"))}):
+                problems.setdefault(guide_id, []).append((window, CONFLICT))
+                continue
+            usable.setdefault(guide_id, []).append(trip)
+    return usable, problems
+
+
+def _window_problem(problems, legs, gap):
+    dates = [_iso(leg.get("departure_on")) for leg in legs]
+    dates = [item for item in dates if item]
+    if not dates:
+        return ""
+    low, high = min(dates) - timedelta(days=gap), max(dates) + timedelta(days=gap)
+    hits = [code for (start, end), code in problems if start - timedelta(days=gap) <= high and end + timedelta(days=gap) >= low]
+    if CONFLICT in hits:
+        return CONFLICT
+    return MISMATCH if hits else ""
 
 
 def _is_airfare(item) -> bool:
@@ -98,44 +219,64 @@ def evaluate(board, mail_directories, events, transactions, results) -> dict:
               and result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id")]
     if not wanted:
         return {}
-    registry, _ = _load_registry(board)
-    trips = trip_inputs(board)
-    identities = guide_identity.guide_identities(trips, _owner_assignee(board), registry)
-    trusted = set(guide_identity.TRUSTED_ASSIGNEE_SOURCES)
-    assignee_by_key = {identity["normalized"]: identity["assignee_name"] for identity in identities}
-    candidates = []
-    for trip in trips:
-        key = "".join(guide_identity.normalize_name_part(trip.get("prepared_by_name")).split())
-        if trip["valid"] and trip.get("assignee_source") in trusted and key in assignee_by_key:
-            candidates.append({"trip_id": trip["tab_id"], "display_key": trip["display_key"],
-                               "destination": trip["destination"], "starts_on": trip["starts_on"],
-                               "ends_on": trip["ends_on"], "assignee_name": assignee_by_key[key]})
+    state = authority_state(board)
+    authority = state.get("authority")
+    cards = {str(row.get("transaction_id")): row for row in transactions}
+    if authority is None:
+        return {str(result.get("ota_event_id")): _unavailable(event, state) for result, event in wanted}
+
+    identities = guide_identity.reservation_identities(authority["guides"])
+    usable, problems = bridge(authority, trip_inputs(board), _registrations(board))
+    candidates = [{"trip_id": trip["tab_id"], "display_key": trip["display_key"],
+                   "destination": trip["destination"], "starts_on": trip["starts_on"],
+                   "ends_on": trip["ends_on"], "assignee_name": f"guide:{guide_id}"}
+                  for guide_id, trips in usable.items() for trip in trips]
     evidence_by_booking = flight_evidence.collect_flight_evidence(mail_directories)
     airports = airport_table()
-    cards = {str(row.get("transaction_id")): row for row in transactions}
+    gap = airports["max_gap_days"]
     verdicts = {}
     for result, event in wanted:
         card = cards.get(str(result.get("transaction_id"))) or {}
+        evidence = evidence_by_booking.get((str(event.get("provider")), str(event.get("booking_ref"))))
         if event.get("event_type") != "charge" or card.get("transaction_direction") != "purchase":
-            verdict = _not_applicable("NOT_APPLICABLE_REFUND_EXISTING_PATH")
+            verdict = _verdict("NOT_APPLICABLE", "NOT_APPLICABLE_REFUND_EXISTING_PATH")
         else:
             attribution = guide_airfare.attribute(
-                evidence=evidence_by_booking.get((str(event.get("provider")), str(event.get("booking_ref")))),
-                identities=identities, trips=candidates, airports=airports,
+                evidence=evidence, identities=identities, trips=candidates, airports=airports,
                 item="항공료", card_amount_krw=card.get("amount_krw"))
             verdict = {key: attribution.get(key) for key in PUBLIC_KEYS}
+            matched = sorted({guide_identity.match_passenger(
+                {"surname": person.get("surname", ""), "given_name": person.get("given_name", "")},
+                identities)["guide"] for person in (evidence or {}).get("passengers", [])} - {""})
+            guide_ids = [int(name.split(":")[1]) for name in matched]
+            if len(guide_ids) == 1:
+                verdict["guide_id"] = guide_ids[0]
+            hit = ""
+            if guide_ids and evidence:
+                hit = _window_problem([item for gid in guide_ids for item in problems.get(gid, [])],
+                                      evidence.get("legs") or [], gap)
+            if hit and verdict["status"] in ("ATTRIBUTED", "HOLD") and verdict["code"] not in (
+                    "HOLD_MIXED_PASSENGERS", "HOLD_GUIDE_PORTION_ONLY"):
+                verdict.update(status="HOLD", code=hit, trip_id="", trip_name="")
         verdict["booking_ref"] = str(event.get("booking_ref") or "")
+        verdict["authority_digest"] = str(state.get("digest") or "")[:12]
         verdicts[str(result.get("ota_event_id"))] = verdict
     return verdicts
 
 
-def _not_applicable(code):
-    return {"status": "NOT_APPLICABLE", "code": code, "trip_id": "", "trip_name": "",
-            "candidate_trip_ids": [], "passenger_count": 0, "guide_passenger_count": 0, "mixed": False,
-            "guide_match": "unknown", "guide_portion_krw": None, "evidence_digest": "",
-            "engine_version": guide_airfare.ENGINE_VERSION}
+def _verdict(status, code):
+    return {"status": status, "code": code, "trip_id": "", "trip_name": "", "candidate_trip_ids": [],
+            "passenger_count": 0, "guide_passenger_count": 0, "mixed": False, "guide_match": "unknown",
+            "guide_portion_krw": None, "evidence_digest": "", "engine_version": guide_airfare.ENGINE_VERSION}
+
+
+def _unavailable(event, state) -> dict:
+    verdict = _verdict("HOLD", UNAVAILABLE)
+    verdict.update(booking_ref=str(event.get("booking_ref") or ""),
+                   authority_digest=str(state.get("digest") or "")[:12], reason=str(state.get("error") or ""))
+    return verdict
 
 
 def failed(error) -> dict:
     """Fail closed: an evaluation error never grants an attribution."""
-    return dict(_not_applicable("HOLD_GUIDE_AIRFARE_ERROR"), status="HOLD", error=type(error).__name__)
+    return dict(_verdict("HOLD", "HOLD_GUIDE_AIRFARE_ERROR"), error=type(error).__name__)

@@ -1,11 +1,15 @@
-"""Decide whether a flight passenger is a company guide, from trusted identity data only."""
+"""Decide whether a flight passenger is a company guide, from the reservation guide authority only.
+
+`reservation_identities` is the active path. `load_alias_registry` and `guide_identities` (COST-local
+trip assignees and a local alias file) are deprecated: COST no longer owns who the guides are.
+"""
 
 import hashlib
 import json
 import unicodedata
 from pathlib import Path
 
-IDENTITY_VERSION = "guide-identity-v1"
+IDENTITY_VERSION = "guide-identity-v2"
 TRUSTED_ASSIGNEE_SOURCES = ("manual", "owner_profile")
 
 _SEPARATOR_CHARS = {ord(ch): " " for ch in "-_·"}
@@ -66,6 +70,7 @@ def _check_registry(data, path):
 
 
 def load_alias_registry(path) -> dict:
+    """Deprecated: a local alias file is not an authority; reservation owns guide identity."""
     if not path or not Path(path).exists():
         return {}
     try:
@@ -76,6 +81,7 @@ def load_alias_registry(path) -> dict:
 
 
 def guide_identities(trips, owner_assignee_name, registry) -> list[dict]:
+    """Deprecated: COST trip assignees are not guide identity authority."""
     found = {}
 
     def add(name, source):
@@ -114,6 +120,21 @@ def guide_identities(trips, owner_assignee_name, registry) -> list[dict]:
             "aliases": [{"surname": s, "given_name": g} for s, g in sorted(entry["aliases"])],
             "trusted": True,
         })
+    return sorted(identities, key=lambda identity: identity["assignee_name"])
+
+
+def reservation_identities(guides) -> list[dict]:
+    """Identities from the reservation guide master. Only active guides; the English name is exactly
+    the guide's registered flight name, split as surname + given name; a missing name stays unknown."""
+    identities = []
+    for guide in guides or []:
+        if guide.get("status") != "active" or not isinstance(guide.get("id"), int):
+            continue
+        tokens = normalize_name_part(guide.get("flight_name_en")).split()
+        aliases = [{"surname": tokens[0], "given_name": " ".join(tokens[1:])}] if len(tokens) >= 2 else []
+        real_name = "".join(normalize_name_part(guide.get("real_name")).split())
+        identities.append({"assignee_name": f"guide:{guide['id']}", "normalized": real_name or f"id:{guide['id']}",
+                           "sources": ["reservation"], "aliases": aliases, "trusted": True})
     return sorted(identities, key=lambda identity: identity["assignee_name"])
 
 
