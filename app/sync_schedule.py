@@ -44,8 +44,8 @@ def _unlock(handle) -> None:
 class SyncLock:
     """Held for the life of the with-block. A live run is never taken over, and release never deletes the file."""
 
-    def __init__(self, path: Path, *, now: dt.datetime):
-        self.path = path
+    def __init__(self, path, *, now: dt.datetime):
+        self.path = Path(path)
         self.now = now
         self._handle = None
 
