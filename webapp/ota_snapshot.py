@@ -42,12 +42,13 @@ def digest(value):
 
 
 class OtaSnapshotService:
-    def __init__(self, *, key_fn, reconcile_fn, persist_path=None, clock=time.monotonic,
+    def __init__(self, *, key_fn, reconcile_fn, persist_path=None, log_path=None, clock=time.monotonic,
                  check_seconds=CHECK_SECONDS, fresh_seconds=FRESH_SECONDS, retry_seconds=RETRY_SECONDS,
                  first_wait_seconds=FIRST_WAIT_SECONDS, start=True):
         self._key_fn = key_fn
         self._reconcile_fn = reconcile_fn
         self._persist_path = Path(persist_path) if persist_path else None
+        self._log_path = Path(log_path) if log_path else None
         self._clock = clock
         self._check_seconds = check_seconds
         self._fresh_seconds = fresh_seconds
@@ -128,6 +129,16 @@ class OtaSnapshotService:
                     return
             time.sleep(0.05)
 
+    def _log(self, event, **fields):
+        """One JSON line per worker decision, for operators. Never raises."""
+        if self._log_path is None:
+            return
+        try:
+            with self._log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"at": _now_iso(), "event": event, **fields}, ensure_ascii=False, default=str) + "\n")
+        except OSError:
+            return
+
     def check_now(self):
         """One pass: read the input digest, and reconcile only if it differs from the held result."""
         if self._stopping:
@@ -145,10 +156,14 @@ class OtaSnapshotService:
             self._checked_at = self._clock()
             current = self._current
             failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_seconds
-            if (current is not None and current["key"] == key and current.get("data") is not None) \
-                    or failed or self._refreshing or self._stopping:
+            held = current is not None and current["key"] == key and current.get("data") is not None
+            if held or failed or self._refreshing or self._stopping:
+                self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
+                          generation=(current or {}).get("generation", 0))
                 return
             self._refreshing = True
+        self._log("refresh_start", key=key[:12], generation=(current or {}).get("generation", 0))
+        started = self._clock()
         try:
             reconciled = self._reconcile_fn()
         except Exception as exc:
@@ -157,7 +172,9 @@ class OtaSnapshotService:
                 self._failed_key = key
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
+            self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
             return
+        self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2))
         with self._lock:
             generation = (current or {}).get("generation", 0) + 1
             self._current = {"key": key, "generation": generation, "generated_at": _now_iso(), **reconciled}
