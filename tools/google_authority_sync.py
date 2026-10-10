@@ -24,11 +24,12 @@ from app import google_authority
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--snapshot", required=True, type=pathlib.Path)
+    parser.add_argument("--rows", required=True, type=pathlib.Path)
     parser.add_argument("--timeout", type=float, default=google_authority.DEFAULT_TIMEOUT)
     parser.add_argument("--max-bytes", type=int, default=google_authority.DEFAULT_MAX_BYTES)
     args = parser.parse_args(argv)
     try:
-        snapshot = google_authority.sync(args.snapshot, timeout=args.timeout, max_bytes=args.max_bytes)
+        snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout, max_bytes=args.max_bytes)
     except google_authority.SnapshotError as error:
         print(json.dumps({"code": error.code}))
         return 2

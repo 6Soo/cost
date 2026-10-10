@@ -236,6 +236,10 @@ def _fetcher(payloads):
     return fetch
 
 
+def _sync(path, **kwargs):
+    return ga.sync(path, path.with_name("rows-private.json"), **kwargs)
+
+
 def _good_books():
     main = workbook_bytes(lambda wb: rev_sheet(wb, "0630_오제", [100], [40]))
     archive = workbook_bytes(lambda wb: rev_sheet(wb, "0107_대만의 사본", [70], [10]))
@@ -245,12 +249,12 @@ def _good_books():
 def test_sync_writes_snapshot_and_skips_parse_when_unchanged(tmp_path: Path):
     snapshot_path = tmp_path / "google-authority" / "snapshot.json"
     main, archive = _good_books()
-    snapshot = ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    snapshot = _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert snapshot["sources"]["main"]["status"] == "ok"
     assert {t["key"]: t["canonical_source"] for t in snapshot["trips"]} == {
         "0107_대만의 사본": "archive", "0630_오제": "main"}
 
-    again = ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    again = _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert again["sources"]["main"]["unchanged"] is True
     assert json.loads(snapshot_path.read_text(encoding="utf-8"))["schema"] == ga.SCHEMA
 
@@ -258,10 +262,10 @@ def test_sync_writes_snapshot_and_skips_parse_when_unchanged(tmp_path: Path):
 def test_failed_read_keeps_last_good_trips_and_marks_stale(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     main, archive = _good_books()
-    ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
 
     later = NOW + dt.timedelta(hours=1)
-    snapshot = ga.sync(snapshot_path,
+    snapshot = _sync(snapshot_path,
                        fetcher=_fetcher({"main": ga.SourceError("SOURCE_NOT_FOUND"), "archive": archive}),
                        now=later)
     main_source = snapshot["sources"]["main"]
@@ -277,8 +281,8 @@ def test_failed_read_keeps_last_good_trips_and_marks_stale(tmp_path: Path):
 def test_archive_failure_is_not_reported_as_current_closure(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     main, archive = _good_books()
-    ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
-    snapshot = ga.sync(snapshot_path,
+    _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    snapshot = _sync(snapshot_path,
                        fetcher=_fetcher({"main": main, "archive": ga.SourceError("SOURCE_UNREACHABLE")}),
                        now=NOW + dt.timedelta(hours=1))
     closed = next(t for t in snapshot["trips"] if t["key"] == "0107_대만의 사본")
@@ -289,9 +293,9 @@ def test_archive_failure_is_not_reported_as_current_closure(tmp_path: Path):
 def test_empty_workbook_never_replaces_known_trips(tmp_path: Path):
     snapshot_path = tmp_path / "snapshot.json"
     main, archive = _good_books()
-    ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+    _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     empty = workbook_bytes(lambda wb: wb.create_sheet("매출자료 양식_rev"))
-    snapshot = ga.sync(snapshot_path, fetcher=_fetcher({"main": empty, "archive": archive}), now=NOW)
+    snapshot = _sync(snapshot_path, fetcher=_fetcher({"main": empty, "archive": archive}), now=NOW)
     assert snapshot["sources"]["main"]["error_code"] == "SOURCE_NO_TRIP_SHEETS"
     assert [t["sheet"] for t in snapshot["sources"]["main"]["trips"]] == ["0630_오제"]
 
@@ -301,7 +305,7 @@ def test_corrupt_snapshot_is_not_overwritten(tmp_path: Path):
     snapshot_path.write_text("{not json", encoding="utf-8")
     main, archive = _good_books()
     with pytest.raises(ga.SnapshotError) as raised:
-        ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+        _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert raised.value.code == "SNAPSHOT_UNREADABLE"
     assert snapshot_path.read_text(encoding="utf-8") == "{not json"
 
@@ -311,7 +315,7 @@ def test_previous_schema_snapshot_is_refused_not_mixed(tmp_path: Path):
     snapshot_path.write_text(json.dumps({"schema": "google-authority-readonly-v1"}), encoding="utf-8")
     main, archive = _good_books()
     with pytest.raises(ga.SnapshotError) as raised:
-        ga.sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
+        _sync(snapshot_path, fetcher=_fetcher({"main": main, "archive": archive}), now=NOW)
     assert raised.value.code == "SNAPSHOT_SCHEMA_MISMATCH"
 
 
@@ -332,3 +336,79 @@ def test_html_login_page_is_refused_as_wrong_type(monkeypatch):
     with pytest.raises(ga.SourceError) as raised:
         ga._download("https://example.invalid/export", timeout=1, max_bytes=1024)
     assert raised.value.code == "SOURCE_WRONG_TYPE"
+
+
+def _row_book(expense_rows, income_amount=100000):
+    def build(wb):
+        ws = wb.create_sheet("0801_노리쿠라")
+        for col, label in zip("BCDEFGH", INCOME):
+            ws[f"{col}5"] = label
+        ws["B6"], ws["C6"], ws["D6"], ws["H6"] = dt.date(2027, 8, 1), "INCOME-NAME", "INCOME-NICK", income_amount
+        ws["C7"] = "=sum(H6:H6)"
+        for col, label in zip("BCDEFGH", EXPENSE):
+            ws[f"{col}10"] = label
+        for index, (payee, category, amount) in enumerate(expense_rows):
+            row = 11 + index
+            ws[f"B{row}"], ws[f"C{row}"], ws[f"D{row}"] = dt.date(2027, 8, 2), payee, category
+            ws[f"F{row}"], ws[f"G{row}"], ws[f"H{row}"] = "RESV-SECRET", "카드", amount
+        last = 10 + len(expense_rows)
+        ws[f"C{last + 1}"] = f"=SUM(H11:H{last})"
+        ws[f"B{last + 3}"] = "합계 및 회사수익인식"
+    return workbook_bytes(build)
+
+
+def test_rows_keep_position_fields_and_negative_refund():
+    data = _row_book([("PAYEE-A", "숙박비", 30000), ("PAYEE-B", "식비", -5000)])
+    (trip,) = ga.parse_workbook(data)
+    expense = trip["rows"]["expense"]
+    assert [(r["row"], r["amount"]) for r in expense] == [(11, 30000), (12, -5000)]
+    assert expense[0]["cells"]["C"] == "PAYEE-A" and expense[0]["cells"]["D"] == "숙박비"
+    assert expense[1]["cells"]["B"] == "2027-08-02"
+    assert trip["income"]["row_sum"] == 100000
+
+
+def test_public_snapshot_has_no_row_contents_but_private_file_does(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _row_book([("PAYEE-SECRET", "식비", 1000)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    public = snapshot_path.read_text(encoding="utf-8")
+    assert "PAYEE-SECRET" not in public and "RESV-SECRET" not in public and "INCOME-NAME" not in public
+    assert "PAYEE-SECRET" in rows_path.read_text(encoding="utf-8")
+
+
+def test_row_changes_are_counted_by_position(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    first = _row_book([("A", "식비", 1000), ("B", "식비", 2000)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": first, "archive": first}), now=NOW)
+    edited = _row_book([("A", "식비", 1500), ("B", "식비", 2000), ("C", "식비", 300)])
+    snapshot = ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": edited, "archive": first}), now=NOW)
+    assert snapshot["sources"]["main"]["row_changes"] == {"added": 1, "removed": 0, "changed": 1}
+    assert snapshot["sources"]["archive"]["row_changes"] == {"added": 0, "removed": 0, "changed": 0}
+    removed = _row_book([("A", "식비", 1500)])
+    snapshot = ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": removed, "archive": first}), now=NOW)
+    assert snapshot["sources"]["main"]["row_changes"] == {"added": 0, "removed": 2, "changed": 0}
+
+
+def test_failed_read_keeps_private_rows(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _row_book([("KEEP-ME", "식비", 1000)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    ga.sync(snapshot_path, rows_path,
+            fetcher=_fetcher({"main": ga.SourceError("SOURCE_UNREACHABLE"), "archive": data}), now=NOW)
+    assert "KEEP-ME" in rows_path.read_text(encoding="utf-8")
+
+
+def test_nonstandard_tab_in_a_real_sync_does_not_break_row_storage(tmp_path: Path):
+    def build(wb):
+        ws = wb.create_sheet("0909_제주")
+        ws["B25"], ws["D25"], ws["H25"], ws["I25"] = "거래일자", "항목", "증빙유형", "금액(원)"
+        ws["I26"] = 30000
+        rev_sheet(wb, "0630_오제", [100], [40])
+
+    data = workbook_bytes(build)
+    snapshot = _sync(tmp_path / "snapshot.json", fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    assert {t["key"] for t in snapshot["trips"]} == {"0630_오제", "0909_제주"}
+    assert snapshot["sources"]["main"]["status"] == "ok"
