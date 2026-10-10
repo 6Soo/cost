@@ -322,3 +322,20 @@ def test_reservation_eight_digit_codes_match_cost_keys_only_with_the_same_year()
     assert gar._code_matches("0801_가", trips[0]) is True
     assert gar._code_matches("20260801_다", trips[0]) is False
     assert gar._code_matches("", trips[0]) is False
+
+
+def test_a_corrected_reservation_date_turns_a_date_mismatch_into_an_exact_bridge():
+    trips = [_trip("t1115", "1115_호남", starts="2026-11-15", ends="2026-11-17")]
+    registrations = {"t1115": "fOzD"}
+    overwritten = _tour("fOzD", depart="2026-11-18", ret="2026-11-20")
+    assert _coverage([overwritten], trips, registrations)["date_mismatch"] == ["t1115"]
+    corrected = _tour("fOzD", depart="2026-11-15", ret="2026-11-17")
+    coverage = _coverage([corrected], trips, registrations)
+    assert coverage["fldid"] == ["t1115"] and coverage["date_mismatch"] == []
+
+
+def test_a_similar_title_never_creates_a_bridge_when_no_stable_key_exists():
+    trips = [_trip("t1", "0801_노리쿠라")]
+    tours = [dict(_tour("F9"), title="8월1(토)~5/노리쿠라 트레킹")]
+    coverage = _coverage(tours, trips, {})
+    assert coverage["unbridgeable"] == ["t1"] and coverage["fldid"] == [] and coverage["code"] == []
