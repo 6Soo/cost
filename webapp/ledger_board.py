@@ -3955,7 +3955,7 @@ class Handler(BaseHTTPRequestHandler):
             is_owner, viewer = google_ledger_page.caller(
                 ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session)
             if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
-                                           csrf=CSRF_TOKEN):
+                                           csrf=CSRF_TOKEN, query=query):
                 return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):

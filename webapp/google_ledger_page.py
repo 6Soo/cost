@@ -16,7 +16,8 @@ from pathlib import Path
 
 from app import google_access, google_authority
 
-ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants")
+ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants",
+          "/google-ledger/rows", "/api/google-ledger/rows")
 REVIEW_LABELS = {
     "TOTAL_MISMATCH": "Google 합계와 행 합계가 다름",
     "TOTAL_RANGE_MISMATCH": "합계 수식 범위가 데이터 행과 다름",
@@ -37,7 +38,8 @@ REVIEW_LABELS = {
 
 
 def enabled() -> bool:
-    return bool(os.environ.get("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT"))
+    """Fails closed: both the snapshot and the private rows must be configured."""
+    return bool(os.environ.get("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT") and os.environ.get("WEBLEDGER_GOOGLE_LEDGER_ROWS"))
 
 
 def owns_route(path: str) -> bool:
@@ -46,6 +48,46 @@ def owns_route(path: str) -> bool:
 
 def _snapshot_path() -> Path:
     return Path(os.environ["WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT"])
+
+
+def _rows_path() -> Path:
+    return Path(os.environ["WEBLEDGER_GOOGLE_LEDGER_ROWS"])
+
+
+def owner_rows(rows: dict, key: str, source: str) -> dict | None:
+    """Every row of one trip tab from one source, as stored in the private rows file. Owner only."""
+    if source not in ("main", "archive"):
+        raise ValueError("SOURCE_INVALID")
+    tab = rows.get(source, {}).get("trips", {}).get(key)
+    if tab is None:
+        return None
+    def project(block):
+        return [{"row": r["row"], "date": r["cells"].get("B"), "payee": r["cells"].get("C"),
+                 "category": r["cells"].get("D"), "period": r["cells"].get("E"),
+                 "reservation": r["cells"].get("F"), "evidence": r["cells"].get("G"), "amount": r["amount"]}
+                for r in block]
+    return {"key": key, "source": source, "income": project(tab.get("income", [])),
+            "expense": project(tab.get("expense", []))}
+
+
+def render_rows_html(detail: dict) -> str:
+    def table(rows):
+        body = "".join(
+            f"<tr><td>{r['row']}</td><td>{html.escape(str(r['date'] or ''))}</td>"
+            f"<td>{html.escape(str(r['payee'] or ''))}</td><td>{html.escape(str(r['category'] or ''))}</td>"
+            f"<td>{html.escape(str(r['period'] or ''))}</td><td>{html.escape(str(r['reservation'] or ''))}</td>"
+            f"<td>{html.escape(str(r['evidence'] or ''))}</td><td>{r['amount']:,}원</td></tr>" for r in rows)
+        return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>내용</th><th>기간</th>"
+                f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
+    income = sum(r["amount"] for r in detail["income"])
+    expense = sum(r["amount"] for r in detail["expense"])
+    return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'><title>행 상세</title>"
+            "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
+            "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
+            f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
+            f"<h2>수입 {income:,}원</h2>{table(detail['income'])}"
+            f"<h2>지출 {expense:,}원</h2>{table(detail['expense'])}</body></html>")
 
 
 def choice_path(snapshot_path: Path) -> Path:
@@ -174,7 +216,8 @@ def viewer_payload(snapshot: dict, grants: dict, user_id: str) -> dict:
             "trips": trips}
 
 
-def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = None, raw=None, csrf: str = "") -> bool:
+def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = None, raw=None, csrf: str = "",
+             query=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
     if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants") and raw is None:
@@ -207,10 +250,29 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     if not is_owner and not viewer_user_id:
         handler._send_json({"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"}, 403)
         return True
+    if parsed.path.endswith("/rows"):
+        if not is_owner:
+            handler._send_json({"code": "OWNER_ONLY", "message": "행 상세는 소유자만 볼 수 있습니다"}, 403)
+            return True
+        key = ((query or {}).get("key") or [""])[0]
+        source = ((query or {}).get("source") or [""])[0]
+        try:
+            _, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
+            detail = owner_rows(rows, key, source)
+        except (google_authority.SnapshotError, ValueError):
+            handler._send_json({"code": "ROWS_UNAVAILABLE", "message": "행 자료를 확인하지 못했습니다"}, 503)
+            return True
+        if detail is None:
+            handler._send_json({"code": "NOT_FOUND"}, 404)
+        elif parsed.path == "/api/google-ledger/rows":
+            handler._send_json(detail)
+        else:
+            handler._send(render_rows_html(detail))
+        return True
     try:
-        snapshot = json.loads(_snapshot_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        handler._send_json({"code": "SNAPSHOT_UNAVAILABLE", "message": "동기화 결과를 읽지 못했습니다"}, 503)
+        snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+    except google_authority.SnapshotError as error:
+        handler._send_json({"code": error.code, "message": "동기화 결과를 확인하지 못했습니다"}, 503)
         return True
     if is_owner:
         payload = owner_payload(snapshot, load_choices(_snapshot_path()))

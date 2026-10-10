@@ -3,6 +3,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+from app import google_authority as ga
 from webapp import google_ledger_page as page
 
 
@@ -46,11 +47,22 @@ class FakeHandler:
         self.sent.append(("html", code, text))
 
 
+def rows_doc():
+    line = lambda row, payee, amount: {"row": row, "cells": {"B": "2027-08-02", "C": payee, "D": "식비",
+                                                            "E": "", "F": "RESV-1", "G": "카드"}, "amount": amount}
+    return {"schema": ga.ROWS_SCHEMA, "generation": "gen", "synced_at": "t",
+            "sources": {"main": {"content_sha256": None, "trips": {
+                "0404_에히메": {"income": [line(6, "INCOME-NAME", 1000)], "expense": [line(12, "PAYEE-<b>", 400)]}}}}}
+
+
 @pytest.fixture
 def snapshot_file(tmp_path, monkeypatch):
     path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
     path.write_text(json.dumps(snapshot_doc(), ensure_ascii=False), encoding="utf-8")
+    ga._rows_file(rows_path, "gen").write_text(json.dumps(rows_doc(), ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", str(path))
+    monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_ROWS", str(rows_path))
     return path
 
 
@@ -130,6 +142,7 @@ def test_unreadable_snapshot_is_503_not_empty_page(tmp_path, monkeypatch):
     path = tmp_path / "broken.json"
     path.write_text("{", encoding="utf-8")
     monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", str(path))
+    monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_ROWS", str(tmp_path / "rows.json"))
     handler = FakeHandler()
     page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
     assert handler.sent[0][:2] == ("json", 503)
@@ -213,3 +226,49 @@ def test_anonymous_request_is_not_owner_when_enforced(snapshot_file):
 def test_confirmed_owner_session_is_owner_and_viewer_session_is_viewer():
     assert page.caller(True, _Session("boss"), lambda s: s.user_id == "boss") == (True, "boss")
     assert page.caller(True, _Session("v1"), lambda s: False) == (False, "v1")
+
+
+def test_owner_row_detail_lists_rows_with_position_and_amount(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger/rows"), is_owner=True,
+                  query={"key": ["0404_에히메"], "source": ["main"]})
+    _, code, body = handler.sent[0]
+    assert code == 200
+    assert body["expense"][0]["row"] == 12 and body["expense"][0]["amount"] == 400
+    assert body["income"][0]["payee"] == "INCOME-NAME"
+
+
+def test_row_detail_is_owner_only_and_missing_tab_is_404(snapshot_file):
+    viewer = FakeHandler()
+    page.dispatch(viewer, parsed("/api/google-ledger/rows"), is_owner=False, viewer_user_id="v1",
+                  query={"key": ["0404_에히메"], "source": ["main"]})
+    assert viewer.sent[0][:2] == ("json", 403)
+    missing = FakeHandler()
+    page.dispatch(missing, parsed("/api/google-ledger/rows"), is_owner=True,
+                  query={"key": ["nope"], "source": ["main"]})
+    assert missing.sent[0][:2] == ("json", 404)
+
+
+def test_row_detail_html_escapes_cell_text(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger/rows"), is_owner=True,
+                  query={"key": ["0404_에히메"], "source": ["main"]})
+    body = handler.sent[0][2]
+    assert "PAYEE-&lt;b&gt;" in body and "<b>" not in body
+
+
+def test_mismatched_rows_fail_the_whole_page_closed(snapshot_file):
+    rows_file = ga._rows_file(snapshot_file.parent / "rows-private.json", "gen")
+    doc = rows_doc()
+    doc["sources"]["main"]["content_sha256"] = "x"
+    rows_file.write_text(json.dumps(doc), encoding="utf-8")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=True)
+    assert handler.sent[0][:2] == ("json", 503)
+    assert handler.sent[0][2]["code"] == "GENERATION_MISMATCH"
+
+
+def test_enabled_needs_both_snapshot_and_rows_setting(monkeypatch):
+    monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", "x")
+    monkeypatch.delenv("WEBLEDGER_GOOGLE_LEDGER_ROWS", raising=False)
+    assert page.enabled() is False
