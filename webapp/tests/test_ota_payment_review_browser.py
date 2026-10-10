@@ -329,6 +329,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     server.shutdown()
                     server.server_close()
                     thread.join(timeout=3)
+                    ota_payment_review.shutdown_snapshot_service(board)
 
             self.assertEqual(board_conn.total_changes, initial_changes)
             self.assertEqual([tuple(row) for row in board_conn.execute(

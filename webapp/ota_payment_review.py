@@ -5,6 +5,7 @@ write methods must persist only in the separately configured OTA review store.
 """
 from __future__ import annotations
 
+import atexit
 import importlib
 import json
 import os
@@ -12,6 +13,8 @@ import re
 from contextlib import nullcontext
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from . import ota_snapshot
 
 
 ROUTE_PREFIX = "/api/imports/ota"
@@ -142,6 +145,14 @@ def public_snapshot(snapshot):
 
 class StalePreviewError(Exception):
     """The evidence or card transaction changed after preview."""
+
+
+class OtaSnapshotNotReady(Exception):
+    """No fresh, complete reconciled snapshot exists yet; the caller must try again later."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class InvalidReviewInput(Exception):
@@ -538,8 +549,43 @@ class CoreOtaPaymentBackend:
     def request_refresh(self):
         snapshot_service(self.board).request_check(wait_seconds=3)
 
-    def _selection(self, event_id, transaction_id):
-        events, transactions, links, results = self._data()
+    def _action_data(self):
+        """The reconciled data an action may use: fresh, complete, and matching the input fingerprint now.
+
+        Returns (data, snapshot) where snapshot is {generation, key}. Never reconciles on the request thread.
+        """
+        service = snapshot_service(self.board)
+        context, reason = service.action_context()
+        if context is None:
+            raise OtaSnapshotNotReady(reason)
+        if input_key_for(self) != context["key"]:
+            service.request_check()
+            raise StalePreviewError
+        return context["data"], {"generation": context["generation"], "key": context["key"]}
+
+    def _action_digest(self, event, transaction, core_digest, data, snapshot):
+        """What a human confirmed: the snapshot identity, the exact event and card, and every state that
+        could change the answer (rules, proposals, occupancy, source evidence)."""
+        occupied = self._occupied_cards(data["links"], data["results"])
+        return ota_snapshot.digest({
+            "snapshot": [snapshot["generation"], snapshot["key"]],
+            "event_id": str(event.get("ota_event_id")),
+            "transaction_id": str(transaction.get("transaction_id")),
+            "amounts": [event.get("amount_krw"), transaction.get("amount_krw")],
+            "directions": [event.get("event_type"), transaction.get("transaction_direction")],
+            "rules": self.store.active_rules(),
+            "proposals": [p for p in self.store.proposals() if p.get("status") == "pending"],
+            "occupancy": sorted((key, list(value)) for key, value in occupied.items()),
+            "evidence": event,
+            "core": core_digest,
+        })
+
+    def _selection(self, event_id, transaction_id, data=None):
+        if data is None:
+            events, transactions, links, results = self._data()
+        else:
+            events, transactions, links, results = (data["events"], data["transactions"],
+                                                    data["links"], data["results"])
         event = next((row for row in events if str(row.get("ota_event_id")) == event_id), None)
         result = next((row for row in results if str(row.get("ota_event_id")) == event_id), None)
         if (event is None or result is None or result.get("status") in
@@ -569,13 +615,15 @@ class CoreOtaPaymentBackend:
         return event, transaction, allocations
 
     def preview(self, event_id, transaction_id):
-        event, transaction, _allocations = self._selection(event_id, transaction_id)
+        data, snapshot = self._action_data()
+        event, transaction, _allocations = self._selection(event_id, transaction_id, data)
         preview = self.store.preview(event, transaction)
         if not isinstance(preview, dict) or not preview.get("preview_digest"):
             raise RuntimeError("core preview must return preview_digest")
         event_amount = event.get("amount_krw")
         card_amount = transaction.get("amount_krw")
-        return {"preview_digest": preview["preview_digest"],
+        return {"preview_digest": self._action_digest(event, transaction, preview["preview_digest"], data, snapshot),
+                "snapshot_generation": snapshot["generation"],
                 "event_amount_krw": event_amount, "card_amount_krw": card_amount,
                 "difference_krw": (card_amount - event_amount
                                    if isinstance(card_amount, int) and isinstance(event_amount, int)
@@ -585,9 +633,17 @@ class CoreOtaPaymentBackend:
     def confirm(self, event_id, transaction_id, preview_digest, *, request_id, user):
         if self.read_only:
             raise RuntimeError("read-only OTA backend cannot confirm")
-        event, transaction, allocations = self._selection(event_id, transaction_id)
+        data, snapshot = self._action_data()
+        event, transaction, allocations = self._selection(event_id, transaction_id, data)
+        core_digest = self.store.preview(event, transaction)["preview_digest"]
+        if self._action_digest(event, transaction, core_digest, data, snapshot) != preview_digest:
+            raise StalePreviewError
+        # Written last, after the fingerprint is read again: a change in between refuses the whole write.
+        if input_key_for(self) != snapshot["key"]:
+            snapshot_service(self.board).request_check()
+            raise StalePreviewError
         try:
-            return self.store.confirm(event, transaction, preview_digest,
+            return self.store.confirm(event, transaction, core_digest,
                                       request_id=request_id, user=user, allocations=allocations)
         except Exception as exc:
             if (getattr(exc, "code", "") == "STALE_PREVIEW" or
@@ -674,53 +730,85 @@ class CoreOtaPaymentBackend:
 SNAPSHOT_FILE = "ota-snapshot.json"
 
 
-def input_key(board) -> str:
-    """Every input a reconciliation reads. Source files are keyed by content, never by size or time."""
-    from . import ota_snapshot
+def _store_value(store, name, default):
+    method = getattr(store, name, None)
+    return method() if callable(method) else default
+
+
+def input_key_for(backend) -> str:
+    """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time."""
     from app import ota_sources
     from app.ota_matching_defaults import load_defaults
+    store = backend.store
+    return ota_snapshot.digest({
+        "schema": ota_snapshot.SCHEMA,
+        "sources": ota_sources.source_stamps(backend.sources),
+        "transactions": backend._transactions(),
+        "review": {"links": _store_value(store, "links", {}),
+                   "rules": _store_value(store, "active_rules", []),
+                   "proposals": _store_value(store, "proposals", []),
+                   "pins": _store_value(store, "group_pins", []),
+                   "events": _store_value(store, "event_snapshots", {})},
+        "matching": load_defaults(),
+    })
+
+
+def input_key(board) -> str:
     backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
     try:
-        return ota_snapshot.digest({
-            "schema": ota_snapshot.SCHEMA,
-            "sources": ota_sources.source_stamps(backend.sources),
-            "transactions": backend._transactions(),
-            "review": {"links": backend.store.links(), "rules": backend.store.active_rules(),
-                       "proposals": backend.store.proposals(), "pins": backend.store.group_pins(),
-                       "events": backend.store.event_snapshots()},
-            "matching": load_defaults(),
-        })
+        return input_key_for(backend)
     finally:
         backend.close()
+
+
+def reconcile_for(backend) -> dict:
+    """The full reconciliation through one backend. The caller owns the backend's lifetime."""
+    data = backend._data()
+    events, transactions, links, results = data
+    return {
+        "public": public_snapshot(backend.snapshot_from(data)),
+        "results": [{key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
+                                                   "reserved_card_ids", "allocation_basis")}
+                    for row in results],
+        "links": {str(event_id): _link_transaction_id(link)
+                  for event_id, link in links.items() if _link_transaction_id(link)},
+        # In memory only: actions read it, the disk copy never carries it.
+        "data": {"events": events, "transactions": transactions, "links": links, "results": results},
+    }
 
 
 def reconcile(board) -> dict:
     """The full reconciliation. Runs on the refresh worker only, never on a request."""
     backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
     try:
-        data = backend._data()
-        _events, _transactions, links, results = data
-        return {
-            "public": public_snapshot(backend.snapshot_from(data)),
-            "results": [{key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
-                                                       "reserved_card_ids", "allocation_basis")}
-                        for row in results],
-            "links": {str(event_id): _link_transaction_id(link)
-                      for event_id, link in links.items() if _link_transaction_id(link)},
-        }
+        return reconcile_for(backend)
     finally:
         backend.close()
 
 
 def snapshot_service(board):
-    from . import ota_snapshot
     service = getattr(board, "_ota_snapshot_service", None)
     if service is None:
         service = ota_snapshot.OtaSnapshotService(
             key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile(board),
             persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE)
         board._ota_snapshot_service = service
+        atexit.register(_stop_quietly, service)
     return service
+
+
+def shutdown_snapshot_service(board) -> None:
+    """Stop the board's worker and wait for it. Idempotent; called on server exit and by tests."""
+    service = getattr(board, "_ota_snapshot_service", None)
+    if service is not None:
+        service.stop()
+
+
+def _stop_quietly(service) -> None:
+    try:
+        service.stop(timeout=5)
+    except RuntimeError:
+        pass
 
 
 def render_import_section(csrf: str) -> str:
@@ -1018,6 +1106,9 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 # Best effort: the worker re-reads the inputs on its own schedule anyway.
                 pass
         handler._send_json(result)
+    except OtaSnapshotNotReady:
+        return _reply_error(handler, "OTA_SNAPSHOT_NOT_READY",
+                            "자료를 새로 확인하고 있습니다. 잠시 후 다시 시도해 주세요.", 409)
     except StalePreviewError:
         return _reply_error(handler, "STALE_PREVIEW", "자료가 바뀌었습니다. 최신 차이를 다시 확인해 주세요.", 409)
     except InvalidReviewInput:
