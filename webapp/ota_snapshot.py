@@ -260,6 +260,7 @@ class OtaSnapshotService:
             return
         document = {"schema": SCHEMA, "key": current["key"], "generation": current["generation"],
                     "generated_at": current["generated_at"], "public": current["public"],
+                    "authority": current.get("authority"),
                     "results": current["results"], "links": current["links"]}
         try:
             text = json.dumps(document, ensure_ascii=False, default=str)
@@ -282,5 +283,5 @@ class OtaSnapshotService:
         self._current = {"key": str(document["key"]), "generation": int(document.get("generation") or 1),
                          "generated_at": document.get("generated_at"), "public": document.get("public") or {},
                          "results": document.get("results") or [], "links": document.get("links") or {},
-                         "data": None}
+                         "authority": document.get("authority"), "data": None}
         self._first_ready.set()

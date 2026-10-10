@@ -310,3 +310,15 @@ def test_fldid_and_code_pointing_at_different_tours_is_a_conflict_not_a_bridge()
 def test_a_trip_without_any_stable_key_is_unbridgeable_even_if_dates_match():
     coverage = _coverage([_tour("F1")], [_trip("a", "0801_가")], {})
     assert coverage["unbridgeable"] == ["a"]
+
+
+def test_reservation_eight_digit_codes_match_cost_keys_only_with_the_same_year():
+    trips = [_trip("a", "0801_가", starts="2026-08-01"), _trip("b", "0802_나", starts="2026-08-02", ends="2026-08-06")]
+    tours = [_tour("FA", code="20260801_가"),
+             _tour("FB", code="20250802_나", depart="2026-08-02", ret="2026-08-06")]
+    coverage = _coverage(tours, trips, {})
+    assert coverage["code"] == ["a"]
+    assert coverage["unbridgeable"] == ["b"]
+    assert gar._code_matches("0801_가", trips[0]) is True
+    assert gar._code_matches("20260801_다", trips[0]) is False
+    assert gar._code_matches("", trips[0]) is False

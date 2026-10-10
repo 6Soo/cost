@@ -175,6 +175,18 @@ def _name(value) -> str:
     return "".join(guide_identity.normalize_name_part(value).split())
 
 
+def _code_matches(tour_code, trip) -> bool:
+    """reservation 코드('MMDD_지역' 또는 'YYYYMMDD_지역')가 COST display_key와 같은 코드인지. 8자리 형식은 연도도 같아야 한다."""
+    code = str(tour_code or "").strip()
+    key = str(trip.get("display_key") or "")
+    if not code or not key:
+        return False
+    head, _, rest = code.partition("_")
+    if len(head) == 8 and head.isdigit():
+        return f"{head[4:]}_{rest}" == key and head[:4] == str(trip.get("starts_on") or "")[:4]
+    return code == key
+
+
 def bridge(authority, trips, registrations):
     """Per guide id: bridged COST trips and problem windows. Exact keys only: the reserve fldid
     registration or the exact trip code, and in every case exactly the same start and end dates."""
@@ -193,14 +205,14 @@ def bridge(authority, trips, registrations):
         def key_hit(trip):
             registered = registrations.get(trip["tab_id"])
             by_fldid = registered is not None and registered == tour["fldid"]
-            by_code = bool(tour.get("code")) and tour["code"] == trip["display_key"]
+            by_code = _code_matches(tour.get("code"), trip)
             return by_fldid or by_code
 
         def key_consistent(trip):
             registered = registrations.get(trip["tab_id"])
             if registered is not None and registered != tour["fldid"]:
                 return False
-            return not tour.get("code") or tour["code"] == trip["display_key"]
+            return not tour.get("code") or _code_matches(tour["code"], trip)
 
         keyed = [trip for trip in valid if key_hit(trip)]
         if (len(keyed) == 1 and key_consistent(keyed[0])
@@ -239,7 +251,7 @@ def bridge_coverage(authority, trips, registrations) -> dict:
         tab_id = trip["tab_id"]
         fldid = registrations.get(tab_id)
         by_key = by_fldid.get(fldid) if fldid else None
-        coded = [tour for tour in tours if tour.get("code") and tour["code"] == trip["display_key"]]
+        coded = [tour for tour in tours if _code_matches(tour.get("code"), trip)]
         if by_key is None and not coded:
             result["unbridgeable"].append(tab_id)
             continue
@@ -248,7 +260,7 @@ def bridge_coverage(authority, trips, registrations) -> dict:
             result["conflict"].append(tab_id)
             continue
         tour = by_key or coded[0]
-        if tour.get("code") and tour["code"] != trip["display_key"]:
+        if tour.get("code") and not _code_matches(tour["code"], trip):
             result["conflict"].append(tab_id)
         elif tour.get("depart_date") != trip.get("starts_on") or tour.get("return_date") != trip.get("ends_on"):
             result["date_mismatch"].append(tab_id)

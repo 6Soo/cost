@@ -1,5 +1,20 @@
 # 현재 운영 상태
 
+## 2026-10-10 authority 신선도 쓰기 보호와 master data 입력 구조
+
+**쓰기 보호**: COST PR #47(`0607c68`)과 후속 PR이 reservation authority를 fresh / degraded / unavailable로 나눈다. 화면 유예(`GRACE_SECONDS`=600초)와 쓰기 신선도(`WRITE_FRESH_SECONDS`=90초)는 별개 상수다. degraded·unavailable·90초 초과 상태에서는 새 대장 항공권 규칙을 만들지 않고, `guide_airfare_evidence`로 분류된 미확정 행은 미리보기·확정 시 서버 보류로 막힌다(미리보기는 같은 보류로 다시 계산되어 PREVIEW_STALE). 신선도 상태는 스냅샷 입력 지문과 스냅샷 메타데이터(`authority`: state·digest 앞 12자·오류 코드, 이름 없음)에 들어간다. reservation 호출은 계속 스냅샷 워커에서만 하며 요청 경로 호출은 0이다.
+
+**reservation master data**: PR #13(`fd1c7c7`)이 대장 항공권 영문명 후보(실명이 정확히 같은 과거 예약·고객 자료, 관리자 화면 전용·자동 반영 없음), 명시 여행 코드 수집·보고·backfill, `GET /api/internal/master-data-report`(개수만)를 추가했다. 동기화는 모집글에 `MMDD_지역`/`YYYYMMDD_지역` 코드가 정확히 하나 있을 때만 빈 `tours.code`를 채운다.
+
+**운영 현황(읽기 전용)**: 활성 대장 13명 중 영문명 등록 0, 후보 유일 1, 후보 다수 0, 후보 없음 12. 후보는 자동 승격하지 않았다. 여행 127건은 모두 코드가 없고 모집글 제목에도 명시 코드가 없어 안전 후보 0, 모호 0, 코드 없음 127이라 backfill 대상이 없다. 코드는 COST 여행 코드를 보고 거꾸로 만들지 않았다.
+
+**브리지 커버리지**: COST authoritative 여행 40건 중 fldid로 연결 15건(날짜까지 일치), 코드로 연결 0건, 날짜 불일치 1건, 충돌 0건, 안정 키 없음 24건. 이전과 같다. 코드 입력이 채워지면 코드 브리지가 열린다.
+
+**1115 날짜 불일치**: COST 등록은 원글(`fOzD/1`, 제목 `11월15(일)~17/…`, 댓글 8, 상태 `schedule_conflict`)이고 reservation 여행 행은 같은 게시판의 다른 글 제목 `11.17 흔한 단풍구경인 줄 알았는데..`과 날짜 11/18–11/20으로 덮여 있다. 동기화가 게시판 글 최대 5개를 차례로 반영하면서 마지막 글이 제목·날짜를 덮는 구조 때문으로 보이며, 날짜를 한쪽에 맞추지 않고 HOLD를 유지한다. 해소하려면 reservation 관리자에서 날짜를 원글 기준으로 수기 확정하거나 동기화가 원글만 제목·날짜를 갱신하도록 고쳐야 한다.
+
+**결과**: 스냅샷 세대 8(`b7121e419c4b`, 약 113초), 매칭된 항공료 27건 모두 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`(authority fresh), 장부 736행·73,998,707원, 보류 15건, 확정 28건 그대로. 보호 기준선은 현재 데이터에서 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다.
+
+
 ## 2026-10-10 reservation guide authority 전환
 
 **원칙**: 대장 신원과 담당 여행은 reservation, 여행 일정의 회계 authority와 비용 귀속은 COST다. COST는 reservation 내부 API를 읽기 전용으로만 쓴다.

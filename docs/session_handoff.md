@@ -21,6 +21,8 @@
 - **구현**: reservation에 `guides.flight_name_en`, 관리자 입력란, `GET /api/internal/guides`, tours의 `leader_guide_id`·`include_past=1`을 추가했다. COST는 스냅샷 워커에서만 이를 읽고(`app/reservation_authority.py`), reservation 대장과 COST authoritative 여행을 fldid 또는 정확한 코드+날짜로 브리지해 PR #43의 귀속 엔진에 넣는다. 지문·STALE·개인정보 투영·`guide_airfare_evidence` 분류는 유지했다.
 - **운영 데이터 상태**: 대장 13명 중 항공권 영문명 등록 0명(실명 4명), reservation 여행의 `code`는 전부 비어 있다. COST 여행 40건 중 16건만 reserve fldid로 연결되고 15건이 날짜까지 일치하며 24건은 안정 키가 없어 브리지하지 않는다.
 - **결과**: 매칭된 항공료 27건은 모두 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`다. 장부 736행·73,998,707원, 보류 15건, 확정 28건은 반영 전후 같다. 보호 기준선은 현재 데이터에서 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다.
+- **쓰기 보호(2026-10-10)**: reservation authority가 degraded·unavailable이거나 마지막 성공이 90초를 넘으면 새 귀속과 기록이 모두 막힌다. 10분 유예는 화면 표시용이다.
+- **master data 입력**: 관리자 `대장 관리`에서 영문명 후보(실명 정확 일치 과거 자료)를 확인하고 `이 값으로 저장`을 눌러야 canonical이 된다. 현재 대장 13명 중 등록 0, 후보 유일 1, 없음 12다. 여행 `tours.code`는 127건 모두 비어 있고 모집글에 명시 코드도 없어 backfill 대상이 0이다. 브리지는 fldid 15건만 열려 있다(24건 안정 키 없음, 1건 날짜 불일치).
 - **재개 조건**: reservation 관리자 `대장 관리`에서 대장의 항공권 영문명을 한 번 등록하면 다음 스냅샷에서 자동 재평가된다. 개별 거래마다 확인하지 않는다. 기록은 대장 일치·배정 여행의 COST 브리지 성공·일정 완전·귀속 유일 등 모든 조건을 통과한 건만 정상 미리보기→기록 경로로 한다.
 
 #### cb9f03e7 (964,400원) — HOLD
