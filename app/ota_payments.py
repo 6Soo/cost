@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -44,7 +45,21 @@ def _event_id(source_ids):
     return "ota_" + _digest(identity)
 
 
+_MAIL_EVENT_MEMO = {}
+
+
 def _mail_events(directories):
+    """The mail parse reads only mail files, so it is reused while their content digests are unchanged."""
+    from app import ota_sources
+    key = (tuple(str(Path(d)) for d in (directories or [])),
+           json.dumps(ota_sources.mail_stamps(directories), sort_keys=True))
+    if key not in _MAIL_EVENT_MEMO:
+        _MAIL_EVENT_MEMO.clear()
+        _MAIL_EVENT_MEMO[key] = _parse_mail_events(directories)
+    return copy.deepcopy(_MAIL_EVENT_MEMO[key])
+
+
+def _parse_mail_events(directories):
     try:
         messages, inventory = ota_mail.load_messages_from(directories)
     except Exception as exc:

@@ -469,7 +469,10 @@ class CoreOtaPaymentBackend:
         return occupied
 
     def snapshot(self):
-        events, transactions, links, results = self._data()
+        return self.snapshot_from(self._data())
+
+    def snapshot_from(self, data):
+        events, transactions, links, results = data
         rules = self.store.active_rules()
         event_by_id = {str(event.get("ota_event_id")): event for event in events}
         occupied = self._occupied_cards(links, results)
@@ -527,6 +530,13 @@ class CoreOtaPaymentBackend:
         proposals = [proposal for proposal in self.store.proposals()
                      if proposal.get("status") == "pending"]
         return public_snapshot({"events": holds, "cards_by_event": cards_by_event, "proposals": proposals})
+
+    def snapshot_view(self):
+        """The request path: the last reconciled snapshot and its status, without computing anything."""
+        return snapshot_service(self.board).view()
+
+    def request_refresh(self):
+        snapshot_service(self.board).request_check(wait_seconds=3)
 
     def _selection(self, event_id, transaction_id):
         events, transactions, links, results = self._data()
@@ -661,6 +671,58 @@ class CoreOtaPaymentBackend:
         return sorted(changed)
 
 
+SNAPSHOT_FILE = "ota-snapshot.json"
+
+
+def input_key(board) -> str:
+    """Every input a reconciliation reads. Source files are keyed by content, never by size or time."""
+    from . import ota_snapshot
+    from app import ota_sources
+    from app.ota_matching_defaults import load_defaults
+    backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
+    try:
+        return ota_snapshot.digest({
+            "schema": ota_snapshot.SCHEMA,
+            "sources": ota_sources.source_stamps(backend.sources),
+            "transactions": backend._transactions(),
+            "review": {"links": backend.store.links(), "rules": backend.store.active_rules(),
+                       "proposals": backend.store.proposals(), "pins": backend.store.group_pins(),
+                       "events": backend.store.event_snapshots()},
+            "matching": load_defaults(),
+        })
+    finally:
+        backend.close()
+
+
+def reconcile(board) -> dict:
+    """The full reconciliation. Runs on the refresh worker only, never on a request."""
+    backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
+    try:
+        data = backend._data()
+        _events, _transactions, links, results = data
+        return {
+            "public": public_snapshot(backend.snapshot_from(data)),
+            "results": [{key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
+                                                       "reserved_card_ids", "allocation_basis")}
+                        for row in results],
+            "links": {str(event_id): _link_transaction_id(link)
+                      for event_id, link in links.items() if _link_transaction_id(link)},
+        }
+    finally:
+        backend.close()
+
+
+def snapshot_service(board):
+    from . import ota_snapshot
+    service = getattr(board, "_ota_snapshot_service", None)
+    if service is None:
+        service = ota_snapshot.OtaSnapshotService(
+            key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile(board),
+            persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE)
+        board._ota_snapshot_service = service
+    return service
+
+
 def render_import_section(csrf: str) -> str:
     """Return the opt-in OTA HOLD section embedded in the existing import page."""
     token = json.dumps(str(csrf))
@@ -668,6 +730,7 @@ def render_import_section(csrf: str) -> str:
 <h2 id="ota-title">OTA 결제 보류 검토</h2>
 <p class="small">실제 결제 근거가 있는 항목만 표시합니다. 승인한 방향과 날짜 범위의 카드 거래를 확인해 주세요.</p>
 <div id="ota-status" role="status" aria-live="polite">보류 내역을 불러오고 있습니다.</div>
+<p id="ota-freshness" aria-live="polite"></p>
 <div id="ota-events"></div><div id="ota-proposals"></div>
 </section>
 <style>
@@ -726,7 +789,7 @@ def render_import_section(csrf: str) -> str:
        if(action!=='once')proposal.querySelectorAll('.ota-proposal-fields input,.ota-proposal-fields select').forEach(field=>{{const rateSet=[...proposal.querySelectorAll('[name="discount_rate_bps"],[name="discount_cap_krw"],[name="minimum_amount_krw"],[name="payment_method"]')].some(item=>item.value.trim());if(field.value.trim()&&(field.name!=='rounding_mode'||rateSet))conditions[field.name]=field.type==='number'?Number(field.value):field.value.trim();}});
       if(conditions.date_lag_min_days!==undefined||conditions.date_lag_max_days!==undefined)delete conditions.date_lag_days;
        button.disabled=true;
-      try{{const result=await call('/api/imports/ota/proposal',{{proposal_id:button.dataset.answer,action,conditions,request_id:crypto.randomUUID()}});status.textContent=action==='once'?'규칙 저장 없이 이번 건만 처리했습니다.':action==='approve'?'검토한 조건으로 규칙을 저장했습니다.':'조건 수정을 위해 제안을 다시 열었습니다.';if(action==='edit')render(await call('/api/imports/ota'));else{{proposal.dataset.status=result.status;proposal.querySelector('p:nth-of-type(2)').textContent='상태: '+result.status;}}}}
+      try{{const result=await call('/api/imports/ota/proposal',{{proposal_id:button.dataset.answer,action,conditions,request_id:crypto.randomUUID()}});status.textContent=action==='once'?'규칙 저장 없이 이번 건만 처리했습니다.':action==='approve'?'검토한 조건으로 규칙을 저장했습니다.':'조건 수정을 위해 제안을 다시 열었습니다.';applyFresh(await call('/api/imports/ota'));}}
       catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
   }}
@@ -737,7 +800,7 @@ def render_import_section(csrf: str) -> str:
       button.disabled=true;
       try{{
         await call('/api/imports/ota/group/confirm',{{event_ids:payload.ids,replace:payload.replace,request_id:crypto.randomUUID()}});
-        render(await call('/api/imports/ota'));status.textContent='확인한 그룹 순서를 고정했습니다.';
+        applyFresh(await call('/api/imports/ota'));status.textContent='확인한 그룹 순서를 고정했습니다.';
       }}catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
     root.querySelectorAll('.ota-event').forEach(eventCard=>{{
@@ -748,12 +811,50 @@ def render_import_section(csrf: str) -> str:
         button.disabled=true;
         try{{const preview=await call('/api/imports/ota/preview',{{event_id:eventCard.dataset.event,transaction_id:selected.value,request_id:crypto.randomUUID()}});const target=eventCard.querySelector('[data-difference-for]');
           target.innerHTML=`<div class="ota-preview"><strong>차이 ${{money(preview.difference_krw)}}</strong><p>OTA 결제: ${{money(preview.event_amount_krw)}} · 카드 거래: ${{money(preview.card_amount_krw)}}</p><button type="button" id="ota-confirm">이 거래로 결제 연결 확정</button></div>`;
-          target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});render(await call('/api/imports/ota'));status.textContent='사용자 확인 연결';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
+          target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});applyFresh(await call('/api/imports/ota'));status.textContent='사용자 확인 연결';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
         }}catch(error){{status.textContent=error.message;button.disabled=false;}}
       }});
     }});
   }}
-  call('/api/imports/ota').then(snapshot=>{{render(snapshot);status.textContent='결제 보류 내역을 불러왔습니다.';}}).catch(error=>status.textContent=error.message);
+  const freshness=root.querySelector('#ota-freshness');
+  let loadTimer=null,loading=false,lastBody='',shownOnce=false;
+  const bodyOf=snapshot=>JSON.stringify([snapshot.events||[],snapshot.cards_by_event||{{}},snapshot.proposals||[]]);
+  // Background updates wait while the reviewer has an unsaved choice; a finished save renders at once.
+  function reviewing(){{
+    const active=document.activeElement;
+    if(active&&root.contains(active)&&active.tagName!=='BODY')return true;
+    return !!root.querySelector('.ota-card-row input:checked,.ota-proposal input[type=radio]:checked:not([value="once"]),.ota-proposal-fields:not([hidden])');
+  }}
+  function scheduleLoad(delay){{clearTimeout(loadTimer);loadTimer=setTimeout(loadSnapshot,delay);}}
+  function applyFresh(snapshot){{
+    render(snapshot);lastBody=bodyOf(snapshot);
+    if((snapshot.status||'ready')!=='ready')scheduleLoad(10000);
+  }}
+  async function loadSnapshot(){{
+    if(loading){{scheduleLoad(2000);return;}}
+    if(document.hidden){{scheduleLoad(10000);return;}}
+    loading=true;
+    try{{
+      const snapshot=await call('/api/imports/ota');
+      const state=snapshot.status||'ready';
+      const body=bodyOf(snapshot);
+      if(state==='loading'){{
+        freshness.textContent='OTA 자료를 처음 확인하고 있습니다. 끝나면 자동으로 표시합니다.';
+        scheduleLoad(8000);
+        return;
+      }}
+      if(body!==lastBody){{
+        if(reviewing()){{freshness.textContent='고르는 중인 항목이 있어 새 내용은 선택을 마친 뒤 반영합니다.';scheduleLoad(10000);return;}}
+        render(snapshot);lastBody=body;
+      }}
+      if(!shownOnce){{status.textContent='결제 보류 내역을 불러왔습니다.';shownOnce=true;}}
+      if(state==='ready'){{freshness.textContent='';}}
+      else if(state==='refreshing'){{freshness.textContent='자료를 새로 확인하고 있습니다. 지금 보이는 내용은 직전 확인 결과입니다.';scheduleLoad(10000);}}
+      else{{freshness.textContent=snapshot.last_error?'새로 확인하지 못했습니다. 직전 확인 결과를 보여 드립니다.':'자료를 읽을 수 없습니다.';}}
+    }}catch(error){{freshness.textContent=error.message;scheduleLoad(30000);}}
+    finally{{loading=false;}}
+  }}
+  loadSnapshot();
 }})();
 </script>'''
 
@@ -862,8 +963,17 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
         if path != ROUTE_PREFIX:
             return _reply_error(handler, "NOT_FOUND", "요청 경로를 찾을 수 없습니다.", 404)
         try:
-            # The backend contract requires snapshot() to use read-only access.
-            handler._send_json(public_snapshot(backend.snapshot()))
+            view_of = getattr(backend, "snapshot_view", None)
+            if callable(view_of):
+                view = view_of()
+                body = dict(view["current"]["public"]) if view["current"] else {
+                    "events": [], "cards_by_event": {}, "proposals": []}
+                body.update({key: view[key] for key in ("status", "stale", "refreshing", "generation",
+                                                        "generated_at", "snapshot_key", "last_error")})
+                handler._send_json(body)
+            else:
+                # Backends without a snapshot service keep the direct read.
+                handler._send_json(public_snapshot(backend.snapshot()))
         except Exception:
             return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "검토 자료를 읽을 수 없습니다.", 503)
         return True
@@ -900,6 +1010,13 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                                                  request_id=payload["request_id"].strip())
         else:
             return _reply_error(handler, "NOT_FOUND", "요청 경로를 찾을 수 없습니다.", 404)
+        refresh = getattr(backend, "request_refresh", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                # Best effort: the worker re-reads the inputs on its own schedule anyway.
+                pass
         handler._send_json(result)
     except StalePreviewError:
         return _reply_error(handler, "STALE_PREVIEW", "자료가 바뀌었습니다. 최신 차이를 다시 확인해 주세요.", 409)

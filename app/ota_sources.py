@@ -65,6 +65,38 @@ def content_stamp(path):
     return {'path':str(path.resolve()),'sha256':digest.hexdigest()}
 
 
+def mail_stamps(directories):
+    """Content stamps of the mail files a directory contributes; the mail parse depends on nothing else."""
+    watched = []
+    for directory in directories or []:
+        path = Path(directory)
+        if path.is_dir():
+            watched += sorted(path.glob('gmail*.json')) + [path / 'collection.json']
+    return tuple(sorted((stamp for stamp in (content_stamp(item) for item in {Path(p) for p in watched})
+                         if stamp), key=lambda stamp: stamp['path']))
+
+
+def source_stamps(sources):
+    """Content stamps of every registered source file the OTA reconciliation reads."""
+    sources = sources or {}
+    watched = [Path(sources['manifest_path'])] if sources.get('manifest_path') else []
+    watched += [Path(p) for p in mail_stamps_paths(sources.get('mail_directories'))]
+    for database in sources.get('portal_databases') or []:
+        watched += [Path(database), Path(str(database) + '-wal')]
+    watched += [Path(p) for p in sources.get('reference_documents') or []]
+    return tuple(sorted((stamp for stamp in (content_stamp(item) for item in {Path(p) for p in watched})
+                         if stamp), key=lambda stamp: stamp['path']))
+
+
+def mail_stamps_paths(directories):
+    paths = []
+    for directory in directories or []:
+        path = Path(directory)
+        if path.is_dir():
+            paths += sorted(path.glob('gmail*.json')) + [path / 'collection.json']
+    return paths
+
+
 def manifest_entries(manifest, key):
     """manifest 한 항목은 절대 경로 목록이어야 한다."""
     values=manifest.get(key,[])

@@ -316,15 +316,20 @@ class OtaPaymentReviewTests(unittest.TestCase):
         class ReadBackend:
             store = SimpleNamespace(group_pins=lambda: [{"event_ids":["missing-ota-a", "missing-ota-b"],
                                                          "card_ids":["frozen-card-a", "frozen-card-b"]}])
-            def _data(self):
-                return [], [], {}, [{"ota_event_id":"ota-syn-1", "status":"HOLD_PARTIAL_GROUP",
-                    "reserved_card_ids":["card-syn-1", "card-syn-2"]}]
+            def _transactions(self):
+                return []
             def close(self):
                 pass
+        class Reconciled:
+            def held(self):
+                return ({"results": [{"ota_event_id":"ota-syn-1", "status":"HOLD_PARTIAL_GROUP",
+                                      "reserved_card_ids":["card-syn-1", "card-syn-2"]}],
+                         "links": {}, "public": {}, "generation": 1, "key": "k"}, True)
         flow = object.__new__(CardFlow)
         flow.board = object()
         with mock.patch.object(ota_payment_review, "enabled", return_value=True), \
-             mock.patch.object(CoreOtaPaymentBackend, "from_host", return_value=ReadBackend()):
+             mock.patch.object(CoreOtaPaymentBackend, "from_host", return_value=ReadBackend()), \
+             mock.patch.object(ota_payment_review, "snapshot_service", return_value=Reconciled()):
             holds = flow.ota_group_holds()
         self.assertEqual(set(holds), {"card-syn-1", "card-syn-2", "frozen-card-a", "frozen-card-b"})
         self.assertEqual(holds["card-syn-1"]["kind"], "ota_group_review")
