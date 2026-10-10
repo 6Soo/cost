@@ -1,4 +1,5 @@
-"""Preview and confirm read the reconciled snapshot; they never reconcile, and they refuse when anything moved."""
+﻿"""Preview and confirm read the reconciled snapshot; they never reconcile, and they refuse when anything moved."""
+import json
 import os
 import shutil
 import sqlite3
@@ -9,6 +10,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+from urllib.parse import urlsplit
 
 from app import ota_matching_defaults
 from webapp import ota_payment_review
@@ -133,6 +135,28 @@ class SnapshotActionTests(unittest.TestCase):
                                 request_id="act-retry", user="synthetic-owner")
         self.assertEqual(result, {"status": "MATCHED_USER", "request_id": "act-retry"})
         self.assertEqual(FakeCoreStore.writer_calls, 0)
+
+    def test_a_post_takes_the_user_from_the_decided_session_when_the_handler_states_none(self):
+        class Host:
+            def __init__(self):
+                self.headers = {"X-CSRF-Token": "tok"}
+                self.sent = []
+
+            def _send_json(self, payload, status=200):
+                self.sent.append((status, payload))
+
+        host = Host()
+        body = json.dumps({"event_id": EVENT["ota_event_id"], "transaction_id": "card-02",
+                           "request_id": "session-user"}).encode("utf-8")
+        env = {"WEBLEDGER_OTA_REVIEW_MODE": "isolated", "WEBLEDGER_OTA_REVIEW_DB": str(self.review_path)}
+        with mock.patch.dict(os.environ, env), \
+             mock.patch("webapp.ledger_board.current_request_session",
+                        return_value=SimpleNamespace(user_id="synthetic-owner")):
+            ota_payment_review.dispatch(host, urlsplit("/api/imports/ota/preview"), raw=body, csrf="tok",
+                                        backend=self.backend)
+        self.assertEqual(host.sent[0][0], 200)
+        self.assertIn("preview_digest", host.sent[0][1])
+
 
 class WorkerLifecycleTests(unittest.TestCase):
 

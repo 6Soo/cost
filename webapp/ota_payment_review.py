@@ -1046,6 +1046,16 @@ def _reply_error(handler, code: str, message: str, status: int) -> bool:
     return True
 
 
+def _request_user(handler) -> str:
+    """Who is asking, for the review record. A handler may state it; the host's decided session otherwise."""
+    stated = getattr(handler, "current_user_id", None)
+    if callable(stated):
+        return str(stated() or "")
+    from .ledger_board import current_request_session
+    session = current_request_session()
+    return str(getattr(session, "user_id", "") or "")
+
+
 def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
     """Handle OTA routes after the host's normal access decision."""
     path = parsed.path
@@ -1075,7 +1085,7 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
         return _reply_error(handler, "CSRF_REQUIRED", "화면을 새로 연 뒤 다시 시도해 주세요.", 403)
     try:
         payload = _payload(raw)
-        user = str(handler.current_user_id() or "") if hasattr(handler, "current_user_id") else ""
+        user = _request_user(handler)
         if not user:
             return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
         if path == ROUTE_PREFIX + "/preview":
