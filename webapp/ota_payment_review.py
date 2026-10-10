@@ -769,6 +769,9 @@ def _guide_input_digest(board) -> str:
 
 
 def input_key(board) -> str:
+    """The worker's fingerprint. It alone refreshes the reservation authority (a network read)."""
+    from . import guide_airfare_review
+    guide_airfare_review.refresh_authority(board)
     backend = CoreOtaPaymentBackend.from_host(board, read_only=True)
     try:
         return input_key_for(backend)

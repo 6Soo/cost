@@ -190,4 +190,35 @@ def test_identity_digest_is_stable_and_tracks_aliases():
         {"surname": "KIM", "given_name": "CHUL SOO"},
     ])
     assert identity_digest(with_extra) != first
-    assert IDENTITY_VERSION == "guide-identity-v1"
+    assert IDENTITY_VERSION == "guide-identity-v2"
+
+
+def _reservation_guides():
+    return [
+        {"id": 7, "nickname": "아슬란", "real_name": "김철수", "flight_name_en": "KIM  Chulsoo", "status": "active"},
+        {"id": 8, "nickname": "무명", "real_name": None, "flight_name_en": None, "status": "active"},
+        {"id": 9, "nickname": "퇴사", "real_name": "박영희", "flight_name_en": "PARK YOUNGHEE", "status": "inactive"},
+    ]
+
+
+def test_reservation_identities_use_active_guides_and_the_registered_flight_name():
+    from app.guide_identity import reservation_identities
+    identities = reservation_identities(_reservation_guides())
+    assert [i["assignee_name"] for i in identities] == ["guide:7", "guide:8"]
+    assert identities[0]["aliases"] == [{"surname": "KIM", "given_name": "CHULSOO"}]
+    assert identities[0]["normalized"] == "김철수" and identities[1]["aliases"] == []
+    assert all(i["sources"] == ["reservation"] for i in identities)
+
+
+def test_reservation_identity_matching_is_exact_and_unknown_when_a_guide_has_no_flight_name():
+    from app.guide_identity import reservation_identities
+    identities = reservation_identities(_reservation_guides())
+    assert match_passenger({"surname": "kim", "given_name": "chulsoo"}, identities)["guide"] == "guide:7"
+    # guide 8 has no registered flight name, so a different Latin name cannot be ruled out
+    assert match_passenger({"surname": "LEE", "given_name": "YOUNGHEE"}, identities)["status"] == "unknown"
+    assert match_passenger({"surname": "KIM", "given_name": "CHUL"}, identities)["status"] == "unknown"
+    only_named = reservation_identities(_reservation_guides()[:1])
+    assert match_passenger({"surname": "KIM", "given_name": "CHUL"}, only_named)["status"] == "not_guide"
+    assert match_passenger({"surname": "김", "given_name": "철수"}, identities)["guide"] == "guide:7"
+    assert match_passenger({"surname": "KIM", "given_name": "CHULSOO"}, reservation_identities(
+        [dict(_reservation_guides()[0], status="inactive")]))["status"] == "unknown"

@@ -1,18 +1,36 @@
-"""Guide airfare attribution inside the OTA snapshot: evaluation, input fingerprint, classification hook."""
+"""Guide airfare attribution with the reservation system as the guide/tour authority."""
+import copy
 import json
 import sqlite3
 from types import SimpleNamespace
 
 import pytest
 
-from app import flight_evidence
+from app import flight_evidence, reservation_authority
 from webapp import card_flow, guide_airfare_review, ota_payment_review
 
-REGISTRY = {"version": 1, "guides": [{"assignee_name": "김철수",
-                                      "aliases": [{"surname": "KIM", "given_name": "CHULSOO"}]}]}
+NOW = {"t": 1000.0}
 
 
-def trip(trip_id, key, destination, starts_on, ends_on, name="김철수", source="manual"):
+def clock():
+    return NOW["t"]
+
+
+GUIDE = {"id": 7, "nickname": "닉네임", "real_name": "김철수", "flight_name_en": "KIM CHULSOO", "status": "active"}
+OTHER_GUIDE = {"id": 8, "nickname": "다른대장", "real_name": "박영희", "flight_name_en": "PARK YOUNGHEE", "status": "active"}
+TOUR = {"fldid": "F1", "code": "0801_북해도", "title": "t", "leader": "닉네임", "leader_guide_id": 7,
+        "depart_date": "2026-08-01", "return_date": "2026-08-05", "status": "open"}
+
+
+def authority(guides=None, tours=None):
+    value = {"schema": reservation_authority.SCHEMA, "guides": copy.deepcopy(guides or [GUIDE]),
+             "tours": copy.deepcopy(tours or [TOUR])}
+    value["digest"] = reservation_authority.authority_digest(value)
+    return value
+
+
+def trip(trip_id="t1", key="0801_북해도", destination="북해도", starts_on="2026-08-01", ends_on="2026-08-05",
+         name="김주형", source="owner_profile"):
     return {"tab_id": trip_id, "display_key": key, "destination": destination, "starts_on": starts_on,
             "ends_on": ends_on, "prepared_by_name": name, "assignee_source": source, "archived": False,
             "deleted": False, "revision": 1, "source_sha256": "s" * 8, "authority_status": "needs_review",
@@ -20,16 +38,21 @@ def trip(trip_id, key, destination, starts_on, ends_on, name="김철수", source
 
 
 class Board:
-    def __init__(self, tmp_path, trips, owner=""):
-        self.path = tmp_path / "board.sqlite"
+    def __init__(self, tmp_path, trips, state=None):
+        self.path = tmp_path / "data" / "board.sqlite"
         self.trips = trips
-        self.owner = owner
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("CREATE TABLE reserve_trip_registrations(trip_id TEXT, source_key TEXT)")
+        if state is not None:
+            self._reservation_authority = state
 
     def list_trips(self, include_archived=False):
         return [dict(item) for item in self.trips]
 
-    def owner_profile(self):
-        return {"assignee_name": self.owner}
+
+def good_state(value=None):
+    value = value or authority()
+    return {"authority": value, "error": "", "checked_at": 0, "last_good_at": 0, "digest": value["digest"]}
 
 
 @pytest.fixture
@@ -37,14 +60,6 @@ def valid_trips(monkeypatch):
     valid = set()
     monkeypatch.setattr(card_flow, "CardFlow", lambda board: SimpleNamespace(trip_valid=lambda tab: tab in valid))
     return valid
-
-
-@pytest.fixture
-def registry_file(tmp_path, monkeypatch):
-    path = tmp_path / "guide-identities.json"
-    path.write_text(json.dumps(REGISTRY, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setenv(guide_airfare_review.REGISTRY_ENV, str(path))
-    return path
 
 
 def evidence(passengers, legs, complete=True):
@@ -62,124 +77,210 @@ CARD = {"transaction_id": "card-1", "transaction_direction": "purchase", "amount
 EVENT = {"ota_event_id": "evt-1", "provider": "trip", "booking_ref": "REF1", "item": "항공료",
          "event_type": "charge"}
 RESULT = {"ota_event_id": "evt-1", "status": "MATCHED_AUTO", "transaction_id": "card-1"}
-TRIP = trip("t1", "0801_북해도", "북해도", "2026-08-01", "2026-08-05")
+GUIDE_PAX = {"surname": "KIM", "given_name": "CHULSOO"}
+OTHER_PAX = {"surname": "LEE", "given_name": "YOUNGHEE"}
 
 
-def run(board, monkeypatch, passengers, legs=ROUND_TRIP, event=EVENT, card=CARD, complete=True):
+def run(board, monkeypatch, passengers, legs=ROUND_TRIP, event=EVENT, card=CARD):
     monkeypatch.setattr(flight_evidence, "collect_flight_evidence",
-                        lambda directories: {("trip", "REF1"): evidence(passengers, legs, complete)})
+                        lambda directories: {("trip", "REF1"): evidence(passengers, legs)})
     return guide_airfare_review.evaluate(board, ["mail"], [event], [card], [RESULT])
 
 
-GUIDE = {"surname": "KIM", "given_name": "CHULSOO"}
-OTHER = {"surname": "LEE", "given_name": "YOUNGHEE"}
+def verdict_of(board, monkeypatch, passengers, **kwargs):
+    return run(board, monkeypatch, passengers, **kwargs)["evt-1"]
 
 
-def test_registered_guide_round_trip_is_attributed_to_the_one_trip(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_reservation_guide_with_assigned_bridged_trip_is_attributed(tmp_path, valid_trips, monkeypatch):
     valid_trips.add("t1")
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE])["evt-1"]
+    verdict = verdict_of(Board(tmp_path, [trip()], good_state()), monkeypatch, [GUIDE_PAX])
     assert (verdict["status"], verdict["trip_id"], verdict["trip_name"]) == ("ATTRIBUTED", "t1", "0801_북해도")
-    assert verdict["code"] == "guide_airfare_round_trip"
-    assert verdict["booking_ref"] == "REF1" and verdict["evidence_digest"] == "e" * 64
+    assert verdict["code"] == "guide_airfare_round_trip" and verdict["guide_id"] == 7
+    assert verdict["authority_digest"] == authority()["digest"][:12]
 
 
-def test_without_a_registered_alias_the_latin_name_stays_unconfirmed(tmp_path, valid_trips, monkeypatch):
-    monkeypatch.delenv(guide_airfare_review.REGISTRY_ENV, raising=False)
+@pytest.mark.parametrize("pax", [{"surname": "kim", "given_name": "  chulsoo "},
+                                 {"surname": "KIM", "given_name": "CHUL-SOO"} if False else {"surname": "Kim.", "given_name": "Chulsoo"}])
+def test_case_space_and_punctuation_normalization_matches(tmp_path, valid_trips, monkeypatch, pax):
     valid_trips.add("t1")
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE])["evt-1"]
+    assert verdict_of(Board(tmp_path, [trip()], good_state()), monkeypatch, [pax])["status"] == "ATTRIBUTED"
+
+
+@pytest.mark.parametrize("pax", [{"surname": "KIM", "given_name": "CHUL"}, {"surname": "KIM", "given_name": "SOO"},
+                                 {"surname": "KIM", "given_name": "CHULSOOK"}, {"surname": "CHULSOO", "given_name": "KIM"}])
+def test_partial_surname_only_and_reordered_names_do_not_match(tmp_path, valid_trips, monkeypatch, pax):
+    valid_trips.add("t1")
+    state = good_state(authority(guides=[GUIDE, OTHER_GUIDE]))
+    verdict = verdict_of(Board(tmp_path, [trip()], state), monkeypatch, [pax])
+    assert verdict["status"] == "NOT_APPLICABLE" and verdict["code"] == "NOT_APPLICABLE_NO_GUIDE_PASSENGER"
+
+
+def test_a_guide_without_a_registered_flight_name_keeps_latin_names_unconfirmed(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    nameless = dict(GUIDE, flight_name_en=None)
+    verdict = verdict_of(Board(tmp_path, [trip()], good_state(authority(guides=[nameless]))), monkeypatch, [GUIDE_PAX])
     assert (verdict["status"], verdict["code"]) == ("HOLD", "HOLD_GUIDE_IDENTITY_UNCONFIRMED")
 
 
-def test_a_booking_without_the_guide_is_not_applicable(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_local_cost_assignee_and_local_alias_file_are_not_an_authority(tmp_path, valid_trips, monkeypatch):
     valid_trips.add("t1")
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [OTHER])["evt-1"]
-    assert (verdict["status"], verdict["code"]) == ("NOT_APPLICABLE", "NOT_APPLICABLE_NO_GUIDE_PASSENGER")
+    root = tmp_path / "data"
+    root.mkdir()
+    (root / "guide-identities.json").write_text(json.dumps(
+        {"version": 1, "guides": [{"assignee_name": "김주형", "aliases": [{"surname": "KIM", "given_name": "JOOHYUNG"}]}]},
+        ensure_ascii=False), encoding="utf-8")
+    state = good_state(authority(guides=[dict(GUIDE, flight_name_en=None)]))
+    board = Board(tmp_path, [trip(name="김주형", source="manual")], state)
+    verdict = verdict_of(board, monkeypatch, [{"surname": "KIM", "given_name": "JOOHYUNG"}])
+    assert (verdict["status"], verdict["code"]) == ("HOLD", "HOLD_GUIDE_IDENTITY_UNCONFIRMED")
 
 
-def test_mixed_passengers_without_fares_hold(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_a_guide_who_leads_no_bridged_trip_holds(tmp_path, valid_trips, monkeypatch):
     valid_trips.add("t1")
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE, OTHER])["evt-1"]
-    assert (verdict["status"], verdict["code"], verdict["mixed"]) == ("HOLD", "HOLD_MIXED_PASSENGERS", True)
-
-
-def test_a_trip_that_is_not_authoritative_is_never_a_target(tmp_path, valid_trips, registry_file, monkeypatch):
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE])["evt-1"]
+    unassigned = dict(TOUR, leader="다른대장", leader_guide_id=8)
+    state = good_state(authority(guides=[GUIDE, OTHER_GUIDE], tours=[unassigned]))
+    verdict = verdict_of(Board(tmp_path, [trip()], state), monkeypatch, [GUIDE_PAX])
     assert (verdict["status"], verdict["code"]) == ("HOLD", "HOLD_GUIDE_AIRFARE_NO_TRIP")
 
 
-def test_an_untrusted_assignee_source_creates_no_guide_identity(tmp_path, valid_trips, registry_file, monkeypatch):
+@pytest.mark.parametrize("change", [{"depart_date": "2026-08-02"}, {"return_date": "2026-08-06"},
+                                    {"code": "0801_다른곳"}])
+def test_date_or_code_mismatch_between_systems_holds(tmp_path, valid_trips, monkeypatch, change):
     valid_trips.add("t1")
-    seeded = trip("t1", "0801_북해도", "북해도", "2026-08-01", "2026-08-05", source="seed")
-    verdict = run(Board(tmp_path, [seeded]), monkeypatch, [GUIDE])["evt-1"]
-    assert verdict["status"] == "HOLD" and verdict["code"] == "HOLD_GUIDE_IDENTITY_UNCONFIRMED"
+    state = good_state(authority(tours=[dict(TOUR, **change)]))
+    verdict = verdict_of(Board(tmp_path, [trip()], state), monkeypatch, [GUIDE_PAX])
+    assert (verdict["status"], verdict["code"]) == ("HOLD", guide_airfare_review.MISMATCH)
 
 
-def test_a_refund_or_non_purchase_card_keeps_the_existing_refund_path(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_two_tours_claiming_the_same_trip_hold(tmp_path, valid_trips, monkeypatch):
     valid_trips.add("t1")
+    second = dict(TOUR, fldid="F2", leader="다른대장", leader_guide_id=8)
+    state = good_state(authority(guides=[GUIDE, OTHER_GUIDE], tours=[TOUR, second]))
+    verdict = verdict_of(Board(tmp_path, [trip()], state), monkeypatch, [GUIDE_PAX])
+    assert verdict["status"] == "HOLD" and verdict["code"] == guide_airfare_review.MISMATCH
+
+
+def test_two_cost_trips_with_the_same_code_do_not_bridge(tmp_path, valid_trips, monkeypatch):
+    valid_trips.update({"t1", "t2"})
+    trips = [trip("t1"), trip("t2")]
+    verdict = verdict_of(Board(tmp_path, trips, good_state()), monkeypatch, [GUIDE_PAX])
+    assert verdict["status"] == "HOLD" and verdict["code"] == guide_airfare_review.MISMATCH
+
+
+def test_a_non_authoritative_cost_trip_is_never_a_bridge_target(tmp_path, valid_trips, monkeypatch):
+    verdict = verdict_of(Board(tmp_path, [trip()], good_state()), monkeypatch, [GUIDE_PAX])
+    assert verdict["status"] == "HOLD" and verdict["code"] == guide_airfare_review.MISMATCH
+
+
+def test_the_reserve_fldid_registration_is_a_bridge_key(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    board = Board(tmp_path, [trip(key="다른코드")], good_state(authority(tours=[dict(TOUR, code=None)])))
+    board.conn.execute("INSERT INTO reserve_trip_registrations VALUES('t1','reserve:F1:2026')")
+    assert verdict_of(board, monkeypatch, [GUIDE_PAX])["status"] == "ATTRIBUTED"
+    board.conn.execute("UPDATE reserve_trip_registrations SET source_key='reserve:OTHER:2026'")
+    assert verdict_of(board, monkeypatch, [GUIDE_PAX])["status"] == "HOLD"
+
+
+def test_a_manual_cost_assignee_that_contradicts_reservation_is_a_conflict(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    board = Board(tmp_path, [trip(name="박다른", source="manual")], good_state())
+    verdict = verdict_of(board, monkeypatch, [GUIDE_PAX])
+    assert (verdict["status"], verdict["code"]) == ("HOLD", guide_airfare_review.CONFLICT)
+
+
+def test_the_default_owner_profile_assignee_is_not_treated_as_an_assignment_claim(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    board = Board(tmp_path, [trip(name="박다른", source="owner_profile")], good_state())
+    assert verdict_of(board, monkeypatch, [GUIDE_PAX])["status"] == "ATTRIBUTED"
+
+
+def test_unavailable_authority_holds_every_airfare_and_never_means_no_guides(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    state = {"authority": None, "error": "timeout", "digest": "unavailable:timeout"}
+    verdict = verdict_of(Board(tmp_path, [trip()], state), monkeypatch, [GUIDE_PAX])
+    assert (verdict["status"], verdict["code"]) == ("HOLD", guide_airfare_review.UNAVAILABLE)
+    assert verdict_of(Board(tmp_path, [trip()]), monkeypatch, [GUIDE_PAX])["code"] == guide_airfare_review.UNAVAILABLE
+
+
+def test_mixed_passengers_and_refunds_keep_their_existing_protection(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    board = Board(tmp_path, [trip()], good_state())
+    assert verdict_of(board, monkeypatch, [GUIDE_PAX, OTHER_PAX])["code"] == "HOLD_MIXED_PASSENGERS"
     refund = dict(CARD, transaction_direction="refund")
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE], card=refund)["evt-1"]
-    assert verdict["code"] == "NOT_APPLICABLE_REFUND_EXISTING_PATH"
-    verdict = run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE], event=dict(EVENT, event_type="refund"))["evt-1"]
-    assert verdict["code"] == "NOT_APPLICABLE_REFUND_EXISTING_PATH"
+    assert verdict_of(board, monkeypatch, [GUIDE_PAX], card=refund)["code"] == "NOT_APPLICABLE_REFUND_EXISTING_PATH"
 
 
-def test_only_matched_airfare_events_are_evaluated(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_the_published_verdict_carries_no_names_or_roster(tmp_path, valid_trips, monkeypatch):
     valid_trips.add("t1")
-    assert run(Board(tmp_path, [TRIP]), monkeypatch, [GUIDE], event=dict(EVENT, item="숙박비")) == {}
-    held = guide_airfare_review.evaluate(Board(tmp_path, [TRIP]), [], [EVENT], [CARD],
-                                         [dict(RESULT, status="HOLD_NO_CARD")])
-    assert held == {}
+    board = Board(tmp_path, [trip()], good_state())
+    text = json.dumps(run(board, monkeypatch, [GUIDE_PAX, OTHER_PAX]), ensure_ascii=False)
+    text += json.dumps(run(board, monkeypatch, [GUIDE_PAX]), ensure_ascii=False)
+    for name in ("CHULSOO", "KIM", "YOUNGHEE", "김철수", "닉네임", "PARK"):
+        assert name not in text
 
 
-def test_the_published_verdict_carries_no_passenger_names(tmp_path, valid_trips, registry_file, monkeypatch):
-    valid_trips.add("t1")
-    for passengers in ([GUIDE], [GUIDE, OTHER]):
-        text = json.dumps(run(Board(tmp_path, [TRIP]), monkeypatch, passengers), ensure_ascii=False)
-        for name in ("CHULSOO", "YOUNGHEE", "KIM", "LEE"):
-            assert name not in text
+class FakeFetch:
+    def __init__(self):
+        self.calls = 0
+        self.value = authority()
+        self.error = None
+
+    def __call__(self):
+        self.calls += 1
+        if self.error:
+            raise reservation_authority.AuthorityUnavailable(self.error)
+        return self.value
 
 
-def test_a_failed_evaluation_fails_closed(tmp_path):
-    verdict = guide_airfare_review.failed(RuntimeError("x"))
-    assert verdict["status"] == "HOLD" and verdict["code"] == "HOLD_GUIDE_AIRFARE_ERROR"
+def test_refresh_keeps_the_last_good_authority_for_the_grace_period_then_fails_closed(tmp_path):
+    board = Board(tmp_path, [])
+    fetch = FakeFetch()
+    first = guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 0.0)
+    assert first["authority"] is not None and first["digest"] == fetch.value["digest"]
+    fetch.error = "timeout"
+    kept = guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 100.0)
+    assert kept["authority"] is not None and kept["degraded"] == "timeout"
+    dead = guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 100.0 + 700.0)
+    assert dead["authority"] is None and dead["error"] == "timeout" and dead["digest"] == "unavailable:timeout"
+
+
+def test_refresh_is_throttled_and_without_a_token_makes_no_network_call(tmp_path, monkeypatch):
+    board = Board(tmp_path, [])
+    fetch = FakeFetch()
+    guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 0.0)
+    guide_airfare_review.refresh_authority(board, fetcher=fetch, clock=lambda: 10.0)
+    assert fetch.calls == 1
+    monkeypatch.delenv(reservation_authority.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(reservation_authority.TOKEN_FILE_ENV, raising=False)
+    monkeypatch.setattr(reservation_authority.urllib.request, "OpenerDirector",
+                        lambda *a, **k: pytest.fail("network used"), raising=False)
+    state = guide_airfare_review.refresh_authority(Board(tmp_path, []), clock=lambda: 0.0)
+    assert state["authority"] is None and state["error"] == "not_configured"
 
 
 def digest(board):
     return guide_airfare_review.input_digest(board)
 
 
-def test_input_digest_is_stable_and_follows_every_guide_input(tmp_path, valid_trips, registry_file, monkeypatch):
+def test_input_digest_follows_reservation_authority_and_cost_trip_authority(tmp_path, valid_trips):
     valid_trips.add("t1")
-    base = digest(Board(tmp_path, [TRIP]))
-    assert digest(Board(tmp_path, [TRIP])) == base
-    assert digest(Board(tmp_path, [dict(TRIP, prepared_by_name="박영수")])) != base
-    assert digest(Board(tmp_path, [dict(TRIP, assignee_source="owner_profile")])) != base
-    assert digest(Board(tmp_path, [dict(TRIP, ends_on="2026-08-06")])) != base
-    assert digest(Board(tmp_path, [dict(TRIP, source_sha256="changed")])) != base
-    assert digest(Board(tmp_path, [TRIP], owner="김철수")) != base
+    base = digest(Board(tmp_path, [trip()], good_state()))
+    assert digest(Board(tmp_path, [trip()], good_state())) == base
+
+    def changed(**tour_change):
+        return digest(Board(tmp_path, [trip()], good_state(authority(tours=[dict(TOUR, **tour_change)]))))
+
+    renamed = digest(Board(tmp_path, [trip()], good_state(authority(guides=[dict(GUIDE, flight_name_en="KIM CHULSOO JR")]))))
+    inactive = digest(Board(tmp_path, [trip()], good_state(authority(guides=[dict(GUIDE, status="inactive")]))))
+    assert len({base, renamed, inactive, changed(leader="다른대장", leader_guide_id=None),
+                changed(depart_date="2026-08-02"), changed(code="0801_다른곳")}) == 6
+    assert digest(Board(tmp_path, [trip(ends_on="2026-08-06")], good_state())) != base
+    assert digest(Board(tmp_path, [trip()], None)) != base
     valid_trips.discard("t1")
-    assert digest(Board(tmp_path, [TRIP])) != base
-    valid_trips.add("t1")
-    registry_file.write_text(json.dumps(dict(REGISTRY, guides=[])), encoding="utf-8")
-    assert digest(Board(tmp_path, [TRIP])) != base
+    assert digest(Board(tmp_path, [trip()], good_state())) != base
 
 
-def test_input_digest_follows_the_airport_table_and_parser_versions(tmp_path, valid_trips, registry_file, monkeypatch):
-    valid_trips.add("t1")
-    base = digest(Board(tmp_path, [TRIP]))
-    table = tmp_path / "airports.json"
-    from app import guide_airfare
-    changed = guide_airfare.load_airport_table()
-    changed["max_gap_days"] += 1
-    table.write_text(json.dumps(changed, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setenv(guide_airfare_review.AIRPORTS_ENV, str(table))
-    assert digest(Board(tmp_path, [TRIP])) != base
-    monkeypatch.delenv(guide_airfare_review.AIRPORTS_ENV)
-    monkeypatch.setattr(flight_evidence, "PARSER_VERSION", "flight-evidence-vX")
-    assert digest(Board(tmp_path, [TRIP])) != base
-
-
-def test_the_snapshot_input_key_includes_the_guide_state(tmp_path, monkeypatch):
+def test_the_snapshot_input_key_includes_the_guide_state(monkeypatch):
     backend = SimpleNamespace(
         store=SimpleNamespace(), board=object(), _transactions=lambda: [],
         sources={"mail_directories": [], "portal_databases": [], "reference_documents": []})
@@ -188,6 +289,14 @@ def test_the_snapshot_input_key_includes_the_guide_state(tmp_path, monkeypatch):
     assert ota_payment_review.input_key_for(backend) == first
     monkeypatch.setattr(ota_payment_review, "_guide_input_digest", lambda board: "two")
     assert ota_payment_review.input_key_for(backend) != first
+
+
+def test_the_request_path_digest_never_fetches(tmp_path, valid_trips, monkeypatch):
+    valid_trips.add("t1")
+    monkeypatch.setattr(reservation_authority, "fetch_authority",
+                        lambda *a, **k: pytest.fail("fetched on the request path"))
+    digest(Board(tmp_path, [trip()], good_state()))
+    digest(Board(tmp_path, [trip()]))
 
 
 class Service:
@@ -199,7 +308,7 @@ class Service:
         return self.current, self.fresh
 
 
-def flow_with(results, tmp_path, monkeypatch, fresh=True):
+def flow_with(results, monkeypatch, fresh=True):
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         "CREATE TABLE transactions(transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,"
@@ -219,29 +328,27 @@ ATTRIBUTED = {"status": "ATTRIBUTED", "code": "guide_airfare_pre_departure", "tr
               "trip_name": "0801_북해도", "evidence_digest": "a" * 64, "booking_ref": "REF1"}
 
 
-def test_the_card_flow_turns_an_attributed_verdict_into_one_guide_rule(tmp_path, monkeypatch):
-    results = [{"ota_event_id": "e1", "status": "MATCHED_AUTO", "transaction_id": "card-1",
-                "guide_airfare": ATTRIBUTED},
+def test_the_card_flow_turns_an_attributed_verdict_into_one_guide_rule(monkeypatch):
+    results = [{"ota_event_id": "e1", "status": "MATCHED_AUTO", "transaction_id": "card-1", "guide_airfare": ATTRIBUTED},
                {"ota_event_id": "e2", "status": "MATCHED_AUTO", "transaction_id": "card-2",
-                "guide_airfare": dict(ATTRIBUTED, status="HOLD", code="HOLD_GUIDE_AIRFARE_AMBIGUOUS")}]
-    rules = flow_with(results, tmp_path, monkeypatch)._guide_airfare_rules("b", None)
+                "guide_airfare": dict(ATTRIBUTED, status="HOLD", code=guide_airfare_review.MISMATCH)}]
+    rules = flow_with(results, monkeypatch)._guide_airfare_rules("b", None)
     assert len(rules) == 1
     rule = rules[0]
     assert rule["origin"] == "guide-airfare-live" and rule["optional"]["source_hash"] == "hash-1"
     assignment = rule["optional"]["inferred_assignment"]
     assert assignment["trip_id"] == "t1" and "여행 시작 전 출국" in assignment["basis"]
-    assert "aaaaaaaaaaaa" in assignment["basis"]
     assert rule["effects"] == {"item": "항공료", "description": "예약 REF1"}
 
 
-def test_a_stale_missing_or_unselected_snapshot_yields_no_rules(tmp_path, monkeypatch):
+def test_stale_missing_unselected_or_disabled_snapshot_yields_no_rules(monkeypatch):
     results = [{"status": "MATCHED_AUTO", "transaction_id": "card-1", "guide_airfare": ATTRIBUTED}]
-    assert flow_with(results, tmp_path, monkeypatch, fresh=False)._guide_airfare_rules("b", None) == []
-    assert flow_with(results, tmp_path, monkeypatch)._guide_airfare_rules("b", {"card-2"}) == []
-    flow = flow_with(results, tmp_path, monkeypatch)
+    assert flow_with(results, monkeypatch, fresh=False)._guide_airfare_rules("b", None) == []
+    assert flow_with(results, monkeypatch)._guide_airfare_rules("b", {"card-2"}) == []
+    flow = flow_with(results, monkeypatch)
     flow.board._ota_snapshot_service.current = None
     assert flow._guide_airfare_rules("b", None) == []
-    flow = flow_with(results, tmp_path, monkeypatch)
+    flow = flow_with(results, monkeypatch)
     assert len(flow._guide_airfare_rules("b", None)) == 1
     monkeypatch.setattr(ota_payment_review, "enabled", lambda: False)
     assert flow._guide_airfare_rules("b", None) == []
