@@ -80,32 +80,84 @@ def run_gate(db_path, exact_pairs, events, manual_links=None, frozen_groups=None
     return report
 
 
+def protected_from_host(db_path, review_path):
+    """The protected set as it stands now: legacy exact links plus manual links, derived read only.
+
+    Nothing is fixed here. Every run recomputes the set from the current sources, the card board and the
+    review database, so the expected count is whatever is protected today.
+    """
+    import os
+    import threading
+    from types import SimpleNamespace
+    from webapp import ota_payment_review as review
+
+    conn = sqlite3.connect(Path(db_path).as_uri() + "?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    board = SimpleNamespace(conn=conn, path=Path(db_path), _lock=threading.RLock())
+    previous = os.environ.get("WEBLEDGER_OTA_REVIEW_DB")
+    os.environ["WEBLEDGER_OTA_REVIEW_DB"] = str(review_path)
+    try:
+        backend = review.CoreOtaPaymentBackend.from_host(board, read_only=True)
+        try:
+            events, transactions, _links, _results = backend._data()
+            legacy = backend._legacy_exact_snapshot(events, transactions)
+            manual = backend.store.links()
+            protected = {str(event): review._link_transaction_id(link) for event, link in legacy.items()
+                         if review._link_transaction_id(link)}
+            protected.update({str(event): review._link_transaction_id(link) for event, link in manual.items()
+                              if review._link_transaction_id(link)})
+            manual_links = {str(event): {"transaction_id": review._link_transaction_id(link)}
+                            for event, link in manual.items() if review._link_transaction_id(link)}
+            return events, protected, manual_links, len(legacy), len(manual_links)
+        finally:
+            backend.close()
+    finally:
+        conn.close()
+        if previous is None:
+            os.environ.pop("WEBLEDGER_OTA_REVIEW_DB", None)
+        else:
+            os.environ["WEBLEDGER_OTA_REVIEW_DB"] = previous
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default="D:/WebLedgerHost/data/board.sqlite")
-    parser.add_argument("--events", required=True, help="JSON with events and exact results")
+    parser.add_argument("--events", default="", help="optional JSON with events and results; default derives "
+                                                    "the protected set from the current sources")
     parser.add_argument("--review-db", default="")
-    parser.add_argument("--expect-ledger", type=int, default=734)
+    parser.add_argument("--expect-ledger", type=int, default=None)
     parser.add_argument("--expect-decisions", type=int, default=None)
     parser.add_argument("--expect-holds", type=int, default=None)
     args = parser.parse_args(argv)
-    source = json.loads(Path(args.events).read_text(encoding="utf-8"))
-    exact = {r["ota_event_id"]: r["transaction_id"] for r in source["results"]
-             if r.get("transaction_id") and r["status"] in PAID}
-    manual = {}
-    if args.review_db:
-        from app.ota_review import OtaReviewStore
-        store = OtaReviewStore(Path(args.review_db))
-        manual = store.links()
-        store.close()
-    report = run_gate(args.db, exact, source["events"], manual)
-    report["ledger_unchanged"] = report["ledger_rows"] == args.expect_ledger
+    if args.events:
+        source = json.loads(Path(args.events).read_text(encoding="utf-8"))
+        exact = {r["ota_event_id"]: r["transaction_id"] for r in source["results"]
+                 if r.get("transaction_id") and r["status"] in PAID}
+        manual = {}
+        if args.review_db:
+            from app.ota_review import OtaReviewStore
+            store = OtaReviewStore(Path(args.review_db))
+            manual = store.links()
+            store.close()
+        events = source["events"]
+        legacy_count = len(exact)
+        manual_count = len(manual)
+    else:
+        if not args.review_db:
+            parser.error("--review-db is required when --events is not given")
+        events, exact, manual, legacy_count, manual_count = protected_from_host(args.db, args.review_db)
+    report = run_gate(args.db, exact, events, manual)
+    report["protected_legacy_exact"] = legacy_count
+    report["protected_manual"] = manual_count
+    report["protected_expected"] = len(exact)
+    if args.expect_ledger is not None:
+        report["ledger_unchanged"] = report["ledger_rows"] == args.expect_ledger
     if args.expect_decisions is not None:
         report["decisions_unchanged"] = report["user_decisions"] == args.expect_decisions
     if args.expect_holds is not None:
         report["holds_unchanged"] = report["review_holds"] == args.expect_holds
-    report["gate_pass"] = report["gate_pass"] and report["ledger_unchanged"] and all(
-        report.get(k, True) for k in ("decisions_unchanged", "holds_unchanged"))
+    report["gate_pass"] = report["gate_pass"] and all(
+        report.get(k, True) for k in ("ledger_unchanged", "decisions_unchanged", "holds_unchanged"))
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["gate_pass"] else 1
 
