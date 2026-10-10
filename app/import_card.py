@@ -162,7 +162,40 @@ def read_cells(content: bytes) -> tuple[str, list[list]]:
         raise ParseError("EMPTY_FILE", "빈 파일이에요")
     if content[:2] == b"PK":
         return "xlsx", _read_xlsx(content)
+    if content[:8] == OLE2_MAGIC:
+        return "xls", _read_xls(content)
     return "csv", _read_csv(content)
+
+
+OLE2_MAGIC = bytes.fromhex("d0cf11e0a1b11ae1")
+# 카드사 매입 확정 파일에는 있고 승인(미확정) 파일에는 없는 열. 승인 파일은 같은 거래를 매입 파일과
+# 다른 이름으로 담아 장부에 중복을 만들 수 있어 받지 않는다.
+POSTING_HEADERS = ("매입일", "매입일자", "정산일")
+
+
+def _read_xls(content: bytes) -> list[list]:
+    """Read the first sheet of a binary .xls (BIFF) card export. Values keep their stored types."""
+    try:
+        import xlrd
+    except ImportError:
+        raise ParseError("XLS_READER_UNAVAILABLE",
+                         "이 서버에는 XLS 읽기 모듈이 없어 .xls 파일을 열 수 없어요") from None
+    try:
+        book = xlrd.open_workbook(file_contents=content, on_demand=True)
+    except Exception:
+        raise ParseError("UNREADABLE_FILE", "XLS 파일을 열 수 없어요") from None
+    try:
+        sheet = book.sheet_by_index(0)
+        rows = [[None if cell == "" else cell for cell in sheet.row_values(index)]
+                for index in range(sheet.nrows)]
+    finally:
+        book.release_resources()
+    headers = {re.sub(r"\s+", "", str(v or "")) for row in rows[:20] for v in row}
+    if "승인방식" in headers and not headers.intersection(POSTING_HEADERS):
+        raise ParseError("APPROVAL_FILE_NOT_ACQUIRED",
+                         "승인내역 파일이에요. 매입 확정 전 자료라 중복 거래가 생길 수 있어 받지 않아요. "
+                         "국내 매입 또는 해외 매입 파일을 올려 주세요")
+    return rows
 
 
 def _read_xlsx(content: bytes) -> list[list]:

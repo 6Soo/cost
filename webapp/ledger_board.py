@@ -1504,6 +1504,32 @@ def expense_new_page() -> str:
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
 
 
+def _rule_scope_text(rule: dict) -> str:
+    """The rule in one sentence, so the owner can see how wide it is before applying."""
+    conditions = rule.get("conditions") or {}
+    names = {"merchant_normalized": "가맹점", "card_kind": "카드 구분", "transaction_direction": "거래 방향"}
+    parts = []
+    for field, entry in conditions.items():
+        value = entry.get("value")
+        value = ", ".join(map(str, value)) if isinstance(value, list) else value
+        parts.append(f"{names.get(field, field)} = {value}")
+    optional = rule.get("optional_conditions") or {}
+    if optional.get("amount_range"):
+        parts.append(f"금액 범위 {optional['amount_range']}")
+    if optional.get("date_or_service_period"):
+        parts.append(f"기간 {optional['date_or_service_period']}")
+    effect_names = {"item": "항목", "display_tab_id": "여행 탭", "description_template": "내용"}
+    changes = ", ".join(f"{effect_names.get(k, k)} → {v}" for k, v in (rule.get("effects") or {}).items())
+    text = " · ".join(parts) + (f" ⇒ {changes}" if changes else "")
+    scope = rule.get("scope") or {}
+    if scope.get("trip_id"):
+        text += f" (여행 {scope['trip_id']}, {scope.get('event_year')}년)"
+    if list(conditions) == ["merchant_normalized"]:
+        text += (" — 모든 여행·모든 카드의 같은 가맹점 거래에 해당합니다."
+                 " 같은 가맹점의 기존 카드 분류 규칙이 있으면 미래 입력부터 이 규칙이 그 항목을 대체합니다")
+    return text
+
+
 def _rule_hidden(case_id, request_id, extra=""):
     return (f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='case' value='{esc(case_id)}'>"
@@ -1636,6 +1662,14 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     if pending.get("draft_error"):
         parts.append(f"<p class='muted'>초안 검증 실패: {esc(pending['draft_error']['message'])}</p>")
 
+    if not rule and dialog != "closed":
+        parts.append(
+            "<p class='muted'>이 거래에서 저장한 수정(항목·여행)을 같은 가맹점 거래에 반복 적용하는 규칙 초안을 만듭니다."
+            " 초안은 아직 아무 행도 바꾸지 않으며, 아래에서 영향 미리보기를 확인한 뒤 직접 적용합니다.</p>"
+            "<form method='post' action='/api/classification/conversation/owner-draft'>"
+            + _rule_hidden(case_id, f"ui-owner-draft-{case_id}")
+            + "<button class='btn' type='submit'>내 수정 내용으로 규칙 초안 만들기</button></form>")
+
     if pending.get("rule") and not pending.get("confirmed"):
         parts.append(
             "<p class='muted'>검증을 통과한 초안이에요. 저장하면 규칙 초안이 되고, 적용은 "
@@ -1647,7 +1681,8 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     if rule:
         parts.append(
             f"<p class='muted'>저장된 규칙 {esc(rule['rule_id'])} · version {rule['version']}"
-            f" · {esc(rule['status'])}</p>")
+            f" · {esc(rule['status'])}</p>"
+            f"<p><b>적용 조건</b> {esc(_rule_scope_text(rule['rule']))}</p>")
         existing = state.get("last_preview") or {}
         preview = existing.get("plan") or {}
         if preview:
@@ -4196,6 +4231,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/api/classification/dialog/resume",
                            "/api/classification/conversation/advance",
                            "/api/classification/conversation/confirm-draft",
+                           "/api/classification/conversation/owner-draft",
                            "/api/classification/rules/preview",
                            "/api/classification/rules/apply") \
                 and "application/json" not in content_type:
@@ -4380,6 +4416,9 @@ class Handler(BaseHTTPRequestHandler):
                  "message": f"허용하지 않은 필드예요: {unknown[0]}"}, code=422)
             return
         changes = {k: payload[k] for k in allowed if k in payload}
+        # 분류대기 행의 여행 선택칸은 빈 값을 보낸다. 빈 값은 "여행 미정"이지 잘못된 탭이 아니다.
+        if changes.get("display_tab_id") in ("", "unclassified"):
+            changes["display_tab_id"] = None
         if "amount_krw" in changes:
             raw_amount = changes["amount_krw"]
             if isinstance(raw_amount, bool):
@@ -4606,6 +4645,10 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     message = (f"AI 초안 대기 중입니다 · 사유 {turn.get('reason_code') or '-'}"
                                " · 행 저장과 확정 규칙 실행은 계속됩니다")
+            elif path.endswith("/conversation/owner-draft"):
+                _active_store().owner_correction_draft(learning_case_id=case_id,
+                                                       client_request_id=request_id, actor="owner")
+                message = "수정 내용으로 규칙 초안을 만들었습니다. 적용 범위를 고르고 영향을 미리 확인해 주세요"
             elif path.endswith("/conversation/confirm-draft"):
                 _active_store().confirm_dialog_draft(learning_case_id=case_id,
                                             client_request_id=request_id, actor="owner")
@@ -4627,6 +4670,15 @@ class Handler(BaseHTTPRequestHandler):
                     client_request_id=request_id, actor="owner")
                 message = (f"적용했습니다 · {result.get('applied_count', 0)}건"
                            + (" · 미래 적용" if result.get("apply_future") else ""))
+                if not (payload["apply_existing"] or payload["apply_future"]):
+                    message = ("적용 범위(기존 행·미래 입력)를 하나 이상 골라야 규칙이 켜집니다. "
+                               "규칙은 초안 상태로 남아 있어요")
+                if result.get("apply_future"):
+                    try:
+                        from . import card_flow
+                        card_flow.reclassify_pending(_active_store())
+                    except Exception:
+                        message += " · 미기록 카드 거래의 재분류는 다음 분류 때 반영됩니다"
         except SaveError as exc:
             self._redirect_rule_dialog(case_id, f"{exc.code}: {exc}")
             return

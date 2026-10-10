@@ -196,6 +196,19 @@ def enabled():
     return os.environ.get('WEBLEDGER_CARD_FLOW') == '1'
 
 
+def reclassify_pending(board):
+    """장부 규칙을 미래 적용으로 켠 직후, 아직 기록하지 않은 카드 거래를 다시 분류한다.
+
+    사용자가 확정한 거래는 분류가 건드리지 않는다."""
+    if not enabled():
+        return 0
+    flow = CardFlow(board)
+    batches = [row[0] for row in board.conn.execute('SELECT batch_id FROM import_batches')]
+    for batch_id in batches:
+        flow.classify(batch_id)
+    return len(batches)
+
+
 def configure_ota_review_backend(*, read_factory=None, write_factory=None):
     """Override the default core adapter with separate read and write adapters."""
     from . import ota_payment_review
@@ -540,16 +553,89 @@ class CardFlow:
                 draft['rule_id']=('ota-portal-' if draft['origin']=='ota-portal-live' else 'ota-mail-')+source
                 ota_rules.append(draft)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
-        if ota_rules or blocked_inference_sources:
+        board_rules = self._board_future_rules()
+        if ota_rules or blocked_inference_sources or board_rules:
             from app.classify import classify_batch
             active=[rule for rule in self.pipeline.list_rules() if not
                     (rule.get('optional',{}).get('inferred_assignment')
                      and rule['optional'].get('source_hash') in blocked_inference_sources)]
+            active, board_rules = self._board_rules_supersede(active, board_rules)
             return classify_batch(self.pipeline.store,batch_id,
-                rules=active+ota_rules,trip_resolver=self.retail_trip,
+                rules=active+board_rules+ota_rules,trip_resolver=self.retail_trip,
                 review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
         return self.pipeline.classify_batch(batch_id, trip_resolver=self.retail_trip,
                                            review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
+
+    def _board_future_rules(self):
+        """장부에서 확정해 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.
+
+        가맹점 조건만 가진 규칙만 옮기고(카드 구분·방향 조건이나 제외 조건이 있으면 건너뛴다),
+        여행 배정은 규칙의 연도 범위로 제한한다. 사용자가 확정한 답변은 분류가 덮지 않는다."""
+        lister = getattr(self.board, 'active_future_rules', None)
+        if not callable(lister):
+            return []
+        converted = []
+        for stored in lister():
+            rule = stored.get('rule') or {}
+            conditions = rule.get('conditions') or {}
+            if list(conditions) != ['merchant_normalized'] or rule.get('exceptions'):
+                continue
+            entry = conditions['merchant_normalized']
+            merchants = entry['value'] if entry.get('op') == 'in' else [entry.get('value')] if entry.get('op') == 'eq' else []
+            effects = {k: v for k, v in (rule.get('effects') or {}).items() if k in ('item', 'display_tab_id')}
+            if not merchants or not effects:
+                continue
+            optional = {}
+            amount = (rule.get('optional_conditions') or {}).get('amount_range')
+            if amount:
+                optional['amount_range'] = dict(amount)
+            period = dict((rule.get('optional_conditions') or {}).get('date_or_service_period') or {})
+            scope = rule.get('scope') or {}
+            if 'display_tab_id' in effects and scope.get('event_year'):
+                year = str(scope['event_year'])
+                period.setdefault('from', year + '-01-01')
+                period.setdefault('to', year + '-12-31')
+            if period:
+                optional['date_or_service_period'] = {k: v for k, v in
+                                                      (('start', period.get('from')), ('end', period.get('to'))) if v}
+            for index, merchant in enumerate(merchants):
+                converted.append({'rule_id': f"board-{stored['rule_id']}-{index}", 'version': stored.get('version', 1),
+                                  'status': 'active', 'conditions': {'merchant_normalized': merchant},
+                                  'effects': dict(effects), 'optional': optional,
+                                  'note': '장부 규칙(미래 적용)', 'origin': 'board-rule'})
+        return converted
+
+    @staticmethod
+    def _board_rules_supersede(card_rules, board_rules):
+        """사용자가 미리보기를 보고 명시 적용한 가맹점 규칙이 같은 가맹점의 일반 카드 규칙을 대체한다.
+
+        일반 규칙 = 가맹점 조건만 있고 선택 조건이 없는 규칙. 대체하지 않으면 두 규칙이 서로 다른
+        항목을 제안해 이후 거래가 전부 충돌 검토로 빠진다. 설명 등 새 규칙이 바꾸지 않는 항목은
+        기존 규칙 값을 이어받는다. 원천 거래·예약에 묶인 규칙은 건드리지 않는다."""
+        kept = list(card_rules)
+        merged_rules = []
+        for rule in board_rules:
+            merchant = rule['conditions']['merchant_normalized']
+            if rule.get('optional') or 'item' not in rule['effects']:
+                merged_rules.append(rule)
+                continue
+            generic = [r for r in kept
+                       if (r.get('conditions') or {}).get('merchant_normalized') == merchant
+                       and set(r.get('conditions') or {}) <= {'merchant_normalized', 'card_kind', 'transaction_direction'}
+                       and not r.get('optional')]
+            if not generic:
+                merged_rules.append(rule)
+                continue
+            # 새 규칙이 바꾸지 않는 항목(설명 등)은 기존 규칙들이 모두 같은 값일 때만 이어받는다.
+            inherited = {}
+            for key in {k for old in generic for k in (old.get('effects') or {})}:
+                values = {str((old.get('effects') or {}).get(key)) for old in generic}
+                if len(values) == 1:
+                    inherited[key] = next(iter(generic)).get('effects', {}).get(key)
+            for old in generic:
+                kept.remove(old)
+            merged_rules.append(dict(rule, effects={**inherited, **rule['effects']}))
+        return kept, merged_rules
 
     _GUIDE_KIND_LABELS = {
         'pre_departure': '여행 시작 전 출국', 'post_trip_return': '여행 종료 뒤 귀국',
@@ -1135,7 +1221,7 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 </style><body><main><nav><a href="/">홈</a> · <a href="/board">장부</a> · <a href="/trips">여행 관리</a></nav><h1>카드 내역 검토</h1>
 <p class="flow">카드 자료 → 확인할 거래 → 미리보기 → 장부 기록</p>
 <section><h2>저장된 카드 자료</h2><p class="small">확인할 거래가 많은 자료부터 표시합니다. 자료를 선택하면 저장된 분류 결과를 이어서 볼 수 있습니다.</p><div id="batches"></div></section>
-<details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xlsx,.csv"><button id="upload">업로드하고 분류</button></section></details>
+<details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xls,.xlsx,.csv"><button id="upload">업로드하고 분류</button></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">사용 국가와 해당 여행이 일치할 때</option><option value="AT">오스트리아 현지 사용 · 유럽 여행 일치</option><option value="IT">이탈리아 현지 사용 · 유럽 여행 일치</option><option value="FR">프랑스 현지 사용 · 유럽 여행 일치</option><option value="JP">일본 현지 사용 · 명시 여행 일치</option><option value="KR">국내 사용 · 국내 여행 일치</option><option value="TW">대만 현지 사용 · 명시 여행 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>규칙 저장하고 다시 분류</button><button type="button" id="newrule">새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><section id="summary" class="hidden"></section><section id="holds"></section><div id="questions"></div><section id="preview" class="hidden"></section>
 </main><script>

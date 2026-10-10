@@ -1,6 +1,6 @@
 # webapp runtime dependency
 # 검증 환경: Python 3.12.10, openpyxl 3.1.5
-# 사용처: webapp/sheets_export.py (XLSX 생성)
+# 사용처: webapp/sheets_export.py (XLSX 생성), app/import_card.py (국민카드 .xls 원본 읽기: xlrd)
 # 이 파일은 선언만 한다. 설치는 하지 않는다.
 #
 # 이 파일과 저장소 루트의 requirements.txt는 같은 목록이어야 한다. 루트만
@@ -9,6 +9,7 @@
 # 경로의 의존이 없어서 OIDC를 붙이는 시점에 ImportError로 끝난다. 그래서 두
 # 파일의 내용은 동일하며, webapp/tests/test_ops_safety.py가 그 사실을 검사한다.
 openpyxl>=3.1.5,<4
+xlrd>=2.0.1,<3
 google-auth>=2.23.0,<3
 PyJWT>=2.8.0,<3
 requests>=2.31.0,<3
