@@ -487,3 +487,31 @@ def test_unverified_figures_are_reported_separately_from_totals():
     (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
     assert trip["net"] is None and trip["income_total"] is None
     assert trip["reported"]["net"] == 600
+
+
+def test_reader_gets_a_consistent_pair(tmp_path: Path):
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
+    assert snapshot["schema"] == ga.SCHEMA and "main" in rows
+
+
+def test_reader_refuses_rows_whose_fingerprint_belongs_to_another_run(tmp_path: Path):
+    snapshot_path, rows_path = tmp_path / "snapshot.json", tmp_path / "rows-private.json"
+    data = _row_book([("A", "식비", 1)])
+    _sync(snapshot_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    generation = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
+    rows_file = ga._rows_file(rows_path, generation)
+    doc = json.loads(rows_file.read_text(encoding="utf-8"))
+    doc["sources"]["main"]["content_sha256"] = "0" * 64
+    rows_file.write_text(json.dumps(doc), encoding="utf-8")
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.load_consistent(snapshot_path, rows_path)
+    assert raised.value.code == "GENERATION_MISMATCH"
+
+
+def test_reader_refuses_a_missing_snapshot(tmp_path: Path):
+    with pytest.raises(ga.SnapshotError) as raised:
+        ga.load_consistent(tmp_path / "none.json", tmp_path / "rows.json")
+    assert raised.value.code == "SNAPSHOT_MISSING"
