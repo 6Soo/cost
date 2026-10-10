@@ -13,6 +13,7 @@ import html
 import json
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from app import google_access, google_authority
 
@@ -61,23 +62,40 @@ def owner_rows(rows: dict, key: str, source: str) -> dict | None:
     tab = rows.get(source, {}).get("trips", {}).get(key)
     if tab is None:
         return None
-    def project(block):
+    def income(block):
+        # 수입 B:H = 거래일자, 이름, 닉네임, 예약금, 잔금, 추가금, 금액
+        return [{"row": r["row"], "date": r["cells"].get("B"), "name": r["cells"].get("C"),
+                 "nickname": r["cells"].get("D"), "deposit": r["cells"].get("E"),
+                 "balance": r["cells"].get("F"), "extra": r["cells"].get("G"), "amount": r["amount"]}
+                for r in block]
+
+    def expense(block):
+        # 지출 B:H = 거래일자, 항목(지급처), 내용(분류), 기간, 예약번호, 증빙유형, 금액
         return [{"row": r["row"], "date": r["cells"].get("B"), "payee": r["cells"].get("C"),
                  "category": r["cells"].get("D"), "period": r["cells"].get("E"),
                  "reservation": r["cells"].get("F"), "evidence": r["cells"].get("G"), "amount": r["amount"]}
                 for r in block]
-    return {"key": key, "source": source, "income": project(tab.get("income", [])),
-            "expense": project(tab.get("expense", []))}
+    return {"key": key, "source": source, "income": income(tab.get("income", [])),
+            "expense": expense(tab.get("expense", []))}
 
 
 def render_rows_html(detail: dict) -> str:
-    def table(rows):
+    esc = lambda value: html.escape(str(value or ""))
+
+    def income_table(rows):
         body = "".join(
-            f"<tr><td>{r['row']}</td><td>{html.escape(str(r['date'] or ''))}</td>"
-            f"<td>{html.escape(str(r['payee'] or ''))}</td><td>{html.escape(str(r['category'] or ''))}</td>"
-            f"<td>{html.escape(str(r['period'] or ''))}</td><td>{html.escape(str(r['reservation'] or ''))}</td>"
-            f"<td>{html.escape(str(r['evidence'] or ''))}</td><td>{r['amount']:,}원</td></tr>" for r in rows)
-        return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>내용</th><th>기간</th>"
+            f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['name'])}</td><td>{esc(r['nickname'])}</td>"
+            f"<td>{esc(r['deposit'])}</td><td>{esc(r['balance'])}</td><td>{esc(r['extra'])}</td>"
+            f"<td>{r['amount']:,}원</td></tr>" for r in rows)
+        return ("<table><thead><tr><th>행</th><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
+                f"<th>잔금</th><th>추가금</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
+
+    def expense_table(rows):
+        body = "".join(
+            f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['payee'])}</td><td>{esc(r['category'])}</td>"
+            f"<td>{esc(r['period'])}</td><td>{esc(r['reservation'])}</td><td>{esc(r['evidence'])}</td>"
+            f"<td>{r['amount']:,}원</td></tr>" for r in rows)
+        return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>분류</th><th>기간</th>"
                 f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
     income = sum(r["amount"] for r in detail["income"])
     expense = sum(r["amount"] for r in detail["expense"])
@@ -86,8 +104,8 @@ def render_rows_html(detail: dict) -> str:
             "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
             "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
             f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
-            f"<h2>수입 {income:,}원</h2>{table(detail['income'])}"
-            f"<h2>지출 {expense:,}원</h2>{table(detail['expense'])}</body></html>")
+            f"<h2>수입 {income:,}원</h2>{income_table(detail['income'])}"
+            f"<h2>지출 {expense:,}원</h2>{expense_table(detail['expense'])}</body></html>")
 
 
 def choice_path(snapshot_path: Path) -> Path:
@@ -147,9 +165,13 @@ def render_html(payload: dict) -> str:
     rows = []
     for trip in payload["trips"]:
         reasons = " / ".join(REVIEW_LABELS.get(code, code) for code in trip["review"]) or "확인 사항 없음"
+        copies = trip.get("copies") or {}
+        links = " ".join(
+            f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={role}'>{role} 상세</a>"
+            for role in ("main", "archive") if copies.get(role))
         rows.append(
             "<tr>"
-            f"<td>{html.escape(trip['key'])}</td>"
+            f"<td>{html.escape(trip['key'])}<br>{links}</td>"
             f"<td>{'마감' if trip['closure'] == 'closed' else '미마감' if trip['closure'] == 'open' else '확인 중'}</td>"
             f"<td>{_money(trip['income_total'])}</td><td>{_money(trip['expense_total'])}</td>"
             f"<td>{_money(trip['net'])}</td>"
@@ -174,11 +196,19 @@ def render_html(payload: dict) -> str:
         f"<tbody>{''.join(rows)}</tbody></table></body></html>")
 
 
-def caller(enforced: bool, session, is_owner_of) -> tuple[bool, str | None]:
-    """Fail closed. Owner needs enforcement on and a confirmed owner session; otherwise nobody gets in."""
+def caller(enforced: bool, session, is_owner_of, role_of=None) -> tuple[bool, str | None]:
+    """Fail closed. Owner needs enforcement on and a confirmed owner session.
+
+    A viewer is the account the access store currently lists as an active viewer. A deactivated or
+    removed account has no role there, so its grants stay inert until it is reactivated.
+    """
     if not enforced or session is None:
         return False, None
-    return bool(is_owner_of(session)), session.user_id
+    if is_owner_of(session):
+        return True, session.user_id
+    if role_of is not None and role_of(session.user_id) == "viewer":
+        return False, session.user_id
+    return False, None
 
 
 def grants_path(snapshot_path: Path) -> Path:

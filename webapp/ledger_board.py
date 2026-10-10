@@ -239,6 +239,11 @@ def require_session(headers, cookies=None):
     return session
 
 
+def _active_role(user_id) -> str | None:
+    """The role the access store lists right now. A deactivated or removed account has none."""
+    return _ACCESS.account_role(user_id) if _ACCESS else None
+
+
 def is_owner_session(session) -> bool:
     if session is None or not _ACCESS:
         return False
@@ -3953,7 +3958,8 @@ class Handler(BaseHTTPRequestHandler):
         from . import google_ledger_page
         if google_ledger_page.owns_route(parsed.path):
             is_owner, viewer = google_ledger_page.caller(
-                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session)
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
+                _active_role)
             if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
                                            csrf=CSRF_TOKEN, query=query):
                 return
@@ -4211,7 +4217,8 @@ class Handler(BaseHTTPRequestHandler):
         if google_ledger_page.owns_route(parsed.path):
             resolve_role(self.headers, self._cookies())
             is_owner, viewer = google_ledger_page.caller(
-                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session)
+                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
+                _active_role)
             if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
                                            raw=raw, csrf=CSRF_TOKEN):
                 return

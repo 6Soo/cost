@@ -224,8 +224,9 @@ def test_anonymous_request_is_not_owner_when_enforced(snapshot_file):
 
 
 def test_confirmed_owner_session_is_owner_and_viewer_session_is_viewer():
-    assert page.caller(True, _Session("boss"), lambda s: s.user_id == "boss") == (True, "boss")
-    assert page.caller(True, _Session("v1"), lambda s: False) == (False, "v1")
+    assert page.caller(True, _Session("boss"), lambda s: s.user_id == "boss", lambda u: "owner") == (True, "boss")
+    assert page.caller(True, _Session("v1"), lambda s: False, lambda u: "viewer") == (False, "v1")
+    assert page.caller(True, _Session("v1"), lambda s: False, lambda u: None) == (False, None)
 
 
 def test_owner_row_detail_lists_rows_with_position_and_amount(snapshot_file):
@@ -235,7 +236,8 @@ def test_owner_row_detail_lists_rows_with_position_and_amount(snapshot_file):
     _, code, body = handler.sent[0]
     assert code == 200
     assert body["expense"][0]["row"] == 12 and body["expense"][0]["amount"] == 400
-    assert body["income"][0]["payee"] == "INCOME-NAME"
+    assert body["income"][0]["name"] == "INCOME-NAME" and body["income"][0]["deposit"] == ""
+    assert body["expense"][0]["payee"] == "PAYEE-<b>" and body["expense"][0]["category"] == "식비"
 
 
 def test_row_detail_is_owner_only_and_missing_tab_is_404(snapshot_file):
@@ -272,3 +274,64 @@ def test_enabled_needs_both_snapshot_and_rows_setting(monkeypatch):
     monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT", "x")
     monkeypatch.delenv("WEBLEDGER_GOOGLE_LEDGER_ROWS", raising=False)
     assert page.enabled() is False
+
+
+def _access(tmp_path):
+    import sqlite3
+    from webapp import access_control
+    store = access_control.AccessStore(sqlite3.connect(tmp_path / "access.sqlite"))
+    store.ensure_schema()
+    store.create_account(user_id="boss", role="owner", is_synthetic=True)
+    store.create_account(user_id="v1", role="viewer", is_synthetic=True)
+    return store
+
+
+def test_viewer_access_follows_the_access_store_active_state(tmp_path, snapshot_file):
+    store = _access(tmp_path)
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t")
+    session = _Session("v1")
+    assert page.caller(True, session, lambda x: store.is_owner(x.user_id), store.account_role) == (False, "v1")
+    store.set_account_active(user_id="v1", is_active=False)
+    assert page.caller(True, session, lambda x: store.is_owner(x.user_id), store.account_role) == (False, None)
+    store.set_account_active(user_id="v1", is_active=True)
+    assert page.caller(True, session, lambda x: store.is_owner(x.user_id), store.account_role) == (False, "v1")
+
+
+def test_removed_account_gets_nothing_even_with_a_grant(tmp_path, snapshot_file):
+    store = _access(tmp_path)
+    page.set_grants(snapshot_file, user_id="ghost", keys=["0404_에히메"], granted=True, at="t")
+    assert page.caller(True, _Session("ghost"), lambda x: store.is_owner(x.user_id), store.account_role) == (False, None)
+
+
+def test_grant_revocation_empties_the_viewer_page_and_regranting_restores_it(tmp_path, snapshot_file):
+    store = _access(tmp_path)
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t")
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=False, at="t2")
+    handler = FakeHandler()
+    is_owner, viewer = page.caller(True, _Session("v1"), lambda x: store.is_owner(x.user_id), store.account_role)
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer)
+    assert handler.sent[0][2]["trips"] == []
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t3")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer)
+    assert [t["key"] for t in handler.sent[0][2]["trips"]] == ["0404_에히메"]
+
+
+def test_owner_summary_links_each_copy_to_its_detail_and_viewer_gets_no_links(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
+    body = handler.sent[0][2]
+    # The fixture trip 0404 has both copies, so both detail links are offered.
+    assert "source=main" in body and "source=archive" in body
+    viewer = FakeHandler()
+    page.dispatch(viewer, parsed("/google-ledger"), is_owner=False, viewer_user_id="v1")
+    assert "/google-ledger/rows" not in viewer.sent[0][2]
+
+
+def test_income_detail_and_expense_detail_show_their_own_columns(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger/rows"), is_owner=True,
+                  query={"key": ["0404_에히메"], "source": ["main"]})
+    body = handler.sent[0][2]
+    assert "<th>이름</th><th>닉네임</th><th>예약금</th>" in body
+    assert "<th>지급처</th><th>분류</th><th>기간</th><th>예약번호</th><th>증빙</th>" in body
