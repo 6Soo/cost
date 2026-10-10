@@ -157,6 +157,14 @@ class OtaReviewStore:
                                   "evidence_missing": bool(row["evidence_missing"])}
                 for row in self.conn.execute("SELECT * FROM ota_review_links ORDER BY event_id")}
 
+    def prior_confirmation(self, request_id):
+        """The result an earlier confirm with this request id recorded, or None. Read only."""
+        if not self._has_table("ota_review_requests"):
+            return None
+        row = self.conn.execute("SELECT result_json FROM ota_review_requests WHERE request_id=?",
+                                (str(request_id),)).fetchone()
+        return json.loads(row[0]) if row else None
+
     def event_snapshots(self):
         """Read-only snapshots keyed by event ID, including persisted evidence warnings."""
         if not self._has_table("ota_review_links"):
