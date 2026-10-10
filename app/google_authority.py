@@ -370,6 +370,22 @@ def load_rows(rows_path: Path, generation: str | None) -> dict:
     return data.get("sources", {})
 
 
+def load_consistent(snapshot_path: Path, rows_path: Path) -> tuple[dict, dict]:
+    """Reads the public snapshot and the private rows together and refuses a pair from different runs.
+
+    The rows must be the generation the snapshot names, and for every source the content
+    fingerprint must match. A reader therefore never mixes totals from one read with rows from another.
+    """
+    snapshot = load_snapshot(snapshot_path)
+    if not snapshot:
+        raise SnapshotError("SNAPSHOT_MISSING")
+    rows = load_rows(rows_path, snapshot.get("rows_generation"))
+    for role, record in snapshot.get("sources", {}).items():
+        if record.get("content_sha256") != rows.get(role, {}).get("content_sha256"):
+            raise SnapshotError("GENERATION_MISMATCH")
+    return snapshot, rows
+
+
 def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEOUT,
          max_bytes: int = DEFAULT_MAX_BYTES, fetcher=None, now: dt.datetime | None = None) -> dict:
     """One read of both workbooks. Writes the public snapshot and a private rows file, never Google.
