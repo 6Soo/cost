@@ -86,6 +86,11 @@ def classify_transaction(transaction: dict, *, rules: list,
         return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                     classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
     exception=rule.get('origin')=='owner-country-exception-20261003'
+    if rule.get('origin')=='guide-airfare-live':
+        return dict(classification_state=STATE_CLASSIFIED,classification_source='guide_airfare_evidence',
+                    classification_basis='대장·가이드 항공권 근거 · '+inference['basis'],
+                    item=rule['effects']['item'],description=rule['effects'].get('description',''),
+                    display_tab_id=target,trip_id=target,rule_id=rule.get('rule_id',''))
     return dict(classification_state=STATE_CLASSIFIED,classification_source='user_exception' if exception else 'inference',
                 classification_basis=('사용자 예외 · ' if exception else '추론 배정 · '+inference['confidence']+' · ')+inference['basis'],
                 item=rule['effects']['item'],description=rule['effects'].get('description',''),
