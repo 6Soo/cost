@@ -10,6 +10,7 @@ and counts only, so the task log holds no customer data.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import pathlib
 import sys
@@ -18,7 +19,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app import google_authority
+from app import google_authority, sync_schedule
 
 
 def main(argv=None) -> int:
@@ -28,9 +29,21 @@ def main(argv=None) -> int:
     parser.add_argument("--timeout", type=float, default=google_authority.DEFAULT_TIMEOUT)
     parser.add_argument("--max-bytes", type=int, default=google_authority.DEFAULT_MAX_BYTES)
     args = parser.parse_args(argv)
+    now = dt.datetime.now(google_authority.KST)
+    state_path = args.snapshot.with_name("sync-state.json")
+    state = sync_schedule.read_state(state_path)
+    if not sync_schedule.may_attempt(state, now):
+        print(json.dumps({"code": "BACKOFF_WAIT", "next_attempt_at": state["next_attempt_at"]}))
+        return 3
     try:
-        snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout, max_bytes=args.max_bytes)
+        with sync_schedule.SyncLock(args.snapshot.with_name("sync.lock"), now=now):
+            snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout,
+                                             max_bytes=args.max_bytes, now=now)
+    except sync_schedule.LockHeld as error:
+        print(json.dumps({"code": str(error)}))
+        return 4
     except google_authority.SnapshotError as error:
+        sync_schedule.record_result(state_path, ok=False, now=now, error_code=error.code)
         print(json.dumps({"code": error.code}))
         return 2
     sources = {
@@ -38,8 +51,10 @@ def main(argv=None) -> int:
                "unchanged": source.get("unchanged", False), "trip_tabs": len(source["trips"])}
         for role, source in snapshot["sources"].items()
     }
+    failed = [role for role, source in snapshot["sources"].items() if source["status"] != "ok"]
+    sync_schedule.record_result(state_path, ok=not failed, now=now,
+                                error_code=snapshot["sources"][failed[0]]["error_code"] if failed else None)
     print(json.dumps({"sources": sources, "trips": len(snapshot["trips"])}, ensure_ascii=False))
-    failed = any(source["status"] != "ok" for source in snapshot["sources"].values())
     return 1 if failed else 0
 
 
