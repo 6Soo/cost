@@ -1047,12 +1047,17 @@ def _reply_error(handler, code: str, message: str, status: int) -> bool:
 
 
 def _request_user(handler) -> str:
-    """Who is asking, for the review record. A handler may state it; the host's decided session otherwise."""
+    """Who is asking, for the review record. A handler may state it; otherwise the request's own session.
+
+    The per-thread role is set only on the GET path, so a POST reads its session from its own headers and
+    cookies. No session means no user, and the action is refused.
+    """
     stated = getattr(handler, "current_user_id", None)
     if callable(stated):
         return str(stated() or "")
-    from .ledger_board import current_request_session
-    session = current_request_session()
+    from .ledger_board import current_session
+    cookies = handler._cookies() if callable(getattr(handler, "_cookies", None)) else None
+    session = current_session(handler.headers, cookies)
     return str(getattr(session, "user_id", "") or "")
 
 
