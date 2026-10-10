@@ -518,7 +518,7 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                    note: str = "", reuse_rule: bool = False,
                    request_id: str = "", trip_id: str = "",
                    trip_validator=None, tab_validator=None,
-                   trip_candidates=None, resolve_hold=False) -> dict:
+                   trip_candidates=None, resolve_hold=False, _batch: bool = False) -> dict:
     """Record the owner's answer for one transaction.
 
     `expected_revision` is an optimistic lock: the revision the owner was
@@ -594,11 +594,14 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                              "다른 곳에서 먼저 고쳤어요. 새로고침해 주세요")
         revision = int(found[0]) + 1
         now = utc_now()
-        store.conn.execute("BEGIN IMMEDIATE")
+        # A batch owns the transaction; a single save opens and closes its own.
+        if not _batch:
+            store.conn.execute("BEGIN IMMEDIATE")
         try:
             repeated = store.replay_request(request_id, 'save_decision', payload_sha)
             if repeated is not None:
-                store.conn.commit()
+                if not _batch:
+                    store.conn.commit()
                 return repeated
             current = store.conn.execute('SELECT revision FROM transactions WHERE transaction_id=?',
                                          (transaction_id,)).fetchone()
@@ -634,12 +637,72 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
             if reuse_rule:
                 result['rule'] = _register_reuse_rule(store, transaction_id)
             store.remember_request(request_id, "save_decision", payload_sha, result)
+            if not _batch:
+                store.conn.execute("COMMIT")
+        except Exception:
+            if not _batch:
+                store.conn.execute("ROLLBACK")
+            raise
+
+    return result
+
+
+def batch_result_for(store, request_id: str):
+    """The stored result of an earlier batch with this request id, or None."""
+    row = store.conn.execute(
+        "SELECT response_json FROM requests WHERE request_id=? AND scope='save_decisions'",
+        (request_id,)).fetchone()
+    if row is None:
+        return None
+    import json
+    return json.loads(row[0])
+
+
+def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_validator=None,
+                          trip_validator=None) -> dict:
+    """All or nothing. Every answer gets the same checks as save_decision, and one failure rolls back every write.
+
+    A repeated request id returns the first result and writes nothing. Each decision may carry
+    `expected_amount_krw`; a changed amount or an already confirmed row refuses the whole batch.
+    """
+    if not request_id or not isinstance(request_id, str):
+        raise StoreError(CODE_INVALID_INPUT, "요청 ID가 필요해요")
+    if not decisions:
+        raise StoreError(CODE_INVALID_INPUT, "적용할 답변이 없어요")
+    payload_sha = _sha256(canonical(decisions))
+    replay = store.replay_request(request_id, "save_decisions", payload_sha)
+    if replay is not None:
+        return replay
+    with store.lock:
+        store.conn.execute("BEGIN IMMEDIATE")
+        try:
+            results = []
+            for decision in decisions:
+                args = dict(decision)
+                transaction_id = args.pop("transaction_id")
+                revision = args.pop("revision")
+                expected_amount = args.pop("expected_amount_krw", None)
+                found = store.conn.execute(
+                    "SELECT revision, user_confirmed, amount_krw FROM transactions WHERE transaction_id=?",
+                    (transaction_id,)).fetchone()
+                if found is None:
+                    raise StoreError(CODE_NOT_FOUND, "없는 거래예요")
+                if int(found[0]) != int(revision):
+                    raise StoreError(CODE_REVISION_CONFLICT, "다른 곳에서 먼저 고쳤어요. 새로고침해 주세요")
+                if found[1]:
+                    raise StoreError(CODE_REVISION_CONFLICT, "이미 확정한 거래라 일괄 적용하지 않았어요")
+                if expected_amount is not None and found[2] != expected_amount:
+                    raise StoreError(CODE_REVISION_CONFLICT, "금액이 바뀌어 일괄 적용하지 않았어요")
+                results.append(save_decision(
+                    store, transaction_id, revision, request_id=f"{request_id}:{transaction_id}",
+                    trip_validator=trip_validator, tab_validator=tab_validator, _batch=True, **args))
+            response = {"results": results}
+            store.remember_request(request_id, "save_decisions", payload_sha, response)
             store.conn.execute("COMMIT")
         except Exception:
             store.conn.execute("ROLLBACK")
             raise
-
-    return result
+    return response
 
 
 def _register_reuse_rule(store, transaction_id: str):

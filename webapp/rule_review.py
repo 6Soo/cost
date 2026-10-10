@@ -1,9 +1,9 @@
-"""Natural-language rule proposal for one card batch. Read-only: it never saves anything.
+"""Natural-language rule proposal for one card batch.
 
-The browser applies an approved proposal by posting each decision to the existing review decision
-endpoint, so every save keeps the existing revision, trip and hold checks. This module only builds
-the proposal and a fingerprint of the exact decisions, so an approval can be refused if the
-rows changed after the person looked at the proposal.
+Two routes. The proposal is read-only and saves nothing. The approval re-derives the proposal on the
+server, refuses it when the fingerprint no longer matches what the person approved, and saves all
+decisions in one transaction through app.review.save_decisions_atomic, which reuses the single-answer
+checks. Any failure rolls every write back.
 """
 
 from __future__ import annotations
@@ -12,14 +12,15 @@ import hashlib
 import json
 import re
 
-from app import rule_proposals
+from app import rule_proposals, review
 from .card_flow import CardFlow
 
 ROUTE = re.compile(r"^/api/imports/([^/]+)/rule-proposal$")
+APPROVE = re.compile(r"^/api/imports/([^/]+)/rule-proposal/approve$")
 
 
 def owns_route(path: str) -> bool:
-    return ROUTE.match(path) is not None
+    return ROUTE.match(path) is not None or APPROVE.match(path) is not None
 
 
 def fingerprint(payloads: list[dict], rows: list[dict]) -> str:
@@ -47,9 +48,39 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
             "payloads": payloads, "digest": fingerprint(payloads, rows)}
 
 
+def approve(flow: CardFlow, batch: str, body: dict) -> dict:
+    if body.get("approved") is not True:
+        raise ValueError("APPROVAL_REQUIRED")
+    request_id = str(body.get("request_id", ""))
+    if not request_id:
+        raise ValueError("REQUEST_ID_REQUIRED")
+    earlier = review.batch_result_for(flow.pipeline.store, request_id)
+    if earlier is not None:
+        # The same approval sent again: answer with what was applied, change nothing.
+        return {"applied": [x["transaction_id"] for x in earlier["results"]], "state": flow.state(batch)}
+    state = flow.state(batch)
+    proposal = propose(state, text=str(body.get("text", "")).strip(),
+                       transaction_id=str(body.get("transaction_id", "")))
+    if proposal["digest"] != body.get("digest"):
+        raise LookupError("STALE_PROPOSAL")
+    if not proposal["payloads"]:
+        raise ValueError("NOTHING_TO_APPLY")
+    amounts = {r["transaction_id"]: r["amount_krw"] for r in state["preview"]["rows"]}
+    decisions = []
+    for payload in proposal["payloads"]:
+        tab = str(payload.get("display_tab_id") or "")
+        decisions.append({**payload, "trip_id": tab if tab not in ("", "unclassified") else "",
+                          "expected_amount_krw": amounts[payload["transaction_id"]]})
+    result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
+                                          tab_validator=flow.tab_valid, trip_validator=flow.trip_valid)
+    flow.classify(batch)
+    return {"applied": [r["transaction_id"] for r in result["results"]], "state": flow.state(batch)}
+
+
 def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
-    match = ROUTE.match(parsed.path)
-    if match is None:
+    proposal_match = ROUTE.match(parsed.path)
+    approve_match = APPROVE.match(parsed.path)
+    if proposal_match is None and approve_match is None:
         return False
     if raw is None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
@@ -59,11 +90,21 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
         return True
     try:
         body = json.loads(raw.decode("utf-8") or "{}")
+        if approve_match:
+            handler._send_json(approve(CardFlow(board), approve_match.group(1), body))
+            return True
         text = str(body.get("text", "")).strip()
         if not text:
             raise ValueError("TEXT_REQUIRED")
-        state = CardFlow(board).state(match.group(1))
+        state = CardFlow(board).state(proposal_match.group(1))
         handler._send_json(propose(state, text=text, transaction_id=str(body.get("transaction_id", ""))))
+    except LookupError as error:
+        handler._send_json({"code": str(error), "message": "제안 이후 거래가 바뀌었습니다. 다시 제안하세요"}, 409)
     except (ValueError, KeyError, TypeError) as error:
         handler._send_json({"code": str(error) or "INVALID_VALUE"}, 400)
+    except Exception as error:  # a store refusal rolled the whole batch back
+        code = getattr(error, "code", None)
+        if code is None:
+            raise
+        handler._send_json({"code": code, "message": "일괄 적용하지 않았습니다. 모든 변경을 되돌렸어요"}, 409)
     return True
