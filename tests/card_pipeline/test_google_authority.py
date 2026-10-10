@@ -214,7 +214,8 @@ def test_total_mismatch_shows_google_figure_but_is_not_verified():
     mismatched["expense"]["verified"] = False
     mismatched["verified"] = False
     (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
-    assert trip["expense_total"] == 400 and trip["verified"] is False
+    assert trip["expense_total"] is None and trip["reported"]["expense_total"] == 400
+    assert trip["verified"] is False
     assert {"TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH"} <= set(trip["review"])
 
 
@@ -480,3 +481,9 @@ def test_old_generation_file_is_removed_after_success(tmp_path: Path):
     second = json.loads(snapshot_path.read_text(encoding="utf-8"))["rows_generation"]
     assert first != second
     assert not ga._rows_file(rows_path, first).exists() and ga._rows_file(rows_path, second).exists()
+def test_unverified_figures_are_reported_separately_from_totals():
+    mismatched = _trip("0630_오제", flags=["TOTAL_MISMATCH"])
+    mismatched["verified"] = False
+    (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
+    assert trip["net"] is None and trip["income_total"] is None
+    assert trip["reported"]["net"] == 600
