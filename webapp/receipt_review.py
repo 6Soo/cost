@@ -1,8 +1,9 @@
-"""Receipt candidates: scan, review, confirm and copy. Synthetic-fed until an OCR engine is approved.
+"""Receipt candidates: image, regions, manual edit, confirm and copy. No OCR engine is used.
 
-Routes stay off unless WEBLEDGER_RECEIPTS_STORE names a JSON store. The image upload route answers
-501 OCR_ENGINE_NOT_APPROVED: no image is read or sent anywhere. Scans come in as the regions an
-engine would report. Confirmation is always a person's action and is kept with history.
+Routes stay off unless WEBLEDGER_RECEIPTS_STORE names a JSON store. A synthetic or real image is
+stored as a file next to the store after a PNG or JPEG signature check. Regions and values are typed
+by a person; the machine never reads the image. The /api/receipts/upload route answers 501 while no
+OCR engine is approved. Every manual change keeps its history.
 """
 
 from __future__ import annotations
@@ -11,13 +12,17 @@ import hashlib
 import html
 import json
 import os
+import re
 from pathlib import Path
 
 from app import receipt_candidates as rc
 from app.google_tsv import expense_tsv
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
-          "/api/receipts/tsv", "/api/receipts/upload")
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image")
+IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
+IMAGE_LIMIT = 8 * 1024 * 1024
+PAYMENTS = ("cash", "private_card", "corporate_card")
 
 
 def enabled() -> bool:
@@ -25,17 +30,23 @@ def enabled() -> bool:
 
 
 def owns_route(path: str) -> bool:
-    return path in ROUTES
+    return path in ROUTES or IMAGE_PATH.match(path) is not None
 
 
 def _store_path() -> Path:
     return Path(os.environ["WEBLEDGER_RECEIPTS_STORE"])
 
 
+def _images_dir(store: Path) -> Path:
+    return store.parent / "receipt-images"
+
+
 def load(path: Path) -> dict:
     if not path.exists():
-        return {"candidates": [], "holds": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+        return {"candidates": [], "holds": [], "images": []}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.setdefault("images", [])
+    return data
 
 
 def _save(path: Path, data: dict) -> None:
@@ -44,19 +55,49 @@ def _save(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def store_image(path: Path, body: bytes) -> dict:
+    """Keeps a picture the person registered. Only PNG and JPEG are accepted; nothing is read from it."""
+    if not body or len(body) > IMAGE_LIMIT:
+        raise ValueError("IMAGE_SIZE_INVALID")
+    if not (body.startswith(b"\x89PNG\r\n\x1a\n") or body.startswith(b"\xff\xd8\xff")):
+        raise ValueError("IMAGE_TYPE_UNSUPPORTED")
+    sha = hashlib.sha256(body).hexdigest()
+    folder = _images_dir(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{sha}.bin"
+    if not target.exists():
+        target.write_bytes(body)
+    data = load(path)
+    if sha not in data["images"]:
+        data["images"].append(sha)
+        _save(path, data)
+    return {"sha256": sha, "bytes": len(body)}
+
+
+def image_bytes(path: Path, sha: str) -> bytes:
+    data = load(path)
+    if sha not in data["images"]:
+        raise KeyError("IMAGE_NOT_FOUND")
+    return (_images_dir(path) / f"{sha}.bin").read_bytes()
+
+
 def _regions(payload: dict) -> list[rc.Region]:
     raw = payload.get("regions")
     if not isinstance(raw, list) or not raw:
         raise ValueError("REGIONS_REQUIRED")
-    # The page fingerprint is the content, so the same scan sent again has the same identities.
-    page_id = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    image = str(payload.get("image") or "")
+    # The page fingerprint is the picture and the regions typed on it, so the same entry sent again is one receipt.
+    basis = json.dumps({"image": image, "regions": raw}, ensure_ascii=False, sort_keys=True)
+    page_id = hashlib.sha256(basis.encode("utf-8")).hexdigest()
     return [rc.Region(page_id=page_id, box=tuple(r["box"]), merchant=r.get("merchant"), date=r.get("date"),
-                      currency=r.get("currency"), total=r.get("total"), payment=r.get("payment"),
-                      confidence=float(r.get("confidence", 0))) for r in raw]
+                      currency=r.get("currency", "JPY"), total=r.get("total"), payment=r.get("payment"),
+                      confidence=float(r.get("confidence", 1.0))) for r in raw]
 
 
 def scan(path: Path, payload: dict) -> dict:
     data = load(path)
+    if payload.get("image") and payload["image"] not in data["images"]:
+        raise KeyError("IMAGE_NOT_FOUND")
     regions = _regions(payload)
     known = {c["identity"] for c in data["candidates"]}
     result = rc.build_candidates(regions, payload.get("card_rows", []), known=known)
@@ -66,6 +107,31 @@ def scan(path: Path, payload: dict) -> dict:
     data["holds"].extend(h for h in result["holds"] if h["identity"] not in seen)
     _save(path, data)
     return {"added": len(result["candidates"]), "holds": result["holds"]}
+
+
+def edit(path: Path, *, identity: str, changes: dict, note: str = "") -> dict:
+    """A person corrects what was typed. Card-linked receipts keep the card amount, so they cannot be re-priced."""
+    data = load(path)
+    for stored in data["candidates"]:
+        if stored["identity"] != identity:
+            continue
+        allowed = {"merchant", "date", "total_jpy", "payment"}
+        unknown = set(changes) - allowed
+        if unknown:
+            raise ValueError("FIELD_NOT_EDITABLE")
+        before = {k: stored[k] for k in changes}
+        if "payment" in changes and changes["payment"] not in PAYMENTS:
+            raise ValueError("PAYMENT_UNKNOWN")
+        if stored.get("card_transaction_id") and ("total_jpy" in changes or "payment" in changes):
+            raise ValueError("CARD_LINKED_NOT_EDITABLE")
+        for key, value in changes.items():
+            stored[key] = int(value) if key == "total_jpy" else str(value).strip()
+        if stored.get("payment") in ("cash", "private_card") and stored.get("total_jpy"):
+            stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
+        stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
+        _save(path, data)
+        return stored
+    raise KeyError("CANDIDATE_NOT_FOUND")
 
 
 def confirm(path: Path, *, identity: str, payee: str, category: str, note: str = "") -> dict:
@@ -92,9 +158,16 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "") -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
     path = _store_path()
+    image = IMAGE_PATH.match(parsed.path)
+    if image and raw is None:
+        try:
+            handler._send_bytes(image_bytes(path, image.group(1)), "image/png")
+        except (KeyError, OSError):
+            handler._send_json({"code": "IMAGE_NOT_FOUND"}, 404)
+        return True
     if parsed.path == "/api/receipts/upload":
         handler._send_json({"code": "OCR_ENGINE_NOT_APPROVED",
-                            "message": "영수증 이미지를 읽는 엔진이 승인되지 않았습니다. 영역 입력을 사용하세요."}, 501)
+                            "message": "글자를 읽는 엔진이 승인되지 않았습니다. 영역과 값을 직접 입력하세요."}, 501)
         return True
     if raw is None:
         if parsed.path == "/receipts":
@@ -110,15 +183,26 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "") -> bool:
         handler._send_json({"code": "CSRF_REQUIRED", "message": "화면을 다시 열어 주세요"}, 403)
         return True
     try:
+        if parsed.path == "/api/receipts/image":
+            handler._send_json(store_image(path, raw))
+            return True
         body = json.loads(raw.decode("utf-8") or "{}")
         if parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body))
+        elif parsed.path == "/api/receipts/edit":
+            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment"}:
+                raise ValueError("FIELD_NOT_EDITABLE")
+            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment") if k in body}
+            handler._send_json(edit(path, identity=str(body.get("identity", "")), changes=changes,
+                                    note=str(body.get("note", ""))))
         elif parsed.path == "/api/receipts/confirm":
             handler._send_json(confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
                                        category=str(body.get("category", "")), note=str(body.get("note", ""))))
         else:
             handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
-    except (ValueError, KeyError, TypeError) as error:
+    except KeyError as error:
+        handler._send_json({"code": str(error.args[0]) if error.args else "NOT_FOUND"}, 404)
+    except (ValueError, TypeError) as error:
         handler._send_json({"code": str(error) or "INVALID_VALUE"}, 400)
     return True
 
@@ -129,8 +213,13 @@ def _row_html(candidate: dict) -> str:
     confirmed = bool(candidate.get("payee") and candidate.get("category"))
     return (
         "<tr>"
-        f"<td>{html.escape(candidate['date'])}</td><td>{html.escape(candidate['merchant'])}</td>"
-        f"<td>{candidate['total_jpy']:,} JPY</td><td>{html.escape(candidate['payment'])}</td>"
+        f"<td><input data-merchant='{identity}' value='{html.escape(candidate['merchant'])}'>"
+        f"<input data-date='{identity}' value='{html.escape(candidate['date'])}'></td>"
+        f"<td><input data-total='{identity}' value='{candidate['total_jpy']}' inputmode='numeric'>"
+        f"<select data-payment='{identity}'>"
+        + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{p}</option>" for p in PAYMENTS)
+        + "</select>"
+        f"<button type='button' data-edit='{identity}'>수정</button></td>"
         f"<td>{amount}</td><td>{'확정됨' if confirmed else '사람 확인 필요'}</td>"
         f"<td><input data-payee='{identity}' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'>"
         f"<input data-category='{identity}' value='{html.escape(candidate.get('category') or '')}' placeholder='내용'>"
@@ -140,30 +229,54 @@ def _row_html(candidate: dict) -> str:
 def render_html(data: dict, csrf: str) -> str:
     rows = "".join(_row_html(c) for c in data["candidates"])
     holds = "".join(f"<li>{html.escape(h['reason'])}</li>" for h in data["holds"])
+    images = "".join(f"<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'>"
+                     for sha in data["images"][-3:])
     script = (
         f"const csrf={json.dumps(csrf)};"
         "const post=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},"
         "body:JSON.stringify(b)}).then(r=>r.json().then(j=>{if(!r.ok)throw new Error(j.message||j.code);return j}));"
         "const say=t=>document.getElementById('status').textContent=t;"
-        "document.getElementById('scan-go').onclick=()=>post('/api/receipts/scan',"
-        "JSON.parse(document.getElementById('scan').value||'{}')).then(()=>location.reload()).catch(e=>say(e.message));"
+        "const val=(name,id)=>document.querySelector('['+name+'=\"'+id+'\"]').value;"
+        "document.getElementById('img-go').onclick=async()=>{const f=document.getElementById('img-file').files[0];"
+        "if(!f){say('사진 파일을 고르세요');return}const r=await fetch('/api/receipts/image',{method:'POST',"
+        "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:f});"
+        "const j=await r.json();if(!r.ok){say(j.message||j.code);return}document.getElementById('image-sha').value=j.sha256;say('사진을 등록했습니다. 영역을 입력하세요.');location.reload()};"
+        "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
+        "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
+        "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
+        "currency:'JPY',total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
+        "post('/api/receipts/scan',{image:sha||undefined,regions:[region]}).then(()=>location.reload()).catch(e=>say(e.message))};"
+        "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
+        "post('/api/receipts/edit',{identity:id,merchant:val('data-merchant',id),date:val('data-date',id),"
+        "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}).then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
-        "post('/api/receipts/confirm',{identity:id,payee:document.querySelector('[data-payee=\"'+id+'\"]').value,"
-        "category:document.querySelector('[data-category=\"'+id+'\"]').value}).then(()=>location.reload()).catch(e=>say(e.message))});"
+        "post('/api/receipts/confirm',{identity:id,payee:val('data-payee',id),category:val('data-category',id)})"
+        ".then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.getElementById('copy-tsv').onclick=async()=>{const x=await (await fetch('/api/receipts/tsv')).json();"
         "if(!x.row_count){say('복사할 확정 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. "
         "구글 시트에 붙여넣은 뒤에만 반영됩니다.')};")
+    box_inputs = "".join(f"<input id='box{i}' type='number' value='0' aria-label='영역 {i}' style='width:4.5em'>"
+                         for i in range(1, 5))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 후보</title>"
             "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
             "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
             "<h1>영수증 후보</h1>"
-            "<p>영역 입력(JSON)으로 등록합니다. 이미지 업로드는 OCR 엔진 승인 후 가능합니다.</p>"
-            "<textarea id='scan' rows='4' style='width:100%'></textarea>"
-            "<p><button type='button' id='scan-go'>영역 등록</button></p>"
-            "<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th><th>결제</th><th>원화</th>"
-            f"<th>상태</th><th>확정</th></tr></thead><tbody>{rows}</tbody></table>"
+            "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
+            "<button type='button' id='img-go'>사진 등록</button>"
+            f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
+            f"<div>{images}</div></section>"
+            "<section><h2>영역 입력</h2>"
+            f"<p>사진 위치 (x0, y0, x1, y1): {box_inputs}</p>"
+            "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
+            "<input id='r-total' type='number' placeholder='금액(JPY)'> "
+            "<select id='r-payment'><option value='cash'>현금</option><option value='private_card'>개인카드</option>"
+            "<option value='corporate_card'>법인카드</option></select>"
+            "<button type='button' id='region-go'>영역 추가</button></section>"
+            "<h2>후보</h2>"
+            "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
+            f"</tr></thead><tbody>{rows}</tbody></table>"
             f"<h2>보류</h2><ul>{holds}</ul>"
             "<p><button type='button' id='copy-tsv'>구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
             f"<script>{script}</script></body></html>")
