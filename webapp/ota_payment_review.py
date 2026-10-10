@@ -796,7 +796,8 @@ def snapshot_service(board):
     if service is None:
         service = ota_snapshot.OtaSnapshotService(
             key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile(board),
-            persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE)
+            persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE,
+            log_path=Path(review_db_path()).parent / "ota-snapshot.log")
         board._ota_snapshot_service = service
         atexit.register(_stop_quietly, service)
     return service
