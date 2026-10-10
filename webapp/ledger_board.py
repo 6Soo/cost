@@ -3936,6 +3936,9 @@ class Handler(BaseHTTPRequestHandler):
         # The login, callback, logout and state routes are answered before role
         # resolution, because a caller with no session is exactly who needs
         # them.
+        from . import google_demo_page
+        if google_demo_page.dispatch(self, parsed):
+            return
         if self._auth_routes(query):
             return
         resolve_role(self.headers, self._cookies())
@@ -4200,6 +4203,9 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        from . import google_demo_page
+        if google_demo_page.dispatch(self, parsed, raw=raw):
+            return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return
