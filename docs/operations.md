@@ -1,5 +1,20 @@
 # 현재 운영 상태
 
+## 2026-10-10 reservation guide authority 전환
+
+**원칙**: 대장 신원과 담당 여행은 reservation, 여행 일정의 회계 authority와 비용 귀속은 COST다. COST는 reservation 내부 API를 읽기 전용으로만 쓴다.
+
+**reservation**: PR #11(`b507bef`)이 `guides.flight_name_en`(항공권 영문명), 관리자 화면 입력란, `GET /api/internal/guides`, `GET /api/internal/tours`의 `leader_guide_id`·`include_past=1`을 추가했다. PR #12(`dfae839`)는 읽기 전용 두 라우트에만 통하는 `COST_INTERNAL_API_TOKEN`을 허용한다. 운영 배포 후 비인증 401, 인증 200이며 응답에는 id·닉네임·실명·영문명·상태만 있다.
+
+**토큰**: Vercel Secret은 CLI로 읽을 수 없어 기존 `INTERNAL_API_TOKEN`은 건드리지 않았다. COST 전용 토큰을 새로 만들어 Vercel 운영 환경(민감 값)과 `D:\WebLedgerHost\secrets\reservation-internal-token.txt`(Git 밖)에 같은 값으로 두었다. 환경 변수 `RESERVATION_INTERNAL_API_TOKEN` 또는 `..._FILE`로 바꿀 수 있고 기본 주소는 `https://reserve.foresttour.kr`(`RESERVATION_INTERNAL_BASE_URL`)다. 토큰은 로그·스냅샷·예외에 쓰지 않는다.
+
+**COST**: PR #45(`e05bde5`) 반영 후 PID 38140, 리스너 1개, `/healthz`·`/readyz` 200, 비로그인 루트 401, OTA authority 유지, DB 무결성 ok. 반영 전 백업은 `D:\WebLedgerHost\backups\pre-reservation-authority-20261010`이다. reservation 호출은 스냅샷 워커(지문 확인)에서만 하고 결과를 메모리에 캐시한다. 마지막 정상 값은 10분 유예 후 만료되며 그 뒤에는 `HOLD_GUIDE_AUTHORITY_UNAVAILABLE`로 fail-closed다. 미리보기·확정·분류 요청은 reservation을 호출하지 않는다.
+
+**운영 자료(읽기 전용 집계)**: 대장 13명(모두 active, 실명 4명, 항공권 영문명 0명). 여행 127건 중 `code`는 전부 비어 있고 대장 연결 109건, 날짜 완비 97건. COST 여행 40건 중 reserve 등록 16건은 fldid로 연결되며 15건이 날짜까지 정확히 일치하고 1건(`1115_…`)은 두 시스템의 날짜가 달라 HOLD 대상이다. 등록이 없는 24건은 안정 키가 없어 브리지하지 않는다.
+
+**결과**: 스냅샷 세대 7(`d152b1a41081`, 약 112초). 매칭된 항공료 27건은 모두 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`이고 장부 736행·73,998,707원, 보류 15건은 그대로다. 보호 기준선은 게이트가 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다.
+
+
 ## 2026-10-10 대장·가이드 항공권 귀속 반영
 
 **반영**: main `dc3ddce`(PR #43)를 운영 checkout에 `--ff-only`로 맞추고 `tools/restart_real_review_host.ps1`로 재시작했다. 반영 전 `D:\WebLedgerHost\backups\pre-guide-airfare-20261010`에 장부·review DB·스냅샷·card-flow 설정을 백업했다. PID 48992→48280, 리스너 하나, `/healthz`·`/readyz` 200, 비로그인 루트 401, OTA authority 유지, DB 무결성 ok다.
@@ -9,7 +24,7 @@
 **결과**: 매칭된 항공료 27건은 전부 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`이며 장부 736행·73,998,707원, 보류 15건은 그대로다. 보호 기준선은 게이트가 현재 데이터에서 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다. 스냅샷 파일에는 탑승자 이름이 없다.
 
 **운영자 설정**:
-- `guide-identities.json`(`D:\WebLedgerHost\data\`, 또는 `WEBLEDGER_GUIDE_IDENTITIES`): `{"version":1,"guides":[{"assignee_name":"<여행 담당자 이름>","aliases":[{"surname":"<성>","given_name":"<이름>"}]}]}`. 담당자로 이미 저장된 사람에게만 별칭이 붙는다. 철자는 메일에 표시된 `성 (성) 이름 (이름)` 그대로 등록한다. 변경하면 다음 확인에서 스냅샷이 다시 계산되고 기존 미리보기는 STALE이 된다.
+- (폐기) `guide-identities.json`은 더 이상 읽지 않는다. 대장 항공권 영문명은 reservation 관리자 화면의 `대장 관리`에서 등록한다.
 - `config/guide-airfare-airports.json`(또는 `WEBLEDGER_GUIDE_AIRPORTS`): 공항과 여행지 이름의 대응과 `max_gap_days`. 여행 탭의 destination 값과 정확히 같은 이름만 쓴다.
 
 ## 2026-10-10 OTA 검토 스냅샷과 authority 활성화
