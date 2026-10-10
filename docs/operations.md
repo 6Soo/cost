@@ -1,5 +1,17 @@
 # 현재 운영 상태
 
+## 2026-10-10 대장·가이드 항공권 귀속 반영
+
+**반영**: main `dc3ddce`(PR #43)를 운영 checkout에 `--ff-only`로 맞추고 `tools/restart_real_review_host.ps1`로 재시작했다. 반영 전 `D:\WebLedgerHost\backups\pre-guide-airfare-20261010`에 장부·review DB·스냅샷·card-flow 설정을 백업했다. PID 48992→48280, 리스너 하나, `/healthz`·`/readyz` 200, 비로그인 루트 401, OTA authority 유지, DB 무결성 ok다.
+
+**스냅샷**: 입력 지문에 대장 신원·여행 권위·파서·공항표 상태가 들어가 지문이 바뀌었고(`a72327cd6a14`→`53a838f8e2c8`) 스냅샷 세대 6이 약 86초 만에 만들어졌다. 새 프로세스의 스냅샷 워커는 첫 로그인 요청 때 시작한다.
+
+**결과**: 매칭된 항공료 27건은 전부 `HOLD_GUIDE_IDENTITY_UNCONFIRMED`이며 장부 736행·73,998,707원, 보류 15건은 그대로다. 보호 기준선은 게이트가 현재 데이터에서 다시 계산해 277+1=278, 변경·누락·중복·수동 덮어쓰기 0이다. 스냅샷 파일에는 탑승자 이름이 없다.
+
+**운영자 설정**:
+- `guide-identities.json`(`D:\WebLedgerHost\data\`, 또는 `WEBLEDGER_GUIDE_IDENTITIES`): `{"version":1,"guides":[{"assignee_name":"<여행 담당자 이름>","aliases":[{"surname":"<성>","given_name":"<이름>"}]}]}`. 담당자로 이미 저장된 사람에게만 별칭이 붙는다. 철자는 메일에 표시된 `성 (성) 이름 (이름)` 그대로 등록한다. 변경하면 다음 확인에서 스냅샷이 다시 계산되고 기존 미리보기는 STALE이 된다.
+- `config/guide-airfare-airports.json`(또는 `WEBLEDGER_GUIDE_AIRPORTS`): 공항과 여행지 이름의 대응과 `max_gap_days`. 여행 탭의 destination 값과 정확히 같은 이름만 쓴다.
+
 ## 2026-10-10 OTA 검토 스냅샷과 authority 활성화
 
 **launcher drift**: 운영 `D:\WebLedgerHost\bin\launch_web_ledger.py`를 저장소 `tools/launch_web_ledger.py`와 같은 파일로 맞췄다. 차이는 `ota_mail_dir` 블록 두 줄뿐이었고 운영 설정에는 이 키가 없어 동작 변화는 없다. 이전 파일은 `launch_web_ledger.before-drift-fix-20261010.py`로 보관한다.
