@@ -780,6 +780,7 @@ class CardFlow:
                                                   entry_metadata=self.preview_metadata(),
                                                   additional_holds=self.ota_group_holds())
         result['trips'] = [dict(id=t['tab_id'],name=t['display_key'],available=available[t['tab_id']]) for t in trips]
+        result['refund_groups'] = self.refund_group_views(result['preview'], result['trips'])
         # 원본 전체 셀은 요청했을 때만 제공한다. 검토 화면에는 필요한 필드만 있다.
         for row in result['rows']:
             row.pop('raw_row', None)
@@ -793,6 +794,32 @@ class CardFlow:
             row['review_evidence_labels'] = _review_evidence_labels(
                 row, mail_evidence.get(row.get('source_hash')))
         return result
+
+    def refund_group_views(self, preview, trips):
+        """Each linked refund pair as its own group, with the digest its own commit button uses."""
+        from app import ledger
+        from app.db import StoreError
+        names = {t['id']: t['name'] for t in trips}
+        views = []
+        for row in preview['rows']:
+            link = row.get('refund_link')
+            if not link or link['role'] != 'original':
+                continue
+            try:
+                scoped = ledger.scope_group(self.pipeline.store, preview, row['transaction_id'])
+            except StoreError as exc:
+                views.append({'original_id': row['transaction_id'], 'error': exc.code, 'message': str(exc)})
+                continue
+            views.append({
+                'original_id': row['transaction_id'], 'digest': scoped['digest'],
+                'recordable': scoped['recordable'], 'reason': scoped['reason'],
+                'gross_krw': link['gross_krw'], 'refund_krw': link['refund_krw'],
+                'net_krw': link['net_krw'], 'status': link['status'],
+                'item': row.get('item') or '', 'trip_name': names.get(row.get('display_tab_id') or '', ''),
+                'rows': [{'transaction_id': r['transaction_id'], 'amount_krw': r['amount_krw'],
+                          'merchant': r.get('merchant') or '', 'blocked': r.get('blocked') or '',
+                          'already_booked': bool(r.get('already_booked'))} for r in scoped['rows']]})
+        return views
 
     def ota_group_holds(self):
         """Project partial/contested OTA card reservations into ledger preview guards."""
@@ -964,6 +991,14 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 request_id=payload['request_id'])
             flow.classify(batch_id)
             handler._send_json(flow.state(batch_id))
+        elif len(parts) == 6 and parts[3] == 'refund-groups' and parts[5] == 'commit':
+            result = flow.pipeline.commit(batch_id,payload['digest'],payload['request_id'],projection=flow.project,
+                                           trip_validator=flow.trip_valid,tab_validator=flow.tab_valid,
+                                           review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),
+                                           entry_metadata=flow.preview_metadata(),
+                                           additional_holds=flow.ota_group_holds(),
+                                           group_original=parts[4])
+            handler._send_json({'result':result, **flow.state(batch_id)})
         elif len(parts) == 4 and parts[3] == 'commit':
             result = flow.pipeline.commit(batch_id,payload['digest'],payload['request_id'],projection=flow.project,
                                            trip_validator=flow.trip_valid,tab_validator=flow.tab_valid,
@@ -1017,7 +1052,7 @@ function render(j){if(model?.batch_id!==j.batch_id){page=0;editing=''}model=j;st
 const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>!r.review_hold&&(r.classification_state==='needs_review'||(r.classification_source==='inference'&&r.classification_basis.startsWith('추론 배정 · 낮음 ·')))&&!r.user_confirmed&&!r.duplicate_of);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
 el('questions').innerHTML=(ed?'<article><h2>수정 · '+esc(ed.merchant)+'</h2><p class="small">지금 확정된 항목과 여행을 고쳐 쓰면 됩니다.</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(evidence(r)?'<span class="ri-flag">'+esc(evidence(r))+'</span>':'')+'</summary><div class="ri-body"><p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건</button></nav>':'');
-const p=j.preview,ready=p.rows.filter(r=>!r.blocked&&!r.already_booked);el('preview').className='';el('preview').innerHTML='<h2>장부 미리보기</h2><p>기록 가능 '+ready.length+'건 · 나머지는 보류됩니다. 잘못 분류된 항목은 수정해 고칠 수 있습니다.</p><table><thead><tr><th>가맹점</th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+ready.map(r=>'<tr><td><span class="pv-label">가맹점</span>'+esc(r.merchant)+'</td><td><span class="pv-label">항목</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source==='user_exception'?'사용자 예외':'추론 배정')+'</span>':'')+'</td><td><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc(j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 미배정')+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">수정</button></td></tr>').join('')+'</tbody></table><p><button id="commit" '+(!ready.length?'disabled':'')+'>미리본 '+ready.length+'건을 장부에 기록</button></p>';
+const groups=(j.refund_groups||[]).map(g=>g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p=j.preview,ready=p.rows.filter(r=>!r.blocked&&!r.already_booked);el('preview').className='';el('preview').innerHTML=groups+'<h2>장부 미리보기</h2><p>기록 가능 '+ready.length+'건 · 나머지는 보류됩니다. 잘못 분류된 항목은 수정해 고칠 수 있습니다.</p><table><thead><tr><th>가맹점</th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+ready.map(r=>'<tr><td><span class="pv-label">가맹점</span>'+esc(r.merchant)+'</td><td><span class="pv-label">항목</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source==='user_exception'?'사용자 예외':'추론 배정')+'</span>':'')+'</td><td><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc(j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 미배정')+(['inference','user_exception'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">수정</button></td></tr>').join('')+'</tbody></table><p><button id="commit" '+(!ready.length?'disabled':'')+'>미리본 '+ready.length+'건을 장부에 기록</button></p>';
 el('commit').onclick=async()=>{try{const x=await call('/api/imports/'+model.batch_id+'/commit',JSON.stringify({digest:model.preview.digest,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});render(x);el('status').textContent='장부 기록 결과를 저장했습니다. 장부 화면에서 확인할 수 있습니다.'}catch(e){el('status').textContent=e.message}};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f);try{const j=await call('/api/imports/'+model.batch_id+'/decision',JSON.stringify({transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold'),request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(editing===r.transaction_id)editing='';render(j);el('status').textContent='답변을 적용했습니다. 다시 분류한 결과를 확인해 주세요.'}catch(e){el('status').textContent=e.message}})
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=b.dataset.edit;render(model);el('questions').scrollIntoView({block:'start',behavior:'smooth'});el('status').textContent='선택한 거래의 답변을 고쳐 쓸 수 있습니다.'});
@@ -1028,5 +1063,6 @@ el('ruleform').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.targ
 el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('ruleform').reset();el('ruleform').elements.merchant.readOnly=false;el('rule_scope').textContent=''};
 call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);
 const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&!el('upload').disabled){const started=Date.now();try{const j=await call('/api/imports/'+model.batch_id);if(stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
+document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-group-commit]');if(!b||!model)return;b.disabled=true;try{const x=await call('/api/imports/'+model.batch_id+'/refund-groups/'+encodeURIComponent(b.dataset.groupCommit)+'/commit',JSON.stringify({digest:b.dataset.digest,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});render(x);el('status').textContent='환불 쌍을 장부에 기록했습니다.'}catch(err){el('status').textContent=err.message;b.disabled=false}});
 call('/api/imports').then(j=>{el('batches').innerHTML=j.batches.map(b=>'<p><button class="batch-choice" data-batch="'+esc(b.batch_id)+'"><strong>'+esc(b.display_name)+'</strong><br><span>'+esc(b.period_start||'거래 기간 미확인')+(b.period_end?' ~ '+esc(b.period_end):'')+' · '+b.rows+'건'+(b.questions?' · 확인 '+b.questions+'건':'')+'</span></button></p>').join('')||'<p>저장된 카드 자료가 없습니다. 아래에서 새 파일을 추가하세요.</p>';document.querySelectorAll('[data-batch]').forEach(b=>b.onclick=()=>call('/api/imports/'+b.dataset.batch).then(render).catch(e=>el('status').textContent=e.message));if(!j.batches.length)el('newupload').open=true;return j.batches.length?call('/api/imports/'+j.batches[0].batch_id).then(render):null}).catch(e=>el('status').textContent=e.message);
 </script></body></html>'''
