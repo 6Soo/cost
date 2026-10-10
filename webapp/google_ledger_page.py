@@ -14,9 +14,9 @@ import json
 import os
 from pathlib import Path
 
-from app import google_authority
+from app import google_access, google_authority
 
-ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice")
+ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants")
 REVIEW_LABELS = {
     "TOTAL_MISMATCH": "Google 합계와 행 합계가 다름",
     "TOTAL_RANGE_MISMATCH": "합계 수식 범위가 데이터 행과 다름",
@@ -114,9 +114,9 @@ def render_html(payload: dict) -> str:
             f"<td>{'검증됨' if trip['verified'] else '미검증'}</td>"
             f"<td>{html.escape(reasons)}</td></tr>")
     sources = "".join(
-        f"<li>{html.escape(role)}: {html.escape(str(src['status']))}"
-        f"{' · ' + html.escape(str(src['error_code'])) if src['error_code'] else ''}"
-        f" · 마지막 정상 {html.escape(str(src['last_ok_at'] or '없음'))}</li>"
+        f"<li>{html.escape(role)}: {html.escape(str(src.get('status')))}"
+        f"{' · ' + html.escape(str(src['error_code'])) if src.get('error_code') else ''}"
+        f"{' · 마지막 정상 ' + html.escape(str(src['last_ok_at'] or '없음')) if 'last_ok_at' in src else ''}</li>"
         for role, src in payload["sources"].items())
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
@@ -132,31 +132,83 @@ def render_html(payload: dict) -> str:
         f"<tbody>{''.join(rows)}</tbody></table></body></html>")
 
 
-def dispatch(handler, parsed, *, is_owner: bool, raw=None, csrf: str = "") -> bool:
+def grants_path(snapshot_path: Path) -> Path:
+    return snapshot_path.with_name("google-viewer-grants.json")
+
+
+def load_grants(snapshot_path: Path) -> dict:
+    path = grants_path(snapshot_path)
+    if not path.exists():
+        return {"grants": {}, "history": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def set_grants(snapshot_path: Path, *, user_id: str, keys: list, granted: bool, at: str) -> dict:
+    """Owner-only grant or revoke of Google trip keys for one account. Default is no access."""
+    if not user_id or not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+        raise ValueError("GRANT_INVALID")
+    data = load_grants(snapshot_path)
+    current = set(data["grants"].get(user_id, []))
+    current = current | set(keys) if granted else current - set(keys)
+    data["grants"][user_id] = sorted(current)
+    data["history"].append({"user_id": user_id, "keys": sorted(keys), "granted": granted, "at": at})
+    tmp = grants_path(snapshot_path).with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, grants_path(snapshot_path))
+    return data
+
+
+def viewer_payload(snapshot: dict, grants: dict, user_id: str) -> dict:
+    """Trip-level figures for the trips this account was granted. Never copies, never source detail."""
+    allowed = set(grants.get("grants", {}).get(user_id, []))
+    trips = google_access.visible_trips(snapshot["trips"], is_owner=False, allowed_keys=allowed)
+    return {"synced_at": snapshot.get("synced_at"),
+            "sources": {role: {"status": src.get("status")} for role, src in snapshot["sources"].items()},
+            "trips": trips}
+
+
+def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = None, raw=None, csrf: str = "") -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
-    if not is_owner:
-        handler._send_json({"code": "OWNER_ONLY", "message": "소유자만 볼 수 있습니다"}, 403)
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants") and raw is None:
+        handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
-    if parsed.path == "/api/google-ledger/choice":
-        if raw is None or not csrf or handler.headers.get("X-CSRF-Token") != csrf:
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants"):
+        if not is_owner:
+            handler._send_json({"code": "OWNER_ONLY", "message": "소유자만 바꿀 수 있습니다"}, 403)
+            return True
+        if not csrf or handler.headers.get("X-CSRF-Token") != csrf:
             handler._send_json({"code": "CSRF_REQUIRED", "message": "화면을 새로 연 뒤 다시 시도해 주세요"}, 403)
             return True
-        body = json.loads(raw.decode("utf-8") or "{}")
         try:
-            record_choice(_snapshot_path(), key=str(body.get("key", "")), source=str(body.get("source", "")),
-                          at=dt.datetime.now(google_authority.KST).isoformat())
+            body = json.loads(raw.decode("utf-8") or "{}")
+        except (UnicodeDecodeError, ValueError):
+            handler._send_json({"code": "INVALID_VALUE"}, 400)
+            return True
+        now = dt.datetime.now(google_authority.KST).isoformat()
+        try:
+            if parsed.path.endswith("/choice"):
+                record_choice(_snapshot_path(), key=str(body.get("key", "")), source=str(body.get("source", "")), at=now)
+            else:
+                set_grants(_snapshot_path(), user_id=str(body.get("user_id", "")), keys=body.get("keys"),
+                           granted=bool(body.get("granted")), at=now)
         except ValueError as error:
             handler._send_json({"code": str(error)}, 400)
             return True
         handler._send_json({"code": "OK"})
+        return True
+    if not is_owner and not viewer_user_id:
+        handler._send_json({"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"}, 403)
         return True
     try:
         snapshot = json.loads(_snapshot_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         handler._send_json({"code": "SNAPSHOT_UNAVAILABLE", "message": "동기화 결과를 읽지 못했습니다"}, 503)
         return True
-    payload = owner_payload(snapshot, load_choices(_snapshot_path()))
+    if is_owner:
+        payload = owner_payload(snapshot, load_choices(_snapshot_path()))
+    else:
+        payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id)
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)
     else:

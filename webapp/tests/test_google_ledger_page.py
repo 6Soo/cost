@@ -133,3 +133,61 @@ def test_unreadable_snapshot_is_503_not_empty_page(tmp_path, monkeypatch):
     handler = FakeHandler()
     page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
     assert handler.sent[0][:2] == ("json", 503)
+
+
+def test_viewer_sees_only_granted_trip_without_copies_or_sources(snapshot_file):
+    page.set_grants(snapshot_file, user_id="viewer-1", keys=["<script>0630"], granted=True, at="t")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="viewer-1")
+    _, code, payload = handler.sent[0]
+    assert code == 200
+    assert [t["key"] for t in payload["trips"]] == ["<script>0630"]
+    text = json.dumps(payload, ensure_ascii=False)
+    assert "copies" not in text and "reported" not in text and "error_code" not in text
+    assert "0404_에히메" not in text
+
+
+def test_viewer_without_grant_gets_an_empty_list_not_other_trips(snapshot_file):
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/google-ledger"), is_owner=False, viewer_user_id="viewer-2")
+    _, code, body = handler.sent[0]
+    assert code == 200 and "0404_에히메" not in body and "<script>0630" not in body
+
+
+def test_anonymous_is_refused_and_viewer_cannot_grant(snapshot_file):
+    anon = FakeHandler()
+    page.dispatch(anon, parsed("/google-ledger"), is_owner=False, viewer_user_id=None)
+    assert anon.sent[0][:2] == ("json", 403)
+
+    body = json.dumps({"user_id": "viewer-1", "keys": ["0404_에히메"], "granted": True}).encode()
+    viewer = FakeHandler(token="tok")
+    page.dispatch(viewer, parsed("/api/google-ledger/grants"), is_owner=False, viewer_user_id="viewer-1",
+                  raw=body, csrf="tok")
+    assert viewer.sent[0][:2] == ("json", 403)
+    assert page.load_grants(snapshot_file)["grants"] == {}
+
+
+def test_owner_grant_and_revoke_are_recorded_and_default_deny_holds(snapshot_file):
+    body = json.dumps({"user_id": "viewer-1", "keys": ["0404_에히메"], "granted": True}).encode()
+    owner = FakeHandler(token="tok")
+    page.dispatch(owner, parsed("/api/google-ledger/grants"), is_owner=True, raw=body, csrf="tok")
+    assert owner.sent[0][:2] == ("json", 200)
+    assert page.load_grants(snapshot_file)["grants"] == {"viewer-1": ["0404_에히메"]}
+
+    revoke = json.dumps({"user_id": "viewer-1", "keys": ["0404_에히메"], "granted": False}).encode()
+    page.dispatch(FakeHandler(token="tok"), parsed("/api/google-ledger/grants"), is_owner=True, raw=revoke, csrf="tok")
+    stored = page.load_grants(snapshot_file)
+    assert stored["grants"]["viewer-1"] == [] and len(stored["history"]) == 2
+    empty = FakeHandler()
+    page.dispatch(empty, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="viewer-1")
+    assert empty.sent[0][2]["trips"] == []
+
+
+def test_invalid_grant_body_is_400_not_500(snapshot_file):
+    handler = FakeHandler(token="tok")
+    page.dispatch(handler, parsed("/api/google-ledger/grants"), is_owner=True, raw=b"not json", csrf="tok")
+    assert handler.sent[0][:2] == ("json", 400)
+    bad = FakeHandler(token="tok")
+    page.dispatch(bad, parsed("/api/google-ledger/grants"), is_owner=True,
+                  raw=json.dumps({"user_id": "", "keys": "x", "granted": True}).encode(), csrf="tok")
+    assert bad.sent[0][:2] == ("json", 400)
