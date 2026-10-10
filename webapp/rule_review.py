@@ -48,14 +48,28 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
             "payloads": payloads, "digest": fingerprint(payloads, rows)}
 
 
+class RequestIdReused(Exception):
+    code = "REQUEST_ID_REUSED"
+
+
+def request_basis(batch: str, body: dict) -> str:
+    """What the person approved: the batch, the focus row, the sentence and the fingerprint of the proposal."""
+    basis = {"batch": batch, "transaction_id": str(body.get("transaction_id", "")),
+             "text": str(body.get("text", "")).strip(), "digest": str(body.get("digest", ""))}
+    return hashlib.sha256(json.dumps(basis, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def approve(flow: CardFlow, batch: str, body: dict) -> dict:
     if body.get("approved") is not True:
         raise ValueError("APPROVAL_REQUIRED")
     request_id = str(body.get("request_id", ""))
     if not request_id:
         raise ValueError("REQUEST_ID_REQUIRED")
+    basis = request_basis(batch, body)
     earlier = review.batch_result_for(flow.pipeline.store, request_id)
     if earlier is not None:
+        if earlier.get("basis") != basis:
+            raise RequestIdReused("same request id, different approval")
         # The same approval sent again: answer with what was applied, change nothing.
         return {"applied": [x["transaction_id"] for x in earlier["results"]], "state": flow.state(batch)}
     state = flow.state(batch)
@@ -72,7 +86,8 @@ def approve(flow: CardFlow, batch: str, body: dict) -> dict:
         decisions.append({**payload, "trip_id": tab if tab not in ("", "unclassified") else "",
                           "expected_amount_krw": amounts[payload["transaction_id"]]})
     result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
-                                          tab_validator=flow.tab_valid, trip_validator=flow.trip_valid)
+                                          tab_validator=flow.tab_valid, trip_validator=flow.trip_valid,
+                                          basis=basis)
     flow.classify(batch)
     return {"applied": [r["transaction_id"] for r in result["results"]], "state": flow.state(batch)}
 
@@ -98,6 +113,9 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
             raise ValueError("TEXT_REQUIRED")
         state = CardFlow(board).state(proposal_match.group(1))
         handler._send_json(propose(state, text=text, transaction_id=str(body.get("transaction_id", ""))))
+    except RequestIdReused:
+        handler._send_json({"code": "REQUEST_ID_REUSED",
+                            "message": "이 요청 번호는 다른 승인에 이미 쓰였습니다. 새로고침 후 다시 승인하세요"}, 409)
     except LookupError as error:
         handler._send_json({"code": str(error), "message": "제안 이후 거래가 바뀌었습니다. 다시 제안하세요"}, 409)
     except (ValueError, KeyError, TypeError) as error:

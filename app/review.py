@@ -659,7 +659,7 @@ def batch_result_for(store, request_id: str):
 
 
 def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_validator=None,
-                          trip_validator=None) -> dict:
+                          trip_validator=None, basis: str = "") -> dict:
     """All or nothing. Every answer gets the same checks as save_decision, and one failure rolls back every write.
 
     A repeated request id returns the first result and writes nothing. Each decision may carry
@@ -669,7 +669,7 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
         raise StoreError(CODE_INVALID_INPUT, "요청 ID가 필요해요")
     if not decisions:
         raise StoreError(CODE_INVALID_INPUT, "적용할 답변이 없어요")
-    payload_sha = _sha256(canonical(decisions))
+    payload_sha = _sha256(canonical({"basis": basis, "decisions": decisions}))
     replay = store.replay_request(request_id, "save_decisions", payload_sha)
     if replay is not None:
         return replay
@@ -696,7 +696,7 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
                 results.append(save_decision(
                     store, transaction_id, revision, request_id=f"{request_id}:{transaction_id}",
                     trip_validator=trip_validator, tab_validator=tab_validator, _batch=True, **args))
-            response = {"results": results}
+            response = {"results": results, "basis": basis}
             store.remember_request(request_id, "save_decisions", payload_sha, response)
             store.conn.execute("COMMIT")
         except Exception:

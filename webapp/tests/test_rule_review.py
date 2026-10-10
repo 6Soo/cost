@@ -190,3 +190,15 @@ class RuleReviewTests(unittest.TestCase):
 
     def test_browser_desktop_1440_keeps_the_chosen_row_and_applies_only_it(self):
         self._browser_case(1440, 900)
+
+    def test_same_request_id_with_different_approval_is_refused_and_changes_nothing(self):
+        first = self.propose()
+        self.assertEqual(self.approve(first, 'reuse-1')[0], 200)
+        other = self.propose(text='이 가맹점은 앞으로 교통비로 분류해 줘')
+        status, body = self.approve(other, 'reuse-1')
+        self.assertEqual((status, body['code']), (409, 'REQUEST_ID_REUSED'))
+        self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: ''})
+        status, body = self.post(f'/api/imports/{self.batch}/rule-proposal/approve',
+                                 {'text': first['text'], 'transaction_id': self.tx[1], 'digest': first['digest'],
+                                  'approved': True, 'request_id': 'reuse-1'}, token=ledger_board.CSRF_TOKEN)
+        self.assertEqual((status, body['code']), (409, 'REQUEST_ID_REUSED'))
