@@ -30,6 +30,10 @@ python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environmen
 
 [AGENTS.md](AGENTS.md)의 **검증 최소화·재검증 금지** 정책을 따른다. 변경된 기능과 직접 영향을 받는 범위만 한 번 검증하고, 기존 유효한 테스트·브라우저·운영 결과를 관성적으로 반복하지 않는다. 장부·거래·환불·사용자 확정 등 실제 영향을 받는 회계 불변조건은 필요한 만큼 보호한다.
 
+## 목표 업무 구조 (현재 운영과 구분)
+
+[Google 최종정본 / COST 카드·영수증 지출 작성 보조 — 목표 명세](docs/target-workflow-google-authority.md)를 따른다. 수입과 은행 이체 지출은 사용자가 Google에 직접 입력하며 COST는 읽기 전용으로 가져온다. 법인카드·현지 영수증 지출은 COST에서 검토·분류한 후 사용자가 Google에 직접 복사·붙여넣는다. 이 구조는 **후속 개편 목표**이며 현재 SQLite 운영 정본이 이미 전환되었다는 뜻이 아니다. 구현 전 미확정 사항은 목표 명세 9절에서 확인한다.
+
 ## 문서 안내
 
 - [현재 운영 상태와 검증](docs/operations.md)
