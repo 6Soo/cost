@@ -99,3 +99,28 @@ def apply(proposal: dict, *, approved: bool, approved_by: str, rows: list[dict],
     audit.append({"proposal_id": proposal["id"], "kind": proposal["kind"], "approved_by": approved_by,
                   "applied": applied, "skipped_confirmed": proposal["skipped_confirmed"]})
     return {"status": "APPLIED", "applied": applied}
+
+
+def decision_payloads(proposal: dict, rows: list[dict]) -> list[dict]:
+    """Request bodies for the existing review decision endpoint, one per approved change.
+
+    Keeps each row's own description, tab and revision, so the decision is written against the
+    revision the person saw. Nothing is sent from here.
+    """
+    by_id = {r["transaction_id"]: r for r in rows}
+    payloads = []
+    for change in proposal.get("changes", []):
+        row = by_id.get(change["transaction_id"])
+        if row is None or row.get("user_confirmed") or change.get("exclude"):
+            continue
+        payloads.append({
+            "transaction_id": change["transaction_id"],
+            "revision": row.get("revision"),
+            "item": change["after_item"],
+            "description": row.get("description") or "",
+            "display_tab_id": row.get("display_tab_id") or "",
+            "note": f"규칙 제안 {proposal['id']} 승인",
+            "reuse_rule": False,
+            "resolve_hold": False,
+        })
+    return payloads

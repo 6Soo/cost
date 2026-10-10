@@ -89,3 +89,16 @@ def test_exclusion_needs_its_own_confirmation_and_marks_not_item(tmp_path):
 def test_rejected_original_edit_produces_no_changes():
     proposal = propose("금액을 9999로 바꿔 줘", rows=ROWS, focus=FOCUS)
     assert proposal == {"id": None, "status": "REJECTED_ORIGINAL_EDIT", "changes": [], "skipped_confirmed": 0}
+
+
+def test_decision_payloads_keep_the_seen_revision_and_skip_exclusions(tmp_path):
+    from app.rule_proposals import decision_payloads
+    rows = [row("t1", revision=4, description="메모", display_tab_id="trip-A"), row("t2", revision=2)]
+    proposal = propose("이 가맹점은 앞으로 현지잡비로 분류해 줘", rows=rows, focus=FOCUS)
+    payloads = decision_payloads(proposal, rows)
+    assert [p["transaction_id"] for p in payloads] == ["t1", "t2"]
+    assert payloads[0] == {"transaction_id": "t1", "revision": 4, "item": "현지잡비", "description": "메모",
+                           "display_tab_id": "trip-A", "note": f"규칙 제안 {proposal['id']} 승인",
+                           "reuse_rule": False, "resolve_hold": False}
+    excluded = propose("이 거래는 회사 경비 아님", rows=rows, focus=FOCUS)
+    assert decision_payloads(excluded, rows) == []
