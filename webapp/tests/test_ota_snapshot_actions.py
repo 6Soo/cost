@@ -118,6 +118,22 @@ class SnapshotActionTests(unittest.TestCase):
             self._preview()
 
 
+    def test_a_retry_of_a_recorded_confirm_returns_the_record_even_after_the_snapshot_moved(self):
+        preview = self._preview()
+
+        class Recorded(FakeCoreStore):
+            def prior_confirmation(self, request_id):
+                return {"status": "MATCHED_USER", "request_id": request_id} if request_id == "act-retry" else None
+
+        writer = CoreOtaPaymentBackend(self.board, str(self.review_path), read_only=False,
+                                       payments=FakeCorePayments(), store_type=Recorded, sources=self.sources)
+        self.addCleanup(writer.close)
+        FakeCoreStore.extra_links = {"evt-other": {"transaction_id": "card-03", "source_digest": "other"}}
+        result = writer.confirm(EVENT["ota_event_id"], "card-02", preview["preview_digest"],
+                                request_id="act-retry", user="synthetic-owner")
+        self.assertEqual(result, {"status": "MATCHED_USER", "request_id": "act-retry"})
+        self.assertEqual(FakeCoreStore.writer_calls, 0)
+
 class WorkerLifecycleTests(unittest.TestCase):
 
     def _service(self, **kwargs):

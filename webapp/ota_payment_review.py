@@ -633,6 +633,11 @@ class CoreOtaPaymentBackend:
     def confirm(self, event_id, transaction_id, preview_digest, *, request_id, user):
         if self.read_only:
             raise RuntimeError("read-only OTA backend cannot confirm")
+        # A retry of an already recorded request returns that record, before any freshness check.
+        reader = getattr(self.store, "prior_confirmation", None)
+        prior = reader(request_id) if callable(reader) else None
+        if prior is not None:
+            return prior
         data, snapshot = self._action_data()
         event, transaction, allocations = self._selection(event_id, transaction_id, data)
         core_digest = self.store.preview(event, transaction)["preview_digest"]
