@@ -1,16 +1,21 @@
+import http.client
 import json
 import os
+import struct
 import tempfile
 import threading
 import unittest
 import urllib.error
 import urllib.request
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright
 
 from webapp import ledger_board
+from webapp.card_flow import CardFlow
+from webapp.tests.test_card_flow import CARD
 
 REGIONS = {"regions": [
     {"box": [0, 0, 100, 100], "merchant": "라멘집", "date": "2027-08-03", "currency": "JPY", "total": 1234,
@@ -19,8 +24,31 @@ REGIONS = {"regions": [
      "payment": "private_card", "confidence": 0.9},
     {"box": [0, 300, 100, 400], "merchant": "흐림", "date": "2027-08-03", "currency": "JPY", "total": 900,
      "payment": "cash", "confidence": 0.4}]}
-PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic receipt photo bytes" * 20
-JPEG = b"\xff\xd8\xff" + b"synthetic jpeg bytes" * 20
+def make_png():
+    """A valid 1x1 PNG built here, so the structural check runs on a real file."""
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))
+            + chunk(b"IEND", b""))
+
+
+PNG = make_png()
+JPEG = b"\xff\xd8\xff" + b"synthetic jpeg bytes" * 20 + b"\xff\xd9"
+
+
+def _card_purchase(board, batch_id, transaction_id, merchant, amount_jpy, date):
+    board.conn.execute(
+        "INSERT INTO transactions(transaction_id, source_hash, batch_id, issuer, card_tail, card_kind,"
+        " transaction_direction, transaction_kind, approval_number, original_approval_number, approval_date,"
+        " posting_date, merchant, merchant_normalized, amount_krw, foreign_amount, foreign_currency,"
+        " description_raw, row_index, raw_row_json, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (transaction_id, 'hash-' + transaction_id, batch_id, '국민', '1234', 'domestic', 'purchase', 'purchase',
+         'AP-' + transaction_id, '', date, date, merchant, merchant, amount_jpy * 10, str(amount_jpy), 'JPY', '',
+         9, '{}', '2027-08-03T00:00:00+00:00'))
+    board.conn.commit()
+
 
 
 class ReceiptReviewTests(unittest.TestCase):
@@ -38,8 +66,12 @@ class ReceiptReviewTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = f'http://127.0.0.1:{self.server.server_address[1]}'
+        self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=True)
+        self._owner.start()
+        CardFlow(self.server.card_store)  # creates the card tables the board reads for card links
 
     def tearDown(self):
+        self._owner.stop()
         self.server.shutdown()
         self.server.server_close()
         self.server.card_store.close()
@@ -180,3 +212,82 @@ class ReceiptReviewTests(unittest.TestCase):
 
     def test_browser_desktop_1440_photo_region_edit_confirm_and_copy(self):
         self._browser_flow(1440, 900)
+
+
+    def test_without_owner_every_receipt_route_is_refused(self):
+        self._owner.stop()
+        self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=False)
+        self._owner.start()
+        for method_path in (('GET', '/receipts'), ('GET', '/api/receipts'), ('GET', '/api/receipts/tsv'),
+                            ('GET', '/api/receipts/image/' + 'a' * 64)):
+            status, body = self.request(method_path[1])
+            self.assertEqual(status, 403, method_path)
+            self.assertEqual(body['code'], 'OWNER_ONLY', method_path)
+        status, body = self.request('/api/receipts/scan', REGIONS, token=self.csrf())
+        self.assertEqual((status, body['code']), (403, 'OWNER_ONLY'))
+        self.assertFalse(self.store.exists())
+
+    def test_access_enforcement_off_means_no_owner_by_default(self):
+        self._owner.stop()
+        self._owner = patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False)
+        self._owner.start()
+        self.assertFalse(ledger_board._receipts_owner_request())
+
+    def test_client_sent_card_rows_are_ignored_and_the_server_decides_the_link(self):
+        fake = dict(REGIONS['regions'][0], payment='corporate_card', merchant='카페', total=900, box=[0, 0, 9, 9])
+        forged = {'regions': [fake], 'card_rows': [{'transaction_id': 'forged', 'date': '2027-08-03',
+                                                    'merchant': '카페', 'original_jpy': 900}]}
+        status, body = self.request('/api/receipts/scan', forged, token=self.csrf())
+        self.assertEqual(status, 200)
+        self.assertEqual(body['added'], 0)
+        self.assertEqual({h['reason'] for h in body['holds']}, {'CARD_NOT_FOUND'})
+
+    def test_a_real_card_purchase_in_the_database_is_linked_and_not_repriced(self):
+        from webapp.card_flow import CardFlow
+        batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'receipt-link.csv')['batch_id']
+        _card_purchase(self.server.card_store, batch, 'card-cafe-1', '카페', 900, '2027-08-03')
+        real = dict(REGIONS['regions'][0], payment='corporate_card', merchant='카페', total=900, box=[5, 5, 9, 9])
+        status, body = self.request('/api/receipts/scan', {'regions': [real]}, token=self.csrf())
+        self.assertEqual(status, 200)
+        self.assertEqual(body['added'], 1)
+        _, stored = self.request('/api/receipts')
+        linked = stored['candidates'][-1]
+        self.assertEqual(linked['card_transaction_id'], 'card-cafe-1')
+        status, tsv = self.request('/api/receipts/tsv')
+        self.assertNotIn('카페', tsv['tsv'])  # the card transaction is the one expense
+
+    def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
+        png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
+        self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=png_no_end)[1]['code'],
+                         'IMAGE_CORRUPT')
+        jpeg_no_end = b'\xff\xd8\xff' + b'pixel data without an end marker'
+        self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=jpeg_no_end)[1]['code'],
+                         'IMAGE_TYPE_UNSUPPORTED')
+        html_with_png_signature = b'\x89PNG\r\n\x1a\n<script>alert(1)</script>'
+        self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=html_with_png_signature)[1]['code'],
+                         'IMAGE_CORRUPT')
+
+    def test_served_media_type_comes_from_the_bytes(self):
+        import urllib.request as ur
+        jpeg = b'\xff\xd8\xff' + b'synthetic jpeg' + b'\xff\xd9'
+        sha = self.request('/api/receipts/image', token=self.csrf(), raw=jpeg)[1]['sha256']
+        with ur.urlopen(self.base + '/api/receipts/image/' + sha) as response:
+            self.assertEqual(response.headers.get_content_type(), 'image/jpeg')
+            self.assertEqual(response.read(), jpeg)
+        sha = self.request('/api/receipts/image', token=self.csrf(), raw=PNG)[1]['sha256']
+        with ur.urlopen(self.base + '/api/receipts/image/' + sha) as response:
+            self.assertEqual(response.headers.get_content_type(), 'image/png')
+
+    def test_oversized_photo_is_refused_at_the_same_ceiling_as_the_board(self):
+        from webapp import receipt_review
+        self.assertEqual(receipt_review.IMAGE_LIMIT, 5 * 1024 * 1024)
+        too_big = b'\xff\xd8\xff' + b'0' * (5 * 1024 * 1024) + b'\xff\xd9'
+        # The board answers 413 before it reads the body, so the client may see the connection close instead.
+        try:
+            status, body = self.request('/api/receipts/image', token=self.csrf(), raw=too_big)
+            self.assertEqual(status, 413)
+        except (http.client.RemoteDisconnected, ConnectionError, urllib.error.URLError):
+            pass
+        with self.assertRaises(ValueError) as raised:
+            receipt_review.store_image(self.store, too_big)
+        self.assertEqual(str(raised.exception), 'IMAGE_SIZE_INVALID')

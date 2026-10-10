@@ -99,7 +99,8 @@ def build_candidates(regions: list[Region], card_rows: list[dict], known: set | 
         if region.payment == "corporate_card":
             matches = [r for r in card_rows
                        if r["date"] == region.date and r["merchant"] == region.merchant
-                       and r.get("original_jpy") == region.total]
+                       and r.get("original_jpy") is not None
+                       and float(r["original_jpy"]) == float(region.total)]
             if len(matches) == 1:
                 candidates.append(Candidate(identity, region.date, region.merchant, region.total,
                                             region.payment, None, card_transaction_id=matches[0]["transaction_id"]))

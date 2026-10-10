@@ -239,6 +239,14 @@ def require_session(headers, cookies=None):
     return session
 
 
+def _receipts_owner_request() -> bool:
+    """Owner only, and only when the access store is enforcing. Enforcement off means no owner."""
+    if not ACCESS_ENFORCEMENT:
+        return False
+    session = getattr(_ROLE_LOCAL, "session", None)
+    return session is not None and is_owner_session(session)
+
+
 def is_owner_session(session) -> bool:
     if session is None or not _ACCESS:
         return False
@@ -3951,7 +3959,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._phase7_refuse(exc)
                 return
         from . import receipt_review
-        if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN):
+        if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
+                                   is_owner=_receipts_owner_request()):
             return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
@@ -4204,7 +4213,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
         from . import receipt_review
-        if receipt_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
+        if receipt_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=_active_store(),
+                                   is_owner=_receipts_owner_request()):
             return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):

@@ -13,6 +13,7 @@ import html
 import json
 import os
 import re
+import sqlite3
 from pathlib import Path
 
 from app import receipt_candidates as rc
@@ -21,7 +22,8 @@ from app.google_tsv import expense_tsv
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
           "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
-IMAGE_LIMIT = 8 * 1024 * 1024
+# Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
+IMAGE_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
 
 
@@ -55,12 +57,31 @@ def _save(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def sniff_image(body: bytes) -> str:
+    """The media type the bytes really are, checked structurally. Anything else is refused."""
+    if body.startswith(b"\x89PNG\r\n\x1a\n"):
+        pos, first, ended = 8, True, False
+        while pos + 8 <= len(body) and not ended:
+            length = int.from_bytes(body[pos:pos + 4], "big")
+            kind = body[pos + 4:pos + 8]
+            if first and (kind != b"IHDR" or length != 13):
+                raise ValueError("IMAGE_CORRUPT")
+            first = False
+            pos += 12 + length
+            ended = kind == b"IEND"
+        if not ended or pos != len(body):
+            raise ValueError("IMAGE_CORRUPT")
+        return "image/png"
+    if body.startswith(b"\xff\xd8\xff") and body.rstrip().endswith(b"\xff\xd9"):
+        return "image/jpeg"
+    raise ValueError("IMAGE_TYPE_UNSUPPORTED")
+
+
 def store_image(path: Path, body: bytes) -> dict:
-    """Keeps a picture the person registered. Only PNG and JPEG are accepted; nothing is read from it."""
+    """Keeps a picture the person registered, after a structural check. Nothing is read from its content."""
     if not body or len(body) > IMAGE_LIMIT:
         raise ValueError("IMAGE_SIZE_INVALID")
-    if not (body.startswith(b"\x89PNG\r\n\x1a\n") or body.startswith(b"\xff\xd8\xff")):
-        raise ValueError("IMAGE_TYPE_UNSUPPORTED")
+    media = sniff_image(body)
     sha = hashlib.sha256(body).hexdigest()
     folder = _images_dir(path)
     folder.mkdir(parents=True, exist_ok=True)
@@ -71,7 +92,7 @@ def store_image(path: Path, body: bytes) -> dict:
     if sha not in data["images"]:
         data["images"].append(sha)
         _save(path, data)
-    return {"sha256": sha, "bytes": len(body)}
+    return {"sha256": sha, "bytes": len(body), "media_type": media}
 
 
 def image_bytes(path: Path, sha: str) -> bytes:
@@ -94,13 +115,29 @@ def _regions(payload: dict) -> list[rc.Region]:
                       confidence=float(r.get("confidence", 1.0))) for r in raw]
 
 
-def scan(path: Path, payload: dict) -> dict:
+def card_rows(board) -> list[dict]:
+    """Corporate-card purchases in the database, the only card evidence a receipt may link to."""
+    if board is None:
+        return []
+    try:
+        rows = board.conn.execute(
+            "SELECT transaction_id, COALESCE(NULLIF(approval_date,''), posting_date), merchant, foreign_amount"
+            " FROM transactions WHERE transaction_kind='purchase' AND transaction_direction='purchase'"
+            " AND duplicate_of IS NULL AND foreign_currency='JPY'").fetchall()
+    except sqlite3.OperationalError:
+        return []  # no card tables yet: there is no card evidence to link to
+    return [{"transaction_id": tid, "date": date, "merchant": merchant, "original_jpy": amount}
+            for tid, date, merchant, amount in rows]
+
+
+def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     regions = _regions(payload)
     known = {c["identity"] for c in data["candidates"]}
-    result = rc.build_candidates(regions, payload.get("card_rows", []), known=known)
+    # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
+    result = rc.build_candidates(regions, card_rows(board), known=known)
     for candidate in result["candidates"]:
         data["candidates"].append({**candidate.__dict__, "history": []})
     seen = {h["identity"] for h in data["holds"]}
@@ -154,14 +191,19 @@ def tsv(path: Path) -> dict:
     return {**result, "held": result["held"] + data["holds"]}
 
 
-def dispatch(handler, parsed, *, raw=None, csrf: str = "") -> bool:
+def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
+    if not is_owner:
+        # Fail closed: photos, regions, amounts and the copy text are the owner's records.
+        handler._send_json({"code": "OWNER_ONLY", "message": "소유자만 볼 수 있습니다"}, 403)
+        return True
     path = _store_path()
     image = IMAGE_PATH.match(parsed.path)
     if image and raw is None:
         try:
-            handler._send_bytes(image_bytes(path, image.group(1)), "image/png")
+            data = image_bytes(path, image.group(1))
+            handler._send_bytes(data, sniff_image(data))
         except (KeyError, OSError):
             handler._send_json({"code": "IMAGE_NOT_FOUND"}, 404)
         return True
@@ -188,7 +230,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "") -> bool:
             return True
         body = json.loads(raw.decode("utf-8") or "{}")
         if parsed.path == "/api/receipts/scan":
-            handler._send_json(scan(path, body))
+            handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
             if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
