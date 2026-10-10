@@ -296,7 +296,7 @@ def main(argv=None) -> int:
     print("operations:")
     print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'health', '--secret', 'MUSE_KEY'])}")
     print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'actions'])}")
-    print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'drill', '--target', '/var/tmp/web-ledger-drill'])}")
+    print(f"  {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'drill', '--target', 'D:/WebLedgerHost/drill'])}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

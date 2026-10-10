@@ -780,12 +780,8 @@ _THREAD_LOCK = threading.Lock()
 
 try:
     import msvcrt  # Windows
-except Exception:  # pragma: no cover - the other branch is POSIX
-    msvcrt = None
-try:
-    import fcntl  # POSIX
 except Exception:  # pragma: no cover
-    fcntl = None
+    msvcrt = None
 
 
 def _lock_name(config_path) -> pathlib.Path:
@@ -831,8 +827,6 @@ class _FileLock:
                 # hold the lock.
                 self._handle.seek(0)
                 msvcrt.locking(self._handle.fileno(), msvcrt.LK_NBLCK, 1)
-            elif fcntl is not None:
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             else:
                 return False
         except OSError:
@@ -847,8 +841,6 @@ class _FileLock:
             if msvcrt is not None:
                 self._handle.seek(0)
                 msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
-            elif fcntl is not None:
-                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
         except Exception:
             pass
         try:
@@ -1257,7 +1249,7 @@ def _verify_bundle_on_disk(bundle: dict) -> None:
 def _replace_config_file(replacement, target):
     """Atomically replace an existing Windows config while preserving its DACL."""
     target = pathlib.Path(target)
-    if os.name != "nt" or not target.exists():
+    if not target.exists():
         os.replace(replacement, target)
         return
     import ctypes

@@ -1639,8 +1639,8 @@ EXTERNAL_CONDITIONS = [
      "state": "not_provisioned",
      "needs": "사용자 로그인 + 계정/카드 등록",
      # The readiness code exists and is exercised: `cli serve --host`, a
-     # durable data root, a systemd example, the runbook, `ops health`,
-     # `ops smoke` and a gate that refuses to serve a misconfigured host.
+     # durable data root, the runbook, `ops health`, `ops smoke` and a gate
+     # that refuses to serve a misconfigured host.
      # Reporting `not_implemented` here would have said the phase is unbuilt
      # when what is actually missing is a server to run it on.
      "code_status": "operational_readiness_implemented_awaits_resource"},
@@ -1741,7 +1741,7 @@ def build_deploy_manifest(config: DurableConfig, *, host_role="local-single",
                           service_name="web-ledger", python_executable=None,
                           entry_command=None, bind_host="127.0.0.1",
                           behind_proxy=False) -> dict:
-    """Describe the unit that would run, without creating it.
+    """Describe the service that would run, without creating it.
 
     Nothing here provisions, installs or starts anything. The manifest records
     the paths, the entry command and the bind posture a deployment would need,
@@ -2065,78 +2065,7 @@ def recovery_lines(figures: dict) -> list:
     return lines
 
 
-def service_unit_text(config: DurableConfig, manifest, *, user="webledger",
-                      bind_host="127.0.0.1", port=8751, service_name="web-ledger",
-                      health_command=None) -> str:
-    """A systemd unit as text, for a human to install after reading it.
-
-    This writes a file and starts nothing. It exists because the service shape
-    is part of what a cutover decision needs to review, and hand-writing a unit
-    each time is how the working directory, the persistent root and the secret
-    handling drift apart. The unit keeps the data root outside the checkout,
-    binds loopback so only the local proxy reaches it, and reports health
-    separately.
-    """
-    command = list(manifest.get("entry", {}).get("command", []))
-    if not command:
-        command = [sys.executable, "-m", "webapp.cli", "serve"]
-    check = health_command or [
-        sys.executable, "-m", "webapp.cli", "ops", "health", "--secret", "MUSE_KEY"]
-    env_lines = [
-        f"Environment=WEBLEDGER_DATA_ROOT={config.data_root}",
-        f"Environment=WEBLEDGER_DB={config.db_path}",
-        f"Environment=WEBLEDGER_EXPORT_DIR={config.export_dir}",
-        f"Environment=WEBLEDGER_EVIDENCE_DIR={config.evidence_dir}",
-        f"Environment=WEBLEDGER_SOURCE_DIR={config.source_dir}",
-        # The secret is not in this file. The unit points at the deployment's
-        # own secret store instead, so a unit that is copied around carries no
-        # key.
-        "EnvironmentFile=-/etc/web-ledger/env",
-    ]
-    return "\n".join([
-        f"# web 장부 서비스 단위 예시 ({service_name})",
-        "# 이 파일은 예시다. 설치·시작·적용은 하지 않으며, 사람이 읽고 결정한 뒤",
-        "# 별도 경로에 설치한다. MUSE_KEY 같은 비밀 값은 이 파일에 적지 않는다.",
-        f"[Unit]",
-        f"Description=web ledger ({config.environment})",
-        "After=network-online.target",
-        "Wants=network-online.target",
-        "",
-        "[Service]",
-        "Type=simple",
-        f"User={user}",
-        f"Group={user}",
-        f"WorkingDirectory={config.data_root}",
-        *env_lines,
-        f"ExecStart={' '.join(command)} --host {bind_host} --port {port}",
-        "Restart=on-failure",
-        "RestartSec=5",
-        "TimeoutStopSec=30",
-        # The ledger is the only thing that must survive; stopping it is a
-        # graceful drain, not a kill, so an in-flight save is not torn.
-        "KillSignal=SIGINT",
-        "NoNewPrivileges=yes",
-        "PrivateTmp=yes",
-        "ProtectSystem=strict",
-        f"ReadWritePaths={config.data_root}",
-        "",
-        "# 앱은 루프백에만 묶는다. 같은 머신의 프록시가 HTTPS를 종료한다.",
-        "# SQLite 파일과 원천 디렉터리는 이 경로 밖으로 나가지 않는다.",
-        "",
-        "[Install]",
-        "WantedBy=multi-user.target",
-        "",
-        "# 확인 명령 (수동으로 실행한다)",
-        f"#   {' '.join(check)}",
-        f"#   {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'actions'])}",
-        f"#   {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'drill', '--target', '/var/tmp/web-ledger-drill', '--runbook', 'RUNBOOK.md'])}",
-        f"#   {' '.join([sys.executable, '-m', 'webapp.cli', 'ops', 'dry-run', '--secret', 'MUSE_KEY', '--runbook', 'RUNBOOK.md'])}",
-        "",
-    ])
-
-
-def write_deploy_runbook(path, config, manifest, dry_run, *, figures=None,
-                         unit_path=None) -> Path:
+def write_deploy_runbook(path, config, manifest, dry_run, *, figures=None) -> Path:
     """The runbook a human would follow. It performs no step by itself."""
     lines = [
         "# 배포 전환 절차 (실행하지 않음)",
@@ -2178,8 +2107,6 @@ def write_deploy_runbook(path, config, manifest, dry_run, *, figures=None,
         ]
     else:
         lines += ["- manifest 에 바인딩 형태가 없어요."]
-    if unit_path:
-        lines += ["", f"- 서비스 단위 예시: `{unit_path}` (설치하지 않음, 예시 파일)"]
     lines += [
         "",
         "## 수동 단계 (사용자 결정 필요)",

@@ -1,6 +1,6 @@
-# Byte-deterministic working trees across Linux and Windows sessions.
+# Byte-deterministic working trees: line endings must not depend on the checkout machine.
 # Live-input hash gates (r39/r41/v6 constants) require identical bytes everywhere,
-# so all text files are stored with LF and checked out with LF on every platform.
+# so all text files are stored with LF and checked out with LF.
 * text=auto eol=lf
 
 # Binary evidence artifacts must never be normalized.

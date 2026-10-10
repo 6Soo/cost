@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Read-only, privacy-safe Agoda boundary coverage audit.
 
 The report deliberately emits counts and field presence only.  It never prints

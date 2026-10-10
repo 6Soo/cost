@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build a private Agoda amount-reconciliation candidate database.
 
 The input detail DB is a sealed, converged Agoda portal census.  Exact amount
@@ -19,7 +18,6 @@ import os
 import re
 import shutil
 import sqlite3
-import stat
 import tempfile
 from collections import Counter
 from contextlib import closing
@@ -114,14 +112,8 @@ def _capture_membership_sha256(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _mode(path: Path) -> int:
-    return stat.S_IMODE(path.stat().st_mode)
-
-
 def _require_private_sqlite(path: Path) -> None:
-    if path.is_symlink() or not path.is_file() or (
-        os.name != "nt" and _mode(path) != 0o600
-    ):
+    if path.is_symlink() or not path.is_file():
         raise ReconciliationError("private_sqlite_contract_invalid")
     if any(os.path.lexists(str(path) + suffix) for suffix in ("-wal", "-shm", "-journal")):
         raise ReconciliationError("sqlite_sidecar_present")

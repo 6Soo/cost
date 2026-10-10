@@ -8,7 +8,7 @@ that shape down, and pin down the two ways a local run could have quietly gone
 the other way.
 
 Nothing here creates a hosting resource, a VM, a certificate, an account or a
-service. The unit file is text written to a temporary path.
+service.
 """
 
 import json
@@ -326,73 +326,29 @@ class TheEntryPointRefusesCleanly(unittest.TestCase):
         self.assertIn("--behind-proxy", source)
 
 
-class TheServiceExampleIsTextAndNotAnInstall(unittest.TestCase):
+class TheRunbookIsTextAndNotAnInstall(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="unit-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="runbook-"))
         self.config = ops.durable_config_for(self.tmp / "data", create=True)
         self.manifest = ops.build_deploy_manifest(self.config)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_the_unit_binds_loopback_and_uses_the_data_root(self):
-        text = ops.service_unit_text(self.config, self.manifest)
-        self.assertIn(f"WorkingDirectory={self.config.data_root}", text)
-        self.assertIn("--host 127.0.0.1", text)
-        self.assertIn(f"Environment=WEBLEDGER_DATA_ROOT={self.config.data_root}",
-                      text)
-        self.assertIn(f"ReadWritePaths={self.config.data_root}", text)
-
-    def test_the_unit_never_carries_a_secret_value(self):
-        secret = "synthetic-not-a-real-key"
-        env = {**os.environ, "MUSE_KEY": secret, "PYTHONIOENCODING": "utf-8"}
-        original = dict(os.environ)
-        os.environ.update(env)
-        try:
-            text = ops.service_unit_text(self.config, self.manifest)
-        finally:
-            os.environ.clear()
-            os.environ.update(original)
-        self.assertNotIn(secret, text)
-        self.assertNotIn(secret, ops.configure if False else "")
-        # it points at a secret store instead
-        self.assertIn("EnvironmentFile", text)
-
-    def test_the_unit_states_the_procedures_to_run_by_hand(self):
-        text = ops.service_unit_text(self.config, self.manifest)
-        for command in ("ops", "health", "actions", "drill", "dry-run"):
-            self.assertIn(command, text)
-        # the commands appear as commented lines, not as ExecStart
-        for line in text.splitlines():
-            if line.strip().startswith("ExecStart"):
-                self.assertNotIn("ops health", line)
-                self.assertNotIn("drill", line)
-
-    def test_the_unit_marks_itself_as_an_example(self):
-        text = ops.service_unit_text(self.config, self.manifest)
-        self.assertIn("[Service]", text)
-        self.assertIn("ExecStart", text)
-        # the comment block has to say it installs nothing
-        head = "\n".join(text.splitlines()[:6])
-        self.assertIn("예시", head)
-        self.assertIn("설치", head)
-
     def test_the_runbook_states_the_bind_shape_and_the_procedures(self):
         path = ops.write_deploy_runbook(
             self.tmp / "RUNBOOK.md", self.config, self.manifest,
-            ops.dry_run_deploy(self.config, self.manifest),
-            unit_path="/etc/web-ledger/web-ledger.service")
+            ops.dry_run_deploy(self.config, self.manifest))
         text = path.read_text(encoding="utf-8")
         self.assertIn("loopback-behind-https-proxy", text)
         self.assertIn("127.0.0.1", text)
         for command in ("ops health", "ops actions", "ops drill", "ops dry-run"):
             self.assertIn(command, text)
-        self.assertIn("/etc/web-ledger/web-ledger.service", text)
 
 
-class TheCliWritesTheUnitWithoutInstallingIt(unittest.TestCase):
+class TheCliDryRunChecksTheBindWithoutApplyingAnything(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="cli-unit-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="cli-dry-run-"))
         self.config = ops.durable_config_for(self.tmp / "data", create=True)
         self.env = {**os.environ,
                     "WEBLEDGER_DATA_ROOT": str(self.config.data_root),
@@ -412,19 +368,6 @@ class TheCliWritesTheUnitWithoutInstallingIt(unittest.TestCase):
             text=True, encoding="utf-8", errors="replace", cwd=str(REPO),
             env=self.env, timeout=600)
 
-    def test_dry_run_writes_the_unit_and_reports_its_path(self):
-        unit = self.tmp / "web-ledger.service"
-        runbook = self.tmp / "RUNBOOK.md"
-        result = self._cli("ops", "dry-run", "--secret", "MUSE_KEY",
-                           "--unit", str(unit), "--runbook", str(runbook))
-        self.assertEqual(result.returncode, 0, result.stdout)
-        payload = json.loads(result.stdout)
-        self.assertTrue(payload["dry_run"]["ok"], payload["dry_run"]["failed"])
-        self.assertTrue(unit.is_file())
-        self.assertEqual(payload["unit_example"], str(unit))
-        # the runbook links to it
-        self.assertIn(str(unit), runbook.read_text(encoding="utf-8"))
-
     def test_dry_run_refuses_an_external_bind_and_says_which_check(self):
         result = self._cli("ops", "dry-run", "--secret", "MUSE_KEY",
                            "--host", "0.0.0.0")
@@ -442,11 +385,6 @@ class TheCliWritesTheUnitWithoutInstallingIt(unittest.TestCase):
         self.assertTrue(payload["dry_run"]["ok"], payload["dry_run"]["failed"])
         self.assertEqual(payload["manifest"]["bind"]["shape"],
                          "non-loopback-for-proxy")
-
-    def test_dry_run_without_a_unit_flag_writes_no_unit(self):
-        result = self._cli("ops", "dry-run", "--secret", "MUSE_KEY")
-        payload = json.loads(result.stdout)
-        self.assertIsNone(payload["unit_example"])
 
 
 class HealthDescribesWhatItActuallyFound(unittest.TestCase):

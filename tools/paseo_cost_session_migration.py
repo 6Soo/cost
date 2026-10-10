@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Collect, verify, and permanently delete closed Paseo Codex sessions for COST.
 
 Collection is read-only. Deletion is deliberately sequential and requires a
@@ -399,13 +398,6 @@ def require_exact_path(raw_path: str, expected: Path, *, must_exist: bool) -> Pa
 
 
 def flush_directory_entry(path: Path) -> None:
-    if os.name != "nt":
-        descriptor = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        return
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
     create_file.argtypes = [
@@ -482,8 +474,6 @@ class DurableJsonlLedger:
 
     @staticmethod
     def _open_exclusive_descriptor(path: Path) -> int:
-        if os.name != "nt":
-            return os.open(path, os.O_RDWR | os.O_APPEND)
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         create_file = kernel32.CreateFileW
         create_file.argtypes = [

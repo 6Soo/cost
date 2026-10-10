@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build a blank review template bound to one sealed snapshot.
 
 This CLI is the thin shell for the pure template core

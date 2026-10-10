@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Build a reviewed import plan from a review CSV file.
 
 This CLI is the thin shell for the review CSV adapter

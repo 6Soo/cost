@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Merge the 13 isolated Agoda page staging databases.
 
 Each input is opened only with SQLite ``mode=ro&immutable=1``.  The merge
@@ -43,12 +42,9 @@ BOOKING_COLUMNS = (
 
 def _require_tmp(path: Path) -> Path:
     resolved = path.expanduser().resolve()
-    allowed_roots = [
-        Path("/tmp").resolve(),
-        Path(tempfile.gettempdir()).resolve(),
-    ]
+    allowed_roots = [Path(tempfile.gettempdir()).resolve()]
     if not any(root in resolved.parents or resolved == root for root in allowed_roots):
-        raise RuntimeError("staging database must be under /tmp")
+        raise RuntimeError("staging database must be under the temp directory")
     return resolved
 
 

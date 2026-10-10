@@ -174,7 +174,7 @@ OTA 자료 통합은 2026-10-08 확인 기준이다. 이 문서는 현재 상태
 
 ## 정본과 실행
 
-배포 설정의 `WEBLEDGER_DATA_ROOT`는 지속 디스크에 마운트된 절대 경로를 지정한다. Linux의 예시는 `/srv/web-ledger/data`이며, 현재 Windows 운영 데이터 루트는 `D:/WebLedgerHost/data`다. 상대 경로·임시 디렉터리·소스 체크아웃 안 경로는 운영에서 거부된다. 이 안내는 기존 실행 설정을 설명하며 데이터 경로나 실행 설정을 변경하지 않는다.
+배포 설정의 `WEBLEDGER_DATA_ROOT`는 지속 디스크에 마운트된 절대 경로를 지정한다. 현재 Windows 운영 데이터 루트는 `D:/WebLedgerHost/data`다. 상대 경로·임시 디렉터리·소스 체크아웃 안 경로는 운영에서 거부된다. 이 안내는 기존 실행 설정을 설명하며 데이터 경로나 실행 설정을 변경하지 않는다.
 
 운영 정본은 `D:/WebLedgerHost/data/board.sqlite`다. `board_rows`는 현재 장부, `ledger_entries`는 최초 기록 영수증이다. 원본·일정 근거·운영 설정·비밀값은 저장소 밖 또는 Git 제외 로컬 경로에 보존한다. 운영 실행기는 `D:/WebLedgerHost/bin/launch_web_ledger.py`, 코드 경로는 `C:/AX/cost`다. 장부는 `127.0.0.1:8751`에서 응답하고 공개 주소는 [운영 장부](https://ledger.foresttour.kr/)다.
 

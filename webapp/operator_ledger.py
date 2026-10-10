@@ -86,19 +86,6 @@ def _utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
-def _fsync_dir(path: Path) -> None:
-    if os.name == "nt":
-        return
-    try:
-        fd = os.open(str(path), os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass
-
-
 def _atomic_write_json(path: Path, doc: dict) -> None:
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     with open(tmp, "w", encoding="utf-8") as handle:
@@ -106,7 +93,6 @@ def _atomic_write_json(path: Path, doc: dict) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(tmp, path)
-    _fsync_dir(path.parent)
 
 
 def build_payload(fields: dict) -> dict:

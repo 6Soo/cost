@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Pure deterministic graph rules for Agoda amount reconciliation.
 
 This module has no database or browser side effects.  Exact amount creates

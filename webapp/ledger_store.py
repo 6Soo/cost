@@ -563,37 +563,26 @@ def _process_alive(pid):
         return None
     if pid <= 0:
         return None
-    if os.name == "nt":
-        import ctypes
+    import ctypes
 
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        STILL_ACTIVE = 259
-        ERROR_INVALID_PARAMETER = 87
-        # use_last_error is what makes ctypes.get_last_error() meaningful here.
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        ctypes.set_last_error(0)
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            # Only "no such process" proves the owner is gone. Every other
-            # reason for a refused handle stays unknown.
-            return False if ctypes.get_last_error() == ERROR_INVALID_PARAMETER else None
-        try:
-            code = ctypes.c_ulong()
-            if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return code.value == STILL_ACTIVE
-            return None
-        finally:
-            kernel32.CloseHandle(handle)
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    ERROR_INVALID_PARAMETER = 87
+    # use_last_error is what makes ctypes.get_last_error() meaningful here.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ctypes.set_last_error(0)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # Only "no such process" proves the owner is gone. Every other
+        # reason for a refused handle stays unknown.
+        return False if ctypes.get_last_error() == ERROR_INVALID_PARAMETER else None
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # The process exists, this one just may not signal it.
-        return True
-    except OSError:
+        code = ctypes.c_ulong()
+        if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return code.value == STILL_ACTIVE
         return None
-    return True
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _lease_age_seconds(heartbeat_at: str) -> float:

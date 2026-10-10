@@ -316,14 +316,12 @@ def cmd_ops_drill(args):
     manifest = ops.build_deploy_manifest(config, bind_host=args.host,
                                          behind_proxy=args.behind_proxy)
     dry = ops.dry_run_deploy(config, manifest)
-    unit_path = _write_unit(args, config, manifest)
     if args.runbook:
         ops.write_deploy_runbook(args.runbook, config, manifest, dry,
-                                 figures=result["figures"],
-                                 unit_path=unit_path)
+                                 figures=result["figures"])
     print(json.dumps({"drill": {k: v for k, v in result.items()
                                 if k != "manifest"},
-                      "dry_run": dry, "unit_example": unit_path},
+                      "dry_run": dry},
                      ensure_ascii=False, indent=2, sort_keys=True, default=str))
     return 0 if result["recoverable"] else 2
 
@@ -336,13 +334,10 @@ def cmd_ops_dry_run(args):
     manifest = ops.build_deploy_manifest(config, bind_host=args.host,
                                          behind_proxy=args.behind_proxy)
     run = ops.dry_run_deploy(config, manifest)
-    unit_path = _write_unit(args, config, manifest)
     if args.runbook:
         ops.write_deploy_runbook(args.runbook, config, manifest, run,
-                                 figures=ops.recovery_figures(config, None),
-                                 unit_path=unit_path)
-    print(json.dumps({"manifest": manifest, "dry_run": run,
-                      "unit_example": unit_path},
+                                 figures=ops.recovery_figures(config, None))
+    print(json.dumps({"manifest": manifest, "dry_run": run},
                      ensure_ascii=False, indent=2, sort_keys=True))
     # A dry run reports; it never applies. The unmet external conditions stay
     # in the output so a green dry run is not read as a release approval.
@@ -461,20 +456,6 @@ def cmd_ops_smoke(args):
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True,
                      default=str))
     return 0 if report["ok"] else 2
-
-
-def _write_unit(args, config, manifest):
-    """Write the unit example if asked, and never install it."""
-    from . import ops
-
-    if not getattr(args, "unit", None):
-        return None
-    text = ops.service_unit_text(config, manifest, bind_host=args.host,
-                                 port=getattr(args, "port", 8751))
-    path = Path(args.unit)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    return str(path)
 
 
 @_ops_guard
@@ -601,8 +582,6 @@ def build_parser():
     p = ops_sub.add_parser("dry-run", help="validate a deploy manifest; applies nothing")
     _add_ops_config(p, with_keep=False)
     p.add_argument("--runbook", help="also write the runbook markdown here")
-    p.add_argument("--unit", help="also write a systemd unit example here; "
-                                  "the file is written, never installed")
     p.add_argument("--host", default="127.0.0.1",
                    help="bind address the manifest records; loopback is the "
                         "shape 19.2 wants")
@@ -618,16 +597,12 @@ def build_parser():
     p.add_argument("--target", required=True,
                    help="separate drill target; the live DB is not touched")
     p.add_argument("--runbook", help="also write the runbook markdown here")
-    p.add_argument("--unit", help="also write a systemd unit example here; "
-                                  "the file is written, never installed")
     p.add_argument("--host", default="127.0.0.1",
                    help="bind address the manifest records")
     p.add_argument("--behind-proxy", action="store_true",
                    help="state that a TLS-terminating proxy forwards to this "
                         "address; without it a non-loopback bind fails the "
                         "dry run")
-    p.add_argument("--port", type=int, default=8751,
-                   help="port the unit example binds")
     p.set_defaults(func=cmd_ops_drill)
 
     p = ops_sub.add_parser("readiness", help="measured readiness report")
