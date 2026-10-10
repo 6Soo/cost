@@ -214,7 +214,8 @@ def test_total_mismatch_shows_google_figure_but_is_not_verified():
     mismatched["expense"]["verified"] = False
     mismatched["verified"] = False
     (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
-    assert trip["expense_total"] == 400 and trip["verified"] is False
+    assert trip["expense_total"] is None and trip["reported"]["expense_total"] == 400
+    assert trip["verified"] is False
     assert {"TOTAL_MISMATCH", "TOTAL_RANGE_MISMATCH"} <= set(trip["review"])
 
 
@@ -332,3 +333,11 @@ def test_html_login_page_is_refused_as_wrong_type(monkeypatch):
     with pytest.raises(ga.SourceError) as raised:
         ga._download("https://example.invalid/export", timeout=1, max_bytes=1024)
     assert raised.value.code == "SOURCE_WRONG_TYPE"
+
+
+def test_unverified_figures_are_reported_separately_from_totals():
+    mismatched = _trip("0630_오제", flags=["TOTAL_MISMATCH"])
+    mismatched["verified"] = False
+    (trip,) = ga.build_trip_view({"main": _source([mismatched]), "archive": _source([], last_ok=None, status="error")})
+    assert trip["net"] is None and trip["income_total"] is None
+    assert trip["reported"]["net"] == 600
