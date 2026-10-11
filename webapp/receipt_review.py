@@ -29,6 +29,7 @@ IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
+PAYMENT_LABELS = {"cash": "현금", "private_card": "개인카드", "corporate_card": "법인카드"}
 MESSAGES = {
     'IMAGE_SIZE_INVALID': '사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.',
     'IMAGE_TYPE_UNSUPPORTED': 'PNG 또는 JPEG 사진을 선택해 주세요.',
@@ -532,7 +533,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<input data-date='{identity}' value='{html.escape(candidate['date'])}'></td>"
         f"<td><input data-total='{identity}' value='{candidate['total_jpy']}' inputmode='numeric'>"
         f"<select data-payment='{identity}'>"
-        + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{p}</option>" for p in PAYMENTS)
+        + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select>"
         f"<button type='button' data-edit='{identity}'>수정</button></td>"
         f"<td data-amount>{amount}</td><td data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"

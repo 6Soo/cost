@@ -308,6 +308,47 @@ class ReceiptReviewTests(unittest.TestCase):
     def test_browser_mobile_390_photo_region_edit_confirm_and_copy(self):
         self._browser_flow(390, 844)
 
+    def test_browser_mobile_375_photo_region_edit_confirm_and_copy(self):
+        self._browser_flow(375, 812)
+
+    def test_browser_mobile_375_payment_review_and_late_card_prevent_double_copy(self):
+        identity = self._confirmed_cash_receipt(merchant='SYN-SHOP', total=1200)
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
+                                          viewport={'width': 375, 'height': 812})
+            page = context.new_page()
+            page.goto(self.base + '/receipts')
+            payment = page.locator(f'[data-payment="{identity}"]')
+            self.assertEqual(payment.locator('option').all_text_contents(), ['현금', '개인카드', '법인카드'])
+            payment.select_option('private_card')
+            with page.expect_response('**/api/receipts/edit') as saved:
+                page.locator(f'[data-edit="{identity}"]').click()
+            self.assertEqual(saved.value.status, 200)
+            candidate = self.request('/api/receipts')[1]['candidates'][0]
+            self.assertEqual((candidate['payment'], candidate['amount_krw'], candidate['payee'], candidate['category']),
+                             ('private_card', 12000, None, None))
+            page.locator(f'[data-payee="{identity}"]').fill('SYN-SHOP')
+            page.locator(f'[data-category="{identity}"]').fill('식비')
+            page.locator(f'[data-confirm="{identity}"]').click()
+            page.get_by_text('확정됨', exact=True).wait_for()
+            page.reload()
+            self.assertEqual(payment.input_value(), 'private_card')
+            before = self.store.read_bytes()
+            batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'late-card.csv')['batch_id']
+            _card_purchase(self.server.card_store, batch, 'late-card-syn', 'SYN-SHOP', 1200, '2027-08-03')
+            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+            page.select_option('#copy-trip', self.trip)
+            page.click('#copy-tsv')
+            page.get_by_text('복사할 확정 영수증이 없습니다.', exact=False).wait_for()
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            result = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]
+            self.assertEqual(result['row_count'], 0)
+            self.assertTrue(any(hold['reason'] == 'CARD_PAYMENT_CONFLICT' for hold in result['held']))
+            self.assertEqual(self.store.read_bytes(), before)
+            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            browser.close()
+
     def test_browser_desktop_1440_photo_region_edit_confirm_and_copy(self):
         self._browser_flow(1440, 900)
 
