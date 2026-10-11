@@ -204,6 +204,40 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual((status, body['code']), (409, 'STALE_PROPOSAL'))
         self.assertEqual(set(self.items().values()), {''})
 
+    def test_trip_reassignment_without_decision_revision_invalidates_proposal(self):
+        proposal = self.propose()
+        other = self.server.card_store.create_trip(starts_on='2027-01-01', ends_on='2027-01-03',
+                                                    destination='OTHER-TRIP', client_request_id='other-rule-trip')['tab_id']
+        self.server.card_store.conn.execute('UPDATE transactions SET trip_id=?, display_tab_id=? WHERE transaction_id=?',
+                                            (other, other, self.tx[0]))
+        self.server.card_store.conn.commit()
+        status, body = self.approve(proposal, 'stale-trip')
+        self.assertEqual((status, body.get('code')), (409, 'STALE_PROPOSAL'))
+        self.assertEqual(set(self.items().values()), {''})
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
+
+    def test_description_change_without_decision_revision_invalidates_proposal(self):
+        proposal = self.propose()
+        self.server.card_store.conn.execute('UPDATE transactions SET description=? WHERE transaction_id=?',
+                                            ('NEW-AUTHORITY-DESCRIPTION', self.tx[0]))
+        self.server.card_store.conn.commit()
+        status, body = self.approve(proposal, 'stale-description')
+        self.assertEqual((status, body.get('code')), (409, 'STALE_PROPOSAL'))
+        self.assertEqual(set(self.items().values()), {''})
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
+
+    def test_automatic_classification_changes_invalidate_the_reviewed_before_values(self):
+        for column, value in (('item', 'NEW-ITEM'), ('merchant', 'NEW-SHOP')):
+            proposal = self.propose()
+            self.server.card_store.conn.execute(f'UPDATE transactions SET {column}=? WHERE transaction_id=?',
+                                                (value, self.tx[0]))
+            self.server.card_store.conn.commit()
+            before = self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+            status, body = self.approve(proposal, 'stale-before-' + column)
+            self.assertEqual((status, body.get('code')), (409, 'STALE_PROPOSAL'))
+            self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
+
     def test_a_failure_in_the_middle_rolls_every_write_back(self):
         store = self.flow.pipeline.store
         revisions = {r['transaction_id']: r['revision'] for r in self.rows}

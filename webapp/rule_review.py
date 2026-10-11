@@ -25,10 +25,13 @@ def owns_route(path: str) -> bool:
 
 
 def fingerprint(payloads: list[dict], rows: list[dict]) -> str:
-    """Covers the exact decisions and the money and date they would be made on."""
+    """Binds decisions to the reviewed assignment, description and source values, not just the revision."""
     by_id = {r["transaction_id"]: r for r in rows}
-    stable = sorted((p["transaction_id"], p["revision"], p["item"], by_id[p["transaction_id"]]["amount_krw"],
-                     by_id[p["transaction_id"]]["occurred_on"]) for p in payloads)
+    stable = sorted((p["transaction_id"], p["revision"], p["item"], p.get("description", ""),
+                     p.get("display_tab_id", ""), by_id[p["transaction_id"]]["amount_krw"],
+                     by_id[p["transaction_id"]]["occurred_on"], by_id[p["transaction_id"]].get("item"),
+                     by_id[p["transaction_id"]].get("merchant"), by_id[p["transaction_id"]].get("trip_id"))
+                    for p in payloads)
     return hashlib.sha256(json.dumps(stable, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
 
 
