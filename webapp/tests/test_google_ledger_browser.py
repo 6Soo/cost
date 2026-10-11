@@ -43,6 +43,27 @@ def workbook(title, income, expense):
 
 
 class GoogleLedgerBrowserTests(unittest.TestCase):
+    def test_missing_snapshot_shows_retry_screen_then_recovers(self):
+        saved = self.snapshot.read_bytes()
+        self.snapshot.unlink()
+        with patch.object(page, 'caller', return_value=(True, 'boss')), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                pg = browser.new_page(viewport={'width': 375, 'height': 812})
+                response = pg.goto(self.base + '/google-ledger')
+                self.assertEqual(response.status, 503)
+                self.assertIn('동기화 결과를 확인하지 못했습니다', pg.get_by_role('alert').inner_text())
+                self.assertTrue(pg.get_by_role('link', name='다시 확인').is_visible())
+                status, body = self.get('/api/google-ledger')
+                self.assertEqual(status, 503)
+                self.assertIn('code', json.loads(body))
+                self.snapshot.write_bytes(saved)
+                pg.get_by_role('link', name='다시 확인').click()
+                pg.locator('td[data-label="여행"]').filter(has_text='0630_오제').wait_for()
+                self.assertEqual(pg.evaluate('document.documentElement.scrollWidth-innerWidth'), 0)
+            finally:
+                browser.close()
+
     def test_work_menu_opens_readable_google_totals_at_three_widths(self):
         with patch.object(page, 'caller', return_value=(True, 'boss')), sync_playwright() as api:
             browser = api.chromium.launch(headless=True)

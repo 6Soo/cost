@@ -308,6 +308,24 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
            "</script>" if is_owner and csrf else '') + "</body></html>")
 
 
+def _send_unavailable(handler, path: str, code: str, message: str) -> None:
+    if path.startswith('/api/'):
+        handler._send_json({'code': code, 'message': message}, 503)
+        return
+    handler._send(
+        "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Google 장부 동기화 확인</title><style>"
+        "body{font-family:system-ui,sans-serif;margin:16px;line-height:1.6;color:#182230}"
+        "h1{font-size:22px}a{display:inline-flex;align-items:center;min-height:44px;"
+        "padding:8px 12px;margin:8px 8px 0 0;border:1px solid #d0d5dd;border-radius:8px;color:#166444}"
+        "</style></head><body><h1>Google 장부를 아직 표시할 수 없어요</h1>"
+        f"<p role='alert'>{html.escape(message)}</p>"
+        "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
+        "<a href='/google-ledger'>다시 확인</a><a href='/board'>장부로 돌아가기</a>"
+        "</body></html>", 503)
+
+
 def caller(enforced: bool, session, is_owner_of, role_of=None) -> tuple[bool, str | None]:
     """Fail closed. Owner needs enforcement on and a confirmed owner session.
 
@@ -512,7 +530,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     try:
         snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
     except google_authority.SnapshotError as error:
-        handler._send_json({"code": error.code, "message": "동기화 결과를 확인하지 못했습니다"}, 503)
+        _send_unavailable(handler, parsed.path, error.code, '동기화 결과를 확인하지 못했습니다')
         return True
     snapshot = snapshot_for_display(snapshot)
     try:
@@ -523,7 +541,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                                      mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
                                      choices=load_choices(_snapshot_path()))
     except google_authority.SnapshotError as error:
-        handler._send_json({'code': error.code, 'message': '권한 또는 정본 설정 파일을 확인해 주세요'}, 503)
+        _send_unavailable(handler, parsed.path, error.code, '권한 또는 정본 설정 파일을 확인해 주세요')
         return True
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)

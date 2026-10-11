@@ -149,7 +149,13 @@ def test_unreadable_snapshot_is_503_not_empty_page(tmp_path, monkeypatch):
     monkeypatch.setenv("WEBLEDGER_GOOGLE_LEDGER_ROWS", str(tmp_path / "rows.json"))
     handler = FakeHandler()
     page.dispatch(handler, parsed("/google-ledger"), is_owner=True)
-    assert handler.sent[0][:2] == ("json", 503)
+    assert handler.sent[0][:2] == ("html", 503)
+    assert "다시 확인" in handler.sent[0][2]
+    assert str(path) not in handler.sent[0][2]
+    api = FakeHandler()
+    page.dispatch(api, parsed("/api/google-ledger"), is_owner=True)
+    assert api.sent[0][:2] == ("json", 503)
+    assert api.sent[0][2]['code'] == 'SNAPSHOT_UNREADABLE'
 
 
 def test_viewer_sees_only_granted_trip_without_copies_or_sources(snapshot_file):
