@@ -237,6 +237,30 @@ def build_parser():
     return parser
 
 
+def close_runtime(server, reserve_stop=None):
+    """Release acquired resources on both failed startup and normal exit."""
+    from webapp import ledger_board, ota_payment_review
+
+    actions = []
+    if reserve_stop is not None:
+        actions.append(reserve_stop.set)
+    worker = getattr(server, 'card_worker', None)
+    if worker is not None:
+        actions.append(lambda: worker.stop(timeout=5))
+    actions.extend((lambda: ota_payment_review.shutdown_snapshot_service(server.card_store),
+                    server.server_close, server.card_store.close,
+                    lambda: ledger_board.bind_oidc(None),
+                    lambda: ledger_board.bind_access(None),
+                    lambda: ledger_board.bind_importer(None),
+                    lambda: ledger_board.bind_store(None)))
+    for action in actions:
+        try:
+            action()
+        except Exception:
+            # A failed cleanup must not skip the remaining handles or expose data.
+            print('cleanup [RUNTIME_RESOURCE]: 자원 정리를 완료하지 못했습니다.', file=sys.stderr)
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.environment == 'production':
@@ -285,18 +309,22 @@ def main(argv=None) -> int:
                              # never fabricates rows. The demo board stays a
                              # developer default.
                              seed_demo=args.environment == "local-synthetic")
+    reserve_stop = None
     try:
         bind_runtime_access(server)
         oidc = connect_runtime_oidc(server, args)
+        if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1':
+            from app.reserve_trips import start_sync
+            reserve_stop = start_sync(server.card_store, os.environ['WEBLEDGER_TRIP_AUTHORITY'],
+                config.db_path.parent / 'evidence')
     except ops.OpsError as exc:
-        server.server_close()
+        close_runtime(server, reserve_stop)
         print(f"refused [{exc.code}]: {exc.message}", file=sys.stderr)
         return 2
-    reserve_stop = None
-    if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1':
-        from app.reserve_trips import start_sync
-        reserve_stop = start_sync(server.card_store, os.environ['WEBLEDGER_TRIP_AUTHORITY'],
-            config.db_path.parent / 'evidence')
+    except Exception:
+        close_runtime(server, reserve_stop)
+        print('refused [STARTUP]: 실행 초기화에 실패했습니다.', file=sys.stderr)
+        return 2
     print(f"serving fixed candidate on http://{args.host}:{port}")
     print(f"bind shape: {bind['shape']} - {bind['note']}")
     print(f"data root: {config.data_root}")
@@ -318,18 +346,8 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        if reserve_stop is not None:
-            reserve_stop.set()
-        worker = getattr(server, "card_worker", None)
-        if worker is not None:
-            worker.stop(timeout=5)
-        from webapp import ota_payment_review
-        ota_payment_review.shutdown_snapshot_service(server.card_store)
         server.shutdown()
-        server.server_close()
-        board_mod.bind_oidc(None)
-        board_mod.bind_access(None)
-        board_mod.bind_store(None)
+        close_runtime(server, reserve_stop)
     return 0
 
 
