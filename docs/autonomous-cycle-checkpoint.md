@@ -1,5 +1,30 @@
 # 자율 개발 체크포인트
 
+## 2026-10-11 COST V2 통합 안정화
+
+- 작업 브랜치는 `integration/cost-final`이며 시작 HEAD는 `bcb1f514629a8f4d3402c977ebaba9b3d8bff29e`다. 코드 커밋 9개를 작성했다. 현재 코드 HEAD는 `4e74f43`이며 문서 이후의 정확한 SHA는 PR과 Git을 따른다.
+- 새 결함 수정: 이전 자료의 조회·자동 갱신·업로드·규칙 제안·장부 확정·회사 제외 응답이 최신 안내를 덮는 문제, 저장 뒤 조회 실패를 전체 롤백으로 잘못 알리는 문제, 응답 유실 후 승인·답변 재시도의 요청 번호가 달라지는 문제, 클립보드 복사 뒤 이력 저장 실패를 복사 실패로 알리는 문제를 수정했다. 운영 환경에서 합성 세션 어댑터를 연결할 수 있던 경로도 DB 접근 전에 거부한다.
+- 실제 표적 근거: 카드·규칙·제외·카드 HTTP·회사 제외 통합 88 passed / 55 subtests; 후속 제안 오류 1 passed; 운영 실행·스키마 게이트 인접 83 passed / 16 subtests; 답변 재시도와 핵심 카드 브라우저 23 passed / 6 subtests; 복사 영향 8 passed; 장부 확정 응답 2 passed; 마지막 회사 제외 HTTP·통합 12 passed와 카드 핵심 브라우저 9 passed / 2 subtests. 범위와 시점이 겹치므로 합산하지 않는다.
+- 이후 환불 묶음 경로 5 passed와 늦은 환불 요청 브라우저 1 passed, 규칙 저장 후 재분류·조회 실패 2 passed, 정상 규칙 편집·모바일 흐름 2 passed도 통과했다. 후속 오류만 한정해 검증했고 기대값이나 회계 보호를 약화하지 않았다.
+- 같은 자료에서 새 답변을 저장한 뒤 이전 자동 갱신 오류가 성공 안내를 덮는 문제도 재현했다. 요청 시작 당시 화면 버전까지 비교하도록 수정한 후 조회·자동 갱신 브라우저 4 passed / 4 subtests를 확인했다.
+- 대표 실제 명령: `python -m pytest webapp/tests/test_card_google_copy.py webapp/tests/test_rule_review.py webapp/tests/test_company_exclusion_http.py webapp/tests/test_card_flow.py tests/card_pipeline/test_company_expense_integration.py -q --tb=short` → 88 passed / 55 subtests; `python -m pytest webapp/tests/test_platform_start.py webapp/tests/test_ops_hosting_bind.py webapp/tests/test_cp949_startup.py tests/card_pipeline/test_schema_gate.py -q --tb=short` → 83 passed / 16 subtests; `python -m pytest webapp/tests/test_refund_group_commit.py -q --tb=short` → 5 passed.
+- 전체 회귀는 코드 `ae8c056`에서 `python -m pytest -q --tb=short`로 한 번 시작해 **3107 passed, 3 skipped, 2456 subtests passed, 실패 0**, 1689.47초, 종료 코드 0으로 끝났다. 로그는 `C:/AX/cost-v2-regression-20261011.log`다. 실행 중 추가한 운영 인증 차단·답변 재시도·복사 이력·확정/제외/환불 선택 가드·규칙 저장·같은 자료의 자동 갱신 경합은 위 후속 표적으로 검증했다. 전체 회귀 수집 이후 추가한 테스트를 전체 결과에 포함했다고 주장하지 않으며 최종 HEAD 전체 회귀를 다시 수집하지 않았다. 건너뜀 3개는 비공개 Agoda 자료 의존 2개와 Windows chmod 권한 재현 1개다.
+
+| 검토 범위 | 확인한 안전 경계와 인수 조건 |
+| --- | --- |
+| 운영 스키마와 진입점 | `Procfile`은 `run_candidate.py --environment production`을 사용한다. Windows 실행기는 `tools/launch_web_ledger.py`를 사용한다. 두 경로는 카드 스키마 `require`와 읽기 전용 사전 검사를 강제한다. 개발용 직접 서버는 운영 진입점으로 사용하지 않는다. 운영에 복사된 실행기 파일도 배포 전에 승인된 절차로 대조해야 한다. |
+| 리허설과 복구 | 합성 검사와 기존 통과 근거에서 잘못된 DB, 원본 지문, 자동 증가 이력, WAL 복사 경쟁, 반복 적용, 호출자 트랜잭션과 실패 롤백을 확인했다. `--check-only`는 복제본에도 마이그레이션하지 않는다. 게이트는 다른 장부 모듈의 모든 DDL을 승인하지 않는다. 실제 복구 사본·복원·재시작은 미실행이다. |
+| 원본·제외·환불·장부 | 원본 거래와 사용자 결정은 제외로 바꾸지 않는다. 기록·확정·환불 보호와 늦은 환불 보류를 유지한다. 저장 후 상태 읽기 실패는 저장 결과와 구분하며 같은 요청을 재실행해 중복 결정·장부 행을 만들지 않는다. |
+| Google 인증·권한 | 지정 원본만 ADC 읽기를 허용하고 리다이렉트·공개 폴백을 거부한다. 초기 인증 실패와 부분 장애도 정상 스냅샷을 보존하면서 stale로 표시한다. 403의 알려진 요청 한도와 접근 거절을 구분한다. viewer 상세는 현재 권한·여행 매핑·선택 정본을 모두 요구한다. HTML·JSON은 `no-store`다. |
+| 영수증·TSV | 카드 연결 근거·원문 금액·JPY 환산 조건·행별 보류·7열 순서를 유지한다. 복사 이력 쓰기 실패도 실제 클립보드 성공을 취소로 표시하지 않는다. 복사는 Google 기록 완료가 아니다. |
+| 스케줄·파일·데모 | 동기화는 OS 잠금과 실패 지연을 사용하며 현재/이전 세대만 참조한다. 정리 대상은 형식과 메타데이터가 일치하는 생성 파일로 제한한다. 스케줄 예시는 비활성이고 익명 데모는 합성 플래그가 있는 입력만 허용한다. |
+
+- 검토는 main 대비 변경 파일 64개 목록을 분류하고 위 고위험 제품 경로와 연결 테스트를 중심으로 수행했다. 이번 변경은 제품 코드 4개, 테스트 6개, 이 문서에 한정된다. 기술적으로 코드 통합 검토 후보이며 발견된 미해결 테스트 실패는 없다. 최종 코드 이후 문서만 변경했고 코드 검사를 추가하지 않았다. 테스트·문서 변경을 운영 실측 완료로 해석하지 않는다. main 병합과 운영 인수 완료는 여전히 승인되지 않았다.
+- HOLD: 검증된 실제 복구 사본의 읽기 전용 진단·복원 리허설과 운영 DB 변경 승인, 실제 ADC/OIDC 계정·여행별 매핑 확인, 기록·확정 거래 제외 및 중복 의심 영수증 정책, 승인된 OCR 엔진, 운영 배포·스케줄·Render 승인이다. Google의 기존 링크 공유 제한은 인증 전환 검증과 별도 권한 승인이 필요하다.
+- 사용자 `C:/AX/cost`의 변경 1개·미추적 4개와 stash `fbb1226e4659e4a2b75216cd556b51687db7d73e`를 보존했다. 운영 DB·Google 원본·공유 설정·스케줄·main은 변경하지 않았다.
+- 회귀가 생성한 OTA 화면 캡처 두 개는 `.local-archive/regression-v2-20261011-192337`에 보관하고 해당 추적 파일만 실행 전 HEAD 상태로 복구했다. GitHub Actions와 등록된 deployments는 게시 전 각각 0개였으며 배포 설정을 변경하지 않았다.
+- 다음 첫 명령은 `git -C C:/AX/cost-integration status --short`다. 이어 PR #85의 HEAD를 비교하고 새 실패 근거가 있을 때만 관련 표적을 재개한다. 운영 인수는 승인된 복구 사본 경로가 제공된 뒤 `tools/rehearse_cost_schema.py --source-copy <승인된 사본 경로> --confirm-isolated-copy --check-only` 진단부터 진행한다. 현재 운영 원본에 연결하지 않는다. 독립적인 새 결함은 이번 검토에서 더 재현하지 못했으며 완료한 검사를 관성적으로 반복하지 않는다.
+
 ## 2026-10-11 실제 Windows 저장소 후속 개발
 
 - 후속 수정: 보류 영수증의 원문 통화 표시, 잘못된 TSV ID·증빙·날짜의 행별 보류, 승인·답변 저장 응답의 이전 자료 복귀 방지, 같은 자료의 오래된 거래·제외 버전 거부를 추가했다. 이 문서 커밋까지 이번 실행의 신규 커밋은 19개다. 최신 HEAD는 PR #85와 `git rev-parse HEAD`를 따른다.
