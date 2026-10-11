@@ -276,6 +276,42 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], count)
             context.dispose()
 
+    def test_answer_retry_after_lost_response_reuses_request_and_restores_button(self):
+        batch = self.assign(trip=self.make_trip())
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        requests = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{batch}"]').click()
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
+            form = page.locator('form[data-index]').first
+            form.locator('[name="item"]').fill('식비')
+
+            def lose_first_response(route):
+                body = route.request.post_data_json
+                requests.append(body)
+                response = page.request.post(route.request.url, data=body,
+                                              headers={'X-CSRF-Token': ledger_board.CSRF_TOKEN})
+                if len(requests) == 1:
+                    self.assertEqual(response.status, 200)
+                    route.abort('failed')
+                else:
+                    route.fulfill(status=response.status, json=response.json())
+
+            page.route('**/decision', lose_first_response)
+            form.locator('button').click()
+            page.get_by_text('서버에 연결하지 못했습니다.', exact=False).wait_for()
+            self.assertTrue(form.locator('button').is_enabled())
+            with page.expect_response('**/decision'):
+                form.locator('button').click()
+            self.assertEqual(requests[0]['request_id'], requests[1]['request_id'])
+            page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=row['transaction_id'])
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
