@@ -1,5 +1,36 @@
 # 자율 개발 체크포인트
 
+## 2026-10-11 운영 인수 위험 해소
+
+- 시작 HEAD `e3feb4ce7a648674648d2614a754e8da46d85f41`, 브랜치 `integration/cost-final`. 코드·검사 커밋 8개: `79231b5`, `bc2d437`, `335071e`, `2fed028`, `85a3a2c`, `d0034dc`, `1f0f8ab`, `fddf635`. 이후 기록 SHA는 Git과 PR #85를 따른다.
+- 시작 실패: 접근제어·OIDC·예약 동기화 초기화 실패에서 워커·소켓·DB·전역 바인딩을 정리한다. 포트 충돌·워커 시작 실패는 기존 저장소 바인딩을 교체하지 않는다. 예상하지 못한 초기화·파일 I/O 오류는 원문 대신 고정 코드로 종료한다.
+- DB 종료를 추가한 구현의 경합도 검사했다. 진행 중인 쓰기보다 먼저 DB를 닫는 문제를 확인해 요청 잠금으로 보완했다. 현재 쓰기는 완료한 뒤 연결을 닫고 대기 요청은 `503 SERVER_STOPPING`으로 거부한다. 합성 SQLite에서 실제 트랜잭션의 보존을 확인했다. 실제 운영 서버 재시작 검증은 아니다.
+- Windows 실행기는 상속된 예약 동기화 활성 값을 지우고 이번 설정 파일의 명시적 opt-in만 사용한다. 운영 실행이나 스케줄러 활성화는 하지 않았다.
+- 상대 데이터 루트를 먼저 절대 경로로 바꿔 검사를 우회하던 문제를 수정했다. 영수증·Google 스냅샷·비공개 행 파일도 두 운영 실행기에서 상대·임시·소스 체크아웃 내부 경로를 거부한다. 선택 기능을 새로 켜거나 기존 파일을 이동하지 않는다.
+- Google: 실제 ADC 내보내기 어댑터에 합성 인증·전송을 주입했다. 손상된 XLSX의 마지막 정상 행 보존, 다른 원본 정상 갱신, 지연 후 복구, 읽기 전용 scope·리다이렉트 금지·응답 정리·원문 비노출을 확인했다. 실제 Google 인증 성공 증거는 아니다.
+- 캐시: 실제 서명 쿠키 HTTP에서 owner·viewer·익명의 Google·영수증 HTML/API 허용·거부 응답에 `no-store`를 확인했다. 이미 사용자에게 전달된 자료를 원격 삭제한다는 뜻은 아니다.
+
+검사 결과는 범위가 겹치므로 합산하지 않는다.
+
+| 실제 검사 범위 | 결과 |
+| --- | --- |
+| `test_runtime_lifecycle.py`, `test_cp949_startup.py`, `test_schema_gate.py` | 초기 정리 수정에서 20 passed |
+| `test_runtime_lifecycle.py`, `test_platform_start.py` | 서버 생성 실패 수정에서 33 passed |
+| `test_runtime_lifecycle.py`, `test_batch_concurrency.py` | 종료 중 쓰기 보존 수정에서 12 passed |
+| `test_signed_session_http.py` | 요청 경계 수정 후 8 passed / 28 subtests. 이후 신규 `-k never_cache`는 1 passed |
+| `test_google_authority.py -k adc_corrupt_xlsx` | 1 passed |
+| `test_launch_ota_review.py`, `test_schema_gate.py` | 설정 활성화 수정에서 21 passed |
+| `test_ops_safety.py -k 'relative_data_root_is or direct_config_refuses or ConfiguredRoot'` | 7 passed |
+| `test_ops_hosting_bind.py::DurableDataRootIsNotInsideTheCheckout`, `::TheEntryPointRefusesCleanly` | 10 passed / 4 subtests |
+| `test_runtime_lifecycle.py -k 'optional or path_refusal'` | 12 passed |
+| `test_runtime_lifecycle.py -k data_root_io_failure` | 실패 재현 후 수정, 1 passed |
+| cp949 고정 문자열·운영 합성 세션 거부·운영 OIDC 합성 바인딩 거부 | 3 passed |
+
+- 실패는 위 코드 수정으로 해소했다. 신규 캐시 검사의 초기 잘못된 상태 코드 기대값은 기존 계약(익명 Google 403, viewer 영수증 404)에 맞췄다. 보호 조건을 삭제하지 않았다. 전체 pytest와 기존 6개 브라우저 완주는 재실행하지 않았으며 이전 근거를 최신 HEAD 전체 통과로 바꾸지 않는다.
+- `tools/rehearse_cost_schema.py --help`로 `--source-copy`, `--expected-sha256`, `--confirm-isolated-copy`, `--check-only`를 확인했다. 승인된 실제 사본 경로가 지정되지 않아 실제 사본 검증은 하지 않았다. 기존 합성 리허설·원자성·WAL·복구 검사를 재사용한다. 백업 래퍼는 프로세스 중단·재시작이 있어 실행하지 않았다.
+- ADC 기본 파일·지정 파일과 현재 필수 OIDC 설정이 없는 것을 값 비노출로 확인했다. 승인된 시험 자격증명, 승인된 복구 사본, 기존 회계 정책 결정, 운영 반영 승인은 HOLD다. CODE READY는 위 수정·비운영 검증 범위이며 INTEGRATION VERIFIED·OPERATIONAL VERIFIED로 상향하지 않는다.
+- 다음 시작: `git -C C:/AX/cost-integration status --short`. 사본 제공 시 위 CLI 옵션과 승인 해시로 읽기 전용 진단을 진행한다. 시험 계정 제공 시 OIDC·ADC 실제 읽기와 철회·만료를 검증한다. 병합·배포가 승인되면 그 게이트에서 시작 SHA와 종료 HEAD를 기록해 필요한 전체 회귀를 실행한다.
+
 ## 2026-10-11 최종 업무 흐름 브라우저 검증
 
 - 시작 HEAD: `1b3edbd5d5b308f50922b4fd3619c4bacf92d188`. 코드·검사 커밋은 `753e861`, `97819e5`이며 이후 기록 커밋은 Git과 PR #85를 따른다.
