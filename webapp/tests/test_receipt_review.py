@@ -142,6 +142,26 @@ class ReceiptReviewTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), changed)
         self.assertEqual(self.store.read_bytes(), before)
 
+    def test_failed_receipt_file_replace_returns_safe_retry_status_and_preserves_saved_data(self):
+        from webapp import receipt_review
+        identity = self._confirmed_cash_receipt()
+        before = self.store.read_bytes()
+        with patch.object(receipt_review.os, 'replace', side_effect=OSError('PRIVATE-STORAGE-PATH')):
+            status, body = self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2900}, token=self.csrf())
+        self.assertEqual((status, body['code']), (503, 'RECEIPT_STORE_UNAVAILABLE'))
+        self.assertNotIn('PRIVATE', json.dumps(body))
+        self.assertEqual(self.store.read_bytes(), before)
+        self.assertEqual(self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2900}, token=self.csrf())[0], 200)
+
+    def test_invalid_receipt_store_is_unavailable_without_replacing_or_exposing_it(self):
+        self.store.write_bytes(b'PRIVATE-CORRUPTED-STORAGE-CONTENT')
+        before = self.store.read_bytes()
+        for route, payload in (('/api/receipts', None), ('/receipts', None), ('/api/receipts/scan', REGIONS)):
+            status, body = self.request(route, payload, token=self.csrf())
+            self.assertEqual((status, body['code']), (503, 'RECEIPT_STORE_UNAVAILABLE'))
+            self.assertNotIn('PRIVATE', json.dumps(body))
+            self.assertEqual(self.store.read_bytes(), before)
+
     def test_only_png_or_jpeg_bytes_are_accepted(self):
         status, body = self.request('/api/receipts/image', token=self.csrf(), raw=b'<html>not a photo</html>')
         self.assertEqual((status, body['code']), (400, 'IMAGE_TYPE_UNSUPPORTED'))

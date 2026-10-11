@@ -47,16 +47,35 @@ MESSAGES = {
     'CARD_PAYMENT_CONFLICT': '같은 날짜·상호·금액의 카드 매입이 있습니다. 결제수단을 확인해 주세요.',
     'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 상호·날짜·금액·결제수단은 변경할 수 없습니다.',
     'STALE_CANDIDATE': '다른 화면에서 영수증을 변경했습니다. 입력값을 확인하고 화면을 새로 열어 주세요.',
+    'RECEIPT_STORE_UNAVAILABLE': '영수증 저장소를 확인하지 못했습니다. 저장 여부와 복구 사본을 확인한 뒤 다시 시도해 주세요.',
     'Failed to fetch': '연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
 }
 _STORE_LOCK = threading.RLock()
+
+
+class ReceiptStoreError(OSError):
+    """A saved receipt file must remain untouched until it can be read or replaced safely."""
 
 
 def _serialized(function):
     @functools.wraps(function)
     def wrapped(*args, **kwargs):
         with _STORE_LOCK:
-            return function(*args, **kwargs)
+            try:
+                return function(*args, **kwargs)
+            except OSError:
+                raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
+    return wrapped
+
+
+def _storage_errors(function):
+    @functools.wraps(function)
+    def wrapped(handler, *args, **kwargs):
+        try:
+            return function(handler, *args, **kwargs)
+        except ReceiptStoreError:
+            handler._send_json({'code': 'RECEIPT_STORE_UNAVAILABLE'}, 503)
+            return True
     return wrapped
 
 
@@ -94,10 +113,17 @@ def _images_dir(store: Path) -> Path:
 
 
 def load(path: Path) -> dict:
-    if not path.exists():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return {"candidates": [], "holds": [], "images": []}
-    data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE') from None
+    if not isinstance(data, dict) or any(not isinstance(data.get(key), list) for key in ('candidates', 'holds')):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     data.setdefault("images", [])
+    if not isinstance(data['images'], list):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     return data
 
 
@@ -390,6 +416,7 @@ def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = No
             "held": result["held"] + data["holds"] + unassigned + card_holds}
 
 
+@_storage_errors
 def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False, query=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
@@ -403,6 +430,8 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         try:
             data = image_bytes(path, image.group(1))
             handler._send_bytes(data, sniff_image(data))
+        except ReceiptStoreError:
+            raise
         except (KeyError, OSError):
             handler._send_json({"code": "IMAGE_NOT_FOUND"}, 404)
         except ValueError:
