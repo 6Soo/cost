@@ -60,3 +60,39 @@ def test_amount_edit_requires_confirmation_again(tmp_path):
     assert rr.tsv(path, 'trip-syn')['row_count'] == 1
     rr.edit(path, identity=identity, changes={'total_jpy': 1300})
     assert rr.tsv(path, 'trip-syn')['row_count'] == 0
+
+
+def test_cash_receipt_with_card_evidence_is_held_instead_of_counted_twice(tmp_path, monkeypatch):
+    path = tmp_path / 'receipts.json'
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01', 'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    monkeypatch.setattr(rr, 'card_rows', lambda board: cards)
+    rr.scan(path, {'regions': [region()]})
+    stored, = rr.load(path)['candidates']
+    rr.edit(path, identity=stored['identity'], changes={'trip_id': 'trip-syn'},
+            valid_trips={'trip-syn'}, card_rows_list=cards)
+    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    result = rr.tsv(path, 'trip-syn')
+    assert result['row_count'] == 0
+    assert any(h['reason'] == 'CARD_PAYMENT_CONFLICT' for h in result['held'])
+
+
+def test_copy_rechecks_cards_imported_after_receipt_confirmation(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [region()]})
+    stored, = rr.load(path)['candidates']
+    rr.edit(path, identity=stored['identity'], changes={'trip_id': 'trip-syn'}, valid_trips={'trip-syn'})
+    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    before = path.read_bytes()
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01', 'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    assert rr.tsv(path, 'trip-syn', card_rows_list=cards)['row_count'] == 0
+    assert path.read_bytes() == before
+
+
+def test_repeated_confirmation_does_not_append_duplicate_history(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [region()]})
+    stored, = rr.load(path)['candidates']
+    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    before = path.read_bytes()
+    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    assert path.read_bytes() == before

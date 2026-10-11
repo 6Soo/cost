@@ -93,6 +93,7 @@ class CardGoogleCopyTests(unittest.TestCase):
             clipboard = clipboard.replace(chr(13) + chr(10), chr(10))
             expected = json.loads(page.request.get(f'{self.base}/api/imports/{batch}/google-tsv?tab={trip}').text())['tsv']
             self.assertEqual(clipboard, expected)
+            self.assertTrue(page.evaluate('(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', trip))
             self.assertIn('장부를 바꾸지 않습니다', page.locator('#status').inner_text())
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             button.click()  # a second copy of the same trip asks first

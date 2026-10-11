@@ -224,6 +224,11 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertIn('\t영수증\t13000', clipboard)
             _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
             self.assertEqual(clipboard, tsv['tsv'])
+            self.assertTrue(page.evaluate('(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', self.trip))
+            dialogs = []
+            page.on('dialog', lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
+            page.click('#copy-tsv')
+            self.assertTrue(any('이미 구글 시트용으로 복사' in message for message in dialogs))
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             browser.close()
 

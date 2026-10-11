@@ -171,11 +171,13 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
             _validate_values(region.merchant, region.date, region.total)
     known = {c["identity"] for c in data["candidates"]}
     # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
-    result = rc.build_candidates(regions, card_rows(board), known=known)
+    cards = card_rows(board)
+    result = rc.build_candidates(regions, cards, known=known)
     duplicates = []
     added = 0
     for candidate in result["candidates"]:
         stored = {**candidate.__dict__, "history": [], "hold": None}
+        _settle(stored, cards)
         if payload.get("image"):
             region = next(r for r in regions if rc._identity(r) == candidate.identity)
             source_region = hashlib.sha256(json.dumps(
@@ -216,7 +218,11 @@ def _settle(stored: dict, card_rows_list: list) -> None:
             stored["hold"] = "CARD_MATCH_AMBIGUOUS"
     else:
         stored["card_transaction_id"] = None
-        stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
+        if _match_card(card_rows_list, stored):
+            stored['hold'] = 'CARD_PAYMENT_CONFLICT'
+            stored['amount_krw'] = None
+        else:
+            stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
 
 
 def _signature(candidate: dict) -> tuple:
@@ -264,6 +270,8 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
+            if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
+                return stored
             candidate = _candidate(stored)
             candidate.history = list(stored["history"])
             rc.confirm(candidate, payee=payee, category=category, note=note)
@@ -273,12 +281,16 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
-def tsv(path: Path, trip: str | None = None) -> dict:
+def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = None) -> dict:
     data = load(path)
+    if card_rows_list is not None:
+        for stored in data['candidates']:
+            _settle(stored, card_rows_list)
     candidates = [_candidate(c) for c in data["candidates"]]
     if not trip:
         raise ValueError("TRIP_REQUIRED")
-    mine = [c for c, stored in zip(candidates, data["candidates"]) if stored.get("trip_id") == trip]
+    mine = [c for c, stored in zip(candidates, data["candidates"])
+            if stored.get("trip_id") == trip and not stored.get('hold')]
     unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
                   if not c.get("trip_id")]
     card_holds = [{"identity": c["identity"], "reason": c["hold"]} for c in data["candidates"]
@@ -316,7 +328,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         elif parsed.path == "/api/receipts/tsv":
             trip = ((query or {}).get("trip") or [""])[0]
             try:
-                handler._send_json(tsv(path, trip))
+                handler._send_json(tsv(path, trip, card_rows_list=card_rows(board)))
             except ValueError as error:
                 handler._send_json({"code": str(error)}, 400)
         else:
@@ -377,7 +389,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{p}</option>" for p in PAYMENTS)
         + "</select>"
         f"<button type='button' data-edit='{identity}'>수정</button></td>"
-        f"<td>{amount}</td><td>{'확정됨' if confirmed else '사람 확인 필요'}</td>"
+        f"<td>{amount}</td><td>{html.escape(candidate.get('hold') or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
         f"<td><input data-payee='{identity}' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'>"
         f"<input data-category='{identity}' value='{html.escape(candidate.get('category') or '')}' placeholder='내용'>"
         f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
@@ -412,11 +424,16 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
         "post('/api/receipts/confirm',{identity:id,payee:val('data-payee',id),category:val('data-category',id)})"
         ".then(()=>location.reload()).catch(e=>say(e.message))});"
-        "document.getElementById('copy-tsv').onclick=async()=>{const trip=document.getElementById('copy-trip').value;"
-        "if(!trip){say('복사할 여행을 고르세요');return}const x=await (await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip))).json();"
+        "document.getElementById('copy-tsv').onclick=async()=>{const button=document.getElementById('copy-tsv');"
+        "const trip=document.getElementById('copy-trip').value;if(!trip){say('복사할 여행을 고르세요');return}"
+        "const key='gcopy-trip:'+trip;const previous=localStorage.getItem(key);"
+        "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
+        "button.disabled=true;try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
+        "const x=await response.json();if(!response.ok)throw new Error(x.message||x.code);"
         "if(!x.row_count){say('복사할 확정 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
-        "await navigator.clipboard.writeText(x.tsv);say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. "
-        "구글 시트에 붙여넣은 뒤에만 반영됩니다.')};")
+        "await navigator.clipboard.writeText(x.tsv);localStorage.setItem(key,new Date().toLocaleString('ko-KR'));"
+        "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.')}"
+        "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{button.disabled=false}};")
     box_inputs = "".join(f"<input id='box{i}' type='number' value='0' aria-label='영역 {i}' style='width:4.5em'>"
                          for i in range(1, 5))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
