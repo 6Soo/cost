@@ -570,6 +570,40 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(self.request('/api/receipts')[1]['candidates'][0]['total_jpy'], 2300)
             browser.close()
 
+    def test_receipt_save_retry_after_lost_response_preserves_one_history_entry(self):
+        self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            for operation in ('edit', 'confirm'):
+                page.goto(self.base + '/receipts')
+                if operation == 'edit':
+                    page.locator('[data-total]').fill('2400')
+                else:
+                    page.locator('[data-payee]').fill('LOST-RESPONSE-PAYEE')
+                    page.locator('[data-category]').fill('FOOD')
+                requests = []
+                def lose_first_response(route):
+                    requests.append(route.request.post_data_json)
+                    response = route.fetch()
+                    if len(requests) == 1:
+                        self.assertEqual(response.status, 200)
+                        route.abort('failed')
+                    else:
+                        route.fulfill(response=response)
+                pattern = '**/api/receipts/' + operation
+                page.route(pattern, lose_first_response)
+                page.locator('[data-' + operation + ']').click()
+                page.wait_for_function("document.getElementById('status').textContent.includes('연결하지 못했습니다')")
+                saved = self.store.read_bytes()
+                with page.expect_response(pattern) as retry:
+                    page.locator('[data-' + operation + ']').click()
+                self.assertEqual(retry.value.status, 200)
+                self.assertEqual(requests[0], requests[1])
+                self.assertEqual(self.store.read_bytes(), saved)
+                page.unroute(pattern)
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')

@@ -291,6 +291,15 @@ def _check_candidate_version(candidate: dict, expected_version: str | None) -> N
         raise ValueError('STALE_CANDIDATE')
 
 
+def _saved_retry(candidate: dict, expected_version: str | None, operation: str, values: dict, note: str) -> bool:
+    history = candidate.get('history') or []
+    if not expected_version or not history:
+        return False
+    latest = history[-1]
+    return (latest.get('request_version') == expected_version and latest.get('operation') == operation
+            and latest.get('to') == values and latest.get('note') == note)
+
+
 @_serialized
 def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None,
          card_rows_list: list | None = None, expected_version: str | None = None) -> dict:
@@ -299,6 +308,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
     for stored in data["candidates"]:
         if stored["identity"] != identity:
             continue
+        if _saved_retry(stored, expected_version, 'edit', changes, note):
+            return stored
         _check_candidate_version(stored, expected_version)
         allowed = {"merchant", "date", "total_jpy", "payment", "trip_id"}
         unknown = set(changes) - allowed
@@ -324,7 +335,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         _settle(stored, card_rows_list or [])
         if any(before[k] != stored.get(k) for k in changes):
             stored["payee"], stored["category"] = None, None
-            stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
+            stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note,
+                                                     "operation": "edit", "request_version": expected_version})
         _save(path, data)
         return stored
     raise KeyError("CANDIDATE_NOT_FOUND")
@@ -336,12 +348,15 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
+            if _saved_retry(stored, expected_version, 'confirm', {'payee': payee, 'category': category}, note):
+                return stored
             _check_candidate_version(stored, expected_version)
             if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
                 return stored
             candidate = _candidate(stored)
             candidate.history = list(stored["history"])
             rc.confirm(candidate, payee=payee, category=category, note=note)
+            candidate.history[-1].update(operation='confirm', request_version=expected_version)
             stored.update(payee=candidate.payee, category=candidate.category, history=candidate.history)
             _save(path, data)
             return stored

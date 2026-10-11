@@ -98,6 +98,28 @@ def test_repeated_confirmation_does_not_append_duplicate_history(tmp_path):
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize('operation', ['edit', 'confirm'])
+def test_versioned_receipt_retry_returns_saved_result_without_repeating_history(tmp_path, operation):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [region()]})
+    stored, = rr.load(path)['candidates']
+    identity = stored['identity']
+    version = rr.candidate_version(stored)
+    def apply():
+        if operation == 'edit':
+            return rr.edit(path, identity=identity, changes={'total_jpy': 1300}, expected_version=version)
+        return rr.confirm(path, identity=identity, payee='SYN-SHOP', category='FOOD', expected_version=version)
+    first = apply()
+    before = path.read_bytes()
+    assert apply() == first
+    assert path.read_bytes() == before
+    rr.confirm(path, identity=identity, payee='NEW-PAYEE', category='NEW-CATEGORY')
+    latest = path.read_bytes()
+    with pytest.raises(ValueError, match='STALE_CANDIDATE'):
+        apply()
+    assert path.read_bytes() == latest
+
+
 def test_card_linked_receipt_can_choose_trip_when_form_resends_unchanged_payment(tmp_path, monkeypatch):
     path = tmp_path / 'receipts.json'
     cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01', 'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
