@@ -160,6 +160,49 @@ class RuleReviewTests(unittest.TestCase):
             'SELECT COUNT(*) FROM review_decisions WHERE transaction_id=?', (self.tx[0],)).fetchone()[0]
         self.assertEqual(count, 1)
 
+    def test_replay_when_other_request_finishes_after_first_lookup(self):
+        from webapp import rule_review
+        proposal = self.propose()
+        body = {**proposal, 'approved': True, 'request_id': 'interleaved-approval'}
+        lookup = review.batch_result_for
+        applied = []
+        first_lookup = True
+
+        def concurrent_winner(store, request_id):
+            nonlocal first_lookup
+            result = lookup(store, request_id)
+            if first_lookup:
+                first_lookup = False
+                applied.append(rule_review.approve(self.flow, self.batch, body))
+            return result
+
+        with patch.object(review, 'batch_result_for', side_effect=concurrent_winner):
+            replay = rule_review.approve(self.flow, self.batch, body)
+        self.assertEqual(replay['applied'], applied[0]['applied'])
+        self.assertEqual(self.server.card_store.conn.execute(
+            'SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
+
+    def test_simultaneous_http_approval_returns_same_result_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        proposal = self.propose()
+        barrier = threading.Barrier(2)
+        before = self.server.card_store.conn.execute(
+            'SELECT source_hash, amount_krw, raw_row_json FROM transactions ORDER BY transaction_id').fetchall()
+
+        def submit():
+            barrier.wait(timeout=5)
+            return self.approve(proposal, 'simultaneous-http')
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: submit(), range(2)))
+        self.assertEqual([status for status, _ in results], [200, 200])
+        self.assertEqual(results[0][1]['applied'], results[1][1]['applied'])
+        conn = self.server.card_store.conn
+        self.assertEqual(conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
+        self.assertEqual(conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+        self.assertEqual(conn.execute(
+            'SELECT source_hash, amount_krw, raw_row_json FROM transactions ORDER BY transaction_id').fetchall(), before)
+
     def _browser_case(self, width, height):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)

@@ -61,22 +61,37 @@ def request_basis(batch: str, body: dict) -> str:
 
 
 def approve(flow: CardFlow, batch: str, body: dict) -> dict:
+    # HTTP requests share this connection. Keep its read/replay/write sequence together.
+    with flow.pipeline.store.lock:
+        return _approve_locked(flow, batch, body)
+
+
+def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
     if body.get("approved") is not True:
         raise ValueError("APPROVAL_REQUIRED")
     request_id = str(body.get("request_id", ""))
     if not request_id:
         raise ValueError("REQUEST_ID_REQUIRED")
     basis = request_basis(batch, body)
-    earlier = review.batch_result_for(flow.pipeline.store, request_id)
-    if earlier is not None:
+    def replay():
+        earlier = review.batch_result_for(flow.pipeline.store, request_id)
+        if earlier is None:
+            return None
         if earlier.get("basis") != basis:
             raise RequestIdReused("same request id, different approval")
-        # The same approval sent again: answer with what was applied, change nothing.
         return {"applied": [x["transaction_id"] for x in earlier["results"]], "state": flow.state(batch)}
+
+    earlier = replay()
+    if earlier is not None:
+        return earlier
     state = flow.state(batch)
     proposal = propose(state, text=str(body.get("text", "")).strip(),
                        transaction_id=str(body.get("transaction_id", "")))
     if proposal["digest"] != body.get("digest"):
+        # Another connection may have committed this approval while we read the state.
+        earlier = replay()
+        if earlier is not None:
+            return earlier
         raise LookupError("STALE_PROPOSAL")
     if not proposal["payloads"]:
         raise ValueError("NOTHING_TO_APPLY")
