@@ -397,6 +397,8 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
             return True
         try:
             body = json.loads(raw.decode("utf-8") or "{}")
+            if not isinstance(body, dict):
+                raise ValueError('INVALID_VALUE')
         except (UnicodeDecodeError, ValueError):
             handler._send_json({"code": "INVALID_VALUE"}, 400)
             return True

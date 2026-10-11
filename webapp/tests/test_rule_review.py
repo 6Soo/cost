@@ -104,9 +104,20 @@ class RuleReviewTests(unittest.TestCase):
         status, body = self.post(f'/api/imports/{self.batch}/rule-proposal',
                                  {'text': '이 건만 식비로 분류해 줘', 'transaction_id': self.tx[0]})
         self.assertEqual((status, body['code']), (403, 'CSRF_REQUIRED'))
+
         proposal = self.propose()
         status, body = self.approve(proposal, 'req-no-token', token=None)
         self.assertEqual((status, body['code']), (403, 'CSRF_REQUIRED'))
+
+    def test_non_object_json_is_refused_before_rule_or_exclusion_writes(self):
+        for suffix in ('rule-proposal', 'rule-proposal/approve', 'company-exclusion'):
+            for payload in ([], None, 'invalid', 123):
+                with self.subTest(suffix=suffix, payload=payload):
+                    status, body = self.post(f'/api/imports/{self.batch}/{suffix}', payload,
+                                             token=ledger_board.CSRF_TOKEN)
+                    self.assertEqual((status, body['code']), (400, 'INVALID_VALUE'))
+        self.assertEqual(set(self.items().values()), {''})
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
 
     def test_approval_applies_every_row_in_one_request(self):
         proposal = self.propose()

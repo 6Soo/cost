@@ -67,3 +67,13 @@ def test_http_rejects_string_boolean_and_unknown_trip_grant(app):
                                 dict(data, user_id=existing.VIEWER))
         assert status == 400, body
     assert not gl.grants_path(app.snapshot).exists()
+
+
+def test_settings_http_rejects_non_object_json_without_writes(app):
+    for route in ('choice', 'mapping', 'grants'):
+        for body in ([], None, 'invalid', 123):
+            status, response = post(app, '/api/google-ledger/' + route, body)
+            assert (status, json.loads(response)['code']) == (400, 'INVALID_VALUE')
+    assert not gl.choice_path(app.snapshot).exists()
+    assert not gl.mapping_path(app.snapshot).exists()
+    assert not gl.grants_path(app.snapshot).exists()

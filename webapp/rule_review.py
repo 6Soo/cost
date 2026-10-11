@@ -122,6 +122,8 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
         return True
     try:
         body = json.loads(raw.decode("utf-8") or "{}")
+        if not isinstance(body, dict):
+            raise ValueError('INVALID_VALUE')
         if exclusion_match:
             from .ledger_board import _receipts_owner_request
             if not _receipts_owner_request():
