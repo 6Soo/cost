@@ -64,7 +64,7 @@ def _baseline(conn: sqlite3.Connection) -> tuple[dict, dict]:
         (kind, name): (table_name, sql)
         for kind, name, table_name, sql in conn.execute(
             "SELECT type, name, tbl_name, sql FROM sqlite_master "
-            "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+            "WHERE name NOT LIKE 'sqlite_%' OR name='sqlite_sequence' ORDER BY type, name"
         )
     }
     rows = {}

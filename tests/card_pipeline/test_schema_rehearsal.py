@@ -146,3 +146,19 @@ def test_read_only_diagnostic_accepts_prepared_copy_with_enforced_policy(tmp_pat
     result = json.loads(capsys.readouterr().out)
     assert result['status'] == 'READY' and result['schema_differences'] == []
     assert digest(source) == before
+
+
+def test_rehearsal_protects_deleted_row_autoincrement_history(tmp_path, monkeypatch):
+    source = synthetic_source(tmp_path / 'copy.sqlite')
+    conn = sqlite3.connect(source)
+    conn.execute('CREATE TABLE legacy_ids(id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT)')
+    conn.execute("INSERT INTO legacy_ids(value) VALUES ('retained'), ('deleted')")
+    conn.execute('DELETE FROM legacy_ids WHERE id=2')
+    conn.commit()
+    conn.close()
+    before = digest(source)
+    monkeypatch.setattr(db, 'SCHEMA_SQL', db.SCHEMA_SQL +
+                        "\nUPDATE sqlite_sequence SET seq=0 WHERE name='legacy_ids';")
+    with pytest.raises(RehearsalError, match='EXISTING_ROWS_CHANGED'):
+        rehearse(source)
+    assert digest(source) == before

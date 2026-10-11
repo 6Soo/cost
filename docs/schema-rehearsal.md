@@ -16,6 +16,7 @@ tools/rehearse_cost_schema.py는 명시적으로 제공된 **정지 상태의 �
 - SQLite integrity_check (전후)
 - 기존 스키마의 테이블·인덱스·트리거·뷰 정의 불변
 - 기존 테이블의 행 수와 행별 해시 지문 불변
+- `sqlite_sequence`의 자동 증가 이력 보존. 삭제된 행의 ID를 재사용할 수 있도록 카운터를 되돌린 변경도 거부
 - transaction_company_exclusions 존재 확인
 - 입력 복사본 SHA-256 불변 및 임시 시험 DB 자동 폐기
 - 복사 직후와 종료 직전 WAL/SHM/저널 재확인, 같은 복제본의 반복 마이그레이션 불변 확인
