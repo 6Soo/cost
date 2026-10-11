@@ -542,6 +542,34 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(self.store.read_bytes(), before)
             browser.close()
 
+    def test_receipt_save_locks_controls_and_restores_inputs_after_error(self):
+        self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            pending = []
+            page.route('**/api/receipts/edit', lambda route: pending.append(route))
+            page.locator('[data-total]').fill('2300')
+            with page.expect_request('**/api/receipts/edit'):
+                page.locator('[data-edit]').click()
+            for selector in ('[data-edit]', '[data-confirm]', '[data-total]', '#region-go', '#copy-tsv', '#img-go'):
+                self.assertTrue(page.locator(selector).is_disabled(), selector)
+            page.locator('[data-edit]').evaluate('(button)=>{button.click();button.click()}')
+            self.assertEqual(len(pending), 1)
+            pending.pop().fulfill(status=500, json={'message': 'RETRY-SAVE'})
+            page.get_by_text('RETRY-SAVE', exact=True).wait_for()
+            self.assertEqual(page.locator('[data-total]').input_value(), '2300')
+            self.assertTrue(page.locator('[data-edit]').is_enabled())
+            self.assertTrue(page.locator('[data-confirm]').is_enabled())
+            page.unroute('**/api/receipts/edit')
+            with page.expect_response('**/api/receipts/edit') as response:
+                page.locator('[data-edit]').click()
+            self.assertEqual(response.value.status, 200)
+            page.wait_for_function("document.querySelector('[data-total]').value==='2300' && !document.querySelector('[data-edit]').disabled")
+            self.assertEqual(self.request('/api/receipts')[1]['candidates'][0]['total_jpy'], 2300)
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')
