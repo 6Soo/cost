@@ -92,6 +92,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .work-action strong,.work-action small{display:block}
 .work-action small{font-size:12px;color:var(--mut);margin-top:3px}
 a.work-action:hover{background:var(--hover);border-color:var(--grn)}
+.nav .work-menu{padding:10px 12px;flex:none}
+.nav .work-actions{display:grid;grid-template-columns:1fr}
+.nav .work-action{padding:8px 10px;font-size:12px}
+.nav .work-action small{display:none}
 .income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
 @media(max-width:759px){
  .work-menu{padding:10px 16px}
@@ -865,7 +869,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
         "<div class='nav-hd'><p class='brand'>숲길여행 법인카드"
         f"<small>{board.data_status_mark()}</small></p></div>"
-        f"{search}"
+        f"{search}{work_menu_html()}"
         + nav_region(tab_id, query, kind, archived)
         + "<p class='nav-ft'>금액은 장부에 기록된 수입 합계입니다. "
         "미기록 거래는 포함하지 않습니다. "
@@ -1843,7 +1847,6 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     main = (
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         f"{_head_html(trip)}"
-        f"{work_menu_html()}"
         f"{_bar_html(query, kind, tab_id, archived)}{status}"
         # APP_SPEC 4.1: the same global state line the shared shell carries.
         f"<p class='meta' id='global-state' data-role='"

@@ -90,6 +90,8 @@ class LedgerRedesignMobileTests(unittest.TestCase):
                     page.locator('#nav a[href*="tab=trip-demo-b"]').first.click()
                     page.wait_for_url('**/board?**tab=trip-demo-b**')
                     self.assertIn('Google 정본', page.locator('#work-menu').inner_text())
+                    if width < 760:
+                        page.click('#btn-menu')
                     page.locator('#work-menu a[href="/receipts"]').click()
                     page.wait_for_url('**/receipts')
                     self.assertTrue(page.locator('#img-file').is_visible())
