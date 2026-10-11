@@ -153,8 +153,15 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             self.assertEqual(page.evaluate("document.documentElement.scrollWidth"), width)
                             row = rows.nth(2)
                             row.get_by_role("radio").check()
-                            page.locator(".ota-event").get_by_role("button", name="차이 미리 보기").click()
-                            page.get_by_text("차이 25원", exact=True).wait_for()
+                            # Wait for the preview answer itself, not a timer: a refused preview shows no difference
+                            # and must fail with the server's answer and the page's status, not as a bare timeout.
+                            with page.expect_response(lambda r: "/api/imports/ota/preview" in r.url) as answer:
+                                page.locator(".ota-event").get_by_role("button", name="차이 미리 보기").click()
+                            if answer.value.status != 200:
+                                self.fail(f"preview answered {answer.value.status}: {answer.value.text()}; "
+                                          f"status={page.locator('#status').inner_text()!r}")
+                            if not page.get_by_text("차이 25원", exact=True).count():
+                                page.get_by_text("차이 25원", exact=True).wait_for()
                             self.assertIn("12,500원", page.locator("#ota-difference").inner_text())
                             page.get_by_role("button", name="이 거래로 결제 연결 확정").click()
                             page.get_by_text("사용자 확인 연결", exact=True).wait_for()
