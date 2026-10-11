@@ -120,6 +120,37 @@ def test_cli_refuses_while_backing_off_and_does_not_read_google(tmp_path: Path, 
     assert cli.main(["--snapshot", str(snapshot), "--rows", str(tmp_path / "rows.json")]) == 3
 
 
+@pytest.mark.parametrize('state_text', [
+    'PRIVATE-INVALID-JSON', '[]', '{}',
+    '{"consecutive_failures": -1, "last_ok_at": null, "last_error": null, "next_attempt_at": null}',
+    '{"consecutive_failures": true, "last_ok_at": null, "last_error": null, "next_attempt_at": null}',
+    '{"consecutive_failures": "1", "last_ok_at": null, "last_error": null, "next_attempt_at": null}',
+    '{"consecutive_failures": 1, "last_ok_at": null, "last_error": "X", "next_attempt_at": "2026-10-11T09:00:00"}',
+    '{"consecutive_failures": 1, "last_ok_at": "PRIVATE-BAD-TIME", "last_error": "X", "next_attempt_at": null}',
+])
+def test_cli_refuses_invalid_retry_state_without_touching_last_good(tmp_path, monkeypatch, capsys, state_text):
+    import importlib.util
+    import json
+    spec = importlib.util.spec_from_file_location(
+        'sync_cli_invalid_state_test', Path(__file__).resolve().parents[2] / 'tools' / 'google_authority_sync.py')
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    state = tmp_path / 'sync-state.json'
+    state.write_text(state_text, encoding='utf-8')
+    snapshot = tmp_path / 'snapshot.json'
+    rows = tmp_path / 'rows.json'
+    snapshot.write_bytes(b'LAST-GOOD-SNAPSHOT')
+    rows.write_bytes(b'LAST-GOOD-PRIVATE-ROWS')
+    monkeypatch.setattr(cli.google_authority, 'sync', lambda *a, **k: pytest.fail('must not read Google'))
+    assert cli.main(['--snapshot', str(snapshot), '--rows', str(rows)]) == 6
+    assert json.loads(capsys.readouterr().out) == {'code': 'SYNC_STATE_UNAVAILABLE'}
+    assert snapshot.read_bytes() == b'LAST-GOOD-SNAPSHOT'
+    assert rows.read_bytes() == b'LAST-GOOD-PRIVATE-ROWS'
+    assert state.read_text(encoding='utf-8') == state_text
+    with ss.SyncLock(tmp_path / 'sync.lock', now=T0):
+        pass
+
+
 @pytest.mark.parametrize('snapshot_error', [False, True])
 def test_cli_holds_lock_while_reading_backoff_and_recording_result(tmp_path, monkeypatch, snapshot_error):
     import importlib.util

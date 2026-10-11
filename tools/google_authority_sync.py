@@ -39,6 +39,9 @@ def main(argv=None) -> int:
     except sync_schedule.LockHeld as error:
         print(json.dumps({"code": str(error)}))
         return 4
+    except sync_schedule.StateError:
+        print(json.dumps({"code": "SYNC_STATE_UNAVAILABLE"}))
+        return 6
 
 
 def _run_locked(args, now, state_path) -> int:

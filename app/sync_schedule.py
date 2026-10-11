@@ -20,6 +20,10 @@ class LockHeld(Exception):
     pass
 
 
+class StateError(Exception):
+    """A retry state cannot safely govern whether another source read is allowed."""
+
+
 def _try_lock(handle) -> None:
     """OS file lock. The OS drops it when the process dies, so nothing has to be taken over by time."""
     if os.name == "nt":
@@ -77,9 +81,28 @@ class SyncLock:
 
 
 def read_state(path: Path) -> dict:
-    if not path.exists():
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return {"consecutive_failures": 0, "last_ok_at": None, "last_error": None, "next_attempt_at": None}
-    return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise StateError('SYNC_STATE_UNAVAILABLE') from None
+    try:
+        if not isinstance(state, dict) or not {'consecutive_failures', 'last_ok_at', 'last_error', 'next_attempt_at'} <= state.keys():
+            raise ValueError
+        failures = state['consecutive_failures']
+        if type(failures) is not int or failures < 0:
+            raise ValueError
+        if state['last_error'] is not None and not isinstance(state['last_error'], str):
+            raise ValueError
+        for key in ('last_ok_at', 'next_attempt_at'):
+            if state[key] is not None:
+                stamp = dt.datetime.fromisoformat(state[key])
+                if stamp.utcoffset() is None:
+                    raise ValueError
+    except (ValueError, TypeError, OverflowError):
+        raise StateError('SYNC_STATE_UNAVAILABLE') from None
+    return state
 
 
 def may_attempt(state: dict, now: dt.datetime) -> bool:
