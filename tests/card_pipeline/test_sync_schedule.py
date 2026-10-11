@@ -190,6 +190,22 @@ def test_cli_reports_lock_io_failure_without_private_details(tmp_path, monkeypat
     assert json.loads(capsys.readouterr().out) == {'code': 'SYNC_IO_UNAVAILABLE'}
 
 
+@pytest.mark.parametrize('option,value', [('--timeout', '0'), ('--timeout', '-1'),
+                                         ('--timeout', 'nan'), ('--timeout', 'inf'),
+                                         ('--max-bytes', '0'), ('--max-bytes', '-1')])
+def test_cli_rejects_invalid_limits_before_creating_files_or_reading_google(tmp_path, monkeypatch, option, value):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        'sync_cli_limit_test', Path(__file__).resolve().parents[2] / 'tools' / 'google_authority_sync.py')
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    monkeypatch.setattr(cli.google_authority, 'sync', lambda *a, **k: pytest.fail('must not read Google'))
+    with pytest.raises(SystemExit) as error:
+        cli.main(['--snapshot', str(tmp_path / 'snapshot.json'), '--rows', str(tmp_path / 'rows.json'), option, value])
+    assert error.value.code == 2
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize('snapshot_error', [False, True])
 def test_cli_holds_lock_while_reading_backoff_and_recording_result(tmp_path, monkeypatch, snapshot_error):
     import importlib.util

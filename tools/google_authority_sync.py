@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import pathlib
 import sys
 
@@ -31,6 +32,10 @@ def main(argv=None) -> int:
     parser.add_argument("--google-auth", choices=("public", "adc"), default="public",
                         help="Use authenticated Google Drive read-only export with ADC when selected")
     args = parser.parse_args(argv)
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error('--timeout must be a finite positive number')
+    if args.max_bytes <= 0:
+        parser.error('--max-bytes must be a positive integer')
     now = dt.datetime.now(google_authority.KST)
     state_path = args.snapshot.with_name("sync-state.json")
     try:
