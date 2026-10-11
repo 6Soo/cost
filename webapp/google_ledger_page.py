@@ -236,7 +236,54 @@ def _money(value) -> str:
     return "미확인" if value is None else f"{value:,}원"
 
 
-def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
+def _owner_controls(payload: dict, settings: dict) -> str:
+    def options(items):
+        return ''.join(f'<option value="{html.escape(value, quote=True)}">{html.escape(label)}</option>'
+                       for value, label in items)
+    keys = options([('', '여행을 선택해 주세요')] + [(t['key'], t['key']) for t in payload['trips']])
+    tabs = options([('', '연결하지 않음')] + [(t['tab_id'], f"{t.get('starts_on', '')} {t.get('destination', t['tab_id'])}")
+                                             for t in settings['tabs']])
+    viewers = options([('', '계정을 선택해 주세요')] + [(a['user_id'], a.get('display_name') or a['user_id'])
+                                                       for a in settings['viewers']])
+    state = json.dumps({'mapping': settings['mapping'], 'grants': settings['grants']}, ensure_ascii=True).replace('<', '\\u003c')
+    return (
+        '<details id="google-settings"><summary>여행 연결과 열람 허용</summary>'
+        '<p>같은 여행인지 직접 확인한 뒤 연결해 주세요. 자동으로 연결하지 않습니다. '
+        '열람 허용에는 계정의 기존 여행 접근 권한과 정본 선택도 필요합니다.</p>'
+        f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
+        f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
+        '<button id="mapping-save" type="button">여행 연결 저장</button>'
+        f'<label>viewer 계정<select id="settings-viewer">{viewers}</select></label>'
+        '<p id="grant-state"></p><button id="grant-add" type="button">이 여행 열람 허용</button>'
+        '<button id="grant-remove" type="button">열람 허용 철회</button>'
+        '<p id="settings-status" role="status"></p></details>'
+        '<script>const googleSettings=' + state + ';'
+        "const keyInput=document.getElementById('settings-key'),tabInput=document.getElementById('settings-tab'),"
+        "viewerInput=document.getElementById('settings-viewer'),statusBox=document.getElementById('settings-status');"
+        "function showGrant(){document.getElementById('grant-state').textContent=!viewerInput.value?'':"
+        "((googleSettings.grants[viewerInput.value]||[]).includes(keyInput.value)?'현재 열람 허용됨':'현재 열람 허용 안 됨')}"
+        "keyInput.onchange=()=>{tabInput.value=googleSettings.mapping[keyInput.value]||'';showGrant()};"
+        "viewerInput.onchange=showGrant;"
+        "async function saveGoogleSetting(kind,granted){const key=keyInput.value,tab=tabInput.value,user=viewerInput.value;"
+        "if(!key||(kind==='grants'&&!user)){statusBox.textContent='여행과 필요한 계정을 선택해 주세요';return}"
+        "if(!confirm(kind==='mapping'?'선택한 COST 여행과 연결할까요? 연결 해제는 기존 열람도 차단합니다.':"
+        "(granted?'선택한 계정에 이 여행의 Google 장부 열람을 허용할까요?':'이 여행의 열람 허용을 철회할까요?')))return;"
+        "const controls=document.querySelectorAll('#google-settings button,#google-settings select');controls.forEach(x=>x.disabled=true);"
+        "try{const r=await fetch('/api/google-ledger/'+kind,{method:'POST',headers:{'Content-Type':'application/json',"
+        "'X-CSRF-Token':token},body:JSON.stringify(kind==='mapping'?{key,tab_id:tab||null}:{user_id:user,keys:[key],granted})});"
+        "const result=await r.json();if(!r.ok)throw Error(result.message||result.code);"
+        "if(kind==='mapping'){googleSettings.mapping[key]=tab;statusBox.textContent='여행 연결을 저장했습니다'}"
+        "else{const previous=googleSettings.grants[user]||[];googleSettings.grants[user]=granted?"
+        "[...new Set([...previous,key])]:previous.filter(x=>x!==key);showGrant();"
+        "statusBox.textContent=granted?'열람을 허용했습니다':'열람 허용을 철회했습니다'}}"
+        "catch(e){statusBox.textContent='결과를 확인하지 못했습니다. 다시 시도하거나 새로고침해 저장 상태를 확인해 주세요. '+e.message}"
+        "finally{controls.forEach(x=>x.disabled=false)}}"
+        "document.getElementById('mapping-save').onclick=()=>saveGoogleSetting('mapping');"
+        "document.getElementById('grant-add').onclick=()=>saveGoogleSetting('grants',true);"
+        "document.getElementById('grant-remove').onclick=()=>saveGoogleSetting('grants',false);</script>")
+
+
+def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', settings: dict | None = None) -> str:
     rows = []
     for trip in payload["trips"]:
         reasons = " / ".join(REVIEW_LABELS.get(code, code) for code in trip["review"]) or "확인 사항 없음"
@@ -277,6 +324,9 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
         "h1{font-size:24px}table{border-collapse:collapse;width:100%;font-size:14px;background:white}"
         "td,th{border:1px solid #e4e7ec;padding:10px;text-align:left;overflow-wrap:anywhere}"
         "a{color:#166444}button{font:inherit;padding:8px;cursor:pointer}"
+        "#google-settings{background:white;padding:12px;margin:16px 0;border:1px solid #e4e7ec;border-radius:8px}"
+        "#google-settings label{display:block;margin:12px 0}#google-settings select{display:block;width:100%;max-width:600px;"
+        "min-height:44px;font:inherit}#google-settings button{min-height:44px}summary{cursor:pointer;min-height:44px}"
         ".work-back{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;"
         "border:1px solid #d0d5dd;border-radius:8px;text-decoration:none;background:white}"
         "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}"
@@ -293,6 +343,8 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
         "<h1>Google 확정 장부</h1>"
         "<p>Google에서 읽어 온 정본입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
         f"<p>기준 시각 {html.escape(str(payload['synced_at'] or '동기화 대기'))}</p><ul>{sources}</ul>"
+        + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
+        +
         "<table><thead><tr><th>여행</th><th>마감</th><th>수입</th><th>지출</th><th>순수익</th>"
         "<th>검증</th><th>확인 사항</th></tr></thead>"
         f"<tbody>{''.join(rows) or '<tr><td colspan=\"7\">볼 수 있는 여행이 없습니다.</td></tr>'}</tbody></table>"
@@ -305,7 +357,8 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
            "'X-CSRF-Token':token},body:JSON.stringify({key:b.dataset.choice,source:b.dataset.source})});"
            "const j=await r.json();if(!r.ok)throw new Error(j.message||j.code);location.reload()}"
            "catch(e){document.getElementById('choice-status').textContent=e.message;buttons.forEach(x=>x.disabled=false)}});"
-           "</script>" if is_owner and csrf else '') + "</body></html>")
+           "</script>" if is_owner and csrf else '')
+        + "</body></html>")
 
 
 def _send_unavailable(handler, path: str, code: str, message: str) -> None:
@@ -536,6 +589,14 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     try:
         if is_owner:
             payload = owner_payload(snapshot, load_choices(_snapshot_path()))
+            settings = None
+            if parsed.path == '/google-ledger':
+                from .ledger_board import _active_store, access_store
+                board, access = _active_store(), access_store()
+                settings = {'tabs': board.list_trips() if board else [],
+                            'viewers': [a for a in access.list_accounts('viewer') if a['is_active']] if access else [],
+                            'mapping': load_mapping(_snapshot_path()),
+                            'grants': load_grants(_snapshot_path())['grants']}
         else:
             payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
                                      mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
@@ -546,5 +607,6 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)
     else:
-        handler._send(render_html(payload, is_owner=is_owner, csrf=csrf if is_owner else ''))
+        handler._send(render_html(payload, is_owner=is_owner, csrf=csrf if is_owner else '',
+                                 settings=settings if is_owner else None))
     return True
