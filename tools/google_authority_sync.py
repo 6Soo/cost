@@ -31,17 +31,23 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     now = dt.datetime.now(google_authority.KST)
     state_path = args.snapshot.with_name("sync-state.json")
+    try:
+        with sync_schedule.SyncLock(args.snapshot.with_name("sync.lock"), now=now):
+            return _run_locked(args, now, state_path)
+    except sync_schedule.LockHeld as error:
+        print(json.dumps({"code": str(error)}))
+        return 4
+
+
+def _run_locked(args, now, state_path) -> int:
+    # The retry state belongs to the same writer as snapshot publication.
     state = sync_schedule.read_state(state_path)
     if not sync_schedule.may_attempt(state, now):
         print(json.dumps({"code": "BACKOFF_WAIT", "next_attempt_at": state["next_attempt_at"]}))
         return 3
     try:
-        with sync_schedule.SyncLock(args.snapshot.with_name("sync.lock"), now=now):
-            snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout,
-                                             max_bytes=args.max_bytes, now=now)
-    except sync_schedule.LockHeld as error:
-        print(json.dumps({"code": str(error)}))
-        return 4
+        snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout,
+                                         max_bytes=args.max_bytes, now=now)
     except google_authority.SnapshotError as error:
         sync_schedule.record_result(state_path, ok=False, now=now, error_code=error.code)
         print(json.dumps({"code": error.code}))

@@ -120,6 +120,54 @@ def test_cli_refuses_while_backing_off_and_does_not_read_google(tmp_path: Path, 
     assert cli.main(["--snapshot", str(snapshot), "--rows", str(tmp_path / "rows.json")]) == 3
 
 
+@pytest.mark.parametrize('snapshot_error', [False, True])
+def test_cli_holds_lock_while_reading_backoff_and_recording_result(tmp_path, monkeypatch, snapshot_error):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        'sync_cli_lock_test', Path(__file__).resolve().parents[2] / 'tools' / 'google_authority_sync.py')
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    held = False
+    calls = []
+
+    class Lock:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            nonlocal held
+            held = True
+
+        def __exit__(self, *args):
+            nonlocal held
+            held = False
+
+    def read_state(path):
+        assert held, 'backoff must be read after acquiring the writer lock'
+        calls.append('read')
+        return {'next_attempt_at': None}
+
+    def sync(*args, **kwargs):
+        assert held
+        calls.append('sync')
+        if snapshot_error:
+            raise cli.google_authority.SnapshotError('SYNTHETIC_FAILURE')
+        return {'sources': {}, 'trips': []}
+
+    def record_result(*args, **kwargs):
+        assert held, 'release only after recording the retry state'
+        calls.append('record')
+        assert kwargs['ok'] is (not snapshot_error)
+
+    monkeypatch.setattr(cli.sync_schedule, 'SyncLock', Lock)
+    monkeypatch.setattr(cli.sync_schedule, 'read_state', read_state)
+    monkeypatch.setattr(cli.sync_schedule, 'record_result', record_result)
+    monkeypatch.setattr(cli.google_authority, 'sync', sync)
+    status = cli.main(['--snapshot', str(tmp_path / 'snapshot.json'), '--rows', str(tmp_path / 'rows.json')])
+    assert status == (2 if snapshot_error else 0)
+    assert calls == ['read', 'sync', 'record'] and held is False
+
+
 def test_a_separate_live_process_keeps_the_lock(tmp_path: Path):
     import subprocess
     import sys
