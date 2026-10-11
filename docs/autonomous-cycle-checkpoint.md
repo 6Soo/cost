@@ -1,5 +1,22 @@
 # 자율 개발 체크포인트
 
+## 현재 운영 반영: 2026-10-12
+
+- 운영 배포 SHA는 `6009eca338ce9c15cb25b03ceaff0705ed4a3d95`다. PR #85의 `integration/cost-final`에서 개발했고 main은 병합하지 않았다. 이후 문서 전용 커밋은 운영 코드와 구분한다.
+- 기존 주소 `https://ledger.foresttour.kr`, Windows PC, Cloudflare Tunnel, `127.0.0.1:8751`, 데이터 루트 `D:/WebLedgerHost/data`를 유지한다. `WebLedger-Board`는 `D:/WebLedgerHost/releases/<배포 SHA>/tools/start_web_ledger_host.ps1`에 고정됐다. 운영 원본 `C:/AX/cost`는 갱신하거나 초기화하지 않았다. 예전 `restart_real_review_host.ps1`로 원본 checkout에 되돌리지 말고 현재 예약 작업의 고정 경로를 사용한다.
+- 새 기능: 설치돼 있던 Windows 일본어·한국어 OCR을 영수증 사진과 연결했다. 글자와 제한된 날짜·일본어 합계 제안만 제공하고 사용자 확정 없이 비용을 만들지 않는다. 기존 localhost:8088 AI는 결정론적 해석이 실패할 때 사용자 문장만 받아 규칙 초안을 제안한다. 향후 반복 규칙은 기존 규칙 저장 화면에서 별도 확인한다. Google 여행 연결과 viewer 허용·철회 화면을 추가했다. 기존 여행 권한과 정본 검사를 우회하지 않는다.
+- 모바일 장부 작업 메뉴를 접이식 여행 탐색 영역으로 옮겨 첫 거래가 화면 아래로 밀리던 문제를 수정했다. 실제 사이트 375px 영수증·Google, 390px 카드·장부, 데스크톱 약 1440px 장부에서 가로 넘침 없는 접근을 확인했다. 실기기 검증은 아니다. 운영 거래를 새로 확정하거나 영수증을 실제 DB에 시험 등록하지 않았다.
+- 실제 owner Google OIDC 세션, 공개 주소 health/ready 200, 비로그인 카드 API 401 및 Google API 403을 확인했다. 실제 viewer 계정의 로그인 완주는 아직 검증하지 않았다. 합성 세션 검사와 구분한다.
+- 실제 Google 메인·보관 읽기는 기존 공개 링크 XLSX 방식으로 성공했다. ADC 환경변수·기본 credential·refresh token은 없었다. ADC 성공이라고 보고하지 않는다. `WebLedger-GoogleAuthority`는 매시 정각 KST, 중복 실행 금지, 읽기 전용 public 모드로 등록했고 수동 시작 1회 결과 0을 확인했다. 이 작업은 동기화 코드가 같은 `2a330ca` release에 고정돼 있다. 기존 `WebLedger-SourceRefresh`의 300초 수집 주기를 유지한다. Google 원본·공유권한은 변경하지 않았다.
+- 운영 백업·복원 증거: `D:/WebLedgerHost/data/backups/v2-deploy-20261012T004430/restore-evidence.json`. DB 4개와 설정·영수증·Google 세대 파일 33개를 복원해 비교했다. 비밀 파일은 기존 위치에 보존했고 이 묶음에는 복사하지 않았다. 격리 복원본 스키마 리허설 후 운영에는 `transaction_company_exclusions`만 통제된 트랜잭션으로 추가했다. 원래 77개 테이블 중 재시작 lease 행 추가 외 원본 행 지문은 동일했다. 첫 시도는 백업의 빈 WAL sidecar 때문에 마이그레이션 전에 차단됐고 기존 서비스로 복귀했다. 백업 대상만 DELETE 모드로 바꾸는 수정 후 성공했다.
+- 전체 검사 1회: 시작 `a2075d66dbc031cdfe80a331d5e66e8fbd524ebd`, 종료 `fdd5308d5bb9542975498d69af42604b3c4504c2`, **23 failed / 3203 passed / 3 skipped / 2431 subtests**. 최종 SHA 전체 통과 기록이 아니다. 원인은 모바일 거래 위치와 생산 모드 거부 검사의 환경변수 누출이었다. 제품 보호 조건은 유지했다. 실패 영역의 순서 있는 후속 검사 112 passed / 53 subtests와 누락 import 수정 후 해당 검사 1 passed로 해결했다.
+- 추가 표적 근거: 영수증 50 passed / 15 subtests, 규칙 33 passed / 1 skipped / 12 subtests, 실제 로컬 AI 관련 4 passed, 백업·리허설 16 passed. Google 설정·매핑·페이지·서명 HTTP 묶음은 62 passed / 35 subtests와 신규 검사의 CSS 문자열 기대 1건 실패였다. DOM 요소 존재로 기대를 바로잡고 설정 화면 최종 배치 후 신규 실제 브라우저 포함 2 passed다. 중복 범위는 합산하지 않는다. 과거 3107 passed 기준선은 과거 SHA의 증거로만 보존한다.
+- 사용자 원본 dirty 5개(`tools/verify_lightweight_runtime.py`, `edit_card_flow.py`, 두 pending-card-evidence patch, SQLite checkpoint JSON)와 stash `fbb1226e4659e4a2b75216cd556b51687db7d73e`를 보존했다. 테스트가 바꾼 추적 화면 캡처 2개만 `.local-archive/deploy-regression-20261012`에 보관하고 원래 추적 버전으로 돌렸다.
+- 남은 실제 기능 범위: PDF 입력, 자동 복수 영역 분리, KRW 영수증 비용 후보는 미구현이다. 현재 영수증 비용 후보는 JPY이고 한국어 OCR 글자 인식과 구분해야 한다. 사진 OCR은 전체 사진을 읽으며 영역별 자동 OCR이라고 표시하지 않는다. 실제 ADC와 viewer 계정 검증, 실제 모바일 단말 검증은 외부 자원이 필요하다. 실제 회계 top3 공개는 비활성이고 별도 게시 승인이 필요하다.
+- 다음 구현 시작점: `app/receipt_candidates.py`와 `webapp/receipt_review.py`에서 원화 영수증의 명시적 통화·원금 보존·카드 대사·TSV를 연결한다. 기존 JPY 저장 형식과 확인 이력을 보존하는 재현 검사부터 작성한다. PDF와 자동 영역 추출은 이 기능과 분리한다. 운영을 이전 원본 경로로 재시작하지 않는다.
+
+이하 항목은 이전 실행 기록이며 위 운영 배포 상태를 덮지 않는다.
+
 ## 현재 작업: 기본 업무 화면과 모바일 UI
 
 - 시작 HEAD `457b03b2a40e7888440e8b7e1f3558a6dc53ca49`. 이번 구현은 홈·장부 업무 메뉴, 로컬 수입과 Google 정본 구분, 모바일 Google·영수증 화면, 인증 상태의 바이너리 업로드, 확정 일정의 불필요한 XLSX 서비스 의존성 제거다. 최신 SHA는 PR #85와 Git을 따른다.
