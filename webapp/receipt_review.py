@@ -526,7 +526,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         ".then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.getElementById('copy-tsv').onclick=async()=>{const button=document.getElementById('copy-tsv');"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
-        "const key='gcopy-trip:'+trip;const previous=localStorage.getItem(key);"
+        "const key='gcopy-trip:'+trip;let previous=null;try{previous=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}"
         "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
         "button.disabled=true;selection.disabled=true;try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
         "const x=await response.json();if(!response.ok)throw new Error(x.message||x.code);"

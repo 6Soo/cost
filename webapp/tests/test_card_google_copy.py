@@ -331,6 +331,34 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertTrue(button.is_enabled())
             browser.close()
 
+    def test_card_copy_requires_confirmation_when_history_cannot_be_read(self):
+        trip = self.make_trip()
+        batch = self.assign(trip=trip)
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/import')
+            button = page.locator(f'[data-google-copy="{trip}"]')
+            button.wait_for()
+            page.evaluate("navigator.clipboard.writeText('KEEP')")
+            page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
+            dialogs = []
+            def dismiss(dialog):
+                dialogs.append(dialog.message)
+                dialog.dismiss()
+            page.on('dialog', dismiss)
+            button.click()
+            self.assertEqual(len(dialogs), 1)
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
+            page.remove_listener('dialog', dismiss)
+            page.on('dialog', lambda dialog: dialog.accept())
+            button.click()
+            page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
+            expected = page.request.get(f'{self.base}/api/imports/{batch}/google-tsv?tab={trip}').json()['tsv']
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+            self.assertTrue(button.is_enabled())
+            browser.close()
+
     def test_commit_failure_for_previous_batch_keeps_current_status(self):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']

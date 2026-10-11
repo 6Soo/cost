@@ -411,6 +411,31 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
             self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
             self.assertTrue(page.locator('#copy-trip').is_enabled())
+
+    def test_receipt_copy_requires_confirmation_when_history_cannot_be_read(self):
+        self._confirmed_cash_receipt()
+        expected = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['tsv']
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/receipts')
+            page.evaluate("navigator.clipboard.writeText('KEEP')")
+            page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
+            dialogs = []
+            def dismiss(dialog):
+                dialogs.append(dialog.message)
+                dialog.dismiss()
+            page.on('dialog', dismiss)
+            page.click('#copy-tsv')
+            self.assertEqual(len(dialogs), 1)
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
+            page.remove_listener('dialog', dismiss)
+            page.on('dialog', lambda dialog: dialog.accept())
+            page.click('#copy-tsv')
+            page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+            self.assertTrue(page.locator('#copy-tsv').is_enabled())
+            browser.close()
             browser.close()
 
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
