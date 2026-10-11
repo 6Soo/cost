@@ -699,6 +699,36 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.unroute('**/api/receipts/edit')
             browser.close()
 
+    def test_new_region_registration_does_not_discard_unsaved_receipt_review(self):
+        self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            page.locator('[data-total]').fill('2800')
+            for selector, value in (('#box3', '100'), ('#box4', '100'), ('#r-merchant', 'NEW-SHOP'),
+                                    ('#r-date', '2027-08-03'), ('#r-total', '700')):
+                page.locator(selector).fill(value)
+            requests = []
+            page.on('request', lambda request: requests.append(request.url)
+                    if request.url.endswith('/api/receipts/scan') else None)
+            page.click('#region-go')
+            page.wait_for_load_state('networkidle')
+            self.assertEqual(requests, [])
+            self.assertEqual(page.locator('[data-total]').input_value(), '2800')
+            self.assertEqual(page.locator('#r-merchant').input_value(), 'NEW-SHOP')
+            self.assertIn('먼저 저장', page.locator('#status').inner_text())
+            with page.expect_response('**/api/receipts/edit'):
+                page.locator('[data-edit]').click()
+            page.wait_for_function('!receiptBusy')
+            with page.expect_response('**/api/receipts/scan') as scan:
+                page.click('#region-go')
+            self.assertEqual(scan.value.status, 200)
+            # Registration reloads the page; inspect the durable result after that response is discarded.
+            stored = self.request('/api/receipts')[1]['candidates']
+            self.assertEqual(len([candidate for candidate in stored if candidate['merchant'] == 'NEW-SHOP']), 1)
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')
