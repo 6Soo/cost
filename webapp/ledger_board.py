@@ -3966,7 +3966,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
         from . import receipt_review
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
-                                   is_owner=_receipts_owner_request()):
+                                   is_owner=_receipts_owner_request(), query=query):
             return
         from . import google_ledger_page
         if google_ledger_page.owns_route(parsed.path):

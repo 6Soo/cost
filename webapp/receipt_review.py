@@ -146,19 +146,21 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     return {"added": len(result["candidates"]), "holds": result["holds"]}
 
 
-def edit(path: Path, *, identity: str, changes: dict, note: str = "") -> dict:
+def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None) -> dict:
     """A person corrects what was typed. Card-linked receipts keep the card amount, so they cannot be re-priced."""
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] != identity:
             continue
-        allowed = {"merchant", "date", "total_jpy", "payment"}
+        allowed = {"merchant", "date", "total_jpy", "payment", "trip_id"}
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError("FIELD_NOT_EDITABLE")
-        before = {k: stored[k] for k in changes}
+        before = {k: stored.get(k) for k in changes}
         if "payment" in changes and changes["payment"] not in PAYMENTS:
             raise ValueError("PAYMENT_UNKNOWN")
+        if "trip_id" in changes and changes["trip_id"] and changes["trip_id"] not in (valid_trips or set()):
+            raise ValueError("TRIP_UNKNOWN")
         if stored.get("card_transaction_id") and ("total_jpy" in changes or "payment" in changes):
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
@@ -175,7 +177,7 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
-            candidate = rc.Candidate(**{k: v for k, v in stored.items() if k != "history"})
+            candidate = rc.Candidate(**{k: v for k, v in stored.items() if k not in ("history", "trip_id")})
             candidate.history = list(stored["history"])
             rc.confirm(candidate, payee=payee, category=category, note=note)
             stored.update(payee=candidate.payee, category=candidate.category, history=candidate.history)
@@ -184,14 +186,20 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
-def tsv(path: Path) -> dict:
+def tsv(path: Path, trip: str | None = None) -> dict:
     data = load(path)
-    candidates = [rc.Candidate(**{k: v for k, v in c.items() if k != "history"}) for c in data["candidates"]]
-    result = expense_tsv(rc.to_expense_rows(candidates), layout="rev")
-    return {**result, "held": result["held"] + data["holds"]}
+    candidates = [rc.Candidate(**{k: v for k, v in c.items() if k not in ("history", "trip_id")})
+                  for c in data["candidates"]]
+    if not trip:
+        raise ValueError("TRIP_REQUIRED")
+    mine = [c for c, stored in zip(candidates, data["candidates"]) if stored.get("trip_id") == trip]
+    unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
+                  if not c.get("trip_id")]
+    result = expense_tsv(rc.to_expense_rows(mine), layout="rev")
+    return {**result, "trip_id": trip, "held": result["held"] + data["holds"] + unassigned}
 
 
-def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False) -> bool:
+def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False, query=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
     if not is_owner:
@@ -213,11 +221,15 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         return True
     if raw is None:
         if parsed.path == "/receipts":
-            handler._send(render_html(load(path), csrf))
+            handler._send(render_html(load(path), csrf, _trips(board)))
         elif parsed.path == "/api/receipts":
             handler._send_json(load(path))
         elif parsed.path == "/api/receipts/tsv":
-            handler._send_json(tsv(path))
+            trip = ((query or {}).get("trip") or [""])[0]
+            try:
+                handler._send_json(tsv(path, trip))
+            except ValueError as error:
+                handler._send_json({"code": str(error)}, 400)
         else:
             handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
@@ -232,11 +244,11 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         if parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
-            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment"}:
+            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
-            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment") if k in body}
+            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment", "trip_id") if k in body}
             handler._send_json(edit(path, identity=str(body.get("identity", "")), changes=changes,
-                                    note=str(body.get("note", ""))))
+                                    note=str(body.get("note", "")), valid_trips=_trip_ids(board)))
         elif parsed.path == "/api/receipts/confirm":
             handler._send_json(confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
                                        category=str(body.get("category", "")), note=str(body.get("note", ""))))
@@ -249,13 +261,26 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
     return True
 
 
-def _row_html(candidate: dict) -> str:
+def _trips(board) -> list[dict]:
+    if board is None:
+        return []
+    return [{"id": t["tab_id"], "name": t.get("display_key") or t["tab_id"]} for t in board.list_trips()]
+
+
+def _trip_ids(board) -> set:
+    return {t["id"] for t in _trips(board)}
+
+
+def _row_html(candidate: dict, trips: list) -> str:
     identity = html.escape(candidate["identity"])
     amount = "" if candidate["amount_krw"] is None else f"{candidate['amount_krw']:,}원"
     confirmed = bool(candidate.get("payee") and candidate.get("category"))
     return (
         "<tr>"
-        f"<td><input data-merchant='{identity}' value='{html.escape(candidate['merchant'])}'>"
+        f"<td><select data-trip='{identity}'><option value=''>여행 미배정</option>"
+        + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
+                  f"{html.escape(t['name'])}</option>" for t in trips)
+        + f"</select><input data-merchant='{identity}' value='{html.escape(candidate['merchant'])}'>"
         f"<input data-date='{identity}' value='{html.escape(candidate['date'])}'></td>"
         f"<td><input data-total='{identity}' value='{candidate['total_jpy']}' inputmode='numeric'>"
         f"<select data-payment='{identity}'>"
@@ -268,8 +293,11 @@ def _row_html(candidate: dict) -> str:
         f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
 
 
-def render_html(data: dict, csrf: str) -> str:
-    rows = "".join(_row_html(c) for c in data["candidates"])
+def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
+    trips = trips or []
+    trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
+                            for t in trips)
+    rows = "".join(_row_html(c, trips) for c in data["candidates"])
     holds = "".join(f"<li>{html.escape(h['reason'])}</li>" for h in data["holds"])
     images = "".join(f"<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'>"
                      for sha in data["images"][-3:])
@@ -289,12 +317,13 @@ def render_html(data: dict, csrf: str) -> str:
         "currency:'JPY',total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
         "post('/api/receipts/scan',{image:sha||undefined,regions:[region]}).then(()=>location.reload()).catch(e=>say(e.message))};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
-        "post('/api/receipts/edit',{identity:id,merchant:val('data-merchant',id),date:val('data-date',id),"
+        "post('/api/receipts/edit',{identity:id,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
         "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}).then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
         "post('/api/receipts/confirm',{identity:id,payee:val('data-payee',id),category:val('data-category',id)})"
         ".then(()=>location.reload()).catch(e=>say(e.message))});"
-        "document.getElementById('copy-tsv').onclick=async()=>{const x=await (await fetch('/api/receipts/tsv')).json();"
+        "document.getElementById('copy-tsv').onclick=async()=>{const trip=document.getElementById('copy-trip').value;"
+        "if(!trip){say('복사할 여행을 고르세요');return}const x=await (await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip))).json();"
         "if(!x.row_count){say('복사할 확정 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. "
         "구글 시트에 붙여넣은 뒤에만 반영됩니다.')};")
@@ -320,5 +349,6 @@ def render_html(data: dict, csrf: str) -> str:
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"
             f"<h2>보류</h2><ul>{holds}</ul>"
-            "<p><button type='button' id='copy-tsv'>구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
+            f"<p><label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label> "
+            "<button type='button' id='copy-tsv'>구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
             f"<script>{script}</script></body></html>")

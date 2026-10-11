@@ -69,6 +69,8 @@ class ReceiptReviewTests(unittest.TestCase):
         self._owner = patch.object(ledger_board, '_receipts_owner_request', return_value=True)
         self._owner.start()
         CardFlow(self.server.card_store)  # creates the card tables the board reads for card links
+        self.trip = self.server.card_store.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                                       destination='합성 여행', client_request_id='receipt-trip')['tab_id']
 
     def tearDown(self):
         self._owner.stop()
@@ -158,17 +160,33 @@ class ReceiptReviewTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body['history'][0]['to'], {'payee': '라멘집', 'category': '식비'})
 
-    def test_tsv_has_confirmed_receipts_only_and_lists_holds(self):
+    def test_a_receipt_joins_a_trip_only_when_the_board_holds_that_trip(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         _, stored = self.request('/api/receipts')
+        identity = stored['candidates'][0]['identity']
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'trip_id': 'trip-made-up'},
+                                    token=self.csrf())
+        self.assertEqual((status, body['code']), (400, 'TRIP_UNKNOWN'))
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'trip_id': self.trip},
+                                    token=self.csrf())
+        self.assertEqual((status, body['trip_id']), (200, self.trip))
+
+    def test_copy_needs_a_trip_and_only_copies_that_trips_confirmed_receipts(self):
+        self.request('/api/receipts/scan', REGIONS, token=self.csrf())
+        _, stored = self.request('/api/receipts')
+        self.assertEqual(self.request('/api/receipts/tsv')[1]['code'], 'TRIP_REQUIRED')
         for candidate in stored['candidates']:
+            self.request('/api/receipts/edit', {'identity': candidate['identity'], 'trip_id': self.trip},
+                         token=self.csrf())
             self.request('/api/receipts/confirm', {'identity': candidate['identity'],
                                                    'payee': candidate['merchant'], 'category': '식비'},
                          token=self.csrf())
-        _, tsv = self.request('/api/receipts/tsv')
+        _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
         self.assertEqual(tsv['row_count'], 2)
         self.assertIn('\t영수증\t12340', tsv['tsv'])
         self.assertTrue(any(h['reason'] == 'LOW_CONFIDENCE' for h in tsv['held']))
+        _, other = self.request('/api/receipts/tsv?trip=trip-other')
+        self.assertEqual(other['row_count'], 0)
 
     def _browser_flow(self, width, height):
         with sync_playwright() as api:
@@ -189,6 +207,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page.wait_for_load_state()
             page.locator('[data-confirm]').first.wait_for()
             identity = page.locator('[data-confirm]').first.get_attribute('data-confirm')
+            page.select_option(f'[data-trip="{identity}"]', self.trip)
             page.fill(f'[data-total="{identity}"]', '1300')
             page.click(f'[data-edit="{identity}"]')
             page.wait_for_load_state()
@@ -198,11 +217,12 @@ class ReceiptReviewTests(unittest.TestCase):
             page.fill(f'[data-category="{identity}"]', '식비')
             page.click(f'[data-confirm="{identity}"]')
             page.wait_for_load_state()
+            page.select_option('#copy-trip', self.trip)
             page.click('#copy-tsv')
             page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
             clipboard = page.evaluate('navigator.clipboard.readText()').replace(chr(13) + chr(10), chr(10))
             self.assertIn('\t영수증\t13000', clipboard)
-            _, tsv = self.request('/api/receipts/tsv')
+            _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
             self.assertEqual(clipboard, tsv['tsv'])
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             browser.close()
@@ -253,7 +273,7 @@ class ReceiptReviewTests(unittest.TestCase):
         _, stored = self.request('/api/receipts')
         linked = stored['candidates'][-1]
         self.assertEqual(linked['card_transaction_id'], 'card-cafe-1')
-        status, tsv = self.request('/api/receipts/tsv')
+        status, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
         self.assertNotIn('카페', tsv['tsv'])  # the card transaction is the one expense
 
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
