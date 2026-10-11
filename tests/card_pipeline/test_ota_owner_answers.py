@@ -51,6 +51,9 @@ def test_owner_schedule_is_verified_against_its_preserved_source(tmp_path, monke
         with patch('webapp.real_review.active_service',return_value=object()):
             flow=CardFlow(board)
             assert flow.trip_valid(trip['tab_id'])
+        # 명시적으로 확정한 일정 원본은 과거 XLSX 검토 서비스가 없어도 검증한다.
+        with patch('webapp.real_review.active_service',return_value=None):
+            assert flow.trip_valid(trip['tab_id'])
             source.write_text('{}',encoding='utf-8')
             assert not flow.trip_valid(trip['tab_id'])
     finally:board.close()

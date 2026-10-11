@@ -398,8 +398,7 @@ class CardFlow:
         from ledger.domain.direct_trip_schedule_authority import load_document
         from . import real_review
         path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY')
-        service = real_review.active_service()
-        if not path or service is None:
+        if not path:
             return False
         trip = self.board.get_trip(trip_id)
         if not trip or trip['deleted'] or trip['archived']:
@@ -437,6 +436,9 @@ class CardFlow:
             except (OSError, ValueError, KeyError, TypeError):
                 return False
         else:
+            service = real_review.active_service()
+            if service is None:
+                return False
             source=Path(service.manifest['snapshot_path'])
             current_bytes=source.read_bytes()
             digest=hashlib.sha256(current_bytes).hexdigest()
