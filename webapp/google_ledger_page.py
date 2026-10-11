@@ -168,6 +168,8 @@ def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dic
         raise ValueError("CHOICE_SOURCE_INVALID")
     data = load_choices(snapshot_path)
     previous = data["choices"].get(key)
+    if previous == source:
+        return data
     data["choices"][key] = source
     data["history"].append({"key": key, "from": previous, "to": source, "at": at})
     tmp = choice_path(snapshot_path).with_suffix(".json.tmp")
@@ -184,6 +186,9 @@ def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
     """Applies the owner's copy choice. A choice selects which copy's figures count; it never clears a block."""
     chosen = choices.get(trip["key"])
     copies = trip.get("copies") or {}
+    if copies.get('main') and copies.get('archive') and chosen not in ('main', 'archive'):
+        return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
+                'expense_total': None, 'net': None, 'blocked_by': ['CHOICE_REQUIRED']}
     if not chosen or not (copies.get("main") and copies.get("archive")) or chosen not in copies:
         return {**trip, "chosen_source": trip["canonical_source"]}
     copy = copies[chosen]
@@ -214,7 +219,7 @@ def _money(value) -> str:
     return "미확인" if value is None else f"{value:,}원"
 
 
-def render_html(payload: dict) -> str:
+def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
     rows = []
     for trip in payload["trips"]:
         reasons = " / ".join(REVIEW_LABELS.get(code, code) for code in trip["review"]) or "확인 사항 없음"
@@ -222,9 +227,20 @@ def render_html(payload: dict) -> str:
         links = " ".join(
             f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={role}'>{role} 상세</a>"
             for role in ("main", "archive") if copies.get(role))
+        chosen = trip.get('chosen_source')
+        choice = ''
+        if is_owner and copies.get('main') and copies.get('archive'):
+            choice = '<p>' + ('정본: ' + html.escape(chosen) if chosen else '정본 선택 필요') + '</p>'
+            if csrf:
+                choice += ''.join(
+                    f"<button type='button' data-choice='{html.escape(trip['key'], quote=True)}' "
+                    f"data-source='{role}'>{role} 정본 선택</button>" for role in ('main', 'archive'))
+        elif not is_owner:
+            links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
+                     if chosen in ('main', 'archive') else '정본 선택 필요')
         rows.append(
             "<tr>"
-            f"<td>{html.escape(trip['key'])}<br>{links}</td>"
+            f"<td>{html.escape(trip['key'])}<br>{links}{choice}</td>"
             f"<td>{'마감' if trip['closure'] == 'closed' else '미마감' if trip['closure'] == 'open' else '확인 중'}</td>"
             f"<td>{_money(trip['income_total'])}</td><td>{_money(trip['expense_total'])}</td>"
             f"<td>{_money(trip['net'])}</td>"
@@ -238,7 +254,7 @@ def render_html(payload: dict) -> str:
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Google 확정 장부 (owner)</title>"
+        "<title>Google 확정 장부</title>"
         "<style>body{font-family:sans-serif;margin:12px}table{border-collapse:collapse;width:100%;font-size:14px}"
         "td,th{border:1px solid #ccc;padding:4px;text-align:left}@media(max-width:600px){table{display:block;overflow-x:auto}}"
         "</style></head><body>"
@@ -246,7 +262,17 @@ def render_html(payload: dict) -> str:
         f"<p>기준 시각 {html.escape(str(payload['synced_at']))}</p><ul>{sources}</ul>"
         "<table><thead><tr><th>여행</th><th>마감</th><th>수입</th><th>지출</th><th>순수익</th>"
         "<th>검증</th><th>확인 사항</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table></body></html>")
+        f"<tbody>{''.join(rows) or '<tr><td colspan=\"7\">볼 수 있는 여행이 없습니다.</td></tr>'}</tbody></table>"
+        "<p id='choice-status' role='status'></p>"
+        + ("<script>const token=" + json.dumps(csrf) + ";"
+           "document.querySelectorAll('[data-choice]').forEach(b=>b.onclick=async()=>{"
+           "if(!confirm(b.dataset.source+' 사본을 이 여행의 정본으로 선택할까요? Google 원본은 변경하지 않습니다.'))return;"
+           "const buttons=document.querySelectorAll('[data-choice]');buttons.forEach(x=>x.disabled=true);"
+           "try{const r=await fetch('/api/google-ledger/choice',{method:'POST',headers:{'Content-Type':'application/json',"
+           "'X-CSRF-Token':token},body:JSON.stringify({key:b.dataset.choice,source:b.dataset.source})});"
+           "const j=await r.json();if(!r.ok)throw new Error(j.message||j.code);location.reload()}"
+           "catch(e){document.getElementById('choice-status').textContent=e.message;buttons.forEach(x=>x.disabled=false)}});"
+           "</script>" if is_owner and csrf else '') + "</body></html>")
 
 
 def caller(enforced: bool, session, is_owner_of, role_of=None) -> tuple[bool, str | None]:
@@ -335,14 +361,18 @@ def viewer_allowed_keys(grants: dict, user_id: str, mapping: dict | None, visibl
 
 
 def viewer_payload(snapshot: dict, grants: dict, user_id: str, *, mapping: dict | None = None,
-                   visible_tabs: set | None = None) -> dict:
+                   visible_tabs: set | None = None, choices: dict | None = None) -> dict:
     """Trip-level figures for the trips this account may read. Never copies, never source detail.
 
     Owner grant AND link to a COST tab AND that tab visible to the account. Without the link, a grant
     alone shows nothing, because the owner's grant could not otherwise be tied to the COST access rules.
     """
     allowed = viewer_allowed_keys(grants, user_id, mapping, visible_tabs)
-    trips = google_access.visible_trips(snapshot["trips"], is_owner=False, allowed_keys=allowed)
+    resolved = owner_payload(snapshot, choices or {'choices': {}})['trips']
+    trips = google_access.visible_trips(resolved, is_owner=False, allowed_keys=allowed)
+    selected = {trip['key']: trip.get('chosen_source') for trip in resolved}
+    for trip in trips:
+        trip['chosen_source'] = selected[trip['key']]
     return {"synced_at": snapshot.get("synced_at"),
             "sources": {role: {"status": src.get("status")} for role, src in snapshot["sources"].items()},
             "trips": trips}
@@ -382,7 +412,15 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                             tab_id=str(body.get("tab_id") or "") or None, known_keys=known,
                             known_tab_ids=tabs)
             elif parsed.path.endswith("/choice"):
-                record_choice(_snapshot_path(), key=str(body.get("key", "")), source=str(body.get("source", "")), at=now)
+                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                key, source = str(body.get('key', '')), str(body.get('source', ''))
+                trip = next((trip for trip in snapshot['trips'] if trip['key'] == key), None)
+                if trip is None:
+                    raise ValueError('GOOGLE_TRIP_UNKNOWN')
+                copies = trip.get('copies') or {}
+                if not (copies.get('main') and copies.get('archive')) or source not in ('main', 'archive'):
+                    raise ValueError('CHOICE_COPY_UNAVAILABLE')
+                record_choice(_snapshot_path(), key=key, source=source, at=now)
             else:
                 if body.get('granted') is True:
                     snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
@@ -442,9 +480,10 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         payload = owner_payload(snapshot, load_choices(_snapshot_path()))
     else:
         payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
-                                 mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs)
+                                 mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
+                                 choices=load_choices(_snapshot_path()))
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)
     else:
-        handler._send(render_html(payload))
+        handler._send(render_html(payload, is_owner=is_owner, csrf=csrf if is_owner else ''))
     return True
