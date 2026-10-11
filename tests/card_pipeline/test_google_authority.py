@@ -420,6 +420,86 @@ def _rows_text(snapshot_path: Path, rows_path: Path) -> str:
     return ga._rows_file(rows_path, generation).read_text(encoding="utf-8")
 
 
+def test_adc_setup_failure_marks_last_good_stale_without_public_fallback(tmp_path, monkeypatch, capsys):
+    from app import google_adc_export, sync_schedule
+    from tools import google_authority_sync as cli
+
+    snapshot_path, rows_path = tmp_path / 'snapshot.json', tmp_path / 'rows.json'
+    now = dt.datetime.now(ga.KST)
+    data = _row_book([('SYNTHETIC-PRIVATE-PAYEE', '식비', 1234)])
+    good = ga.sync(snapshot_path, rows_path,
+                   fetcher=_fetcher({'main': data, 'archive': data}), now=now)
+    private_before = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+    sync_schedule.record_result(tmp_path / 'sync-state.json', ok=True, now=now)
+
+    def unavailable(**kwargs):
+        raise RuntimeError('synthetic-secret-token')
+
+    monkeypatch.setattr(google_adc_export, 'authorized_export_fetcher', unavailable)
+    monkeypatch.setattr(ga, '_download', lambda *args, **kwargs: pytest.fail('public fallback'))
+    assert cli.main(['--snapshot', str(snapshot_path), '--rows', str(rows_path),
+                     '--google-auth', 'adc']) == 5
+    output = capsys.readouterr()
+    assert 'synthetic-secret-token' not in output.out + output.err
+    assert 'SYNTHETIC-PRIVATE-PAYEE' not in output.out + output.err
+    failed = ga.load_snapshot(snapshot_path)
+    for role, source in failed['sources'].items():
+        assert source['status'] == 'error' and source['stale'] is True
+        assert source['error_code'] == 'GOOGLE_AUTH_UNAVAILABLE'
+        assert source['last_ok_at'] == good['sources'][role]['last_ok_at']
+        assert source['trips'] == good['sources'][role]['trips']
+    assert json.loads(_rows_text(snapshot_path, rows_path))['sources'] == private_before
+    state = sync_schedule.read_state(tmp_path / 'sync-state.json')
+    assert state['last_ok_at'] == now.isoformat()
+    assert state['last_error'] == 'GOOGLE_AUTH_UNAVAILABLE'
+    assert state['consecutive_failures'] == 1
+
+
+def test_adc_partial_outage_and_recovery_preserve_private_last_good(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app import google_adc_export, sync_schedule
+    from tools import google_authority_sync as cli
+
+    snapshot_path, rows_path = tmp_path / 'snapshot.json', tmp_path / 'rows.json'
+    original = _row_book([('ORIGINAL-PAYEE', '식비', 1000)])
+    updated = _row_book([('UPDATED-PAYEE', '식비', 2000)])
+    ga.sync(snapshot_path, rows_path,
+            fetcher=_fetcher({'main': original, 'archive': original}), now=NOW)
+    before = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+
+    class Clock:
+        current = NOW + dt.timedelta(minutes=1)
+
+        @classmethod
+        def now(cls, tz):
+            return cls.current
+
+    monkeypatch.setattr(cli, 'dt', SimpleNamespace(datetime=Clock))
+    monkeypatch.setattr(ga, '_download', lambda *args, **kwargs: pytest.fail('public fallback'))
+    monkeypatch.setattr(google_adc_export, 'authorized_export_fetcher', lambda **kwargs:
+                        _fetcher({'main': ga.SourceError('SOURCE_UNREACHABLE'), 'archive': updated}))
+    args = ['--snapshot', str(snapshot_path), '--rows', str(rows_path), '--google-auth', 'adc']
+    assert cli.main(args) == 1
+    partial = ga.load_snapshot(snapshot_path)
+    private = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+    assert partial['sources']['main']['stale'] is True
+    assert partial['sources']['main']['last_ok_at'] == NOW.isoformat()
+    assert private['main'] == before['main']
+    assert partial['sources']['archive']['status'] == 'ok'
+    assert private['archive'] != before['archive']
+    Clock.current += dt.timedelta(minutes=6)
+    monkeypatch.setattr(google_adc_export, 'authorized_export_fetcher', lambda **kwargs:
+                        _fetcher({'main': updated, 'archive': updated}))
+    assert cli.main(args) == 0
+    recovered = ga.load_snapshot(snapshot_path)
+    for source in recovered['sources'].values():
+        assert source['status'] == 'ok' and source['stale'] is False
+        assert source['last_ok_at'] == Clock.current.isoformat()
+    private = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+    assert private['main'] != before['main']
+    assert sync_schedule.read_state(tmp_path / 'sync-state.json')['consecutive_failures'] == 0
+
+
 def test_crash_before_snapshot_replace_keeps_old_snapshot_and_rows_consistent(tmp_path: Path, monkeypatch):
     snapshot_path = tmp_path / "snapshot.json"
     rows_path = tmp_path / "rows-private.json"

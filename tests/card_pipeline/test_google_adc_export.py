@@ -80,3 +80,32 @@ def test_authenticated_export_rejects_html_and_oversize():
             fetcher(sample_url())
         assert exc.value.code == code
         assert response.closed
+
+
+@pytest.mark.parametrize('retryable,expected', [(False, 'GOOGLE_AUTH_REFRESH_REQUIRED'),
+                                               (True, 'SOURCE_UNREACHABLE')])
+def test_refresh_failure_is_classified_without_exposing_credentials(retryable, expected):
+    from google.auth.exceptions import RefreshError
+
+    class BrokenSession:
+        def get(self, *args, **kwargs):
+            raise RefreshError('synthetic-secret-token', retryable=retryable)
+
+    fetcher = authorized_export_fetcher(timeout=5, max_bytes=1024, session=BrokenSession())
+    with pytest.raises(SourceError) as error:
+        fetcher(sample_url())
+    assert error.value.code == expected
+    assert 'synthetic-secret-token' not in str(error.value)
+
+
+def test_response_cleanup_failure_never_replaces_safe_error():
+    class BrokenClose(FakeResponse):
+        def close(self):
+            raise RuntimeError('synthetic-secret-token')
+
+    fetcher = authorized_export_fetcher(timeout=5, max_bytes=1024,
+                                        session=FakeSession(BrokenClose(status=401)))
+    with pytest.raises(SourceError) as error:
+        fetcher(sample_url())
+    assert error.value.code == 'SOURCE_ACCESS_DENIED'
+    assert 'synthetic-secret-token' not in str(error.value)

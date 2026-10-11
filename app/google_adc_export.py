@@ -17,6 +17,8 @@ _MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 def authorized_export_fetcher(*, timeout: float, max_bytes: int, session=None):
     """Return a fetcher compatible with google_authority.sync(fetcher=...)."""
+    from google.auth.exceptions import RefreshError
+
     if session is None:
         import google.auth
         from google.auth.transport.requests import AuthorizedSession
@@ -33,6 +35,9 @@ def authorized_export_fetcher(*, timeout: float, max_bytes: int, session=None):
         try:
             response = session.get(endpoint, params={'mimeType': _MIME},
                                    timeout=timeout, stream=True, allow_redirects=False)
+        except RefreshError as error:
+            code = 'SOURCE_UNREACHABLE' if error.retryable else 'GOOGLE_AUTH_REFRESH_REQUIRED'
+            raise SourceError(code) from None
         except Exception:
             raise SourceError('SOURCE_UNREACHABLE') from None
         try:
@@ -58,6 +63,10 @@ def authorized_export_fetcher(*, timeout: float, max_bytes: int, session=None):
         except Exception:
             raise SourceError('SOURCE_UNREACHABLE') from None
         finally:
-            response.close()
+            try:
+                response.close()
+            except Exception:
+                # Cleanup must never replace a safe status with transport details.
+                pass
 
     return fetch

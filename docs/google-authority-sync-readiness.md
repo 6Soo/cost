@@ -70,5 +70,6 @@
 - 기존 기본 `tools/google_authority_sync.py` 실행은 인증 없는 Google XLSX export를 사용한다. 두 문서의 공유를 제한하면 기존 방식은 실패할 수 있다. 공유 권한을 바꾸기 전에 대체 인증이 실제로 동작하는지 검증해야 한다.
 - 개발 브랜치에는 `--google-auth adc` 선택형 읽기가 추가됐다. `google-auth`의 Application Default Credentials와 Google Drive **읽기 전용** scope를 사용하며, 허용된 두 원본에만 Drive export를 요청한다. 비허용 URL과 외부 리다이렉트는 차단하고 인증 실패 시 공개 링크로 폴백하지 않는다. 기본값 `public`은 호환을 위한 현재 동작이며 운영 안전 승인으로 해석하지 않는다.
 - 코드에는 비밀키·토큰이 없다. 운영 계정의 ADC/서비스 계정 접근권한 부여, 실제 인증 XLSX 응답, token 만료/재발급, 비공개 전환 이후 재시도는 **미검증 HOLD**다. 실제 자료·인증정보를 GitHub나 외부 AI로 전송하지 않는다.
-- 합성 오프라인 세션에서 인증 내보내기 어댑터 7개 테스트는 통과했다. 실제 저장소 통합 pytest와 Google 실계정 엔드투엔드 검증을 완료했다고 주장하지 않는다.
+- 후속 Windows 실제 저장소에서 인증 내보내기·정본 동기화·스케줄 상태의 표적 검사를 실행했다. ADC 초기화 실패도 기존 정상 행을 보존하면서 즉시 stale로 전환한다. 복구 불가 토큰 갱신 실패는 `GOOGLE_AUTH_REFRESH_REQUIRED`, 일시적인 갱신 장애는 `SOURCE_UNREACHABLE`로 구분한다. 응답 정리 오류는 인증 오류를 덮거나 원문 오류를 노출하지 않는다. Google 실계정 검증은 여전히 HOLD다.
+- API 계약은 [Google Drive files.export 문서](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export)와 대조했다. 이 API는 내보내기 크기를 10 MB로 제한하며 읽기 전용 Drive scope를 허용한다. 원본이 API 한도를 넘는 경우에도 공개 링크로 우회하지 않는다.
 - 전환 순서: 승인된 비운영 인증 자격 준비 → 두 원본에 명시적 읽기 권한 부여 → 격리에서 `--google-auth adc` 정상 읽기 확인 → 운영 동기화 설정·복구 계획 승인 → Google 공유를 제한 → 인증된 읽기 및 stale 표시 검증. 각각 별도 권한 승인이 필요하다.

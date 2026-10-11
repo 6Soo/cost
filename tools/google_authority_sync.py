@@ -48,15 +48,18 @@ def _run_locked(args, now, state_path) -> int:
         print(json.dumps({"code": "BACKOFF_WAIT", "next_attempt_at": state["next_attempt_at"]}))
         return 3
     fetcher = None
+    auth_unavailable = False
     if getattr(args, "google_auth", "public") == "adc":
         try:
             from app.google_adc_export import authorized_export_fetcher
             fetcher = authorized_export_fetcher(timeout=args.timeout, max_bytes=args.max_bytes)
         except Exception:
-            sync_schedule.record_result(state_path, ok=False, now=now,
-                                        error_code="GOOGLE_AUTH_UNAVAILABLE")
-            print(json.dumps({"code": "GOOGLE_AUTH_UNAVAILABLE"}))
-            return 5
+            auth_unavailable = True
+
+            def fetcher(_url):
+                # Publish the same last-good/stale transition as a fetch error.
+                # Never fall back to anonymous access when ADC was selected.
+                raise google_authority.SourceError('GOOGLE_AUTH_UNAVAILABLE')
     try:
         snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout,
                                          max_bytes=args.max_bytes, fetcher=fetcher, now=now)
@@ -72,7 +75,12 @@ def _run_locked(args, now, state_path) -> int:
     failed = [role for role, source in snapshot["sources"].items() if source["status"] != "ok"]
     sync_schedule.record_result(state_path, ok=not failed, now=now,
                                 error_code=snapshot["sources"][failed[0]]["error_code"] if failed else None)
-    print(json.dumps({"sources": sources, "trips": len(snapshot["trips"])}, ensure_ascii=False))
+    result = {"sources": sources, "trips": len(snapshot["trips"])}
+    if auth_unavailable:
+        result['code'] = 'GOOGLE_AUTH_UNAVAILABLE'
+    print(json.dumps(result, ensure_ascii=False))
+    if auth_unavailable:
+        return 5
     return 1 if failed else 0
 
 
