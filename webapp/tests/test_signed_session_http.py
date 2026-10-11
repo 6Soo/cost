@@ -282,6 +282,64 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertIn('data-refusal="NONCE_MISMATCH"', body)
         self.assertNotIn('Set-Cookie', headers)
 
+    def test_signed_viewer_grant_detail_and_revocation_with_concurrent_requests(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from webapp import google_ledger_page
+        stamp = google_ledger_page.dt.datetime.now(google_authority.KST).isoformat()
+        key = 'SYN-GOOGLE-TRIP'
+        snapshot = json.loads(self.snapshot.read_text())
+        block = lambda value: {'total': value, 'verified': True}
+        snapshot.update(synced_at=stamp, sources={'main': {'status': 'ok', 'stale': False, 'last_ok_at': stamp}},
+            trips=[{'key': key, 'closure': 'open', 'closure_current': True, 'canonical_source': 'main',
+                    'income_total': 100, 'expense_total': 10, 'net': 90, 'verified': True, 'review': [],
+                    'copies': {'main': {'layout': 'rev', 'income': block(100), 'expense': block(10)}}}])
+        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
+        rows_path = google_authority._rows_file(self.rows, snapshot['rows_generation'])
+        rows = json.loads(rows_path.read_text())
+        rows['sources'] = {'main': {'trips': {key: {'income': [], 'expense': []}}}}
+        rows_path.write_text(json.dumps(rows), encoding='utf-8')
+        tab = self.server.card_store.create_trip(starts_on='2026-10-11', ends_on='2026-10-12',
+            destination='Synthetic Trip', client_request_id='signed-trip')['tab_id']
+        self.access.register_reservation_person(reservation_person_id='person-syn',
+                                               display_name='Synthetic Viewer', nickname='Synthetic')
+        owner, viewer = self.cookie(OWNER), self.cookie(VIEWER)
+        headers = {'X-CSRF-Token': board.CSRF_TOKEN}
+
+        def post(path, payload, cookie=owner):
+            status, body, _ = self.request(path, cookie=cookie, headers=headers, payload=payload)
+            self.assertEqual(status, 200, body)
+            return json.loads(body)
+
+        application = post('/access/applications', {'action': 'create', 'requested_name': 'Synthetic Viewer',
+            'nickname': 'Synthetic', 'client_request_id': 'signed-application'}, cookie=viewer)
+        post('/access/decision', {'action': 'approve', 'application_id': application['result']['application_id'],
+            'expected_revision': 1, 'reservation_person_id': 'person-syn', 'client_request_id': 'signed-approval'})
+        self.access.apply_assignment_snapshot(user_id=VIEWER,
+            items=[{'tab_id': tab, 'snapshot_revision': 1, 'state': access_control.ASSIGN_ACTIVE}],
+            source_version='synthetic-assignment', validity=access_control.DEFAULT_VALIDITY, now=None, complete=False)
+        post('/api/google-ledger/mapping', {'key': key, 'tab_id': tab})
+        post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': True})
+        # Linking an account can invalidate its earlier cookie; use its current generation.
+        viewer = self.cookie(VIEWER)
+        status, body, _ = self.request('/api/google-ledger', cookie=viewer)
+        self.assertEqual(status, 200, body)
+        self.assertEqual([trip['key'] for trip in json.loads(body)['trips']], [key])
+        detail_path = '/api/google-ledger/rows?key=' + key + '&source=main'
+        status, body, _ = self.request(detail_path, cookie=viewer)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(json.loads(body)['key'], key)
+        post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': False})
+        paths = ['/api/google-ledger', detail_path] * 3
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            replies = list(pool.map(lambda path: self.request(path, cookie=viewer), paths))
+        for path, (status, body, _) in zip(paths, replies):
+            if path == detail_path:
+                self.assertEqual(status, 404, body)
+                self.assertEqual(json.loads(body)['code'], 'NOT_FOUND')
+            else:
+                self.assertEqual(status, 200, body)
+                self.assertEqual(json.loads(body)['trips'], [])
+
     def test_callback_verifies_rsa_signature_with_real_google_auth_library_offline(self):
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
