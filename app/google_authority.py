@@ -414,10 +414,18 @@ def load_consistent(snapshot_path: Path, rows_path: Path) -> tuple[dict, dict]:
 def _remove_other_generations(rows_path: Path, *, keep: set) -> None:
     """Removes orphaned or two-runs-old rows files, which a crash between the two writes can leave behind."""
     keep_names = {_rows_file(rows_path, g).name for g in keep if g}
-    for candidate in rows_path.parent.glob(f"{rows_path.stem}.*{rows_path.suffix}"):
-        if candidate.name not in keep_names:
-            with contextlib.suppress(OSError):
+    generated = re.compile(re.escape(rows_path.stem) + r'\.([0-9a-f]{32})' + re.escape(rows_path.suffix))
+    for candidate in rows_path.parent.iterdir():
+        match = generated.fullmatch(candidate.name)
+        if not match or candidate.name in keep_names or candidate.is_symlink() or not candidate.is_file():
+            continue
+        try:
+            metadata = json.loads(candidate.read_text(encoding='utf-8'))
+            if (isinstance(metadata, dict) and metadata.get('schema') == ROWS_SCHEMA
+                    and metadata.get('generation') == match.group(1)):
                 candidate.unlink()
+        except (OSError, ValueError):
+            pass  # Unknown or damaged files are recovery evidence, not disposable generations.
 
 
 def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEOUT,

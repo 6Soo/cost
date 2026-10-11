@@ -484,6 +484,24 @@ def test_previous_generation_is_kept_for_readers_and_the_oldest_is_removed(tmp_p
     assert ga._rows_file(rows_path, gens[1]).exists()      # previous: kept for a reader in flight
     assert ga._rows_file(rows_path, gens[2]).exists()      # current
 
+
+def test_generation_cleanup_preserves_backups_and_unrecognized_files(tmp_path):
+    rows_path = tmp_path / 'rows-private.json'
+    protected = {
+        'rows-private.backup.json': b'synthetic original backup',
+        'rows-private.original.json': b'synthetic original',
+        'rows-private.' + 'a' * 32 + '.json': b'{broken recovery evidence',
+        'rows-private.' + 'b' * 32 + '.json': json.dumps({'schema': 'other', 'generation': 'b' * 32}).encode(),
+    }
+    for name, body in protected.items():
+        (tmp_path / name).write_bytes(body)
+    orphan = ga._rows_file(rows_path, 'c' * 32)
+    orphan.write_text(json.dumps({'schema': ga.ROWS_SCHEMA, 'generation': 'c' * 32, 'sources': {}}))
+    ga._remove_other_generations(rows_path, keep=set())
+    assert not orphan.exists()
+    for name, body in protected.items():
+        assert (tmp_path / name).read_bytes() == body
+
 def test_unverified_figures_are_reported_separately_from_totals():
     mismatched = _trip("0630_오제", flags=["TOTAL_MISMATCH"])
     mismatched["verified"] = False
