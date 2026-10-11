@@ -245,6 +245,41 @@ class RuleReviewTests(unittest.TestCase):
     def test_browser_desktop_1440_keeps_the_chosen_row_and_applies_only_it(self):
         self._browser_case(1440, 900)
 
+    def test_browser_discards_delayed_proposal_after_focus_changes(self):
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.route('**/rule-proposal', lambda route: pending.append(route))
+            page.goto(self.base + '/import')
+            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            page.select_option('#rule-focus', self.tx[0])
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            with page.expect_request('**/rule-proposal'):
+                page.click('#rule-propose')
+            page.select_option('#rule-focus', self.tx[1])
+            pending.pop().fulfill(json=self.propose(self.tx[0], text='이 건만 식비로 분류해 줘'))
+            page.get_by_text('현재 선택이 바뀌었습니다. 다시 제안하세요.', exact=True).wait_for(timeout=5000)
+            self.assertEqual(page.locator('#rule-approve').count(), 0)
+            self.assertIsNone(page.evaluate('window.ruleProposal ?? null'))
+            self.assertEqual(set(self.items().values()), {''})
+            browser.close()
+
+    def test_browser_text_edit_invalidates_displayed_approval(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            page.click('#rule-propose')
+            page.locator('#rule-approve').wait_for()
+            page.fill('#rule-text', '이 건만 교통비로 분류해 줘')
+            self.assertEqual(page.locator('#rule-approve').count(), 0)
+            self.assertIsNone(page.evaluate('window.ruleProposal ?? null'))
+            self.assertEqual(set(self.items().values()), {''})
+            browser.close()
+
     def test_same_request_id_with_different_approval_is_refused_and_changes_nothing(self):
         first = self.propose()
         self.assertEqual(self.approve(first, 'reuse-1')[0], 200)
