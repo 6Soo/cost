@@ -96,7 +96,8 @@ def test_corrupt_settings_are_refused_and_preserved(tmp_path, loader, path_of, b
 
 
 def test_corrupt_settings_over_http_fail_closed_and_recover_after_repair(app):
-    app.grant_and_link(existing.VIEWER, '0630_오제', 'tab-syn')
+    app.link_and_assign(existing.VIEWER, app.trip)
+    app.grant_and_link(existing.VIEWER, '0630_오제', app.trip)
     for path_of in (gl.grants_path, gl.mapping_path, gl.choice_path):
         path = path_of(app.snapshot)
         before = path.read_bytes() if path.exists() else None
