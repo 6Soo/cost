@@ -138,15 +138,51 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     known = {c["identity"] for c in data["candidates"]}
     # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
     result = rc.build_candidates(regions, card_rows(board), known=known)
+    duplicates = []
+    added = 0
     for candidate in result["candidates"]:
-        data["candidates"].append({**candidate.__dict__, "history": []})
+        stored = {**candidate.__dict__, "history": [], "hold": None}
+        # The same slip photographed twice, or entered twice, is one cost. A second copy waits for a person.
+        if any(_signature(c) == _signature(stored) for c in data["candidates"]):
+            duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
+            continue
+        data["candidates"].append(stored)
+        added += 1
     seen = {h["identity"] for h in data["holds"]}
     data["holds"].extend(h for h in result["holds"] if h["identity"] not in seen)
     _save(path, data)
-    return {"added": len(result["candidates"]), "holds": result["holds"]}
+    return {"added": added, "holds": result["holds"] + duplicates}
 
 
-def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None) -> dict:
+def _match_card(card_rows_list: list, stored: dict) -> list:
+    """Server card purchases with the same date, merchant and JPY amount. Client data never reaches here."""
+    return [r for r in card_rows_list
+            if r["date"] == stored["date"] and r["merchant"] == stored["merchant"]
+            and r.get("original_jpy") is not None and float(r["original_jpy"]) == float(stored["total_jpy"])]
+
+
+def _settle(stored: dict, card_rows_list: list) -> None:
+    """Re-derives the card link and the priced amount from the stored fields and the server's card rows."""
+    stored["hold"] = None
+    if stored["payment"] == "corporate_card":
+        matches = _match_card(card_rows_list, stored)
+        stored["card_transaction_id"] = matches[0]["transaction_id"] if len(matches) == 1 else None
+        stored["amount_krw"] = None
+        if not matches:
+            stored["hold"] = "CARD_NOT_FOUND"
+        elif len(matches) > 1:
+            stored["hold"] = "CARD_MATCH_AMBIGUOUS"
+    else:
+        stored["card_transaction_id"] = None
+        stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
+
+
+def _signature(candidate: dict) -> tuple:
+    return (candidate["date"], candidate["merchant"].strip(), int(candidate["total_jpy"]), candidate["payment"])
+
+
+def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None,
+         card_rows_list: list | None = None) -> dict:
     """A person corrects what was typed. Card-linked receipts keep the card amount, so they cannot be re-priced."""
     data = load(path)
     for stored in data["candidates"]:
@@ -162,11 +198,14 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if "trip_id" in changes and changes["trip_id"] and changes["trip_id"] not in (valid_trips or set()):
             raise ValueError("TRIP_UNKNOWN")
         if stored.get("card_transaction_id") and ("total_jpy" in changes or "payment" in changes):
+            # Unlinking would turn the card purchase plus a cash receipt into two costs. Refused, not guessed.
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
             stored[key] = int(value) if key == "total_jpy" else str(value).strip()
-        if stored.get("payment") in ("cash", "private_card") and stored.get("total_jpy"):
-            stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
+        others = [c for c in data["candidates"] if c["identity"] != identity]
+        if any(_signature(c) == _signature(stored) for c in others):
+            raise ValueError("DUPLICATE_CONTENT")
+        _settle(stored, card_rows_list or [])
         stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
         _save(path, data)
         return stored
@@ -177,7 +216,7 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
-            candidate = rc.Candidate(**{k: v for k, v in stored.items() if k not in ("history", "trip_id")})
+            candidate = rc.Candidate(**{k: v for k, v in stored.items() if k not in ("history", "trip_id", "hold")})
             candidate.history = list(stored["history"])
             rc.confirm(candidate, payee=payee, category=category, note=note)
             stored.update(payee=candidate.payee, category=candidate.category, history=candidate.history)
@@ -188,15 +227,18 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
 
 def tsv(path: Path, trip: str | None = None) -> dict:
     data = load(path)
-    candidates = [rc.Candidate(**{k: v for k, v in c.items() if k not in ("history", "trip_id")})
+    candidates = [rc.Candidate(**{k: v for k, v in c.items() if k not in ("history", "trip_id", "hold")})
                   for c in data["candidates"]]
     if not trip:
         raise ValueError("TRIP_REQUIRED")
     mine = [c for c, stored in zip(candidates, data["candidates"]) if stored.get("trip_id") == trip]
     unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
                   if not c.get("trip_id")]
+    card_holds = [{"identity": c["identity"], "reason": c["hold"]} for c in data["candidates"]
+                  if c.get("hold") and c.get("trip_id") == trip]
     result = expense_tsv(rc.to_expense_rows(mine), layout="rev")
-    return {**result, "trip_id": trip, "held": result["held"] + data["holds"] + unassigned}
+    return {**result, "trip_id": trip,
+            "held": result["held"] + data["holds"] + unassigned + card_holds}
 
 
 def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner: bool = False, query=None) -> bool:
@@ -248,7 +290,8 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 raise ValueError("FIELD_NOT_EDITABLE")
             changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment", "trip_id") if k in body}
             handler._send_json(edit(path, identity=str(body.get("identity", "")), changes=changes,
-                                    note=str(body.get("note", "")), valid_trips=_trip_ids(board)))
+                                    note=str(body.get("note", "")), valid_trips=_trip_ids(board),
+                                    card_rows_list=card_rows(board)))
         elif parsed.path == "/api/receipts/confirm":
             handler._send_json(confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
                                        category=str(body.get("category", "")), note=str(body.get("note", ""))))

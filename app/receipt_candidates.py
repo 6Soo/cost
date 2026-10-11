@@ -127,7 +127,8 @@ def to_expense_rows(candidates: list[Candidate]) -> list[dict]:
     """Rows for app.google_tsv.expense_tsv. Card-matched receipts are evidence, not a second expense."""
     rows = []
     for c in candidates:
-        if c.card_transaction_id:
+        # A corporate-card receipt is either the card purchase it matches (already a cost) or held.
+        if c.payment == "corporate_card" or c.card_transaction_id:
             continue
         rows.append({
             "transaction_id": f"receipt:{c.identity}",

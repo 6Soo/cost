@@ -311,3 +311,66 @@ class ReceiptReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             receipt_review.store_image(self.store, too_big)
         self.assertEqual(str(raised.exception), 'IMAGE_SIZE_INVALID')
+
+    def _confirmed_cash_receipt(self, merchant='라멘집', total=1234):
+        region = dict(REGIONS['regions'][0], merchant=merchant, total=total, box=[1, 2, 30, 40])
+        self.request('/api/receipts/scan', {'regions': [region]}, token=self.csrf())
+        _, stored = self.request('/api/receipts')
+        identity = [c for c in stored['candidates'] if c['merchant'] == merchant][-1]['identity']
+        self.request('/api/receipts/edit', {'identity': identity, 'trip_id': self.trip}, token=self.csrf())
+        self.request('/api/receipts/confirm', {'identity': identity, 'payee': merchant, 'category': '식비'},
+                     token=self.csrf())
+        return identity
+
+    def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
+        identity = self._confirmed_cash_receipt()
+        _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')
+        self.assertIn('\t영수증\t12340', before['tsv'])
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'payment': 'corporate_card'},
+                                    token=self.csrf())
+        self.assertEqual(status, 200, body)
+        _, after = self.request(f'/api/receipts/tsv?trip={self.trip}')
+        self.assertNotIn('라멘집', after['tsv'])
+        self.assertIn('CARD_NOT_FOUND', {h['reason'] for h in after['held']})
+
+    def test_switching_to_corporate_links_the_one_matching_card_purchase_and_drops_the_cash_price(self):
+        from webapp.card_flow import CardFlow
+        identity = self._confirmed_cash_receipt(merchant='카페', total=900)
+        batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'switch-link.csv')['batch_id']
+        _card_purchase(self.server.card_store, batch, 'card-switch-1', '카페', 900, '2027-08-03')
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'payment': 'corporate_card'},
+                                    token=self.csrf())
+        self.assertEqual(status, 200, body)
+        self.assertEqual(body['card_transaction_id'], 'card-switch-1')
+        self.assertIsNone(body['amount_krw'])
+        _, after = self.request(f'/api/receipts/tsv?trip={self.trip}')
+        self.assertNotIn('카페', after['tsv'])
+
+    def test_a_linked_receipt_cannot_be_unlinked_into_a_second_cost(self):
+        from webapp.card_flow import CardFlow
+        region = dict(REGIONS['regions'][0], payment='corporate_card', merchant='카페', total=900, box=[5, 5, 9, 9])
+        batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'unlink.csv')['batch_id']
+        _card_purchase(self.server.card_store, batch, 'card-unlink-1', '카페', 900, '2027-08-03')
+        self.request('/api/receipts/scan', {'regions': [region]}, token=self.csrf())
+        _, stored = self.request('/api/receipts')
+        identity = stored['candidates'][-1]['identity']
+        self.assertEqual(stored['candidates'][-1]['card_transaction_id'], 'card-unlink-1')
+        status, body = self.request('/api/receipts/edit', {'identity': identity, 'payment': 'cash'}, token=self.csrf())
+        self.assertEqual((status, body['code']), (400, 'CARD_LINKED_NOT_EDITABLE'))
+
+    def test_the_same_receipt_rescanned_or_resubmitted_is_one_cost(self):
+        region = dict(REGIONS['regions'][0], merchant='라멘집', total=1234, box=[1, 2, 30, 40])
+        self.request('/api/receipts/scan', {'regions': [region]}, token=self.csrf())
+        self.request('/api/receipts/scan', {'regions': [region]}, token=self.csrf())
+        _, stored = self.request('/api/receipts')
+        self.assertEqual(len(stored['candidates']), 1)
+
+    def test_the_same_content_from_a_second_photo_is_held_not_added_as_a_second_cost(self):
+        first = dict(REGIONS['regions'][0], merchant='라멘집', total=1234, box=[1, 2, 30, 40])
+        second = dict(first, box=[500, 500, 530, 540])  # a second photo of the same slip, another position
+        self.request('/api/receipts/scan', {'regions': [first]}, token=self.csrf())
+        _, body = self.request('/api/receipts/scan', {'regions': [second]}, token=self.csrf())
+        self.assertEqual(body['added'], 0)
+        self.assertIn('DUPLICATE_CONTENT', {h['reason'] for h in body['holds']})
+        _, stored = self.request('/api/receipts')
+        self.assertEqual(len(stored['candidates']), 1)
