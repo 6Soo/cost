@@ -51,6 +51,12 @@ def resolve_data_root(argv_root: str | None) -> pathlib.Path:
     return pathlib.Path(raw)
 
 
+def validate_session_mode(args):
+    if args.synthetic_sessions and args.environment != 'local-synthetic':
+        raise ops.OpsError('SYNTHETIC_SESSION_ENVIRONMENT',
+                           '합성 세션은 local-synthetic 환경에서만 사용할 수 있습니다')
+
+
 def connect_runtime_oidc(server, args):
     """Connect a real Google login when the environment configured one.
 
@@ -71,6 +77,7 @@ def connect_runtime_oidc(server, args):
     from webapp import google_oidc
     from webapp import ledger_board as board_mod
 
+    validate_session_mode(args)
     access = access_control.attach_to_ledger_store(server.card_store)
     if args.synthetic_sessions:
         if any(os.environ.get(name) for name in google_oidc.REQUIRED_ENV):
@@ -236,6 +243,7 @@ def main(argv=None) -> int:
         os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
 
     try:
+        validate_session_mode(args)
         data_root = resolve_data_root(args.data_root)
         port = resolve_port(args.port)
         # The bind is checked before the data root is touched, so an unsafe bind

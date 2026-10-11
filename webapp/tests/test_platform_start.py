@@ -36,6 +36,32 @@ def requirement_lines(path):
     return sorted(out)
 
 
+def test_production_refuses_synthetic_sessions_before_any_database_access(monkeypatch, capsys):
+    import run_candidate
+    from unittest.mock import Mock
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
+    configure = Mock(side_effect=AssertionError('must not access the data root'))
+    monkeypatch.setattr(run_candidate.ops, 'durable_config_for', configure)
+    assert run_candidate.main(['--environment', 'production', '--synthetic-sessions']) == 2
+    assert 'SYNTHETIC_SESSION_ENVIRONMENT' in capsys.readouterr().err
+    configure.assert_not_called()
+
+
+def test_production_oidc_binding_cannot_enable_synthetic_adapter(monkeypatch):
+    import pytest
+    import run_candidate
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from webapp import access_control
+    attach = Mock(side_effect=AssertionError('must refuse before attaching tables'))
+    monkeypatch.setattr(access_control, 'attach_to_ledger_store', attach)
+    with pytest.raises(ops.OpsError) as error:
+        run_candidate.connect_runtime_oidc(SimpleNamespace(card_store=None),
+                                           SimpleNamespace(synthetic_sessions=True, environment='production'))
+    assert error.value.code == 'SYNTHETIC_SESSION_ENVIRONMENT'
+    attach.assert_not_called()
+
+
 class BothRequirementsFilesAgree(unittest.TestCase):
     """P4-1: two lists drift apart quietly and only fail at login time."""
 
