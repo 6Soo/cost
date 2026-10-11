@@ -66,6 +66,18 @@ def approve(flow: CardFlow, batch: str, body: dict) -> dict:
         return _approve_locked(flow, batch, body)
 
 
+def saved_response(flow: CardFlow, batch: str, result: dict, *, classify: bool = False) -> dict:
+    """A failed read after a committed write must not report that write as rolled back."""
+    try:
+        if classify:
+            flow.classify(batch)
+        state = flow.state(batch)
+    except Exception:
+        # Return only the committed result; exception details may contain private data.
+        return {**result, 'state': None, 'refresh_required': True}
+    return {**result, 'state': state}
+
+
 def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
     if body.get("approved") is not True:
         raise ValueError("APPROVAL_REQUIRED")
@@ -79,7 +91,8 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
             return None
         if earlier.get("basis") != basis:
             raise RequestIdReused("same request id, different approval")
-        return {"applied": [x["transaction_id"] for x in earlier["results"]], "state": flow.state(batch)}
+        return saved_response(flow, batch,
+                              {"applied": [x["transaction_id"] for x in earlier["results"]]}, classify=True)
 
     earlier = replay()
     if earlier is not None:
@@ -104,8 +117,8 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
     result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
                                           tab_validator=flow.tab_valid, trip_validator=flow.trip_valid,
                                           basis=basis)
-    flow.classify(batch)
-    return {"applied": [r["transaction_id"] for r in result["results"]], "state": flow.state(batch)}
+    return saved_response(flow, batch,
+                          {"applied": [r["transaction_id"] for r in result["results"]]}, classify=True)
 
 
 def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
@@ -142,7 +155,7 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
                                   expected_exclusion_revision=body.get('exclusion_revision'),
                                   excluded=body.get('excluded'), confirmed=body.get('confirmed'),
                                   request_id=body.get('request_id'), note=str(body.get('note') or ''))
-            handler._send_json({'result': result, 'state': flow.state(batch)})
+            handler._send_json(saved_response(flow, batch, {'result': result}))
             return True
         if approve_match:
             handler._send_json(approve(CardFlow(board), approve_match.group(1), body))

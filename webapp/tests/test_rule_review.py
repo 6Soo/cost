@@ -126,6 +126,23 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual(body['applied'], [self.tx[0]])
         self.assertEqual(self.items(), {self.tx[0]: '현지잡비', self.tx[1]: ''})
 
+    def test_saved_approval_survives_refresh_failure_and_same_request_retry(self):
+        proposal = self.propose()
+        with patch.object(CardFlow, 'classify', side_effect=StoreError('REFRESH_FAILED', 'private detail')):
+            status, body = self.approve(proposal, 'saved-before-refresh')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['applied'], [self.tx[0]])
+        self.assertTrue(body['refresh_required'])
+        self.assertIsNone(body['state'])
+        self.assertNotIn('private detail', json.dumps(body))
+        self.assertEqual(self.items()[self.tx[0]], '현지잡비')
+        count = self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0]
+        status, replay = self.approve(proposal, 'saved-before-refresh')
+        self.assertEqual(status, 200)
+        self.assertEqual(replay['applied'], body['applied'])
+        self.assertIsNotNone(replay['state'])
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], count)
+
     def test_stale_proposal_is_refused_and_nothing_changes(self):
         proposal = self.propose()
         self.server.card_store.conn.execute('UPDATE transactions SET amount_krw=amount_krw+1 WHERE transaction_id=?',
@@ -278,6 +295,26 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(page.locator('#rule-approve').count(), 0)
             self.assertIsNone(page.evaluate('window.ruleProposal ?? null'))
             self.assertEqual(set(self.items().values()), {''})
+            browser.close()
+
+    def test_browser_reports_committed_approval_when_refresh_fails(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#rule-focus option').first.wait_for(state='attached')
+            page.select_option('#rule-focus', self.tx[0])
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            page.click('#rule-propose')
+            page.locator('#rule-approve').wait_for()
+            with patch.object(CardFlow, 'classify', side_effect=RuntimeError('private refresh failure')):
+                page.click('#rule-approve')
+                page.get_by_text('승인은 저장됐습니다.', exact=False).wait_for()
+            self.assertEqual(self.items()[self.tx[0]], '식비')
+            self.assertEqual(page.locator('#rule-approve').count(), 0)
+            page.reload()
+            page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
+            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).user_confirmed', self.tx[0]), 1)
             browser.close()
 
     def test_delayed_approval_result_does_not_restore_previous_batch(self):

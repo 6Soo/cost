@@ -48,6 +48,25 @@ def test_owner_csrf_and_separate_confirmation_are_required(app):
         assert (status, result['code']) == (409, 'EXCLUSION_CONFIRMATION_REQUIRED')
 
 
+def test_saved_exclusion_survives_state_failure_and_retry(app):
+    from webapp.card_flow import CardFlow
+    route = f'/api/imports/{app.batch}/company-exclusion'
+    body = payload(app)
+    before = app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall()
+    with patch.object(ledger_board, '_receipts_owner_request', return_value=True):
+        with patch.object(CardFlow, 'state', side_effect=RuntimeError('private state failure')):
+            status, result = app.post(route, body, token=ledger_board.CSRF_TOKEN)
+        assert status == 200
+        assert result['refresh_required'] is True
+        assert result['state'] is None
+        assert 'private state failure' not in str(result)
+        status, replay = app.post(route, body, token=ledger_board.CSRF_TOKEN)
+        assert status == 200
+        assert replay['state']['preview']['excluded'] == 1
+        assert replay['result'] == result['result']
+    assert app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall() == before
+
+
 @pytest.mark.parametrize('width', [390, 1440])
 def test_browser_proposes_exclusion_and_can_restore(app, width):
     from playwright.sync_api import sync_playwright

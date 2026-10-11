@@ -197,6 +197,39 @@ class CardGoogleCopyTests(unittest.TestCase):
     def test_delayed_poll_response_does_not_restore_previous_batch(self):
         self._delayed_response_case(poll=True)
 
+    def test_superseded_load_and_poll_errors_keep_current_status(self):
+        first = self.assign(trip=self.make_trip())
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            for poll in (False, True):
+                for status in (401, 500):
+                    with self.subTest(poll=poll, status=status):
+                        page = browser.new_page()
+                        page.goto(self.base + '/import')
+                        page.wait_for_function('typeof model !== "undefined"')
+                        page.locator(f'[data-batch="{first}"]').click()
+                        page.wait_for_function('(batch)=>model.batch_id===batch', arg=first)
+                        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+                        pending = []
+                        page.route(f'**/api/imports/{first}', lambda route: pending.append(route))
+                        with page.expect_request(f'**/api/imports/{first}'):
+                            if poll:
+                                page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>false});void pollCard()")
+                            else:
+                                page.locator(f'[data-batch="{first}"]').click()
+                        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+                        page.locator(f'[data-batch="{second}"]').click()
+                        page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+                        page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
+                        with page.expect_response(f'**/api/imports/{first}'):
+                            pending.pop().fulfill(status=status, json={'message': 'OLD-REQUEST-FAILED'})
+                        page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+                        self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
+                        self.assertEqual(page.evaluate('model.batch_id'), second)
+                        page.close()
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
