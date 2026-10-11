@@ -71,6 +71,7 @@ class SignedSessionHttpTests(unittest.TestCase):
         }), encoding="utf-8")
         self.receipts = self.root / "receipts.json"
         self.env = patch.dict(os.environ, {
+            'WEBLEDGER_UNIFIED_DB': '1', 'WEBLEDGER_CARD_FLOW': '1',
             "WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT": str(self.snapshot),
             "WEBLEDGER_GOOGLE_LEDGER_ROWS": str(self.rows),
             "WEBLEDGER_RECEIPTS_STORE": str(self.receipts),
@@ -92,7 +93,10 @@ class SignedSessionHttpTests(unittest.TestCase):
         board.bind_store(self.store)
         board.bind_access(self.access)
         board.bind_oidc(self.flow)
-        self.server = board.serve(port=0, with_worker=False)
+        self.server = board.serve(port=0, db_path=self.root / 'http-board.sqlite',
+                                  with_worker=False, seed_demo=False)
+        from webapp.card_flow import CardFlow
+        CardFlow(self.server.card_store)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -102,6 +106,7 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
+        self.server.card_store.close()
         old_store, old_access, old_oidc, old_adapter = self.previous
         board.bind_store(old_store)
         board.bind_access(old_access)
@@ -111,11 +116,14 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def request(self, path, *, cookie=None, headers=None):
+    def request(self, path, *, cookie=None, headers=None, payload=None):
         all_headers = dict(headers or {})
         if cookie:
             all_headers["Cookie"] = f"{google_oidc.COOKIE_NAME}={cookie}"
-        request = Request(f"http://127.0.0.1:{self.port}{path}", headers=all_headers)
+        data = None if payload is None else json.dumps(payload).encode()
+        if data is not None:
+            all_headers['Content-Type'] = 'application/json'
+        request = Request(f"http://127.0.0.1:{self.port}{path}", headers=all_headers, data=data)
         try:
             response = self.opener.open(request, timeout=5)
         except HTTPError as error:
@@ -177,6 +185,26 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assert_json_response("/api/google-ledger", cookie=None, headers={
             access_control.SyntheticSessionAdapter.HEADER: OWNER,
         }, status=403, body={"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"})
+
+    def test_new_write_routes_refuse_viewer_and_anonymous_before_any_effect(self):
+        paths = ('/api/google-ledger/choice', '/api/google-ledger/grants', '/api/google-ledger/mapping',
+                 '/api/receipts/scan', '/api/receipts/edit', '/api/receipts/confirm', '/api/receipts/image',
+                 '/api/receipts/upload', '/api/imports/batch-syn/rule-proposal',
+                 '/api/imports/batch-syn/rule-proposal/approve', '/api/imports/batch-syn/company-exclusion')
+        conn = self.server.card_store.conn
+        before = conn.total_changes
+        for path in paths:
+            for user, status, code in ((VIEWER, 403, 'ACTION_FORBIDDEN'), (None, 401, 'AUTH_REQUIRED')):
+                with self.subTest(path=path, user=user):
+                    actual, body, _ = self.request(path, cookie=self.cookie(user) if user else None,
+                        headers={'X-CSRF-Token': board.CSRF_TOKEN}, payload={'role': 'owner', 'user_id': OWNER})
+                    self.assertEqual(actual, status, body)
+                    self.assertEqual(json.loads(body)['code'], code)
+        self.assertEqual(conn.total_changes, before)
+        self.assertFalse(self.receipts.exists())
+        self.assertFalse(self.snapshot.with_name('google-canonical-choices.json').exists())
+        self.assertFalse(self.snapshot.with_name('google-viewer-grants.json').exists())
+        self.assertFalse(self.snapshot.with_name('google-tab-mapping.json').exists())
 
     def test_expired_tampered_revoked_and_deactivated_cookies_are_refused_over_http(self):
         signer = self.flow.adapter.signer
