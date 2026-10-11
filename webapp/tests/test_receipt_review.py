@@ -364,6 +364,35 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
             browser.close()
 
+    def test_browser_copy_locks_trip_and_recovers_without_changing_clipboard(self):
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'])
+            page = context.new_page()
+            page.route('**/api/receipts/tsv?*', lambda route: pending.append(route))
+            page.goto(self.base + '/receipts')
+            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+            with page.expect_request('**/api/receipts/tsv?*'):
+                page.click('#copy-tsv')
+            self.assertTrue(page.locator('#copy-trip').is_disabled())
+            self.assertTrue(page.locator('#copy-tsv').is_disabled())
+            page.locator('#copy-tsv').evaluate('(button)=>{button.click();button.click()}')
+            self.assertEqual(len(pending), 1)
+            pending.pop().fulfill(status=400, json={'code': 'FIELD_MISSING'})
+            page.get_by_text('상호·날짜·지급처·내용의 필수 입력을 확인해 주세요.', exact=True).wait_for()
+            self.assertTrue(page.locator('#copy-trip').is_enabled())
+            self.assertTrue(page.locator('#copy-tsv').is_enabled())
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            with page.expect_request('**/api/receipts/tsv?*'):
+                page.click('#copy-tsv')
+            pending.pop().fulfill(json={'row_count': 0, 'held': [], 'tsv': ''})
+            page.get_by_text('복사할 확정 영수증이 없습니다. 보류 0건', exact=True).wait_for()
+            self.assertTrue(page.locator('#copy-trip').is_enabled())
+            self.assertTrue(page.locator('#copy-tsv').is_enabled())
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            browser.close()
+
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
         png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=png_no_end)[1]['code'],

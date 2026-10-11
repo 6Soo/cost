@@ -504,15 +504,15 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "post('/api/receipts/confirm',{identity:id,payee:val('data-payee',id),category:val('data-category',id)})"
         ".then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.getElementById('copy-tsv').onclick=async()=>{const button=document.getElementById('copy-tsv');"
-        "const trip=document.getElementById('copy-trip').value;if(!trip){say('복사할 여행을 고르세요');return}"
+        "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
         "const key='gcopy-trip:'+trip;const previous=localStorage.getItem(key);"
         "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
-        "button.disabled=true;try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
+        "button.disabled=true;selection.disabled=true;try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
         "const x=await response.json();if(!response.ok)throw new Error(x.message||x.code);"
         "if(!x.row_count){say('복사할 확정 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);localStorage.setItem(key,new Date().toLocaleString('ko-KR'));"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.')}"
-        "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{button.disabled=false}};")
+        "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{button.disabled=false;selection.disabled=false}};")
     box_inputs = "".join(f"<input id='box{i}' type='number' value='0' aria-label='영역 {i}' style='width:4.5em'>"
                          for i in range(1, 5))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"

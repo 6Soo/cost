@@ -74,6 +74,55 @@ class CardGoogleCopyTests(unittest.TestCase):
     def test_delayed_batch_response_does_not_replace_latest_selection(self):
         self._delayed_response_case(poll=False)
 
+    def test_copy_blocks_duplicate_requests_and_recovers_from_error(self):
+        trip = self.make_trip()
+        self.assign(trip=trip)
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.route('**/google-tsv?*', lambda route: pending.append(route))
+            page.goto(self.base + '/import')
+            button = page.locator(f'[data-google-copy="{trip}"]')
+            button.wait_for()
+            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+            with page.expect_request('**/google-tsv?*'):
+                button.click()
+            self.assertTrue(button.is_disabled())
+            button.evaluate('(button)=>{button.click();button.click()}')
+            self.assertEqual(len(pending), 1)
+            pending.pop().fulfill(status=400, json={'code': 'SYNTHETIC_FAILURE'})
+            page.get_by_text('SYNTHETIC_FAILURE', exact=True).wait_for()
+            self.assertTrue(button.is_enabled())
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            browser.close()
+
+    def test_delayed_copy_from_previous_batch_does_not_change_clipboard(self):
+        trip = self.make_trip()
+        first = self.assign(trip=trip)
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{first}"]').click()
+            button = page.locator(f'[data-google-copy="{trip}"]')
+            button.wait_for()
+            page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
+            expected = page.request.get(f'{self.base}/api/imports/{first}/google-tsv?tab={trip}').json()
+            self.assertEqual(expected['row_count'], 1)
+            page.route('**/google-tsv?*', lambda route: pending.append(route))
+            with page.expect_request('**/google-tsv?*'):
+                button.click()
+            page.locator(f'[data-batch="{second}"]').click()
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            pending.pop().fulfill(json=expected)
+            page.get_by_text('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.', exact=True).wait_for()
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
+            self.assertIsNone(page.evaluate('(trip)=>localStorage.getItem("gcopy-trip:"+trip)', trip))
+            browser.close()
+
     def test_delayed_poll_response_does_not_restore_previous_batch(self):
         self._delayed_response_case(poll=True)
 
