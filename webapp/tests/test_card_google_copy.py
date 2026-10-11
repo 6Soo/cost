@@ -331,6 +331,31 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertTrue(button.is_enabled())
             browser.close()
 
+    def test_commit_failure_for_previous_batch_keeps_current_status(self):
+        first = self.assign(trip=self.make_trip())
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{first}"]').click()
+            page.locator('#commit').wait_for()
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.route('**/commit', lambda route: pending.append(route))
+            with page.expect_request('**/commit'):
+                page.click('#commit')
+            page.locator(f'[data-batch="{second}"]').click()
+            page.wait_for_function('(id)=>model.batch_id===id', arg=second)
+            page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
+            with page.expect_response('**/commit'):
+                pending.pop().fulfill(status=500, json={'message': 'OLD-COMMIT-FAILED'})
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
+            self.assertEqual(page.evaluate('model.batch_id'), second)
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']

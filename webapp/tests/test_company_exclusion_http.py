@@ -67,6 +67,45 @@ def test_saved_exclusion_survives_state_failure_and_retry(app):
     assert app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall() == before
 
 
+@pytest.mark.parametrize('status', [200, 500])
+def test_delayed_exclusion_response_keeps_new_batch_status_and_proposal(app, status):
+    from playwright.sync_api import sync_playwright
+    second = app.flow.pipeline.receive(existing.CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+    pending = []
+    with patch.object(ledger_board, '_receipts_owner_request', return_value=True), sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.on('dialog', lambda dialog: dialog.accept())
+        page.goto(app.base + '/import')
+        page.locator(f'[data-batch="{app.batch}"]').click()
+        page.wait_for_function('(id)=>model.batch_id===id', arg=app.batch)
+        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+        page.select_option('#rule-focus', app.tx[0])
+        page.fill('#rule-text', '회사 경비 아님')
+        page.click('#rule-propose')
+        page.locator('#company-exclude').wait_for()
+        page.route('**/company-exclusion', lambda route: pending.append(route))
+        with page.expect_request('**/company-exclusion'):
+            page.click('#company-exclude')
+        if status == 200:
+            code, result = app.post(f'/api/imports/{app.batch}/company-exclusion',
+                                    pending[0].request.post_data_json, token=ledger_board.CSRF_TOKEN)
+            assert code == 200
+        else:
+            result = {'message': 'OLD-EXCLUSION-ERROR'}
+        page.locator(f'[data-batch="{second}"]').click()
+        page.wait_for_function('(id)=>model.batch_id===id', arg=second)
+        page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION';document.getElementById('rule-result').textContent='CURRENT-PROPOSAL'")
+        with page.expect_response('**/company-exclusion'):
+            pending.pop().fulfill(status=status, json=result)
+        page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        assert page.locator('#status').inner_text() == 'CURRENT-SELECTION'
+        assert page.locator('#rule-result').inner_text() == 'CURRENT-PROPOSAL'
+        assert page.evaluate('model.batch_id') == second
+        assert app.flow.state(app.batch)['preview']['excluded'] == (1 if status == 200 else 0)
+        browser.close()
+
+
 @pytest.mark.parametrize('width', [390, 1440])
 def test_browser_proposes_exclusion_and_can_restore(app, width):
     from playwright.sync_api import sync_playwright
