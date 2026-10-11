@@ -154,11 +154,25 @@ def choice_path(snapshot_path: Path) -> Path:
     return snapshot_path.with_name("google-canonical-choices.json")
 
 
+def _read_settings(path: Path, default: dict) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return default
+    except (OSError, ValueError):
+        raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE') from None
+    if not isinstance(data, dict):
+        raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE')
+    return data
+
+
 def load_choices(snapshot_path: Path) -> dict:
-    path = choice_path(snapshot_path)
-    if not path.exists():
-        return {"choices": {}, "history": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = _read_settings(choice_path(snapshot_path), {'choices': {}, 'history': []})
+    choices = data.get('choices')
+    if (not isinstance(choices, dict) or not isinstance(data.get('history'), list)
+            or any(not isinstance(key, str) or value not in ('main', 'archive') for key, value in choices.items())):
+        raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE')
+    return data
 
 
 @_serialized
@@ -295,10 +309,10 @@ def mapping_path(snapshot_path: Path) -> Path:
 
 
 def load_mapping(snapshot_path: Path) -> dict:
-    path = mapping_path(snapshot_path)
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = _read_settings(mapping_path(snapshot_path), {})
+    if any(not isinstance(key, str) or not isinstance(value, str) or not value for key, value in data.items()):
+        raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE')
+    return data
 
 
 @_serialized
@@ -327,10 +341,13 @@ def grants_path(snapshot_path: Path) -> Path:
 
 
 def load_grants(snapshot_path: Path) -> dict:
-    path = grants_path(snapshot_path)
-    if not path.exists():
-        return {"grants": {}, "history": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = _read_settings(grants_path(snapshot_path), {'grants': {}, 'history': []})
+    grants = data.get('grants')
+    if (not isinstance(grants, dict) or not isinstance(data.get('history'), list)
+            or any(not isinstance(user, str) or not isinstance(keys, list)
+                   or any(not isinstance(key, str) or not key for key in keys) for user, keys in grants.items())):
+        raise google_authority.SnapshotError('SETTINGS_UNAVAILABLE')
+    return data
 
 
 @_serialized
@@ -478,12 +495,16 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         handler._send_json({"code": error.code, "message": "동기화 결과를 확인하지 못했습니다"}, 503)
         return True
     snapshot = snapshot_for_display(snapshot)
-    if is_owner:
-        payload = owner_payload(snapshot, load_choices(_snapshot_path()))
-    else:
-        payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
-                                 mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
-                                 choices=load_choices(_snapshot_path()))
+    try:
+        if is_owner:
+            payload = owner_payload(snapshot, load_choices(_snapshot_path()))
+        else:
+            payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
+                                     mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
+                                     choices=load_choices(_snapshot_path()))
+    except google_authority.SnapshotError as error:
+        handler._send_json({'code': error.code, 'message': '권한 또는 정본 설정 파일을 확인해 주세요'}, 503)
+        return True
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)
     else:

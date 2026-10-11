@@ -77,3 +77,36 @@ def test_settings_http_rejects_non_object_json_without_writes(app):
     assert not gl.choice_path(app.snapshot).exists()
     assert not gl.mapping_path(app.snapshot).exists()
     assert not gl.grants_path(app.snapshot).exists()
+
+
+@pytest.mark.parametrize('loader,path_of,body', [
+    (gl.load_choices, gl.choice_path, '{'),
+    (gl.load_choices, gl.choice_path, '{"choices":[],"history":[]}'),
+    (gl.load_mapping, gl.mapping_path, '[]'),
+    (gl.load_grants, gl.grants_path, '{"grants":{"viewer":"trip"},"history":[]}'),
+])
+def test_corrupt_settings_are_refused_and_preserved(tmp_path, loader, path_of, body):
+    from app.google_authority import SnapshotError
+    snapshot = tmp_path / 'snapshot.json'
+    path = path_of(snapshot)
+    path.write_text(body, encoding='utf-8')
+    with pytest.raises(SnapshotError, match='SETTINGS_UNAVAILABLE'):
+        loader(snapshot)
+    assert path.read_text(encoding='utf-8') == body
+
+
+def test_corrupt_settings_over_http_fail_closed_and_recover_after_repair(app):
+    app.grant_and_link(existing.VIEWER, '0630_오제', 'tab-syn')
+    for path_of in (gl.grants_path, gl.mapping_path, gl.choice_path):
+        path = path_of(app.snapshot)
+        before = path.read_bytes() if path.exists() else None
+        path.write_text('[]', encoding='utf-8')
+        status, body = app.call('/api/google-ledger', user=existing.VIEWER)
+        assert status == 503 and json.loads(body)['code'] == 'SETTINGS_UNAVAILABLE'
+        assert path.read_text(encoding='utf-8') == '[]'
+        if before is None:
+            path.unlink()
+        else:
+            path.write_bytes(before)
+    status, body = app.call('/api/google-ledger', user=existing.VIEWER)
+    assert status == 200 and [trip['key'] for trip in json.loads(body)['trips']] == ['0630_오제']
