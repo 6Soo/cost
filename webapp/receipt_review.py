@@ -217,6 +217,7 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
             source_region = hashlib.sha256(json.dumps(
                 [payload["image"], list(region.box)], sort_keys=True).encode()).hexdigest()
             stored["source_region"] = source_region
+            stored.update(image_sha=payload['image'], box=list(region.box))
             if any(c.get("source_region") == source_region for c in data["candidates"]):
                 duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
                 continue
@@ -414,9 +415,11 @@ def _row_html(candidate: dict, trips: list) -> str:
     identity = html.escape(candidate["identity"])
     amount = "" if candidate["amount_krw"] is None else f"{candidate['amount_krw']:,}원"
     confirmed = bool(candidate.get("payee") and candidate.get("category"))
+    source = (f"<a href='/api/receipts/image/{html.escape(candidate['image_sha'])}' target='_blank' rel='noopener'>원본 사진</a>"
+              if candidate.get('image_sha') else '수동 입력')
     return (
         "<tr>"
-        f"<td><select data-trip='{identity}'><option value=''>여행 미배정</option>"
+        f"<td>{source}<br><select data-trip='{identity}'><option value=''>여행 미배정</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
         + f"</select><input data-merchant='{identity}' value='{html.escape(candidate['merchant'])}'>"
@@ -438,8 +441,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                             for t in trips)
     rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 영수증 영역과 값을 입력해 주세요.</td></tr>'
     holds = "".join(f"<li>{html.escape(MESSAGES.get(h['reason'], h['reason']))}</li>" for h in data["holds"]) or '<li>보류된 영수증이 없습니다.</li>'
-    images = "".join(f"<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'>"
-                     for sha in data["images"][-3:])
+    images = "".join(
+        f"<button type='button' data-image-sha='{sha}' aria-pressed='{'true' if sha == data['images'][-1] else 'false'}' "
+        f"style='max-width:30%'>사진 {index} 선택<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'></button>"
+        for index, sha in enumerate(data['images'][-3:], start=max(1, len(data['images']) - 2)))
     script = (
         f"const csrf={json.dumps(csrf)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -447,6 +452,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "body:JSON.stringify(b)}).then(r=>r.json().then(j=>{if(!r.ok)throw new Error(j.message||message(j.code));return j}));"
         "const say=t=>document.getElementById('status').textContent=message(t);"
         "const val=(name,id)=>document.querySelector('['+name+'=\"'+id+'\"]').value;"
+        "document.querySelectorAll('[data-image-sha]').forEach(button=>button.onclick=()=>{"
+        "document.getElementById('image-sha').value=button.dataset.imageSha;"
+        "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
+        "say('선택한 사진의 영역과 값을 입력해 주세요.')});"
         "document.getElementById('img-go').onclick=async()=>{const f=document.getElementById('img-file').files[0];"
         "if(!f){say('사진 파일을 고르세요');return}const button=document.getElementById('img-go');button.disabled=true;"
         "say('사진을 등록하고 있습니다.');try{const r=await fetch('/api/receipts/image',{method:'POST',"
@@ -485,7 +494,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
             "<button type='button' id='img-go'>사진 등록</button>"
             f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
-            f"<div>{images}</div></section>"
+            f"<p>최근 사진 중 입력할 사진을 선택해 주세요.</p><div>{images}</div></section>"
             "<section><h2>영역 입력</h2>"
             f"<p>사진 위치 (x0, y0, x1, y1): {box_inputs}</p>"
             "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "

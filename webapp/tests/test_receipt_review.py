@@ -24,12 +24,12 @@ REGIONS = {"regions": [
      "payment": "private_card", "confidence": 0.9},
     {"box": [0, 300, 100, 400], "merchant": "흐림", "date": "2027-08-03", "currency": "JPY", "total": 900,
      "payment": "cash", "confidence": 0.4}]}
-def make_png():
+def make_png(rgb=b'\xff\x00\x00'):
     """A valid 1x1 PNG built here, so the structural check runs on a real file."""
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
     ihdr = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\x00\xff\x00\x00"))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(b"\x00" + rgb))
             + chunk(b"IEND", b""))
 
 
@@ -315,6 +315,29 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertIsNone(result['amount_krw'])
             browser.close()
         self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
+
+    def test_browser_selects_earlier_photo_and_keeps_candidate_source(self):
+        first = self.request('/api/receipts/image', token=self.csrf(), raw=PNG)[1]['sha256']
+        self.request('/api/receipts/image', token=self.csrf(), raw=make_png(b'\x00\xff\x00'))
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.goto(self.base + '/receipts')
+            page.locator('[data-image-sha]').first.click()
+            self.assertEqual(page.locator('#image-sha').input_value(), first)
+            for index, value in enumerate((0, 0, 100, 100), start=1):
+                page.fill('#box' + str(index), str(value))
+            page.fill('#r-merchant', 'SYN-SHOP')
+            page.fill('#r-date', '2027-08-03')
+            page.fill('#r-total', '1234')
+            with page.expect_response('**/api/receipts/scan') as answer:
+                page.locator('#region-go').click()
+            self.assertEqual(answer.value.status, 200)
+            page.get_by_role('link', name='원본 사진', exact=True).wait_for()
+            browser.close()
+        candidate, = self.request('/api/receipts')[1]['candidates']
+        self.assertEqual(candidate['image_sha'], first)
+        self.assertEqual(candidate['box'], [0, 0, 100, 100])
 
     def test_browser_photo_upload_blocks_double_click_and_recovers_from_error(self):
         pending = []
