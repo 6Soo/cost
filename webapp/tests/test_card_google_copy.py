@@ -71,6 +71,42 @@ class CardGoogleCopyTests(unittest.TestCase):
     def test_browser_desktop_1440_copies_the_exact_tsv(self):
         self._copy_flow(1440, 900)
 
+    def test_delayed_batch_response_does_not_replace_latest_selection(self):
+        self._delayed_response_case(poll=False)
+
+    def test_delayed_poll_response_does_not_restore_previous_batch(self):
+        self._delayed_response_case(poll=True)
+
+    def _delayed_response_case(self, *, poll):
+        first = self.assign(trip=self.make_trip())
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.wait_for_function('typeof model !== "undefined"')
+            page.locator(f'[data-batch="{first}"]').click()
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=first)
+            page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true,get:()=>true})")
+            pending = []
+            for batch in (first, second):
+                page.route(f'**/api/imports/{batch}', lambda route: pending.append(route))
+                with page.expect_request(f'**/api/imports/{batch}'):
+                    if poll and batch == first:
+                        page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true,get:()=>false});void pollCard()")
+                    else:
+                        page.locator(f'[data-batch="{batch}"]').click()
+                page.evaluate("Object.defineProperty(document, 'hidden', {configurable:true,get:()=>true})")
+            pending[1].fulfill(json=self.flow.state(second))
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            with page.expect_response(f'**/api/imports/{first}'):
+                pending[0].fulfill(json=self.flow.state(first))
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.evaluate('model.batch_id'), second)
+            page.locator('#summary details summary').click()
+            self.assertEqual(page.locator('#summary details p').inner_text(), 'second.csv')
+            browser.close()
+
     def _copy_flow(self, width, height):
         trip = self.make_trip()
         batch = self.assign(trip=trip)
