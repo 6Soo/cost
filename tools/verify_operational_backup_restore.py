@@ -50,6 +50,11 @@ def backup_database(source, target):
     copy = sqlite3.connect(target)
     try:
         original.backup(copy)
+        # Produce a self-contained offline copy. A WAL-mode backup otherwise
+        # recreates empty -wal/-shm files during read-only verification and is
+        # correctly refused by the isolated migration gate. Never change source.
+        if copy.execute('PRAGMA journal_mode=DELETE').fetchone()[0] != 'delete':
+            raise RuntimeError('BACKUP_JOURNAL_MODE_FAILED')
     finally:
         copy.close()
         original.close()

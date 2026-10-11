@@ -1,6 +1,26 @@
 from tools.verify_operational_backup_restore import product_files, digest_file, database_inputs
 
 
+def test_wal_source_backup_is_self_contained_without_changing_source(tmp_path):
+    import sqlite3
+    from tools.verify_operational_backup_restore import backup_database, database_state
+    source, target = tmp_path / 'live.sqlite', tmp_path / 'offline.sqlite'
+    conn = sqlite3.connect(source)
+    try:
+        assert conn.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+        conn.execute('CREATE TABLE original(id INTEGER PRIMARY KEY AUTOINCREMENT, value BLOB)')
+        conn.execute('INSERT INTO original(value) VALUES (?)', (b'synthetic-original',))
+        conn.commit()
+        before = database_state(source)
+        backup_database(source, target)
+        assert database_state(target) == before
+        assert database_state(source) == before
+        assert conn.execute('PRAGMA journal_mode').fetchone()[0] == 'wal'
+        assert not any(tmp_path.glob('offline.sqlite-*'))
+    finally:
+        conn.close()
+
+
 def test_unified_decisions_do_not_omit_operator_and_ota_databases(tmp_path):
     for name in ('board.sqlite', 'board.operator.sqlite', 'real-review.sqlite', 'ota.sqlite'):
         (tmp_path / name).write_bytes(b'synthetic')
