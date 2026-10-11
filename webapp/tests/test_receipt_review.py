@@ -316,6 +316,31 @@ class ReceiptReviewTests(unittest.TestCase):
             browser.close()
         self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
 
+    def test_browser_photo_upload_blocks_double_click_and_recovers_from_error(self):
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.route('**/api/receipts/image', lambda route: pending.append(route))
+            page.goto(self.base + '/receipts')
+            page.locator('#img-file').set_input_files({'name': 'synthetic.png', 'mimeType': 'image/png', 'buffer': PNG})
+            with page.expect_request('**/api/receipts/image'):
+                page.locator('#img-go').click()
+            self.assertTrue(page.locator('#img-go').is_disabled())
+            page.locator('#img-go').evaluate('(button)=>{button.click();button.click()}')
+            self.assertEqual(len(pending), 1)
+            pending.pop().fulfill(status=400, json={'code': 'IMAGE_SIZE_INVALID'})
+            page.get_by_text('사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.', exact=True).wait_for()
+            self.assertTrue(page.locator('#img-go').is_enabled())
+            self.assertFalse(self.store.exists())
+            page.unroute('**/api/receipts/image')
+            with page.expect_response('**/api/receipts/image') as answer:
+                page.locator('#img-go').click()
+            self.assertEqual(answer.value.status, 200)
+            page.locator("img[alt='등록한 영수증 사진']").wait_for()
+            self.assertEqual(len(self.request('/api/receipts')[1]['images']), 1)
+            browser.close()
+
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
         png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=png_no_end)[1]['code'],

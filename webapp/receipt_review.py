@@ -29,6 +29,25 @@ IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
+MESSAGES = {
+    'IMAGE_SIZE_INVALID': '사진은 비어 있지 않은 5MB 이하 파일이어야 합니다.',
+    'IMAGE_TYPE_UNSUPPORTED': 'PNG 또는 JPEG 사진을 선택해 주세요.',
+    'IMAGE_CORRUPT': '사진 파일이 손상되었습니다. 원본 사진을 다시 선택해 주세요.',
+    'BOX_INVALID': '영역의 시작 좌표보다 끝 좌표가 커야 합니다. 네 좌표를 확인해 주세요.',
+    'DATE_INVALID': '날짜를 실제 날짜로 입력해 주세요. 예: 2027-08-03',
+    'TOTAL_UNCLEAR': '최종 결제금액을 양의 정수로 입력해 주세요.',
+    'FIELD_MISSING': '상호·날짜·지급처·내용의 필수 입력을 확인해 주세요.',
+    'LOW_CONFIDENCE': '읽기가 불확실합니다. 원본 사진을 보고 값을 확인해 주세요.',
+    'OVERLAP': '영수증 영역이 겹칩니다. 영역을 나누어 다시 입력해 주세요.',
+    'CURRENCY_UNKNOWN': '엔화 금액인지 확인해 주세요.',
+    'PAYMENT_UNKNOWN': '결제수단을 확인해 주세요.',
+    'DUPLICATE_CONTENT': '같은 영수증 후보가 있습니다. 기존 후보를 확인해 주세요.',
+    'CARD_NOT_FOUND': '대응하는 법인카드 매입을 찾지 못했습니다.',
+    'CARD_MATCH_AMBIGUOUS': '대응하는 카드 매입이 여러 건입니다. 연결을 확인해 주세요.',
+    'CARD_PAYMENT_CONFLICT': '같은 날짜·상호·금액의 카드 매입이 있습니다. 결제수단을 확인해 주세요.',
+    'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 금액과 결제수단은 변경할 수 없습니다.',
+    'Failed to fetch': '연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
+}
 _STORE_LOCK = threading.RLock()
 
 
@@ -407,7 +426,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{p}</option>" for p in PAYMENTS)
         + "</select>"
         f"<button type='button' data-edit='{identity}'>수정</button></td>"
-        f"<td>{amount}</td><td>{html.escape(candidate.get('hold') or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
+        f"<td>{amount}</td><td>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
         f"<td><input data-payee='{identity}' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'>"
         f"<input data-category='{identity}' value='{html.escape(candidate.get('category') or '')}' placeholder='내용'>"
         f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
@@ -417,20 +436,24 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
-    rows = "".join(_row_html(c, trips) for c in data["candidates"])
-    holds = "".join(f"<li>{html.escape(h['reason'])}</li>" for h in data["holds"])
+    rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 영수증 영역과 값을 입력해 주세요.</td></tr>'
+    holds = "".join(f"<li>{html.escape(MESSAGES.get(h['reason'], h['reason']))}</li>" for h in data["holds"]) or '<li>보류된 영수증이 없습니다.</li>'
     images = "".join(f"<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'>"
                      for sha in data["images"][-3:])
     script = (
         f"const csrf={json.dumps(csrf)};"
+        f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
         "const post=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},"
-        "body:JSON.stringify(b)}).then(r=>r.json().then(j=>{if(!r.ok)throw new Error(j.message||j.code);return j}));"
-        "const say=t=>document.getElementById('status').textContent=t;"
+        "body:JSON.stringify(b)}).then(r=>r.json().then(j=>{if(!r.ok)throw new Error(j.message||message(j.code));return j}));"
+        "const say=t=>document.getElementById('status').textContent=message(t);"
         "const val=(name,id)=>document.querySelector('['+name+'=\"'+id+'\"]').value;"
         "document.getElementById('img-go').onclick=async()=>{const f=document.getElementById('img-file').files[0];"
-        "if(!f){say('사진 파일을 고르세요');return}const r=await fetch('/api/receipts/image',{method:'POST',"
+        "if(!f){say('사진 파일을 고르세요');return}const button=document.getElementById('img-go');button.disabled=true;"
+        "say('사진을 등록하고 있습니다.');try{const r=await fetch('/api/receipts/image',{method:'POST',"
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:f});"
-        "const j=await r.json();if(!r.ok){say(j.message||j.code);return}document.getElementById('image-sha').value=j.sha256;say('사진을 등록했습니다. 영역을 입력하세요.');location.reload()};"
+        "const j=await r.json();if(!r.ok)throw new Error(j.message||message(j.code));"
+        "document.getElementById('image-sha').value=j.sha256;say('사진을 등록했습니다. 영역을 입력하세요.');location.reload()}"
+        "catch(error){say(error.message||'사진을 등록하지 못했습니다. 다시 시도해 주세요.')}finally{button.disabled=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
         "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
