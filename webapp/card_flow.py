@@ -308,6 +308,12 @@ def home_page(board):
     upcoming = sorted((t for t in trips if t['tab_id'] in registered
                        and registered[t['tab_id']]['departure_status']=='scheduled'
                        and t['starts_on'] >= today()), key=lambda t:(t['starts_on'], t['display_key']))
+    # A manually created trip is still a usable ledger entry point even when
+    # no reservation feed has registered its departure. Do not call it scheduled.
+    listed_trips = upcoming or sorted(
+        (t for t in trips if not t.get('deleted') and not t.get('archived')),
+        key=lambda t:(t['starts_on'], t['display_key']))
+    trip_heading = '출발 예정 여행' if upcoming else '등록된 여행'
     posted = len(ledger_board._expense_rows()) + len(ledger_board._income_rows())
     board_tab = upcoming[0]['tab_id'] if upcoming else ledger_board.default_board_tab()
     def short_date(value):
@@ -321,7 +327,7 @@ def home_page(board):
         f"<span class='home-date-full'>{esc(t['starts_on'])} ~ {esc(t['ends_on'])}</span>"
         f"<span class='home-date-short' aria-hidden='true'>{esc(short_date(t['starts_on']))}–{esc(short_date(t['ends_on']))}</span>"
         "</span></a></li>"
-        for t in upcoming[:6])
+        for t in listed_trips[:6])
     state = sync_status(board)
     next_run = state.get('next_run_at')
     next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
@@ -370,9 +376,9 @@ def home_page(board):
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>장부</a>"
             "</nav></section>"
             + ledger_design.work_menu_html()
-            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>출발 예정 여행 {len(upcoming)}</h2>"
+            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>{trip_heading} {len(listed_trips)}</h2>"
             + (f"<ul class='home-trips'>{items}</ul>"
-               if items else "<p>등록된 출발 예정 여행이 없습니다.</p>")
+               if items else "<p>등록된 여행이 없습니다. 전체 여행 보기에서 여행을 추가해 주세요.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"
             + (f"<p class='muted home-next-note'>여행글은 한국 시간 매일 0시에 조회합니다. 다음 조회: {next_note}</p>" if next_note else '')
             + "</section>")

@@ -36,6 +36,8 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         assert pg.request.get(base + '/api/receipts').status in (401, 403)
                         pg.goto(base + '/preview')
                         assert '로컬 합성 미리보기' in pg.inner_text('body')
+                        pg.locator('.home-trip').filter(has_text='0803_합성여행').click()
+                        pg.wait_for_url('**/board?**tab=**')
                         pg.locator('#work-menu a[href="/import"]').click()
                         form = pg.locator('form[data-index]').first
                         form.locator('input[name=item]').fill('소모품비')
