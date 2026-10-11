@@ -280,6 +280,34 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(set(self.items().values()), {''})
             browser.close()
 
+    def test_delayed_approval_result_does_not_restore_previous_batch(self):
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{self.batch}"]').click()
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=self.batch)
+            page.select_option('#rule-focus', self.tx[0])
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            page.click('#rule-propose')
+            page.locator('#rule-approve').wait_for()
+            page.route('**/rule-proposal/approve', lambda route: pending.append(route))
+            with page.expect_request('**/rule-proposal/approve'):
+                page.click('#rule-approve')
+            status, result = self.post(f'/api/imports/{self.batch}/rule-proposal/approve',
+                                       pending[0].request.post_data_json, token=ledger_board.CSRF_TOKEN)
+            self.assertEqual(status, 200)
+            page.locator(f'[data-batch="{second}"]').click()
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            with page.expect_response('**/rule-proposal/approve'):
+                pending.pop().fulfill(json=result)
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.evaluate('model.batch_id'), second)
+            self.assertEqual(self.items()[self.tx[0]], '식비')
+            browser.close()
+
     def test_same_request_id_with_different_approval_is_refused_and_changes_nothing(self):
         first = self.propose()
         self.assertEqual(self.approve(first, 'reuse-1')[0], 200)
