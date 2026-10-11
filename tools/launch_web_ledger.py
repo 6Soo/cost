@@ -138,6 +138,24 @@ def apply_ota_review(options: dict) -> None:
         os.environ['WEBLEDGER_OTA_AUTHORITY'] = 'authority'
 
 
+def apply_product_features(options: dict, root: pathlib.Path) -> None:
+    """Explicit opt-ins use durable paths under the existing host data root."""
+    for name in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR',
+                 'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', 'WEBLEDGER_GOOGLE_LEDGER_ROWS'):
+        os.environ.pop(name, None)
+    receipts = options.get('receipts') or {}
+    if receipts.get('enabled') is True:
+        os.environ['WEBLEDGER_RECEIPTS_STORE'] = str(root / 'receipts' / 'receipts.json')
+        engine = receipts.get('ocr')
+        if engine not in (None, 'windows'):
+            raise _Refused('RECEIPT_OCR')
+        if engine:
+            os.environ['WEBLEDGER_RECEIPT_OCR'] = engine
+    if (options.get('google_ledger') or {}).get('enabled') is True:
+        os.environ['WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT'] = str(root / 'google-authority' / 'snapshot.json')
+        os.environ['WEBLEDGER_GOOGLE_LEDGER_ROWS'] = str(root / 'google-authority' / 'rows.json')
+
+
 def require_card_schema(path: pathlib.Path) -> None:
     """Production never authorizes CardFlow's automatic schema creation.
 
@@ -170,8 +188,10 @@ def main(argv=None) -> int:
         if not checkout.is_dir():
             raise _Refused("CHECKOUT")
         flow_config = root.parent / 'config' / 'card-flow.json'
+        apply_product_features({}, root)
         if flow_config.is_file():
             options = json.loads(flow_config.read_text(encoding='utf-8'))
+            apply_product_features(options, root)
             if options.get('enabled') is True:
                 os.environ['WEBLEDGER_UNIFIED_DB'] = '1'
                 os.environ['WEBLEDGER_CARD_FLOW'] = '1'

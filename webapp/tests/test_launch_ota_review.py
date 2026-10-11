@@ -16,6 +16,17 @@ _spec.loader.exec_module(launcher)
 VARS = ('WEBLEDGER_OTA_REVIEW_MODE', 'WEBLEDGER_OTA_REVIEW_DB', 'WEBLEDGER_OTA_AUTHORITY')
 
 
+def test_product_features_use_explicit_opt_in_and_durable_paths(tmp_path):
+    with patch.dict(os.environ):
+        launcher.apply_product_features({'receipts': {'enabled': True, 'ocr': 'windows'},
+                                         'google_ledger': {'enabled': True}}, tmp_path)
+        assert os.environ['WEBLEDGER_RECEIPTS_STORE'] == str(tmp_path / 'receipts/receipts.json')
+        assert os.environ['WEBLEDGER_RECEIPT_OCR'] == 'windows'
+        assert os.environ['WEBLEDGER_GOOGLE_LEDGER_ROWS'] == str(tmp_path / 'google-authority/rows.json')
+        launcher.apply_product_features({}, tmp_path)
+        assert not any(os.environ.get(key) for key in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR', 'WEBLEDGER_GOOGLE_LEDGER_ROWS'))
+
+
 @pytest.mark.parametrize('options,expected', [
     (None, None),
     ({'enabled': True, 'reserve_trip_sync': False}, None),

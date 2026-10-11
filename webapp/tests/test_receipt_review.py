@@ -52,6 +52,34 @@ def _card_purchase(board, batch_id, transaction_id, merchant, amount_jpy, date):
 
 
 class ReceiptReviewTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'nt', 'Windows OCR integration')
+    def test_local_ocr_reads_registered_photo_without_creating_costs(self):
+        from PIL import Image, ImageDraw, ImageFont
+        image = Image.new('RGB', (800, 400), 'white')
+        ImageDraw.Draw(image).text((30, 30), 'SYNTHETIC RECEIPT\n2026/10/12', fill='black',
+                                  font=ImageFont.truetype('C:/Windows/Fonts/meiryo.ttc', 40))
+        photo = Path(self._dir.name) / 'synthetic.png'
+        image.save(photo)
+        with patch.dict(os.environ, {'WEBLEDGER_RECEIPT_OCR': 'windows'}), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 375, 'height': 900})
+                page.goto(self.base + '/receipts')
+                page.locator('#img-file').set_input_files(str(photo))
+                with page.expect_navigation():
+                    page.locator('#img-go').click()
+                page.locator('#ocr-go').click()
+                page.wait_for_function("document.getElementById('ocr-text').value.includes('SYNTHETIC')")
+                self.assertEqual(page.locator('#r-date').input_value(), '2026-10-12')
+                self.assertTrue(page.locator('#ocr-go').is_enabled())
+                self.assertEqual(self.request('/api/receipts')[1]['candidates'], [])
+                sha = page.locator('#image-sha').input_value()
+                status, result = self.request('/api/receipts/upload', {'image': sha})
+                self.assertEqual((status, result['code']), (403, 'CSRF_REQUIRED'))
+                self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 375)
+            finally:
+                browser.close()
+
     def test_candidate_fields_are_labelled_and_fit_mobile_work_area(self):
         identity = self._confirmed_cash_receipt()
         with sync_playwright() as api:

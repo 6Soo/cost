@@ -1,9 +1,9 @@
-"""Receipt candidates: image, regions, manual edit, confirm and copy. No OCR engine is used.
+"""Receipt candidates: image, optional local Windows OCR, manual edit, confirm and copy.
 
 Routes stay off unless WEBLEDGER_RECEIPTS_STORE names a JSON store. A synthetic or real image is
 stored as a file next to the store after a PNG or JPEG signature check. Regions and values are typed
-by a person; the machine never reads the image. The /api/receipts/upload route answers 501 while no
-OCR engine is approved. Every manual change keeps its history.
+by a person. Explicitly enabled Windows OCR supplies review hints without creating costs.
+The /api/receipts/upload route answers 501 when OCR is disabled. Every manual change keeps its history.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ import math
 from pathlib import Path
 
 from app import receipt_candidates as rc
+from app import local_receipt_ocr
 from app.google_tsv import expense_tsv
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
@@ -456,7 +457,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         except ValueError:
             handler._send_json({"code": "IMAGE_CORRUPT"}, 409)
         return True
-    if parsed.path == "/api/receipts/upload":
+    if parsed.path == "/api/receipts/upload" and not local_receipt_ocr.enabled():
         handler._send_json({"code": "OCR_ENGINE_NOT_APPROVED",
                             "message": "글자를 읽는 엔진이 승인되지 않았습니다. 영역과 값을 직접 입력하세요."}, 501)
         return True
@@ -484,7 +485,17 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         body = json.loads(raw.decode("utf-8") or "{}")
         if not isinstance(body, dict):
             raise ValueError('INVALID_VALUE')
-        if parsed.path == "/api/receipts/scan":
+        if parsed.path == "/api/receipts/upload":
+            sha = body.get('image', '')
+            if not isinstance(sha, str) or not re.fullmatch(r'[0-9a-f]{64}', sha):
+                raise ValueError('IMAGE_NOT_FOUND')
+            image_bytes(path, sha)  # Only this owner's registered images may be read.
+            try:
+                result = local_receipt_ocr.recognize(_images_dir(path) / f'{sha}.bin', body.get('language', 'ja'))
+                handler._send_json(result)
+            except local_receipt_ocr.OcrError as error:
+                handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
+        elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
             if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id", "expected_version"}:
@@ -609,6 +620,15 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:f});"
         "const j=await readResponse(r);"
         "document.getElementById('image-sha').value=j.sha256;})};"
+        "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
+        "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
+        "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
+        "const result=await post('/api/receipts/upload',{image:sha,language:document.getElementById('ocr-language').value});"
+        "document.getElementById('ocr-text').value=result.text;"
+        "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
+        "if(hints.total_jpy&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
+        "say('글자를 읽었습니다. 여러 영수증은 영역별로 나누고 금액·통화·결제수단을 직접 확인해 주세요.');"
+        "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
         "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
@@ -658,7 +678,12 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "</style></head><body>"
             "<nav aria-label='장부 이동'><a class='work-back' href='/board'>장부로 돌아가기</a></nav>"
             "<h1>영수증 후보</h1>"
-            "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·엔화 금액을 입력해 주세요.</p>"
+            + ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
+               "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label>"
+               "<button type='button' id='ocr-go'>선택한 사진 글자 읽기</button>"
+               "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
+               if local_receipt_ocr.enabled() else
+               "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·엔화 금액을 입력해 주세요.</p>") +
             "<p>현금·개인카드는 JPY×10을 적용합니다. 법인카드는 연결된 카드의 실제 원화 금액을 사용합니다.</p>"
             "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
             "<button type='button' id='img-go'>사진 등록</button>"
