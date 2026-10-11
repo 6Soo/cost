@@ -291,6 +291,22 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual(store.conn.execute('SELECT * FROM requests ORDER BY request_id').fetchall(), requests)
         self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
 
+    def test_projected_preview_description_is_not_mistaken_for_a_changed_source(self):
+        real_state = CardFlow.state
+        def projected_state(flow, batch):
+            state = real_state(flow, batch)
+            # Refund previews can inherit a description without rewriting the original transaction.
+            for row in state['preview']['rows']:
+                if row['transaction_id'] == self.tx[0]:
+                    row['description'] = 'PROJECTED-REFUND-DESCRIPTION'
+            return state
+        with patch.object(CardFlow, 'state', projected_state):
+            proposal = self.propose()
+            status, body = self.approve(proposal, 'projected-description')
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.server.card_store.conn.execute('SELECT description FROM review_decisions WHERE transaction_id=?',
+                                                            (self.tx[0],)).fetchone()[0], 'PROJECTED-REFUND-DESCRIPTION')
+
     def test_a_failure_in_the_middle_rolls_every_write_back(self):
         store = self.flow.pipeline.store
         revisions = {r['transaction_id']: r['revision'] for r in self.rows}

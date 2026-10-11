@@ -96,6 +96,16 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
     earlier = replay()
     if earlier is not None:
         return earlier
+    # Capture originals before deriving the preview. Refund rows may inherit display values,
+    # which must not be compared directly with the unchanged raw transaction at write time.
+    fields = ('item', 'description', 'display_tab_id', 'trip_id', 'merchant', 'occurred_on')
+    originals = {
+        row[0]: dict(zip(fields, row[1:])) for row in flow.pipeline.store.conn.execute(
+            "SELECT t.transaction_id,COALESCE(t.item,''),COALESCE(t.description,''),"
+            "COALESCE(t.display_tab_id,''),COALESCE(t.trip_id,''),COALESCE(t.merchant,''),"
+            "COALESCE(NULLIF(t.approval_date,''),t.posting_date,'') FROM transactions t"
+            " JOIN import_batch_rows b ON b.transaction_id=t.transaction_id WHERE b.batch_id=?", (batch,)).fetchall()
+    }
     state = flow.state(batch)
     proposal = propose(state, text=str(body.get("text", "")).strip(),
                        transaction_id=str(body.get("transaction_id", "")))
@@ -114,8 +124,7 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
         row = reviewed[payload["transaction_id"]]
         decisions.append({**payload, "trip_id": tab if tab not in ("", "unclassified") else "",
                           "expected_amount_krw": row["amount_krw"],
-                          "expected_review_state": {key: row.get(key) or '' for key in
-                              ('item', 'description', 'display_tab_id', 'trip_id', 'merchant', 'occurred_on')}})
+                          "expected_review_state": originals[payload["transaction_id"]]})
     result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
                                           tab_validator=flow.tab_valid, trip_validator=flow.trip_valid,
                                           basis=basis)
