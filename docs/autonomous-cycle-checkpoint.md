@@ -1,5 +1,36 @@
 # 자율 개발 체크포인트
 
+## 2026-10-11 최종 업무 흐름 브라우저 검증
+
+- 시작 HEAD: `1b3edbd5d5b308f50922b4fd3619c4bacf92d188`. 코드·검사 커밋은 `753e861`, `97819e5`이며 이후 기록 커밋은 Git과 PR #85를 따른다.
+- 제품 수정: 영수증 후보 수정 화면의 결제수단을 현금·개인카드·법인카드로 표시한다. 저장값과 금액 계산은 유지한다. 기존 화면의 영문 코드 노출을 재현한 뒤 수정했다.
+- 실제 Chromium, loopback HTTP, 임시 DB·합성 파일을 사용한 375px 검사 7개가 최종적으로 통과했다. 아래 결과는 서로 겹치는 재실행을 합산한 수치가 아니다.
+
+| 흐름 | 실제 화면 조작과 저장 결과 |
+| --- | --- |
+| 카드 | CSV 업로드·분류 → 항목·여행·설명 입력 → 확정 → 새로고침 → 7열 클립보드 복사. 원본 37,000원과 사용자 확정을 DB에서 확인했다. 복사가 COST 장부 쓰기를 만들지 않는다. |
+| 영수증 | PNG 업로드 → 영역 등록 → 여행·금액 수정 → 확정 → TSV 복사. 별도 검사에서 결제수단 변경 시 확정을 해제하고 재확정·새로고침 후 값을 보존한다. 나중에 수집된 동일 카드 근거가 있으면 복사를 보류하고 클립보드와 영수증 원본 파일을 유지한다. |
+| 회사 경비 | 자연어 제외 제안 → 실제 저장 후 응답 유실 → 같은 요청 재시도 → 새로고침 → 제외 취소 → 새로고침. 두 제외 요청이 같고 거래 원본이 보존되는 것을 확인했다. |
+| 부분환불 | 실제 합성 카드 XLSX 업로드 → 원결제 확정 → 같은 파일 재업로드 → 환불 쌍 기록 → 새로고침 → TSV 복사. 원결제 1,000,000원과 환불 -700,000원을 각각 보존하며 장부 2행·순액 300,000원, TSV 2행을 확인했다. |
+| Google 정본 | 합성 메인·보관 스냅샷 → owner의 archive 선택 → viewer 상세 → 권한 철회 후 같은 URL에서 404. 비공개 행이 거부 화면에 남지 않는다. 브라우저 역할은 합성 주입이며 실제 로그인 성공 증거가 아니다. |
+| 자연어 승인 | 제안 → 승인 DB 저장 후 응답 유실 → 동일 request_id로 재시도 → 결정 이력 1건 → 새로고침 후 화면·DB의 확정값 확인. |
+
+실제 실행 명령과 결과:
+
+- `python -m pytest webapp/tests/test_card_google_copy.py webapp/tests/test_receipt_review.py webapp/tests/test_company_exclusion_http.py webapp/tests/test_google_canonical_workflow.py webapp/tests/test_rule_review.py -k 375 -q --tb=short`: 처음 3 passed / 2 failed. 실패는 새 검사의 금액 기대값 오류와 JavaScript 불리언·숫자 엄격 비교 오류였다. 아래 표적 재실행으로 모두 수정 확인했다.
+- `python -m pytest webapp/tests/test_card_google_copy.py webapp/tests/test_rule_review.py -k 375 -q --tb=short`: 2 passed.
+- `python -m pytest webapp/tests/test_card_google_copy.py -k mobile_375_partial -q --tb=short`: 1 passed.
+- `python -m pytest webapp/tests/test_receipt_review.py -k payment_review_and_late_card -q --tb=short`: 결제수단 표시 assertion 실패를 먼저 확인했다. 표시 수정 뒤 새 검사의 존재하지 않는 confirmed 필드를 실제 payee/category 계약으로 고쳤고 최종 1 passed.
+- `python -m pytest webapp/tests/test_receipt_review.py -k mobile_375_photo -q --tb=short`: 표시 수정 후 1 passed.
+- `git diff --check`: 통과. 기존 390px·1440px 브라우저, 서명 쿠키 HTTP, 회계 원자성·환불·중복 보호 검사는 기존 증거를 재사용했다. 변경은 표시 문구와 검사이므로 전체 pytest는 실행하지 않았다. 과거 전체 회귀를 최신 HEAD의 통과로 표시하지 않는다.
+
+운영 경계와 다음 시작점:
+
+- 승인된 실제 복구 사본이 없어 `tools/rehearse_cost_schema.py --check-only` 실측은 HOLD다. 운영 원본 DB를 열지 않았다. 실제 ADC/OIDC 인증, OCR 엔진, 운영 배포·병합은 실행하지 않았다.
+- 실계정·실제 Google 연동·OCR 추론은 브라우저 완주에 포함하지 않는다. 회사 제외의 확정·기록 거래 정책과 중복 의심 영수증 인정 정책은 기존 HOLD를 유지한다.
+- 다음에는 승인된 복구 사본이 제공되면 `docs/schema-rehearsal.md`의 필수 인자를 확인해 `--check-only`를 실행한다. 별도 비운영 계정이 제공되면 OIDC·ADC와 실제 여행 매핑을 검증한다. 운영 반영 승인 후에만 병합·배포 게이트를 실행한다.
+- 사용자 `C:/AX/cost`의 dirty 1개, 미추적 4개, stash `fbb1226e4659e4a2b75216cd556b51687db7d73e` 목록을 보존했다. 내용 해시까지 비교한 것은 아니다.
+
 ## 2026-10-11 최대 구현 실행 — 후속 수정
 
 - 출발점은 `1eec6d7d39f78c1456524b5c09050978afeaf10a`이며 브랜치는 `integration/cost-final`이다. 구현 커밋 20개를 추가했고 코드 HEAD는 `f052fcaee7d300c1aaefbf0e99171f381aa423cf`다. 이후 기록 커밋의 SHA는 Git과 PR #85를 따른다. 제품·테스트 15개 파일을 변경했다.
