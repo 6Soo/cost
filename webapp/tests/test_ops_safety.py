@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import pytest
 from pathlib import Path  # noqa: F401 - used by the restore tests below
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -22,6 +23,24 @@ from webapp import ops  # noqa: E402
 from webapp.ledger_store import LedgerStore  # noqa: E402
 
 REPO = ROOT
+
+
+@pytest.mark.parametrize('environment', ['local-synthetic', 'production'])
+def test_relative_data_root_is_refused_before_resolution_or_creation(tmp_path, monkeypatch, environment):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ops.OpsError) as error:
+        ops.durable_config_for('relative-data', environment=environment, create=True)
+    assert error.value.code == 'RELATIVE_DATA_ROOT'
+    assert not (tmp_path / 'relative-data').exists()
+
+
+def test_direct_config_refuses_relative_root_even_with_absolute_subpaths(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ops.OpsError) as error:
+        ops.DurableConfig(data_root='.', db_path=tmp_path / 'board.sqlite',
+                          export_dir=tmp_path / 'exports', evidence_dir=tmp_path / 'evidence',
+                          source_dir=tmp_path / 'source')
+    assert error.value.code == 'RELATIVE_DATA_ROOT'
 
 
 class OpsCommandsDoNotSeedALedger(unittest.TestCase):

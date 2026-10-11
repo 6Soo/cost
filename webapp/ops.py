@@ -727,7 +727,10 @@ class DurableConfig:
     def __init__(self, *, data_root, db_path, export_dir, evidence_dir,
                  source_dir, required_secrets=(), keep_backups=DEFAULT_KEEP_BACKUPS,
                  environment="local-synthetic", allow_missing_root: bool = False):
-        self.data_root = Path(data_root).resolve()
+        self.data_root = Path(data_root)
+        if not self.data_root.is_absolute():
+            raise OpsError('RELATIVE_DATA_ROOT', '데이터 루트는 절대 경로여야 해요')
+        self.data_root = self.data_root.resolve()
         self.db_path = Path(db_path)
         self.export_dir = Path(export_dir)
         self.evidence_dir = Path(evidence_dir)
@@ -2264,7 +2267,10 @@ def durable_config_for(data_root, *, required_secrets=(),
     temp-rooted production root or a root inside this source checkout is
     rejected.
     """
-    root = Path(data_root).resolve()
+    root = Path(data_root)
+    if not root.is_absolute():
+        raise OpsError('RELATIVE_DATA_ROOT', '데이터 루트는 절대 경로여야 해요')
+    root = root.resolve()
     if create:
         # Where the root *is* is checked before anything is created. A relative
         # path, a development default, a temp-rooted production root and a root
