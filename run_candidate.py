@@ -303,12 +303,16 @@ def main(argv=None) -> int:
     from webapp import ledger_board as board_mod
 
     os.environ['WEBLEDGER_DB'] = str(config.db_path)
-    server = board_mod.serve(port=port, db_path=config.db_path,
-                             with_worker=not args.no_worker, host=args.host,
-                             # SPEC_REFINEMENT 18.3 5항: an operational start
-                             # never fabricates rows. The demo board stays a
-                             # developer default.
-                             seed_demo=args.environment == "local-synthetic")
+    try:
+        server = board_mod.serve(port=port, db_path=config.db_path,
+                                 with_worker=not args.no_worker, host=args.host,
+                                 # SPEC_REFINEMENT 18.3 5항: an operational start
+                                 # never fabricates rows. The demo board stays a
+                                 # developer default.
+                                 seed_demo=args.environment == "local-synthetic")
+    except Exception:
+        print('refused [SERVER_START]: 서버 초기화에 실패했습니다.', file=sys.stderr)
+        return 2
     reserve_stop = None
     try:
         bind_runtime_access(server)

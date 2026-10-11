@@ -5509,9 +5509,7 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     if db_path is None:
         db_path = os.environ.get("WEBLEDGER_DB", "webledger.work.sqlite")
     store = LedgerStore(db_path, seed_demo=seed_demo)
-    bind_store(store)
     from . import card_flow
-    bind_importer(None if card_flow.enabled() else CardImporter(store.conn, store))
     # Loopback stays the default. 19.2 wants only the HTTPS app path exposed,
     # so a different address is the caller's stated decision, not a default
     # this module makes on its own.
@@ -5524,16 +5522,35 @@ def serve(port: int = 8751, db_path=None, with_worker: bool = True,
     # ten; measured directly, one silent connection delayed a real request past
     # an eight second timeout, and a threading server answered the same request
     # in 0.04s. It is the same defect for a real user whose connection stalls.
-    server = ThreadingHTTPServer((host, port), Handler)
-    # A worker thread must not keep the process alive after the socket closes.
-    server.daemon_threads = True
-    server.store_lock = threading.RLock()
+    server = None
     worker = None
-    if with_worker and not card_flow.enabled():
-        worker = CardWorker(db_path)
-        worker.start()
-    server.card_worker = worker
-    server.card_store = store
+    try:
+        importer = None if card_flow.enabled() else CardImporter(store.conn, store)
+        server = ThreadingHTTPServer((host, port), Handler)
+        # A worker thread must not keep the process alive after the socket closes.
+        server.daemon_threads = True
+        server.store_lock = threading.RLock()
+        if with_worker and not card_flow.enabled():
+            worker = CardWorker(db_path)
+            worker.start()
+        server.card_worker = worker
+        server.card_store = store
+    except BaseException:
+        if worker is not None:
+            try:
+                worker.stop(timeout=5)
+            except Exception:
+                pass
+        try:
+            if server is not None:
+                server.server_close()
+        finally:
+            store.close()
+        raise
+    # Publish only a fully constructed server; a bind failure must not replace
+    # another server's active store with a failed, closed connection.
+    bind_store(store)
+    bind_importer(importer)
     return server
 
 
