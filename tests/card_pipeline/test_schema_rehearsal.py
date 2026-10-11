@@ -10,10 +10,13 @@ from tools.rehearse_cost_schema import RehearsalError, main, rehearse
 
 
 def synthetic_source(path):
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(path, seed_demo=False)
+    board.close()
     with sqlite3.connect(path) as conn:
-        conn.execute('CREATE TABLE board_rows(id TEXT PRIMARY KEY, value BLOB)')
-        conn.execute('CREATE TABLE board_requests(id TEXT PRIMARY KEY)')
-        conn.execute('INSERT INTO board_rows VALUES (?, ?)', ('synthetic', b'\x00original'))
+        conn.execute('INSERT INTO board_rows VALUES (?, ?, ?, ?, ?)',
+                     ('synthetic', 'card_expense', 'synthetic-trip', 1, b'\x00original'))
+    conn.close()
     return path
 
 
@@ -30,7 +33,7 @@ def test_rehearsal_adds_schema_only_on_temporary_clone(tmp_path):
     assert 'transaction_company_exclusions' in result['added_tables']
     assert digest(source) == before
     with sqlite3.connect(source) as conn:
-        assert conn.execute('SELECT value FROM board_rows').fetchone() == (b'\x00original',)
+        assert conn.execute('SELECT payload_json FROM board_rows').fetchone() == (b'\x00original',)
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='transaction_company_exclusions'").fetchone() is None
 
 
@@ -79,4 +82,28 @@ def test_rehearsal_rejects_unrelated_database(tmp_path):
     with sqlite3.connect(source) as conn:
         conn.execute('CREATE TABLE something_else(x INTEGER)')
     with pytest.raises(RehearsalError, match='NOT_A_BOARD_DATABASE'):
+        rehearse(source)
+
+
+def test_rehearsal_rejects_lookalike_table_names(tmp_path):
+    source = tmp_path / 'lookalike.sqlite'
+    with sqlite3.connect(source) as conn:
+        conn.execute('CREATE TABLE board_rows(id TEXT PRIMARY KEY)')
+        conn.execute('CREATE TABLE board_requests(id TEXT PRIMARY KEY)')
+    with pytest.raises(RehearsalError, match='NOT_A_BOARD_DATABASE'):
+        rehearse(source)
+
+
+def test_rehearsal_refuses_source_that_becomes_live_during_copy(tmp_path, monkeypatch):
+    from tools import rehearse_cost_schema as tool
+    source = synthetic_source(tmp_path / 'copy.sqlite')
+    copy = tool.shutil.copyfile
+
+    def raced_copy(src, dest):
+        result = copy(src, dest)
+        tmp_path.joinpath('copy.sqlite-wal').write_bytes(b'new writer')
+        return result
+
+    monkeypatch.setattr(tool.shutil, 'copyfile', raced_copy)
+    with pytest.raises(RehearsalError, match='UNQUIESCENT_SOURCE_REFUSED'):
         rehearse(source)

@@ -10,7 +10,7 @@ tools/rehearse_cost_schema.py는 명시적으로 제공된 **정지 상태의 �
 
 검사 항목:
 
-- 정상 SQLite 파일 헤더 및 board_rows/board_requests 존재 확인
+- 정상 SQLite 파일 헤더 및 실제 board_rows/board_requests 필수 열 확인. 이름만 같은 다른 DB는 거부
 - 입력 파일 SHA-256 및 선택적인 사전 승인 해시 일치
 - WAL/SHM/저널 파일이 남아 있는 불완전 복사본 차단
 - SQLite integrity_check (전후)
@@ -18,6 +18,7 @@ tools/rehearse_cost_schema.py는 명시적으로 제공된 **정지 상태의 �
 - 기존 테이블의 행 수와 행별 해시 지문 불변
 - transaction_company_exclusions 존재 확인
 - 입력 복사본 SHA-256 불변 및 임시 시험 DB 자동 폐기
+- 복사 직후와 종료 직전 WAL/SHM/저널 재확인, 같은 복제본의 반복 마이그레이션 불변 확인
 
 출력에는 고객 행·거래금액·파일 경로를 담지 않는다. 실패하면 종료 코드 2와 오류 종류만 표시한다.
 
@@ -39,7 +40,7 @@ python tools/rehearse_cost_schema.py --source-copy "C:\isolated-restore\board.sq
 ## 검증 범위
 
 - 새 합성 검사: tests/card_pipeline/test_schema_rehearsal.py (보존, 해시 불일치, WAL 차단, DDL 실패, 빈 파일/잘못된 DB 거부, CLI 승인 플래그).
-- 작성 세션은 격리한 합성 스키마 하네스에서 7개 테스트 통과. **실제 저장소의 전체 의존성을 사용한 pytest 실행은 별도 필요**하므로 통과했다고 단정하지 않는다.
+- 후속 Windows 실제 저장소 실행에서 리허설과 스키마 표적 검사 13개가 통과했다. 합성 입력도 실제 LedgerStore로 생성하며 이름만 같은 DB 거부와 복사 중 WAL 생성 차단을 포함한다. 운영 DB는 연결하지 않았다.
 - 기존 PR #85의 전체 회귀 3035 passed / 3 skipped / 2452 subtests는 이전 코드 시점의 근거이며 본 신규 도구에 대한 근거로 합산하지 않는다.
 
 운영 승인 전 필수 게이트: 실제 복구 사본의 별도 리허설, 실제 운영 프로세스/DB 접근 경로 확인, 복원 리허설, 거래·환불·확정·OTA 불변 검증, 필요 권한/개인정보 검증. 승인 없이 main 병합, 운영 스키마 자동 생성, 스케줄러 활성화, Google 원본 수정, 배포를 하지 않는다.

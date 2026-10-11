@@ -37,6 +37,25 @@ def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def _require_quiescent(path: Path) -> None:
+    for suffix in ('-wal', '-shm', '-journal'):
+        if Path(str(path) + suffix).exists():
+            raise RehearsalError('UNQUIESCENT_SOURCE_REFUSED')
+
+
+def _require_board_schema(conn: sqlite3.Connection) -> None:
+    # Names alone also accept an unrelated database with two dummy tables.
+    required = {
+        'board_rows': {'row_id', 'row_kind', 'display_tab_id', 'revision', 'payload_json'},
+        'board_requests': {'client_request_id', 'row_id', 'expected_revision',
+                           'result_json', 'ledger_pending', 'created_at'},
+    }
+    for table, columns in required.items():
+        actual = {row[1] for row in conn.execute('PRAGMA table_info(' + _quote(table) + ')')}
+        if not columns.issubset(actual):
+            raise RehearsalError('NOT_A_BOARD_DATABASE')
+
+
 def _baseline(conn: sqlite3.Connection) -> tuple[dict, dict]:
     """Fingerprint existing schema and rows without returning their contents."""
     if conn.execute('PRAGMA integrity_check').fetchone() != ('ok',):
@@ -72,9 +91,7 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
     normalized = str(source_copy.resolve()).replace('\\', '/').lower()
     if normalized.endswith('d:/webledgerhost/data/board.sqlite'):
         raise RehearsalError('LIVE_DATABASE_REFUSED')
-    for suffix in ('-wal', '-shm', '-journal'):
-        if Path(str(source_copy) + suffix).exists():
-            raise RehearsalError('UNQUIESCENT_SOURCE_REFUSED')
+    _require_quiescent(source_copy)
     with source_copy.open('rb') as stream:
         if stream.read(16) != b'SQLite format 3\x00':
             raise RehearsalError('INVALID_SQLITE_BACKUP')
@@ -85,13 +102,13 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
     with TemporaryDirectory(prefix='cost-schema-rehearsal-') as temp:
         cloned = Path(temp) / 'rehearsal.sqlite'
         shutil.copyfile(source_copy, cloned)
+        _require_quiescent(source_copy)
         if _sha_file(cloned) != original_hash:
             raise RehearsalError('CLONE_CHECKSUM_MISMATCH')
         conn = sqlite3.connect(cloned, isolation_level=None)
         try:
             before_objects, before_rows = _baseline(conn)
-            if not {'board_rows', 'board_requests'}.issubset(before_rows):
-                raise RehearsalError('NOT_A_BOARD_DATABASE')
+            _require_board_schema(conn)
             from app.db import Store
             Store(conn)  # DDL is intentionally permitted only on the scratch clone.
             after_objects, after_rows = _baseline(conn)
@@ -105,12 +122,16 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
             ).fetchone()
             if exclusions is None:
                 raise RehearsalError('EXCLUSION_TABLE_MISSING')
+            Store(conn)
+            if _baseline(conn) != (after_objects, after_rows):
+                raise RehearsalError('MIGRATION_NOT_IDEMPOTENT')
             added_tables = sorted(
                 name for (kind, name) in after_objects
                 if kind == 'table' and (kind, name) not in before_objects
             )
         finally:
             conn.close()
+    _require_quiescent(source_copy)
     if _sha_file(source_copy) != original_hash:
         raise RehearsalError('SOURCE_CHANGED_DURING_REHEARSAL')
     return {
@@ -119,6 +140,7 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
         'original_tables_preserved': len(before_rows),
         'added_tables': added_tables,
         'source_sha256_unchanged': True,
+        'repeated_migration_unchanged': True,
         'production_migrated': False,
     }
 
