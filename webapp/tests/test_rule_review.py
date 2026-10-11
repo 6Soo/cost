@@ -21,6 +21,34 @@ TWO_ROWS = CARD + (
 
 
 class RuleReviewTests(unittest.TestCase):
+    def test_same_merchant_proposal_connects_to_existing_future_rule_form(self):
+        from app.normalize import normalize_merchant
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.goto(self.base + '/import')
+                page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+                page.select_option('#rule-focus', self.tx[0])
+                page.fill('#rule-text', '이 가맹점은 앞으로 현지잡비로 분류해 줘')
+                page.click('#rule-propose')
+                page.locator('#future-rule-draft').click()
+                form = page.locator('#ruleform')
+                merchant = normalize_merchant(self.rows[0]['merchant'])
+                self.assertEqual(form.locator('[name=merchant]').input_value(), merchant)
+                self.assertEqual(form.locator('[name=rule_item]').input_value(), '현지잡비')
+                self.assertEqual(set(self.items().values()), {''})
+                page.get_by_role('button', name='규칙 저장하고 다시 분류', exact=True).click()
+                page.get_by_text('규칙을 저장하고 분류에 적용했습니다.', exact=False).wait_for()
+                # A later import uses the saved rule, without a repeated instruction.
+                new_card = CARD.replace(b'A123', b'FUTURE-SYNTHETIC')
+                batch = self.flow.pipeline.receive(new_card, 'future-synthetic.csv')['batch_id']
+                self.flow.classify(batch)
+                state = self.flow.state(batch)
+                self.assertEqual(state['preview']['rows'][0]['item'], '현지잡비')
+            finally:
+                browser.close()
+
     @unittest.skipUnless(os.environ.get('COST_LOCAL_AI_SMOKE') == '1', 'Opt-in local AI engine smoke')
     def test_actual_local_ai_browser_proposal_requires_approval(self):
         with patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}), sync_playwright() as api:

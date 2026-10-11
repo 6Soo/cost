@@ -43,13 +43,18 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
     proposal = rule_proposals.propose(text, rows=rows, focus={"transaction_id": transaction_id,
                                                               "merchant": focus.get("merchant")})
     payloads = rule_proposals.decision_payloads(proposal, rows) if proposal["status"] == "proposed" else []
+    future_rule = None
+    if proposal.get('kind') == 'MERCHANT_RULE':
+        from app.normalize import normalize_merchant
+        future_rule = {'merchant': normalize_merchant(focus.get('merchant')),
+                       'item': rule_proposals.parse(text)['item']}
     return {"text": text, "transaction_id": transaction_id, "status": proposal["status"],
             "kind": proposal.get("kind"), "skipped_confirmed": proposal.get("skipped_confirmed", 0),
             "needs_confirmation": bool(proposal.get("needs_confirmation")),
             "changes": [{"transaction_id": c["transaction_id"], "before_item": c["before_item"],
                          "after_item": c["after_item"]} for c in proposal.get("changes", [])
                         ],
-            "payloads": payloads, "digest": fingerprint(payloads, rows)}
+            "payloads": payloads, "digest": fingerprint(payloads, rows), 'future_rule': future_rule}
 
 
 class RequestIdReused(Exception):
