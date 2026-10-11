@@ -500,6 +500,62 @@ def test_adc_partial_outage_and_recovery_preserve_private_last_good(tmp_path, mo
     assert sync_schedule.read_state(tmp_path / 'sync-state.json')['consecutive_failures'] == 0
 
 
+def test_adc_corrupt_xlsx_keeps_last_good_and_recovers_through_real_adapter(tmp_path, monkeypatch, capsys):
+    import google.auth
+    from google.auth.transport import requests
+    from types import SimpleNamespace
+    from tools import google_authority_sync as cli
+    from tests.card_pipeline.test_google_adc_export import FakeResponse
+
+    snapshot_path, rows_path = tmp_path / 'snapshot.json', tmp_path / 'rows.json'
+    original = _row_book([('ORIGINAL-PAYEE', '식비', 1000)])
+    updated = _row_book([('UPDATED-PAYEE', '식비', 2000)])
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({'main': original, 'archive': original}), now=NOW)
+    before = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+    scopes, responses, calls = [], [], []
+    payloads = {'main': b'SYNTHETIC-PRIVATE-BROKEN-XLSX', 'archive': updated}
+
+    class Session:
+        def get(self, url, **kwargs):
+            role = next(role for role, identity in ga.SPREADSHEET_IDS.items() if f'/{identity}/export' in url)
+            calls.append((role, kwargs))
+            response = FakeResponse(payload=payloads[role])
+            responses.append(response)
+            return response
+
+    class Clock:
+        current = NOW + dt.timedelta(minutes=1)
+
+        @classmethod
+        def now(cls, tz):
+            return cls.current
+
+    monkeypatch.setattr(cli, 'dt', SimpleNamespace(datetime=Clock))
+    monkeypatch.setattr(google.auth, 'default', lambda **kwargs: (scopes.append(kwargs['scopes']), None))
+    monkeypatch.setattr(requests, 'AuthorizedSession', lambda credentials: Session())
+    monkeypatch.setattr(ga, '_download', lambda *args, **kwargs: pytest.fail('anonymous fallback'))
+    args = ['--snapshot', str(snapshot_path), '--rows', str(rows_path), '--google-auth', 'adc']
+    assert cli.main(args) == 1
+    partial = ga.load_snapshot(snapshot_path)
+    private = json.loads(_rows_text(snapshot_path, rows_path))['sources']
+    assert partial['sources']['main']['error_code'] == 'SOURCE_PARSE_FAILED'
+    assert partial['sources']['main']['stale'] is True
+    assert partial['sources']['main']['last_ok_at'] == NOW.isoformat()
+    assert private['main'] == before['main']
+    assert private['archive'] != before['archive']
+    payloads['main'] = updated
+    Clock.current += dt.timedelta(minutes=6)
+    assert cli.main(args) == 0
+    recovered = ga.load_snapshot(snapshot_path)
+    assert all(source['status'] == 'ok' and not source['stale'] for source in recovered['sources'].values())
+    assert all(scope == ['https://www.googleapis.com/auth/drive.readonly'] for scope in scopes)
+    assert all(not kwargs['allow_redirects'] for _, kwargs in calls)
+    assert all(response.closed for response in responses)
+    output = capsys.readouterr()
+    assert all(secret not in output.out + output.err for secret in
+               ('SYNTHETIC-PRIVATE-BROKEN-XLSX', 'ORIGINAL-PAYEE', 'UPDATED-PAYEE'))
+
+
 def test_crash_before_snapshot_replace_keeps_old_snapshot_and_rows_consistent(tmp_path: Path, monkeypatch):
     snapshot_path = tmp_path / "snapshot.json"
     rows_path = tmp_path / "rows-private.json"
