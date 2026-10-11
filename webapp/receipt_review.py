@@ -17,6 +17,7 @@ import sqlite3
 import datetime as dt
 import functools
 import threading
+import math
 from pathlib import Path
 
 from app import receipt_candidates as rc
@@ -133,9 +134,23 @@ def image_bytes(path: Path, sha: str) -> bytes:
 
 
 def _regions(payload: dict) -> list[rc.Region]:
+    if not isinstance(payload, dict):
+        raise ValueError('INVALID_VALUE')
     raw = payload.get("regions")
     if not isinstance(raw, list) or not raw:
         raise ValueError("REGIONS_REQUIRED")
+    for region in raw:
+        if not isinstance(region, dict):
+            raise ValueError('REGION_INVALID')
+        box = region.get('box')
+        if (not isinstance(box, (list, tuple)) or len(box) != 4
+                or any(type(x) not in (int, float) or not math.isfinite(x) or x < 0 for x in box)
+                or box[0] >= box[2] or box[1] >= box[3]):
+            raise ValueError('BOX_INVALID')
+        confidence = region.get('confidence', 1.0)
+        if (type(confidence) not in (int, float) or not math.isfinite(confidence)
+                or not 0 <= confidence <= 1):
+            raise ValueError('CONFIDENCE_INVALID')
     image = str(payload.get("image") or "")
     # The page fingerprint is the picture and the regions typed on it, so the same entry sent again is one receipt.
     basis = json.dumps({"image": image, "regions": raw}, ensure_ascii=False, sort_keys=True)
@@ -163,9 +178,9 @@ def card_rows(board) -> list[dict]:
 @_serialized
 def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
+    regions = _regions(payload)
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
-    regions = _regions(payload)
     for region in regions:
         if region.confidence >= rc.MIN_CONFIDENCE and region.total is not None:
             _validate_values(region.merchant, region.date, region.total)
@@ -342,6 +357,8 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             handler._send_json(store_image(path, raw))
             return True
         body = json.loads(raw.decode("utf-8") or "{}")
+        if not isinstance(body, dict):
+            raise ValueError('INVALID_VALUE')
         if parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":

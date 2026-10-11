@@ -133,6 +133,19 @@ class ReceiptReviewTests(unittest.TestCase):
                                     token=self.csrf())
         self.assertEqual(status, 404)
 
+    def test_scan_rejects_malformed_regions_without_writing(self):
+        valid = REGIONS['regions'][0]
+        invalid = [[], {'regions': ['bad']}, {'regions': [{}]}]
+        for box in ([0, 0], [0, 0, 0, 100], [-1, 0, 100, 100], [0, 0, '100', 100]):
+            invalid.append({'regions': [{**valid, 'box': box}]})
+        for confidence in (float('nan'), float('inf'), -0.1, 1.1, True):
+            invalid.append({'regions': [{**valid, 'confidence': confidence}]})
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                status, _ = self.request('/api/receipts/scan', payload, token=self.csrf())
+                self.assertEqual(status, 400)
+                self.assertFalse(self.store.exists())
+
     def test_manual_edit_reprices_cash_and_keeps_history(self):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         _, stored = self.request('/api/receipts')
