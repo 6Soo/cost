@@ -156,6 +156,44 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(saved, ('식비', 1))
             browser.close()
 
+    def test_delayed_decision_cannot_replace_a_newer_answer_in_the_same_batch(self):
+        batch = self.assign(trip=self.make_trip())
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
+            form = page.locator('form[data-index]').first
+            form.locator('[name="item"]').fill('식비')
+            page.route('**/decision', lambda route: pending.append(route))
+            with page.expect_request('**/decision'):
+                form.locator('button').click()
+            body = pending[0].request.post_data_json
+            headers = {'X-CSRF-Token': ledger_board.CSRF_TOKEN}
+            first = page.request.post(pending[0].request.url, data=body, headers=headers)
+            self.assertEqual(first.status, 200)
+            old = first.json()
+            fresh_row = next(r for r in old['rows'] if r['transaction_id'] == row['transaction_id'])
+            second = page.request.post(pending[0].request.url, headers=headers,
+                                       data={**body, 'revision': fresh_row['revision'],
+                                             'item': '교통비', 'request_id': 'another-device-answer'})
+            self.assertEqual(second.status, 200)
+            page.evaluate('document.activeElement.blur();void pollCard()')
+            page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="교통비"',
+                                   arg=row['transaction_id'])
+            with page.expect_response('**/decision'):
+                pending.pop().fulfill(json=old)
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            shown = page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id)', row['transaction_id'])
+            self.assertEqual(shown['item'], '교통비')
+            self.assertEqual(shown['revision'], fresh_row['revision'] + 1)
+            self.assertEqual(self.server.card_store.conn.execute(
+                'SELECT item FROM transactions WHERE transaction_id=?',
+                (row['transaction_id'],)).fetchone()[0], '교통비')
+            browser.close()
+
     def test_delayed_poll_response_does_not_restore_previous_batch(self):
         self._delayed_response_case(poll=True)
 
