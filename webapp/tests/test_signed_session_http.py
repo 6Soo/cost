@@ -282,6 +282,59 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertIn('data-refusal="NONCE_MISMATCH"', body)
         self.assertNotIn('Set-Cookie', headers)
 
+    def test_callback_verifies_rsa_signature_with_real_google_auth_library_offline(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from google.auth import crypt, jwt
+        from google.oauth2 import id_token as library
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public = key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+        certificate_requests = []
+
+        def certificates(url, method='GET', **kwargs):
+            self.assertEqual(url, library._GOOGLE_OAUTH2_CERTS_URL)
+            self.assertEqual(method, 'GET')
+            certificate_requests.append(url)
+            return type('CertificateResponse', (), {
+                'status': 200, 'data': json.dumps({'synthetic-kid': public}).encode()})()
+
+        self.flow.verifier = google_oidc.GoogleAuthTokenVerifier(client_id=CLIENT_ID)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('unexpected network')), \
+                patch('google.auth.transport.requests.Request', return_value=certificates):
+            for valid_signature in (True, False):
+                with self.subTest(valid_signature=valid_signature):
+                    _, _, started = self.request('/auth/login?return_to=%2Faccess%2Fme')
+                    params = parse_qs(urlparse(started['Location']).query)
+                    claims = {'iss': google_oidc.GOOGLE_ISSUER, 'aud': CLIENT_ID, 'sub': OWNER,
+                              'iat': int(time.time()), 'exp': int(time.time()) + 3600,
+                              'nonce': params['nonce'][0], 'email': 'owner@synthetic.test',
+                              'email_verified': True, 'name': 'Synthetic Owner'}
+                    signing_key = key if valid_signature else rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                    private = signing_key.private_bytes(serialization.Encoding.PEM,
+                        serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+                    signer = crypt.RSASigner.from_string(private, key_id='synthetic-kid')
+                    token = jwt.encode(signer, claims).decode()
+                    self.flow.exchange = lambda **kwargs: {'id_token': token}
+                    before = self.store.conn.execute('SELECT * FROM access_accounts ORDER BY user_id').fetchall()
+                    status, body, headers = self.request(
+                        '/auth/callback?code=synthetic-code&state=' + params['state'][0])
+                    if valid_signature:
+                        self.assertEqual(status, 303, body)
+                        jar = SimpleCookie()
+                        jar.load(headers['Set-Cookie'])
+                        status, body, _ = self.request('/access/me', cookie=jar[google_oidc.COOKIE_NAME].value)
+                        self.assertEqual(status, 200, body)
+                        self.assertEqual(json.loads(body)['role'], 'owner')
+                    else:
+                        self.assertEqual(status, 400, body)
+                        self.assertIn('data-refusal="ID_TOKEN_INVALID"', body)
+                        self.assertNotIn('Set-Cookie', headers)
+                        self.assertEqual(self.store.conn.execute(
+                            'SELECT * FROM access_accounts ORDER BY user_id').fetchall(), before)
+        self.assertEqual(len(certificate_requests), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
