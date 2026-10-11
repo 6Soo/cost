@@ -18,6 +18,8 @@ def tsv_for_tab(preview_rows: list[dict], tab_id: str) -> dict:
             continue
         if row.get("blocked"):
             blocked.append({"transaction_id": row.get("transaction_id"), "reason": row["blocked"]})
+            # Keep the identity in the shared duplicate check, but retain the preview's own hold reason.
+            rows.append({"transaction_id": row.get("transaction_id"), "status": "blocked"})
             continue
         rows.append({
             "transaction_id": row.get("transaction_id"),
@@ -31,4 +33,5 @@ def tsv_for_tab(preview_rows: list[dict], tab_id: str) -> dict:
             "status": "ready",
         })
     result = expense_tsv(rows, layout="rev")
-    return {**result, "held": blocked + result["held"], "tab_id": tab_id}
+    return {**result, "held": blocked + [hold for hold in result["held"] if hold["reason"] != "NOT_READY"],
+            "tab_id": tab_id}

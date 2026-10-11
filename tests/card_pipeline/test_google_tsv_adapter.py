@@ -29,6 +29,14 @@ def test_blocked_rows_are_listed_with_preview_reason_and_not_pasted():
     assert {"transaction_id": "t1", "reason": "item_missing"} in result["held"]
 
 
+def test_blocked_duplicate_identity_cannot_disappear_before_export_validation():
+    rows = [prow('conflict'), prow('conflict', blocked='duplicate_conflict'), prow('unrelated', amount_krw=3000)]
+    result = tsv_for_tab(rows, 'trip-A')
+    assert result['row_count'] == 1 and result['total_krw'] == 3000
+    assert {'transaction_id': 'conflict', 'reason': 'duplicate_conflict'} in result['held']
+    assert {'transaction_id': 'conflict', 'reason': 'DUPLICATE_ID'} in result['held']
+
+
 def test_other_trips_are_excluded_not_held():
     result = tsv_for_tab([prow("t1", display_tab_id="trip-B"), prow("t2")], "trip-A")
     assert result["row_count"] == 1 and result["held"] == []
