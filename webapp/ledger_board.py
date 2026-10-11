@@ -83,6 +83,10 @@ def _store_request_locked(method):
         if lock is None:
             return method(self, *args, **kwargs)
         with lock:
+            if getattr(self.server, 'runtime_closing', False):
+                self._send_json({'code': 'SERVER_STOPPING',
+                                 'message': '서버가 종료 중입니다. 잠시 후 다시 시도해 주세요.'}, code=503)
+                return
             return method(self, *args, **kwargs)
 
     wrapped.__name__ = getattr(method, "__name__", "wrapped")

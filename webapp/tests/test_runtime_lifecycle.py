@@ -158,3 +158,61 @@ def test_entry_reports_safe_server_start_failure(tmp_path, monkeypatch, capsys):
     assert 'SERVER_START' in output.err
     assert 'SYNTHETIC-PRIVATE-PATH' not in output.err
     assert 'Traceback' not in output.err
+
+
+def test_runtime_close_waits_for_active_write_and_refuses_queued_work(tmp_path):
+    import threading
+    from types import SimpleNamespace
+    path = tmp_path / 'synthetic.sqlite'
+    previous = ledger_board._STORE
+    server = ledger_board.serve(port=0, db_path=path, with_worker=False, seed_demo=False)
+    entered, release, closing, closed = (threading.Event() for _ in range(4))
+    errors = []
+    handler = SimpleNamespace(server=server, _send_json=Mock())
+
+    def write(handler):
+        try:
+            conn = handler.server.card_store.conn
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)',
+                         ('synthetic-shutdown', 'card_expense', 'synthetic-trip', 1, '{}'))
+            entered.set()
+            assert release.wait(5)
+            conn.commit()
+        except Exception as error:
+            errors.append(error)
+
+    def close():
+        closing.set()
+        run_candidate.close_runtime(server)
+        closed.set()
+
+    writer = threading.Thread(target=lambda: ledger_board._store_request_locked(write)(handler))
+    closer = threading.Thread(target=close)
+    try:
+        writer.start()
+        assert entered.wait(5)
+        closer.start()
+        assert closing.wait(5)
+        assert not closed.wait(0.1), 'the active transaction must finish before SQLite is closed'
+        release.set()
+        writer.join(5)
+        closer.join(5)
+        assert not errors and closed.is_set()
+        conn = sqlite3.connect(path)
+        try:
+            assert conn.execute('SELECT row_id FROM board_rows').fetchall() == [('synthetic-shutdown',)]
+        finally:
+            conn.close()
+        business = Mock()
+        ledger_board._store_request_locked(business)(handler)
+        business.assert_not_called()
+        assert handler._send_json.call_args.kwargs['code'] == 503
+    finally:
+        release.set()
+        writer.join(5)
+        if closer.ident is not None:
+            closer.join(5)
+        server.server_close()
+        server.card_store.close()
+        ledger_board.bind_store(previous)

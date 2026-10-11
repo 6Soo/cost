@@ -247,8 +247,16 @@ def close_runtime(server, reserve_stop=None):
     worker = getattr(server, 'card_worker', None)
     if worker is not None:
         actions.append(lambda: worker.stop(timeout=5))
+
+    def close_store():
+        # HTTP handlers use this same lock for all database work. Finish the
+        # current transaction before closing, and refuse already queued work.
+        with server.store_lock:
+            server.runtime_closing = True
+            server.card_store.close()
+
     actions.extend((lambda: ota_payment_review.shutdown_snapshot_service(server.card_store),
-                    server.server_close, server.card_store.close,
+                    server.server_close, close_store,
                     lambda: ledger_board.bind_oidc(None),
                     lambda: ledger_board.bind_access(None),
                     lambda: ledger_board.bind_importer(None),
