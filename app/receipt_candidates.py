@@ -1,9 +1,8 @@
-"""Japanese receipt candidates from one A4 scan with several receipts. Synthetic-fed; no OCR engine.
+"""Receipt candidates from explicitly reviewed image regions.
 
-An OCR engine is not approved, so this module takes the regions an engine would report and does
-everything after that: split, hold unclear regions, convert cash and private-card totals at the
-simple ledger rate (1 JPY = 10 KRW), match corporate-card receipts to a single card transaction
-as evidence, and keep user confirmation separate from the machine reading.
+KRW totals stay unchanged. Japanese cash and private-card totals use the approved
+1 JPY = 10 KRW rate. Corporate-card receipts match one purchase as evidence only.
+User confirmation stays separate from OCR hints and manual region input.
 """
 
 from __future__ import annotations
@@ -43,6 +42,8 @@ def _identity(region: Region) -> str:
     # page_id is the scanned image's content fingerprint, so a re-upload of the same image has the same identity.
     raw = json.dumps([region.page_id, list(region.box), region.merchant, region.date, region.total, region.payment],
                      ensure_ascii=False, sort_keys=True)
+    if region.currency != 'JPY':
+        raw += ':' + str(region.currency)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -53,7 +54,7 @@ def split_page(regions: list[Region]) -> dict:
         reason = None
         if region.confidence < MIN_CONFIDENCE:
             reason = "LOW_CONFIDENCE"
-        elif region.currency != "JPY":
+        elif region.currency not in ("JPY", "KRW"):
             reason = "CURRENCY_UNKNOWN"
         elif region.total is None or region.total <= 0:
             reason = "TOTAL_UNCLEAR"
@@ -76,13 +77,20 @@ class Candidate:
     identity: str
     date: str
     merchant: str
-    total_jpy: int
+    total_jpy: int | None
     payment: str
     amount_krw: int | None
     card_transaction_id: str | None = None
     category: str | None = None
     payee: str | None = None
     history: list = field(default_factory=list)
+    currency: str = 'JPY'
+    total_original: int | None = None
+
+
+def matches_card(row: dict, *, date: str, merchant: str, currency: str, total: int) -> bool:
+    amount = row.get('original_krw' if currency == 'KRW' else 'original_jpy')
+    return row['date'] == date and row['merchant'] == merchant and amount is not None and float(amount) == float(total)
 
 
 def build_candidates(regions: list[Region], card_rows: list[dict], known: set | frozenset = frozenset()) -> dict:
@@ -98,18 +106,19 @@ def build_candidates(regions: list[Region], card_rows: list[dict], known: set | 
         seen.add(identity)
         if region.payment == "corporate_card":
             matches = [r for r in card_rows
-                       if r["date"] == region.date and r["merchant"] == region.merchant
-                       and r.get("original_jpy") is not None
-                       and float(r["original_jpy"]) == float(region.total)]
+                       if matches_card(r, date=region.date, merchant=region.merchant,
+                                       currency=region.currency, total=region.total)]
             if len(matches) == 1:
-                candidates.append(Candidate(identity, region.date, region.merchant, region.total,
-                                            region.payment, None, card_transaction_id=matches[0]["transaction_id"]))
+                candidates.append(Candidate(identity, region.date, region.merchant, region.total if region.currency == 'JPY' else None,
+                                            region.payment, None, card_transaction_id=matches[0]["transaction_id"],
+                                            currency=region.currency, total_original=region.total))
             else:
                 holds.append({"identity": identity,
                               "reason": "CARD_MATCH_AMBIGUOUS" if matches else "CARD_NOT_FOUND"})
         else:
-            candidates.append(Candidate(identity, region.date, region.merchant, region.total, region.payment,
-                                        region.total * JPY_TO_KRW))
+            candidates.append(Candidate(identity, region.date, region.merchant, region.total if region.currency == 'JPY' else None, region.payment,
+                                        region.total * JPY_TO_KRW if region.currency == 'JPY' else region.total,
+                                        currency=region.currency, total_original=region.total))
     return {"candidates": candidates, "holds": holds}
 
 

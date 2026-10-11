@@ -85,6 +85,10 @@ def _candidate(stored: dict) -> rc.Candidate:
     return rc.Candidate(**{k: v for k, v in stored.items() if k in rc.Candidate.__dataclass_fields__})
 
 
+def _native_total(stored: dict):
+    return stored.get('total_original') if stored.get('currency', 'JPY') == 'KRW' else stored['total_jpy']
+
+
 def _validate_values(merchant, date, total) -> None:
     if not isinstance(merchant, str) or not merchant.strip():
         raise ValueError("FIELD_MISSING")
@@ -130,7 +134,9 @@ def load(path: Path) -> dict:
     for candidate in data['candidates']:
         if (not isinstance(candidate, dict) or not required <= candidate.keys()
                 or any(not isinstance(candidate[key], str) for key in ('identity', 'date', 'merchant', 'payment'))
-                or type(candidate['total_jpy']) is not int
+                or candidate.get('currency', 'JPY') not in ('JPY', 'KRW')
+                or type(_native_total(candidate)) is not int
+                or (candidate.get('currency', 'JPY') == 'KRW' and candidate['total_jpy'] is not None)
                 or (candidate['amount_krw'] is not None and type(candidate['amount_krw']) is not int)
                 or not isinstance(candidate['history'], list)
                 or any(candidate.get(key) is not None and not isinstance(candidate[key], str)
@@ -240,13 +246,15 @@ def card_rows(board) -> list[dict]:
         return []
     try:
         rows = board.conn.execute(
-            "SELECT transaction_id, COALESCE(NULLIF(approval_date,''), posting_date), merchant, foreign_amount"
+            "SELECT transaction_id, COALESCE(NULLIF(approval_date,''), posting_date), merchant, foreign_amount, foreign_currency, amount_krw"
             " FROM transactions WHERE transaction_kind='purchase' AND transaction_direction='purchase'"
-            " AND duplicate_of IS NULL AND foreign_currency='JPY'").fetchall()
+            " AND duplicate_of IS NULL AND (foreign_currency='JPY' OR foreign_currency='KRW' OR foreign_currency='' OR foreign_currency IS NULL)").fetchall()
     except sqlite3.OperationalError:
         return []  # no card tables yet: there is no card evidence to link to
-    return [{"transaction_id": tid, "date": date, "merchant": merchant, "original_jpy": amount}
-            for tid, date, merchant, amount in rows]
+    return [{"transaction_id": tid, "date": date, "merchant": merchant,
+             "original_jpy": amount if currency == 'JPY' else None,
+             "original_krw": krw if currency in ('KRW', '', None) else None}
+            for tid, date, merchant, amount, currency, krw in rows]
 
 
 @_serialized
@@ -301,9 +309,8 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
 
 def _match_card(card_rows_list: list, stored: dict) -> list:
     """Server card purchases with the same date, merchant and JPY amount. Client data never reaches here."""
-    return [r for r in card_rows_list
-            if r["date"] == stored["date"] and r["merchant"] == stored["merchant"]
-            and r.get("original_jpy") is not None and float(r["original_jpy"]) == float(stored["total_jpy"])]
+    return [r for r in card_rows_list if rc.matches_card(r, date=stored['date'], merchant=stored['merchant'],
+                                                       currency=stored.get('currency', 'JPY'), total=_native_total(stored))]
 
 
 def _settle(stored: dict, card_rows_list: list) -> None:
@@ -327,11 +334,11 @@ def _settle(stored: dict, card_rows_list: list) -> None:
             stored['hold'] = 'CARD_PAYMENT_CONFLICT'
             stored['amount_krw'] = None
         else:
-            stored["amount_krw"] = int(stored["total_jpy"]) * rc.JPY_TO_KRW
+            stored["amount_krw"] = int(_native_total(stored)) * (1 if stored.get('currency') == 'KRW' else rc.JPY_TO_KRW)
 
 
 def _signature(candidate: dict) -> tuple:
-    return (candidate["date"], candidate["merchant"].strip(), int(candidate["total_jpy"]))
+    return (candidate["date"], candidate["merchant"].strip(), candidate.get('currency', 'JPY'), int(_native_total(candidate)))
 
 
 def candidate_version(candidate: dict) -> str:
@@ -365,12 +372,13 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if _saved_retry(stored, expected_version, 'edit', changes, note):
             return stored
         _check_candidate_version(stored, expected_version)
-        allowed = {"merchant", "date", "total_jpy", "payment", "trip_id"}
+        total_field = 'total_original' if stored.get('currency') == 'KRW' else 'total_jpy'
+        allowed = {"merchant", "date", total_field, "payment", "trip_id"}
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError("FIELD_NOT_EDITABLE")
         _validate_values(changes.get("merchant", stored["merchant"]), changes.get("date", stored["date"]),
-                         changes.get("total_jpy", stored["total_jpy"]))
+                         changes.get(total_field, _native_total(stored)))
         before = {k: stored.get(k) for k in changes}
         if "payment" in changes and changes["payment"] not in PAYMENTS:
             raise ValueError("PAYMENT_UNKNOWN")
@@ -378,11 +386,13 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("TRIP_UNKNOWN")
         if (stored.get('card_transaction_id') or stored.get('card_evidence_transaction_id')) and any(
                 key in changes and changes[key] != stored[key]
-                for key in ('merchant', 'date', 'total_jpy', 'payment')):
+                for key in ('merchant', 'date', total_field, 'payment')):
             # Unlinking would turn the card purchase plus a cash receipt into two costs. Refused, not guessed.
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
-            stored[key] = int(value) if key == "total_jpy" else str(value).strip()
+            stored[key] = int(value) if key == total_field else str(value).strip()
+        if total_field == 'total_jpy' and 'total_original' in stored:
+            stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
         if any(_signature(c) == _signature(stored) for c in others):
             raise ValueError("DUPLICATE_CONTENT")
@@ -498,9 +508,9 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
-            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id", "expected_version"}:
+            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
-            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment", "trip_id") if k in body}
+            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "total_original", "payment", "trip_id") if k in body}
             result = edit(path, identity=str(body.get("identity", "")), changes=changes,
                           note=str(body.get("note", "")), valid_trips=_trip_ids(board),
                           card_rows_list=card_rows(board), expected_version=body.get('expected_version'))
@@ -536,13 +546,13 @@ def _row_html(candidate: dict, trips: list) -> str:
     source = (f"<a href='/api/receipts/image/{html.escape(candidate['image_sha'])}' target='_blank' rel='noopener'>원본 사진</a>"
               if candidate.get('image_sha') else '수동 입력')
     return (
-        f"<tr data-version='{candidate_version(candidate)}'>"
+        f"<tr data-version='{candidate_version(candidate)}' data-currency='{candidate.get('currency', 'JPY')}'>"
         f"<td data-label='상호·날짜·여행'>{source}<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미배정</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
         + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
         f"<label>거래일<input data-date='{identity}' aria-label='거래일' value='{html.escape(candidate['date'])}'></label></td>"
-        f"<td data-label='금액·결제'><label>금액(JPY)<input data-total='{identity}' aria-label='금액(JPY)' value='{candidate['total_jpy']}' inputmode='numeric'></label>"
+        f"<td data-label='금액·결제'><label>금액({candidate.get('currency', 'JPY')})<input data-total='{identity}' aria-label='금액({candidate.get('currency', 'JPY')})' value='{_native_total(candidate)}' inputmode='numeric'></label>"
         f"<label>결제수단<select data-payment='{identity}' aria-label='결제수단'>"
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
@@ -555,7 +565,7 @@ def _row_html(candidate: dict, trips: list) -> str:
 
 def _hold_html(hold: dict) -> str:
     candidate = hold.get('candidate') or hold.get('region') or {}
-    amount = candidate.get('total_jpy', candidate.get('total'))
+    amount = _native_total(candidate) if 'total_jpy' in candidate else candidate.get('total')
     currency = candidate.get('currency', 'JPY') or '통화 미확인'
     detail = (f"{candidate.get('merchant') or '상호 미확인'} · {candidate.get('date') or '날짜 미확인'} · "
               f"{amount if amount is not None else '금액 미확인'} {currency} · "
@@ -599,7 +609,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const updateCandidate=(button,result)=>{const row=button.closest('tr');row.dataset.version=result.version;"
         "for(const [field,key] of [['trip','trip_id'],['merchant','merchant'],['date','date'],['total','total_jpy'],"
         "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
-        "input.value=result[key]??'';originalValues.set(input,input.value)}"
+        "input.value=(field==='total'&&result.currency==='KRW'?result.total_original:result[key])??'';originalValues.set(input,input.value)}"
         "row.querySelector('[data-amount]').textContent=result.amount_krw==null?'':result.amount_krw.toLocaleString('ko-KR')+'원';"
         "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'확정됨':'사람 확인 필요');"
         "say('영수증 변경을 저장했습니다.')};"
@@ -626,17 +636,18 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const result=await post('/api/receipts/upload',{image:sha,language:document.getElementById('ocr-language').value});"
         "document.getElementById('ocr-text').value=result.text;"
         "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
-        "if(hints.total_jpy&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
+        "if(hints.total_jpy&&document.getElementById('r-currency').value==='JPY'&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
         "say('글자를 읽었습니다. 여러 영수증은 영역별로 나누고 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
         "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
-        "currency:'JPY',total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
+        "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
         "save(()=>post('/api/receipts/scan',{image:sha||undefined,regions:[region]}))};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
         "save(()=>post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
-        "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
+        "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
+        "document.getElementById('r-currency').onchange=()=>{document.getElementById('r-total').placeholder='금액('+document.getElementById('r-currency').value+')'};"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
         "if([...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input))){"
         "say('금액·결제수단·여행 변경은 수정 버튼으로 먼저 저장한 뒤 확정해 주세요.');return}"
@@ -683,8 +694,8 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                "<button type='button' id='ocr-go'>선택한 사진 글자 읽기</button>"
                "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
                if local_receipt_ocr.enabled() else
-               "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·엔화 금액을 입력해 주세요.</p>") +
-            "<p>현금·개인카드는 JPY×10을 적용합니다. 법인카드는 연결된 카드의 실제 원화 금액을 사용합니다.</p>"
+               "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>") +
+            "<p>원화는 입력 금액 그대로 사용합니다. 일본 현금·개인카드는 JPY×10을 적용합니다. 법인카드는 카드와 대사하는 증빙이며 추가 지출로 복사하지 않습니다.</p>"
             "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
             "<button type='button' id='img-go'>사진 등록</button>"
             f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
@@ -692,6 +703,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<section><h2>영역 입력</h2>"
             f"<p>사진 위치 (x0, y0, x1, y1): {box_inputs}</p>"
             "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
+            "<label>통화<select id='r-currency'><option value='JPY'>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label>"
             "<input id='r-total' type='number' placeholder='금액(JPY)'> "
             "<select id='r-payment'><option value='cash'>현금</option><option value='private_card'>개인카드</option>"
             "<option value='corporate_card'>법인카드</option></select>"
