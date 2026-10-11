@@ -137,8 +137,13 @@ def store_image(path: Path, body: bytes) -> dict:
     folder = _images_dir(path)
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{sha}.bin"
-    if not target.exists():
-        target.write_bytes(body)
+    if target.exists():
+        if target.stat().st_size != len(body) or target.read_bytes() != body:
+            raise ValueError('IMAGE_CORRUPT')
+    else:
+        temporary = target.with_suffix('.bin.tmp')
+        temporary.write_bytes(body)
+        os.replace(temporary, target)
     data = load(path)
     if sha not in data["images"]:
         data["images"].append(sha)
@@ -150,7 +155,10 @@ def image_bytes(path: Path, sha: str) -> bytes:
     data = load(path)
     if sha not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
-    return (_images_dir(path) / f"{sha}.bin").read_bytes()
+    body = (_images_dir(path) / f"{sha}.bin").read_bytes()
+    if hashlib.sha256(body).hexdigest() != sha:
+        raise ValueError('IMAGE_CORRUPT')
+    return body
 
 
 def _regions(payload: dict) -> list[rc.Region]:
@@ -397,6 +405,8 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             handler._send_bytes(data, sniff_image(data))
         except (KeyError, OSError):
             handler._send_json({"code": "IMAGE_NOT_FOUND"}, 404)
+        except ValueError:
+            handler._send_json({"code": "IMAGE_CORRUPT"}, 409)
         return True
     if parsed.path == "/api/receipts/upload":
         handler._send_json({"code": "OCR_ENGINE_NOT_APPROVED",

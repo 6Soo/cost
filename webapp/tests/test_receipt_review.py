@@ -113,6 +113,35 @@ class ReceiptReviewTests(unittest.TestCase):
         status, served = self.request(f'/api/receipts/image/{sha}')
         self.assertEqual((status, served), (200, PNG))
 
+    def test_interrupted_photo_write_does_not_publish_a_partial_original(self):
+        from webapp import receipt_review
+        original_write = Path.write_bytes
+        def partial_write(path, body):
+            original_write(path, body[:10])
+            raise OSError('SYNTHETIC-WRITE-FAILURE')
+        with patch.object(Path, 'write_bytes', partial_write):
+            with self.assertRaises(OSError):
+                receipt_review.store_image(self.store, PNG)
+        self.assertFalse(self.store.exists())
+        self.assertEqual(list(receipt_review._images_dir(self.store).glob('*.bin')), [])
+        status, uploaded = self.request('/api/receipts/image', token=self.csrf(), raw=PNG)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.request('/api/receipts/image/' + uploaded['sha256']), (200, PNG))
+
+    def test_changed_photo_content_is_not_served_or_silently_registered_again(self):
+        from webapp import receipt_review
+        sha = self.request('/api/receipts/image', token=self.csrf(), raw=PNG)[1]['sha256']
+        target = receipt_review._images_dir(self.store) / (sha + '.bin')
+        changed = make_png(b'\x00\xff\x00')
+        target.write_bytes(changed)
+        before = self.store.read_bytes()
+        status, body = self.request('/api/receipts/image/' + sha)
+        self.assertEqual((status, body.get('code') if isinstance(body, dict) else None), (409, 'IMAGE_CORRUPT'))
+        status, body = self.request('/api/receipts/image', token=self.csrf(), raw=PNG)
+        self.assertEqual((status, body['code']), (400, 'IMAGE_CORRUPT'))
+        self.assertEqual(target.read_bytes(), changed)
+        self.assertEqual(self.store.read_bytes(), before)
+
     def test_only_png_or_jpeg_bytes_are_accepted(self):
         status, body = self.request('/api/receipts/image', token=self.csrf(), raw=b'<html>not a photo</html>')
         self.assertEqual((status, body['code']), (400, 'IMAGE_TYPE_UNSUPPORTED'))
