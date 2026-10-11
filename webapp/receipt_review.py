@@ -454,8 +454,9 @@ def _row_html(candidate: dict, trips: list) -> str:
 def _hold_html(hold: dict) -> str:
     candidate = hold.get('candidate') or hold.get('region') or {}
     amount = candidate.get('total_jpy', candidate.get('total'))
+    currency = candidate.get('currency', 'JPY') or '통화 미확인'
     detail = (f"{candidate.get('merchant') or '상호 미확인'} · {candidate.get('date') or '날짜 미확인'} · "
-              f"{amount if amount is not None else '금액 미확인'} JPY · "
+              f"{amount if amount is not None else '금액 미확인'} {currency} · "
               if candidate else '')
     image = hold.get('image_sha') or candidate.get('image_sha')
     source = (f" <a href='/api/receipts/image/{html.escape(image)}' target='_blank' rel='noopener'>원본 사진</a>"

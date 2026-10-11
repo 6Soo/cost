@@ -209,3 +209,14 @@ def test_repeated_edit_preserves_confirmation_and_does_not_duplicate_history(tmp
     rr.edit(path, identity=stored['identity'], changes=changes, valid_trips={'trip-syn'})
     assert path.read_bytes() == before
     assert rr.tsv(path, 'trip-syn')['row_count'] == 1
+
+
+def test_held_foreign_currency_is_not_displayed_as_yen(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [{**region(), 'currency': 'USD'}]})
+    hold, = rr.load(path)['holds']
+    assert hold['reason'] == 'CURRENCY_UNKNOWN'
+    shown = rr._hold_html(hold)
+    assert '1200 USD' in shown
+    assert '1200 JPY' not in shown
+    assert rr.load(path)['candidates'] == []
