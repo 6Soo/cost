@@ -30,9 +30,9 @@ def _hold_reason(row: dict) -> str | None:
         return "NOT_READY"
     if not isinstance(row.get("amount_krw"), int) or isinstance(row.get("amount_krw"), bool):
         return "AMOUNT_INVALID"
-    if row.get("evidence") not in EVIDENCE_TYPES:
+    if not isinstance(row.get('evidence'), str) or row['evidence'] not in EVIDENCE_TYPES:
         return "EVIDENCE_UNKNOWN"
-    if not DATE.match(str(row.get("date", ""))):
+    if not isinstance(row.get('date'), str) or not DATE.fullmatch(row['date']):
         return "DATE_INVALID"
     try:
         dt.date.fromisoformat(row["date"])
@@ -40,6 +40,11 @@ def _hold_reason(row: dict) -> str | None:
         return "DATE_INVALID"
     if not _text(row.get("payee")) or not _text(row.get("category")):
         return "FIELD_MISSING"
+    identity = row.get('transaction_id')
+    if identity is None or (isinstance(identity, str) and not identity.strip()):
+        return 'ID_MISSING'
+    if not isinstance(identity, str):
+        return 'ID_INVALID'
     return None
 
 
@@ -55,8 +60,6 @@ def expense_tsv(rows: list[dict], *, layout: str) -> dict:
     held, ready = [], []
     for row, reason in reasons:
         transaction_id = row.get("transaction_id")
-        if reason is None and not transaction_id:
-            reason = "ID_MISSING"
         # The same transaction twice is never pasted twice; both copies wait for a person.
         if reason is None and counts[transaction_id] > 1:
             reason = "DUPLICATE_ID"

@@ -59,3 +59,20 @@ def test_tabs_and_newlines_cannot_break_the_paste_row():
 def test_non_standard_target_layout_is_refused():
     with pytest.raises(ValueError, match="TARGET_LAYOUT_NOT_STANDARD"):
         expense_tsv([row("t1")], layout="legacy")
+
+
+@pytest.mark.parametrize('invalid,reason', [({'transaction_id': []}, 'ID_INVALID'),
+                                           ({'transaction_id': '  '}, 'ID_MISSING'),
+                                           ({'evidence': []}, 'EVIDENCE_UNKNOWN')])
+def test_malformed_identity_and_evidence_are_held_without_losing_valid_rows(invalid, reason):
+    result = expense_tsv([{**row('bad'), **invalid}, row('good')], layout='rev')
+    assert result['row_count'] == 1 and result['total_krw'] == 10000
+    assert result['held'][0]['reason'] == reason
+    assert result['tsv'] == expense_tsv([row('good')], layout='rev')['tsv']
+
+
+def test_date_object_is_held_instead_of_crashing_the_copy():
+    import datetime as dt
+    result = expense_tsv([row('bad', date=dt.date(2027, 8, 2)), row('good')], layout='rev')
+    assert result['row_count'] == 1
+    assert result['held'] == [{'transaction_id': 'bad', 'reason': 'DATE_INVALID'}]
