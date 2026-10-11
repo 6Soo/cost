@@ -393,6 +393,26 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
             browser.close()
 
+    def test_receipt_copy_success_survives_copy_history_storage_failure(self):
+        self.request('/api/receipts/scan', REGIONS, token=self.csrf())
+        candidate = self.request('/api/receipts')[1]['candidates'][0]
+        self.request('/api/receipts/edit', {'identity': candidate['identity'], 'trip_id': self.trip}, token=self.csrf())
+        self.request('/api/receipts/confirm', {'identity': candidate['identity'], 'payee': candidate['merchant'],
+                                             'category': '식비'}, token=self.csrf())
+        expected = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['tsv']
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/receipts')
+            page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
+            page.click('#copy-tsv')
+            page.wait_for_function('!document.getElementById("copy-tsv").disabled')
+            self.assertIn('클립보드에 복사했습니다', page.locator('#status').inner_text())
+            self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+            self.assertTrue(page.locator('#copy-trip').is_enabled())
+            browser.close()
+
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
         png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=png_no_end)[1]['code'],

@@ -312,6 +312,25 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
             browser.close()
 
+    def test_clipboard_success_is_preserved_when_copy_history_storage_fails(self):
+        trip = self.make_trip()
+        batch = self.assign(trip=trip)
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/import')
+            button = page.locator(f'[data-google-copy="{trip}"]')
+            button.wait_for()
+            page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
+            button.click()
+            page.wait_for_function('!googleCopyPending')
+            self.assertIn('클립보드에 복사했습니다', page.locator('#status').inner_text())
+            self.assertIn('복사 이력을 저장하지 못했습니다', page.locator('#status').inner_text())
+            expected = page.request.get(f'{self.base}/api/imports/{batch}/google-tsv?tab={trip}').json()['tsv']
+            self.assertEqual(page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n'), expected)
+            self.assertTrue(button.is_enabled())
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
