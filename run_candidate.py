@@ -57,6 +57,27 @@ def validate_session_mode(args):
                            '합성 세션은 local-synthetic 환경에서만 사용할 수 있습니다')
 
 
+def validate_optional_data_paths(args):
+    """Optional private stores obey the same production durability boundary."""
+    if args.environment != 'production':
+        return
+    for name in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT',
+                 'WEBLEDGER_GOOGLE_LEDGER_ROWS'):
+        raw = os.environ.get(name)
+        if not raw:
+            continue  # An unconfigured optional feature remains disabled.
+        path = pathlib.Path(raw)
+        if not path.is_absolute():
+            raise ops.OpsError('RELATIVE_SETTING', f'{name}은 절대 경로여야 합니다')
+        parent = path.resolve().parent
+        try:
+            ops.DurableConfig(data_root=parent, db_path=path.resolve(), export_dir=parent,
+                              evidence_dir=parent, source_dir=parent, environment='production',
+                              allow_missing_root=True)
+        except ops.OpsError as error:
+            raise ops.OpsError(error.code, '비공개 자료의 지속 저장 경로를 확인해 주세요') from None
+
+
 def connect_runtime_oidc(server, args):
     """Connect a real Google login when the environment configured one.
 
@@ -276,6 +297,7 @@ def main(argv=None) -> int:
 
     try:
         validate_session_mode(args)
+        validate_optional_data_paths(args)
         data_root = resolve_data_root(args.data_root)
         port = resolve_port(args.port)
         # The bind is checked before the data root is touched, so an unsafe bind
@@ -306,6 +328,9 @@ def main(argv=None) -> int:
             required=args.require_ready or args.environment == "production")
     except ops.OpsError as exc:
         print(f"refused [{exc.code}]: {exc.message}", file=sys.stderr)
+        return 2
+    except Exception:
+        print('refused [STARTUP_CONFIG]: 실행 준비에 실패했습니다.', file=sys.stderr)
         return 2
 
     from webapp import ledger_board as board_mod

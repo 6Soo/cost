@@ -211,6 +211,8 @@ def main(argv=None) -> int:
         from webapp.ledger_store import LedgerStore
 
         config = ops.durable_config_for(root, environment="production", create=True)
+        from run_candidate import validate_optional_data_paths
+        validate_optional_data_paths(config)
         if os.environ.get('WEBLEDGER_CARD_FLOW') == '1':
             require_card_schema(config.db_path)
         store = LedgerStore(config.db_path, seed_demo=False)

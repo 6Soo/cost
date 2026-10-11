@@ -216,3 +216,55 @@ def test_runtime_close_waits_for_active_write_and_refuses_queued_work(tmp_path):
         server.server_close()
         server.card_store.close()
         ledger_board.bind_store(previous)
+
+
+@pytest.mark.parametrize('name', ['WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT',
+                                  'WEBLEDGER_GOOGLE_LEDGER_ROWS'])
+@pytest.mark.parametrize('location,code', [('relative.json', 'RELATIVE_SETTING'),
+                                         ('temporary', 'TEMP_DATA_ROOT'),
+                                         ('checkout', 'CHECKOUT_DATA_ROOT')])
+def test_production_refuses_non_durable_optional_data_paths(tmp_path, monkeypatch, name, location, code):
+    from types import SimpleNamespace
+    if location == 'temporary':
+        location = str(tmp_path / 'private.json')
+    elif location == 'checkout':
+        location = str(run_candidate.HERE / 'private.json')
+    monkeypatch.setenv(name, location)
+    with pytest.raises(run_candidate.ops.OpsError) as error:
+        run_candidate.validate_optional_data_paths(SimpleNamespace(environment='production'))
+    assert error.value.code == code
+
+
+def test_production_path_refusal_precedes_data_root_and_database_access(monkeypatch, capsys):
+    monkeypatch.setenv('WEBLEDGER_RECEIPTS_STORE', 'relative-private.json')
+    configure = Mock(side_effect=AssertionError('must not access the data root'))
+    monkeypatch.setattr(run_candidate.ops, 'durable_config_for', configure)
+    assert run_candidate.main(['--environment', 'production']) == 2
+    configure.assert_not_called()
+    assert 'RELATIVE_SETTING' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize('configured', [False, True])
+def test_optional_features_remain_off_or_use_explicit_durable_paths(tmp_path, monkeypatch, configured):
+    from types import SimpleNamespace
+    names = ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', 'WEBLEDGER_GOOGLE_LEDGER_ROWS')
+    for index, name in enumerate(names):
+        monkeypatch.delenv(name, raising=False)
+        if configured:
+            monkeypatch.setenv(name, str(tmp_path / 'not-created' / f'private-{index}.json'))
+    # Model a persistent mount without touching a real persistent or operational path.
+    monkeypatch.setattr(run_candidate.ops.tempfile, 'gettempdir', lambda: str(tmp_path / 'different-temp-root'))
+    run_candidate.validate_optional_data_paths(SimpleNamespace(environment='production'))
+    assert not (tmp_path / 'not-created').exists()
+
+
+def test_data_root_io_failure_returns_safe_startup_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(run_candidate.ops, 'durable_config_for',
+                        Mock(side_effect=OSError('SYNTHETIC-PRIVATE-PATH disk full')))
+    serve = Mock()
+    monkeypatch.setattr(ledger_board, 'serve', serve)
+    assert run_candidate.main(['--environment', 'local-synthetic', '--data-root', str(tmp_path)]) == 2
+    serve.assert_not_called()
+    output = capsys.readouterr()
+    assert 'STARTUP_CONFIG' in output.err
+    assert 'SYNTHETIC-PRIVATE-PATH' not in output.err
