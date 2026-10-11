@@ -4,6 +4,7 @@ The administrator wrapper pauses managed writers. Only aggregate evidence
 leaves the protected host directory; every raw copy stays under that root.
 """
 import base64
+import argparse
 import datetime
 import hashlib
 import json
@@ -54,7 +55,26 @@ def backup_database(source, target):
         original.close()
 
 
-def main():
+def product_files(host):
+    """Return private product files for the same backup and restore hash checks."""
+    files = {}
+    for config_file in sorted((host / 'config').glob('*.json')):
+        if config_file.is_symlink():
+            raise RuntimeError('SOURCE_LINK_REFUSED')
+        files['host-config/' + config_file.name] = config_file
+    for kind in ('receipts', 'google-authority'):
+        folder = host / 'data' / kind
+        if folder.is_symlink():
+            raise RuntimeError('SOURCE_LINK_REFUSED')
+        for path in sorted(folder.rglob('*')):
+            if path.is_symlink():
+                raise RuntimeError('SOURCE_LINK_REFUSED')
+            if path.is_file():
+                files[kind + '/' + path.relative_to(folder).as_posix()] = path
+    return files
+
+
+def main(evidence_out=None):
     host = Path(r"D:\WebLedgerHost")
     data = host / "data"
     config = host / "config/real-review.json"
@@ -78,7 +98,12 @@ def main():
     files = {"config/real-review-original.json": config}
     for kind in ("snapshot", "review", "master"):
         files["review/" + Path(manifest[kind + "_path"]).name] = Path(manifest[kind + "_path"])
+    # Optional product stores are as important as SQLite: photos, receipt edits,
+    # selected Google generations and launch settings must survive a restore.
+    files.update(product_files(host))
     for kind in ("source", "evidence", "exports"):
+        if (data / kind).is_symlink():
+            raise RuntimeError('SOURCE_LINK_REFUSED')
         for path in sorted((data / kind).rglob("*")):
             if path.is_file():
                 if path.is_symlink():
@@ -135,12 +160,16 @@ def main():
         "restored_server_started": False,
         "actual_import_performed": False,
     }
-    (ROOT / "docs/handoff/2026-10-01/operational-backup-restore-evidence.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    output = Path(evidence_out) if evidence_out else ROOT / "docs/handoff/2026-10-01/operational-backup-restore-evidence.json"
+    output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--evidence-out', type=Path, help='Store aggregate evidence outside the checkout')
+    args = parser.parse_args()
     try:
-        main()
+        main(args.evidence_out)
     except Exception:
         print("OPERATIONAL_BACKUP_RESTORE_FAILED", file=sys.stderr)
         raise SystemExit(2) from None
