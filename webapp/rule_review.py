@@ -68,12 +68,8 @@ def approve(flow: CardFlow, batch: str, body: dict) -> dict:
 
 def saved_response(flow: CardFlow, batch: str, result: dict, *, classify: bool = False) -> dict:
     """A failed read after a committed write must not report that write as rolled back."""
-    try:
-        if classify:
-            flow.classify(batch)
-        state = flow.state(batch)
-    except Exception:
-        # Return only the committed result; exception details may contain private data.
+    state = flow.saved_state(batch, classify=classify)
+    if state.get('refresh_required'):
         return {**result, 'state': None, 'refresh_required': True}
     return {**result, 'state': state}
 

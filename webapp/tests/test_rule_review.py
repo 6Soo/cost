@@ -143,6 +143,21 @@ class RuleReviewTests(unittest.TestCase):
         self.assertIsNotNone(replay['state'])
         self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], count)
 
+    def test_saved_individual_answer_is_not_reported_as_failed_refresh(self):
+        body = dict(transaction_id=self.tx[0], revision=self.rows[0]['revision'], item='식비',
+                    display_tab_id=self.trip, request_id='saved-answer-refresh')
+        route = f'/api/imports/{self.batch}/decision'
+        with patch.object(CardFlow, 'classify', side_effect=StoreError('REFRESH_FAILED', 'private detail')):
+            status, result = self.post(route, body, token=ledger_board.CSRF_TOKEN)
+        self.assertEqual(status, 200)
+        self.assertTrue(result['refresh_required'])
+        self.assertTrue(result['saved'])
+        self.assertEqual(self.items()[self.tx[0]], '식비')
+        status, replay = self.post(route, body, token=ledger_board.CSRF_TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(next(r for r in replay['rows'] if r['transaction_id'] == self.tx[0])['item'], '식비')
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
+
     def test_stale_proposal_is_refused_and_nothing_changes(self):
         proposal = self.propose()
         self.server.card_store.conn.execute('UPDATE transactions SET amount_krw=amount_krw+1 WHERE transaction_id=?',
@@ -297,6 +312,33 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(set(self.items().values()), {''})
             browser.close()
 
+    def test_old_proposal_error_does_not_replace_new_proposal_status(self):
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.select_option('#rule-focus', self.tx[0])
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            page.route('**/rule-proposal', lambda route: pending.append(route))
+            with page.expect_request('**/rule-proposal'):
+                page.click('#rule-propose')
+            page.select_option('#rule-focus', self.tx[1])
+            with page.expect_request('**/rule-proposal'):
+                page.click('#rule-propose')
+            pending[1].fulfill(json=self.propose(self.tx[1], text='이 건만 식비로 분류해 줘'))
+            page.locator('#rule-approve').wait_for()
+            page.evaluate("document.getElementById('status').textContent='CURRENT-PROPOSAL'")
+            with page.expect_response('**/rule-proposal'):
+                pending[0].fulfill(status=500, json={'message': 'OLD-PROPOSAL-ERROR'})
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-PROPOSAL')
+            self.assertEqual(page.evaluate('window.ruleProposal.transaction_id'), self.tx[1])
+            self.assertTrue(page.locator('#rule-approve').is_enabled())
+            browser.close()
+
     def test_browser_reports_committed_approval_when_refresh_fails(self):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
@@ -315,6 +357,41 @@ class RuleReviewTests(unittest.TestCase):
             page.reload()
             page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
             self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).user_confirmed', self.tx[0]), 1)
+            browser.close()
+
+    def test_browser_retries_lost_approval_response_with_same_request(self):
+        requests = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#rule-focus option').first.wait_for(state='attached')
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.select_option('#rule-focus', self.tx[0])
+            page.fill('#rule-text', '이 건만 식비로 분류해 줘')
+            page.click('#rule-propose')
+            page.locator('#rule-approve').wait_for()
+
+            def lose_first_response(route):
+                body = route.request.post_data_json
+                requests.append(body)
+                status, result = self.post(f'/api/imports/{self.batch}/rule-proposal/approve', body,
+                                           token=ledger_board.CSRF_TOKEN)
+                if len(requests) == 1:
+                    self.assertEqual(status, 200)
+                    route.abort('failed')
+                else:
+                    route.fulfill(status=status, json=result)
+
+            page.route('**/rule-proposal/approve', lose_first_response)
+            page.click('#rule-approve')
+            page.get_by_text('서버에 연결하지 못했습니다.', exact=False).wait_for()
+            self.assertTrue(page.locator('#rule-approve').is_enabled())
+            page.click('#rule-approve')
+            page.wait_for_function('document.querySelector("#rule-approve")===null', timeout=5000)
+            self.assertEqual(requests[0]['request_id'], requests[1]['request_id'])
+            self.assertEqual(self.items()[self.tx[0]], '식비')
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
             browser.close()
 
     def test_delayed_approval_result_does_not_restore_previous_batch(self):

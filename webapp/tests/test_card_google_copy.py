@@ -230,6 +230,52 @@ class CardGoogleCopyTests(unittest.TestCase):
                         page.close()
             browser.close()
 
+    def test_upload_failure_after_batch_switch_keeps_current_status_and_unlocks_button(self):
+        batch = self.assign(trip=self.make_trip())
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.wait_for_function('typeof model !== "undefined"')
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.locator('#newupload').evaluate('(node)=>node.open=true')
+            page.locator('#file').set_input_files(dict(name='delayed.csv', mimeType='text/csv', buffer=CARD))
+            page.route('**/api/imports', lambda route: pending.append(route))
+            with page.expect_request('**/api/imports'):
+                page.click('#upload')
+            self.assertTrue(page.locator('#upload').is_disabled())
+            page.locator(f'[data-batch="{batch}"]').click()
+            page.wait_for_function('(id)=>model.batch_id===id', arg=batch)
+            page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
+            with page.expect_response('**/api/imports'):
+                pending.pop().fulfill(status=500, json={'message': 'OLD-UPLOAD-ERROR'})
+            page.wait_for_function('!document.getElementById("upload").disabled')
+            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
+            self.assertEqual(page.evaluate('model.batch_id'), batch)
+            browser.close()
+
+    def test_committed_ledger_write_survives_state_failure_and_same_request_retry(self):
+        from app.db import StoreError
+        batch = self.assign(trip=self.make_trip())
+        body = dict(digest=self.flow.state(batch)['preview']['digest'], request_id='ledger-refresh-failure')
+        with sync_playwright() as api:
+            context = api.request.new_context(base_url=self.base,
+                                             extra_http_headers={'X-CSRF-Token': ledger_board.CSRF_TOKEN})
+            with patch.object(CardFlow, 'state', side_effect=StoreError('REFRESH_FAILED', 'private detail')):
+                response = context.post(f'/api/imports/{batch}/commit', data=body)
+            self.assertEqual(response.status, 200)
+            result = response.json()
+            self.assertTrue(result['refresh_required'])
+            self.assertTrue(result['saved'])
+            count = self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]
+            self.assertEqual(count, 1)
+            replay = context.post(f'/api/imports/{batch}/commit', data=body)
+            self.assertEqual(replay.status, 200)
+            self.assertEqual(replay.json()['result'], result['result'])
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], count)
+            context.dispose()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
