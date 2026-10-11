@@ -82,7 +82,7 @@ def test_same_choice_retry_does_not_duplicate_history(tmp_path):
     assert first == second and len(second['history']) == 1
 
 
-@pytest.mark.parametrize('width', [390, 1440])
+@pytest.mark.parametrize('width', [375, 390, 1440])
 def test_browser_owner_selects_copy_and_viewer_follows_it(width):
     from unittest.mock import patch
     from playwright.sync_api import sync_playwright
@@ -118,6 +118,10 @@ def test_browser_owner_selects_copy_and_viewer_follows_it(width):
                 pg.get_by_role('link', name='여행 상세', exact=True).click()
                 pg.get_by_text('ARCHIVE-SYN', exact=True).wait_for()
                 assert 'ALICE-NAME' not in pg.content()
+                detail_url = pg.url
+                page.set_grants(case.snapshot, user_id='viewer-syn', keys=[key], granted=False, at='revoked')
+                assert pg.goto(detail_url).status == 404
+                assert 'ARCHIVE-SYN' not in pg.content()
             context.close()
             browser.close()
     finally:

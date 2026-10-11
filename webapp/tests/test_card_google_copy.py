@@ -71,8 +71,92 @@ class CardGoogleCopyTests(unittest.TestCase):
     def test_browser_desktop_1440_copies_the_exact_tsv(self):
         self._copy_flow(1440, 900)
 
+    def test_browser_mobile_375_upload_assign_confirm_and_copy(self):
+        trip = self.make_trip()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
+                                          viewport={'width': 375, 'height': 812})
+            page = context.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#file').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv', 'buffer': CARD})
+            page.get_by_role('button', name='업로드하고 분류').click()
+            form = page.locator('form[data-index]').first
+            form.locator('input[name=item]').fill('숙박비')
+            form.locator('select[name=display_tab_id]').select_option(trip)
+            form.locator('input[name=description]').fill('SYNTHETIC-STAY')
+            form.locator('button').click()
+            page.get_by_text('답변을 적용했습니다.', exact=False).wait_for()
+            batch = page.evaluate('model.batch_id')
+            saved = self.server.card_store.conn.execute(
+                'SELECT amount_krw,item,display_tab_id,user_confirmed FROM transactions').fetchone()
+            self.assertEqual(saved, (37000, '숙박비', trip, 1))
+            page.reload()
+            button = page.locator(f'[data-google-copy="{trip}"]')
+            button.click()
+            page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
+            clipboard = page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n')
+            expected = page.request.get(f'{self.base}/api/imports/{batch}/google-tsv?tab={trip}').json()
+            self.assertEqual(clipboard, expected['tsv'])
+            self.assertEqual(len(clipboard.rstrip('\n').split('\t')), 7)
+            self.assertEqual(expected['row_count'], 1)
+            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+            browser.close()
+
     def test_delayed_batch_response_does_not_replace_latest_selection(self):
         self._delayed_response_case(poll=False)
+
+    def test_browser_mobile_375_partial_refund_reupload_books_exact_net_and_copies(self):
+        from tests.card_pipeline.fixtures import make_xlsx
+        from tests.card_pipeline.test_actual_layouts import HAN
+        content = make_xlsx([[1, '2026-04-08', '', '****1234', '7777', 1000000, 700000,
+                              'SYN-REFUND', '', '', '', '국내', '', '', 300000, '',
+                              '2026-04-10', '정상', 0, '']], headers=HAN)
+        trip = self.make_trip()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            context = browser.new_context(permissions=['clipboard-read', 'clipboard-write'],
+                                          viewport={'width': 375, 'height': 812})
+            page = context.new_page()
+            page.goto(self.base + '/import')
+            page.locator('#file').set_input_files({'name': 'refund.xlsx',
+                'mimeType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'buffer': content})
+            page.click('#upload')
+            page.get_by_text('분류가 끝났습니다.', exact=True).wait_for()
+            index = page.evaluate('model.rows.findIndex(r=>r.transaction_direction==="purchase")')
+            form = page.locator(f'form[data-index="{index}"]')
+            form.locator('input[name=item]').fill('항공료')
+            form.locator('select[name=display_tab_id]').select_option(trip)
+            form.locator('button').click()
+            page.get_by_text('답변을 적용했습니다.', exact=False).wait_for()
+            page.locator('[data-group-commit]').wait_for()
+            before = self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+            if not page.locator('#newupload').evaluate('el=>el.open'):
+                page.locator('#newupload summary').click()
+            page.click('#upload')
+            page.get_by_text('분류가 끝났습니다.', exact=True).wait_for()
+            self.assertEqual(self.server.card_store.conn.execute(
+                'SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
+            group = page.evaluate('model.refund_groups[0]')
+            self.assertEqual((group['gross_krw'], group['refund_krw'], group['net_krw']),
+                             (1000000, -700000, 300000))
+            page.locator('[data-group-commit]').click()
+            page.get_by_text('환불 쌍을 장부에 기록했습니다.', exact=True).wait_for()
+            page.reload()
+            page.locator('[data-group-commit]').wait_for()
+            self.assertTrue(page.locator('[data-group-commit]').is_disabled())
+            self.assertEqual(self.server.card_store.conn.execute(
+                'SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone(), (2, 300000))
+            page.locator(f'[data-google-copy="{trip}"]').click()
+            page.get_by_text('클립보드에 복사했습니다', exact=False).wait_for()
+            clipboard = page.evaluate('navigator.clipboard.readText()').replace('\r\n', '\n')
+            rows = [line.split('\t') for line in clipboard.strip().split('\n')]
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(all(len(row) == 7 for row in rows))
+            self.assertEqual(sorted(int(row[6]) for row in rows), [-700000, 1000000])
+            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            browser.close()
 
     def test_copy_blocks_duplicate_requests_and_recovers_from_error(self):
         trip = self.make_trip()

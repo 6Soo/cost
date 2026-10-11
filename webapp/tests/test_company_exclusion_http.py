@@ -124,3 +124,46 @@ def test_browser_proposes_exclusion_and_can_restore(app, width):
         page.get_by_text('회사 경비 제외를 되돌렸습니다.', exact=False).wait_for()
         assert page.evaluate('document.documentElement.scrollWidth - innerWidth') == 0
         browser.close()
+
+
+def test_browser_mobile_375_exclusion_refresh_lost_response_retry_and_restore(app):
+    from playwright.sync_api import sync_playwright
+    requests = []
+    before = app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall()
+    with patch.object(ledger_board, '_receipts_owner_request', return_value=True), sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 375, 'height': 812})
+        page.on('dialog', lambda dialog: dialog.accept())
+        page.goto(app.base + '/import')
+        page.locator('#rule-focus option').first.wait_for(state='attached')
+        page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+        page.select_option('#rule-focus', app.tx[0])
+        page.fill('#rule-text', '회사 경비 아님')
+        page.click('#rule-propose')
+        page.locator('#company-exclude').wait_for()
+
+        def lose_first_response(route):
+            body = route.request.post_data_json
+            requests.append(body)
+            response = route.fetch()
+            assert response.status == 200
+            if len(requests) == 1:
+                route.abort('failed')
+            else:
+                route.fulfill(response=response)
+
+        page.route('**/company-exclusion', lose_first_response)
+        page.click('#company-exclude')
+        page.get_by_text('서버에 연결하지 못했습니다.', exact=False).wait_for()
+        assert app.flow.state(app.batch)['preview']['excluded'] == 1
+        page.click('#company-exclude')
+        page.get_by_text('회사 경비에서 제외했습니다.', exact=False).wait_for()
+        assert requests[0] == requests[1]
+        page.reload()
+        page.locator('[data-company-restore]').click()
+        page.get_by_text('회사 경비 제외를 되돌렸습니다.', exact=False).wait_for()
+        page.reload()
+        page.wait_for_function('model.preview.excluded===0')
+        assert page.evaluate('document.documentElement.scrollWidth - innerWidth') == 0
+        assert app.server.card_store.conn.execute('SELECT * FROM transactions').fetchall() == before
+        browser.close()

@@ -500,10 +500,16 @@ class RuleReviewTests(unittest.TestCase):
             browser.close()
 
     def test_browser_retries_lost_approval_response_with_same_request(self):
+        self._lost_approval_response(1280)
+
+    def test_browser_mobile_375_retries_lost_approval_response_with_same_request(self):
+        self._lost_approval_response(375)
+
+    def _lost_approval_response(self, width):
         requests = []
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
-            page = browser.new_page()
+            page = browser.new_page(viewport={'width': width, 'height': 812})
             page.goto(self.base + '/import')
             page.locator('#rule-focus option').first.wait_for(state='attached')
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
@@ -532,6 +538,12 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(requests[0]['request_id'], requests[1]['request_id'])
             self.assertEqual(self.items()[self.tx[0]], '식비')
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
+            self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+            page.reload()
+            page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
+            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).user_confirmed', self.tx[0]), 1)
+            self.assertEqual(self.server.card_store.conn.execute(
+                'SELECT user_confirmed FROM transactions WHERE transaction_id=?', (self.tx[0],)).fetchone()[0], 1)
             browser.close()
 
     def test_delayed_approval_result_does_not_restore_previous_batch(self):
