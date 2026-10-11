@@ -241,7 +241,11 @@ class Store:
         conn = sqlite3.connect(path, timeout=15, isolation_level=None)
         conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA foreign_keys=ON")
-        return cls(conn, owns_connection=True)
+        try:
+            return cls(conn, owns_connection=True)
+        except BaseException:
+            conn.close()
+            raise
 
     def close(self) -> None:
         # `closing(...)` on its own only *calls* the object's close when the
@@ -252,12 +256,26 @@ class Store:
     def ensure_schema(self) -> None:
         """Additive only.
 
-        Every statement is `IF NOT EXISTS`, so running this against the web
-        app's own database adds the pipeline's tables and touches nothing that
-        is already there.
+        Runs on Store construction, including the first CardFlow request.
+        A savepoint keeps all DDL atomic without committing a caller's pending
+        transaction. Existing tables and their contents are retained.
         """
         with self.lock:
-            self.conn.executescript(SCHEMA_SQL)
+            self.conn.execute('SAVEPOINT cost_schema')
+            try:
+                statement = ''
+                for line in SCHEMA_SQL.splitlines(keepends=True):
+                    statement += line
+                    if sqlite3.complete_statement(statement):
+                        self.conn.execute(statement)
+                        statement = ''
+                if statement.strip():
+                    self.conn.execute(statement)
+                self.conn.execute('RELEASE SAVEPOINT cost_schema')
+            except BaseException:
+                self.conn.execute('ROLLBACK TO SAVEPOINT cost_schema')
+                self.conn.execute('RELEASE SAVEPOINT cost_schema')
+                raise
 
     # ------------------------------------------------------------- requests
 

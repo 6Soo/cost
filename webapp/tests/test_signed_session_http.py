@@ -328,12 +328,36 @@ class SignedSessionHttpTests(unittest.TestCase):
         status, body, _ = self.request(detail_path, cookie=viewer)
         self.assertEqual(status, 200, body)
         self.assertEqual(json.loads(body)['key'], key)
+        # Adding a second copy makes the canonical source unresolved until the
+        # owner chooses it. A signed viewer must not bypass this with a URL.
+        snapshot['sources']['archive'] = dict(snapshot['sources']['main'])
+        snapshot['trips'][0]['copies']['archive'] = snapshot['trips'][0]['copies']['main']
+        rows['sources']['archive'] = rows['sources']['main']
+        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
+        rows_path.write_text(json.dumps(rows), encoding='utf-8')
+        for prefix in ('/api/google-ledger/rows', '/google-ledger/rows'):
+            for source in ('main', 'archive'):
+                with self.subTest(unresolved=source, prefix=prefix):
+                    status, body, _ = self.request(prefix + '?key=' + key + '&source=' + source, cookie=viewer)
+                    self.assertEqual(status, 404, body)
+                    self.assertEqual(json.loads(body)['code'], 'NOT_FOUND')
+        post('/api/google-ledger/choice', {'key': key, 'source': 'archive'})
+        for prefix in ('/api/google-ledger/rows', '/google-ledger/rows'):
+            status, body, _ = self.request(prefix + '?key=' + key + '&source=main', cookie=viewer)
+            self.assertEqual(status, 404, body)
+            status, body, _ = self.request(prefix + '?key=' + key + '&source=archive', cookie=viewer)
+            self.assertEqual(status, 200, body)
+            # Owners retain access to both copies for comparison.
+            status, body, _ = self.request(prefix + '?key=' + key + '&source=main', cookie=owner)
+            self.assertEqual(status, 200, body)
+        detail_path = '/api/google-ledger/rows?key=' + key + '&source=archive'
         post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': False})
-        paths = ['/api/google-ledger', detail_path] * 3
+        paths = ['/api/google-ledger', detail_path,
+                 '/google-ledger/rows?key=' + key + '&source=archive'] * 3
         with ThreadPoolExecutor(max_workers=4) as pool:
             replies = list(pool.map(lambda path: self.request(path, cookie=viewer), paths))
         for path, (status, body, _) in zip(paths, replies):
-            if path == detail_path:
+            if '/rows?' in path:
                 self.assertEqual(status, 404, body)
                 self.assertEqual(json.loads(body)['code'], 'NOT_FOUND')
             else:

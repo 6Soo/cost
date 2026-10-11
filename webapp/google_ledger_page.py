@@ -466,17 +466,18 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         try:
             snapshot, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
             snapshot = snapshot_for_display(snapshot)
+            trip = next((t for t in owner_payload(snapshot, load_choices(_snapshot_path()))['trips']
+                         if t['key'] == key), {})
             if not is_owner:
-                # A viewer reads the detail of an allowed trip only, under the same rule as the list.
+                # Direct URLs must follow both the current grant and the
+                # canonical source resolved for the list in this request.
                 allowed = viewer_allowed_keys(load_grants(_snapshot_path()), viewer_user_id,
                                               load_mapping(_snapshot_path()), viewer_tabs)
-                if key not in allowed:
+                if key not in allowed or source != trip.get('chosen_source'):
                     handler._send_json({"code": "NOT_FOUND"}, 404)
                     return True
             detail = owner_rows(rows, key, source)
             if detail is not None:
-                trip = next((t for t in owner_payload(snapshot, load_choices(_snapshot_path()))['trips']
-                             if t['key'] == key), {})
                 detail.update(verified=bool(trip.get('verified') and trip.get('chosen_source') == source),
                               synced_at=snapshot.get('synced_at'), review=trip.get('review', []))
         except (google_authority.SnapshotError, ValueError):
