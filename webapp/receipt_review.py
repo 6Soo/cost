@@ -45,7 +45,7 @@ MESSAGES = {
     'CARD_NOT_FOUND': '대응하는 법인카드 매입을 찾지 못했습니다.',
     'CARD_MATCH_AMBIGUOUS': '대응하는 카드 매입이 여러 건입니다. 연결을 확인해 주세요.',
     'CARD_PAYMENT_CONFLICT': '같은 날짜·상호·금액의 카드 매입이 있습니다. 결제수단을 확인해 주세요.',
-    'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 금액과 결제수단은 변경할 수 없습니다.',
+    'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 상호·날짜·금액·결제수단은 변경할 수 없습니다.',
     'Failed to fetch': '연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
 }
 _STORE_LOCK = threading.RLock()
@@ -242,10 +242,14 @@ def _match_card(card_rows_list: list, stored: dict) -> list:
 
 def _settle(stored: dict, card_rows_list: list) -> None:
     """Re-derives the card link and the priced amount from the stored fields and the server's card rows."""
+    if stored.get('card_transaction_id'):
+        stored.setdefault('card_evidence_transaction_id', stored['card_transaction_id'])
     stored["hold"] = None
     if stored["payment"] == "corporate_card":
         matches = _match_card(card_rows_list, stored)
         stored["card_transaction_id"] = matches[0]["transaction_id"] if len(matches) == 1 else None
+        if stored['card_transaction_id']:
+            stored.setdefault('card_evidence_transaction_id', stored['card_transaction_id'])
         stored["amount_krw"] = None
         if not matches:
             stored["hold"] = "CARD_NOT_FOUND"
@@ -283,8 +287,9 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("PAYMENT_UNKNOWN")
         if "trip_id" in changes and changes["trip_id"] and changes["trip_id"] not in (valid_trips or set()):
             raise ValueError("TRIP_UNKNOWN")
-        if stored.get("card_transaction_id") and any(
-                key in changes and changes[key] != stored[key] for key in ('total_jpy', 'payment')):
+        if (stored.get('card_transaction_id') or stored.get('card_evidence_transaction_id')) and any(
+                key in changes and changes[key] != stored[key]
+                for key in ('merchant', 'date', 'total_jpy', 'payment')):
             # Unlinking would turn the card purchase plus a cash receipt into two costs. Refused, not guessed.
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():

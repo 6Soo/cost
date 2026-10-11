@@ -129,3 +129,33 @@ def test_possible_duplicate_keeps_second_receipt_values_for_human_review(tmp_pat
     assert held['candidate']['box'] == other['box']
     rr.scan(path, {'regions': [other]})
     assert len(rr.load(path)['holds']) == 1
+
+
+@pytest.mark.parametrize('changes', [{'merchant': 'OTHER-SHOP'}, {'date': '2026-10-02'}])
+def test_linked_receipt_cannot_lose_card_identity_through_metadata_edit(tmp_path, monkeypatch, changes):
+    path = tmp_path / 'receipts.json'
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01',
+              'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    monkeypatch.setattr(rr, 'card_rows', lambda board: cards)
+    rr.scan(path, {'regions': [{**region(), 'payment': 'corporate_card'}]})
+    stored, = rr.load(path)['candidates']
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match='CARD_LINKED_NOT_EDITABLE'):
+        rr.edit(path, identity=stored['identity'], changes=changes, card_rows_list=cards)
+    assert path.read_bytes() == before
+
+
+def test_missing_card_on_trip_edit_does_not_authorize_receipt_repricing(tmp_path, monkeypatch):
+    path = tmp_path / 'receipts.json'
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01',
+              'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    monkeypatch.setattr(rr, 'card_rows', lambda board: cards)
+    rr.scan(path, {'regions': [{**region(), 'payment': 'corporate_card'}]})
+    stored, = rr.load(path)['candidates']
+    rr.edit(path, identity=stored['identity'], changes={'trip_id': 'trip-syn'},
+            valid_trips={'trip-syn'}, card_rows_list=[])
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match='CARD_LINKED_NOT_EDITABLE'):
+        rr.edit(path, identity=stored['identity'], changes={'payment': 'cash'})
+    assert path.read_bytes() == before
+    assert rr.tsv(path, 'trip-syn', card_rows_list=[])['row_count'] == 0
