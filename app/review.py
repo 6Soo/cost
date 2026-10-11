@@ -676,6 +676,11 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
     with store.lock:
         store.conn.execute("BEGIN IMMEDIATE")
         try:
+            # Another connection can commit while this request waits for SQLite's writer lock.
+            replay = store.replay_request(request_id, "save_decisions", payload_sha)
+            if replay is not None:
+                store.conn.execute("COMMIT")
+                return replay
             results = []
             for decision in decisions:
                 args = dict(decision)
