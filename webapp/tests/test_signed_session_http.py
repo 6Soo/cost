@@ -141,6 +141,15 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertEqual(actual_status, status, actual_body)
         self.assertEqual(json.loads(actual_body), body)
 
+    def test_private_pages_and_apis_never_cache_signed_or_denied_responses(self):
+        for user, google_status, receipt_status in ((OWNER, 200, 200), (VIEWER, 200, 404), (None, 403, 401)):
+            cookie = self.cookie(user) if user else None
+            for path, expected in (('/google-ledger', google_status), ('/api/google-ledger', google_status),
+                                   ('/receipts', receipt_status), ('/api/receipts', receipt_status)):
+                status, body, headers = self.request(path, cookie=cookie)
+                self.assertEqual(status, expected, (path, body))
+                self.assertEqual(headers.get('Cache-Control'), 'no-store', path)
+
     def test_real_pages_and_apis_enforce_each_role(self):
         owner = self.cookie(OWNER)
         viewer = self.cookie(VIEWER)
