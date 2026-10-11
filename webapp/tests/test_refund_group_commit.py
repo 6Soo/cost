@@ -107,6 +107,18 @@ class RefundGroupCommitTests(unittest.TestCase):
         self.assertEqual(payload['code'], 'PREVIEW_STALE')
         self.assertEqual(self.ledger(), (0, 0))
 
+    def test_group_commit_keeps_saved_pair_when_state_refresh_fails(self):
+        digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
+        body = {'digest': digest, 'request_id': 'group-refresh-failure'}
+        with patch.object(CardFlow, 'state', side_effect=RuntimeError('private refresh failure')):
+            status, payload = self.post(self.original, body)
+        self.assertEqual(status, 200)
+        self.assertTrue(payload['saved'])
+        self.assertTrue(payload['refresh_required'])
+        self.assertEqual(self.ledger(), (2, 300000))
+        self.assertEqual(self.post(self.original, body)[1]['result'], payload['result'])
+        self.assertEqual(self.ledger(), (2, 300000))
+
     def test_group_route_rejects_an_id_that_is_not_a_linked_original(self):
         digest = self.flow.state(self.batch)['refund_groups'][0]['digest']
         status, payload = self.post(self.other, {'digest': digest, 'request_id': 'wrong-1'})

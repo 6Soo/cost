@@ -356,6 +356,42 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
             browser.close()
 
+    def test_refund_group_failure_after_batch_switch_keeps_current_status(self):
+        from webapp.tests.test_refund_group_commit import CSV
+        first = self.flow.pipeline.receive(CSV, 'refund.csv')['batch_id']
+        conn = self.server.card_store.conn
+        conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-700000,"
+                     "original_approval_number='100' WHERE approval_number='200'")
+        conn.commit()
+        self.flow.pipeline.classify_batch(first)
+        row = next(r for r in self.flow.pipeline.get_batch(first)['rows'] if r['approval_number'] == '100')
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='항공료',
+                                         display_tab_id='unclassified', tab_validator=lambda _: True,
+                                         request_id='refund-browser-answer')
+        self.assertTrue(self.flow.state(first)['refund_groups'][0]['recordable'])
+        second = self.flow.pipeline.receive(CARD, 'second.csv')['batch_id']
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{first}"]').click()
+            page.locator('[data-group-commit]').wait_for()
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.route('**/refund-groups/*/commit', lambda route: pending.append(route))
+            with page.expect_request('**/refund-groups/*/commit'):
+                page.locator('[data-group-commit]').click()
+            page.locator(f'[data-batch="{second}"]').click()
+            page.wait_for_function('(id)=>model.batch_id===id', arg=second)
+            page.evaluate("document.getElementById('status').textContent='CURRENT-SELECTION'")
+            with page.expect_response('**/refund-groups/*/commit'):
+                pending.pop().fulfill(status=500, json={'message': 'OLD-REFUND-ERROR'})
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.locator('#status').inner_text(), 'CURRENT-SELECTION')
+            self.assertEqual(page.evaluate('model.batch_id'), second)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
