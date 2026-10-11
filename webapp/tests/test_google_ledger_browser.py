@@ -43,6 +43,30 @@ def workbook(title, income, expense):
 
 
 class GoogleLedgerBrowserTests(unittest.TestCase):
+    def test_work_menu_opens_readable_google_totals_at_three_widths(self):
+        with patch.object(page, 'caller', return_value=(True, 'boss')), sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                for width in (375, 390, 1440):
+                    with self.subTest(width=width):
+                        pg = browser.new_page(viewport={'width': width, 'height': 900})
+                        pg.goto(self.base + '/board?tab=unclassified')
+                        pg.locator('#work-menu a[href="/google-ledger"]').click()
+                        pg.wait_for_url('**/google-ledger')
+                        income = pg.locator('td[data-label="수입"]').first
+                        self.assertTrue(income.is_visible())
+                        self.assertTrue(pg.locator('td[data-label="순수익"]').first.is_visible())
+                        self.assertEqual(pg.evaluate('document.documentElement.scrollWidth-innerWidth'), 0)
+                        if width < 760:
+                            box = income.bounding_box()
+                            self.assertLessEqual(box['x'] + box['width'], width)
+                            self.assertGreaterEqual(pg.get_by_role('link', name='장부로 돌아가기').bounding_box()['height'], 44)
+                        pg.get_by_role('link', name='장부로 돌아가기').click()
+                        pg.wait_for_url('**/board')
+                        pg.close()
+            finally:
+                browser.close()
+
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         root = Path(self._dir.name)
