@@ -677,6 +677,28 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertEqual(saved[other]['total_jpy'], 500)
             browser.close()
 
+    def test_non_json_receipt_failures_show_safe_recovery_messages(self):
+        self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            for status, expected in ((401, '다시 로그인'), (500, '저장 여부를 확인')):
+                page.goto(self.base + '/receipts')
+                page.locator('[data-total]').fill('2700')
+                def fail_response(route):
+                    route.fulfill(status=status, content_type='text/html', body='<h1>PRIVATE-SERVER-DETAILS</h1>')
+                page.route('**/api/receipts/edit', fail_response)
+                with page.expect_response('**/api/receipts/edit'):
+                    page.locator('[data-edit]').click()
+                page.wait_for_function('!receiptBusy')
+                message = page.locator('#status').inner_text()
+                self.assertIn(expected, message)
+                self.assertNotIn('PRIVATE', message)
+                self.assertEqual(page.locator('[data-total]').input_value(), '2700')
+                self.assertTrue(page.locator('[data-edit]').is_enabled())
+                page.unroute('**/api/receipts/edit')
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')
