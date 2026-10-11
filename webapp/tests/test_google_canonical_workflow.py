@@ -44,6 +44,24 @@ def test_duplicate_viewer_without_choice_does_not_guess_detail_source():
     assert '여행 상세' not in body and '정본 선택 필요' in body
 
 
+def test_missing_chosen_copy_never_falls_back_and_owner_can_reselect():
+    snapshot = healthy_snapshot()
+    trip = snapshot['trips'][0]
+    key = trip['key']
+    del trip['copies']['archive']
+    trip['canonical_source'] = 'main'
+    payload = page.owner_payload(snapshot, {'choices': {key: 'archive'}})
+    resolved = payload['trips'][0]
+    assert resolved['chosen_source'] is None
+    assert resolved['verified'] is False
+    assert resolved['income_total'] is None and resolved['expense_total'] is None
+    assert resolved['net'] is None
+    assert 'CHOSEN_COPY_MISSING' in resolved['blocked_by']
+    body = page.render_html(payload, is_owner=True, csrf='token-syn')
+    assert 'main 정본 선택' in body
+    assert 'archive 정본 선택' not in body
+
+
 @pytest.mark.parametrize('key,source', [('missing-syn', 'main'), ('<script>0630', 'archive')])
 def test_choice_route_rejects_unknown_trip_or_missing_copy(tmp_path, monkeypatch, key, source):
     snapshot = tmp_path / 'snapshot.json'

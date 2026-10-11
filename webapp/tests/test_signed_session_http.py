@@ -351,6 +351,19 @@ class SignedSessionHttpTests(unittest.TestCase):
             status, body, _ = self.request(prefix + '?key=' + key + '&source=main', cookie=owner)
             self.assertEqual(status, 200, body)
         detail_path = '/api/google-ledger/rows?key=' + key + '&source=archive'
+        # A later snapshot losing the selected copy must not silently authorize
+        # the remaining main copy, even if private archive rows still exist.
+        archive_copy = snapshot['trips'][0]['copies'].pop('archive')
+        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
+        for source in ('main', 'archive'):
+            status, body, _ = self.request('/api/google-ledger/rows?key=' + key + '&source=' + source, cookie=viewer)
+            self.assertEqual(status, 404, body)
+        post('/api/google-ledger/choice', {'key': key, 'source': 'main'})
+        status, body, _ = self.request('/api/google-ledger/rows?key=' + key + '&source=main', cookie=viewer)
+        self.assertEqual(status, 200, body)
+        snapshot['trips'][0]['copies']['archive'] = archive_copy
+        self.snapshot.write_text(json.dumps(snapshot), encoding='utf-8')
+        post('/api/google-ledger/choice', {'key': key, 'source': 'archive'})
         post('/api/google-ledger/grants', {'user_id': VIEWER, 'keys': [key], 'granted': False})
         paths = ['/api/google-ledger', detail_path,
                  '/google-ledger/rows?key=' + key + '&source=archive'] * 3

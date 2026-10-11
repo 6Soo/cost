@@ -200,10 +200,13 @@ def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
     """Applies the owner's copy choice. A choice selects which copy's figures count; it never clears a block."""
     chosen = choices.get(trip["key"])
     copies = trip.get("copies") or {}
+    if chosen and not copies.get(chosen):
+        return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
+                'expense_total': None, 'net': None, 'blocked_by': ['CHOSEN_COPY_MISSING']}
     if copies.get('main') and copies.get('archive') and chosen not in ('main', 'archive'):
         return {**trip, 'chosen_source': None, 'verified': False, 'income_total': None,
                 'expense_total': None, 'net': None, 'blocked_by': ['CHOICE_REQUIRED']}
-    if not chosen or not (copies.get("main") and copies.get("archive")) or chosen not in copies:
+    if not chosen:
         return {**trip, "chosen_source": trip["canonical_source"]}
     copy = copies[chosen]
     blockers = set(trip["review"]) & OWNER_CHOICE_BLOCKERS
@@ -243,12 +246,13 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '') -> str:
             for role in ("main", "archive") if copies.get(role))
         chosen = trip.get('chosen_source')
         choice = ''
-        if is_owner and copies.get('main') and copies.get('archive'):
+        if is_owner and ((copies.get('main') and copies.get('archive'))
+                         or 'CHOSEN_COPY_MISSING' in trip.get('blocked_by', [])):
             choice = '<p>' + ('정본: ' + html.escape(chosen) if chosen else '정본 선택 필요') + '</p>'
             if csrf:
                 choice += ''.join(
                     f"<button type='button' data-choice='{html.escape(trip['key'], quote=True)}' "
-                    f"data-source='{role}'>{role} 정본 선택</button>" for role in ('main', 'archive'))
+                    f"data-source='{role}'>{role} 정본 선택</button>" for role in ('main', 'archive') if copies.get(role))
         elif not is_owner:
             links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
                      if chosen in ('main', 'archive') else '정본 선택 필요')
@@ -437,7 +441,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                 if trip is None:
                     raise ValueError('GOOGLE_TRIP_UNKNOWN')
                 copies = trip.get('copies') or {}
-                if not (copies.get('main') and copies.get('archive')) or source not in ('main', 'archive'):
+                if source not in ('main', 'archive') or not copies.get(source):
                     raise ValueError('CHOICE_COPY_UNAVAILABLE')
                 record_choice(_snapshot_path(), key=key, source=source, at=now)
             else:
