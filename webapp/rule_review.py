@@ -17,10 +17,11 @@ from .card_flow import CardFlow
 
 ROUTE = re.compile(r"^/api/imports/([^/]+)/rule-proposal$")
 APPROVE = re.compile(r"^/api/imports/([^/]+)/rule-proposal/approve$")
+EXCLUSION = re.compile(r"^/api/imports/([^/]+)/company-exclusion$")
 
 
 def owns_route(path: str) -> bool:
-    return ROUTE.match(path) is not None or APPROVE.match(path) is not None
+    return ROUTE.match(path) is not None or APPROVE.match(path) is not None or EXCLUSION.match(path) is not None
 
 
 def fingerprint(payloads: list[dict], rows: list[dict]) -> str:
@@ -44,7 +45,7 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
             "needs_confirmation": bool(proposal.get("needs_confirmation")),
             "changes": [{"transaction_id": c["transaction_id"], "before_item": c["before_item"],
                          "after_item": c["after_item"]} for c in proposal.get("changes", [])
-                        if not c.get("exclude")],
+                        ],
             "payloads": payloads, "digest": fingerprint(payloads, rows)}
 
 
@@ -95,7 +96,8 @@ def approve(flow: CardFlow, batch: str, body: dict) -> dict:
 def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
     proposal_match = ROUTE.match(parsed.path)
     approve_match = APPROVE.match(parsed.path)
-    if proposal_match is None and approve_match is None:
+    exclusion_match = EXCLUSION.match(parsed.path)
+    if proposal_match is None and approve_match is None and exclusion_match is None:
         return False
     if raw is None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
@@ -105,6 +107,26 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
         return True
     try:
         body = json.loads(raw.decode("utf-8") or "{}")
+        if exclusion_match:
+            from .ledger_board import _receipts_owner_request
+            if not _receipts_owner_request():
+                handler._send_json({'code': 'OWNER_ONLY', 'message': '소유자만 변경할 수 있습니다'}, 403)
+                return True
+            from app.company_expenses import set_excluded
+            flow = CardFlow(board)
+            batch = exclusion_match.group(1)
+            transaction_id = str(body.get('transaction_id') or '')
+            if not flow.pipeline.store.conn.execute(
+                    'SELECT 1 FROM import_batch_rows WHERE batch_id=? AND transaction_id=?',
+                    (batch, transaction_id)).fetchone():
+                raise KeyError('ROW_NOT_IN_BATCH')
+            result = set_excluded(flow.pipeline.store, transaction_id=transaction_id,
+                                  expected_revision=body.get('revision'),
+                                  expected_exclusion_revision=body.get('exclusion_revision'),
+                                  excluded=body.get('excluded'), confirmed=body.get('confirmed'),
+                                  request_id=body.get('request_id'), note=str(body.get('note') or ''))
+            handler._send_json({'result': result, 'state': flow.state(batch)})
+            return True
         if approve_match:
             handler._send_json(approve(CardFlow(board), approve_match.group(1), body))
             return True

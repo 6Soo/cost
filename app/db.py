@@ -19,6 +19,15 @@ from contextlib import closing
 from datetime import datetime, timezone
 
 SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS transaction_company_exclusions (
+    transaction_id TEXT PRIMARY KEY,
+    source_hash TEXT NOT NULL,
+    excluded INTEGER NOT NULL CHECK(excluded IN (0,1)),
+    revision INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS import_batches (
     batch_id TEXT PRIMARY KEY,
     filename TEXT NOT NULL,

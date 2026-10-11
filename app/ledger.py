@@ -83,6 +83,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
         raise StoreError(CODE_NOT_FOUND, "없는 접수 건이에요")
 
     decisions = _decision_rows(store, batch_id)
+    from .company_expenses import states
+    exclusions = states(store.conn)
     from .review_holds import active_holds
     holds=active_holds(store.conn)
     for transaction_id, hold in (additional_holds or {}).items():
@@ -110,6 +112,20 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "user_confirmed": bool(user_confirmed), "classification_state": state,
             "already_booked": _already_booked(store, transaction_id),
         }
+        exclusion = exclusions.get(transaction_id)
+        entry['exclusion_revision'] = exclusion['revision'] if exclusion else 0
+        entry['excluded_from_company'] = bool(exclusion and exclusion['excluded'])
+        if exclusion and exclusion['source_hash'] != source_hash:
+            entry['blocked'] = 'exclusion_source_changed'
+            entry['reason'] = '회사 경비 제외를 확인한 원본이 달라 다시 검토해야 합니다'
+            unresolved.append(entry)
+            rows.append(entry)
+            continue
+        if entry['excluded_from_company']:
+            entry['blocked'] = 'company_excluded'
+            entry['reason'] = '사용자가 회사 경비에서 제외했습니다'
+            rows.append(entry)
+            continue
         if transaction_id in holds:
             entry['blocked']='review_hold'
             entry['review_hold']=holds[transaction_id]
@@ -193,6 +209,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
         "unresolved": len(unresolved),
         "duplicates": len(duplicates),
         "conflicts": len(conflicts),
+        "excluded": sum(r.get('excluded_from_company', False) for r in rows),
         "rows": rows,
     }
     result["digest"] = preview_digest(result)
