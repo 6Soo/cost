@@ -12,10 +12,23 @@ import datetime as dt
 import html
 import json
 import os
+import functools
+import threading
+from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
 
 from app import google_access, google_authority
+
+_SETTINGS_LOCK = threading.RLock()
+
+
+def _serialized(function):
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        with _SETTINGS_LOCK:
+            return function(*args, **kwargs)
+    return wrapped
 
 ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants",
           "/api/google-ledger/mapping",
@@ -120,6 +133,7 @@ def load_choices(snapshot_path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@_serialized
 def record_choice(snapshot_path: Path, *, key: str, source: str, at: str) -> dict:
     """Records the owner's copy for a trip that exists in both books, with history. Never touches Google."""
     if source not in ("main", "archive"):
@@ -233,12 +247,18 @@ def load_mapping(snapshot_path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def set_mapping(snapshot_path: Path, *, key: str, tab_id: str | None, known_keys: set) -> dict:
+@_serialized
+def set_mapping(snapshot_path: Path, *, key: str, tab_id: str | None, known_keys: set,
+                known_tab_ids: set | None = None) -> dict:
     """Owner-only link between a Google trip key and the COST tab it is. None removes the link."""
     if key not in known_keys:
         raise ValueError("GOOGLE_TRIP_UNKNOWN")
     data = load_mapping(snapshot_path)
     if tab_id:
+        if known_tab_ids is not None and tab_id not in known_tab_ids:
+            raise ValueError("COST_TAB_UNKNOWN")
+        if any(other != key and linked == tab_id for other, linked in data.items()):
+            raise ValueError("COST_TAB_ALREADY_MAPPED")
         data[key] = str(tab_id)
     else:
         data.pop(key, None)
@@ -259,9 +279,11 @@ def load_grants(snapshot_path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@_serialized
 def set_grants(snapshot_path: Path, *, user_id: str, keys: list, granted: bool, at: str) -> dict:
     """Owner-only grant or revoke of Google trip keys for one account. Default is no access."""
-    if not user_id or not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
+    if (not user_id or type(granted) is not bool or not isinstance(keys, list)
+            or not all(isinstance(k, str) and k for k in keys)):
         raise ValueError("GRANT_INVALID")
     data = load_grants(snapshot_path)
     current = set(data["grants"].get(user_id, []))
@@ -279,7 +301,9 @@ def viewer_allowed_keys(grants: dict, user_id: str, mapping: dict | None, visibl
     granted = set(grants.get("grants", {}).get(user_id, []))
     tabs = visible_tabs or set()
     links = mapping or {}
-    return {key for key in granted if links.get(key) and links[key] in tabs}
+    counts = Counter(value for value in links.values() if isinstance(value, str) and value)
+    return {key for key in granted if isinstance(links.get(key), str)
+            and links[key] in tabs and counts[links[key]] == 1}
 
 
 def viewer_payload(snapshot: dict, grants: dict, user_id: str, *, mapping: dict | None = None,
@@ -321,14 +345,28 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         now = dt.datetime.now(google_authority.KST).isoformat()
         try:
             if parsed.path.endswith("/mapping"):
-                known = {t["key"] for t in json.loads(_snapshot_path().read_text(encoding="utf-8"))["trips"]}
+                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                known = {t["key"] for t in snapshot["trips"]}
+                from .ledger_board import _active_store
+                board = _active_store()
+                tabs = {t['tab_id'] for t in board.list_trips()} if board else set()
                 set_mapping(_snapshot_path(), key=str(body.get("key", "")),
-                            tab_id=str(body.get("tab_id") or "") or None, known_keys=known)
+                            tab_id=str(body.get("tab_id") or "") or None, known_keys=known,
+                            known_tab_ids=tabs)
             elif parsed.path.endswith("/choice"):
                 record_choice(_snapshot_path(), key=str(body.get("key", "")), source=str(body.get("source", "")), at=now)
             else:
+                if body.get('granted') is True:
+                    snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                    known = {t['key'] for t in snapshot['trips']}
+                    keys = body.get('keys')
+                    if not isinstance(keys, list) or any(not isinstance(key, str) or key not in known for key in keys):
+                        raise ValueError('GOOGLE_TRIP_UNKNOWN')
                 set_grants(_snapshot_path(), user_id=str(body.get("user_id", "")), keys=body.get("keys"),
-                           granted=bool(body.get("granted")), at=now)
+                           granted=body.get("granted"), at=now)
+        except google_authority.SnapshotError:
+            handler._send_json({'code': 'SNAPSHOT_UNAVAILABLE'}, 503)
+            return True
         except ValueError as error:
             handler._send_json({"code": str(error)}, 400)
             return True

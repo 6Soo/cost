@@ -422,7 +422,10 @@ def test_owner_sets_and_clears_the_link_and_unknown_trips_are_refused(snapshot_f
         page.set_mapping(snapshot_file, key="not-a-trip", tab_id="tab-A", known_keys=known)
 
 
-def test_mapping_route_is_owner_only_and_csrf_protected(snapshot_file):
+def test_mapping_route_is_owner_only_and_csrf_protected(snapshot_file, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr('webapp.ledger_board._active_store',
+                        lambda: SimpleNamespace(list_trips=lambda: [{'tab_id': 'tab-A'}]))
     body = json.dumps({"key": "0404_에히메", "tab_id": "tab-A"}).encode()
     viewer = FakeHandler(token="tok")
     page.dispatch(viewer, parsed("/api/google-ledger/mapping"), is_owner=False, viewer_user_id="v1",
