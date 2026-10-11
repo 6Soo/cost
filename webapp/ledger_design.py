@@ -84,6 +84,21 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
  border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
 
 .app{display:flex;height:100dvh;min-height:0}
+.work-menu{padding:12px 24px;border-bottom:1px solid var(--line);background:var(--paper)}
+.work-menu h2{font-size:14px;margin:0 0 8px}
+.work-actions{display:flex;flex-wrap:wrap;gap:8px}
+.work-action{flex:1 1 170px;min-width:0;padding:10px 12px;border:1px solid var(--line);
+ border-radius:8px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere}
+.work-action strong,.work-action small{display:block}
+.work-action small{font-size:12px;color:var(--mut);margin-top:3px}
+a.work-action:hover{background:var(--hover);border-color:var(--grn)}
+.income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
+@media(max-width:759px){
+ .work-menu{padding:10px 16px}
+ .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .work-action{padding:9px 10px;font-size:13px}
+ .income-note{padding:0 16px 12px}
+}
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
 .nav-hd{padding:18px 16px 14px}
@@ -803,6 +818,33 @@ def _money(value) -> str:
     return MONEY.format(int(value or 0))
 
 
+def work_menu_html() -> str:
+    """Owner work entry points, with honest states for unconfigured features."""
+    if board.current_role() != 'owner':
+        return ''
+    from . import google_ledger_page, receipt_review
+
+    def action(title, note, href=''):
+        tag = 'a' if href else 'div'
+        link = f" href='{board.esc(href)}'" if href else ''
+        return (f"<{tag} class='work-action'{link}><strong>{title}</strong>"
+                f"<small>{note}</small></{tag}>")
+
+    actions = action('카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
+    if receipt_review.enabled():
+        actions += action('영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
+    else:
+        actions += action('영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
+    if google_ledger_page.enabled():
+        actions += action('Google 정본', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
+    else:
+        actions += action('Google 정본 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
+    count = len(board._unclassified_rows())
+    actions += action(f'여행 미배정 {count:,}건', '여행을 선택해 비용을 정리하세요', '/board?tab=unclassified')
+    return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
+            f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
+
+
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
     """The whole trip rail: the brand, the search box, the region, the footer.
 
@@ -1230,7 +1272,7 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         + "</form>")
 
 
-def _summary_html(incomes, expenses, *, filtered=None, whole=None) -> str:
+def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None) -> str:
     """The totals bar.
 
     DETAILED 12.2: with a filter on, the whole total and the result total get
@@ -1240,12 +1282,18 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None) -> str:
     """
     income = sum(board._shown_amount(r) for r in incomes)
     expense = sum(board._shown_amount(r) for r in expenses)
+    count_income = recorded_income_count if recorded_income_count is not None else (
+        len(incomes) if whole is None else whole[2])
+    note = ("이 여행에 COST 수입이 아직 기록되지 않았어요. " if not count_income else
+            "아래 합계는 COST에 기록된 거래 기준입니다. ")
+    note = (f"<p class='income-note' id='ledger-income-note'>{note}"
+            "Google 정본의 최종 수입·지출·순수익과 동기화 상태는 Google 정본 화면에서 확인하세요.</p>")
     if filtered is None or whole is None:
         return (
             f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
             f"<div><i>지출</i><b>{_money(expense)}</b></div>"
             f"<div><i>차액</i><b>{_money(income - expense)}</b></div>"
-            f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>")
+            f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
@@ -1257,7 +1305,7 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None) -> str:
         f"<div><i>검색 결과 차액</i>"
         f"<b>{_money(fincome - fexpense)}</b></div>"
         f"<span class='n'>전체 수입 {winc}건 · 전체 지출 {wexp}건"
-        f" · 검색 결과 수입 {finc}건 · 검색 결과 지출 {fexp}건</span></div>")
+        f" · 검색 결과 수입 {finc}건 · 검색 결과 지출 {fexp}건</span></div>" + note)
 
 
 def _trip_options(current="", blank_label=None) -> str:
@@ -1795,6 +1843,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     main = (
         f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         f"{_head_html(trip)}"
+        f"{work_menu_html()}"
         f"{_bar_html(query, kind, tab_id, archived)}{status}"
         # APP_SPEC 4.1: the same global state line the shared shell carries.
         f"<p class='meta' id='global-state' data-role='"
@@ -1804,7 +1853,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         # The live refresh replaces the totals and the two row lists as one block,
         # and the edit panel sits outside it so an open panel is never rewritten.
         f"<div id='live-sum'>"
-        f"{_summary_html(incomes, expenses, **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
+        f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"</div>"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
@@ -1842,6 +1891,7 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
                         if r.get("display_tab_id") == tab_id]
         whole_expense = [r for r in board._expense_rows()
                          if r.get("display_tab_id") == tab_id]
+    recorded_income_count = len(whole_income)
     if kind == "in":
         whole_expense = []
     elif kind == "ex":
@@ -1853,13 +1903,14 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
                 len(rows_in), len(rows_ex))
 
     if not query:
-        return _summary_html(whole_income, whole_expense)
+        return _summary_html(whole_income, whole_expense, recorded_income_count=recorded_income_count)
     # DETAILED 12.2: a filter separates the names; the whole total stays whole.
     needle = query.strip()
     shown_in = [r for r in whole_income if _matches(r, needle)]
     shown_ex = [r for r in whole_expense if _matches(r, needle)]
     return _summary_html(
         shown_in, shown_ex,
+        recorded_income_count=recorded_income_count,
         filtered=totals(shown_in, shown_ex),
         whole=totals(whole_income, whole_expense))
 

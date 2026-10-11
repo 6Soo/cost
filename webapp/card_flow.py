@@ -369,7 +369,8 @@ def home_page(board):
             "<a class='btn' href='/export'>XLSX 출력</a>"
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>장부</a>"
             "</nav></section>"
-            f"<section class='home-travel-section'><h2 class='home-travel-heading'>출발 예정 여행 {len(upcoming)}</h2>"
+            + ledger_design.work_menu_html()
+            + f"<section class='home-travel-section'><h2 class='home-travel-heading'>출발 예정 여행 {len(upcoming)}</h2>"
             + (f"<ul class='home-trips'>{items}</ul>"
                if items else "<p>등록된 출발 예정 여행이 없습니다.</p>")
             + "<p class='home-all'><a href='/trips'>전체 여행 보기</a></p>"

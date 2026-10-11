@@ -3,6 +3,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.request
 from pathlib import Path
 
@@ -64,6 +65,48 @@ class LedgerRedesignMobileTests(unittest.TestCase):
     def _board(self, page, query=""):
         page.goto(f"http://127.0.0.1:{self.port}/board{query}")
         page.wait_for_load_state()
+
+    def test_work_menu_and_trip_selection_at_mobile_and_desktop(self):
+        with mock.patch.object(board_mod, '_receipts_owner_request', return_value=True), mock.patch.dict(os.environ, {
+            'WEBLEDGER_RECEIPTS_STORE': str(Path(self.tmp) / 'receipts.json'),
+            'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT': '',
+            'WEBLEDGER_GOOGLE_LEDGER_ROWS': '',
+        }):
+            for width in (375, 390, 1440):
+                with self.subTest(width=width):
+                    page = self._page(width)
+                    self._board(page, '?tab=trip-demo-a')
+                    self.assertEqual(overflow(page), 0)
+                    self.assertIn('Google 정본', page.locator('#work-menu').inner_text())
+                    self.assertIn('미연결', page.locator('#work-menu').inner_text())
+                    self.assertIn('최종 수입', page.locator('#ledger-income-note').inner_text())
+                    self.assertEqual(page.locator('#work-menu a[href="/import"]').count(), 1)
+                    # 접힌 여행 메뉴가 작업 영역의 너비를 차지하지 않는다.
+                    if width < 760:
+                        self.assertGreaterEqual(page.locator('#main').bounding_box()['width'], width - 1)
+                        self.assertLessEqual(page.locator('#nav').bounding_box()['x'] +
+                                             page.locator('#nav').bounding_box()['width'], 0)
+                        page.click('#btn-menu')
+                    page.locator('#nav a[href*="tab=trip-demo-b"]').first.click()
+                    page.wait_for_url('**/board?**tab=trip-demo-b**')
+                    self.assertIn('Google 정본', page.locator('#work-menu').inner_text())
+                    page.locator('#work-menu a[href="/receipts"]').click()
+                    page.wait_for_url('**/receipts')
+                    self.assertTrue(page.locator('#img-file').is_visible())
+                    page.close()
+
+    def test_work_menu_hides_owner_actions_for_viewer(self):
+        with mock.patch.object(board_mod, 'current_role', return_value='viewer'):
+            self.assertEqual(ledger_design.work_menu_html(), '')
+
+    def test_income_note_distinguishes_empty_ledger_from_google_and_filters(self):
+        empty = ledger_design._summary_html([], [])
+        self.assertIn('수입이 아직 기록되지', empty)
+        # 수입 행이 필터로 숨겨져도 미기록이라고 안내하지 않는다.
+        for html in (ledger_design.page('trip-demo-a', kind='ex'),
+                     ledger_design.summary_part('trip-demo-a', kind='ex')):
+            self.assertNotIn('수입이 아직 기록되지', html)
+            self.assertIn('Google 정본의 최종 수입', html)
 
     def test_mobile_list_shows_two_line_summary_without_origin_details(self):
         html = ledger_design._mobile_html(
