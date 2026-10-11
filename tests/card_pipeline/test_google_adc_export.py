@@ -109,3 +109,19 @@ def test_response_cleanup_failure_never_replaces_safe_error():
         fetcher(sample_url())
     assert error.value.code == 'SOURCE_ACCESS_DENIED'
     assert 'synthetic-secret-token' not in str(error.value)
+
+
+@pytest.mark.parametrize('reasons,expected', [(['rateLimitExceeded'], 'SOURCE_UNREACHABLE'),
+                                              (['userRateLimitExceeded'], 'SOURCE_UNREACHABLE'),
+                                              (['rateLimitExceeded', 'forbidden'], 'SOURCE_ACCESS_DENIED')])
+def test_drive_403_quota_is_distinct_from_permission_denial(reasons, expected):
+    import json
+    payload = json.dumps({'error': {'message': 'synthetic-secret-token',
+                                   'errors': [{'reason': reason} for reason in reasons]}}).encode()
+    response = FakeResponse(status=403, content_type='application/json', payload=payload)
+    fetcher = authorized_export_fetcher(timeout=5, max_bytes=1024, session=FakeSession(response))
+    with pytest.raises(SourceError) as error:
+        fetcher(sample_url())
+    assert error.value.code == expected
+    assert 'synthetic-secret-token' not in str(error.value)
+    assert response.closed

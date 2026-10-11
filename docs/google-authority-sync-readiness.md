@@ -72,4 +72,5 @@
 - 코드에는 비밀키·토큰이 없다. 운영 계정의 ADC/서비스 계정 접근권한 부여, 실제 인증 XLSX 응답, token 만료/재발급, 비공개 전환 이후 재시도는 **미검증 HOLD**다. 실제 자료·인증정보를 GitHub나 외부 AI로 전송하지 않는다.
 - 후속 Windows 실제 저장소에서 인증 내보내기·정본 동기화·스케줄 상태의 표적 검사를 실행했다. ADC 초기화 실패도 기존 정상 행을 보존하면서 즉시 stale로 전환한다. 복구 불가 토큰 갱신 실패는 `GOOGLE_AUTH_REFRESH_REQUIRED`, 일시적인 갱신 장애는 `SOURCE_UNREACHABLE`로 구분한다. 응답 정리 오류는 인증 오류를 덮거나 원문 오류를 노출하지 않는다. Google 실계정 검증은 여전히 HOLD다.
 - API 계약은 [Google Drive files.export 문서](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export)와 대조했다. 이 API는 내보내기 크기를 10 MB로 제한하며 읽기 전용 Drive scope를 허용한다. 원본이 API 한도를 넘는 경우에도 공개 링크로 우회하지 않는다.
+- [Google Drive 오류 문서](https://developers.google.com/workspace/drive/api/guides/handle-errors)에 따라 403의 `rateLimitExceeded`·`userRateLimitExceeded`는 권한 거절과 구분해 일시 장애로 표시하고 기존 지연 재시도를 따른다. 오류 본문은 최대 16 KB까지만 판독하며, 알려지지 않은 사유나 권한 거절이 섞이면 접근 거절을 유지한다. 본문과 토큰은 출력하지 않는다.
 - 전환 순서: 승인된 비운영 인증 자격 준비 → 두 원본에 명시적 읽기 권한 부여 → 격리에서 `--google-auth adc` 정상 읽기 확인 → 운영 동기화 설정·복구 계획 승인 → Google 공유를 제한 → 인증된 읽기 및 stale 표시 검증. 각각 별도 권한 승인이 필요하다.

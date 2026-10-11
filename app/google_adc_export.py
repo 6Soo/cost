@@ -8,11 +8,28 @@ anonymous retry or redirect that could send an access token to another host.
 from __future__ import annotations
 
 import re
+import json
 
 from app.google_authority import SPREADSHEET_IDS, SourceError
 
 _EXPORT = re.compile(r'https://docs\.google\.com/spreadsheets/d/([A-Za-z0-9_-]+)/export\?format=xlsx\Z')
 _MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+
+def _quota_limited(response) -> bool:
+    """Inspect only bounded error metadata; never expose Google's error body."""
+    try:
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=8192):
+            if len(body) + len(chunk) > 16384:
+                return False
+            body.extend(chunk)
+        errors = json.loads(body)['error']['errors']
+        return isinstance(errors, list) and bool(errors) and all(
+            isinstance(error, dict) and error.get('reason') in
+            ('rateLimitExceeded', 'userRateLimitExceeded') for error in errors)
+    except Exception:
+        return False
 
 
 def authorized_export_fetcher(*, timeout: float, max_bytes: int, session=None):
@@ -41,6 +58,8 @@ def authorized_export_fetcher(*, timeout: float, max_bytes: int, session=None):
         except Exception:
             raise SourceError('SOURCE_UNREACHABLE') from None
         try:
+            if response.status_code == 403 and _quota_limited(response):
+                raise SourceError('SOURCE_UNREACHABLE')
             if response.status_code in (401, 403):
                 raise SourceError('SOURCE_ACCESS_DENIED')
             if response.status_code == 404:
