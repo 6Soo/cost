@@ -2,7 +2,7 @@
 
 ## 2026-10-12 COST V2 운영 반영
 
-기존 도메인과 Windows 호스트에서 `6009eca338ce9c15cb25b03ceaff0705ed4a3d95`를 실행한다. main 병합이나 인프라 이전은 하지 않았다. 실제 로그인·화면 접근·Google 읽기, 로컬 OCR·AI, 백업·스키마 적용 및 부분 구현의 최신 근거는 [자율 개발 체크포인트](autonomous-cycle-checkpoint.md#현재-운영-반영-2026-10-12)를 따른다. 추가 월 비용은 0원이다.
+기존 도메인과 Windows 호스트에서 `de684eb67afc8c9b0fdfef39431113eb03bdcab7`를 실행한다. main 병합이나 인프라 이전은 하지 않았다. 실제 로그인·화면 접근·Google 읽기, 로컬 OCR·AI, 백업·스키마 적용 및 부분 구현의 최신 근거는 [자율 개발 체크포인트](autonomous-cycle-checkpoint.md#현재-운영-반영-2026-10-12)를 따른다. 추가 월 비용은 0원이다.
 
 현재 `WebLedger-Board`의 고정 release 경로를 사용한다. 아래 과거 운영 SHA와 원본 checkout용 재시작 절차를 최신 배포에 그대로 적용하지 않는다. Google ADC 연결은 미완료이며 현재는 명시적인 기존 public export 방식이다. 실제 고객 자료나 공개 권한을 변경하지 않았다.
 
@@ -13,7 +13,8 @@
 - 입력: 웹 카드 업로드가 `.xls`(이진), `.xlsx`, `.csv`를 받는다. `.xls`는 xlrd로 첫 시트를 읽고, 원본 셀을 보존하며, 같은 파일·같은 거래는 중복 기록하지 않는다. 승인내역 파일(매입일 없음)은 거부한다.
 - 검토: 보드에서 "예외 처리(이 건만)"와 "규칙 변경(반복)"을 고르고, 규칙 화면의 "내 수정 내용으로 규칙 초안 만들기"가 가맹점 조건의 결정적 초안을 만든다. 영향 미리보기 후 `apply_existing`/`apply_future`를 골라 명시적으로 적용한다. 사용자 확정 값은 덮어쓰지 않는다.
 - 출력: 보드에 보이는 값 그대로 XLSX로 나가며 장부 행은 변하지 않는다.
-- 운영 의존성: 운영 venv에 `xlrd==2.0.2`가 필요하다(`D:\WebLedgerHost\configuntime-requirements.lock.txt`에 반영).
+- 운영 의존성: 운영 venv에 `xlrd==2.0.2`가 필요하다(`D:\WebLedgerHost\config
+untime-requirements.lock.txt`에 반영).
 - 검증: 합성 자료 격리 E2E(브라우저 1440 포함)와 운영 읽기 스모크, 실제 장부 export 대조, 보호 기준선 게이트(278건 동일)를 수행했다. 전체 회귀는 다시 돌리지 않았다.
 
 ## 2026-10-10 reservation 여행 정본 동기화 수정과 master data 큐

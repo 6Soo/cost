@@ -2,7 +2,7 @@
 
 ## 현재 운영 반영: 2026-10-12
 
-- 운영 배포 SHA는 `6009eca338ce9c15cb25b03ceaff0705ed4a3d95`다. PR #85의 `integration/cost-final`에서 개발했고 main은 병합하지 않았다. 이후 문서 전용 커밋은 운영 코드와 구분한다.
+- 운영 배포 SHA는 `de684eb67afc8c9b0fdfef39431113eb03bdcab7`다. PR #85의 `integration/cost-final`에서 개발했고 main은 병합하지 않았다. 이후 문서 전용 커밋은 운영 코드와 구분한다.
 - 기존 주소 `https://ledger.foresttour.kr`, Windows PC, Cloudflare Tunnel, `127.0.0.1:8751`, 데이터 루트 `D:/WebLedgerHost/data`를 유지한다. `WebLedger-Board`는 `D:/WebLedgerHost/releases/<배포 SHA>/tools/start_web_ledger_host.ps1`에 고정됐다. 운영 원본 `C:/AX/cost`는 갱신하거나 초기화하지 않았다. 예전 `restart_real_review_host.ps1`로 원본 checkout에 되돌리지 말고 현재 예약 작업의 고정 경로를 사용한다.
 - 새 기능: 설치돼 있던 Windows 일본어·한국어 OCR을 영수증 사진과 연결했다. 글자와 제한된 날짜·일본어 합계 제안만 제공하고 사용자 확정 없이 비용을 만들지 않는다. 기존 localhost:8088 AI는 결정론적 해석이 실패할 때 사용자 문장만 받아 규칙 초안을 제안한다. 향후 반복 규칙은 기존 규칙 저장 화면에서 별도 확인한다. Google 여행 연결과 viewer 허용·철회 화면을 추가했다. 기존 여행 권한과 정본 검사를 우회하지 않는다.
 - 모바일 장부 작업 메뉴를 접이식 여행 탐색 영역으로 옮겨 첫 거래가 화면 아래로 밀리던 문제를 수정했다. 실제 사이트 375px 영수증·Google, 390px 카드·장부, 데스크톱 약 1440px 장부에서 가로 넘침 없는 접근을 확인했다. 실기기 검증은 아니다. 운영 거래를 새로 확정하거나 영수증을 실제 DB에 시험 등록하지 않았다.
@@ -12,8 +12,10 @@
 - 전체 검사 1회: 시작 `a2075d66dbc031cdfe80a331d5e66e8fbd524ebd`, 종료 `fdd5308d5bb9542975498d69af42604b3c4504c2`, **23 failed / 3203 passed / 3 skipped / 2431 subtests**. 최종 SHA 전체 통과 기록이 아니다. 원인은 모바일 거래 위치와 생산 모드 거부 검사의 환경변수 누출이었다. 제품 보호 조건은 유지했다. 실패 영역의 순서 있는 후속 검사 112 passed / 53 subtests와 누락 import 수정 후 해당 검사 1 passed로 해결했다.
 - 추가 표적 근거: 영수증 50 passed / 15 subtests, 규칙 33 passed / 1 skipped / 12 subtests, 실제 로컬 AI 관련 4 passed, 백업·리허설 16 passed. Google 설정·매핑·페이지·서명 HTTP 묶음은 62 passed / 35 subtests와 신규 검사의 CSS 문자열 기대 1건 실패였다. DOM 요소 존재로 기대를 바로잡고 설정 화면 최종 배치 후 신규 실제 브라우저 포함 2 passed다. 중복 범위는 합산하지 않는다. 과거 3107 passed 기준선은 과거 SHA의 증거로만 보존한다.
 - 사용자 원본 dirty 5개(`tools/verify_lightweight_runtime.py`, `edit_card_flow.py`, 두 pending-card-evidence patch, SQLite checkpoint JSON)와 stash `fbb1226e4659e4a2b75216cd556b51687db7d73e`를 보존했다. 테스트가 바꾼 추적 화면 캡처 2개만 `.local-archive/deploy-regression-20261012`에 보관하고 원래 추적 버전으로 돌렸다.
-- 남은 실제 기능 범위: PDF 입력, 자동 복수 영역 분리, KRW 영수증 비용 후보는 미구현이다. 현재 영수증 비용 후보는 JPY이고 한국어 OCR 글자 인식과 구분해야 한다. 사진 OCR은 전체 사진을 읽으며 영역별 자동 OCR이라고 표시하지 않는다. 실제 ADC와 viewer 계정 검증, 실제 모바일 단말 검증은 외부 자원이 필요하다. 실제 회계 top3 공개는 비활성이고 별도 게시 승인이 필요하다.
-- 다음 구현 시작점: `app/receipt_candidates.py`와 `webapp/receipt_review.py`에서 원화 영수증의 명시적 통화·원금 보존·카드 대사·TSV를 연결한다. 기존 JPY 저장 형식과 확인 이력을 보존하는 재현 검사부터 작성한다. PDF와 자동 영역 추출은 이 기능과 분리한다. 운영을 이전 원본 경로로 재시작하지 않는다.
+- 후속 구현 `de684eb`: 원화 영수증 통화 선택 → 금액 수정 → 여행 배정 → 확정 → 새로고침 → 실제 7열 클립보드 복사를 합성 Chromium 390px에서 완주했다. KRW 원금은 환산하지 않고 `total_original`에 보존하며 `total_jpy`는 null이다. 늦게 들어온 국내 법인카드는 현금 영수증 복사를 차단하고, 증빙으로 연결하면 추가 비용을 만들지 않는다. 기존 JPY 자료는 읽기·TSV로 재작성하지 않는다. 기존 영수증·후보와 신규 원화 검사 58 passed / 15 subtests, 최종 원화·무결성·서명 HTTP 39 passed / 35 subtests다.
+- 원화 반영 직전 새 백업 `D:/WebLedgerHost/data/backups/v2-owner-ui-20261012T010720/restore-evidence.json`에서 DB 4개와 파일 34개의 복원·원본 불변·설정 연결 비교가 통과했다. DB DDL은 추가하지 않았다. 실제 사이트 375px에서 통화 선택·원화 안내·OCR 버튼·ready 200을 확인했다. 운영에 합성 영수증을 기록하지 않았다. 원화 후보가 저장된 이후에는 KRW를 읽지 못하는 이전 release로 단순 코드 롤백하지 말고 호환 코드를 유지해야 한다. 복구를 이유로 새 사용자 기록을 덮지 않는다.
+- 남은 실제 기능 범위: PDF 입력과 자동 복수 영역 분리는 미구현이다. 일본어·한국어 OCR은 글자를 읽지만 지급처·통화·결제수단·영역을 모두 자동으로 확정하지 않는다. 사진 OCR은 전체 사진을 읽으며 영역별 자동 OCR이라고 표시하지 않는다. 실제 ADC와 viewer 계정 검증, 실제 모바일 단말 검증은 외부 자원이 필요하다. 실제 회계 top3 공개는 비활성이고 별도 게시 승인이 필요하다.
+- 다음 구현 시작점: `tools/windows_receipt_ocr.ps1`, `app/local_receipt_ocr.py`, `webapp/receipt_review.py`에서 Windows 기본 PDF 렌더링 지원을 격리 합성 자료로 확인하고 원본 보존·페이지별 사진 후보 연결을 구현한다. 자동 복수 영역 추출은 별도 작업이다. 운영을 이전 원본 경로로 재시작하지 않는다.
 
 이하 항목은 이전 실행 기록이며 위 운영 배포 상태를 덮지 않는다.
 
