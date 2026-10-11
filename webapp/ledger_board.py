@@ -3953,6 +3953,18 @@ class Handler(BaseHTTPRequestHandler):
         if self._auth_routes(query):
             return
         resolve_role(self.headers, self._cookies())
+        from . import google_ledger_page as _gl
+        if _gl.owns_route(parsed.path):
+            # Decided here, for every access setting: with enforcement off the caller is nobody, so the
+            # Google routes answer 403 rather than falling through to the owner's board.
+            is_owner, viewer = _gl.caller(ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None),
+                                          is_owner_session, _active_role)
+            tabs = _ACCESS.visible_tabs(viewer) if (viewer and _ACCESS and not is_owner) else set()
+            if _gl.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer, csrf=CSRF_TOKEN,
+                            query=query, viewer_tabs=tabs):
+                return
+            self._send_json({"code": "NOT_FOUND"}, 404)
+            return
         if ACCESS_ENFORCEMENT:
             # `_phase7_get` reports whether it answered. When it did, the request
             # is finished: falling through would render the owner's board and write
@@ -3968,15 +3980,6 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
             return
-        from . import google_ledger_page
-        if google_ledger_page.owns_route(parsed.path):
-            is_owner, viewer = google_ledger_page.caller(
-                ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
-                _active_role)
-            tabs = _ACCESS.visible_tabs(viewer) if (viewer and _ACCESS and not is_owner) else set()
-            if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
-                                           csrf=CSRF_TOKEN, query=query, viewer_tabs=tabs):
-                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return

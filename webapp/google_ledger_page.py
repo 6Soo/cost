@@ -274,6 +274,14 @@ def set_grants(snapshot_path: Path, *, user_id: str, keys: list, granted: bool, 
     return data
 
 
+def viewer_allowed_keys(grants: dict, user_id: str, mapping: dict | None, visible_tabs: set | None) -> set:
+    """Google trip keys this account may read: owner grant AND a COST tab link AND that tab visible now."""
+    granted = set(grants.get("grants", {}).get(user_id, []))
+    tabs = visible_tabs or set()
+    links = mapping or {}
+    return {key for key in granted if links.get(key) and links[key] in tabs}
+
+
 def viewer_payload(snapshot: dict, grants: dict, user_id: str, *, mapping: dict | None = None,
                    visible_tabs: set | None = None) -> dict:
     """Trip-level figures for the trips this account may read. Never copies, never source detail.
@@ -281,10 +289,7 @@ def viewer_payload(snapshot: dict, grants: dict, user_id: str, *, mapping: dict 
     Owner grant AND link to a COST tab AND that tab visible to the account. Without the link, a grant
     alone shows nothing, because the owner's grant could not otherwise be tied to the COST access rules.
     """
-    granted = set(grants.get("grants", {}).get(user_id, []))
-    tabs = visible_tabs or set()
-    links = mapping or {}
-    allowed = {key for key in granted if links.get(key) and links[key] in tabs}
+    allowed = viewer_allowed_keys(grants, user_id, mapping, visible_tabs)
     trips = google_access.visible_trips(snapshot["trips"], is_owner=False, allowed_keys=allowed)
     return {"synced_at": snapshot.get("synced_at"),
             "sources": {role: {"status": src.get("status")} for role, src in snapshot["sources"].items()},
@@ -295,6 +300,9 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
              query=None, viewer_tabs=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
+    if not is_owner and not viewer_user_id:
+        handler._send_json({"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"}, 403)
+        return True
     if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping") and raw is None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
@@ -330,13 +338,17 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         handler._send_json({"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"}, 403)
         return True
     if parsed.path.endswith("/rows"):
-        if not is_owner:
-            handler._send_json({"code": "OWNER_ONLY", "message": "행 상세는 소유자만 볼 수 있습니다"}, 403)
-            return True
         key = ((query or {}).get("key") or [""])[0]
         source = ((query or {}).get("source") or [""])[0]
         try:
-            _, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
+            snapshot, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
+            if not is_owner:
+                # A viewer reads the detail of an allowed trip only, under the same rule as the list.
+                allowed = viewer_allowed_keys(load_grants(_snapshot_path()), viewer_user_id,
+                                              load_mapping(_snapshot_path()), viewer_tabs)
+                if key not in allowed:
+                    handler._send_json({"code": "NOT_FOUND"}, 404)
+                    return True
             detail = owner_rows(rows, key, source)
         except (google_authority.SnapshotError, ValueError):
             handler._send_json({"code": "ROWS_UNAVAILABLE", "message": "행 자료를 확인하지 못했습니다"}, 503)

@@ -244,11 +244,12 @@ def test_owner_row_detail_lists_rows_with_position_and_amount(snapshot_file):
     assert body["expense"][0]["payee"] == "PAYEE-<b>" and body["expense"][0]["category"] == "식비"
 
 
-def test_row_detail_is_owner_only_and_missing_tab_is_404(snapshot_file):
+def test_row_detail_for_an_ungranted_viewer_is_404_and_missing_tab_is_404(snapshot_file):
     viewer = FakeHandler()
     page.dispatch(viewer, parsed("/api/google-ledger/rows"), is_owner=False, viewer_user_id="v1",
-                  query={"key": ["0404_에히메"], "source": ["main"]})
-    assert viewer.sent[0][:2] == ("json", 403)
+                  query={"key": ["0404_에히메"], "source": ["main"]}, viewer_tabs={"tab-A"})
+    # Not granted, so the same answer as a missing trip: nothing about the trip is revealed.
+    assert viewer.sent[0][:2] == ("json", 404)
     missing = FakeHandler()
     page.dispatch(missing, parsed("/api/google-ledger/rows"), is_owner=True,
                   query={"key": ["nope"], "source": ["main"]})
