@@ -188,3 +188,35 @@ def test_linked_refund_group_cannot_be_excluded():
             "SELECT COUNT(*) FROM review_decisions").fetchone()[0] == 0
     finally:
         pipe.store.close()
+
+
+def test_refund_imported_after_exclusion_cannot_book_negative_cost_alone():
+    from tests.card_pipeline.test_partial_refund import HEADER, OK, build
+
+    pipe, original_batch = build(refunds=())
+    try:
+        original = pipe.get_batch(original_batch)['rows'][0]
+        before = pipe.store.conn.execute('SELECT * FROM transactions').fetchall()
+        excluded = _exclude(pipe.store, original, excluded=True, revision=0, request_id='exclude-before-refund')
+        header = HEADER.rstrip('\n') + ',Original Authorization\n'
+        refund = ('국민,1234,domestic,cancellation,합성항공,300000,,,300000,'
+                  '2026-10-03,2026-10-04,C200,취소,취소,100\n')
+        received = pipe.receive((header + refund).encode('utf-8'), 'late-refund.csv')
+        batch_id = received['batch_id']
+        pipe.classify_batch(batch_id)
+        previewed = pipe.preview(batch_id, tab_validator=OK, trip_validator=OK)
+        assert previewed['ready'] == 0
+        assert previewed['rows'][0]['amount_krw'] == -300000
+        assert previewed['rows'][0]['blocked'] == 'refund_original_missing'
+        assert tsv_for_tab(previewed['rows'], 'unclassified')['row_count'] == 0
+        assert pipe.commit(batch_id, previewed['digest'], 'late-refund-commit',
+                           tab_validator=OK, trip_validator=OK)['applied'] == 0
+        assert _exclude(pipe.store, original, excluded=True, revision=0, request_id='exclude-before-refund') == excluded
+        with pytest.raises(StoreError) as protected:
+            _exclude(pipe.store, original, excluded=False, revision=1, request_id='undo-after-refund')
+        assert protected.value.code == 'EXCLUSION_PROTECTED'
+        assert pipe.store.conn.execute('SELECT * FROM transactions WHERE transaction_id=?',
+                                       (original['transaction_id'],)).fetchall() == before
+        assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+    finally:
+        pipe.store.close()
