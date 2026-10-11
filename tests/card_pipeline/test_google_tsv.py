@@ -45,6 +45,19 @@ def test_same_transaction_twice_is_held_not_pasted_twice():
     assert [h["reason"] for h in result["held"]] == ["DUPLICATE_ID", "DUPLICATE_ID"]
 
 
+@pytest.mark.parametrize('invalid,reason', [({'amount_krw': None}, 'AMOUNT_INVALID'),
+                                         ({'status': 'blocked'}, 'NOT_READY'),
+                                         ({'date': '2027-02-30'}, 'DATE_INVALID')])
+def test_invalid_copy_of_same_identity_also_blocks_the_ready_copy(invalid, reason):
+    source = [row('conflict'), row('conflict', **invalid), row('unrelated', amount_krw=3000)]
+    before = [dict(item) for item in source]
+    result = expense_tsv(source, layout='rev')
+    assert result['row_count'] == 1 and result['total_krw'] == 3000
+    assert result['held'] == [{'transaction_id': 'conflict', 'reason': 'DUPLICATE_ID'},
+                              {'transaction_id': 'conflict', 'reason': reason}]
+    assert source == before
+
+
 @pytest.mark.parametrize("payee", ["=HYPERLINK(\"x\")", "+1", "-2", "@cmd"])
 def test_formula_like_text_is_neutralized(payee):
     result = expense_tsv([row("t1", payee=payee)], layout="rev")

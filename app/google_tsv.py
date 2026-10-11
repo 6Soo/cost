@@ -56,7 +56,9 @@ def expense_tsv(rows: list[dict], *, layout: str) -> dict:
     if layout != "rev":
         raise ValueError("TARGET_LAYOUT_NOT_STANDARD")
     reasons = [(row, _hold_reason(row)) for row in rows]
-    counts = Counter(row.get("transaction_id") for row, reason in reasons if reason is None)
+    # A conflicting copy remains evidence of duplication even when it is not ready to export.
+    counts = Counter(row["transaction_id"] for row, _ in reasons
+                     if isinstance(row.get("transaction_id"), str) and row["transaction_id"].strip())
     held, ready = [], []
     for row, reason in reasons:
         transaction_id = row.get("transaction_id")
