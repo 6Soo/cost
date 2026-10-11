@@ -207,8 +207,15 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
     cards = card_rows(board)
     result = rc.build_candidates(regions, cards, known=known)
+    by_identity = {rc._identity(region): region for region in regions}
+    for hold in result['holds']:
+        region = by_identity[hold['identity']]
+        hold['region'] = {**region.__dict__, 'box': list(region.box)}
+        if payload.get('image'):
+            hold['image_sha'] = payload['image']
     duplicates = []
     added = 0
+    resolved = set()
     for candidate in result["candidates"]:
         region = next(r for r in regions if rc._identity(r) == candidate.identity)
         stored = {**candidate.__dict__, "history": [], "hold": None, 'box': list(region.box)}
@@ -225,8 +232,12 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         if any(_signature(c) == _signature(stored) for c in data["candidates"]):
             duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
             continue
+        previous_holds = [h for h in data['holds'] if h['identity'] == candidate.identity]
+        stored['history'].extend({'resolved_hold': h} for h in previous_holds)
+        resolved.add(candidate.identity)
         data["candidates"].append(stored)
         added += 1
+    data['holds'] = [h for h in data['holds'] if h['identity'] not in resolved]
     seen = {h["identity"] for h in data["holds"]}
     data["holds"].extend(h for h in result["holds"] + duplicates if h["identity"] not in seen)
     _save(path, data)
@@ -300,7 +311,7 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         _settle(stored, card_rows_list or [])
         if any(before[k] != stored.get(k) for k in changes):
             stored["payee"], stored["category"] = None, None
-        stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
+            stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
         _save(path, data)
         return stored
     raise KeyError("CANDIDATE_NOT_FOUND")
@@ -441,10 +452,16 @@ def _row_html(candidate: dict, trips: list) -> str:
 
 
 def _hold_html(hold: dict) -> str:
-    candidate = hold.get('candidate') or {}
-    detail = (f"{candidate['merchant']} · {candidate['date']} · {candidate['total_jpy']} JPY · "
+    candidate = hold.get('candidate') or hold.get('region') or {}
+    amount = candidate.get('total_jpy', candidate.get('total'))
+    detail = (f"{candidate.get('merchant') or '상호 미확인'} · {candidate.get('date') or '날짜 미확인'} · "
+              f"{amount if amount is not None else '금액 미확인'} JPY · "
               if candidate else '')
-    return '<li>' + html.escape(detail + MESSAGES.get(hold['reason'], hold['reason'])) + '</li>'
+    image = hold.get('image_sha') or candidate.get('image_sha')
+    source = (f" <a href='/api/receipts/image/{html.escape(image)}' target='_blank' rel='noopener'>원본 사진</a>"
+              if image else '')
+    box = ' · 영역 ' + str(candidate['box']) if 'box' in candidate else ''
+    return '<li>' + html.escape(detail + MESSAGES.get(hold['reason'], hold['reason']) + box) + source + '</li>'
 
 
 def render_html(data: dict, csrf: str, trips: list | None = None) -> str:

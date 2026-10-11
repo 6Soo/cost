@@ -159,3 +159,53 @@ def test_missing_card_on_trip_edit_does_not_authorize_receipt_repricing(tmp_path
         rr.edit(path, identity=stored['identity'], changes={'payment': 'cash'})
     assert path.read_bytes() == before
     assert rr.tsv(path, 'trip-syn', card_rows_list=[])['row_count'] == 0
+
+
+@pytest.mark.parametrize('changes,reason', [({'confidence': 0.4}, 'LOW_CONFIDENCE'),
+                                           ({'total': None}, 'TOTAL_UNCLEAR'),
+                                           ({'payment': 'corporate_card'}, 'CARD_NOT_FOUND')])
+def test_held_receipt_keeps_original_region_values_and_image(tmp_path, changes, reason):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': ['synthetic-image'], 'candidates': [], 'holds': []})
+    raw = {**region(), **changes}
+    rr.scan(path, {'image': 'synthetic-image', 'regions': [raw]})
+    data = rr.load(path)
+    hold, = data['holds']
+    assert hold['reason'] == reason
+    assert hold['image_sha'] == 'synthetic-image'
+    for field in ('merchant', 'date', 'total', 'payment', 'confidence', 'box'):
+        assert hold['region'][field] == raw[field]
+    assert data['candidates'] == []
+    assert raw['merchant'] in rr.render_html(data, '')
+
+
+def test_late_card_rescan_resolves_hold_and_preserves_review_history(tmp_path, monkeypatch):
+    path = tmp_path / 'receipts.json'
+    payload = {'regions': [{**region(), 'payment': 'corporate_card'}]}
+    rr.scan(path, payload)
+    held, = rr.load(path)['holds']
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01',
+              'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    monkeypatch.setattr(rr, 'card_rows', lambda board: cards)
+    rr.scan(path, payload)
+    data = rr.load(path)
+    stored, = data['candidates']
+    assert stored['identity'] == held['identity']
+    assert not data['holds']
+    assert stored['history'][0]['resolved_hold']['reason'] == 'CARD_NOT_FOUND'
+    assert stored['card_transaction_id'] == 'card-syn'
+    assert stored['amount_krw'] is None
+
+
+def test_repeated_edit_preserves_confirmation_and_does_not_duplicate_history(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [region()]})
+    stored, = rr.load(path)['candidates']
+    changes = {'trip_id': 'trip-syn', 'merchant': stored['merchant'], 'date': stored['date'],
+               'total_jpy': stored['total_jpy'], 'payment': stored['payment']}
+    rr.edit(path, identity=stored['identity'], changes=changes, valid_trips={'trip-syn'})
+    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    before = path.read_bytes()
+    rr.edit(path, identity=stored['identity'], changes=changes, valid_trips={'trip-syn'})
+    assert path.read_bytes() == before
+    assert rr.tsv(path, 'trip-syn')['row_count'] == 1
