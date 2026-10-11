@@ -158,6 +158,43 @@ class RuleReviewTests(unittest.TestCase):
         self.assertEqual(next(r for r in replay['rows'] if r['transaction_id'] == self.tx[0])['item'], '식비')
         self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 1)
 
+    def test_saved_rule_survives_reclassification_failure_and_request_retry(self):
+        body = dict(draft=dict(conditions=dict(merchant_normalized='SYNTHETIC-SHOP', transaction_direction='purchase'),
+                               optional={}, effects=dict(item='식비')),
+                    expected_revision=0, batch_id=self.batch, request_id='rule-refresh-failure')
+        with patch.object(CardFlow, 'classify', side_effect=StoreError('REFRESH_FAILED', 'private detail')):
+            status, result = self.post('/api/imports/rules', body, token=ledger_board.CSRF_TOKEN)
+        self.assertEqual(status, 200)
+        self.assertTrue(result['refresh_required'])
+        self.assertIsNone(result['rules'])
+        status, replay = self.post('/api/imports/rules', body, token=ledger_board.CSRF_TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(replay['result'], result['result'])
+        saved = [r for r in replay['rules'] if r['rule_id'] == result['result']['rule_id']]
+        self.assertEqual(len(saved), 1)
+        self.assertEqual(saved[0]['version'], 1)
+
+    def test_browser_reports_saved_rule_when_followup_state_request_fails(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.wait_for_function('(id)=>model?.batch_id===id', arg=self.batch)
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.getElementById('rules').open=true")
+            form = page.locator('#ruleform')
+            form.locator('[name="merchant"]').fill('SYNTHETIC-SHOP')
+            form.locator('[name="rule_item"]').fill('식비')
+            page.route(f'**/api/imports/{self.batch}',
+                       lambda route: route.fulfill(status=500, json={'message': 'FOLLOWUP-STATE-FAILED'}))
+            form.get_by_role('button', name='규칙 저장하고 다시 분류').click()
+            page.get_by_text('규칙은 저장됐습니다.', exact=False).wait_for()
+            rule_id = form.locator('[name="rule_id"]').input_value()
+            self.assertTrue(rule_id)
+            self.assertEqual(form.locator('[name="version"]').input_value(), '1')
+            saved = next(r for r in self.flow.pipeline.list_rules() if r['rule_id'] == rule_id)
+            self.assertEqual(saved['effects']['item'], '식비')
+            browser.close()
+
     def test_stale_proposal_is_refused_and_nothing_changes(self):
         proposal = self.propose()
         self.server.card_store.conn.execute('UPDATE transactions SET amount_krw=amount_krw+1 WHERE transaction_id=?',
