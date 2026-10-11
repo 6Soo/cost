@@ -3199,6 +3199,12 @@ class Handler(BaseHTTPRequestHandler):
 
         session = require_session(self.headers, self._cookies())
         path = parsed.path
+        # These endpoints own raw file bytes, not JSON or form data. Check
+        # capability before dispatch; their upload handlers still enforce CSRF.
+        if path in ('/api/receipts/image', '/api/imports'):
+            if not is_owner_session(session):
+                deny_for_viewer(action=True)
+            return False
         payload = self._phase7_payload(content_type, raw)
         store = _ACCESS
 

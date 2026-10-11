@@ -136,6 +136,46 @@ class SignedSessionHttpTests(unittest.TestCase):
         return self.flow.adapter.issue_cookie(
             identity, generation=account["session_generation"])
 
+    def test_signed_owner_binary_upload_preserves_bytes_and_denies_other_roles(self):
+        from webapp.tests.test_receipt_review import PNG
+        for user, expected in ((OWNER, 200), (VIEWER, 403), (None, 401)):
+            with self.subTest(user=user):
+                headers = {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': board.CSRF_TOKEN}
+                if user:
+                    headers['Cookie'] = f'{google_oidc.COOKIE_NAME}={self.cookie(user)}'
+                request = Request(f'http://127.0.0.1:{self.port}/api/receipts/image', data=PNG, headers=headers)
+                try:
+                    response = self.opener.open(request, timeout=5)
+                except HTTPError as error:
+                    response = error
+                body = json.loads(response.read())
+                self.assertEqual(response.code, expected, body)
+                if user == OWNER:
+                    from webapp import receipt_review
+                    self.assertEqual(receipt_review.image_bytes(self.receipts, body['sha256']), PNG)
+
+    def test_signed_card_xlsx_upload_keeps_amount_and_csrf_gate(self):
+        from tests.card_pipeline.fixtures import make_xlsx, domestic_row
+        content = make_xlsx([domestic_row(merchant='합성 업로드 상점', amount=37000, approval='PREVIEW-XLSX')])
+        for user, csrf, expected in ((OWNER, '', 403), (VIEWER, board.CSRF_TOKEN, 403),
+                                     (None, board.CSRF_TOKEN, 401), (OWNER, board.CSRF_TOKEN, 200)):
+            with self.subTest(user=user, csrf=bool(csrf)):
+                headers = {'Content-Type': 'application/octet-stream', 'X-CSRF-Token': csrf,
+                           'X-Filename': 'synthetic.xlsx'}
+                if user:
+                    headers['Cookie'] = f'{google_oidc.COOKIE_NAME}={self.cookie(user)}'
+                request = Request(f'http://127.0.0.1:{self.port}/api/imports', data=content, headers=headers)
+                try:
+                    response = self.opener.open(request, timeout=5)
+                except HTTPError as error:
+                    response = error
+                body = json.loads(response.read())
+                self.assertEqual(response.code, expected, body)
+                count = self.server.card_store.conn.execute('SELECT COUNT(*) FROM transactions').fetchone()[0]
+                self.assertEqual(count, 1 if expected == 200 else 0)
+                if expected == 200:
+                    self.assertEqual(body['rows'][0]['amount_krw'], 37000)
+
     def assert_json_response(self, path, *, cookie, status, body, headers=None):
         actual_status, actual_body, _ = self.request(path, cookie=cookie, headers=headers)
         self.assertEqual(actual_status, status, actual_body)
