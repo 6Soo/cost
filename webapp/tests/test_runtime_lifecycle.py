@@ -1,5 +1,6 @@
 """Startup failures must release synthetic sockets, SQLite handles and workers."""
 
+import os
 import sqlite3
 from unittest.mock import Mock
 
@@ -236,12 +237,16 @@ def test_production_refuses_non_durable_optional_data_paths(tmp_path, monkeypatc
 
 
 def test_production_path_refusal_precedes_data_root_and_database_access(monkeypatch, capsys):
+    # The production entry intentionally leaves require in force. Restore the
+    # caller environment after this refusal test, including newly added keys.
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
     monkeypatch.setenv('WEBLEDGER_RECEIPTS_STORE', 'relative-private.json')
     configure = Mock(side_effect=AssertionError('must not access the data root'))
     monkeypatch.setattr(run_candidate.ops, 'durable_config_for', configure)
     assert run_candidate.main(['--environment', 'production']) == 2
     configure.assert_not_called()
     assert 'RELATIVE_SETTING' in capsys.readouterr().err
+    assert os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] == 'require'
 
 
 @pytest.mark.parametrize('configured', [False, True])
