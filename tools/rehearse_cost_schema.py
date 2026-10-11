@@ -75,6 +75,9 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
     for suffix in ('-wal', '-shm', '-journal'):
         if Path(str(source_copy) + suffix).exists():
             raise RehearsalError('UNQUIESCENT_SOURCE_REFUSED')
+    with source_copy.open('rb') as stream:
+        if stream.read(16) != b'SQLite format 3\x00':
+            raise RehearsalError('INVALID_SQLITE_BACKUP')
     original_hash = _sha_file(source_copy)
     if expected_sha256 is not None and original_hash != expected_sha256.lower():
         raise RehearsalError('BACKUP_CHECKSUM_MISMATCH')
@@ -87,6 +90,8 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
         conn = sqlite3.connect(cloned, isolation_level=None)
         try:
             before_objects, before_rows = _baseline(conn)
+            if not {'board_rows', 'board_requests'}.issubset(before_rows):
+                raise RehearsalError('NOT_A_BOARD_DATABASE')
             from app.db import Store
             Store(conn)  # DDL is intentionally permitted only on the scratch clone.
             after_objects, after_rows = _baseline(conn)
