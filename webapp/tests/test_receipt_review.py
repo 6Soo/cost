@@ -483,6 +483,40 @@ class ReceiptReviewTests(unittest.TestCase):
                 self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
             browser.close()
 
+    def test_old_receipt_page_cannot_confirm_a_new_amount(self):
+        identity = self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2000}, token=self.csrf())
+            before = self.store.read_bytes()
+            page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
+            with page.expect_response('**/api/receipts/confirm') as response:
+                page.locator('[data-confirm]').click()
+            self.assertEqual(response.value.status, 409)
+            self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
+            self.assertEqual(self.store.read_bytes(), before)
+            self.assertFalse(page.locator('[data-confirm]').is_disabled())
+            browser.close()
+
+    def test_old_receipt_page_cannot_overwrite_a_new_confirmation(self):
+        identity = self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            self.request('/api/receipts/confirm', {'identity': identity, 'payee': 'NEW-PAYEE',
+                                                  'category': 'NEW-CATEGORY'}, token=self.csrf())
+            before = self.store.read_bytes()
+            page.locator('[data-total]').fill('2100')
+            with page.expect_response('**/api/receipts/edit') as response:
+                page.locator('[data-edit]').click()
+            self.assertEqual(response.value.status, 409)
+            self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
+            self.assertEqual(self.store.read_bytes(), before)
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')

@@ -46,6 +46,7 @@ MESSAGES = {
     'CARD_MATCH_AMBIGUOUS': '대응하는 카드 매입이 여러 건입니다. 연결을 확인해 주세요.',
     'CARD_PAYMENT_CONFLICT': '같은 날짜·상호·금액의 카드 매입이 있습니다. 결제수단을 확인해 주세요.',
     'CARD_LINKED_NOT_EDITABLE': '카드에 연결된 영수증의 상호·날짜·금액·결제수단은 변경할 수 없습니다.',
+    'STALE_CANDIDATE': '다른 화면에서 영수증을 변경했습니다. 입력값을 확인하고 화면을 새로 열어 주세요.',
     'Failed to fetch': '연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
 }
 _STORE_LOCK = threading.RLock()
@@ -279,14 +280,26 @@ def _signature(candidate: dict) -> tuple:
     return (candidate["date"], candidate["merchant"].strip(), int(candidate["total_jpy"]))
 
 
+def candidate_version(candidate: dict) -> str:
+    """Bind a rendered row to its saved values and history, including changes reverted later."""
+    return hashlib.sha256(json.dumps(candidate, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def _check_candidate_version(candidate: dict, expected_version: str | None) -> None:
+    # Older internal callers remain supported; browser writes always carry the rendered version.
+    if expected_version is not None and expected_version != candidate_version(candidate):
+        raise ValueError('STALE_CANDIDATE')
+
+
 @_serialized
 def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None,
-         card_rows_list: list | None = None) -> dict:
+         card_rows_list: list | None = None, expected_version: str | None = None) -> dict:
     """A person corrects what was typed. Card-linked receipts keep the card amount, so they cannot be re-priced."""
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] != identity:
             continue
+        _check_candidate_version(stored, expected_version)
         allowed = {"merchant", "date", "total_jpy", "payment", "trip_id"}
         unknown = set(changes) - allowed
         if unknown:
@@ -318,10 +331,12 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
 
 
 @_serialized
-def confirm(path: Path, *, identity: str, payee: str, category: str, note: str = "") -> dict:
+def confirm(path: Path, *, identity: str, payee: str, category: str, note: str = "",
+            expected_version: str | None = None) -> dict:
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
+            _check_candidate_version(stored, expected_version)
             if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
                 return stored
             candidate = _candidate(stored)
@@ -399,21 +414,22 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         if parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
-            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id"}:
+            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
             changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment", "trip_id") if k in body}
             handler._send_json(edit(path, identity=str(body.get("identity", "")), changes=changes,
                                     note=str(body.get("note", "")), valid_trips=_trip_ids(board),
-                                    card_rows_list=card_rows(board)))
+                                    card_rows_list=card_rows(board), expected_version=body.get('expected_version')))
         elif parsed.path == "/api/receipts/confirm":
             handler._send_json(confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
-                                       category=str(body.get("category", "")), note=str(body.get("note", ""))))
+                                       category=str(body.get("category", "")), note=str(body.get("note", "")),
+                                       expected_version=body.get('expected_version')))
         else:
             handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
     except KeyError as error:
         handler._send_json({"code": str(error.args[0]) if error.args else "NOT_FOUND"}, 404)
     except (ValueError, TypeError) as error:
-        handler._send_json({"code": str(error) or "INVALID_VALUE"}, 400)
+        handler._send_json({"code": str(error) or "INVALID_VALUE"}, 409 if str(error) == 'STALE_CANDIDATE' else 400)
     return True
 
 
@@ -434,7 +450,7 @@ def _row_html(candidate: dict, trips: list) -> str:
     source = (f"<a href='/api/receipts/image/{html.escape(candidate['image_sha'])}' target='_blank' rel='noopener'>원본 사진</a>"
               if candidate.get('image_sha') else '수동 입력')
     return (
-        "<tr>"
+        f"<tr data-version='{candidate_version(candidate)}'>"
         f"<td>{source}<br><select data-trip='{identity}'><option value=''>여행 미배정</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
@@ -501,12 +517,12 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "currency:'JPY',total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
         "post('/api/receipts/scan',{image:sha||undefined,regions:[region]}).then(()=>location.reload()).catch(e=>say(e.message))};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
-        "post('/api/receipts/edit',{identity:id,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
+        "post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
         "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}).then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
         "if([...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input))){"
         "say('금액·결제수단·여행 변경은 수정 버튼으로 먼저 저장한 뒤 확정해 주세요.');return}"
-        "post('/api/receipts/confirm',{identity:id,payee:val('data-payee',id),category:val('data-category',id)})"
+        "post('/api/receipts/confirm',{identity:id,expected_version:b.closest('tr').dataset.version,payee:val('data-payee',id),category:val('data-category',id)})"
         ".then(()=>location.reload()).catch(e=>say(e.message))});"
         "document.getElementById('copy-tsv').onclick=async()=>{const button=document.getElementById('copy-tsv');"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
