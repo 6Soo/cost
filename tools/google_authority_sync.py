@@ -28,6 +28,8 @@ def main(argv=None) -> int:
     parser.add_argument("--rows", required=True, type=pathlib.Path)
     parser.add_argument("--timeout", type=float, default=google_authority.DEFAULT_TIMEOUT)
     parser.add_argument("--max-bytes", type=int, default=google_authority.DEFAULT_MAX_BYTES)
+    parser.add_argument("--google-auth", choices=("public", "adc"), default="public",
+                        help="Use authenticated Google Drive read-only export with ADC when selected")
     args = parser.parse_args(argv)
     now = dt.datetime.now(google_authority.KST)
     state_path = args.snapshot.with_name("sync-state.json")
@@ -45,9 +47,19 @@ def _run_locked(args, now, state_path) -> int:
     if not sync_schedule.may_attempt(state, now):
         print(json.dumps({"code": "BACKOFF_WAIT", "next_attempt_at": state["next_attempt_at"]}))
         return 3
+    fetcher = None
+    if getattr(args, "google_auth", "public") == "adc":
+        try:
+            from app.google_adc_export import authorized_export_fetcher
+            fetcher = authorized_export_fetcher(timeout=args.timeout, max_bytes=args.max_bytes)
+        except Exception:
+            sync_schedule.record_result(state_path, ok=False, now=now,
+                                        error_code="GOOGLE_AUTH_UNAVAILABLE")
+            print(json.dumps({"code": "GOOGLE_AUTH_UNAVAILABLE"}))
+            return 5
     try:
         snapshot = google_authority.sync(args.snapshot, args.rows, timeout=args.timeout,
-                                         max_bytes=args.max_bytes, now=now)
+                                         max_bytes=args.max_bytes, fetcher=fetcher, now=now)
     except google_authority.SnapshotError as error:
         sync_schedule.record_result(state_path, ok=False, now=now, error_code=error.code)
         print(json.dumps({"code": error.code}))
