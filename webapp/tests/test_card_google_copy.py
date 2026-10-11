@@ -123,6 +123,39 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertIsNone(page.evaluate('(trip)=>localStorage.getItem("gcopy-trip:"+trip)', trip))
             browser.close()
 
+    def test_delayed_decision_result_keeps_latest_batch_and_saved_answer(self):
+        first = self.assign(trip=self.make_trip())
+        row = self.flow.pipeline.get_batch(first)['rows'][0]
+        second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{first}"]').click()
+            page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
+            form = page.locator('form[data-index]').first
+            form.locator('[name="item"]').fill('식비')
+            page.route('**/decision', lambda route: pending.append(route))
+            with page.expect_request('**/decision'):
+                form.locator('button').click()
+            response = page.request.post(pending[0].request.url,
+                                         data=pending[0].request.post_data_json,
+                                         headers={'X-CSRF-Token': ledger_board.CSRF_TOKEN})
+            self.assertEqual(response.status, 200)
+            result = response.json()
+            page.locator(f'[data-batch="{second}"]').click()
+            page.wait_for_function('(batch)=>model.batch_id===batch', arg=second)
+            with page.expect_response('**/decision'):
+                pending.pop().fulfill(json=result)
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.evaluate('model.batch_id'), second)
+            saved = self.server.card_store.conn.execute(
+                'SELECT item,user_confirmed FROM transactions WHERE transaction_id=?',
+                (row['transaction_id'],)).fetchone()
+            self.assertEqual(saved, ('식비', 1))
+            browser.close()
+
     def test_delayed_poll_response_does_not_restore_previous_batch(self):
         self._delayed_response_case(poll=True)
 
