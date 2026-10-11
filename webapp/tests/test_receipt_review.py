@@ -52,6 +52,29 @@ def _card_purchase(board, batch_id, transaction_id, merchant, amount_jpy, date):
 
 
 class ReceiptReviewTests(unittest.TestCase):
+    def test_candidate_fields_are_labelled_and_fit_mobile_work_area(self):
+        identity = self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                for width in (375, 390, 1440):
+                    with self.subTest(width=width):
+                        pg = browser.new_page(viewport={'width': width, 'height': 900})
+                        pg.goto(self.base + '/receipts')
+                        self.assertTrue(pg.get_by_role('link', name='장부로 돌아가기').is_visible())
+                        self.assertIn('자동 추출은 연결되지', pg.inner_text('body'))
+                        self.assertEqual(pg.locator(f'[data-category="{identity}"]').get_attribute('aria-label'), '비용 분류')
+                        if width < 760:
+                            for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'confirm'):
+                                control = pg.locator(f'[data-{field}="{identity}"]')
+                                box = control.bounding_box()
+                                self.assertGreaterEqual(box['x'], 0, field)
+                                self.assertLessEqual(box['x'] + box['width'], width, field)
+                                self.assertGreaterEqual(box['height'], 44, field)
+                        pg.close()
+            finally:
+                browser.close()
+
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self.store = Path(self._dir.name) / 'receipts.json'
