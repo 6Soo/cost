@@ -933,14 +933,17 @@ def render_import_section(csrf: str) -> str:
     }}));
     root.querySelectorAll('.ota-event').forEach(eventCard=>{{
       const button=eventCard.querySelector('[data-preview]'),radios=eventCard.querySelectorAll('input[type=radio]');
-      radios.forEach(radio=>radio.addEventListener('change',()=>{{button.disabled=false;eventCard.querySelector('#ota-difference').replaceChildren();}}));
+      let selectionVersion=0;
+      radios.forEach(radio=>radio.addEventListener('change',()=>{{selectionVersion++;button.disabled=false;eventCard.querySelector('#ota-difference').replaceChildren();}}));
       button.addEventListener('click',async()=>{{
         const selected=eventCard.querySelector('input[type=radio]:checked');if(!selected)return;
+        const version=++selectionVersion;
         button.disabled=true;
         try{{const preview=await call('/api/imports/ota/preview',{{event_id:eventCard.dataset.event,transaction_id:selected.value,request_id:crypto.randomUUID()}});const target=eventCard.querySelector('[data-difference-for]');
+          if(version!==selectionVersion||!selected.checked||!eventCard.isConnected)return;
           target.innerHTML=`<div class="ota-preview"><strong>차이 ${{money(preview.difference_krw)}}</strong><p>OTA 결제: ${{money(preview.event_amount_krw)}} · 카드 거래: ${{money(preview.card_amount_krw)}}</p><button type="button" id="ota-confirm">이 거래로 결제 연결 확정</button></div>`;
           target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});applyFresh(await call('/api/imports/ota'));status.textContent='사용자 확인 연결';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
-        }}catch(error){{status.textContent=error.message;button.disabled=false;}}
+        }}catch(error){{if(version===selectionVersion&&eventCard.isConnected){{status.textContent=error.message;button.disabled=false;}}}}
       }});
     }});
   }}
