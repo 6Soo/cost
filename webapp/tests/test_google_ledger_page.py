@@ -91,7 +91,9 @@ def test_owner_api_hides_rows_and_shows_figures_by_verification(snapshot_file):
     _, code, payload = handler.sent[0]
     assert code == 200
     trips = {t["key"]: t for t in payload["trips"]}
-    assert trips["0404_에히메"]["net"] == 600 and trips["0404_에히메"]["verified"] is True
+    # The archive source in this fixture failed; a retained snapshot is not current verification.
+    assert trips["0404_에히메"]["net"] is None and trips["0404_에히메"]["verified"] is False
+    assert 'SOURCE_STALE' in trips["0404_에히메"]['review']
     unverified = trips["<script>0630"]
     assert unverified["net"] is None and unverified["verified"] is False
     text = json.dumps(payload, ensure_ascii=False)

@@ -14,6 +14,7 @@ import json
 import os
 import functools
 import threading
+import copy
 from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
@@ -21,6 +22,30 @@ from urllib.parse import quote
 from app import google_access, google_authority
 
 _SETTINGS_LOCK = threading.RLock()
+# The planned scheduler runs hourly. Missing two runs must not look like current verification.
+MAX_SNAPSHOT_AGE_SECONDS = 2 * 60 * 60
+
+
+def snapshot_for_display(snapshot: dict, *, now=None) -> dict:
+    data = copy.deepcopy(snapshot)
+    current = now or dt.datetime.now(google_authority.KST)
+    stale = False
+    for source in data.get('sources', {}).values():
+        try:
+            stamp = dt.datetime.fromisoformat(source.get('last_ok_at') or '')
+            age = (current - stamp).total_seconds()
+            expired = not -60 <= age <= MAX_SNAPSHOT_AGE_SECONDS
+        except (ValueError, TypeError):
+            expired = True
+        if expired or source.get('stale') or source.get('status') != 'ok':
+            source['stale'] = True
+            source['error_code'] = source.get('error_code') or 'SYNC_DELAYED'
+            stale = True
+    if stale:
+        for trip in data.get('trips', []):
+            trip.update(verified=False, income_total=None, expense_total=None, net=None, closure_current=False)
+            trip['review'] = sorted(set(trip.get('review', [])) | {'SOURCE_STALE'})
+    return data
 
 
 def _serialized(function):
@@ -100,7 +125,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['name'])}</td><td>{esc(r['nickname'])}</td>"
             f"<td>{esc(r['deposit'])}</td><td>{esc(r['balance'])}</td><td>{esc(r['extra'])}</td>"
-            f"<td>{r['amount']:,}원</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                 f"<th>잔금</th><th>추가금</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
 
@@ -108,18 +133,21 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['payee'])}</td><td>{esc(r['category'])}</td>"
             f"<td>{esc(r['period'])}</td><td>{esc(r['reservation'])}</td><td>{esc(r['evidence'])}</td>"
-            f"<td>{r['amount']:,}원</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>분류</th><th>기간</th>"
                 f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
-    income = sum(r["amount"] for r in detail["income"])
-    expense = sum(r["amount"] for r in detail["expense"])
+    def total(rows):
+        return sum(r['amount'] for r in rows) if all(type(r.get('amount')) is int for r in rows) else None
+    income, expense = total(detail['income']), total(detail['expense'])
+    verification = '검증됨' if detail.get('verified') else '미검증 · 행 합계는 확정 금액이 아닙니다'
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>행 상세</title>"
             "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
             "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
             f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
-            f"<h2>수입 {income:,}원</h2>{income_table(detail['income'])}"
-            f"<h2>지출 {expense:,}원</h2>{expense_table(detail['expense'])}</body></html>")
+            f"<p>{verification}</p><p>동기화 기준 {html.escape(str(detail.get('synced_at') or '미확인'))}</p>"
+            f"<h2>수입 행 합계 {_money(income)}</h2>{income_table(detail['income'])}"
+            f"<h2>지출 행 합계 {_money(expense)}</h2>{expense_table(detail['expense'])}</body></html>")
 
 
 def choice_path(snapshot_path: Path) -> Path:
@@ -380,6 +408,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
         source = ((query or {}).get("source") or [""])[0]
         try:
             snapshot, rows = google_authority.load_consistent(_snapshot_path(), _rows_path())
+            snapshot = snapshot_for_display(snapshot)
             if not is_owner:
                 # A viewer reads the detail of an allowed trip only, under the same rule as the list.
                 allowed = viewer_allowed_keys(load_grants(_snapshot_path()), viewer_user_id,
@@ -388,6 +417,11 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                     handler._send_json({"code": "NOT_FOUND"}, 404)
                     return True
             detail = owner_rows(rows, key, source)
+            if detail is not None:
+                trip = next((t for t in owner_payload(snapshot, load_choices(_snapshot_path()))['trips']
+                             if t['key'] == key), {})
+                detail.update(verified=bool(trip.get('verified') and trip.get('chosen_source') == source),
+                              synced_at=snapshot.get('synced_at'), review=trip.get('review', []))
         except (google_authority.SnapshotError, ValueError):
             handler._send_json({"code": "ROWS_UNAVAILABLE", "message": "행 자료를 확인하지 못했습니다"}, 503)
             return True
@@ -403,6 +437,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     except google_authority.SnapshotError as error:
         handler._send_json({"code": error.code, "message": "동기화 결과를 확인하지 못했습니다"}, 503)
         return True
+    snapshot = snapshot_for_display(snapshot)
     if is_owner:
         payload = owner_payload(snapshot, load_choices(_snapshot_path()))
     else:
