@@ -232,6 +232,8 @@ def build_parser():
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if args.environment == 'production':
+        os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
 
     try:
         data_root = resolve_data_root(args.data_root)
@@ -251,6 +253,12 @@ def main(argv=None) -> int:
         # rejected here rather than by a second rule set in this file.
         config = ops.durable_config_for(data_root, environment=args.environment,
                                         create=True)
+        if args.environment == 'production' and os.environ.get('WEBLEDGER_CARD_FLOW') == '1':
+            from app.db import Store
+            try:
+                Store.require_existing_schema(config.db_path)
+            except Exception:
+                raise ops.OpsError('CARD_SCHEMA', '카드 스키마 준비와 복구 검증이 필요합니다') from None
         # The readiness gate runs before anything binds a port, so a
         # misconfigured deployment never accepts a request it cannot serve.
         smoke = gate_on_readiness(

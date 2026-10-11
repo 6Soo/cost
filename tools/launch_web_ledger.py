@@ -138,8 +138,24 @@ def apply_ota_review(options: dict) -> None:
         os.environ['WEBLEDGER_OTA_AUTHORITY'] = 'authority'
 
 
+def require_card_schema(path: pathlib.Path) -> None:
+    """Production never authorizes CardFlow's automatic schema creation.
+
+    Check before LedgerStore opens the database, using a read-only connection.
+    The environment also keeps later Store construction in check-only mode.
+    """
+    from app.db import Store
+
+    os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
+    try:
+        Store.require_existing_schema(path)
+    except Exception:
+        raise _Refused('CARD_SCHEMA') from None
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
 
     try:
         checkout = _require_absolute(args.checkout, "CHECKOUT")
@@ -193,6 +209,8 @@ def main(argv=None) -> int:
         from webapp.ledger_store import LedgerStore
 
         config = ops.durable_config_for(root, environment="production", create=True)
+        if os.environ.get('WEBLEDGER_CARD_FLOW') == '1':
+            require_card_schema(config.db_path)
         store = LedgerStore(config.db_path, seed_demo=False)
     except _Refused as exc:
         print(f"refused [{exc.code}]: 실행 조건을 만족하지 않아요.", file=sys.stderr)

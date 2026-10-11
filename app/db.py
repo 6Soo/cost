@@ -13,6 +13,8 @@ session layer, no HTTP.
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 import sqlite3
 import threading
 from contextlib import closing
@@ -229,20 +231,63 @@ class Store:
     lock is never what makes a commit safe.
     """
 
-    def __init__(self, conn: sqlite3.Connection, *, owns_connection: bool = False):
+    def __init__(self, conn: sqlite3.Connection, *, owns_connection: bool = False,
+                 schema_policy: str | None = None):
         self.conn = conn
         self._owns = owns_connection
         self.lock = threading.RLock()
-        self.ensure_schema()
+        self.schema_policy = (os.environ.get('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
+                              if schema_policy is None else schema_policy)
+        if self.schema_policy not in ('create', 'require'):
+            raise StoreError('SCHEMA_POLICY_INVALID', '카드 스키마 정책을 확인해 주세요')
+        if self.schema_policy == 'require':
+            self.require_schema(conn)
+        else:
+            self.ensure_schema()
+
+    @staticmethod
+    def schema_differences(conn: sqlite3.Connection) -> list[str]:
+        """Read-only comparison with this release's exact table/index contract.
+
+        Extra application objects are preserved. An existing required object's
+        different definition needs explicit review, even if it is equivalent SQL.
+        No row values or database paths are returned.
+        """
+        with closing(sqlite3.connect(':memory:')) as reference:
+            reference.executescript(SCHEMA_SQL)
+            expected = reference.execute(
+                "SELECT type, name, sql FROM sqlite_master"
+                " WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'").fetchall()
+        actual = {(kind, name): sql for kind, name, sql in conn.execute(
+            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL")}
+        return sorted(name for kind, name, sql in expected
+                      if actual.get((kind, name)) != sql)
 
     @classmethod
-    def open(cls, path: str) -> "Store":
+    def require_schema(cls, conn: sqlite3.Connection) -> None:
+        if cls.schema_differences(conn):
+            raise StoreError('SCHEMA_MIGRATION_REQUIRED',
+                             '카드 스키마 준비와 복구 검증이 필요합니다')
+
+    @classmethod
+    def require_existing_schema(cls, path: str | Path) -> None:
+        with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro',
+                                    uri=True)) as conn:
+            cls.require_schema(conn)
+
+    @classmethod
+    def open(cls, path: str, *, schema_policy: str | None = None) -> "Store":
         """Only for callers that already decided on this file."""
-        conn = sqlite3.connect(path, timeout=15, isolation_level=None)
+        policy = (os.environ.get('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
+                  if schema_policy is None else schema_policy)
+        if policy not in ('create', 'require'):
+            raise StoreError('SCHEMA_POLICY_INVALID', '카드 스키마 정책을 확인해 주세요')
+        target = Path(path).resolve().as_uri() + '?mode=rw' if policy == 'require' else path
+        conn = sqlite3.connect(target, uri=policy == 'require', timeout=15, isolation_level=None)
         conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA foreign_keys=ON")
         try:
-            return cls(conn, owns_connection=True)
+            return cls(conn, owns_connection=True, schema_policy=policy)
         except BaseException:
             conn.close()
             raise
@@ -260,6 +305,9 @@ class Store:
         A savepoint keeps all DDL atomic without committing a caller's pending
         transaction. Existing tables and their contents are retained.
         """
+        if self.schema_policy == 'require':
+            self.require_schema(self.conn)
+            return
         with self.lock:
             self.conn.execute('SAVEPOINT cost_schema')
             try:

@@ -110,7 +110,8 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
             before_objects, before_rows = _baseline(conn)
             _require_board_schema(conn)
             from app.db import Store
-            Store(conn)  # DDL is intentionally permitted only on the scratch clone.
+            Store(conn, schema_policy='create')  # Only the scratch clone may change.
+            Store.require_schema(conn)
             after_objects, after_rows = _baseline(conn)
             if any(after_objects.get(key) != value for key, value in before_objects.items()):
                 raise RehearsalError('EXISTING_SCHEMA_CHANGED')
@@ -122,7 +123,7 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
             ).fetchone()
             if exclusions is None:
                 raise RehearsalError('EXCLUSION_TABLE_MISSING')
-            Store(conn)
+            Store(conn, schema_policy='create')
             if _baseline(conn) != (after_objects, after_rows):
                 raise RehearsalError('MIGRATION_NOT_IDEMPOTENT')
             added_tables = sorted(

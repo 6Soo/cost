@@ -39,6 +39,21 @@ python tools/rehearse_cost_schema.py --source-copy "C:\isolated-restore\board.sq
 
 ## 검증 범위
 
+### 운영 실행기의 자동 DDL 차단
+
+`tools/launch_web_ledger.py`와 `run_candidate.py --environment production`은
+`WEBLEDGER_CARD_SCHEMA_POLICY=require`를 강제합니다. 카드 기능이 켜져 있으면
+`LedgerStore`를 열기 전에 읽기 전용 연결로 카드 테이블과 인덱스를 검사하고,
+누락이나 정의 차이가 있으면 `CARD_SCHEMA`로 시작을 거부합니다. 이후 첫
+`CardFlow` 요청도 스키마를 검사할 뿐 생성하지 않습니다. 이 게이트는 다른
+웹 장부 모듈의 모든 DDL을 대신 승인하거나 검증하지 않습니다.
+
+일반 개발 환경의 기존 생성 동작은 유지합니다. 스키마 비교는 이번 버전의
+SQLite 저장 정의와 정확히 비교하므로 의미가 같은 다른 SQL 표현도 검토가
+필요할 수 있습니다. 관련 없는 기존 테이블과 데이터는 검사 결과에 포함하지
+않습니다. 리허설은 임시 복제본에서만 명시적으로 생성한 뒤 이 검사도 통과해야
+합니다. 운영 원본에 적용하는 마이그레이션 명령은 제공하지 않습니다.
+
 - 새 합성 검사: tests/card_pipeline/test_schema_rehearsal.py (보존, 해시 불일치, WAL 차단, DDL 실패, 빈 파일/잘못된 DB 거부, CLI 승인 플래그).
 - 후속 Windows 실제 저장소 실행에서 리허설과 스키마 표적 검사 13개가 통과했다. 합성 입력도 실제 LedgerStore로 생성하며 이름만 같은 DB 거부와 복사 중 WAL 생성 차단을 포함한다. 운영 DB는 연결하지 않았다.
 - 기존 PR #85의 전체 회귀 3035 passed / 3 skipped / 2452 subtests는 이전 코드 시점의 근거이며 본 신규 도구에 대한 근거로 합산하지 않는다.
