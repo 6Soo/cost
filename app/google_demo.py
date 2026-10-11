@@ -8,6 +8,8 @@ cannot be decided it keeps the previous safe projection instead of guessing.
 
 from __future__ import annotations
 
+import datetime as dt
+
 PUBLISHABLE_CLOSURE = "closed"
 TOP = 3
 
@@ -43,6 +45,24 @@ def build_demo(snapshot: dict | None, previous: dict | None = None) -> dict:
 
 
 def _kept(previous: dict | None, *, reason: str) -> dict:
-    if previous is None:
-        return {"status": "preparing", "stale": True, "reason": reason, "entries": []}
-    return {**previous, "stale": True, "reason": reason}
+    preparing = {"status": "preparing", "stale": True, "reason": reason, "entries": []}
+    if not isinstance(previous, dict):
+        return preparing
+    entries = previous.get('entries')
+    if not isinstance(entries, list) or len(entries) > TOP:
+        return preparing
+    fields = ('rank', 'income_total', 'expense_total', 'net')
+    safe = []
+    for rank, entry in enumerate(entries, start=1):
+        if (not isinstance(entry, dict) or any(type(entry.get(key)) is not int for key in fields)
+                or entry['rank'] != rank or entry['net'] != entry['income_total'] - entry['expense_total']):
+            return preparing
+        safe.append({key: entry[key] for key in fields})
+    as_of = previous.get('as_of')
+    if as_of is not None:
+        try:
+            as_of = dt.datetime.fromisoformat(as_of).isoformat()
+        except (ValueError, TypeError):
+            return preparing
+    return {'status': 'published' if len(safe) == TOP else 'partial', 'stale': True,
+            'reason': reason, 'as_of': as_of, 'entries': safe}

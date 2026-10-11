@@ -61,3 +61,20 @@ def test_copy_named_tab_is_held_from_public_ranking():
     trips = [trip("COPY", 999, review=["COPY_NAME", "ARCHIVE_ONLY"]), trip("G1", 100), trip("G2", 90), trip("G3", 80)]
     demo = build_demo(snap(trips))
     assert [e["net"] for e in demo["entries"]] == [100, 90, 80]
+
+
+def test_retained_cache_is_projected_again_before_public_response():
+    previous = build_demo(snap([trip('A', 300), trip('B', 200), trip('C', 100)]))
+    previous['private_note'] = 'SYNTHETIC-PRIVATE-NAME'
+    previous['entries'][0]['booking_ref'] = 'SYNTHETIC-PRIVATE-BOOKING'
+    retained = build_demo(None, previous)
+    assert 'PRIVATE' not in str(retained)
+    assert set(retained) == {'status', 'stale', 'reason', 'as_of', 'entries'}
+    assert set(retained['entries'][0]) == {'rank', 'income_total', 'expense_total', 'net'}
+
+
+def test_damaged_cached_amount_is_not_published():
+    previous = build_demo(snap([trip('A', 300)]))
+    previous['entries'][0]['net'] = 'SYNTHETIC-PRIVATE-NAME'
+    retained = build_demo(None, previous)
+    assert retained['status'] == 'preparing' and retained['entries'] == []
