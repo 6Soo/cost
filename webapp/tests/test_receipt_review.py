@@ -459,6 +459,30 @@ class ReceiptReviewTests(unittest.TestCase):
                      token=self.csrf())
         return identity
 
+    def test_confirm_refuses_unsaved_amount_or_trip_in_browser(self):
+        identity = self._confirmed_cash_receipt()
+        before = self.store.read_bytes()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            requests = []
+            page.on('request', lambda request: requests.append(request.url)
+                    if request.url.endswith('/api/receipts/confirm') else None)
+            for selector, value in (('[data-total]', '2000'), ('[data-trip]', '')):
+                page.reload()
+                if selector == '[data-trip]':
+                    page.locator(selector).select_option(value)
+                else:
+                    page.locator(selector).fill(value)
+                page.locator('[data-payee]').fill('NEW-PAYEE')
+                page.locator('[data-confirm]').click()
+                page.wait_for_function("document.getElementById('status').textContent.includes('수정 버튼')")
+                self.assertEqual(requests, [])
+                self.assertEqual(self.store.read_bytes(), before)
+                self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')
