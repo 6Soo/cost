@@ -162,6 +162,17 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertNotIn('PRIVATE', json.dumps(body))
             self.assertEqual(self.store.read_bytes(), before)
 
+    def test_malformed_receipt_records_are_refused_without_resetting_the_store(self):
+        for changes in ({'candidates': [{}]}, {'candidates': ['PRIVATE-INVALID-CANDIDATE']},
+                        {'holds': [{}]}, {'holds': ['PRIVATE-INVALID-HOLD']}, {'images': [{}]}):
+            self.store.write_text(json.dumps({'candidates': [], 'holds': [], 'images': [], **changes}), encoding='utf-8')
+            before = self.store.read_bytes()
+            for route in ('/api/receipts', '/receipts'):
+                status, body = self.request(route)
+                self.assertEqual((status, body['code']), (503, 'RECEIPT_STORE_UNAVAILABLE'))
+                self.assertNotIn('PRIVATE', json.dumps(body))
+                self.assertEqual(self.store.read_bytes(), before)
+
     def test_only_png_or_jpeg_bytes_are_accepted(self):
         status, body = self.request('/api/receipts/image', token=self.csrf(), raw=b'<html>not a photo</html>')
         self.assertEqual((status, body['code']), (400, 'IMAGE_TYPE_UNSUPPORTED'))

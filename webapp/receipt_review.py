@@ -124,6 +124,24 @@ def load(path: Path) -> dict:
     data.setdefault("images", [])
     if not isinstance(data['images'], list):
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    required = {'identity', 'date', 'merchant', 'total_jpy', 'payment', 'amount_krw', 'history'}
+    for candidate in data['candidates']:
+        if (not isinstance(candidate, dict) or not required <= candidate.keys()
+                or any(not isinstance(candidate[key], str) for key in ('identity', 'date', 'merchant', 'payment'))
+                or type(candidate['total_jpy']) is not int
+                or (candidate['amount_krw'] is not None and type(candidate['amount_krw']) is not int)
+                or not isinstance(candidate['history'], list)
+                or any(candidate.get(key) is not None and not isinstance(candidate[key], str)
+                       for key in ('payee', 'category', 'trip_id', 'image_sha', 'hold'))):
+            raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    for hold in data['holds']:
+        if (not isinstance(hold, dict) or not isinstance(hold.get('identity'), str)
+                or not isinstance(hold.get('reason'), str)
+                or any(hold.get(key) is not None and not isinstance(hold[key], dict) for key in ('candidate', 'region'))
+                or (hold.get('image_sha') is not None and not isinstance(hold['image_sha'], str))):
+            raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
+    if any(not isinstance(image, str) for image in data['images']):
+        raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     return data
 
 
