@@ -95,7 +95,9 @@ def record_result(path: Path, *, ok: bool, now: dt.datetime, error_code: str | N
                  "next_attempt_at": None}
     else:
         failures = state["consecutive_failures"] + 1
-        wait = min(BACKOFF_BASE * (2 ** (failures - 1)), BACKOFF_CAP)
+        # Bound the exponent before timedelta multiplication, even after a long outage.
+        exponent = min(failures - 1, (BACKOFF_CAP // BACKOFF_BASE).bit_length())
+        wait = min(BACKOFF_BASE * (2 ** exponent), BACKOFF_CAP)
         state = {**state, "consecutive_failures": failures, "last_error": error_code,
                  "next_attempt_at": (now + wait).isoformat()}
     tmp = path.with_suffix(path.suffix + ".tmp")

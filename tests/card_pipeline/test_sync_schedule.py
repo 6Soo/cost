@@ -73,6 +73,20 @@ def test_success_clears_backoff_and_records_time(tmp_path: Path):
     assert ss.may_attempt(state, T0)
 
 
+@pytest.mark.parametrize('failures', [40, 10000])
+def test_long_outage_keeps_capped_retry_and_can_recover(tmp_path, failures):
+    import json
+    state_path = tmp_path / 'state.json'
+    state_path.write_text(json.dumps({'consecutive_failures': failures, 'last_ok_at': T0.isoformat(),
+                                      'last_error': 'SOURCE_UNREACHABLE', 'next_attempt_at': None}))
+    failed = ss.record_result(state_path, ok=False, now=T0, error_code='SOURCE_UNREACHABLE')
+    assert failed['consecutive_failures'] == failures + 1
+    assert dt.datetime.fromisoformat(failed['next_attempt_at']) == T0 + ss.BACKOFF_CAP
+    assert failed['last_ok_at'] == T0.isoformat()
+    recovered = ss.record_result(state_path, ok=True, now=T0 + ss.BACKOFF_CAP)
+    assert recovered['consecutive_failures'] == 0 and recovered['next_attempt_at'] is None
+
+
 def test_retry_is_refused_inside_the_backoff_window(tmp_path: Path):
     state_path = tmp_path / "state.json"
     state = ss.record_result(state_path, ok=False, now=T0, error_code="X")
