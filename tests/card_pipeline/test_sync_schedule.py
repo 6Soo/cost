@@ -52,6 +52,30 @@ def test_lock_is_released_even_when_the_run_fails(tmp_path: Path):
         pass  # released despite the failure
 
 
+@pytest.mark.parametrize('failed_method', ['truncate', 'write', 'flush'])
+def test_lock_initialization_failure_closes_handle_and_allows_retry(tmp_path, monkeypatch, failed_method):
+    path = tmp_path / 'sync.lock'
+    handle = open(path, 'a+', encoding='utf-8')
+    class FailedWriter:
+        def __getattr__(self, name):
+            if name == failed_method:
+                def fail(*args, **kwargs):
+                    raise OSError('SYNTHETIC-DISK-FAILURE')
+                return fail
+            return getattr(handle, name)
+    monkeypatch.setattr(ss, 'open', lambda *a, **k: FailedWriter(), raising=False)
+    try:
+        with pytest.raises(OSError, match='SYNTHETIC-DISK-FAILURE'):
+            with ss.SyncLock(path, now=T0):
+                pytest.fail('must not enter the sync body')
+        assert handle.closed
+    finally:
+        handle.close()
+        monkeypatch.delattr(ss, 'open')
+    with ss.SyncLock(path, now=T0):
+        pass
+
+
 def test_failures_back_off_exponentially_and_cap(tmp_path: Path):
     state_path = tmp_path / "state.json"
     waits = []
@@ -149,6 +173,21 @@ def test_cli_refuses_invalid_retry_state_without_touching_last_good(tmp_path, mo
     assert state.read_text(encoding='utf-8') == state_text
     with ss.SyncLock(tmp_path / 'sync.lock', now=T0):
         pass
+
+
+def test_cli_reports_lock_io_failure_without_private_details(tmp_path, monkeypatch, capsys):
+    import importlib.util
+    import json
+    spec = importlib.util.spec_from_file_location(
+        'sync_cli_io_test', Path(__file__).resolve().parents[2] / 'tools' / 'google_authority_sync.py')
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+    def fail_open(*args, **kwargs):
+        raise OSError('PRIVATE-PATH-AND-DISK-DETAILS')
+    monkeypatch.setattr(ss, 'open', fail_open, raising=False)
+    monkeypatch.setattr(cli.google_authority, 'sync', lambda *a, **k: pytest.fail('must not read Google'))
+    assert cli.main(['--snapshot', str(tmp_path / 'snapshot.json'), '--rows', str(tmp_path / 'rows.json')]) == 7
+    assert json.loads(capsys.readouterr().out) == {'code': 'SYNC_IO_UNAVAILABLE'}
 
 
 @pytest.mark.parametrize('snapshot_error', [False, True])

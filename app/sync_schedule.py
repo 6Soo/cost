@@ -61,10 +61,15 @@ class SyncLock:
         except OSError:
             handle.close()
             raise LockHeld("SYNC_ALREADY_RUNNING") from None
-        handle.seek(0)
-        handle.truncate()
-        handle.write(json.dumps({"started_at": self.now.isoformat(), "pid": os.getpid()}))
-        handle.flush()
+        try:
+            handle.seek(0)
+            handle.truncate()
+            handle.write(json.dumps({"started_at": self.now.isoformat(), "pid": os.getpid()}))
+            handle.flush()
+        except BaseException:
+            # __exit__ is never called when __enter__ fails. Closing also releases the OS lock.
+            handle.close()
+            raise
         self._handle = handle
         return self
 

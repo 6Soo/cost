@@ -42,6 +42,9 @@ def main(argv=None) -> int:
     except sync_schedule.StateError:
         print(json.dumps({"code": "SYNC_STATE_UNAVAILABLE"}))
         return 6
+    except OSError:
+        print(json.dumps({"code": "SYNC_IO_UNAVAILABLE"}))
+        return 7
 
 
 def _run_locked(args, now, state_path) -> int:
