@@ -294,6 +294,28 @@ class ReceiptReviewTests(unittest.TestCase):
         status, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
         self.assertNotIn('카페', tsv['tsv'])  # the card transaction is the one expense
 
+    def test_browser_assigns_trip_to_linked_receipt_without_changing_card(self):
+        batch = CardFlow(self.server.card_store).pipeline.receive(CARD, 'trip-link.csv')['batch_id']
+        _card_purchase(self.server.card_store, batch, 'card-trip-syn', 'SYN-SHOP', 900, '2027-08-03')
+        region = dict(REGIONS['regions'][0], payment='corporate_card', merchant='SYN-SHOP', total=900)
+        self.request('/api/receipts/scan', {'regions': [region]}, token=self.csrf())
+        before = self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 390, 'height': 844})
+            page.goto(self.base + '/receipts')
+            page.locator('[data-trip]').select_option(self.trip)
+            with page.expect_response('**/api/receipts/edit') as answer:
+                page.locator('[data-edit]').click()
+            self.assertEqual(answer.value.status, 200)
+            # The page reloads on save; read persisted state instead of a discarded response body.
+            result = self.request('/api/receipts')[1]['candidates'][0]
+            self.assertEqual(result['trip_id'], self.trip)
+            self.assertEqual(result['card_transaction_id'], 'card-trip-syn')
+            self.assertIsNone(result['amount_krw'])
+            browser.close()
+        self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
+
     def test_forged_photo_bytes_are_refused_with_corrupt_or_type_codes(self):
         png_no_end = b'\x89PNG\r\n\x1a\n' + b'\x00\x00\x00\x0dIHDR' + b'\x00' * 13 + b'\x00\x00\x00\x00IDAT'
         self.assertEqual(self.request('/api/receipts/image', token=self.csrf(), raw=png_no_end)[1]['code'],

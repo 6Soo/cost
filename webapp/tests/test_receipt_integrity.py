@@ -96,3 +96,18 @@ def test_repeated_confirmation_does_not_append_duplicate_history(tmp_path):
     before = path.read_bytes()
     rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
     assert path.read_bytes() == before
+
+
+def test_card_linked_receipt_can_choose_trip_when_form_resends_unchanged_payment(tmp_path, monkeypatch):
+    path = tmp_path / 'receipts.json'
+    cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01', 'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
+    monkeypatch.setattr(rr, 'card_rows', lambda board: cards)
+    rr.scan(path, {'regions': [{**region(), 'payment': 'corporate_card'}]})
+    stored, = rr.load(path)['candidates']
+    # The browser sends every field on the row, even when only the trip was changed.
+    result = rr.edit(path, identity=stored['identity'], valid_trips={'trip-syn'}, card_rows_list=cards,
+                     changes={'trip_id': 'trip-syn', 'merchant': stored['merchant'], 'date': stored['date'],
+                              'total_jpy': stored['total_jpy'], 'payment': stored['payment']})
+    assert result['trip_id'] == 'trip-syn'
+    assert result['card_transaction_id'] == 'card-syn' and result['amount_krw'] is None
+    assert rr.tsv(path, 'trip-syn')['row_count'] == 0

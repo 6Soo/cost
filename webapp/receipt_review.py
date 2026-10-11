@@ -263,7 +263,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("PAYMENT_UNKNOWN")
         if "trip_id" in changes and changes["trip_id"] and changes["trip_id"] not in (valid_trips or set()):
             raise ValueError("TRIP_UNKNOWN")
-        if stored.get("card_transaction_id") and ("total_jpy" in changes or "payment" in changes):
+        if stored.get("card_transaction_id") and any(
+                key in changes and changes[key] != stored[key] for key in ('total_jpy', 'payment')):
             # Unlinking would turn the card purchase plus a cash receipt into two costs. Refused, not guessed.
             raise ValueError("CARD_LINKED_NOT_EDITABLE")
         for key, value in changes.items():
