@@ -3,6 +3,8 @@ import importlib.util
 import os
 import tempfile
 import unittest
+import json
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +14,30 @@ launcher = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(launcher)
 
 VARS = ('WEBLEDGER_OTA_REVIEW_MODE', 'WEBLEDGER_OTA_REVIEW_DB', 'WEBLEDGER_OTA_AUTHORITY')
+
+
+@pytest.mark.parametrize('options,expected', [
+    (None, None),
+    ({'enabled': True, 'reserve_trip_sync': False}, None),
+    ({'enabled': False, 'reserve_trip_sync': True}, None),
+    ({'enabled': True, 'reserve_trip_sync': True}, '1'),
+])
+def test_launcher_reserve_sync_requires_explicit_enabled_config(tmp_path, options, expected, capsys):
+    data = tmp_path / 'data'
+    if options is not None:
+        options = dict(options, trip_authority_path=str(tmp_path / 'synthetic-authority.json'))
+        config = tmp_path / 'config' / 'card-flow.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps(options), encoding='utf-8')
+    # Stop before credentials, operational SQLite or a server are opened.
+    with patch.dict(os.environ, {'WEBLEDGER_RESERVE_TRIP_SYNC': '1'}), \
+            patch.object(launcher, '_read_oauth_file', side_effect=launcher._Refused('OAUTH_FILE')):
+        assert launcher.main(['--checkout', str(tmp_path), '--data-root', str(data),
+                              '--oauth-file', str(tmp_path / 'synthetic-oauth.json'),
+                              '--session-secret-file', str(tmp_path / 'synthetic-secret')]) == 2
+        actual = os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC')
+        assert actual == expected
+    assert 'OAUTH_FILE' in capsys.readouterr().err
 
 
 class ApplyOtaReviewTests(unittest.TestCase):

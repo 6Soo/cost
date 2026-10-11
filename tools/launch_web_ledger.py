@@ -156,6 +156,8 @@ def require_card_schema(path: pathlib.Path) -> None:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
+    # Only this launch's explicit card-flow.json opt-in may start the sync.
+    os.environ.pop('WEBLEDGER_RESERVE_TRIP_SYNC', None)
 
     try:
         checkout = _require_absolute(args.checkout, "CHECKOUT")
