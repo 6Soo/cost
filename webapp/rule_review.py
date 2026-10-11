@@ -107,12 +107,15 @@ def _approve_locked(flow: CardFlow, batch: str, body: dict) -> dict:
         raise LookupError("STALE_PROPOSAL")
     if not proposal["payloads"]:
         raise ValueError("NOTHING_TO_APPLY")
-    amounts = {r["transaction_id"]: r["amount_krw"] for r in state["preview"]["rows"]}
+    reviewed = {r["transaction_id"]: r for r in state["preview"]["rows"]}
     decisions = []
     for payload in proposal["payloads"]:
         tab = str(payload.get("display_tab_id") or "")
+        row = reviewed[payload["transaction_id"]]
         decisions.append({**payload, "trip_id": tab if tab not in ("", "unclassified") else "",
-                          "expected_amount_krw": amounts[payload["transaction_id"]]})
+                          "expected_amount_krw": row["amount_krw"],
+                          "expected_review_state": {key: row.get(key) or '' for key in
+                              ('item', 'description', 'display_tab_id', 'trip_id', 'merchant', 'occurred_on')}})
     result = review.save_decisions_atomic(flow.pipeline.store, decisions, request_id=request_id,
                                           tab_validator=flow.tab_valid, trip_validator=flow.trip_valid,
                                           basis=basis)

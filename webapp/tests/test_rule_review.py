@@ -238,6 +238,59 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(self.server.card_store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
             self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
 
+    def test_assignment_change_after_proposal_check_is_refused_inside_write_transaction(self):
+        import sqlite3
+        proposal = self.propose()
+        other = self.server.card_store.create_trip(starts_on='2027-01-01', ends_on='2027-01-03',
+                                                    destination='RACE-TRIP', client_request_id='race-rule-trip')['tab_id']
+        real_save = review.save_decisions_atomic
+        def change_assignment_then_save(*args, **kwargs):
+            connection = sqlite3.connect(Path(self._dir.name) / 'board.sqlite')
+            try:
+                connection.execute('UPDATE transactions SET trip_id=?, display_tab_id=? WHERE transaction_id=?',
+                                   (other, other, self.tx[0]))
+                connection.commit()
+            finally:
+                connection.close()
+            return real_save(*args, **kwargs)
+        with patch.object(review, 'save_decisions_atomic', side_effect=change_assignment_then_save):
+            status, body = self.approve(proposal, 'assignment-race')
+        self.assertEqual((status, body.get('code')), (409, 'REVISION_CONFLICT'))
+        self.assertEqual(set(self.items().values()), {''})
+        self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
+        self.assertEqual(self.server.card_store.conn.execute('SELECT trip_id FROM transactions WHERE transaction_id=?',
+                                                            (self.tx[0],)).fetchone()[0], other)
+
+    def test_review_state_conflict_on_later_row_rolls_back_earlier_decisions_and_requests(self):
+        store = self.flow.pipeline.store
+        before = store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall()
+        requests = store.conn.execute('SELECT * FROM requests ORDER BY request_id').fetchall()
+        rows = self.flow.state(self.batch)['preview']['rows']
+        decisions = []
+        for row in rows:
+            expected = {key: row.get(key) or '' for key in
+                        ('item', 'description', 'display_tab_id', 'trip_id', 'merchant', 'occurred_on')}
+            decisions.append(dict(transaction_id=row['transaction_id'], revision=row['revision'], item='현지잡비',
+                                  description=row['description'], display_tab_id=self.trip, trip_id=self.trip,
+                                  note='', reuse_rule=False, resolve_hold=False,
+                                  expected_amount_krw=row['amount_krw'], expected_review_state=expected))
+        decisions[1]['expected_review_state']['description'] = 'STALE-DESCRIPTION'
+        applied = []
+        real_save = review.save_decision
+        def record_save(*args, **kwargs):
+            result = real_save(*args, **kwargs)
+            applied.append(result)
+            return result
+        with patch.object(review, 'save_decision', side_effect=record_save):
+            with self.assertRaises(StoreError) as error:
+                review.save_decisions_atomic(store, decisions, request_id='later-state-conflict',
+                                              tab_validator=self.flow.tab_valid, trip_validator=self.flow.trip_valid)
+        self.assertEqual(error.exception.code, 'REVISION_CONFLICT')
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(store.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall(), before)
+        self.assertEqual(store.conn.execute('SELECT * FROM requests ORDER BY request_id').fetchall(), requests)
+        self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], 0)
+
     def test_a_failure_in_the_middle_rolls_every_write_back(self):
         store = self.flow.pipeline.store
         revisions = {r['transaction_id']: r['revision'] for r in self.rows}

@@ -664,6 +664,7 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
 
     A repeated request id returns the first result and writes nothing. Each decision may carry
     `expected_amount_krw`; a changed amount or an already confirmed row refuses the whole batch.
+    `expected_review_state` also checks automatic classification changes under the SQLite writer lock.
     """
     if not request_id or not isinstance(request_id, str):
         raise StoreError(CODE_INVALID_INPUT, "요청 ID가 필요해요")
@@ -687,6 +688,7 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
                 transaction_id = args.pop("transaction_id")
                 revision = args.pop("revision")
                 expected_amount = args.pop("expected_amount_krw", None)
+                expected_state = args.pop("expected_review_state", None)
                 found = store.conn.execute(
                     "SELECT revision, user_confirmed, amount_krw FROM transactions WHERE transaction_id=?",
                     (transaction_id,)).fetchone()
@@ -698,6 +700,17 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
                     raise StoreError(CODE_REVISION_CONFLICT, "이미 확정한 거래라 일괄 적용하지 않았어요")
                 if expected_amount is not None and found[2] != expected_amount:
                     raise StoreError(CODE_REVISION_CONFLICT, "금액이 바뀌어 일괄 적용하지 않았어요")
+                if expected_state is not None:
+                    fields = ('item', 'description', 'display_tab_id', 'trip_id', 'merchant', 'occurred_on')
+                    if not isinstance(expected_state, dict) or set(expected_state) != set(fields):
+                        raise StoreError(CODE_INVALID_INPUT, "검토한 거래 상태가 올바르지 않아요")
+                    current = store.conn.execute(
+                        "SELECT COALESCE(item,''), COALESCE(description,''), COALESCE(display_tab_id,''),"
+                        " COALESCE(trip_id,''), COALESCE(merchant,''),"
+                        " COALESCE(NULLIF(approval_date,''),posting_date,'') FROM transactions WHERE transaction_id=?",
+                        (transaction_id,)).fetchone()
+                    if dict(zip(fields, current)) != expected_state:
+                        raise StoreError(CODE_REVISION_CONFLICT, "검토 이후 여행이나 분류가 바뀌어 일괄 적용하지 않았어요")
                 results.append(save_decision(
                     store, transaction_id, revision, request_id=f"{request_id}:{transaction_id}",
                     trip_validator=trip_validator, tab_validator=tab_validator, _batch=True, **args))
