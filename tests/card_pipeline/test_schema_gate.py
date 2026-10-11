@@ -123,3 +123,24 @@ def test_invalid_open_policy_does_not_create_file(tmp_path):
         db.Store.open(str(path), schema_policy='')
     assert error.value.code == 'SCHEMA_POLICY_INVALID'
     assert not path.exists()
+
+
+def test_wal_preflight_does_not_commit_writer_and_runtime_rechecks_committed_schema(tmp_path):
+    path = tmp_path / 'wal.sqlite'
+    writer = sqlite3.connect(path, isolation_level=None)
+    assert writer.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
+    db.Store(writer, schema_policy='create')
+    writer.execute('CREATE TABLE original_evidence(value BLOB)')
+    writer.execute('INSERT INTO original_evidence VALUES (?)', (b'original',))
+    writer.execute('BEGIN IMMEDIATE')
+    writer.execute('DROP INDEX transactions_state')
+    # A separate read sees the last committed schema without disturbing the writer.
+    db.Store.require_existing_schema(path)
+    assert writer.in_transaction
+    writer.commit()
+    with pytest.raises(db.StoreError) as error:
+        db.Store(writer, schema_policy='require')
+    assert error.value.code == 'SCHEMA_MIGRATION_REQUIRED'
+    assert writer.execute('SELECT * FROM original_evidence').fetchall() == [(b'original',)]
+    assert writer.execute("SELECT name FROM sqlite_master WHERE name='transactions_state'").fetchall() == []
+    writer.close()
