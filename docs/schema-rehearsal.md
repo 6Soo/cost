@@ -35,6 +35,13 @@ tools/rehearse_cost_schema.py는 명시적으로 제공된 **정지 상태의 �
 python tools/rehearse_cost_schema.py --source-copy "C:\isolated-restore\board.sqlite" --expected-sha256 "<이미 검증한 백업 SHA-256>" --confirm-isolated-copy
 ~~~
 
+같은 명령에 `--check-only`를 붙이면 임시 복제본에서도 마이그레이션 DDL을
+실행하지 않고 테이블·인덱스 정의의 차이만 `schema_differences`에 보고합니다.
+준비됐으면 `READY`와 종료 코드 0, 검토나 마이그레이션이 필요하면
+`MIGRATION_REQUIRED`와 종료 코드 2를 반환합니다. 이 모드도 운영 원본이 아닌
+정지된 복구 사본과 명시적 사본 확인 플래그가 필요합니다. 일반 리허설에서도
+기존 객체의 호환성 검사 실패는 경로나 예외 원문 대신 고정 오류 코드로 보고합니다.
+
 결과의 status=PASS는 해당 입력 복사본의 스키마 리허설이 통과했다는 제한적인 뜻이다. 운영 DB 변경이나 실제 배포 허가가 아니다. 실데이터 복구본을 사용하면 출력은 집계 메타만 저장하고 원본 자체는 외부로 전송하지 않는다.
 
 ## 검증 범위

@@ -82,7 +82,7 @@ def _baseline(conn: sqlite3.Connection) -> tuple[dict, dict]:
     return objects, rows
 
 
-def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
+def rehearse(source_copy: Path, expected_sha256: str | None = None, *, check_only: bool = False) -> dict:
     """Read one offline SQLite copy; modify only an auto-deleted temporary clone."""
     source_copy = Path(source_copy)
     if source_copy.is_symlink() or not source_copy.is_file():
@@ -109,9 +109,14 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
         try:
             before_objects, before_rows = _baseline(conn)
             _require_board_schema(conn)
-            from app.db import Store
-            Store(conn, schema_policy='create')  # Only the scratch clone may change.
-            Store.require_schema(conn)
+            from app.db import Store, StoreError
+            differences = Store.schema_differences(conn)
+            if not check_only:
+                Store(conn, schema_policy='create')  # Only the scratch clone may change.
+                try:
+                    Store.require_schema(conn)
+                except StoreError as error:
+                    raise RehearsalError(error.code) from None
             after_objects, after_rows = _baseline(conn)
             if any(after_objects.get(key) != value for key, value in before_objects.items()):
                 raise RehearsalError('EXISTING_SCHEMA_CHANGED')
@@ -121,9 +126,10 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
                 "SELECT name FROM sqlite_master WHERE type='table' "
                 "AND name='transaction_company_exclusions'"
             ).fetchone()
-            if exclusions is None:
+            if exclusions is None and not check_only:
                 raise RehearsalError('EXCLUSION_TABLE_MISSING')
-            Store(conn, schema_policy='create')
+            if not check_only:
+                Store(conn, schema_policy='create')
             if _baseline(conn) != (after_objects, after_rows):
                 raise RehearsalError('MIGRATION_NOT_IDEMPOTENT')
             added_tables = sorted(
@@ -136,12 +142,13 @@ def rehearse(source_copy: Path, expected_sha256: str | None = None) -> dict:
     if _sha_file(source_copy) != original_hash:
         raise RehearsalError('SOURCE_CHANGED_DURING_REHEARSAL')
     return {
-        'status': 'PASS',
+        'status': ('MIGRATION_REQUIRED' if differences else 'READY') if check_only else 'PASS',
         'scope': 'isolated_backup_copy_only',
         'original_tables_preserved': len(before_rows),
         'added_tables': added_tables,
+        'schema_differences': differences,
         'source_sha256_unchanged': True,
-        'repeated_migration_unchanged': True,
+        'repeated_migration_unchanged': None if check_only else True,
         'production_migrated': False,
     }
 
@@ -151,14 +158,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--source-copy', type=Path, required=True,
                         help='Quiescent restored/backup SQLite COPY, never live DB')
     parser.add_argument('--expected-sha256', help='Optional known SHA-256 of backup copy')
+    parser.add_argument('--check-only', action='store_true',
+                        help='Diagnose required schema without executing migration DDL')
     parser.add_argument('--confirm-isolated-copy', action='store_true',
                         help='Confirm the input is a disposable offline copy')
     args = parser.parse_args(argv)
     if not args.confirm_isolated_copy:
         parser.error('--confirm-isolated-copy is required')
     try:
-        print(json.dumps(rehearse(args.source_copy, args.expected_sha256),
-                         sort_keys=True))
+        result = rehearse(args.source_copy, args.expected_sha256, check_only=args.check_only)
+        print(json.dumps(result, sort_keys=True))
+        if result['status'] == 'MIGRATION_REQUIRED':
+            return 2
     except (RehearsalError, sqlite3.Error, OSError) as exc:
         # Error codes only: sqlite3 errors may contain sensitive file paths.
         code = str(exc) if isinstance(exc, RehearsalError) else type(exc).__name__

@@ -107,3 +107,42 @@ def test_rehearsal_refuses_source_that_becomes_live_during_copy(tmp_path, monkey
     monkeypatch.setattr(tool.shutil, 'copyfile', raced_copy)
     with pytest.raises(RehearsalError, match='UNQUIESCENT_SOURCE_REFUSED'):
         rehearse(source)
+
+
+def test_cli_reports_incompatible_existing_schema_without_traceback(tmp_path, capsys):
+    source = synthetic_source(tmp_path / 'copy.sqlite')
+    conn = sqlite3.connect(source)
+    conn.executescript(db.SCHEMA_SQL.replace('CHECK(excluded IN (0,1))', ''))
+    conn.close()
+    before = digest(source)
+    assert main(['--source-copy', str(source), '--confirm-isolated-copy']) == 2
+    output = capsys.readouterr()
+    assert 'SCHEMA_MIGRATION_REQUIRED' in output.err
+    assert 'Traceback' not in output.err and str(source) not in output.err
+    assert digest(source) == before
+
+
+def test_read_only_diagnostic_reports_missing_objects_without_migrating(tmp_path, capsys):
+    import json
+    source = synthetic_source(tmp_path / 'copy.sqlite')
+    before = digest(source)
+    assert main(['--source-copy', str(source), '--confirm-isolated-copy', '--check-only']) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'MIGRATION_REQUIRED'
+    assert 'transaction_company_exclusions' in result['schema_differences']
+    assert result['added_tables'] == [] and result['production_migrated'] is False
+    assert digest(source) == before
+
+
+def test_read_only_diagnostic_accepts_prepared_copy_with_enforced_policy(tmp_path, monkeypatch, capsys):
+    import json
+    source = synthetic_source(tmp_path / 'copy.sqlite')
+    conn = sqlite3.connect(source)
+    db.Store(conn, schema_policy='create')
+    conn.close()
+    before = digest(source)
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'require')
+    assert main(['--source-copy', str(source), '--confirm-isolated-copy', '--check-only']) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == 'READY' and result['schema_differences'] == []
+    assert digest(source) == before
