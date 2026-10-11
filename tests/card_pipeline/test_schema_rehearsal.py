@@ -11,8 +11,9 @@ from tools.rehearse_cost_schema import RehearsalError, main, rehearse
 
 def synthetic_source(path):
     with sqlite3.connect(path) as conn:
-        conn.execute('CREATE TABLE protected_rows(id TEXT PRIMARY KEY, value BLOB)')
-        conn.execute('INSERT INTO protected_rows VALUES (?, ?)', ('synthetic', b'\x00original'))
+        conn.execute('CREATE TABLE board_rows(id TEXT PRIMARY KEY, value BLOB)')
+        conn.execute('CREATE TABLE board_requests(id TEXT PRIMARY KEY)')
+        conn.execute('INSERT INTO board_rows VALUES (?, ?)', ('synthetic', b'\x00original'))
     return path
 
 
@@ -29,7 +30,7 @@ def test_rehearsal_adds_schema_only_on_temporary_clone(tmp_path):
     assert 'transaction_company_exclusions' in result['added_tables']
     assert digest(source) == before
     with sqlite3.connect(source) as conn:
-        assert conn.execute('SELECT value FROM protected_rows').fetchone() == (b'\x00original',)
+        assert conn.execute('SELECT value FROM board_rows').fetchone() == (b'\x00original',)
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='transaction_company_exclusions'").fetchone() is None
 
 
@@ -63,3 +64,19 @@ def test_cli_requires_explicit_offline_confirmation(tmp_path):
     with pytest.raises(SystemExit) as exit_info:
         main(['--source-copy', str(source)])
     assert exit_info.value.code == 2
+
+
+def test_rehearsal_rejects_empty_sqlite_database(tmp_path):
+    source = tmp_path / 'empty.sqlite'
+    with sqlite3.connect(source):
+        pass
+    with pytest.raises(RehearsalError, match='INVALID_SQLITE_BACKUP'):
+        rehearse(source)
+
+
+def test_rehearsal_rejects_unrelated_database(tmp_path):
+    source = tmp_path / 'unrelated.sqlite'
+    with sqlite3.connect(source) as conn:
+        conn.execute('CREATE TABLE something_else(x INTEGER)')
+    with pytest.raises(RehearsalError, match='NOT_A_BOARD_DATABASE'):
+        rehearse(source)
