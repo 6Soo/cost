@@ -508,6 +508,47 @@ class ReceiptReviewTests(unittest.TestCase):
                 self.assertEqual(page.locator('[data-total]').input_value(), value if selector == '[data-total]' else '1234')
             browser.close()
 
+    def test_receipt_copy_refuses_unsaved_review_changes(self):
+        self._confirmed_cash_receipt()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            requests = []
+            page.on('request', lambda request: requests.append(request.url)
+                    if '/api/receipts/tsv?' in request.url else None)
+            for selector, value in (('[data-total]', '2500'), ('[data-payee]', 'UNSAVED-PAYEE'),
+                                    ('[data-category]', 'UNSAVED-CATEGORY'), ('[data-trip]', '')):
+                page.goto(self.base + '/receipts')
+                page.evaluate("navigator.clipboard.writeText('KEEP')")
+                if selector == '[data-trip]':
+                    page.locator(selector).select_option(value)
+                else:
+                    page.locator(selector).fill(value)
+                page.click('#copy-tsv')
+                page.wait_for_function('!receiptBusy')
+                self.assertEqual(requests, [])
+                self.assertIn('저장하지 않은 변경', page.locator('#status').inner_text())
+                self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP')
+            browser.close()
+
+    def test_receipt_copy_keeps_other_trips_unsaved_changes_separate(self):
+        self._confirmed_cash_receipt()
+        other = self._confirmed_cash_receipt(merchant='OTHER-SHOP', total=500)
+        other_trip = self.server.card_store.create_trip(starts_on='2027-01-01', ends_on='2027-01-03',
+                                                        destination='OTHER-TRIP', client_request_id='other-trip')['tab_id']
+        self.request('/api/receipts/edit', {'identity': other, 'trip_id': other_trip}, token=self.csrf())
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
+            page.goto(self.base + '/receipts')
+            page.locator('[data-total="' + other + '"]').fill('700')
+            page.locator('#copy-trip').select_option(self.trip)
+            page.click('#copy-tsv')
+            page.wait_for_function("document.getElementById('status').textContent.includes('클립보드에 복사했습니다')")
+            self.assertEqual(page.locator('[data-total="' + other + '"]').input_value(), '700')
+            self.assertNotIn('OTHER-SHOP', page.evaluate('navigator.clipboard.readText()'))
+            browser.close()
+
     def test_old_receipt_page_cannot_confirm_a_new_amount(self):
         identity = self._confirmed_cash_receipt()
         with sync_playwright() as api:
