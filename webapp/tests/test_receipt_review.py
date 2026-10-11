@@ -645,6 +645,38 @@ class ReceiptReviewTests(unittest.TestCase):
                 page.unroute(pattern)
             browser.close()
 
+    def test_saving_one_receipt_preserves_other_receipts_unsaved_inputs(self):
+        first = self._confirmed_cash_receipt()
+        other = self._confirmed_cash_receipt(merchant='OTHER-SHOP', total=500)
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/receipts')
+            page.locator(f'[data-total="{other}"]').fill('900')
+            page.locator(f'[data-payee="{other}"]').fill('UNSAVED-PAYEE')
+            page.locator('#r-merchant').fill('UNSAVED-REGION')
+            page.locator(f'[data-total="{first}"]').fill('2600')
+            with page.expect_response('**/api/receipts/edit'):
+                page.locator(f'[data-edit="{first}"]').click()
+            page.wait_for_load_state('networkidle')
+            self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
+            self.assertEqual(page.locator(f'[data-payee="{other}"]').input_value(), 'UNSAVED-PAYEE')
+            self.assertEqual(page.locator('#r-merchant').input_value(), 'UNSAVED-REGION')
+            self.assertEqual(page.locator(f'[data-payee="{first}"]').input_value(), '')
+            self.assertIn('26,000', page.locator(f'[data-edit="{first}"]').locator('xpath=ancestor::tr').inner_text())
+            page.locator(f'[data-payee="{first}"]').fill('SAVED-PAYEE')
+            page.locator(f'[data-category="{first}"]').fill('FOOD')
+            with page.expect_response('**/api/receipts/confirm') as confirmation:
+                page.locator(f'[data-confirm="{first}"]').click()
+            self.assertEqual(confirmation.value.status, 200)
+            page.wait_for_function('!receiptBusy')
+            self.assertEqual(page.locator(f'[data-total="{other}"]').input_value(), '900')
+            saved = {row['identity']: row for row in self.request('/api/receipts')[1]['candidates']}
+            self.assertEqual(saved[first]['total_jpy'], 2600)
+            self.assertEqual(saved[first]['payee'], 'SAVED-PAYEE')
+            self.assertEqual(saved[other]['total_jpy'], 500)
+            browser.close()
+
     def test_switching_to_corporate_without_a_card_match_keeps_the_cash_amount_out_of_the_copy(self):
         identity = self._confirmed_cash_receipt()
         _, before = self.request(f'/api/receipts/tsv?trip={self.trip}')

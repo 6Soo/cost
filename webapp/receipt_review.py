@@ -432,13 +432,15 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "payment", "trip_id", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
             changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "payment", "trip_id") if k in body}
-            handler._send_json(edit(path, identity=str(body.get("identity", "")), changes=changes,
-                                    note=str(body.get("note", "")), valid_trips=_trip_ids(board),
-                                    card_rows_list=card_rows(board), expected_version=body.get('expected_version')))
+            result = edit(path, identity=str(body.get("identity", "")), changes=changes,
+                          note=str(body.get("note", "")), valid_trips=_trip_ids(board),
+                          card_rows_list=card_rows(board), expected_version=body.get('expected_version'))
+            handler._send_json({**result, 'version': candidate_version(result)})
         elif parsed.path == "/api/receipts/confirm":
-            handler._send_json(confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
-                                       category=str(body.get("category", "")), note=str(body.get("note", "")),
-                                       expected_version=body.get('expected_version')))
+            result = confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
+                             category=str(body.get("category", "")), note=str(body.get("note", "")),
+                             expected_version=body.get('expected_version'))
+            handler._send_json({**result, 'version': candidate_version(result)})
         else:
             handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
     except KeyError as error:
@@ -476,7 +478,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{p}</option>" for p in PAYMENTS)
         + "</select>"
         f"<button type='button' data-edit='{identity}'>수정</button></td>"
-        f"<td>{amount}</td><td>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
+        f"<td data-amount>{amount}</td><td data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
         f"<td><input data-payee='{identity}' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'>"
         f"<input data-category='{identity}' value='{html.escape(candidate.get('category') or '')}' placeholder='내용'>"
         f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
@@ -519,8 +521,17 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "let receiptBusy=false;const lockControls=()=>{const controls=[...document.querySelectorAll('input,select,button')];"
         "const disabled=controls.map(control=>control.disabled);controls.forEach(control=>control.disabled=true);"
         "return()=>controls.forEach((control,index)=>control.disabled=disabled[index])};"
-        "const save=async action=>{if(receiptBusy)return;receiptBusy=true;const restore=lockControls();"
-        "say('저장하고 있습니다.');try{await action();location.reload()}catch(error){say(error.message||'저장하지 못했습니다. 다시 시도해 주세요.')}"
+        "const updateCandidate=(button,result)=>{const row=button.closest('tr');row.dataset.version=result.version;"
+        "for(const [field,key] of [['trip','trip_id'],['merchant','merchant'],['date','date'],['total','total_jpy'],"
+        "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
+        "input.value=result[key]??'';originalValues.set(input,input.value)}"
+        "row.querySelector('[data-amount]').textContent=result.amount_krw==null?'':result.amount_krw.toLocaleString('ko-KR')+'원';"
+        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'확정됨':'사람 확인 필요');"
+        "say('영수증 변경을 저장했습니다.')};"
+        "const save=async(action,onSaved)=>{if(receiptBusy)return;receiptBusy=true;const restore=lockControls();"
+        "say('저장하고 있습니다.');try{const result=await action();if(onSaved){try{onSaved(result)}catch{"
+        "say('저장은 완료됐지만 화면 갱신에 실패했습니다. 입력값을 보관하고 화면을 다시 열어 주세요.')}}else location.reload()}"
+        "catch(error){say(error.message||'저장하지 못했습니다. 다시 시도해 주세요.')}"
         "finally{restore();receiptBusy=false}};"
         "document.querySelectorAll('[data-image-sha]').forEach(button=>button.onclick=()=>{"
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
@@ -538,11 +549,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "save(()=>post('/api/receipts/scan',{image:sha||undefined,regions:[region]}))};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
         "save(()=>post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
-        "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}))});"
+        "total_jpy:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
         "if([...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input))){"
         "say('금액·결제수단·여행 변경은 수정 버튼으로 먼저 저장한 뒤 확정해 주세요.');return}"
-        "save(()=>post('/api/receipts/confirm',{identity:id,expected_version:b.closest('tr').dataset.version,payee:val('data-payee',id),category:val('data-category',id)}))});"
+        "save(()=>post('/api/receipts/confirm',{identity:id,expected_version:b.closest('tr').dataset.version,payee:val('data-payee',id),category:val('data-category',id)}),result=>updateCandidate(b,result))});"
         "document.getElementById('copy-tsv').onclick=async()=>{if(receiptBusy)return;"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
         "const dirty=[...document.querySelectorAll('tr[data-version]')].some(row=>{const assigned=row.querySelector('[data-trip]');"
