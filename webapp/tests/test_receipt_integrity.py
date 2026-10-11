@@ -111,3 +111,21 @@ def test_card_linked_receipt_can_choose_trip_when_form_resends_unchanged_payment
     assert result['trip_id'] == 'trip-syn'
     assert result['card_transaction_id'] == 'card-syn' and result['amount_krw'] is None
     assert rr.tsv(path, 'trip-syn')['row_count'] == 0
+
+
+def test_possible_duplicate_keeps_second_receipt_values_for_human_review(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr.scan(path, {'regions': [region()]})
+    other = {**region(), 'box': [300, 300, 400, 400], 'payment': 'private_card'}
+    result = rr.scan(path, {'regions': [other]})
+    assert result['added'] == 0
+    data = rr.load(path)
+    assert len(data['candidates']) == 1
+    held, = [hold for hold in data['holds'] if hold['reason'] == 'DUPLICATE_CONTENT']
+    assert held['candidate']['merchant'] == other['merchant']
+    assert held['candidate']['total_jpy'] == other['total']
+    assert held['candidate']['payment'] == 'private_card'
+    assert held['candidate']['identity'] != data['candidates'][0]['identity']
+    assert held['candidate']['box'] == other['box']
+    rr.scan(path, {'regions': [other]})
+    assert len(rr.load(path)['holds']) == 1

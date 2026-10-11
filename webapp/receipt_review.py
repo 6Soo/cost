@@ -210,20 +210,20 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     duplicates = []
     added = 0
     for candidate in result["candidates"]:
-        stored = {**candidate.__dict__, "history": [], "hold": None}
+        region = next(r for r in regions if rc._identity(r) == candidate.identity)
+        stored = {**candidate.__dict__, "history": [], "hold": None, 'box': list(region.box)}
         _settle(stored, cards)
         if payload.get("image"):
-            region = next(r for r in regions if rc._identity(r) == candidate.identity)
             source_region = hashlib.sha256(json.dumps(
                 [payload["image"], list(region.box)], sort_keys=True).encode()).hexdigest()
             stored["source_region"] = source_region
             stored.update(image_sha=payload['image'], box=list(region.box))
             if any(c.get("source_region") == source_region for c in data["candidates"]):
-                duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
+                duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
                 continue
         # The same slip photographed twice, or entered twice, is one cost. A second copy waits for a person.
         if any(_signature(c) == _signature(stored) for c in data["candidates"]):
-            duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
+            duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
             continue
         data["candidates"].append(stored)
         added += 1
@@ -435,12 +435,19 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
 
 
+def _hold_html(hold: dict) -> str:
+    candidate = hold.get('candidate') or {}
+    detail = (f"{candidate['merchant']} · {candidate['date']} · {candidate['total_jpy']} JPY · "
+              if candidate else '')
+    return '<li>' + html.escape(detail + MESSAGES.get(hold['reason'], hold['reason'])) + '</li>'
+
+
 def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
     rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 영수증 영역과 값을 입력해 주세요.</td></tr>'
-    holds = "".join(f"<li>{html.escape(MESSAGES.get(h['reason'], h['reason']))}</li>" for h in data["holds"]) or '<li>보류된 영수증이 없습니다.</li>'
+    holds = ''.join(_hold_html(h) for h in data['holds']) or '<li>보류된 영수증이 없습니다.</li>'
     images = "".join(
         f"<button type='button' data-image-sha='{sha}' aria-pressed='{'true' if sha == data['images'][-1] else 'false'}' "
         f"style='max-width:30%'>사진 {index} 선택<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'></button>"
