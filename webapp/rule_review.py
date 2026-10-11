@@ -175,7 +175,17 @@ def dispatch(handler, parsed, *, raw, csrf: str, board) -> bool:
         if not text:
             raise ValueError("TEXT_REQUIRED")
         state = CardFlow(board).state(proposal_match.group(1))
-        handler._send_json(propose(state, text=text, transaction_id=str(body.get("transaction_id", ""))))
+        transaction_id = str(body.get('transaction_id', ''))
+        result = propose(state, text=text, transaction_id=transaction_id)
+        from app import local_rule_ai
+        if result['status'] == 'NOT_UNDERSTOOD' and local_rule_ai.enabled():
+            try:
+                interpreted = local_rule_ai.interpret(text)
+                result = {**propose(state, text=interpreted, transaction_id=transaction_id),
+                          'interpreted_text': interpreted}
+            except local_rule_ai.InterpretationPending:
+                result['status'] = 'AI_PENDING'
+        handler._send_json(result)
     except RequestIdReused:
         handler._send_json({"code": "REQUEST_ID_REUSED",
                             "message": "이 요청 번호는 다른 승인에 이미 쓰였습니다. 새로고침 후 다시 승인하세요"}, 409)

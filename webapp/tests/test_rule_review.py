@@ -21,6 +21,56 @@ TWO_ROWS = CARD + (
 
 
 class RuleReviewTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get('COST_LOCAL_AI_SMOKE') == '1', 'Opt-in local AI engine smoke')
+    def test_actual_local_ai_browser_proposal_requires_approval(self):
+        with patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}), sync_playwright() as api:
+            browser = api.chromium.launch()
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.goto(self.base + '/import')
+                page.locator('#rule-focus option').nth(1).wait_for(state='attached')
+                page.select_option('#rule-focus', self.tx[0])
+                page.fill('#rule-text', '이 결제는 식비가 아니라 현지잡비야. 이번만 그렇게 분류해 줘.')
+                page.click('#rule-propose')
+                page.locator('#rule-approve').wait_for(timeout=25000)
+                self.assertEqual(page.locator('#rule-text').input_value(), '이 건만 현지잡비로 분류')
+                self.assertEqual(set(self.items().values()), {''})
+                page.click('#rule-approve')
+                page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
+                page.reload()
+                page.locator('#preview').get_by_text('현지잡비').first.wait_for()
+                self.assertEqual(self.items()[self.tx[0]], '현지잡비')
+                self.assertEqual(self.items()[self.tx[1]], '')
+            finally:
+                browser.close()
+
+    def test_ai_interpretation_is_reviewed_and_retry_does_not_call_model(self):
+        from app import local_rule_ai
+        before = self.items()
+        with patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}), \
+                patch.object(local_rule_ai, 'interpret', return_value='이 건만 현지잡비로 분류') as interpret:
+            proposal = self.propose(text='이 결제의 비용 분류를 현지잡비로 정리해 줘')
+            self.assertEqual(proposal['interpreted_text'], '이 건만 현지잡비로 분류')
+            self.assertEqual(self.items(), before)
+            status, result = self.approve(proposal, 'local-ai-approved')
+            self.assertEqual(status, 200)
+            count = self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0]
+            status, replay = self.approve(proposal, 'local-ai-approved')
+            self.assertEqual(status, 200)
+            self.assertEqual(result['applied'], replay['applied'])
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0], count)
+            interpret.assert_called_once()
+
+    def test_ai_unavailable_keeps_proposal_pending_and_database_unchanged(self):
+        from app import local_rule_ai
+        before = self.items()
+        with patch.dict(os.environ, {'WEBLEDGER_LOCAL_RULE_AI': '1'}), \
+                patch.object(local_rule_ai, 'interpret', side_effect=local_rule_ai.InterpretationPending):
+            result = self.propose(text='이 결제의 비용 분류를 현지잡비로 정리해 줘')
+        self.assertEqual(result['status'], 'AI_PENDING')
+        self.assertEqual(result['payloads'], [])
+        self.assertEqual(self.items(), before)
+
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self._env = patch.dict(os.environ, {'WEBLEDGER_UNIFIED_DB': '1', 'WEBLEDGER_CARD_FLOW': '1',
