@@ -1,5 +1,27 @@
 # 자율 개발 체크포인트
 
+## 2026-10-11 최대 구현 실행 — 후속 수정
+
+- 출발점은 `1eec6d7d39f78c1456524b5c09050978afeaf10a`이며 브랜치는 `integration/cost-final`이다. 구현 커밋 20개를 추가했고 코드 HEAD는 `f052fcaee7d300c1aaefbf0e99171f381aa423cf`다. 이후 기록 커밋의 SHA는 Git과 PR #85를 따른다. 제품·테스트 15개 파일을 변경했다.
+- 영수증: 미저장 금액·여행으로 확정하거나 미저장 검토값 대신 저장값을 복사하는 경로를 막았다. 화면의 후보 지문을 쓰기 시 비교하며, 마지막 저장과 정확히 같은 재시도만 결과를 재사용한다. 기존 버전 없는 내부 호출은 호환한다. 저장·복사 중 입력과 중복 요청을 잠그고 실패 후 복구한다. 한 행의 저장은 다른 행과 영역 입력을 지우지 않으며, 사진·영역 등록 전에는 미저장 검토를 보호한다.
+- 파일: 사진은 임시 파일 완성 후 교체하고 기존 사진의 내용과 ID가 다르면 제공·재등록을 거부한다. 파일 교체 실패·JSON 오류·잘못된 레코드 구조는 원본을 초기화하지 않고 안전한 503으로 처리한다. 비정상 HTTP 응답은 원문 대신 재로그인·저장 여부 확인을 안내한다.
+- 카드·영수증 복사는 이력 읽기 차단 시 중복 위험을 확인받은 뒤 진행한다. TSV는 보류·오류 사본도 중복 ID의 근거로 사용하며 카드 어댑터도 그 근거를 제거하지 않는다. 무관한 행과 기존 보류 사유는 유지한다.
+- 자연어 승인: 여행·설명·검토 전 분류·상호를 지문에 포함했다. 별도 DB 연결의 변경은 쓰기 트랜잭션 안에서도 원본 상태와 비교한다. 환불 미리보기의 상속값과 원본을 구분하며 중간 충돌은 앞선 결정과 요청 기록까지 롤백한다.
+- Google 동기화: 손상된 재시도 상태는 원본 조회 전에 거부하고 마지막 정상 스냅샷을 보존한다. 잠금 초기화 실패 시 핸들을 닫고 파일 접근 오류는 안전한 코드로 반환한다. 잘못된 시간·크기 제한값은 파일 생성 전에 거부한다.
+
+실제 검사 근거는 아래와 같다. 범위가 겹치므로 합산하지 않는다.
+
+| 실제 명령 또는 범위 | 결과와 적용 시점 |
+| --- | --- |
+| `python -m pytest webapp/tests/test_receipt_review.py webapp/tests/test_receipt_integrity.py tests/card_pipeline/test_receipt_candidates.py -q --tb=short` | 공통 파일 오류 처리 변경에서 75 passed / 12 subtests. 뒤의 레코드 구조 검사 변경은 해당 HTTP 표적 5 passed와 `test_receipt_integrity.py` 24 passed로 검증했다. |
+| `python -m pytest tests/card_pipeline/test_google_tsv.py tests/card_pipeline/test_receipt_candidates.py tests/card_pipeline/test_company_expense_integration.py webapp/tests/test_card_google_copy.py -q --tb=short` | TSV 공통 수정에서 47 passed / 4 subtests. 뒤의 어댑터 수정은 어댑터·회사 제외 통합 12 passed로 검증했다. |
+| `python -m pytest tests/card_pipeline/test_sync_schedule.py tests/card_pipeline/test_google_adc_export.py -q --tb=short` | 재시도 상태 변경에서 36 passed. 뒤의 잠금 경로 11 passed, 안전한 파일 오류 1 passed, 제한값·기존 CLI 경로 9 passed를 별도로 확인했다. |
+| `python -m pytest webapp/tests/test_rule_review.py tests/card_pipeline/test_rule_proposals.py -q --tb=short` | 지문 수정에서 45 passed / 12 subtests. 쓰기 경합 변경은 규칙·DB 동시성 30 passed / 12 subtests와 중간 롤백 1 passed로 확인했다. 마지막 원본·미리보기 구분은 관련 HTTP 7 passed와 DB 동시성 3 passed로 확인했다. |
+
+- 전체 pytest는 실행하지 않았다. 아래 3107 passed / 3 skipped / 2456 subtests 기준선은 과거 SHA의 근거로 유지한다. 이번 HEAD 전체 회귀 통과를 뜻하지 않는다. 모든 신규 결함은 실패 재현 후 수정했고 보호 assertion을 약화하지 않았다.
+- 사용자 작업 트리의 수정 1개·미추적 4개와 기존 stash 목록은 시작·후속 확인에서 같았고 건드리지 않았다. 운영 DB·Google 원본·공유 설정·스케줄러·main·배포 설정은 변경하지 않았다. 생성한 임시 worktree나 에이전트는 없다.
+- 다음 첫 명령은 `git -C C:/AX/cost-integration status --short`다. 독립적인 새 결함 근거가 없다면 통과 검사를 반복하지 않는다. 실제 인수의 다음 세 단계는 승인된 복구 사본의 `tools/rehearse_cost_schema.py --source-copy <승인된 사본> --confirm-isolated-copy --check-only`, 승인된 ADC/OIDC 계정의 읽기·만료·철회 검증, main 병합 또는 운영 배포가 승인됐을 때 시작 SHA와 종료 HEAD를 기록하는 전체 회귀다. 현재는 해당 운영 승인·자원이 없어 HOLD다. OCR 엔진과 기록·확정 거래 제외 정책도 기존 HOLD를 유지한다.
+
 ## 2026-10-11 검증 정책 변경
 
 - [AGENTS.md](../AGENTS.md#검증-최소화재검증-금지-작업-우선-원칙)에 표적·인접 통합 검사 중심 정책과 전체 회귀의 실행 조건을 반영했다. 기능 완료나 커밋 누적을 이유로 전체 회귀를 반복하지 않는다.
