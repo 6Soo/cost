@@ -3973,8 +3973,9 @@ class Handler(BaseHTTPRequestHandler):
             is_owner, viewer = google_ledger_page.caller(
                 ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
                 _active_role)
+            tabs = _ACCESS.visible_tabs(viewer) if (viewer and _ACCESS and not is_owner) else set()
             if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
-                                           csrf=CSRF_TOKEN, query=query):
+                                           csrf=CSRF_TOKEN, query=query, viewer_tabs=tabs):
                 return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
@@ -4226,6 +4227,8 @@ class Handler(BaseHTTPRequestHandler):
             if token != CSRF_TOKEN:
                 raise SaveError("CSRF_REQUIRED", "확인 토큰이 없어요")
 
+        # The write gates below read the session this request resolved, never a leftover from another one.
+        resolve_role(self.headers, self._cookies())
         from . import rule_review
         from . import card_flow as _card_flow_switch
         if _card_flow_switch.enabled() and rule_review.owns_route(parsed.path):
@@ -4238,12 +4241,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         from . import google_ledger_page
         if google_ledger_page.owns_route(parsed.path):
-            resolve_role(self.headers, self._cookies())
             is_owner, viewer = google_ledger_page.caller(
                 ACCESS_ENFORCEMENT, getattr(_ROLE_LOCAL, "session", None), is_owner_session,
                 _active_role)
+            tabs = _ACCESS.visible_tabs(viewer) if (viewer and _ACCESS and not is_owner) else set()
             if google_ledger_page.dispatch(self, parsed, is_owner=is_owner, viewer_user_id=viewer,
-                                           raw=raw, csrf=CSRF_TOKEN):
+                                           raw=raw, csrf=CSRF_TOKEN, viewer_tabs=tabs):
                 return
         from . import google_demo_page
         if google_demo_page.dispatch(self, parsed, raw=raw):

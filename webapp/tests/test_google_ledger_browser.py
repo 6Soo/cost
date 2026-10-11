@@ -130,8 +130,11 @@ class GoogleLedgerBrowserTests(unittest.TestCase):
             self.assertIn('ALICE-NAME', detail)
 
     def test_revoked_grant_leaves_the_viewer_without_the_trip_in_the_browser(self):
+        page.set_mapping(self.snapshot, key='0630_오제', tab_id='tab-A', known_keys={'0630_오제'})
         page.set_grants(self.snapshot, user_id='viewer-1', keys=['0630_오제'], granted=True, at='t')
-        with patch.object(page, 'caller', return_value=(False, 'viewer-1')), sync_playwright() as api:
+        visible = type('Access', (), {'visible_tabs': staticmethod(lambda user_id, now=None: {'tab-A'})})
+        with patch.object(page, 'caller', return_value=(False, 'viewer-1')), \
+                patch.object(ledger_board, '_ACCESS', visible()), sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
             pg = browser.new_context(viewport={'width': 390, 'height': 844}).new_page()
             pg.goto(self.base + '/google-ledger')

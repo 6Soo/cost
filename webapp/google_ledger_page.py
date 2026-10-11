@@ -18,6 +18,7 @@ from urllib.parse import quote
 from app import google_access, google_authority
 
 ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants",
+          "/api/google-ledger/mapping",
           "/google-ledger/rows", "/api/google-ledger/rows")
 REVIEW_LABELS = {
     "TOTAL_MISMATCH": "Google 합계와 행 합계가 다름",
@@ -221,6 +222,32 @@ def caller(enforced: bool, session, is_owner_of, role_of=None) -> tuple[bool, st
     return False, None
 
 
+def mapping_path(snapshot_path: Path) -> Path:
+    return snapshot_path.with_name("google-tab-mapping.json")
+
+
+def load_mapping(snapshot_path: Path) -> dict:
+    path = mapping_path(snapshot_path)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def set_mapping(snapshot_path: Path, *, key: str, tab_id: str | None, known_keys: set) -> dict:
+    """Owner-only link between a Google trip key and the COST tab it is. None removes the link."""
+    if key not in known_keys:
+        raise ValueError("GOOGLE_TRIP_UNKNOWN")
+    data = load_mapping(snapshot_path)
+    if tab_id:
+        data[key] = str(tab_id)
+    else:
+        data.pop(key, None)
+    tmp = mapping_path(snapshot_path).with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, mapping_path(snapshot_path))
+    return data
+
+
 def grants_path(snapshot_path: Path) -> Path:
     return snapshot_path.with_name("google-viewer-grants.json")
 
@@ -247,9 +274,17 @@ def set_grants(snapshot_path: Path, *, user_id: str, keys: list, granted: bool, 
     return data
 
 
-def viewer_payload(snapshot: dict, grants: dict, user_id: str) -> dict:
-    """Trip-level figures for the trips this account was granted. Never copies, never source detail."""
-    allowed = set(grants.get("grants", {}).get(user_id, []))
+def viewer_payload(snapshot: dict, grants: dict, user_id: str, *, mapping: dict | None = None,
+                   visible_tabs: set | None = None) -> dict:
+    """Trip-level figures for the trips this account may read. Never copies, never source detail.
+
+    Owner grant AND link to a COST tab AND that tab visible to the account. Without the link, a grant
+    alone shows nothing, because the owner's grant could not otherwise be tied to the COST access rules.
+    """
+    granted = set(grants.get("grants", {}).get(user_id, []))
+    tabs = visible_tabs or set()
+    links = mapping or {}
+    allowed = {key for key in granted if links.get(key) and links[key] in tabs}
     trips = google_access.visible_trips(snapshot["trips"], is_owner=False, allowed_keys=allowed)
     return {"synced_at": snapshot.get("synced_at"),
             "sources": {role: {"status": src.get("status")} for role, src in snapshot["sources"].items()},
@@ -257,13 +292,13 @@ def viewer_payload(snapshot: dict, grants: dict, user_id: str) -> dict:
 
 
 def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = None, raw=None, csrf: str = "",
-             query=None) -> bool:
+             query=None, viewer_tabs=None) -> bool:
     if not owns_route(parsed.path) or not enabled():
         return False
-    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants") and raw is None:
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping") and raw is None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
-    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants"):
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping"):
         if not is_owner:
             handler._send_json({"code": "OWNER_ONLY", "message": "소유자만 바꿀 수 있습니다"}, 403)
             return True
@@ -277,7 +312,11 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
             return True
         now = dt.datetime.now(google_authority.KST).isoformat()
         try:
-            if parsed.path.endswith("/choice"):
+            if parsed.path.endswith("/mapping"):
+                known = {t["key"] for t in json.loads(_snapshot_path().read_text(encoding="utf-8"))["trips"]}
+                set_mapping(_snapshot_path(), key=str(body.get("key", "")),
+                            tab_id=str(body.get("tab_id") or "") or None, known_keys=known)
+            elif parsed.path.endswith("/choice"):
                 record_choice(_snapshot_path(), key=str(body.get("key", "")), source=str(body.get("source", "")), at=now)
             else:
                 set_grants(_snapshot_path(), user_id=str(body.get("user_id", "")), keys=body.get("keys"),
@@ -317,7 +356,8 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     if is_owner:
         payload = owner_payload(snapshot, load_choices(_snapshot_path()))
     else:
-        payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id)
+        payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
+                                 mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs)
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)
     else:

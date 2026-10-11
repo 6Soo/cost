@@ -152,8 +152,10 @@ def test_unreadable_snapshot_is_503_not_empty_page(tmp_path, monkeypatch):
 
 def test_viewer_sees_only_granted_trip_without_copies_or_sources(snapshot_file):
     page.set_grants(snapshot_file, user_id="viewer-1", keys=["<script>0630"], granted=True, at="t")
+    page.set_mapping(snapshot_file, key="<script>0630", tab_id="tab-A", known_keys={"<script>0630"})
     handler = FakeHandler()
-    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="viewer-1")
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="viewer-1",
+                  viewer_tabs={"tab-A"})
     _, code, payload = handler.sent[0]
     assert code == 200
     assert [t["key"] for t in payload["trips"]] == ["<script>0630"]
@@ -307,6 +309,7 @@ def test_removed_account_gets_nothing_even_with_a_grant(tmp_path, snapshot_file)
 
 def test_grant_revocation_empties_the_viewer_page_and_regranting_restores_it(tmp_path, snapshot_file):
     store = _access(tmp_path)
+    page.set_mapping(snapshot_file, key="0404_에히메", tab_id="tab-A", known_keys={"0404_에히메"})
     page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t")
     page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=False, at="t2")
     handler = FakeHandler()
@@ -314,8 +317,10 @@ def test_grant_revocation_empties_the_viewer_page_and_regranting_restores_it(tmp
     page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer)
     assert handler.sent[0][2]["trips"] == []
     page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t3")
+    page.set_mapping(snapshot_file, key="0404_에히메", tab_id="tab-A", known_keys={"0404_에히메"})
     handler = FakeHandler()
-    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer)
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=is_owner, viewer_user_id=viewer,
+                  viewer_tabs={"tab-A"})
     assert [t["key"] for t in handler.sent[0][2]["trips"]] == ["0404_에히메"]
 
 
@@ -389,3 +394,43 @@ def test_closure_that_is_not_current_or_an_unverified_copy_blocks_the_choice():
     unverified = _clean_trip(copies={"main": copy("0404_에히메", 1000, 400),
                                      "archive": copy("0404_에히메", 900, 300, verified=False)})
     assert "COPY_NOT_VERIFIED" in _chosen(unverified, _clean_sources())["blocked_by"]
+
+
+def test_a_grant_without_a_cost_tab_link_shows_nothing(snapshot_file):
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="v1", viewer_tabs={"tab-A"})
+    assert handler.sent[0][2]["trips"] == []
+
+
+def test_a_linked_tab_the_account_cannot_see_shows_nothing(snapshot_file):
+    page.set_mapping(snapshot_file, key="0404_에히메", tab_id="tab-A", known_keys={"0404_에히메"})
+    page.set_grants(snapshot_file, user_id="v1", keys=["0404_에히메"], granted=True, at="t")
+    handler = FakeHandler()
+    page.dispatch(handler, parsed("/api/google-ledger"), is_owner=False, viewer_user_id="v1", viewer_tabs={"tab-B"})
+    assert handler.sent[0][2]["trips"] == []
+
+
+def test_owner_sets_and_clears_the_link_and_unknown_trips_are_refused(snapshot_file):
+    known = {"0404_에히메", "<script>0630"}
+    page.set_mapping(snapshot_file, key="0404_에히메", tab_id="tab-A", known_keys=known)
+    assert page.load_mapping(snapshot_file) == {"0404_에히메": "tab-A"}
+    page.set_mapping(snapshot_file, key="0404_에히메", tab_id=None, known_keys=known)
+    assert page.load_mapping(snapshot_file) == {}
+    with pytest.raises(ValueError, match="GOOGLE_TRIP_UNKNOWN"):
+        page.set_mapping(snapshot_file, key="not-a-trip", tab_id="tab-A", known_keys=known)
+
+
+def test_mapping_route_is_owner_only_and_csrf_protected(snapshot_file):
+    body = json.dumps({"key": "0404_에히메", "tab_id": "tab-A"}).encode()
+    viewer = FakeHandler(token="tok")
+    page.dispatch(viewer, parsed("/api/google-ledger/mapping"), is_owner=False, viewer_user_id="v1",
+                  raw=body, csrf="tok")
+    assert viewer.sent[0][:2] == ("json", 403)
+    no_token = FakeHandler()
+    page.dispatch(no_token, parsed("/api/google-ledger/mapping"), is_owner=True, raw=body, csrf="tok")
+    assert no_token.sent[0][:2] == ("json", 403)
+    owner = FakeHandler(token="tok")
+    page.dispatch(owner, parsed("/api/google-ledger/mapping"), is_owner=True, raw=body, csrf="tok")
+    assert owner.sent[0][:2] == ("json", 200)
+    assert page.load_mapping(snapshot_file) == {"0404_에히메": "tab-A"}
