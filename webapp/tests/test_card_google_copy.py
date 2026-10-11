@@ -392,6 +392,36 @@ class CardGoogleCopyTests(unittest.TestCase):
             self.assertEqual(conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
             browser.close()
 
+    def test_old_poll_error_cannot_replace_a_saved_answer_status_in_same_batch(self):
+        batch = self.assign(trip=self.make_trip())
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        pending = []
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(self.base + '/import')
+            page.locator(f'[data-batch="{batch}"]').click()
+            page.wait_for_function('(id)=>model.batch_id===id', arg=batch)
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            page.locator(f'[data-edit="{row["transaction_id"]}"]').click()
+            form = page.locator('form[data-index]').first
+            form.locator('[name="item"]').fill('식비')
+            page.route(f'**/api/imports/{batch}', lambda route: pending.append(route))
+            with page.expect_request(f'**/api/imports/{batch}'):
+                page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>false});void pollCard()")
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
+            form.locator('button').click()
+            page.get_by_text('답변을 적용했습니다.', exact=False).wait_for()
+            status = page.locator('#status').inner_text()
+            with page.expect_response(f'**/api/imports/{batch}'):
+                pending.pop().fulfill(status=500, json={'message': 'OLD-POLL-FAILED'})
+            page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+            self.assertEqual(page.locator('#status').inner_text(), status)
+            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).item', row['transaction_id']), '식비')
+            self.assertEqual(self.server.card_store.conn.execute('SELECT item,user_confirmed FROM transactions WHERE transaction_id=?',
+                                                                (row['transaction_id'],)).fetchone(), ('식비', 1))
+            browser.close()
+
     def _delayed_response_case(self, *, poll):
         first = self.assign(trip=self.make_trip())
         second = self.flow.pipeline.receive(CARD.replace(b'A123', b'A999'), 'second.csv')['batch_id']
