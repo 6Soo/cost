@@ -1,4 +1,13 @@
-from tools.verify_operational_backup_restore import product_files, digest_file
+from tools.verify_operational_backup_restore import product_files, digest_file, database_inputs
+
+
+def test_unified_decisions_do_not_omit_operator_and_ota_databases(tmp_path):
+    for name in ('board.sqlite', 'board.operator.sqlite', 'real-review.sqlite', 'ota.sqlite'):
+        (tmp_path / name).write_bytes(b'synthetic')
+    databases, decision_name = database_inputs(tmp_path, {'decisions_db_path': str(tmp_path / 'board.sqlite')},
+                                             {'ota_review': {'review_db': str(tmp_path / 'ota.sqlite')}})
+    assert set(databases) == {'board.sqlite', 'board.operator.sqlite', 'real-review.sqlite', 'ota-review.sqlite'}
+    assert decision_name == 'board.sqlite'
 
 
 def test_backup_covers_receipt_original_decisions_and_google_generation(tmp_path):

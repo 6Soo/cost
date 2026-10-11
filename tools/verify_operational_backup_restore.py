@@ -74,6 +74,24 @@ def product_files(host):
     return files
 
 
+def database_inputs(data, manifest, options):
+    databases = {'board.sqlite': data / 'board.sqlite'}
+    for name in ('board.operator.sqlite', 'real-review.sqlite'):
+        if (data / name).is_file():
+            databases[name] = data / name
+    decisions = Path(manifest['decisions_db_path'])
+    decision_name = next((name for name, path in databases.items() if path.resolve() == decisions.resolve()), None)
+    if decision_name is None:
+        decision_name = 'review-decisions.sqlite'
+        databases[decision_name] = decisions
+    ota = (options.get('ota_review') or {}).get('review_db')
+    if ota and Path(ota).is_file():
+        path = Path(ota)
+        if path.resolve() not in {p.resolve() for p in databases.values()}:
+            databases['ota-review.sqlite'] = path
+    return databases, decision_name
+
+
 def main(evidence_out=None):
     host = Path(r"D:\WebLedgerHost")
     data = host / "data"
@@ -85,13 +103,9 @@ def main(evidence_out=None):
     restored = data / "restore-verification" / stamp
     bundle.mkdir(parents=True, exist_ok=False)
     restored.mkdir(parents=True, exist_ok=False)
-    databases = {
-        "board.sqlite": data / "board.sqlite",
-        "board.operator.sqlite": data / "board.operator.sqlite",
-        "real-review.sqlite": Path(manifest["decisions_db_path"]),
-    }
-    if Path(manifest['decisions_db_path']).resolve() == (data/'board.sqlite').resolve():
-        databases = {'board.sqlite':data/'board.sqlite'}
+    flow_config = host / 'config/card-flow.json'
+    options = json.loads(flow_config.read_text(encoding='utf-8')) if flow_config.is_file() else {}
+    databases, decision_name = database_inputs(data, manifest, options)
     before = {name: database_state(path) for name, path in databases.items()}
     for name, path in databases.items():
         backup_database(path, bundle / "databases" / name)
@@ -137,8 +151,7 @@ def main(evidence_out=None):
     relocated = dict(manifest)
     for kind in ("snapshot", "review", "master"):
         relocated[kind + "_path"] = str(restored / "review" / Path(manifest[kind + "_path"]).name)
-    relocated["decisions_db_path"] = str(restored / 'databases' / (
-        'board.sqlite' if len(databases)==1 else 'real-review.sqlite'))
+    relocated["decisions_db_path"] = str(restored / 'databases' / decision_name)
     relocated_path = restored / "config/real-review.json"
     relocated_path.write_text(json.dumps(relocated, indent=2) + "\n", encoding="utf-8")
     if BoundInputs(load_manifest(str(relocated_path))).binding != inputs.binding:
