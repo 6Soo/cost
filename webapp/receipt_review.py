@@ -14,6 +14,9 @@ import json
 import os
 import re
 import sqlite3
+import datetime as dt
+import functools
+import threading
 from pathlib import Path
 
 from app import receipt_candidates as rc
@@ -25,6 +28,32 @@ IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
+_STORE_LOCK = threading.RLock()
+
+
+def _serialized(function):
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        with _STORE_LOCK:
+            return function(*args, **kwargs)
+    return wrapped
+
+
+def _candidate(stored: dict) -> rc.Candidate:
+    return rc.Candidate(**{k: v for k, v in stored.items() if k in rc.Candidate.__dataclass_fields__})
+
+
+def _validate_values(merchant, date, total) -> None:
+    if not isinstance(merchant, str) or not merchant.strip():
+        raise ValueError("FIELD_MISSING")
+    if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise ValueError("DATE_INVALID")
+    try:
+        dt.date.fromisoformat(date)
+    except ValueError:
+        raise ValueError("DATE_INVALID") from None
+    if type(total) is not int or total <= 0:
+        raise ValueError("TOTAL_UNCLEAR")
 
 
 def enabled() -> bool:
@@ -77,6 +106,7 @@ def sniff_image(body: bytes) -> str:
     raise ValueError("IMAGE_TYPE_UNSUPPORTED")
 
 
+@_serialized
 def store_image(path: Path, body: bytes) -> dict:
     """Keeps a picture the person registered, after a structural check. Nothing is read from its content."""
     if not body or len(body) > IMAGE_LIMIT:
@@ -130,11 +160,15 @@ def card_rows(board) -> list[dict]:
             for tid, date, merchant, amount in rows]
 
 
+@_serialized
 def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     regions = _regions(payload)
+    for region in regions:
+        if region.confidence >= rc.MIN_CONFIDENCE and region.total is not None:
+            _validate_values(region.merchant, region.date, region.total)
     known = {c["identity"] for c in data["candidates"]}
     # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
     result = rc.build_candidates(regions, card_rows(board), known=known)
@@ -142,6 +176,14 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     added = 0
     for candidate in result["candidates"]:
         stored = {**candidate.__dict__, "history": [], "hold": None}
+        if payload.get("image"):
+            region = next(r for r in regions if rc._identity(r) == candidate.identity)
+            source_region = hashlib.sha256(json.dumps(
+                [payload["image"], list(region.box)], sort_keys=True).encode()).hexdigest()
+            stored["source_region"] = source_region
+            if any(c.get("source_region") == source_region for c in data["candidates"]):
+                duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
+                continue
         # The same slip photographed twice, or entered twice, is one cost. A second copy waits for a person.
         if any(_signature(c) == _signature(stored) for c in data["candidates"]):
             duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT"})
@@ -149,7 +191,7 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         data["candidates"].append(stored)
         added += 1
     seen = {h["identity"] for h in data["holds"]}
-    data["holds"].extend(h for h in result["holds"] if h["identity"] not in seen)
+    data["holds"].extend(h for h in result["holds"] + duplicates if h["identity"] not in seen)
     _save(path, data)
     return {"added": added, "holds": result["holds"] + duplicates}
 
@@ -178,9 +220,10 @@ def _settle(stored: dict, card_rows_list: list) -> None:
 
 
 def _signature(candidate: dict) -> tuple:
-    return (candidate["date"], candidate["merchant"].strip(), int(candidate["total_jpy"]), candidate["payment"])
+    return (candidate["date"], candidate["merchant"].strip(), int(candidate["total_jpy"]))
 
 
+@_serialized
 def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trips: set | None = None,
          card_rows_list: list | None = None) -> dict:
     """A person corrects what was typed. Card-linked receipts keep the card amount, so they cannot be re-priced."""
@@ -192,6 +235,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError("FIELD_NOT_EDITABLE")
+        _validate_values(changes.get("merchant", stored["merchant"]), changes.get("date", stored["date"]),
+                         changes.get("total_jpy", stored["total_jpy"]))
         before = {k: stored.get(k) for k in changes}
         if "payment" in changes and changes["payment"] not in PAYMENTS:
             raise ValueError("PAYMENT_UNKNOWN")
@@ -206,17 +251,20 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if any(_signature(c) == _signature(stored) for c in others):
             raise ValueError("DUPLICATE_CONTENT")
         _settle(stored, card_rows_list or [])
+        if any(before[k] != stored.get(k) for k in changes):
+            stored["payee"], stored["category"] = None, None
         stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note})
         _save(path, data)
         return stored
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
+@_serialized
 def confirm(path: Path, *, identity: str, payee: str, category: str, note: str = "") -> dict:
     data = load(path)
     for stored in data["candidates"]:
         if stored["identity"] == identity:
-            candidate = rc.Candidate(**{k: v for k, v in stored.items() if k not in ("history", "trip_id", "hold")})
+            candidate = _candidate(stored)
             candidate.history = list(stored["history"])
             rc.confirm(candidate, payee=payee, category=category, note=note)
             stored.update(payee=candidate.payee, category=candidate.category, history=candidate.history)
@@ -227,8 +275,7 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
 
 def tsv(path: Path, trip: str | None = None) -> dict:
     data = load(path)
-    candidates = [rc.Candidate(**{k: v for k, v in c.items() if k not in ("history", "trip_id", "hold")})
-                  for c in data["candidates"]]
+    candidates = [_candidate(c) for c in data["candidates"]]
     if not trip:
         raise ValueError("TRIP_REQUIRED")
     mine = [c for c, stored in zip(candidates, data["candidates"]) if stored.get("trip_id") == trip]
