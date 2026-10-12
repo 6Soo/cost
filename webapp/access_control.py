@@ -139,6 +139,8 @@ VIEWER_DENIED_FIELDS = (
 
 # Routes only an owner may reach. A viewer gets 404 on each of them.
 OWNER_ONLY_PATHS = (
+    "/ota",
+    "/api/ota",
     "/import",
     "/export",
     "/trips",

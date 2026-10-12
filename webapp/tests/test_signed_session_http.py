@@ -136,6 +136,23 @@ class SignedSessionHttpTests(unittest.TestCase):
         return self.flow.adapter.issue_cookie(
             identity, generation=account["session_generation"])
 
+    def test_ota_catalog_signed_role_boundaries_and_no_cache(self):
+        from webapp.tests.test_ota_catalog import source_database
+        source = self.root / 'ota.sqlite'
+        source_database(source)
+        with patch.dict(os.environ, {'WEBLEDGER_OTA_SOURCES_JSON': json.dumps({
+                'portal_databases': [str(source)], 'mail_directories': []}), 'WEBLEDGER_REVIEW_CONFIG': ''}):
+            for user, expected in ((OWNER, 200), (VIEWER, 403), (None, 401)):
+                for path in ('/ota', '/ota?state=unassigned', '/api/ota?state=unassigned'):
+                    status, body, headers = self.request(path, cookie=self.cookie(user) if user else None)
+                    self.assertEqual(status, expected, body)
+                    self.assertEqual(headers.get('Cache-Control'), 'no-store')
+                    if user != OWNER:
+                        self.assertNotIn('BOOK-1', body)
+                        self.assertNotIn('합성 호텔', body)
+                    elif path.startswith('/api/'):
+                        self.assertEqual(json.loads(body)['total'], 2)
+
     def test_signed_owner_binary_upload_preserves_bytes_and_denies_other_roles(self):
         from webapp.tests.test_receipt_review import PNG
         for user, expected in ((OWNER, 200), (VIEWER, 403), (None, 401)):

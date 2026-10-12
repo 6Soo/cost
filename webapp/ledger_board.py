@@ -3994,6 +3994,10 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
             return
+        from . import ota_catalog
+        if ota_catalog.dispatch(self, parsed, board=_active_store(),
+                                is_owner=_receipts_owner_request(), query=query):
+            return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
