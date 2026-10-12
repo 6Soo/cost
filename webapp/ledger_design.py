@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 import uuid
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
@@ -148,6 +149,10 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 #q-clear{height:32px}
 .nav-ft{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);
  font-size:11.5px;color:var(--mut);line-height:1.6}
+#live-nav{display:flex;flex-direction:column;flex:1 0 auto}
+#previous-trips{margin-top:auto;padding:12px 8px;border-top:1px solid var(--line)}
+#previous-trips>summary{cursor:pointer;min-height:44px;list-style:none}
+#previous-trips[open]>summary>span:first-child{transform:rotate(90deg)}
 .nav-mask{display:none}
 
 .main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--paper)}
@@ -973,8 +978,18 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     if board.current_role() == "viewer":
         allowed = board.viewer_visible_tabs(board.current_request_session())
         trips = [t for t in trips if t["tab_id"] in allowed]
-    active = [t for t in trips if not t.get("archived") and not t.get("deleted")]
-    archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")]
+    # Display grouping only: never archive or rewrite a trip or its ledger.
+    def previous_trip(trip):
+        try:
+            return date.fromisoformat(trip.get("starts_on") or "") <= date(2026, 6, 25)
+        except (TypeError, ValueError):
+            return False
+
+    previous_rows = [t for t in trips if not t.get("deleted") and previous_trip(t)]
+    active = [t for t in trips if not t.get("archived") and not t.get("deleted")
+              and not previous_trip(t)]
+    archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")
+                     and not previous_trip(t)]
     unclassified = board._unclassified_rows()
 
     def short_date(value):
@@ -983,10 +998,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
             return f"{parts[1]}.{parts[2]}"
         return str(value or '')
 
-    listed = []
-    for trip in active:
-        if query and query not in (trip["display_key"] + trip["destination"]):
-            continue
+    def trip_entry(trip):
         # 금액 badge를 표시하지 않는다. 수입 합계는 장부 화면의 합계 영역이
         # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 확정 금액과의 혼동을
         # 막기 위한 표시 변경이며 집계 로직은 그대로 둔다.
@@ -995,10 +1007,16 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
             dates = f"{short_date(start)}~{short_date(end)}"
         else:
             dates = short_date(start or end) or None
-        listed.append(entry(
+        return entry(
             board.esc(trip["display_key"]),
             f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            dates, trip["tab_id"] == tab_id))
+            dates, trip["tab_id"] == tab_id)
+
+    listed = []
+    for trip in active:
+        if query and query not in (trip["display_key"] + trip["destination"]):
+            continue
+        listed.append(trip_entry(trip))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
     # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
@@ -1054,7 +1072,19 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                 f"<span class='nm'>{board.esc(trip['display_key'])}</span></a>"
                 f"{view}{restore}</li>")
         arch_head += f"<ul class='nav-list' id='archived'>{''.join(rows)}</ul>"
-    return "".join(head + body for head, body in sections) + arch_head
+    previous = ""
+    matching_previous = [t for t in previous_rows
+                         if not query or query in (t["display_key"] + t["destination"])]
+    if matching_previous:
+        expanded = bool(query) or any(t["tab_id"] == tab_id for t in matching_previous)
+        previous = (
+            f'<details id="previous-trips"{" open" if expanded else ""}>'
+            '<summary class="nv"><span aria-hidden="true">▸</span><span class="nm">이전 여행</span>'
+            f'<span class="ct">{len(matching_previous)}개</span></summary>'
+            '<p class="nav-sec">2분기 · 2026년 6월 25일까지</p>'
+            '<ul class="nav-list">' + ''.join(trip_entry(t) for t in matching_previous)
+            + '</ul></details>')
+    return "".join(head + body for head, body in sections) + arch_head + previous
 
 
 def nav_region(tab_id: str, query: str = "", kind: str = "",

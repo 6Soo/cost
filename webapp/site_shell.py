@@ -48,6 +48,10 @@ STYLE = """
 #nav .nav-list{list-style:none;margin:0;padding:0 8px}
 #nav .nav-sec{padding:12px 16px 6px;margin:0;font-size:11px;font-weight:600;line-height:1.5;color:#667085;letter-spacing:.05em}
 #nav .nav-ft{margin: auto 0 0;padding:12px 16px;border-top:1px solid #E4E7EC;font-size:11.5px;line-height:1.6;color:#667085}
+#live-nav{display:flex;flex-direction:column;flex:1 0 auto}
+#previous-trips{margin-top:auto;padding:12px 8px;border-top:1px solid #E4E7EC}
+#previous-trips>summary{cursor:pointer;min-height:44px;list-style:none}
+#previous-trips[open]>summary>span:first-child{transform:rotate(90deg)}
 #nav .nv{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 8px;
  border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
  font-family:inherit;font-size:14px;line-height:1.5;font-weight:400;text-align:left;cursor:pointer;color:#182230;text-decoration:none}
