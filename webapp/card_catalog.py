@@ -259,7 +259,8 @@ def _automatic_script(data, csrf):
     const status=document.getElementById('card-auto-status');let recorded=0;status.textContent=batches.length?'자동 반영 중…':'';
     for(const batch of batches){try{const response=await fetch('/api/imports/'+encodeURIComponent(batch)+'/auto-record',
       {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
-      if(!response.ok)throw Error('자동 반영을 완료하지 못했습니다. 처리 결과 확인을 눌러 다시 확인해 주세요.');
+      if(!response.ok){let message='자동 반영을 완료하지 못했습니다. 처리 결과 확인을 눌러 다시 확인해 주세요.';
+        try{const error=await response.json();message=error.message||message}catch{}throw Error(message)}
       const state=await response.json();recorded+=state.auto_recorded||0;for(const item of state.preview.rows){
         const row=[...document.querySelectorAll('[data-transaction]')].find(e=>e.dataset.transaction===item.transaction_id);
         if(!row||!item.next_action)continue;const a=item.next_action;
