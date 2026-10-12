@@ -856,6 +856,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "button .ic:first-child{margin-right:6px}"
             "@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
             ".work-back{display:inline-flex;align-items:center;min-height:44px;color:#166444;text-decoration:none}"
+            "#status:not(:empty){position:sticky;top:0;z-index:10;background:#eff6ff;color:#1e3a8a;padding:12px;border:1px solid #bfdbfe;border-radius:8px;font-weight:600}"
             "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}"
             "thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
             "tr{border:1px solid #e4e7ec;border-radius:8px;background:white;padding:10px;margin:0 0 12px}"
@@ -866,7 +867,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "#copy-trip{width:100%;margin:6px 0}#copy-tsv{width:100%}h1{font-size:22px}}"
             "</style></head><body>"
             f"<nav aria-label='장부 이동'><a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a></nav>"
-            "<h1>영수증 후보</h1>"
+            "<h1>영수증 후보</h1><p id='status' role='status' aria-live='polite'></p>"
             + ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
                "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label>"
                 f"<button type='button' id='ocr-go'>{ui_icons.icon('search')}선택한 사진 글자 읽기</button>"
@@ -907,5 +908,5 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
             f"<h2>보류</h2><ul>{holds}</ul>"
             f"<p><label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label> "
-             f"<button type='button' id='copy-tsv'>{ui_icons.icon('copy')}구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
+             f"<button type='button' id='copy-tsv'>{ui_icons.icon('copy')}구글 지출 7열 복사</button></p>"
             f"<script>{script}{vision_script}</script></body></html>")
