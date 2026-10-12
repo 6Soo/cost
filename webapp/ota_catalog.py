@@ -122,19 +122,28 @@ def catalog(board, query, *, sources=None):
             add_database(_read_database(path))
         except (OSError, ValueError, sqlite3.Error):
             warnings.append('일부 자료를 읽지 못했습니다. 예약 DB를 확인한 뒤 다시 조회해 주세요.')
-    for directory in dict.fromkeys(str(p) for p in sources.get('mail_directories', [])):
-        if not Path(directory).is_dir():
-            continue
+    directories = [str(p) for p in dict.fromkeys(str(p) for p in sources.get('mail_directories', []))
+                   if Path(p).is_dir()]
+    events = []
+    if directories:
         try:
-            events = ota_payments.build_ota_payment_events({'mail_directories': [directory], 'portal_databases': []})
-            for event in events:
-                period = event.get('service_period') or {}
-                if not isinstance(period, dict):
-                    period = {}
-                add(event.get('provider'), event.get('booking_ref'), event.get('item'),
-                    period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
+            # 예약 목록에는 결제 이벤트 간 병합·대사가 필요하지 않다.
+            # 모든 디렉터리를 함께 넘겨 기존 내용 해시 기반 파싱 캐시를 재사용한다.
+            events = ota_payments._mail_events(directories)
         except (OSError, ValueError, ota_payments.OtaSourcesError):
             warnings.append('일부 자료를 읽지 못했습니다. OTA 메일 수집 상태를 확인해 주세요.')
+            # 손상된 한 자료 때문에 다른 정상 디렉터리의 예약까지 숨기지 않는다.
+            for directory in directories:
+                try:
+                    events.extend(ota_payments._mail_events([directory]))
+                except (OSError, ValueError, ota_payments.OtaSourcesError):
+                    continue
+    for event in events:
+        period = event.get('service_period') or {}
+        if not isinstance(period, dict):
+            period = {}
+        add(event.get('provider'), event.get('booking_ref'), event.get('item'),
+            period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
     _saved_board_links(board, merged)
     rows = []
     for row in merged.values():

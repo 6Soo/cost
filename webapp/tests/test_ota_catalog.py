@@ -131,6 +131,33 @@ def test_mail_bookings_are_merged_without_creating_payment_or_reservation_rows(d
     assert board.conn.total_changes == before
 
 
+def test_multiple_mail_directories_reuse_one_parse_across_filter_requests(data, tmp_path, monkeypatch):
+    from app import ota_payments
+    from tests.card_pipeline.test_booking_mail import message
+    board, sources = data
+    mail = message('예약번호: BOOK12345\n총 금액 30,000원',
+                   subject='[Trip.com] 결제 완료 안내', identity='shared-synthetic-mail')
+    directories = [tmp_path / 'one', tmp_path / 'two']
+    for directory in directories:
+        directory.mkdir()
+        (directory / 'gmail-test.json').write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
+    sources['mail_directories'] = directories
+    original = ota_payments._parse_mail_events
+    parses = []
+    def parse(paths):
+        parses.append(paths)
+        return original(paths)
+    monkeypatch.setattr(ota_payments, '_MAIL_EVENT_MEMO', {})
+    monkeypatch.setattr(ota_payments, '_parse_mail_events', parse)
+    def no_payment_reconciliation(*args):
+        raise AssertionError('예약 목록에서 결제 이벤트를 재대사하면 안 됩니다')
+    monkeypatch.setattr(ota_payments, '_merge_proven_duplicate_payments', no_payment_reconciliation)
+    first = ota_catalog.catalog(board, {}, sources=sources)
+    second = ota_catalog.catalog(board, {'state': ['unassigned']}, sources=sources)
+    assert first['all_count'] == second['all_count'] == 4
+    assert len(parses) == 1
+
+
 def test_card_review_workbook_is_not_an_ota_database(data, tmp_path, monkeypatch):
     import hashlib
     board, sources = data
