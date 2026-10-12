@@ -474,6 +474,12 @@ class CardFlow:
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
         if isinstance(country,dict):
+            if country.get('owner_card3820_singapore'):
+                candidates = [t for t in self.board.list_trips()
+                              if t['destination'] == '싱가포르'
+                              and (t['starts_on'], t['ends_on']) == ('2026-09-19', '2026-09-24')
+                              and self.trip_valid(t['tab_id'])]
+                return candidates[0]['tab_id'] if len(candidates) == 1 else ''
             if 'inferred_trip_id' in country:
                 target=country['inferred_trip_id']
                 return target if self.trip_valid(target) else ''

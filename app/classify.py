@@ -69,6 +69,10 @@ def classify_transaction(transaction: dict, *, rules: list,
     regular = [r for r in rules if r not in inferred]
     verdict = _classify_transaction(transaction,rules=regular,prior_decision=prior_decision,
                                     trip_resolver=trip_resolver,allow_defaults=allow_defaults)
+    if residual_policy and not prior_decision:
+        exception = _card3820_singapore(transaction, verdict, trip_resolver)
+        if exception is not None:
+            return exception
     if prior_decision or transaction.get('parse_error') or verdict['trip_id'] or verdict['classification_source']=='rule_conflict':
         return verdict
     matches = [r for r in inferred if rule_matches(r,transaction)[0]]
@@ -98,6 +102,34 @@ def classify_transaction(transaction: dict, *, rules: list,
                 classification_basis=('사용자 예외 · ' if exception else '추론 배정 · '+inference['confidence']+' · ')+inference['basis'],
                 item=rule['effects']['item'],description=rule['effects'].get('description',''),
                 display_tab_id=target or 'unclassified',trip_id=target,rule_id=rule.get('rule_id',''))
+
+
+def _card3820_singapore(transaction, verdict, trip_resolver):
+    """Explicit owner assignment for this period; no date-based travel inference."""
+    day = transaction.get('approval_date') or transaction.get('posting_date') or ''
+    if (transaction.get('card_tail') != '3820' or not isinstance(day, str)
+            or not '2026-09-19' <= day <= '2026-09-24'
+            or transaction.get('parse_error') or not trip_resolver
+            or transaction.get('transaction_direction') != 'purchase'
+            or any(marker in str(transaction.get('transaction_kind', '')).lower()
+                   for marker in ('refund', 'cancel', '취소', '승인'))
+            or type(transaction.get('amount_krw')) is not int or transaction['amount_krw'] <= 0):
+        return None
+    from datetime import date
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        return None
+    target = trip_resolver(transaction, {'owner_card3820_singapore': True})
+    if not target:
+        return None
+    return dict(verdict, classification_state=(STATE_NEEDS_REVIEW
+                if verdict.get('classification_source') == 'rule_conflict' else STATE_CLASSIFIED),
+                classification_source='user_exception',
+                classification_basis='사용자 예외: 2026-09-19~2026-09-24 카드 3820 사용내역은 싱가포르 여행에 배정',
+                item=verdict.get('item') or '현지경비',
+                display_tab_id=target, trip_id=target,
+                rule_id='owner-card3820-singapore-20261012')
 
 
 def _card3820_residual(transaction: dict, verdict: dict) -> dict:
