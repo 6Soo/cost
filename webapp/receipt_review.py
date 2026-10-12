@@ -22,11 +22,12 @@ from pathlib import Path
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
+from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
 from . import ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
-          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image")
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision", "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
@@ -262,6 +263,9 @@ def card_rows(board) -> list[dict]:
 def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
     regions = _regions(payload)
+    requested_trip = payload.get("trip_id") or None
+    if requested_trip is not None and requested_trip not in _trip_ids(board):
+        raise ValueError("TRIP_UNKNOWN")
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -283,6 +287,8 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     for candidate in result["candidates"]:
         region = next(r for r in regions if rc._identity(r) == candidate.identity)
         stored = {**candidate.__dict__, "history": [], "hold": None, 'box': list(region.box)}
+        if requested_trip is not None:
+            stored['trip_id'] = requested_trip
         _settle(stored, cards)
         if payload.get("image"):
             source_region = hashlib.sha256(json.dumps(
@@ -293,7 +299,7 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
                 duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
                 continue
         # The same slip photographed twice, or entered twice, is one cost. A second copy waits for a person.
-        if any(_signature(c) == _signature(stored) for c in data["candidates"]):
+        if any(_same_physical_receipt(c, stored) for c in data["candidates"]):
             duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
             continue
         previous_holds = [h for h in data['holds'] if h['identity'] == candidate.identity]
@@ -342,6 +348,17 @@ def _signature(candidate: dict) -> tuple:
     return (candidate["date"], candidate["merchant"].strip(), candidate.get('currency', 'JPY'), int(_native_total(candidate)))
 
 
+def _same_physical_receipt(left: dict, right: dict) -> bool:
+    """Equal-priced tickets at different positions on one sheet are distinct."""
+    if (_signature(left) != _signature(right)):
+        return False
+    if (left.get("image_sha") and left.get("image_sha") == right.get("image_sha")
+            and left.get("source_region") and right.get("source_region")
+            and left["source_region"] != right["source_region"]):
+        return False
+    return True
+
+
 def candidate_version(candidate: dict) -> str:
     """Bind a rendered row to its saved values and history, including changes reverted later."""
     return hashlib.sha256(json.dumps(candidate, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
@@ -380,6 +397,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("FIELD_NOT_EDITABLE")
         _validate_values(changes.get("merchant", stored["merchant"]), changes.get("date", stored["date"]),
                          changes.get(total_field, _native_total(stored)))
+        if stored.get('group_id') and any(changes[k] != stored.get(k) for k in changes):
+            raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
         before = {k: stored.get(k) for k in changes}
         if "payment" in changes and changes["payment"] not in PAYMENTS:
             raise ValueError("PAYMENT_UNKNOWN")
@@ -395,7 +414,7 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if total_field == 'total_jpy' and 'total_original' in stored:
             stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
-        if any(_signature(c) == _signature(stored) for c in others):
+        if any(_same_physical_receipt(c, stored) for c in others):
             raise ValueError("DUPLICATE_CONTENT")
         _settle(stored, card_rows_list or [])
         if any(before[k] != stored.get(k) for k in changes):
@@ -416,6 +435,9 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
             if _saved_retry(stored, expected_version, 'confirm', {'payee': payee, 'category': category}, note):
                 return stored
             _check_candidate_version(stored, expected_version)
+            if stored.get('group_id') and (stored.get('payee') != payee.strip()
+                    or stored.get('category') != category.strip()):
+                raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
             if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
                 return stored
             candidate = _candidate(stored)
@@ -428,23 +450,90 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
+@_serialized
+def group(path: Path, *, identities: list, trip_id: str, expected_versions: dict) -> dict:
+    """Explicitly group multiple already-confirmed physical slips into one expense."""
+    if (not isinstance(identities, list) or len(identities) < 2 or len(identities) > 50
+            or not all(isinstance(i, str) for i in identities)
+            or len(set(identities)) != len(identities)
+            or not isinstance(expected_versions, dict) or not trip_id):
+        raise ValueError('GROUP_SELECTION_INVALID')
+    data = load(path)
+    rows = [c for c in data['candidates'] if c['identity'] in set(identities)]
+    if len(rows) != len(identities):
+        raise ValueError('CANDIDATE_NOT_FOUND')
+    for row in rows:
+        _check_candidate_version(row, expected_versions.get(row['identity']))
+        if (not expected_versions.get(row['identity']) or row.get('group_id')
+                or row.get('trip_id') != trip_id or row.get('hold')
+                or row.get('payment') == 'corporate_card'
+                or row.get('card_transaction_id') or row.get('card_evidence_transaction_id')
+                or not row.get('payee') or not row.get('category') or row.get('amount_krw') is None):
+            raise ValueError('GROUP_SELECTION_INVALID')
+    for key in ('date', 'merchant', 'currency', 'payment', 'payee', 'category'):
+        if len({row.get(key) for row in rows}) != 1:
+            raise ValueError('GROUP_MISMATCH')
+    identity = hashlib.sha256(json.dumps(sorted(identities)).encode('utf-8')).hexdigest()[:24]
+    for row in rows:
+        row['group_id'] = identity
+        row.setdefault('history', []).append({'operation':'group','group_id':identity,
+            'members':sorted(identities)})
+    _save(path, data)
+    return {'group_id':identity, 'members':len(rows), 'amount_krw':sum(c['amount_krw'] for c in rows)}
+
+
+@_serialized
+def ungroup(path: Path, *, group_id: str) -> dict:
+    if not isinstance(group_id, str) or not re.fullmatch(r'[0-9a-f]{24}', group_id):
+        raise ValueError('GROUP_INVALID')
+    data = load(path)
+    matches = [c for c in data['candidates'] if c.get('group_id') == group_id]
+    if len(matches) < 2:
+        raise ValueError('GROUP_NOT_FOUND')
+    for row in matches:
+        del row['group_id']
+        row.setdefault('history', []).append({'operation':'ungroup','group_id':group_id})
+    _save(path, data)
+    return {'ungrouped':len(matches)}
+
+
 def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = None) -> dict:
     data = load(path)
     if card_rows_list is not None:
         for stored in data['candidates']:
             _settle(stored, card_rows_list)
-    candidates = [_candidate(c) for c in data["candidates"]]
     if not trip:
         raise ValueError("TRIP_REQUIRED")
-    mine = [c for c, stored in zip(candidates, data["candidates"])
-            if stored.get("trip_id") == trip and not stored.get('hold')]
+    assigned = [c for c in data["candidates"] if c.get('trip_id') == trip]
+    groups = {}
+    singles = []
+    for stored in assigned:
+        if stored.get('group_id'):
+            groups.setdefault(stored['group_id'], []).append(stored)
+        elif not stored.get('hold'):
+            singles.append(_candidate(stored))
     unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
                   if not c.get("trip_id")]
     card_holds = [{"identity": c["identity"], "reason": c["hold"]} for c in data["candidates"]
                   if c.get("hold") and c.get("trip_id") == trip]
-    result = expense_tsv(rc.to_expense_rows(mine), layout="rev")
+    rows = rc.to_expense_rows(singles)
+    group_holds = []
+    for group_id, members in groups.items():
+        if len(members) < 2 or any(c.get('hold') or c.get('amount_krw') is None
+               or not c.get('payee') or not c.get('category') for c in members):
+            group_holds.append({'identity':group_id,'reason':'GROUP_INCOMPLETE'})
+            continue
+        # All members were confirmed with identical payee/category/payment/date.
+        aggregate = rc.to_expense_rows([_candidate(members[0])])
+        if len(aggregate) != 1:
+            group_holds.append({'identity':group_id,'reason':'GROUP_INCOMPLETE'})
+            continue
+        aggregate[0]['transaction_id'] = 'receipt-group:' + group_id
+        aggregate[0]['amount_krw'] = sum(c['amount_krw'] for c in members)
+        rows.extend(aggregate)
+    result = expense_tsv(rows, layout="rev")
     return {**result, "trip_id": trip,
-            "held": result["held"] + data["holds"] + unassigned + card_holds}
+            "held": result["held"] + data["holds"] + unassigned + card_holds + group_holds}
 
 
 @_storage_errors
@@ -506,8 +595,30 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 handler._send_json(result)
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
+        elif parsed.path == "/api/receipts/vision":
+            if not opencode_receipt_vision.enabled():
+                handler._send_json({"code": "VISION_DISABLED",
+                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                return True
+            sha = body.get("image", "")
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+                raise ValueError("IMAGE_NOT_FOUND")
+            image_bytes(path, sha)  # Owner's registered source image only.
+            try:
+                result = opencode_receipt_vision.recognize(_images_dir(path) / f"{sha}.bin")
+                handler._send_json(result)
+            except opencode_receipt_vision.VisionUnavailable as error:
+                handler._send_json({"code": error.code,
+                    "message": "Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요."}, 503)
         elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
+        elif parsed.path == "/api/receipts/group":
+            if body.get('trip_id') not in _trip_ids(board):
+                raise ValueError('TRIP_UNKNOWN')
+            handler._send_json(group(path, identities=body.get('identities'),
+                            trip_id=body['trip_id'], expected_versions=body.get('expected_versions')))
+        elif parsed.path == "/api/receipts/ungroup":
+            handler._send_json(ungroup(path, group_id=body.get('group_id')))
         elif parsed.path == "/api/receipts/edit":
             if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
@@ -547,8 +658,12 @@ def _row_html(candidate: dict, trips: list) -> str:
     source = (f"<a href='/api/receipts/image/{html.escape(candidate['image_sha'])}' target='_blank' rel='noopener'>원본 사진</a>"
               if candidate.get('image_sha') else '수동 입력')
     return (
-        f"<tr data-version='{candidate_version(candidate)}' data-currency='{candidate.get('currency', 'JPY')}'>"
-        f"<td data-label='상호·날짜·여행'>{source}<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미배정</option>"
+        f"<tr data-version='{candidate_version(candidate)}' data-currency='{candidate.get('currency', 'JPY')}' "
+        f"data-group-id='{html.escape(candidate.get('group_id') or '')}'>"
+        f"<td data-label='상호·날짜·여행'>{source}"
+        f"<label><input type='checkbox' data-group-select='{identity}'>지출 묶기 선택</label>"
+        f"{'선택 묶음: '+html.escape(candidate['group_id'][:8]) if candidate.get('group_id') else ''}"
+        f"<label>여행<select data-trip='{identity}' aria-label='여행'><option value=''>여행 미배정</option>"
         + "".join(f"<option value='{html.escape(t['id'])}'{' selected' if t['id'] == candidate.get('trip_id') else ''}>"
                   f"{html.escape(t['name'])}</option>" for t in trips)
         + f"</select></label><label>상호<input data-merchant='{identity}' aria-label='상호' value='{html.escape(candidate['merchant'])}'></label>"
@@ -587,7 +702,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     images = "".join(
         f"<button type='button' data-image-sha='{sha}' aria-pressed='{'true' if sha == data['images'][-1] else 'false'}' "
         f"style='max-width:30%'>사진 {index} 선택<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'></button>"
-        for index, sha in enumerate(data['images'][-3:], start=max(1, len(data['images']) - 2)))
+        for index, sha in enumerate(data['images'][-12:], start=max(1, len(data['images']) - 11)))
     script = (
         f"const csrf={json.dumps(csrf)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -626,11 +741,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
         "say('선택한 사진의 영역과 값을 입력해 주세요.')});"
-        "document.getElementById('img-go').onclick=async()=>{const f=document.getElementById('img-file').files[0];"
-        "if(!f){say('사진 파일을 고르세요');return}await save(async()=>{const r=await fetch('/api/receipts/image',{method:'POST',"
+        "document.getElementById('img-go').onclick=async()=>{const files=[...document.getElementById('img-file').files];"
+        "if(!files.length){say('사진 파일을 고르세요');return}await save(async()=>{"
+        "for(const f of files){const r=await fetch('/api/receipts/image',{method:'POST',"
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:f});"
-        "const j=await readResponse(r);"
-        "document.getElementById('image-sha').value=j.sha256;})};"
+        "const j=await readResponse(r);document.getElementById('image-sha').value=j.sha256;}})};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -644,7 +759,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,regions:[region]}))};"
+        "const chosen=[...document.querySelectorAll('#vision-results button')].find(b=>b.dataset.visionSelected==='1');"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),"
+        "chosen?result=>{chosen.dataset.visionSelected='0';chosen.textContent+=' [등록 '+result.added+'건]';"
+        "say('이 영수증을 등록했습니다. 다른 후보도 검토한 뒤 후보 새로고침을 누르세요.');}:undefined)};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
         "save(()=>post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
@@ -667,7 +785,62 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning)}"
         "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{restore();receiptBusy=false}};")
-    box_inputs = "".join(f"<input id='box{i}' type='number' value='0' aria-label='영역 {i}' style='width:4.5em'>"
+    vision_script = (
+        "const selectedTrip=document.getElementById('selected-trip');"
+        "try{const old=sessionStorage.getItem('cost-receipt-trip');if(old)selectedTrip.value=old;}catch{}"
+        "if(selectedTrip.value)document.getElementById('copy-trip').value=selectedTrip.value;"
+        "selectedTrip.onchange=()=>{try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};"
+        "document.getElementById('copy-trip').value=selectedTrip.value;};"
+        "const visionGo=document.getElementById('vision-go');"
+        "if(visionGo)visionGo.onclick=async()=>{if(receiptBusy)return;"
+        "const sha=document.getElementById('image-sha').value;"
+        "if(!sha){say('사진을 먼저 등록하세요.');return}"
+        "if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
+        "receiptBusy=true;const restore=lockControls();say('Muse가 영수증 영역과 금액을 인식하고 있습니다.');"
+        "try{const response=await post('/api/receipts/vision',{image:sha});"
+        "const view=document.getElementById('vision-preview');const items=document.getElementById('vision-results');"
+        "view.replaceChildren();items.replaceChildren();"
+        "const previewImg=document.createElement('img');previewImg.src='/api/receipts/image/'+sha;"
+        "previewImg.alt='인식 영역이 표시된 원본 영수증';previewImg.style.width='100%';view.append(previewImg);"
+        "for(const [index,slip] of response.receipts.entries()){"
+        "const outline=document.createElement('div');outline.style.cssText="
+        "'position:absolute;border:2px solid #2563eb;pointer-events:none;box-sizing:border-box';"
+        "outline.style.left=(slip.box[0]*100)+'%';outline.style.top=(slip.box[1]*100)+'%';"
+        "outline.style.width=((slip.box[2]-slip.box[0])*100)+'%';"
+        "outline.style.height=((slip.box[3]-slip.box[1])*100)+'%';view.append(outline);"
+        "const button=document.createElement('button');button.type='button';"
+        "button.textContent=(index+1)+'. '+(slip.merchant||'상호 미확인')+' — '+"
+        "(slip.amount==null?'금액 확인':slip.amount+' '+(slip.currency||'통화 확인'))+' (검토 입력)';"
+        "button.style.cssText='display:block;margin:8px 0;width:100%;text-align:left';"
+        "button.onclick=()=>{document.querySelectorAll('#vision-results button').forEach(b=>b.dataset.visionSelected='0');"
+        "button.dataset.visionSelected='1';"
+        "slip.box.forEach((v,i)=>document.getElementById('box'+(i+1)).value=v);"
+        "document.getElementById('r-merchant').value=slip.merchant||'';"
+        "document.getElementById('r-date').value=slip.date||'';"
+        "document.getElementById('r-currency').value=slip.currency||'';"
+        "document.getElementById('r-total').value=slip.amount??'';"
+        "document.getElementById('r-payment').value=slip.payment||'';"
+        "document.getElementById('box1').scrollIntoView({block:'center',behavior:'smooth'});"
+        "say('선택한 영수증을 원본과 비교한 뒤 영역 추가를 누르세요.');};"
+        "items.append(button);}"
+        "say('영수증 '+response.receipts.length+'건을 찾았습니다. 각 후보를 검토해 등록하세요.');"
+        "}catch(error){say(error.message||'Muse 인식이 실패했습니다. 수동으로 입력하세요.');}"
+        "finally{restore();receiptBusy=false}};"
+        "const visionFinish=document.getElementById('vision-finish');"
+        "if(visionFinish)visionFinish.onclick=()=>location.reload();"
+        "const groupSelection=()=>[...document.querySelectorAll('[data-group-select]:checked')].map(input=>input.closest('tr'));"
+        "document.getElementById('group-go').onclick=()=>{const chosen=groupSelection();"
+        "if(chosen.length<2){say('두 장 이상 선택한 뒤 묶어 주세요.');return}"
+        "const trip=selectedTrip.value;if(!trip){say('묶을 여행을 선택하세요.');return}"
+        "const identities=chosen.map(row=>row.querySelector('[data-group-select]').dataset.groupSelect);"
+        "const versions=Object.fromEntries(chosen.map(row=>[row.querySelector('[data-group-select]').dataset.groupSelect,row.dataset.version]));"
+        "save(()=>post('/api/receipts/group',{trip_id:trip,identities,expected_versions:versions}))};"
+        "document.getElementById('ungroup-go').onclick=()=>{const chosen=groupSelection();"
+        "const ids=[...new Set(chosen.map(row=>row.dataset.groupId).filter(Boolean))];"
+        "if(ids.length!==1||!chosen.length){say('해제할 묶음에 속한 영수증 하나를 선택하세요.');return}"
+        "save(()=>post('/api/receipts/ungroup',{group_id:ids[0]}))};"
+    )
+    box_inputs = "".join(f"<input id='box{i}' type='number' step='any' value='0' aria-label='영역 {i}' style='width:4.5em'>"
                          for i in range(1, 5))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 후보</title>"
@@ -700,22 +873,38 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                if local_receipt_ocr.enabled() else
                "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>") +
             "<p>원화는 입력 금액 그대로 사용합니다. 일본 현금·개인카드는 JPY×10을 적용합니다. 법인카드는 카드와 대사하는 증빙이며 추가 지출로 복사하지 않습니다.</p>"
-             "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
+             "<section><h2>영수증 여행 선택</h2><label>이 페이지의 모든 영수증이 속한 여행"
+            "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
+            "</select></label></section>"
+            "<section><h2>사진 등록</h2><input id='img-file' type='file' multiple accept='image/png,image/jpeg'>"
              f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
             f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
             f"<p>최근 사진 중 입력할 사진을 선택해 주세요.</p><div>{images}</div></section>"
-            "<section><h2>영역 입력</h2>"
+            + ("<section><h2>Muse Spark AI 영수증 인식</h2>"
+               "<p>선택한 여행의 사진만 분석합니다. OpenCode Contributor Free 모델로 원본 이미지가 전송되며 "
+               "학습·개선에 이용될 수 있습니다. 후보는 확인 전까지 회계에 반영되지 않습니다.</p>"
+               "<button type='button' id='vision-go'>Muse로 영수증 자동 찾기</button>"
+               "<div id='vision-preview' style='position:relative;max-width:560px'></div>"
+               "<div id='vision-results' aria-live='polite'></div>"
+               "<button type='button' id='vision-finish'>후보 새로고침</button></section>"
+               if opencode_receipt_vision.enabled() else "")
+            + "<section><h2>영역 입력</h2>"
             f"<p>사진 위치 (x0, y0, x1, y1): {box_inputs}</p>"
             "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
-            "<label>통화<select id='r-currency'><option value='JPY'>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label>"
+"<label>통화<select id='r-currency'><option value=''>통화 확인</option><option value='JPY' selected>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label>"
             "<input id='r-total' type='number' placeholder='금액(JPY)'> "
-            "<select id='r-payment'><option value='cash'>현금</option><option value='private_card'>개인카드</option>"
+"<select id='r-payment'><option value=''>결제수단 확인</option><option value='cash' selected>현금</option><option value='private_card'>개인카드</option>"
             "<option value='corporate_card'>법인카드</option></select>"
              f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영역 추가</button></section>"
             "<h2>후보</h2>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"
+            "<section><h2>승선권 등 선택 묶기</h2>"
+            "<p>같은 여행·날짜·업체·결제수단의 확정된 영수증 여러 장을 선택하면 "
+            "하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
+            "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
+            "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
             f"<h2>보류</h2><ul>{holds}</ul>"
             f"<p><label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label> "
              f"<button type='button' id='copy-tsv'>{ui_icons.icon('copy')}구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
-            f"<script>{script}</script></body></html>")
+            f"<script>{script}{vision_script}</script></body></html>")
