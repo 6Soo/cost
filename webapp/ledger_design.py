@@ -2111,9 +2111,9 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
         return shell('환불', tab_id='refunds', heading='환불', query=query,
-                     body=_bar_html(query, '', 'refunds', archived) +
+                     body=_bar_html(query, kind, 'refunds', archived) +
                      "<div id='live-sum'></div><div id='live-rows'>" +
-                     refund_body(board._active_store(), query) + '</div>')
+                     refund_body(board._active_store(), query, kind) + '</div>')
     trip = _selected_trip(tab_id)
     from .google_ledger_page import trip_income_html
     incomes, expenses, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
@@ -2239,7 +2239,7 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         return ""
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
-        return refund_body(board._active_store(), query)
+        return refund_body(board._active_store(), query, kind)
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"

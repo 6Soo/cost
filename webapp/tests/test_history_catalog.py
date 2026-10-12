@@ -25,7 +25,7 @@ def test_ota_uses_service_period_and_keeps_unknown_and_cross_boundary(data, monk
     monkeypatch.setenv('WEBLEDGER_REVIEW_FROM', '2026-04-01')
     path = sources['portal_databases'][0]
     with sqlite3.connect(path) as conn:
-        conn.execute("UPDATE bookings SET service_start_on='2025-12-01',service_end_on='2025-12-03' WHERE id=1")
+        conn.execute("UPDATE bookings SET service_start_on='2025-12-01',service_end_on='2025-12-03T00:00:00' WHERE id=1")
         conn.execute("UPDATE bookings SET service_start_on='2026-03-31',service_end_on='2026-04-02' WHERE id=2")
     before = path.read_bytes()
     result = ota_catalog.catalog(board, {}, sources=sources)

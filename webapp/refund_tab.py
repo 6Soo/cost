@@ -54,7 +54,7 @@ def member_ids(store):
             for r in group}
 
 
-def render(store, query=''):
+def render(store, query='', kind=''):
     from . import ledger_board as board
     all_groups = groups(store)
     saved = {r.get('source_event_id'): r for r in board._expense_rows()}
@@ -63,6 +63,8 @@ def render(store, query=''):
         query in ' '.join(str(r.get(k) or '') for k in ('merchant', 'item', 'occurred_on'))
         or query in str(saved.get(r['transaction_id'], {}).get('description') or '')
         for r in g)]
+    if kind == 'in':
+        visible = []
     esc = html.escape
     money = lambda amount: f'{amount:,}원'
     gross = sum(g[0]['amount_krw'] for g in visible)
