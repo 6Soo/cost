@@ -91,6 +91,12 @@ def test_mobile_catalog_automatically_records_and_opens_exact_transaction(flow):
             assert '여행 지정' in page.locator('#questions article h2').first.inner_text()
             assert not page.locator('#commit').is_visible()
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            target=next(r['transaction_id'] for r in f.pipeline.get_batch(batch)['rows'] if r['amount_krw']==89891)
+            page.goto('about:blank')
+            page.goto(f'http://127.0.0.1:{server.server_address[1]}/import?batch={batch}&transaction={target}#preview')
+            page.locator('#preview tbody tr').first.wait_for()
+            assert page.locator('#preview tbody tr').count()==1
+            assert '89,891원' in page.locator('#preview tbody tr').inner_text()
             assert errors==[]
             browser.close()
     finally:
