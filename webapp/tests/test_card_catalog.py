@@ -33,7 +33,8 @@ def test_search_filters_and_pagination_preserve_zero_and_original_amount(stored)
     result = card_catalog.catalog(stored, {'page': ['999']})
     assert result['page'] == 1 and result['rows']
     markup = card_catalog.render_html(result, {})
-    assert '37,000' in markup and '전체 카드 내역' in markup
+    assert '37,000' in markup and '<h1>카드 내역</h1>' in markup
+    assert '전체 카드 내역' not in markup
     assert 'batch=' in markup
 
 

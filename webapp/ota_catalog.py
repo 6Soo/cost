@@ -221,8 +221,8 @@ def render_html(data, query):
         '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
         '<p>저장된 예약 DB와 OTA 메일에서 예약을 모아 보여 줍니다. 같은 OTA의 같은 예약번호는 한 건입니다. '
         '여행 미배정은 저장된 예약·장부의 여행 연결이 없는 예약이며, 카드 결제 대사 여부와 다릅니다. 이 목록은 비용을 확정하지 않습니다.</p>'
-        f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if value('state') != 'unassigned' else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}OTA 전체 내역</a>"
-        f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}OTA 미배정 내역</a>"
+        f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if value('state') != 'unassigned' else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
+        f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         + ''.join(f"<p role='alert'>{esc(w)}</p>" for w in data['warnings'])

@@ -79,7 +79,8 @@ def test_search_month_sort_pagination_and_html_escape(data, monkeypatch):
     query = {'q': ["<script>alert('x')</script>"]}
     markup = ota_catalog.render_html(ota_catalog.catalog(board, query, sources=sources), query)
     assert query['q'][0] not in markup and '&lt;script&gt;' in markup
-    assert 'OTA 전체 내역' in markup and 'OTA 미배정 내역' in markup
+    assert '<h1>OTA 내역</h1>' in markup
+    assert '전체 예약</a>' in markup and '여행 미배정</a>' in markup
     assert ota_catalog.catalog(board, {'provider': ["' OR 1=1"]}, sources=sources)['total'] == 0
 
 

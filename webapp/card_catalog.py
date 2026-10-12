@@ -199,13 +199,13 @@ def render_html(data, query):
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
         rows.append('<tr>' + row + f"<td><a href='/import?{urlencode({'batch': r['batch_id']})}'>자료 검토</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 내역</title>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 내역</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
         "<nav class='catalog-actions' aria-label='카드 업무'>"
         f"<a class='catalog-btn' href='/'>{ui_icons.icon('house')}홈</a>"
         f"<a class='catalog-btn' href='/board'>{ui_icons.icon('book-open')}여행 장부</a>"
         f"<a class='catalog-btn primary' href='/import'>{ui_icons.icon('upload')}카드 가져오기·검토</a></nav>"
-        "<h1>전체 카드 내역</h1><p>DB에 저장된 모든 카드 거래입니다. 업로드 파일이나 검토 기간으로 제외하지 않습니다. "
+        "<h1>카드 내역</h1><p>DB에 저장된 모든 카드 거래입니다. 업로드 파일이나 검토 기간으로 제외하지 않습니다. "
         "취소·환불·중복·회사 경비도 포함하며, 원본 금액은 확정 지출 합계와 다를 수 있습니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"

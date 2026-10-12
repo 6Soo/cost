@@ -86,8 +86,10 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         self.addCleanup(context.close)
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
+        script_errors = []
+        page.on('pageerror', lambda error: script_errors.append(str(error)))
         page.goto(f'http://127.0.0.1:{self.port}/import')
-        page.locator('#site-content').get_by_role('link', name='전체 카드 내역', exact=True).click()
+        page.locator('#site-content').get_by_role('link', name='카드 내역', exact=True).click()
         self.assertIn('전체 3건', page.inner_text('#card-count'))
         self.assertEqual(page.locator('tbody tr').count(), 3)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
@@ -95,6 +97,8 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         page.get_by_role('button', name='검색', exact=True).click()
         self.assertIn('검색 결과 0건', page.inner_text('#card-count'))
         page.get_by_role('link', name='초기화', exact=True).click()
-        page.locator('tbody tr').filter(has_text='37,000').get_by_role('link', name='자료 검토').click()
+        with page.expect_navigation():
+            page.locator('tbody tr').filter(has_text='37,000').get_by_role('link', name='자료 검토').click()
+        self.assertEqual(script_errors, [])
         page.wait_for_function('model && model.batch_id === ' + json.dumps(first))
         self.assertEqual(page.evaluate('model.batch_id'), first)
