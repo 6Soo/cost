@@ -124,7 +124,7 @@ def trip_income_html(tab_id: str) -> str:
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
-    settings = ("<a class='btn' href='/google-ledger#google-settings'>수입 장부 연결 설정</a>"
+    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>수입 장부 연결 설정</a>"
                 if owner and enabled() else '')
 
     def panel(message, body=''):
@@ -303,17 +303,21 @@ def _money(value) -> str:
 
 
 def _owner_controls(payload: dict, settings: dict) -> str:
-    def options(items):
-        return ''.join(f'<option value="{html.escape(value, quote=True)}">{html.escape(label)}</option>'
+    def options(items, selected=None):
+        return ''.join(f'<option value="{html.escape(value, quote=True)}"'
+                       + (' selected' if value == selected else '') + f'>{html.escape(label)}</option>'
                        for value, label in items)
     keys = options([('', '여행을 선택해 주세요')] + [(t['key'], t['key']) for t in payload['trips']])
-    tabs = options([('', '연결하지 않음')] + [(t['tab_id'], f"{t.get('starts_on', '')} {t.get('destination', t['tab_id'])}")
-                                             for t in settings['tabs']])
+    tabs = options([('', '연결하지 않음')] + [(t['tab_id'], t.get('display_key') or
+                   ' '.join(filter(None, (t.get('starts_on'), t.get('destination')))) or t['tab_id'])
+                   for t in settings['tabs']], settings.get('selected_tab'))
     viewers = options([('', '계정을 선택해 주세요')] + [(a['user_id'], a.get('display_name') or a['user_id'])
                                                        for a in settings['viewers']])
-    state = json.dumps({'mapping': settings['mapping'], 'grants': settings['grants']}, ensure_ascii=True).replace('<', '\\u003c')
+    state = json.dumps({'mapping': settings['mapping'], 'grants': settings['grants'],
+                        'selected_tab': settings.get('selected_tab', '')}, ensure_ascii=True).replace('<', '\\u003c')
     return (
-        '<details id="google-settings"><summary>여행 연결과 열람 허용</summary>'
+        '<details id="google-settings"' + (' open' if settings.get('selected_tab') else '')
+        + '><summary>수입 장부 연결과 열람 허용</summary>'
         '<p>같은 여행인지 직접 확인한 뒤 연결해 주세요. 자동으로 연결하지 않습니다. '
         '열람 허용에는 계정의 기존 여행 접근 권한과 정본 선택도 필요합니다.</p>'
         f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
@@ -328,7 +332,7 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         "viewerInput=document.getElementById('settings-viewer'),statusBox=document.getElementById('settings-status');"
         "function showGrant(){document.getElementById('grant-state').textContent=!viewerInput.value?'':"
         "((googleSettings.grants[viewerInput.value]||[]).includes(keyInput.value)?'현재 열람 허용됨':'현재 열람 허용 안 됨')}"
-        "keyInput.onchange=()=>{tabInput.value=googleSettings.mapping[keyInput.value]||'';showGrant()};"
+        "keyInput.onchange=()=>{tabInput.value=googleSettings.mapping[keyInput.value]||googleSettings.selected_tab||'';showGrant()};"
         "viewerInput.onchange=showGrant;"
         "async function saveGoogleSetting(kind,granted){const key=keyInput.value,tab=tabInput.value,user=viewerInput.value;"
         "if(!key||(kind==='grants'&&!user)){statusBox.textContent='여행과 필요한 계정을 선택해 주세요';return}"
@@ -405,7 +409,9 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "td p{margin:4px 0}td br{display:none}td[colspan]{display:block}"
         "li{overflow-wrap:anywhere}h1{font-size:22px}}"
         "</style></head><body>"
-        "<nav aria-label='장부 이동'><a class='work-back' href='/board'>장부로 돌아가기</a></nav>"
+        "<nav aria-label='장부 이동'><a class='work-back' href='/board'>장부로 돌아가기</a>"
+        + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>선택한 여행으로 돌아가기</a>"
+           if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>Google 확정 장부</h1>"
         "<p>Google에서 읽어 온 정본입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
         f"<p>기준 시각 {html.escape(str(payload['synced_at'] or '동기화 대기'))}</p><ul>{sources}</ul>"
@@ -663,6 +669,9 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                             'viewers': [a for a in access.list_accounts('viewer') if a['is_active']] if access else [],
                             'mapping': load_mapping(_snapshot_path()),
                             'grants': load_grants(_snapshot_path())['grants']}
+                requested_tab = ((query or {}).get('tab') or [''])[0]
+                if requested_tab in {t['tab_id'] for t in settings['tabs']}:
+                    settings['selected_tab'] = requested_tab
         else:
             payload = viewer_payload(snapshot, load_grants(_snapshot_path()), viewer_user_id,
                                      mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,

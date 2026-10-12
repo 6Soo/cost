@@ -80,3 +80,12 @@ def test_verified_zero_is_distinct_from_unlinked(income_context):
     copy['income'].update(total=0, sheet_total=0, row_sum=0)
     assert 'Google 확정 수입 0원' in page.trip_income_html('trip-syn')
     assert 'Google 확정 수입 0원' not in page.trip_income_html('unknown')
+
+
+def test_mapping_picker_names_imported_trips_and_preserves_current_trip():
+    body = page._owner_controls({'trips': []}, {
+        'tabs': [{'tab_id': 'syn', 'display_key': 'Synthetic trip name', 'destination': ''}],
+        'viewers': [], 'mapping': {}, 'grants': {}, 'selected_tab': 'syn',
+    })
+    assert '<option value="syn" selected>Synthetic trip name</option>' in body
+    assert '<details id="google-settings" open>' in body
