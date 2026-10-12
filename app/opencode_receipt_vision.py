@@ -156,6 +156,7 @@ def recognize(image, *, runner=None):
                   'permission':{'*':'deny'}}
         (root/'opencode.json').write_text(json.dumps(config),encoding='utf-8')
         command = [executable,'run','--model',MODEL,'--agent','receipt-readonly',
+                   '--title','COST receipt reading (free)',
                    '--format','json','--file',str(attachment),PROMPT]
         try:
             proc = (runner or subprocess.run)(command,cwd=str(root),capture_output=True,
