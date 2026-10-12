@@ -107,7 +107,9 @@ def test_owner_html_escapes_titles_and_labels_checks(snapshot_file):
     assert code == 200
     assert "<script>0630" not in body and "&lt;script&gt;0630" in body
     assert "메인과 보관에 모두 있음" in body and "장부 합계와 행 합계가 다름" in body
-    assert "SOURCE_UNREACHABLE" in body
+    assert "보관 장부 동기화를 확인해 주세요." in body
+    assert "role='alert'" in body
+    assert "SOURCE_UNREACHABLE" not in body
 
 
 def test_choice_requires_csrf_and_records_history(snapshot_file):

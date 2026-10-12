@@ -136,16 +136,13 @@ legend{font-size:13px;font-weight:600;padding:0 4px}
 <body>
 <header>
 <h1>실제 자료 검토</h1>
-<p class="crumb"><a href="/board">장부</a> · 지출 원본과 카드 거래 후보를 비교합니다.
- 입금은 별도 원본 조회로 표시합니다.</p>
+<p class="crumb"><a href="/board">장부</a></p>
 </header>
 <p id="status" role="status" aria-live="polite">불러오는 중입니다.</p>
 <div id="counts"></div>
 <p id="refresh" role="status" aria-live="polite"></p>
 <section id="applyBox">
   <h2>장부 반영</h2>
-  <p class="note">반영은 저장된 선택과 현재 묶음으로만 계획합니다. 화면에 저장하지
-    않은 값은 반영에 들어가지 않아요. 실행하기 전까지 장부는 바뀌지 않습니다.</p>
   <div class="bar">
     <button id="planBtn" type="button">반영 계획 보기</button>
     <button id="applyBtn" type="button" disabled>반영 실행하기</button>
@@ -154,8 +151,6 @@ legend{font-size:13px;font-weight:600;padding:0 4px}
   <div id="planList"></div>
 </section>
 <main>
-<p class="note">지출의 카드 후보를 확인하고 결정을 저장하세요. 저장된 승인 내역은
- 위의 반영 계획에서 확인한 뒤 장부에 반영할 수 있습니다. 입금 내역은 카드 승인 대상이 아닙니다.</p>
 <div class="bar">
 <label for="kind">자료 구분</label>
 <select id="kind">

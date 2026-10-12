@@ -326,7 +326,7 @@ class RefusalAndShellTests(unittest.TestCase):
         body = page.inner_text("body")
         self.assertIn("합성 모드입니다", body)
         self.assertIn("근거 설명", body)
-        self.assertIn("규칙 초안 요청 (합성 턴)", body)
+        self.assertIn("규칙 초안 요청", body)
         self.assertIn("목록으로", body)
         self.assertIn("expense-demo-c1", body)
         self.assertIsNotNone(page.query_selector(

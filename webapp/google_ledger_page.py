@@ -480,10 +480,10 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
             f"<td data-label='검증'>{'검증됨' if trip['verified'] else '미검증'}</td>"
             f"<td data-label='확인 사항'>{html.escape(reasons)}</td></tr>")
     sources = "".join(
-        f"<li>{html.escape(role)}: {html.escape(str(src.get('status')))}"
-        f"{' · ' + html.escape(str(src['error_code'])) if src.get('error_code') else ''}"
-        f"{' · 마지막 정상 ' + html.escape(str(src['last_ok_at'] or '없음')) if 'last_ok_at' in src else ''}</li>"
-        for role, src in payload["sources"].items())
+        f"<li>{html.escape({'main': '메인 장부', 'archive': '보관 장부'}.get(role, role))} 동기화를 확인해 주세요.</li>"
+        for role, src in payload["sources"].items()
+        if src.get('status') != 'ok' or src.get('stale'))
+    source_alert = f"<ul role='alert'>{sources}</ul>" if sources else ''
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -514,7 +514,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>확정 장부</h1>"
-        f"<p>{ui_icons.icon('refresh-cw')}동기화 {format_display_time(payload['synced_at'])}</p><ul>{sources}</ul>"
+        f"<p>{ui_icons.icon('refresh-cw')}동기화 {format_display_time(payload['synced_at'])}</p>{source_alert}"
         + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
         +
         "<table><thead><tr><th>여행</th><th>마감</th><th>수입</th><th>지출</th><th>순수익</th>"
