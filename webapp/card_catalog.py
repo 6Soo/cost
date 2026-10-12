@@ -8,6 +8,59 @@ STATES = {'needs_review': '확인 필요', 'classified': '분류됨', 'booked': 
           'preserved': '기존 보존'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
+CATALOG_STYLE = """
+body{margin:0;background:#F7F9FC}
+.card-catalog{max-width:1440px;margin:auto;color:#182230;
+ font:400 14px/1.5 "Pretendard Variable",system-ui,sans-serif;word-break:keep-all}
+.card-catalog *{box-sizing:border-box}
+.card-catalog .catalog-actions{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 24px}
+.card-catalog .catalog-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+ min-height:42px;padding:9px 16px;border:1px solid #D0D5DD;border-radius:10px;background:#fff;
+ color:#344054;font:inherit;font-weight:600;text-decoration:none;cursor:pointer;white-space:nowrap;
+ box-shadow:0 1px 2px rgba(16,24,40,.05);transition:background .15s,border-color .15s}
+.card-catalog .catalog-btn:hover{background:#F1F7F3;border-color:#1C7A52}
+.card-catalog .catalog-btn.primary{background:#1C7A52;border-color:#1C7A52;color:#fff}
+.card-catalog .catalog-btn.primary:hover{background:#166444}
+.card-catalog h1{font-size:26px;letter-spacing:-.03em;margin:0 0 8px}
+.card-catalog h1+p{color:#667085;max-width:800px;margin:0 0 16px;font-size:13px}
+.card-catalog #card-count{display:inline-block;margin:0 0 16px;padding:6px 12px;
+ border-radius:8px;background:#ECF5EF;color:#166444;font-weight:600;font-size:13px}
+.card-catalog #card-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:16px;
+ margin:0 0 20px;background:#fff;border:1px solid #E4E7EC;border-radius:12px}
+.card-catalog input,.card-catalog select{min-height:42px;max-width:100%;border:1px solid #D0D5DD;
+ border-radius:8px;background:#fff;padding:8px 10px;color:#344054;font:inherit}
+.card-catalog #card-filters input{flex:1 1 280px;min-width:0}
+.card-catalog :focus-visible{outline:2px solid #2266F5;outline-offset:2px}
+.card-catalog table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;
+ border:1px solid #E4E7EC;border-radius:12px;overflow:hidden}
+.card-catalog th,.card-catalog td{padding:12px;border-bottom:1px solid #E4E7EC;overflow-wrap:anywhere}
+.card-catalog th{text-align:left;background:#F8FAFC;font-size:12px;color:#667085;vertical-align:top}
+.card-catalog thead select{display:block;width:100%;margin-top:8px;font-size:13px}
+.card-catalog tbody tr:last-child td{border-bottom:0}
+.card-catalog tbody tr:hover{background:#F8FAFC}
+.card-catalog td a{color:#166444;font-weight:600;text-underline-offset:3px}
+.card-catalog .catalog-pagination{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:20px 0}
+.card-catalog .catalog-pagination span{margin-right:auto;color:#667085}
+@media(max-width:759px){
+ .card-catalog .catalog-actions{margin:8px 0 18px}
+ .card-catalog .catalog-actions .catalog-btn{flex:1 1 auto;padding:9px 12px}
+ .card-catalog h1{font-size:22px}
+ .card-catalog #card-filters{padding:12px;gap:8px}
+ .card-catalog #card-filters input{flex-basis:100%;width:100%;font-size:16px}
+ .card-catalog #card-filters .catalog-btn{flex:1}
+ .card-catalog select{font-size:16px}
+ .card-catalog table,.card-catalog tbody,.card-catalog tr,.card-catalog td{display:block}
+ .card-catalog table{border:0;background:transparent;overflow:visible}
+ .card-catalog thead{display:block;background:#fff;border:1px solid #E4E7EC;border-radius:12px;padding:10px}
+ .card-catalog thead tr{display:flex;flex-wrap:wrap;gap:8px;margin:0;border:0}
+ .card-catalog thead th{display:none}
+ .card-catalog thead th.has-filter{display:block;flex:1 1 140px;min-width:0;border:0;padding:4px;background:transparent}
+ .card-catalog tbody tr{margin:12px 0;border:1px solid #E4E7EC;border-radius:12px;background:#fff;overflow:hidden}
+ .card-catalog td{display:grid;grid-template-columns:76px minmax(0,1fr);border:0;padding:8px 12px}
+ .card-catalog td:before{content:attr(data-label);color:#667085;font-size:12px}
+}
+"""
+
 
 def catalog(board, query):
     value = lambda key: str((query.get(key) or [''])[0]).strip()
@@ -100,28 +153,21 @@ def render_html(data, query):
         rows.append('<tr>' + row + f"<td><a href='/import?{urlencode({'batch': r['batch_id']})}'>자료 검토</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 내역</title>"
-        "<style>*{box-sizing:border-box}body{font-family:system-ui;margin:16px;color:#202521;background:#f7f8f7}"
-        "main{max-width:1440px;margin:auto}nav,form{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}"
-        "input,select,button,a{font:inherit;min-height:44px;max-width:100%;padding:8px}a{color:#166444}"
-        "table{width:100%;border-collapse:collapse;background:white}th,td{padding:10px;border:1px solid #ddd;overflow-wrap:anywhere}"
-        "thead select{display:block;width:100%;margin-top:6px}th{text-align:left}"
-        "@media(max-width:759px){table,tbody,tr,td{display:block}thead{display:block}"
-        "thead tr{display:flex;flex-wrap:wrap;gap:8px}thead th{display:none}thead th.has-filter{display:block;flex:1 1 140px;min-width:0}"
-        "tr{margin:12px 0;border:1px solid #ddd}"
-        "td{border:0;display:grid;grid-template-columns:76px minmax(0,1fr)}td:before{content:attr(data-label);color:#667085}"
-        "input{width:100%}}</style></head><body><main>"
-        "<nav><a href='/'>홈</a><a href='/board'>여행 장부</a><a href='/import'>카드 가져오기·검토</a></nav>"
+        f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
+        "<nav class='catalog-actions' aria-label='카드 업무'><a class='catalog-btn' href='/'>홈</a>"
+        "<a class='catalog-btn' href='/board'>여행 장부</a><a class='catalog-btn primary' href='/import'>카드 가져오기·검토</a></nav>"
         "<h1>전체 카드 내역</h1><p>DB에 저장된 모든 카드 거래입니다. 업로드 파일이나 검토 기간으로 제외하지 않습니다. "
         "취소·환불·중복·회사 경비도 포함하며, 원본 금액은 확정 지출 합계와 다를 수 있습니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
-        f" value='{esc(value('q'))}'><button type='submit'>검색</button><a href='/cards'>초기화</a></form>"
+        f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>검색</button>"
+        "<a class='catalog-btn' href='/cards'>초기화</a></form>"
         + "<table><thead><tr><th class='has-filter' scope='col'>거래일" + date_controls
         + "</th><th class='has-filter' scope='col'>카드" + card_control + '</th>'
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
         + "<th class='has-filter' scope='col'>상태" + state_control + "</th><th scope='col'>검토</th>"
         + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
-        + f"</tbody></table><nav aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
-        + (f"<a href='{esc(link(data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
-        + (f"<a href='{esc(link(data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
+        + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
+        + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
+        + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
         + '</nav></main></body></html>')

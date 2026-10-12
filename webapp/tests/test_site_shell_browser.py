@@ -9,6 +9,28 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class SiteShellBrowserTests(LinkBrowserFixture):
+    def test_sidebar_appearance_stays_the_same_between_ledger_and_cards(self):
+        for width in (390, 1440):
+            with self.subTest(width=width):
+                page, base = self.prepare_pages(width)
+                appearances = []
+                for path in ('/board', '/cards', '/import'):
+                    page.goto(base + path)
+                    appearances.append(page.evaluate('''() => {
+                      const selectors=['#nav','#nav .brand','#nav .brand small','#nav .nav-q input',
+                        '#nav .work-menu','#nav .work-action[href="/receipts"]','#nav .work-action small',
+                        '#nav .site-links a','#nav .nav-sec','#nav .nv','#nav .nav-ft'];
+                      const props=['fontFamily','fontSize','lineHeight','width','padding','marginTop','marginBottom',
+                        'backgroundColor','borderRadius','borderTopWidth','display','minHeight'];
+                      return selectors.map(selector=>{const el=document.querySelector(selector);
+                        if(!el)return null;const css=getComputedStyle(el);
+                        return Object.fromEntries(props.map(p=>[p,css[p]]));});
+                    }'''))
+                for actual in appearances[1:]:
+                    differences = [(i, {key: (expected[key], got[key]) for key in expected if expected[key] != got[key]})
+                                   for i, (expected, got) in enumerate(zip(appearances[0], actual)) if expected != got]
+                    self.assertEqual(differences, [])
+
     def prepare_pages(self, width):
         env = patch.dict(os.environ, {
             'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_RECEIPTS_STORE': str(self.tmp / 'receipts.json'),

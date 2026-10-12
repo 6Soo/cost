@@ -23,13 +23,16 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
             conn.execute('UPDATE transactions SET approval_date=? WHERE transaction_id=?', (date, txid))
         conn.commit()
         before = conn.total_changes
-        for width in (390, 1440):
+        for width in (375, 390, 1440):
             with self.subTest(width=width):
                 context = self.browser.new_context(viewport={'width': width, 'height': 900})
                 self.addCleanup(context.close)
                 context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
                 page = context.new_page()
                 page.goto(f'http://127.0.0.1:{self.port}/cards')
+                self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 3)
+                self.assertEqual(page.locator('#card-filters button').evaluate(
+                    "e=>getComputedStyle(e).backgroundColor"), 'rgb(28, 122, 82)')
                 self.assertTrue(page.locator('thead').get_by_label('조회 월').is_visible())
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
                 with page.expect_navigation():
@@ -64,7 +67,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
         page = context.new_page()
         page.goto(f'http://127.0.0.1:{self.port}/import')
-        page.get_by_role('link', name='전체 카드 내역', exact=True).click()
+        page.locator('#site-content').get_by_role('link', name='전체 카드 내역', exact=True).click()
         self.assertIn('전체 3건', page.inner_text('#card-count'))
         self.assertEqual(page.locator('tbody tr').count(), 3)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
