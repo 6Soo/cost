@@ -381,14 +381,14 @@ class LinkScreenTests(LinkBrowserFixture):
         os.environ.pop(reserve_link.CONFIG_ENV, None)
         page = self.open_screen()
         page.wait_for_function("() => document.getElementById('state')"
-                               ".textContent.indexOf('RESERVE_LINK_CONFIG_REQUIRED') >= 0",
+                               ".dataset.code === 'RESERVE_LINK_CONFIG_REQUIRED'",
                                timeout=SETTLE_MS)
         self.assertEqual(page.evaluate(
             "() => document.getElementById('saveBtn').disabled"), True)
         self.assertEqual(page.evaluate(
             "() => document.getElementById('applyBtn').disabled"), True)
         self.assertEqual(page.locator("#linkBox select").count(), 0)
-        self.assertIn("원천 설정이 필요해요", page.inner_text("#rows"))
+        self.assertIn("예약 명단이 아직 연결되지 않았습니다", page.inner_text("#rows"))
 
     def test_no_ledger_event_shows_the_waiting_state_and_invents_nothing(self):
         self.store.conn.execute("DELETE FROM trip_tabs")
@@ -401,7 +401,7 @@ class LinkScreenTests(LinkBrowserFixture):
             "() => document.getElementById('saveBtn').disabled"), True)
         self.assertEqual(page.evaluate(
             "() => document.getElementById('applyBtn').disabled"), True)
-        self.assertIn("등록되면", page.inner_text("#linkBox"))
+        self.assertIn("여행을 먼저 등록", page.inner_text("#linkBox"))
 
     def test_an_unlinked_identifier_refuses_the_apply_and_keeps_the_draft(self):
         page = self.open_screen()

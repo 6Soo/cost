@@ -35,7 +35,7 @@ from webapp import ledger_board as board_mod  # noqa: E402
 from webapp import ledger_design, reserve_link_ui  # noqa: E402
 from webapp.ledger_store import LedgerStore  # noqa: E402
 
-OWNER_LINK = "예약 행사 연결"
+OWNER_LINK = "예약 명단·여행 연결"
 ENTRY_ID = "reserve-link"
 
 

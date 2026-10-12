@@ -1060,7 +1060,7 @@ def _reserve_link_link_html() -> str:
     if board.current_role() != "owner":
         return ""
     return ("<a class='btn' id='reserve-link' href='/reserve-links'>"
-            "예약 행사 연결</a>")
+            "예약 명단·여행 연결</a>")
 
 
 def _review_link_html() -> str:
@@ -1827,6 +1827,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     if _STORE_missing():
         return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
     trip = _selected_trip(tab_id)
+    from .google_ledger_page import trip_income_html
     incomes, expenses, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     status = ""
@@ -1858,6 +1859,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<div id='live-sum'>"
         f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"</div>"
+        f"{trip_income_html(tab_id)}"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"

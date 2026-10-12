@@ -118,6 +118,72 @@ def owner_rows(rows: dict, key: str, source: str) -> dict | None:
             "expense": expense(tab.get("expense", []))}
 
 
+def trip_income_html(tab_id: str) -> str:
+    """Read-only income for an explicitly linked COST trip, using current grants."""
+    from . import ledger_board as board
+    if not tab_id or tab_id == 'unclassified':
+        return ''
+    owner = board.current_role() == 'owner'
+    settings = ("<a class='btn' href='/google-ledger#google-settings'>수입 장부 연결 설정</a>"
+                if owner and enabled() else '')
+
+    def panel(message, body=''):
+        return ("<details id='google-trip-income' class='income-note' aria-label='Google 수입내역'"
+                + (' open' if enabled() else '') + ">"
+                "<summary>Google 수입내역</summary>"
+                f"<p>{message}</p>{body}{settings}"
+                "<p>Google에서 읽어 온 수입입니다. 아래 COST 거래 합계에 중복 반영하지 않습니다. "
+                "입금 수정은 Google 장부에서 진행해 주세요.</p></details>")
+
+    if not enabled():
+        return panel('미연결 · Google 장부 연결이 필요합니다.')
+    try:
+        path = _snapshot_path()
+        mapping = load_mapping(path)
+        keys = [key for key, linked in mapping.items() if linked == tab_id]
+        if not owner:
+            session = board.current_request_session()
+            allowed = (viewer_allowed_keys(load_grants(path), session.user_id, mapping,
+                                           board.viewer_visible_tabs(session)) if session else set())
+            if len(keys) != 1 or keys[0] not in allowed:
+                return panel('열람 권한이 없거나 수입 장부가 연결되지 않았습니다.')
+        if len(keys) != 1:
+            return panel('미연결 · 이 여행의 Google 장부를 하나 선택해 연결해 주세요.')
+        snapshot, rows = google_authority.load_consistent(path, _rows_path())
+        payload = owner_payload(snapshot_for_display(snapshot), load_choices(path))
+        matches = [trip for trip in payload['trips'] if trip['key'] == keys[0]]
+        if len(matches) != 1:
+            return panel('조회 불가 · 연결한 여행의 Google 장부를 확인해 주세요.')
+        trip = matches[0]
+        source = trip.get('chosen_source')
+        if source not in ('main', 'archive'):
+            return panel('정본 선택이 필요합니다. 메인·보관 장부 중 사용할 사본을 확인해 주세요.')
+        detail = owner_rows(rows, keys[0], source)
+        if detail is None:
+            return panel('조회 불가 · 연결한 수입 행을 확인하지 못했습니다.')
+        verified = trip.get('verified')
+        message = (f"Google 확정 수입 {_money(trip['income_total'])}" if verified else
+                   '확인 필요 · 동기화 또는 합계 검증이 끝나지 않아 확정 수입을 표시하지 않습니다.')
+        message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
+        message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
+        body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
+                "수입·지출 원본 상세</a>")
+        if verified:
+            esc = lambda value: html.escape('' if value is None else str(value))
+            lines = ''.join(
+                '<tr>' + ''.join(f'<td>{esc(row.get(field))}</td>'
+                                  for field in ('date', 'name', 'nickname', 'deposit', 'balance', 'extra'))
+                + f"<td>{_money(row['amount'])}</td></tr>" for row in detail['income'])
+            body += ("<div style='overflow-x:auto'><table><caption>예약금·잔금·추가금 내역</caption>"
+                     "<thead><tr><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
+                     "<th>잔금</th><th>추가금</th><th>금액</th></tr></thead>"
+                     f"<tbody>{lines or '<tr><td colspan=\"7\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
+                     "</tbody></table></div>")
+        return panel(message, body)
+    except (google_authority.SnapshotError, ValueError, OSError):
+        return panel('조회 불가 · 동기화와 연결 설정을 확인한 뒤 새로고침해 주세요.')
+
+
 def render_rows_html(detail: dict) -> str:
     esc = lambda value: html.escape(str(value or ""))
 
@@ -146,7 +212,7 @@ def render_rows_html(detail: dict) -> str:
             "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
             f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
             f"<p>{verification}</p><p>동기화 기준 {html.escape(str(detail.get('synced_at') or '미확인'))}</p>"
-            f"<h2>수입 행 합계 {_money(income)}</h2>{income_table(detail['income'])}"
+            f"<h2 id='income'>수입 행 합계 {_money(income)}</h2>{income_table(detail['income'])}"
             f"<h2>지출 행 합계 {_money(expense)}</h2>{expense_table(detail['expense'])}</body></html>")
 
 

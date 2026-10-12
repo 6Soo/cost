@@ -204,8 +204,8 @@ class NoHorizontalOverflowTests(MobileLayoutFixture):
           };
         }""")
         self.assertEqual(layout["display"], "block")
-        self.assertEqual(layout["label"], "원천 식별자")
-        self.assertIn("원천 식별자", layout["before"])
+        self.assertEqual(layout["label"], "예약 행사 식별자")
+        self.assertIn("예약 행사 식별자", layout["before"])
 
     def test_the_column_header_is_still_readable_by_assistive_technology(self):
         """Visually out of the way at a narrow width, still in the document.
@@ -226,7 +226,7 @@ class NoHorizontalOverflowTests(MobileLayoutFixture):
           };
         }""")
         self.assertNotEqual(header["display"], "none")
-        self.assertEqual(header["labels"], ["원천 식별자", "연결된 대상", "대상 선택"])
+        self.assertEqual(header["labels"], ["예약 행사 식별자", "연결된 COST 여행", "COST 여행 선택"])
         self.assertEqual(header["scopes"], ["col", "col", "col"])
 
 
@@ -370,7 +370,7 @@ class MultiSelectTests(MobileLayoutFixture):
                     " source: td.getAttribute('data-source')}))")
                 self.assertTrue(cells)
                 for cell in cells:
-                    self.assertEqual(cell["label"], "연결된 대상")
+                    self.assertEqual(cell["label"], "연결된 COST 여행")
                     self.assertTrue(cell["source"].startswith("reservation:"))
 
 

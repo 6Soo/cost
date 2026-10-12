@@ -19,7 +19,7 @@ _DOCUMENT = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>예약 행사 연결</title>
+<title>예약 명단·여행 연결</title>
 <style>
 body { font-family: system-ui, sans-serif; margin: 1.5rem; }
 h1 { font-size: 1.25rem; }
@@ -66,6 +66,13 @@ a.back:hover { text-decoration: underline; }
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
+  .linktable thead th {
+    display: block;
+    width: 1px;
+    max-width: 1px;
+    padding: 0;
+    overflow: hidden;
+  }
   .linktable tr {
     border: 1px solid #ccc;
     border-radius: 4px;
@@ -84,7 +91,15 @@ a.back:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-<h1>예약 행사 연결</h1>
+<h1>예약 명단·여행 연결</h1>
+<p>예약 시스템의 행사와 COST의 여행을 연결해 예약 명단을 올바른 여행에 적용하는 화면입니다.</p>
+<ol>
+  <li>예약 행사마다 해당하는 COST 여행을 선택합니다.</li>
+  <li>‘여행 연결 저장’을 누르면 연결 정보만 저장됩니다.</li>
+  <li>연결 내용을 확인한 뒤 ‘연결된 명단 적용’을 누르면 명단이 반영됩니다.</li>
+</ol>
+<p class="note">카드 결제 대사나 수입 금액을 확정하는 메뉴가 아닙니다.
+수입내역은 여행 장부의 ‘Google 수입내역’에서 확인하세요.</p>
 <!-- Two ways back out. This screen has no navigation rail of its own, so
      without these the owner can arrive here and only reach anything else by
      editing the address bar. Both are owner pages and both are behind the same
@@ -99,8 +114,8 @@ a.back:hover { text-decoration: underline; }
 <div id="summary"></div>
 <div class="bar">
   <button id="reloadBtn" type="button">다시 불러오기</button>
-  <button id="saveBtn" type="button" disabled>연결 저장</button>
-  <button id="applyBtn" type="button" disabled>명단 적용 실행</button>
+  <button id="saveBtn" type="button" disabled>여행 연결 저장</button>
+  <button id="applyBtn" type="button" disabled>연결된 명단 적용</button>
 </div>
 <section id="linkBox"></section>
 <section id="planBox"></section>
@@ -182,7 +197,7 @@ function renderPlan(payload) {
     // The honest empty state. Not an example row, not a disabled dropdown full of
     // invented tabs: there is nothing to connect to yet.
     add(box, "p", "warntext",
-        "장부에 등록된 대상 행사가 없어요. 대상이 등록되면 여기에 나타납니다.");
+        "연결할 COST 여행이 없습니다. 장부에서 여행을 먼저 등록한 뒤 다시 불러와 주세요.");
     el("saveBtn").disabled = true;
     el("applyBtn").disabled = true;
     setState("대상 행사 대기 중입니다. 연결은 진행할 수 없어요.", "warntext");
@@ -190,7 +205,7 @@ function renderPlan(payload) {
   }
   var table = add(box, "table", "linktable");
   var head = add(add(table, "thead"), "tr");
-  ["원천 식별자", "연결된 대상", "대상 선택"].forEach(function(label) {
+  ["예약 행사 식별자", "연결된 COST 여행", "COST 여행 선택"].forEach(function(label) {
     var th = add(head, "th", null, label);
     th.setAttribute("scope", "col");
   });
@@ -201,13 +216,13 @@ function renderPlan(payload) {
     // stack of cards at a narrow width. Without it a stacked row is three
     // unlabelled fragments and the source key looks like a heading.
     var keyCell = add(row, "td", "code", code);
-    keyCell.setAttribute("data-label", "원천 식별자");
+    keyCell.setAttribute("data-label", "예약 행사 식별자");
     var chosen = add(row, "td", "chosen",
                       pendingLinks[code].join(", ") || "연결 없음");
-    chosen.setAttribute("data-label", "연결된 대상");
+    chosen.setAttribute("data-label", "연결된 COST 여행");
     chosen.setAttribute("data-source", code);
     var cell = add(row, "td", "picker");
-    cell.setAttribute("data-label", "대상 선택");
+    cell.setAttribute("data-label", "COST 여행 선택");
     var select = document.createElement("select");
     select.multiple = true;
     select.setAttribute("data-source", code);
@@ -251,7 +266,7 @@ function renderPlan(payload) {
   el("applyBtn").disabled = !payload.applicable
     || payload.apply_digest === appliedDigest;
   setState(payload.applicable
-           ? "연결할 수 있어요. 저장은 연결만, 적용은 명단이 따로예요."
+           ? "연결 내용을 확인하세요. 여행 연결 저장 후 연결된 명단을 적용할 수 있습니다."
            : "연결되지 않은 원천 식별자가 있어요. " + text(payload.refusal_code),
            payload.applicable ? "" : "warntext",
            payload.applicable ? "ready" : "unlinked");
@@ -262,8 +277,9 @@ function renderUnconfigured(payload) {
   // The configuration-required state, said plainly. Nothing is searched for and no
   // collection is started from this page.
   add(el("rows"), "p", "warntext",
-      "원천 설정이 필요해요. 경로·파일 해시·의미 해시를 함께 지정해야 해요.");
-  setState(text(payload.code || "RESERVE_LINK_CONFIG_REQUIRED"), "warntext");
+      "예약 명단이 아직 연결되지 않았습니다. 예약 명단 파일을 관리자가 설정하면 여행을 선택할 수 있습니다. 지금은 장부로 돌아가 다른 업무를 진행할 수 있습니다.");
+  setState("예약 명단 연결 대기", "warntext");
+  el("state").dataset.code = payload.code || "RESERVE_LINK_CONFIG_REQUIRED";
 }
 
 function renderUnreadable(payload) {

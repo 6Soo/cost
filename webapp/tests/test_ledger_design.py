@@ -187,7 +187,7 @@ class DesignScreenTests(unittest.TestCase):
         # reservation-linking button is present because it does not depend on
         # one (RESERVE-NAVIGATION-001).
         self.assertEqual(page.inner_text(".act").replace("\n", " "),
-                         "예약 행사 연결 카드 가져오기 XLSX 출력")
+                         "예약 명단·여행 연결 카드 가져오기 XLSX 출력")
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")

@@ -62,7 +62,7 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         link = page.query_selector("#reserve-link")
         self.assertIsNotNone(link, "the owner ledger carries no entry link")
         self.assertEqual(link.get_attribute("href"), "/reserve-links")
-        self.assertIn("예약 행사 연결", link.inner_text())
+        self.assertIn("예약 명단·여행 연결", link.inner_text())
 
         link.click()
         page.wait_for_function(
@@ -71,7 +71,8 @@ class OwnerNavigationTests(NavigationBrowserFixture):
         page.wait_for_function("() => window.__reserveLink !== undefined",
                                timeout=SETTLE_MS)
         self.assertTrue(page.url.endswith("/reserve-links"), page.url)
-        self.assertIn("예약 행사 연결", page.inner_text("h1"))
+        self.assertIn("예약 명단·여행 연결", page.inner_text("h1"))
+        self.assertIn("수입 금액을 확정하는 메뉴", page.inner_text("body"))
 
     def test_the_linking_screen_reaches_the_ledger_and_the_review_screen(self):
         """A screen with no way out is a screen an owner opens once."""
@@ -141,8 +142,9 @@ class OwnerNavigationTests(NavigationBrowserFixture):
             # screen invents no source to avoid saying it. The code is asserted
             # rather than the sentence: the wording is a copy decision and the
             # fixed code is what a caller branches on.
-            state = page.inner_text("#state")
+            state = page.locator("#state").get_attribute("data-code")
             self.assertIn(reserve_link.CODE_CONFIG_REQUIRED, state)
+            self.assertIn("예약 명단 연결 대기", page.inner_text("#state"))
             self.assertEqual(page.query_selector("#saveBtn").is_disabled(), True)
             self.assertEqual(page.query_selector("#applyBtn").is_disabled(), True)
         finally:
