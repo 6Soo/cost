@@ -81,7 +81,8 @@ def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
         lock = getattr(self.server, "store_lock", None)
-        if lock is None:
+        # The liveness probe reads no store, so it must not queue behind a slow page.
+        if lock is None or urlparse(self.path).path == "/healthz":
             return method(self, *args, **kwargs)
         with lock:
             if getattr(self.server, 'runtime_closing', False):
