@@ -213,7 +213,11 @@ def trip_income_html(tab_id: str) -> str:
         info_time = format_display_time(payload.get('synced_at'))
         time_row = (f"<div class='income-sync'><span>{'메인 장부' if source == 'main' else '보관 장부'}</span>"
                     f"{ui_icons.icon('refresh-cw')}<span>동기화</span><time datetime='{synced_raw}'>{info_time}</time></div>")
-        body = (time_row + f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
+        sheet = (trip.get('copies', {}).get(source) or {}).get('sheet') or keys[0]
+        sheet_range = "'" + sheet.replace("'", "''") + "'!A1"
+        source_href = (f"https://docs.google.com/spreadsheets/d/{google_authority.SPREADSHEET_IDS[source]}"
+                       f"/edit#range={quote(sheet_range, safe='')}")
+        body = (time_row + f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                 f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))

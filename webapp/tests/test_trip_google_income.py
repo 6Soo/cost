@@ -27,7 +27,10 @@ def test_income_connects_only_explicit_trip_and_preserves_rows(income_context):
     body = page.trip_income_html('trip-syn')
     assert '1,000원' in body and 'INCOME-NAME' in body
     assert '예약금' in body and '잔금' in body and '추가금' in body
-    assert 'source=main' in body and '확정 수입' in body
+    assert 'docs.google.com/spreadsheets/d/' in body and '확정 수입' in body
+    assert page.google_authority.SPREADSHEET_IDS['main'] in body
+    assert '/google-ledger/rows?' not in body
+    assert 'target=\'_blank\'' in body and "rel='noopener noreferrer'" in body
     assert 'INCOME-NAME' not in page.trip_income_html('other-trip')
     assert '미연결' in page.trip_income_html('other-trip')
 
@@ -80,6 +83,18 @@ def test_verified_zero_is_distinct_from_unlinked(income_context):
     copy['income'].update(total=0, sheet_total=0, row_sum=0)
     assert '확정 수입 0원' in page.trip_income_html('trip-syn')
     assert '확정 수입 0원' not in page.trip_income_html('unknown')
+
+
+def test_source_link_uses_selected_archive_and_quotes_actual_sheet(income_context, monkeypatch):
+    from urllib.parse import unquote
+    snapshot, key = income_context
+    sheet = "Synthetic ' 여행 & 사본"
+    snapshot['trips'][0]['copies']['archive']['sheet'] = sheet
+    monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {key: 'archive'}})
+    monkeypatch.setattr(page, 'owner_rows', lambda *a: {'income': [], 'expense': []})
+    body = page.trip_income_html('trip-syn')
+    assert page.google_authority.SPREADSHEET_IDS['archive'] in body
+    assert "'Synthetic '' 여행 & 사본'!A1" in unquote(body)
 
 
 def test_unverified_income_explains_total_error_without_exposing_rows(income_context, monkeypatch):

@@ -193,6 +193,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                         "els => els.filter(el => { const r=el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }).length")
                     self.assertGreaterEqual(visible_trips, 3)
                     page.get_by_role('link', name='카드 검토 1건', exact=True).click()
+                    page.locator('#saved-materials summary').click()
                     page.locator('[data-batch]').wait_for()
                     self.assertIn('국민카드 사용내역', page.locator('[data-batch]').inner_text())
                     self.assertNotIn('H.xlsx', page.locator('[data-batch]').inner_text())
