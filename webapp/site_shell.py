@@ -29,6 +29,9 @@ STYLE = """
 #nav .nav-hd{padding:18px 16px 14px}
 #nav .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 #nav .brand small{display:block;font-size:11.5px;font-weight:400;color:#667085;margin-top:3px}
+#nav a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
+#nav a.brand:hover{background:#F8FAFC}
+#nav a.brand:focus-visible{outline:2px solid #2266F5;outline-offset:2px}
 #nav .site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
 #nav .site-links a{display:flex;align-items:center;min-height:40px;padding:8px;border-radius:6px}
 #nav a[aria-current=page]{background:#ECF5EF;border-left:2px solid #1C7A52;font-weight:600}
@@ -64,7 +67,8 @@ body.site-standalone{margin:0!important;padding:0!important}
 .site-app>.nav-mask[hidden]{display:none!important}
 @media(max-width:759px){
  #nav{width:min(300px,85vw);flex-basis:auto}
- #nav .nv{min-height:44px}#nav .nav-q input{font-size:16px}
+  #nav .nv{min-height:44px}#nav .nav-q input{font-size:16px}
+  #nav a.brand{min-height:44px;display:flex;align-items:center}
  .site-topbar{display:flex;align-items:center;gap:12px;padding:6px 12px;background:#fff;border-bottom:1px solid #E4E7EC}
  .site-topbar button{width:auto!important;flex:none;color:#182230;background:white;border:1px solid #D0D5DD;border-radius:8px}
  .site-app>#nav{width:min(300px,85vw);transform:translateX(-100%);transition:transform .18s ease}

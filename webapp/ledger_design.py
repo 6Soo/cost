@@ -111,6 +111,9 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav-hd{padding:18px 16px 14px}
 .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
+a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
+a.brand:hover{background:var(--hover)}
+a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nav-sec{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--mut);letter-spacing:.05em}
 .site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
 .site-links a{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px;
@@ -419,8 +422,9 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
   .sum .n{margin-left:0}
   .p-bd{padding:16px}
   .p-ft{padding:12px 16px;position:sticky;bottom:0;background:var(--paper)}
-  .lst{overflow-x:hidden}
-  .nv{min-height:44px}
+   .lst{overflow-x:hidden}
+   .nv{min-height:44px}
+   a.brand{min-height:44px;display:flex;align-items:center}
   .li{width:100%;max-width:100%;min-height:64px;display:flex;flex-direction:column;
    align-items:stretch;justify-content:center;gap:4px;padding:10px 16px;
    border:0;border-bottom:1px solid var(--line2);background:var(--paper);text-align:left;cursor:pointer;
@@ -875,7 +879,7 @@ def work_menu_html() -> str:
 
 
 def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> str:
-    """The whole trip rail: the brand, the search box, the region, the footer.
+    """The whole trip rail: the brand link, the search box, the region, the footer.
 
     The search box sits outside the swappable region on purpose. It holds what the
     user typed, and a refresh that replaced it would take the caret and the text
@@ -885,7 +889,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     if board.current_role() == 'owner':
         from . import google_ledger_page, receipt_review
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>카드 검토</span></a>"
                    f"<a href='/cards'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
@@ -905,7 +908,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     else:
         from . import google_ledger_page
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-                   f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
         if google_ledger_page.enabled():
             primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
@@ -920,7 +922,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         f" value='{board.esc(query)}' autocomplete='off'></form>")
     return (
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><p class='brand'>숲길여행 회계</p></div>"
+        "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'>숲길여행 회계</a></div>"
         f"{primary}{search}"
         + nav_region(tab_id, query, kind, archived)
         + "</aside>"
