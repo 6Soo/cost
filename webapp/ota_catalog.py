@@ -1,5 +1,4 @@
 """저장된 OTA 예약을 여행 배정 여부와 함께 읽기 전용으로 조회한다."""
-import hashlib
 import html
 import json
 import os
@@ -50,14 +49,9 @@ def _database_rows(conn):
     return [{**row, 'trips': links.get(row['id'], [])} for row in records]
 
 
-def _read_database(path, *, content=None):
-    if content is None:
-        conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=2)
-    else:
-        conn = sqlite3.connect(':memory:')
+def _read_database(path):
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=2)
     with closing(conn):
-        if content is not None:
-            conn.deserialize(content)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA query_only=ON')
         conn.execute('BEGIN')
@@ -128,18 +122,6 @@ def catalog(board, query, *, sources=None):
             add_database(_read_database(path))
         except (OSError, ValueError, sqlite3.Error):
             warnings.append('일부 자료를 읽지 못했습니다. 예약 DB를 확인한 뒤 다시 조회해 주세요.')
-    # 기존 원본 검토에 등록된 정규화 스냅샷도 같은 예약 목록에 포함한다.
-    # 설정에 묶인 해시를 확인한 바이트만 메모리에서 열어 교체 중인 파일을 섞지 않는다.
-    if os.environ.get('WEBLEDGER_REVIEW_CONFIG'):
-        try:
-            from .real_review import load_manifest
-            manifest = load_manifest(os.environ['WEBLEDGER_REVIEW_CONFIG'])
-            content = Path(manifest['snapshot_path']).read_bytes()
-            if hashlib.sha256(content).hexdigest() != manifest['snapshot_sha256']:
-                raise ValueError('snapshot changed')
-            add_database(_read_database('', content=content))
-        except Exception:
-            warnings.append('원본 검토 스냅샷을 읽지 못했습니다. 수집 상태를 확인해 주세요.')
     for directory in dict.fromkeys(str(p) for p in sources.get('mail_directories', [])):
         if not Path(directory).is_dir():
             continue

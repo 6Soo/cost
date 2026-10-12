@@ -131,10 +131,12 @@ def test_mail_bookings_are_merged_without_creating_payment_or_reservation_rows(d
     assert board.conn.total_changes == before
 
 
-def test_bound_snapshot_requires_hash_and_never_publishes_manifest_paths(data, tmp_path, monkeypatch):
+def test_card_review_workbook_is_not_an_ota_database(data, tmp_path, monkeypatch):
     import hashlib
     board, sources = data
-    snapshot = sources['portal_databases'][0]
+    from tests.card_pipeline.fixtures import make_xlsx, domestic_row
+    snapshot = tmp_path / 'card-review.xlsx'
+    snapshot.write_bytes(make_xlsx([domestic_row(merchant='합성 상점', amount=1000, approval='SYN-OTA')]))
     config = tmp_path / 'review.json'
     config.write_text(json.dumps({
         'snapshot_path': str(snapshot), 'snapshot_sha256': hashlib.sha256(snapshot.read_bytes()).hexdigest(),
@@ -143,12 +145,6 @@ def test_bound_snapshot_requires_hash_and_never_publishes_manifest_paths(data, t
         'decisions_db_path': str(tmp_path / 'choices.sqlite'),
     }), encoding='utf-8')
     monkeypatch.setenv('WEBLEDGER_REVIEW_CONFIG', str(config))
-    result = ota_catalog.catalog(board, {}, sources={'portal_databases': [], 'mail_directories': []})
+    result = ota_catalog.catalog(board, {}, sources=sources)
     assert result['all_count'] == 3 and result['warnings'] == []
-    conn = sqlite3.connect(snapshot)
-    conn.execute("UPDATE bookings SET label='변경된 자료' WHERE id=1")
-    conn.commit()
-    conn.close()
-    result = ota_catalog.catalog(board, {}, sources={'portal_databases': [], 'mail_directories': []})
-    assert result['all_count'] == 0 and result['warnings']
     assert str(snapshot) not in json.dumps(result)
