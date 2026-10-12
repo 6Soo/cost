@@ -148,6 +148,7 @@ def _link_diagnosis_label(reason):
         'reference_content_conflict': '참고 자료 내용 불일치 · 확인 필요',
         'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
         'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
+        'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
     }
     return labels.get(reason, '예약 근거 확인 필요')
 
@@ -884,6 +885,13 @@ class CardFlow:
         sources={row['source_hash'] for row in rows if _is_ota_row(row) and row.get('source_hash')}
         if not sources:
             return {}
+        from . import ota_payment_review
+        if ota_payment_review.enabled():
+            # The OTA panel already reads the worker's reconciled snapshot.
+            # Re-parsing all messages here holds the server's shared DB request
+            # lock and can block every page (including health probes).
+            # This is a display hint only; preview/commit keep the snapshot guards.
+            return {source: {'source_diagnostic': 'snapshot_managed'} for source in sources}
         try:
             report=self._ota_report()
         except ota_sources.OtaSourcesError:

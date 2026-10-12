@@ -165,6 +165,15 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertEqual(matcher.call_count, 1)
 
+    def test_worker_managed_card_page_does_not_parse_all_mail_under_request_lock(self):
+        row = {'merchant': 'AGODA', 'source_hash': 'synthetic-source'}
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch.object(self.flow, '_ota_report', side_effect=AssertionError('synchronous mail scan')):
+            evidence = self.flow.review_mail_evidence([row])
+        self.assertEqual(evidence, {'synthetic-source': {'source_diagnostic': 'snapshot_managed'}})
+        labels = _review_evidence_labels(row, evidence['synthetic-source'])
+        self.assertTrue(any('OTA 검토' in label for label in labels))
+
     def test_overwritten_mail_file_refreshes_cancellation_evidence(self):
         from tests.card_pipeline.test_booking_mail import message
         from tests.card_pipeline.test_ota_refresh import save
