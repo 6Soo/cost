@@ -2048,12 +2048,9 @@ def _expense_category_rank(item: str) -> int:
 
 
 def _sort_expenses_for_display(rows: list) -> list:
-    """Sort expense rows for the screen only, stable within a category.
-
-    The key is the category rank alone: rows in the same category keep their
-    existing relative order, and nothing outside the screen changes.
-    """
-    return sorted(rows, key=lambda r: _expense_category_rank(r.get("item")))
+    """화면 날짜 오름차순. 같은 날짜에는 기존 분류 순서를 유지한다."""
+    return sorted(rows, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or '',
+                                      _expense_category_rank(r.get("item"))))
 
 
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
@@ -2085,6 +2082,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
         incomes = [r for r in incomes if keep(r)]
         expenses = [r for r in expenses if keep(r)]
     expenses = _sort_expenses_for_display(expenses)
+    incomes = sorted(incomes, key=lambda r: (not bool(r.get('occurred_on')), r.get('occurred_on') or ''))
     return incomes, expenses, whole_income, whole_expense
 
 

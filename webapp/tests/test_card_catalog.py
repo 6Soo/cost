@@ -58,12 +58,13 @@ def test_date_sort_month_filter_and_links_are_read_only(stored, monkeypatch):
     stored.conn.commit()
     before = stored.conn.total_changes
     assert [r['transaction_id'] for r in card_catalog.catalog(stored, {'sort': ['asc']})['rows']] == [ids[1], ids[2], ids[0]]
-    assert [r['transaction_id'] for r in card_catalog.catalog(stored, {})['rows']] == [ids[0], ids[2], ids[1]]
+    assert [r['transaction_id'] for r in card_catalog.catalog(stored, {})['rows']] == [ids[1], ids[2], ids[0]]
+    assert [r['transaction_id'] for r in card_catalog.catalog(stored, {'sort': ['desc']})['rows']] == [ids[0], ids[2], ids[1]]
     query = {'month': ['2026-02'], 'sort': ['asc'], 'card': ['1234']}
     result = card_catalog.catalog(stored, query)
     assert result['total'] == 2
     assert [r['transaction_id'] for r in result['rows']] == [ids[2], ids[0]]
-    assert result['months'] == ['2026-02', '2026-01']
+    assert result['months'] == ['2026-01', '2026-02']
     assert card_catalog.catalog(stored, {**query, 'q': ['no match']})['total'] == 0
     assert card_catalog.catalog(stored, {'sort': ['asc; DELETE FROM transactions']})['total'] == 3
     monkeypatch.setattr(card_catalog, 'PAGE_SIZE', 1)

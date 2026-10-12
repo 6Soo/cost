@@ -35,6 +35,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 self.assertEqual(page.locator('#nav').count(), 1)
                 self.assertIn('전체 3건', page.inner_text('#card-count'))
                 self.assertEqual(page.locator('tbody tr').count(), 3)
+                self.assertIn('2026-10-01', page.locator('tbody tr').first.inner_text())
                 page.locator('main').get_by_role('link', name='여행 미배정', exact=True).click()
                 self.assertEqual(page.locator('tbody tr').count(), 2)
                 self.assertIn('BOOK-2', page.inner_text('tbody'))
@@ -48,7 +49,7 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 page.get_by_role('link', name='초기화', exact=True).click()
                 page.get_by_role('button', name='이용일', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_role('button', name='오름차순 · 이른 이용 먼저', exact=True).click()
+                    page.locator("#filter-date [data-filter='sort'][data-value='asc']").click()
                 self.assertIn('2026-10-01', page.locator('tbody tr').first.inner_text())
                 page.get_by_role('button', name='이용일', exact=True).click()
                 with page.expect_navigation():

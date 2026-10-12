@@ -179,6 +179,20 @@ def format_transaction_date(value) -> str:
     return '~'.join(formatted)
 
 
+def transaction_date_sort_key(row):
+    """연도가 명시된 거래일 기준으로 정렬하고 불명확한 원문은 뒤에 둔다."""
+    first = re.split(r'\s*[~〜～]\s*', str(row.get('date') or '').strip())[0]
+    match = re.fullmatch(r'(\d{4}|\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})(?:[.]|(?:[ T]00:00:00))?', first)
+    if match:
+        year, month, day = match.groups()
+        try:
+            value = dt.date(int(year) + (2000 if len(year) == 2 else 0), int(month), int(day))
+            return False, value.isoformat()
+        except ValueError:
+            pass
+    return True, ''
+
+
 def trip_income_html(tab_id: str) -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
@@ -245,7 +259,8 @@ def trip_income_html(tab_id: str) -> str:
                 f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
                 + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
                           for field in ('deposit', 'balance', 'extra'))
-                + f"<td class='income-total'>{_money(row['amount'])}</td></tr>" for row in detail['income'])
+                + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
+                for row in sorted(detail['income'], key=transaction_date_sort_key))
             body += ("<div class='google-income-scroll'><table><caption>예약금·잔금·추가금 내역</caption>"
                      f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                      f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
@@ -265,7 +280,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['name'])}</td><td>{esc(r['nickname'])}</td>"
                 f"<td>{fmt_google_amount(r['deposit'])}</td><td>{fmt_google_amount(r['balance'])}</td><td>{fmt_google_amount(r['extra'])}</td>"
-                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in sorted(rows, key=transaction_date_sort_key))
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                 f"<th>잔금</th><th>추가금</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
 
@@ -273,7 +288,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['payee'])}</td><td>{esc(r['category'])}</td>"
             f"<td>{esc(r['period'])}</td><td>{esc(r['reservation'])}</td><td>{esc(r['evidence'])}</td>"
-                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in sorted(rows, key=transaction_date_sort_key))
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>분류</th><th>기간</th>"
                 f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
     def total(rows):

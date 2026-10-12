@@ -35,10 +35,10 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                     "e=>getComputedStyle(e).backgroundColor"), 'rgb(28, 122, 82)')
                 self.assertEqual(page.locator('thead select').count(), 0)
                 self.assertTrue(page.get_by_role('button', name='거래일', exact=True).is_visible())
-                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
+                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-01-05')
                 page.get_by_role('button', name='거래일', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_role('button', name='오름차순 · 오래된 거래 먼저', exact=True).click()
+                    page.locator("#filter-date [data-filter='sort'][data-value='asc']").click()
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-01-05')
                 page.get_by_role('button', name='거래일', exact=True).click()
                 with page.expect_navigation():

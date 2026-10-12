@@ -106,7 +106,7 @@ def catalog(board, query):
     month = value('month')
     if not re.fullmatch(r'[0-9]{4}-(0[1-9]|1[0-2])', month):
         month = ''
-    order = 'ASC' if value('sort') == 'asc' else 'DESC'
+    order = 'DESC' if value('sort') == 'desc' else 'ASC'
     try:
         page = max(1, int(value('page') or 1))
     except ValueError:
@@ -141,12 +141,12 @@ def catalog(board, query):
         page = min(page, pages)
         records = board.conn.execute('SELECT ' + ','.join('t.' + c for c in columns)
             + ',COALESCE(p.display_key,\'\'),COALESCE(e.excluded,0)' + source + clause
-            + f" ORDER BY {TRADE_DATE} {order},t.transaction_id"
+            + f" ORDER BY ({TRADE_DATE} IS NULL OR {TRADE_DATE}=''),{TRADE_DATE} {order},t.transaction_id"
             + ' LIMIT ? OFFSET ?', [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
         cards = [r[0] for r in board.conn.execute('SELECT DISTINCT card_tail FROM transactions ORDER BY card_tail')]
         months = [r[0] for r in board.conn.execute(
             f"SELECT DISTINCT strftime('%Y-%m',{TRADE_DATE}) AS month FROM transactions t "
-            'WHERE month IS NOT NULL ORDER BY month DESC')]
+            'WHERE month IS NOT NULL ORDER BY month ASC')]
     return {'rows': [dict(zip((*columns, 'trip_name', 'company_excluded'), row)) for row in records],
             'total': total, 'all_count': all_count, 'cards': cards, 'months': months, 'page': page, 'pages': pages}
 
@@ -166,7 +166,7 @@ def render_html(data, query):
                 f"{ui_icons.icon(icon_name, 14)}{label}<span class='header-value' aria-hidden='true'>{esc(selected)}</span>"
                 f"{ui_icons.icon('chevron-down', 14)}</button>"
                 f"<div id='filter-{key}' class='header-menu' popover aria-label='{label} 정렬 및 필터'>{contents}</div></th>")
-    sort = 'asc' if value('sort') == 'asc' else 'desc'
+    sort = 'desc' if value('sort') == 'desc' else 'asc'
     date_controls = choices('sort', '거래일 정렬', [('desc', '내림차순 · 최신 거래 먼저'), ('asc', '오름차순 · 오래된 거래 먼저')], sort)
     date_controls += choices('month', '조회 월', [('', '전체 월')]
                              + [(m, m.replace('-', '년 ') + '월') for m in data.get('months', [])], value('month'))

@@ -54,6 +54,7 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertEqual(table.locator('thead th:visible svg').count(),3)
                     self.assertIn('4월6일',table.inner_text())
                     self.assertIn('12월11일~4월6일',table.inner_text())
+                    self.assertEqual(table.locator('tbody .income-date').first.inner_text(),'12월11일~4월6일')
                     self.assertIn('합성 이름',table.inner_text())
                     self.assertIn('닉네임만',table.inner_text())
                     self.assertNotIn('숨길 닉네임',table.inner_text())
