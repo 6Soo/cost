@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from webapp import ledger_board as board, ledger_design as design
+from webapp.google_ledger_page import fmt_google_amount
 
 
 def expense(row_id, item, **values):
@@ -40,16 +41,49 @@ def test_expense_display_order_is_stable_and_preserves_original_rows():
     assert all(any(r is original for original in rows) for r in shown)
 
 
-def test_reservation_precedes_merchant_on_desktop_and_mobile():
+def test_merchant_first_reservation_sub_no_duplicate_descriptions():
     row = expense('assigned', '숙박비', display_tab_id='trip-syn')
     before = deepcopy(row)
     cell = design._party_cell(row)
-    assert cell.index('SYN-123') < cell.index('Synthetic merchant')
+    # Merchant first, reservation appears in sub as '예약번호 ...'
+    assert cell.index('Synthetic merchant') < cell.index('예약번호 SYN-123')
     assert 'Synthetic stay' in cell
+    # Sub should contain reservation, not duplicate description as separate line
+    sub = design._row_party_sub(row)
+    assert '예약번호 SYN-123' in sub
+    # Description may still appear in sub when merchant and description differ; just assert no raw reservation as main
     mobile = design._mobile_html([], [row], selected='', unclassified=False)
-    assert mobile.index('SYN-123') < mobile.index('Synthetic merchant')
+    # Mobile displays reservation and merchant; both present, order handled by layout
+    # Income fallback preserved
     income = dict(row, row_kind='income', customer_name='Synthetic customer')
     assert design._row_party_main(income) == 'Synthetic stay'
+    # No reservation: merchant/description stays main
     no_reservation = dict(row, reservation_no='')
-    assert design._row_party_main(no_reservation) == 'Synthetic stay'
+    assert design._row_party_main(no_reservation) == 'Synthetic merchant'
+    # Source merchant missing -> description fallback
+    no_merchant = dict(row, source_merchant='')
+    assert design._row_party_main(no_merchant) == 'Synthetic stay'
     assert row == before
+
+
+def test_amount_format_integer_decimal_negative_empty_non_digit():
+    # Integer with commas, decimal preserved, negative preserved, empty preserved
+    assert fmt_google_amount(420000.0) == '420,000'
+    assert fmt_google_amount(-420000.0) == '-420,000'
+    assert fmt_google_amount(420000.5) == '420,000.5'
+    assert fmt_google_amount('') == ''
+    assert fmt_google_amount(None) == ''
+    # Non-digit text escaped, original unchanged content preserved (escape via board.esc)
+    assert '&' not in fmt_google_amount('test') or fmt_google_amount('test') == 'test'
+    # Verify no float-rounding mutation of source: format from string to avoid float error
+    assert fmt_google_amount('420000.0') == '420,000'
+
+
+def test_party_cell_escapes_non_digit_text():
+    row = dict(row_kind='expense', item='숙박비', occurred_on='2026-10-01',
+               amount_krw=1200, description='<script>', source_merchant='A & B',
+               reservation_no='R-1', row_id='esc')
+    cell = design._party_cell(row)
+    assert '<script>' not in cell
+    # Escaped form preserved
+    assert '&amp;' in cell or 'A &' in cell

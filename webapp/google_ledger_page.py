@@ -23,6 +23,36 @@ from urllib.parse import quote
 
 from app import google_access, google_authority
 from . import ui_icons
+from decimal import Decimal, InvalidOperation
+
+def fmt_google_amount(val):
+    try:
+        s = str(val).strip() if val is not None else ''
+        if s == '':
+            return ''
+        if ',' in s:
+            import re
+            if not re.fullmatch(r'-?\d{1,3}(,\d{3})*(\.\d+)?', s):
+                return html.escape(s)
+        s_clean = s.replace(',', '')
+        d = Decimal(s_clean)
+        if not d.is_finite():
+            return html.escape(s)
+        s_fmt = format(d, 'f')
+        if '.' in s_fmt:
+            s_fmt = s_fmt.rstrip('0').rstrip('.')
+        int_part, _, dec_part = s_fmt.partition('.')
+        sign = ''
+        if int_part.startswith('-'):
+            sign = '-'
+            int_part = int_part[1:]
+        grouped = '{:,}'.format(int(int_part)) if int_part else '0'
+        res = sign + grouped
+        if dec_part:
+            res += '.' + dec_part
+        return res
+    except (InvalidOperation, ValueError, TypeError):
+        return html.escape(str(val)) if val is not None else ''
 
 _SETTINGS_LOCK = threading.RLock()
 # The planned scheduler runs hourly. Missing two runs must not look like current verification.
@@ -127,14 +157,14 @@ def trip_income_html(tab_id: str) -> str:
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
-    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
+    settings = (f"<a class='btn' style='font-size:13px;padding:6px 10px;margin-left:6px;' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
                 if owner and enabled() else '')
 
     def panel(message, body=''):
         return ("<details id='google-trip-income' class='income-note' aria-label='Google 수입내역'"
                 + (' open' if enabled() else '') + ">"
                 "<summary>Google 수입내역</summary>"
-                f"<p>{message}</p>{body}{settings}"
+                f"<p style='font-size:14px;margin:0 0 8px;color:#182230'>{message}</p>{body}{settings}"
                 "<p>Google에서 읽어 온 수입입니다. 아래 COST 거래 합계에 중복 반영하지 않습니다. "
                 "입금 수정은 Google 장부에서 진행해 주세요.</p></details>")
 
@@ -174,14 +204,14 @@ def trip_income_html(tab_id: str) -> str:
                 message += f" · 확인 필요 이유: {html.escape(reasons)}"
         message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
         message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
-        body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
+        body = (f"<a class='btn' style='font-size:13px;padding:6px 10px;margin-left:6px;' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
                 f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))
             lines = ''.join(
-                '<tr>' + ''.join(f'<td>{esc(row.get(field))}</td>'
+                '<tr>' + ''.join(f'<td>{fmt_google_amount(row.get(field)) if field in ("deposit","balance","extra") else esc(row.get(field))}</td>'
                                   for field in ('date', 'name', 'nickname', 'deposit', 'balance', 'extra'))
-                + f"<td>{_money(row['amount'])}</td></tr>" for row in detail['income'])
+                + f"<td>{fmt_google_amount(row['amount'])}</td></tr>" for row in detail['income'])
             body += ("<div style='overflow-x:auto'><table><caption>예약금·잔금·추가금 내역</caption>"
                      "<thead><tr><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                      "<th>잔금</th><th>추가금</th><th>금액</th></tr></thead>"
@@ -198,8 +228,8 @@ def render_rows_html(detail: dict) -> str:
     def income_table(rows):
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['name'])}</td><td>{esc(r['nickname'])}</td>"
-            f"<td>{esc(r['deposit'])}</td><td>{esc(r['balance'])}</td><td>{esc(r['extra'])}</td>"
-                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{fmt_google_amount(r['deposit'])}</td><td>{fmt_google_amount(r['balance'])}</td><td>{fmt_google_amount(r['extra'])}</td>"
+                f"<td>{fmt_google_amount(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                 f"<th>잔금</th><th>추가금</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
 
@@ -207,7 +237,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['payee'])}</td><td>{esc(r['category'])}</td>"
             f"<td>{esc(r['period'])}</td><td>{esc(r['reservation'])}</td><td>{esc(r['evidence'])}</td>"
-                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{fmt_google_amount(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>분류</th><th>기간</th>"
                 f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
     def total(rows):

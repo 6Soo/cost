@@ -42,7 +42,6 @@ INCOME_KIND_LABELS = {
 # Buttons and rows keep the values the existing tests and the export already use.
 MONEY = "{:,}원"
 
-
 def static_asset(name: str):
     """Return (bytes, content_type) for an allowed asset, or None."""
     if not isinstance(name, str) or name not in STATIC_ASSETS:
@@ -101,11 +100,14 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav .work-action{padding:8px 10px;font-size:12px}
 .nav .work-action small{display:none}
 .income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
+.main-wrap{max-width:1180px;padding:24px 32px;margin:0 auto}
+@media(max-width:759px){.main-wrap{padding:16px 12px 20px;max-width:none}}
 @media(max-width:759px){
  .work-menu{padding:10px 16px}
  .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .work-action{padding:9px 10px;font-size:13px}
  .income-note{padding:0 16px 12px}
+ .page-body{padding:16px 12px 20px;max-width:none}
 }
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
@@ -1463,37 +1465,53 @@ def _row_amount_class(row) -> str:
 
 
 def _row_party_main(row) -> str:
-    """목록 셀의 앞줄. 예약번호가 있는 지출은 예약번호가 앞줄에 온다.
-
-    Rows without a reservation number and income rows keep the existing
-    fallback (description/customer_name, then merchant). Values, IDs, URLs and
-    reconciliation keys are unchanged; only the display position moved.
-    """
-    if row.get("row_kind") != "income":
-        reservation = str(row.get("reservation_no") or "").strip()
-        if reservation:
-            return reservation
-    for key in ("description", "customer_name"):
-        value = str(row.get(key) or "").strip()
-        if value:
-            return value
-    return str(row.get("source_merchant") or "").strip() or "-"
+    """Merchant/description first; reservation second as sub. Income keeps fallback."""
+    if row.get("row_kind") == "income":
+        for key in ("description", "customer_name"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                return value
+        return str(row.get("source_merchant") or "").strip() or "-"
+    merchant = str(row.get("source_merchant") or "").strip()
+    description = str(row.get("description") or "").strip()
+    if merchant:
+        return merchant
+    if description:
+        return description
+    return str(row.get("reservation_no") or "").strip() or "-"
 
 
 def _row_party_sub(row) -> str:
-    """목록 셀의 다음 줄. 앞줄 다음으로 가맹점명, 설명은 필요하면 유지한다.
-
-    Unnecessary repeats are skipped: a value equal to the first line is not
-    printed twice. Rows without a reservation number and income rows keep the
-    existing fallback behavior.
-    """
+    """Sub: reservation label with exact token cleaned; merchant/description if different."""
+    import re
     main = _row_party_main(row)
     parts = []
-    for key in ("source_merchant", "description", "nickname"):
-        value = str(row.get(key) or "").strip()
-        if value and value != main and value not in parts:
-            parts.append(value)
-    return " · ".join(parts)
+    reservation = str(row.get("reservation_no") or "").strip()
+    # Description may contain reservation token; remove exact token with label
+    description = str(row.get("description") or "").strip()
+    if reservation:
+        # Remove exact token occurrences with optional '예약번호'/'예약' label
+        clean_desc = re.sub(r"\b(?:\s*예약번호\s*|\s*예약\s*)?" + re.escape(reservation) + r"\b", "", description)
+        clean_desc = re.sub(r"\s+", " ", clean_desc).strip()
+        clean_desc = clean_desc.replace("·", "").strip()
+        if clean_desc and clean_desc != main and clean_desc not in parts:
+            parts.append(clean_desc)
+        # Add reservation label line if reservation exists and different from main
+        if reservation != main:
+            parts.insert(0, "예약번호 " + reservation)
+    # Merchant/description additional only when different from main and not already there
+    merchant = str(row.get("source_merchant") or "").strip()
+    if merchant and merchant != main and merchant not in parts:
+        parts.append(merchant)
+    # Deduplicate while preserving order
+    seen = set()
+    deduped = []
+    for p in parts:
+        folded = "".join(p.split())
+        if folded not in seen:
+            seen.add(folded)
+            deduped.append(p)
+    return " · ".join(deduped)
 
 
 def _row_item(row) -> str:
@@ -1654,15 +1672,22 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         kind = _row_kind_meter(row)
         cat = row.get("item") or _income_kind_label(row) or "-"
         purpose = row.get("description") or row.get("customer_name") or "-"
-        # Same order as the desktop cell: reservation first, then merchant.
-        # Income rows and rows without a reservation keep the existing fallback.
-        reservation = (str(row.get("reservation_no") or "").strip()
-                       if row.get("row_kind") != "income" else "")
-        vendor = (row.get("source_merchant") or row.get("customer_name")
-                  or row.get("nickname") or "")
+        # Use desktop cell order: merchant/description main first, reservation sub second.
+        # Dedup exact reservation token inside description using re.sub boundary.
+        import re
+        main_text = _row_party_main(row)
+        sub_text = _row_party_sub(row)
+        # Clean description of exact reservation token (with optional label)
+        purpose_clean = str(row.get("description") or row.get("customer_name") or "").strip()
+        res_token = str(row.get("reservation_no") or "").strip()
+        if res_token:
+            purpose_clean = re.sub(r"\b(?:\s*예약번호\s*|\s*예약\s*)?" + re.escape(res_token) + r"\b", "", purpose_clean)
+            purpose_clean = re.sub(r"\s+", " ", purpose_clean).strip()
+            # If whole purpose equals token, leave empty; else keep remainder
+        # Build headline from desktop-style order
         seen = set()
         parts = []
-        for value in (reservation, vendor, purpose):
+        for value in (main_text, sub_text if sub_text and sub_text != main_text else "", purpose_clean if purpose_clean and purpose_clean != main_text else ""):
             text = str(value or "").strip()
             if not text:
                 continue
@@ -2025,7 +2050,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         panel = panel_part(selected, back=back, error=error, message=message,
                            draft=draft or {})
     main = (
-        f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
+        f"<main class='main' id='main' tabindex='-1' data-base='{board.esc(back)}'><div class='main-wrap'>"
         f"{_head_html(trip)}"
         f"{_bar_html(query, kind, tab_id, archived)}{status}"
         # APP_SPEC 4.1: the same global state line the shared shell carries.
@@ -2049,7 +2074,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
-        "</main>")
+        "</div></main>")
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
             f"<div id='panel-slot'>{panel}</div></div>")
