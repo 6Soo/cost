@@ -2660,6 +2660,9 @@ class Handler(BaseHTTPRequestHandler):
             _REQUEST_STORE.reset(token)
 
     def _send(self, text: str, code: int = 200) -> None:
+        from . import site_shell
+        if not ACCESS_ENFORCEMENT or current_request_session() is not None:
+            text = site_shell.wrap_document(text, self.path, status=code)
         # `no-store` on every HTML answer. The board is a live ledger: a browser
         # or proxy that may reuse a page or a fragment would show a stale ledger
         # and call it current, and the cross-screen change check compares against

@@ -859,6 +859,15 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     """
     pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
                     if board.current_role() == 'owner' else '')
+    primary = "<nav class='site-links' aria-label='주요 메뉴'><a href='/'>홈</a><a href='/board'>여행 장부</a>"
+    if board.current_role() == 'owner':
+        primary += ("<a href='/trips'>여행 관리</a><a href='/reserve-links'>예약 명단·여행 연결</a>"
+                    "<a href='/access/admin'>계정·권한 관리</a>")
+    else:
+        from . import google_ledger_page
+        if google_ledger_page.enabled():
+            primary += "<a href='/google-ledger'>Google 정본</a>"
+    primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"
         f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
@@ -870,7 +879,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
         "<div class='nav-hd'><p class='brand'>숲길여행 법인카드"
         f"<small>{board.data_status_mark()}</small></p></div>"
-        f"{search}{work_menu_html()}"
+        f"{primary}{search}{work_menu_html()}"
         + nav_region(tab_id, query, kind, archived)
         + "<p class='nav-ft'>금액은 장부에 기록된 수입 합계입니다. "
         "미기록 거래는 포함하지 않습니다. "
@@ -1262,7 +1271,7 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         "<form class='bar' method='get' action='/board' id='q-form'>"
         f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
         f"{f'<input type=hidden name=arch value={board.esc(archived)}>' if archived else ''}"
-        "<button class='icon' id='btn-menu' type='button' aria-label='여행 목록 열기'"
+        "<button class='icon' id='btn-menu' type='button' aria-label='전체 메뉴 열기'"
         " aria-controls='nav' aria-expanded='false'>☰</button>"
         "<label class='sr' for='q'>거래 검색</label>"
         "<input id='q' name='q' type='search' placeholder='용도·내용·메모·예약번호 검색'"
