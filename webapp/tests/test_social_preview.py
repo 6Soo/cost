@@ -14,16 +14,26 @@ def test_public_preview_and_image_without_ledger_access(tmp_path):
         with urlopen(base + "/share") as response:
             html = response.read().decode()
             assert response.status == 200
+            assert 'rel="icon"' in html
+            assert 'href="/assets/brand/wallet-favicon-v1.png"' in html
             assert 'property="og:image"' in html
-            assert 'https://ledger.foresttour.kr/assets/og/cost-wallet-v1.png' in html
+            assert 'https://ledger.foresttour.kr/assets/og/cost-travel-v3.png' in html
             assert 'name="twitter:card" content="summary_large_image"' in html
             assert 'content="1200"' in html and 'content="630"' in html
-        with urlopen(base + "/assets/og/cost-wallet-v1.png") as response:
+        with urlopen(base + "/assets/og/cost-travel-v3.png") as response:
             data = response.read()
             assert response.headers['Content-Type'] == 'image/png'
             assert data[:8] == b"\x89PNG\r\n\x1a\n"
             assert int.from_bytes(data[16:20], 'big') == 1200
             assert int.from_bytes(data[20:24], 'big') == 630
+        with urlopen(base + "/assets/brand/wallet-favicon-v1.png") as response:
+            data = response.read()
+            assert response.headers['Content-Type'] == 'image/png'
+            assert int.from_bytes(data[16:20], 'big') == 32
+            assert int.from_bytes(data[20:24], 'big') == 32
+        with urlopen(base + "/favicon.ico") as response:
+            assert response.headers['Content-Type'] == 'image/x-icon'
+            assert response.read()[:4] == b"\x00\x00\x01\x00"
     finally:
         server.shutdown()
         server.server_close()
