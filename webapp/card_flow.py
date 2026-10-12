@@ -962,6 +962,10 @@ class CardFlow:
 
     def auto_record(self, batch_id):
         """소유자의 변경 요청에서만 실행한다. 조회는 쓰지 않는다."""
+        with self.board._lock:
+            return self._auto_record_locked(batch_id)
+
+    def _auto_record_locked(self, batch_id):
         from .history_policy import cutoff
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=cutoff() or None, entry_metadata=self.preview_metadata(),
