@@ -10,6 +10,48 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class CardCatalogBrowserTests(LinkBrowserFixture):
+    def test_header_dropdowns_sort_and_filter_without_search_click(self):
+        env = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_UNIFIED_DB': '1'})
+        env.start()
+        self.addCleanup(env.stop)
+        flow = CardFlow(self.server.card_store)
+        flow.pipeline.receive(CARD, 'first.csv')
+        flow.pipeline.receive(PAIR, 'second.csv')
+        conn = self.server.card_store.conn
+        ids = [r[0] for r in conn.execute('SELECT transaction_id FROM transactions ORDER BY transaction_id')]
+        for txid, date in zip(ids, ['2026-02-20', '2026-01-05', '2026-02-10']):
+            conn.execute('UPDATE transactions SET approval_date=? WHERE transaction_id=?', (date, txid))
+        conn.commit()
+        before = conn.total_changes
+        for width in (390, 1440):
+            with self.subTest(width=width):
+                context = self.browser.new_context(viewport={'width': width, 'height': 900})
+                self.addCleanup(context.close)
+                context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
+                page = context.new_page()
+                page.goto(f'http://127.0.0.1:{self.port}/cards')
+                self.assertTrue(page.locator('thead').get_by_label('조회 월').is_visible())
+                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
+                with page.expect_navigation():
+                    page.get_by_label('거래일 정렬').select_option('asc')
+                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-01-05')
+                with page.expect_navigation():
+                    page.get_by_label('조회 월').select_option('2026-02')
+                self.assertEqual(page.locator('tbody tr').count(), 2)
+                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-10')
+                with page.expect_navigation():
+                    page.get_by_label('카드 선택').select_option('1234')
+                self.assertEqual(page.get_by_label('조회 월').input_value(), '2026-02')
+                page.reload()
+                self.assertEqual(page.get_by_label('거래일 정렬').input_value(), 'asc')
+                self.assertEqual(page.get_by_label('조회 월').input_value(), '2026-02')
+                with page.expect_navigation():
+                    page.get_by_label('거래일 정렬').select_option('desc')
+                self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
+                self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                context.close()
+        self.assertEqual(conn.total_changes, before)
+
     def test_menu_search_and_source_review_at_390(self):
         env = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_UNIFIED_DB': '1'})
         env.start()

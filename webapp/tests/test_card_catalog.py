@@ -46,3 +46,28 @@ def test_all_pages_are_reachable_without_repeating_transactions(stored):
     assert first['total'] == 54 and first['pages'] == 2
     assert len(first['rows']) == 50 and len(second['rows']) == 4
     assert not ({r['transaction_id'] for r in first['rows']} & {r['transaction_id'] for r in second['rows']})
+
+
+def test_date_sort_month_filter_and_links_are_read_only(stored, monkeypatch):
+    ids = [r[0] for r in stored.conn.execute('SELECT transaction_id FROM transactions ORDER BY transaction_id')]
+    for txid, approval, posting in zip(ids, ['2026-02-20', '2026-01-05', ''],
+                                     ['2026-03-01', '2026-02-01', '2026-02-10']):
+        stored.conn.execute('UPDATE transactions SET approval_date=?,posting_date=? WHERE transaction_id=?',
+                            (approval, posting, txid))
+    stored.conn.commit()
+    before = stored.conn.total_changes
+    assert [r['transaction_id'] for r in card_catalog.catalog(stored, {'sort': ['asc']})['rows']] == [ids[1], ids[2], ids[0]]
+    assert [r['transaction_id'] for r in card_catalog.catalog(stored, {})['rows']] == [ids[0], ids[2], ids[1]]
+    query = {'month': ['2026-02'], 'sort': ['asc'], 'card': ['1234']}
+    result = card_catalog.catalog(stored, query)
+    assert result['total'] == 2
+    assert [r['transaction_id'] for r in result['rows']] == [ids[2], ids[0]]
+    assert result['months'] == ['2026-02', '2026-01']
+    assert card_catalog.catalog(stored, {**query, 'q': ['no match']})['total'] == 0
+    assert card_catalog.catalog(stored, {'sort': ['asc; DELETE FROM transactions']})['total'] == 3
+    monkeypatch.setattr(card_catalog, 'PAGE_SIZE', 1)
+    result = card_catalog.catalog(stored, query)
+    markup = card_catalog.render_html(result, query)
+    assert 'month=2026-02' in markup and 'sort=asc' in markup and 'card=1234' in markup
+    assert '<thead' in markup and "aria-label='거래일 정렬'" in markup
+    assert stored.conn.total_changes == before
