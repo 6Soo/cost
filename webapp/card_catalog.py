@@ -202,8 +202,6 @@ def render_html(data, query):
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 내역</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
         "<nav class='catalog-actions' aria-label='카드 업무'>"
-        f"<a class='catalog-btn' href='/'>{ui_icons.icon('house')}홈</a>"
-        f"<a class='catalog-btn' href='/board'>{ui_icons.icon('book-open')}여행 장부</a>"
         f"<a class='catalog-btn primary' href='/import'>{ui_icons.icon('upload')}카드 가져오기·검토</a></nav>"
         "<h1>카드 내역</h1><p>DB에 저장된 모든 카드 거래입니다. 업로드 파일이나 검토 기간으로 제외하지 않습니다. "
         "취소·환불·중복·회사 경비도 포함하며, 원본 금액은 확정 지출 합계와 다를 수 있습니다.</p>"

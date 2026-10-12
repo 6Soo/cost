@@ -841,7 +841,13 @@ def _money(value) -> str:
 
 
 def work_menu_html() -> str:
-    """Owner work entry points, with honest states for unconfigured features."""
+    """Owner work entry points for the home body, with honest states.
+
+    This lives in the home body only. The sidebar carries the stable primary
+    menu (including the single 미배정 지출 entry in the trip region), so this
+    menu must not repeat those links. 미배정 지출 is intentionally absent
+    here: its one entry point is the sidebar region.
+    """
     if board.current_role() != 'owner':
         return ''
     from . import google_ledger_page, receipt_review, ui_icons
@@ -861,11 +867,9 @@ def work_menu_html() -> str:
     else:
         actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
     if google_ledger_page.enabled():
-        actions += action('table', 'Google 정본', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
+        actions += action('table', 'Google 장부', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
     else:
-        actions += action('table', 'Google 정본 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
-    count = len(board._unclassified_rows())
-    actions += action('map', f'여행 미배정 {count:,}건', '여행을 선택해 비용을 정리하세요', '/board?tab=unclassified')
+        actions += action('table', 'Google 장부 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
             f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
 
@@ -877,22 +881,36 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     user typed, and a refresh that replaced it would take the caret and the text
     with it.
     """
-    pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
-                    if board.current_role() == 'owner' else '')
     from . import ui_icons as _icons
-    primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
-               f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
-               f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
     if board.current_role() == 'owner':
-        primary += (f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
-                    f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>"
-                    f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>")
-    else:
-        from . import google_ledger_page
+        from . import google_ledger_page, receipt_review
+        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
+                   f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
+                   f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
+                   f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>카드 검토</span></a>"
+                   f"<a href='/cards'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 내역</span></a>"
+                   f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
+        if receipt_review.enabled():
+            primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
+                        "<span class='nm'>영수증 처리</span></a>")
         if google_ledger_page.enabled():
             primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
-                        "<span class='nm'>Google 정본</span></a>")
-    primary += '</nav>'
+                        "<span class='nm'>Google 장부</span></a>")
+        primary += ("</nav><h2 class='nav-sec'>관리</h2>"
+                    "<nav class='site-links' aria-label='관리 메뉴'>"
+                    f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
+                    f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>"
+                    f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
+                    "</nav>")
+    else:
+        from . import google_ledger_page
+        primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
+                   f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
+                   f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
+        if google_ledger_page.enabled():
+            primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
+                        "<span class='nm'>Google 장부</span></a>")
+        primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"
         f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
@@ -902,15 +920,25 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         f" value='{board.esc(query)}' autocomplete='off'></form>")
     return (
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><p class='brand'>숲길여행 법인카드"
-        f"<small>{board.data_status_mark()}</small></p></div>"
-        f"{primary}{search}{work_menu_html()}"
+        "<div class='nav-hd'><p class='brand'>숲길여행 회계</p></div>"
+        f"{primary}{search}"
         + nav_region(tab_id, query, kind, archived)
-        + "<p class='nav-ft'>금액은 장부에 기록된 수입 합계입니다. "
-        "미기록 거래는 포함하지 않습니다. "
-        + pending_note
-        + f"{board.nav_data_note()}</p></aside>"
+        + "</aside>"
         "<div class='nav-mask' id='nav-mask' hidden></div>")
+
+
+def _ledger_note_html() -> str:
+    """장부 화면에만 한 번 표시하는 기록 범위 안내다.
+
+    공통 메뉴의 하단 장문 안내를 여기로 옮겼다. 장부 반영 대기 확인은
+    소유자에게만 보이고, 행의 출처 한 줄은 기존 문구를 그대로 둔다.
+    """
+    pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
+                    if board.current_role() == 'owner' else '')
+    return ("<p class='meta ledger-note' id='ledger-note'>금액은 장부에 기록된 수입 합계입니다. "
+            "미기록 거래는 포함하지 않습니다. "
+            + pending_note
+            + f"{board.nav_data_note()}</p>")
 
 
 def _nav_region_inner(tab_id: str, query: str, kind: str = "",
@@ -947,15 +975,28 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")]
     unclassified = board._unclassified_rows()
 
+    def short_date(value):
+        parts = str(value or '').split('-')
+        if len(parts) == 3 and parts[0].isdigit() and len(parts[0]) == 4:
+            return f"{parts[1]}.{parts[2]}"
+        return str(value or '')
+
     listed = []
     for trip in active:
         if query and query not in (trip["display_key"] + trip["destination"]):
             continue
-        totals = board._trip_totals(trip["tab_id"])
+        # 금액 badge를 표시하지 않는다. 수입 합계는 장부 화면의 합계 영역이
+        # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 확정 금액과의 혼동을
+        # 막기 위한 표시 변경이며 집계 로직은 그대로 둔다.
+        start, end = trip.get("starts_on") or "", trip.get("ends_on") or ""
+        if start and end:
+            dates = f"{short_date(start)}~{short_date(end)}"
+        else:
+            dates = short_date(start or end) or None
         listed.append(entry(
             board.esc(trip["display_key"]),
             f"/board?{state_query(trip['tab_id'], query, kind, archived)}",
-            f"수입 {totals['income']:,}원", trip["tab_id"] == tab_id))
+            dates, trip["tab_id"] == tab_id))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
     # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
@@ -969,10 +1010,11 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     # 분류대기 is the unassigned bucket. A viewer is never assigned it, so the
     # control is not drawn for a viewer rather than drawn and refused. Its count
     # is every unassigned row in the whole ledger, which is not the viewer's data.
-    if board.current_role() == "owner" and (not query or "분류대기" in query):
-        sections.append(("<h2 class='nav-sec'>분류대기</h2>",
+    # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
+    if board.current_role() == "owner" and (not query or "미배정 지출" in query or "분류대기" in query):
+        sections.append(("<h2 class='nav-sec'>미배정 지출</h2>",
                          "<ul class='nav-list'>" + entry(
-                             "분류대기",
+                             "미배정 지출",
                              f"/board?{state_query('unclassified', query, kind, archived)}",
                              f"{len(unclassified)}건",
                              tab_id == "unclassified", warn=True) + "</ul>"))
@@ -1330,7 +1372,7 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     note = ("이 여행에 COST 수입이 아직 기록되지 않았어요. " if not count_income else
             "아래 합계는 COST에 기록된 거래 기준입니다. ")
     note = (f"<p class='income-note' id='ledger-income-note'>{note}"
-            "Google 정본의 최종 수입·지출·순수익과 동기화 상태는 Google 정본 화면에서 확인하세요.</p>")
+            "Google 장부의 최종 수입·지출·순수익과 동기화 상태는 Google 장부 화면에서 확인하세요.</p>")
     if filtered is None or whole is None:
         return (
             f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
@@ -1800,7 +1842,10 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         f" · 마지막 저장 {_last_saved_at(tab_id)}"
         + (f" · {board.esc(role_note)}" if role_note else "")
         + "</p>")
-    export_class = "btn" if home else "btn primary"
+    # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
+    # 내보내기 버튼을 사용한다. /export 기능·권한은 그대로 둔다.
+    export_btn = ("" if home
+                  else f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>")
     main = (
         f"<main class='{main_class}' id='main' tabindex='-1' data-base='{board.esc(back)}'>"
         "<div class='page-hd'><div>"
@@ -1815,7 +1860,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
         f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
-        f"<a class='{export_class}' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
+        f"{export_btn}"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"
         f"<div class='page-body'>{body}</div>"
@@ -1895,6 +1940,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
         "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
         f" · 마지막 저장 {_last_saved_at(tab_id)}</p>"
+        f"{_ledger_note_html()}"
         # The live refresh replaces the totals and the two row lists as one block,
         # and the edit panel sits outside it so an open panel is never rewritten.
         f"<div id='live-sum'>"

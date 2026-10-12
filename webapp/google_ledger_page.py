@@ -160,7 +160,7 @@ def trip_income_html(tab_id: str) -> str:
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in ('main', 'archive'):
-            return panel('정본 선택이 필요합니다. 메인·보관 장부 중 사용할 사본을 확인해 주세요.')
+            return panel('최종 장부 선택이 필요합니다. 메인·보관 장부 중 사용할 사본을 확인해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
             return panel('조회 불가 · 연결한 수입 행을 확인하지 못했습니다.')
@@ -322,12 +322,12 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         '<details id="google-settings"' + (' open' if settings.get('selected_tab') else '')
         + '><summary>수입 장부 연결과 열람 허용</summary>'
         '<p>같은 여행인지 직접 확인한 뒤 연결해 주세요. 자동으로 연결하지 않습니다. '
-        '열람 허용에는 계정의 기존 여행 접근 권한과 정본 선택도 필요합니다.</p>'
+        '열람 허용에는 계정의 기존 여행 접근 권한과 최종 장부 선택도 필요합니다.</p>'
         f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
         f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
         f'<button id="mapping-save" type="button">{ui_icons.icon("save")}여행 연결 저장</button>'
         f'<button id="mapping-auto" type="button">{ui_icons.icon("refresh-cw")}같은 이름의 여행 자동 연결</button>'
-        '<p>이름이 일치하는 단일 여행만 연결합니다. 기존 연결과 정본 선택은 유지하고, 중복·연도 충돌은 건너뜁니다.</p>'
+        '<p>이름이 일치하는 단일 여행만 연결합니다. 기존 연결과 최종 장부 선택은 유지하고, 중복·연도 충돌은 건너뜁니다.</p>'
         f'<label>viewer 계정<select id="settings-viewer">{viewers}</select></label>'
         f'<p id="grant-state"></p><button id="grant-add" type="button">{ui_icons.icon("check")}이 여행 열람 허용</button>'
         f'<button id="grant-remove" type="button">{ui_icons.icon("x-circle")}열람 허용 철회</button>'
@@ -376,14 +376,14 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         choice = ''
         if is_owner and ((copies.get('main') and copies.get('archive'))
                          or 'CHOSEN_COPY_MISSING' in trip.get('blocked_by', [])):
-            choice = '<p>' + ('정본: ' + html.escape(chosen) if chosen else '정본 선택 필요') + '</p>'
+            choice = '<p>' + ('최종 장부: ' + html.escape(chosen) if chosen else '최종 장부 선택 필요') + '</p>'
             if csrf:
                 choice += ''.join(
                     f"<button type='button' data-choice='{html.escape(trip['key'], quote=True)}' "
-                    f"data-source='{role}'>{ui_icons.icon('check')}{role} 정본 선택</button>" for role in ('main', 'archive') if copies.get(role))
+                    f"data-source='{role}'>{ui_icons.icon('check')}{role} 최종 장부로 선택</button>" for role in ('main', 'archive') if copies.get(role))
         elif not is_owner:
             links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
-                     if chosen in ('main', 'archive') else '정본 선택 필요')
+                     if chosen in ('main', 'archive') else '최종 장부 선택 필요')
         rows.append(
             "<tr>"
             f"<td data-label='여행'>{html.escape(trip['key'])}<br>{links}{choice}</td>"
@@ -427,7 +427,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>Google 확정 장부</h1>"
-        "<p>Google에서 읽어 온 정본입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
+        "<p>Google에서 읽어 온 최종 장부입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
         f"<p>기준 시각 {html.escape(str(payload['synced_at'] or '동기화 대기'))}</p><ul>{sources}</ul>"
         + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
         +
@@ -437,7 +437,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "<p id='choice-status' role='status'></p>"
         + ("<script>const token=" + json.dumps(csrf) + ";"
            "document.querySelectorAll('[data-choice]').forEach(b=>b.onclick=async()=>{"
-           "if(!confirm(b.dataset.source+' 사본을 이 여행의 정본으로 선택할까요? Google 원본은 변경하지 않습니다.'))return;"
+            "if(!confirm(b.dataset.source+' 사본을 이 여행의 최종 장부로 선택할까요? Google 원본은 변경하지 않습니다.'))return;"
            "const buttons=document.querySelectorAll('[data-choice]');buttons.forEach(x=>x.disabled=true);"
            "try{const r=await fetch('/api/google-ledger/choice',{method:'POST',headers:{'Content-Type':'application/json',"
            "'X-CSRF-Token':token},body:JSON.stringify({key:b.dataset.choice,source:b.dataset.source})});"
@@ -753,7 +753,7 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                                      mapping=load_mapping(_snapshot_path()), visible_tabs=viewer_tabs,
                                      choices=load_choices(_snapshot_path()))
     except google_authority.SnapshotError as error:
-        _send_unavailable(handler, parsed.path, error.code, '권한 또는 정본 설정 파일을 확인해 주세요')
+        _send_unavailable(handler, parsed.path, error.code, '권한 또는 최종 장부 설정 파일을 확인해 주세요')
         return True
     if parsed.path == "/api/google-ledger":
         handler._send_json(payload)

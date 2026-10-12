@@ -206,32 +206,64 @@ def render_html(data, query):
     date_controls += choices('month', [('', '전체 월')] + [(m, m + '월') for m in data['months']], value('month'))
     provider_controls = choices('provider', [('', '모든 OTA')] + [(p, PROVIDERS.get(p, p)) for p in data['providers']], value('provider'))
     state_controls = choices('state', [('', '전체 내역'), ('unassigned', '여행 미배정')], value('state'))
+    # 단일 상태에만 badge를 붙인다. 'A / B'처럼 합쳐진 문자열은 임의로
+    # 확정하지 않고 문구 그대로 둔다. 수집됨(observed) 등 나머지 원값도
+    # badge 없이 문구만 표시한다.
+    STATUS_BADGE = {'예약 확정': ('check', 'ok'), '이용 완료': ('archive', 'ok'),
+                    '취소': ('x-circle', 'bad'), '미확인': ('search', 'idle')}
     body = []
     for row in data['rows']:
-        trips = ' · '.join(esc(t['name']) for t in row['trips']) or '여행 미배정'
+        names = ' · '.join(esc(t['name']) for t in row['trips'])
+        if names:
+            trip_cell = (f"<span class='ota-badge trip ok'>{ui_icons.icon('check', 14)}"
+                         f"<span>{names}</span></span>")
+        else:
+            trip_cell = (f"<span class='ota-badge trip idle'>{ui_icons.icon('map', 14)}"
+                         "<span>여행 미배정</span></span>")
+        status = row['status'] or '미확인'
+        badge = STATUS_BADGE.get(status)
+        if badge is not None:
+            icon, tone = badge
+            status_cell = (f"<span class='ota-badge {tone}'>"
+                           f"{ui_icons.icon(icon, 14)}{esc(status)}</span>")
+        else:
+            status_cell = esc(status)
+        conflict = (f"<br><strong>{ui_icons.icon('alert-triangle', 16)}기간 확인 필요</strong>"
+                    if row['conflict'] else '')
         body.append('<tr>' + ''.join(f"<td data-label='{label}'>{text}</td>" for label, text in (
-            ('이용일', esc(row['period'] or '미확인') + ('<br><strong>기간 확인 필요</strong>' if row['conflict'] else '')),
+            ('이용일', esc(row['period'] or '미확인') + conflict),
             ('OTA', esc(PROVIDERS.get(row['provider'], row['provider']))), ('예약번호', esc(row['booking_ref'])),
-            ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', esc(row['status'] or '미확인')),
-            ('여행 배정', trips))) + '</tr>')
+            ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', status_cell),
+            ('여행 배정', trip_cell))) + '</tr>')
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         '<title>OTA 내역</title><style>' + CATALOG_STYLE +
         ".card-catalog td:before{display:none}@media(max-width:759px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
+        ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
+        ".card-catalog svg.ic:first-child{margin-right:6px}"
+        "@media(prefers-reduced-motion:reduce){.card-catalog svg.ic{transition:none}}"
+        ".ota-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;"
+        "font-size:12px;font-weight:600;white-space:nowrap;max-width:100%}"
+        ".ota-badge svg.ic{width:14px;height:14px;margin:0;vertical-align:0;flex:0 0 auto}"
+        ".ota-badge.trip{white-space:normal;overflow-wrap:anywhere}"
+        ".ota-badge.ok{background:#ECF5EF;color:#166444}"
+        ".ota-badge.idle{background:#F2F4F7;color:#667085}"
+        ".ota-badge.bad{background:#FDECEC;color:#912018}"
         '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
         '<p>저장된 예약 DB와 OTA 메일에서 예약을 모아 보여 줍니다. 같은 OTA의 같은 예약번호는 한 건입니다. '
-        '여행 미배정은 저장된 예약·장부의 여행 연결이 없는 예약이며, 카드 결제 대사 여부와 다릅니다. 이 목록은 비용을 확정하지 않습니다.</p>'
+        '여행 미배정은 저장된 예약·장부의 여행 연결이 없는 예약이며, 카드 결제 대사 여부와 다릅니다. '
+        '예약 확인과 여행 배정은 별개이며, 여행 연결 제안만 있는 경우는 미배정으로 표시합니다. 이 목록은 비용을 확정하지 않습니다.</p>'
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if value('state') != 'unassigned' else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
         f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
-        f"<p id='card-count'>전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
-        + ''.join(f"<p role='alert'>{esc(w)}</p>" for w in data['warnings'])
+        f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
+        + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th>' + heading('state', '여행 배정', state_controls)
-        + '</tr></thead><tbody>' + (''.join(body) or ('<tr><td colspan="6">조건에 맞는 OTA 예약이 없습니다.</td></tr>'
-            if data['all_count'] else '<tr><td colspan="6">조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</td></tr>'))
+        + '</tr></thead><tbody>' + (''.join(body) or (f"<tr><td colspan=\"6\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"
+            if data['all_count'] else f"<tr><td colspan=\"6\">{ui_icons.icon('search', 16)}조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</td></tr>"))
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
