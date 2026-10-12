@@ -106,7 +106,7 @@ def test_owner_html_escapes_titles_and_labels_checks(snapshot_file):
     _, code, body = handler.sent[0]
     assert code == 200
     assert "<script>0630" not in body and "&lt;script&gt;0630" in body
-    assert "메인과 보관에 모두 있음" in body and "Google 합계와 행 합계가 다름" in body
+    assert "메인과 보관에 모두 있음" in body and "장부 합계와 행 합계가 다름" in body
     assert "SOURCE_UNREACHABLE" in body
 
 

@@ -102,12 +102,27 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav .work-action{padding:8px 10px;font-size:12px}
 .nav .work-action small{display:none}
 .income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
-.main-wrap{max-width:1180px;padding:24px 32px;margin:0 auto}
-#trip-income{margin:20px 0 24px}
+.main-wrap{max-width:1180px;padding:24px;margin:0 auto}
+.main-wrap .page-hd{padding:0 0 20px}
+.main-wrap .page-hd>div:first-child{min-width:0}
+.main-wrap .bar,.main-wrap .sum{padding-left:0;padding-right:0}
+.main-wrap .status:empty{display:none}
+.main-wrap .status,.main-wrap .income-note{padding-left:0;padding-right:0}
+.main-wrap #global-state,.main-wrap #live-status-wrap{padding-left:0!important;padding-right:0!important}
+.main-wrap .act{flex:1 1 420px;justify-content:flex-end;max-width:100%}
+.main-wrap .period,.main-wrap .meta>span,.main-wrap .sum i{display:inline-flex;align-items:center;gap:6px}
+.main-wrap .meta .btn{height:28px;font-size:12px}
+.main-wrap .sum{align-items:center;padding-top:16px;padding-bottom:16px}
+.main-wrap .sum .scope{width:100%;font-size:12px;color:var(--mut);margin-bottom:-16px}
+.main-wrap #tbl td:first-child,.main-wrap #tbl th:first-child{padding-left:0}
+.income-sync{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--mut);font-size:12px;margin:0 0 16px}
+.income-status{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+@media(max-width:759px){.main-wrap .act{justify-content:flex-start;flex-basis:100%}.main-wrap .lst .li{padding-left:0;padding-right:0}}
+#trip-income{margin:12px 0}
 #trip-income h2{display:flex;align-items:center;gap:8px;font-size:18px;line-height:1.5;margin-bottom:8px}
 #trip-income>.muted{font-size:13px;line-height:1.6;margin-bottom:12px}
-#google-trip-income{padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:14px}
-#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none}
+#google-trip-income{padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:14px}
+#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-size:16px;font-weight:600;color:var(--ink);list-style:none}
 #google-trip-income summary::after{content:'▾';margin-left:auto}
 #google-trip-income:not([open]) summary::after{content:'▸'}
 #google-trip-income p{line-height:1.7;margin:8px 0 12px}
@@ -122,8 +137,9 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap .s-main{font-size:14px;line-height:1.5}
 .main-wrap .s-sub{font-size:12.5px;line-height:1.5;margin-top:3px}
 .main-wrap #tbl td:last-child,.main-wrap #tbl th:last-child{padding-right:24px}
-@media(max-width:759px){.main-wrap{padding:16px 12px 20px;max-width:none}}
+@media(max-width:759px){.main-wrap{padding:16px 16px 20px;max-width:none}}
 @media(max-width:759px){#google-trip-income{padding:10px 12px}.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 16px}}
+@media(max-width:759px){.main-wrap .sum{gap:10px 18px}.main-wrap .sum .scope{margin-bottom:-4px}.main-wrap .page-hd{padding-bottom:14px}}
 @media(max-width:759px){
  .work-menu{padding:10px 16px}
  .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -765,6 +781,7 @@ else{
    var slot=document.getElementById('unsaved-count');
    if(!slot) return;
    var n=document.querySelectorAll('form[data-dirty="1"]').length;
+   slot.hidden=!n;
    slot.textContent=n?(n+'건 저장되지 않은 변경'):'저장되지 않은 변경 없음';
   }
   // 4.1 also asks that leaving the page with an unsaved edit confirm first.
@@ -899,9 +916,9 @@ def work_menu_html() -> str:
     else:
         actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
     if google_ledger_page.enabled():
-        actions += action('table', 'Google 장부', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
+        actions += action('table', '확정 장부', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
     else:
-        actions += action('table', 'Google 장부 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
+        actions += action('table', '확정 장부 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
             f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
 
@@ -926,7 +943,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
                         "<span class='nm'>영수증 처리</span></a>")
         if google_ledger_page.enabled():
             primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
-                        "<span class='nm'>Google 장부</span></a>")
+                        "<span class='nm'>확정 장부</span></a>")
         primary += ("</nav><h2 class='nav-sec'>관리</h2>"
                     "<nav class='site-links' aria-label='관리 메뉴'>"
                     f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
@@ -939,7 +956,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
         if google_ledger_page.enabled():
             primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
-                        "<span class='nm'>Google 장부</span></a>")
+                        "<span class='nm'>확정 장부</span></a>")
         primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"
@@ -965,10 +982,9 @@ def _ledger_note_html() -> str:
     """
     pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
                     if board.current_role() == 'owner' else '')
-    return ("<p class='meta ledger-note' id='ledger-note'>금액은 장부에 기록된 수입 합계입니다. "
-            "미기록 거래는 포함하지 않습니다. "
+    return ("<p class='meta ledger-note' id='ledger-note'>"
             + pending_note
-            + f"{board.nav_data_note()}</p>")
+            + "</p>")
 
 
 def _nav_region_inner(tab_id: str, query: str, kind: str = "",
@@ -1151,11 +1167,11 @@ def _head_html(trip) -> str:
         meta = "이 목록을 정리하면 여행 합계가 함께 갱신돼요"
     else:
         title = board.esc(trip["display_key"])
-        period = f"<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
+        period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
-                f"<span>담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
+                f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
                 f"<span>합계 상태 <b>미확정</b></span>"
-                "<span><a href='/trips'>여행 관리</a></span>")
+                f"<span><a class='btn' href='/trips'>{_icons.icon('map')}여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
         f"<h1>{title}<span class='synth'>{board.data_status_mark()}</span></h1>"
@@ -1194,8 +1210,8 @@ def _reserve_link_link_html() -> str:
     if board.current_role() != "owner":
         return ""
     from . import ui_icons as _icons
-    return ("<a class='btn' id='reserve-link' href='/reserve-links'>"
-            f"{_icons.icon('link')}예약 명단·여행 연결</a>")
+    return ("<a class='btn' id='reserve-link' href='/reserve-links' aria-label='예약 명단·여행 연결'>"
+            f"{_icons.icon('link')}예약 연결</a>")
 
 
 def _review_link_html() -> str:
@@ -1423,23 +1439,18 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     """
     income = sum(board._shown_amount(r) for r in incomes)
     expense = sum(board._shown_amount(r) for r in expenses)
-    count_income = recorded_income_count if recorded_income_count is not None else (
-        len(incomes) if whole is None else whole[2])
-    note = ("이 여행에 COST 수입이 아직 기록되지 않았어요. " if not count_income else
-            "아래 합계는 COST에 기록된 거래 기준입니다. ")
-    note = (f"<p class='income-note' id='ledger-income-note'>{note}"
-            "위 합계는 COST 기록 기준이며 Google 금액과 합산하지 않습니다. "
-            "이 여행의 Google 확정 수입·연결 상태·확인 필요 이유는 아래 Google 수입내역에서 바로 확인하세요.</p>")
+    scope = "<span class='scope'>기록된 거래</span>"
+    note = ""
     if filtered is None or whole is None:
         return (
-            f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
-            f"<div><i>지출</i><b>{_money(expense)}</b></div>"
-            f"<div><i>차액</i><b>{_money(income - expense)}</b></div>"
+            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+            f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
+            f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
             f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
-        f"<div class='sum tnum' id='sum'>"
+        f"<div class='sum tnum' id='sum'>{scope}"
         f"<div><i>전체 수입</i><b>{_money(wincome)}</b></div>"
         f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
         f"<div><i>검색 결과 수입</i><b>{_money(fincome)}</b></div>"
@@ -1644,7 +1655,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
     expense_total = sum(board._shown_amount(r) for r in expenses)
     groups = (
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
-        f"<a href='#google-trip-income'>Google 수입내역 보기</a></th>"
+        f"<a href='#google-trip-income'>수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
         + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
@@ -1894,8 +1905,9 @@ def _last_saved_at(tab_id: str) -> str:
     except Exception:
         return ""
     if not row or not row[0]:
-        return "저장 기록이 없어요"
-    return str(row[0])
+        return "기록 없음"
+    from .google_ledger_page import format_display_time
+    return format_display_time(row[0])
 
 
 def shell(title: str, *, tab_id: str, heading: str, period: str = "",
@@ -1913,7 +1925,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     global_state = "" if home else (
         f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
         "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
-        f" · 마지막 저장 {_last_saved_at(tab_id)}"
+        f"<span>{ui_icons.icon('save')}최근 저장 {_last_saved_at(tab_id)}</span>"
         + (f" · {board.esc(role_note)}" if role_note else "")
         + "</p>")
     # 홈에서는 내보내기 바로가기를 두지 않는다. XLSX 출력은 장부 화면의
@@ -2030,9 +2042,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         status = (f"<p class='status' id='status' role='status'>"
                   f"{board.esc(message)}</p>")
     else:
-        status = ("<p class='status hint' id='status' role='status' aria-live='polite'>"
-                  "행을 누르면 편집할 수 있어요"
-                  "</p>")
+        status = ("<p class='status hint' id='status' role='status' aria-live='polite'></p>")
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
     panel = ""
     if selected:
@@ -2046,17 +2056,14 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<p class='meta' id='global-state' data-role='"
         f"{board.esc('읽기 전용' if board.current_role() == 'viewer' else '')}'>"
         "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
-        f" · 마지막 저장 {_last_saved_at(tab_id)}</p>"
-        f"{_ledger_note_html()}"
+        f"<span>{ui_icons.icon('save')}최근 저장 {_last_saved_at(tab_id)}</span></p>"
+        # APP_SPEC 4.1: ledger-note removed per review
         # The live refresh replaces the totals and the two row lists as one block,
         # and the edit panel sits outside it so an open panel is never rewritten.
         f"<div id='live-sum'>"
         f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"</div>"
-        f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 Google 읽기'>"
-        f"<h2>{ui_icons.icon('list')}여행 수입</h2>"
-        f"<p class='muted'>COST 표는 COST에 기록된 거래만 합산합니다. "
-        f"Google에서 읽어 온 확정 수입·연결 상태·확인 필요 이유는 아래에서 확인하고, 두 금액을 합산하지 않습니다.</p>"
+        f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 확정 장부'>"
         f"{trip_income_html(tab_id)}"
         f"</section>"
         f"{_source_preview_html(trip)}"

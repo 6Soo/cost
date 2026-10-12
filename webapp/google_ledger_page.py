@@ -78,7 +78,7 @@ ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "
           "/api/google-ledger/mapping", "/api/google-ledger/auto-mapping",
           "/google-ledger/rows", "/api/google-ledger/rows")
 REVIEW_LABELS = {
-    "TOTAL_MISMATCH": "Google 합계와 행 합계가 다름",
+    "TOTAL_MISMATCH": "장부 합계와 행 합계가 다름",
     "TOTAL_RANGE_MISMATCH": "합계 수식 범위가 데이터 행과 다름",
     "TOTAL_FORMULA_UNCLEAR": "합계 수식을 찾지 못함",
     "TOTAL_NOT_CACHED": "합계 값이 없음",
@@ -137,6 +137,29 @@ def owner_rows(rows: dict, key: str, source: str) -> dict | None:
             "expense": expense(tab.get("expense", []))}
 
 
+def format_display_time(value):
+    """Show an explicit timestamp in Seoul time, without fractional seconds."""
+    if value is None or value == '':
+        return '대기'
+    try:
+        if isinstance(value, str):
+            s = value
+            if s.endswith('Z'):
+                s = s[:-1] + '+00:00'
+            dt_obj = dt.datetime.fromisoformat(s)
+        elif isinstance(value, dt.datetime):
+            dt_obj = value
+        else:
+            return '대기'
+        if dt_obj.tzinfo is None:
+            return '대기'
+        kst = dt.timezone(dt.timedelta(hours=9))
+        local = dt_obj.astimezone(kst)
+        return local.strftime('%Y.%m.%d %H:%M')
+    except (ValueError, TypeError, OverflowError):
+        return '대기'
+
+
 def trip_income_html(tab_id: str) -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
@@ -147,15 +170,13 @@ def trip_income_html(tab_id: str) -> str:
                 if owner and enabled() else '')
 
     def panel(message, body=''):
-        return ("<details id='google-trip-income' class='income-note' aria-label='Google 수입내역'"
+        return ("<details id='google-trip-income' class='income-note' aria-label='수입내역'"
                 + (' open' if enabled() else '') + ">"
-                f"<summary>{ui_icons.icon('list')}Google 수입내역</summary>"
-                f"<p>{message}</p>{body}{settings}"
-                "<p class='google-income-help'>Google에서 읽어 온 수입입니다. 아래 COST 거래 합계에 중복 반영하지 않습니다. "
-                "입금 수정은 Google 장부에서 진행해 주세요.</p></details>")
+                f"<summary>{ui_icons.icon('list')}여행 수입</summary>"
+                f"<p class='income-status'>{ui_icons.icon('book-open')}{message}</p>{body}{settings}</details>")
 
     if not enabled():
-        return panel('미연결 · Google 장부 연결이 필요합니다.')
+        return panel('미연결 · 확정 장부 연결이 필요합니다.')
     try:
         path = _snapshot_path()
         mapping = load_mapping(path)
@@ -167,12 +188,12 @@ def trip_income_html(tab_id: str) -> str:
             if len(keys) != 1 or keys[0] not in allowed:
                 return panel('열람 권한이 없거나 수입 장부가 연결되지 않았습니다.')
         if len(keys) != 1:
-            return panel('미연결 · 이 여행의 Google 장부를 하나 선택해 연결해 주세요.')
+            return panel('미연결 · 이 여행의 확정 장부를 하나 선택해 연결해 주세요.')
         snapshot, rows = google_authority.load_consistent(path, _rows_path())
         payload = owner_payload(snapshot_for_display(snapshot), load_choices(path))
         matches = [trip for trip in payload['trips'] if trip['key'] == keys[0]]
         if len(matches) != 1:
-            return panel('조회 불가 · 연결한 여행의 Google 장부를 확인해 주세요.')
+            return panel('조회 불가 · 연결한 여행의 확정 장부를 확인해 주세요.')
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in ('main', 'archive'):
@@ -181,16 +202,18 @@ def trip_income_html(tab_id: str) -> str:
         if detail is None:
             return panel('조회 불가 · 연결한 수입 행을 확인하지 못했습니다.')
         verified = trip.get('verified')
-        message = (f"Google 확정 수입 {_money(trip['income_total'])}" if verified else
+        message = (f"확정 수입 {_money(trip['income_total'])}" if verified else
                    '확인 필요 · 동기화 또는 합계 검증이 끝나지 않아 확정 수입을 표시하지 않습니다.')
         if not verified:
             reasons = ' / '.join(REVIEW_LABELS.get(code, code)
                                  for code in (trip.get('review') or []))
             if reasons:
                 message += f" · 확인 필요 이유: {html.escape(reasons)}"
-        message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
-        message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
-        body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
+        synced_raw = html.escape(str(payload.get('synced_at') or ''))
+        info_time = format_display_time(payload.get('synced_at'))
+        time_row = (f"<div class='income-sync'><span>{'메인 장부' if source == 'main' else '보관 장부'}</span>"
+                    f"{ui_icons.icon('refresh-cw')}<span>동기화</span><time datetime='{synced_raw}'>{info_time}</time></div>")
+        body = (time_row + f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
                 f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))
@@ -344,7 +367,7 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         + '><summary>수입 장부 연결과 열람 허용</summary>'
         '<p>같은 여행인지 직접 확인한 뒤 연결해 주세요. 자동으로 연결하지 않습니다. '
         '열람 허용에는 계정의 기존 여행 접근 권한과 최종 장부 선택도 필요합니다.</p>'
-        f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
+        f'<label>연결 여행<select id="settings-key">{keys}</select></label>'
         f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
         f'<button id="mapping-save" type="button">{ui_icons.icon("save")}여행 연결 저장</button>'
         f'<button id="mapping-auto" type="button">{ui_icons.icon("refresh-cw")}같은 이름의 여행 자동 연결</button>'
@@ -363,7 +386,7 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         "async function saveGoogleSetting(kind,granted){const key=keyInput.value,tab=tabInput.value,user=viewerInput.value;"
         "if(!key||(kind==='grants'&&!user)){statusBox.textContent='여행과 필요한 계정을 선택해 주세요';return}"
         "if(!confirm(kind==='mapping'?'선택한 COST 여행과 연결할까요? 연결 해제는 기존 열람도 차단합니다.':"
-        "(granted?'선택한 계정에 이 여행의 Google 장부 열람을 허용할까요?':'이 여행의 열람 허용을 철회할까요?')))return;"
+        "(granted?'선택한 계정에 이 여행의 확정 장부 열람을 허용할까요?':'이 여행의 열람 허용을 철회할까요?')))return;"
         "const controls=document.querySelectorAll('#google-settings button,#google-settings select');controls.forEach(x=>x.disabled=true);"
         "try{const r=await fetch('/api/google-ledger/'+kind,{method:'POST',headers:{'Content-Type':'application/json',"
         "'X-CSRF-Token':token},body:JSON.stringify(kind==='mapping'?{key,tab_id:tab||null}:{user_id:user,keys:[key],granted})});"
@@ -421,7 +444,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Google 확정 장부</title>"
+        "<title>확정 장부</title>"
         "<style>*{box-sizing:border-box}body{font-family:sans-serif;margin:16px;color:#182230;background:#f7f9fc}"
         "h1{font-size:24px}table{border-collapse:collapse;width:100%;font-size:14px;background:white}"
         "td,th{border:1px solid #e4e7ec;padding:10px;text-align:left;overflow-wrap:anywhere}"
@@ -447,9 +470,8 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
-        "<h1>Google 확정 장부</h1>"
-        "<p class='google-income-help'>Google에서 읽어 온 최종 장부입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
-        f"<p>기준 시각 {html.escape(str(payload['synced_at'] or '동기화 대기'))}</p><ul>{sources}</ul>"
+        "<h1>확정 장부</h1>"
+        f"<p>{ui_icons.icon('refresh-cw')}동기화 {format_display_time(payload['synced_at'])}</p><ul>{sources}</ul>"
         + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
         +
         "<table><thead><tr><th>여행</th><th>마감</th><th>수입</th><th>지출</th><th>순수익</th>"
@@ -458,7 +480,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "<p id='choice-status' role='status'></p>"
         + ("<script>const token=" + json.dumps(csrf) + ";"
            "document.querySelectorAll('[data-choice]').forEach(b=>b.onclick=async()=>{"
-            "if(!confirm(b.dataset.source+' 사본을 이 여행의 최종 장부로 선택할까요? Google 원본은 변경하지 않습니다.'))return;"
+            "if(!confirm(b.dataset.source+' 사본을 이 여행의 최종 장부로 선택할까요? 원본 장부는 변경하지 않습니다.'))return;"
            "const buttons=document.querySelectorAll('[data-choice]');buttons.forEach(x=>x.disabled=true);"
            "try{const r=await fetch('/api/google-ledger/choice',{method:'POST',headers:{'Content-Type':'application/json',"
            "'X-CSRF-Token':token},body:JSON.stringify({key:b.dataset.choice,source:b.dataset.source})});"
@@ -475,11 +497,11 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
     handler._send(
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>Google 장부 동기화 확인</title><style>"
+        "<title>확정 장부 동기화 확인</title><style>"
         "body{font-family:system-ui,sans-serif;margin:16px;line-height:1.6;color:#182230}"
         "h1{font-size:22px}a{display:inline-flex;align-items:center;min-height:44px;"
         "padding:8px 12px;margin:8px 8px 0 0;border:1px solid #d0d5dd;border-radius:8px;color:#166444}"
-        "</style></head><body><h1>Google 장부를 아직 표시할 수 없어요</h1>"
+        "</style></head><body><h1>확정 장부를 아직 표시할 수 없어요</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
         f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"
