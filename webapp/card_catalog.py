@@ -35,7 +35,21 @@ body{margin:0;background:#F7F9FC}
  border:1px solid #E4E7EC;border-radius:12px;overflow:hidden}
 .card-catalog th,.card-catalog td{padding:12px;border-bottom:1px solid #E4E7EC;overflow-wrap:anywhere}
 .card-catalog th{text-align:left;background:#F8FAFC;font-size:12px;color:#667085;vertical-align:top}
-.card-catalog thead select{display:block;width:100%;margin-top:8px;font-size:13px}
+.card-catalog .header-button{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;
+ min-height:40px;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#344054;
+ font:inherit;font-weight:600;cursor:pointer;text-align:left}
+.card-catalog .header-button:hover,.card-catalog .header-button[aria-expanded=true]{background:#ECF5EF;color:#166444}
+.card-catalog .header-button:after{content:'▾';color:#667085}
+.card-catalog .header-value{font-size:11px;color:#166444;font-weight:400}
+.card-catalog .header-menu{position:fixed;inset:auto;margin:0;width:272px;max-width:calc(100vw - 24px);
+ max-height:360px;overflow:auto;padding:8px;border:1px solid #E4E7EC;border-radius:12px;background:#fff;
+ box-shadow:0 12px 28px rgba(16,24,40,.16);color:#344054;font:400 14px/1.5 "Pretendard Variable",system-ui,sans-serif}
+.card-catalog .header-menu h2{font-size:12px;color:#667085;margin:6px 8px}
+.card-catalog .filter-option{display:flex;align-items:center;justify-content:space-between;width:100%;
+ min-height:40px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.card-catalog .filter-option:hover{background:#F8FAFC}
+.card-catalog .filter-option[aria-pressed=true]{background:#ECF5EF;color:#166444;font-weight:600}
+.card-catalog .filter-option[aria-pressed=true]:after{content:'✓'}
 .card-catalog tbody tr:last-child td{border-bottom:0}
 .card-catalog tbody tr:hover{background:#F8FAFC}
 .card-catalog td a{color:#166444;font-weight:600;text-underline-offset:3px}
@@ -60,6 +74,23 @@ body{margin:0;background:#F7F9FC}
  .card-catalog td:before{content:attr(data-label);color:#667085;font-size:12px}
 }
 """
+
+CATALOG_SCRIPT = """(()=>{
+ const form=document.getElementById('card-filters');
+ document.querySelectorAll('.card-catalog .header-button').forEach(button=>{
+   const panel=document.getElementById(button.getAttribute('popovertarget'));
+   const position=()=>{const r=button.getBoundingClientRect();
+     panel.style.left=Math.max(12,Math.min(r.left,innerWidth-panel.offsetWidth-12))+'px';
+     panel.style.top=Math.max(12,Math.min(r.bottom+6,innerHeight-panel.offsetHeight-12))+'px';};
+   panel.addEventListener('toggle',event=>{const open=event.newState==='open';
+     button.setAttribute('aria-expanded',String(open));if(open)position();});
+   window.addEventListener('resize',()=>{if(panel.matches(':popover-open'))position();});
+ });
+ document.querySelectorAll('.card-catalog .filter-option').forEach(button=>button.addEventListener('click',()=>{
+   form.elements.namedItem(button.dataset.filter).value=button.dataset.value;
+   form.requestSubmit();
+ }));
+})();"""
 
 
 def catalog(board, query):
@@ -116,21 +147,29 @@ def catalog(board, query):
 def render_html(data, query):
     esc = lambda value: html.escape('' if value is None else str(value), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
-    def option(key, label, selected):
-        return f"<option value='{esc(key)}'{' selected' if key == selected else ''}>{esc(label)}</option>"
     def link(page):
         return '/cards?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort')}, 'page': page})
-    def dropdown(name, label, options, selected):
-        return (f"<select name='{name}' aria-label='{label}' form='card-filters' "
-                "onchange='this.form.requestSubmit()'>"
-                + ''.join(option(k, text, selected) for k, text in options) + '</select>')
-    date_controls = dropdown('sort', '거래일 정렬', [('desc', '내림차순 · 최신 거래 먼저'), ('asc', '오름차순 · 오래된 거래 먼저')],
-                             'asc' if value('sort') == 'asc' else 'desc')
-    date_controls += dropdown('month', '조회 월', [('', '전체 월')]
-                              + [(m, m.replace('-', '년 ') + '월') for m in data.get('months', [])], value('month'))
-    card_control = dropdown('card', '카드 선택', [('', '모든 카드')]
-                            + [(c, c) for c in data['cards'] if c], value('card'))
-    state_control = dropdown('state', '분류 상태', [('', '모든 상태'), *STATES.items()], value('state'))
+    def choices(name, label, options, selected):
+        return f'<h2>{esc(label)}</h2>' + ''.join(
+            f"<button type='button' class='filter-option' data-filter='{name}' data-value='{esc(k)}' "
+            f"aria-pressed='{'true' if k == selected else 'false'}'>{esc(text)}</button>" for k, text in options)
+    def heading(key, label, selected, contents):
+        return (f"<th class='has-filter' scope='col'><button type='button' class='header-button' "
+                f"aria-label='{label}' popovertarget='filter-{key}' aria-expanded='false' aria-controls='filter-{key}'>"
+                f"{label}<span class='header-value' aria-hidden='true'>{esc(selected)}</span></button>"
+                f"<div id='filter-{key}' class='header-menu' popover aria-label='{label} 정렬 및 필터'>{contents}</div></th>")
+    sort = 'asc' if value('sort') == 'asc' else 'desc'
+    date_controls = choices('sort', '거래일 정렬', [('desc', '내림차순 · 최신 거래 먼저'), ('asc', '오름차순 · 오래된 거래 먼저')], sort)
+    date_controls += choices('month', '조회 월', [('', '전체 월')]
+                             + [(m, m.replace('-', '년 ') + '월') for m in data.get('months', [])], value('month'))
+    date_heading = heading('date', '거래일', ('오름차순' if sort == 'asc' else '내림차순')
+                           + (' · ' + value('month') if value('month') else ''), date_controls)
+    card_heading = heading('card', '카드', value('card'), choices('card', '카드 선택',
+                           [('', '모든 카드')] + [(c, c) for c in data['cards'] if c], value('card')))
+    state_heading = heading('state', '상태', STATES.get(value('state'), ''),
+                            choices('state', '분류 상태', [('', '모든 상태'), *STATES.items()], value('state')))
+    hidden_filters = ''.join(f"<input type='hidden' name='{name}' value='{esc(value(name))}'>"
+                             for name in ('sort', 'month', 'card', 'state'))
     rows = []
     for r in data['rows']:
         state = STATES.get(r['classification_state'], r['classification_state'])
@@ -161,13 +200,12 @@ def render_html(data, query):
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
         f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>검색</button>"
-        "<a class='catalog-btn' href='/cards'>초기화</a></form>"
-        + "<table><thead><tr><th class='has-filter' scope='col'>거래일" + date_controls
-        + "</th><th class='has-filter' scope='col'>카드" + card_control + '</th>'
+        "<a class='catalog-btn' href='/cards'>초기화</a>" + hidden_filters + "</form>"
+        + "<table><thead><tr>" + date_heading + card_heading
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
-        + "<th class='has-filter' scope='col'>상태" + state_control + "</th><th scope='col'>검토</th>"
+        + state_heading + "<th scope='col'>검토</th>"
         + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
-        + '</nav></main></body></html>')
+        + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')

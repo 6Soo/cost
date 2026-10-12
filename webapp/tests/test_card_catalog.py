@@ -69,5 +69,6 @@ def test_date_sort_month_filter_and_links_are_read_only(stored, monkeypatch):
     result = card_catalog.catalog(stored, query)
     markup = card_catalog.render_html(result, query)
     assert 'month=2026-02' in markup and 'sort=asc' in markup and 'card=1234' in markup
-    assert '<thead' in markup and "aria-label='거래일 정렬'" in markup
+    assert '<thead' in markup and "class='header-button'" in markup
+    assert "aria-label='거래일'" in markup and '<select' not in markup
     assert stored.conn.total_changes == before

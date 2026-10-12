@@ -10,7 +10,7 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class CardCatalogBrowserTests(LinkBrowserFixture):
-    def test_header_dropdowns_sort_and_filter_without_search_click(self):
+    def test_header_buttons_sort_and_filter_without_search_click(self):
         env = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_UNIFIED_DB': '1'})
         env.start()
         self.addCleanup(env.stop)
@@ -33,25 +33,45 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                 self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 3)
                 self.assertEqual(page.locator('#card-filters button').evaluate(
                     "e=>getComputedStyle(e).backgroundColor"), 'rgb(28, 122, 82)')
-                self.assertTrue(page.locator('thead').get_by_label('조회 월').is_visible())
+                self.assertEqual(page.locator('thead select').count(), 0)
+                self.assertTrue(page.get_by_role('button', name='거래일', exact=True).is_visible())
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
+                page.get_by_role('button', name='거래일', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_label('거래일 정렬').select_option('asc')
+                    page.get_by_role('button', name='오름차순 · 오래된 거래 먼저', exact=True).click()
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-01-05')
+                page.get_by_role('button', name='거래일', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_label('조회 월').select_option('2026-02')
+                    page.get_by_role('button', name='2026년 02월', exact=True).click()
                 self.assertEqual(page.locator('tbody tr').count(), 2)
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-10')
+                page.get_by_role('button', name='카드', exact=True).click()
+                page.keyboard.press('Escape')
+                self.assertEqual(page.get_by_role('button', name='카드', exact=True).get_attribute('aria-expanded'), 'false')
+                page.get_by_role('button', name='카드', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_label('카드 선택').select_option('1234')
-                self.assertEqual(page.get_by_label('조회 월').input_value(), '2026-02')
+                    page.get_by_role('button', name='1234', exact=True).click()
+                self.assertEqual(page.locator('input[name="month"]').input_value(), '2026-02')
                 page.reload()
-                self.assertEqual(page.get_by_label('거래일 정렬').input_value(), 'asc')
-                self.assertEqual(page.get_by_label('조회 월').input_value(), '2026-02')
+                self.assertEqual(page.locator('input[name="sort"]').input_value(), 'asc')
+                self.assertEqual(page.locator('input[name="month"]').input_value(), '2026-02')
+                page.get_by_role('button', name='거래일', exact=True).click()
                 with page.expect_navigation():
-                    page.get_by_label('거래일 정렬').select_option('desc')
+                    page.get_by_role('button', name='내림차순 · 최신 거래 먼저', exact=True).click()
                 self.assertEqual(page.locator('tbody tr').first.locator('td').first.inner_text(), '2026-02-20')
                 self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                page.get_by_label('카드 내역 검색').fill('no match')
+                page.get_by_role('button', name='상태', exact=True).click()
+                panel = page.locator('#filter-state').bounding_box()
+                self.assertGreaterEqual(panel['x'], 0)
+                self.assertLessEqual(panel['x'] + panel['width'], width)
+                with page.expect_navigation():
+                    page.get_by_role('button', name='분류됨', exact=True).click()
+                self.assertEqual(page.locator('input[name="state"]').input_value(), 'classified')
+                self.assertEqual(page.get_by_label('카드 내역 검색').input_value(), 'no match')
+                self.assertEqual(page.locator('input[name="month"]').input_value(), '2026-02')
+                self.assertIn('검색 결과 0건', page.inner_text('#card-count'))
+                self.assertIn('분류됨', page.get_by_role('button', name='상태', exact=True).inner_text())
                 context.close()
         self.assertEqual(conn.total_changes, before)
 
