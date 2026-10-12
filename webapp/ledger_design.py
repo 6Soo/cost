@@ -5,8 +5,8 @@ export and rule dialog contracts. Nothing in this module re-implements them,
 and no demo data or demo JavaScript is copied in: the demo only supplied the
 layout, the colours and the font.
 
-`static_asset` is the only way a file leaves this package, and it answers from
-an explicit allowlist, so a path can never escape it.
+Static fonts and OTA icons are served from explicit allowlists, so a path
+cannot escape their asset directories.
 """
 
 from __future__ import annotations
@@ -23,6 +23,41 @@ from . import ledger_board as board
 from . import ui_icons
 
 FONT_DIR = Path(__file__).resolve().parent / "static" / "fonts"
+OTA_DIR = Path(__file__).resolve().parent / "static" / "ota"
+OTA_ASSETS = {"agoda.png": "image/png", "trip.png": "image/png"}
+
+
+def ota_asset(name):
+    if not isinstance(name, str) or name not in OTA_ASSETS:
+        return None
+    path = OTA_DIR / name
+    if not path.is_file() or path.resolve().parent != OTA_DIR.resolve():
+        return None
+    return path.read_bytes(), OTA_ASSETS[name]
+
+
+def _category_icon(row):
+    category = _row_item(row)
+    for terms, name in ((('항공',), 'plane'), (('숙박', '호텔'), 'bed'),
+                        (('교통',), 'bus'), (('식비',), 'utensils'),
+                        (('현지',), 'map-pin')):
+        if any(term in category for term in terms):
+            return ui_icons.icon(name, size=14)
+    return ui_icons.icon('receipt', size=14)
+
+
+def _merchant_icon(row):
+    # Only the source merchant identifies a brand. Notes and booking IDs do not.
+    merchant = str(row.get('source_merchant') or '').upper()
+    asset = None
+    if re.search(r'(?<![A-Z0-9])AGODA(?![A-Z0-9])', merchant):
+        asset = 'agoda.png'
+    elif '트립닷컴' in merchant or re.search(r'(?<![A-Z0-9])TRIP\.COM(?![A-Z0-9.])', merchant):
+        asset = 'trip.png'
+    if asset:
+        return (f"<img class='ota-icon' src='/assets/ota/{asset}' width='18' height='18' "
+                "alt='' aria-hidden='true' loading='lazy' decoding='async'>")
+    return ui_icons.icon('receipt', size=16)
 
 # Explicit allowlist. A name that is not a key here is refused, whatever it
 # contains, so traversal, absolute paths and encoded separators cannot resolve.
@@ -233,6 +268,12 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
    second is who it was with, and both are the row's own values: a merchant equal
    to the content is not printed twice. */
 td.c-party{white-space:normal;line-height:1.35}
+.party-line{display:flex;align-items:center;gap:9px;min-width:0}
+.party-copy{display:block;min-width:0;flex:1}
+.party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
+.category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.category-line>svg{flex:none;color:var(--muted,#718096)}
+.mobile-party .t{min-width:0;flex:1}
 .s-main{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;
  white-space:nowrap}
 .s-sub{display:block;font-size:11.5px;color:var(--mut);overflow:hidden;
@@ -1575,7 +1616,8 @@ def _party_cell(row) -> str:
     sub = _row_party_sub(row)
     if sub:
         main += f"<span class='s-sub'>{board.esc(sub)}</span>"
-    return f"<td class='c-party'>{main}</td>"
+    return (f"<td class='c-party'><span class='party-line'>{_merchant_icon(row)}"
+            f"<span class='party-copy'>{main}</span></span></td>")
 
 
 def _move_form(row, move_back: str) -> str:
@@ -1616,7 +1658,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
             f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
             f"{_party_cell(row)}"
-            f"<td class='c-item'>{board.esc(_row_item(row))}</td>"
+            f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='c-kind'><span class='tag{' in' if meter == '수입' else ''}"
             f"{_row_tag_class(row)}'>{meter}</span></td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
@@ -1704,10 +1746,10 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             f"<span class='m-row'><span class='d tnum'>"
             f"{board.esc(board._shown_date(row))}</span>"
             f"<span class='{tag_cls}'>{board.esc(kind)}</span>"
-            f"<span class='m-cat'>{board.esc(cat)}</span>"
+            f"<span class='m-cat category-line'>{_category_icon(row)}{board.esc(cat)}</span>"
             f"<span class='a tnum {_row_amount_class(row)}'>"
             f"{_money(board._shown_amount(row))}</span></span>"
-            f"<span class='t'>{board.esc(headline)}</span></button>{move}")
+            f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span></button>{move}")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
