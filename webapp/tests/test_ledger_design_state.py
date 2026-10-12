@@ -194,7 +194,7 @@ class ViewStateTests(unittest.TestCase):
     def test_the_row_screen_uses_the_shared_chrome_and_keeps_its_meaning(self):
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/row?id=expense-demo-c1&edit=1")
-        self.assertIn("숲길여행 법인카드", page.inner_text(".nav"))
+        self.assertIn("숲길여행 회계", page.inner_text(".nav"))
         self.assertIn("여행 목록", page.inner_text(".nav"))
         self.assertTrue(page.is_visible(".page-body"))
         self.assertEqual(overflow(page), 0)

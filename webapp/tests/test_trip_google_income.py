@@ -43,7 +43,7 @@ def test_income_requires_canonical_copy_and_marks_unverified(income_context, mon
     snapshot, _ = income_context
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     body = page.trip_income_html('trip-syn')
-    assert '정본 선택' in body and 'INCOME-NAME' not in body
+    assert '최종 장부 선택' in body and 'INCOME-NAME' not in body
     snapshot['trips'][0]['verified'] = False
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     snapshot['trips'][0]['copies']['archive'] = None

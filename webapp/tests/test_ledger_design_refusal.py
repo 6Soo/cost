@@ -294,7 +294,7 @@ class RefusalAndShellTests(unittest.TestCase):
                 page = self._page(1440)
                 page.goto(f"http://127.0.0.1:{self.port}{path}")
                 self.assertEqual(overflow(page), 0)
-                self.assertIn("숲길여행 법인카드", page.inner_text(".nav"))
+                self.assertIn("숲길여행 회계", page.inner_text(".nav"))
                 self.assertIn("여행 목록", page.inner_text(".nav"))
                 self.assertIn(marker, page.inner_text("body"))
                 self.assertTrue(page.evaluate(

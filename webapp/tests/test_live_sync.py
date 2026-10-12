@@ -442,12 +442,16 @@ class LiveSyncStateTests(unittest.TestCase):
                            else len("<div id='live-rows'>"):-len("</div>")]
             self.assertEqual(part, inner)
         # the sidebar elements that sit outside the region are not inside it
-        for chrome in ("nav-mask", "nav-ft", "tripq"):
+        for chrome in ("nav-mask", "tripq"):
             self.assertNotIn(chrome, nav_region, chrome)
             self.assertNotIn(chrome, rows_region, chrome)
         # and they are on the page exactly once
-        for chrome in ("id='nav-mask'", "class='nav-ft'", "id='tripq'"):
+        for chrome in ("id='nav-mask'", "id='tripq'"):
             self.assertEqual(page.count(chrome), 1, chrome)
+        # the board-only record note is on the page once and never in a fragment
+        self.assertNotIn("ledger-note", nav_region)
+        self.assertNotIn("ledger-note", rows_region)
+        self.assertEqual(page.count("id='ledger-note'"), 1)
 
     def test_a_fragment_bundle_carries_no_duplicate_ids(self):
         """A bundle is parsed as a document, so its ids must be unique.
@@ -475,7 +479,7 @@ class LiveSyncStateTests(unittest.TestCase):
         """
         html = live_sync.owner_fragments(self.store, TRIP_A, "", "", "", "")
         self.assertNotIn("nav-mask", html)
-        self.assertNotIn("nav-ft", html)
+        self.assertNotIn("ledger-note", html)
         self.assertNotIn("id='nav'", html)
         self.assertNotIn("id='tripq'", html,
                          "the search box is outside the region and must not be "
@@ -518,7 +522,7 @@ class LiveSyncStateTests(unittest.TestCase):
             # the sidebar chrome is still exactly one of each
             self.assertEqual(page.count("id='nav-mask'"), 1,
                              f"round {round_number}")
-            self.assertEqual(page.count("class='nav-ft'"), 1,
+            self.assertEqual(page.count("id='ledger-note'"), 1,
                              f"round {round_number}")
             # and the search box the region must not swallow is still there
             self.assertEqual(page.count("id='tripq'"), 1,

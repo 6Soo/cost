@@ -183,8 +183,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
                     self.assertTrue(page.get_by_role('link', name='카드 검토 1건', exact=True).is_visible())
                     self.assertTrue(page.locator('.home-secondary').is_visible())
-                    self.assertFalse(page.get_by_role('link', name='XLSX 출력', exact=True).evaluate(
-                        "el => el.classList.contains('primary')"))
+                    self.assertEqual(page.get_by_role('link', name='XLSX 출력', exact=True).count(), 0)
                     primary_bg = page.locator('.home-review').evaluate(
                         "el => getComputedStyle(el).backgroundColor")
                     secondary_bg = page.locator('.home-secondary .btn').first.evaluate(
@@ -206,9 +205,35 @@ class CardFlowBrowserTests(unittest.TestCase):
                     self.assertEqual(pipe.get_batch(batch)['summary']['content_sha256'], original)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 0)
                     self.assertEqual(errors, [])
-                    page.locator('nav').get_by_role('link', name='장부', exact=True).click()
+                    page.get_by_role('button', name='전체 메뉴 열기').click()
+                    page.locator('#nav').get_by_role('link', name='여행 장부', exact=True).click()
                     self.assertIn('/board', page.url)
                     self.assertNotIn('/import', page.url)
+                    browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close(); thread.join(timeout=3); ledger_board.bind_store(None)
+
+    def test_upload_entry_opens_new_file_details_without_changing_selection(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1'}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite', with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            errors = []
+            try:
+                with sync_playwright() as api:
+                    browser = api.chromium.launch(headless=True)
+                    page = browser.new_page(viewport={'width':390,'height':844})
+                    page.on('pageerror', lambda e:errors.append(str(e)))
+                    base = f'http://127.0.0.1:{server.server_address[1]}'
+                    page.goto(base + '/')
+                    page.get_by_role('link', name='새 카드 가져오기', exact=True).click()
+                    self.assertIn('/import#newupload', page.url)
+                    page.locator('#newupload').wait_for()
+                    self.assertTrue(page.locator('#newupload').evaluate('(el) => el.open'))
+                    self.assertEqual(errors, [])
                     browser.close()
             finally:
                 server.shutdown(); server.server_close(); server.card_store.close(); thread.join(timeout=3); ledger_board.bind_store(None)

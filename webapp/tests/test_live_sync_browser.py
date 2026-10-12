@@ -344,21 +344,23 @@ class TwoPageBoardTests(unittest.TestCase):
             "  'live-rows': document.querySelectorAll('#live-rows').length,"
             "  'nav-mask': document.querySelectorAll('#nav-mask').length,"
             "  nav: document.querySelectorAll('#nav').length,"
-            "  navft: document.querySelectorAll('.nav-ft').length,"
+            "  ledgernote: document.querySelectorAll('#ledger-note').length,"
             "  tripq: document.querySelectorAll('#tripq').length})")
 
     def _assert_sidebar_intact(self, page, context=""):
-        """One of each region, and one of each piece of sidebar chrome.
+        """One of each region, one of each piece of sidebar chrome, one note.
 
         A bundle that nested its own wrapper inside the region it replaces, or that
-        carried the rail's footer and mask along with it, would leave a second copy
+        carried the rail's mask along with it, would leave a second copy
         on the page after the first refresh. `getElementById` then finds the stale
         one, so the screen quietly stops updating from the second refresh onwards.
+        The board-only record note sits outside every refreshed region, so a
+        refresh must leave exactly one copy of it as well.
         """
         counts = self._region_counts(page)
         for name in ("live-nav", "live-sum", "live-rows"):
             self.assertEqual(counts[name], 1, f"{context}{name}: {counts[name]}")
-        for name in ("nav-mask", "nav", "navft", "tripq"):
+        for name in ("nav-mask", "nav", "ledgernote", "tripq"):
             self.assertEqual(counts[name], 1, f"{context}{name}: {counts[name]}")
 
     def test_two_changes_in_a_row_are_both_seen(self):
@@ -415,7 +417,7 @@ class TwoPageBoardTests(unittest.TestCase):
         rail = watcher.evaluate(
             "document.getElementById('nav').innerText")
         self.assertIn("여행 목록", rail)
-        self.assertIn("분류대기", rail)
+        self.assertIn("미배정 지출", rail)
 
     def test_a_change_that_moves_money_also_moves_the_totals(self):
         """The totals are part of the same refresh, not a separate one.

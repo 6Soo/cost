@@ -84,6 +84,25 @@ def test_search_month_sort_pagination_and_html_escape(data, monkeypatch):
     assert ota_catalog.catalog(board, {'provider': ["' OR 1=1"]}, sources=sources)['total'] == 0
 
 
+def test_row_status_and_trip_badges_keep_text_without_combining_states(data):
+    board, sources = data
+    result = ota_catalog.catalog(board, {}, sources=sources)
+    markup = ota_catalog.render_html(result, {})
+    assert 'ota-badge trip ok' in markup and '합성 여행' in markup
+    assert 'ota-badge trip idle' in markup and '여행 미배정' in markup
+    assert 'ota-badge ok' in markup and '예약 확정' in markup
+    assert 'ota-badge bad' in markup and '취소' in markup
+    assert 'ota-badge idle' in markup and '미확인' in markup
+    combined = {'rows': [{'provider': 'agoda', 'booking_ref': 'X1', 'label': '합성',
+                          'period': '2026-11-01 ~ 2026-11-02', 'status': '예약 확정 / 취소',
+                          'conflict': False, 'trips': []}],
+                'all_count': 1, 'unassigned_count': 1, 'total': 1, 'page': 1,
+                'pages': 1, 'months': [], 'providers': ['agoda'], 'warnings': []}
+    combined_markup = ota_catalog.render_html(combined, {})
+    assert '예약 확정 / 취소' in combined_markup
+    assert combined_markup.count("<span class='ota-badge") == 1
+
+
 def test_source_failure_is_visible_and_paths_are_private(data, tmp_path):
     board, sources = data
     broken = tmp_path / 'private-name.sqlite'

@@ -72,7 +72,9 @@ class GoogleLedgerBrowserTests(unittest.TestCase):
                     with self.subTest(width=width):
                         pg = browser.new_page(viewport={'width': width, 'height': 900})
                         pg.goto(self.base + '/board?tab=unclassified')
-                        pg.locator('#work-menu a[href="/google-ledger"]').click()
+                        if width < 760:
+                            pg.get_by_role('button', name='전체 메뉴 열기').click()
+                        pg.locator('#nav a[href="/google-ledger"]').click()
                         pg.wait_for_url('**/google-ledger')
                         income = pg.locator('td[data-label="수입"]').first
                         self.assertTrue(income.is_visible())

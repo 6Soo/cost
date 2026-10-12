@@ -59,3 +59,37 @@ class OtaCatalogBrowserTests(LinkBrowserFixture):
                 context.close()
         self.assertEqual(source.read_bytes(), original)
         self.assertEqual(self.server.card_store.conn.total_changes, before)
+
+    def test_long_trip_assignment_badge_wraps_without_sideways_overflow_at_390(self):
+        import sqlite3
+        source = self.tmp / 'ota-long.sqlite'
+        conn = sqlite3.connect(source)
+        conn.executescript('''
+            CREATE TABLE bookings(id INTEGER PRIMARY KEY, provider TEXT, booking_number TEXT,
+              product_type TEXT, label TEXT, service_start_on TEXT, service_end_on TEXT, status TEXT);
+            CREATE TABLE allocation_targets(id INTEGER PRIMARY KEY, target_type TEXT, code TEXT, name TEXT);
+            CREATE TABLE booking_target_links(booking_id INTEGER, target_id INTEGER, link_status TEXT);
+        ''')
+        long_trip = '합성 긴 여행 이름 ' + '가' * 60
+        conn.execute('INSERT INTO bookings VALUES (?,?,?,?,?,?,?,?)',
+                     (1, 'agoda', 'LONG-1', 'lodging', '합성 긴 예약 이름 ' + '나' * 60,
+                      '2026-11-01', '2026-11-03', 'confirmed'))
+        conn.execute("INSERT INTO allocation_targets VALUES (1,'trip','trip-long',?)", (long_trip,))
+        conn.execute("INSERT INTO booking_target_links VALUES (1,1,'confirmed')")
+        conn.commit()
+        conn.close()
+        env = patch.dict(os.environ, {
+            'WEBLEDGER_OTA_SOURCES_JSON': json.dumps({'portal_databases': [str(source)], 'mail_directories': []}),
+            'WEBLEDGER_REVIEW_CONFIG': '',
+        })
+        env.start()
+        self.addCleanup(env.stop)
+        context = self.browser.new_context(viewport={'width': 390, 'height': 844})
+        self.addCleanup(context.close)
+        context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
+        page = context.new_page()
+        page.goto(f'http://127.0.0.1:{self.port}/ota')
+        badge = page.locator('td[data-label="여행 배정"] .ota-badge.trip')
+        self.assertTrue(badge.is_visible())
+        self.assertIn('합성 긴 여행 이름', badge.inner_text())
+        self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)

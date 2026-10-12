@@ -191,7 +191,11 @@ class LinkIdempotenceTests(_Base):
         """
         markup = self.header("owner")
         self.assertEqual(markup.count(f"id='{ENTRY_ID}'"), 1)
-        self.assertEqual(markup.count("href='/reserve-links'"), 1)
+        self.assertEqual(markup.count("href='/reserve-links'"), 2)
+        sidebar = markup.split("<div class='nav-mask'")[0]
+        self.assertEqual(sidebar.count("href='/reserve-links'"), 1)
+        act = markup.split("<div class='act'>")[1].split("</div>")[0]
+        self.assertEqual(act.count("href='/reserve-links'"), 1)
 
 
 class ReturnLinkTests(unittest.TestCase):

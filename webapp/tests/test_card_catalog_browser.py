@@ -30,7 +30,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                 context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
                 page = context.new_page()
                 page.goto(f'http://127.0.0.1:{self.port}/cards')
-                self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 3)
+                self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 1)
                 self.assertEqual(page.locator('#card-filters button').evaluate(
                     "e=>getComputedStyle(e).backgroundColor"), 'rgb(28, 122, 82)')
                 self.assertEqual(page.locator('thead select').count(), 0)

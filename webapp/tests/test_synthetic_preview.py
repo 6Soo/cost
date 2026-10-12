@@ -38,7 +38,8 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         assert '로컬 합성 미리보기' in pg.inner_text('body')
                         pg.locator('.home-trip').filter(has_text='0803_합성여행').click()
                         pg.wait_for_url('**/board?**tab=**')
-                        pg.locator('#work-menu a[href="/import"]').click()
+                        pg.get_by_role('button', name='전체 메뉴 열기').click()
+                        pg.locator('#nav a[href="/import"]').click()
                         form = pg.locator('form[data-index]').first
                         form.locator('input[name=item]').fill('소모품비')
                         trip = server.card_store.list_trips()[0]['tab_id']
@@ -83,7 +84,7 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         pg.goto(base + '/')
                         pg.locator('#work-menu a[href="/google-ledger"]').click()
                         assert pg.locator('td[data-label="수입"]').count() == 1
-                        pg.get_by_role('button', name='main 정본 선택').click()
+                        pg.get_by_role('button', name='main 최종 장부로 선택').click()
                         pg.wait_for_function('document.querySelector("td[data-label=수입]").textContent.includes("900,000")')
                         assert '780,000' in pg.locator('td[data-label="순수익"]').inner_text()
                         assert pg.evaluate('document.documentElement.scrollWidth-innerWidth') == 0

@@ -41,7 +41,7 @@ def test_duplicate_viewer_without_choice_does_not_guess_detail_source():
                                   mapping={key: 'tab-syn'}, visible_tabs={'tab-syn'})
     assert payload['trips'][0]['verified'] is False
     body = page.render_html(payload, is_owner=False)
-    assert '여행 상세' not in body and '정본 선택 필요' in body
+    assert '여행 상세' not in body and '최종 장부 선택 필요' in body
 
 
 def test_missing_chosen_copy_never_falls_back_and_owner_can_reselect():
@@ -58,8 +58,8 @@ def test_missing_chosen_copy_never_falls_back_and_owner_can_reselect():
     assert resolved['net'] is None
     assert 'CHOSEN_COPY_MISSING' in resolved['blocked_by']
     body = page.render_html(payload, is_owner=True, csrf='token-syn')
-    assert 'main 정본 선택' in body
-    assert 'archive 정본 선택' not in body
+    assert 'main 최종 장부로 선택' in body
+    assert 'archive 최종 장부로 선택' not in body
 
 
 @pytest.mark.parametrize('key,source', [('missing-syn', 'main'), ('<script>0630', 'archive')])
@@ -105,10 +105,10 @@ def test_browser_owner_selects_copy_and_viewer_follows_it(width):
             context = browser.new_context(viewport={'width': width, 'height': 844})
             pg = context.new_page()
             pg.goto(case.base + '/google-ledger')
-            pg.get_by_text('정본 선택 필요', exact=True).wait_for()
+            pg.get_by_text('최종 장부 선택 필요', exact=True).wait_for()
             pg.on('dialog', lambda dialog: dialog.accept())
-            pg.get_by_role('button', name='archive 정본 선택', exact=True).click()
-            pg.get_by_text('정본: archive', exact=True).wait_for()
+            pg.get_by_role('button', name='archive 최종 장부로 선택', exact=True).click()
+            pg.get_by_text('최종 장부: archive', exact=True).wait_for()
             assert page.load_choices(case.snapshot)['choices'][key] == 'archive'
             assert pg.evaluate('document.documentElement.scrollWidth <= innerWidth')
             with patch.object(page, 'caller', return_value=(False, 'viewer-syn')), \

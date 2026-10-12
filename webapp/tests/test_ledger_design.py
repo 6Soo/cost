@@ -26,18 +26,21 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
-    def test_sidebar_names_recorded_income_and_separates_pending_at_both_widths(self):
+    def test_sidebar_shows_trip_dates_and_board_carries_the_record_note_at_both_widths(self):
         for width in (390, 1440):
             with self.subTest(width=width):
                 page = self._page(width)
                 self._board(page, '?tab=trip-demo-a')
                 if width == 390:
                     page.click('#btn-menu')
-                text = page.inner_text('.nav')
-                total = self.store.tab_totals('trip-demo-a')['income']
-                self.assertIn(f'수입 {total:,}원', text)
-                self.assertIn('미기록 거래는 포함하지 않습니다.', text)
-                self.assertEqual(page.locator('.nav-ft a').get_attribute('href'), '/import')
+                trip_link = page.locator('#trips a[href*="tab=trip-demo-a"]').first.inner_text()
+                self.assertIn('04.08~04.14', trip_link)
+                self.assertNotIn('수입', trip_link)
+                self.assertIn('미배정 지출', page.inner_text('.nav'))
+                self.assertEqual(page.locator('.nav-ft').count(), 0)
+                note = page.locator('#ledger-note').inner_text()
+                self.assertIn('미기록 거래는 포함하지 않습니다.', note)
+                self.assertEqual(page.locator('#ledger-note a').get_attribute('href'), '/import')
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
                 page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
@@ -180,7 +183,7 @@ class DesignScreenTests(unittest.TestCase):
         nav = page.inner_text(".nav")
         self.assertIn("여행 목록", nav)
         self.assertIn("0408_예시여행A", nav)
-        self.assertIn("분류대기", nav)
+        self.assertIn("미배정 지출", nav)
         # The action bar is pinned exactly, because a button appearing here
         # without a decision is how a rail grows by accident. The review button
         # is absent because no review is configured in this environment; the
@@ -689,6 +692,23 @@ class DesignScreenTests(unittest.TestCase):
                 continue
             self.assertIn(name, allowed, name)
             self.assertNotIn(name, fixed, name)
+
+
+def test_trip_rail_badges_show_dates_never_income_in_initial_render_and_live_fragment(tmp_path):
+    """항목 7 회귀: 여행 badge는 날짜이며 초기 렌더·live nav 모두 수입 금액을 표시하지 않는다."""
+    store = LedgerStore(tmp_path / 'badges.sqlite')
+    previous = board_mod._STORE
+    board_mod.bind_store(store)
+    try:
+        for markup in (ledger_design._nav_region_inner('', '', '', ''),
+                       ledger_design.nav_part('', '', '', '')):
+            assert '미배정 지출' in markup
+            assert '04.08~04.14' in markup
+            assert '수입' not in markup
+            assert '수입 0원' not in markup
+    finally:
+        board_mod.bind_store(previous)
+        store.close()
 
 
 if __name__ == "__main__":
