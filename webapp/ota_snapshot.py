@@ -18,6 +18,7 @@ SCHEMA = "ota-snapshot-v1"
 CHECK_SECONDS = 60
 FRESH_SECONDS = 150
 RETRY_SECONDS = 60
+RETRY_CAP_SECONDS = 900
 FIRST_WAIT_SECONDS = 3
 WORKER_NAME = "ota-snapshot"
 
@@ -66,6 +67,7 @@ class OtaSnapshotService:
         self._error = None
         self._failed_key = None
         self._failed_at = None
+        self._failures = 0
         self._thread = None
         self._load_persisted()
         self._autostart = start
@@ -139,6 +141,13 @@ class OtaSnapshotService:
         except OSError:
             return
 
+    def _retry_window(self):
+        """The wait before retrying the same failed input: doubles per repeat, capped.
+
+        A new input key is never held back by this; only an identical input that keeps failing waits longer.
+        """
+        return min(self._retry_seconds * 2 ** max(self._failures - 1, 0), RETRY_CAP_SECONDS)
+
     def check_now(self):
         """One pass: read the input digest, and reconcile only if it differs from the held result."""
         if self._stopping:
@@ -155,7 +164,7 @@ class OtaSnapshotService:
             self._checked_key = key
             self._checked_at = self._clock()
             current = self._current
-            failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_seconds
+            failed = self._failed_key == key and self._clock() - (self._failed_at or 0) < self._retry_window()
             held = current is not None and current["key"] == key and current.get("data") is not None
             if held or failed or self._refreshing or self._stopping:
                 self._log("check", key=key[:12], held=held, failed=failed, refreshing=self._refreshing,
@@ -169,6 +178,7 @@ class OtaSnapshotService:
         except Exception as exc:
             with self._lock:
                 self._refreshing = False
+                self._failures = self._failures + 1 if self._failed_key == key else 1
                 self._failed_key = key
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
