@@ -1,6 +1,13 @@
 """정리 완료 기간의 자료는 보존하되 신규 검토 목록에서 제외한다."""
 import os
-from datetime import date
+from datetime import date, datetime
+
+
+def _day(value):
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).date()
 
 
 def cutoff():
@@ -16,7 +23,7 @@ def preserved_periods(periods):
         if not values:
             return False
         try:
-            if any(date.fromisoformat(v) >= date.fromisoformat(boundary) for v in values):
+            if any(_day(v) >= _day(boundary) for v in values):
                 return False
         except (TypeError, ValueError):
             return False
