@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import pytest
 from playwright.sync_api import sync_playwright
 from webapp import ledger_board, card_catalog
+from webapp.card_actions import next_action
 from webapp.card_flow import CardFlow, dispatch
 from webapp.ledger_store import LedgerStore
 from tests.card_pipeline.fixtures import make_csv, domestic_row
@@ -116,3 +117,12 @@ def test_projection_failure_rolls_back_the_entire_automatic_write(flow):
         with pytest.raises(RuntimeError):f.auto_record(batch)
     assert f.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
     assert before==f.board.conn.execute('SELECT transaction_id,classification_state,revision FROM transactions ORDER BY transaction_id').fetchall()
+
+def test_real_blocking_causes_take_precedence_over_trip_and_classification(flow):
+    f,batch,_=flow
+    row=dict(f.pipeline.get_batch(batch)['rows'][0],batch_id=batch,display_tab_id='')
+    refund=next_action(row,{'blocked':'refund_pair_partially_booked'})
+    assert refund['label']=='환불 기록 확인' and refund['href'].endswith('#preview')
+    booking=next_action(row,extra_hold={'kind':'ota_pending','reason':'OTA-first 연결이 확정되지 않은 OTA 카드 거래라 기록하지 않아요'})
+    assert booking['label']=='예약 연결 확인' and booking['href'].endswith('#ota-review')
+    assert 'OTA-first' not in booking['reason']
