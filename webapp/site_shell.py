@@ -2,10 +2,24 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
+from . import ui_icons
+
 
 STYLE = """
 @font-face{font-family:"Pretendard Variable";src:url("/assets/fonts/PretendardVariable.woff2") format("woff2");font-weight:100 900;font-display:swap}
-.site-topbar{display:none}.site-menu-toggle{font:inherit;min-height:44px;padding:8px 14px;cursor:pointer}
+.site-topbar{display:none}.site-menu-toggle{font:inherit;min-height:44px;padding:8px 14px;cursor:pointer;
+ display:inline-flex;align-items:center;gap:8px}
+.site-menu-toggle .ic,.catalog-btn .ic,.header-button .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+#nav .site-links a{display:flex;align-items:center;gap:8px}
+#nav .site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nav .nv .ic,#nav .work-action .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
+#nav .work-action{display:flex;align-items:flex-start;gap:8px}
+#nav .work-action>span{flex:1 1 auto;min-width:0}
+#nav .btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+#nav .btn{transition:border-color .15s,background .15s}
+@media(prefers-reduced-motion:reduce){
+ #nav .btn,#nav .nv,.site-app>#nav{transition:none}
+}
 #nav{box-sizing:border-box;width:232px;flex:0 0 232px;min-height:0;margin:0;padding:0;display:flex;flex-direction:column;
  overflow:auto;background:#F7F9FC;border-right:1px solid #E4E7EC;color:#182230;
  font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;
@@ -82,7 +96,9 @@ SCRIPT = """(()=>{
 })();"""
 
 BUTTON = ('<header class="site-topbar"><button type="button" class="site-menu-toggle" '
-          'aria-label="전체 메뉴 열기" aria-controls="nav" aria-expanded="false">메뉴</button>'
+          'aria-label="전체 메뉴 열기" aria-controls="nav" aria-expanded="false">'
+          + ui_icons.icon("menu") +
+          '메뉴</button>'
           '<span>COST 업무 메뉴</span></header>')
 
 

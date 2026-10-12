@@ -3,6 +3,8 @@ import html
 import re
 from urllib.parse import urlencode
 
+from . import ui_icons
+
 PAGE_SIZE = 50
 STATES = {'needs_review': '확인 필요', 'classified': '분류됨', 'booked': '장부 기록됨',
           'preserved': '기존 보존'}
@@ -37,9 +39,14 @@ body{margin:0;background:#F7F9FC}
 .card-catalog th{text-align:left;background:#F8FAFC;font-size:12px;color:#667085;vertical-align:top}
 .card-catalog .header-button{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;
  min-height:40px;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:#344054;
- font:inherit;font-weight:600;cursor:pointer;text-align:left}
+ font:inherit;font-weight:600;cursor:pointer;text-align:left;transition:background .15s}
 .card-catalog .header-button:hover,.card-catalog .header-button[aria-expanded=true]{background:#ECF5EF;color:#166444}
-.card-catalog .header-button:after{content:'▾';color:#667085}
+.card-catalog .header-button .ic{width:14px;height:14px;flex:0 0 auto;pointer-events:none}
+.card-catalog .header-button .ic:last-child{margin-left:auto;color:#667085}
+.card-catalog .catalog-btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+@media(prefers-reduced-motion:reduce){
+ .card-catalog .catalog-btn,.card-catalog .header-button{transition:none}
+}
 .card-catalog .header-value{font-size:11px;color:#166444;font-weight:400}
 .card-catalog .header-menu{position:fixed;inset:auto;margin:0;width:272px;max-width:calc(100vw - 24px);
  max-height:360px;overflow:auto;padding:8px;border:1px solid #E4E7EC;border-radius:12px;background:#fff;
@@ -153,21 +160,22 @@ def render_html(data, query):
         return f'<h2>{esc(label)}</h2>' + ''.join(
             f"<button type='button' class='filter-option' data-filter='{name}' data-value='{esc(k)}' "
             f"aria-pressed='{'true' if k == selected else 'false'}'>{esc(text)}</button>" for k, text in options)
-    def heading(key, label, selected, contents):
+    def heading(key, label, selected, contents, icon_name):
         return (f"<th class='has-filter' scope='col'><button type='button' class='header-button' "
                 f"aria-label='{label}' popovertarget='filter-{key}' aria-expanded='false' aria-controls='filter-{key}'>"
-                f"{label}<span class='header-value' aria-hidden='true'>{esc(selected)}</span></button>"
+                f"{ui_icons.icon(icon_name, 14)}{label}<span class='header-value' aria-hidden='true'>{esc(selected)}</span>"
+                f"{ui_icons.icon('chevron-down', 14)}</button>"
                 f"<div id='filter-{key}' class='header-menu' popover aria-label='{label} 정렬 및 필터'>{contents}</div></th>")
     sort = 'asc' if value('sort') == 'asc' else 'desc'
     date_controls = choices('sort', '거래일 정렬', [('desc', '내림차순 · 최신 거래 먼저'), ('asc', '오름차순 · 오래된 거래 먼저')], sort)
     date_controls += choices('month', '조회 월', [('', '전체 월')]
                              + [(m, m.replace('-', '년 ') + '월') for m in data.get('months', [])], value('month'))
     date_heading = heading('date', '거래일', ('오름차순' if sort == 'asc' else '내림차순')
-                           + (' · ' + value('month') if value('month') else ''), date_controls)
+                           + (' · ' + value('month') if value('month') else ''), date_controls, 'calendar-days')
     card_heading = heading('card', '카드', value('card'), choices('card', '카드 선택',
-                           [('', '모든 카드')] + [(c, c) for c in data['cards'] if c], value('card')))
+                           [('', '모든 카드')] + [(c, c) for c in data['cards'] if c], value('card')), 'credit-card')
     state_heading = heading('state', '상태', STATES.get(value('state'), ''),
-                            choices('state', '분류 상태', [('', '모든 상태'), *STATES.items()], value('state')))
+                            choices('state', '분류 상태', [('', '모든 상태'), *STATES.items()], value('state')), 'list-filter')
     hidden_filters = ''.join(f"<input type='hidden' name='{name}' value='{esc(value(name))}'>"
                              for name in ('sort', 'month', 'card', 'state'))
     rows = []
@@ -193,19 +201,21 @@ def render_html(data, query):
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 내역</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
-        "<nav class='catalog-actions' aria-label='카드 업무'><a class='catalog-btn' href='/'>홈</a>"
-        "<a class='catalog-btn' href='/board'>여행 장부</a><a class='catalog-btn primary' href='/import'>카드 가져오기·검토</a></nav>"
+        "<nav class='catalog-actions' aria-label='카드 업무'>"
+        f"<a class='catalog-btn' href='/'>{ui_icons.icon('house')}홈</a>"
+        f"<a class='catalog-btn' href='/board'>{ui_icons.icon('book-open')}여행 장부</a>"
+        f"<a class='catalog-btn primary' href='/import'>{ui_icons.icon('upload')}카드 가져오기·검토</a></nav>"
         "<h1>전체 카드 내역</h1><p>DB에 저장된 모든 카드 거래입니다. 업로드 파일이나 검토 기간으로 제외하지 않습니다. "
         "취소·환불·중복·회사 경비도 포함하며, 원본 금액은 확정 지출 합계와 다를 수 있습니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
-        f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>검색</button>"
-        "<a class='catalog-btn' href='/cards'>초기화</a>" + hidden_filters + "</form>"
+        f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button>"
+        f"<a class='catalog-btn' href='/cards'>{ui_icons.icon('rotate-ccw')}초기화</a>" + hidden_filters + "</form>"
         + "<table><thead><tr>" + date_heading + card_heading
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
         + state_heading + "<th scope='col'>검토</th>"
         + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
-        + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
-        + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
+        + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>{ui_icons.icon('chevron-left')}이전</a>" if data['page'] > 1 else '')
+        + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음{ui_icons.icon('chevron-right')}</a>" if data['page'] < data['pages'] else '')
         + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')

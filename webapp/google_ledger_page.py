@@ -22,6 +22,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from app import google_access, google_authority
+from . import ui_icons
 
 _SETTINGS_LOCK = threading.RLock()
 # The planned scheduler runs hourly. Missing two runs must not look like current verification.
@@ -126,7 +127,7 @@ def trip_income_html(tab_id: str) -> str:
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
-    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>수입 장부 연결 설정</a>"
+    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
                 if owner and enabled() else '')
 
     def panel(message, body=''):
@@ -169,7 +170,7 @@ def trip_income_html(tab_id: str) -> str:
         message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
         message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
         body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
-                "수입·지출 원본 상세</a>")
+                f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))
             lines = ''.join(
@@ -324,12 +325,12 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         '열람 허용에는 계정의 기존 여행 접근 권한과 정본 선택도 필요합니다.</p>'
         f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
         f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
-        '<button id="mapping-save" type="button">여행 연결 저장</button>'
-        '<button id="mapping-auto" type="button">같은 이름의 여행 자동 연결</button>'
+        f'<button id="mapping-save" type="button">{ui_icons.icon("save")}여행 연결 저장</button>'
+        f'<button id="mapping-auto" type="button">{ui_icons.icon("refresh-cw")}같은 이름의 여행 자동 연결</button>'
         '<p>이름이 일치하는 단일 여행만 연결합니다. 기존 연결과 정본 선택은 유지하고, 중복·연도 충돌은 건너뜁니다.</p>'
         f'<label>viewer 계정<select id="settings-viewer">{viewers}</select></label>'
-        '<p id="grant-state"></p><button id="grant-add" type="button">이 여행 열람 허용</button>'
-        '<button id="grant-remove" type="button">열람 허용 철회</button>'
+        f'<p id="grant-state"></p><button id="grant-add" type="button">{ui_icons.icon("check")}이 여행 열람 허용</button>'
+        f'<button id="grant-remove" type="button">{ui_icons.icon("x-circle")}열람 허용 철회</button>'
         '<p id="settings-status" role="status"></p></details>'
         '<script>const googleSettings=' + state + ';'
         "const keyInput=document.getElementById('settings-key'),tabInput=document.getElementById('settings-tab'),"
@@ -379,7 +380,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
             if csrf:
                 choice += ''.join(
                     f"<button type='button' data-choice='{html.escape(trip['key'], quote=True)}' "
-                    f"data-source='{role}'>{role} 정본 선택</button>" for role in ('main', 'archive') if copies.get(role))
+                    f"data-source='{role}'>{ui_icons.icon('check')}{role} 정본 선택</button>" for role in ('main', 'archive') if copies.get(role))
         elif not is_owner:
             links = (f"<a href='/google-ledger/rows?key={quote(trip['key'])}&amp;source={chosen}'>여행 상세</a>"
                      if chosen in ('main', 'archive') else '정본 선택 필요')
@@ -404,10 +405,12 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "h1{font-size:24px}table{border-collapse:collapse;width:100%;font-size:14px;background:white}"
         "td,th{border:1px solid #e4e7ec;padding:10px;text-align:left;overflow-wrap:anywhere}"
         "a{color:#166444}button{font:inherit;padding:8px;cursor:pointer}"
+        "button .ic,.work-back .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}"
+        "@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
         "#google-settings{background:white;padding:12px;margin:16px 0;border:1px solid #e4e7ec;border-radius:8px}"
         "#google-settings label{display:block;margin:12px 0}#google-settings select{display:block;width:100%;max-width:600px;"
         "min-height:44px;font:inherit}#google-settings button{min-height:44px}summary{cursor:pointer;min-height:44px}"
-        ".work-back{display:inline-flex;align-items:center;min-height:44px;padding:8px 12px;"
+        ".work-back{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;"
         "border:1px solid #d0d5dd;border-radius:8px;text-decoration:none;background:white}"
         "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}"
         "table{background:transparent}thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
@@ -419,8 +422,9 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "td p{margin:4px 0}td br{display:none}td[colspan]{display:block}"
         "li{overflow-wrap:anywhere}h1{font-size:22px}}"
         "</style></head><body>"
-        "<nav aria-label='장부 이동'><a class='work-back' href='/board'>장부로 돌아가기</a>"
-        + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>선택한 여행으로 돌아가기</a>"
+        "<nav aria-label='장부 이동'>"
+        f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
+        + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>Google 확정 장부</h1>"
         "<p>Google에서 읽어 온 정본입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
@@ -457,7 +461,8 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
         "</style></head><body><h1>Google 장부를 아직 표시할 수 없어요</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
-        "<a href='/google-ledger'>다시 확인</a><a href='/board'>장부로 돌아가기</a>"
+        f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"
+        f"<a href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
         "</body></html>", 503)
 
 

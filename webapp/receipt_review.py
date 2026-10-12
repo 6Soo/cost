@@ -23,6 +23,7 @@ from pathlib import Path
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
 from app.google_tsv import expense_tsv
+from . import ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
           "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image")
@@ -556,11 +557,11 @@ def _row_html(candidate: dict, trips: list) -> str:
         f"<label>결제수단<select data-payment='{identity}' aria-label='결제수단'>"
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
-        f"<button type='button' data-edit='{identity}'>수정</button></td>"
+        f"<button type='button' data-edit='{identity}'>{ui_icons.icon('pencil')}수정</button></td>"
         f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
         f"<td data-label='확정'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
         f"<label>비용 분류<input data-category='{identity}' aria-label='비용 분류' value='{html.escape(candidate.get('category') or '')}' placeholder='식비·숙박비 등'></label>"
-        f"<button type='button' data-confirm='{identity}'>확정</button></td></tr>")
+        f"<button type='button' data-confirm='{identity}'>{ui_icons.icon('check')}확정</button></td></tr>")
 
 
 def _hold_html(hold: dict) -> str:
@@ -677,6 +678,9 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "td input,td select{display:block;width:100%;min-width:0}input,select,button{font:inherit;max-width:100%;min-height:36px}"
             "input,select{padding:6px;border:1px solid #d0d5dd;border-radius:6px;background:white}"
             "button,.work-back{padding:8px 12px;border:1px solid #d0d5dd;border-radius:6px;background:white;cursor:pointer}"
+            "button .ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
+            "button .ic:first-child{margin-right:6px}"
+            "@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
             ".work-back{display:inline-flex;align-items:center;min-height:44px;color:#166444;text-decoration:none}"
             "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}"
             "thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
@@ -687,17 +691,17 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "section>input,section>select{width:100%;margin:4px 0}section{padding:12px}"
             "#copy-trip{width:100%;margin:6px 0}#copy-tsv{width:100%}h1{font-size:22px}}"
             "</style></head><body>"
-            "<nav aria-label='장부 이동'><a class='work-back' href='/board'>장부로 돌아가기</a></nav>"
+            f"<nav aria-label='장부 이동'><a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a></nav>"
             "<h1>영수증 후보</h1>"
             + ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
                "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label>"
-               "<button type='button' id='ocr-go'>선택한 사진 글자 읽기</button>"
+                f"<button type='button' id='ocr-go'>{ui_icons.icon('search')}선택한 사진 글자 읽기</button>"
                "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
                if local_receipt_ocr.enabled() else
                "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>") +
             "<p>원화는 입력 금액 그대로 사용합니다. 일본 현금·개인카드는 JPY×10을 적용합니다. 법인카드는 카드와 대사하는 증빙이며 추가 지출로 복사하지 않습니다.</p>"
-            "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
-            "<button type='button' id='img-go'>사진 등록</button>"
+             "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
+             f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
             f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
             f"<p>최근 사진 중 입력할 사진을 선택해 주세요.</p><div>{images}</div></section>"
             "<section><h2>영역 입력</h2>"
@@ -707,11 +711,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             "<input id='r-total' type='number' placeholder='금액(JPY)'> "
             "<select id='r-payment'><option value='cash'>현금</option><option value='private_card'>개인카드</option>"
             "<option value='corporate_card'>법인카드</option></select>"
-            "<button type='button' id='region-go'>영역 추가</button></section>"
+             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영역 추가</button></section>"
             "<h2>후보</h2>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"
             f"<h2>보류</h2><ul>{holds}</ul>"
             f"<p><label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label> "
-            "<button type='button' id='copy-tsv'>구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
+             f"<button type='button' id='copy-tsv'>{ui_icons.icon('copy')}구글 지출 7열 복사</button> <span id='status' role='status'></span></p>"
             f"<script>{script}</script></body></html>")

@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import ledger_board as board
+from . import ui_icons
 
 FONT_DIR = Path(__file__).resolve().parent / "static" / "fonts"
 
@@ -88,7 +89,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .work-menu h2{font-size:14px;margin:0 0 8px}
 .work-actions{display:flex;flex-wrap:wrap;gap:8px}
 .work-action{flex:1 1 170px;min-width:0;padding:10px 12px;border:1px solid var(--line);
- border-radius:8px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere}
+ border-radius:8px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere;
+ display:flex;align-items:flex-start;gap:8px}
+.work-action>span{flex:1 1 auto;min-width:0}
 .work-action strong,.work-action small{display:block}
 .work-action small{font-size:12px;color:var(--mut);margin-top:3px}
 a.work-action:hover{background:var(--hover);border-color:var(--grn)}
@@ -109,6 +112,12 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
 .nav-sec{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--mut);letter-spacing:.05em}
+.site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
+.site-links a{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px;
+ border-radius:6px;text-decoration:none;color:inherit}
+.site-links a:hover{background:var(--hover)}
+.site-links a[aria-current=page]{background:var(--sel);font-weight:600}
+.site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav-q{margin:0 12px 6px}
 .nav-q input{width:100%;height:32px;border:1px solid var(--line-strong);border-radius:7px;
  background:var(--paper);padding:0 8px;font-size:13px}
@@ -357,14 +366,23 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 
 .btn{height:32px;padding:0 10px;border:1px solid var(--line-strong);border-radius:7px;
  background:var(--paper);font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
- white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+ white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
 .btn.primary:hover{background:var(--grn-dk)}
 .btn[disabled]{opacity:.45;cursor:default}
 .btn[disabled]:hover{background:var(--paper)}
+/* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
+.btn .ic,.page-body button .ic,.page-body a.btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+.nv .ic,.site-links a .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
+.work-action .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+.work-action{transition:border-color .15s,background .15s}
+@media(prefers-reduced-motion:reduce){
+ .work-action,.btn,.nv{transition:none}
+}
 .icon{width:32px;height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
- cursor:pointer;font-size:14px;line-height:1}
+ cursor:pointer;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.icon .ic{width:18px;height:18px;pointer-events:none}
 #btn-menu{display:none;font-size:15px}
 [hidden]{display:none!important}
 
@@ -826,26 +844,27 @@ def work_menu_html() -> str:
     """Owner work entry points, with honest states for unconfigured features."""
     if board.current_role() != 'owner':
         return ''
-    from . import google_ledger_page, receipt_review
+    from . import google_ledger_page, receipt_review, ui_icons
 
-    def action(title, note, href=''):
+    def action(icon, title, note, href=''):
         tag = 'a' if href else 'div'
         link = f" href='{board.esc(href)}'" if href else ''
-        return (f"<{tag} class='work-action'{link}><strong>{title}</strong>"
-                f"<small>{note}</small></{tag}>")
+        return (f"<{tag} class='work-action'{link}>{ui_icons.icon(icon)}"
+                f"<span><strong>{title}</strong>"
+                f"<small>{note}</small></span></{tag}>")
 
-    actions = action('카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
-    actions += action('전체 카드 내역', '저장된 모든 카드 거래 · 검색 · 카드별 조회', '/cards')
+    actions = action('upload', '카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
+    actions += action('credit-card', '전체 카드 내역', '저장된 모든 카드 거래 · 검색 · 카드별 조회', '/cards')
     if receipt_review.enabled():
-        actions += action('영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
+        actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
-        actions += action('영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
+        actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
     if google_ledger_page.enabled():
-        actions += action('Google 정본', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
+        actions += action('table', 'Google 정본', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
     else:
-        actions += action('Google 정본 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
+        actions += action('table', 'Google 정본 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
     count = len(board._unclassified_rows())
-    actions += action(f'여행 미배정 {count:,}건', '여행을 선택해 비용을 정리하세요', '/board?tab=unclassified')
+    actions += action('map', f'여행 미배정 {count:,}건', '여행을 선택해 비용을 정리하세요', '/board?tab=unclassified')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
             f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
 
@@ -859,14 +878,19 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     """
     pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
                     if board.current_role() == 'owner' else '')
-    primary = "<nav class='site-links' aria-label='주요 메뉴'><a href='/'>홈</a><a href='/board'>여행 장부</a>"
+    from . import ui_icons as _icons
+    primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
+               f"<a href='/'>{_icons.icon('house', 18)}<span class='nm'>홈</span></a>"
+               f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
     if board.current_role() == 'owner':
-        primary += ("<a href='/trips'>여행 관리</a><a href='/reserve-links'>예약 명단·여행 연결</a>"
-                    "<a href='/access/admin'>계정·권한 관리</a>")
+        primary += (f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
+                    f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>"
+                    f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>")
     else:
         from . import google_ledger_page
         if google_ledger_page.enabled():
-            primary += "<a href='/google-ledger'>Google 정본</a>"
+            primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
+                        "<span class='nm'>Google 정본</span></a>")
     primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"
@@ -1019,6 +1043,7 @@ def nav_part(tab_id: str, query: str = "", kind: str = "",
 
 
 def _head_html(trip) -> str:
+    from . import ui_icons as _icons
     if trip is None:
         title, period, meta = "여행을 선택해 주세요", "", ""
     elif trip.get("is_unclassified"):
@@ -1040,8 +1065,8 @@ def _head_html(trip) -> str:
         "<div class='act'>"
         + _reserve_link_link_html()
         + _review_link_html()
-        + "<a class='btn' href='/import'>카드 가져오기</a>"
-        "<a class='btn primary' href='/export'>XLSX 출력</a>"
+        + f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
+        f"<a class='btn primary' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
         "</div></div>")
 
 
@@ -1069,8 +1094,9 @@ def _reserve_link_link_html() -> str:
     """
     if board.current_role() != "owner":
         return ""
+    from . import ui_icons as _icons
     return ("<a class='btn' id='reserve-link' href='/reserve-links'>"
-            "예약 명단·여행 연결</a>")
+            f"{_icons.icon('link')}예약 명단·여행 연결</a>")
 
 
 def _review_link_html() -> str:
@@ -1083,10 +1109,11 @@ def _review_link_html() -> str:
     markup is a convenience and never the decision.
     """
     from . import real_review
+    from . import ui_icons as _icons
 
     if real_review.active_service() is None:
         return ""
-    return "<a class='btn' id='review-link' href='/review'>실제 자료 검토</a>"
+    return (f"<a class='btn' id='review-link' href='/review'>{_icons.icon('search')}실제 자료 검토</a>")
 
 
 def _source_sheet_name(locator: str) -> str:
@@ -1256,7 +1283,7 @@ def _source_preview_html(trip) -> str:
         f"<section class='src-preview' id='src-preview'>"
         f"<div class='src-hd'><h2>실제 원천 자료 · 입금과 지출</h2>"
         f"<a class='btn' id='src-review-link' href='{board.esc(review_href)}'>"
-        f"실제 자료 검토</a></div>"
+        f"{ui_icons.icon('search')}실제 자료 검토</a></div>"
         f"<p class='muted'>원천 시트 <code>{board.esc(sheet)}</code> 의 "
         f"{len(items)}행이에요. 원천 자료입니다. 저장된 장부 합계와 별도로 "
         f"표시합니다. 검토에서 차이를 확인하세요. 여기서 결정하지 않아요.</p>"
@@ -1267,12 +1294,13 @@ def _source_preview_html(trip) -> str:
 def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
     # One GET form owns the search and the filter, so submitting, refreshing and
     # going back all land on the same URL state.
+    from . import ui_icons as _icons
     return (
         "<form class='bar' method='get' action='/board' id='q-form'>"
         f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
         f"{f'<input type=hidden name=arch value={board.esc(archived)}>' if archived else ''}"
         "<button class='icon' id='btn-menu' type='button' aria-label='전체 메뉴 열기'"
-        " aria-controls='nav' aria-expanded='false'>☰</button>"
+        f" aria-controls='nav' aria-expanded='false'>{_icons.icon('menu')}</button>"
         "<label class='sr' for='q'>거래 검색</label>"
         "<input id='q' name='q' type='search' placeholder='용도·내용·메모·예약번호 검색'"
         f" value='{board.esc(query)}' autocomplete='off'>"
@@ -1280,8 +1308,8 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         "<select id='kind' name='kind' onchange='this.form.submit()'>"
         f"<option value=''>전체</option><option value='in'{' selected' if kind == 'in' else ''}>수입만</option>"
         f"<option value='ex'{' selected' if kind == 'ex' else ''}>지출만</option></select>"
-        "<button class='btn' type='submit' id='q-go'>검색</button>"
-        + (f"<a class='btn' id='q-clear' href='/board?{state_query(tab_id)}'>지우기</a>"
+        f"<button class='btn' type='submit' id='q-go'>{_icons.icon('search')}검색</button>"
+        + (f"<a class='btn' id='q-clear' href='/board?{state_query(tab_id)}'>{_icons.icon('rotate-ccw')}지우기</a>"
            if (query or kind) else "")
         + "</form>")
 
@@ -1442,7 +1470,7 @@ def _move_form(row, move_back: str) -> str:
         "<label class='sr' for='move-" + board.esc(rid) + "'>이동할 여행</label>"
         f"<select class='psel' id='move-{board.esc(rid)}' name='display_tab_id'>"
         f"{_trip_options('', '분류대기(여행 미정)')}</select>"
-        "<button class='btn' type='submit'>이동</button></form>")
+        f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
 
 
 def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> str:
@@ -1502,7 +1530,7 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
         + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
         "<td colspan='4'><a class='btn' id='add-manual-expense' href='/expense/new'>"
-        "수기 지출 추가</a></td>"
+        f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back)
@@ -1528,7 +1556,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 f"<label class='sr' for='mobile-move-{board.esc(rid)}'>이동할 여행</label>"
                 f"<select class='psel' id='mobile-move-{board.esc(rid)}' name='display_tab_id'>"
                 f"{_trip_options('', '분류대기(여행 미정)')}</select>"
-                "<button class='btn' type='submit'>이동</button></form>")
+                f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
         cls = "li pend" if unclassified else "li"
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
@@ -1562,7 +1590,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         f"{''.join(item(r) for r in incomes) or '<p class=\"muted\" style=\"padding:12px 16px\">수입 내역이 없어요</p>'}"
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
         "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
-        "수기 지출 추가</a></p>"
+        f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
         f"{''.join(item(r) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
 
@@ -1662,6 +1690,7 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
     links.append(f"<a href='/trips'>여행 관리</a>")
     links.append(f"<a href='/export'>선택 탭 출력</a>")
     links.append(rule_link)
+    from . import ui_icons as _panel_icons
     return (
         # `data-row` is which row this panel belongs to. The browser reads it to
         # move to the previous or next row that is actually on screen and to keep
@@ -1700,11 +1729,11 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         # the rows that are on screen. A button that cannot go anywhere is not
         # drawn, so nothing here promises a move the ledger cannot make.
         "<button class='btn p-nav' type='button' id='p-prev' hidden"
-        " aria-label='이전 거래'>이전</button>"
+        f" aria-label='이전 거래'>{_panel_icons.icon('chevron-left')}이전</button>"
         "<button class='btn p-nav' type='button' id='p-next' hidden"
-        " aria-label='다음 거래'>다음</button>"
+        f" aria-label='다음 거래'>다음{_panel_icons.icon('chevron-right')}</button>"
         "<span class='p-count tnum' id='p-count'></span>"
-        "<button class='btn primary' type='submit'>저장 "
+        f"<button class='btn primary' type='submit'>{_panel_icons.icon('save')}저장 "
         "<kbd class='kbd'>Ctrl</kbd>+<kbd class='kbd'>Enter</kbd></button>"
         f"<a class='btn' id='p-cancel' href='{board.esc(back)}'>취소 "
         "<kbd class='kbd'>Esc</kbd></a>"
@@ -1763,6 +1792,7 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
     # dirty; the time is the ledger's own last save for this tab.
     role_note = ("읽기 전용" if board.current_role() == "viewer" else "")
     main_class = "main home-main" if home else "main"
+    from . import ui_icons as _icons
     global_state = "" if home else (
         f"<p class='meta' id='global-state' data-role='{board.esc(role_note)}'>"
         "<span id='unsaved-count'>저장되지 않은 변경 없음</span>"
@@ -1783,8 +1813,8 @@ def shell(title: str, *, tab_id: str, heading: str, period: str = "",
         + "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div><div class='act'>"
-        "<a class='btn' href='/import'>카드 가져오기</a>"
-        f"<a class='{export_class}' href='/export'>XLSX 출력</a>"
+        f"<a class='btn' href='/import'>{_icons.icon('upload')}카드 가져오기</a>"
+        f"<a class='{export_class}' href='/export'>{_icons.icon('save')}XLSX 출력</a>"
         f"<a class='btn' href='{board.esc(back)}'>장부</a>"
         "</div></div>"
         f"<div class='page-body'>{body}</div>"

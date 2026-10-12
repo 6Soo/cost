@@ -25,7 +25,14 @@ body { font-family: system-ui, sans-serif; margin: 1.5rem; }
 h1 { font-size: 1.25rem; }
 table { border-collapse: collapse; margin: 0.5rem 0; }
 th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
-.bar { margin: 0.75rem 0; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.bar { margin: 0.75rem 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+  padding: 8px 12px; border: 1px solid #D0D5DD; border-radius: 8px; background: #fff;
+  font: inherit; font-weight: 600; cursor: pointer; }
+.bar button .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
+.backbar a.back { display: inline-flex; align-items: center; gap: 6px; }
+.backbar a.back .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .bar button { transition: none; } }
 .note { color: #555; }
 .err { color: #a00; }
 .warntext { color: #a60; }
@@ -107,15 +114,15 @@ a.back:hover { text-decoration: underline; }
      reach. The review link is the configured comparison screen, which is where
      an owner checks this linking against the real source. -->
 <nav class="backbar" aria-label="돌아가기">
-  <a class="back" id="back-board" href="/board">장부로 돌아가기</a>
-  <a class="back" id="back-review" href="/review">실제 자료 검토</a>
+  <a class="back" id="back-board" href="/board">__ICON_CHEVRON_LEFT__장부로 돌아가기</a>
+  <a class="back" id="back-review" href="/review">__ICON_SEARCH__실제 자료 검토</a>
 </nav>
 <p id="state" role="status" aria-live="polite">불러오는 중입니다.</p>
 <div id="summary"></div>
 <div class="bar">
-  <button id="reloadBtn" type="button">다시 불러오기</button>
-  <button id="saveBtn" type="button" disabled>여행 연결 저장</button>
-  <button id="applyBtn" type="button" disabled>연결된 명단 적용</button>
+  <button id="reloadBtn" type="button">__ICON_REFRESH__다시 불러오기</button>
+  <button id="saveBtn" type="button" disabled>__ICON_SAVE__여행 연결 저장</button>
+  <button id="applyBtn" type="button" disabled>__ICON_CHECK__연결된 명단 적용</button>
 </div>
 <section id="linkBox"></section>
 <section id="planBox"></section>
@@ -462,7 +469,17 @@ def render_reserve_link_ui(csrf_token: str = "", payload_json: str = "") -> str:
     data. The payload argument exists for a caller that already has one and is not
     interpolated, which is the same rule stated twice on purpose.
     """
+    from . import ui_icons
+
     del payload_json
-    return _DOCUMENT.replace(
+    markup = _DOCUMENT.replace(
         "__CSRF__", html.escape("" if csrf_token is None else str(csrf_token),
-                                quote=True))
+                                 quote=True))
+    for token, name in (
+            ("__ICON_CHEVRON_LEFT__", "chevron-left"),
+            ("__ICON_SEARCH__", "search"),
+            ("__ICON_REFRESH__", "refresh-cw"),
+            ("__ICON_SAVE__", "save"),
+            ("__ICON_CHECK__", "check")):
+        markup = markup.replace(token, ui_icons.icon(name))
+    return markup

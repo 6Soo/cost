@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
+from . import ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -606,13 +607,13 @@ def access_control_render_provider_config(session, status) -> str:
             f" placeholder='붙여넣은 값은 저장 후 화면에 남지 않아요'></div>"
             f"<div class='f'><label for='m-{esc(name)}'>모델</label>"
             f"<select id='m-{esc(name)}' name='model'>{options}</select></div>"
-            f"<button class='btn primary' type='submit'>저장</button>"
+            f"<button class='btn primary' type='submit'>{ui_icons.icon('save')}저장</button>"
             f"<button class='btn' type='submit' formaction='/access/providers'"
             f" name='action' value='refresh-models'"
-            f" formnovalidate>모델 목록 다시 읽기</button>"
+            f" formnovalidate>{ui_icons.icon('refresh-cw')}모델 목록 다시 읽기</button>"
             f"<button class='btn' type='submit' formaction='/access/providers'"
             f" name='action' value='connection-test'"
-            f" formnovalidate>연결 테스트</button>"
+            f" formnovalidate>{ui_icons.icon('link')}연결 테스트</button>"
             f"</form>"
             f"<p class='muted'>사용 가능한 모델은 서버가 조회한 목록{esc(fetched_note)}"
             " 중 무료 지원이 확인된 항목만 고를 수 있어요.</p>"
@@ -621,7 +622,7 @@ def access_control_render_provider_config(session, status) -> str:
             f"<input type='hidden' name='provider' value='{esc(name)}'>"
             f"<input type='hidden' name='csrf' value='{esc(CSRF_TOKEN)}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-            f"<button class='btn' type='submit'>키 지우기</button></form>")
+            f"<button class='btn' type='submit'>{ui_icons.icon('x-circle')}키 지우기</button></form>")
 
     tier = status.get("tier") or {}
     tier_state = str(tier.get("state") or "unknown")
@@ -670,7 +671,7 @@ def access_control_render_provider_config(session, status) -> str:
         "<div class='f'><label for='tier-at'>확인 시점</label>"
         "<input id='tier-at' name='verified_at' type='text' "
         "placeholder='2026-09-27T10:00'></div>"
-        "<button class='btn' type='submit'>등급 기록</button>"
+        f"<button class='btn' type='submit'>{ui_icons.icon('pencil')}등급 기록</button>"
         "</form>"
         "<p class='muted'>이 화면은 실제 모델을 호출하지 않아요. 연결 테스트는 "
         "합성 문장 하나만 보내고 성공 여부와 실제 모델 ID만 알려 줘요. 키를 지우면 "
@@ -1851,14 +1852,14 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             + (f"<label class='muted'><input type='checkbox' name='assignee_confirmed' value='1'>"
                "이 담당자가 맞다고 확인해요</label>" if assignee_note else "")
             + "</p>"
-            "<button type='submit'>정보 저장</button></form>"
+            f"<button type='submit'>{ui_icons.icon('save')}정보 저장</button></form>"
             f"<form method='post' action='/api/trips/{esc(t['tab_id'])}/meta'>"
             f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
             f"<input type='hidden' name='expected_revision' value='{t['revision']}'>"
             f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
             f"<input type='hidden' name='archived' value='{'0' if t['archived'] else '1'}'>"
             "<input type='hidden' name='return_to' value='/trips'>"
-            f"<button type='submit'>{'복원' if t['archived'] else '보관'}</button></form>"
+            f"<button type='submit'>{ui_icons.icon('archive')}{'복원' if t['archived'] else '보관'}</button></form>"
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
             "</div>"
         )
@@ -1888,7 +1889,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "이미 있는 여행의 담당자와 작성일은 바뀌지 않아요. "
             "값을 비워 두면 새 여행의 담당자는 비어 있고, 그때는 아래에서 직접 입력해 주세요."
             "</p>"
-            "<button type='submit'>출처 정보 저장</button></form></div>")
+            f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></div>")
         assignee_hint = (
             ""
             if profile["assignee_name"]
@@ -1921,7 +1922,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "일정 근거가 없는 탭은 자동 확정하지 않고 검토 필요로 남기며, "
             "화면에서 탭을 만든다고 권위 일정이 권위가 있는 것으로 바뀌지 않습니다."
             "</p>"
-            "<button type='submit'>여행 추가</button></form></div>"
+            f"<button type='submit'>{ui_icons.icon('pencil')}여행 추가</button></form></div>"
         )
     preview_html = ""
     if preview_tab:
@@ -1949,7 +1950,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                 "<option value='move-unclassified'>분류대기로 이동</option>"
                 "<option value='move-trip'>다른 여행으로 이동</option></select></p>"
                 f"<p><label>목적지</label><select name='destination'>{dest_options}</select></p>"
-                "<button type='submit'>내역 이동 후 삭제 확정</button></form>"
+                f"<button type='submit'>{ui_icons.icon('alert-triangle')}내역 이동 후 삭제 확정</button></form>"
                 "<p class='muted'>원천·이력·과거 출력은 지우지 않고 화면 탭만 없앱니다. "
                 "확정 시점에 장부가 바뀌었으면 처음부터 다시 확인합니다.</p></div>"
             )
