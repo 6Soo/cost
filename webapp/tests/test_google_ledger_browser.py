@@ -151,7 +151,7 @@ class GoogleLedgerBrowserTests(unittest.TestCase):
             for width, height in ((390, 844), (1440, 900)):
                 pg = browser.new_context(viewport={'width': width, 'height': height}).new_page()
                 pg.goto(self.base + '/google-ledger')
-                pg.get_by_text('0630_오제').wait_for()
+                pg.locator('td[data-label="여행"]').filter(has_text='0630_오제').wait_for()
                 pg.get_by_role('link', name='main 상세').first.click()
                 pg.get_by_role('heading', name='수입').wait_for()
                 body = pg.content()
