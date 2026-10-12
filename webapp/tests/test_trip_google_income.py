@@ -82,6 +82,20 @@ def test_verified_zero_is_distinct_from_unlinked(income_context):
     assert 'Google 확정 수입 0원' not in page.trip_income_html('unknown')
 
 
+def test_unverified_income_explains_total_error_without_exposing_rows(income_context, monkeypatch):
+    _, key = income_context
+    monkeypatch.setattr(page, 'owner_payload', lambda *args: {
+        'trips': [{'key': key, 'chosen_source': 'main', 'verified': False,
+                   'review': ['TOTAL_MISMATCH', 'TOTAL_RANGE_MISMATCH']}],
+        'synced_at': '2026-10-12T19:00:00+09:00'})
+    body = page.trip_income_html('trip-syn')
+    assert '확인 필요 이유' in body
+    assert page.REVIEW_LABELS['TOTAL_MISMATCH'] in body
+    assert page.REVIEW_LABELS['TOTAL_RANGE_MISMATCH'] in body
+    assert 'INCOME-NAME' not in body
+    assert 'Google 확정 수입' not in body
+
+
 def test_mapping_picker_names_imported_trips_and_preserves_current_trip():
     body = page._owner_controls({'trips': []}, {
         'tabs': [{'tab_id': 'syn', 'display_key': 'Synthetic trip name', 'destination': ''}],

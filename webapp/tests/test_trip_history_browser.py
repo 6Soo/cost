@@ -27,6 +27,8 @@ class TripHistoryBrowserTests(LinkBrowserFixture):
                 self.assertTrue(history.evaluate("el=>el.open"))
                 history.locator(f"a[href*='tab={old['tab_id']}']").click()
                 page.wait_for_url("**/board?tab=" + old['tab_id'])
-                self.assertTrue(page.locator("#previous-trips").evaluate("el=>el.open"))
+                # Default collapsed for any selected/previous trip (new rule);
+                # user click opens it.
+                self.assertFalse(page.locator("#previous-trips").evaluate("el=>el.open"))
                 self.assertEqual(page.locator("#previous-trips a[aria-pressed='true']").count(), 1)
                 self.assertLessEqual(page.evaluate("document.documentElement.scrollWidth"), width)

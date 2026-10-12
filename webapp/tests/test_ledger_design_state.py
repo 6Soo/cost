@@ -113,6 +113,7 @@ class ViewStateTests(unittest.TestCase):
         # switching trip in the nav keeps the filter
         href = page.get_attribute(".nav-list a[href*='tab=trip-demo-b']", "href")
         self.assertIn("kind=ex", href)
+        page.locator("#previous-trips > summary").click()
         page.click(".nav-list a[href*='tab=trip-demo-b']")
         page.wait_for_load_state()
         self.assertEqual(
@@ -146,7 +147,16 @@ class ViewStateTests(unittest.TestCase):
         self.assertIn("kind=ex", page.url)
 
     # -------------------------------------------------------- archived drawer
+    def _current_trip_b(self):
+        # These tests cover the archive drawer, separately from the June cutoff.
+        # Keep their synthetic trip outside the previous-trips group.
+        self.store.conn.execute(
+            "UPDATE trip_tabs SET starts_on=?, ends_on=? WHERE tab_id=?",
+            ("2026-07-01", "2026-07-05", "trip-demo-b"))
+        self.store.conn.commit()
+
     def _archive_a_trip(self, tab_id="trip-demo-b"):
+        self._current_trip_b()
         trip = [t for t in self.store.list_trips(include_archived=True)
                 if t["tab_id"] == tab_id][0]
         self.store.save_trip_meta(
@@ -265,6 +275,7 @@ class ViewStateTests(unittest.TestCase):
                              "input[name='return_to']"), "/trips")
 
     def test_archiving_from_the_trip_screen_moves_it_to_the_drawer(self):
+        self._current_trip_b()
         page = self._page(1440)
         page.goto(f"http://127.0.0.1:{self.port}/trips")
         forms = page.query_selector_all(
