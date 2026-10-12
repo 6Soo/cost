@@ -53,6 +53,7 @@ def test_merchant_first_reservation_sub_no_duplicate_descriptions():
     assert '예약번호 SYN-123' in sub
     # Description may still appear in sub when merchant and description differ; just assert no raw reservation as main
     mobile = design._mobile_html([], [row], selected='', unclassified=False)
+    assert mobile.index('Synthetic merchant') < mobile.index('예약번호 SYN-123')
     # Mobile displays reservation and merchant; both present, order handled by layout
     # Income fallback preserved
     income = dict(row, row_kind='income', customer_name='Synthetic customer')
@@ -60,6 +61,8 @@ def test_merchant_first_reservation_sub_no_duplicate_descriptions():
     # No reservation: merchant/description stays main
     no_reservation = dict(row, reservation_no='')
     assert design._row_party_main(no_reservation) == 'Synthetic merchant'
+    assert design._row_party_sub(no_reservation) == 'Synthetic stay'
+    assert design._row_party_sub(dict(income, source_merchant='', nickname='Synthetic nickname')) == 'Synthetic nickname'
     # Source merchant missing -> description fallback
     no_merchant = dict(row, source_merchant='')
     assert design._row_party_main(no_merchant) == 'Synthetic stay'
@@ -74,7 +77,13 @@ def test_amount_format_integer_decimal_negative_empty_non_digit():
     assert fmt_google_amount('') == ''
     assert fmt_google_amount(None) == ''
     # Non-digit text escaped, original unchanged content preserved (escape via board.esc)
-    assert '&' not in fmt_google_amount('test') or fmt_google_amount('test') == 'test'
+    assert fmt_google_amount('test') == 'test'
+    assert fmt_google_amount('<script>&') == '&lt;script&gt;&amp;'
+    assert fmt_google_amount('12,34') == '12,34'
+    assert fmt_google_amount('NaN') == 'NaN'
+    assert fmt_google_amount('Infinity') == 'Infinity'
+    assert fmt_google_amount('1,234.50') == '1,234.5'
+    assert fmt_google_amount('12345678901234567890.123') == '12,345,678,901,234,567,890.123'
     # Verify no float-rounding mutation of source: format from string to avoid float error
     assert fmt_google_amount('420000.0') == '420,000'
 
@@ -86,4 +95,4 @@ def test_party_cell_escapes_non_digit_text():
     cell = design._party_cell(row)
     assert '<script>' not in cell
     # Escaped form preserved
-    assert '&amp;' in cell or 'A &' in cell
+    assert '&amp;' in cell

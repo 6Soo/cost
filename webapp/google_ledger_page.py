@@ -25,34 +25,20 @@ from app import google_access, google_authority
 from . import ui_icons
 from decimal import Decimal, InvalidOperation
 
-def fmt_google_amount(val):
+def fmt_google_amount(value):
+    """Format spreadsheet money for display; preserve blank and nonnumeric text."""
+    text = '' if value is None else str(value).strip()
+    if not text:
+        return ''
+    if not re.fullmatch(r'[+-]?(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?', text):
+        return html.escape(text)
     try:
-        s = str(val).strip() if val is not None else ''
-        if s == '':
-            return ''
-        if ',' in s:
-            import re
-            if not re.fullmatch(r'-?\d{1,3}(,\d{3})*(\.\d+)?', s):
-                return html.escape(s)
-        s_clean = s.replace(',', '')
-        d = Decimal(s_clean)
-        if not d.is_finite():
-            return html.escape(s)
-        s_fmt = format(d, 'f')
-        if '.' in s_fmt:
-            s_fmt = s_fmt.rstrip('0').rstrip('.')
-        int_part, _, dec_part = s_fmt.partition('.')
-        sign = ''
-        if int_part.startswith('-'):
-            sign = '-'
-            int_part = int_part[1:]
-        grouped = '{:,}'.format(int(int_part)) if int_part else '0'
-        res = sign + grouped
-        if dec_part:
-            res += '.' + dec_part
-        return res
-    except (InvalidOperation, ValueError, TypeError):
-        return html.escape(str(val)) if val is not None else ''
+        amount = Decimal(text.replace(',', ''))
+        rendered = format(amount, ',f')
+        return rendered.rstrip('0').rstrip('.') if '.' in rendered else rendered
+    except (InvalidOperation, ValueError):
+        return html.escape(text)
+
 
 _SETTINGS_LOCK = threading.RLock()
 # The planned scheduler runs hourly. Missing two runs must not look like current verification.
@@ -157,15 +143,15 @@ def trip_income_html(tab_id: str) -> str:
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
-    settings = (f"<a class='btn' style='font-size:13px;padding:6px 10px;margin-left:6px;' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
+    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
                 if owner and enabled() else '')
 
     def panel(message, body=''):
         return ("<details id='google-trip-income' class='income-note' aria-label='Google 수입내역'"
                 + (' open' if enabled() else '') + ">"
-                "<summary>Google 수입내역</summary>"
-                f"<p style='font-size:14px;margin:0 0 8px;color:#182230'>{message}</p>{body}{settings}"
-                "<p>Google에서 읽어 온 수입입니다. 아래 COST 거래 합계에 중복 반영하지 않습니다. "
+                f"<summary>{ui_icons.icon('list')}Google 수입내역</summary>"
+                f"<p>{message}</p>{body}{settings}"
+                "<p class='google-income-help'>Google에서 읽어 온 수입입니다. 아래 COST 거래 합계에 중복 반영하지 않습니다. "
                 "입금 수정은 Google 장부에서 진행해 주세요.</p></details>")
 
     if not enabled():
@@ -204,15 +190,15 @@ def trip_income_html(tab_id: str) -> str:
                 message += f" · 확인 필요 이유: {html.escape(reasons)}"
         message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
         message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
-        body = (f"<a class='btn' style='font-size:13px;padding:6px 10px;margin-left:6px;' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
+        body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
                 f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))
             lines = ''.join(
                 '<tr>' + ''.join(f'<td>{fmt_google_amount(row.get(field)) if field in ("deposit","balance","extra") else esc(row.get(field))}</td>'
                                   for field in ('date', 'name', 'nickname', 'deposit', 'balance', 'extra'))
-                + f"<td>{fmt_google_amount(row['amount'])}</td></tr>" for row in detail['income'])
-            body += ("<div style='overflow-x:auto'><table><caption>예약금·잔금·추가금 내역</caption>"
+                + f"<td>{_money(row['amount'])}</td></tr>" for row in detail['income'])
+            body += ("<div class='google-income-scroll'><table><caption>예약금·잔금·추가금 내역</caption>"
                      "<thead><tr><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                      "<th>잔금</th><th>추가금</th><th>금액</th></tr></thead>"
                      f"<tbody>{lines or '<tr><td colspan=\"7\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
@@ -229,7 +215,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['name'])}</td><td>{esc(r['nickname'])}</td>"
                 f"<td>{fmt_google_amount(r['deposit'])}</td><td>{fmt_google_amount(r['balance'])}</td><td>{fmt_google_amount(r['extra'])}</td>"
-                f"<td>{fmt_google_amount(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
                 f"<th>잔금</th><th>추가금</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
 
@@ -237,7 +223,7 @@ def render_rows_html(detail: dict) -> str:
         body = "".join(
             f"<tr><td>{r['row']}</td><td>{esc(r['date'])}</td><td>{esc(r['payee'])}</td><td>{esc(r['category'])}</td>"
             f"<td>{esc(r['period'])}</td><td>{esc(r['reservation'])}</td><td>{esc(r['evidence'])}</td>"
-                f"<td>{fmt_google_amount(r['amount'])}</td></tr>" for r in rows)
+                f"<td>{_money(r['amount'])}</td></tr>" for r in rows)
         return ("<table><thead><tr><th>행</th><th>거래일자</th><th>지급처</th><th>분류</th><th>기간</th>"
                 f"<th>예약번호</th><th>증빙</th><th>금액</th></tr></thead><tbody>{body}</tbody></table>")
     def total(rows):
@@ -462,7 +448,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
         "<h1>Google 확정 장부</h1>"
-        "<p>Google에서 읽어 온 최종 장부입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
+        "<p class='google-income-help'>Google에서 읽어 온 최종 장부입니다. COST 카드·영수증의 복사만으로 이 금액이 바뀌지는 않습니다.</p>"
         f"<p>기준 시각 {html.escape(str(payload['synced_at'] or '동기화 대기'))}</p><ul>{sources}</ul>"
         + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
         +

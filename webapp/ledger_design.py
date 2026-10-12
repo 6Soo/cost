@@ -12,6 +12,7 @@ an explicit allowlist, so a path can never escape it.
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import uuid
 from datetime import date
@@ -41,6 +42,7 @@ INCOME_KIND_LABELS = {
 
 # Buttons and rows keep the values the existing tests and the export already use.
 MONEY = "{:,}원"
+
 
 def static_asset(name: str):
     """Return (bytes, content_type) for an allowed asset, or None."""
@@ -101,13 +103,32 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav .work-action small{display:none}
 .income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
 .main-wrap{max-width:1180px;padding:24px 32px;margin:0 auto}
+#trip-income{margin:20px 0 24px}
+#trip-income h2{display:flex;align-items:center;gap:8px;font-size:18px;line-height:1.5;margin-bottom:8px}
+#trip-income>.muted{font-size:13px;line-height:1.6;margin-bottom:12px}
+#google-trip-income{padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:14px}
+#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-weight:600;color:var(--ink);list-style:none}
+#google-trip-income summary::after{content:'▾';margin-left:auto}
+#google-trip-income:not([open]) summary::after{content:'▸'}
+#google-trip-income p{line-height:1.7;margin:8px 0 12px}
+#google-trip-income .google-income-help{font-size:12.5px;color:var(--mut);margin-bottom:0}
+#google-trip-income .btn{margin:0 8px 12px 0;min-height:36px}
+#google-trip-income .google-income-scroll{overflow-x:auto;margin:4px 0 16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+#google-trip-income table{font-size:13px;min-width:700px}
+#google-trip-income caption{padding:10px 14px;text-align:left;font-weight:600}
+#google-trip-income td,#google-trip-income th{padding:10px 14px;white-space:nowrap}
+#google-trip-income td:nth-child(n+4),#google-trip-income th:nth-child(n+4){text-align:right;font-variant-numeric:tabular-nums}
+.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 24px;font-size:12px;line-height:1.6}
+.main-wrap .s-main{font-size:14px;line-height:1.5}
+.main-wrap .s-sub{font-size:12.5px;line-height:1.5;margin-top:3px}
+.main-wrap #tbl td:last-child,.main-wrap #tbl th:last-child{padding-right:24px}
 @media(max-width:759px){.main-wrap{padding:16px 12px 20px;max-width:none}}
+@media(max-width:759px){#google-trip-income{padding:10px 12px}.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 16px}}
 @media(max-width:759px){
  .work-menu{padding:10px 16px}
  .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .work-action{padding:9px 10px;font-size:13px}
  .income-note{padding:0 16px 12px}
- .page-body{padding:16px 12px 20px;max-width:none}
 }
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
@@ -1482,36 +1503,27 @@ def _row_party_main(row) -> str:
 
 
 def _row_party_sub(row) -> str:
-    """Sub: reservation label with exact token cleaned; merchant/description if different."""
-    import re
+    """Display each known reservation once, without modifying the source row."""
     main = _row_party_main(row)
-    parts = []
+    if row.get("row_kind") == "income":
+        for key in ("source_merchant", "nickname"):
+            value = str(row.get(key) or "").strip()
+            if value and value != main:
+                return value
+        return ""
     reservation = str(row.get("reservation_no") or "").strip()
-    # Description may contain reservation token; remove exact token with label
     description = str(row.get("description") or "").strip()
+    parts = []
+    if reservation and reservation != main:
+        parts.append("\uC608\uC57D\uBC88\uD638 " + reservation)
     if reservation:
-        # Remove exact token occurrences with optional '예약번호'/'예약' label
-        clean_desc = re.sub(r"\b(?:\s*예약번호\s*|\s*예약\s*)?" + re.escape(reservation) + r"\b", "", description)
-        clean_desc = re.sub(r"\s+", " ", clean_desc).strip()
-        clean_desc = clean_desc.replace("·", "").strip()
-        if clean_desc and clean_desc != main and clean_desc not in parts:
-            parts.append(clean_desc)
-        # Add reservation label line if reservation exists and different from main
-        if reservation != main:
-            parts.insert(0, "예약번호 " + reservation)
-    # Merchant/description additional only when different from main and not already there
-    merchant = str(row.get("source_merchant") or "").strip()
-    if merchant and merchant != main and merchant not in parts:
-        parts.append(merchant)
-    # Deduplicate while preserving order
-    seen = set()
-    deduped = []
-    for p in parts:
-        folded = "".join(p.split())
-        if folded not in seen:
-            seen.add(folded)
-            deduped.append(p)
-    return " · ".join(deduped)
+        description = re.sub(
+            r"(?<![\w-])(?:\uC608\uC57D(?:\uBC88\uD638)?\s*)?" + re.escape(reservation)
+            + r"(?![\w-])", "", description)
+        description = re.sub(r"\s+", " ", description).strip(" \u00b7|,;:-")
+    if description and description != main:
+        parts.append(description)
+    return " \u00b7 ".join(parts)
 
 
 def _row_item(row) -> str:
@@ -1671,32 +1683,9 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         # per-row details element here (density first).
         kind = _row_kind_meter(row)
         cat = row.get("item") or _income_kind_label(row) or "-"
-        purpose = row.get("description") or row.get("customer_name") or "-"
-        # Use desktop cell order: merchant/description main first, reservation sub second.
-        # Dedup exact reservation token inside description using re.sub boundary.
-        import re
         main_text = _row_party_main(row)
         sub_text = _row_party_sub(row)
-        # Clean description of exact reservation token (with optional label)
-        purpose_clean = str(row.get("description") or row.get("customer_name") or "").strip()
-        res_token = str(row.get("reservation_no") or "").strip()
-        if res_token:
-            purpose_clean = re.sub(r"\b(?:\s*예약번호\s*|\s*예약\s*)?" + re.escape(res_token) + r"\b", "", purpose_clean)
-            purpose_clean = re.sub(r"\s+", " ", purpose_clean).strip()
-            # If whole purpose equals token, leave empty; else keep remainder
-        # Build headline from desktop-style order
-        seen = set()
-        parts = []
-        for value in (main_text, sub_text if sub_text and sub_text != main_text else "", purpose_clean if purpose_clean and purpose_clean != main_text else ""):
-            text = str(value or "").strip()
-            if not text:
-                continue
-            folded = "".join(text.split())
-            if folded in seen:
-                continue
-            seen.add(folded)
-            parts.append(text)
-        headline = " · ".join(parts) or "-"
+        headline = " \u00b7 ".join(text for text in (main_text, sub_text) if text)
         tag_cls = "tag in" if kind == "수입" else "tag"
         return (
             f"<button class='{cls}' type='button' data-id='{board.esc(rid)}'"
@@ -2065,7 +2054,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"</div>"
         f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 Google 읽기'>"
-        f"<h2>여행 수입 · COST 기록과 Google 읽기</h2>"
+        f"<h2>{ui_icons.icon('list')}여행 수입</h2>"
         f"<p class='muted'>COST 표는 COST에 기록된 거래만 합산합니다. "
         f"Google에서 읽어 온 확정 수입·연결 상태·확인 필요 이유는 아래에서 확인하고, 두 금액을 합산하지 않습니다.</p>"
         f"{trip_income_html(tab_id)}"
