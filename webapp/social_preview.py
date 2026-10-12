@@ -7,11 +7,11 @@ IMAGE_FILE = Path(__file__).parent / "static" / "og" / "cost-travel-v3.png"
 ASSETS = {
     IMAGE_PATH: (IMAGE_FILE, "image/png"),
     "/assets/og/cost-wallet-v1.png": (IMAGE_FILE.with_name("cost-wallet-v1.png"), "image/png"),
-    "/assets/brand/wallet-favicon-v1.png": (Path(__file__).parent / "static/brand/wallet-favicon-v1.png", "image/png"),
-    "/favicon.ico": (Path(__file__).parent / "static/brand/wallet-favicon-v1.ico", "image/x-icon"),
+    "/assets/brand/wallet-favicon-v2.png": (Path(__file__).parent / "static/brand/wallet-favicon-v2.png", "image/png"),
+    "/favicon.ico": (Path(__file__).parent / "static/brand/wallet-favicon-v2.ico", "image/x-icon"),
 }
-META = '''<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/wallet-favicon-v1.png">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
+META = '''<link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/wallet-favicon-v2.png">
+<link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="COST">
 <meta property="og:title" content="COST · 여행 회계를 간편하게">
