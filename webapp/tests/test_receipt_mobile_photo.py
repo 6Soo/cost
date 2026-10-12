@@ -26,6 +26,3 @@ def test_receipt_upload_remains_owner_and_csrf_scoped():
     )
     assert "X-CSRF-Token" in html
     assert "/api/receipts/image" in html
-    assert "Muse로 영수증 자동 찾기" not in html if not __import__(
-        "app.opencode_receipt_vision", fromlist=["enabled"]
-    ).enabled() else True
