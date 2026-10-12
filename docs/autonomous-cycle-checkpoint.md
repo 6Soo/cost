@@ -2,7 +2,8 @@
 
 ## 현재 운영 반영: 2026-10-12
 
-- 운영 배포 SHA는 `de684eb67afc8c9b0fdfef39431113eb03bdcab7`다. PR #85의 `integration/cost-final`에서 개발했고 main은 병합하지 않았다. 이후 문서 전용 커밋은 운영 코드와 구분한다.
+- 카드 3820 신설 규칙: `725e16d`와 매입 구분 후속 수정 `899821f`를 운영 반영했다. 기존 대사 후 미처리 매입만 분기 기타비용으로 분류한다. 최초 표적 50 passed / 39 subtests, 회사 제외 인접 12 passed, 실제 일시불매입 형식 후속 52 passed / 39 subtests다. 운영 잔여 177건(2026년 2분기 15, 3분기 157, 4분기 5)을 기존 대사 결과에서 선별해 한 트랜잭션으로 분류하고 거래별 감사 이력을 남겼다. 모든 거래의 분류 외 원본 필드, 비대상 전체 행, 장부·사용자 결정·기타 기존 테이블 지문이 보존됐다. 자동 확정·장부 기록·Google 쓰기는 하지 않았다. 분기 비용을 여행으로 추측 배정하지 않는다. 운영 백업·복원은 `D:/WebLedgerHost/data/backups/v2-owner-ui-20261012T114203/restore-evidence.json`을 사용했다. 공개 사이트 후속 브라우저 호출은 도구 timeout으로 완료하지 못했으며 새 배포의 localhost health/ready는 정상이다.
+- 운영 배포 SHA는 `899821f8e8ac44e57dd222369ebcd4a0ee00f2bb`다. PR #85의 `integration/cost-final`에서 개발했고 main은 병합하지 않았다. 이후 문서 전용 커밋은 운영 코드와 구분한다.
 - 기존 주소 `https://ledger.foresttour.kr`, Windows PC, Cloudflare Tunnel, `127.0.0.1:8751`, 데이터 루트 `D:/WebLedgerHost/data`를 유지한다. `WebLedger-Board`는 `D:/WebLedgerHost/releases/<배포 SHA>/tools/start_web_ledger_host.ps1`에 고정됐다. 운영 원본 `C:/AX/cost`는 갱신하거나 초기화하지 않았다. 예전 `restart_real_review_host.ps1`로 원본 checkout에 되돌리지 말고 현재 예약 작업의 고정 경로를 사용한다.
 - 새 기능: 설치돼 있던 Windows 일본어·한국어 OCR을 영수증 사진과 연결했다. 글자와 제한된 날짜·일본어 합계 제안만 제공하고 사용자 확정 없이 비용을 만들지 않는다. 기존 localhost:8088 AI는 결정론적 해석이 실패할 때 사용자 문장만 받아 규칙 초안을 제안한다. 향후 반복 규칙은 기존 규칙 저장 화면에서 별도 확인한다. Google 여행 연결과 viewer 허용·철회 화면을 추가했다. 기존 여행 권한과 정본 검사를 우회하지 않는다.
 - 모바일 장부 작업 메뉴를 접이식 여행 탐색 영역으로 옮겨 첫 거래가 화면 아래로 밀리던 문제를 수정했다. 실제 사이트 375px 영수증·Google, 390px 카드·장부, 데스크톱 약 1440px 장부에서 가로 넘침 없는 접근을 확인했다. 실기기 검증은 아니다. 운영 거래를 새로 확정하거나 영수증을 실제 DB에 시험 등록하지 않았다.

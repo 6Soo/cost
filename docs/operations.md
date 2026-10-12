@@ -2,7 +2,7 @@
 
 ## 2026-10-12 COST V2 운영 반영
 
-기존 도메인과 Windows 호스트에서 `de684eb67afc8c9b0fdfef39431113eb03bdcab7`를 실행한다. main 병합이나 인프라 이전은 하지 않았다. 실제 로그인·화면 접근·Google 읽기, 로컬 OCR·AI, 백업·스키마 적용 및 부분 구현의 최신 근거는 [자율 개발 체크포인트](autonomous-cycle-checkpoint.md#현재-운영-반영-2026-10-12)를 따른다. 추가 월 비용은 0원이다.
+기존 도메인과 Windows 호스트에서 `899821f8e8ac44e57dd222369ebcd4a0ee00f2bb`를 실행한다. main 병합이나 인프라 이전은 하지 않았다. 실제 로그인·화면 접근·Google 읽기, 로컬 OCR·AI, 백업·스키마 적용 및 부분 구현의 최신 근거는 [자율 개발 체크포인트](autonomous-cycle-checkpoint.md#현재-운영-반영-2026-10-12)를 따른다. 추가 월 비용은 0원이다.
 
 현재 `WebLedger-Board`의 고정 release 경로를 사용한다. 아래 과거 운영 SHA와 원본 checkout용 재시작 절차를 최신 배포에 그대로 적용하지 않는다. Google ADC 연결은 미완료이며 현재는 명시적인 기존 public export 방식이다. 실제 고객 자료나 공개 권한을 변경하지 않았다.
 
