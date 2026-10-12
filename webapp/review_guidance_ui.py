@@ -62,7 +62,6 @@ function renderGuidance(card, row) {
   var answer = add(section, "textarea"); answer.id = noteId; answer.rows = 2;
   answer.maxLength = 2000; answer.value = draft.note;
   answer.placeholder = "확인한 사실이나 원하는 수정 내용을 적어 주세요.";
-  add(section, "p", "muted", "저장만으로 자동 검토나 분류가 실행되지는 않습니다.");
   var actions = add(section, "div", "bar");
   var save = add(actions, "button", null, "답변 저장"); save.type = "button";
   var reload = add(actions, "button", null, "저장된 답변 보기"); reload.type = "button";
@@ -76,7 +75,6 @@ function renderGuidance(card, row) {
   if (blockKindOf(row) === "expense") {
     rule = add(section, "details", "guidance-rule");
     add(rule, "summary", null, "분류 규칙 수정");
-    add(rule, "p", "muted", "답변은 기록으로 저장됩니다. 실제 규칙으로 적용할 항목과 내용을 아래에 입력하세요.");
     var itemLabel = add(rule, "label", null, "바꿀 항목");
     item = add(itemLabel, "input"); item.type = "text"; item.maxLength = 60; item.value = draft.item;
     item.placeholder = "예: 숙박비";
@@ -92,7 +90,6 @@ function renderGuidance(card, row) {
     }
     var selected = chosenOf(ref);
     candidate.value = selected.indexOf("APPROVE:") === 0 ? selected.slice(8) : (entries.length === 1 ? candidateKeyOf(entries[0]) : "");
-    add(rule, "p", "muted", "선택한 거래의 가맹점을 조건으로 사용합니다. 카드 종류를 확인할 수 있으면 조건에 추가합니다. 정확한 적용 조건은 미리보기에서 확인하세요.");
     function scope(textLabel) {
       var l = add(rule, "label", "scope-option");
       var input = add(l, "input"); input.type = "checkbox";
@@ -167,7 +164,7 @@ function renderGuidance(card, row) {
       draft.revision = saved.revision; draft.note = answer.value;
       draft.item = item ? item.value : ""; draft.description = description ? description.value : "";
       if (submittedVersion === draft.editVersion) { draft.dirty = false; draft.saveRequest = null; }
-      message.textContent = "검토 내용을 저장했습니다. 자동 처리는 아직 연결되지 않았습니다.";
+      message.textContent = "검토 내용을 저장했습니다.";
     }).catch(showError).finally(function() { save.disabled = false; });
   });
   if (previewButton) {

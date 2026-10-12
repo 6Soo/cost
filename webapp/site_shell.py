@@ -1,8 +1,36 @@
 """Shared navigation for complete private HTML documents; fragments stay untouched."""
 import re
+import html
 from urllib.parse import parse_qs, urlsplit
 
 from . import ui_icons
+
+
+# 업무 화면의 고정 설명만 제거한다. 오류·보류·원본 값과 동의 문구는 건드리지 않는다.
+EXPLANATION_PREFIXES = (
+    '카드 자료 → 확인할 거래 → 미리보기 → 장부 기록',
+    '가맹점이 정확히 일치할 때 비용 항목을 적용합니다.',
+    '예: 이 가맹점은 앞으로 현지잡비로 분류해 줘.',
+    'Windows OCR로 사진의 글자를 읽습니다.',
+    '자동 추출은 연결되지 않았습니다.',
+    'iPhone 사진(HEIC 포함)이나 큰 사진은 업로드 전에 JPEG로 변환합니다.',
+)
+
+
+def clean_static_help(document):
+    def paragraph(match):
+        attrs, body = match.groups()
+        if re.search(r'\brole\s*=|\bid\s*=', attrs, re.I):
+            return match[0]
+        plain = ' '.join(html.unescape(re.sub(r'<[^>]*>', '', body)).split())
+        return '' if plain.startswith(EXPLANATION_PREFIXES) else match[0]
+    # Keep scripts intact; they own mutations, confirmations and dynamic errors.
+    pieces = re.split(r'(<script\b[^>]*>.*?</script\s*>)', document, flags=re.I | re.S)
+    for index in range(0, len(pieces), 2):
+        pieces[index] = re.sub(r'<p\b([^>]*)>(.*?)</p\s*>', paragraph, pieces[index], flags=re.I | re.S)
+        pieces[index] = re.sub(r'<h3>행 편집 \(저장 준비 중\)</h3>', '', pieces[index])
+        pieces[index] = re.sub(r'<button\b[^>]*\bdisabled[^>]*>저장 준비 중</button>', '', pieces[index])
+    return ''.join(pieces)
 
 
 STYLE = """
@@ -114,6 +142,8 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
     if (status not in (200, 503) or 'id="site-shell-style"' in document
             or path.startswith(('/auth', '/login', '/demo', '/api/', '/health', '/ready'))):
         return document
+    if status == 200:
+        document = clean_static_help(document)
     opening = re.search(r'<body\b[^>]*>', document, re.I)
     closing = list(re.finditer(r'</body\s*>', document, re.I))
     if not opening or not closing:
