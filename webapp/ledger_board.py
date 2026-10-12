@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import ui_icons
+from . import read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -830,6 +830,11 @@ def _persisted_rows(kind: str):
     come from `list_tab_rows`, which also returns the allocation projections and
     the split remainders, so a store that has only allocations still shows them.
     """
+    rows = read_scope.remember(("persisted_rows", kind), lambda: _load_persisted_rows(kind))
+    return [dict(r) for r in rows]
+
+
+def _load_persisted_rows(kind: str):
     out = []
     for tab in _all_tab_ids() + [None]:
         for saved in _active_store().list_tab_rows(tab):

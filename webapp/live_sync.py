@@ -34,6 +34,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+from . import read_scope
+
 # APP_SPEC 15: an open board checks for a change about every two seconds, so a
 # save in one browser is on the other one inside the five second budget. The
 # interval is a floor, not a promise: a slow request pushes the next one out.
@@ -565,6 +567,7 @@ def _block(name: str, inner: str) -> str:
     return (f"<div id='{name}' data-live='{name}'>{inner}</div>")
 
 
+@read_scope.scoped
 def owner_fragments(store, tab: str, query: str, kind: str, selected: str,
                     archived: str) -> str:
     """The owner page regions, re-rendered for a live refresh.

@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 from app.partial_refund import refund_links
 
+from . import read_scope
+
 
 def groups(store):
     if store is None:
@@ -45,6 +47,10 @@ def groups(store):
 
 
 def member_ids(store):
+    return read_scope.remember(("refund_member_ids", id(store)), lambda: _member_ids(store))
+
+
+def _member_ids(store):
     from . import ledger_board as board
     saved = {r.get('source_event_id'): r for r in board._expense_rows()}
     return {r['transaction_id'] for group in groups(store)
