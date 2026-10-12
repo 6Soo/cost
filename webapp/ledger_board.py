@@ -1656,12 +1656,12 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
                   f"<p><a href='/row?id={esc(row_id)}'>내용으로 돌아가기</a> · "
                   "<a href='/board'>목록으로</a></p></div>")))
 
-    # 합성 턴
+    # 규칙 초안 요청
     turn_no = (conv.get("turn_count") or 0) + 1
     parts.append(
         "<form method='post' action='/api/classification/conversation/advance'>"
         + _rule_hidden(case_id, f"ui-turn-{case_id}-{turn_no:02d}")
-        + "<button class='btn' type='submit'>규칙 초안 요청 (합성 턴)</button></form>")
+        + "<button class='btn' type='submit'>규칙 초안 요청</button></form>")
     if conv.get("turns"):
         last = conv["turns"][-1]
         review = last.get("owner_review")
@@ -2043,8 +2043,7 @@ def export_page() -> str:
         n_unc_conflict = sum(1 for r in unc if row_has_conflict(r))
         review_note = (
             "<p class='muted'>검토필요 {review}행 · 충돌 {conflict}행"
-            "은(는) 화면의 현재 내용 그대로 출력합니다. "
-            "미확정인 행을 출력한다고 원래 회계 상태나 확정 여부가 바뀌지 않습니다."
+            "이 포함됩니다. 출력해도 확정 여부는 바뀌지 않습니다."
             "</p>").format(review=review_total + n_unc_review,
                            conflict=conflict_total + n_unc_conflict)
         if per_tab:
@@ -2076,8 +2075,7 @@ def export_page() -> str:
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"{options}{archived}"
-        "<p class='muted'>저장된 장부 버전으로 출력해요. 미저장 초안은 서버에 없어서 섞이지 않아요. "
-        "미확정 행도 화면대로 들어가고 파일에는 상태 표시를 넣지 않아요.</p>"
+        "<p class='muted'>저장된 내역을 출력합니다. 미확정 거래가 포함될 수 있습니다.</p>"
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
@@ -2085,11 +2083,8 @@ def export_page() -> str:
             "<a href='/trips'>여행 관리에서 확인</a></p>")
            if unconfirmed else "")
         + "<button type='submit'>출력</button></form>"
-        f"<h3>범위 안내</h3>{counts}"
         f"{jobs_html}"
-        f"<p class='muted'>양식 {esc('매출자료 양식_rev')} 구조를 복제해요. 회사명은 "
-        "여행 관리의 출처 정보에 저장한 값이 쓰이고, 비어 있으면 칸이 비어요. "
-        "제목·작성일·담당자는 저장된 여행의 값 그대로예요.</p></div>"
+        "</div>"
     )
     from . import ledger_design
 

@@ -164,7 +164,7 @@ class RuleDialogScreenTests(unittest.TestCase):
                                  "repeatable")
 
                 # 5. synthetic turn with the fallback notice
-                page.click("text=규칙 초안 요청 (합성 턴)")
+                page.click("text=규칙 초안 요청")
                 page.wait_for_load_state()
                 self.assertIn("초안을 받았습니다", page.inner_text("body"))
                 self.assertIn("gemini", page.inner_text("body"))
@@ -369,7 +369,7 @@ class RuleDialogScreenTests(unittest.TestCase):
                            "effects": {"item": "숙박비"}},
                     client_request_id="screen-dialog-5")
                 page.goto(f"http://127.0.0.1:{self.port}/rules?case={case}")
-                page.click("text=규칙 초안 요청 (합성 턴)")
+                page.click("text=규칙 초안 요청")
                 page.wait_for_load_state()
                 self.assertIn("AI 초안 대기 중입니다", page.inner_text("body"))
                 self.assertIn("행 저장과 확정 규칙 실행은 계속됩니다", page.inner_text("body"))
@@ -405,7 +405,7 @@ class RuleDialogScreenTests(unittest.TestCase):
                 page.wait_for_load_state()
                 self.assertIn("답변을 저장했습니다", page.inner_text("body"))
                 self.assertLessEqual(overflow(page), 0)
-                page.click("text=규칙 초안 요청 (합성 턴)")
+                page.click("text=규칙 초안 요청")
                 page.wait_for_load_state()
                 self.assertIn("초안을 받았습니다", page.inner_text("body"))
                 self.assertLessEqual(overflow(page), 0)

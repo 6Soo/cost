@@ -677,7 +677,10 @@ class InjectionBrowserTests(ReviewBrowserFixture):
         self.assertIn(fx.INJECTION, body)
         # the tag is text, not an element: the document has no such node
         self.assertEqual(
-            page.evaluate("document.querySelectorAll('script').length"), 1)
+            page.evaluate("document.querySelectorAll('script').length"), 2)
+        self.assertFalse(page.locator('script').evaluate_all(
+            "(nodes, value) => nodes.some(node => node.textContent.includes(value))",
+            fx.INJECTION))
         self.assertEqual(errors, [])
         # the note column carries it too
         card = self.card(page, 0).inner_text()
