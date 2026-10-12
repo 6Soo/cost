@@ -1482,6 +1482,15 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     expense = sum(board._shown_amount(r) for r in expenses)
     scope = "<span class='scope'>기록된 거래</span>"
     note = ""
+    if not incomes and recorded_income_count in (0, -1):
+        if filtered is not None and whole is not None:
+            return (f"<div class='sum tnum' id='sum'>{scope}"
+                    f"<div><i>전체 지출</i><b>{_money(whole[1])}</b></div>"
+                    f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
+                    f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
+        return (f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
+                f"<span class='n'>지출 {len(expenses)}건</span></div>")
     if filtered is None or whole is None:
         return (
             f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
