@@ -4085,6 +4085,16 @@ class Handler(BaseHTTPRequestHandler):
             # a restart cannot look like an edit here either.
             self._live_sync_state(None, query)
             return
+        if parsed.path.startswith("/assets/ota/"):
+            from . import ledger_design
+
+            found = ledger_design.ota_asset(parsed.path[len("/assets/ota/"):])
+            if found is None:
+                self._send("없음", code=404)
+                return
+            body, content_type = found
+            self._send_bytes(body, content_type)
+            return
         if parsed.path.startswith("/assets/fonts/"):
             from . import ledger_design
 
