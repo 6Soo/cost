@@ -99,14 +99,6 @@ a.back:hover { text-decoration: underline; }
 </head>
 <body>
 <h1>예약 명단·여행 연결</h1>
-<p>예약 시스템의 행사와 COST의 여행을 연결해 예약 명단을 올바른 여행에 적용하는 화면입니다.</p>
-<ol>
-  <li>예약 행사마다 해당하는 COST 여행을 선택합니다.</li>
-  <li>‘여행 연결 저장’을 누르면 연결 정보만 저장됩니다.</li>
-  <li>연결 내용을 확인한 뒤 ‘연결된 명단 적용’을 누르면 명단이 반영됩니다.</li>
-</ol>
-<p class="note">카드 결제 대사나 수입 금액을 확정하는 메뉴가 아닙니다.
-수입내역은 여행 장부의 ‘Google 수입내역’에서 확인하세요.</p>
 <!-- Two ways back out. This screen has no navigation rail of its own, so
      without these the owner can arrive here and only reach anything else by
      editing the address bar. Both are owner pages and both are behind the same

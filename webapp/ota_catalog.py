@@ -250,9 +250,6 @@ def render_html(data, query):
         ".ota-badge.idle{background:#F2F4F7;color:#667085}"
         ".ota-badge.bad{background:#FDECEC;color:#912018}"
         '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
-        '<p>저장된 예약 DB와 OTA 메일에서 예약을 모아 보여 줍니다. 같은 OTA의 같은 예약번호는 한 건입니다. '
-        '여행 미배정은 저장된 예약·장부의 여행 연결이 없는 예약이며, 카드 결제 대사 여부와 다릅니다. '
-        '예약 확인과 여행 배정은 별개이며, 여행 연결 제안만 있는 경우는 미배정으로 표시합니다. 이 목록은 비용을 확정하지 않습니다.</p>'
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if value('state') != 'unassigned' else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
         f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"

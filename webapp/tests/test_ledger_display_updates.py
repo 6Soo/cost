@@ -26,6 +26,10 @@ def test_expense_headers_and_move_form_survive_memo_column_removal(monkeypatch):
     assert "colspan='5'" in body
     assert row == before
     assert 'Preserved note' not in body
+    assert '수입 내역이 없어요' not in body and '수입 (COST 기록)' not in body
+    mobile = design._mobile_html([], [row], selected='', unclassified=True)
+    assert '수입 내역이 없어요' not in mobile and '<span>수입</span>' not in mobile
+    assert "data-id='waiting'" in mobile
 
 
 def test_expense_display_order_is_stable_and_preserves_original_rows():

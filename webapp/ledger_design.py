@@ -524,7 +524,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
    a.brand{min-height:44px;display:flex;align-items:center}
   .li{width:100%;max-width:100%;min-height:64px;display:flex;flex-direction:column;
    align-items:stretch;justify-content:center;gap:4px;padding:10px 16px;
-   border:0;border-bottom:1px solid var(--line2);background:var(--paper);text-align:left;cursor:pointer;
+   border:0;border-bottom:1px solid var(--line2);background:transparent;appearance:none;-webkit-appearance:none;text-align:left;cursor:pointer;
    overflow:hidden}
   .li .m-row{display:flex;align-items:center;gap:8px;min-width:0}
   .li .d{font-size:12.5px;color:var(--mut);white-space:nowrap;flex:0 0 auto}
@@ -955,11 +955,13 @@ def work_menu_html() -> str:
     from . import google_ledger_page, receipt_review, ui_icons
 
     def action(icon, title, note, href=''):
+        if not href:
+            return ''
         tag = 'a' if href else 'div'
         link = f" href='{board.esc(href)}'" if href else ''
         return (f"<{tag} class='work-action'{link}>{ui_icons.icon(icon)}"
                 f"<span><strong>{title}</strong>"
-                f"<small>{note}</small></span></{tag}>")
+                f"</span></{tag}>")
 
     actions = action('upload', '카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
     actions += action('credit-card', '카드 내역', '저장된 카드 거래 · 검색 · 카드별 조회', '/cards')
@@ -1716,12 +1718,14 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         "<th scope='col' class='num'>금액</th></tr></thead>")
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
-    groups = (
+    income_group = (
         f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
         f"<a href='#google-trip-income'>수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
-        + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
+    ) if incomes else ''
+    groups = (
+        income_group + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
         "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
@@ -1774,10 +1778,13 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
 
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
+    income_group = (
+        f"<p class='lg'><span>기존 수입</span><span class='tnum'>{_money(income_total)}</span></p>"
+        + ''.join(item(r) for r in incomes)
+    ) if incomes else ''
     return (
         "<div class='lst'>"
-        f"<p class='lg'><span>수입</span><span class='tnum'>{_money(income_total)}</span></p>"
-        f"{''.join(item(r) for r in incomes) or '<p class=\"muted\" style=\"padding:12px 16px\">수입 내역이 없어요</p>'}"
+        + income_group +
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
         "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"

@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 import pytest
 from webapp import google_ledger_page as google
+from webapp import ledger_board
 from webapp.tests import test_ledger_design_state as state
 from webapp.tests.test_google_canonical_workflow import healthy_snapshot
 from webapp.tests.test_google_ledger_page import rows_doc
@@ -38,6 +39,7 @@ class MobileIncomeTests(state.unittest.TestCase):
             total=164520000, row_sum=164520000, sheet_total=164520000)
         before = deepcopy(rows)
         with patch.object(google, 'enabled', return_value=True), \
+             patch.object(ledger_board, '_income_rows', return_value=[]), \
              patch.object(google, '_snapshot_path', return_value=Path(self.tmp)/'snapshot.json'), \
              patch.object(google, '_rows_path', return_value=Path(self.tmp)/'rows.json'), \
              patch.object(google.google_authority, 'load_consistent', return_value=(snapshot, rows)), \
@@ -59,6 +61,11 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertIn('닉네임만',table.inner_text())
                     self.assertNotIn('숨길 닉네임',table.inner_text())
                     self.assertNotIn('중복닉네임',table.inner_text())
+                    self.assertEqual(page.locator('#google-trip-income summary').inner_text(),'수입')
+                    self.assertNotIn('수입 내역이 없어요',page.locator('main').inner_text())
+                    self.assertNotIn('수입 (COST 기록)',page.locator('main').inner_text())
+                    expense = page.locator('.lst button[data-id]').first
+                    self.assertEqual(expense.evaluate('el=>getComputedStyle(el).backgroundColor'),'rgba(0, 0, 0, 0)')
                     for cell in table.locator('tbody .income-total').all():
                         self.assertEqual(cell.inner_text(),'54,840,000원')
                         self.assertTrue(cell.evaluate('el=>el.scrollWidth<=el.clientWidth'))

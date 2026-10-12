@@ -205,7 +205,7 @@ def trip_income_html(tab_id: str) -> str:
     def panel(message, body=''):
         return ("<details id='google-trip-income' class='income-note' aria-label='수입내역'"
                 + (' open' if enabled() else '') + ">"
-                f"<summary>{ui_icons.icon('list')}여행 수입</summary>"
+                f"<summary>{ui_icons.icon('list')}수입</summary>"
                 f"<p class='income-status'>{ui_icons.icon('book-open')}{message}</p>{body}{settings}</details>")
 
     if not enabled():
@@ -261,7 +261,7 @@ def trip_income_html(tab_id: str) -> str:
                           for field in ('deposit', 'balance', 'extra'))
                 + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
                 for row in sorted(detail['income'], key=transaction_date_sort_key))
-            body += ("<div class='google-income-scroll'><table><caption>예약금·잔금·추가금 내역</caption>"
+            body += ("<div class='google-income-scroll'><table><caption>수입 내역</caption>"
                      f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                      f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
                      "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
@@ -411,13 +411,10 @@ def _owner_controls(payload: dict, settings: dict) -> str:
     return (
         '<details id="google-settings"' + (' open' if settings.get('selected_tab') else '')
         + '><summary>수입 장부 연결과 열람 허용</summary>'
-        '<p>같은 여행인지 직접 확인한 뒤 연결해 주세요. 자동으로 연결하지 않습니다. '
-        '열람 허용에는 계정의 기존 여행 접근 권한과 최종 장부 선택도 필요합니다.</p>'
         f'<label>연결 여행<select id="settings-key">{keys}</select></label>'
         f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
         f'<button id="mapping-save" type="button">{ui_icons.icon("save")}여행 연결 저장</button>'
         f'<button id="mapping-auto" type="button">{ui_icons.icon("refresh-cw")}같은 이름의 여행 자동 연결</button>'
-        '<p>이름이 일치하는 단일 여행만 연결합니다. 기존 연결과 최종 장부 선택은 유지하고, 중복·연도 충돌은 건너뜁니다.</p>'
         f'<label>viewer 계정<select id="settings-viewer">{viewers}</select></label>'
         f'<p id="grant-state"></p><button id="grant-add" type="button">{ui_icons.icon("check")}이 여행 열람 허용</button>'
         f'<button id="grant-remove" type="button">{ui_icons.icon("x-circle")}열람 허용 철회</button>'

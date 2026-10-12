@@ -47,3 +47,27 @@ def test_brand_link_keeps_hover_and_focus_styles():
     assert '#nav a.brand:hover' in site_shell.STYLE
     assert '#nav a.brand:focus-visible' in site_shell.STYLE
     assert '#nav a.brand{min-height:44px' in site_shell.STYLE
+
+
+def test_cleanup_preserves_errors_confirmation_and_scripts():
+    original = ("<p>자동 추출은 연결되지 않았습니다. 사진을 보고 입력하세요.</p>"
+                "<p role='alert'>자동 추출은 연결되지 않았습니다. 설정을 확인하세요.</p>"
+                "<p>원본 이미지가 전송됩니다. 동의 후 실행하세요.</p>"
+                "<button disabled>저장 준비 중</button>"
+                "<script>const csrf='synthetic';const message='<p>자동 추출은 연결되지 않았습니다.</p>';</script>")
+    result=site_shell.clean_static_help(original)
+    assert '사진을 보고 입력하세요' not in result
+    assert '저장 준비 중' not in result
+    assert "role='alert'" in result and '원본 이미지가 전송됩니다' in result
+    assert "const csrf='synthetic'" in result and "const message='<p>자동 추출" in result
+
+
+def test_home_omits_unavailable_features_instead_of_placeholder_cards():
+    with patch.object(ledger_board,'current_role',return_value='owner'), \
+         patch('webapp.receipt_review.enabled',return_value=False), \
+         patch('webapp.google_ledger_page.enabled',return_value=False):
+        body=ledger_design.work_menu_html()
+    assert '영수증 처리' not in body and '확정 장부' not in body
+    assert '설정 필요' not in body and '미연결' not in body
+    assert "href='/cards'" in body and "href='/ota'" in body
+    assert '<small>' not in body

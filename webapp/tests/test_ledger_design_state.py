@@ -108,7 +108,7 @@ class ViewStateTests(unittest.TestCase):
             page.evaluate("new URL(location.href).searchParams.get('kind')"), "ex")
         self.assertIn("지출", page.inner_text("#sum"))
         table = page.inner_text(".tw")
-        self.assertIn("수입 내역이 없어요", table)
+        self.assertNotIn("수입 내역이 없어요", table)
         self.assertIn("예시 숙소", table)
         # switching trip in the nav keeps the filter
         href = page.get_attribute(".nav-list a[href*='tab=trip-demo-b']", "href")
