@@ -85,7 +85,9 @@ def test_non_trip_sheets_are_ignored():
         wb.create_sheet("프리랜서 지급대장")
         rev_sheet(wb, "0630_오제", [10], [4])
 
-    assert [t["sheet"] for t in ga.parse_workbook(workbook_bytes(build))] == ["0630_오제"]
+    tabs = ga.parse_workbook(workbook_bytes(build))
+    assert [t["sheet"] for t in tabs] == ["3분기_기타비용", "0630_오제"]
+    assert tabs[0]['kind'] == 'quarter' and tabs[0]['layout'] == 'nonstandard'
 
 
 def test_legacy_layout_is_reported_not_converted():

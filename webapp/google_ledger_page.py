@@ -160,6 +160,25 @@ def format_display_time(value):
         return '대기'
 
 
+def format_transaction_date(value) -> str:
+    """짧은 표시만 만들고 원본 날짜와 기간은 그대로 보존한다."""
+    text = str(value or '').strip()
+    parts = re.split(r'\s*[~〜～]\s*', text)
+    formatted = []
+    for part in parts:
+        match = re.fullmatch(r'(?:(\d{4}|\d{2})[.\-/])?(\d{1,2})[.\-/](\d{1,2})(?:[.]|(?:[ T]00:00:00))?', part)
+        if not match:
+            return text or '날짜 미확인'
+        year, month, day = match.groups()
+        try:
+            dt.date(int(year) + (2000 if len(year) == 2 else 0) if year else 2000,
+                    int(month), int(day))
+        except ValueError:
+            return text
+        formatted.append(f'{int(month)}월{int(day)}일')
+    return '~'.join(formatted)
+
+
 def trip_income_html(tab_id: str) -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
@@ -222,13 +241,17 @@ def trip_income_html(tab_id: str) -> str:
         if verified:
             esc = lambda value: html.escape('' if value is None else str(value))
             lines = ''.join(
-                '<tr>' + ''.join(f'<td>{fmt_google_amount(row.get(field)) if field in ("deposit","balance","extra") else esc(row.get(field))}</td>'
-                                  for field in ('date', 'name', 'nickname', 'deposit', 'balance', 'extra'))
-                + f"<td>{_money(row['amount'])}</td></tr>" for row in detail['income'])
+                f"<tr><td class='income-date' title='{esc(row.get('date'))}'>{esc(format_transaction_date(row.get('date')))}</td>"
+                f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
+                + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
+                          for field in ('deposit', 'balance', 'extra'))
+                + f"<td class='income-total'>{_money(row['amount'])}</td></tr>" for row in detail['income'])
             body += ("<div class='google-income-scroll'><table><caption>예약금·잔금·추가금 내역</caption>"
-                     "<thead><tr><th>거래일자</th><th>이름</th><th>닉네임</th><th>예약금</th>"
-                     "<th>잔금</th><th>추가금</th><th>금액</th></tr></thead>"
-                     f"<tbody>{lines or '<tr><td colspan=\"7\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
+                     f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
+                     f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
+                     "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
+                     f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th></tr></thead>"
+                     f"<tbody>{lines or '<tr><td colspan=\"6\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
                      "</tbody></table></div>")
         return panel(message, body)
     except (google_authority.SnapshotError, ValueError, OSError):
@@ -263,7 +286,9 @@ def render_rows_html(detail: dict) -> str:
             "@media(max-width:600px){table{display:block;overflow-x:auto}}</style></head><body>"
             f"<h1>{html.escape(detail['key'])} ({html.escape(detail['source'])})</h1>"
             f"<p>{verification}</p><p>동기화 기준 {html.escape(str(detail.get('synced_at') or '미확인'))}</p>"
-            f"<h2 id='income'>수입 행 합계 {_money(income)}</h2>{income_table(detail['income'])}"
+            + ('' if detail.get('kind') == 'quarter' else
+               f"<h2 id='income'>수입 행 합계 {_money(income)}</h2>{income_table(detail['income'])}")
+            +
             f"<h2>지출 행 합계 {_money(expense)}</h2>{expense_table(detail['expense'])}</body></html>")
 
 
@@ -338,7 +363,8 @@ def _trip_for_owner(trip: dict, choices: dict, sources: dict) -> dict:
                 "verified": False, "blocked_by": sorted(blockers)}
     income, expense = copy["income"]["total"], copy["expense"]["total"]
     return {**trip, "chosen_source": chosen, "income_total": income, "expense_total": expense,
-            "net": income - expense, "verified": True, "blocked_by": []}
+            "net": None if trip.get('kind') == 'quarter' else income - expense,
+            "verified": True, "blocked_by": []}
 
 
 def owner_payload(snapshot: dict, choices: dict) -> dict:
@@ -358,7 +384,8 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         return ''.join(f'<option value="{html.escape(value, quote=True)}"'
                        + (' selected' if value == selected else '') + f'>{html.escape(label)}</option>'
                        for value, label in items)
-    keys = options([('', '여행을 선택해 주세요')] + [(t['key'], t['key']) for t in payload['trips']])
+    keys = options([('', '여행을 선택해 주세요')] + [(t['key'], t['key']) for t in payload['trips']
+                                                   if t.get('kind') != 'quarter'])
     tabs = options([('', '연결하지 않음')] + [(t['tab_id'], t.get('display_key') or
                    ' '.join(filter(None, (t.get('starts_on'), t.get('destination')))) or t['tab_id'])
                    for t in settings['tabs']], settings.get('selected_tab'))
@@ -436,8 +463,8 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
             "<tr>"
             f"<td data-label='여행'>{html.escape(trip['key'])}<br>{links}{choice}</td>"
             f"<td data-label='마감'>{'마감' if trip['closure'] == 'closed' else '미마감' if trip['closure'] == 'open' else '확인 중'}</td>"
-            f"<td data-label='수입'>{_money(trip['income_total'])}</td><td data-label='지출'>{_money(trip['expense_total'])}</td>"
-            f"<td data-label='순수익'>{_money(trip['net'])}</td>"
+            f"<td data-label='수입'>{'해당 없음' if trip.get('kind') == 'quarter' else _money(trip['income_total'])}</td><td data-label='지출'>{_money(trip['expense_total'])}</td>"
+            f"<td data-label='순수익'>{'해당 없음' if trip.get('kind') == 'quarter' else _money(trip['net'])}</td>"
             f"<td data-label='검증'>{'검증됨' if trip['verified'] else '미검증'}</td>"
             f"<td data-label='확인 사항'>{html.escape(reasons)}</td></tr>")
     sources = "".join(
@@ -763,7 +790,8 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                     return True
             detail = owner_rows(rows, key, source)
             if detail is not None:
-                detail.update(verified=bool(trip.get('verified') and trip.get('chosen_source') == source),
+                detail.update(kind=trip.get('kind'),
+                              verified=bool(trip.get('verified') and trip.get('chosen_source') == source),
                               synced_at=snapshot.get('synced_at'), review=trip.get('review', []))
         except (google_authority.SnapshotError, ValueError):
             handler._send_json({"code": "ROWS_UNAVAILABLE", "message": "행 자료를 확인하지 못했습니다"}, 503)

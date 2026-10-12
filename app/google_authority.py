@@ -36,6 +36,8 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
 TRIP_NAME = re.compile(r"^\d{4}_\S")
+QUARTER_NAME = re.compile(r"^([1-4])분기_기타비용$")
+PARSER_VERSION = 'quarter-expense-v1'
 COPY_SUFFIX = re.compile(r"\s*의 사본$")
 SUM_OF_AMOUNTS = re.compile(r"^=\s*SUM\(\s*H(\d+)(?:\s*:\s*H(\d+))?\s*\)$", re.IGNORECASE)
 # A block with any of these cannot be summed safely. Its total is None, never 0.
@@ -198,11 +200,38 @@ def parse_workbook(data: bytes) -> list[dict]:
     trips = []
     for name in values.sheetnames:
         title = name.strip()
-        if not TRIP_NAME.match(title):
+        quarter = QUARTER_NAME.fullmatch(title)
+        if not TRIP_NAME.match(title) and not quarter:
             continue
-        trip = parse_trip_sheet(formulas[name], values[name])
+        trip = (parse_quarter_sheet(formulas[name], values[name], int(quarter[1]))
+                if quarter else parse_trip_sheet(formulas[name], values[name]))
         trips.append({"sheet": title, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
     return trips
+
+
+def parse_quarter_sheet(ws_f, ws_v, quarter: int) -> dict:
+    """분기 지출 전용 탭을 여행이나 수입 탭으로 추정하지 않는다."""
+    headers = [r for r in range(1, (ws_v.max_row or 0) + 1)
+               if tuple(_text(ws_v.cell(r, c).value) for c in range(2, 9)) == EXPENSE_HEADER]
+    year_match = re.search(r'\b(20\d{2})년', _text(ws_v.cell(2, 3).value))
+    base = {'kind': 'quarter', 'quarter': quarter,
+            'ledger_year': int(year_match[1]) if year_match else None}
+    if len(headers) != 1:
+        return {**base, 'layout': 'nonstandard', 'flags': ['LAYOUT_NOT_STANDARD'],
+                'income': None, 'expense': None, 'net': None, 'verified': False}
+    first = headers[0] + 1
+    formulas = _sum_formulas(ws_f)
+    totals = [f for f in formulas if f[2] in (first - 1, first) and f[0] >= first]
+    last = totals[0][0] - 1 if len(totals) == 1 else ws_v.max_row
+    flags, entries = set(), []
+    computed, count, start, end = _sum_block(first, last, ws_f, ws_v, flags, entries)
+    total = _check_total(formulas, first, last, ws_v, computed, count, start, end, flags)
+    expense = _block(total, None if flags & BLOCKING_FLAGS else computed, flags)
+    # No income block exists. The kind marker hides income/net in presentation.
+    return {**base, 'layout': 'rev', 'flags': sorted(flags),
+            'income': {'sheet_total': 0, 'row_sum': 0, 'total': 0, 'verified': True},
+            'expense': expense, 'net': None, 'verified': expense['verified'],
+            'income_rows': 0, 'expense_rows': count, 'rows': {'income': [], 'expense': entries}}
 
 
 def _download(url: str, *, timeout: float, max_bytes: int) -> bytes:
@@ -270,7 +299,8 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
     except SourceError as error:
         return _retained(previous, code=error.code, checked_at=now), None
     digest = hashlib.sha256(data).hexdigest()
-    if previous.get("status") == "ok" and previous.get("content_sha256") == digest:
+    if (previous.get("status") == "ok" and previous.get("content_sha256") == digest
+            and previous.get('parser_version') == PARSER_VERSION):
         return {**previous, "checked_at": now, "last_ok_at": now, "unchanged": True,
                 "row_changes": {"added": 0, "removed": 0, "changed": 0}}, None
     try:
@@ -281,6 +311,7 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
         return _retained(previous, code="SOURCE_NO_TRIP_SHEETS", checked_at=now), None
     current_rows = {t["sheet"]: t.get("rows", {}) for t in trips}
     record = {"status": "ok", "error_code": None, "stale": False, "checked_at": now, "last_ok_at": now,
+              'parser_version': PARSER_VERSION,
               "content_sha256": digest, "unchanged": False, "trips": _public_trips(trips),
               "row_changes": _row_changes(previous_rows, current_rows)}
     return record, {"content_sha256": digest, "trips": current_rows}
@@ -290,7 +321,8 @@ def _copy(trip: dict | None) -> dict | None:
     if trip is None:
         return None
     return {"sheet": trip["sheet"], "layout": trip["layout"], "income": trip["income"],
-            "expense": trip["expense"], "flags": trip["flags"]}
+            "expense": trip["expense"], "flags": trip["flags"],
+            **{k: trip[k] for k in ('kind', 'quarter', 'ledger_year') if k in trip}}
 
 
 def build_trip_view(sources: dict) -> list[dict]:
@@ -330,6 +362,7 @@ def build_trip_view(sources: dict) -> list[dict]:
         figures = reported if verified else dict.fromkeys(reported)
         view.append({
             "key": title,
+            **{k: canonical[k] for k in ('kind', 'quarter', 'ledger_year') if k in canonical},
             "closure": closure,
             "closure_current": archive_ok and closure != "unknown",
             "canonical_source": canonical_source,

@@ -114,7 +114,7 @@ def catalog(board, query):
     columns = ('transaction_id', 'batch_id', 'approval_date', 'posting_date', 'issuer', 'card_tail',
                'transaction_direction', 'transaction_kind', 'merchant', 'amount_krw', 'foreign_amount',
                'foreign_currency', 'item', 'description', 'classification_state', 'user_confirmed',
-               'duplicate_of', 'conflict_reason', 'parse_error')
+               'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source')
     where, params = [], []
     if q:
         where.append("(instr(lower(t.merchant || ' ' || t.item || ' ' || t.description || ' ' || "
@@ -180,6 +180,8 @@ def render_html(data, query):
                              for name in ('sort', 'month', 'card', 'state'))
     rows = []
     for r in data['rows']:
+        from app import quarter_costs
+        quarter = quarter_costs.destination(r)
         state = STATES.get(r['classification_state'], r['classification_state'])
         if r['user_confirmed']:
             state += ' · 사용자 확정'
@@ -195,7 +197,8 @@ def render_html(data, query):
         cells = [('거래일', r['approval_date'] or r['posting_date']),
                  ('카드', r['issuer'] + ' · ' + r['card_tail']), ('지급처', r['merchant']),
                  ('구분', direction + ' · ' + r['transaction_kind']), ('원본 금액', amount),
-                 ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or '미배정'), ('상태', state)]
+                 ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
+                  (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
         rows.append('<tr>' + row + f"<td><a href='/import?{urlencode({'batch': r['batch_id']})}'>자료 검토</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
