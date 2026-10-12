@@ -1,6 +1,7 @@
 """Owner-only, read-only listing of stored card transactions across all imports."""
 import html
 import re
+import json
 from urllib.parse import urlencode
 
 from . import ui_icons
@@ -127,8 +128,11 @@ def catalog(board, query):
         where.append('t.card_tail=?')
         params.append(card)
     if state:
-        where.append('t.classification_state=?')
-        params.append(state)
+        if state == 'booked':
+            where.append('EXISTS (SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)')
+        else:
+            where.append('t.classification_state=?')
+            params.append(state)
     if month:
         where.append(f"strftime('%Y-%m',{TRADE_DATE})=?")
         params.append(month)
@@ -159,11 +163,18 @@ def catalog(board, query):
     for row in rows:
         if row['transaction_id'] in complete:
             row['trip_name'] = '환불'
+    from app.review_holds import active_holds
+    from .card_actions import next_action
+    holds = active_holds(board.conn)
+    booked = {r[0] for r in board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+    for row in rows:
+        row['review_hold'] = holds.get(row['transaction_id'])
+        row['next_action'] = next_action(row, {'already_booked': row['transaction_id'] in booked})
     return {'rows': rows,
             'total': total, 'all_count': all_count, 'cards': cards, 'months': months, 'page': page, 'pages': pages}
 
 
-def render_html(data, query):
+def render_html(data, query, *, csrf=''):
     esc = lambda value: html.escape('' if value is None else str(value), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
     def link(page):
@@ -194,7 +205,9 @@ def render_html(data, query):
     for r in data['rows']:
         from app import quarter_costs
         quarter = quarter_costs.destination(r)
-        state = STATES.get(r['classification_state'], r['classification_state'])
+        from .card_actions import next_action
+        action = r.get('next_action') or next_action(r)
+        state = action['status']
         if r['user_confirmed']:
             state += ' · 사용자 확정'
         if r['duplicate_of']:
@@ -212,7 +225,9 @@ def render_html(data, query):
                  ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
                   (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
-        rows.append('<tr>' + row + f"<td><a href='/import?{urlencode({'batch': r['batch_id']})}'>자료 검토</a></td></tr>")
+        rows.append(f"<tr data-transaction='{esc(r['transaction_id'])}'>" + row +
+                    f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason'])}</p>"
+                    f"<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 내역</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
@@ -220,14 +235,42 @@ def render_html(data, query):
         f"<a class='catalog-btn primary' href='/import'>{ui_icons.icon('upload')}카드 가져오기·검토</a></nav>"
         "<h1>카드 내역</h1>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
+        "<p id='card-auto-status' role='status' aria-live='polite'></p>"
         "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
         f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button>"
         f"<a class='catalog-btn' href='/cards'>{ui_icons.icon('rotate-ccw')}초기화</a>" + hidden_filters + "</form>"
         + "<table><thead><tr>" + date_heading + card_heading
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
-        + state_heading + "<th scope='col'>검토</th>"
+        + state_heading + "<th scope='col'>다음 행동</th>"
         + '</tr></thead><tbody>' + (''.join(rows) or '<tr><td colspan="9">조건에 맞는 카드 내역이 없습니다.</td></tr>')
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>{ui_icons.icon('chevron-left')}이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음{ui_icons.icon('chevron-right')}</a>" if data['page'] < data['pages'] else '')
-        + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')
+        + '</nav><script>' + CATALOG_SCRIPT + '</script>' + _automatic_script(data, csrf) + '</main></body></html>')
+
+
+def _automatic_script(data, csrf):
+    if not csrf:
+        return ''
+    batches = sorted({r['batch_id'] for r in data['rows'] if r['classification_state'] not in ('booked', 'preserved')
+                      and r['next_action']['status'] != '기록 완료'
+                      and not r['duplicate_of'] and not r['company_excluded']})
+    return "<script>(async()=>{const batches=" + json.dumps(batches).replace('<', '\\u003c') + ";const csrf=" + json.dumps(csrf) + """;
+    const status=document.getElementById('card-auto-status');let recorded=0;status.textContent=batches.length?'자동 반영 중…':'';
+    for(const batch of batches){try{const response=await fetch('/api/imports/'+encodeURIComponent(batch)+'/auto-record',
+      {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
+      if(!response.ok)throw Error('자동 반영을 완료하지 못했습니다. 처리 결과 확인을 눌러 다시 확인해 주세요.');
+      const state=await response.json();recorded+=state.auto_recorded||0;for(const item of state.preview.rows){
+        const row=[...document.querySelectorAll('[data-transaction]')].find(e=>e.dataset.transaction===item.transaction_id);
+        if(!row||!item.next_action)continue;const a=item.next_action;
+        row.querySelector('[data-label="상태"]').textContent=a.status;
+        const cell=row.querySelector('[data-label="다음 행동"]');cell.querySelector('p').textContent=a.reason;
+        cell.querySelector('a').textContent=a.label;cell.querySelector('a').href=a.href;
+      }
+    }catch(error){for(const row of document.querySelectorAll('[data-transaction]')){
+      const link=row.querySelector('[data-label="다음 행동"] a');if(link.href.includes(encodeURIComponent(batch))){
+        row.querySelector('.action-reason').textContent=error.message;
+      }
+    }}}
+    status.dataset.complete='true';status.textContent=recorded?recorded+'건을 자동 반영했습니다.':'';
+    })();</script>"""

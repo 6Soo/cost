@@ -98,7 +98,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         self.assertIn('검색 결과 0건', page.inner_text('#card-count'))
         page.get_by_role('link', name='초기화', exact=True).click()
         with page.expect_navigation():
-            page.locator('tbody tr').filter(has_text='37,000').get_by_role('link', name='자료 검토').click()
+            page.locator('tbody tr').filter(has_text='37,000').locator('td[data-label="다음 행동"] a').click()
         self.assertEqual(script_errors, [])
         page.wait_for_function('model && model.batch_id === ' + json.dumps(first))
         self.assertEqual(page.evaluate('model.batch_id'), first)
