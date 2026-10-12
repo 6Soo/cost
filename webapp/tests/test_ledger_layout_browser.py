@@ -62,9 +62,12 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
                     if width == 1440:
                         self.assertAlmostEqual(heading['x'], search['x'], delta=1)
                         self.assertAlmostEqual(heading['x'], section['x'], delta=1)
-                    self.assertIn('420,000', income_table.inner_text())
                     self.assertIn('2,300,000', income_table.inner_text())
-                    self.assertIn('-420,000', income_table.inner_text())
+                    if width == 1440:
+                        self.assertIn('420,000', income_table.inner_text())
+                        self.assertIn('-420,000', income_table.inner_text())
+                    else:
+                        self.assertNotIn('420,000', income_table.inner_text())
                     self.assertNotIn('420000.0', income_table.inner_text())
                     if width == 1440:
                         party = page.locator("tr[data-id='expense-demo-c1'] .c-party")
