@@ -83,3 +83,10 @@ class GateTests(unittest.TestCase):
         self.assertEqual(self.call('GET', '/receipts')[0], 200)
         self.session = None
         self.assertEqual(self.call('GET', '/receipts')[0], 403)
+
+    def test_automatic_record_requires_an_owner_session(self):
+        for session in (None, object()):
+            self.session = session
+            status, body = self.call('POST', '/api/imports/synthetic-batch/auto-record', {})
+            self.assertEqual(status, 403, body)
+            self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)

@@ -424,7 +424,7 @@ def _check_refund_groups(store, rows) -> None:
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
-           entry_metadata=None, additional_holds=None, group_original=None) -> dict:
+           entry_metadata=None, additional_holds=None, group_original=None, automatic_record=False) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -449,6 +449,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
         raise StoreError(CODE_INVALID_INPUT, "미리보기 값이 필요해요")
 
     scope = {"batch_id": batch_id, "digest": preview_digest_value}
+    if automatic_record:
+        scope['automatic_record'] = True
     if group_original is not None:
         scope["group"] = str(group_original)
     payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()
@@ -500,8 +502,9 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                      entry["amount_krw"], entry["merchant"], entry["occurred_on"],
                      entry["transaction_direction"], entry["source_hash"], now))
                 booked.append(transaction_id)
-                store.conn.execute("UPDATE transactions SET user_confirmed=1,classification_state='confirmed' "
-                                   "WHERE transaction_id=?", (transaction_id,))
+                if not automatic_record:
+                    store.conn.execute("UPDATE transactions SET user_confirmed=1,classification_state='confirmed' "
+                                       "WHERE transaction_id=?", (transaction_id,))
                 store.log_change("ledger.booked", transaction_id,
                                  {"batch_id": batch_id, "item": entry["item"],
                                   "amount_krw": entry["amount_krw"],
