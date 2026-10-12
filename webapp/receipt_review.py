@@ -504,13 +504,13 @@ def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = No
             _settle(stored, card_rows_list)
     if not trip:
         raise ValueError("TRIP_REQUIRED")
-    mine = [c for c in data["candidates"] if c.get('trip_id') == trip and not c.get('hold')]
+    assigned = [c for c in data["candidates"] if c.get('trip_id') == trip]
     groups = {}
     singles = []
-    for stored in mine:
+    for stored in assigned:
         if stored.get('group_id'):
             groups.setdefault(stored['group_id'], []).append(stored)
-        else:
+        elif not stored.get('hold'):
             singles.append(_candidate(stored))
     unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
                   if not c.get("trip_id")]
@@ -519,7 +519,7 @@ def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = No
     rows = rc.to_expense_rows(singles)
     group_holds = []
     for group_id, members in groups.items():
-        if len(members) < 2 or any(c.get('amount_krw') is None
+        if len(members) < 2 or any(c.get('hold') or c.get('amount_krw') is None
                or not c.get('payee') or not c.get('category') for c in members):
             group_holds.append({'identity':group_id,'reason':'GROUP_INCOMPLETE'})
             continue
@@ -788,6 +788,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     vision_script = (
         "const selectedTrip=document.getElementById('selected-trip');"
         "try{const old=sessionStorage.getItem('cost-receipt-trip');if(old)selectedTrip.value=old;}catch{}"
+        "if(selectedTrip.value)document.getElementById('copy-trip').value=selectedTrip.value;"
         "selectedTrip.onchange=()=>{try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};"
         "document.getElementById('copy-trip').value=selectedTrip.value;};"
         "const visionGo=document.getElementById('vision-go');"
