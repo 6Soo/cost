@@ -136,6 +136,18 @@ class SignedSessionHttpTests(unittest.TestCase):
         return self.flow.adapter.issue_cookie(
             identity, generation=account["session_generation"])
 
+    def test_public_social_preview_preserves_private_routes(self):
+        code, html, _ = self.request("/share")
+        self.assertEqual(code, 200)
+        self.assertIn('property="og:image"', html)
+        self.assertNotIn(OWNER, html)
+        self.assertNotIn(VIEWER, html)
+        code, html, _ = self.request("/")
+        self.assertEqual(code, 401)
+        self.assertIn('property="og:image"', html)
+        code, _, _ = self.request("/api/cards")
+        self.assertNotEqual(code, 200)
+
     def test_ota_catalog_signed_role_boundaries_and_no_cache(self):
         from webapp.tests.test_ota_catalog import source_database
         source = self.root / 'ota.sqlite'

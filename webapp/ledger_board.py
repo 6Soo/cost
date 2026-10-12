@@ -2662,6 +2662,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, text: str, code: int = 200) -> None:
         from . import site_shell
+        from . import social_preview
+        text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
             text = site_shell.wrap_document(text, self.path, status=code)
         # `no-store` on every HTML answer. The board is a live ledger: a browser
@@ -2753,8 +2755,9 @@ class Handler(BaseHTTPRequestHandler):
         # can name it without reading the server log, and so a route can be
         # checked for the specific refusal it is meant to produce.
         marker = f'<p data-refusal="{refusal}"></p>' if refusal else ""
-        data = (f"<!doctype html><meta charset=utf-8><title>{title}</title>"
-                f"{marker}{body}").encode("utf-8")
+        from . import social_preview
+        data = (f"<!doctype html><html lang='ko'><head><meta charset=utf-8><title>{title}</title>"
+                f"{social_preview.META}</head><body>{marker}{body}</body></html>").encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -3943,6 +3946,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+        from . import social_preview
+        if social_preview.dispatch(self, parsed.path):
+            return
         # The platform's own liveness and readiness probes are answered before
         # any role is resolved. A PaaS health check carries no login, and a
         # 401 from a load balancer's probe reads as an unhealthy application. The

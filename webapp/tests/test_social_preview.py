@@ -1,0 +1,40 @@
+from urllib.request import urlopen
+import threading
+
+from webapp import ledger_board as board
+
+
+def test_public_preview_and_image_without_ledger_access(tmp_path):
+    server = board.serve(port=0, db_path=str(tmp_path / "board.sqlite"),
+                         with_worker=False, seed_demo=False)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(base + "/share") as response:
+            html = response.read().decode()
+            assert response.status == 200
+            assert 'property="og:image"' in html
+            assert 'https://ledger.foresttour.kr/assets/og/cost-wallet-v1.png' in html
+            assert 'name="twitter:card" content="summary_large_image"' in html
+            assert 'content="1200"' in html and 'content="630"' in html
+        with urlopen(base + "/assets/og/cost-wallet-v1.png") as response:
+            data = response.read()
+            assert response.headers['Content-Type'] == 'image/png'
+            assert data[:8] == b"\x89PNG\r\n\x1a\n"
+            assert int.from_bytes(data[16:20], 'big') == 1200
+            assert int.from_bytes(data[20:24], 'big') == 630
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+        server.card_store.close()
+
+
+def test_metadata_leaves_fragments_and_existing_tags_unchanged():
+    from webapp import social_preview
+    assert social_preview.decorate('<div>fragment</div>') == '<div>fragment</div>'
+    html = social_preview.decorate('<html><head></head><body>private</body></html>')
+    assert html.count('property="og:image"') == 1
+    assert social_preview.decorate(html) == html
+    assert 'private' not in social_preview.META
