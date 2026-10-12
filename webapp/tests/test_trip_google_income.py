@@ -27,7 +27,7 @@ def test_income_connects_only_explicit_trip_and_preserves_rows(income_context):
     body = page.trip_income_html('trip-syn')
     assert '1,000원' in body and 'INCOME-NAME' in body
     assert '예약금' in body and '잔금' in body and '추가금' in body
-    assert 'source=main' in body and 'Google 확정 수입' in body
+    assert 'source=main' in body and '확정 수입' in body
     assert 'INCOME-NAME' not in page.trip_income_html('other-trip')
     assert '미연결' in page.trip_income_html('other-trip')
 
@@ -48,7 +48,7 @@ def test_income_requires_canonical_copy_and_marks_unverified(income_context, mon
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     snapshot['trips'][0]['copies']['archive'] = None
     body = page.trip_income_html('trip-syn')
-    assert '확인 필요' in body and 'Google 확정 수입 1,000원' not in body
+    assert '확인 필요' in body and '확정 수입 1,000원' not in body
 
 
 def test_viewer_income_checks_both_grant_and_current_trip_access(income_context, monkeypatch):
@@ -78,8 +78,8 @@ def test_verified_zero_is_distinct_from_unlinked(income_context):
     snapshot, _ = income_context
     copy = snapshot['trips'][0]['copies']['main']
     copy['income'].update(total=0, sheet_total=0, row_sum=0)
-    assert 'Google 확정 수입 0원' in page.trip_income_html('trip-syn')
-    assert 'Google 확정 수입 0원' not in page.trip_income_html('unknown')
+    assert '확정 수입 0원' in page.trip_income_html('trip-syn')
+    assert '확정 수입 0원' not in page.trip_income_html('unknown')
 
 
 def test_unverified_income_explains_total_error_without_exposing_rows(income_context, monkeypatch):
@@ -93,7 +93,7 @@ def test_unverified_income_explains_total_error_without_exposing_rows(income_con
     assert page.REVIEW_LABELS['TOTAL_MISMATCH'] in body
     assert page.REVIEW_LABELS['TOTAL_RANGE_MISMATCH'] in body
     assert 'INCOME-NAME' not in body
-    assert 'Google 확정 수입' not in body
+    assert '확정 수입 1,000원' not in body
 
 
 def test_mapping_picker_names_imported_trips_and_preserves_current_trip():
@@ -103,3 +103,16 @@ def test_mapping_picker_names_imported_trips_and_preserves_current_trip():
     })
     assert '<option value="syn" selected>Synthetic trip name</option>' in body
     assert '<details id="google-settings" open>' in body
+
+
+@pytest.mark.parametrize('value,expected', [
+    ('2026-10-12T20:00:02.049343+09:00', '2026.10.12 20:00'),
+    ('2026-10-12T11:00:02Z', '2026.10.12 20:00'),
+    ('2026-10-12T23:30:00-04:00', '2026.10.13 12:30'),
+    ('2026-10-12T20:00:00', '대기'),
+    ('<script>', '대기'),
+    (None, '대기'),
+    ('', '대기'),
+])
+def test_display_time_uses_seoul_minutes_and_safe_fallback(value, expected):
+    assert page.format_display_time(value) == expected

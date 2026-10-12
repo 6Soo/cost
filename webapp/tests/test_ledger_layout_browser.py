@@ -18,6 +18,7 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
 
     def test_readable_income_and_merchant_order_at_both_widths(self):
         snapshot = healthy_snapshot()
+        snapshot['synced_at'] = '2026-10-12T20:00:02.049343+09:00'
         key = snapshot['trips'][0]['key']
         rows = rows_doc()['sources']
         income = rows['main']['trips'][key]['income'][0]
@@ -46,6 +47,21 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
                     page.set_viewport_size({'width': width, 'height': 1000})
                     page.goto(self._url('?tab=trip-demo-a'))
                     income_table = page.locator('#google-trip-income table')
+                    self.assertNotIn('Google', page.locator('main').inner_text())
+                    self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())
+                    self.assertIn('2026.10.12 20:00', page.locator('#trip-income').inner_text())
+                    self.assertNotIn('049343', page.locator('#trip-income').inner_text())
+                    self.assertEqual(page.locator('#trip-income time').get_attribute('datetime'),
+                                     snapshot['synced_at'])
+                    self.assertEqual(page.locator('#ledger-note').count(), 0)
+                    self.assertNotIn('행을 누르면 편집', page.locator('main').inner_text())
+                    self.assertGreater(page.locator('#trip-income svg').count(), 1)
+                    heading = page.locator('main h1').bounding_box()
+                    search = page.locator('#q').bounding_box()
+                    section = page.locator('#trip-income').bounding_box()
+                    if width == 1440:
+                        self.assertAlmostEqual(heading['x'], search['x'], delta=1)
+                        self.assertAlmostEqual(heading['x'], section['x'], delta=1)
                     self.assertIn('420,000', income_table.inner_text())
                     self.assertIn('2,300,000', income_table.inner_text())
                     self.assertIn('-420,000', income_table.inner_text())

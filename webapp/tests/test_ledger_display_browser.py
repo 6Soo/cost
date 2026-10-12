@@ -19,7 +19,7 @@ class LedgerDisplayBrowserTests(unittest.TestCase):
                 self.assertEqual(page.locator('#tbl tbody.colhead th').count(), 5)
                 self.assertNotIn('메모', page.locator('#tbl thead').inner_text())
                 self.assertFalse(page.locator('#previous-trips').evaluate('el=>el.open'))
-                self.assertIn('Google', page.locator('#trip-income').inner_text())
+                self.assertNotIn('Google', page.locator('#trip-income').inner_text())
                 row = (".tw tr[data-id='expense-demo-c1']" if width == 1440
                        else ".lst button[data-id='expense-demo-c1']")
                 page.locator(row).click()

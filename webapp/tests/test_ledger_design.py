@@ -33,14 +33,15 @@ class DesignScreenTests(unittest.TestCase):
                 self._board(page, '?tab=trip-demo-a')
                 if width == 390:
                     page.click('#btn-menu')
-                trip_link = page.locator('#trips a[href*="tab=trip-demo-a"]').first.inner_text()
+                page.locator('#previous-trips > summary').click()
+                trip_link = page.locator('#previous-trips a[href*="tab=trip-demo-a"]').first.inner_text()
                 self.assertIn('04.08~04.14', trip_link)
                 self.assertNotIn('수입', trip_link)
                 self.assertIn('미배정 지출', page.inner_text('.nav'))
                 self.assertEqual(page.locator('.nav-ft').count(), 0)
-                note = page.locator('#ledger-note').inner_text()
-                self.assertIn('미기록 거래는 포함하지 않습니다.', note)
-                self.assertEqual(page.locator('#ledger-note a').get_attribute('href'), '/import')
+                self.assertEqual(page.locator('#ledger-note').count(), 0)
+                self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())
+                self.assertGreater(page.locator('.act a[href="/import"]').count(), 0)
                 self.assertEqual(overflow(page), 0)
                 self.assertLessEqual(page.locator('.nav').evaluate('e=>e.scrollWidth-e.clientWidth'), 0)
                 page.locator('.nav a[href*="tab=trip-demo-b"]').first.click()
@@ -182,6 +183,9 @@ class DesignScreenTests(unittest.TestCase):
         self.assertEqual(overflow(page), 0)
         nav = page.inner_text(".nav")
         self.assertIn("여행 목록", nav)
+        self.assertFalse(page.locator('#previous-trips').evaluate('el=>el.open'))
+        page.locator('#previous-trips > summary').click()
+        nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
         self.assertIn("미배정 지출", nav)
         # The action bar is pinned exactly, because a button appearing here
@@ -190,11 +194,11 @@ class DesignScreenTests(unittest.TestCase):
         # reservation-linking button is present because it does not depend on
         # one (RESERVE-NAVIGATION-001).
         self.assertEqual(page.inner_text(".act").replace("\n", " "),
-                         "예약 명단·여행 연결 카드 가져오기 XLSX 출력")
+                         "예약 연결 카드 가져오기 XLSX 출력")
         # income is above expense, both on the screen
         order = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.innerText.trim())")
-        self.assertEqual(order, ["수입", "지출"])
+        self.assertEqual(order, ["수입 (COST 기록) 수입내역 보기", "지출"])
         tops = page.eval_on_selector_all(
             "tbody.grp th:first-child", "els=>els.map(e=>e.getBoundingClientRect().top)")
         self.assertLess(tops[0], tops[1])
