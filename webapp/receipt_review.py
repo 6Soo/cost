@@ -27,7 +27,7 @@ from app.google_tsv import expense_tsv
 from . import ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
-          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision")
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision", "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
@@ -299,7 +299,7 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
                 duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
                 continue
         # The same slip photographed twice, or entered twice, is one cost. A second copy waits for a person.
-        if any(_signature(c) == _signature(stored) for c in data["candidates"]):
+        if any(_same_physical_receipt(c, stored) for c in data["candidates"]):
             duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
             continue
         previous_holds = [h for h in data['holds'] if h['identity'] == candidate.identity]
@@ -348,6 +348,17 @@ def _signature(candidate: dict) -> tuple:
     return (candidate["date"], candidate["merchant"].strip(), candidate.get('currency', 'JPY'), int(_native_total(candidate)))
 
 
+def _same_physical_receipt(left: dict, right: dict) -> bool:
+    """Equal-priced tickets at different positions on one sheet are distinct."""
+    if (_signature(left) != _signature(right)):
+        return False
+    if (left.get("image_sha") and left.get("image_sha") == right.get("image_sha")
+            and left.get("source_region") and right.get("source_region")
+            and left["source_region"] != right["source_region"]):
+        return False
+    return True
+
+
 def candidate_version(candidate: dict) -> str:
     """Bind a rendered row to its saved values and history, including changes reverted later."""
     return hashlib.sha256(json.dumps(candidate, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
@@ -386,6 +397,8 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             raise ValueError("FIELD_NOT_EDITABLE")
         _validate_values(changes.get("merchant", stored["merchant"]), changes.get("date", stored["date"]),
                          changes.get(total_field, _native_total(stored)))
+        if stored.get('group_id') and any(changes[k] != stored.get(k) for k in changes):
+            raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
         before = {k: stored.get(k) for k in changes}
         if "payment" in changes and changes["payment"] not in PAYMENTS:
             raise ValueError("PAYMENT_UNKNOWN")
@@ -401,7 +414,7 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if total_field == 'total_jpy' and 'total_original' in stored:
             stored['total_original'] = stored['total_jpy']
         others = [c for c in data["candidates"] if c["identity"] != identity]
-        if any(_signature(c) == _signature(stored) for c in others):
+        if any(_same_physical_receipt(c, stored) for c in others):
             raise ValueError("DUPLICATE_CONTENT")
         _settle(stored, card_rows_list or [])
         if any(before[k] != stored.get(k) for k in changes):
@@ -422,6 +435,9 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
             if _saved_retry(stored, expected_version, 'confirm', {'payee': payee, 'category': category}, note):
                 return stored
             _check_candidate_version(stored, expected_version)
+            if stored.get('group_id') and (stored.get('payee') != payee.strip()
+                    or stored.get('category') != category.strip()):
+                raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
             if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
                 return stored
             candidate = _candidate(stored)
@@ -434,23 +450,90 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
+@_serialized
+def group(path: Path, *, identities: list, trip_id: str, expected_versions: dict) -> dict:
+    """Explicitly group multiple already-confirmed physical slips into one expense."""
+    if (not isinstance(identities, list) or len(identities) < 2 or len(identities) > 50
+            or not all(isinstance(i, str) for i in identities)
+            or len(set(identities)) != len(identities)
+            or not isinstance(expected_versions, dict) or not trip_id):
+        raise ValueError('GROUP_SELECTION_INVALID')
+    data = load(path)
+    rows = [c for c in data['candidates'] if c['identity'] in set(identities)]
+    if len(rows) != len(identities):
+        raise ValueError('CANDIDATE_NOT_FOUND')
+    for row in rows:
+        _check_candidate_version(row, expected_versions.get(row['identity']))
+        if (not expected_versions.get(row['identity']) or row.get('group_id')
+                or row.get('trip_id') != trip_id or row.get('hold')
+                or row.get('payment') == 'corporate_card'
+                or row.get('card_transaction_id') or row.get('card_evidence_transaction_id')
+                or not row.get('payee') or not row.get('category') or row.get('amount_krw') is None):
+            raise ValueError('GROUP_SELECTION_INVALID')
+    for key in ('date', 'merchant', 'currency', 'payment', 'payee', 'category'):
+        if len({row.get(key) for row in rows}) != 1:
+            raise ValueError('GROUP_MISMATCH')
+    identity = hashlib.sha256(json.dumps(sorted(identities)).encode('utf-8')).hexdigest()[:24]
+    for row in rows:
+        row['group_id'] = identity
+        row.setdefault('history', []).append({'operation':'group','group_id':identity,
+            'members':sorted(identities)})
+    _save(path, data)
+    return {'group_id':identity, 'members':len(rows), 'amount_krw':sum(c['amount_krw'] for c in rows)}
+
+
+@_serialized
+def ungroup(path: Path, *, group_id: str) -> dict:
+    if not isinstance(group_id, str) or not re.fullmatch(r'[0-9a-f]{24}', group_id):
+        raise ValueError('GROUP_INVALID')
+    data = load(path)
+    matches = [c for c in data['candidates'] if c.get('group_id') == group_id]
+    if len(matches) < 2:
+        raise ValueError('GROUP_NOT_FOUND')
+    for row in matches:
+        del row['group_id']
+        row.setdefault('history', []).append({'operation':'ungroup','group_id':group_id})
+    _save(path, data)
+    return {'ungrouped':len(matches)}
+
+
 def tsv(path: Path, trip: str | None = None, *, card_rows_list: list | None = None) -> dict:
     data = load(path)
     if card_rows_list is not None:
         for stored in data['candidates']:
             _settle(stored, card_rows_list)
-    candidates = [_candidate(c) for c in data["candidates"]]
     if not trip:
         raise ValueError("TRIP_REQUIRED")
-    mine = [c for c, stored in zip(candidates, data["candidates"])
-            if stored.get("trip_id") == trip and not stored.get('hold')]
+    mine = [c for c in data["candidates"] if c.get('trip_id') == trip and not c.get('hold')]
+    groups = {}
+    singles = []
+    for stored in mine:
+        if stored.get('group_id'):
+            groups.setdefault(stored['group_id'], []).append(stored)
+        else:
+            singles.append(_candidate(stored))
     unassigned = [{"identity": c["identity"], "reason": "TRIP_UNASSIGNED"} for c in data["candidates"]
                   if not c.get("trip_id")]
     card_holds = [{"identity": c["identity"], "reason": c["hold"]} for c in data["candidates"]
                   if c.get("hold") and c.get("trip_id") == trip]
-    result = expense_tsv(rc.to_expense_rows(mine), layout="rev")
+    rows = rc.to_expense_rows(singles)
+    group_holds = []
+    for group_id, members in groups.items():
+        if len(members) < 2 or any(c.get('amount_krw') is None
+               or not c.get('payee') or not c.get('category') for c in members):
+            group_holds.append({'identity':group_id,'reason':'GROUP_INCOMPLETE'})
+            continue
+        # All members were confirmed with identical payee/category/payment/date.
+        aggregate = rc.to_expense_rows([_candidate(members[0])])
+        if len(aggregate) != 1:
+            group_holds.append({'identity':group_id,'reason':'GROUP_INCOMPLETE'})
+            continue
+        aggregate[0]['transaction_id'] = 'receipt-group:' + group_id
+        aggregate[0]['amount_krw'] = sum(c['amount_krw'] for c in members)
+        rows.extend(aggregate)
+    result = expense_tsv(rows, layout="rev")
     return {**result, "trip_id": trip,
-            "held": result["held"] + data["holds"] + unassigned + card_holds}
+            "held": result["held"] + data["holds"] + unassigned + card_holds + group_holds}
 
 
 @_storage_errors
@@ -529,6 +612,13 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                     "message": "Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요."}, 503)
         elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
+        elif parsed.path == "/api/receipts/group":
+            if body.get('trip_id') not in _trip_ids(board):
+                raise ValueError('TRIP_UNKNOWN')
+            handler._send_json(group(path, identities=body.get('identities'),
+                            trip_id=body['trip_id'], expected_versions=body.get('expected_versions')))
+        elif parsed.path == "/api/receipts/ungroup":
+            handler._send_json(ungroup(path, group_id=body.get('group_id')))
         elif parsed.path == "/api/receipts/edit":
             if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
