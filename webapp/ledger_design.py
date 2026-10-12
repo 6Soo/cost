@@ -1076,9 +1076,10 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     matching_previous = [t for t in previous_rows
                          if not query or query in (t["display_key"] + t["destination"])]
     if matching_previous:
-        expanded = bool(query) or any(t["tab_id"] == tab_id for t in matching_previous)
+        # Default collapsed: the server never auto-opens for a selected trip or
+        # a search. The user expands with one click (native details/summary).
         previous = (
-            f'<details id="previous-trips"{" open" if expanded else ""}>'
+            '<details id="previous-trips">'
             '<summary class="nv"><span aria-hidden="true">▸</span><span class="nm">이전 여행</span>'
             f'<span class="ct">{len(matching_previous)}개</span></summary>'
             '<p class="nav-sec">2분기 · 2026년 6월 25일까지</p>'
@@ -1404,7 +1405,8 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     note = ("이 여행에 COST 수입이 아직 기록되지 않았어요. " if not count_income else
             "아래 합계는 COST에 기록된 거래 기준입니다. ")
     note = (f"<p class='income-note' id='ledger-income-note'>{note}"
-            "Google 장부의 최종 수입·지출·순수익과 동기화 상태는 Google 장부 화면에서 확인하세요.</p>")
+            "위 합계는 COST 기록 기준이며 Google 금액과 합산하지 않습니다. "
+            "이 여행의 Google 확정 수입·연결 상태·확인 필요 이유는 아래 Google 수입내역에서 바로 확인하세요.</p>")
     if filtered is None or whole is None:
         return (
             f"<div class='sum tnum' id='sum'><div><i>수입</i><b>{_money(income)}</b></div>"
@@ -1461,13 +1463,16 @@ def _row_amount_class(row) -> str:
 
 
 def _row_party_main(row) -> str:
-    """무엇에 대한 거래였는지를 한 줄로. 용도 설명이 가장 먼저 읽힌다.
+    """목록 셀의 앞줄. 예약번호가 있는 지출은 예약번호가 앞줄에 온다.
 
-    The first line of the row is what the reader is looking for, so the typed
-    content comes first and the counterparty is the line under it. A row whose
-    description is empty falls back to the counterparty and then to nothing: a
-    blank cell says "no value" on its own, and an invented label would not.
+    Rows without a reservation number and income rows keep the existing
+    fallback (description/customer_name, then merchant). Values, IDs, URLs and
+    reconciliation keys are unchanged; only the display position moved.
     """
+    if row.get("row_kind") != "income":
+        reservation = str(row.get("reservation_no") or "").strip()
+        if reservation:
+            return reservation
     for key in ("description", "customer_name"):
         value = str(row.get(key) or "").strip()
         if value:
@@ -1476,17 +1481,19 @@ def _row_party_main(row) -> str:
 
 
 def _row_party_sub(row) -> str:
-    """The counterparty under the first line, or "" when it would only repeat it.
+    """목록 셀의 다음 줄. 앞줄 다음으로 가맹점명, 설명은 필요하면 유지한다.
 
-    A merchant equal to the first line is not printed twice, and the income
-    nickname stands in when there is no merchant.
+    Unnecessary repeats are skipped: a value equal to the first line is not
+    printed twice. Rows without a reservation number and income rows keep the
+    existing fallback behavior.
     """
     main = _row_party_main(row)
-    for key in ("source_merchant", "nickname"):
+    parts = []
+    for key in ("source_merchant", "description", "nickname"):
         value = str(row.get(key) or "").strip()
-        if value and value != main:
-            return value
-    return ""
+        if value and value != main and value not in parts:
+            parts.append(value)
+    return " · ".join(parts)
 
 
 def _row_item(row) -> str:
@@ -1531,7 +1538,7 @@ def _party_cell(row) -> str:
 
 
 def _move_form(row, move_back: str) -> str:
-    """The travel picker a waiting row carries, in the 메모 column as before."""
+    """The travel picker a waiting row carries, in its own action row now."""
     rid = row["row_id"]
     return (
         "<form method='post' action='/api/rows/"
@@ -1550,7 +1557,7 @@ def _move_form(row, move_back: str) -> str:
 
 def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> str:
     if not rows:
-        return ("<tbody><tr class='empty'><td colspan='6'>"
+        return ("<tbody><tr class='empty'><td colspan='5'>"
                 f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
                 "</td></tr></tbody>")
     body = []
@@ -1561,52 +1568,60 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
         # A keyboard reader reaches a row the way a pointer reader does, so the row
         # itself is focusable and Enter or Space opens it. `tabindex` is what
         # makes that possible; the click path is unchanged underneath.
+        # Five columns: the memo column is gone from the table. The operator note
+        # stays in storage, search and the edit panel; only its table cell is gone.
         body.append(
             f"<tr data-id='{board.esc(rid)}' tabindex='0'"
-            f"{' aria-selected=\"true\"' if rid == selected else ''}>"
+            f"{' aria-selected="true"' if rid == selected else ''}>"
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'>{board.esc(_row_item(row))}</td>"
             f"<td class='c-kind'><span class='tag{' in' if meter == '수입' else ''}"
             f"{_row_tag_class(row)}'>{meter}</span></td>"
-            + (f"<td class='c-note'>{_move_form(row, move_back)}</td>"
-               if unclassified else
-               # Only the operator's own note. The counterparty is already on the
-               # row in 거래처·내용, and printing the merchant here as well would
-               # show the same word twice in one row.
-               "<td class='c-note'>"
-               f"{board.esc(row.get('operator_note') or '')}"
-               "</td>")
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
             f"</tr>")
+        if unclassified:
+            # The waiting row's travel picker lives in its own action row below
+            # the data row, not in the removed memo cell. Same form contract.
+            body.append(
+                f"<tr class='move-row' data-move-for='{board.esc(rid)}'>"
+                f"<td colspan='5'>{_move_form(row, move_back)}</td></tr>")
     return f"<tbody>{''.join(body)}</tbody>"
+
+
+def _column_head_row() -> str:
+    """Column titles repeated above the expense rows (display only)."""
+    return ("<tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
+            "<th scope='col'>분류</th><th scope='col'>구분</th>"
+            "<th scope='col' class='num'>금액</th></tr>")
 
 
 def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board") -> str:
     head = (
         "<div class='tw'><table id='tbl'>"
         "<caption class='sr'>거래 내역. 수입은 위, 지출은 아래에 있습니다.</caption>"
-        # Six columns, and the widths are given to the fixed ones so the counterparty
+        # Five columns, and the widths are given to the fixed ones so the counterparty
         # and content column takes whatever is left. The amount is the last column
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
         "<colgroup><col style='width:108px'><col><col style='width:104px'>"
-        "<col style='width:62px'><col style='width:20%'>"
+        "<col style='width:62px'>"
         "<col style='width:126px'></colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>구분</th>"
-        "<th scope='col' id='h5'>메모</th>"
         "<th scope='col' class='num'>금액</th></tr></thead>")
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)
     groups = (
-        f"<tbody class='grp'><tr><th scope='colgroup' colspan='5'>수입</th>"
+        f"<tbody class='grp'><tr><th scope='colgroup' colspan='4'>수입 (COST 기록) "
+        f"<a href='#google-trip-income'>Google 수입내역 보기</a></th>"
         f"<th class='num'>{_money(income_total)}</th></tr></tbody>"
         + _table_html(incomes, kind="income", selected=selected, unclassified=False)
         + "<tbody class='grp'><tr><th scope='colgroup'>지출</th>"
-        "<td colspan='4'><a class='btn' id='add-manual-expense' href='/expense/new'>"
+        "<td colspan='3'><a class='btn' id='add-manual-expense' href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></td>"
         f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
+        + "<tbody class='colhead'>" + _column_head_row() + "</tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
                       unclassified=unclassified, move_back=move_back)
         + "</table></div>")
@@ -1639,12 +1654,24 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         kind = _row_kind_meter(row)
         cat = row.get("item") or _income_kind_label(row) or "-"
         purpose = row.get("description") or row.get("customer_name") or "-"
+        # Same order as the desktop cell: reservation first, then merchant.
+        # Income rows and rows without a reservation keep the existing fallback.
+        reservation = (str(row.get("reservation_no") or "").strip()
+                       if row.get("row_kind") != "income" else "")
         vendor = (row.get("source_merchant") or row.get("customer_name")
                   or row.get("nickname") or "")
-        if vendor and "".join(vendor.split()) != "".join(purpose.split()):
-            headline = f"{vendor} · {purpose}"
-        else:
-            headline = purpose
+        seen = set()
+        parts = []
+        for value in (reservation, vendor, purpose):
+            text = str(value or "").strip()
+            if not text:
+                continue
+            folded = "".join(text.split())
+            if folded in seen:
+                continue
+            seen.add(folded)
+            parts.append(text)
+        headline = " · ".join(parts) or "-"
         tag_cls = "tag in" if kind == "수입" else "tag"
         return (
             f"<button class='{cls}' type='button' data-id='{board.esc(rid)}'"
@@ -1792,7 +1819,8 @@ def _panel_html(row, kind, *, csrf, rule_case, error, message, back, draft) -> s
         "<details class='p-src'>"
         "<summary>원본 정보</summary>"
         f"<p class='p-sub'>{board.esc(row.get('source_event_id') or row['row_id'])}"
-        f" · revision {rev} · {board.esc(row.get('source_kind') or '')}</p>"
+        f" · revision {rev} · {board.esc(row.get('source_kind') or '')}"
+        f" · 가맹점 {board.esc(row.get('source_merchant') or '-')}</p>"
         f"{''.join(locked)}"
         "</details>"
         "<p class='src'>원천 날짜·금액·예약번호는 읽기 전용이에요. 여행·항목·용도·메모는 "
@@ -1908,13 +1936,45 @@ def _selected_trip(tab_id: str):
                  if t["tab_id"] == tab_id), None)
 
 
+def _expense_category_rank(item: str) -> int:
+    """Display-only order: 항공 → 숙박 → 교통 → 식비 → 현지경비, rest last.
+
+    Matches existing item names (항공권/항공비/항공료/항공, 숙박비, 교통비,
+    식비, 현지경비/현지). 여비교통비는 기존 분류 의미대로 교통에 둔다.
+    Store order, accounting, amounts and TSV order are untouched: this only
+    orders the ledger screen lists.
+    """
+    text = str(item or "")
+    if "항공" in text:
+        return 0
+    if "숙박" in text:
+        return 1
+    if "교통" in text:
+        return 2
+    if "식비" in text:
+        return 3
+    if "현지경비" in text or "현지" in text:
+        return 4
+    return 5
+
+
+def _sort_expenses_for_display(rows: list) -> list:
+    """Sort expense rows for the screen only, stable within a category.
+
+    The key is the category rank alone: rows in the same category keep their
+    existing relative order, and nothing outside the screen changes.
+    """
+    return sorted(rows, key=lambda r: _expense_category_rank(r.get("item")))
+
+
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     """The rows this tab and filter show, and the unfiltered totals beside them.
 
     DETAILED 12.2: the whole totals are kept beside the filtered ones, so a filter
     never quietly replaces the whole total with the result total. The live refresh
     calls this too, so a refreshed row list and a freshly loaded one are the same
-    rows for the same tab and filter.
+    rows for the same tab and filter. Expenses are display-sorted by category;
+    totals and store order are unchanged.
     """
     if tab_id == "unclassified":
         incomes = [r for r in board._income_rows() if r.get("display_tab_id") is None]
@@ -1935,6 +1995,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
             return query in blob
         incomes = [r for r in incomes if keep(r)]
         expenses = [r for r in expenses if keep(r)]
+    expenses = _sort_expenses_for_display(expenses)
     return incomes, expenses, whole_income, whole_expense
 
 
@@ -1978,7 +2039,12 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<div id='live-sum'>"
         f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
         f"</div>"
+        f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 Google 읽기'>"
+        f"<h2>여행 수입 · COST 기록과 Google 읽기</h2>"
+        f"<p class='muted'>COST 표는 COST에 기록된 거래만 합산합니다. "
+        f"Google에서 읽어 온 확정 수입·연결 상태·확인 필요 이유는 아래에서 확인하고, 두 금액을 합산하지 않습니다.</p>"
         f"{trip_income_html(tab_id)}"
+        f"</section>"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"

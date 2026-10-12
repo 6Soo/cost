@@ -167,6 +167,11 @@ def trip_income_html(tab_id: str) -> str:
         verified = trip.get('verified')
         message = (f"Google 확정 수입 {_money(trip['income_total'])}" if verified else
                    '확인 필요 · 동기화 또는 합계 검증이 끝나지 않아 확정 수입을 표시하지 않습니다.')
+        if not verified:
+            reasons = ' / '.join(REVIEW_LABELS.get(code, code)
+                                 for code in (trip.get('review') or []))
+            if reasons:
+                message += f" · 확인 필요 이유: {html.escape(reasons)}"
         message += f" · {html.escape(keys[0])} · {'메인 장부' if source == 'main' else '보관 장부'}"
         message += f" · 마지막 동기화 {html.escape(str(payload.get('synced_at') or '대기'))}"
         body = (f"<a class='btn' href='/google-ledger/rows?key={quote(keys[0])}&amp;source={source}#income'>"
