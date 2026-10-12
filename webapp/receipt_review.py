@@ -702,7 +702,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     images = "".join(
         f"<button type='button' data-image-sha='{sha}' aria-pressed='{'true' if sha == data['images'][-1] else 'false'}' "
         f"style='max-width:30%'>사진 {index} 선택<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'></button>"
-        for index, sha in enumerate(data['images'][-3:], start=max(1, len(data['images']) - 2)))
+        for index, sha in enumerate(data['images'][-12:], start=max(1, len(data['images']) - 11)))
     script = (
         f"const csrf={json.dumps(csrf)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -741,11 +741,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
         "say('선택한 사진의 영역과 값을 입력해 주세요.')});"
-        "document.getElementById('img-go').onclick=async()=>{const f=document.getElementById('img-file').files[0];"
-        "if(!f){say('사진 파일을 고르세요');return}await save(async()=>{const r=await fetch('/api/receipts/image',{method:'POST',"
+        "document.getElementById('img-go').onclick=async()=>{const files=[...document.getElementById('img-file').files];"
+        "if(!files.length){say('사진 파일을 고르세요');return}await save(async()=>{"
+        "for(const f of files){const r=await fetch('/api/receipts/image',{method:'POST',"
         "headers:{'Content-Type':'application/octet-stream','X-CSRF-Token':csrf},body:f});"
-        "const j=await readResponse(r);"
-        "document.getElementById('image-sha').value=j.sha256;})};"
+        "const j=await readResponse(r);document.getElementById('image-sha').value=j.sha256;}})};"
         "const ocrButton=document.getElementById('ocr-go');if(ocrButton)ocrButton.onclick=async()=>{"
         "if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 등록해 주세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('PC에서 글자를 읽고 있습니다.');try{"
@@ -876,7 +876,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
              "<section><h2>영수증 여행 선택</h2><label>이 페이지의 모든 영수증이 속한 여행"
             "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
             "</select></label></section>"
-            "<section><h2>사진 등록</h2><input id='img-file' type='file' accept='image/png,image/jpeg'>"
+            "<section><h2>사진 등록</h2><input id='img-file' type='file' multiple accept='image/png,image/jpeg'>"
              f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
             f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
             f"<p>최근 사진 중 입력할 사진을 선택해 주세요.</p><div>{images}</div></section>"
