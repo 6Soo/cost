@@ -15,6 +15,8 @@ import os
 import functools
 import threading
 import copy
+import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
@@ -56,7 +58,7 @@ def _serialized(function):
     return wrapped
 
 ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants",
-          "/api/google-ledger/mapping",
+          "/api/google-ledger/mapping", "/api/google-ledger/auto-mapping",
           "/google-ledger/rows", "/api/google-ledger/rows")
 REVIEW_LABELS = {
     "TOTAL_MISMATCH": "Google 합계와 행 합계가 다름",
@@ -323,6 +325,8 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         f'<label>Google 여행<select id="settings-key">{keys}</select></label>'
         f'<label>COST 여행<select id="settings-tab">{tabs}</select></label>'
         '<button id="mapping-save" type="button">여행 연결 저장</button>'
+        '<button id="mapping-auto" type="button">같은 이름의 여행 자동 연결</button>'
+        '<p>이름이 일치하는 단일 여행만 연결합니다. 기존 연결과 정본 선택은 유지하고, 중복·연도 충돌은 건너뜁니다.</p>'
         f'<label>viewer 계정<select id="settings-viewer">{viewers}</select></label>'
         '<p id="grant-state"></p><button id="grant-add" type="button">이 여행 열람 허용</button>'
         '<button id="grant-remove" type="button">열람 허용 철회</button>'
@@ -349,6 +353,12 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         "catch(e){statusBox.textContent='결과를 확인하지 못했습니다. 다시 시도하거나 새로고침해 저장 상태를 확인해 주세요. '+e.message}"
         "finally{controls.forEach(x=>x.disabled=false)}}"
         "document.getElementById('mapping-save').onclick=()=>saveGoogleSetting('mapping');"
+        "document.getElementById('mapping-auto').onclick=async function(){this.disabled=true;"
+        "try{const r=await fetch('/api/google-ledger/auto-mapping',{method:'POST',headers:{'Content-Type':'application/json',"
+        "'X-CSRF-Token':token},body:'{}'});const j=await r.json();if(!r.ok)throw Error(j.code);"
+        "statusBox.textContent=j.linked+'개 여행을 자동 연결했습니다. 새로고침하면 연결 상태가 반영됩니다.'}"
+        "catch(e){statusBox.textContent='자동 연결 결과를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.'}"
+        "finally{this.disabled=false}};"
         "document.getElementById('grant-add').onclick=()=>saveGoogleSetting('grants',true);"
         "document.getElementById('grant-remove').onclick=()=>saveGoogleSetting('grants',false);</script>")
 
@@ -477,6 +487,55 @@ def load_mapping(snapshot_path: Path) -> dict:
     return data
 
 
+def auto_mapping_candidates(snapshot: dict, tabs: list, existing: dict) -> dict:
+    """Unique full-name matches only; a copy collision is never a canonical choice."""
+    def identity(name):
+        return re.sub(r'\s+', '', unicodedata.normalize('NFC', str(name or '')))
+
+    def base(name):
+        return re.sub(r'의사본$', '', identity(name))
+
+    google_counts = Counter(base(t['key']) for t in snapshot['trips'])
+    active = [t for t in tabs if not t.get('deleted') and t.get('tab_kind', 'trip') == 'trip']
+    cost_counts = Counter(identity(t.get('display_key')) for t in active)
+    occupied = set(existing.values())
+    result = {}
+    # Explicit user decisions recorded in docs/google-workbook-layout.md.
+    known_years = {'0206_하쿠산': 2027, '0302_야쿠시마': 2027}
+    for source in snapshot['trips']:
+        key = source['key']
+        name = identity(key)
+        if key in existing or google_counts[base(key)] != 1:
+            continue
+        if not re.match(r'^\d{4}_\S', name) or name != base(key) or cost_counts[name] != 1:
+            continue
+        target = next(t for t in active if identity(t.get('display_key')) == name)
+        if target['tab_id'] in occupied:
+            continue
+        start = str(target.get('starts_on') or '')
+        year = str(target.get('event_year') or (start[:4] if start else ''))
+        if start and (not re.match(r'^\d{4}-\d{2}-\d{2}$', start)
+                      or start[5:7] + start[8:10] != name[:4]
+                      or year != start[:4]):
+            continue
+        if name in known_years and year != str(known_years[name]):
+            continue
+        result[key] = target['tab_id']
+        occupied.add(target['tab_id'])
+    return result
+
+
+@_serialized
+def auto_link_trips(snapshot_path: Path, snapshot: dict, tabs: list) -> int:
+    existing = load_mapping(snapshot_path)
+    additions = auto_mapping_candidates(snapshot, tabs, existing)
+    if additions:
+        temporary = mapping_path(snapshot_path).with_suffix('.json.tmp')
+        temporary.write_text(json.dumps({**existing, **additions}, ensure_ascii=False, indent=2), encoding='utf-8')
+        os.replace(temporary, mapping_path(snapshot_path))
+    return len(additions)
+
+
 @_serialized
 def set_mapping(snapshot_path: Path, *, key: str, tab_id: str | None, known_keys: set,
                 known_tab_ids: set | None = None) -> dict:
@@ -564,10 +623,10 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
     if not is_owner and not viewer_user_id:
         handler._send_json({"code": "LOGIN_REQUIRED", "message": "로그인한 계정만 볼 수 있습니다"}, 403)
         return True
-    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping") and raw is None:
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping", "/api/google-ledger/auto-mapping") and raw is None:
         handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
         return True
-    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping"):
+    if parsed.path in ("/api/google-ledger/choice", "/api/google-ledger/grants", "/api/google-ledger/mapping", "/api/google-ledger/auto-mapping"):
         if not is_owner:
             handler._send_json({"code": "OWNER_ONLY", "message": "소유자만 바꿀 수 있습니다"}, 403)
             return True
@@ -583,7 +642,16 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
             return True
         now = dt.datetime.now(google_authority.KST).isoformat()
         try:
-            if parsed.path.endswith("/mapping"):
+            if parsed.path.endswith('/auto-mapping'):
+                snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
+                from .ledger_board import _active_store
+                board = _active_store()
+                if board is None:
+                    raise ValueError('COST_STORE_UNAVAILABLE')
+                linked = auto_link_trips(_snapshot_path(), snapshot, board.list_trips(include_archived=True))
+                handler._send_json({'code': 'OK', 'linked': linked})
+                return True
+            elif parsed.path.endswith("/mapping"):
                 snapshot, _ = google_authority.load_consistent(_snapshot_path(), _rows_path())
                 known = {t["key"] for t in snapshot["trips"]}
                 from .ledger_board import _active_store
@@ -613,6 +681,9 @@ def dispatch(handler, parsed, *, is_owner: bool, viewer_user_id: str | None = No
                            granted=body.get("granted"), at=now)
         except google_authority.SnapshotError:
             handler._send_json({'code': 'SNAPSHOT_UNAVAILABLE'}, 503)
+            return True
+        except OSError:
+            handler._send_json({'code': 'SETTINGS_WRITE_FAILED'}, 503)
             return True
         except ValueError as error:
             handler._send_json({"code": str(error)}, 400)

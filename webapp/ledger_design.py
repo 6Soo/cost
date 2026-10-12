@@ -835,6 +835,7 @@ def work_menu_html() -> str:
                 f"<small>{note}</small></{tag}>")
 
     actions = action('카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
+    actions += action('전체 카드 내역', '저장된 모든 카드 거래 · 검색 · 카드별 조회', '/cards')
     if receipt_review.enabled():
         actions += action('영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
