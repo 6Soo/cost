@@ -39,6 +39,9 @@ def test_expense_display_order_is_stable_and_preserves_original_rows():
         'air', 'stay-b', 'stay-a', 'transit', 'food', 'local', 'other']
     assert rows == before
     assert all(any(r is original for original in rows) for r in shown)
+    dated = [dict(rows[0], occurred_on='2026-04-06'), dict(rows[4], occurred_on='2026-04-07'),
+             dict(rows[1], occurred_on='2026-04-01'), dict(rows[2], occurred_on='')]
+    assert [r['row_id'] for r in design._sort_expenses_for_display(dated)] == ['food','local','air','stay-b']
 
 
 def test_merchant_first_reservation_sub_no_duplicate_descriptions():

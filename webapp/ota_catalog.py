@@ -159,7 +159,7 @@ def catalog(board, query, *, sources=None):
     all_count = len(rows)
     unassigned_count = sum(not row['trips'] for row in rows)
     months = sorted({day[:7] for r in rows for day in r['start_dates']
-                     if re.fullmatch(r'\d{4}-\d{2}-\d{2}', day)}, reverse=True)
+                     if re.fullmatch(r'\d{4}-\d{2}-\d{2}', day)})
     providers = sorted({r['provider'] for r in rows})
     month = value('month')
     if not re.fullmatch(r'[0-9]{4}-(0[1-9]|1[0-2])', month):
@@ -170,7 +170,7 @@ def catalog(board, query, *, sources=None):
         and (not value('q') or value('q').casefold() in ' '.join((r['booking_ref'], r['provider'],
             PROVIDERS.get(r['provider'], ''), r['label'], r['period'], *(t['name'] for t in r['trips']))).casefold())]
     known = sorted((r for r in rows if r['starts_on']),
-        key=lambda r: (r['starts_on'], r['provider'], r['booking_ref']), reverse=value('sort') != 'asc')
+        key=lambda r: (r['starts_on'], r['provider'], r['booking_ref']), reverse=value('sort') == 'desc')
     rows = known + sorted((r for r in rows if not r['starts_on']), key=lambda r: (r['provider'], r['booking_ref']))
     total = len(rows)
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -201,7 +201,7 @@ def render_html(data, query):
             f"aria-label='{label}' aria-expanded='false' aria-controls='filter-{key}'>{label}{ui_icons.icon('chevron-down', 14)}</button>"
             f"<div id='filter-{key}' class='header-menu' popover aria-label='{label} 선택'>{controls}</div></th>")
 
-    sort = 'asc' if value('sort') == 'asc' else 'desc'
+    sort = 'desc' if value('sort') == 'desc' else 'asc'
     date_controls = choices('sort', [('desc', '내림차순 · 최근 이용 먼저'), ('asc', '오름차순 · 이른 이용 먼저')], sort)
     date_controls += choices('month', [('', '전체 월')] + [(m, m + '월') for m in data['months']], value('month'))
     provider_controls = choices('provider', [('', '모든 OTA')] + [(p, PROVIDERS.get(p, p)) for p in data['providers']], value('provider'))

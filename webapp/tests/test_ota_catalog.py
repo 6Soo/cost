@@ -70,6 +70,8 @@ def test_exact_provider_identity_merging_and_conflicting_sources(data, tmp_path)
 
 def test_search_month_sort_pagination_and_html_escape(data, monkeypatch):
     board, sources = data
+    assert [r['starts_on'] for r in ota_catalog.catalog(board, {}, sources=sources)['rows']] == ['2026-10-01', '2026-11-01', '']
+    assert [r['starts_on'] for r in ota_catalog.catalog(board, {'sort':['desc']}, sources=sources)['rows']] == ['2026-11-01', '2026-10-01', '']
     monkeypatch.setattr(ota_catalog, 'PAGE_SIZE', 1)
     query = {'sort': ['asc'], 'q': ['합성'], 'month': ['2026-11']}
     result = ota_catalog.catalog(board, query, sources=sources)
