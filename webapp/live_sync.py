@@ -115,7 +115,19 @@ def owner_token(store, tab_id: str = "") -> str:
                if not t.get("deleted")}
     if tab_id:
         tab_ids.add(tab_id)
-    return scope_token(store, tab_ids, include_unclassified=True)
+    token = scope_token(store, tab_ids, include_unclassified=True)
+    if tab_id == 'refunds':
+        try:
+            sources = store.conn.execute(
+                "SELECT transaction_id, revision, transaction_direction, original_approval_number, "
+                "amount_krw, duplicate_of, conflict_reason, parse_error FROM transactions ORDER BY transaction_id").fetchall()
+        except Exception as exc:
+            import sqlite3
+            if not isinstance(exc, sqlite3.OperationalError) or 'no such table: transactions' not in str(exc):
+                raise
+            sources = []
+        token = _digest([token, sources])
+    return token
 
 
 def viewer_token(store, tab_ids) -> str:
