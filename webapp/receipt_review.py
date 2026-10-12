@@ -759,7 +759,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "const chosen=document.querySelector('#vision-results button[data-vision-selected=\\\"1\\\"]');"
+        "const chosen=[...document.querySelectorAll('#vision-results button')].find(b=>b.dataset.visionSelected==='1');"
         "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),"
         "chosen?result=>{chosen.dataset.visionSelected='0';chosen.textContent+=' [등록 '+result.added+'건]';"
         "say('이 영수증을 등록했습니다. 다른 후보도 검토한 뒤 후보 새로고침을 누르세요.');}:undefined)};"
