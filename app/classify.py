@@ -103,8 +103,10 @@ def classify_transaction(transaction: dict, *, rules: list,
 def _card3820_residual(transaction: dict, verdict: dict) -> dict:
     """Owner policy after reconciliation; classification only, never confirmation or posting."""
     if (transaction.get('card_tail') != '3820'
-            or transaction.get('transaction_kind') != 'purchase'
+            or any(marker in str(transaction.get('transaction_kind', '')).lower()
+                   for marker in ('refund', 'cancel', '취소', '승인'))
             or transaction.get('transaction_direction') != 'purchase'
+            or type(transaction.get('amount_krw')) is not int or transaction['amount_krw'] <= 0
             or verdict['classification_source'] not in ('', 'pattern', 'card_category', 'booking_evidence_needed')
             or verdict.get('trip_id') or transaction.get('parse_error')):
         return verdict

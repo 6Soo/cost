@@ -37,6 +37,9 @@ def test_card_flow_classifies_residual_without_changing_original_or_confirming(t
         assert not after['user_confirmed']
         flow.classify(batch)
         assert flow.pipeline.get_batch(batch)['rows'][0]['description'] == '2026년 4분기 기타비용'
+        actual_kind = dict(card_tail='3820', transaction_kind='일시불매입', transaction_direction='purchase',
+                          merchant='합성 상점', approval_date='2026-04-01', amount_krw=10000)
+        assert classify_transaction(actual_kind, rules=[], residual_policy=True)['description'] == '2026년 2분기 기타비용'
     finally:
         board.close()
 
