@@ -22,11 +22,12 @@ from pathlib import Path
 
 from app import receipt_candidates as rc
 from app import local_receipt_ocr
+from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
 from . import ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
-          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image")
+          "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
@@ -262,6 +263,9 @@ def card_rows(board) -> list[dict]:
 def scan(path: Path, payload: dict, *, board=None) -> dict:
     data = load(path)
     regions = _regions(payload)
+    requested_trip = payload.get("trip_id") or None
+    if requested_trip is not None and requested_trip not in _trip_ids(board):
+        raise ValueError("TRIP_UNKNOWN")
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
@@ -283,6 +287,8 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     for candidate in result["candidates"]:
         region = next(r for r in regions if rc._identity(r) == candidate.identity)
         stored = {**candidate.__dict__, "history": [], "hold": None, 'box': list(region.box)}
+        if requested_trip is not None:
+            stored['trip_id'] = requested_trip
         _settle(stored, cards)
         if payload.get("image"):
             source_region = hashlib.sha256(json.dumps(
@@ -506,6 +512,21 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 handler._send_json(result)
             except local_receipt_ocr.OcrError as error:
                 handler._send_json({'code': str(error), 'message': '글자 인식이 끝나지 않았습니다. 사진을 보면서 직접 입력하거나 다시 시도해 주세요.'}, 503)
+        elif parsed.path == "/api/receipts/vision":
+            if not opencode_receipt_vision.enabled():
+                handler._send_json({"code": "VISION_DISABLED",
+                                    "message": "Muse 영수증 인식이 설정되지 않았습니다."}, 501)
+                return True
+            sha = body.get("image", "")
+            if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
+                raise ValueError("IMAGE_NOT_FOUND")
+            image_bytes(path, sha)  # Owner's registered source image only.
+            try:
+                result = opencode_receipt_vision.recognize(_images_dir(path) / f"{sha}.bin")
+                handler._send_json(result)
+            except opencode_receipt_vision.VisionUnavailable as error:
+                handler._send_json({"code": error.code,
+                    "message": "Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요."}, 503)
         elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/edit":
