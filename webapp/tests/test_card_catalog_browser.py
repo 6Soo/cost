@@ -11,7 +11,7 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 class CardCatalogBrowserTests(LinkBrowserFixture):
     def test_header_buttons_sort_and_filter_without_search_click(self):
-        env = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_UNIFIED_DB': '1'})
+        env = patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1', 'WEBLEDGER_UNIFIED_DB': '1', 'WEBLEDGER_REVIEW_FROM': ''})
         env.start()
         self.addCleanup(env.stop)
         flow = CardFlow(self.server.card_store)

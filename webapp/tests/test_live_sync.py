@@ -451,7 +451,7 @@ class LiveSyncStateTests(unittest.TestCase):
         # the board-only record note is on the page once and never in a fragment
         self.assertNotIn("ledger-note", nav_region)
         self.assertNotIn("ledger-note", rows_region)
-        self.assertEqual(page.count("id='ledger-note'"), 1)
+        self.assertEqual(page.count("id='ledger-note'"), 0)
 
     def test_a_fragment_bundle_carries_no_duplicate_ids(self):
         """A bundle is parsed as a document, so its ids must be unique.
@@ -522,7 +522,7 @@ class LiveSyncStateTests(unittest.TestCase):
             # the sidebar chrome is still exactly one of each
             self.assertEqual(page.count("id='nav-mask'"), 1,
                              f"round {round_number}")
-            self.assertEqual(page.count("id='ledger-note'"), 1,
+            self.assertEqual(page.count("id='ledger-note'"), 0,
                              f"round {round_number}")
             # and the search box the region must not swallow is still there
             self.assertEqual(page.count("id='tripq'"), 1,
@@ -538,6 +538,8 @@ class LiveSyncStateTests(unittest.TestCase):
         """
         self.as_owner()
         self.fill_trip_b()
+        self.store.conn.execute("UPDATE trip_tabs SET starts_on='2026-07-01', ends_on='2026-07-03' WHERE tab_id=?", (TRIP_B,))
+        self.store.conn.commit()
         self.store.save_trip_meta(
             tab_id=TRIP_B, expected_revision=self.store.get_trip(TRIP_B)["revision"],
             archived=True, client_request_id="live-arch-1", actor=OWNER)

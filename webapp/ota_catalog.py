@@ -145,9 +145,12 @@ def catalog(board, query, *, sources=None):
         add(event.get('provider'), event.get('booking_ref'), event.get('item'),
             period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
     _saved_board_links(board, merged)
+    from .history_policy import preserved_periods
     rows = []
     for row in merged.values():
-        periods = sorted(row.pop('periods'))
+        periods = sorted(row['periods'])
+        if preserved_periods(periods):
+            continue
         rows.append({'provider': row['provider'], 'booking_ref': row['booking_ref'],
             'label': ' · '.join(sorted(row['labels'])),
             'starts_on': periods[0][0] if periods else '',

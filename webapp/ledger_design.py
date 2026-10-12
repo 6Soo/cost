@@ -1084,7 +1084,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
               and not previous_trip(t)]
     archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")
                      and not previous_trip(t)]
-    unclassified = board._unclassified_rows()
+    unclassified = _selected_rows('unclassified')[1]
 
     def short_date(value):
         parts = str(value or '').split('-')
@@ -1133,6 +1133,10 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                              f"{len(unclassified)}건",
                              tab_id == "unclassified", warn=True) + "</ul>"))
     arch_head = ""
+    if board.current_role() == 'owner':
+        sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(
+            f"{ui_icons.icon('rotate-ccw')}환불", f"/board?{state_query('refunds')}",
+            None, tab_id == 'refunds') + "</ul>"))
     if archived_rows:
         toggle_state = state_query(tab_id, query, kind, "" if drawer_open else "1")
         arch_head = (
@@ -2080,6 +2084,11 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     elif kind == "ex":
         incomes = []
     whole_income, whole_expense = list(incomes), list(expenses)
+    if board.current_role() == 'owner':
+        from .refund_tab import member_ids
+        paired = member_ids(board._active_store())
+        expenses = [r for r in expenses if r.get('source_event_id') not in paired]
+        whole_expense = [r for r in whole_expense if r.get('source_event_id') not in paired]
     if query:
         def keep(row):
             blob = " ".join(str(row.get(key) or "") for key in (
@@ -2099,6 +2108,12 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     """The main ledger screen in the new design."""
     if _STORE_missing():
         return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
+    if tab_id == 'refunds':
+        from .refund_tab import render as refund_body
+        return shell('환불', tab_id='refunds', heading='환불', query=query,
+                     body=_bar_html(query, '', 'refunds', archived) +
+                     "<div id='live-sum'></div><div id='live-rows'>" +
+                     refund_body(board._active_store(), query) + '</div>')
     trip = _selected_trip(tab_id)
     from .google_ledger_page import trip_income_html
     incomes, expenses, whole_income, whole_expense = _selected_rows(tab_id, query, kind)
@@ -2129,7 +2144,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         # The live refresh replaces the totals and the two row lists as one block,
         # and the edit panel sits outside it so an open panel is never rewritten.
         f"<div id='live-sum'>"
-        f"{_summary_html(incomes, expenses, recorded_income_count=(-1 if kind == 'ex' else len(whole_income)), **_totals_kw(query, incomes, expenses, whole_income, whole_expense))}"
+        f"{summary_part(tab_id, kind, query)}"
         f"</div>"
         f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 확정 장부'>"
         f"{trip_income_html(tab_id)}"
@@ -2159,17 +2174,11 @@ def panel_part(row_id: str, *, back: str = "/board", error: str = "",
 
 
 def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
+    if tab_id == 'refunds':
+        return ''
     if _STORE_missing():
         return ""
-    if tab_id == "unclassified":
-        whole_income = [r for r in board._income_rows()
-                        if r.get("display_tab_id") is None]
-        whole_expense = board._unclassified_rows()
-    else:
-        whole_income = [r for r in board._income_rows()
-                        if r.get("display_tab_id") == tab_id]
-        whole_expense = [r for r in board._expense_rows()
-                         if r.get("display_tab_id") == tab_id]
+    _, _, whole_income, whole_expense = _selected_rows(tab_id, '', kind)
     recorded_income_count = len(whole_income)
     if kind == "in":
         whole_expense = []
@@ -2228,6 +2237,9 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     """
     if _STORE_missing():
         return ""
+    if tab_id == 'refunds':
+        from .refund_tab import render as refund_body
+        return refund_body(board._active_store(), query)
     incomes, expenses, _whole_income, _whole_expense = _selected_rows(
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"

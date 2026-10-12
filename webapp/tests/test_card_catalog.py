@@ -50,6 +50,7 @@ def test_all_pages_are_reachable_without_repeating_transactions(stored):
 
 
 def test_date_sort_month_filter_and_links_are_read_only(stored, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_REVIEW_FROM', '')
     ids = [r[0] for r in stored.conn.execute('SELECT transaction_id FROM transactions ORDER BY transaction_id')]
     for txid, approval, posting in zip(ids, ['2026-02-20', '2026-01-05', ''],
                                      ['2026-03-01', '2026-02-01', '2026-02-10']):

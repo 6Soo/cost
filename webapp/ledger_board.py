@@ -2879,7 +2879,7 @@ class Handler(BaseHTTPRequestHandler):
             _kind, found = find_row(row_id)
             if found is not None:
                 tab = found.get("display_tab_id") or ""
-        if tab != "unclassified" and tab not in valid_tab_ids():
+        if tab not in ("unclassified", "refunds") and tab not in valid_tab_ids():
             # The row's own trip is gone, or the URL asked for one that never
             # existed. Fall back to a trip that does, and to 분류대기 when the
             # store has none, rather than to a hard-coded example id.
