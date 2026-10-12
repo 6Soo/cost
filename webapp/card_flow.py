@@ -571,9 +571,11 @@ class CardFlow:
             active, board_rules = self._board_rules_supersede(active, board_rules)
             return classify_batch(self.pipeline.store,batch_id,
                 rules=active+board_rules+ota_rules,trip_resolver=self.retail_trip,
-                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
-        return self.pipeline.classify_batch(batch_id, trip_resolver=self.retail_trip,
-                                           review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected)
+                review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,residual_policy=True)
+        from app.classify import classify_batch
+        return classify_batch(self.pipeline.store, batch_id, trip_resolver=self.retail_trip,
+                              review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,
+                              residual_policy=True)
 
     def _board_future_rules(self):
         """장부에서 확정해 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.

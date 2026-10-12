@@ -62,7 +62,8 @@ def _pattern_for(merchant_normalized: str):
 
 
 def classify_transaction(transaction: dict, *, rules: list,
-                         prior_decision: dict | None = None, trip_resolver=None,allow_defaults=True) -> dict:
+                         prior_decision: dict | None = None, trip_resolver=None,allow_defaults=True,
+                         residual_policy=False) -> dict:
     """확정 근거를 먼저 적용하고 사용자 허용 추론은 원본 거래에만 적용한다."""
     inferred = [r for r in rules if r.get('optional',{}).get('inferred_assignment')]
     regular = [r for r in rules if r not in inferred]
@@ -72,6 +73,8 @@ def classify_transaction(transaction: dict, *, rules: list,
         return verdict
     matches = [r for r in inferred if rule_matches(r,transaction)[0]]
     if not matches:
+        if residual_policy:
+            return _card3820_residual(transaction, verdict)
         return verdict
     import json
     if len({json.dumps([r['effects'].get('item'),r['effects'].get('display_tab_id',''),
@@ -95,6 +98,26 @@ def classify_transaction(transaction: dict, *, rules: list,
                 classification_basis=('사용자 예외 · ' if exception else '추론 배정 · '+inference['confidence']+' · ')+inference['basis'],
                 item=rule['effects']['item'],description=rule['effects'].get('description',''),
                 display_tab_id=target or 'unclassified',trip_id=target,rule_id=rule.get('rule_id',''))
+
+
+def _card3820_residual(transaction: dict, verdict: dict) -> dict:
+    """Owner policy after reconciliation; classification only, never confirmation or posting."""
+    if (transaction.get('card_tail') != '3820'
+            or transaction.get('transaction_kind') != 'purchase'
+            or transaction.get('transaction_direction') != 'purchase'
+            or verdict['classification_source'] not in ('', 'pattern', 'card_category', 'booking_evidence_needed')
+            or verdict.get('trip_id') or transaction.get('parse_error')):
+        return verdict
+    from datetime import date
+    try:
+        day = date.fromisoformat(transaction.get('approval_date') or transaction.get('posting_date') or '')
+    except (TypeError, ValueError):
+        return verdict
+    quarter = (day.month - 1) // 3 + 1
+    return dict(verdict, classification_state=STATE_CLASSIFIED, classification_source='owner_card_residual',
+                classification_basis='사용자 규칙: 기존 대사 후 남은 카드 3820 거래를 분기 기타비용으로 분류',
+                item='분기 기타비용', description=f'{day.year}년 {quarter}분기 기타비용',
+                display_tab_id='unclassified', trip_id='', rule_id='owner-card3820-residual-20261012')
 
 
 def _classify_transaction(transaction: dict, *, rules: list,
@@ -253,14 +276,14 @@ def _classify_transaction(transaction: dict, *, rules: list,
             "trip_id": "", "rule_id": ""}
 
 
-def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
+def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False) -> dict:
     """읽기부터 감사 이력까지 한 번에 처리하고 실패 시 분류 변경을 되돌린다."""
     with store.lock:
         nested=store.conn.in_transaction
         store.conn.execute('SAVEPOINT cost_classify_batch' if nested else 'BEGIN IMMEDIATE')
         try:
             result=_classify_batch(store,batch_id,rules=rules,trip_resolver=trip_resolver,
-                                   review_from=review_from,transaction_ids=transaction_ids)
+                                   review_from=review_from,transaction_ids=transaction_ids,residual_policy=residual_policy)
             if nested:
                 store.conn.execute('RELEASE SAVEPOINT cost_classify_batch')
             else:
@@ -275,7 +298,7 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
             raise
 
 
-def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
+def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False) -> dict:
     """Classify every unconfirmed row in a batch.
 
     A row a human already decided is skipped entirely, which is how a confirmed
@@ -345,8 +368,22 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                 "description_raw": description_raw, "parse_error": parse_error,
                 'raw_row': __import__('json').loads(raw_json),
             }
+            eligible_residual = residual_policy
+            if residual_policy and card_tail == '3820':
+                duplicate, conflict, booked, excluded = store.conn.execute(
+                    'SELECT duplicate_of,conflict_reason,'
+                    'EXISTS(SELECT 1 FROM ledger_entries WHERE transaction_id=t.transaction_id),'
+                    'EXISTS(SELECT 1 FROM transaction_company_exclusions WHERE transaction_id=t.transaction_id AND excluded=1) '
+                    'FROM transactions t WHERE transaction_id=?', (transaction_id,)).fetchone()
+                held = store.conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?',
+                                          (transaction_id,)).fetchone()
+                if booked or excluded or held or current_trip:
+                    counts[state] = counts.get(state, 0) + 1
+                    protected += 1
+                    continue
+                eligible_residual = not duplicate and not conflict
             verdict = classify_transaction(transaction, rules=rules_by_merchant.get(merchant_normalized,[])+rules_by_merchant.get('*',[]),
-                                           prior_decision=None, trip_resolver=trip_resolver)
+                                           prior_decision=None, trip_resolver=trip_resolver, residual_policy=eligible_residual)
             counts[verdict["classification_state"]] = counts.get(
                 verdict["classification_state"], 0) + 1
             if state != verdict["classification_state"]:
