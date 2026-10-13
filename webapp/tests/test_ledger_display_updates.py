@@ -49,7 +49,7 @@ def test_expense_display_order_is_stable_and_preserves_original_rows():
 
 
 def test_merchant_first_reservation_sub_no_duplicate_descriptions():
-    row = expense('assigned', '숙박비', display_tab_id='trip-syn')
+    row = expense('assigned', '교통비', display_tab_id='trip-syn')
     before = deepcopy(row)
     cell = design._party_cell(row)
     # Merchant first, reservation appears in sub as '예약번호 ...'

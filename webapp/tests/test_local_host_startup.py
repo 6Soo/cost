@@ -734,6 +734,38 @@ class TunnelIdentityTests(unittest.TestCase):
         self.assertIn("refused [TUNNEL]", output)
         self.assertNotIn("MOCK-START file=" + CLOUDFLARE_EXE, output)
 
+    def test_another_projects_tunnel_at_another_path_does_not_block_the_ledger(self):
+        """A different tunnel of the same program name is not ours to wait for.
+
+        Another project runs its own tunnel from its own directory. It serves a
+        different tunnel id and config, so the ledger tunnel starts beside it,
+        and the other process is neither stopped nor reconfigured.
+        """
+        other = (f'"C:\\other\\bin\\cloudflared.exe" tunnel --no-autoupdate run '
+                 f"--token-file C:\\other\\tunnel.token")
+        _code, output = run_runner(
+            processes=[tunnel_process(other, executable="C:\\other\\bin\\cloudflared.exe")])
+        self.assertIn("started [tunnel]", output)
+        self.assertNotIn("refused [TUNNEL]", output)
+        self.assertNotIn("MOCK-STOP", output)
+
+    def test_the_same_tunnel_at_another_path_is_refused_even_with_another_name(self):
+        """A second copy of this tunnel, by config path or by id, blocks a start."""
+        same_id_other_config = (f'"C:\\other\\bin\\cloudflared.exe" tunnel --config '
+                                f'"C:\\other\\config.yml" run {TUNNEL_ID}')
+        _code, output = run_runner(processes=[tunnel_process(
+            same_id_other_config, executable="C:\\other\\bin\\cloudflared.exe")])
+        self.assertIn("refused [TUNNEL]", output)
+        self.assertNotIn("MOCK-START file=" + CLOUDFLARE_EXE, output)
+
+    def test_another_path_process_without_a_readable_path_is_unknown(self):
+        """A process whose executable cannot be read may be ours: refuse."""
+        unreadable = {"ProcessId": 5555, "ExecutablePath": "",
+                      "CommandLine": '"C:\\x\\cloudflared.exe" tunnel --token-file t.tok'}
+        _code, output = run_runner(processes=[unreadable])
+        self.assertIn("refused [TUNNEL]", output)
+        self.assertNotIn("MOCK-START file=" + CLOUDFLARE_EXE, output)
+
     def test_a_target_process_whose_command_line_is_unreadable_is_unknown(self):
         """It cannot be ruled out, so it is not treated as absent.
 

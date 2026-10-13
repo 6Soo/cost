@@ -1592,17 +1592,78 @@ def _row_party_sub(row) -> str:
         return ""
     reservation = str(row.get("reservation_no") or "").strip()
     description = str(row.get("description") or "").strip()
+    item = str(row.get("item") or "").strip()
     parts = []
-    if reservation and reservation != main:
+    # A lodging or flight row names its stay or its passengers instead of the number;
+    # the number itself stays in the row, the search and the source link.
+    if item == "\uC219\uBC15\uBE44":
+        parts.append(_stay_text(row))
+    elif item == "\uD56D\uACF5\uB8CC" and reservation:
+        parts.append(_passenger_text(row))
+    elif reservation and reservation != main:
         parts.append("\uC608\uC57D\uBC88\uD638 " + reservation)
     if reservation:
         description = re.sub(
             r"(?<![\w-])(?:\uC608\uC57D(?:\uBC88\uD638)?\s*)?" + re.escape(reservation)
             + r"(?![\w-])", "", description)
         description = re.sub(r"\s+", " ", description).strip(" \u00b7|,;:-")
-    if description and description != main:
+    # The typed description is kept verbatim; the bare category name adds nothing.
+    if description and description != main and not (item in ("\uC219\uBC15\uBE44", "\uD56D\uACF5\uB8CC") and description == item):
         parts.append(description)
     return " \u00b7 ".join(parts)
+
+
+_STAY_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
+_MAX_STAY_DAYS = 60
+
+
+def _stay_text(row) -> str:
+    """The lodging dates from the source's service period, never from the reservation number.
+
+    A missing, unreadable, reversed or implausibly long period is shown as unknown
+    rather than guessed. The card's approval or payment date is a different fact.
+    """
+    from datetime import date, timedelta
+    unknown = "\uC774\uC6A9\uC77C \uD655\uC778 \uD544\uC694"
+    match = _STAY_PATTERN.fullmatch(str(row.get("service_period") or "").strip())
+    if not match:
+        return unknown
+    try:
+        start, end = (date.fromisoformat(value) for value in match.groups())
+    except ValueError:
+        return unknown
+    if not start <= end <= start + timedelta(days=_MAX_STAY_DAYS):
+        return unknown
+    if start.year == end.year:
+        return f"{start:%m/%d} \uCCB4\uD06C\uC778 ~ {end:%m/%d} \uCCB4\uD06C\uC544\uC6C3"
+    return f"{start:%Y/%m/%d} \uCCB4\uD06C\uC778 ~ {end:%Y/%m/%d} \uCCB4\uD06C\uC544\uC6C3"
+
+
+def _flight_passengers() -> dict:
+    """The passenger index the OTA refresh holds in memory, read without computing anything."""
+    return read_scope.remember("flight_passengers", _load_flight_passengers)
+
+
+def _load_flight_passengers() -> dict:
+    from . import ota_payment_review
+    store = board._active_store()
+    if store is None or not ota_payment_review.enabled():
+        return {}
+    current, _fresh = ota_payment_review.snapshot_service(store).held()
+    if current is None:
+        return {}
+    return (current.get("data") or {}).get("passengers") or {}
+
+
+def _passenger_text(row) -> str:
+    """Who is flying, only when the mail names the passengers of this booking."""
+    found = _flight_passengers().get(str(row.get("reservation_no") or "").strip())
+    if not found or found.get("conflict") or not found.get("names"):
+        return "\uD0D1\uC2B9\uC790 \uD655\uC778 \uD544\uC694"
+    names = found["names"]
+    if len(names) == 1:
+        return f"\uD0D1\uC2B9\uC790: {names[0]}"
+    return f"\uD0D1\uC2B9\uC790: {names[0]} \uC678 {len(names) - 1}\uBA85"
 
 
 def _row_item(row) -> str:
