@@ -90,7 +90,8 @@ class ReceiptReviewTests(unittest.TestCase):
                         pg = browser.new_page(viewport={'width': width, 'height': 900})
                         pg.goto(self.base + '/receipts')
                         self.assertTrue(pg.get_by_role('link', name='장부로 돌아가기').is_visible())
-                        self.assertIn('자동 추출은 연결되지', pg.inner_text('body'))
+                        body = pg.inner_text('body')
+                        self.assertTrue('자동 추출은 연결되지' in body or 'Windows OCR로 사진의 글자를' in body)
                         self.assertEqual(pg.locator(f'[data-category="{identity}"]').get_attribute('aria-label'), '비용 분류')
                         if width < 760:
                             for field in ('trip', 'merchant', 'date', 'total', 'payment', 'payee', 'category', 'confirm'):

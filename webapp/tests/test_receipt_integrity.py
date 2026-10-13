@@ -184,7 +184,6 @@ def test_missing_card_on_trip_edit_does_not_authorize_receipt_repricing(tmp_path
 
 
 @pytest.mark.parametrize('changes,reason', [({'confidence': 0.4}, 'LOW_CONFIDENCE'),
-                                           ({'total': None}, 'TOTAL_UNCLEAR'),
                                            ({'payment': 'corporate_card'}, 'CARD_NOT_FOUND')])
 def test_held_receipt_keeps_original_region_values_and_image(tmp_path, changes, reason):
     path = tmp_path / 'receipts.json'
@@ -233,12 +232,10 @@ def test_repeated_edit_preserves_confirmation_and_does_not_duplicate_history(tmp
     assert rr.tsv(path, 'trip-syn')['row_count'] == 1
 
 
-def test_held_foreign_currency_is_not_displayed_as_yen(tmp_path):
+def test_foreign_currency_is_kept_unknown_not_displayed_as_yen(tmp_path):
     path = tmp_path / 'receipts.json'
     rr.scan(path, {'regions': [{**region(), 'currency': 'USD'}]})
-    hold, = rr.load(path)['holds']
-    assert hold['reason'] == 'CURRENCY_UNKNOWN'
-    shown = rr._hold_html(hold)
-    assert '1200 USD' in shown
-    assert '1200 JPY' not in shown
-    assert rr.load(path)['candidates'] == []
+    stored, = rr.load(path)['candidates']
+    assert stored['hold'] == 'CURRENCY_UNKNOWN' and stored['currency'] is None
+    assert stored['total_jpy'] is None and stored['amount_krw'] is None
+    assert rr.load(path)['holds'] == []

@@ -92,15 +92,19 @@ def _native_total(stored: dict):
     return stored.get('total_original') if stored.get('currency', 'JPY') == 'KRW' else stored['total_jpy']
 
 
-def _validate_values(merchant, date, total) -> None:
-    if not isinstance(merchant, str) or not merchant.strip():
-        raise ValueError("FIELD_MISSING")
+def _validate_date(date) -> None:
     if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise ValueError("DATE_INVALID")
     try:
         dt.date.fromisoformat(date)
     except ValueError:
         raise ValueError("DATE_INVALID") from None
+
+
+def _validate_values(merchant, date, total) -> None:
+    if not isinstance(merchant, str) or not merchant.strip():
+        raise ValueError("FIELD_MISSING")
+    _validate_date(date)
     if type(total) is not int or total <= 0:
         raise ValueError("TOTAL_UNCLEAR")
 
@@ -135,10 +139,14 @@ def load(path: Path) -> dict:
         raise ReceiptStoreError('RECEIPT_STORE_UNAVAILABLE')
     required = {'identity', 'date', 'merchant', 'total_jpy', 'payment', 'amount_krw', 'history'}
     for candidate in data['candidates']:
+        # A field-incomplete reading may lack its currency or total until a person supplies them.
+        partial = isinstance(candidate, dict) and candidate.get('hold') in FIELD_HOLDS
+        currency = candidate.get('currency', 'JPY') if isinstance(candidate, dict) else None
+        total = _native_total(candidate) if isinstance(candidate, dict) and 'total_jpy' in candidate else None
         if (not isinstance(candidate, dict) or not required <= candidate.keys()
                 or any(not isinstance(candidate[key], str) for key in ('identity', 'date', 'merchant', 'payment'))
-                or candidate.get('currency', 'JPY') not in ('JPY', 'KRW')
-                or type(_native_total(candidate)) is not int
+                or (currency not in ('JPY', 'KRW') and not (partial and currency is None))
+                or (type(total) is not int and not (partial and total is None))
                 or (candidate.get('currency', 'JPY') == 'KRW' and candidate['total_jpy'] is not None)
                 or (candidate['amount_krw'] is not None and type(candidate['amount_krw']) is not int)
                 or not isinstance(candidate['history'], list)
@@ -292,13 +300,26 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     if payload.get("image") and payload["image"] not in data["images"]:
         raise KeyError("IMAGE_NOT_FOUND")
     for region in regions:
-        if region.confidence >= rc.MIN_CONFIDENCE and region.total is not None:
+        if region.date is not None:
+            _validate_date(region.date)
+        if region.confidence >= rc.MIN_CONFIDENCE and region.total is not None and region.merchant and region.date:
             _validate_values(region.merchant, region.date, region.total)
     known = {c["identity"] for c in data["candidates"]}
     # A card link comes from the server's own rows. Any card_rows the client sent are ignored.
     cards = card_rows(board)
     result = rc.build_candidates(regions, cards, known=known)
     by_identity = {rc._identity(region): region for region in regions}
+    partial = [h for h in result['holds'] if h['reason'] in FIELD_HOLDS]
+    result['holds'] = [h for h in result['holds'] if h['reason'] not in FIELD_HOLDS]
+    for hold in partial:
+        region = by_identity[hold['identity']]
+        if hold['identity'] in known or any(c.identity == hold['identity'] for c in result['candidates']):
+            continue
+        # An unknown currency is kept unknown: nothing is guessed, and the candidate waits for a person.
+        currency = region.currency if region.currency in ('JPY', 'KRW') else None
+        result['candidates'].append(rc.Candidate(
+            hold['identity'], region.date or '', region.merchant or '', region.total if currency == 'JPY' else None,
+            region.payment or '', None, currency=currency, total_original=region.total))
     for hold in result['holds']:
         region = by_identity[hold['identity']]
         hold['region'] = {**region.__dict__, 'box': _box_list(region.box)}
@@ -344,11 +365,32 @@ def _match_card(card_rows_list: list, stored: dict) -> list:
                                                        currency=stored.get('currency', 'JPY'), total=_native_total(stored))]
 
 
+FIELD_HOLDS = ('FIELD_MISSING', 'TOTAL_UNCLEAR', 'PAYMENT_UNKNOWN', 'CURRENCY_UNKNOWN')
+
+
+def _missing_reason(stored: dict) -> str | None:
+    """Why a candidate cannot be confirmed yet. A partial reading stays a candidate until a person fills the gap."""
+    if not (stored.get('merchant') or '').strip() or not stored.get('date'):
+        return 'FIELD_MISSING'
+    if stored.get('currency', 'JPY') not in ('JPY', 'KRW'):
+        return 'CURRENCY_UNKNOWN'
+    total = _native_total(stored)
+    if total is None or total <= 0:
+        return 'TOTAL_UNCLEAR'
+    if stored.get('payment') not in PAYMENTS:
+        return 'PAYMENT_UNKNOWN'
+    return None
+
+
 def _settle(stored: dict, card_rows_list: list) -> None:
     """Re-derives the card link and the priced amount from the stored fields and the server's card rows."""
     if stored.get('card_transaction_id'):
         stored.setdefault('card_evidence_transaction_id', stored['card_transaction_id'])
     stored["hold"] = None
+    missing = _missing_reason(stored)
+    if missing:
+        stored.update(hold=missing, amount_krw=None, card_transaction_id=None)
+        return
     if stored["payment"] == "corporate_card":
         matches = _match_card(card_rows_list, stored)
         stored["card_transaction_id"] = matches[0]["transaction_id"] if len(matches) == 1 else None
@@ -368,13 +410,15 @@ def _settle(stored: dict, card_rows_list: list) -> None:
             stored["amount_krw"] = int(_native_total(stored)) * (1 if stored.get('currency') == 'KRW' else rc.JPY_TO_KRW)
 
 
-def _signature(candidate: dict) -> tuple:
+def _signature(candidate: dict) -> tuple | None:
+    if _missing_reason(candidate) is not None:
+        return None
     return (candidate["date"], candidate["merchant"].strip(), candidate.get('currency', 'JPY'), int(_native_total(candidate)))
 
 
 def _same_physical_receipt(left: dict, right: dict) -> bool:
     """Equal-priced tickets at different positions on one sheet are distinct."""
-    if (_signature(left) != _signature(right)):
+    if _signature(left) is None or _signature(left) != _signature(right):
         return False
     if (left.get("image_sha") and left.get("image_sha") == right.get("image_sha")
             and left.get("source_region") and right.get("source_region")
@@ -459,6 +503,8 @@ def confirm(path: Path, *, identity: str, payee: str, category: str, note: str =
             if _saved_retry(stored, expected_version, 'confirm', {'payee': payee, 'category': category}, note):
                 return stored
             _check_candidate_version(stored, expected_version)
+            if stored.get('hold') in FIELD_HOLDS:
+                raise ValueError(stored['hold'])
             if stored.get('group_id') and (stored.get('payee') != payee.strip()
                     or stored.get('category') != category.strip()):
                 raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
@@ -792,6 +838,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
+        "if(!document.getElementById('r-currency').value){say('통화를 선택해 주세요.');return}"
         "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
@@ -846,12 +893,15 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const previewImg=document.createElement('img');previewImg.src='/api/receipts/image/'+sha;"
         "previewImg.alt='업로드한 원본 영수증 사진';previewImg.style.width='100%';view.append(previewImg);"
         "if(!response.receipts.length){say('인식된 영수증이 없습니다. 사진을 확인하거나 직접 지출을 추가해 주세요.');return}"
+        "const visionOptions={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};"
         "for(const slip of response.receipts){const row=document.createElement('div');row.className='vision-row';"
         "row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';"
         "const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.visionCheck='1';"
         "const label=document.createElement('label');label.append(check,' 등록에 포함');row.append(label);"
-        "for(const field of ['merchant','date','amount','currency','payment']){const input=document.createElement('input');"
-        "input.dataset.visionField=field;input.placeholder=field;input.value=slip[field]??'';"
+        "for(const field of ['merchant','date','amount','currency','payment']){const choices=visionOptions[field];"
+        "const input=document.createElement(choices?'select':'input');input.dataset.visionField=field;"
+        "if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}"
+        "else input.placeholder=field;input.value=slip[field]??'';"
         "input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input);}"
         "items.append(row);}"
         "const submit=document.createElement('button');submit.type='button';submit.id='vision-register';"
@@ -861,6 +911,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,"
         "total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1}});"
         "if(!regions.length){say('등록할 영수증을 하나 이상 선택하세요.');return}"
+        "if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}"
         "save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),"
         "result=>{say('영수증 '+result.added+'건을 등록했습니다. 후보 새로고침을 누르세요.')})};"
         "say('영수증 '+response.receipts.length+'건을 찾았습니다. 금액·날짜를 원본과 비교한 뒤 등록하세요.');"
