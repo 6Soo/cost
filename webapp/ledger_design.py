@@ -532,6 +532,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
    text-overflow:ellipsis;white-space:nowrap}
   .li .t{flex:1 1 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
    white-space:nowrap;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+  .li .mobile-party .t{white-space:normal;overflow:visible;text-overflow:clip}
   .li .a{margin-left:auto;flex:0 0 auto;white-space:nowrap;font-size:15px;font-weight:600}
   .li .tag{flex:0 0 auto}
   .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
