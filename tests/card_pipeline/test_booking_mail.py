@@ -219,3 +219,10 @@ def test_flight_confirmation_gives_its_outbound_and_return_dates_and_is_confirme
     assert fact['period']=={'starts_on':'2026-08-01','ends_on':'2026-08-05'}
     cancelled=message(body,subject='[트립닷컴] 항공권 예약 확정 안내: 서울 - 고마쓰 취소 완료')
     assert extract_mail(cancelled)['reservation_status']=='cancelled'
+
+
+def test_a_hotel_confirmation_mail_is_a_confirmed_booking_and_a_payment_mail_is_not():
+    confirmed=extract_mail(message(hotel(),subject='[예약 확정 안내] 합성 숙소 예약이 확정되었습니다'))
+    assert confirmed['reservation_status']=='confirmed' and confirmed['period']=={'starts_on':'2026-05-22','ends_on':'2026-05-23'}
+    paid=extract_mail(message(hotel(),subject='결제 완료 안내'))
+    assert paid['reservation_status']=='observed'

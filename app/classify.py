@@ -35,6 +35,8 @@ __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
 
 #: A trip the owner picked for one OTA booking. Applied to that booking's card rows only.
 OWNER_BOOKING_ORIGIN = "owner-ota-booking"
+#: Inferences the owner authorized from payment history. They never reach back more than 30 days before a trip.
+OWNER_AUTHORIZED_INFERENCE_ORIGIN = "owner-authorized-inference-20261003"
 #: A trip inferred from a confirmed reservation's stay dates, for one card row. Classified as an inference.
 PERIOD_OTA_ORIGIN = "auto-ota-period"
 
@@ -98,10 +100,13 @@ def classify_transaction(transaction: dict, *, rules: list,
         r['optional']['inferred_assignment']['confidence'],0),r.get('rule_id','')))
     inference=rule['optional']['inferred_assignment']
     target=inference['trip_id']
-    if target and (not trip_resolver or trip_resolver(transaction,{'inferred_trip_id':target})!=target):
+    if target and (not trip_resolver or trip_resolver(transaction,{'inferred_trip_id':target,'origin':rule.get('origin','')})!=target):
         if rule.get('origin') == OWNER_BOOKING_ORIGIN:
             return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                         classification_basis='사용자가 고른 여행의 일정 원본을 다시 확인해야 합니다')
+        if rule.get('origin')==OWNER_AUTHORIZED_INFERENCE_ORIGIN:
+            return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
+                        classification_basis='결제일이 여행 시작보다 30일 넘게 앞서거나 여행을 확인할 수 없어 자동 배정하지 않았습니다. 추천 여행으로만 확인해 주세요')
         return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                     classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
     exception=rule.get('origin')=='owner-country-exception-20261003'

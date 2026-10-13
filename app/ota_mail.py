@@ -317,12 +317,13 @@ def extract_mail(message):
             paid = {int(n.replace(',','')) for n in re.findall(
                 r'(?<![가-힣])금액:\s*₩\s*([0-9][0-9,]*)',text)}
     flight_confirmed = '항공권 예약 확정' in subject
+    confirmation = '확정' in subject
     period = service_period(text) if item=='숙박비' else flight_period(text) if flight_confirmed else None
     digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
                 paid_amount_krw=next(iter(paid)) if len(paid)==1 else None,
                 paid_on=paid_on.isoformat(),period=period,source_sha256=digest,
-                reservation_status='cancelled' if cancelled else 'confirmed' if flight_confirmed else 'observed',
+                reservation_status='cancelled' if cancelled else 'confirmed' if confirmation else 'observed',
                 message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)))
 
 
@@ -555,7 +556,8 @@ def match_mail(directory, transactions, source_key=None):
             if fact['paid_amount_krw'] and fact['paid_amount_krw']>0:
                 receipts[(provider,fact['paid_on'],fact['paid_amount_krw'])].append(
                     dict(fact,item=next(iter(items)),period=period,
-                         reservation_status='cancelled' if cancelled else 'observed',
+                         reservation_status='cancelled' if cancelled else 'confirmed' if any(
+                             f['reservation_status']=='confirmed' for f in group) else 'observed',
                          period_conflict=len(periods)>1,
                          evidence_digests=sorted({f['source_sha256'] for f in group})))
     current=collections.defaultdict(list)
@@ -688,7 +690,8 @@ def lodging_mail_facts(messages):
         digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
         facts.append(dict(provider='agoda' if domain=='agoda.com' else 'booking',booking_ref=next(iter(refs)),
                           period=period,amounts=amounts,paid_on=paid_on,paid=paid,
-                          cancelled=cancelled,source_sha256=digest,evidence_kind=evidence_kind))
+                          cancelled=cancelled,source_sha256=digest,evidence_kind=evidence_kind,
+                          reservation_status='cancelled' if cancelled else 'confirmed' if '확정' in subject else 'observed'))
     return facts
 
 
@@ -742,7 +745,9 @@ def lodging_mail_matches(directory, transactions, *, messages=None, require_acti
                            source_sha256=payment['source_sha256'],evidence_kind=payment['evidence_kind'],
                            evidence_digests=sorted({f['source_sha256'] for f in facts
                                if (f['provider'], f['booking_ref']) == identity}),
-                           reservation_status='cancelled' if inactive else 'observed',
+                           reservation_status='cancelled' if inactive else 'confirmed' if any(
+                               f.get('reservation_status')=='confirmed' for f in facts
+                               if (f['provider'], f['booking_ref']) == identity) else 'observed',
                            period_conflict=conflict,basis=basis))
     return result
 

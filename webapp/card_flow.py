@@ -487,6 +487,15 @@ class CardFlow:
     def tab_valid(self, tab):
         return tab in ('', 'unclassified') or self.trip_valid(tab)
 
+    def _payment_within_lead(self, transaction, trip_id):
+        """A payment no more than 30 days before the trip starts, by the card's use date when it has one."""
+        day=transaction.get('approval_date') or ''
+        trip=next((t for t in self.board.list_trips() if t['tab_id']==trip_id),None)
+        if trip is None or not day or not trip.get('starts_on'):
+            return False
+        from datetime import date, timedelta
+        return date.fromisoformat(day) >= date.fromisoformat(trip['starts_on'])-timedelta(days=30)
+
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
         if isinstance(country,dict):
@@ -498,7 +507,12 @@ class CardFlow:
                 return candidates[0]['tab_id'] if len(candidates) == 1 else ''
             if 'inferred_trip_id' in country:
                 target=country['inferred_trip_id']
-                return target if self.trip_valid(target) else ''
+                if not self.trip_valid(target):
+                    return ''
+                from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+                if country.get('origin')==OWNER_AUTHORIZED_INFERENCE_ORIGIN and not self._payment_within_lead(transaction,target):
+                    return ''
+                return target
             return self.booking_trip(transaction,country)
         if merchant_country(transaction) != country or not transaction.get('approval_date'):
             return ''
@@ -573,7 +587,9 @@ class CardFlow:
                 draft=dict(template,optional=dict(template['optional']),effects=dict(template['effects']))
                 fact=evidence.get(source,{})
                 period=fact.get('period')
-                if period and fact.get('reservation_status')!='cancelled' and not fact.get('period_conflict'):
+                from .ota_catalog import CONFIRMED_STATUSES
+                if (period and fact.get('reservation_status') in CONFIRMED_STATUSES
+                        and not fact.get('period_conflict')):
                     if verified_trips is None:
                         verified_trips=[trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
                     candidates=[trip for trip in verified_trips

@@ -426,3 +426,14 @@ def test_when_two_inferences_agree_on_the_trip_the_higher_confidence_gives_the_b
     result=classify_transaction(row,rules=[inference('낮음','낮은 근거'),inference('높음','높은 근거')],
                                 trip_resolver=flow().retail_trip)
     assert result['trip_id']=='japan' and '추론 배정 · 높음 · 높은 근거' in result['classification_basis']
+
+
+def test_an_owner_inference_is_not_applied_when_the_payment_is_more_than_30_days_before_the_trip():
+    from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    rule=inference_rule(target='future')
+    rule['origin']=OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    early=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-09-01',amount_krw=50000)
+    result=classify_transaction(early,rules=[rule],trip_resolver=flow().retail_trip)
+    assert result['classification_state']=='needs_review' and not result['trip_id']
+    near=dict(early,approval_date='2026-11-25')
+    assert classify_transaction(near,rules=[rule],trip_resolver=flow().retail_trip)['trip_id']=='future'
