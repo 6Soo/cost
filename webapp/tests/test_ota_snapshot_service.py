@@ -105,6 +105,27 @@ class OtaSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(attempts["n"], 3)
         self.assertEqual(svc.view()["status"], "ready")
 
+    def test_repeated_failure_of_the_same_input_backs_off(self):
+        clock = FakeClock()
+        attempts = {"n": 0}
+
+        def always_fails():
+            attempts["n"] += 1
+            raise RuntimeError("source read failed")
+
+        svc, _, state = service([], reconcile=always_fails, clock=clock)
+        state["key"] = "k1"
+        svc.check_now()
+        clock.now += 61
+        svc.check_now()
+        self.assertEqual(attempts["n"], 2)
+        clock.now += 61
+        svc.check_now()
+        self.assertEqual(attempts["n"], 2)
+        clock.now += 60
+        svc.check_now()
+        self.assertEqual(attempts["n"], 3)
+
     def test_stale_when_the_worker_stops_checking(self):
         clock = FakeClock()
         svc, _, _ = service(["k1", "k1"], clock=clock, fresh_seconds=150)

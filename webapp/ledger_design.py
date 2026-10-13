@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import ledger_board as board
-from . import ui_icons
+from . import read_scope, ui_icons
 
 FONT_DIR = Path(__file__).resolve().parent / "static" / "fonts"
 OTA_DIR = Path(__file__).resolve().parent / "static" / "ota"
@@ -2102,6 +2102,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     return incomes, expenses, whole_income, whole_expense
 
 
+@read_scope.scoped
 def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          error: str = "", message: str = "", archived: str = "",
          draft: dict = None, back: str = "") -> str:

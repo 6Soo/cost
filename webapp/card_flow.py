@@ -6,9 +6,24 @@ import threading
 from pathlib import Path
 from urllib.parse import unquote
 
+from . import read_scope
+
 
 _OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고다', 'BOOKING', '부킹닷컴')
 _OTA_REPORT_LOCK = threading.Lock()
+_AUTHORITY_CACHE = {}
+
+
+def _trip_authority(path):
+    """The trip authority records, parsed again only when the file's bytes change."""
+    from ledger.domain.direct_trip_schedule_authority import load_document, sha256_bytes
+    digest = sha256_bytes(path.read_bytes())
+    cached = _AUTHORITY_CACHE.get(str(path))
+    if cached is not None and cached[0] == digest:
+        return cached[1], digest
+    records, parsed_digest = load_document(path)
+    _AUTHORITY_CACHE[str(path)] = (parsed_digest, records)
+    return records, parsed_digest
 
 
 def _is_ota_row(row):
@@ -248,6 +263,7 @@ def batch_catalog(board):
                  **batch_display_info((r[4] or '').split(','), r[5], r[6])) for r in rows]
 
 
+@read_scope.scoped
 def home_page(board):
     from . import ledger_board, ledger_design, ui_icons
     from app import ledger as ledger_preview
@@ -412,7 +428,7 @@ class CardFlow:
         trip = self.board.get_trip(trip_id)
         if not trip or trip['deleted'] or trip['archived']:
             return False
-        records, _ = load_document(Path(path))
+        records, _ = _trip_authority(Path(path))
         matches = [r for r in records if r.trip_code == trip['display_key']]
         if len(matches)!=1:
             return False

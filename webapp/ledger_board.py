@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import ui_icons
+from . import read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -81,7 +81,8 @@ def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
         lock = getattr(self.server, "store_lock", None)
-        if lock is None:
+        # The liveness probe reads no store, so it must not queue behind a slow page.
+        if lock is None or urlparse(self.path).path == "/healthz":
             return method(self, *args, **kwargs)
         with lock:
             if getattr(self.server, 'runtime_closing', False):
@@ -830,6 +831,11 @@ def _persisted_rows(kind: str):
     come from `list_tab_rows`, which also returns the allocation projections and
     the split remainders, so a store that has only allocations still shows them.
     """
+    rows = read_scope.remember(("persisted_rows", kind), lambda: _load_persisted_rows(kind))
+    return [dict(r) for r in rows]
+
+
+def _load_persisted_rows(kind: str):
     out = []
     for tab in _all_tab_ids() + [None]:
         for saved in _active_store().list_tab_rows(tab):
