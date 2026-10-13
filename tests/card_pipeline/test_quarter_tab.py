@@ -46,7 +46,7 @@ def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_confirmed_onc
     result = quarter_tab.confirm_tab(store, 'quarter:2026:3')
     assert result == {'tab': 'quarter:2026:3', 'booked': 1, 'skipped': 0}
     assert store.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
-    assert store.conn.execute("SELECT user_confirmed FROM transactions WHERE transaction_id='b'").fetchone()[0] == 1
+    assert store.conn.execute("SELECT user_confirmed FROM transactions WHERE transaction_id='b'").fetchone()[0] == 0
 
     again = quarter_tab.confirm_tab(store, 'quarter:2026:3')
     assert again['booked'] == 0

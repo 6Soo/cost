@@ -1,7 +1,7 @@
 """분기 기타비용 탭: 여행 탭처럼 열고, 분기 단위로 한 번에 확정한다.
 
 탭 식별자는 `quarter:<연도>:<분기>`다. 거래는 이 탭에 배정된 뒤 확정하면 장부 기록(ledger_entries)이
-되고, 확정 상태는 기존 거래 행의 user_confirmed로 남는다. 확정은 한 트랜잭션에서 처리하고, 이미 기록된
+되고, 기록 여부는 장부 기록 자체로 판단한다(user_confirmed 플래그는 쓰지 않는다). 한 트랜잭션에서 처리하고, 이미 기록된
 거래는 건너뛴다. 되돌릴 때는 기록을 지우지 않고 역분개 기록을 추가한다.
 """
 import re
@@ -39,7 +39,8 @@ def pending_rows(conn, tab: str, batch_id: str | None = None) -> list[dict]:
         rows = conn.execute(
             "SELECT transaction_id, batch_id, source_hash, merchant, approval_date, posting_date, amount_krw, "
             "transaction_direction, card_tail FROM transactions "
-            "WHERE item=? AND display_tab_id=? AND user_confirmed=0 AND COALESCE(duplicate_of,'')=''" + scope +
+            "WHERE item=? AND display_tab_id=? AND COALESCE(duplicate_of,'')=''"
+            " AND NOT EXISTS (SELECT 1 FROM ledger_entries l WHERE l.transaction_id=transactions.transaction_id)" + scope +
             " ORDER BY COALESCE(NULLIF(approval_date,''),posting_date), transaction_id", args).fetchall()
     except sqlite3.OperationalError:
         return []  # no card tables yet: nothing is waiting on any quarter tab
@@ -72,7 +73,7 @@ def book_batch(store, batch_id: str) -> int:
     if not auto_record_policy.batch_is_new(store.conn, batch_id):
         return 0
     tabs = [r[0] for r in store.conn.execute(
-        "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? AND user_confirmed=0 "
+        "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? "
         "AND display_tab_id LIKE 'quarter:%' AND transaction_id IN "
         "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)", (ITEM, batch_id)).fetchall()]
     return sum(confirm_tab(store, tab, batch_id=batch_id)['booked'] for tab in tabs if parse_tab(tab))
@@ -104,9 +105,6 @@ def confirm_tab(store, tab: str, batch_id: str | None = None) -> dict:
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (transaction_id, row['batch_id'], ITEM, f'{tab} 기타비용', tab, '', amount,
                      row['merchant'] or '', day, 'purchase', row['source_hash'], now))
-                store.conn.execute(
-                    "UPDATE transactions SET user_confirmed=1, classification_state='confirmed' "
-                    "WHERE transaction_id=?", (transaction_id,))
                 store.log_change('quarter.booked', transaction_id, {'tab': tab, 'amount_krw': amount})
                 booked.append(transaction_id)
             store.conn.execute('COMMIT')
