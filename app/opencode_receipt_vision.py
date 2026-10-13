@@ -12,8 +12,16 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 
 MODEL = 'opencode/muse-spark-1.3-contributor-free'
+SPACE_BUNNY = 'opencode/space-bunny-free'
+INKLING = 'openrouter/thinkingmachines/inkling:free'
+MODEL_LABELS = {MODEL: 'Muse', SPACE_BUNNY: 'Space Bunny', INKLING: 'Inkling Free'}
+# Waiting time before a model that hit a limit or an outage is tried again, in seconds.
+COOLDOWN = {'VISION_RATE_LIMITED': 300, 'VISION_PROVIDER_UNAVAILABLE': 60, 'VISION_EXECUTION_FAILED': 60}
+NETWORK_WORDS = ('fetch failed', 'econnreset', 'etimedout', 'econnrefused', 'socket', 'overloaded', 'unavailable', 'timed out')
 MAX_BYTES = 5 * 1024 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 120
@@ -33,8 +41,9 @@ Do not create entries from advertisements or blank areas. Do not combine tickets
 
 
 class VisionUnavailable(Exception):
-    def __init__(self, code):
+    def __init__(self, code, retry_after=None):
         self.code = code
+        self.retry_after = retry_after
         super().__init__(code)
 
 
@@ -50,6 +59,24 @@ def _image_extension(data):
     raise VisionUnavailable('VISION_IMAGE_REQUIRED')
 
 
+def _provider_error(event):
+    """Names the provider failure. Only a limit, an outage or a network fault may move on to another model."""
+    error = event.get('error') if isinstance(event.get('error'), dict) else {}
+    data = error.get('data') if isinstance(error.get('data'), dict) else {}
+    status = data.get('statusCode')
+    message = str(data.get('message') or error.get('name') or '').lower()
+    if status in (401, 403):
+        # An authorisation or policy refusal is never routed around.
+        raise VisionUnavailable('VISION_PROVIDER_ERROR')
+    headers = data.get('responseHeaders') if isinstance(data.get('responseHeaders'), dict) else {}
+    retry = str(headers.get('retry-after') or '').strip()
+    if status == 429 or any(word in message for word in ('rate limit', 'usage limit', 'quota')):
+        raise VisionUnavailable('VISION_RATE_LIMITED', int(retry) if retry.isdigit() else None)
+    if status in (500, 502, 503, 504) or any(word in message for word in NETWORK_WORDS):
+        raise VisionUnavailable('VISION_PROVIDER_UNAVAILABLE')
+    raise VisionUnavailable('VISION_PROVIDER_ERROR')
+
+
 def parse_events(raw):
     if len(raw) > MAX_OUTPUT_BYTES:
         raise VisionUnavailable('VISION_RESPONSE_TOO_LARGE')
@@ -63,7 +90,7 @@ def parse_events(raw):
             if not isinstance(event, dict):
                 raise ValueError()
             if event.get('type') == 'error':
-                raise VisionUnavailable('VISION_PROVIDER_ERROR')
+                _provider_error(event)
             if event.get('type') == 'text':
                 part = event.get('part')
                 if (isinstance(part, dict) and part.get('type') == 'text'
@@ -152,7 +179,7 @@ def _valid_amount(value):
     return None
 
 
-def validate_response(result, *, image_hash):
+def validate_response(result, *, image_hash, model=MODEL):
     """Each entry stands alone: a field that is not clear becomes null on that entry, the other entries are kept."""
     if 'receipts' not in result and 'documents' in result:
         result = dict(result, receipts=result['documents'])
@@ -182,7 +209,7 @@ def validate_response(result, *, image_hash):
                      'currency': currency, 'payment': payment,
                      'category_hint': _string(item['category_hint'], 60),
                      'note': _string(item['note'], 240), 'requires_review': True})
-    return {'receipts': rows, 'source_sha256': image_hash, 'model': MODEL,
+    return {'receipts': rows, 'source_sha256': image_hash, 'model': model,
             'confirmed': False, 'trip_inferred': False}
 
 
@@ -223,7 +250,7 @@ def _opencode_executable():
     return None
 
 
-def recognize(image, *, runner=None, guidance=None):
+def recognize(image, *, runner=None, guidance=None, model=MODEL):
     """No direct model API, no paid fallback, no model-accessible tools. guidance is plain text added to the prompt."""
     if not enabled():
         raise VisionUnavailable('VISION_DISABLED')
@@ -243,7 +270,7 @@ def recognize(image, *, runner=None, guidance=None):
         # nothing is approved and nothing runs. 'deny' for every tool made the free tier answer 403.
         config = {'$schema':'https://opencode.ai/config.json',
                   'agent':{'receipt-readonly':{'description':'Receipt reading, tools need approval',
-                     'mode':'primary','model':MODEL,'prompt':AGENT_INSTRUCTION,'permission':{'*':'ask'}}},
+                     'mode':'primary','model':model,'prompt':AGENT_INSTRUCTION,'permission':{'*':'ask'}}},
                   'permission':{'*':'ask'}}
         (root/'opencode.json').write_text(json.dumps(config),encoding='utf-8')
         # An isolated configuration directory: the user's global OpenCode config, its MCP servers
@@ -254,7 +281,7 @@ def recognize(image, *, runner=None, guidance=None):
         environment = dict(os.environ, XDG_CONFIG_HOME=str(isolated))
         # --file is an array option: it must not sit directly before the prompt, or the prompt
         # is read as a second file. --pure keeps external plugins and MCP servers out of the call.
-        command = [executable,'run','--pure','--model',MODEL,'--agent','receipt-readonly',
+        command = [executable,'run','--pure','--model',model,'--agent','receipt-readonly',
                    '--title','COST receipt reading (free)',
                    '--format','json',f'--file={attachment}','--',PROMPT if not guidance else PROMPT + '\n' + guidance]
         try:
@@ -262,6 +289,68 @@ def recognize(image, *, runner=None, guidance=None):
         except (OSError,subprocess.TimeoutExpired):
             raise VisionUnavailable('VISION_EXECUTION_FAILED') from None
         if proc.returncode:
-            raise VisionUnavailable('VISION_PROVIDER_ERROR')
+            parse_events(proc.stdout)  # raises the named provider error when the output carries one
+            raise VisionUnavailable('VISION_PROVIDER_UNAVAILABLE')
         parsed = parse_events(proc.stdout)
-    return validate_response(parsed,image_hash=hashlib.sha256(data).hexdigest())
+    return validate_response(parsed, image_hash=hashlib.sha256(data).hexdigest(), model=model)
+
+
+_COOLING = {}
+_COOL_LOCK = threading.Lock()
+
+
+def inkling_enabled() -> bool:
+    """Inkling sends the photo to OpenRouter. It is used only after the owner approves that and OpenRouter is connected."""
+    if os.environ.get('WEBLEDGER_RECEIPT_INKLING') != 'approved':
+        return False
+    if os.environ.get('OPENROUTER_API_KEY'):
+        return True
+    try:
+        auth = json.loads((Path.home() / '.local' / 'share' / 'opencode' / 'auth.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return isinstance(auth, dict) and 'openrouter' in auth
+
+
+def chain():
+    models = [MODEL, SPACE_BUNNY]
+    if inkling_enabled():
+        models.append(INKLING)
+    return models
+
+
+def _cooling(model, now):
+    with _COOL_LOCK:
+        return _COOLING.get(model, 0) > now
+
+
+def _cool(model, code, retry_after, now):
+    seconds = COOLDOWN[code]
+    if code == 'VISION_RATE_LIMITED' and retry_after:
+        seconds = min(max(int(retry_after), 30), 1800)
+    with _COOL_LOCK:
+        _COOLING[model] = now + seconds
+
+
+def recognize_with_fallback(image, *, runner=None, guidance=None, clock=time.monotonic):
+    """Muse first; a limit or outage moves to the next free model, once per model per request.
+    A normal answer, even an empty one, ends the chain. Anything else is refused, not routed around."""
+    attempts = []
+    for model in chain():
+        now = clock()
+        if _cooling(model, now):
+            attempts.append({'model': model, 'result': 'COOLING'})
+            continue
+        try:
+            result = recognize(image, runner=runner, guidance=guidance, model=model)
+        except VisionUnavailable as error:
+            if error.code not in COOLDOWN:
+                raise
+            _cool(model, error.code, error.retry_after, clock())
+            attempts.append({'model': model, 'result': error.code})
+            continue
+        attempts.append({'model': model, 'result': 'OK'})
+        result['label'] = MODEL_LABELS.get(model, model)
+        result['attempts'] = attempts
+        return result
+    raise VisionUnavailable('VISION_ALL_MODELS_UNAVAILABLE')

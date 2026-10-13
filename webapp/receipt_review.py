@@ -286,9 +286,7 @@ def reading_key(values: dict) -> str:
 
 
 def _recognizer(guidance):
-    if not guidance:
-        return opencode_receipt_vision.recognize
-    return lambda image_path: opencode_receipt_vision.recognize(image_path, guidance=guidance)
+    return lambda image_path: opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance)
 
 
 def _known_line(candidate: dict) -> str:
@@ -879,7 +877,7 @@ const learnLabel=type=>learnLabels[type]||type;
 const renderLearning=async()=>{const list=document.getElementById('learn-list');if(!list)return;const body=await fetch('/api/receipts/learn',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);list.replaceChildren();const note=text=>{const li=document.createElement('li');li.textContent=text;list.append(li)};if(!body.enabled){note('학습 파일 위치가 설정되지 않아 메모를 저장하지 않습니다.');return}if(!body.records.length){note('저장된 학습 메모가 없습니다.');return}for(const record of body.records){const li=document.createElement('li');const state=record.status==='active'?'적용 중':record.status==='disabled'?'사용 중지':record.status==='merged'?'같은 규칙이 이미 적용 중':'메모만 저장';li.textContent=learnLabel(record.type)+' · '+state+' · '+(record.note||'(메모 없음)')+(record.applied?' · 분석에 '+record.applied+'회 참고':'');for(const [action,text] of [['disable','사용 중지'],['enable','다시 사용'],['delete','삭제']]){if(action==='disable'&&record.status!=='active')continue;if(action==='enable'&&record.status!=='disabled')continue;const button=document.createElement('button');button.type='button';button.textContent=text;button.onclick=()=>save(()=>post('/api/receipts/learn/status',{id:record.id,action}),()=>renderLearning().catch(()=>{}));li.append(' ',button)}list.append(li)}};
 const learnGo=document.getElementById('learn-go');
 if(learnGo)learnGo.onclick=()=>{if(!document.getElementById('learn-confirm').checked){say('규칙 내용을 확인했다는 표시를 먼저 해 주세요.');return}const scope=document.querySelector('input[name=learn-scope]:checked').value;save(()=>post('/api/receipts/learn',{confirm:true,note_type:document.getElementById('learn-type').value,scope,note:document.getElementById('learn-note').value}),result=>{say(result.status==='duplicate'?'이미 같은 메모가 저장되어 있습니다.':'학습 메모를 저장했습니다. 다음 분석부터 참고합니다.');document.getElementById('learn-note').value='';document.getElementById('learn-confirm').checked=false;renderLearning().catch(()=>{})})};
-const jobDone=async job=>{const started=Date.now();let state=job;while(state.status==='queued'||state.status==='running'){if(Date.now()-started>150000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');say('Muse가 빠진 영수증을 찾고 있습니다. '+Math.round((Date.now()-started)/1000)+'초 경과');await new Promise(r=>setTimeout(r,2000));state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse)}return state};
+const jobDone=async job=>{const started=Date.now();let state=job;while(state.status==='queued'||state.status==='running'){if(Date.now()-started>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');say('Muse가 빠진 영수증을 찾고 있습니다. '+Math.round((Date.now()-started)/1000)+'초 경과');await new Promise(r=>setTimeout(r,2000));state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse)}return state};
 const renderNew=(out,receipts,sha)=>{if(!receipts.length)return;const box=document.createElement('div');for(const item of receipts){const row=document.createElement('div');row.className='rescan-row';row.dataset.reading=item.reading;row.dataset.ordinal=String(item.ordinal);row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.rescanCheck='1';const label=document.createElement('label');label.append(check,' 새 영수증으로 등록');row.append(label);for(const field of ['merchant','date','amount','currency','payment']){const choices=rescanChoices[field];const input=document.createElement(choices?'select':'input');input.dataset.rescanField=field;if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}else input.placeholder=field;input.value=item[field]??'';input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input)}box.append(row)}const submit=document.createElement('button');submit.type='button';submit.id='rescan-register';submit.textContent='선택한 새 영수증 등록';box.append(submit);submit.onclick=()=>{const regions=[...box.querySelectorAll('.rescan-row')].filter(r=>r.querySelector('[data-rescan-check]').checked).map(r=>{const v=f=>r.querySelector('[data-rescan-field='+f+']').value.trim();return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1,ordinal:Number(r.dataset.ordinal),reading:r.dataset.reading}});if(!regions.length){say('등록할 새 영수증을 선택하세요.');return}if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),result=>{say('새 영수증 '+result.added+'건을 등록했습니다. 후보 새로고침을 누르세요.')})};out.append(box)};
 const rescanGo=document.getElementById('rescan-go');
 if(rescanGo)rescanGo.onclick=async()=>{if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 선택해 주세요.');return}if(!selectedTrip.value){say('여행을 먼저 선택해 주세요.');return}receiptBusy=true;const restore=lockControls();const out=document.getElementById('rescan-results');out.replaceChildren();try{const count=document.getElementById('rescan-count').value;const hint=document.getElementById('rescan-hint').value.trim();let state=await post('/api/receipts/vision/rescan',{image:sha,expected_count:count?Number(count):undefined,hint:hint||undefined});state=await jobDone(state);if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':'다시 찾기에 실패했습니다. 직접 추가해 주세요.');const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});renderNew(out,found.new,sha);say(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인 후 등록하세요.':'새로 찾은 영수증이 없습니다. 필요하면 직접 추가하세요.')}catch(error){say(error.message||'다시 찾기에 실패했습니다.')}finally{restore();receiptBusy=false}};
@@ -1011,14 +1009,14 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "receiptBusy=true;const restore=lockControls();say('Muse가 영수증 영역과 금액을 인식하고 있습니다.');"
         "try{let state=await post('/api/receipts/vision',{image:sha});const t0=Date.now();"
         "while(state.status==='queued'||state.status==='running'){"
-        "say('Muse가 영수증 영역과 금액을 인식하고 있습니다. '+Math.round((Date.now()-t0)/1000)+'초 경과');"
-        "if(Date.now()-t0>150000)throw new Error('인식 시간이 길어지고 있어요. 다시 분석하거나 수동으로 입력하세요.');"
+        "say('Muse로 분석 중입니다. '+Math.round((Date.now()-t0)/1000)+'초 경과');"
+        "if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있어요. 다시 분석하거나 수동으로 입력하세요.');"
         "await new Promise(r=>setTimeout(r,2000));"
         "const poll=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}});"
         "const body=await poll.json();"
         "if(!poll.ok)throw new Error(body.message||'분석 기록을 확인하지 못했습니다. 다시 분석해 주세요.');"
         "state=body;}"
-        "if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':'Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요.');"
+        "if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요.');"
         "const response=state.result;"
         "const view=document.getElementById('vision-preview');const items=document.getElementById('vision-results');"
         "view.replaceChildren();items.replaceChildren();"
@@ -1046,7 +1044,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}"
         "save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),"
         "result=>{say('영수증 '+result.added+'건을 등록했습니다. 후보 새로고침을 누르세요.')})};"
-        "say('영수증 '+response.receipts.length+'건을 찾았습니다. 금액·날짜를 원본과 비교한 뒤 등록하세요.');"
+        "say((response.label&&response.label!=='Muse'?'Muse 사용이 제한되어 '+response.label+'로 분석했습니다. ':'')+'영수증 '+response.receipts.length+'건을 찾았습니다. 금액·날짜를 원본과 비교한 뒤 등록하세요.');"
         "}catch(error){say(error.message||'Muse 인식이 실패했습니다. 수동으로 입력하세요.');}"
         "finally{restore();receiptBusy=false}};"
         "const visionFinish=document.getElementById('vision-finish');"
