@@ -1869,12 +1869,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<p><a href='/trips?preview_tab={esc(t['tab_id'])}'>삭제 미리보기</a></p>"
             "</div>"
         )
-    # APP_SPEC 3: the `새 탭 추가` screen takes 날짜 and 행선지 and makes a new
-    # internal tab_id. It is an owner action, so the form is not rendered for a
-    # viewer at all (SPEC 15.3 returns the fields a viewer needs rather than
-    # hiding fields inside an owner response), and the endpoint refuses the
-    # write itself.
-    create_html = ""
     profile_html = ""
     if role == "owner":
         # The owner's own company name and default assignee. Owner-only, because
@@ -1896,40 +1890,6 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             "값을 비워 두면 새 여행의 담당자는 비어 있고, 그때는 아래에서 직접 입력해 주세요."
             "</p>"
             f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></div>")
-        assignee_hint = (
-            ""
-            if profile["assignee_name"]
-            else "<p class='muted warntext'>기본 담당자명이 아직 없어요. "
-                 "이 여행의 담당자는 비어 저장돼요. 출처 정보를 먼저 입력하거나,"
-                 " 만들어진 뒤 여행 정보에서 담당자를 입력해 주세요.</p>")
-        create_html = (
-            "<div class='card'><h3>새 탭 추가</h3>"
-            "<form method='post' action='/api/tabs' id='new-trip-form'>"
-            f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
-            f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-            "<input type='hidden' name='return_to' value='/trips'>"
-            f"{assignee_hint}"
-            "<p><label>날짜</label>"
-            "<input name='starts_on' placeholder='YYYY-MM-DD' required></p>"
-            "<p><label>행선지</label>"
-            "<input name='destination' required></p>"
-            "<p><label>종료일</label>"
-            "<input name='ends_on' placeholder='YYYY-MM-DD'></p>"
-            # 4.2 lists 탭 종류 and 일정 근거 as part of this dialog.
-            "<p><label>탭 종류</label><select name='tab_kind'>"
-            "<option value='trip'>여행</option>"
-            "<option value='overhead'>기타비용</option>"
-            "<option value='closing'>종결</option>"
-            "<option value='other'>그 외</option></select></p>"
-            "<p><label>일정 근거 해시</label>"
-            "<input name='source_sha256' placeholder='권위 일정 원천의 sha256 (64자, 없으면 비움)'></p>"
-            "<p class='muted'>같은 날짜와 행선지의 여행이 이미 있으면 그 여행을 "
-            "보여 줍니다. 두 여행을 합칠지는 자동으로 결정하지 않습니다. "
-            "일정 근거가 없는 탭은 자동 확정하지 않고 검토 필요로 남기며, "
-            "화면에서 탭을 만든다고 권위 일정이 권위가 있는 것으로 바뀌지 않습니다."
-            "</p>"
-            f"<button type='submit'>{ui_icons.icon('pencil')}여행 추가</button></form></div>"
-        )
     preview_html = ""
     if preview_tab:
         try:
@@ -1962,7 +1922,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             )
         except Exception as exc:
             preview_html = f"<div class='card'><p>미리보기 실패: {esc(str(exc))}</p></div>"
-    body = (f"<div class='sect'><h2>여행 관리</h2>{profile_html}{create_html}{preview_html}"
+    body = (f"<div class='sect'><h2>여행 관리</h2>{profile_html}{preview_html}"
             f"{''.join(cards)}</div>")
     return ledger_design.render(ledger_design.shell(
         "여행 관리", tab_id="", heading="여행 관리", body=body))
@@ -4367,17 +4327,6 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "income" and parts[3] == "link-bank":
                 self._handle_bank_link(parts[2], read_payload, check_csrf)
                 return
-            if len(parts) == 2 and parts[0] == "api" and parts[1] == "tabs":
-                # APP_SPEC 10 names `POST /api/tabs` for tab creation, so that
-                # is the one and only create path. `/api/trips/...` stays the
-                # trip meta and delete family and does not create anything, so
-                # no action answers at two URLs.
-                # The owner boundary is not decided here. `_phase7_write` already
-                # refuses a viewer on any write and asks a session-less caller to
-                # log in again before this body is read, so this path answers
-                # under the same rule as the tab paths that exist.
-                self._handle_trip_create(read_payload, check_csrf, content_type)
-                return
             if len(parts) == 2 and parts[0] == "api" and parts[1] == "owner-profile":
                 # The owner boundary is not decided here: `_phase7_write` has
                 # already refused a viewer on any write, exactly as it does for
@@ -5408,40 +5357,6 @@ class Handler(BaseHTTPRequestHandler):
             "conflict_rows": sum(1 for r in unclassified if row_has_conflict(r)),
         })
         self._send_json({"tabs": out, "count": len(out)}, code=200)
-
-    def _handle_trip_create(self, read_payload, check_csrf, content_type) -> None:
-        from .ledger_store import SaveError
-
-        try:
-            payload = read_payload()
-            check_csrf(payload)
-            if _active_store() is None:
-                self._send_json(
-                    {"code": "STORE_UNBOUND", "message": "저장소가 연결되지 않았어요"},
-                    code=503)
-                return
-            result = _active_store().create_trip(
-                starts_on=str(payload.get("starts_on") or ""),
-                destination=str(payload.get("destination") or ""),
-                ends_on=str(payload.get("ends_on") or ""),
-                display_key=(payload.get("display_key")
-                             if "display_key" in payload else None),
-                tab_kind=str(payload.get("tab_kind") or "trip"),
-                source_sha256=str(payload.get("source_sha256") or ""),
-                client_request_id=str(payload.get("client_request_id") or ""),
-                actor="owner",
-            )
-        except SaveError as exc:
-            self._send_json({"code": exc.code, "message": str(exc)},
-                            code=STATUS_FOR_CODE.get(exc.code, 422))
-            return
-        if "application/json" in content_type:
-            self._send_json(result, code=200)
-        else:
-            back = str(payload.get("return_to") or "") or "/trips"
-            self.send_response(303)
-            self.send_header("Location", back)
-            self.end_headers()
 
     def _handle_trip_delete(self, tab_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError

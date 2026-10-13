@@ -1128,18 +1128,11 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                                 None, tab_id == tab))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
-    # so it is not drawn for a viewer at all rather than drawn and refused.
     if board.current_role() == "owner":
-        sections.append((
-            "<h2 class='nav-sec'>여행 추가</h2>",
-            "<ul class='nav-list' id='new-trip'>"
-            "<li><a class='nv nv-add' id='add-trip' href='/trips#new-trip-form'>"
-            "<span class='nm'>+ 탭 추가</span></a></li></ul>"))
-    # 분류대기 is the unassigned bucket. A viewer is never assigned it, so the
-    # control is not drawn for a viewer rather than drawn and refused. Its count
-    # is every unassigned row in the whole ledger, which is not the viewer's data.
-    # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
+        # 분류대기 is the unassigned bucket. A viewer is never assigned it, so the
+        # control is not drawn for a viewer rather than drawn and refused. Its count
+        # is every unassigned row in the whole ledger, which is not the viewer's data.
+        # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
         sections.append(("<h2 class='nav-sec'>미배정 지출</h2>",
                          "<ul class='nav-list'>" + entry(
                              "미배정 지출",

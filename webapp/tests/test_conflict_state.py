@@ -6,8 +6,8 @@ APP_SPEC 8 asks the export dialog for its row count. A refused save therefore
 leaves an append-only note in the existing change ledger, and nothing about the
 row's values, revision or totals changes.
 
-The tab paths follow APP_SPEC 10: `POST /api/tabs` is the one and only create
-path, so no action answers at two URLs.
+The tab paths follow APP_SPEC 10. Trips come only from the Google spreadsheet
+tabs, so no HTTP route creates a trip.
 
 Synthetic rows and synthetic accounts only. No real Google OIDC, no reservation
 API, no customer data and no outbound network call is in this file.
@@ -255,14 +255,13 @@ class CanonicalTabPathTests(_Server, unittest.TestCase):
             "SELECT COUNT(*) FROM trip_tabs WHERE destination=?",
             (destination,)).fetchone()[0]
 
-    def test_post_api_tabs_is_the_create_path_named_by_the_spec(self):
+    def test_post_api_tabs_does_not_create_a_trip(self):
         status, result = self._json(
             "/api/tabs",
             {"starts_on": "2026-11-03", "destination": "오사카",
-             "ends_on": "2026-11-07", "client_request_id": "cp-1"}, "POST")
-        self.assertEqual(status, 200)
-        self.assertEqual(result["outcome"], "created")
-        self.assertEqual(self._trip_count("오사카"), 1)
+             "ends_on": "2026-11-07", "client_request_id": "cp-0"}, "POST")
+        self.assertEqual(status, 404)
+        self.assertEqual(self._trip_count("오사카"), 0)
 
     def test_post_api_trips_does_not_create_so_no_action_has_two_urls(self):
         status, result = self._json(
@@ -283,11 +282,11 @@ class CanonicalTabPathTests(_Server, unittest.TestCase):
         self.assertEqual(
             self.store.get_trip(TAB)["display_key"], "이름 바꿈")
 
-    def test_the_new_trip_form_posts_to_the_canonical_path(self):
+    def test_the_trips_screen_offers_no_create_form(self):
         status, page = self._open("/trips")
         self.assertEqual(status, 200)
-        self.assertIn("action='/api/tabs'", page)
-        self.assertNotIn("action='/api/trips'", page)
+        self.assertNotIn("action='/api/tabs'", page)
+        self.assertNotIn("새 탭 추가", page)
 
     def test_the_rows_listing_answers_for_a_tab_that_does_not_exist(self):
         status, result = self._json("/api/tabs/no-such-tab/rows")
@@ -310,37 +309,6 @@ class ConflictAccessTests(_Server, unittest.TestCase):
 
     def tearDown(self):
         self._shutdown()
-
-    def test_a_viewer_cannot_create_a_tab_on_the_canonical_path(self):
-        status, result = self._json(
-            "/api/tabs",
-            {"starts_on": "2026-11-03", "destination": "오사카",
-             "client_request_id": "ca-1"}, "POST", user=VIEWER)
-        self.assertEqual(status, 403)
-        self.assertEqual(result["code"], "ACTION_FORBIDDEN")
-        self.assertEqual(self._trip_count_count("오사카"), 0)
-
-    def _trip_count_count(self, destination):
-        return self.store.conn.execute(
-            "SELECT COUNT(*) FROM trip_tabs WHERE destination=?",
-            (destination,)).fetchone()[0]
-
-    def test_a_caller_without_a_session_is_asked_to_log_in_again(self):
-        status, result = self._json(
-            "/api/tabs",
-            {"starts_on": "2026-11-03", "destination": "오사카",
-             "client_request_id": "ca-2"}, "POST")
-        self.assertEqual(status, 401)
-        self.assertEqual(result["code"], "AUTH_REQUIRED")
-        self.assertEqual(self._trip_count_count("오사카"), 0)
-
-    def test_the_owner_may_create_on_the_canonical_path(self):
-        status, result = self._json(
-            "/api/tabs",
-            {"starts_on": "2026-11-03", "destination": "오사카",
-             "client_request_id": "ca-3"}, "POST", user=OWNER)
-        self.assertEqual(status, 200)
-        self.assertEqual(self._trip_count_count("오사카"), 1)
 
     def test_a_viewer_cannot_save_a_row_so_it_cannot_raise_a_conflict(self):
         status, _ = self._json(

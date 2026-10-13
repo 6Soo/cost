@@ -258,13 +258,11 @@ def build_parser():
     return parser
 
 
-def close_runtime(server, reserve_stop=None):
+def close_runtime(server):
     """Release acquired resources on both failed startup and normal exit."""
     from webapp import ledger_board, ota_payment_review
 
     actions = []
-    if reserve_stop is not None:
-        actions.append(reserve_stop.set)
     worker = getattr(server, 'card_worker', None)
     if worker is not None:
         actions.append(lambda: worker.stop(timeout=5))
@@ -346,20 +344,15 @@ def main(argv=None) -> int:
     except Exception:
         print('refused [SERVER_START]: 서버 초기화에 실패했습니다.', file=sys.stderr)
         return 2
-    reserve_stop = None
     try:
         bind_runtime_access(server)
         oidc = connect_runtime_oidc(server, args)
-        if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1':
-            from app.reserve_trips import start_sync
-            reserve_stop = start_sync(server.card_store, os.environ['WEBLEDGER_TRIP_AUTHORITY'],
-                config.db_path.parent / 'evidence')
     except ops.OpsError as exc:
-        close_runtime(server, reserve_stop)
+        close_runtime(server)
         print(f"refused [{exc.code}]: {exc.message}", file=sys.stderr)
         return 2
     except Exception:
-        close_runtime(server, reserve_stop)
+        close_runtime(server)
         print('refused [STARTUP]: 실행 초기화에 실패했습니다.', file=sys.stderr)
         return 2
     print(f"serving fixed candidate on http://{args.host}:{port}")
@@ -384,7 +377,7 @@ def main(argv=None) -> int:
         pass
     finally:
         server.shutdown()
-        close_runtime(server, reserve_stop)
+        close_runtime(server)
     return 0
 
 

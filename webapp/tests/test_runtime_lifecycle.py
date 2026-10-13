@@ -14,13 +14,11 @@ from webapp import ledger_board, ota_payment_review
     ('access', run_candidate.ops.OpsError('ACCESS', 'synthetic refusal')),
     ('oidc', run_candidate.ops.OpsError('OIDC', 'synthetic refusal')),
     ('oidc', RuntimeError('SYNTHETIC-PRIVATE-TOKEN')),
-    ('reserve', RuntimeError('SYNTHETIC-PRIVATE-TOKEN')),
 ])
 def test_failed_start_releases_resources_and_hides_unexpected_errors(tmp_path, monkeypatch, capsys, stage, error):
     created = []
     serve = ledger_board.serve
     previous = ledger_board._STORE
-    monkeypatch.delenv('WEBLEDGER_RESERVE_TRIP_SYNC', raising=False)
     monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '0')
     monkeypatch.setattr(run_candidate, 'gate_on_readiness', lambda *args, **kwargs: 'synthetic')
 
@@ -31,15 +29,8 @@ def test_failed_start_releases_resources_and_hides_unexpected_errors(tmp_path, m
         return server
 
     monkeypatch.setattr(ledger_board, 'serve', synthetic_server)
-    if stage == 'reserve':
-        from app import reserve_trips
-        monkeypatch.setenv('WEBLEDGER_RESERVE_TRIP_SYNC', '1')
-        monkeypatch.setenv('WEBLEDGER_TRIP_AUTHORITY', str(tmp_path / 'synthetic.json'))
-        monkeypatch.setattr(run_candidate, 'connect_runtime_oidc', lambda *args: None)
-        monkeypatch.setattr(reserve_trips, 'start_sync', Mock(side_effect=error))
-    else:
-        monkeypatch.setattr(run_candidate, 'bind_runtime_access' if stage == 'access' else 'connect_runtime_oidc',
-                            Mock(side_effect=error))
+    monkeypatch.setattr(run_candidate, 'bind_runtime_access' if stage == 'access' else 'connect_runtime_oidc',
+                        Mock(side_effect=error))
     stop_snapshot = Mock()
     monkeypatch.setattr(ota_payment_review, 'shutdown_snapshot_service', stop_snapshot)
     try:
