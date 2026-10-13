@@ -46,7 +46,10 @@ class TestLodgingText:
 
     def test_a_reversed_or_implausibly_long_period_is_unknown(self):
         assert sub(row('a', '숙박비', service_period='2026-10-16~2026-10-14')) == '이용일 확인 필요'
-        assert sub(row('b', '숙박비', service_period='2026-01-01~2026-12-31')) == '이용일 확인 필요'
+        assert sub(row('b', '숙박비', service_period='2026-01-01~2027-06-01')) == '이용일 확인 필요'
+
+    def test_a_long_stay_with_a_clear_period_is_not_an_error(self):
+        assert sub(row('c', '숙박비', service_period='2026-09-01~2026-10-31')) == '09/01 체크인 ~ 10/31 체크아웃'
 
     def test_an_invalid_calendar_date_is_unknown(self):
         assert sub(row('c', '숙박비', service_period='2026-02-30~2026-03-02')) == '이용일 확인 필요'

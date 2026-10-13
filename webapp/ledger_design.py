@@ -1614,7 +1614,8 @@ def _row_party_sub(row) -> str:
 
 
 _STAY_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})\s*~\s*(\d{4}-\d{2}-\d{2})")
-_MAX_STAY_DAYS = 60
+# A sanity bound only: a long stay with a clear period is real. Reversed or invalid dates are unknown.
+_MAX_STAY_DAYS = 366
 
 
 def _stay_text(row) -> str:
@@ -1649,10 +1650,7 @@ def _load_flight_passengers() -> dict:
     store = board._active_store()
     if store is None or not ota_payment_review.enabled():
         return {}
-    current, _fresh = ota_payment_review.snapshot_service(store).held()
-    if current is None:
-        return {}
-    return (current.get("data") or {}).get("passengers") or {}
+    return ota_payment_review.passenger_index_for(store)
 
 
 def _passenger_text(row) -> str:

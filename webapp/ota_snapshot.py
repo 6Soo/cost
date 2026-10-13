@@ -45,7 +45,7 @@ def digest(value):
 class OtaSnapshotService:
     def __init__(self, *, key_fn, reconcile_fn, persist_path=None, log_path=None, clock=time.monotonic,
                  check_seconds=CHECK_SECONDS, fresh_seconds=FRESH_SECONDS, retry_seconds=RETRY_SECONDS,
-                 first_wait_seconds=FIRST_WAIT_SECONDS, start=True):
+                 first_wait_seconds=FIRST_WAIT_SECONDS, start=True, on_published=None):
         self._key_fn = key_fn
         self._reconcile_fn = reconcile_fn
         self._persist_path = Path(persist_path) if persist_path else None
@@ -55,6 +55,7 @@ class OtaSnapshotService:
         self._fresh_seconds = fresh_seconds
         self._retry_seconds = retry_seconds
         self._first_wait = first_wait_seconds
+        self._on_published = on_published
         self._first_ready = threading.Event()
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -195,6 +196,11 @@ class OtaSnapshotService:
             published = self._current
         self._first_ready.set()
         self._persist(published)
+        if self._on_published is not None:
+            try:
+                self._on_published(published)
+            except Exception:
+                pass
 
     # reads
 
@@ -209,11 +215,9 @@ class OtaSnapshotService:
         """What a request sees now. Never computes; `status` tells the screen what it is looking at."""
         self.ensure_started()
         if self._autostart:
-            if self._current is None:
-                self._first_ready.wait(self._first_wait)
-            else:
-                # A cheap digest check, never a reconciliation: a changed input shows up on this view.
-                self.request_check(wait_seconds=self._first_wait)
+            # Never wait here: the request holds the store lock. The worker is woken, and the
+            # screen shows loading or refreshing until the next result is published.
+            self.request_check(wait_seconds=0)
         with self._lock:
             current, fresh, refreshing, error = self._current, self._fresh_locked(), self._refreshing, self._error
             has_data = self._has_data_locked()
@@ -231,6 +235,11 @@ class OtaSnapshotService:
                 "generated_at": current["generated_at"] if current else None,
                 "snapshot_key": current["key"][:12] if current else None,
                 "last_error": error, "fresh": fresh, "current": public or None}
+
+    def checked_key(self):
+        """The input fingerprint the worker last read. Read only; never computes anything."""
+        with self._lock:
+            return self._checked_key
 
     def held(self):
         """(current result or None, is_fresh) for holds that must not grant new authority on stale data."""

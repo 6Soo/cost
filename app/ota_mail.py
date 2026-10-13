@@ -30,7 +30,41 @@ def collection_of(directory):
             if key in collection}
 
 
+_MESSAGES_MEMO = {}
+# id(message) -> (message, body text computed while loading it); the stored message keeps the id valid.
+_BODY_TEXT = {}
+
+
+def message_text(message):
+    """The body text of a loaded message, from the load that produced it, else computed now."""
+    entry = _BODY_TEXT.get(id(message))
+    if entry is not None and entry[0] is message:
+        return entry[1]
+    return body_text(message.get('payload', {}))
+
+
 def load_messages_from(directories):
+    """The mail files read once per content state; callers only read the result.
+
+    Keyed by the content stamps of the files, so a changed or added mail is read
+    again and an unchanged set is never parsed twice in one process.
+    """
+    from app import ota_sources
+    listed = as_directories(directories)
+    key = (tuple(str(Path(d)) for d in listed),
+           json.dumps(ota_sources.mail_stamps(listed), sort_keys=True))
+    if key not in _MESSAGES_MEMO:
+        _MESSAGES_MEMO.clear()
+        _BODY_TEXT.clear()
+        _MESSAGES_MEMO[key] = _load_messages_uncached(directories)
+    return _MESSAGES_MEMO[key]
+
+
+def _core_digest(core):
+    return hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
+def _load_messages_uncached(directories):
     """여러 디렉터리를 함께 읽는다.
 
     같은 ID와 같은 본문·서명 헤더는 한 메일로 합친다. 같은 ID인데 본문이
@@ -56,10 +90,12 @@ def load_messages_from(directories):
                 core = dict(id=identity,internal_date=message.get('internal_date'),
                             headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
                             text=body_text(payload))
-                digest = hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-                if identity in fingerprints and fingerprints[identity] != digest:
-                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-                fingerprints[identity] = digest
+                _BODY_TEXT[id(message)] = (message, core['text'])
+                if identity in fingerprints:
+                    if _core_digest(fingerprints[identity]) != _core_digest(core):
+                        raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+                else:
+                    fingerprints[identity] = core
                 messages[identity] = message
                 entry['messages']+=1
         inventory.append(entry)
@@ -88,11 +124,14 @@ def authenticated_headers(message, domains):
 
 
 def service_period(text):
+    # Without any check-in or check-out wording no date can be read; the scan below would find nothing.
+    if not re.search(r'check|체크', text, re.I):
+        return None
     dates = {}
     for key,label in (('starts_on','체크인'),('ends_on','체크아웃')):
         values = set()
         marker = '(?:'+label+'|'+('check[ -]*in' if key=='starts_on' else 'check[ -]*out')+')'
-        prefix=marker+r'(?:\s*(?:날짜|date))?\s*[:：]?\s*'
+        prefix=marker+r'(?:\s*(?:날짜|date))?\s*(?:[:：]\s*)?'
         for year,month,day in re.findall(prefix+r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',text,re.I):
             try: values.add(datetime.date(int(year),int(month),int(day)).isoformat())
             except ValueError: return None
@@ -198,6 +237,17 @@ def sent_day(message, headers):
         return None
 
 
+_FORMAT_CHARS = None
+
+
+def _format_char_table():
+    """Unicode format characters (category Cf) as a translate table, built once."""
+    global _FORMAT_CHARS
+    if _FORMAT_CHARS is None:
+        _FORMAT_CHARS = {code: None for code in range(0x110000) if unicodedata.category(chr(code)) == 'Cf'}
+    return _FORMAT_CHARS
+
+
 def extract_mail(message):
     payload = message['payload']
     authenticated = authenticated_headers(message, ('trip.com','trip.co.kr','klook.com'))
@@ -205,7 +255,7 @@ def extract_mail(message):
         return None
     headers,domain = authenticated
     provider = 'trip' if domain in ('trip.com','trip.co.kr') else 'klook' if domain=='klook.com' else ''
-    text = ''.join(c for c in body_text(payload) if unicodedata.category(c)!='Cf')
+    text = message_text(message).translate(_format_char_table())
     subject = headers.get('subject','')
     cancelled = reservation_cancelled(subject)
     refs = set(re.findall(r'예약\s*번호\s*[:：]?\s*([A-Z0-9]{8,20})',text,re.I))
