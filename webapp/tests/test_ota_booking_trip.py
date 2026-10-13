@@ -261,3 +261,10 @@ def test_a_confirmation_with_unknown_provider_joins_the_payment_with_the_same_nu
     assert list(rows) == [('trip', 'R1')]
     assert rows[('trip', 'R1')]['periods'] == {('2026-08-01', '2026-08-06')}
     assert rows[('trip', 'R1')]['statuses'] == {'confirmed', 'observed'}
+
+
+def test_a_saved_index_made_by_other_logic_is_not_reused(world, monkeypatch):
+    board, sources, _ = world
+    before = ota_catalog._signature(board, sources)
+    monkeypatch.setattr(ota_catalog, '_code_stamp', lambda: 'other-logic')
+    assert ota_catalog._signature(board, sources) != before

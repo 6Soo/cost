@@ -4,6 +4,7 @@
 예약 판단 화면은 카드 결제 근거, 여행 후보, 여행 일정 검증 결과를 함께 보여 준다. 배정은 검증된 여행에만
 허용하며, 저장은 예약 배정 규칙(검토 저장소)으로 남기고 해당 카드 결제 원본만 다시 분류한다.
 """
+import functools
 import hashlib
 import html
 import json
@@ -307,11 +308,26 @@ def _canonical(value):
     return str(value) if isinstance(value, Path) else value
 
 
+#: The modules whose logic decides the index. A saved index made by other code is never read.
+_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
+                'app/classify.py', 'app/rules.py')
+
+
+@functools.lru_cache(maxsize=None)
+def _code_stamp():
+    digest = hashlib.sha256()
+    root = Path(__file__).resolve().parent.parent
+    for rel in _LOGIC_FILES:
+        digest.update(rel.encode())
+        digest.update((root / rel).read_bytes())
+    return digest.hexdigest()
+
+
 def _signature(board, sources):
     """Everything the index reads. Any change here rebuilds the index; nothing else does."""
     from .card_flow import CardFlow
     CardFlow(board)  # creates the card tables on a fresh board, so they are part of the first signature
-    parts = [INDEX_VERSION, hashlib.sha256(json.dumps(_canonical(sources), ensure_ascii=False).encode()).hexdigest()]
+    parts = [INDEX_VERSION, _code_stamp(), hashlib.sha256(json.dumps(_canonical(sources), ensure_ascii=False).encode()).hexdigest()]
 
     def stat_key(path):
         try:
