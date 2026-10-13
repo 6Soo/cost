@@ -198,8 +198,8 @@ TRIP_HEADER_DATES_FIRST = re.compile(r"(?:확인자료|수기장부형 자료)_(
 TRIP_HEADER_DATES_LAST = re.compile(r"(?:확인자료|수기장부형 자료)_(.+?)_(\d{4})_(\d{4})\s*$")
 
 
-#: Years the owner decided (docs/google-workbook-layout.md, 2026-10-11). Their sheet titles carry an old template year.
-DECIDED_YEARS = {"0206_하쿠산": 2027, "0302_야쿠시마": 2027}
+#: Trips without a year in their title are in this year. Tabs after the December tabs of the main workbook are next year's.
+BASE_YEAR = 2026
 ITEM_PERIOD = re.compile(r"(\d{4})_(\d{4})")
 
 
@@ -225,12 +225,12 @@ def _item_end(ws_v, starts: dt.date):
     return max(ends, default=None)
 
 
-def parse_trip_period(ws_v, sheet: str) -> dict:
+def parse_trip_period(ws_v, sheet: str, year_offset: int = 0) -> dict:
     """Year, start and end of a trip tab.
 
-    The start is the tab name's MMDD. The year comes from the top title unless the owner decided it. The end
+    The start is the tab name's MMDD. The year is the title's year, else BASE_YEAR, plus year_offset. The end
     comes from the top title, else from the expense rows' 기간 ranges. A title whose dates disagree with the
-    tab name is held.
+    tab name is held. An open end is closed later from the next trip.
     """
     title = ""
     for row in range(1, 5):
@@ -243,7 +243,7 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
             break
     flags = []
     year_text = re.search(r"(20\d{2})년", title)
-    year = DECIDED_YEARS.get(sheet) or (int(year_text[1]) if year_text else None)
+    year = (int(year_text[1]) if year_text else BASE_YEAR) + year_offset
     first = TRIP_HEADER_DATES_FIRST.search(title)
     last = TRIP_HEADER_DATES_LAST.search(title)
     if first:
@@ -255,11 +255,8 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
     start = re.match(r"(\d{4})_", sheet)
     period = {"year": year, "starts_on": None, "ends_on": None,
               "destination": destination or "", "flags": flags}
-    if not year:
-        flags.append("PERIOD_YEAR_MISSING")
     if not start:
         flags.append("PERIOD_START_MISSING")
-    if not year or not start:
         return period
     if header_start is not None and header_start != start[1]:
         flags.append("PERIOD_START_MISMATCH")
@@ -283,10 +280,12 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
     return period
 
 
-def parse_workbook(data: bytes) -> list[dict]:
+def parse_workbook(data: bytes, *, rollover: bool = False) -> list[dict]:
+    """With rollover, the tabs that follow the December tabs in the workbook are next year's."""
     formulas = openpyxl.load_workbook(io.BytesIO(data))
     values = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
     trips = []
+    after_december = False
     for name in values.sheetnames:
         title = name.strip()
         quarter = QUARTER_NAME.fullmatch(title)
@@ -297,7 +296,10 @@ def parse_workbook(data: bytes) -> list[dict]:
         # A quarter tab kept only as a copy is the quarter's tab, so it groups under the plain title.
         sheet = COPY_SUFFIX.sub("", title) if quarter else title
         if not quarter:
-            trip["period"] = parse_trip_period(values[name], title)
+            month = int(title[:2])
+            offset = 1 if rollover and after_december and month < 12 else 0
+            trip["period"] = parse_trip_period(values[name], title, offset)
+            after_december = after_december or (rollover and month == 12)
         trips.append({"sheet": sheet, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
     return trips
 
@@ -397,7 +399,7 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
         return {**previous, "checked_at": now, "last_ok_at": now, "unchanged": True,
                 "row_changes": {"added": 0, "removed": 0, "changed": 0}}, None
     try:
-        trips = parse_workbook(data)
+        trips = parse_workbook(data, rollover=role == "main")
     except Exception:
         return _retained(previous, code="SOURCE_PARSE_FAILED", checked_at=now), None
     if not trips and previous.get("trips"):
@@ -465,7 +467,27 @@ def build_trip_view(sources: dict) -> list[dict]:
             "copies": {"main": _copy(main[0] if main else None), "archive": _copy(archive[0] if archive else None)},
             "review": sorted(flags | set(canonical["flags"])),
         })
+    _close_open_ends(view)
     return view
+
+
+def _close_open_ends(view: list[dict]) -> None:
+    """A trip with no end date ends the day before the next trip starts."""
+    dated = sorted((t for t in view if (t.get("period") or {}).get("starts_on")),
+                   key=lambda t: t["period"]["starts_on"])
+    for index, trip in enumerate(dated):
+        period = trip["period"]
+        if period.get("ends_on"):
+            continue
+        following = next((t["period"]["starts_on"] for t in dated[index + 1:]
+                          if t["period"]["starts_on"] > period["starts_on"]), None)
+        if following is None:
+            continue
+        ends = dt.date.fromisoformat(following) - dt.timedelta(days=1)
+        if ends < dt.date.fromisoformat(period["starts_on"]):
+            continue
+        period["ends_on"] = ends.isoformat()
+        period["flags"] = [f for f in period["flags"] if f != "PERIOD_END_MISSING"] + ["PERIOD_END_FROM_NEXT_TRIP"]
 
 
 def _write_atomic(path: Path, snapshot: dict) -> None:

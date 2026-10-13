@@ -771,21 +771,26 @@ def test_trip_period_takes_year_and_end_from_the_top_title(title, sheet, expecte
     assert (period['starts_on'], period['ends_on'], period['destination']) == expected
 
 
-def test_trip_period_without_a_year_or_with_another_start_is_held():
+def test_trip_period_without_a_year_uses_the_base_year_and_another_start_is_held():
     def build(wb):
         wb.create_sheet('0506_0610_유럽')['C2'] = '매출 확인자료_유럽_0506_0610'
         wb.create_sheet('0107_대만')['C2'] = '2026년 매출 확인자료_대만_0108_0114'
     wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))
-    assert ga.parse_trip_period(wb['0506_0610_유럽'], '0506_0610_유럽')['flags'] == ['PERIOD_YEAR_MISSING']
+    europe = ga.parse_trip_period(wb['0506_0610_유럽'], '0506_0610_유럽')
+    assert (europe['starts_on'], europe['ends_on'], europe['flags']) == ('2026-05-06', '2026-06-10', [])
     assert 'PERIOD_START_MISMATCH' in ga.parse_trip_period(wb['0107_대만'], '0107_대만')['flags']
 
 
-def test_decided_years_override_the_template_title_year():
+def test_tabs_after_the_december_tabs_of_the_main_workbook_are_next_year():
     def build(wb):
-        wb.create_sheet('0302_야쿠시마')['C2'] = '2026년 월 매출 확인자료_'
-    ws = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))['0302_야쿠시마']
-    period = ga.parse_trip_period(ws, '0302_야쿠시마')
-    assert period['year'] == 2027 and period['starts_on'] == '2027-03-02' and period['flags'] == ['PERIOD_END_MISSING']
+        for name in ('1205_도쿄', '0206_하쿠산', '0302_야쿠시마'):
+            wb.create_sheet(name)['C2'] = '2026년 월 매출 확인자료_'
+    trips = {t['sheet']: t['period'] for t in ga.parse_workbook(workbook_bytes(build), rollover=True)}
+    assert trips['1205_도쿄']['starts_on'] == '2026-12-05'
+    assert trips['0206_하쿠산']['starts_on'] == '2027-02-06'
+    assert trips['0302_야쿠시마']['starts_on'] == '2027-03-02'
+    unchanged = {t['sheet']: t['period'] for t in ga.parse_workbook(workbook_bytes(build))}
+    assert unchanged['0206_하쿠산']['starts_on'] == '2026-02-06'
 
 
 def test_end_comes_from_the_expense_period_range_when_the_title_has_none():
@@ -802,3 +807,17 @@ def test_end_comes_from_the_expense_period_range_when_the_title_has_none():
     ws = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))['0823_화순']
     period = ga.parse_trip_period(ws, '0823_화순')
     assert period['ends_on'] == '2026-08-26' and period['flags'] == ['PERIOD_END_FROM_ITEMS']
+
+
+def test_a_trip_without_an_end_ends_the_day_before_the_next_trip_starts():
+    def trip(key, start, end=None):
+        return {'key': key, 'sheet': key, 'copy_name': False, 'kind': 'trip', 'layout': 'nonstandard', 'verified': False,
+                'flags': [], 'income': None, 'expense': None, 'net': None,
+                'period': {'year': 2026, 'starts_on': start, 'ends_on': end, 'destination': '',
+                           'flags': [] if end else ['PERIOD_END_MISSING']}}
+    main = {'status': 'ok', 'trips': [trip('0712_몽골', '2026-07-12'), trip('0721_황금해안', '2026-07-21', '2026-07-23')]}
+    archive = {'status': 'ok', 'trips': [trip('0630_오제', '2026-06-30', '2026-07-04')]}
+    view = {t['key']: t['period'] for t in ga.build_trip_view({'main': main, 'archive': archive})}
+    assert view['0712_몽골']['ends_on'] == '2026-07-20'
+    assert 'PERIOD_END_FROM_NEXT_TRIP' in view['0712_몽골']['flags']
+    assert view['0721_황금해안']['ends_on'] == '2026-07-23'
