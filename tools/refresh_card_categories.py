@@ -1,4 +1,4 @@
-"""보존된 카드 원본으로 분류용 업종만 보완한다. 금액과 확정 답변은 바꾸지 않는다."""
+"""보존된 카드 원본으로 분류용 업종만 보완한다. 금액과 사용자 답변은 바꾸지 않는다."""
 import json
 import os
 import sys
@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from app import Pipeline
+from app.db import decided_sql
 from app.import_card import parse_card_file
 from app.review import transaction_identity,source_hash_of
 from webapp.ledger_store import LedgerStore
@@ -22,7 +23,7 @@ def main():
         for batch_id,content,filename in batches:
             for row in parse_card_file(content,filename,use_cache=False).rows:
                 identity=transaction_identity(row)
-                current=store.conn.execute('SELECT source_hash,user_confirmed FROM transactions WHERE transaction_id=?',
+                current=store.conn.execute('SELECT source_hash,'+decided_sql()+' FROM transactions WHERE transaction_id=?',
                                            (identity,)).fetchone()
                 if current is None or current[0] != source_hash_of(row):
                     raise RuntimeError('FINANCIAL_SOURCE_CHANGED')
@@ -32,7 +33,7 @@ def main():
         try:
             for description,identity,digest in updates:
                 store.conn.execute('UPDATE transactions SET description_raw=? WHERE transaction_id=? '
-                                   'AND source_hash=? AND user_confirmed=0',(description,identity,digest))
+                                   'AND source_hash=? AND NOT '+decided_sql(),(description,identity,digest))
             for batch_id,_,_ in batches:
                 pipe.classify_batch(batch_id)
             counts=dict(store.conn.execute('SELECT classification_state,COUNT(*) FROM transactions GROUP BY classification_state'))

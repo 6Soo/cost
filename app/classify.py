@@ -4,7 +4,7 @@
 Order of precedence, highest first:
 
 1. a previous decision on *this* transaction, which is never overwritten;
-2. a confirmed rule that matches;
+2. an active rule that matches;
 3. an unambiguous item pattern.
 
 Everything else is `needs_review`. That is the honest answer for a row with an
@@ -20,21 +20,21 @@ money:
   nothing here derives one from the merchant text.
 * **It does not turn a card posting date into a service period.** A card date is
   when the charge happened, which is frequently not when the service happened.
-* **It does not confirm automatically.** Only `save_decision` sets
-  `user_confirmed`, and only a caller can call it.
+* **It never overwrites a user's answer.** Only `save_decision` records one,
+  and only a caller can call it.
 """
 
 from __future__ import annotations
 
+from .db import decided_sql
 from .normalize import normalize_merchant
 from .rules import rule_matches, is_booking_or_online
 
 __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
-           "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED", "STATE_CONFIRMED"]
+           "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED"]
 
 STATE_NEEDS_REVIEW = "needs_review"
 STATE_CLASSIFIED = "classified"
-STATE_CONFIRMED = "confirmed"
 
 # Only patterns that are unambiguous on their own. Each is (needle, item,
 # description, tabs). A merchant that merely contains a word is not enough: the
@@ -64,7 +64,7 @@ def _pattern_for(merchant_normalized: str):
 def classify_transaction(transaction: dict, *, rules: list,
                          prior_decision: dict | None = None, trip_resolver=None,allow_defaults=True,
                          residual_policy=False) -> dict:
-    """확정 근거를 먼저 적용하고 사용자 허용 추론은 원본 거래에만 적용한다."""
+    """규칙 근거를 먼저 적용하고 사용자 허용 추론은 원본 거래에만 적용한다."""
     inferred = [r for r in rules if r.get('optional',{}).get('inferred_assignment')]
     regular = [r for r in rules if r not in inferred]
     verdict = _classify_transaction(transaction,rules=regular,prior_decision=prior_decision,
@@ -133,7 +133,7 @@ def _card3820_singapore(transaction, verdict, trip_resolver):
 
 
 def _card3820_residual(transaction: dict, verdict: dict) -> dict:
-    """Owner policy after reconciliation; classification only, never confirmation or posting."""
+    """Owner policy after reconciliation; classification only, never posting."""
     if (transaction.get('card_tail') != '3820'
             or any(marker in str(transaction.get('transaction_kind', '')).lower()
                    for marker in ('refund', 'cancel', '취소', '승인'))
@@ -168,9 +168,9 @@ def _classify_transaction(transaction: dict, *, rules: list,
                 "trip_id": "", "rule_id": ""}
 
     if prior_decision:
-        return {"classification_state": STATE_CONFIRMED,
+        return {"classification_state": STATE_CLASSIFIED,
                 "classification_source": "previous_decision",
-                "classification_basis": "이 거래에 이미 확정한 답변이 있어요",
+                "classification_basis": "이 거래에 이미 사용자 답변이 있어요",
                 "item": prior_decision.get("item", ""),
                 "description": prior_decision.get("description", ""),
                 "display_tab_id": prior_decision.get("display_tab_id", ""),
@@ -253,7 +253,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
         effects = rule.get("effects") or {}
         return {"classification_state": STATE_CLASSIFIED,
                 "classification_source": "rule",
-                "classification_basis": "확정 규칙: " + ", ".join(reasons),
+                "classification_basis": "규칙: " + ", ".join(reasons),
                 "item": effects.get("item", ""),
                 "description": effects.get("description", ""),
                 "display_tab_id": target or effects.get("display_tab_id", ""),
@@ -293,7 +293,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
                 "item": item, "description": description,
                 "display_tab_id": DEFAULT_TAB, "trip_id": "", "rule_id": ""}
 
-    # 사용자가 확정한 현지 경비 기본값은 구체적 규칙과 명확한 업종 뒤에만 적용한다.
+    # 사용자가 지정한 현지 경비 기본값은 구체적 규칙과 명확한 업종 뒤에만 적용한다.
     # 예약·온라인 공급자의 결제일을 실제 이용일로 바꾸지 않는다.
     if defaults and not is_booking_or_online(transaction):
         return classify_transaction(transaction,rules=defaults,trip_resolver=trip_resolver,allow_defaults=False)
@@ -305,7 +305,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
 
     return {"classification_state": STATE_NEEDS_REVIEW,
             "classification_source": "",
-            "classification_basis": "확정 규칙과 분명한 가맹점 이름이 없어 확인할래요",
+            "classification_basis": "적용할 규칙과 분명한 가맹점 이름이 없어 확인할래요",
             "item": "", "description": "", "display_tab_id": "",
             "trip_id": "", "rule_id": ""}
 
@@ -333,10 +333,10 @@ def classify_batch(store, batch_id: str, *, rules: list | None = None, trip_reso
 
 
 def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, review_from=None, transaction_ids=None, residual_policy=False) -> dict:
-    """Classify every unconfirmed row in a batch.
+    """Classify every undecided row in a batch.
 
-    A row a human already decided is skipped entirely, which is how a confirmed
-    classification survives the next upload and the next rule change.
+    A row a human already decided, or that is already on the ledger, is skipped entirely, which is how
+    that classification survives the next upload and the next rule change.
     """
     from .db import CODE_NOT_FOUND, StoreError
 
@@ -350,7 +350,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
         " transaction_direction, transaction_kind, approval_number,"
         " original_approval_number, approval_date, posting_date, merchant,"
         " merchant_normalized, amount_krw, foreign_amount, foreign_currency,"
-        " description_raw, row_index, raw_row_json, parse_error, user_confirmed,"
+        " description_raw, row_index, raw_row_json, parse_error, " + decided_sql() + ","
         " classification_state,source_hash,classification_source,classification_basis,item,"
         " description,display_tab_id,trip_id FROM transactions WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index",
         (batch_id,)).fetchall()
@@ -362,7 +362,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
         return {"batch_id": batch_id, "counts": {}, "reclassified": 0,
                 "protected": 0, "needs_review": 0, "classified": 0}
 
-    counts = {STATE_NEEDS_REVIEW: 0, STATE_CLASSIFIED: 0, STATE_CONFIRMED: 0}
+    counts = {STATE_NEEDS_REVIEW: 0, STATE_CLASSIFIED: 0}
     reclassified = protected = 0
     now = _now()
     with store.lock:
@@ -371,12 +371,12 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
              approval_number, original_approval, approval_date, posting_date,
              merchant, merchant_normalized, amount_krw, foreign_amount,
              foreign_currency, description_raw, row_index, raw_json, parse_error,
-             user_confirmed, state, source_hash, current_source, current_basis,
+             decided, state, source_hash, current_source, current_basis,
              current_item, current_description, current_tab, current_trip) = row
             if selected is not None and transaction_id not in selected:
                 continue
-            if user_confirmed:
-                counts[STATE_CONFIRMED] = counts.get(STATE_CONFIRMED, 0) + 1
+            if decided:
+                counts[state] = counts.get(state, 0) + 1
                 protected += 1
                 continue
             occurred = approval_date or posting_date
@@ -385,7 +385,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                 if state != 'preserved':
                     store.conn.execute("UPDATE transactions SET classification_state='preserved',"
                                        "classification_source='user_completed_period',classification_basis=? "
-                                       "WHERE transaction_id=? AND user_confirmed=0",
+                                       "WHERE transaction_id=?",
                                        ('사용자 확인: 정리 완료된 기간은 내부 보존만 합니다',transaction_id))
                 continue
             transaction = {
@@ -430,7 +430,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
             store.conn.execute(
                 "UPDATE transactions SET classification_state=?,"
                 " classification_source=?, classification_basis=?, item=?,"
-                " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=? AND user_confirmed=0",
+                " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=?",
                 values+(transaction_id,))
         store.conn.execute(
             "UPDATE import_batches SET parsed_at=?, status='classified'"

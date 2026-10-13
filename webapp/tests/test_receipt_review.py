@@ -282,10 +282,10 @@ class ReceiptReviewTests(unittest.TestCase):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         _, stored = self.request('/api/receipts')
         identity = stored['candidates'][0]['identity']
-        status, _ = self.request('/api/receipts/confirm',
+        status, _ = self.request('/api/receipts/edit',
                                  {'identity': identity, 'payee': '', 'category': '식비'}, token=self.csrf())
         self.assertEqual(status, 400)
-        status, body = self.request('/api/receipts/confirm',
+        status, body = self.request('/api/receipts/edit',
                                     {'identity': identity, 'payee': '라멘집', 'category': '식비'}, token=self.csrf())
         self.assertEqual(status, 200)
         self.assertEqual(body['history'][0]['to'], {'payee': '라멘집', 'category': '식비'})
@@ -308,7 +308,7 @@ class ReceiptReviewTests(unittest.TestCase):
         for candidate in stored['candidates']:
             self.request('/api/receipts/edit', {'identity': candidate['identity'], 'trip_id': self.trip},
                          token=self.csrf())
-            self.request('/api/receipts/confirm', {'identity': candidate['identity'],
+            self.request('/api/receipts/edit', {'identity': candidate['identity'],
                                                    'payee': candidate['merchant'], 'category': '식비'},
                          token=self.csrf())
         _, tsv = self.request(f'/api/receipts/tsv?trip={self.trip}')
@@ -398,7 +398,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
             page.select_option('#copy-trip', self.trip)
             page.click('#copy-tsv')
-            page.get_by_text('복사할 확정 영수증이 없습니다.', exact=False).wait_for()
+            page.get_by_text('복사할 영수증이 없습니다.', exact=False).wait_for()
             self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
             result = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]
             self.assertEqual(result['row_count'], 0)
@@ -548,7 +548,7 @@ class ReceiptReviewTests(unittest.TestCase):
             with page.expect_request('**/api/receipts/tsv?*'):
                 page.click('#copy-tsv')
             pending.pop().fulfill(json={'row_count': 0, 'held': [], 'tsv': ''})
-            page.get_by_text('복사할 확정 영수증이 없습니다. 보류 0건', exact=True).wait_for()
+            page.get_by_text('복사할 영수증이 없습니다. 보류 0건', exact=True).wait_for()
             self.assertTrue(page.locator('#copy-trip').is_enabled())
             self.assertTrue(page.locator('#copy-tsv').is_enabled())
             self.assertEqual(page.evaluate('navigator.clipboard.readText()'), 'KEEP-CLIPBOARD')
@@ -558,7 +558,7 @@ class ReceiptReviewTests(unittest.TestCase):
         self.request('/api/receipts/scan', REGIONS, token=self.csrf())
         candidate = self.request('/api/receipts')[1]['candidates'][0]
         self.request('/api/receipts/edit', {'identity': candidate['identity'], 'trip_id': self.trip}, token=self.csrf())
-        self.request('/api/receipts/confirm', {'identity': candidate['identity'], 'payee': candidate['merchant'],
+        self.request('/api/receipts/edit', {'identity': candidate['identity'], 'payee': candidate['merchant'],
                                              'category': '식비'}, token=self.csrf())
         expected = self.request(f'/api/receipts/tsv?trip={self.trip}')[1]['tsv']
         with sync_playwright() as api:
@@ -643,7 +643,7 @@ class ReceiptReviewTests(unittest.TestCase):
         _, stored = self.request('/api/receipts')
         identity = [c for c in stored['candidates'] if c['merchant'] == merchant][-1]['identity']
         self.request('/api/receipts/edit', {'identity': identity, 'trip_id': self.trip}, token=self.csrf())
-        self.request('/api/receipts/confirm', {'identity': identity, 'payee': merchant, 'category': '식비'},
+        self.request('/api/receipts/edit', {'identity': identity, 'payee': merchant, 'category': '식비'},
                      token=self.csrf())
         return identity
 
@@ -657,7 +657,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             requests = []
             page.on('request', lambda request: requests.append(request.url)
-                    if request.url.endswith('/api/receipts/confirm') else None)
+                    if request.url.endswith('/api/receipts/edit') else None)
             for selector, value in (('[data-total]', '2000'), ('[data-trip]', '')):
                 page.reload()
                 if selector == '[data-trip]':
@@ -725,7 +725,7 @@ class ReceiptReviewTests(unittest.TestCase):
             self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2000}, token=self.csrf())
             before = self.store.read_bytes()
             page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
-            with page.expect_response('**/api/receipts/confirm') as response:
+            with page.expect_response('**/api/receipts/edit') as response:
                 page.locator('[data-confirm]').click()
             self.assertEqual(response.value.status, 409)
             self.assertEqual(response.value.json()['code'], 'STALE_CANDIDATE')
@@ -740,7 +740,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = browser.new_page()
             page.goto(self.base + '/receipts')
             page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
-            self.request('/api/receipts/confirm', {'identity': identity, 'payee': 'NEW-PAYEE',
+            self.request('/api/receipts/edit', {'identity': identity, 'payee': 'NEW-PAYEE',
                                                   'category': 'NEW-CATEGORY'}, token=self.csrf())
             before = self.store.read_bytes()
             page.locator('[data-total]').fill('2100')
@@ -837,7 +837,7 @@ class ReceiptReviewTests(unittest.TestCase):
             self.assertIn('26,000', page.locator(f'[data-edit="{first}"]').locator('xpath=ancestor::tr').inner_text())
             page.locator(f'[data-payee="{first}"]').fill('SAVED-PAYEE')
             page.locator(f'[data-category="{first}"]').fill('FOOD')
-            with page.expect_response('**/api/receipts/confirm') as confirmation:
+            with page.expect_response('**/api/receipts/edit') as confirmation:
                 page.locator(f'[data-confirm="{first}"]').click()
             self.assertEqual(confirmation.value.status, 200)
             page.wait_for_function('!receiptBusy')

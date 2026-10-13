@@ -23,7 +23,7 @@ Event kinds: cancel_flag=1 -> cancellation, amount<0 -> refund,
 amount==0 -> import error. One source row yields at most one event, and
 source-row counts and event counts are reported separately.
 
-Classification mirrors the confirmed policy: a suggested trip tab from
+Classification mirrors the owner policy: a suggested trip tab from
 the existing pipeline goes straight to that tab as auto_classified, no
 per-row approval. Rows without a decidable destination stay in
 unclassified. Display placement never promotes accounting authority.

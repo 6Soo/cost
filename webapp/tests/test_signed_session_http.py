@@ -267,7 +267,7 @@ class SignedSessionHttpTests(unittest.TestCase):
     def test_new_write_routes_refuse_viewer_and_anonymous_before_any_effect(self):
         paths = ('/api/google-ledger/choice', '/api/google-ledger/grants', '/api/google-ledger/mapping',
                  '/api/google-ledger/auto-mapping',
-                 '/api/receipts/scan', '/api/receipts/edit', '/api/receipts/confirm', '/api/receipts/image',
+                 '/api/receipts/scan', '/api/receipts/edit', '/api/receipts/image',
                  '/api/receipts/upload', '/api/imports/batch-syn/rule-proposal',
                  '/api/imports/batch-syn/rule-proposal/approve', '/api/imports/batch-syn/company-exclusion')
         conn = self.server.card_store.conn

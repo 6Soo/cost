@@ -304,7 +304,7 @@ def render_rows_html(detail: dict) -> str:
     def total(rows):
         return sum(r['amount'] for r in rows) if all(type(r.get('amount')) is int for r in rows) else None
     income, expense = total(detail['income']), total(detail['expense'])
-    verification = '검증됨' if detail.get('verified') else '미검증 · 행 합계는 확정 금액이 아닙니다'
+    verification = '검증됨' if detail.get('verified') else '미검증 · 행 합계는 검증되지 않은 금액입니다'
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>행 상세</title>"
             "<style>table{border-collapse:collapse;width:100%;font-size:14px}td,th{border:1px solid #ccc;padding:4px}"
@@ -439,7 +439,7 @@ def _owner_controls(payload: dict, settings: dict) -> str:
         "async function saveGoogleSetting(kind,granted){const key=keyInput.value,tab=tabInput.value,user=viewerInput.value;"
         "if(!key||(kind==='grants'&&!user)){statusBox.textContent='여행과 필요한 계정을 선택해 주세요';return}"
         "if(!confirm(kind==='mapping'?'선택한 COST 여행과 연결할까요? 연결 해제는 기존 열람도 차단합니다.':"
-        "(granted?'선택한 계정에 이 여행의 확정 장부 열람을 허용할까요?':'이 여행의 열람 허용을 철회할까요?')))return;"
+        "(granted?'선택한 계정에 이 여행의 수입 장부 열람을 허용할까요?':'이 여행의 열람 허용을 철회할까요?')))return;"
         "const controls=document.querySelectorAll('#google-settings button,#google-settings select');controls.forEach(x=>x.disabled=true);"
         "try{const r=await fetch('/api/google-ledger/'+kind,{method:'POST',headers:{'Content-Type':'application/json',"
         "'X-CSRF-Token':token},body:JSON.stringify(kind==='mapping'?{key,tab_id:tab||null}:{user_id:user,keys:[key],granted})});"
@@ -497,7 +497,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>확정 장부</title>"
+        "<title>수입 장부</title>"
         "<style>*{box-sizing:border-box}body{font-family:sans-serif;margin:16px;color:#182230;background:#f7f9fc}"
         "h1{font-size:24px}table{border-collapse:collapse;width:100%;font-size:14px;background:white}"
         "td,th{border:1px solid #e4e7ec;padding:10px;text-align:left;overflow-wrap:anywhere}"
@@ -523,7 +523,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         f"<a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a>"
         + (f" <a class='work-back' href='/board?tab={quote(settings['selected_tab'])}'>{ui_icons.icon('chevron-left')}선택한 여행으로 돌아가기</a>"
            if is_owner and settings and settings.get('selected_tab') else '') + "</nav>"
-        "<h1>확정 장부</h1>"
+        "<h1>수입 장부</h1>"
         f"<p>{ui_icons.icon('refresh-cw')}동기화 {format_display_time(payload['synced_at'])}</p>{source_alert}"
         + (_owner_controls(payload, settings) if is_owner and csrf and settings is not None else '')
         +
@@ -550,11 +550,11 @@ def _send_unavailable(handler, path: str, code: str, message: str) -> None:
     handler._send(
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>확정 장부 동기화 확인</title><style>"
+        "<title>수입 장부 동기화 확인</title><style>"
         "body{font-family:system-ui,sans-serif;margin:16px;line-height:1.6;color:#182230}"
         "h1{font-size:22px}a{display:inline-flex;align-items:center;min-height:44px;"
         "padding:8px 12px;margin:8px 8px 0 0;border:1px solid #d0d5dd;border-radius:8px;color:#166444}"
-        "</style></head><body><h1>확정 장부를 아직 표시할 수 없어요</h1>"
+        "</style></head><body><h1>수입 장부를 아직 표시할 수 없어요</h1>"
         f"<p role='alert'>{html.escape(message)}</p>"
         "<p>확인되지 않은 금액은 표시하지 않습니다. 동기화 또는 연결 설정을 확인한 뒤 다시 열어 주세요.</p>"
         f"<a href='/google-ledger'>{ui_icons.icon('refresh-cw')}다시 확인</a>"

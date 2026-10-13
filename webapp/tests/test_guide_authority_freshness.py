@@ -141,12 +141,13 @@ def make_flow(tmp_path, results, monkeypatch, *, enabled=True, fresh_snapshot=Tr
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         "CREATE TABLE transactions(transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,"
-        " card_kind TEXT, user_confirmed INT, classification_state TEXT, classification_source TEXT, trip_id TEXT,"
+        " card_kind TEXT, decided_at TEXT, classification_state TEXT, classification_source TEXT, trip_id TEXT,"
         " conflict_reason TEXT, parse_error TEXT, transaction_direction TEXT);"
+        "CREATE TABLE ledger_entries(transaction_id TEXT);"
         "CREATE TABLE import_batch_rows(batch_id TEXT, transaction_id TEXT);"
-        "INSERT INTO transactions VALUES('guide-card','h1','대표_카카오페이-트립닷컴','대표_카카오페이-트립닷컴','credit',0,"
+        "INSERT INTO transactions VALUES('guide-card','h1','대표_카카오페이-트립닷컴','대표_카카오페이-트립닷컴','credit',NULL,"
         "'classified','guide_airfare_evidence','t1','','','purchase');"
-        "INSERT INTO transactions VALUES('plain-card','h2','다른 상점','다른 상점','credit',0,"
+        "INSERT INTO transactions VALUES('plain-card','h2','다른 상점','다른 상점','credit',NULL,"
         "'classified','rule','','','','purchase');"
         "INSERT INTO import_batch_rows VALUES('b','guide-card'),('b','plain-card');")
     board = SimpleNamespace(conn=conn, path=tmp_path / "data" / "board.sqlite",
@@ -237,7 +238,7 @@ def test_new_guide_rules_require_fresh_authority(tmp_path, monkeypatch):
                 "guide_airfare": {"status": "ATTRIBUTED", "code": "guide_airfare_round_trip", "trip_id": "t1",
                                   "trip_name": "0801", "evidence_digest": "a" * 64, "booking_ref": "R"}}]
     flow, board = make_flow(tmp_path, results, monkeypatch)
-    board.conn.execute("UPDATE transactions SET classification_source='', user_confirmed=0")
+    board.conn.execute("UPDATE transactions SET classification_source='', decided_at=NULL")
     assert flow._guide_airfare_rules("b", None) == []
     fetch = Fetch()
     gar.refresh_authority(board, fetcher=fetch, clock=time.monotonic)

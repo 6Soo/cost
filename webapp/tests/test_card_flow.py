@@ -53,7 +53,7 @@ class CardFlowTests(unittest.TestCase):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
             'classification_state':'classified', 'classification_basis':'추론 배정 · 낮음 · 일정 근거',
-            'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'user_confirmed':0,
+            'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'decided':False,
         }
         self.assertEqual(
             _review_evidence_labels(row, {'booking_match':True}),
@@ -64,7 +64,7 @@ class CardFlowTests(unittest.TestCase):
         row = {
             'merchant':'TRIP.COM', 'classification_source':'rule',
             'classification_state':'needs_review', 'classification_basis':'예약 근거 확인 필요',
-            'display_tab_id':'unclassified', 'trip_id':'', 'user_confirmed':0,
+            'display_tab_id':'unclassified', 'trip_id':'', 'decided':False,
         }
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_uncertain':True}),
@@ -75,7 +75,7 @@ class CardFlowTests(unittest.TestCase):
         row = {
             'merchant':'TRIP.COM', 'classification_source':'rule',
             'classification_state':'needs_review', 'classification_basis':'취소 정산 확인',
-            'display_tab_id':'unclassified', 'trip_id':'', 'user_confirmed':0,
+            'display_tab_id':'unclassified', 'trip_id':'', 'decided':False,
             'review_hold':{'kind':'refund_pending', 'reason':'카드 환불 원행 확인 필요'},
         }
         self.assertEqual(
@@ -87,7 +87,7 @@ class CardFlowTests(unittest.TestCase):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
             'classification_state':'needs_review', 'classification_basis':'추론 배정 · 낮음 · 예약 연결 없음',
-            'display_tab_id':'unclassified', 'trip_id':'', 'user_confirmed':0,
+            'display_tab_id':'unclassified', 'trip_id':'', 'decided':False,
         }
         # 근거가 없다는 것과 자료가 없다는 것은 다르다. 연결 확인을 요청하되
         # 메일이 없다고 말하지 않는다.
@@ -117,11 +117,11 @@ class CardFlowTests(unittest.TestCase):
             ['등록된 근거 자료 없음 · 확인 필요', '분류 확인 권장'],
         )
 
-    def test_review_evidence_labels_do_not_warn_again_after_user_confirmation(self):
+    def test_review_evidence_labels_do_not_warn_again_after_user_decision(self):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
-            'classification_state':'confirmed', 'classification_basis':'추론 배정 · 낮음 · 과거 근거',
-            'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'user_confirmed':1,
+            'classification_state':'classified', 'classification_basis':'추론 배정 · 낮음 · 과거 근거',
+            'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'decided':True,
         }
         labels = _review_evidence_labels(row, {'booking_match':True})
         self.assertEqual(labels, ['예약 근거 있음'])
@@ -302,7 +302,7 @@ class CardFlowTests(unittest.TestCase):
                       source_card_last4='1234', source_approval_number='58001111',
                       source_approval_date='2026-10-01', source_posting_date='2026-10-02',
                       source_local_amount='', source_currency='', event_kind='purchase',
-                      classification_state='confirmed', confirmed_by='owner', memo='')
+                      classification_state='classified', confirmed_by='owner', memo='')
         record.update(fields)
         self.board.conn.execute('INSERT INTO board_rows VALUES (?,?,?,?,?)',
                                 (row_id, 'expense', None, 1,

@@ -14,7 +14,7 @@ class FakeStore:
             CREATE TABLE transactions(transaction_id TEXT PRIMARY KEY, batch_id TEXT, source_hash TEXT,
               merchant TEXT, approval_date TEXT, posting_date TEXT, amount_krw INTEGER,
               transaction_direction TEXT, card_tail TEXT, item TEXT, display_tab_id TEXT, trip_id TEXT,
-              user_confirmed INTEGER DEFAULT 0, duplicate_of TEXT, classification_state TEXT);
+              classification_source TEXT, decided_at TEXT, duplicate_of TEXT, classification_state TEXT);
             CREATE TABLE ledger_entries(transaction_id TEXT NOT NULL UNIQUE, batch_id TEXT NOT NULL, item TEXT NOT NULL,
               description TEXT NOT NULL, display_tab_id TEXT NOT NULL, trip_id TEXT NOT NULL DEFAULT '',
               amount_krw INTEGER, merchant TEXT NOT NULL, occurred_on TEXT NOT NULL,
@@ -26,15 +26,15 @@ class FakeStore:
         self.changes.append((kind, subject))
 
 
-def add(store, tid, day, amount, tab='unclassified', confirmed=0):
+def add(store, tid, day, amount, tab='unclassified', decided=0):
     store.conn.execute("INSERT INTO transactions(transaction_id,batch_id,source_hash,merchant,approval_date,amount_krw,"
-                       "transaction_direction,card_tail,item,display_tab_id,trip_id,user_confirmed,duplicate_of,classification_state)"
+                       "transaction_direction,card_tail,item,display_tab_id,trip_id,classification_source,duplicate_of,classification_state)"
                        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (tid, 'b1', 'h-' + tid, 'SHOP', day, amount, 'purchase', '3820', '분기 기타비용', tab, '',
-                        confirmed, None, 'classified'))
+                        'user_decision' if decided else '', None, 'classified'))
 
 
-def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_confirmed_once():
+def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_booked_once():
     store = FakeStore()
     add(store, 'a', '2026-05-03', 1000)
     add(store, 'b', '2026-08-20', 2000)
@@ -46,8 +46,7 @@ def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_confirmed_onc
     result = quarter_tab.confirm_tab(store, 'quarter:2026:3')
     assert result == {'tab': 'quarter:2026:3', 'booked': 1, 'skipped': 0}
     assert store.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
-    assert store.conn.execute("SELECT user_confirmed FROM transactions WHERE transaction_id='b'").fetchone()[0] == 0
-
+    
     again = quarter_tab.confirm_tab(store, 'quarter:2026:3')
     assert again['booked'] == 0
     assert store.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 1
@@ -74,4 +73,3 @@ def test_only_a_batch_collected_after_activation_is_recorded_and_older_rows_wait
     assert quarter_tab.book_batch(store, 'new') == 1
     booked = store.conn.execute("SELECT transaction_id FROM ledger_entries").fetchall()
     assert booked == [('fresh',)]
-    assert store.conn.execute("SELECT user_confirmed FROM transactions WHERE transaction_id='legacy'").fetchone()[0] == 0

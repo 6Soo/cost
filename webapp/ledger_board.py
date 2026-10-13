@@ -120,7 +120,7 @@ ACCESS_ENFORCEMENT = False
 AUTHORITY_LABELS = {
     "authoritative": "권위 있음",
     "needs_review": "검토 필요",
-    "unconfirmed": "미확정",
+    "unconfirmed": "미확인",
     "conflicted": "충돌",
 }
 
@@ -1412,7 +1412,7 @@ def board_page(tab_id: str, query: str = "") -> str:
         rows = _unclassified_rows()
         unc_total = sum(_shown_amount(r) for r in rows)
         inc_rows = [r for r in _income_rows() if r["display_tab_id"] is None]
-        head = "<h2>분류대기</h2><p class='muted'>분류를 기다리는 내역이에요. 전체 장부가 확정됐다는 뜻이 아니에요.</p>"
+        head = "<h2>분류대기</h2><p class='muted'>분류를 기다리는 내역이에요.</p>"
         tables = income_table(inc_rows) + expense_table(rows)
         summary = f"<div class='card'><span class='muted'>미배정</span><div class='big'>{unc_total:,}원</div></div>"
     elif trip is None:
@@ -1836,7 +1836,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             # them through the name.
             f"<p class='muted'>연도 {esc(str(t.get('event_year') or ''))} · "
             f"종류 {esc(t.get('tab_kind') or 'trip')} · "
-            f"권위 {esc(AUTHORITY_LABELS.get(t.get('authority_status'), '미확정'))}</p>"
+            f"권위 {esc(AUTHORITY_LABELS.get(t.get('authority_status'), '미확인'))}</p>"
             f"<p>{counts}</p>"
             + (f"<p class='muted'>댓글 {str(registration['comment_count'])+'개' if registration['comment_count'] is not None else '확인 불가'} · "
                f"<a href='{esc(registration['source_url'])}' target='_blank' rel='noopener'>여행글 보기</a></p>"
@@ -2049,7 +2049,7 @@ def export_page() -> str:
         n_unc_conflict = sum(1 for r in unc if row_has_conflict(r))
         review_note = (
             "<p class='muted'>검토필요 {review}행 · 충돌 {conflict}행"
-            "이 포함됩니다. 출력해도 확정 여부는 바뀌지 않습니다."
+            "이 포함됩니다. 출력해도 분류는 바뀌지 않습니다."
             "</p>").format(review=review_total + n_unc_review,
                            conflict=conflict_total + n_unc_conflict)
         if per_tab:
@@ -2081,7 +2081,7 @@ def export_page() -> str:
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"{options}{archived}"
-        "<p class='muted'>저장된 내역을 출력합니다. 미확정 거래가 포함될 수 있습니다.</p>"
+        "<p class='muted'>저장된 내역을 출력합니다. 분류대기 거래가 포함될 수 있습니다.</p>"
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
@@ -2385,7 +2385,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
                 for c in candidates
             )
             cand_info = (
-                "<h3>중복 후보(미확정, 합산 제외 아님)</h3><ul>{cand_lines}</ul>"
+                "<h3>중복 후보(판단 전, 합산 제외 아님)</h3><ul>{cand_lines}</ul>"
                 if cand_lines else ""
             ).format(cand_lines=cand_lines)
             lock_note = (
@@ -4733,7 +4733,7 @@ class Handler(BaseHTTPRequestHandler):
                                f" · 전환 {turn.get('switch_count')}회")
                 else:
                     message = (f"AI 초안 대기 중입니다 · 사유 {turn.get('reason_code') or '-'}"
-                               " · 행 저장과 확정 규칙 실행은 계속됩니다")
+                               " · 행 저장과 규칙 실행은 계속됩니다")
             elif path.endswith("/conversation/owner-draft"):
                 _active_store().owner_correction_draft(learning_case_id=case_id,
                                                        client_request_id=request_id, actor="owner")

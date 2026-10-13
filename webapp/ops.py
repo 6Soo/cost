@@ -1515,7 +1515,7 @@ def action_required_report(config, store, *, now=None):
         items.append({
             "category": "save_failure", "count": save_failures, "needs": "owner",
             "what": "장부 반영이 남은 저장이 있어요",
-            "action": "미확정 저장을 확인해 확정하거나 되돌려 주세요",
+            "action": "저장 상태를 확인해 반영하거나 되돌려 주세요",
         })
 
     # 2. an import that started and never finished

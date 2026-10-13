@@ -16,7 +16,7 @@ def test_a_reading_missing_its_merchant_stays_a_candidate_that_can_be_completed(
     candidate, = rr.load(path)['candidates']
     assert candidate['hold'] == 'FIELD_MISSING' and candidate['merchant'] == ''
     with pytest.raises(ValueError, match='FIELD_MISSING'):
-        rr.confirm(path, identity=candidate['identity'], payee='x', category='식비')
+        rr.edit(path, identity=candidate['identity'], changes={'payee': 'x', 'category': '식비'})
     rr.edit(path, identity=candidate['identity'], changes={'merchant': 'SYN-SHOP'})
     candidate, = rr.load(path)['candidates']
     assert candidate['hold'] is None and candidate['amount_krw'] == 820 * rr.rc.JPY_TO_KRW

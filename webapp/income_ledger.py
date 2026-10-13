@@ -99,7 +99,7 @@ def _utc_now() -> str:
 
 def bank_stable_key(fields: dict) -> str:
     # R08: 안정 식별자와 내용 digest를 분리한다. 거래 ID가 있으면 그것을
-    # 식별 근거로 쓰고, 없으면 날짜·금액만으로 자동 중복 확정하지 않고
+    # 식별 근거로 쓰고, 없으면 날짜·금액만으로 자동 중복 판정하지 않고
     # 입금자까지 함께 본다.
     txn = str(fields.get("transaction_id", "") or "").strip()
     acct = str(fields.get("account_ref", "") or "").strip()
@@ -302,7 +302,7 @@ class BankImporter:
                             excluded += 1
                         elif cross and not fields.get("transaction_id", "").strip():
                             # R08: 거래 ID 없는 파일 간 일치는 식별 근거가 부족하므로
-                            # 자동 중복 확정이나 새 사건 생성을 하지 않고 후보로 보존한다.
+                            # 자동 중복 판정이나 새 사건 생성을 하지 않고 후보로 보존한다.
                             status, note = (
                                 "duplicate-candidate",
                                 "파일 간 식별 근거가 없어 사용자 확인이 필요해요",

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Confirmed classification rules: what a rule may match, and what it may do.
+"""Classification rules: what a rule may match, and what it may do.
 
 A rule has conditions and effects, kept strictly apart.
 

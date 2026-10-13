@@ -101,7 +101,7 @@ def test_uploading_the_xls_after_the_csv_adds_no_transactions_and_keeps_decision
     count = pipe.store.conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
     assert count == 3
     decided = pipe.store.conn.execute(
-        "SELECT item, user_confirmed FROM transactions WHERE transaction_id=?", (row["transaction_id"],)).fetchone()
+        "SELECT item, decided_at IS NOT NULL FROM transactions WHERE transaction_id=?", (row["transaction_id"],)).fetchone()
     assert decided == ("소모품비", 1)
 
 

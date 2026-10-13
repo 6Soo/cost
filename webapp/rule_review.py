@@ -49,7 +49,7 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
         future_rule = {'merchant': normalize_merchant(focus.get('merchant')),
                        'item': rule_proposals.parse(text)['item']}
     return {"text": text, "transaction_id": transaction_id, "status": proposal["status"],
-            "kind": proposal.get("kind"), "skipped_confirmed": proposal.get("skipped_confirmed", 0),
+            "kind": proposal.get("kind"), "skipped_decided": proposal.get("skipped_decided", 0),
             "needs_confirmation": bool(proposal.get("needs_confirmation")),
             "changes": [{"transaction_id": c["transaction_id"], "before_item": c["before_item"],
                          "after_item": c["after_item"]} for c in proposal.get("changes", [])

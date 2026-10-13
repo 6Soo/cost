@@ -293,7 +293,7 @@ def test_inference_rule_requires_a_source_and_cannot_pretend_to_be_a_verified_pe
 def test_common_office_inference_never_becomes_a_trip_and_domestic_food_stays_domestic():
     from tools.recover_history_rules import inferred_drafts
     def row(merchant,kind='국내',history=None):
-        return dict(user_confirmed=False,classification_state='needs_review',trip_id='',parse_error='',
+        return dict(decided=False,classification_state='needs_review',trip_id='',parse_error='',
                     conflict_reason='',duplicate_of='',approval_date='2026-04-09',posting_date='',
                     merchant_normalized=merchant.lower(),merchant=merchant,issuer='국민',card_tail='1234',
                     amount_krw=10000,raw_row_json='{}',item='',classification_source='',description='',
@@ -308,7 +308,7 @@ def test_common_office_inference_never_becomes_a_trip_and_domestic_food_stays_do
 
 def test_known_service_date_prevents_assignment_to_the_nearest_payment_date_trip():
     from tools.recover_history_rules import inferred_drafts
-    row=dict(user_confirmed=False,classification_state='needs_review',trip_id='',parse_error='',
+    row=dict(decided=False,classification_state='needs_review',trip_id='',parse_error='',
              conflict_reason='',duplicate_of='',approval_date='2026-04-01',posting_date='',
              merchant_normalized='trip.com',merchant='TRIP.COM',issuer='국민',card_tail='1234',
              amount_krw=50000,raw_row_json='{}',item='숙박비',classification_source='',description='',
@@ -321,7 +321,7 @@ def test_known_service_date_prevents_assignment_to_the_nearest_payment_date_trip
 
 def test_inference_recovery_does_not_create_a_second_competing_proposal():
     from tools.recover_history_rules import inferred_drafts
-    row=dict(user_confirmed=False,classification_state='classified',classification_source='inference',
+    row=dict(decided=False,classification_state='classified',classification_source='inference',
              trip_id='',parse_error='',conflict_reason='',duplicate_of='',approval_date='2026-04-09',posting_date='')
     assert inferred_drafts([row],flow(),[])==[]
 
@@ -333,7 +333,7 @@ def test_georgia_and_kazakhstan_are_an_explicit_europe_exception():
                                     starts_on='2026-05-20',ends_on='2026-06-10')]
     f.trip_valid=lambda identity:identity=='europe'
     for country in ('GE','KZ'):
-        row=dict(user_confirmed=False,classification_state='needs_review',classification_source='travel_location_hold',
+        row=dict(decided=False,classification_state='needs_review',classification_source='travel_location_hold',
                  trip_id='',parse_error='',conflict_reason='',duplicate_of='',approval_date='2026-05-09',posting_date='',
                  merchant_normalized='synthetic local shop',merchant='SYNTHETIC LOCAL SHOP',issuer='국민',card_tail='1234',
                  amount_krw=5000,raw_row_json='{"c8":"'+country+'"}',item='현지경비',description='',
@@ -371,7 +371,7 @@ def test_multi_word_city_and_full_country_suffixes_keep_the_original_card_countr
 def test_korean_booking_gateway_is_not_a_domestic_onsite_purchase():
     from app.rules import is_booking_or_online
     from tools.recover_history_rules import inferred_drafts
-    row=dict(user_confirmed=False,classification_state='needs_review',trip_id='',parse_error='',
+    row=dict(decided=False,classification_state='needs_review',trip_id='',parse_error='',
              conflict_reason='',duplicate_of='',approval_date='2026-04-08',posting_date='',
              merchant_normalized='아고다_나이스',merchant='아고다_나이스',issuer='국민',card_tail='1234',
              amount_krw=50000,raw_row_json='{}',item='숙박비',classification_source='',description='',

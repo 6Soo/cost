@@ -3,7 +3,7 @@
 A deterministic parser recognises a few fixed phrasings (merchant rule, this-one-only, not a
 company expense). It never reads a raw bank amount, date or id as something to change. Nothing
 changes until a person approves the exact preview; approval touches only rows the user has not
-already confirmed, writes an audit entry, and a second approval of the same proposal does nothing.
+already decided, writes an audit entry, and a second approval of the same proposal does nothing.
 """
 
 from __future__ import annotations
@@ -37,24 +37,24 @@ def propose(text: str, *, rows: list[dict], focus: dict) -> dict:
     """focus: the row the user is looking at (transaction_id, merchant)."""
     parsed = parse(text, merchant_hint=focus.get("merchant"))
     if parsed["kind"] in ("REJECTED_ORIGINAL_EDIT", "NOT_UNDERSTOOD"):
-        return {"id": None, "status": parsed["kind"], "changes": [], "skipped_confirmed": 0}
+        return {"id": None, "status": parsed["kind"], "changes": [], "skipped_decided": 0}
     if parsed["kind"] == "THIS_ONLY":
         scope = [r for r in rows if r["transaction_id"] == focus["transaction_id"]]
     elif parsed["kind"] == "MERCHANT_RULE":
         scope = [r for r in rows if r.get("merchant") == parsed.get("merchant")]
     else:
         scope = [r for r in rows if r["transaction_id"] == focus["transaction_id"]]
-    skipped = [r for r in scope if r.get("user_confirmed")]
+    skipped = [r for r in scope if r.get("decided")]
     changes = []
     for row in scope:
-        if row.get("user_confirmed"):
+        if row.get("decided"):
             continue
         new_item = None if parsed["kind"] == "NOT_COMPANY" else parsed["item"]
         changes.append({"transaction_id": row["transaction_id"], "amount_krw": row["amount_krw"],
                         "occurred_on": row["occurred_on"], "before_item": row.get("item"), "after_item": new_item,
                         "exclude": parsed["kind"] == "NOT_COMPANY"})
     return {"id": f"p-{uuid.uuid4().hex}", "status": "proposed", "kind": parsed["kind"], "changes": changes,
-            "skipped_confirmed": len(skipped), "needs_confirmation": parsed["kind"] == "NOT_COMPANY"}
+            "skipped_decided": len(skipped), "needs_confirmation": parsed["kind"] == "NOT_COMPANY"}
 
 
 class AuditLog:
@@ -73,7 +73,7 @@ class AuditLog:
 
 def apply(proposal: dict, *, approved: bool, approved_by: str, rows: list[dict], audit: AuditLog,
           confirm_exclusion: bool = False) -> dict:
-    """Applies only to unconfirmed rows, only the classification, only after explicit approval."""
+    """Applies only to undecided rows, only the classification, only after explicit approval."""
     if not approved:
         raise PermissionError("APPROVAL_REQUIRED")
     if proposal.get("status") != "proposed":
@@ -87,8 +87,8 @@ def apply(proposal: dict, *, approved: bool, approved_by: str, rows: list[dict],
     targets = []
     for change in proposal["changes"]:
         row = by_id.get(change["transaction_id"])
-        if row is None or row.get("user_confirmed"):
-            continue  # a confirmed row is never overwritten by a rule
+        if row is None or row.get("decided"):
+            continue  # a decided row is never overwritten by a rule
         if (row["amount_krw"], row["occurred_on"]) != (change["amount_krw"], change["occurred_on"]):
             raise ValueError("ROW_CHANGED_SINCE_PREVIEW")  # nothing applied; propose again
         if row.get("item", "") != change["before_item"]:
@@ -102,7 +102,7 @@ def apply(proposal: dict, *, approved: bool, approved_by: str, rows: list[dict],
             row["item"] = change["after_item"]
         applied.append(change["transaction_id"])
     audit.append({"proposal_id": proposal["id"], "kind": proposal["kind"], "approved_by": approved_by,
-                  "applied": applied, "skipped_confirmed": proposal["skipped_confirmed"]})
+                  "applied": applied, "skipped_decided": proposal["skipped_decided"]})
     return {"status": "APPLIED", "applied": applied}
 
 
@@ -116,7 +116,7 @@ def decision_payloads(proposal: dict, rows: list[dict]) -> list[dict]:
     payloads = []
     for change in proposal.get("changes", []):
         row = by_id.get(change["transaction_id"])
-        if row is None or row.get("user_confirmed") or change.get("exclude"):
+        if row is None or row.get("decided") or change.get("exclude"):
             continue
         if row.get("item") == change["after_item"]:
             continue  # already has this item; a second decision would only add a revision

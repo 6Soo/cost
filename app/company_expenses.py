@@ -1,7 +1,7 @@
 """Explicit, reversible company-expense exclusion. Source and decisions never change."""
 import hashlib
 
-from .db import StoreError, canonical, utc_now
+from .db import StoreError, canonical, decided_sql, utc_now
 
 
 def states(conn):
@@ -29,11 +29,11 @@ def set_excluded(store, *, transaction_id, expected_revision, expected_exclusion
                 store.conn.commit()
                 return replay
             row = store.conn.execute(
-                'SELECT source_hash, revision, user_confirmed, transaction_direction, duplicate_of, '
+                'SELECT source_hash, revision, ' + decided_sql() + ', transaction_direction, duplicate_of, '
                 'conflict_reason, parse_error FROM transactions WHERE transaction_id=?', (transaction_id,)).fetchone()
             if row is None:
                 raise StoreError('NOT_FOUND', '거래를 찾을 수 없습니다')
-            source, revision, user_confirmed, direction, duplicate, conflict, parse_error = row
+            source, revision, decided, direction, duplicate, conflict, parse_error = row
             current = states(store.conn).get(transaction_id)
             version = current['revision'] if current else 0
             if revision != expected_revision or version != expected_exclusion_revision:
@@ -43,9 +43,9 @@ def set_excluded(store, *, transaction_id, expected_revision, expected_exclusion
             from .partial_refund import refund_group
             from .review_holds import active_holds
             booked = store.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (transaction_id,)).fetchone()
-            if (booked or (user_confirmed and excluded) or direction != 'purchase' or duplicate or conflict or parse_error
+            if (booked or (decided and excluded) or direction != 'purchase' or duplicate or conflict or parse_error
                     or transaction_id in active_holds(store.conn) or len(refund_group(store.conn, transaction_id)) > 1):
-                raise StoreError('EXCLUSION_PROTECTED', '기록·확정·환불·보류 거래는 이 기능으로 바꾸지 않습니다')
+                raise StoreError('EXCLUSION_PROTECTED', '기록·환불·보류 거래는 이 기능으로 바꾸지 않습니다')
             if bool(current and current['excluded']) == excluded:
                 result = dict(transaction_id=transaction_id, excluded=excluded, exclusion_revision=version)
             else:

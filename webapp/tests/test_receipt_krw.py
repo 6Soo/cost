@@ -75,7 +75,7 @@ def test_late_domestic_card_blocks_cash_copy_and_preserves_card_when_linked(app)
     candidate = app.request('/api/receipts')[1]['candidates'][0]
     identity = candidate['identity']
     app.request('/api/receipts/edit', {'identity': identity, 'trip_id': app.trip}, token=app.csrf())
-    app.request('/api/receipts/confirm', {'identity': identity, 'payee': region['merchant'], 'category': '식비'}, token=app.csrf())
+    app.request('/api/receipts/edit', {'identity': identity, 'payee': region['merchant'], 'category': '식비'}, token=app.csrf())
     assert app.request('/api/receipts/tsv?trip=' + app.trip)[1]['row_count'] == 1
     board = app.server.card_store
     batch = CardFlow(board).pipeline.receive(receipt_tests.CARD, 'synthetic-krw.csv')['batch_id']

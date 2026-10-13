@@ -28,7 +28,8 @@ def readonly(path):
 def current_rows(path):
     conn = readonly(path)
     try:
-        return [dict(row) for row in conn.execute('SELECT * FROM transactions')]
+        from app.db import decided_sql
+        return [dict(row) for row in conn.execute(f'SELECT t.*, {decided_sql("t")} AS decided FROM transactions t')]
     finally:
         conn.close()
 
@@ -167,7 +168,7 @@ def inferred_drafts(rows, flow, mail_matches):
         return m
     result=[]
     for row in rows:
-        if (row['user_confirmed'] or row['classification_state']=='preserved' or row['trip_id']
+        if (row['decided'] or row['classification_state']=='preserved' or row['trip_id']
                 or row['classification_source'] in ('inference','user_exception')
                 or row['parse_error'] or row['conflict_reason'] or row['duplicate_of']
                 or (row['approval_date'] or row['posting_date'])<'2026-04-01'):
@@ -341,7 +342,7 @@ def refined_drafts(rows, flow, mail_matches):
     mail_by_source={match['source_hash']:match for match in mail_matches}
     reconsider={}
     for row in rows:
-        if (row.get('classification_source')!='inference' or row['user_confirmed']
+        if (row.get('classification_source')!='inference' or row['decided']
                 or row['source_hash'] not in existing):
             continue
         mail=mail_by_source.get(row['source_hash'],{})
@@ -452,10 +453,10 @@ def apply_rules(board_path, report, *, flow=None):
     pipe = Pipeline(conn)
     try:
         derived = {'classification_state','classification_source','classification_basis',
-                   'item','description','display_tab_id','trip_id'}
+                   'item','description','display_tab_id','trip_id','decided'}
         frozen = sorted(set(before_rows[0])-derived)
         source_before = {r['transaction_id']:tuple(r[name] for name in frozen) for r in before_rows}
-        protected_before = {r['transaction_id']:r for r in before_rows if r['user_confirmed']}
+        protected_before = {r['transaction_id']:r for r in before_rows if r['decided']}
         protected_tables = ('board_rows','board_revisions','owner_profile','trip_tabs',
                             'review_decisions','ledger_entries','review_source_guidance','decision_events')
         available = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -656,7 +657,7 @@ def main():
     if args.ota_only:
         rows=current_rows(args.board)
         sources={row['source_hash'] for row in rows
-                 if not row['user_confirmed']
+                 if not row['decided']
                  and row['classification_state']!='preserved'
                  and any(marker in row['merchant'].upper() for marker in
                          ('AGODA','BOOKING','TRIP','KLOOK','AIRBNB','아고다','트립닷컴','클룩','부킹닷컴','에어비앤비'))}

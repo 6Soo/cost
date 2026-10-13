@@ -271,7 +271,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     page.wait_for_function("document.querySelector('#preview').innerText.includes('사무용품비')")
                     pipe.classify_batch(batch)
                     actual=pipe.get_batch(batch)['rows'][0]
-                    self.assertTrue(actual['user_confirmed'])
+                    self.assertTrue(actual['decided'])
                     self.assertEqual(actual['item'],'사무용품비')
                     self.assertEqual(page.evaluate('document.documentElement.scrollWidth'),390)
                     self.assertEqual(server.card_store.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
@@ -286,7 +286,7 @@ class CardFlowBrowserTests(unittest.TestCase):
             'summary':{
                 'display_name':'synthetic evidence', 'period_start':'2026-07-01',
                 'period_end':'2026-07-31', 'row_count':5, 'filename':'synthetic.csv',
-                'counts':{'classified':3, 'needs_review':2, 'confirmed':1},
+                'counts':{'classified':4, 'needs_review':2},
             },
             'preview':{'digest':'synthetic-digest', 'rows':[]},
             'trips':[{'id':'trip-jp', 'name':'일본', 'available':True}],
@@ -297,7 +297,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'classification_state':'needs_review', 'classification_source':'inference',
                     'classification_basis':'추론 배정 · 낮음 · 일정 근거', 'item':'숙박비',
                     'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'description':'', 'note':'',
-                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['예약 근거 있음','여행 배정 확인 권장'],
                 },
                 {
@@ -306,7 +306,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'classification_state':'needs_review', 'classification_source':'rule',
                     'classification_basis':'예약 연결 확인 필요', 'item':'숙박비',
                     'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
-                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['메일 있음 · 연결 확인 필요','분류 확인 권장'],
                 },
                 {
@@ -315,7 +315,7 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'classification_state':'needs_review', 'classification_source':'rule',
                     'classification_basis':'취소 정산 확인', 'item':'숙박비',
                     'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
-                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_hold':{'kind':'refund_pending','reason':'카드 환불 원행 확인 필요'},
                     'review_evidence_labels':['취소 메일 있음','환불 확인 필요'],
                 },
@@ -325,16 +325,16 @@ class CardFlowBrowserTests(unittest.TestCase):
                     'classification_state':'needs_review', 'classification_source':'inference',
                     'classification_basis':'추론 배정 · 낮음 · 예약 연결 없음', 'item':'',
                     'display_tab_id':'unclassified', 'trip_id':'', 'description':'', 'note':'',
-                    'user_confirmed':0, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'decided':False, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['메일 연결 없음','분류 확인 권장'],
                 },
                 {
-                    'transaction_id':'confirmed', 'revision':1, 'merchant':'AGODA',
+                    'transaction_id':'decided', 'revision':1, 'merchant':'AGODA',
                     'approval_date':'2026-07-13', 'posting_date':'2026-07-13', 'amount_krw':100000,
-                    'classification_state':'confirmed', 'classification_source':'inference',
-                    'classification_basis':'사용자 확정', 'item':'숙박비',
+                    'classification_state':'classified', 'classification_source':'inference',
+                    'classification_basis':'사용자 답변', 'item':'숙박비',
                     'display_tab_id':'trip-jp', 'trip_id':'trip-jp', 'description':'', 'note':'',
-                    'user_confirmed':1, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
+                    'decided':True, 'duplicate_of':'', 'conflict_reason':'', 'parse_error':'',
                     'review_evidence_labels':['예약 근거 있음'],
                 },
             ],

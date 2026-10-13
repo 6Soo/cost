@@ -4,13 +4,13 @@ from app.rule_proposals import AuditLog, apply, parse, propose
 
 
 def row(tx, **over):
-    base = {"transaction_id": tx, "merchant": "CONVI-SYN", "item": "", "user_confirmed": False,
+    base = {"transaction_id": tx, "merchant": "CONVI-SYN", "item": "", "decided": False,
             "amount_krw": 4500, "occurred_on": "2027-08-02"}
     base.update(over)
     return base
 
 
-ROWS = [row("t1"), row("t2"), row("t3", merchant="OTHER-SYN"), row("t4", user_confirmed=True, item="숙박비")]
+ROWS = [row("t1"), row("t2"), row("t3", merchant="OTHER-SYN"), row("t4", decided=True, item="숙박비")]
 FOCUS = {"transaction_id": "t1", "merchant": "CONVI-SYN"}
 
 
@@ -32,13 +32,13 @@ def test_merchant_rule_previews_only_unconfirmed_rows_of_that_merchant():
     assert proposal["status"] == "proposed"
     assert [c["transaction_id"] for c in proposal["changes"]] == ["t1", "t2"]
     assert all(c["after_item"] == "현지잡비" for c in proposal["changes"])
-    assert proposal["skipped_confirmed"] == 1  # t4 is the same merchant but already confirmed
+    assert proposal["skipped_decided"] == 1  # t4 is the same merchant but already decided
 
 
-def test_user_confirmed_rows_are_counted_and_never_changed(tmp_path):
-    rows = [row("t1"), row("t4", merchant="CONVI-SYN", user_confirmed=True, item="숙박비")]
+def test_decided_rows_are_counted_and_never_changed(tmp_path):
+    rows = [row("t1"), row("t4", merchant="CONVI-SYN", decided=True, item="숙박비")]
     proposal = propose("이 가맹점은 앞으로 현지잡비로 분류해 줘", rows=rows, focus=FOCUS)
-    assert proposal["skipped_confirmed"] == 1
+    assert proposal["skipped_decided"] == 1
     apply(proposal, approved=True, approved_by="owner", rows=rows, audit=AuditLog(tmp_path / "a.json"))
     assert rows[1]["item"] == "숙박비"
 
@@ -88,7 +88,7 @@ def test_exclusion_needs_its_own_confirmation_and_marks_not_item(tmp_path):
 
 def test_rejected_original_edit_produces_no_changes():
     proposal = propose("금액을 9999로 바꿔 줘", rows=ROWS, focus=FOCUS)
-    assert proposal == {"id": None, "status": "REJECTED_ORIGINAL_EDIT", "changes": [], "skipped_confirmed": 0}
+    assert proposal == {"id": None, "status": "REJECTED_ORIGINAL_EDIT", "changes": [], "skipped_decided": 0}
 
 
 def test_decision_payloads_keep_the_seen_revision_and_skip_exclusions(tmp_path):

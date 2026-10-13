@@ -574,7 +574,7 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(page.locator('#rule-approve').count(), 0)
             page.reload()
             page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
-            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).user_confirmed', self.tx[0]), 1)
+            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).decided', self.tx[0]), 1)
             browser.close()
 
     def test_browser_retries_lost_approval_response_with_same_request(self):
@@ -619,9 +619,9 @@ class RuleReviewTests(unittest.TestCase):
             self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
             page.reload()
             page.wait_for_function('(id)=>model.rows.find(r=>r.transaction_id===id).item==="식비"', arg=self.tx[0])
-            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).user_confirmed', self.tx[0]), 1)
+            self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).decided', self.tx[0]), 1)
             self.assertEqual(self.server.card_store.conn.execute(
-                'SELECT user_confirmed FROM transactions WHERE transaction_id=?', (self.tx[0],)).fetchone()[0], 1)
+                'SELECT decided_at IS NOT NULL FROM transactions WHERE transaction_id=?', (self.tx[0],)).fetchone()[0], 1)
             browser.close()
 
     def test_delayed_approval_result_does_not_restore_previous_batch(self):

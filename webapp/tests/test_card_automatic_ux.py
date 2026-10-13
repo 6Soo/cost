@@ -36,7 +36,7 @@ def flow(tmp_path, monkeypatch):
 
 def test_ready_auto_records_missing_trip_waits_and_replay_is_noop(flow):
     f, batch, trip = flow
-    before = f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    before = f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,decided_at FROM transactions ORDER BY transaction_id').fetchall()
     state = f.auto_record(batch)
     assert state['auto_recorded'] == 1
     actions = {r['amount_krw']:r['next_action'] for r in state['preview']['rows']}
@@ -44,7 +44,7 @@ def test_ready_auto_records_missing_trip_waits_and_replay_is_noop(flow):
     assert actions[188808]['status'] == '기록 완료'
     assert f.auto_record(batch)['auto_recorded'] == 0
     assert f.board.conn.execute('SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries').fetchone() == (1,188808)
-    assert before == f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    assert before == f.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,approval_date,decided_at FROM transactions ORDER BY transaction_id').fetchall()
     payload = json.loads(f.board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
     assert payload['confirmed_by'] == 'automatic' and payload['classification_state'] == 'classified'
     catalog = card_catalog.catalog(f.board, {'state':['booked']})
@@ -154,9 +154,9 @@ def test_existing_partial_refund_does_not_stop_an_unrelated_ready_transaction(fl
     conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-200000,original_approval_number=? WHERE transaction_id=?",(number,refund['transaction_id']))
     conn.execute("UPDATE transactions SET item='숙박비',classification_state='classified',display_tab_id=?,trip_id=? WHERE transaction_id=?",(trip,trip,normal['transaction_id']))
     conn.commit()
-    before=conn.execute('SELECT transaction_id,source_hash,amount_krw,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    before=conn.execute('SELECT transaction_id,source_hash,amount_krw,decided_at FROM transactions ORDER BY transaction_id').fetchall()
     result=f.auto_record(batch)
     assert result['auto_recorded']==1
     assert {r[0] for r in conn.execute('SELECT transaction_id FROM ledger_entries')}=={original['transaction_id'],normal['transaction_id']}
-    assert before==conn.execute('SELECT transaction_id,source_hash,amount_krw,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    assert before==conn.execute('SELECT transaction_id,source_hash,amount_krw,decided_at FROM transactions ORDER BY transaction_id').fetchall()
     assert f.auto_record(batch)['auto_recorded']==0

@@ -34,7 +34,7 @@ def test_card_flow_classifies_residual_without_changing_original_or_confirming(t
         assert after['item'] == '분기 기타비용'
         for field in ('transaction_id', 'source_hash', 'amount_krw', 'approval_date', 'posting_date'):
             assert after[field] == before[field]
-        assert not after['user_confirmed']
+        assert not after['decided']
         flow.classify(batch)
         assert flow.pipeline.get_batch(batch)['rows'][0]['description'] == '2026년 4분기 기타비용'
         actual_kind = dict(card_tail='3820', transaction_kind='일시불매입', transaction_direction='purchase',
@@ -44,7 +44,7 @@ def test_card_flow_classifies_residual_without_changing_original_or_confirming(t
         board.close()
 
 
-@pytest.mark.parametrize('protection', ['confirmed', 'excluded', 'booked', 'duplicate', 'conflict'])
+@pytest.mark.parametrize('protection', ['decided', 'excluded', 'booked', 'duplicate', 'conflict'])
 def test_existing_protected_rows_do_not_receive_residual_policy(tmp_path, monkeypatch, protection):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'protected.sqlite', seed_demo=False)
@@ -52,8 +52,8 @@ def test_existing_protected_rows_do_not_receive_residual_policy(tmp_path, monkey
         flow = CardFlow(board)
         batch = flow.pipeline.receive(CARD.replace(b',1234,', b',3820,'), 'synthetic.csv')['batch_id']
         tid = flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
-        if protection == 'confirmed':
-            board.conn.execute("UPDATE transactions SET user_confirmed=1,item='기존 사용자 확정' WHERE transaction_id=?", (tid,))
+        if protection == 'decided':
+            board.conn.execute("UPDATE transactions SET classification_source='user_decision',item='기존 사용자 분류' WHERE transaction_id=?", (tid,))
         elif protection == 'excluded':
             board.conn.execute("INSERT INTO transaction_company_exclusions VALUES (?, '', 1, 1, '', '')", (tid,))
         elif protection == 'booked':
@@ -67,7 +67,7 @@ def test_existing_protected_rows_do_not_receive_residual_policy(tmp_path, monkey
         flow.classify(batch)
         after = flow.pipeline.get_batch(batch)['rows'][0]
         assert after['item'] != '분기 기타비용'
-        if protection in ('confirmed', 'excluded', 'booked'):
+        if protection in ('decided', 'excluded', 'booked'):
             assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (tid,)).fetchone() == before
     finally:
         board.close()

@@ -1105,7 +1105,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
 
     def trip_entry(trip):
         # 금액 badge를 표시하지 않는다. 수입 합계는 장부 화면의 합계 영역이
-        # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 확정 금액과의 혼동을
+        # 맡고, 목록에는 일정과 이동 상태만 둔다. Google 집계 금액과의 혼동을
         # 막기 위한 표시 변경이며 집계 로직은 그대로 둔다.
         start, end = trip.get("starts_on") or "", trip.get("ends_on") or ""
         if start and end:
@@ -1264,7 +1264,7 @@ def _head_html(trip) -> str:
         period = f"{_icons.icon('calendar-days')}<span class='tnum'>{board.esc(trip['starts_on'])}~{board.esc(trip['ends_on'])}</span>"
         meta = (f"<span>작성일 <b>{board.esc(trip.get('prepared_on') or '-')}</b></span>"
                 f"<span>{_icons.icon('users')}담당자 <b>{board.esc(trip.get('prepared_by_name') or '-')}</b></span>"
-                f"<span>합계 상태 <b>미확정</b></span>"
+                f""
                 f"<span><a class='btn' href='/trips'>{_icons.icon('map')}여행 관리</a></span>")
     return (
         "<div class='page-hd'><div>"
@@ -2173,9 +2173,9 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
         return (f"<tr><td>{board.esc(day or '')}</td><td>{board.esc(merchant or '')}</td>"
                 f"<td class='num'>{int(amount or 0):,}원</td></tr>")
     waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
-                           r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>확정 대기 거래가 없습니다.</td></tr>"
+                           r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
     done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
-                   for r in booked) or "<tr><td colspan='3'>확정된 기록이 없습니다.</td></tr>"
+                   for r in booked) or "<tr><td colspan='3'>기록된 거래가 없습니다.</td></tr>"
     return ("<div class='body'>" + note +
             "<p class='hint'>새로 수집된 정상 거래는 자동으로 기록됩니다. 잘못 옮겨진 거래만 여행이나 항목을 바꾸세요.</p>"
             f"<h3>기록된 거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
@@ -2274,7 +2274,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"<div id='live-sum'>"
         f"{summary_part(tab_id, kind, query)}"
         f"</div>"
-        f"<section id='trip-income' aria-label='여행 수입 · COST 기록과 확정 장부'>"
+        f"<section id='trip-income' aria-label='여행 수입 · COST 기록'>"
         f"{trip_income_html(tab_id)}"
         f"</section>"
         f"{_source_preview_html(trip)}"

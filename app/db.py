@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS transactions (
     display_tab_id TEXT NOT NULL DEFAULT '',
     trip_id TEXT NOT NULL DEFAULT '',
     revision INTEGER NOT NULL DEFAULT 1,
-    user_confirmed INTEGER NOT NULL DEFAULT 0,
     decided_at TEXT,
     created_at TEXT NOT NULL
 );
@@ -211,6 +210,13 @@ CODE_INVALID_INPUT = "INVALID_INPUT"
 CODE_AMOUNT_UNREADABLE = "AMOUNT_UNREADABLE"
 CODE_SOURCE_CONFLICT = "SOURCE_CONFLICT"
 CODE_ROLLBACK = "ROLLBACK"
+
+
+def decided_sql(alias: str = 'transactions') -> str:
+    """사용자가 직접 정했거나 이미 장부에 기록된 거래. 자동 분류가 덮어쓰지 않는다."""
+    return (f"(COALESCE({alias}.classification_source,'') IN ('user_decision','user_exception')"
+            f" OR {alias}.decided_at IS NOT NULL"
+            f" OR EXISTS (SELECT 1 FROM ledger_entries _l WHERE _l.transaction_id={alias}.transaction_id))")
 
 
 def utc_now() -> str:

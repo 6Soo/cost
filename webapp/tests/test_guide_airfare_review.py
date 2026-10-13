@@ -312,11 +312,12 @@ def flow_with(results, monkeypatch, fresh=True):
     conn = sqlite3.connect(":memory:")
     conn.executescript(
         "CREATE TABLE transactions(transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,"
-        " card_kind TEXT, user_confirmed INT, classification_state TEXT, conflict_reason TEXT, parse_error TEXT,"
+        " card_kind TEXT, decided_at TEXT, classification_state TEXT, classification_source TEXT, conflict_reason TEXT, parse_error TEXT,"
         " transaction_direction TEXT);"
+        "CREATE TABLE ledger_entries(transaction_id TEXT);"
         "CREATE TABLE import_batch_rows(batch_id TEXT, transaction_id TEXT);"
-        "INSERT INTO transactions VALUES('card-1','hash-1','대표_카카오페이-트립닷컴','대표_카카오페이-트립닷컴','credit',0,'needs_review','','','purchase');"
-        "INSERT INTO transactions VALUES('card-2','hash-2','다른 상점','다른 상점','credit',0,'needs_review','','','purchase');"
+        "INSERT INTO transactions VALUES('card-1','hash-1','대표_카카오페이-트립닷컴','대표_카카오페이-트립닷컴','credit',NULL,'needs_review','','','','purchase');"
+        "INSERT INTO transactions VALUES('card-2','hash-2','다른 상점','다른 상점','credit',NULL,'needs_review','','','','purchase');"
         "INSERT INTO import_batch_rows VALUES('b','card-1'),('b','card-2');")
     flow = card_flow.CardFlow.__new__(card_flow.CardFlow)
     flow.board = SimpleNamespace(conn=conn, _ota_snapshot_service=Service(results, fresh))

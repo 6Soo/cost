@@ -4,6 +4,8 @@ import re
 import json
 from urllib.parse import urlencode
 
+from app.db import decided_sql
+
 from . import ui_icons
 
 PAGE_SIZE = 50
@@ -114,7 +116,7 @@ def catalog(board, query):
         page = 1
     columns = ('transaction_id', 'batch_id', 'approval_date', 'posting_date', 'issuer', 'card_tail',
                'transaction_direction', 'transaction_kind', 'merchant', 'amount_krw', 'foreign_amount',
-               'foreign_currency', 'item', 'description', 'classification_state', 'user_confirmed',
+               'foreign_currency', 'item', 'description', 'classification_state', 'decided',
                'duplicate_of', 'conflict_reason', 'parse_error', 'display_tab_id', 'classification_source')
     from .history_policy import cutoff
     boundary = cutoff()
@@ -147,7 +149,7 @@ def catalog(board, query):
         total = board.conn.execute('SELECT COUNT(*)' + source + clause, params).fetchone()[0]
         pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
         page = min(page, pages)
-        records = board.conn.execute('SELECT ' + ','.join('t.' + c for c in columns)
+        records = board.conn.execute('SELECT ' + ','.join(decided_sql('t') if c == 'decided' else 't.' + c for c in columns)
             + ',COALESCE(p.display_key,\'\'),COALESCE(e.excluded,0)' + source + clause
             + f" ORDER BY ({TRADE_DATE} IS NULL OR {TRADE_DATE}=''),{TRADE_DATE} {order},t.transaction_id"
             + ' LIMIT ? OFFSET ?', [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
@@ -208,8 +210,8 @@ def render_html(data, query, *, csrf=''):
         from .card_actions import next_action
         action = r.get('next_action') or next_action(r)
         state = action['status']
-        if r['user_confirmed']:
-            state += ' · 사용자 확정'
+        if r['decided']:
+            state += ' · 직접 분류'
         if r['duplicate_of']:
             state += ' · 중복'
         if r['company_excluded']:

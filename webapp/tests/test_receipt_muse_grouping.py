@@ -62,7 +62,7 @@ def test_same_page_identical_tickets_can_be_separate_then_user_grouped(case):
     assert len(candidates) == 2
     assert all(c["trip_id"] == case.trip for c in candidates)
     for candidate in candidates:
-        status, _ = case.request("/api/receipts/confirm", {
+        status, _ = case.request("/api/receipts/edit", {
             "identity": candidate["identity"],
             "expected_version": receipt_review.candidate_version(candidate),
             "payee": candidate["merchant"], "category": "교통비"}, token=case.csrf())

@@ -372,7 +372,7 @@ class RuleDialogScreenTests(unittest.TestCase):
                 page.click("text=규칙 초안 요청")
                 page.wait_for_load_state()
                 self.assertIn("AI 초안 대기 중입니다", page.inner_text("body"))
-                self.assertIn("행 저장과 확정 규칙 실행은 계속됩니다", page.inner_text("body"))
+                self.assertIn("행 저장과 규칙 실행은 계속됩니다", page.inner_text("body"))
                 self.assertNotIn("AI 연결됨", page.inner_text("body"))
             finally:
                 browser.close()

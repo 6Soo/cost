@@ -17,7 +17,7 @@ def test_edited_receipt_rescan_cannot_create_another_cost(tmp_path):
     rr.scan(path, original)
     identity = rr.load(path)['candidates'][0]['identity']
     rr.edit(path, identity=identity, changes={'total_jpy': 1300})
-    rr.confirm(path, identity=identity, payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=identity, changes={'payee': 'SYN-SHOP', 'category': '식비'})
     changed = copy.deepcopy(original)
     changed['regions'][0].update(total=1400, payment='private_card')
     result = rr.scan(path, changed)
@@ -44,7 +44,7 @@ def test_invalid_edit_preserves_file_and_confirmation(tmp_path, changes):
     path = tmp_path / 'receipts.json'
     rr.scan(path, {'regions': [region()]})
     identity = rr.load(path)['candidates'][0]['identity']
-    rr.confirm(path, identity=identity, payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=identity, changes={'payee': 'SYN-SHOP', 'category': '식비'})
     before = path.read_bytes()
     with pytest.raises(ValueError):
         rr.edit(path, identity=identity, changes=changes)
@@ -70,7 +70,7 @@ def test_cash_receipt_with_card_evidence_is_held_instead_of_counted_twice(tmp_pa
     stored, = rr.load(path)['candidates']
     rr.edit(path, identity=stored['identity'], changes={'trip_id': 'trip-syn'},
             valid_trips={'trip-syn'}, card_rows_list=cards)
-    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=stored['identity'], changes={'payee': 'SYN-SHOP', 'category': '식비'}, card_rows_list=cards)
     result = rr.tsv(path, 'trip-syn')
     assert result['row_count'] == 0
     assert any(h['reason'] == 'CARD_PAYMENT_CONFLICT' for h in result['held'])
@@ -81,7 +81,7 @@ def test_copy_rechecks_cards_imported_after_receipt_confirmation(tmp_path):
     rr.scan(path, {'regions': [region()]})
     stored, = rr.load(path)['candidates']
     rr.edit(path, identity=stored['identity'], changes={'trip_id': 'trip-syn'}, valid_trips={'trip-syn'})
-    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=stored['identity'], changes={'payee': 'SYN-SHOP', 'category': '식비'})
     before = path.read_bytes()
     cards = [{'transaction_id': 'card-syn', 'date': '2026-10-01', 'merchant': 'SYN-SHOP', 'original_jpy': 1200}]
     assert rr.tsv(path, 'trip-syn', card_rows_list=cards)['row_count'] == 0
@@ -92,9 +92,9 @@ def test_repeated_confirmation_does_not_append_duplicate_history(tmp_path):
     path = tmp_path / 'receipts.json'
     rr.scan(path, {'regions': [region()]})
     stored, = rr.load(path)['candidates']
-    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=stored['identity'], changes={'payee': 'SYN-SHOP', 'category': '식비'})
     before = path.read_bytes()
-    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=stored['identity'], changes={'payee': 'SYN-SHOP', 'category': '식비'})
     assert path.read_bytes() == before
 
 
@@ -108,12 +108,12 @@ def test_versioned_receipt_retry_returns_saved_result_without_repeating_history(
     def apply():
         if operation == 'edit':
             return rr.edit(path, identity=identity, changes={'total_jpy': 1300}, expected_version=version)
-        return rr.confirm(path, identity=identity, payee='SYN-SHOP', category='FOOD', expected_version=version)
+        return rr.edit(path, identity=identity, changes={'payee': 'SYN-SHOP', 'category': 'FOOD'}, expected_version=version)
     first = apply()
     before = path.read_bytes()
     assert apply() == first
     assert path.read_bytes() == before
-    rr.confirm(path, identity=identity, payee='NEW-PAYEE', category='NEW-CATEGORY')
+    rr.edit(path, identity=identity, changes={'payee': 'NEW-PAYEE', 'category': 'NEW-CATEGORY'})
     latest = path.read_bytes()
     with pytest.raises(ValueError, match='STALE_CANDIDATE'):
         apply()
@@ -225,7 +225,7 @@ def test_repeated_edit_preserves_confirmation_and_does_not_duplicate_history(tmp
     changes = {'trip_id': 'trip-syn', 'merchant': stored['merchant'], 'date': stored['date'],
                'total_jpy': stored['total_jpy'], 'payment': stored['payment']}
     rr.edit(path, identity=stored['identity'], changes=changes, valid_trips={'trip-syn'})
-    rr.confirm(path, identity=stored['identity'], payee='SYN-SHOP', category='식비')
+    rr.edit(path, identity=stored['identity'], changes={'payee': 'SYN-SHOP', 'category': '식비'})
     before = path.read_bytes()
     rr.edit(path, identity=stored['identity'], changes=changes, valid_trips={'trip-syn'})
     assert path.read_bytes() == before

@@ -13,8 +13,8 @@ retry after a crash cannot leave two rows for one transaction, and a failure
 half way cannot leave one.
 
 Two rows that resolve to the same transaction are reported as a duplicate
-possibility and held back rather than guessed at. Only a transaction the owner
-confirmed reaches the ledger; a candidate and a review row book nothing.
+possibility and held back rather than guessed at. Only a classified transaction
+reaches the ledger; a candidate and a review row book nothing.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import hashlib
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_PREVIEW_STALE,
                  CODE_REFUND_GROUP_INCOMPLETE, CODE_REFUND_PAIR_PARTIALLY_BOOKED,
-                 StoreError, canonical, utc_now)
+                 StoreError, canonical, decided_sql, utc_now)
 
 __all__ = ["preview", "commit", "preview_digest", "recordable_rows"]
 
@@ -38,7 +38,7 @@ def _ready_rows(store, batch_id: str, review_from=None):
     return store.conn.execute(
         "SELECT transaction_id, source_hash, merchant, amount_krw,"
         " COALESCE(NULLIF(approval_date,''),posting_date), transaction_direction, item, description,"
-        " display_tab_id, trip_id, revision, user_confirmed, classification_state,"
+        " display_tab_id, trip_id, revision, " + decided_sql() + ", classification_state,"
         " conflict_reason, parse_error FROM transactions WHERE classification_state!='preserved' AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
         " AND (? IS NULL OR COALESCE(NULLIF(approval_date,''),posting_date)=''"
         " OR COALESCE(NULLIF(approval_date,''),posting_date)>=?)"
@@ -101,7 +101,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
     booked_ids = {tid for (tid,) in store.conn.execute("SELECT transaction_id FROM ledger_entries")}
     for row in _ready_rows(store, batch_id, review_from):
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
-         direction, item, description, tab, trip_id, revision, user_confirmed,
+         direction, item, description, tab, trip_id, revision, decided,
          state, conflict_reason, parse_error) = row
         decision = decisions.get(transaction_id)
         entry = {
@@ -112,7 +112,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "description": (decision or {}).get("description", description) or "",
             "display_tab_id": (decision or {}).get("display_tab_id", tab) or "",
             "trip_id": trip_id, "revision": revision,
-            "user_confirmed": bool(user_confirmed), "classification_state": state,
+            "decided": bool(decided), "classification_state": state,
             "already_booked": transaction_id in booked_ids,
         }
         exclusion = exclusions.get(transaction_id)
@@ -160,9 +160,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
             unresolved.append(entry)
             rows.append(entry)
             continue
-        if not user_confirmed and state != 'classified':
+        if state != 'classified':
             entry["blocked"] = "needs_review"
-            entry["reason"] = "아직 확정하지 않아 장부에 기록하지 않아요"
+            entry["reason"] = "분류가 끝나지 않아 장부에 기록하지 않아요"
             unresolved.append(entry)
             rows.append(entry)
             continue
@@ -505,9 +505,6 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                      entry["amount_krw"], entry["merchant"], entry["occurred_on"],
                      entry["transaction_direction"], entry["source_hash"], now))
                 booked.append(transaction_id)
-                if not automatic_record:
-                    store.conn.execute("UPDATE transactions SET user_confirmed=1,classification_state='confirmed' "
-                                       "WHERE transaction_id=?", (transaction_id,))
                 store.log_change("ledger.booked", transaction_id,
                                  {"batch_id": batch_id, "item": entry["item"],
                                   "amount_krw": entry["amount_krw"],

@@ -25,11 +25,11 @@ def main():
         if not any(x in row['merchant'].upper() for x in ('TRIP.COM','트립닷컴','AGODA','KLOOK')):continue
         if row['source_hash'] in cancelled:
             kind='cancelled';reason='취소 메일이 확인된 예약입니다. 원결제와 실제 카드 환불을 대조해 정산하며 여행 비용에서는 분리합니다.'
-        elif (row['approval_date'],row['amount_krw'])==('2026-07-11',119965) and row['user_confirmed']:
+        elif (row['approval_date'],row['amount_krw'])==('2026-07-11',119965) and row['decided']:
             kind='cancelled';reason='사용자가 취소한 결제라고 확인했습니다. 여행에서 분리하고 원결제와 실제 환불을 대조합니다.'
-        elif (row['approval_date'],row['amount_krw'])==('2026-06-08',1056200) and row['user_confirmed']:
+        elif (row['approval_date'],row['amount_krw'])==('2026-06-08',1056200) and row['decided']:
             kind='refund_pending';reason='일부 탑승객만 취소했습니다. 메일의 환불액은 760,200원이지만 실제 환불은 미확인입니다. 환불 원행 확인 후 잔여 이용 비용을 나눕니다.'
-        elif (row['approval_date'],row['amount_krw'])==('2026-06-11',146018) and row['user_confirmed']:
+        elif (row['approval_date'],row['amount_krw'])==('2026-06-11',146018) and row['decided']:
             kind='user_hold';reason='사용자가 실제 이용 여부를 기억하지 못해 보류했습니다. 50% 위약금 안내만으로 취소나 환불을 확정하지 않습니다.'
         elif (row['approval_date'],row['amount_krw'])==('2026-07-14',760344):
             kind='evidence_pending';reason='같은 금액의 호텔 카드 사전승인과 취소 메일은 있지만 실제 결제 연결이 미확정입니다. 카드 결제·취소 원행을 확인합니다.'

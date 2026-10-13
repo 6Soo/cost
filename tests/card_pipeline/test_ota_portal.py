@@ -134,7 +134,7 @@ def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monke
             flow.classify(batch)
             current=flow.state(batch)['rows'][0]
             assert current['classification_source']=='rule'
-            assert current['trip_id']==(trip if expected_trip else '') and current['user_confirmed']==0
+            assert current['trip_id']==(trip if expected_trip else '') and not current['decided']
             assert current['review_evidence_labels']==['예약 근거 있음']
             for field in ('transaction_id','source_hash','approval_date','amount_krw'):
                 assert current[field]==original[field]
@@ -147,11 +147,11 @@ def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monke
             assert current['classification_source']=='rule' and current['item']=='숙박비'
             assert current['trip_id']==''
         flow.pipeline.save_decision(current['transaction_id'],current['revision'],item='사무용품비',
-            description='직접 확정',display_tab_id='unclassified',trip_id='',
+            description='직접 분류',display_tab_id='unclassified',trip_id='',
             request_id='synthetic-answer',tab_validator=flow.tab_valid)
         flow.classify(batch)
         current=flow.state(batch)['rows'][0]
-        assert current['item']=='사무용품비' and current['user_confirmed']==1
+        assert current['item']=='사무용품비' and current['decided']
     finally:
         board.close()
 

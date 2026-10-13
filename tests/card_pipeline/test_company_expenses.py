@@ -76,10 +76,10 @@ def test_stale_undo_and_request_id_reuse_are_refused(batch):
         store.close()
 
 
-def test_user_confirmed_row_is_not_overwritten(batch):
+def test_decided_row_is_not_overwritten(batch):
     path, board, decisions = batch
     store = Store.open(str(path))
-    store.conn.execute('UPDATE transactions SET user_confirmed=1')
+    store.conn.execute("UPDATE transactions SET classification_source='user_decision'")
     try:
         with pytest.raises(StoreError) as error:
             set_state(store, decisions[0])
@@ -109,7 +109,7 @@ def test_a_later_classification_does_not_prevent_undo_or_get_overwritten(batch):
     store = Store.open(str(path))
     try:
         set_state(store, decisions[0])
-        store.conn.execute("UPDATE transactions SET user_confirmed=1, item='식비', revision=2")
+        store.conn.execute("UPDATE transactions SET classification_source='user_decision', item='식비', revision=2")
         before = store.conn.execute('SELECT * FROM transactions').fetchall()
         set_state(store, decisions[0], excluded=False, expected_revision=2,
                   expected_exclusion_revision=1, request_id='confirmed-undo')

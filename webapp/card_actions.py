@@ -39,6 +39,6 @@ def next_action(row, preview=None, extra_hold=None):
         return action('여행 지정 필요', '여행 지정', '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.')
     if preview.get('blocked'):
         return action('확인 필요', '문제 확인', preview.get('reason') or '배정 내용을 확인해 주세요.')
-    if row.get('classification_state') not in ('classified', 'confirmed'):
+    if row.get('classification_state') not in ('classified',):
         return action('분류 확인 필요', '분류 확인', '비용 항목과 배정 내용을 확인해 주세요.')
     return action('자동 반영 대기', '처리 결과 확인', required=False)

@@ -2,7 +2,7 @@
 
 KRW totals stay unchanged. Japanese cash and private-card totals use the approved
 1 JPY = 10 KRW rate. Corporate-card receipts match one purchase as evidence only.
-User confirmation stays separate from OCR hints and manual region input.
+A person's payee and category stay separate from OCR hints and manual region input.
 """
 
 from __future__ import annotations
@@ -129,8 +129,8 @@ def build_candidates(regions: list[Region], card_rows: list[dict], known: set | 
     return {"candidates": candidates, "holds": holds}
 
 
-def confirm(candidate: Candidate, *, payee: str, category: str, note: str = "") -> Candidate:
-    """A person sets payee and category. The machine reading is never called confirmed."""
+def classify(candidate: Candidate, *, payee: str, category: str, note: str = "") -> Candidate:
+    """A person sets payee and category on a candidate."""
     if not payee.strip() or not category.strip():
         raise ValueError("FIELD_MISSING")
     candidate.history.append({"from": {"payee": candidate.payee, "category": candidate.category},

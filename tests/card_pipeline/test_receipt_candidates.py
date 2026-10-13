@@ -1,7 +1,7 @@
 import pytest
 
 from app.google_tsv import expense_tsv
-from app.receipt_candidates import Region, build_candidates, confirm, to_expense_rows
+from app.receipt_candidates import Region, build_candidates, classify, to_expense_rows
 
 
 def region(box, **over):
@@ -52,21 +52,21 @@ def test_rescanned_same_receipt_is_one_candidate():
     assert again["candidates"] == []
 
 
-def test_machine_reading_is_not_confirmed_until_a_person_sets_payee_and_category():
+def test_machine_reading_has_no_payee_or_category_until_a_person_sets_them():
     candidate = build_candidates([PAGE[0]], [])["candidates"][0]
     assert candidate.payee is None and candidate.category is None
     rows = to_expense_rows([candidate])
     assert rows[0]["status"] == "not_ready"
     with pytest.raises(ValueError, match="FIELD_MISSING"):
-        confirm(candidate, payee="", category="식비")
-    confirm(candidate, payee="RAMEN-SYN", category="식비", note="현지 식사")
+        classify(candidate, payee="", category="식비")
+    classify(candidate, payee="RAMEN-SYN", category="식비", note="현지 식사")
     assert candidate.history[0]["to"] == {"payee": "RAMEN-SYN", "category": "식비"}
 
 
-def test_confirmed_receipts_paste_as_evidence_rows_and_card_match_is_not_doubled():
+def test_classified_receipts_paste_as_evidence_rows_and_card_match_is_not_doubled():
     candidates = build_candidates(PAGE, CARD)["candidates"]
     for c in candidates:
-        confirm(c, payee=c.merchant, category="식비" if c.merchant == "RAMEN-SYN" else "교통비")
+        classify(c, payee=c.merchant, category="식비" if c.merchant == "RAMEN-SYN" else "교통비")
     result = expense_tsv(to_expense_rows(candidates), layout="rev")
     assert result["row_count"] == 2 and result["total_krw"] == 17340
     assert "\t영수증\t12340" in result["tsv"]

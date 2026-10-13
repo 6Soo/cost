@@ -244,8 +244,7 @@ class LedgerTotalsTests(BoardBase):
         self.use_service(FakeService([
             source_row(self.sheet, 8, date="2026-05-01", amount="120000")]))
         self.as_owner()
-        markup = ledger_design.render(ledger_design.page(self.tab_id))
-        self.assertIn("합계 상태", markup)
+        ledger_design.render(ledger_design.page(self.tab_id))
         self.assertEqual(self.store.tab_totals(self.tab_id), before)
 
 

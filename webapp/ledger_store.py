@@ -3234,7 +3234,7 @@ class LedgerStore:
     def linked_bank_row_ids(self) -> set:
         """Bank income rows attached as evidence to a direct income.
 
-        R06: 연결된 은행 행은 두 번째 확정 수입으로 합산하지 않는다.
+        R06: 연결된 은행 행은 두 번째 수입으로 합산하지 않는다.
         """
         try:
             rows = self.conn.execute(

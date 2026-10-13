@@ -105,7 +105,7 @@ def test_upload_classification_uses_local_mail_and_preserves_owner_answer(tmp_pa
         assert flow.pipeline.list_rules()==[]
         flow.pipeline.save_decision(transaction[0],transaction[1],item='사무용품비',description='직접 확인',display_tab_id='unclassified',trip_id='',request_id='synthetic-owner-answer',tab_validator=flow.tab_valid)
         flow.classify(batch['batch_id'])
-        assert board.conn.execute('SELECT item,user_confirmed FROM transactions').fetchone()==('사무용품비',1)
+        assert board.conn.execute('SELECT item,decided_at IS NOT NULL FROM transactions').fetchone()==('사무용품비',1)
     finally:board.close()
 
 
@@ -270,7 +270,7 @@ def test_old_reservation_and_new_receipt_remove_stale_trip_inference(tmp_path,mo
         assert first['classification_source']=='rule'
         assert first['trip_id']==trip
         assert first['review_evidence_labels']==['예약 근거 있음']
-        assert first['user_confirmed']==0
+        assert not first['decided']
         flow.classify(batch)
         again=flow.state(batch)['rows'][0]
         for field in ('source_hash','transaction_id','amount_krw','approval_date'):
@@ -282,6 +282,6 @@ def test_old_reservation_and_new_receipt_remove_stale_trip_inference(tmp_path,mo
             description='직접 확인',display_tab_id='unclassified',trip_id='',
             request_id='synthetic-answer',tab_validator=flow.tab_valid)
         flow.classify(batch)
-        assert board.conn.execute('SELECT item,user_confirmed FROM transactions').fetchone()==('사무용품비',1)
+        assert board.conn.execute('SELECT item,decided_at IS NOT NULL FROM transactions').fetchone()==('사무용품비',1)
     finally:
         board.close()

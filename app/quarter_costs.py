@@ -1,4 +1,4 @@
-"""분기 기타비용의 Google 복사 목적지. 원문·여행 배정·확정은 변경하지 않는다."""
+"""분기 기타비용의 Google 복사 목적지. 원문·여행 배정은 변경하지 않는다."""
 import datetime as dt
 import re
 

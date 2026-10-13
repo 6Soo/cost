@@ -42,7 +42,7 @@ def test_period_card_year_and_existing_decision_boundaries():
         trip_resolver=lambda *_: '')['trip_id'] == ''
 
 
-@pytest.mark.parametrize('protection', ['', 'confirmed', 'booked', 'excluded', 'hold', 'duplicate'])
+@pytest.mark.parametrize('protection', ['', 'decided', 'booked', 'excluded', 'hold', 'duplicate'])
 def test_card_flow_assignment_and_protected_originals(tmp_path, monkeypatch, protection):
     from webapp.card_flow import CardFlow
     from webapp.ledger_store import LedgerStore
@@ -57,8 +57,8 @@ def test_card_flow_assignment_and_protected_originals(tmp_path, monkeypatch, pro
         batch = flow.pipeline.receive(CARD.replace(b',1234,', b',3820,').replace(
             b'2026-10-01', b'2026-09-19'), 'synthetic.csv')['batch_id']
         tid = flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
-        if protection == 'confirmed':
-            board.conn.execute('UPDATE transactions SET user_confirmed=1 WHERE transaction_id=?', (tid,))
+        if protection == 'decided':
+            board.conn.execute("UPDATE transactions SET classification_source='user_decision' WHERE transaction_id=?", (tid,))
         elif protection == 'booked':
             board.conn.execute("INSERT INTO ledger_entries VALUES (?,?,'기존 기록','','unclassified','',37000,'합성상점','2026-09-19','purchase','','')", (tid, batch))
         elif protection == 'excluded':
@@ -74,7 +74,7 @@ def test_card_flow_assignment_and_protected_originals(tmp_path, monkeypatch, pro
         after = flow.pipeline.get_batch(batch)['rows'][0]
         assert after['trip_id'] == (trip['tab_id'] if not protection else '')
         for field in ('transaction_id', 'source_hash', 'amount_krw', 'approval_date',
-                      'posting_date', 'raw_row', 'user_confirmed', 'revision'):
+                      'posting_date', 'raw_row', 'revision'):
             assert after[field] == before[field]
         flow.classify(batch)
         assert flow.pipeline.get_batch(batch)['rows'][0] == after

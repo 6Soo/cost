@@ -53,7 +53,7 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         pg.wait_for_function('(trip)=>Boolean(localStorage.getItem("gcopy-trip:"+trip))', arg=trip)
                         # 실제 여행 일정 원본을 검사하며 trip_valid를 대체하지 않는다.
                         row = server.card_store.conn.execute(
-                            'SELECT amount_krw,user_confirmed,display_tab_id FROM transactions').fetchone()
+                            'SELECT amount_krw,decided_at IS NOT NULL,display_tab_id FROM transactions').fetchone()
                         assert row == (37000, 1, trip)
                         pg.goto(base + '/')
                         pg.locator('#work-menu a[href="/receipts"]').click()

@@ -1,4 +1,4 @@
-"""Receipt candidates: image, optional local Windows OCR, manual edit, confirm and copy.
+"""Receipt candidates: image, optional local Windows OCR, manual edit and copy.
 
 Routes stay off unless WEBLEDGER_RECEIPTS_STORE names a JSON store. A synthetic or real image is
 stored as a file next to the store after a PNG or JPEG signature check. Regions and values are typed
@@ -28,7 +28,7 @@ from app.google_tsv import expense_tsv
 from app import receipt_learning
 from . import receipt_vision_jobs, ui_icons
 
-ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
+ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan",
           "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision",
           "/api/receipts/vision/rescan", "/api/receipts/vision/new", "/api/receipts/learn", "/api/receipts/learn/delete",
           "/api/receipts/group", "/api/receipts/ungroup")
@@ -438,7 +438,7 @@ FIELD_HOLDS = ('FIELD_MISSING', 'TOTAL_UNCLEAR', 'PAYMENT_UNKNOWN', 'CURRENCY_UN
 
 
 def _missing_reason(stored: dict) -> str | None:
-    """Why a candidate cannot be confirmed yet. A partial reading stays a candidate until a person fills the gap."""
+    """Why a candidate cannot be classified yet. A partial reading stays a candidate until a person fills the gap."""
     if not (stored.get('merchant') or '').strip() or not stored.get('date'):
         return 'FIELD_MISSING'
     if stored.get('currency', 'JPY') not in ('JPY', 'KRW'):
@@ -561,32 +561,6 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
                                                      "operation": "edit", "request_version": expected_version})
         _save(path, data)
         return stored
-    raise KeyError("CANDIDATE_NOT_FOUND")
-
-
-@_serialized
-def confirm(path: Path, *, identity: str, payee: str, category: str, note: str = "",
-            expected_version: str | None = None) -> dict:
-    data = load(path)
-    for stored in data["candidates"]:
-        if stored["identity"] == identity:
-            if _saved_retry(stored, expected_version, 'confirm', {'payee': payee, 'category': category}, note):
-                return stored
-            _check_candidate_version(stored, expected_version)
-            if stored.get('hold') in FIELD_HOLDS:
-                raise ValueError(stored['hold'])
-            if stored.get('group_id') and (stored.get('payee') != payee.strip()
-                    or stored.get('category') != category.strip()):
-                raise ValueError('GROUPED_CANDIDATE_NOT_EDITABLE')
-            if stored.get('payee') == payee.strip() and stored.get('category') == category.strip():
-                return stored
-            candidate = _candidate(stored)
-            candidate.history = list(stored["history"])
-            rc.confirm(candidate, payee=payee, category=category, note=note)
-            candidate.history[-1].update(operation='confirm', request_version=expected_version)
-            stored.update(payee=candidate.payee, category=candidate.category, history=candidate.history)
-            _save(path, data)
-            return stored
     raise KeyError("CANDIDATE_NOT_FOUND")
 
 
@@ -816,17 +790,12 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
         elif parsed.path == "/api/receipts/ungroup":
             handler._send_json(ungroup(path, group_id=body.get('group_id')))
         elif parsed.path == "/api/receipts/edit":
-            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "expected_version"}:
+            if set(body) - {"identity", "note", "merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "payee", "category", "expected_version"}:
                 raise ValueError("FIELD_NOT_EDITABLE")
-            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "total_original", "payment", "trip_id") if k in body}
+            changes = {k: body[k] for k in ("merchant", "date", "total_jpy", "total_original", "payment", "trip_id", "payee", "category") if k in body}
             result = edit(path, identity=str(body.get("identity", "")), changes=changes,
                           note=str(body.get("note", "")), valid_trips=_trip_ids(board),
                           card_rows_list=card_rows(board), expected_version=body.get('expected_version'))
-            handler._send_json({**result, 'version': candidate_version(result)})
-        elif parsed.path == "/api/receipts/confirm":
-            result = confirm(path, identity=str(body.get("identity", "")), payee=str(body.get("payee", "")),
-                             category=str(body.get("category", "")), note=str(body.get("note", "")),
-                             expected_version=body.get('expected_version'))
             handler._send_json({**result, 'version': candidate_version(result)})
         else:
             handler._send_json({"code": "METHOD_NOT_ALLOWED"}, 405)
@@ -850,7 +819,7 @@ def _trip_ids(board) -> set:
 def _row_html(candidate: dict, trips: list) -> str:
     identity = html.escape(candidate["identity"])
     amount = "" if candidate["amount_krw"] is None else f"{candidate['amount_krw']:,}원"
-    confirmed = bool(candidate.get("payee") and candidate.get("category"))
+    classified = bool(candidate.get("payee") and candidate.get("category"))
     source = (f"<a href='/api/receipts/image/{html.escape(candidate['image_sha'])}' target='_blank' rel='noopener'>원본 사진</a>"
               if candidate.get('image_sha') else '수동 입력')
     return (
@@ -869,7 +838,7 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
         f"<button type='button' data-edit='{identity}'>{ui_icons.icon('pencil')}수정</button></td>"
-        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if confirmed else '분류 확인 필요'))}</td>"
+        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if classified else '분류 확인 필요'))}</td>"
         f"<td data-label='분류'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
         f"<label>비용 분류<input data-category='{identity}' aria-label='비용 분류' value='{html.escape(candidate.get('category') or '')}' placeholder='식비·숙박비 등'></label>"
         "</td></tr>")
@@ -1184,16 +1153,16 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const dirty=[...document.querySelectorAll('tr[data-version]')].some(row=>{const assigned=row.querySelector('[data-trip]');"
         "return (assigned.value===trip||originalValues.get(assigned)===trip)&&"
         "[...row.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))});"
-        "if(dirty){say('저장하지 않은 변경이 있습니다. 수정·확정 버튼으로 저장한 뒤 복사해 주세요.');return}"
+        "if(dirty){say('저장하지 않은 변경이 있습니다. 수정 버튼으로 저장한 뒤 복사해 주세요.');return}"
         "const key='gcopy-trip:'+trip;let previous=null;try{previous=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}"
         "if(previous&&!confirm('이 여행은 '+previous+'에 이미 구글 시트용으로 복사했습니다. 카드와 영수증을 각각 복사했다면 중복 붙여넣기에 주의하세요. 계속할까요?'))return;"
         "receiptBusy=true;const restore=lockControls();try{const response=await fetch('/api/receipts/tsv?trip='+encodeURIComponent(trip));"
         "const x=await readResponse(response);"
-        "if(!x.row_count){say('복사할 확정 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
+        "if(!x.row_count){say('복사할 영수증이 없습니다. 보류 '+x.held.length+'건');return}"
         "await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning)}"
         "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{restore();receiptBusy=false}};")
-    ocr = ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
+    ocr = ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
            "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label> "
            f"<button type='button' id='ocr-go'>{ui_icons.icon('search')}선택한 사진 글자 읽기</button>"
            "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
@@ -1221,11 +1190,11 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
             + ai_section +
             "<section id='step-review'><h2>4. 후보 검토</h2>"
-            "<p class='hint'>상호·날짜·금액을 확인하고 수정·확정하세요. 확정한 영수증만 지출로 복사됩니다.</p>"
-            "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
+            "<p class='hint'>상호·날짜·금액을 확인하고 필요하면 수정하세요. 분류가 끝난 영수증만 지출로 복사됩니다.</p>"
+            "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
             f"</tr></thead><tbody>{rows}</tbody></table></section>"
             "<section><h2>5. 승선권 등 선택 묶기</h2>"
-            "<p class='hint'>같은 여행·날짜·업체·결제수단의 확정된 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
+            "<p class='hint'>같은 여행·날짜·업체·결제수단의 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
             "<section><h2>6. 구글 지출 7열 복사</h2>"

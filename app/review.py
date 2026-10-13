@@ -25,7 +25,7 @@ import json
 from decimal import Decimal, InvalidOperation
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_REVISION_CONFLICT,
-                 CODE_SOURCE_CONFLICT, StoreError, canonical, utc_now)
+                 CODE_SOURCE_CONFLICT, StoreError, canonical, decided_sql, utc_now)
 from .import_card import ParseError, ParsedRow, parse_card_file
 from .normalize import normalize_merchant
 
@@ -471,7 +471,7 @@ def get_batch(store, batch_id: str) -> dict:
         " description_raw, row_index, raw_row_json, duplicate_of, conflict_reason,"
         " parse_error, classification_state, classification_source,"
         " classification_basis, item, description, display_tab_id, trip_id,"
-        " revision, user_confirmed, decided_at FROM transactions"
+        " revision, " + decided_sql() + ", decided_at FROM transactions"
         " WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) ORDER BY row_index", (batch_id,)).fetchall()
     summary = {
         "batch_id": batch_id, "filename": found[0], "content_sha256": found[1],
@@ -497,7 +497,7 @@ def _row_dict(r) -> dict:
         "classification_state": r[22], "classification_source": r[23],
         "classification_basis": r[24], "item": r[25], "description": r[26],
         "display_tab_id": r[27], "trip_id": r[28], "revision": r[29],
-        "user_confirmed": bool(r[30]), "decided_at": r[31],
+        "decided": bool(r[30]), "decided_at": r[31],
     }
 
 
@@ -505,7 +505,7 @@ def _counts(store, batch_id: str) -> dict:
     rows = store.conn.execute(
         "SELECT classification_state, COUNT(*) FROM transactions"
         " WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) GROUP BY classification_state", (batch_id,)).fetchall()
-    counts = {state: 0 for state in ("needs_review", "classified", "confirmed")}
+    counts = {state: 0 for state in ("needs_review", "classified")}
     counts.update({r[0]: r[1] for r in rows})
     counts["total"] = sum(r[1] for r in rows)
     return counts
@@ -528,8 +528,8 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
     Nothing is booked here. A trip and a tab are only *recorded*, and only after
     the caller's own validators accept them: `trip_validator` for a trip id, and
     `tab_validator` for any tab including an unassigned quarantine or
-    accounting-period one. Candidate trips and candidate rows never book and
-    never confirm anything, so `trip_candidates` is accepted and deliberately
+    accounting-period one. Candidate trips and candidate rows never book,
+     so `trip_candidates` is accepted and deliberately
     not consulted.
     """
     if not transaction_id or not isinstance(transaction_id, str):
@@ -567,8 +567,8 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
             raise StoreError(CODE_INVALID_INPUT,
                              "부모가 검증하지 않은 항목 구분이에요")
     if trip_candidates:
-        # A candidate list is a suggestion to show. It books nothing and it
-        # confirms nothing, so it is deliberately not consulted here.
+        # A candidate list is a suggestion to show. It books nothing,
+        # so it is deliberately not consulted here.
         pass
 
     payload = {
@@ -585,7 +585,7 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
 
     with store.lock:
         found = store.conn.execute(
-            "SELECT revision, user_confirmed, source_hash FROM transactions"
+            "SELECT revision, source_hash FROM transactions"
             " WHERE transaction_id=?", (transaction_id,)).fetchone()
         if found is None:
             raise StoreError(CODE_NOT_FOUND, "없는 거래예요")
@@ -614,26 +614,25 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                 (transaction_id, revision, item, description, tab, note,
                  int(bool(reuse_rule)), now))
             # The source columns are not touched here, and cannot be: this
-            # statement names item, description, tab, trip, revision and the
-            # confirmation flag only.
+            # statement names item, description, tab, trip and revision only.
             store.conn.execute(
                 "UPDATE transactions SET item=?, description=?, display_tab_id=?,"
-                " trip_id=?, classification_state='confirmed',"
+                " trip_id=?, classification_state='classified',"
                 " classification_source='user_decision',"
-                " classification_basis='확정한 답변', user_confirmed=1,"
+                " classification_basis='사용자 답변',"
                 " revision=?, decided_at=? WHERE transaction_id=?",
                 (item, description, tab, trip, revision, now, transaction_id))
             store.log_change("transaction.decided", transaction_id,
-                             {"revision": revision, "source_hash": found[2],
+                             {"revision": revision, "source_hash": found[1],
                               "item": item, "trip_id": trip})
             if resolve_hold:
                 store.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?',
-                                   (transaction_id,found[2]))
+                                   (transaction_id,found[1]))
             result = {"transaction_id": transaction_id, "revision": revision,
                       "item": item, "description": description,
                       "display_tab_id": tab, "trip_id": trip, "note": note,
-                      "user_confirmed": True, "decided_at": now,
-                      "source_hash": found[2]}
+                      "decided": True, "decided_at": now,
+                      "source_hash": found[1]}
             if reuse_rule:
                 result['rule'] = _register_reuse_rule(store, transaction_id)
             store.remember_request(request_id, "save_decision", payload_sha, result)
@@ -663,7 +662,7 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
     """All or nothing. Every answer gets the same checks as save_decision, and one failure rolls back every write.
 
     A repeated request id returns the first result and writes nothing. Each decision may carry
-    `expected_amount_krw`; a changed amount or an already confirmed row refuses the whole batch.
+    `expected_amount_krw`; a changed amount or an already decided row refuses the whole batch.
     `expected_review_state` also checks automatic classification changes under the SQLite writer lock.
     """
     if not request_id or not isinstance(request_id, str):
@@ -690,14 +689,14 @@ def save_decisions_atomic(store, decisions: list, *, request_id: str, tab_valida
                 expected_amount = args.pop("expected_amount_krw", None)
                 expected_state = args.pop("expected_review_state", None)
                 found = store.conn.execute(
-                    "SELECT revision, user_confirmed, amount_krw FROM transactions WHERE transaction_id=?",
+                    "SELECT revision, " + decided_sql() + ", amount_krw FROM transactions WHERE transaction_id=?",
                     (transaction_id,)).fetchone()
                 if found is None:
                     raise StoreError(CODE_NOT_FOUND, "없는 거래예요")
                 if int(found[0]) != int(revision):
                     raise StoreError(CODE_REVISION_CONFLICT, "다른 곳에서 먼저 고쳤어요. 새로고침해 주세요")
                 if found[1]:
-                    raise StoreError(CODE_REVISION_CONFLICT, "이미 확정한 거래라 일괄 적용하지 않았어요")
+                    raise StoreError(CODE_REVISION_CONFLICT, "이미 사용자가 정한 거래라 일괄 적용하지 않았어요")
                 if expected_amount is not None and found[2] != expected_amount:
                     raise StoreError(CODE_REVISION_CONFLICT, "금액이 바뀌어 일괄 적용하지 않았어요")
                 if expected_state is not None:
@@ -741,5 +740,5 @@ def _register_reuse_rule(store, transaction_id: str):
         merchant=row[0], card_kind=row[1] or "",
         transaction_direction=row[2] or "", item=row[3] or "",
         description=row[4] or "", display_tab_id="",
-        note="확정한 답변에서 만든 규칙")
+        note="사용자 답변에서 만든 규칙")
     return {"created": True, **save_rule(store, draft)}

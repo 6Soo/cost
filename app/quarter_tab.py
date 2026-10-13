@@ -1,7 +1,7 @@
-"""분기 기타비용 탭: 여행 탭처럼 열고, 분기 단위로 한 번에 확정한다.
+"""분기 기타비용 탭: 여행 탭처럼 열고, 새로 수집된 거래를 분기 단위로 자동 기록한다.
 
-탭 식별자는 `quarter:<연도>:<분기>`다. 거래는 이 탭에 배정된 뒤 확정하면 장부 기록(ledger_entries)이
-되고, 기록 여부는 장부 기록 자체로 판단한다(user_confirmed 플래그는 쓰지 않는다). 한 트랜잭션에서 처리하고, 이미 기록된
+탭 식별자는 `quarter:<연도>:<분기>`다. 거래는 이 탭에 배정되고 장부 기록(ledger_entries)이
+되고, 기록 여부는 장부 기록 자체로 판단한다. 한 트랜잭션에서 처리하고, 이미 기록된
 거래는 건너뛴다. 되돌릴 때는 기록을 지우지 않고 역분개 기록을 추가한다.
 """
 import re
@@ -9,7 +9,7 @@ import sqlite3
 
 from . import quarter_costs
 from . import auto_record_policy
-from .db import utc_now
+from .db import decided_sql, utc_now
 from .ledger import _already_booked
 
 ITEM = '분기 기타비용'
@@ -50,10 +50,10 @@ def pending_rows(conn, tab: str, batch_id: str | None = None) -> list[dict]:
 
 
 def assign_unassigned(conn) -> dict:
-    """One-time placement of unconfirmed quarter-cost rows on their quarter tab, by approval date."""
+    """One-time placement of undecided quarter-cost rows on their quarter tab, by approval date."""
     rows = conn.execute(
         "SELECT transaction_id, COALESCE(NULLIF(approval_date,''),posting_date) FROM transactions "
-        "WHERE item=? AND user_confirmed=0 AND COALESCE(duplicate_of,'')='' "
+        "WHERE item=? AND NOT " + decided_sql() + " AND COALESCE(duplicate_of,'')='' "
         "AND COALESCE(display_tab_id,'') IN ('','unclassified')", (ITEM,)).fetchall()
     placed = {}
     for transaction_id, day in rows:

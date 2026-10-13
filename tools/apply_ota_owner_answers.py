@@ -16,6 +16,7 @@ from tools.verify_lightweight_runtime import configured_readonly_flow
 from ledger.domain.direct_trip_schedule_authority import validate_document, SCHEMA_VERSION, END_SEMANTICS
 from webapp.ledger_store import LedgerStore
 from app import Pipeline
+from app.db import decided_sql
 
 HOST=Path('D:/WebLedgerHost')
 OUTPUT=ROOT/'.local-archive/ota-rematch-20261004'
@@ -64,7 +65,7 @@ def answer_plan(rows):
              ('0722_가루이자와','2026-07-22','2026-07-26')]
     result=[]
     for row in rows:
-        if row['user_confirmed'] or row['classification_state']=='preserved' or row['trip_id']:
+        if row['decided'] or row['classification_state']=='preserved' or row['trip_id']:
             continue
         if not any(x in row['merchant'].upper() for x in ('TRIP.COM','트립닷컴','AGODA','BOOKING')):
             continue
@@ -100,7 +101,7 @@ def answer_plan(rows):
         if len(candidates)!=1 or len(receipts)!=1:
             raise RuntimeError('CONFIRMED_FLIGHT_DISCOUNT_EVIDENCE_MISMATCH')
         row=candidates[0]
-        if row['user_confirmed']:continue
+        if row['decided']:continue
         result.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
                            expected_revision=row['revision'],trip_code='0801_노리쿠라',
                            period={'starts_on':'2026-08-01','ends_on':'2026-08-05'},item='항공료',
@@ -118,7 +119,7 @@ def apply_answers(db, plan, authority_path):
     pipe=Pipeline(sqlite3.connect(db,isolation_level=None))
     try:
         for entry in plan:
-            row=pipe.store.conn.execute('SELECT source_hash,revision,user_confirmed FROM transactions WHERE transaction_id=?',
+            row=pipe.store.conn.execute('SELECT source_hash,revision,'+decided_sql()+' FROM transactions WHERE transaction_id=?',
                                         (entry['transaction_id'],)).fetchone()
             if row!=(entry['source_hash'],entry['expected_revision'],entry.get('expected_confirmed',0)):
                 raise RuntimeError('OWNER_ANSWER_SOURCE_CHANGED')
@@ -168,10 +169,10 @@ def main():
             if len(candidates)!=1:raise RuntimeError('FOLLOWUP_CARD_ROW_AMBIGUOUS')
             row=candidates[0]
             if row['description']==description:continue
-            if row['user_confirmed'] and row['description']!='항공권 취소·환불 확인 · 여행 배정 보류':
+            if row['decided'] and row['description']!='항공권 취소·환불 확인 · 여행 배정 보류':
                 raise RuntimeError('EXISTING_OWNER_EDIT_PROTECTED')
             plan.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
-                expected_revision=row['revision'],expected_confirmed=row['user_confirmed'],
+                expected_revision=row['revision'],expected_confirmed=row['decided'],
                 trip_code='',item=row['item'],description=description,note=note,
                 booking_number_held=True,request_prefix='ota-followup-20261004-'))
     elif hold:
@@ -238,7 +239,7 @@ def main():
         after_rows={r['transaction_id']:r for r in current_rows(clone)}
         scope={p['transaction_id'] for p in plan}
         mutable={'classification_state','classification_source','classification_basis','item','description',
-                 'display_tab_id','trip_id','user_confirmed','revision','decided_at'}
+                 'display_tab_id','trip_id','decided','revision','decided_at'}
         for old in old_rows:
             new=after_rows[old['transaction_id']]
             fields=set(old)-mutable if old['transaction_id'] in scope else set(old)

@@ -48,7 +48,7 @@ def book_everything(pipe, batch_id, *, item="식비", tab="unclassified"):
     """Confirm every parseable row so a preview can have something ready."""
     batch = pipe.get_batch(batch_id)
     for row in batch["rows"]:
-        if row["classification_state"] == "needs_review" and not row["user_confirmed"]:
+        if row["classification_state"] == "needs_review" and not row["decided"]:
             pipe.save_decision(row["transaction_id"], row["revision"], item=item,
                                description="", display_tab_id=tab,
                                tab_validator=tab_validator,
@@ -219,7 +219,7 @@ def test_same_approval_number_with_different_amount_is_a_conflict(pipe):
     assert rows[0]["classification_state"] == "needs_review"
     # The original row is untouched.
     kept = pipe.store.conn.execute(
-        "SELECT amount_krw FROM transactions WHERE user_confirmed=0"
+        "SELECT amount_krw FROM transactions WHERE decided_at IS NULL"
         " AND conflict_reason='' AND amount_krw=5000").fetchone()
     assert kept[0] == 5000
 
@@ -300,7 +300,7 @@ def test_a_rule_matches_by_scope_and_a_manual_decision_is_protected(pipe):
     assert again["protected"] == 1
     kept = pipe.get_batch(batch_id)["rows"][0]
     assert kept["item"] == "팀회식"
-    assert kept["user_confirmed"] is True
+    assert kept["decided"] is True
 
 
 def test_a_rule_cannot_rewrite_the_source_amount_or_date(pipe):

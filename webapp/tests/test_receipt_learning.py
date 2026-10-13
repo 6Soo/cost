@@ -140,7 +140,7 @@ def test_a_lesson_is_saved_only_when_a_new_receipt_is_registered(learning_file, 
     rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
     rr.scan(path, {'image': SHA, 'regions': [reading('SHOP A', '2026-10-01', 820)]})
     confirmed, = rr.load(path)['candidates']
-    rr.confirm(path, identity=confirmed['identity'], payee='SHOP A', category='교통비')
+    rr.edit(path, identity=confirmed['identity'], changes={'payee': 'SHOP A', 'category': '교통비'})
     six = [{'merchant': 'SHOP A', 'date': '2026-10-01', 'amount': 820, 'currency': 'JPY', 'payment': 'cash'},
            {'merchant': None, 'date': '2026-10-02', 'amount': 500, 'currency': 'JPY', 'payment': 'cash'}]
     with patch.object(jobs, 'lookup', return_value=done_job(six, LESSON)):

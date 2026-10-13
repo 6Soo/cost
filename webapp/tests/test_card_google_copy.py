@@ -89,7 +89,7 @@ class CardGoogleCopyTests(unittest.TestCase):
             page.get_by_text('답변을 적용했습니다.', exact=False).wait_for()
             batch = page.evaluate('model.batch_id')
             saved = self.server.card_store.conn.execute(
-                'SELECT amount_krw,item,display_tab_id,user_confirmed FROM transactions').fetchone()
+                'SELECT amount_krw,item,display_tab_id,decided_at IS NOT NULL FROM transactions').fetchone()
             self.assertEqual(saved, (37000, '숙박비', trip, 1))
             page.reload()
             button = page.locator(f'[data-google-copy="{trip}"]')
@@ -235,7 +235,7 @@ class CardGoogleCopyTests(unittest.TestCase):
             page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
             self.assertEqual(page.evaluate('model.batch_id'), second)
             saved = self.server.card_store.conn.execute(
-                'SELECT item,user_confirmed FROM transactions WHERE transaction_id=?',
+                'SELECT item,decided_at IS NOT NULL FROM transactions WHERE transaction_id=?',
                 (row['transaction_id'],)).fetchone()
             self.assertEqual(saved, ('식비', 1))
             browser.close()
@@ -530,7 +530,7 @@ class CardGoogleCopyTests(unittest.TestCase):
             page.evaluate('()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
             self.assertEqual(page.locator('#status').inner_text(), status)
             self.assertEqual(page.evaluate('(id)=>model.rows.find(r=>r.transaction_id===id).item', row['transaction_id']), '식비')
-            self.assertEqual(self.server.card_store.conn.execute('SELECT item,user_confirmed FROM transactions WHERE transaction_id=?',
+            self.assertEqual(self.server.card_store.conn.execute('SELECT item,decided_at IS NOT NULL FROM transactions WHERE transaction_id=?',
                                                                 (row['transaction_id'],)).fetchone(), ('식비', 1))
             browser.close()
 
