@@ -146,6 +146,19 @@ def test_index_is_reused_until_an_input_changes(world, monkeypatch):
     assert len(builds) == 2
 
 
+def test_prewarm_builds_the_index_so_the_first_visit_does_not_rebuild(world, monkeypatch):
+    board, sources, _ = world
+    builds = []
+    original = ota_catalog._build_index
+    monkeypatch.setattr(ota_catalog, '_build_index', lambda b, s: (builds.append(1), original(b, s))[1])
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda b: sources)
+    ota_catalog._INDEX.update(key=None, value=None)
+    ota_catalog.prewarm(board)
+    assert len(builds) == 1
+    ota_catalog.catalog(board, {}, sources=sources)
+    assert len(builds) == 1
+
+
 def test_detail_page_shows_the_judgment_and_refuses_bad_assignments(world, monkeypatch):
     board, sources, _ = world
     monkeypatch.setenv('WEBLEDGER_OTA_SOURCES_JSON', json.dumps(
