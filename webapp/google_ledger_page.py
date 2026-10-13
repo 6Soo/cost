@@ -636,13 +636,23 @@ def import_trips(board, snapshot: dict) -> dict:
     """
     from .ledger_store import SaveError
     counts = Counter()
-    named = {t['display_key'] for t in board.list_trips(include_archived=True)}
+    named = {t['display_key']: t for t in board.list_trips(include_archived=True)}
     for trip in snapshot.get('trips', []):
         period = trip.get('period') or {}
         destination = re.sub(r'^\d{4}(?:_\d{4})?_', '', trip['key']).strip('_ ')
         if trip.get('kind') == 'quarter':
             continue
         if trip['key'] in named:
+            tab = named[trip['key']]
+            if not tab.get('ends_on') and period.get('ends_on'):
+                try:
+                    board.save_trip_meta(tab_id=tab['tab_id'], expected_revision=tab['revision'],
+                                         client_request_id='google-end-' + tab['tab_id'] + period['ends_on'],
+                                         ends_on=period['ends_on'], actor='google-sync')
+                    counts['end_set'] += 1
+                except SaveError:
+                    counts['held'] += 1
+                continue
             counts['existing'] += 1
             continue
         if not period.get('starts_on') or not destination:

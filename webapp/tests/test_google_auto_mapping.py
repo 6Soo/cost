@@ -108,5 +108,20 @@ def test_import_reuses_a_tab_with_the_same_display_name(tmp_path):
                       client_request_id='manual-0620')
     snap = {'trips': [{'key': '0620_묘코', 'kind': 'trip', 'period': {
         'year': 2026, 'starts_on': '2026-06-20', 'ends_on': '2026-06-25', 'destination': ''}}]}
-    assert page.import_trips(board, snap) == {'existing': 1}
+    assert page.import_trips(board, snap) == {'end_set': 1}
     assert len(board.list_trips(include_archived=True)) == 1
+
+
+def test_import_fills_the_blank_end_of_an_existing_tab_once(tmp_path):
+    from webapp.ledger_store import LedgerStore, SaveError
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    tab = board.create_trip(starts_on='2026-09-15', destination='길상사', display_key='0915_길상사',
+                            client_request_id='blank-end')['tab_id']
+    snap = {'trips': [{'key': '0915_길상사', 'kind': 'trip', 'period': {
+        'year': 2026, 'starts_on': '2026-09-15', 'ends_on': '2026-09-15', 'destination': ''}}]}
+    assert page.import_trips(board, snap) == {'end_set': 1}
+    assert board.get_trip(tab)['ends_on'] == '2026-09-15'
+    assert page.import_trips(board, snap) == {'existing': 1}
+    with pytest.raises(SaveError):
+        board.save_trip_meta(tab_id=tab, expected_revision=board.get_trip(tab)['revision'],
+                             client_request_id='too-early', ends_on='2026-09-01')

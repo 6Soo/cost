@@ -4892,7 +4892,7 @@ class LedgerStore:
     def save_trip_meta(self, *, tab_id: str, expected_revision: int,
                        client_request_id: str, display_key=None,
                        prepared_on=None, prepared_by_name=None,
-                       archived=None, actor: str = "owner") -> dict:
+                       archived=None, ends_on=None, actor: str = "owner") -> dict:
         if not client_request_id or not isinstance(client_request_id, str):
             raise SaveError("INVALID_VALUE", "요청 ID가 필요해요")
         with self._lock:
@@ -4927,6 +4927,13 @@ class LedgerStore:
                 changes["assignee_source"] = "manual"
             if archived is not None:
                 changes["archived"] = bool(archived)
+            if ends_on is not None:
+                end = str(ends_on)
+                if end and not _valid_date(end):
+                    raise SaveError("INVALID_VALUE", "여행 종료 날짜 형식이 달라요")
+                if end and current.get("starts_on") and end < current["starts_on"]:
+                    raise SaveError("INVALID_VALUE", "종료일이 시작일보다 앞이에요")
+                changes["ends_on"] = end or None
             new = dict(current)
             for field, value in changes.items():
                 new[field] = value
@@ -4967,11 +4974,11 @@ class LedgerStore:
                     raise SaveError("__REPLAY__", "retry")
                 cursor = self.conn.execute(
                     "UPDATE trip_tabs SET display_key=?, prepared_on=?,"
-                    " prepared_by_name=?, assignee_source=?, archived=?,"
+                    " prepared_by_name=?, assignee_source=?, archived=?, ends_on=?,"
                     " revision=? WHERE tab_id=? AND revision=?",
                     (new["display_key"], new["prepared_on"], new["prepared_by_name"],
                      new.get("assignee_source", current.get("assignee_source", "") or ""),
-                     1 if new["archived"] else 0, new_revision, tab_id, expected_revision),
+                     1 if new["archived"] else 0, new.get("ends_on"), new_revision, tab_id, expected_revision),
                 )
                 if cursor.rowcount == 0:
                     raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
