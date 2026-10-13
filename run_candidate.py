@@ -24,6 +24,7 @@ import argparse
 import os
 import pathlib
 import sys
+import threading
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -362,6 +363,8 @@ def main(argv=None) -> int:
         close_runtime(server, reserve_stop)
         print('refused [STARTUP]: 실행 초기화에 실패했습니다.', file=sys.stderr)
         return 2
+    from webapp import ota_catalog
+    threading.Thread(target=ota_catalog.prewarm, args=(server.card_store,), name='ota-prewarm', daemon=True).start()
     print(f"serving fixed candidate on http://{args.host}:{port}")
     print(f"bind shape: {bind['shape']} - {bind['note']}")
     print(f"data root: {config.data_root}")

@@ -511,18 +511,27 @@ def _save_index(board, key, value):
             pass
 
 
-def _index(board, sources):
+def _index(board, sources, *, rebuild=False):
     """The booking index for these sources and this board state. Rebuilt only when an input changes."""
     key = _signature(board, sources)
     with _INDEX_LOCK:
         if _INDEX['key'] != (id(board), key):
-            value = _load_saved_index(board, key)
+            value = None if rebuild else _load_saved_index(board, key)
             if value is None:
                 value = _build_index(board, sources)
                 _save_index(board, key, value)
             _INDEX['value'] = value
             _INDEX['key'] = (id(board), key)
         return _INDEX['value']
+
+
+def prewarm(board):
+    """Rebuilds the index once in the background at start. The mail parse it leaves in memory keeps later rebuilds fast."""
+    try:
+        _index(board, configured_sources(board), rebuild=True)
+    except Exception:
+        # The first visit builds it again and shows its own warning, so nothing is hidden here.
+        pass
 
 
 def _public_row(entry):
