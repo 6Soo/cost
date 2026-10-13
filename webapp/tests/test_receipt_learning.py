@@ -10,6 +10,7 @@ from webapp import receipt_review as rr
 from webapp import receipt_vision_jobs as jobs
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 32
+
 SHA = 'c' * 64
 
 
@@ -28,7 +29,8 @@ def reading(merchant, date, amount, payment='cash', currency='JPY'):
 def test_without_a_learning_file_muse_runs_exactly_as_before(monkeypatch, tmp_path):
     monkeypatch.delenv('WEBLEDGER_RECEIPT_LEARNING', raising=False)
     monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
-    assert rl.rules_for_prompt() == [] and rl.guidance(rules=[]) is None
+    assert rl.notes_for_prompt() == [] and rl.guidance() is None
+    assert rl.remember('작은 승선권 찾아', names=[]) == {'status': 'disabled'}
     image = tmp_path / 'slip.png'
     image.write_bytes(PNG)
     seen = []
@@ -36,39 +38,36 @@ def test_without_a_learning_file_muse_runs_exactly_as_before(monkeypatch, tmp_pa
     def runner(command, *, cwd, env):
         seen.append(command)
         return _event('{"receipts":[]}')
-    result = vision.recognize(str(image), runner=runner)
-    assert result['receipts'] == []
+    assert vision.recognize(str(image), runner=runner)['receipts'] == []
     assert seen[0][-1] == vision.PROMPT
 
 
-def test_a_confirmed_general_note_becomes_one_rule_and_repeats_are_not_stored_twice(learning_file):
-    first = rl.add_feedback(note_type='SMALL_TICKET_MISSED', scope='general', note='작은 승선권이 빠졌음')
-    assert first['status'] == 'active'
-    assert rl.add_feedback(note_type='SMALL_TICKET_MISSED', scope='general', note='작은 승선권이 빠졌음') == {'status': 'duplicate'}
-    assert rl.add_feedback(note_type='SMALL_TICKET_MISSED', scope='general', note='다른 메모')['status'] == 'merged'
-    assert [r['status'] for r in rl.list_records()] == ['active', 'merged']
-    assert len(rl.rules_for_prompt()) == 1
+def test_feedback_is_generalised_so_one_slip_cannot_leak_its_values(learning_file):
+    rl.remember('SHOP A 의 820엔 승선권이 빠졌어 test@example.com 2026-10-01', names=['SHOP A'])
+    note, = rl.list_notes()
+    assert 'SHOP A' not in note['text'] and '820' not in note['text']
+    assert '2026' not in note['text'] and 'test@example.com' not in note['text']
+    assert '[업체]' in note['text'] and '[숫자]' in note['text']
 
 
-def test_a_single_photo_note_and_free_text_never_become_rules_and_numbers_are_removed(learning_file):
-    rl.add_feedback(note_type='IDENTICAL_MERGED', scope='this_photo', note='820엔 2026-10-01 test@example.com')
-    rl.add_feedback(note_type='OTHER', scope='general', note='메모만')
-    records = rl.list_records()
-    assert all(r['rule'] is None and r['status'] == 'recorded' for r in records)
-    assert rl.rules_for_prompt() == []
-    note = records[0]['note']
-    assert '820' not in note and '2026' not in note and 'test@example.com' not in note
+def test_a_note_is_kept_once_and_only_the_newest_three_distinct_notes_are_used(learning_file):
+    assert rl.remember('작은 승선권을 찾아 주세요', names=[])['status'] == 'saved'
+    assert rl.remember('작은 승선권을 찾아 주세요', names=[])['status'] == 'duplicate'
+    for text in ('겹친 표를 따로 보세요', '세금 줄은 총액이 아닙니다', '한국어 상호를 그대로 적으세요'):
+        rl.remember(text, names=[])
+    assert len(rl.list_notes()) == 4
+    assert len(rl.notes_for_prompt()) == 3
 
 
-def test_rules_survive_a_restart(learning_file):
-    rl.add_feedback(note_type='KOREAN_MERCHANT_MISSED', scope='general', note='')
+def test_notes_survive_a_restart(learning_file):
+    rl.remember('작은 승선권을 찾아 주세요', names=[])
     importlib.reload(rl)
-    assert rl.rules_for_prompt() == [rl.RULES['KOREAN_MERCHANT_MISSED']]
+    assert rl.notes_for_prompt() == ['작은 승선권을 찾아 주세요']
 
 
-def test_the_next_muse_call_carries_the_active_rule_but_the_photo_stays_the_source(learning_file, tmp_path, monkeypatch):
+def test_the_next_muse_call_carries_the_note_as_guidance_only(learning_file, tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
-    rl.add_feedback(note_type='SMALL_TICKET_MISSED', scope='general', note='')
+    rl.remember('작은 승선권을 찾아 주세요', names=[])
     image = tmp_path / 'slip.png'
     image.write_bytes(PNG)
     commands = []
@@ -76,32 +75,33 @@ def test_the_next_muse_call_carries_the_active_rule_but_the_photo_stays_the_sour
     def runner(command, *, cwd, env):
         commands.append(command)
         return _event('{"receipts":[]}')
-    guidance = rl.guidance(rules=rl.rules_for_prompt(record_use=True))
-    vision.recognize(str(image), runner=runner, guidance=guidance)
+    vision.recognize(str(image), runner=runner, guidance=rl.guidance(notes=rl.notes_for_prompt()))
     prompt = commands[0][-1]
-    assert rl.RULES['SMALL_TICKET_MISSED'] in prompt and prompt.startswith(vision.PROMPT)
+    assert '작은 승선권을 찾아 주세요' in prompt and prompt.startswith(vision.PROMPT)
     assert 'the attached photo is the source of truth' in prompt
-    assert rl.list_records()[0]['applied'] == 1
+    assert '--pure' in commands[0] and not any('permission' in arg for arg in commands[0])
 
 
-def test_a_disabled_rule_is_not_sent_and_can_be_enabled_again(learning_file):
-    rl.add_feedback(note_type='TOTAL_CONFUSED', scope='general', note='')
-    rule_id = rl.list_records()[0]['id']
-    rl.set_status(rule_id, 'disable')
-    assert rl.rules_for_prompt() == []
-    rl.set_status(rule_id, 'enable')
-    assert rl.rules_for_prompt() == [rl.RULES['TOTAL_CONFUSED']]
-    rl.set_status(rule_id, 'delete')
-    assert rl.list_records() == []
-
-
-def test_unreadable_lines_do_not_stop_rules_and_are_kept_on_write(learning_file):
+def test_a_saved_note_can_be_deleted_and_damaged_lines_are_kept(learning_file):
     learning_file.write_text('not json\n', encoding='utf-8')
-    rl.add_feedback(note_type='OVERLAPPING_SLIPS', scope='general', note='')
-    assert rl.rules_for_prompt() == [rl.RULES['OVERLAPPING_SLIPS']]
-    assert 'not json' in learning_file.read_text(encoding='utf-8')
+    rl.remember('겹친 표를 따로 보세요', names=[])
+    note_id = rl.list_notes()[0]['id']
+    assert rl.notes_for_prompt() == ['겹친 표를 따로 보세요']
+    rl.delete_note(note_id)
+    assert rl.list_notes() == [] and 'not json' in learning_file.read_text(encoding='utf-8')
+    with pytest.raises(KeyError):
+        rl.delete_note(note_id)
+
+
+def test_a_damaged_file_gives_no_notes_and_never_blocks_muse(learning_file):
     learning_file.write_text('{broken', encoding='utf-8')
-    assert rl.rules_for_prompt() == []
+    assert rl.notes_for_prompt() == []
+
+
+def test_the_feedback_reaches_the_rescan_prompt_with_the_known_receipts(learning_file):
+    text = rl.guidance(known=['SHOP A | 2026-10-01 | 820 JPY'], feedback='작은 승선권 하나 더 찾아')
+    assert 'Already found' in text and 'SHOP A | 2026-10-01 | 820 JPY' in text
+    assert 'Owner feedback for this photo: 작은 승선권 하나 더 찾아' in text
 
 
 def test_a_known_receipt_is_never_offered_again_and_a_new_one_is_offered_once(learning_file, tmp_path):
@@ -156,7 +156,7 @@ def test_new_candidates_stay_unconfirmed_until_a_person_confirms(tmp_path):
 
 
 def test_the_learning_routes_are_owner_routes(monkeypatch):
-    for route in ('/api/receipts/learn', '/api/receipts/learn/status', '/api/receipts/vision/rescan',
+    for route in ('/api/receipts/learn', '/api/receipts/learn/delete', '/api/receipts/vision/rescan',
                   '/api/receipts/vision/new'):
         assert rr.owns_route(route)
 
