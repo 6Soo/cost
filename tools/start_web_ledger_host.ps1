@@ -812,6 +812,8 @@ if ($missing) {
 # An environment value the launcher reads is a real setting; a variable nothing
 # reads is not, which is why the tunnel is a command line and not one of these.
 $env:WEBLEDGER_REVIEW_CONFIG = $ReviewConfig
+# Muse receipt reading is an explicit opt-in: the free model only, tools refused, never a paid fallback.
+$env:WEBLEDGER_RECEIPT_VISION = 'opencode-muse-free'
 
 # The reservation source configuration is passed the same way the review
 # configuration is: read once here, handed to the board process, and therefore
