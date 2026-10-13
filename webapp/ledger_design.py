@@ -2174,18 +2174,12 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>기록 전 거래가 없습니다.</td></tr>"
     done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
                    for r in booked) or "<tr><td colspan='3'>기록된 거래가 없습니다.</td></tr>"
-    book_action = (f"<form method='post' action='/quarter/book'>"
-                   f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
-                   f"<input type='hidden' name='tab' value='{board.esc(tab_id)}'>"
-                   f"<button type='submit'>기록 전 {len(pending)}건 · {pending_total:,}원 장부에 기록</button></form>"
-                   if pending else "")
     return ("<div class='body'>" + note +
             "<p class='hint'>새로 수집된 정상 거래는 자동으로 기록됩니다. 잘못 옮겨진 거래만 여행이나 항목을 바꾸세요.</p>"
             f"<h3>기록된 거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
             f"<tbody>{done}</tbody></table>"
             f"<h3>기록 전 기존 거래 {len(pending)}건 · {pending_total:,}원</h3>"
-            "<p class='hint'>자동 기록 시작 이전의 거래입니다. 아래 버튼으로 이 분기의 기록 전 거래를 한 번에 장부에 기록합니다. 원본과 분류는 바뀌지 않습니다.</p>"
-            + book_action +
+            "<p class='hint'>자동 기록 시작 이전에 분류된 거래입니다. 확정 단계는 없고, 새로 수집되는 거래는 분류되는 즉시 기록됩니다.</p>"
             f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
 
 

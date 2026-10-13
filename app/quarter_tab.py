@@ -68,7 +68,7 @@ def assign_unassigned(conn) -> dict:
     return placed
 
 
-def book_batch(store, batch_id: str) -> int:
+def book_batch(store, batch_id: str, projection=None) -> int:
     """Records the quarter-cost rows of one newly collected batch. Older batches are never touched."""
     if not auto_record_policy.batch_is_new(store.conn, batch_id):
         return 0
@@ -76,7 +76,8 @@ def book_batch(store, batch_id: str) -> int:
         "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? "
         "AND display_tab_id LIKE 'quarter:%' AND transaction_id IN "
         "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)", (ITEM, batch_id)).fetchall()]
-    return sum(confirm_tab(store, tab, batch_id=batch_id)['booked'] for tab in tabs if parse_tab(tab))
+    return sum(confirm_tab(store, tab, batch_id=batch_id, projection=projection)['booked']
+               for tab in tabs if parse_tab(tab))
 
 
 def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -> dict:

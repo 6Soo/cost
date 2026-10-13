@@ -838,11 +838,6 @@ class CardFlow:
 
         return metadata
 
-    def book_quarter(self, tab):
-        """The owner's explicit booking of one quarter's waiting cost rows, in the ledger and on the board."""
-        from app import quarter_tab
-        return quarter_tab.confirm_tab(self.pipeline.store, tab, projection=self.project)
-
     def project(self, entry):
         """새 전기와 기존 장부 화면의 행을 같은 트랜잭션에서 저장한다."""
         from app import quarter_tab
@@ -1112,7 +1107,7 @@ class CardFlow:
                 'auto-record:' + batch_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
-        applied += quarter_tab.book_batch(self.pipeline.store, batch_id)
+        applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
         state = self.state(batch_id)
         state['auto_recorded'] = applied
         return state
@@ -1508,39 +1503,6 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     except OSError:
         handler._send_json({'code':'SOURCE_UNAVAILABLE','message':'원본 자료를 열 수 없습니다. 잠시 후 다시 불러와 주세요'},503)
     return True
-
-
-def quarter_book(handler, raw, *, csrf, board, is_owner):
-    """POST /quarter/book: books one quarter's waiting rows. Owner only, CSRF checked, returns to that tab."""
-    from urllib.parse import parse_qs, quote
-    from app import StoreError, quarter_tab
-    if parsed_path_is_not_quarter(handler):
-        return False
-    if not is_owner:
-        handler._send_json({'code': 'NOT_FOUND'}, 404)
-        return True
-    form = {k: v[0] for k, v in parse_qs((raw or b'').decode('utf-8'), keep_blank_values=True).items()}
-    if not csrf or form.get('csrf') != csrf:
-        handler._send_json({'code': 'CSRF_REQUIRED', 'message': '화면을 새로 연 뒤 다시 시도해 주세요'}, 403)
-        return True
-    tab = form.get('tab', '')
-    try:
-        result = CardFlow(board).book_quarter(tab)
-        message = f"분기 기타비용 {result['booked']}건을 장부에 기록했습니다. 건너뛴 거래 {result['skipped']}건은 그대로 둡니다."
-    except StoreError as exc:
-        message = str(exc)
-    except (quarter_tab.QuarterError, ValueError, KeyError):
-        message = '분기 탭을 확인해 주세요'
-    handler.send_response(303)
-    handler.send_header('Location', f'/board?tab={quote(tab, safe=":")}&msg={quote(message)}')
-    handler.send_header('Content-Length', '0')
-    handler.end_headers()
-    return True
-
-
-def parsed_path_is_not_quarter(handler):
-    from urllib.parse import urlsplit
-    return urlsplit(handler.path).path != '/quarter/book'
 
 
 def page(csrf):
