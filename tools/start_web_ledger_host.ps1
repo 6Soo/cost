@@ -383,13 +383,11 @@ function Get-TunnelState {
     }
 
     foreach ($candidate in $candidates) {
-        if (-not ($candidate.PSObject.Properties.Name -contains "ExecutablePath")) {
+        if (-not ($candidate.PSObject.Properties.Name -contains "ExecutablePath") -or
+            [string]::IsNullOrWhiteSpace([string]$candidate.ExecutablePath)) {
             return @{ State = "Unknown"; Reason = "PATH_UNREADABLE" }
         }
         $path = ([string]$candidate.ExecutablePath).Trim().TrimEnd('\')
-        if ($path.ToLowerInvariant() -ne $target) {
-            return @{ State = "Unknown"; Reason = "OTHER_PATH_SAME_NAME" }
-        }
         if (-not ($candidate.PSObject.Properties.Name -contains "CommandLine")) {
             return @{ State = "Unknown"; Reason = "COMMAND_LINE_UNREADABLE" }
         }
@@ -401,7 +399,20 @@ function Get-TunnelState {
         $hasConfig = Test-TokenSequence -CommandLine $commandLine `
             -Tokens @("--config", $ConfigPath)
         $hasRun = Test-TokenSequence -CommandLine $commandLine -Tokens @("run", $Id)
-        if (-not ($isTunnel -and $hasConfig -and $hasRun)) {
+        $isOurTunnel = $isTunnel -and $hasConfig -and $hasRun
+        if ($path.ToLowerInvariant() -ne $target) {
+            # The same program name at another path. It is refused only when it
+            # runs this tunnel's config or id, because that is a second copy
+            # serving the same edge. Any other tunnel (another project's) is left
+            # alone and never stopped or reconfigured.
+            $servesOurs = (Test-TokenSequence -CommandLine $commandLine -Tokens @("--config", $ConfigPath)) -or
+                (Test-TokenSequence -CommandLine $commandLine -Tokens @("run", $Id))
+            if ($servesOurs) {
+                return @{ State = "Unknown"; Reason = "SAME_TUNNEL_OTHER_PATH" }
+            }
+            continue
+        }
+        if (-not $isOurTunnel) {
             # The right program, a different tunnel. Not ours, and not a reason to
             # refuse either.
             continue
