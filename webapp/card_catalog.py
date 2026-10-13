@@ -9,7 +9,7 @@ from app.db import decided_sql
 from . import ui_icons
 
 PAGE_SIZE = 50
-STATES = {'needs_review': '확인 필요', 'classified': '분류됨', 'booked': '장부 기록됨',
+STATES = {'needs_review': '확인 필요', 'classified': '기록 가능', 'booked': '기록 완료',
           'preserved': '기존 보존'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
@@ -180,7 +180,8 @@ def render_html(data, query, *, csrf=''):
     esc = lambda value: html.escape('' if value is None else str(value), quote=True)
     value = lambda key: str((query.get(key) or [''])[0])
     def link(page):
-        return '/cards?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort')}, 'page': page})
+        return '/import?' + urlencode({**{k: value(k) for k in ('q', 'card', 'state', 'month', 'sort')},
+                                       'scope': 'all', 'page': page})
     def choices(name, label, options, selected):
         return f'<h2>{esc(label)}</h2>' + ''.join(
             f"<button type='button' class='filter-option' data-filter='{name}' data-value='{esc(k)}' "
@@ -209,7 +210,8 @@ def render_html(data, query, *, csrf=''):
         quarter = quarter_costs.destination(r)
         from .card_actions import next_action
         action = r.get('next_action') or next_action(r)
-        state = action['status']
+        from .card_actions import GROUP_LABELS
+        state = GROUP_LABELS[action.get('group', 'review')]
         if r['decided']:
             state += ' · 직접 분류'
         if r['duplicate_of']:
@@ -231,17 +233,19 @@ def render_html(data, query, *, csrf=''):
                     f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason'])}</p>"
                     f"<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 내역</title>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 검토 · 모든 자료</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
-        "<nav class='catalog-actions' aria-label='카드 업무'>"
-        f"<a class='catalog-btn primary' href='/import'>{ui_icons.icon('upload')}카드 검토</a></nav>"
-        "<h1>카드 내역</h1>"
-        "<p class='small'>저장된 모든 카드 거래를 찾아봅니다. 확인이 필요한 거래는 카드 검토에서 처리합니다.</p>"
+        "<nav class='catalog-actions' aria-label='카드 검토 범위'>"
+        f"<a class='catalog-btn' href='/import'>{ui_icons.icon('upload')}이 자료에서 검토</a>"
+        f"<a class='catalog-btn primary' href='/import?scope=all' aria-current='page'>{ui_icons.icon('list')}모든 자료</a></nav>"
+        "<h1>카드 검토 · 모든 자료</h1>"
+        "<p class='small'>저장된 모든 카드 거래를 찾아봅니다. 처리는 거래를 눌러 카드 검토에서 합니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         "<p id='card-auto-status' role='status' aria-live='polite'></p>"
-        "<form id='card-filters' method='get' action='/cards'><input name='q' aria-label='카드 내역 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
+        "<form id='card-filters' method='get' action='/import'><input name='q' aria-label='카드 거래 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
         f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button>"
-        f"<a class='catalog-btn' href='/cards'>{ui_icons.icon('rotate-ccw')}초기화</a>" + hidden_filters + "</form>"
+        f"<a class='catalog-btn' href='/import?scope=all'>{ui_icons.icon('rotate-ccw')}초기화</a>"
+        + hidden_filters + "<input type='hidden' name='scope' value='all'></form>"
         + "<table><thead><tr>" + date_heading + card_heading
         + ''.join(f"<th scope='col'>{s}</th>" for s in ('지급처', '구분', '원본 금액', '분류', '여행'))
         + state_heading + "<th scope='col'>다음 행동</th>"

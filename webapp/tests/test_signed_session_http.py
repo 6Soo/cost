@@ -288,12 +288,15 @@ class SignedSessionHttpTests(unittest.TestCase):
     def test_all_cards_route_is_owner_only_and_read_only(self):
         before = self.server.card_store.conn.total_changes
         status, body, headers = self.request('/cards', cookie=self.cookie(OWNER))
+        self.assertEqual(status, 302, body)
+        self.assertEqual(headers.get('Location'), '/import?scope=all')
+        status, body, _ = self.request('/import?scope=all', cookie=self.cookie(OWNER))
         self.assertEqual(status, 200, body)
-        self.assertIn('카드 내역', body)
+        self.assertIn('모든 자료', body)
         for user in (VIEWER, None):
-            status, body, _ = self.request('/cards', cookie=self.cookie(user) if user else None)
+            status, body, _ = self.request('/import?scope=all', cookie=self.cookie(user) if user else None)
             self.assertNotEqual(status, 200)
-            self.assertNotIn('카드 내역', body)
+            self.assertNotIn('모든 자료', body)
         self.assertEqual(self.server.card_store.conn.total_changes, before)
 
     def test_expired_tampered_revoked_and_deactivated_cookies_are_refused_over_http(self):

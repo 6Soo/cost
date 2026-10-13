@@ -4003,7 +4003,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         from . import ota_catalog
         if ota_catalog.dispatch(self, parsed, board=_active_store(),
-                                is_owner=_receipts_owner_request(), query=query):
+                                is_owner=_receipts_owner_request(), query=query, csrf=CSRF_TOKEN):
             return
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
@@ -4273,6 +4273,10 @@ class Handler(BaseHTTPRequestHandler):
             board = _active_store()
             if board is not None and rule_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=board):
                 return
+        from . import ota_catalog
+        if ota_catalog.dispatch_post(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=_active_store(),
+                                     is_owner=_receipts_owner_request()):
+            return
         from . import receipt_review
         if receipt_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request()):

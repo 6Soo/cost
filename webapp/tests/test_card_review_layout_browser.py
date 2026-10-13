@@ -47,7 +47,7 @@ class CardReviewLayoutBrowserTests(unittest.TestCase):
                             self.assertIn('TRIP.COM', page.locator('#preview tbody tr').first.inner_text())
                             self.assertFalse(page.locator('#saved-materials').evaluate('el => el.open'))
                             self.assertEqual(page.locator('#nav').count(), 1)
-                            self.assertEqual(page.locator('#review-metrics [data-review-state]').count(), 4)
+                            self.assertEqual(page.locator('#review-metrics [data-review-state]').count(), 5)
                             self.assertEqual(page.locator('#preview .ota-icon').count(), 2)
                             page.get_by_role('button', name='거래일 정렬 및 월 선택').click()
                             page.locator('#review-sort').select_option('date-asc')

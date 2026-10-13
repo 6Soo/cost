@@ -67,6 +67,62 @@ def _proposal_conditions(event, transaction):
     return conditions, sorted(set(warnings))
 
 
+BOOKING_TRIP_BASIS_LIMIT = 600
+
+
+class BookingTripError(Exception):
+    """A refused booking-trip write. `code` is stable; `message` is for the owner."""
+
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _create_booking_trip_tables(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ota_review_booking_trips(
+            provider TEXT NOT NULL, booking_ref TEXT NOT NULL,
+            trip_tab_id TEXT NOT NULL, trip_code TEXT NOT NULL, basis TEXT NOT NULL,
+            revision INTEGER NOT NULL, status TEXT NOT NULL,
+            user TEXT NOT NULL, changed_at TEXT NOT NULL,
+            PRIMARY KEY (provider, booking_ref));
+        CREATE TABLE IF NOT EXISTS ota_review_booking_trip_history(
+            provider TEXT NOT NULL, booking_ref TEXT NOT NULL, revision INTEGER NOT NULL,
+            trip_tab_id TEXT NOT NULL, trip_code TEXT NOT NULL, basis TEXT NOT NULL,
+            status TEXT NOT NULL, user TEXT NOT NULL, changed_at TEXT NOT NULL,
+            PRIMARY KEY (provider, booking_ref, revision));
+    """)
+
+
+def _utc_now_text():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _write_booking_trip(conn, provider, booking_ref, expected_revision, user, status, current, *,
+                        trip_tab_id, trip_code, basis):
+    have = int(current["revision"]) if current is not None else 0
+    if int(expected_revision) != have:
+        raise BookingTripError("REVISION_CONFLICT", "다른 곳에서 먼저 바꿨어요. 새로고침해 주세요")
+    revision = have + 1
+    now = _utc_now_text()
+    conn.execute(
+        "INSERT INTO ota_review_booking_trips(provider,booking_ref,trip_tab_id,trip_code,basis,revision,status,user,changed_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(provider,booking_ref) DO UPDATE SET"
+        " trip_tab_id=excluded.trip_tab_id, trip_code=excluded.trip_code, basis=excluded.basis,"
+        " revision=excluded.revision, status=excluded.status, user=excluded.user, changed_at=excluded.changed_at",
+        (str(provider), str(booking_ref), str(trip_tab_id), str(trip_code), basis, revision, status,
+         str(user), now))
+    conn.execute(
+        "INSERT INTO ota_review_booking_trip_history(provider,booking_ref,revision,trip_tab_id,trip_code,basis,status,user,changed_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?)",
+        (str(provider), str(booking_ref), revision, str(trip_tab_id), str(trip_code), basis, status,
+         str(user), now))
+    return {"provider": str(provider), "booking_ref": str(booking_ref), "trip_tab_id": str(trip_tab_id),
+            "trip_code": str(trip_code), "basis": basis, "revision": revision, "status": status}
+
+
 class OtaReviewStore:
     """명시한 분리 SQLite만 사용한다. 기본 경로나 운영 DB를 찾지 않는다."""
 
@@ -123,6 +179,7 @@ class OtaReviewStore:
             CREATE TABLE IF NOT EXISTS ota_review_group_requests(
                 request_id TEXT PRIMARY KEY, request_digest TEXT NOT NULL, result_json TEXT NOT NULL);
         """)
+        _create_booking_trip_tables(self.conn)
         group_request_columns = {row[1] for row in self.conn.execute(
             "PRAGMA table_info(ota_review_group_requests)")}
         if "request_digest" not in group_request_columns:
@@ -189,6 +246,97 @@ class OtaReviewStore:
                  "created_at": row["created_at"], "active": bool(row["active"]),
                  "status": "active" if row["active"] else "inactive"}
                 for row in self.conn.execute("SELECT * FROM ota_review_rules WHERE active=1 ORDER BY rule_id")]
+
+    def _open_reader(self):
+        """Opens the read connection on first use, so a store made before the file existed sees later writes."""
+        if self.conn is None and self.path.is_file():
+            self.conn = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            self.conn.row_factory = sqlite3.Row
+
+    def booking_trip_rules(self):
+        """Active owner trip assignments keyed by (provider, booking_ref). Read only."""
+        self._open_reader()
+        if not self._has_table("ota_review_booking_trips"):
+            return {}
+        return {(row["provider"], row["booking_ref"]): self._booking_trip_row(row)
+                for row in self.conn.execute(
+                    "SELECT * FROM ota_review_booking_trips WHERE status='active' ORDER BY provider, booking_ref")}
+
+    def booking_trip_rule(self, provider, booking_ref):
+        """The current rule for one booking, active or revoked, or None. Read only."""
+        self._open_reader()
+        if not self._has_table("ota_review_booking_trips"):
+            return None
+        row = self.conn.execute("SELECT * FROM ota_review_booking_trips WHERE provider=? AND booking_ref=?",
+                                (str(provider), str(booking_ref))).fetchone()
+        return self._booking_trip_row(row) if row else None
+
+    def booking_trip_history(self, provider, booking_ref):
+        """Every revision of one booking's trip assignment, oldest first. Read only."""
+        self._open_reader()
+        if not self._has_table("ota_review_booking_trip_history"):
+            return []
+        return [dict(row) for row in self.conn.execute(
+            "SELECT revision, trip_tab_id, trip_code, basis, status, user, changed_at "
+            "FROM ota_review_booking_trip_history WHERE provider=? AND booking_ref=? ORDER BY revision",
+            (str(provider), str(booking_ref)))]
+
+    @staticmethod
+    def _booking_trip_row(row):
+        return {"provider": row["provider"], "booking_ref": row["booking_ref"],
+                "trip_tab_id": row["trip_tab_id"], "trip_code": row["trip_code"],
+                "basis": row["basis"], "revision": int(row["revision"]), "status": row["status"],
+                "user": row["user"], "changed_at": row["changed_at"]}
+
+    def save_booking_trip(self, *, provider, booking_ref, trip_tab_id, trip_code, basis,
+                          expected_revision, user):
+        """Assign or revise one booking's trip. The caller names the revision it read."""
+        basis = str(basis or "").strip()
+        if not basis:
+            raise BookingTripError("BASIS_REQUIRED", "배정 근거를 적어 주세요")
+        if len(basis) > BOOKING_TRIP_BASIS_LIMIT:
+            raise BookingTripError("BASIS_TOO_LONG", "배정 근거가 너무 깁니다")
+
+        def write(conn):
+            current = conn.execute("SELECT * FROM ota_review_booking_trips WHERE provider=? AND booking_ref=?",
+                                   (str(provider), str(booking_ref))).fetchone()
+            return _write_booking_trip(conn, provider, booking_ref, expected_revision, user, "active",
+                                       current, trip_tab_id=trip_tab_id, trip_code=trip_code, basis=basis)
+        return self._write_booking_trips(write)
+
+    def revoke_booking_trip(self, *, provider, booking_ref, expected_revision, user):
+        """Stop applying one booking's trip assignment. The history keeps what was revoked."""
+        def write(conn):
+            current = conn.execute("SELECT * FROM ota_review_booking_trips WHERE provider=? AND booking_ref=?",
+                                   (str(provider), str(booking_ref))).fetchone()
+            if current is None or current["status"] != "active":
+                raise BookingTripError("NO_ACTIVE_RULE", "해제할 배정이 없습니다")
+            return _write_booking_trip(conn, provider, booking_ref, expected_revision, user, "revoked",
+                                       current, trip_tab_id=current["trip_tab_id"],
+                                       trip_code=current["trip_code"], basis=current["basis"])
+        return self._write_booking_trips(write)
+
+    def _write_booking_trips(self, write):
+        """Run one write in its own immediate transaction on a fresh connection."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.path, timeout=15)
+        conn.row_factory = sqlite3.Row
+        try:
+            existing = {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+            if any(not name.startswith("ota_review_") for name in existing):
+                raise BookingTripError("REVIEW_DATABASE_NOT_ISOLATED", "검토 자료 경로를 확인해 주세요")
+            _create_booking_trip_tables(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                result = write(conn)
+                conn.execute("COMMIT")
+                return result
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        finally:
+            conn.close()
 
     def proposals(self):
         if not self._has_table("ota_review_proposals"):

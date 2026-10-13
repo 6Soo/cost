@@ -33,6 +33,9 @@ from .rules import rule_matches, is_booking_or_online
 __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
            "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED"]
 
+#: A trip the owner picked for one OTA booking. Applied to that booking's card rows only.
+OWNER_BOOKING_ORIGIN = "owner-ota-booking"
+
 STATE_NEEDS_REVIEW = "needs_review"
 STATE_CLASSIFIED = "classified"
 
@@ -80,6 +83,10 @@ def classify_transaction(transaction: dict, *, rules: list,
         if residual_policy:
             return _card3820_residual(transaction, verdict)
         return verdict
+    # 사용자가 예약마다 고른 여행은 원본 거래의 자동 추론보다 앞선다.
+    owned = [r for r in matches if r.get('origin') == OWNER_BOOKING_ORIGIN]
+    if owned:
+        matches = owned
     import json
     if len({json.dumps([r['effects'].get('item'),r['effects'].get('display_tab_id',''),
                         r['optional']['inferred_assignment']['trip_id']],sort_keys=True) for r in matches})!=1:
@@ -90,12 +97,20 @@ def classify_transaction(transaction: dict, *, rules: list,
     inference=rule['optional']['inferred_assignment']
     target=inference['trip_id']
     if target and (not trip_resolver or trip_resolver(transaction,{'inferred_trip_id':target})!=target):
+        if rule.get('origin') == OWNER_BOOKING_ORIGIN:
+            return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
+                        classification_basis='사용자가 고른 여행의 일정 원본을 다시 확인해야 합니다')
         return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                     classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
     exception=rule.get('origin')=='owner-country-exception-20261003'
     if rule.get('origin')=='guide-airfare-live':
         return dict(classification_state=STATE_CLASSIFIED,classification_source='guide_airfare_evidence',
                     classification_basis='대장·가이드 항공권 근거 · '+inference['basis'],
+                    item=rule['effects']['item'],description=rule['effects'].get('description',''),
+                    display_tab_id=target,trip_id=target,rule_id=rule.get('rule_id',''))
+    if rule.get('origin')==OWNER_BOOKING_ORIGIN:
+        return dict(classification_state=STATE_CLASSIFIED,classification_source='owner_booking',
+                    classification_basis='예약 배정 · '+inference['basis'],
                     item=rule['effects']['item'],description=rule['effects'].get('description',''),
                     display_tab_id=target,trip_id=target,rule_id=rule.get('rule_id',''))
     return dict(classification_state=STATE_CLASSIFIED,classification_source='user_exception' if exception else 'inference',

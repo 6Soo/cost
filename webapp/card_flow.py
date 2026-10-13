@@ -393,7 +393,6 @@ def home_page(board):
             f"<a class='home-review btn primary' href='/import'>{ui_icons.icon('check')}카드 검토 {questions:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
             f"<a class='btn' href='/import#newupload'>{ui_icons.icon('upload')}새 카드 가져오기</a>"
-            f"<a class='btn' href='/cards'>{ui_icons.icon('credit-card')}카드 내역</a>"
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>{ui_icons.icon('book-open')}장부</a>"
             "</nav></section>"
             + ledger_design.work_menu_html()
@@ -588,6 +587,13 @@ class CardFlow:
                 draft['origin']='ota-portal-live' if fact.get('evidence_kind')=='portal_payment_claim' else 'ota-mail-live'
                 draft['rule_id']=('ota-portal-' if draft['origin']=='ota-portal-live' else 'ota-mail-')+source
                 ota_rules.append(draft)
+            owned = self._booking_trip_assignments(report, sources)
+            if owned:
+                # 사용자가 고른 예약 배정이 같은 원본의 자동 제안을 대체한다.
+                owned_sources = {rule['optional']['source_hash'] for rule in owned}
+                ota_rules = [rule for rule in ota_rules if rule['optional'].get('source_hash') not in owned_sources]
+                blocked_inference_sources.update(owned_sources)
+                ota_rules += owned
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
         if ota_rules or blocked_inference_sources or board_rules:
@@ -603,6 +609,53 @@ class CardFlow:
         return classify_batch(self.pipeline.store, batch_id, trip_resolver=self.retail_trip,
                               review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,
                               residual_policy=True)
+
+    def _booking_trip_rules(self):
+        """사용자가 예약마다 고른 여행 배정. 검토 자료가 설정되지 않았거나 읽을 수 없으면 비어 있다."""
+        from app import ota_review
+        from . import ota_payment_review
+        path = ota_payment_review.review_db_path()
+        if not ota_payment_review.enabled() or not path or not Path(path).is_file():
+            return {}
+        try:
+            store = ota_review.OtaReviewStore(path)
+        except ValueError:
+            return {}
+        try:
+            return store.booking_trip_rules()
+        finally:
+            store.close()
+
+    def _booking_trip_assignments(self, report, sources):
+        """예약 배정을 그 예약의 살아 있는 카드 결제 원본에만 적용하는 규칙을 만든다.
+
+        취소된 예약과 기간이 충돌하는 대사는 제외한다. 원본 거래마다 따로 묶어 다른 거래로 번지지 않게 한다."""
+        from app.classify import OWNER_BOOKING_ORIGIN
+        from app.normalize import normalize_merchant
+        assignments = self._booking_trip_rules()
+        if not assignments:
+            return []
+        owned = {}
+        for fact in report.get('matches', []):
+            source = fact.get('source_hash')
+            if source not in sources or fact.get('reservation_status') == 'cancelled' or fact.get('period_conflict'):
+                continue
+            if fact.get('direction', 'purchase') != 'purchase':
+                continue
+            assignment = assignments.get((str(fact.get('provider')), str(fact.get('booking_ref'))))
+            item = str(fact.get('item') or '').strip()
+            merchant = str(fact.get('merchant') or '').strip()
+            if not assignment or not item or not merchant:
+                continue
+            owned[source] = {
+                'conditions': {'merchant_normalized': normalize_merchant(merchant), 'transaction_direction': 'purchase'},
+                'optional': {'source_hash': source, 'inferred_assignment': {
+                    'trip_id': assignment['trip_tab_id'], 'confidence': '높음',
+                    'basis': f"예약 {fact.get('booking_ref')} 배정 r{assignment['revision']}: {assignment['basis']}"}},
+                'effects': {'item': item}, 'origin': OWNER_BOOKING_ORIGIN, 'note': '',
+                'rule_id': f"owner-ota-booking-{fact.get('provider')}-{fact.get('booking_ref')}-{source[:12]}",
+            }
+        return list(owned.values())
 
     def _board_future_rules(self):
         """장부에서 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.
@@ -1257,17 +1310,24 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         return True
     try:
         if parsed.path == '/cards':
+            # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
             if raw is not None:
                 handler._send_json({'code': 'METHOD_NOT_ALLOWED'}, 405)
             else:
-                from . import card_catalog
-                handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
+                location = '/import?scope=all' + (('&' + parsed.query) if parsed.query else '')
+                handler.send_response(302)
+                handler.send_header('Location', location)
+                handler.send_header('Content-Length', '0')
+                handler.end_headers()
             return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
         if raw is None:
             if parsed.path == '/':
                 handler._send(home_page(board))
+            elif parsed.path == '/import' and (query or {}).get('scope') == ['all']:
+                from . import card_catalog
+                handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
             elif parsed.path == '/import':
                 body = page(csrf)
                 if ota_payment_review.enabled():
@@ -1440,7 +1500,7 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 .flow{margin:12px 0;font-size:13px;color:#657068;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF;padding:8px 12px}
 @media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid #E3E7E3;border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:#657068}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:#e9f4ed;border-color:#1c7a52}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:#657068}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:#657068}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
-</style><body><main><nav aria-label='카드 업무 이동'><a href="/cards">카드 내역</a></nav><h1>카드 검토</h1><p class="small">새 카드 자료를 올리고, 확인이 필요한 거래를 처리합니다. 전체 거래 조회는 카드 내역에서 합니다.</p>
+</style><body><main><nav aria-label='카드 검토 범위'><a href="/import" aria-current="page">이 자료</a> <a href="/import?scope=all">모든 자료</a></nav><h1>카드 검토</h1><p class="small">새 카드 자료를 올리고, 확인이 필요한 거래를 처리합니다. 전체 거래 조회는 카드 내역에서 합니다.</p>
 <p class="flow">카드 자료 → 자동 분류 → 장부 반영 → 예외만 수정</p>
 <details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
 <details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xls,.xlsx,.csv"><button id="upload">__ICON_UPLOAD__업로드하고 분류</button></section></details>
@@ -1459,9 +1519,9 @@ function answerForm(j,r){const hold=r.review_hold?'<p>'+esc(r.review_hold.reason
 const reviewIcons=__REVIEW_ICONS__;let reviewState='review';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
-const reviewStatus=r=>r.already_booked?'booked':r.next_action?.required||r.blocked?'review':'ready';
+const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':'ready'));
 function reviewRows(j){const originals=new Map(j.rows.map(r=>[r.transaction_id,r]));let rows=j.preview.rows.map(r=>({...originals.get(r.transaction_id),...r}));const focus=new URLSearchParams(location.search).get('transaction');if(location.hash==='#preview'&&focus)rows=rows.filter(r=>r.transaction_id===focus||r.refund_link?.counterpart_id===focus);const term=el('review-search').value.trim().toLowerCase(),month=el('review-month').value,category=el('review-category').value;rows=rows.filter(r=>(reviewState==='all'||reviewStatus(r)===reviewState)&&(!month||reviewDate(r).startsWith(month))&&(!category||r.item===category)&&(!term||[r.merchant,r.item,r.description,j.trips.find(t=>t.id===r.display_tab_id)?.name].join(' ').toLowerCase().includes(term)));const sort=el('review-sort').value;return rows.sort((a,b)=>!reviewDate(a)||!reviewDate(b)?Number(!reviewDate(a))-Number(!reviewDate(b)):sort==='amount-desc'?Number(b.amount_krw)-Number(a.amount_krw):sort==='date-asc'?reviewDate(a).localeCompare(reviewDate(b)):reviewDate(b).localeCompare(reviewDate(a)))}
-function renderReviewControls(j){const rows=j.preview.rows;el('review-metrics').innerHTML=[['all','전체 거래'],['ready','기록 가능'],['review','확인 필요'],['booked','기록 완료']].map(([state,label])=>'<button type="button" data-review-state="'+state+'" aria-pressed="'+(state===reviewState)+'">'+label+'<strong>'+rows.filter(r=>state==='all'||reviewStatus(r)===state).length+'</strong></button>').join('');for(const [id,values] of [['review-month',[...new Set(j.rows.map(r=>reviewDate(r).slice(0,7)).filter(Boolean))].sort()],['review-category',[...new Set(j.rows.map(r=>r.item).filter(Boolean))].sort()]]){const select=el(id),value=select.value;select.innerHTML='<option value="">'+(id==='review-month'?'전체 월':'전체 항목')+'</option>'+values.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');select.value=values.includes(value)?value:''}document.querySelectorAll('[data-review-state]').forEach(b=>b.onclick=()=>{reviewState=b.dataset.reviewState;page=0;render(model)})}
+function renderReviewControls(j){const rows=j.preview.rows;el('review-metrics').innerHTML=[['all','전체 거래'],['ready','기록 가능'],['review','확인 필요'],['booked','기록 완료'],['excluded','기록 제외']].map(([state,label])=>'<button type="button" data-review-state="'+state+'" aria-pressed="'+(state===reviewState)+'">'+label+'<strong>'+rows.filter(r=>state==='all'||reviewStatus(r)===state).length+'</strong></button>').join('');for(const [id,values] of [['review-month',[...new Set(j.rows.map(r=>reviewDate(r).slice(0,7)).filter(Boolean))].sort()],['review-category',[...new Set(j.rows.map(r=>r.item).filter(Boolean))].sort()]]){const select=el(id),value=select.value;select.innerHTML='<option value="">'+(id==='review-month'?'전체 월':'전체 항목')+'</option>'+values.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');select.value=values.includes(value)?value:''}document.querySelectorAll('[data-review-state]').forEach(b=>b.onclick=()=>{reviewState=b.dataset.reviewState;page=0;render(model)})}
 for(const id of ['review-search','review-month','review-category','review-sort'])el(id).addEventListener(id==='review-search'?'input':'change',()=>{page=0;render(model)});
 el('review-reset').onclick=()=>{el('review-search').value='';el('review-month').value='';el('review-category').value='';el('review-sort').value='date-asc';page=0;render(model)};
 el('review-date-toggle').onclick=e=>{e.preventDefault();el('review-date').open=!el('review-date').open};
