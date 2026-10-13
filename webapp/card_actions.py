@@ -31,7 +31,7 @@ def next_action(row, preview=None, extra_hold=None):
     if hold and hold.get('kind') not in ('trip_needed', 'classification_needed'):
         if 'OTA-first' in (hold.get('reason') or ''):
             return action('예약 연결 확인 필요', '예약 연결 확인',
-                          '수집한 숙소 예약과 이 카드 결제의 연결을 확인해 주세요.', target=href + '#ota-review')
+                          '이 결제가 어느 예약인지 아직 확인되지 않았습니다. 예약번호와 이용일을 확인해 주세요.', target=href + '#ota-review')
         return action('보류 중', '보류 사유 확인', hold.get('reason') or '예약과 결제 근거를 확인해 주세요.')
     if not row.get('item'):
         return action('비용 항목 선택 필요', '비용 항목 선택', '이 거래의 비용 항목을 선택해 주세요.')
