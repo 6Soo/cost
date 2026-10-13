@@ -129,13 +129,13 @@ def catalog(board, query, *, sources=None):
         try:
             # 예약 목록에는 결제 이벤트 간 병합·대사가 필요하지 않다.
             # 모든 디렉터리를 함께 넘겨 기존 내용 해시 기반 파싱 캐시를 재사용한다.
-            events = ota_payments._mail_events(directories)
+            events = ota_payments._mail_events(directories, read_only=True)
         except (OSError, ValueError, ota_payments.OtaSourcesError):
             warnings.append('일부 자료를 읽지 못했습니다. OTA 메일 수집 상태를 확인해 주세요.')
             # 손상된 한 자료 때문에 다른 정상 디렉터리의 예약까지 숨기지 않는다.
             for directory in directories:
                 try:
-                    events.extend(ota_payments._mail_events([directory]))
+                    events.extend(ota_payments._mail_events([directory], read_only=True))
                 except (OSError, ValueError, ota_payments.OtaSourcesError):
                     continue
     for event in events:

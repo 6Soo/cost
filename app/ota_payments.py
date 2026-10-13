@@ -48,14 +48,20 @@ def _event_id(source_ids):
 _MAIL_EVENT_MEMO = {}
 
 
-def _mail_events(directories):
-    """The mail parse reads only mail files, so it is reused while their content digests are unchanged."""
+def _mail_events(directories, *, read_only=False):
+    """The mail parse reads only mail files, so it is reused while their content digests are unchanged.
+
+    A caller that only reads the events passes read_only=True and gets the memo itself;
+    everyone else gets a copy, so the memo cannot be changed from outside.
+    """
     from app import ota_sources
     key = (tuple(str(Path(d)) for d in (directories or [])),
            json.dumps(ota_sources.mail_stamps(directories), sort_keys=True))
     if key not in _MAIL_EVENT_MEMO:
         _MAIL_EVENT_MEMO.clear()
         _MAIL_EVENT_MEMO[key] = _parse_mail_events(directories)
+    if read_only:
+        return _MAIL_EVENT_MEMO[key]
     return copy.deepcopy(_MAIL_EVENT_MEMO[key])
 
 
