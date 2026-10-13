@@ -438,7 +438,11 @@ class CoreOtaPaymentBackend:
             if can_compare:
                 mail = importlib.import_module("app.ota_mail")
                 portal = importlib.import_module("app.ota_portal")
-                report = mail.match_mail(self.sources.get("mail_directories", []), transactions)
+                from app import ota_sources
+                mail_dirs = self.sources.get("mail_directories", [])
+                # The content stamps key the mail-side memo, so an unchanged mail set is not parsed again.
+                source_key = json.dumps(ota_sources.mail_stamps(mail_dirs), sort_keys=True)
+                report = mail.match_mail(mail_dirs, transactions, source_key=source_key)
                 report = portal.extend_report(report, self.sources.get("portal_databases", []), transactions)
                 fresh = legacy_exact_bindings(events, transactions, report)
             retained = dict(cache.get("links", {}))
@@ -547,7 +551,7 @@ class CoreOtaPaymentBackend:
         return snapshot_service(self.board).view()
 
     def request_refresh(self):
-        snapshot_service(self.board).request_check(wait_seconds=3)
+        snapshot_service(self.board).request_check(wait_seconds=0)
 
     def _action_data(self):
         """The reconciled data an action may use: fresh, complete, and matching the input fingerprint now.
@@ -851,6 +855,13 @@ CHILD_BOOTSTRAP = ("import sys; sys.path.insert(0, sys.argv[1]); "
                    "from webapp import ota_reconcile_child as child; child.run(*sys.argv[1:])")
 
 
+def _stop_process_tree(pid: int) -> None:
+    """Stop this child and what it started, and nothing else: the PID tree of one process."""
+    import subprocess
+    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"] if os.name == "nt" else ["kill", "-9", str(pid)],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
 class OtaReconcileChildError(RuntimeError):
     """The child process ended with an error; the message names the original exception."""
 
@@ -875,13 +886,18 @@ def reconcile_in_child(board) -> dict:
         {"authority": getattr(board, "_reservation_authority", None)},
         protocol=pickle.HIGHEST_PROTOCOL))
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             [sys.executable, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
              str(request_path), str(result_path)],
-            capture_output=True, timeout=CHILD_TIMEOUT_SECONDS, check=False)
-        if completed.returncode != 0 or not result_path.exists():
-            tail = (completed.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-            reason = tail[-1][:200] if tail else f"exit {completed.returncode}"
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            _, stderr = process.communicate(timeout=CHILD_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            _stop_process_tree(process.pid)
+            raise OtaReconcileChildError("the reconciliation process timed out")
+        if process.returncode != 0 or not result_path.exists():
+            tail = (stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            reason = tail[-1][:200] if tail else f"exit {process.returncode}"
             raise OtaReconcileChildError(f"the reconciliation process ended without a result: {reason}")
         payload = pickle.loads(result_path.read_bytes())
     finally:
@@ -892,13 +908,72 @@ def reconcile_in_child(board) -> dict:
     raise OtaReconcileChildError(f"{payload[1]}: {payload[2]}")
 
 
+PASSENGER_FILE = "ota-passengers.json"
+PASSENGER_SCHEMA = "ota-passengers-v1"
+_PASSENGER_CACHE = {}
+
+
+def _write_passenger_index(path, current) -> None:
+    """Keep the passenger index beside the snapshot, bound to its input fingerprint and parser.
+
+    The names are display evidence only: this file is not the snapshot, and nothing logs it.
+    """
+    from app import flight_evidence
+    passengers = (current.get("data") or {}).get("passengers")
+    if passengers is None:
+        return
+    document = {"schema": PASSENGER_SCHEMA, "key": current["key"],
+                "parser": flight_evidence.PARSER_VERSION, "passengers": passengers}
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    os.replace(temp, path)
+    _PASSENGER_CACHE.clear()
+
+
+def passenger_index_for(board) -> dict:
+    """The passenger index for display, read without waiting for any refresh.
+
+    The in-memory index of the current refresh wins. Otherwise the saved index is
+    used only when its input fingerprint is the one the worker last read and its
+    parser is the current one; anything else is unknown, never guessed.
+    """
+    from app import flight_evidence
+    service = snapshot_service(board)
+    current, _fresh = service.held()
+    if current is not None:
+        return (current.get("data") or {}).get("passengers") or {}
+    key = service.checked_key()
+    if key is None:
+        return {}
+    path = Path(review_db_path()).parent / PASSENGER_FILE
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return {}
+    if _PASSENGER_CACHE.get("stamp") != stamp:
+        try:
+            _PASSENGER_CACHE.update(stamp=stamp, document=json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return {}
+    document = _PASSENGER_CACHE.get("document") or {}
+    if document.get("schema") != PASSENGER_SCHEMA or document.get("key") != key:
+        return {}
+    if document.get("parser") != flight_evidence.PARSER_VERSION:
+        return {}
+    return document.get("passengers") or {}
+
+
 def snapshot_service(board):
     service = getattr(board, "_ota_snapshot_service", None)
     if service is None:
         service = ota_snapshot.OtaSnapshotService(
             key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile_in_child(board),
             persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE,
-            log_path=Path(review_db_path()).parent / "ota-snapshot.log")
+            log_path=Path(review_db_path()).parent / "ota-snapshot.log",
+            on_published=lambda current: _write_passenger_index(
+                Path(review_db_path()).parent / PASSENGER_FILE, current))
         board._ota_snapshot_service = service
         atexit.register(_stop_quietly, service)
     return service

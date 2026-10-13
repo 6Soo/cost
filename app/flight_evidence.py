@@ -100,7 +100,7 @@ def collect_flight_evidence(mail_directories) -> dict:
         if not authenticated:
             continue
         provider = next(name for name, bases in PROVIDER_DOMAINS.items() if authenticated[1] in bases)
-        parsed = parse_flight_text(ota_mail.body_text(message.get("payload", {})))
+        parsed = parse_flight_text(ota_mail.message_text(message))
         if not parsed or not parsed["booking_ref"]:
             continue
         parsed["source_digest"] = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
