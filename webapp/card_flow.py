@@ -8,7 +8,8 @@ from urllib.parse import unquote
 
 from app.db import decided_sql
 from app.reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN,
-                                   OWNER_AUTHORIZED_INFERENCE_ORIGIN, card_use_date, covers_stay, payment_within_lead)
+                                   OWNER_AUTHORIZED_INFERENCE_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN, card_use_date,
+                                   covers_stay, overlaps_stay, payment_within_lead)
 
 from . import read_scope
 
@@ -16,6 +17,40 @@ from . import read_scope
 _OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고다', 'BOOKING', '부킹닷컴')
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
+_GOOGLE_PERIOD_CACHE = {}
+# 시트에 적힌 날짜가 아니라 다음 여행으로 추정했거나 비어 있는 종료일은 검증 근거가 아니다.
+_GUESSED_PERIOD_FLAGS = frozenset({'PERIOD_END_FROM_NEXT_TRIP', 'PERIOD_END_MISSING'})
+
+
+def _google_periods():
+    """구글 여행 탭의 기간을 연결된 COST 탭 ID별 (시작일, 종료일, 추정 여부)로 돌려준다. 설정이 없거나 읽을 수 없으면 비어 있다."""
+    raw = os.environ.get('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', '').strip()
+    if not raw:
+        return {}
+    from app import google_authority
+    from . import google_ledger_page
+    path = Path(raw)
+    try:
+        stamp = tuple((p.stat().st_size, p.stat().st_mtime_ns) for p in (path, google_ledger_page.mapping_path(path)))
+    except OSError:
+        return {}
+    cached = _GOOGLE_PERIOD_CACHE.get(raw)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    try:
+        snapshot = google_authority.load_snapshot(path)
+        mapping = google_ledger_page.load_mapping(path)
+    except (google_authority.SnapshotError, OSError, ValueError):
+        return {}
+    by_key = {trip.get('key'): trip.get('period') or {} for trip in snapshot.get('trips', [])}
+    periods = {}
+    for key, tab_id in mapping.items():
+        period = by_key.get(key) or {}
+        if period.get('starts_on'):
+            guessed = not period.get('ends_on') or bool(_GUESSED_PERIOD_FLAGS & set(period.get('flags') or ()))
+            periods.setdefault(tab_id, set()).add((period['starts_on'], period.get('ends_on') or '', guessed))
+    _GOOGLE_PERIOD_CACHE[raw] = (stamp, periods)
+    return periods
 
 
 def _trip_authority(path):
@@ -36,7 +71,7 @@ def _is_ota_row(row):
 
 
 def _unchanged_workbook_schedule(record, current_bytes, cache):
-    """원본 증거와 최신 명시 제목을 함께 검증하며 비용 셀 변경만 분리한다."""
+    """원본 증거와 최신 명시 제목을 함께 검증하며 비용 셀 변경만 분리한다. current_bytes가 None이면 원본 증거의 제목만 검증한다."""
     import io
     import re
     import zipfile
@@ -53,11 +88,11 @@ def _unchanged_workbook_schedule(record, current_bytes, cache):
         original_bytes = Path(path).read_bytes()
         if hashlib.sha256(original_bytes).hexdigest() != record.source_sha256:
             return False
-        key = (record.source_sha256, hashlib.sha256(current_bytes).hexdigest())
+        key = (record.source_sha256, '' if current_bytes is None else hashlib.sha256(current_bytes).hexdigest())
         if key not in cache:
-            for contents in (original_bytes, current_bytes):
+            for contents in (original_bytes,) if current_bytes is None else (original_bytes, current_bytes):
                 books.append(load_workbook(io.BytesIO(contents), read_only=True, data_only=False))
-            original, current = books
+            original, current = books[0], books[-1]
             originals = {page.title:{address:page[address].value for address in ('C2', 'D2')}
                          for page in original}
             current_titles = {page.title:{value.value for row in page.iter_rows(min_row=2, max_row=2)
@@ -67,7 +102,7 @@ def _unchanged_workbook_schedule(record, current_bytes, cache):
                              for page in current}
             cache[key] = (originals, current_titles, current_cells)
         originals, current_titles, current_cells = cache[key]
-        if sheet not in originals or sheet not in current_titles:
+        if sheet not in originals or (current_bytes is not None and sheet not in current_titles):
             return False
         title = originals[sheet][cell]
         if not isinstance(title, str) or title.startswith('=') or '매출 확인자료' not in title:
@@ -82,7 +117,7 @@ def _unchanged_workbook_schedule(record, current_bytes, cache):
                 or date(year, int(start[:2]), int(start[2:])) != record.starts_on
                 or date(year, int(end[:2]), int(end[2:])) != record.ends_on):
             return False
-        return current_cells[sheet][cell] == title and current_titles[sheet] == {title}
+        return current_bytes is None or (current_cells[sheet][cell] == title and current_titles[sheet] == {title})
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, ParseError):
         return False
     finally:
@@ -422,14 +457,19 @@ class CardFlow:
             self.pipeline=pipeline
 
     def trip_valid(self, trip_id):
-        """화면용 여행 탭과 원본으로 검증한 명시 일정이 일치해야 한다."""
+        """화면용 여행 탭의 기간이 원본 일정과 일치해야 한다.
+
+        원본은 연결된 구글 여행 탭의 시트 기간이다. 구글 기간과 맞지 않으면 기존 일정 권한 파일로 확인한다."""
         from ledger.domain.direct_trip_schedule_authority import load_document
         from . import real_review
-        path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY')
-        if not path:
-            return False
         trip = self.board.get_trip(trip_id)
         if not trip or trip['deleted'] or trip['archived']:
+            return False
+        google = _google_periods().get(trip_id, set())
+        if (trip['starts_on'], trip['ends_on'], False) in google:
+            return True
+        path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY')
+        if not path:
             return False
         records, _ = _trip_authority(Path(path))
         matches = [r for r in records if r.trip_code == trip['display_key']]
@@ -475,7 +515,11 @@ class CardFlow:
             if digest!=record.source_sha256:
                 if not hasattr(self,'_schedule_title_cache'):
                     self._schedule_title_cache={}
-                if not _unchanged_workbook_schedule(record,current_bytes,self._schedule_title_cache):
+                # 장부를 옮기며 제목이 빈 구글 탭은 해시로 확인한 원본 제목을 쓴다. 구글에 명시된 다른 기간이 있으면 쓰지 않는다.
+                moved = (google and all(guessed for _, _, guessed in google)
+                         and any(start == record.starts_on.isoformat() for start, _, _ in google))
+                if not (_unchanged_workbook_schedule(record,current_bytes,self._schedule_title_cache)
+                        or (moved and _unchanged_workbook_schedule(record,None,self._schedule_title_cache))):
                     return False
                 digest=record.source_sha256
         return len(matches) == 1 and all((
@@ -539,11 +583,13 @@ class CardFlow:
         return top['tab_id']
 
     def booking_trip(self, transaction, period):
+        # 이용기간을 덮는 검증된 여행이 하나뿐이어야 한다. 저장된 여행 이름은 여러 여행이 덮을 때만 고르는 데 쓴다.
         candidates = [t for t in self.board.list_trips() if self.trip_valid(t['tab_id'])
-                      and t['display_key']==period['target_code']
                       and covers_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'],
                                       service=period.get('service', False))]
-        return candidates[0]['tab_id'] if len(candidates)==1 else ''
+        named = [t for t in candidates if t['display_key']==period.get('target_code')]
+        chosen = named or candidates
+        return chosen[0]['tab_id'] if len(chosen)==1 else ''
 
     def classify(self, batch_id, *, transaction_ids=None):
         with self.board._lock:
@@ -609,6 +655,18 @@ class CardFlow:
                 ota_rules = [rule for rule in ota_rules if rule['optional'].get('source_hash') not in owned_sources]
                 blocked_inference_sources.update(owned_sources)
                 ota_rules += owned
+            # 확정 전이라도 예약 이용기간과 하루도 겹치지 않는 여행으로는 저장된 추론을 배정하지 않는다. 사용자 예외는 그대로 둔다.
+            trips_by_id = {trip['tab_id']: trip for trip in self.board.list_trips()}
+            for rule in self.pipeline.list_rules():
+                source = rule.get('optional', {}).get('source_hash')
+                inference = rule.get('optional', {}).get('inferred_assignment') or {}
+                fact = evidence.get(source) or {}
+                period, trip = fact.get('period'), trips_by_id.get(inference.get('trip_id'))
+                if (source in sources and period and trip and trip['starts_on'] and trip['ends_on']
+                        and rule.get('origin') != OWNER_COUNTRY_EXCEPTION_ORIGIN
+                        and not overlaps_stay(trip['starts_on'], trip['ends_on'], period['starts_on'], period['ends_on'],
+                                              service=fact.get('item') == '항공료')):
+                    blocked_inference_sources.add(source)
             # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
             taken = {rule['optional'].get('source_hash') for rule in ota_rules}
             taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()

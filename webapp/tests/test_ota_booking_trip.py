@@ -276,3 +276,16 @@ def test_an_unverified_trip_covering_the_stay_does_not_block_the_one_verified_tr
                   {'tab_id': 'c', 'name': 'C', 'relation': 'overlaps', 'valid': True}]
     assert ota_catalog._period_trip(candidates) == {'id': 'b', 'name': 'B', 'source': 'period'}
     assert ota_catalog._period_trip(candidates + [{'tab_id': 'd', 'name': 'D', 'relation': 'covers', 'valid': True}]) is None
+
+
+def test_a_stored_stay_reaches_the_one_verified_trip_covering_it_even_after_a_rename():
+    from types import SimpleNamespace
+    from webapp.card_flow import CardFlow
+    trips = [{'tab_id': 'trip-a', 'display_key': '0704_야마가타', 'starts_on': '2026-07-04', 'ends_on': '2026-07-09'},
+             {'tab_id': 'trip-b', 'display_key': '0704_통영', 'starts_on': '2026-07-04', 'ends_on': '2026-07-05'}]
+    flow = SimpleNamespace(board=SimpleNamespace(list_trips=lambda: trips), trip_valid=lambda tab: True)
+    period = {'starts_on': '2026-07-05', 'ends_on': '2026-07-07', 'target_code': '0704_아키타'}
+    assert CardFlow.booking_trip(flow, {}, period) == 'trip-a'
+    both = {'starts_on': '2026-07-04', 'ends_on': '2026-07-05', 'target_code': '0704_아키타'}
+    assert CardFlow.booking_trip(flow, {}, both) == ''
+    assert CardFlow.booking_trip(flow, {}, dict(both, target_code='0704_통영')) == 'trip-b'

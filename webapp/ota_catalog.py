@@ -318,7 +318,7 @@ def _canonical(value):
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
-                'app/classify.py', 'app/rules.py')
+                'app/classify.py', 'app/rules.py', 'app/reconciliation.py')
 
 
 @functools.lru_cache(maxsize=None)
@@ -359,6 +359,10 @@ def _signature(board, sources):
     config = os.environ.get('WEBLEDGER_REVIEW_CONFIG', '').strip()
     if config:
         parts.append(stat_key(config))
+    google = os.environ.get('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', '').strip()
+    if google:
+        # 여행 검증이 구글 탭 기간과 탭 연결을 읽는다.
+        parts += [stat_key(google), stat_key(Path(google).with_name('google-tab-mapping.json'))]
     with board._lock:
         for query in (
                 "SELECT transaction_id,source_hash,merchant,approval_date,posting_date,amount_krw,"

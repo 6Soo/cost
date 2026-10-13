@@ -87,5 +87,30 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         state, source, tab, item = self._row()[0], self._row()[1], self._row()[2], self._row()[4]
         self.assertEqual((state, source, tab, item), ('classified', 'inference', 'trip-x', '숙박비'))
 
+    def _inference_with_stay(self, starts_on, ends_on):
+        from app.normalize import normalize_merchant
+        from app.reconciliation import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+        self.flow.pipeline.save_rule({
+            'conditions': {'merchant_normalized': normalize_merchant('TRIP.COM'), 'transaction_direction': 'purchase'},
+            'optional': {'source_hash': self.source_hash, 'inferred_assignment': {
+                'trip_id': 'trip-x', 'basis': '결제 뒤 가까운 여행', 'confidence': '낮음'}},
+            'effects': {'item': '숙박비'}, 'origin': OWNER_AUTHORIZED_INFERENCE_ORIGIN, 'rule_id': 'inference-stay'})
+        report = {'matches': [{
+            'transaction_id': self.transaction_id, 'source_hash': self.source_hash, 'merchant': 'TRIP.COM',
+            'provider': 'trip', 'booking_ref': 'B9', 'item': '숙박비', 'direction': 'purchase',
+            'reservation_status': 'observed', 'period_conflict': False,
+            'period': {'starts_on': starts_on, 'ends_on': ends_on}}],
+            'rules': [], 'type_only_candidates': [], 'unmatched_transactions': []}
+        with patch.object(CardFlow, '_ota_report', lambda self: report):
+            self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
+        return self._row()[3]
+
+    def test_an_inference_to_a_trip_outside_an_unconfirmed_stay_is_not_applied(self):
+        self.assertEqual(self._inference_with_stay('2026-11-10', '2026-11-12'), '')
+
+    def test_an_inference_to_a_trip_the_unconfirmed_stay_overlaps_still_applies(self):
+        self.assertEqual(self._inference_with_stay('2026-10-04', '2026-10-07'), 'trip-x')
+
+
 if __name__ == '__main__':
     unittest.main()
