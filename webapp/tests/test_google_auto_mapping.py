@@ -64,3 +64,23 @@ def test_auto_route_requires_csrf_and_returns_saved_count(tmp_path, monkeypatch)
     handler = FakeHandler('token')
     page.dispatch(handler, urlparse('/api/google-ledger/auto-mapping'), is_owner=True, csrf='token', raw=b'{}')
     assert handler.sent[0] == ('json', 200, {'code': 'OK', 'linked': 1})
+
+
+def test_import_creates_trips_from_the_sheet_top_and_keeps_missing_ends_empty(tmp_path):
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    snap = {'trips': [
+        {'key': '0630_오제', 'kind': 'trip', 'period': {'year': 2026, 'starts_on': '2026-06-30',
+                                                         'ends_on': '2026-07-04', 'destination': '오제'}},
+        {'key': '0712_몽골', 'kind': 'trip', 'period': {'year': 2026, 'starts_on': '2026-07-12',
+                                                         'ends_on': None, 'destination': ''}},
+        {'key': '0506_0610_유럽', 'kind': 'trip', 'period': {'year': None, 'starts_on': None,
+                                                             'ends_on': None, 'destination': ''}},
+        {'key': '1005_Q', 'kind': 'quarter', 'period': {}},
+    ]}
+    assert page.import_trips(board, snap) == {'created': 2, 'held': 1}
+    tabs = {t['display_key']: t for t in board.list_trips(include_archived=True)}
+    assert tabs['0630_오제']['ends_on'] == '2026-07-04' and tabs['0630_오제']['destination'] == '오제'
+    assert tabs['0712_몽골']['ends_on'] in ('', None)
+    assert page.import_trips(board, snap)['held'] == 1
+    assert len(board.list_trips(include_archived=True)) == 2

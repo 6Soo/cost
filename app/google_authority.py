@@ -194,6 +194,64 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
     }
 
 
+TRIP_HEADER_DATES_FIRST = re.compile(r"확인자료_(\d{4})_(\d{4})_(.+?)\s*$")
+TRIP_HEADER_DATES_LAST = re.compile(r"확인자료_(.+?)_(\d{4})_(\d{4})\s*$")
+
+
+def parse_trip_period(ws_v, sheet: str) -> dict:
+    """Year and end date from the title at the top of a trip tab. The start date is the tab name's MMDD.
+
+    An end date the title does not carry stays empty. A title whose dates disagree with the tab name is held.
+    """
+    title = ""
+    for row in range(1, 5):
+        for column in range(1, 13):
+            text = _text(ws_v.cell(row=row, column=column).value)
+            if "확인자료" in text:
+                title = text
+                break
+        if title:
+            break
+    flags = []
+    year = re.search(r"(20\d{2})년", title)
+    first = TRIP_HEADER_DATES_FIRST.search(title)
+    last = TRIP_HEADER_DATES_LAST.search(title)
+    if first:
+        header_start, header_end, destination = first[1], first[2], first[3]
+    elif last:
+        header_start, header_end, destination = last[2], last[3], last[1]
+    else:
+        header_start = header_end = destination = None
+    start = re.match(r"(\d{4})_", sheet)
+    period = {"year": int(year[1]) if year else None, "starts_on": None, "ends_on": None,
+              "destination": destination or "", "flags": flags}
+    if not year:
+        flags.append("PERIOD_YEAR_MISSING")
+    if not start:
+        flags.append("PERIOD_START_MISSING")
+    if not year or not start:
+        return period
+    if header_start is not None and header_start != start[1]:
+        flags.append("PERIOD_START_MISMATCH")
+        return period
+    try:
+        starts = dt.date(int(year[1]), int(start[1][:2]), int(start[1][2:]))
+        ends = None
+        if header_end is not None:
+            ends = dt.date(int(year[1]), int(header_end[:2]), int(header_end[2:]))
+    except ValueError:
+        flags.append("PERIOD_DATE_INVALID")
+        return period
+    if ends is not None and ends < starts:
+        flags.append("PERIOD_ORDER")
+        return period
+    period["starts_on"] = starts.isoformat()
+    period["ends_on"] = ends.isoformat() if ends else None
+    if ends is None:
+        flags.append("PERIOD_END_MISSING")
+    return period
+
+
 def parse_workbook(data: bytes) -> list[dict]:
     formulas = openpyxl.load_workbook(io.BytesIO(data))
     values = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
@@ -207,6 +265,8 @@ def parse_workbook(data: bytes) -> list[dict]:
                 if quarter else parse_trip_sheet(formulas[name], values[name]))
         # A quarter tab kept only as a copy is the quarter's tab, so it groups under the plain title.
         sheet = COPY_SUFFIX.sub("", title) if quarter else title
+        if not quarter:
+            trip["period"] = parse_trip_period(values[name], title)
         trips.append({"sheet": sheet, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
     return trips
 
@@ -364,7 +424,7 @@ def build_trip_view(sources: dict) -> list[dict]:
         figures = reported if verified else dict.fromkeys(reported)
         view.append({
             "key": title,
-            **{k: canonical[k] for k in ('kind', 'quarter', 'ledger_year') if k in canonical},
+            **{k: canonical[k] for k in ('kind', 'quarter', 'ledger_year', 'period') if k in canonical},
             "closure": closure,
             "closure_current": archive_ok and closure != "unknown",
             "canonical_source": canonical_source,

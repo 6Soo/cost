@@ -754,3 +754,26 @@ def test_a_quarter_tab_kept_only_as_a_copy_groups_under_the_quarter_title():
     assert tab["sheet"] == "2분기_기타비용" and tab["copy_name"] is True
     assert tab["kind"] == "quarter" and tab["quarter"] == 2
     assert tab["verified"] is False and "LAYOUT_NOT_STANDARD" in tab["flags"]
+
+
+@pytest.mark.parametrize('title,sheet,expected', [
+    ('2026년 월 매출 확인자료_오제_0630_0704', '0630_오제', ('2026-06-30', '2026-07-04', '오제')),
+    ('2026년 1월 매출 확인자료_1201_1205_도쿄', '1201_도쿄', ('2026-12-01', '2026-12-05', '도쿄')),
+    ('2026년 월 매출 확인자료_', '0712_몽골', ('2026-07-12', None, '')),
+])
+def test_trip_period_takes_year_and_end_from_the_top_title(title, sheet, expected):
+    def build(wb):
+        ws = wb.create_sheet(sheet)
+        ws['C2'] = title
+    ws = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))[sheet]
+    period = ga.parse_trip_period(ws, sheet)
+    assert (period['starts_on'], period['ends_on'], period['destination']) == expected
+
+
+def test_trip_period_without_a_year_or_with_another_start_is_held():
+    def build(wb):
+        wb.create_sheet('0506_0610_유럽')['C2'] = '매출 확인자료_유럽_0506_0610'
+        wb.create_sheet('0107_대만')['C2'] = '2026년 매출 확인자료_대만_0108_0114'
+    wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))
+    assert ga.parse_trip_period(wb['0506_0610_유럽'], '0506_0610_유럽')['flags'] == ['PERIOD_YEAR_MISSING']
+    assert 'PERIOD_START_MISMATCH' in ga.parse_trip_period(wb['0107_대만'], '0107_대만')['flags']

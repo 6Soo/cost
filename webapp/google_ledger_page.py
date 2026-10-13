@@ -9,6 +9,7 @@ never written to Google.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import html
 import json
 import os
@@ -16,6 +17,7 @@ import functools
 import threading
 import copy
 import re
+import time
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -624,6 +626,48 @@ def auto_mapping_candidates(snapshot: dict, tabs: list, existing: dict) -> dict:
         result[key] = target['tab_id']
         occupied.add(target['tab_id'])
     return result
+
+
+def import_trips(board, snapshot: dict) -> dict:
+    """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
+
+    The end date comes from the sheet's top title and stays empty when the title has none. The same
+    date and destination returns the tab that already exists, so nothing is duplicated.
+    """
+    from .ledger_store import SaveError
+    counts = Counter()
+    for trip in snapshot.get('trips', []):
+        period = trip.get('period') or {}
+        destination = trip['key'].split('_', 1)[1].strip('_ ') if '_' in trip['key'] else ''
+        if trip.get('kind') == 'quarter':
+            continue
+        if not period.get('starts_on') or not destination:
+            counts['held'] += 1
+            continue
+        digest = hashlib.sha256(json.dumps({'key': trip['key'], 'period': period}, sort_keys=True,
+                                           ensure_ascii=False).encode('utf-8')).hexdigest()
+        try:
+            outcome = board.create_trip(starts_on=period['starts_on'], ends_on=period.get('ends_on') or '',
+                                        destination=destination, display_key=trip['key'], source_sha256=digest,
+                                        client_request_id='google-trip-' + digest, actor='google-sync')
+        except SaveError:
+            counts['held'] += 1
+            continue
+        counts[outcome['outcome']] += 1
+    return dict(counts)
+
+
+def start_trip_import(board, interval: float = 600.0) -> None:
+    """Imports the Google trip tabs now and again every interval, so new tabs appear without a restart."""
+    def run():
+        while True:
+            try:
+                import_trips(board, google_authority.load_snapshot(_snapshot_path()))
+            except Exception:
+                # The snapshot may not exist yet or may be mid-write; the next pass reads it again.
+                pass
+            time.sleep(interval)
+    threading.Thread(target=run, name='google-trip-import', daemon=True).start()
 
 
 @_serialized
