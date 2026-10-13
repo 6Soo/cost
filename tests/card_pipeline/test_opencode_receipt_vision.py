@@ -38,7 +38,9 @@ def test_model_pinned_tools_denied_and_tickets_not_deduplicated(ready):
         assert settings["permission"] == {"*": "deny"}
         assert settings["agent"]["receipt-readonly"]["permission"] == {"*": "deny"}
         assert command[command.index("--model")+1] == vision.MODEL
-        assert command[command.index("--file")+1].endswith(".jpg")
+        assert any(arg.startswith("--file=") and arg.endswith(".jpg") for arg in command)
+        assert command[command.index("--")+1] == vision.PROMPT
+        assert "--pure" in command
         return event([receipt([.1,.1,.3,.3]), receipt([.4,.1,.6,.3])])
     result = vision.recognize(ready, runner=invoke)
     assert len(calls) == 1

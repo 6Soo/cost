@@ -155,9 +155,11 @@ def recognize(image, *, runner=None):
                      'mode':'primary','model':MODEL,'permission':{'*':'deny'}}},
                   'permission':{'*':'deny'}}
         (root/'opencode.json').write_text(json.dumps(config),encoding='utf-8')
-        command = [executable,'run','--model',MODEL,'--agent','receipt-readonly',
+        # --file is an array option: it must not sit directly before the prompt, or the prompt
+        # is read as a second file. --pure keeps external plugins and MCP servers out of the call.
+        command = [executable,'run','--pure','--model',MODEL,'--agent','receipt-readonly',
                    '--title','COST receipt reading (free)',
-                   '--format','json','--file',str(attachment),PROMPT]
+                   '--format','json',f'--file={attachment}','--',PROMPT]
         try:
             proc = (runner or subprocess.run)(command,cwd=str(root),capture_output=True,
                         timeout=TIMEOUT_SECONDS,check=False,
