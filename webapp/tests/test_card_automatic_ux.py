@@ -132,3 +132,29 @@ def test_real_blocking_causes_take_precedence_over_trip_and_classification(flow)
     booking=next_action(row,extra_hold={'kind':'ota_pending','reason':'OTA-first 연결이 확정되지 않은 OTA 카드 거래라 기록하지 않아요'})
     assert booking['label']=='예약 연결 확인' and booking['href'].endswith('#ota-review')
     assert 'OTA-first' not in booking['reason']
+
+def test_existing_partial_refund_does_not_stop_an_unrelated_ready_transaction(flow):
+    f,_,trip=flow
+    batch=f.pipeline.receive(make_csv([
+        domestic_row(merchant='합성 원결제',amount=500000,approval='P1',date='2026-04-05'),
+        domestic_row(merchant='합성 환불',amount=200000,approval='P2',date='2026-04-06'),
+        domestic_row(merchant='합성 정상 거래',amount=12345,approval='P3',date='2026-04-07'),
+    ]),'isolated-refund.csv')['batch_id']
+    rows=f.pipeline.get_batch(batch)['rows']
+    original=next(r for r in rows if r['amount_krw']==500000)
+    refund=next(r for r in rows if r['amount_krw']==200000)
+    normal=next(r for r in rows if r['amount_krw']==12345)
+    conn=f.board.conn
+    conn.execute("UPDATE transactions SET item='숙박비',classification_state='classified',display_tab_id=?,trip_id=? WHERE transaction_id=?",(trip,trip,original['transaction_id']))
+    conn.commit()
+    assert f.auto_record(batch)['auto_recorded']==1
+    number=conn.execute('SELECT approval_number FROM transactions WHERE transaction_id=?',(original['transaction_id'],)).fetchone()[0]
+    conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-200000,original_approval_number=? WHERE transaction_id=?",(number,refund['transaction_id']))
+    conn.execute("UPDATE transactions SET item='숙박비',classification_state='classified',display_tab_id=?,trip_id=? WHERE transaction_id=?",(trip,trip,normal['transaction_id']))
+    conn.commit()
+    before=conn.execute('SELECT transaction_id,source_hash,amount_krw,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    result=f.auto_record(batch)
+    assert result['auto_recorded']==1
+    assert {r[0] for r in conn.execute('SELECT transaction_id FROM ledger_entries')}=={original['transaction_id'],normal['transaction_id']}
+    assert before==conn.execute('SELECT transaction_id,source_hash,amount_krw,user_confirmed FROM transactions ORDER BY transaction_id').fetchall()
+    assert f.auto_record(batch)['auto_recorded']==0
