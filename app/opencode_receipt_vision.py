@@ -28,6 +28,11 @@ TIMEOUT_SECONDS = 120
 SCHEMA = '{"receipts":[{"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
 AGENT_INSTRUCTION = ('You read one attached receipt image and answer with JSON only, using exactly this schema and no other keys: '
                      + SCHEMA + '. The image is already in the message. Never call tools, never look for files or instructions.')
+LESSON_INSTRUCTION = ('사용자가 지적한 인식 오류를 바탕으로 영수증을 다시 분석하라. 실제로 새로 발견한 영수증이 있다면, '
+                      '처음에 놓친 유형을 다음 분석에서 더 잘 확인하기 위한 짧고 일반적인 인식 지침을 "lesson" 필드에 한 문장으로 작성하라. '
+                      '실제 이미지와 사용자 피드백으로 뒷받침되지 않는 원인은 추측하지 마라. 날짜, 금액, 상호, 개인정보는 쓰지 마라. '
+                      '유용한 지침을 만들 수 없다면 null을 반환하라.')
+AGENT_INSTRUCTION_LESSON = AGENT_INSTRUCTION.replace('and no other keys:', 'plus the optional top-level key "lesson", and no other keys:')
 PROMPT = f'''Output format: a single JSON object, nothing else. No markdown, no code fence, no explanation.
 Schema: {SCHEMA}
 The page image is already attached to this message. Do not call any tool; answer from the attached image only.
@@ -102,7 +107,7 @@ def parse_events(raw):
             answer = re.sub('^' + chr(96) * 3 + '(?:json)?', '', answer, flags=re.I)
             answer = re.sub(chr(96) * 3 + '$', '', answer.strip()).strip()
         result = json.loads(answer)
-        if not isinstance(result, dict) or set(result) not in ({'receipts'}, {'documents'}):
+        if not isinstance(result, dict) or set(result) - {'lesson'} not in ({'receipts'}, {'documents'}):
             raise ValueError()
         return result
     except VisionUnavailable:
@@ -179,7 +184,7 @@ def _valid_amount(value):
     return None
 
 
-def validate_response(result, *, image_hash, model=MODEL):
+def validate_response(result, *, image_hash, model=MODEL, lesson=False):
     """Each entry stands alone: a field that is not clear becomes null on that entry, the other entries are kept."""
     if 'receipts' not in result and 'documents' in result:
         result = dict(result, receipts=result['documents'])
@@ -209,8 +214,13 @@ def validate_response(result, *, image_hash, model=MODEL):
                      'currency': currency, 'payment': payment,
                      'category_hint': _string(item['category_hint'], 60),
                      'note': _string(item['note'], 240), 'requires_review': True})
-    return {'receipts': rows, 'source_sha256': image_hash, 'model': model,
-            'confirmed': False, 'trip_inferred': False}
+    out = {'receipts': rows, 'source_sha256': image_hash, 'model': model,
+           'confirmed': False, 'trip_inferred': False}
+    if lesson:
+        # A lesson is optional and never decides whether the receipts are valid.
+        text = result.get('lesson')
+        out['lesson'] = text.strip()[:200] if isinstance(text, str) and text.strip() else None
+    return out
 
 
 def _run_bounded(command, *, cwd, env):
@@ -250,7 +260,7 @@ def _opencode_executable():
     return None
 
 
-def recognize(image, *, runner=None, guidance=None, model=MODEL):
+def recognize(image, *, runner=None, guidance=None, model=MODEL, lesson=False):
     """No direct model API, no paid fallback, no model-accessible tools. guidance is plain text added to the prompt."""
     if not enabled():
         raise VisionUnavailable('VISION_DISABLED')
@@ -270,7 +280,7 @@ def recognize(image, *, runner=None, guidance=None, model=MODEL):
         # nothing is approved and nothing runs. 'deny' for every tool made the free tier answer 403.
         config = {'$schema':'https://opencode.ai/config.json',
                   'agent':{'receipt-readonly':{'description':'Receipt reading, tools need approval',
-                     'mode':'primary','model':model,'prompt':AGENT_INSTRUCTION,'permission':{'*':'ask'}}},
+                     'mode':'primary','model':model,'prompt':AGENT_INSTRUCTION_LESSON if lesson else AGENT_INSTRUCTION,'permission':{'*':'ask'}}},
                   'permission':{'*':'ask'}}
         (root/'opencode.json').write_text(json.dumps(config),encoding='utf-8')
         # An isolated configuration directory: the user's global OpenCode config, its MCP servers
@@ -283,7 +293,7 @@ def recognize(image, *, runner=None, guidance=None, model=MODEL):
         # is read as a second file. --pure keeps external plugins and MCP servers out of the call.
         command = [executable,'run','--pure','--model',model,'--agent','receipt-readonly',
                    '--title','COST receipt reading (free)',
-                   '--format','json',f'--file={attachment}','--',PROMPT if not guidance else PROMPT + '\n' + guidance]
+                   '--format','json',f'--file={attachment}','--',_prompt(guidance, lesson)]
         try:
             proc = (runner or _run_bounded)(command,cwd=str(root),env=environment)
         except (OSError,subprocess.TimeoutExpired):
@@ -292,7 +302,16 @@ def recognize(image, *, runner=None, guidance=None, model=MODEL):
             parse_events(proc.stdout)  # raises the named provider error when the output carries one
             raise VisionUnavailable('VISION_PROVIDER_UNAVAILABLE')
         parsed = parse_events(proc.stdout)
-    return validate_response(parsed, image_hash=hashlib.sha256(data).hexdigest(), model=model)
+    return validate_response(parsed, image_hash=hashlib.sha256(data).hexdigest(), model=model, lesson=lesson)
+
+
+def _prompt(guidance, lesson):
+    parts = [PROMPT]
+    if lesson:
+        parts.append(LESSON_INSTRUCTION)
+    if guidance:
+        parts.append(guidance)
+    return '\n'.join(parts)
 
 
 _COOLING = {}
@@ -332,7 +351,7 @@ def _cool(model, code, retry_after, now):
         _COOLING[model] = now + seconds
 
 
-def recognize_with_fallback(image, *, runner=None, guidance=None, clock=time.monotonic):
+def recognize_with_fallback(image, *, runner=None, guidance=None, clock=time.monotonic, lesson=False):
     """Muse first; a limit or outage moves to the next free model, once per model per request.
     A normal answer, even an empty one, ends the chain. Anything else is refused, not routed around."""
     attempts = []
@@ -342,7 +361,7 @@ def recognize_with_fallback(image, *, runner=None, guidance=None, clock=time.mon
             attempts.append({'model': model, 'result': 'COOLING'})
             continue
         try:
-            result = recognize(image, runner=runner, guidance=guidance, model=model)
+            result = recognize(image, runner=runner, guidance=guidance, model=model, lesson=lesson)
         except VisionUnavailable as error:
             if error.code not in COOLDOWN:
                 raise

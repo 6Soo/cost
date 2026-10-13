@@ -285,8 +285,22 @@ def reading_key(values: dict) -> str:
                        values.get('currency', 'JPY'), values.get('payment')], ensure_ascii=False)
 
 
-def _recognizer(guidance):
-    return lambda image_path: opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance)
+def _recognizer(guidance, lesson=False):
+    return lambda image_path: opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+
+
+def learn_from_job(path: Path, *, image: str, job_id: str) -> dict:
+    """Saves the lesson that a re-analysis wrote, once the owner has registered a receipt it found."""
+    state = receipt_vision_jobs.lookup(job_id)
+    if state is None or state['image'] != image or state['status'] != 'done':
+        return {'status': 'no_lesson'}
+    lesson = state['result'].get('lesson')
+    if not lesson:
+        return {'status': 'no_lesson'}
+    # Merchant names on this photo, old and newly found, are kept out of the lesson.
+    names = [c.get('merchant') for c in load(path)['candidates'] if c.get('image_sha') == image]
+    names += [r.get('merchant') for r in state['result']['receipts']]
+    return receipt_learning.remember_lesson(lesson, names=names)
 
 
 def _known_line(candidate: dict) -> str:
@@ -756,7 +770,7 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                                                  feedback=feedback)
             try:
                 # A separate key: a re-analysis is always a new run, never the earlier result for the photo.
-                state = receipt_vision_jobs.submit(sha, _images_dir(path) / f"{sha}.bin", _recognizer(guidance),
+                state = receipt_vision_jobs.submit(sha, _images_dir(path) / f"{sha}.bin", _recognizer(guidance, lesson=True),
                                                    key=f"{sha}:rescan:{uuid.uuid4().hex}")
             except receipt_vision_jobs.JobBusy:
                 handler._send_json({"code": "VISION_BUSY",
@@ -775,12 +789,10 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
             sha = body.get("image", "")
             if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha):
                 raise ValueError("IMAGE_NOT_FOUND")
-            feedback = body.get("feedback")
-            if not isinstance(feedback, str):
-                raise ValueError("FEEDBACK_REQUIRED")
-            # Merchant names on this photo are removed from the note, so they cannot follow it to another photo.
-            names = [c.get("merchant") for c in load(path)["candidates"] if c.get("image_sha") == sha]
-            handler._send_json(receipt_learning.remember(feedback, names=names))
+            job_id = body.get("job_id", "")
+            if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{32}", job_id):
+                raise ValueError("VISION_JOB_NOT_READY")
+            handler._send_json(learn_from_job(path, image=sha, job_id=job_id))
         elif parsed.path == "/api/receipts/learn/delete":
             handler._send_json(receipt_learning.delete_note(str(body.get("id", ""))))
         elif parsed.path == "/api/receipts/scan":
@@ -869,9 +881,9 @@ def _hold_html(hold: dict) -> str:
 LEARNING_SCRIPT = r"""const rescanChoices={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};
 const jobDone=async job=>{const started=Date.now();let state=job;while(state.status==='queued'||state.status==='running'){if(Date.now()-started>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');say('Muse로 다시 인식하고 있습니다. '+Math.round((Date.now()-started)/1000)+'초 경과');await new Promise(r=>setTimeout(r,2000));state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse)}return state};
 const renderNotes=async()=>{const list=document.getElementById('learn-list');if(!list)return;const body=await fetch('/api/receipts/learn',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);list.replaceChildren();const add=text=>{const li=document.createElement('li');li.textContent=text;list.append(li)};if(!body.enabled){add('학습 저장 위치가 설정되지 않았습니다.');return}if(!body.notes.length){add('저장된 학습 메모가 없습니다.');return}for(const note of body.notes){const li=document.createElement('li');li.textContent=note.text+' ';const button=document.createElement('button');button.type='button';button.textContent='삭제';button.onclick=()=>save(()=>post('/api/receipts/learn/delete',{id:note.id}),()=>renderNotes().catch(()=>{}));li.append(button);list.append(li)}};
-const renderNew=(out,receipts,sha,feedback)=>{if(!receipts.length)return;const box=document.createElement('div');for(const item of receipts){const row=document.createElement('div');row.className='rescan-row';row.dataset.reading=item.reading;row.dataset.ordinal=String(item.ordinal);row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.rescanCheck='1';const label=document.createElement('label');label.append(check,' 새 영수증으로 등록');row.append(label);for(const field of ['merchant','date','amount','currency','payment']){const choices=rescanChoices[field];const input=document.createElement(choices?'select':'input');input.dataset.rescanField=field;if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}else input.placeholder=field;input.value=item[field]??'';input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input)}box.append(row)}const submit=document.createElement('button');submit.type='button';submit.id='rescan-register';submit.textContent='선택한 새 영수증 등록';box.append(submit);submit.onclick=()=>{const regions=[...box.querySelectorAll('.rescan-row')].filter(r=>r.querySelector('[data-rescan-check]').checked).map(r=>{const v=f=>r.querySelector('[data-rescan-field='+f+']').value.trim();return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1,ordinal:Number(r.dataset.ordinal),reading:r.dataset.reading}});if(!regions.length){say('등록할 새 영수증을 선택하세요.');return}if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),result=>{const remembered=feedback?post('/api/receipts/learn',{image:sha,feedback}).then(r=>r.status==='saved').catch(()=>false):Promise.resolve(false);remembered.then(saved=>{say('새 영수증 '+result.added+'건을 등록했습니다.'+(saved?' 이 피드백은 다음 분석에 참고합니다.':'')+' 후보 새로고침을 누르세요.');renderNotes().catch(()=>{})})})};out.append(box)};
+const renderNew=(out,receipts,sha,jobId)=>{if(!receipts.length)return;const box=document.createElement('div');for(const item of receipts){const row=document.createElement('div');row.className='rescan-row';row.dataset.reading=item.reading;row.dataset.ordinal=String(item.ordinal);row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.rescanCheck='1';const label=document.createElement('label');label.append(check,' 새 영수증으로 등록');row.append(label);for(const field of ['merchant','date','amount','currency','payment']){const choices=rescanChoices[field];const input=document.createElement(choices?'select':'input');input.dataset.rescanField=field;if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}else input.placeholder=field;input.value=item[field]??'';input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input)}box.append(row)}const submit=document.createElement('button');submit.type='button';submit.id='rescan-register';submit.textContent='선택한 새 영수증 등록';box.append(submit);submit.onclick=()=>{const regions=[...box.querySelectorAll('.rescan-row')].filter(r=>r.querySelector('[data-rescan-check]').checked).map(r=>{const v=f=>r.querySelector('[data-rescan-field='+f+']').value.trim();return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1,ordinal:Number(r.dataset.ordinal),reading:r.dataset.reading}});if(!regions.length){say('등록할 새 영수증을 선택하세요.');return}if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),result=>{const remembered=jobId?post('/api/receipts/learn',{image:sha,job_id:jobId}).then(r=>r.status==='saved').catch(()=>false):Promise.resolve(false);remembered.then(saved=>{say('새 영수증 '+result.added+'건을 등록했습니다.'+(saved?' 이 피드백은 다음 분석에 참고합니다.':'')+' 후보 새로고침을 누르세요.');renderNotes().catch(()=>{})})})};out.append(box)};
 const rescanGo=document.getElementById('rescan-go');
-if(rescanGo)rescanGo.onclick=async()=>{if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 선택해 주세요.');return}if(!selectedTrip.value){say('여행을 먼저 선택해 주세요.');return}const feedback=document.getElementById('feedback').value.trim();if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}receiptBusy=true;const restore=lockControls();const out=document.getElementById('rescan-results');out.replaceChildren();try{let state=await post('/api/receipts/vision/rescan',{image:sha,feedback});state=await jobDone(state);if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'다시 인식에 실패했습니다. 직접 추가해 주세요.');const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});renderNew(out,found.new,sha,feedback);const label=state.result&&state.result.label;say((label&&label!=='Muse'?'Muse 사용이 제한되어 '+label+'로 분석했습니다. ':'')+(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인 후 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.'))}catch(error){say(error.message||'다시 인식에 실패했습니다.')}finally{restore();receiptBusy=false}};
+if(rescanGo)rescanGo.onclick=async()=>{if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 선택해 주세요.');return}if(!selectedTrip.value){say('여행을 먼저 선택해 주세요.');return}const feedback=document.getElementById('feedback').value.trim();if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}receiptBusy=true;const restore=lockControls();const out=document.getElementById('rescan-results');out.replaceChildren();try{let state=await post('/api/receipts/vision/rescan',{image:sha,feedback});state=await jobDone(state);if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'다시 인식에 실패했습니다. 직접 추가해 주세요.');const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});renderNew(out,found.new,sha,state.job_id);const label=state.result&&state.result.label;say((label&&label!=='Muse'?'Muse 사용이 제한되어 '+label+'로 분석했습니다. ':'')+(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인 후 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.'))}catch(error){say(error.message||'다시 인식에 실패했습니다.')}finally{restore();receiptBusy=false}};
 if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 """
 

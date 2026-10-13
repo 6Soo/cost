@@ -1,9 +1,9 @@
-"""Owner feedback that was confirmed by a registration, kept as short general notes in one local JSONL file.
+"""Lessons that Muse wrote during a re-analysis, kept in one local JSONL file.
 
-Nothing here trains the model. A note is saved only after the owner registers the receipts that the feedback
-led to. Before it is saved, numbers are replaced (counts, amounts and dates) and the merchant names on that
-photo are replaced, so a note about one slip cannot carry its values to another photo. The file is set by
-WEBLEDGER_RECEIPT_LEARNING. Muse reads the notes as guidance; the attached photo stays the source of truth.
+A lesson is saved only after the owner registers a receipt that the re-analysis found. It must pass a check that
+keeps it general: no digits, no contact details, no merchant name from the photo and no customer or payment
+wording. A lesson that does not pass is not saved, and nothing is edited to make it pass. The file is set by
+WEBLEDGER_RECEIPT_LEARNING. Muse reads saved notes as guidance; the attached photo stays the source of truth.
 """
 import datetime as dt
 import hashlib
@@ -21,7 +21,7 @@ MAX_REQUEST = 300
 _LOCK = threading.RLock()
 _CONTROL = re.compile(r'[\x00-\x1f\x7f]')
 _CONTACT = re.compile(r'\S+@\S+')
-_NUMBER = re.compile(r'\d[\d,.:/\-]*')
+_NUMBER_ANY = re.compile(r'\d')
 
 
 def path():
@@ -38,12 +38,26 @@ def clean(text, limit=MAX_REQUEST) -> str:
     return _CONTROL.sub(' ', str(text or '')).strip()[:limit]
 
 
-def generalize(text, names=()) -> str:
-    text = _CONTACT.sub('[연락처]', clean(text, MAX_REQUEST))
-    for name in sorted({n.strip() for n in names if isinstance(n, str) and len(n.strip()) >= 2}, key=len, reverse=True):
-        text = re.sub(re.escape(name), '[업체]', text, flags=re.IGNORECASE)
-    text = _NUMBER.sub('[숫자]', text)
-    return re.sub(r'\s+', ' ', text).strip()[:MAX_NOTE]
+_DENIED = ('고객', '예약', '카드', '계좌', '여권', 'passport', 'card', 'customer')
+LESSON_MIN = 8
+
+
+def valid_lesson(text, names=()) -> bool:
+    """A lesson is kept only as a general instruction: no digits (amounts, dates, numbers), no contact details,
+    no merchant name from the photo and no customer or payment wording. Anything else is refused, not edited."""
+    if not isinstance(text, str):
+        return False
+    t = _clean_lesson(text)
+    if not LESSON_MIN <= len(t) <= MAX_NOTE or _NUMBER_ANY.search(t) or _CONTACT.search(t):
+        return False
+    lowered = t.lower()
+    if any(word in lowered for word in _DENIED):
+        return False
+    return not any(isinstance(n, str) and len(n.strip()) >= 2 and n.strip().lower() in lowered for n in names)
+
+
+def _clean_lesson(text) -> str:
+    return _CONTROL.sub(' ', text).strip()
 
 
 def _read(p: Path):
@@ -75,20 +89,20 @@ def _write(p: Path, notes, bad=()) -> None:
     os.replace(tmp, p)
 
 
-def remember(feedback: str, *, names=()) -> dict:
-    """Called after the owner registers receipts that the feedback led to."""
+def remember_lesson(lesson: str, *, names=()) -> dict:
+    """Stores a lesson that was written with a re-analysis and checked. Called only after a registration."""
     p = path()
     if p is None:
         return {'status': 'disabled'}
-    text = generalize(feedback, names)
-    if len(text) < 2:
-        return {'status': 'empty'}
+    if not valid_lesson(lesson, names):
+        return {'status': 'refused'}
+    text = _clean_lesson(lesson)
     key = hashlib.sha256(text.encode('utf-8')).hexdigest()
     with _LOCK:
         notes, bad = _read(p)
         if any(n.get('key') == key for n in notes):
             return {'status': 'duplicate'}
-        note = {'id': uuid.uuid4().hex[:12], 'key': key,
+        note = {'id': uuid.uuid4().hex[:12], 'key': key, 'kind': 'lesson',
                 'created': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'), 'text': text}
         notes.append(note)
         _write(p, notes, bad)

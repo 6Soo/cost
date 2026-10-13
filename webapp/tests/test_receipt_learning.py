@@ -10,8 +10,9 @@ from webapp import receipt_review as rr
 from webapp import receipt_vision_jobs as jobs
 
 PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 32
-
 SHA = 'c' * 64
+TRIP = 'trip-syn'
+LESSON = '작은 승선권도 별개의 지출 증빙인지 확인할 것.'
 
 
 @pytest.fixture
@@ -21,72 +22,88 @@ def learning_file(tmp_path, monkeypatch):
     return path
 
 
+@pytest.fixture
+def muse_ready(tmp_path, monkeypatch):
+    image = tmp_path / 'slip.png'
+    image.write_bytes(PNG)
+    monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
+    monkeypatch.setenv('WEBLEDGER_OPENCODE_EXE', __file__)
+    vision._COOLING.clear()
+    return str(image)
+
+
 def reading(merchant, date, amount, payment='cash', currency='JPY'):
     return {'merchant': merchant, 'date': date, 'total': amount, 'currency': currency, 'payment': payment,
             'confidence': 1.0, 'box': None}
 
 
-def test_without_a_learning_file_muse_runs_exactly_as_before(monkeypatch, tmp_path):
+def done_job(receipts, lesson, job_id='f' * 32):
+    return {'job_id': job_id, 'image': SHA, 'status': 'done',
+            'result': {'receipts': receipts, 'lesson': lesson, 'label': 'Muse'}}
+
+
+def test_without_a_learning_file_nothing_is_saved_and_muse_is_unaffected(monkeypatch):
     monkeypatch.delenv('WEBLEDGER_RECEIPT_LEARNING', raising=False)
-    monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
     assert rl.notes_for_prompt() == [] and rl.guidance() is None
-    assert rl.remember('작은 승선권 찾아', names=[]) == {'status': 'disabled'}
-    image = tmp_path / 'slip.png'
-    image.write_bytes(PNG)
-    seen = []
-
-    def runner(command, *, cwd, env):
-        seen.append(command)
-        return _event('{"receipts":[]}')
-    assert vision.recognize(str(image), runner=runner)['receipts'] == []
-    assert seen[0][-1] == vision.PROMPT
+    assert rl.remember_lesson(LESSON)['status'] == 'disabled'
 
 
-def test_feedback_is_generalised_so_one_slip_cannot_leak_its_values(learning_file):
-    rl.remember('SHOP A 의 820엔 승선권이 빠졌어 test@example.com 2026-10-01', names=['SHOP A'])
-    note, = rl.list_notes()
-    assert 'SHOP A' not in note['text'] and '820' not in note['text']
-    assert '2026' not in note['text'] and 'test@example.com' not in note['text']
-    assert '[업체]' in note['text'] and '[숫자]' in note['text']
+def test_a_lesson_must_stay_general(learning_file):
+    assert rl.valid_lesson(LESSON)
+    assert not rl.valid_lesson('820엔 승선권을 확인할 것')
+    assert not rl.valid_lesson('2026-10-01 영수증은 날짜를 확인')
+    assert not rl.valid_lesson('고객 연락처를 확인할 것')
+    assert not rl.valid_lesson('test@example.com 을 확인할 것')
+    assert not rl.valid_lesson('SHOP A 영수증은 따로 볼 것', names=['SHOP A'])
+    assert not rl.valid_lesson('짧음')
+    assert not rl.valid_lesson(None) and not rl.valid_lesson(['목록'])
+    assert rl.remember_lesson('820엔 승선권을 확인할 것')['status'] == 'refused'
+    assert not learning_file.exists()
 
 
-def test_a_note_is_kept_once_and_only_the_newest_three_distinct_notes_are_used(learning_file):
-    assert rl.remember('작은 승선권을 찾아 주세요', names=[])['status'] == 'saved'
-    assert rl.remember('작은 승선권을 찾아 주세요', names=[])['status'] == 'duplicate'
-    for text in ('겹친 표를 따로 보세요', '세금 줄은 총액이 아닙니다', '한국어 상호를 그대로 적으세요'):
-        rl.remember(text, names=[])
+def test_a_saved_lesson_is_kept_once(learning_file):
+    assert rl.remember_lesson(LESSON)['status'] == 'saved'
+    assert rl.remember_lesson(LESSON)['status'] == 'duplicate'
+    assert [n['text'] for n in rl.list_notes()] == [LESSON]
+
+
+def test_only_the_newest_three_distinct_lessons_are_used(learning_file):
+    for text in (LESSON, '겹친 표는 따로 확인할 것.', '세금 줄은 총액이 아님을 확인할 것.', '한국어 상호를 그대로 적을 것.'):
+        rl.remember_lesson(text)
     assert len(rl.list_notes()) == 4
     assert len(rl.notes_for_prompt()) == 3
 
 
-def test_notes_survive_a_restart(learning_file):
-    rl.remember('작은 승선권을 찾아 주세요', names=[])
+def test_a_lesson_survives_a_restart(learning_file):
+    rl.remember_lesson(LESSON)
     importlib.reload(rl)
-    assert rl.notes_for_prompt() == ['작은 승선권을 찾아 주세요']
+    assert rl.notes_for_prompt() == [LESSON]
 
 
-def test_the_next_muse_call_carries_the_note_as_guidance_only(learning_file, tmp_path, monkeypatch):
-    monkeypatch.setenv('WEBLEDGER_RECEIPT_VISION', 'opencode-muse-free')
-    rl.remember('작은 승선권을 찾아 주세요', names=[])
-    image = tmp_path / 'slip.png'
-    image.write_bytes(PNG)
+def test_records_written_before_this_change_are_still_read(learning_file):
+    old = {'id': 'old1', 'key': 'k', 'created': '2026-10-13T00:00:00+00:00', 'text': '[업체]의 작은 승선권을 찾을 것'}
+    learning_file.write_text(json.dumps(old, ensure_ascii=False) + '\n', encoding='utf-8')
+    assert rl.notes_for_prompt() == ['[업체]의 작은 승선권을 찾을 것']
+
+
+def test_the_next_muse_call_carries_the_lesson_and_the_photo_stays_the_source(learning_file, muse_ready):
+    rl.remember_lesson(LESSON)
     commands = []
 
     def runner(command, *, cwd, env):
         commands.append(command)
         return _event('{"receipts":[]}')
-    vision.recognize(str(image), runner=runner, guidance=rl.guidance(notes=rl.notes_for_prompt()))
+    vision.recognize(muse_ready, runner=runner, guidance=rl.guidance(notes=rl.notes_for_prompt()))
     prompt = commands[0][-1]
-    assert '작은 승선권을 찾아 주세요' in prompt and prompt.startswith(vision.PROMPT)
+    assert LESSON in prompt and prompt.startswith(vision.PROMPT)
     assert 'the attached photo is the source of truth' in prompt
-    assert '--pure' in commands[0] and not any('permission' in arg for arg in commands[0])
+    assert '--pure' in commands[0]
 
 
-def test_a_saved_note_can_be_deleted_and_damaged_lines_are_kept(learning_file):
+def test_a_saved_lesson_can_be_deleted_and_damaged_lines_are_kept(learning_file):
     learning_file.write_text('not json\n', encoding='utf-8')
-    rl.remember('겹친 표를 따로 보세요', names=[])
+    rl.remember_lesson(LESSON)
     note_id = rl.list_notes()[0]['id']
-    assert rl.notes_for_prompt() == ['겹친 표를 따로 보세요']
     rl.delete_note(note_id)
     assert rl.list_notes() == [] and 'not json' in learning_file.read_text(encoding='utf-8')
     with pytest.raises(KeyError):
@@ -98,10 +115,76 @@ def test_a_damaged_file_gives_no_notes_and_never_blocks_muse(learning_file):
     assert rl.notes_for_prompt() == []
 
 
-def test_the_feedback_reaches_the_rescan_prompt_with_the_known_receipts(learning_file):
-    text = rl.guidance(known=['SHOP A | 2026-10-01 | 820 JPY'], feedback='작은 승선권 하나 더 찾아')
-    assert 'Already found' in text and 'SHOP A | 2026-10-01 | 820 JPY' in text
-    assert 'Owner feedback for this photo: 작은 승선권 하나 더 찾아' in text
+def test_the_recognition_contract_gains_an_optional_lesson_only_on_reanalysis(muse_ready):
+    receipts = [{'merchant': 'SHOP', 'date': '2026-10-01', 'amount': 820, 'currency': 'JPY', 'payment': 'cash',
+                 'category_hint': None, 'note': None}]
+    commands = []
+
+    def runner_with(payload):
+        def runner(command, *, cwd, env):
+            commands.append(command)
+            return _event(json.dumps(payload, ensure_ascii=False))
+        return runner
+    plain = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts}))
+    assert 'lesson' not in plain and commands[-1][-1] == vision.PROMPT
+    lessoned = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts, 'lesson': LESSON}), lesson=True)
+    assert lessoned['lesson'] == LESSON and len(lessoned['receipts']) == 1
+    assert vision.LESSON_INSTRUCTION in commands[-1][-1]
+    broken = vision.recognize(muse_ready, runner=runner_with({'receipts': receipts, 'lesson': ['not', 'text']}),
+                              lesson=True)
+    assert broken['lesson'] is None and len(broken['receipts']) == 1
+
+
+def test_a_lesson_is_saved_only_when_a_new_receipt_is_registered(learning_file, tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    rr.scan(path, {'image': SHA, 'regions': [reading('SHOP A', '2026-10-01', 820)]})
+    confirmed, = rr.load(path)['candidates']
+    rr.confirm(path, identity=confirmed['identity'], payee='SHOP A', category='교통비')
+    six = [{'merchant': 'SHOP A', 'date': '2026-10-01', 'amount': 820, 'currency': 'JPY', 'payment': 'cash'},
+           {'merchant': None, 'date': '2026-10-02', 'amount': 500, 'currency': 'JPY', 'payment': 'cash'}]
+    with patch.object(jobs, 'lookup', return_value=done_job(six, LESSON)):
+        assert rl.list_notes() == []
+        found = rr.vision_new(path, image=SHA, job_id='f' * 32)
+        assert len(found['new']) == 1
+        new, = found['new']
+        rr.scan(path, {'image': SHA, 'regions': [{**reading('', '2026-10-02', 500), 'merchant': None,
+                                                   'ordinal': new['ordinal'], 'reading': new['reading']}]})
+        assert rr.learn_from_job(path, image=SHA, job_id='f' * 32)['status'] == 'saved'
+        assert rr.learn_from_job(path, image=SHA, job_id='f' * 32)['status'] == 'duplicate'
+    assert [n['text'] for n in rl.list_notes()] == [LESSON]
+    after = {c['identity']: c for c in rr.load(path)['candidates']}
+    assert after[confirmed['identity']]['payee'] == 'SHOP A'
+    assert after[confirmed['identity']]['category'] == '교통비'
+    assert after[confirmed['identity']]['total_jpy'] == 820
+
+
+def test_a_lesson_naming_a_photo_merchant_or_a_missing_lesson_saves_nothing(learning_file, tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    named = [{'merchant': 'SHOP A', 'date': '2026-10-01', 'amount': 820, 'currency': 'JPY', 'payment': 'cash'}]
+    with patch.object(jobs, 'lookup', return_value=done_job(named, 'SHOP A 영수증을 따로 볼 것.')):
+        assert rr.learn_from_job(path, image=SHA, job_id='f' * 32)['status'] == 'refused'
+    with patch.object(jobs, 'lookup', return_value=done_job(named, None)):
+        assert rr.learn_from_job(path, image=SHA, job_id='f' * 32)['status'] == 'no_lesson'
+    with patch.object(jobs, 'lookup', return_value=None):
+        assert rr.learn_from_job(path, image=SHA, job_id='f' * 32)['status'] == 'no_lesson'
+    assert not learning_file.exists()
+
+
+def test_registration_leaves_the_ledger_export_unchanged(tmp_path):
+    path = tmp_path / 'receipts.json'
+    rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
+    rr.scan(path, {'image': SHA, 'regions': [reading('SHOP A', '2026-10-01', 820)]})
+    before = rr.tsv(path, TRIP)
+    done = done_job([{'merchant': 'NEW STOP', 'date': '2026-10-05', 'amount': 700, 'currency': 'JPY',
+                      'payment': 'cash'}], LESSON)
+    with patch.object(jobs, 'lookup', return_value=done):
+        new, = rr.vision_new(path, image=SHA, job_id='f' * 32)['new']
+    rr.scan(path, {'image': SHA, 'regions': [{**reading('NEW STOP', '2026-10-05', 700), 'ordinal': new['ordinal'],
+                                              'reading': new['reading']}]})
+    after = rr.tsv(path, TRIP)
+    assert after['tsv'] == before['tsv'] and after['row_count'] == before['row_count']
 
 
 def test_a_known_receipt_is_never_offered_again_and_a_new_one_is_offered_once(learning_file, tmp_path):
