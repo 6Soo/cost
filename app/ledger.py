@@ -96,6 +96,9 @@ def preview(store, batch_id: str, *, trip_validator=None,
     duplicates: list[dict] = []
     conflicts: list[dict] = []
 
+    # One read of the booked ids instead of one query per row: every query is a
+    # GIL hand-off, and a preview of ~1000 rows was dominated by those hand-offs.
+    booked_ids = {tid for (tid,) in store.conn.execute("SELECT transaction_id FROM ledger_entries")}
     for row in _ready_rows(store, batch_id, review_from):
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
          direction, item, description, tab, trip_id, revision, user_confirmed,
@@ -110,7 +113,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "display_tab_id": (decision or {}).get("display_tab_id", tab) or "",
             "trip_id": trip_id, "revision": revision,
             "user_confirmed": bool(user_confirmed), "classification_state": state,
-            "already_booked": _already_booked(store, transaction_id),
+            "already_booked": transaction_id in booked_ids,
         }
         exclusion = exclusions.get(transaction_id)
         entry['exclusion_revision'] = exclusion['revision'] if exclusion else 0
