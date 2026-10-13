@@ -270,7 +270,10 @@ def _automatic_script(data, csrf):
       }
     }catch(error){for(const row of document.querySelectorAll('[data-transaction]')){
       const link=row.querySelector('[data-label="다음 행동"] a');if(link.href.includes(encodeURIComponent(batch))){
-        row.querySelector('.action-reason').textContent=error.message;
+        if(row.querySelector('[data-label="상태"]').textContent.startsWith('자동 반영 대기')){
+          row.querySelector('[data-label="상태"]').textContent='자동 반영 오류';
+          row.querySelector('.action-reason').textContent=error.message;link.textContent='다시 처리';
+        }
       }
     }}}
     status.dataset.complete='true';status.textContent=recorded?recorded+'건을 자동 반영했습니다.':'';

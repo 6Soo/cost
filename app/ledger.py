@@ -476,7 +476,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     with store.lock:
         store.conn.execute("BEGIN IMMEDIATE")
         try:
-            _check_refund_groups(store, current["rows"])
+            _check_refund_groups(store, recordable_rows(current["rows"]) if automatic_record else current["rows"])
             for entry in current["rows"]:
                 if entry.get("blocked"):
                     continue
