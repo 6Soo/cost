@@ -631,15 +631,19 @@ def auto_mapping_candidates(snapshot: dict, tabs: list, existing: dict) -> dict:
 def import_trips(board, snapshot: dict) -> dict:
     """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
 
-    The end date comes from the sheet's top title and stays empty when the title has none. The same
-    date and destination returns the tab that already exists, so nothing is duplicated.
+    The end date comes from the sheet's top title, else the expense rows' 기간 ranges, else stays empty. A tab
+    with the same display name, or the same date and destination, is reused, so nothing is duplicated.
     """
     from .ledger_store import SaveError
     counts = Counter()
+    named = {t['display_key'] for t in board.list_trips(include_archived=True)}
     for trip in snapshot.get('trips', []):
         period = trip.get('period') or {}
         destination = re.sub(r'^\d{4}(?:_\d{4})?_', '', trip['key']).strip('_ ')
         if trip.get('kind') == 'quarter':
+            continue
+        if trip['key'] in named:
+            counts['existing'] += 1
             continue
         if not period.get('starts_on') or not destination:
             counts['held'] += 1

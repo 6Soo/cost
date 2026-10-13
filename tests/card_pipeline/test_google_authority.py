@@ -778,3 +778,27 @@ def test_trip_period_without_a_year_or_with_another_start_is_held():
     wb = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))
     assert ga.parse_trip_period(wb['0506_0610_유럽'], '0506_0610_유럽')['flags'] == ['PERIOD_YEAR_MISSING']
     assert 'PERIOD_START_MISMATCH' in ga.parse_trip_period(wb['0107_대만'], '0107_대만')['flags']
+
+
+def test_decided_years_override_the_template_title_year():
+    def build(wb):
+        wb.create_sheet('0302_야쿠시마')['C2'] = '2026년 월 매출 확인자료_'
+    ws = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))['0302_야쿠시마']
+    period = ga.parse_trip_period(ws, '0302_야쿠시마')
+    assert period['year'] == 2027 and period['starts_on'] == '2027-03-02' and period['flags'] == ['PERIOD_END_MISSING']
+
+
+def test_end_comes_from_the_expense_period_range_when_the_title_has_none():
+    def build(wb):
+        ws = wb.create_sheet('0823_화순')
+        ws['C2'] = '2026년 월 매출 확인자료_'
+        for col, label in zip('BCDEFGH', EXPENSE):
+            ws[f'{col}10'] = label
+        ws['B11'] = dt.date(2026, 8, 20)
+        ws['E11'] = '0823_0826'
+        ws['B12'] = dt.date(2026, 7, 1)
+        ws['E12'] = '0701_0709'
+        ws['E13'] = 1005.0
+    ws = openpyxl.load_workbook(io.BytesIO(workbook_bytes(build)))['0823_화순']
+    period = ga.parse_trip_period(ws, '0823_화순')
+    assert period['ends_on'] == '2026-08-26' and period['flags'] == ['PERIOD_END_FROM_ITEMS']

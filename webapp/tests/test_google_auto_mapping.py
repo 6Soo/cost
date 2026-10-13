@@ -99,3 +99,14 @@ def test_import_then_auto_link_connects_the_new_tabs_to_their_google_keys(tmp_pa
     assert page.auto_link_trips(snapshot_path, snap, board.list_trips(include_archived=True)) == 1
     tab = next(t['tab_id'] for t in board.list_trips(include_archived=True) if t['display_key'] == '0630_오제')
     assert page.load_mapping(snapshot_path) == {'0630_오제': tab}
+
+
+def test_import_reuses_a_tab_with_the_same_display_name(tmp_path):
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    board.create_trip(starts_on='2026-06-20', destination='묘코고원', display_key='0620_묘코',
+                      client_request_id='manual-0620')
+    snap = {'trips': [{'key': '0620_묘코', 'kind': 'trip', 'period': {
+        'year': 2026, 'starts_on': '2026-06-20', 'ends_on': '2026-06-25', 'destination': ''}}]}
+    assert page.import_trips(board, snap) == {'existing': 1}
+    assert len(board.list_trips(include_archived=True)) == 1

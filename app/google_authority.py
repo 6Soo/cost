@@ -198,10 +198,39 @@ TRIP_HEADER_DATES_FIRST = re.compile(r"(?:확인자료|수기장부형 자료)_(
 TRIP_HEADER_DATES_LAST = re.compile(r"(?:확인자료|수기장부형 자료)_(.+?)_(\d{4})_(\d{4})\s*$")
 
 
-def parse_trip_period(ws_v, sheet: str) -> dict:
-    """Year and end date from the title at the top of a trip tab. The start date is the tab name's MMDD.
+#: Years the owner decided (docs/google-workbook-layout.md, 2026-10-11). Their sheet titles carry an old template year.
+DECIDED_YEARS = {"0206_하쿠산": 2027, "0302_야쿠시마": 2027}
+ITEM_PERIOD = re.compile(r"(\d{4})_(\d{4})")
 
-    An end date the title does not carry stays empty. A title whose dates disagree with the tab name is held.
+
+def _item_end(ws_v, starts: dt.date):
+    """Latest end of a 기간 range in the expense rows that starts on or after the trip start, or None."""
+    last_row = ws_v.max_row or 0
+    header = next((row for row in range(1, last_row + 1)
+                   if tuple(_text(ws_v.cell(row=row, column=c).value) for c in range(2, 9)) == EXPENSE_HEADER), None)
+    if header is None:
+        return None
+    ends = []
+    for row in range(header + 1, last_row + 1):
+        match = ITEM_PERIOD.fullmatch(_text(ws_v.cell(row=row, column=5).value))
+        if not match:
+            continue
+        try:
+            first = dt.date(starts.year, int(match[1][:2]), int(match[1][2:]))
+            last = dt.date(starts.year, int(match[2][:2]), int(match[2][2:]))
+        except ValueError:
+            continue
+        if starts <= first <= last:
+            ends.append(last)
+    return max(ends, default=None)
+
+
+def parse_trip_period(ws_v, sheet: str) -> dict:
+    """Year, start and end of a trip tab.
+
+    The start is the tab name's MMDD. The year comes from the top title unless the owner decided it. The end
+    comes from the top title, else from the expense rows' 기간 ranges. A title whose dates disagree with the
+    tab name is held.
     """
     title = ""
     for row in range(1, 5):
@@ -213,7 +242,8 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
         if title:
             break
     flags = []
-    year = re.search(r"(20\d{2})년", title)
+    year_text = re.search(r"(20\d{2})년", title)
+    year = DECIDED_YEARS.get(sheet) or (int(year_text[1]) if year_text else None)
     first = TRIP_HEADER_DATES_FIRST.search(title)
     last = TRIP_HEADER_DATES_LAST.search(title)
     if first:
@@ -223,7 +253,7 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
     else:
         header_start = header_end = destination = None
     start = re.match(r"(\d{4})_", sheet)
-    period = {"year": int(year[1]) if year else None, "starts_on": None, "ends_on": None,
+    period = {"year": year, "starts_on": None, "ends_on": None,
               "destination": destination or "", "flags": flags}
     if not year:
         flags.append("PERIOD_YEAR_MISSING")
@@ -235,20 +265,21 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
         flags.append("PERIOD_START_MISMATCH")
         return period
     try:
-        starts = dt.date(int(year[1]), int(start[1][:2]), int(start[1][2:]))
+        starts = dt.date(year, int(start[1][:2]), int(start[1][2:]))
         ends = None
         if header_end is not None:
-            ends = dt.date(int(year[1]), int(header_end[:2]), int(header_end[2:]))
+            ends = dt.date(year, int(header_end[:2]), int(header_end[2:]))
     except ValueError:
         flags.append("PERIOD_DATE_INVALID")
         return period
     if ends is not None and ends < starts:
         flags.append("PERIOD_ORDER")
         return period
+    if ends is None:
+        ends = _item_end(ws_v, starts)
+        flags.append("PERIOD_END_FROM_ITEMS" if ends else "PERIOD_END_MISSING")
     period["starts_on"] = starts.isoformat()
     period["ends_on"] = ends.isoformat() if ends else None
-    if ends is None:
-        flags.append("PERIOD_END_MISSING")
     return period
 
 
