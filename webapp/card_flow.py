@@ -1307,7 +1307,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                     closer = getattr(locals().get('backend'), 'close', None)
                     if closer:
                         closer()
-            handler._send_json(flow.auto_record(received['batch_id']))
+            recorded = flow.auto_record(received['batch_id'])
+            if 'ota_refresh_status' in result:
+                recorded['ota_refresh_status'] = result['ota_refresh_status']
+            handler._send_json(recorded)
             return True
         payload = json.loads(raw.decode('utf-8'))
         if parsed.path == '/api/imports/rules':

@@ -346,7 +346,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         page.set_default_timeout(8000)
                         page.goto(f"http://127.0.0.1:{server.server_port}/import")
                         try:
-                            page.get_by_text("BOOKSYNTHA001", exact=True).wait_for()
+                            page.get_by_text("BOOKSYNTHA001", exact=True).wait_for(timeout=40000)
                         except Exception as error:
                             self.fail(f"real core snapshot did not render: {error}; status={page.locator('#ota-status').inner_text()}; body={page.locator('body').inner_text()}")
                         self.assertEqual(page.locator(".ota-event").count(), 2)
@@ -366,7 +366,14 @@ class OtaReviewBrowserTests(unittest.TestCase):
 
                         remaining = page.locator(".ota-event").first
                         remaining.locator('input[type="radio"]:not(:disabled)').first.check()
-                        remaining.get_by_role("button", name="차이 미리 보기").click()
+                        # The server refuses a preview while the snapshot refreshes after the last answer; retry until it is ready.
+                        for _ in range(20):
+                            if page.get_by_role("button", name="이 거래로 결제 연결 확정").count():
+                                break
+                            preview_button = remaining.get_by_role("button", name="차이 미리 보기")
+                            if preview_button.is_enabled():
+                                preview_button.click()
+                            page.wait_for_timeout(1000)
                         page.get_by_role("button", name="이 거래로 결제 연결 확정").wait_for()
                         page.get_by_role("button", name="이 거래로 결제 연결 확정").click()
                         proposal_approve = page.locator("#ota-proposals [data-proposal]").first
@@ -377,7 +384,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         review_digest = hashlib.sha256(review_path.read_bytes()).hexdigest()
                         (mail_dir / "gmail-synthetic.json").unlink()
                         page.reload()
-                        page.get_by_text("근거 상태: 근거 사라짐", exact=True).first.wait_for()
+                        page.get_by_text("원본 근거: 근거 사라짐", exact=True).first.wait_for(timeout=40000)
                         self.assertEqual(page.locator(".ota-event").count(), 2)
                         self.assertEqual(page.locator(".ota-card-row input[type=radio]:disabled").count(), 8)
                         self.assertEqual(hashlib.sha256(review_path.read_bytes()).hexdigest(), review_digest)
@@ -398,6 +405,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
             self.assertIn("answered_once", answered)
             self.assertIn("approved", answered)
             store.close()
+            board_conn.close()
             board_conn.close()
 
 

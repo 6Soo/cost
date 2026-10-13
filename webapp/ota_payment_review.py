@@ -1136,7 +1136,7 @@ def render_import_section(csrf: str) -> str:
     }});
   }}
   const freshness=root.querySelector('#ota-freshness');
-  let loadTimer=null,loading=false,lastBody='',shownOnce=false;
+  let loadTimer=null,loading=false,lastBody='',shownOnce=false,followUps=0;
   const bodyOf=snapshot=>JSON.stringify([snapshot.events||[],snapshot.cards_by_event||{{}},snapshot.proposals||[]]);
   // Background updates wait while the reviewer has an unsaved choice; a finished save renders at once.
   function reviewing(){{
@@ -1145,9 +1145,11 @@ def render_import_section(csrf: str) -> str:
     return !!root.querySelector('.ota-card-row input:checked,.ota-proposal input[type=radio]:checked:not([value="once"]),.ota-proposal-fields:not([hidden])');
   }}
   function scheduleLoad(delay){{clearTimeout(loadTimer);loadTimer=setTimeout(loadSnapshot,delay);}}
+  // The server refreshes after an action in the background, so the reply right after it can still be the old snapshot.
   function applyFresh(snapshot){{
     render(snapshot);lastBody=bodyOf(snapshot);
-    if((snapshot.status||'ready')!=='ready')scheduleLoad(10000);
+    followUps=6;
+    scheduleLoad((snapshot.status||'ready')!=='ready'?10000:2000);
   }}
   async function loadSnapshot(){{
     if(loading){{scheduleLoad(2000);return;}}
@@ -1170,6 +1172,7 @@ def render_import_section(csrf: str) -> str:
       if(state==='ready'){{freshness.textContent='';}}
       else if(state==='refreshing'){{freshness.textContent='새 자료를 확인하는 중입니다. 아래 내용은 직전에 확인한 결과입니다.';scheduleLoad(10000);}}
       else{{freshness.textContent=snapshot.last_error?'새로 확인하지 못했습니다. 직전 확인 결과를 보여 드립니다.':'자료를 읽을 수 없습니다.';}}
+      if(followUps>0){{followUps--;scheduleLoad(2000);}}
     }}catch(error){{freshness.textContent=error.message;scheduleLoad(30000);}}
     finally{{loading=false;}}
   }}

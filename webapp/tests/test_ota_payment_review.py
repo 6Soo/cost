@@ -803,6 +803,9 @@ class OtaPaymentReviewTests(unittest.TestCase):
             def state(self, _batch_id):
                 return {"rows": [{"transaction_id": "new-01"}, {"transaction_id": "new-02"}]}
 
+            def auto_record(self, _batch_id):
+                return {"rows": [{"transaction_id": "new-01"}, {"transaction_id": "new-02"}], "auto_recorded": 0}
+
         handler = FakeHandler(backend, "/api/imports", b"synthetic card file")
         with mock.patch.dict(os.environ, {
             "WEBLEDGER_CARD_FLOW": "1", "WEBLEDGER_OTA_REVIEW_MODE": "isolated",
