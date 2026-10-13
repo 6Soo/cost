@@ -84,3 +84,11 @@ def test_booking_names_the_quarter_and_projects_each_booked_row_once():
     assert result['booked'] == 1 and [p['transaction_id'] for p in projected] == ['c']
     assert projected[0]['description'] == '2026년 4분기 기타비용'
     assert store.conn.execute("SELECT description FROM ledger_entries").fetchone()[0] == '2026년 4분기 기타비용'
+
+
+def test_the_current_period_starts_at_0630_and_the_quarter_before_stays_second():
+    from app import quarter_costs
+    row = {'item': '분기 기타비용', 'display_tab_id': 'unclassified', 'transaction_direction': 'purchase', 'amount_krw': 1}
+    assert quarter_costs.destination({**row, 'approval_date': '2026-06-29'})['id'] == 'quarter:2026:2'
+    assert quarter_costs.destination({**row, 'approval_date': '2026-06-30'})['id'] == 'quarter:2026:3'
+    assert quarter_costs.destination({**row, 'approval_date': '2026-10-01'})['id'] == 'quarter:2026:4'

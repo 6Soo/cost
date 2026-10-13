@@ -1120,6 +1120,12 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         if query and query not in (trip["display_key"] + trip["destination"]):
             continue
         listed.append(trip_entry(trip))
+    if board.current_role() == "owner":
+        from app import quarter_tab
+        for quarter in (3, 4):
+            tab = quarter_tab.tab_id_for(_CURRENT_YEAR, quarter)
+            listed.append(entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
+                                None, tab_id == tab))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
     # APP_SPEC 4.2: `+ 탭 추가` sits in this rail. The control is an owner action,
@@ -1191,13 +1197,13 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         store = board._active_store()
         quarters = _quarter_groups(matching_previous)
         if show_quarters:
-            quarters = sorted(set(quarters) | {(_CURRENT_YEAR, n) for n in range(1, 5)})
+            quarters = sorted(set(quarters) | {(_CURRENT_YEAR, n) for n in (1, 2)})
         groups = []
         for year, quarter in quarters:
             members = [t for t in matching_previous if _quarter_of(t) == (year, quarter)]
             label = f"{quarter}분기" if year == _CURRENT_YEAR else f"{year}년 {quarter}분기"
             cost = ""
-            if show_quarters and year == _CURRENT_YEAR:
+            if show_quarters and year == _CURRENT_YEAR and quarter <= 2:
                 tab = quarter_tab.tab_id_for(year, quarter)
                 count = 0  # nothing waits for a person on a quarter tab
                 cost = entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),

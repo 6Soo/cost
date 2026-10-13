@@ -2,6 +2,17 @@
 import datetime as dt
 import re
 
+#: 현행 여행(0630_오제)부터는 3분기 기타비용이다. 그 앞의 6월 말 거래는 2분기에 남는다.
+CURRENT_PERIOD_START = dt.date(2026, 6, 30)
+CURRENT_PERIOD_END = dt.date(2026, 9, 30)
+
+
+def quarter_of(day):
+    """(year, quarter) for a cost row's date."""
+    if CURRENT_PERIOD_START <= day <= CURRENT_PERIOD_END:
+        return day.year, 3
+    return day.year, (day.month - 1) // 3 + 1
+
 
 def _tab_of(row):
     day = row.get('approval_date') or row.get('posting_date') or ''
@@ -9,7 +20,8 @@ def _tab_of(row):
         date_value = dt.date.fromisoformat(day)
     except (TypeError, ValueError):
         return None
-    return f'quarter:{date_value.year}:{(date_value.month - 1) // 3 + 1}'
+    year, quarter = quarter_of(date_value)
+    return f'quarter:{year}:{quarter}'
 
 
 def destination(row):
@@ -22,9 +34,9 @@ def destination(row):
         day = dt.date.fromisoformat(row.get('approval_date') or row.get('posting_date') or '')
     except (TypeError, ValueError):
         return None
-    quarter = (day.month - 1) // 3 + 1
-    return {'id': f'quarter:{day.year}:{quarter}', 'year': day.year, 'quarter': quarter,
-            'sheet': f'{quarter}분기_기타비용', 'name': f'{day.year}년 {quarter}분기 기타비용'}
+    year, quarter = quarter_of(day)
+    return {'id': f'quarter:{year}:{quarter}', 'year': year, 'quarter': quarter,
+            'sheet': f'{quarter}분기_기타비용', 'name': f'{year}년 {quarter}분기 기타비용'}
 
 
 def scope(originals, preview_rows, target):
