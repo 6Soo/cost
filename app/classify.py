@@ -94,7 +94,7 @@ def classify_transaction(transaction: dict, *, rules: list,
                         r['optional']['inferred_assignment']['trip_id']],sort_keys=True) for r in matches})!=1:
         return dict(verdict,classification_state=STATE_NEEDS_REVIEW,classification_source='inference_conflict',
                     classification_basis='추론 배정안이 서로 달라 확인이 필요합니다')
-    rule=min(matches,key=lambda r:({'낮음':0,'중간':1,'높음':2}.get(
+    rule=min(matches,key=lambda r:(-{'낮음':0,'중간':1,'높음':2}.get(
         r['optional']['inferred_assignment']['confidence'],0),r.get('rule_id','')))
     inference=rule['optional']['inferred_assignment']
     target=inference['trip_id']

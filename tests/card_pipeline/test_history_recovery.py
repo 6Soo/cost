@@ -414,3 +414,15 @@ def test_refinement_reuses_one_rule_and_rejects_a_concurrent_rule_edit(tmp_path)
             recovery.apply_rules(tmp_path/'board.sqlite',report,flow=f)
         assert conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==0
     finally:conn.close()
+
+
+def test_when_two_inferences_agree_on_the_trip_the_higher_confidence_gives_the_basis():
+    def inference(confidence, basis):
+        return normalize_rule({'conditions':{'merchant_normalized':'TRIP.COM'},
+                               'optional':{'source_hash':'a'*64,'inferred_assignment':{
+                                   'trip_id':'japan','basis':basis,'confidence':confidence}},
+                               'effects':{'item':'숙박비'}})
+    row=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-04-01',amount_krw=50000)
+    result=classify_transaction(row,rules=[inference('낮음','낮은 근거'),inference('높음','높은 근거')],
+                                trip_resolver=flow().retail_trip)
+    assert result['trip_id']=='japan' and '추론 배정 · 높음 · 높은 근거' in result['classification_basis']

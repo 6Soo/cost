@@ -405,8 +405,25 @@ def _rows_from_sources(board, sources, warnings):
             period = {}
         add(event.get('provider'), event.get('booking_ref'), event.get('item'),
             period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
+    _join_by_booking_number(merged)
     _saved_board_links(board, merged)
     return merged
+
+
+def _join_by_booking_number(rows):
+    """A confirmation whose provider is unknown is the same booking as the payment with its number, when only one exists."""
+    named = {}
+    for provider, ref in rows:
+        if provider != 'unknown':
+            named.setdefault(ref, []).append((provider, ref))
+    for key in [k for k in rows if k[0] == 'unknown']:
+        targets = named.get(key[1], [])
+        if len(targets) != 1:
+            continue
+        source = rows.pop(key)
+        target = rows[targets[0]]
+        for field in ('labels', 'periods', 'statuses', 'portal_trips', 'ledger_trips'):
+            target[field].update(source[field])
 
 
 def _build_index(board, sources):

@@ -248,3 +248,16 @@ def test_revoking_a_stay_assignment_without_a_rule_is_recorded(tmp_path):
     assert result['status'] == 'revoked' and result['revision'] == 1
     assert store.booking_trip_states()[('trip', 'B7')]['status'] == 'revoked'
     store.close()
+
+
+def test_a_confirmation_with_unknown_provider_joins_the_payment_with_the_same_number():
+    rows = {
+        ('unknown', 'R1'): {'labels': {'항공'}, 'periods': {('2026-08-01', '2026-08-06')}, 'statuses': {'confirmed'},
+                            'portal_trips': set(), 'ledger_trips': set()},
+        ('trip', 'R1'): {'labels': {'항공료'}, 'periods': set(), 'statuses': {'observed'},
+                         'portal_trips': set(), 'ledger_trips': set()},
+    }
+    ota_catalog._join_by_booking_number(rows)
+    assert list(rows) == [('trip', 'R1')]
+    assert rows[('trip', 'R1')]['periods'] == {('2026-08-01', '2026-08-06')}
+    assert rows[('trip', 'R1')]['statuses'] == {'confirmed', 'observed'}
