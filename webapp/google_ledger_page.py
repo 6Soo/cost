@@ -74,9 +74,9 @@ def _serialized(function):
             return function(*args, **kwargs)
     return wrapped
 
-ROUTES = ("/google-ledger", "/api/google-ledger", "/api/google-ledger/choice", "/api/google-ledger/grants",
-          "/api/google-ledger/mapping", "/api/google-ledger/auto-mapping",
-          "/google-ledger/rows", "/api/google-ledger/rows")
+# The Google ledger page and its routes are removed. The income figures and the quarter copy still read the
+# synced snapshot through the functions in this module; nothing is served on these paths any more.
+ROUTES = ()
 REVIEW_LABELS = {
     "TOTAL_MISMATCH": "장부 합계와 행 합계가 다름",
     "TOTAL_RANGE_MISMATCH": "합계 수식 범위가 데이터 행과 다름",
@@ -199,8 +199,7 @@ def trip_income_html(tab_id: str) -> str:
     if not tab_id or tab_id == 'unclassified':
         return ''
     owner = board.current_role() == 'owner'
-    settings = (f"<a class='btn' href='/google-ledger?tab={quote(tab_id)}#google-settings'>{ui_icons.icon('link')}수입 장부 연결 설정</a>"
-                if owner and enabled() else '')
+    settings = ''
 
     def panel(message, body=''):
         return ("<details id='google-trip-income' class='income-note' aria-label='수입내역'"
