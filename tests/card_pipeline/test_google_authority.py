@@ -745,3 +745,12 @@ def test_a_crash_between_the_two_writes_leaves_a_readable_pair_and_the_next_run_
     assert len(list(tmp_path.glob("rows-private.*.json"))) == 2
     snapshot, rows = ga.load_consistent(snapshot_path, rows_path)
     assert "NEW" in json.dumps(rows)
+
+
+def test_a_quarter_tab_kept_only_as_a_copy_groups_under_the_quarter_title():
+    def build(wb):
+        wb.create_sheet("2분기_기타비용의 사본")
+    (tab,) = ga.parse_workbook(workbook_bytes(build))
+    assert tab["sheet"] == "2분기_기타비용" and tab["copy_name"] is True
+    assert tab["kind"] == "quarter" and tab["quarter"] == 2
+    assert tab["verified"] is False and "LAYOUT_NOT_STANDARD" in tab["flags"]

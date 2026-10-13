@@ -177,6 +177,20 @@ class DesignScreenTests(unittest.TestCase):
         self.assertIn("Pretendard Variable:loaded", loaded)
 
     # ------------------------------------------------------------------ layout
+    def test_previous_trips_are_grouped_by_quarter_and_focus_moves_into_an_opened_group(self):
+        page = self._page(1440)
+        self._board(page, "?tab=trip-demo-a")
+        page.locator('#previous-trips > summary').click()
+        nav = page.inner_text(".nav")
+        self.assertIn("1분기", nav)
+        self.assertIn("2분기", nav)
+        self.assertIn("여행 없음", nav)
+        self.assertEqual(page.locator('#previous-trips .prev-q').count(), 2)
+        page.locator('#previous-trips > summary').click()
+        page.locator('#previous-trips > summary').click()
+        page.wait_for_timeout(50)
+        self.assertIn("분기", page.evaluate("document.activeElement.textContent"))
+
     def test_the_1440_layout_has_the_trip_list_action_bar_and_two_tables(self):
         page = self._page(1440)
         self._board(page, "?tab=trip-demo-a")

@@ -36,7 +36,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
 TRIP_NAME = re.compile(r"^\d{4}_\S")
-QUARTER_NAME = re.compile(r"^([1-4])분기_기타비용$")
+QUARTER_NAME = re.compile(r"^([1-4])분기_기타비용(?:\s*의 사본)?$")
 PARSER_VERSION = 'quarter-expense-v1'
 COPY_SUFFIX = re.compile(r"\s*의 사본$")
 SUM_OF_AMOUNTS = re.compile(r"^=\s*SUM\(\s*H(\d+)(?:\s*:\s*H(\d+))?\s*\)$", re.IGNORECASE)
@@ -205,7 +205,9 @@ def parse_workbook(data: bytes) -> list[dict]:
             continue
         trip = (parse_quarter_sheet(formulas[name], values[name], int(quarter[1]))
                 if quarter else parse_trip_sheet(formulas[name], values[name]))
-        trips.append({"sheet": title, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
+        # A quarter tab kept only as a copy is the quarter's tab, so it groups under the plain title.
+        sheet = COPY_SUFFIX.sub("", title) if quarter else title
+        trips.append({"sheet": sheet, "copy_name": bool(COPY_SUFFIX.search(title)), **trip})
     return trips
 
 

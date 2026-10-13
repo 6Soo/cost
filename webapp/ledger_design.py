@@ -1045,6 +1045,25 @@ def _ledger_note_html() -> str:
             + "</p>")
 
 
+_CURRENT_YEAR = 2026
+_FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
+                  "var t=d.querySelector('.prev-q>summary, a');if(t)t.focus()}},0)")
+
+
+def _quarter_of(trip):
+    try:
+        day = date.fromisoformat(trip.get("starts_on") or "")
+    except (TypeError, ValueError):
+        return None
+    return day.year, (day.month - 1) // 3 + 1
+
+
+def _quarter_groups(trips):
+    """Always the 1st and 2nd quarter of the current year, plus any other quarter a trip falls in."""
+    found = {_quarter_of(t) for t in trips} - {None}
+    return sorted(found | {(_CURRENT_YEAR, 1), (_CURRENT_YEAR, 2)})
+
+
 def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                       archived: str = "") -> str:
     """The trip rail region's contents, without the region's own element.
@@ -1179,13 +1198,25 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     if matching_previous:
         # Default collapsed: the server never auto-opens for a selected trip or
         # a search. The user expands with one click (native details/summary).
+        # Each quarter opens with the list, and focus moves into a group the
+        # user has just opened, only after that user action.
+        groups = []
+        for year, quarter in _quarter_groups(matching_previous):
+            members = [t for t in matching_previous if _quarter_of(t) == (year, quarter)]
+            label = f"{quarter}분기" if year == _CURRENT_YEAR else f"{year}년 {quarter}분기"
+            body = ('<ul class="nav-list">' + ''.join(trip_entry(t) for t in members) + '</ul>'
+                    if members else "<p class='nav-sec'>여행 없음</p>")
+            groups.append(
+                "<details class='prev-q' open>"
+                f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span>"
+                f"<span class='nm'>{label}</span><span class='ct'>{len(members)}개</span></summary>"
+                f"{body}</details>")
         previous = (
             '<details id="previous-trips">'
-            '<summary class="nv"><span aria-hidden="true">▸</span><span class="nm">이전 여행</span>'
+            f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span><span class='nm'>이전 여행</span>"
             f'<span class="ct">{len(matching_previous)}개</span></summary>'
-            '<p class="nav-sec">2분기 · 2026년 6월 25일까지</p>'
-            '<ul class="nav-list">' + ''.join(trip_entry(t) for t in matching_previous)
-            + '</ul></details>')
+            '<p class="nav-sec">2026년 6월 25일까지 여행</p>'
+            + ''.join(groups) + '</details>')
     return "".join(head + body for head, body in sections) + arch_head + previous
 
 
