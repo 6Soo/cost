@@ -129,6 +129,7 @@ def test_synthetic_browser_group_candidates_disabled_proposal_and_overflow(width
         except Exception as error:
             raise AssertionError(f"browser snapshot failed; status={page.locator('#ota-status').inner_text()}; errors={page_errors}") from error
         partial = page.locator('[data-event="partial-1"]')
+        partial.get_by_text("거래 ID 보기").click()
         assert "3건 ↔ 2건" in partial.inner_text()
         assert "부분 묶음" in partial.inner_text()
         assert "partial-1, partial-2, partial-3" in partial.inner_text()

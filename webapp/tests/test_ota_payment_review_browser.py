@@ -22,6 +22,56 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_no_match_hold_shows_plain_reason_sorts_by_amount_and_can_stay_on_hold(self):
+        def snapshot(amounts):
+            rows = [{"transaction_id": f"card-{amount}", "issuer": "Synthetic Bank", "merchant": f"Merchant {amount}",
+                     "amount_krw": amount, "approval_date": "2026-09-23", "posting_date": "2026-09-24",
+                     "card_tail": "2042", "card_kind": "credit", "transaction_direction": "purchase",
+                     "currency": "KRW", "refund_status": "no_refund"} for amount in amounts]
+            return ota_payment_review.public_snapshot({
+                "events": [{"ota_event_id": "evt-nomatch", "provider": "trip", "booking_ref": "BOOK-NOMATCH",
+                            "event_type": "charge", "paid_on": "2026-09-23", "amount": 90121,
+                            "currency": "KRW", "amount_krw": 90121, "status": "HOLD_NO_CARD",
+                            "reason": "no_exact_amount_date_direction_card", "item": "숙박비"}],
+                "cards_by_event": {"evt-nomatch": rows}, "proposals": []})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                page.set_default_timeout(5000)
+                current = {"body": snapshot([873, 2388, 5000])}
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(current["body"], ensure_ascii=False)))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
+                body = page.locator("#ota-events").inner_text()
+                self.assertIn("맞는 카드 거래 없음", body)
+                self.assertIn("결제 금액과 같은 카드 거래가 없습니다", body)
+                self.assertIn("결제 금액·날짜·방향이 모두 맞는 카드 거래가 없습니다", body)
+                self.assertNotIn("HOLD_NO_CARD", body)
+                self.assertNotIn("no_exact_amount_date_direction_card", body)
+                rows = page.locator(".ota-card-row")
+                self.assertIn("5,000원", rows.nth(0).inner_text())
+                self.assertEqual(page.locator("input[type=radio]:checked").count(), 0)
+                rows.nth(0).get_by_role("radio").check()
+                page.get_by_role("button", name="차이 미리 보기").first.wait_for()
+                self.assertTrue(page.get_by_role("button", name="차이 미리 보기").first.is_enabled())
+                page.get_by_role("button", name="연결할 거래 없음 · 보류 유지").click()
+                self.assertEqual(page.locator("input[type=radio]:checked").count(), 0)
+                self.assertTrue(page.get_by_role("button", name="차이 미리 보기").first.is_disabled())
+
+                current["body"] = snapshot([5000, 90121])
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
+                self.assertIn("금액 일치", page.locator(".ota-card-row").nth(0).inner_text())
+                self.assertIn("결제 금액과 같은 카드 거래가 1건 있습니다", page.locator("#ota-events").inner_text())
+            finally:
+                browser.close()
+
     def test_flagged_rows_render_disabled_with_safe_reasons_on_mobile_and_desktop(self):
         rows = []
         for identity, flag in (("duplicate", "duplicate_of"),
@@ -65,7 +115,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             self.assertIn(reason, visible_rows.nth(index).inner_text())
                             self.assertNotIn("synthetic private diagnostic", visible_rows.nth(index).inner_text())
                         self.assertFalse(visible_rows.nth(3).get_by_role("radio").is_disabled())
-                        self.assertIn("거래 방향: purchase", visible_rows.nth(3).inner_text())
+                        self.assertIn("거래 방향: 구매", visible_rows.nth(3).inner_text())
                         self.assertNotIn("거래 방향: refund", visible_rows.nth(3).inner_text())
                         visible_rows.nth(3).get_by_role("radio").check()
                         self.assertTrue(visible_rows.nth(3).get_by_role("radio").is_checked())
@@ -138,18 +188,18 @@ class OtaReviewBrowserTests(unittest.TestCase):
                                 self.fail(f"OTA snapshot did not render: {error}; page errors={page_errors}; body={page.locator('body').inner_text()}")
                             rows = page.locator(".ota-card-row")
                             self.assertEqual(rows.count(), 12)
-                            row_text = rows.nth(2).inner_text()
+                            row_text = rows.filter(has_text="AUTH-02").first.inner_text()
                             self.assertIn("Synthetic Bank", row_text)
                             self.assertIn("승인일: 2026-09-04", row_text)
                             self.assertIn("매입일: 2026-09-05", row_text)
                             self.assertIn("AUTH-02", row_text)
                             self.assertIn("카드 끝 네 자리: 2042", row_text)
-                            self.assertIn("통화: USD", row_text)
-                            self.assertIn("거래 방향: purchase", row_text)
-                            self.assertIn("환불 상태: no_refund", row_text)
-                            self.assertTrue(rows.nth(11).get_by_role("radio").is_disabled())
-                            self.assertIn("evt-synth-other", rows.nth(11).inner_text())
-                            self.assertIn("이미 연결된 거래라 선택할 수 없습니다.", rows.nth(11).inner_text())
+                            self.assertIn("외화 금액: 12.50 USD", row_text)
+                            self.assertIn("거래 방향: 구매", row_text)
+                            self.assertIn("환불 상태: 환불 없음", row_text)
+                            self.assertGreaterEqual(page.locator(".ota-card-row input:disabled").count(), 1)
+                            self.assertIn("evt-synth-other", rows.filter(has_text="evt-synth-other").first.inner_text())
+                            self.assertIn("이미 연결된 거래라 선택할 수 없습니다.", rows.filter(has_text="evt-synth-other").first.inner_text())
                             self.assertEqual(page.evaluate("document.documentElement.scrollWidth"), width)
                             row = rows.nth(2)
                             row.get_by_role("radio").check()
