@@ -268,3 +268,11 @@ def test_a_saved_index_made_by_other_logic_is_not_reused(world, monkeypatch):
     before = ota_catalog._signature(board, sources)
     monkeypatch.setattr(ota_catalog, '_code_stamp', lambda: 'other-logic')
     assert ota_catalog._signature(board, sources) != before
+
+
+def test_an_unverified_trip_covering_the_stay_does_not_block_the_one_verified_trip():
+    candidates = [{'tab_id': 'a', 'name': 'A', 'relation': 'covers', 'valid': False},
+                  {'tab_id': 'b', 'name': 'B', 'relation': 'covers', 'valid': True},
+                  {'tab_id': 'c', 'name': 'C', 'relation': 'overlaps', 'valid': True}]
+    assert ota_catalog._period_trip(candidates) == {'id': 'b', 'name': 'B', 'source': 'period'}
+    assert ota_catalog._period_trip(candidates + [{'tab_id': 'd', 'name': 'D', 'relation': 'covers', 'valid': True}]) is None

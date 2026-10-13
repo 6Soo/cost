@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 
 from app import ota_payments, ota_portal, ota_sources
+from app.reconciliation import CONFIRMED_STATUSES, covers_stay, overlaps_stay
 from . import ui_icons
 from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
@@ -29,7 +30,6 @@ STATUSES = {'confirmed': '예약 확정', 'completed': '이용 완료', 'cancell
             'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨', 'upcoming': '예정'}
 PRODUCTS = {'lodging': '숙박', 'flight': '항공', 'rental': '렌터카', 'package': '패키지', 'unknown': '미확인'}
 #: Reservation statuses that mean the booking is real and may be placed by its stay dates alone.
-CONFIRMED_STATUSES = {'confirmed', 'completed', 'upcoming'}
 #: Why a booking has no trip, in the words the owner reads. Each code is decided in _unassigned_reason.
 UNASSIGNED_REASONS = {
     'cancelled': '취소된 예약',
@@ -155,14 +155,22 @@ def _stay(periods):
     return min(starts), max(ends)
 
 
-def _relation(stay, trip):
+def _period_trip(candidates):
+    """The one verified trip that covers a confirmed stay, or None. An unverified covering trip does not count."""
+    covering = [c for c in candidates if c['relation'] == 'covers' and c['valid']]
+    if len(covering) != 1:
+        return None
+    return {'id': covering[0]['tab_id'], 'name': covering[0]['name'], 'source': 'period'}
+
+
+def _relation(stay, trip, *, service=False):
+    """How a booking's stay sits on a trip: covered, partly overlapping, or apart. A flight counts both days."""
     if not stay or not trip['starts_on'] or not trip['ends_on']:
         return 'none'
     start, end = stay
-    if trip['starts_on'] <= start and end <= trip['ends_on']:
+    if covers_stay(trip['starts_on'], trip['ends_on'], start, end, service=service):
         return 'covers'
-    # 체크아웃일만 여행 시작일과 같은 경우처럼 밤이 겹치지 않으면 겹친 것이 아니다.
-    if max(start, trip['starts_on']) < min(end, trip['ends_on']):
+    if overlaps_stay(trip['starts_on'], trip['ends_on'], start, end, service=service):
         return 'overlaps'
     return 'none'
 
@@ -467,8 +475,9 @@ def _build_index(board, sources):
         except ValueError:
             nights = None
         candidates = []
+        service = any('항공' in label for label in row['labels'])
         for trip in trips:
-            relation = _relation(stay, trip)
+            relation = _relation(stay, trip, service=service)
             if relation != 'none':
                 candidates.append({**trip, 'relation': relation})
         candidates.sort(key=lambda c: (c['relation'] != 'covers', c['starts_on'], c['tab_id']))
@@ -488,9 +497,8 @@ def _build_index(board, sources):
         period_trip = None
         codes = set(row['statuses'])
         if not assigned and not revoked and stay and 'cancelled' not in codes and codes & CONFIRMED_STATUSES:
-            covering = [c for c in candidates if c['relation'] == 'covers']
-            if len(covering) == 1 and covering[0]['valid']:
-                period_trip = {'id': covering[0]['tab_id'], 'name': covering[0]['name'], 'source': 'period'}
+            period_trip = _period_trip(candidates)
+            if period_trip:
                 assigned = [period_trip]
         entries.append({'period_trip': period_trip, 'revoked': revoked,
                         'reason': _unassigned_reason({'trips': assigned, 'status_codes': sorted(codes),

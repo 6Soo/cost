@@ -9,6 +9,8 @@ from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from app.reconciliation import OTA_PORTAL_ORIGIN
+
 
 def evidence_path(data_directory):
     configured=os.environ.get('WEBLEDGER_AGODA_PORTAL_DB')
@@ -321,7 +323,7 @@ def extend_report(report, database, transactions):
         report['rules'].append(dict(conditions={'merchant_normalized':fact['merchant'],
             'card_kind':fact['card_kind'],'transaction_direction':'purchase'},
             optional={'source_hash':source},effects={'item':'숙박비','description':'예약 '+fact['booking_ref']},
-            origin='ota-portal-live',note=fact['basis']))
+            origin=OTA_PORTAL_ORIGIN,note=fact['basis']))
     exact={fact['source_hash'] for fact in report['matches']}
     report['type_only_candidates']=[fact for fact in report.get('type_only_candidates',[])
                                    if fact['source_hash'] not in exact]

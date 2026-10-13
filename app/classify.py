@@ -28,17 +28,14 @@ from __future__ import annotations
 
 from .db import decided_sql
 from .normalize import normalize_merchant
+from .reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN,
+                             OWNER_AUTHORIZED_INFERENCE_ORIGIN, OWNER_BOOKING_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
+                             PERIOD_OTA_ORIGIN)
 from .rules import rule_matches, is_booking_or_online
 
 __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
            "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED"]
 
-#: A trip the owner picked for one OTA booking. Applied to that booking's card rows only.
-OWNER_BOOKING_ORIGIN = "owner-ota-booking"
-#: Inferences the owner authorized from payment history. They never reach back more than 30 days before a trip.
-OWNER_AUTHORIZED_INFERENCE_ORIGIN = "owner-authorized-inference-20261003"
-#: A trip inferred from a confirmed reservation's stay dates, for one card row. Classified as an inference.
-PERIOD_OTA_ORIGIN = "auto-ota-period"
 
 STATE_NEEDS_REVIEW = "needs_review"
 STATE_CLASSIFIED = "classified"
@@ -109,8 +106,8 @@ def classify_transaction(transaction: dict, *, rules: list,
                         classification_basis='결제일이 여행 시작보다 30일 넘게 앞서거나 여행을 확인할 수 없어 자동 배정하지 않았습니다. 추천 여행으로만 확인해 주세요')
         return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                     classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
-    exception=rule.get('origin')=='owner-country-exception-20261003'
-    if rule.get('origin')=='guide-airfare-live':
+    exception=rule.get('origin')==OWNER_COUNTRY_EXCEPTION_ORIGIN
+    if rule.get('origin')==GUIDE_AIRFARE_ORIGIN:
         return dict(classification_state=STATE_CLASSIFIED,classification_source='guide_airfare_evidence',
                     classification_basis='대장·가이드 항공권 근거 · '+inference['basis'],
                     item=rule['effects']['item'],description=rule['effects'].get('description',''),
@@ -242,7 +239,7 @@ def _classify_transaction(transaction: dict, *, rules: list,
             matches.append((candidate,reasons,target))
     # 과거 업종 기본값의 빈 설명은 같은 원행에서 확인한 예약 설명과 충돌하지 않는다.
     # 사용자가 편집한 규칙이나 다른 항목·여행을 제안한 규칙은 그대로 충돌로 남긴다.
-    verified_ota=[entry for entry in matches if entry[0].get('origin') in ('ota-mail-live','ota-portal-live')
+    verified_ota=[entry for entry in matches if entry[0].get('origin') in (OTA_MAIL_ORIGIN,OTA_PORTAL_ORIGIN)
                   and entry[0].get('optional',{}).get('source_hash')]
     if verified_ota:
         # 현재 원행의 예약 증거가 과거 자동 복원 규칙보다 구체적이다.

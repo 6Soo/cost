@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from app.db import decided_sql
+from app.reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN,
+                                   OWNER_AUTHORIZED_INFERENCE_ORIGIN, card_use_date, covers_stay, payment_within_lead)
 
 from . import read_scope
 
@@ -488,13 +490,8 @@ class CardFlow:
         return tab in ('', 'unclassified') or self.trip_valid(tab)
 
     def _payment_within_lead(self, transaction, trip_id):
-        """A payment no more than 30 days before the trip starts, by the card's use date when it has one."""
-        day=transaction.get('approval_date') or ''
         trip=next((t for t in self.board.list_trips() if t['tab_id']==trip_id),None)
-        if trip is None or not day or not trip.get('starts_on'):
-            return False
-        from datetime import date, timedelta
-        return date.fromisoformat(day) >= date.fromisoformat(trip['starts_on'])-timedelta(days=30)
+        return trip is not None and payment_within_lead(card_use_date(transaction), trip.get('starts_on'))
 
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
@@ -509,7 +506,6 @@ class CardFlow:
                 target=country['inferred_trip_id']
                 if not self.trip_valid(target):
                     return ''
-                from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
                 if country.get('origin')==OWNER_AUTHORIZED_INFERENCE_ORIGIN and not self._payment_within_lead(transaction,target):
                     return ''
                 return target
@@ -545,7 +541,8 @@ class CardFlow:
     def booking_trip(self, transaction, period):
         candidates = [t for t in self.board.list_trips() if self.trip_valid(t['tab_id'])
                       and t['display_key']==period['target_code']
-                      and t['starts_on']<=period['starts_on']<=period['ends_on']<=t['ends_on']]
+                      and covers_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'],
+                                      service=period.get('service', False))]
         return candidates[0]['tab_id'] if len(candidates)==1 else ''
 
     def classify(self, batch_id, *, transaction_ids=None):
@@ -587,21 +584,23 @@ class CardFlow:
                 draft=dict(template,optional=dict(template['optional']),effects=dict(template['effects']))
                 fact=evidence.get(source,{})
                 period=fact.get('period')
-                from .ota_catalog import CONFIRMED_STATUSES
                 if (period and fact.get('reservation_status') in CONFIRMED_STATUSES
                         and not fact.get('period_conflict')):
                     if verified_trips is None:
                         verified_trips=[trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
+                    service=fact.get('item')=='항공료'
                     candidates=[trip for trip in verified_trips
-                                if trip['starts_on']<=period['starts_on']<=period['ends_on']<=trip['ends_on']]
+                                if covers_stay(trip['starts_on'],trip['ends_on'],period['starts_on'],period['ends_on'],
+                                               service=service)]
                     digests=fact.get('source_digests') or fact.get('evidence_digests') or [fact.get('source_sha256')]
                     if len(candidates)==1 and digests and digests[0]:
-                        draft['optional']['booking_period']=dict(period,target_code=candidates[0]['display_key'],source_sha256=digests[0])
+                        draft['optional']['booking_period']=dict(period,target_code=candidates[0]['display_key'],
+                                                                 source_sha256=digests[0],service=service)
                     else:
                         # 명시 이용기간과 맞지 않는 과거 추론 여행을 다시 붙이지 않는다.
                         blocked_inference_sources.add(source)
-                draft['origin']='ota-portal-live' if fact.get('evidence_kind')=='portal_payment_claim' else 'ota-mail-live'
-                draft['rule_id']=('ota-portal-' if draft['origin']=='ota-portal-live' else 'ota-mail-')+source
+                draft['origin']=OTA_PORTAL_ORIGIN if fact.get('evidence_kind')=='portal_payment_claim' else OTA_MAIL_ORIGIN
+                draft['rule_id']=('ota-portal-' if draft['origin']==OTA_PORTAL_ORIGIN else 'ota-mail-')+source
                 ota_rules.append(draft)
             owned = self._booking_trip_assignments(report, sources)
             if owned:
@@ -829,7 +828,7 @@ class CardFlow:
                 optional={'source_hash': source_hash,
                           'inferred_assignment': {'trip_id': guide['trip_id'], 'confidence': '높음', 'basis': basis}},
                 effects={'item': '항공료', 'description': '예약 ' + str(guide.get('booking_ref') or '')},
-                origin='guide-airfare-live', rule_id='guide-airfare-' + source_hash))
+                origin=GUIDE_AIRFARE_ORIGIN, rule_id='guide-airfare-' + source_hash))
         return rules
 
     def preview_metadata(self):
