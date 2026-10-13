@@ -825,11 +825,57 @@ def reconcile(board) -> dict:
         backend.close()
 
 
+CHILD_TIMEOUT_SECONDS = 900
+CHILD_BOOTSTRAP = ("import sys; sys.path.insert(0, sys.argv[1]); "
+                   "from webapp import ota_reconcile_child as child; child.run(*sys.argv[1:])")
+
+
+class OtaReconcileChildError(RuntimeError):
+    """The child process ended with an error; the message names the original exception."""
+
+
+def reconcile_in_child(board) -> dict:
+    """reconcile(board) in a separate process, with the same result.
+
+    The child reads the same board database and gets the reservation authority this
+    process already read, so its answer does not depend on which process computed it.
+    """
+    import pickle
+    import subprocess
+    import sys
+    import uuid
+
+    root = str(Path(__file__).resolve().parents[1])
+    workdir = Path(review_db_path()).parent
+    token = uuid.uuid4().hex
+    request_path = workdir / f"ota-reconcile-{token}.in"
+    result_path = workdir / f"ota-reconcile-{token}.out"
+    request_path.write_bytes(pickle.dumps(
+        {"authority": getattr(board, "_reservation_authority", None)},
+        protocol=pickle.HIGHEST_PROTOCOL))
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-I", "-c", CHILD_BOOTSTRAP, root, str(board.path),
+             str(request_path), str(result_path)],
+            capture_output=True, timeout=CHILD_TIMEOUT_SECONDS, check=False)
+        if completed.returncode != 0 or not result_path.exists():
+            tail = (completed.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            reason = tail[-1][:200] if tail else f"exit {completed.returncode}"
+            raise OtaReconcileChildError(f"the reconciliation process ended without a result: {reason}")
+        payload = pickle.loads(result_path.read_bytes())
+    finally:
+        request_path.unlink(missing_ok=True)
+        result_path.unlink(missing_ok=True)
+    if payload[0] == "ok":
+        return payload[1]
+    raise OtaReconcileChildError(f"{payload[1]}: {payload[2]}")
+
+
 def snapshot_service(board):
     service = getattr(board, "_ota_snapshot_service", None)
     if service is None:
         service = ota_snapshot.OtaSnapshotService(
-            key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile(board),
+            key_fn=lambda: input_key(board), reconcile_fn=lambda: reconcile_in_child(board),
             persist_path=Path(review_db_path()).parent / SNAPSHOT_FILE,
             log_path=Path(review_db_path()).parent / "ota-snapshot.log")
         board._ota_snapshot_service = service
