@@ -35,6 +35,8 @@ __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
 
 #: A trip the owner picked for one OTA booking. Applied to that booking's card rows only.
 OWNER_BOOKING_ORIGIN = "owner-ota-booking"
+#: A trip inferred from a confirmed reservation's stay dates, for one card row. Classified as an inference.
+PERIOD_OTA_ORIGIN = "auto-ota-period"
 
 STATE_NEEDS_REVIEW = "needs_review"
 STATE_CLASSIFIED = "classified"

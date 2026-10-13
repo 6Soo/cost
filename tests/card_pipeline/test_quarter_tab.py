@@ -73,3 +73,14 @@ def test_only_a_batch_collected_after_activation_is_recorded_and_older_rows_wait
     assert quarter_tab.book_batch(store, 'new') == 1
     booked = store.conn.execute("SELECT transaction_id FROM ledger_entries").fetchall()
     assert booked == [('fresh',)]
+
+
+def test_booking_names_the_quarter_and_projects_each_booked_row_once():
+    store = FakeStore()
+    add(store, 'c', '2026-10-02', 3000)
+    quarter_tab.assign_unassigned(store.conn)
+    projected = []
+    result = quarter_tab.confirm_tab(store, 'quarter:2026:4', projection=projected.append)
+    assert result['booked'] == 1 and [p['transaction_id'] for p in projected] == ['c']
+    assert projected[0]['description'] == '2026년 4분기 기타비용'
+    assert store.conn.execute("SELECT description FROM ledger_entries").fetchone()[0] == '2026년 4분기 기타비용'

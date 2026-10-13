@@ -79,10 +79,15 @@ def book_batch(store, batch_id: str) -> int:
     return sum(confirm_tab(store, tab, batch_id=batch_id)['booked'] for tab in tabs if parse_tab(tab))
 
 
-def confirm_tab(store, tab: str, batch_id: str | None = None) -> dict:
-    """Records the tab's rows in one transaction and returns the counts. Already recorded rows are skipped."""
+def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -> dict:
+    """Records the tab's rows in one transaction and returns the counts. Already recorded rows are skipped.
+
+    `projection`, when given, is called for each booked row inside the same transaction, so the
+    board row and the ledger entry are written together or not at all."""
     if parse_tab(tab) is None:
         raise QuarterError('QUARTER_TAB_INVALID')
+    year, quarter = parse_tab(tab)
+    description = f'{year}년 {quarter}분기 기타비용'
     booked, skipped = [], []
     now = utc_now()
     with store.lock:
@@ -103,10 +108,16 @@ def confirm_tab(store, tab: str, batch_id: str | None = None) -> dict:
                     "INSERT INTO ledger_entries(transaction_id, batch_id, item, description, display_tab_id, "
                     "trip_id, amount_krw, merchant, occurred_on, transaction_direction, source_hash, committed_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (transaction_id, row['batch_id'], ITEM, f'{tab} 기타비용', tab, '', amount,
+                    (transaction_id, row['batch_id'], ITEM, description, tab, '', amount,
                      row['merchant'] or '', day, 'purchase', row['source_hash'], now))
                 store.log_change('quarter.booked', transaction_id, {'tab': tab, 'amount_krw': amount})
                 booked.append(transaction_id)
+                if projection is not None:
+                    projection({'transaction_id': transaction_id, 'batch_id': row['batch_id'], 'item': ITEM,
+                                'description': description, 'display_tab_id': tab, 'trip_id': '',
+                                'amount_krw': amount, 'merchant': row['merchant'] or '', 'occurred_on': day,
+                                'transaction_direction': 'purchase', 'source_hash': row['source_hash'],
+                                'classification_state': 'classified', 'now': now})
             store.conn.execute('COMMIT')
         except Exception:
             store.conn.execute('ROLLBACK')

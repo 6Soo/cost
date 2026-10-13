@@ -218,3 +218,20 @@ def test_unverified_trip_cannot_be_chosen(world, monkeypatch):
     body = b'provider=agoda&booking_ref=BOOK-1&trip_tab_id=trip-y&basis=x&expected_revision=0&csrf=tok'
     ota_catalog.dispatch_post(handler, urlsplit('/ota/booking/trip'), raw=body, csrf='tok', board=board, is_owner=True)
     assert 'error=TRIP_NOT_CANDIDATE' in handler.headers_sent['Location'] or 'error=TRIP_NOT_VERIFIED' in handler.headers_sent['Location']
+
+
+def test_checkout_on_the_trip_start_day_is_not_an_overlap_and_reasons_are_plain():
+    trip = {'starts_on': '2026-08-27', 'ends_on': '2026-08-30'}
+    assert ota_catalog._relation(('2026-08-26', '2026-08-27'), trip) == 'none'
+    assert ota_catalog._relation(('2026-08-26', '2026-08-28'), trip) == 'overlaps'
+    stay = {'trips': [], 'status_codes': ['observed'], 'stay': ('2026-08-27', '2026-08-28'), 'candidates': []}
+    assert ota_catalog._unassigned_reason(stay, False) == 'not_confirmed'
+    assert ota_catalog._unassigned_reason({**stay, 'status_codes': ['confirmed']}, False) == 'no_trip'
+
+
+def test_revoking_a_stay_assignment_without_a_rule_is_recorded(tmp_path):
+    store = OtaReviewStore(tmp_path / 'review.sqlite')
+    result = store.revoke_booking_trip(provider='trip', booking_ref='B7', expected_revision=0, user='owner')
+    assert result['status'] == 'revoked' and result['revision'] == 1
+    assert store.booking_trip_states()[('trip', 'B7')]['status'] == 'revoked'
+    store.close()

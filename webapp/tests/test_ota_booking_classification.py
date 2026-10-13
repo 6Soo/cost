@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.ota_review import OtaReviewStore
-from webapp import card_flow
+from webapp import card_flow, ota_catalog
 from webapp.card_flow import CardFlow
 from webapp.ledger_store import LedgerStore
 
@@ -79,6 +79,13 @@ class BookingAssignmentReachesTheCardRow(unittest.TestCase):
         self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
         self.assertNotEqual(self._row()[2], 'trip-z')
 
+
+    def test_a_confirmed_stay_inside_one_verified_trip_reaches_the_card_row_as_an_inference(self):
+        entry = {'provider': 'trip', 'booking_ref': 'B9', 'period_trip': {'id': 'trip-x', 'name': '1001_합성', 'source': 'period'}}
+        with patch.object(ota_catalog, '_index', lambda board, sources: {'entries': [entry]}),                 patch.object(ota_catalog, 'configured_sources', lambda board: {}):
+            self.flow._classify(self.batch, transaction_ids=[self.transaction_id])
+        state, source, tab, item = self._row()[0], self._row()[1], self._row()[2], self._row()[4]
+        self.assertEqual((state, source, tab, item), ('classified', 'inference', 'trip-x', '숙박비'))
 
 if __name__ == '__main__':
     unittest.main()

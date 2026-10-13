@@ -12,7 +12,7 @@ import re
 import sqlite3
 import threading
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -25,8 +25,21 @@ from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 PAGE_SIZE = 50
 PROVIDERS = {'agoda': 'Agoda', 'trip': 'Trip.com', 'klook': 'Klook', 'booking': 'Booking.com'}
 STATUSES = {'confirmed': '예약 확정', 'completed': '이용 완료', 'cancelled': '취소',
-            'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨'}
+            'canceled': '취소', 'unknown': '미확인', 'observed': '수집됨', 'upcoming': '예정'}
 PRODUCTS = {'lodging': '숙박', 'flight': '항공', 'rental': '렌터카', 'package': '패키지', 'unknown': '미확인'}
+#: Reservation statuses that mean the booking is real and may be placed by its stay dates alone.
+CONFIRMED_STATUSES = {'confirmed', 'completed', 'upcoming'}
+#: Why a booking has no trip, in the words the owner reads. Each code is decided in _unassigned_reason.
+UNASSIGNED_REASONS = {
+    'cancelled': '취소된 예약',
+    'revoked': '사용자가 배정을 해제함',
+    'no_stay': '이용기간이 수집되지 않음',
+    'not_confirmed': '예약 확정 상태가 수집되지 않음(결제 메일만 확인됨)',
+    'many_valid': '기간을 덮는 검증된 여행이 여러 개',
+    'trip_unverified': '기간을 덮는 여행의 일정 원본이 확인되지 않음',
+    'partial': '여행과 일부만 겹침(박이 겹침)',
+    'no_trip': '기간을 덮는 여행이 없음',
+}
 NOTICES = {
     'saved': '여행 배정을 저장했습니다. 카드 결제 원본은 다시 분류했습니다.',
     'revoked': '여행 배정을 해제했습니다. 카드 결제 원본은 다시 분류했습니다.',
@@ -50,7 +63,7 @@ ERROR_TEXT = {
 }
 
 #: Bump when the index's shape changes, so a saved index from an older release is never read.
-INDEX_VERSION = 1
+INDEX_VERSION = 3
 INDEX_FILE = 'ota-catalog-index.json'
 _INDEX = {'key': None, 'value': None}
 _INDEX_LOCK = threading.Lock()
@@ -147,7 +160,8 @@ def _relation(stay, trip):
     start, end = stay
     if trip['starts_on'] <= start and end <= trip['ends_on']:
         return 'covers'
-    if trip['starts_on'] <= end and start <= trip['ends_on']:
+    # 체크아웃일만 여행 시작일과 같은 경우처럼 밤이 겹치지 않으면 겹친 것이 아니다.
+    if max(start, trip['starts_on']) < min(end, trip['ends_on']):
         return 'overlaps'
     return 'none'
 
@@ -248,15 +262,38 @@ def _review_store():
         return None
 
 
-def _owner_rules():
-    """Active owner trip assignments keyed by (provider, booking_ref)."""
+def _owner_rule_states():
+    """Each booking's owner trip rule, active or revoked, keyed by (provider, booking_ref)."""
     store = _review_store()
     if store is None:
         return {}
     try:
-        return store.booking_trip_rules()
+        return store.booking_trip_states()
     finally:
         store.close()
+
+
+def _unassigned_reason(entry, revoked):
+    """The first reason a booking has no trip, or None when it has one. Plain codes; the text is UNASSIGNED_REASONS."""
+    if entry['trips']:
+        return None
+    codes = set(entry['status_codes'])
+    if 'cancelled' in codes:
+        return 'cancelled'
+    if revoked:
+        return 'revoked'
+    if not entry['stay']:
+        return 'no_stay'
+    if not codes & CONFIRMED_STATUSES:
+        return 'not_confirmed'
+    covering = [c for c in entry['candidates'] if c['relation'] == 'covers']
+    if sum(1 for c in covering if c['valid']) > 1:
+        return 'many_valid'
+    if covering:
+        return 'trip_unverified'
+    if entry['candidates']:
+        return 'partial'
+    return 'no_trip'
 
 
 def _canonical(value):
@@ -383,7 +420,8 @@ def _build_index(board, sources):
     live, cancelled, card_error = _card_matches(flow)
     if card_error:
         warnings.append('카드 결제와 예약을 대조하지 못했습니다. 카드 검토에서 자료를 확인해 주세요.')
-    rules = _owner_rules()
+    states = _owner_rule_states()
+    rules = {key: rule for key, rule in states.items() if rule['status'] == 'active'}
     entries = []
     for row in merged.values():
         periods = sorted(row['periods'])
@@ -412,7 +450,18 @@ def _build_index(board, sources):
         ledger = [{'id': tab, 'name': name, 'source': 'ledger'} for tab, name in sorted(row['ledger_trips'])]
         assigned = portal + ledger + ([{'id': rule['trip_tab_id'], 'name': rule_view['trip_name'], 'source': 'rule'}]
                                       if rule_view else [])
-        entries.append({
+        revoked = states.get(key, {}).get('status') == 'revoked'
+        # 예약이 확정됐고 이용기간을 덮는 검증된 여행이 하나뿐이면 기간으로 배정한다. 해제한 예약은 제외한다.
+        period_trip = None
+        codes = set(row['statuses'])
+        if not assigned and not revoked and stay and 'cancelled' not in codes and codes & CONFIRMED_STATUSES:
+            covering = [c for c in candidates if c['relation'] == 'covers']
+            if len(covering) == 1 and covering[0]['valid']:
+                period_trip = {'id': covering[0]['tab_id'], 'name': covering[0]['name'], 'source': 'period'}
+                assigned = [period_trip]
+        entries.append({'period_trip': period_trip, 'revoked': revoked,
+                        'reason': _unassigned_reason({'trips': assigned, 'status_codes': sorted(codes),
+                                                      'stay': stay, 'candidates': candidates}, revoked), 
             'provider': row['provider'], 'booking_ref': row['booking_ref'],
             'label': ' · '.join(sorted(row['labels'])),
             'starts_on': periods[0][0] if periods else '',
@@ -518,7 +567,10 @@ def catalog(board, query, *, sources=None):
         page = min(pages, max(1, int(value('page') or '1')))
     except ValueError:
         page = 1
+    reasons = Counter(entry['reason'] for entry in entries if entry['reason'])
     return {'rows': [_public_row(entry) for entry in rows[(page - 1) * PAGE_SIZE:page * PAGE_SIZE]],
+            'reasons': [{'code': code, 'label': UNASSIGNED_REASONS[code], 'count': count}
+                        for code, count in reasons.most_common()],
             'all_count': all_count, 'unassigned_count': unassigned_count, 'total': total, 'page': page,
             'pages': pages, 'months': index['months'], 'providers': index['providers'],
             'warnings': list(dict.fromkeys(warnings + index['warnings'])),
@@ -573,6 +625,10 @@ def _summary(entry, rule_active):
         if trip['trip_valid']:
             return f"여행 「{trip['trip_name']}」에 배정되어 있습니다. 카드 결제 {len(entry['card_matches'])}건에 적용됩니다."
         return f"「{trip['trip_name']}」에 배정되어 있지만 그 여행의 일정 원본을 다시 확인해야 적용됩니다."
+    period = [t for t in entry['trips'] if t.get('source') == 'period']
+    if period:
+        return (f"예약 이용기간이 여행 「{period[0]['name']}」 기간 안에 있고 예약이 확정되어 기간으로 배정되어 있습니다. "
+                "다른 여행이라면 아래에서 바꾸세요.")
     if not entry['stay']:
         return '이용기간이 없어 여행을 판단할 수 없습니다. 예약 메일을 먼저 확인해 주세요.'
     covers = [c for c in entry['candidates'] if c['relation'] == 'covers']
@@ -623,6 +679,8 @@ def render_html(data, query, *, csrf=''):
         if names:
             rule = row.get('rule')
             suffix = f" · 규칙 r{rule['revision']}" if rule else ''
+            if any(t.get('source') == 'period' for t in row['trips']):
+                suffix += ' · 기간 배정'
             trip_cell = (f"<span class='ota-badge trip ok'>{ui_icons.icon('check', 14)}"
                          f"<span>{names}{esc(suffix)}</span></span>")
         else:
@@ -649,6 +707,13 @@ def render_html(data, query, *, csrf=''):
             ('여행 배정', trip_cell))) + '</tr>')
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     problems = data.get('trip_problems') or []
+    reasons = data.get('reasons') or []
+    reason_block = ''
+    if reasons:
+        items = ''.join(f"<tr><td>{esc(r['label'])}</td><td>{r['count']:,}건</td></tr>" for r in reasons)
+        reason_block = (f"<section class='trip-check' aria-labelledby='reason-title'>"
+                        f"<h2 id='reason-title'>여행 미배정 사유 · {data['unassigned_count']:,}건</h2>"
+                        f"<table><tbody>{items}</tbody></table></section>")
     problem_block = ''
     if problems:
         items = ''.join(f"<li><strong>{esc(t['name'])}</strong> · {esc(t['reason'])}</li>" for t in problems[:30])
@@ -665,7 +730,7 @@ def render_html(data, query, *, csrf=''):
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
         f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
         + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
-        + problem_block
+        + reason_block + problem_block
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
@@ -773,13 +838,14 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
                      if history else '')
     rule_text = (f"현재 배정: <strong>{esc(rule_record['trip_code'])}</strong> (r{rule_record['revision']}, "
                  f"{esc(rule_record['changed_at'])})" if rule_active else
-                 ('배정이 해제되어 있습니다.' if rule_record else '배정된 여행 규칙이 없습니다.'))
+                 ('배정이 해제되어 있습니다.' if rule_record else ('기간으로 정해진 배정이 있습니다. 바꾸려면 아래에서 여행을 고르세요.' if entry.get('period_trip') else '배정된 여행 규칙이 없습니다.')))
+    can_revoke = rule_active or bool(entry.get('period_trip'))
     revoke_form = (f"<form method='post' action='/ota/booking/revoke'>"
                    f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
                    f"<input type='hidden' name='provider' value='{esc(entry['provider'])}'>"
                    f"<input type='hidden' name='booking_ref' value='{esc(entry['booking_ref'])}'>"
-                   f"<input type='hidden' name='expected_revision' value='{rule_record['revision']}'>"
-                   "<button type='submit'>배정 해제</button></form>") if rule_active else ''
+                   f"<input type='hidden' name='expected_revision' value='{rule_record['revision'] if rule_record else 0}'>"
+                   "<button type='submit'>배정 해제</button></form>") if can_revoke else ''
     assign_form = (f"<form method='post' action='/ota/booking/trip'>"
                    f"<input type='hidden' name='csrf' value='{esc(csrf)}'>"
                    f"<input type='hidden' name='provider' value='{esc(entry['provider'])}'>"
@@ -807,7 +873,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             + f"<p>{rule_text}</p></section>"
             + f"<section><h2>카드 결제</h2>{payment_table}</section>"
             + assign_form
-            + (f"<section><h2>배정 해제</h2>{revoke_form}</section>" if rule_active else '')
+            + (f"<section><h2>배정 해제</h2><p class='muted'>기간으로 정해진 배정도 해제하면 다시 자동으로 붙지 않습니다.</p>{revoke_form}</section>" if can_revoke else '')
             + history_block
             + "</main></body></html>")
 
@@ -874,8 +940,6 @@ def _write_rule(board, sources, form, *, revoke):
     if not ota_payment_review.enabled() or not path or not Path(path).is_absolute():
         raise _Refused('REVIEW_STORE_UNCONFIGURED')
     if revoke:
-        if not Path(path).is_file():
-            raise _Refused('NO_ACTIVE_RULE')
         writer = OtaReviewStore(path)
         try:
             result = writer.revoke_booking_trip(provider=provider, booking_ref=booking_ref,
@@ -899,7 +963,7 @@ def _write_rule(board, sources, form, *, revoke):
         raise _Refused('TRIP_NOT_VERIFIED')
     if candidate['relation'] == 'overlaps' and form.get('allow_partial') != '1':
         raise _Refused('PARTIAL_NEEDS_CONFIRM')
-    other = [t for t in entry['trips'] if t.get('source') != 'rule' and t['id'] != trip_id]
+    other = [t for t in entry['trips'] if t.get('source') not in ('rule', 'period') and t['id'] != trip_id]
     if other:
         raise _Refused('EXISTING_TRIP_DIFFERS')
     writer = OtaReviewStore(path)

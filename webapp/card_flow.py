@@ -594,6 +594,11 @@ class CardFlow:
                 ota_rules = [rule for rule in ota_rules if rule['optional'].get('source_hash') not in owned_sources]
                 blocked_inference_sources.update(owned_sources)
                 ota_rules += owned
+            # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
+            taken = {rule['optional'].get('source_hash') for rule in ota_rules}
+            taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()
+                      if rule.get('optional', {}).get('inferred_assignment')}
+            ota_rules += self._booking_period_assignments(report, sources, taken)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
         if ota_rules or blocked_inference_sources or board_rules:
@@ -656,6 +661,42 @@ class CardFlow:
                 'rule_id': f"owner-ota-booking-{fact.get('provider')}-{fact.get('booking_ref')}-{source[:12]}",
             }
         return list(owned.values())
+
+    def _booking_period_assignments(self, report, sources, taken):
+        """예약이 확정되어 이용기간을 덮는 검증된 여행이 하나뿐인 카드 결제에 그 여행을 추론 배정으로 적용한다."""
+        import sqlite3
+        from app import ota_sources
+        from app.classify import PERIOD_OTA_ORIGIN
+        from app.normalize import normalize_merchant
+        from . import ota_catalog
+        try:
+            index = ota_catalog._index(self.board, ota_catalog.configured_sources(self.board))
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, ota_sources.OtaSourcesError):
+            return []
+        periods = {(entry['provider'], entry['booking_ref']): entry['period_trip']
+                   for entry in index['entries'] if entry.get('period_trip')}
+        if not periods:
+            return []
+        rules = {}
+        for fact in report.get('matches', []):
+            source = fact.get('source_hash')
+            if source not in sources or source in taken or fact.get('reservation_status') == 'cancelled' \
+                    or fact.get('period_conflict') or fact.get('direction', 'purchase') != 'purchase':
+                continue
+            trip = periods.get((str(fact.get('provider') or '').lower(), str(fact.get('booking_ref') or '')))
+            item = str(fact.get('item') or '').strip()
+            merchant = str(fact.get('merchant') or '').strip()
+            if not trip or not item or not merchant:
+                continue
+            rules[source] = {
+                'conditions': {'merchant_normalized': normalize_merchant(merchant), 'transaction_direction': 'purchase'},
+                'optional': {'source_hash': source, 'inferred_assignment': {
+                    'trip_id': trip['id'], 'confidence': '높음',
+                    'basis': f"예약 이용기간이 여행 「{trip['name']}」 기간 안에 있고 예약이 확정됨"}},
+                'effects': {'item': item}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
+                'rule_id': f"auto-ota-period-{fact.get('booking_ref')}-{source[:12]}",
+            }
+        return list(rules.values())
 
     def _board_future_rules(self):
         """장부에서 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.
@@ -797,12 +838,19 @@ class CardFlow:
 
         return metadata
 
+    def book_quarter(self, tab):
+        """The owner's explicit booking of one quarter's waiting cost rows, in the ledger and on the board."""
+        from app import quarter_tab
+        return quarter_tab.confirm_tab(self.pipeline.store, tab, projection=self.project)
+
     def project(self, entry):
         """새 전기와 기존 장부 화면의 행을 같은 트랜잭션에서 저장한다."""
+        from app import quarter_tab
         from app.db import StoreError
         trip = entry.get('trip_id') or ''
         tab = entry.get('display_tab_id') or ''
-        if not self.tab_valid(tab) or (trip and not self.trip_valid(trip)):
+        # 분기 기타비용 탭은 여행이 아니므로 여행 일정 근거 검증 대상이 아니다.
+        if not (self.tab_valid(tab) or quarter_tab.parse_tab(tab)) or (trip and not self.trip_valid(trip)):
             raise StoreError('TRIP_AUTHORITY_CHANGED', '여행 일정 근거를 다시 확인해 주세요')
         if trip and tab != trip:
             raise StoreError('TRIP_TARGET_CONFLICT', '여행과 장부 탭이 다릅니다')
@@ -1460,6 +1508,39 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     except OSError:
         handler._send_json({'code':'SOURCE_UNAVAILABLE','message':'원본 자료를 열 수 없습니다. 잠시 후 다시 불러와 주세요'},503)
     return True
+
+
+def quarter_book(handler, raw, *, csrf, board, is_owner):
+    """POST /quarter/book: books one quarter's waiting rows. Owner only, CSRF checked, returns to that tab."""
+    from urllib.parse import parse_qs, quote
+    from app import StoreError, quarter_tab
+    if parsed_path_is_not_quarter(handler):
+        return False
+    if not is_owner:
+        handler._send_json({'code': 'NOT_FOUND'}, 404)
+        return True
+    form = {k: v[0] for k, v in parse_qs((raw or b'').decode('utf-8'), keep_blank_values=True).items()}
+    if not csrf or form.get('csrf') != csrf:
+        handler._send_json({'code': 'CSRF_REQUIRED', 'message': '화면을 새로 연 뒤 다시 시도해 주세요'}, 403)
+        return True
+    tab = form.get('tab', '')
+    try:
+        result = CardFlow(board).book_quarter(tab)
+        message = f"분기 기타비용 {result['booked']}건을 장부에 기록했습니다. 건너뛴 거래 {result['skipped']}건은 그대로 둡니다."
+    except StoreError as exc:
+        message = str(exc)
+    except (quarter_tab.QuarterError, ValueError, KeyError):
+        message = '분기 탭을 확인해 주세요'
+    handler.send_response(303)
+    handler.send_header('Location', f'/board?tab={quote(tab, safe=":")}&msg={quote(message)}')
+    handler.send_header('Content-Length', '0')
+    handler.end_headers()
+    return True
+
+
+def parsed_path_is_not_quarter(handler):
+    from urllib.parse import urlsplit
+    return urlsplit(handler.path).path != '/quarter/book'
 
 
 def page(csrf):

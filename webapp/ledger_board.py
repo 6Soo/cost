@@ -4273,6 +4273,10 @@ class Handler(BaseHTTPRequestHandler):
             board = _active_store()
             if board is not None and rule_review.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=board):
                 return
+        from . import card_flow as _quarter_flow
+        if _quarter_flow.quarter_book(self, raw, csrf=CSRF_TOKEN, board=_active_store(),
+                                      is_owner=_receipts_owner_request()):
+            return
         from . import ota_catalog
         if ota_catalog.dispatch_post(self, parsed, raw=raw, csrf=CSRF_TOKEN, board=_active_store(),
                                      is_owner=_receipts_owner_request()):

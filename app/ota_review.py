@@ -262,6 +262,14 @@ class OtaReviewStore:
                 for row in self.conn.execute(
                     "SELECT * FROM ota_review_booking_trips WHERE status='active' ORDER BY provider, booking_ref")}
 
+    def booking_trip_states(self):
+        """Every booking's current trip rule, active or revoked, keyed by (provider, booking_ref). Read only."""
+        self._open_reader()
+        if not self._has_table("ota_review_booking_trips"):
+            return {}
+        return {(row["provider"], row["booking_ref"]): self._booking_trip_row(row)
+                for row in self.conn.execute("SELECT * FROM ota_review_booking_trips")}
+
     def booking_trip_rule(self, provider, booking_ref):
         """The current rule for one booking, active or revoked, or None. Read only."""
         self._open_reader()
@@ -309,11 +317,13 @@ class OtaReviewStore:
         def write(conn):
             current = conn.execute("SELECT * FROM ota_review_booking_trips WHERE provider=? AND booking_ref=?",
                                    (str(provider), str(booking_ref))).fetchone()
-            if current is None or current["status"] != "active":
+            if current is not None and current["status"] != "active":
                 raise BookingTripError("NO_ACTIVE_RULE", "해제할 배정이 없습니다")
+            # 규칙이 없으면 기간 배정을 막는 해제 기록만 남긴다. 여행 칸은 비운다.
             return _write_booking_trip(conn, provider, booking_ref, expected_revision, user, "revoked",
-                                       current, trip_tab_id=current["trip_tab_id"],
-                                       trip_code=current["trip_code"], basis=current["basis"])
+                                       current, trip_tab_id=current["trip_tab_id"] if current else "",
+                                       trip_code=current["trip_code"] if current else "",
+                                       basis=current["basis"] if current else "기간 배정 해제")
         return self._write_booking_trips(write)
 
     def _write_booking_trips(self, write):
