@@ -196,8 +196,8 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
 .nav-hd{padding:18px 16px 14px}
-.nav-hd a.brand{display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
-.nav-hd .brand img{width:20px;height:20px;flex:0 0 auto}
+.nav-hd a.brand{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-align:center}
+.nav-hd .brand img{width:20px;height:20px;margin:0;flex:0 0 auto}
 .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
 a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}

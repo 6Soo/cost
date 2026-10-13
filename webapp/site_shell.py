@@ -60,6 +60,8 @@ STYLE = """
 #nav a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
 #nav a.brand:hover{background:#F8FAFC}
 #nav a.brand:focus-visible{outline:2px solid #2266F5;outline-offset:2px}
+#nav a.brand.brand-link{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-align:center}
+#nav a.brand.brand-link img{width:20px;height:20px;margin:0;flex:0 0 auto}
 #nav .site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
 #nav .site-links a{display:flex;align-items:center;min-height:40px;padding:8px;border-radius:6px}
 #nav a[aria-current=page]{background:#ECF5EF;border-left:2px solid #1C7A52;font-weight:600}
