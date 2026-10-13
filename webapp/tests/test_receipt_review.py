@@ -65,6 +65,7 @@ class ReceiptReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page(viewport={'width': 375, 'height': 900})
                 page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('#img-file').set_input_files(str(photo))
                 with page.expect_navigation():
                     page.locator('#img-go').click()
@@ -90,7 +91,11 @@ class ReceiptReviewTests(unittest.TestCase):
                         pg = browser.new_page(viewport={'width': width, 'height': 900})
                         pg.goto(self.base + '/receipts')
                         self.assertTrue(pg.get_by_role('link', name='장부로 돌아가기').is_visible())
-                        body = pg.inner_text('body')
+                        # The reading notes sit in the collapsed "직접 입력 / 다른 방법" group, so the text is checked in the DOM.
+                        other = pg.locator('#other-methods')
+                        self.assertEqual(other.locator('summary').inner_text(), '직접 입력 / 다른 방법')
+                        self.assertFalse(other.evaluate('el=>el.open'))
+                        body = pg.evaluate("document.querySelector('#other-methods').textContent")
                         self.assertTrue('자동 추출은 연결되지' in body or 'Windows OCR로 사진의 글자를' in body)
                         self.assertEqual(pg.locator(f'[data-category="{identity}"]').get_attribute('aria-label'), '비용 분류')
                         if width < 760:
@@ -320,6 +325,7 @@ class ReceiptReviewTests(unittest.TestCase):
                                           viewport={'width': width, 'height': height})
             page = context.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.set_input_files('#img-file', files=[{'name': 'receipt.png', 'mimeType': 'image/png',
                                                       'buffer': PNG}])
             page.click('#img-go')
@@ -370,6 +376,7 @@ class ReceiptReviewTests(unittest.TestCase):
                                           viewport={'width': 375, 'height': 812})
             page = context.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             payment = page.locator(f'[data-payment="{identity}"]')
             self.assertEqual(payment.locator('option').all_text_contents(), ['현금', '개인카드', '법인카드'])
             payment.select_option('private_card')
@@ -456,6 +463,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 390, 'height': 844})
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('[data-trip]').select_option(self.trip)
             with page.expect_response('**/api/receipts/edit') as answer:
                 page.locator('[data-edit]').click()
@@ -475,6 +483,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': 390, 'height': 844})
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('[data-image-sha]').first.click()
             self.assertEqual(page.locator('#image-sha').input_value(), first)
             page.fill('#r-merchant', 'SYN-SHOP')
@@ -496,6 +505,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = browser.new_page(viewport={'width': 390, 'height': 844})
             page.route('**/api/receipts/image', lambda route: pending.append(route))
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('#img-file').set_input_files({'name': 'synthetic.png', 'mimeType': 'image/png', 'buffer': PNG})
             with page.expect_request('**/api/receipts/image'):
                 page.locator('#img-go').click()
@@ -522,6 +532,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = context.new_page()
             page.route('**/api/receipts/tsv?*', lambda route: pending.append(route))
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.evaluate("navigator.clipboard.writeText('KEEP-CLIPBOARD')")
             with page.expect_request('**/api/receipts/tsv?*'):
                 page.click('#copy-tsv')
@@ -554,6 +565,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.evaluate("()=>{Storage.prototype.setItem=()=>{throw new DOMException('storage full','QuotaExceededError')}}")
             page.click('#copy-tsv')
             page.wait_for_function('!document.getElementById("copy-tsv").disabled')
@@ -569,6 +581,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.evaluate("navigator.clipboard.writeText('KEEP')")
             page.evaluate("()=>{Storage.prototype.getItem=()=>{throw new DOMException('blocked','SecurityError')}}")
             dialogs = []
@@ -641,6 +654,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             requests = []
             page.on('request', lambda request: requests.append(request.url)
                     if request.url.endswith('/api/receipts/confirm') else None)
@@ -669,6 +683,7 @@ class ReceiptReviewTests(unittest.TestCase):
             for selector, value in (('[data-total]', '2500'), ('[data-payee]', 'UNSAVED-PAYEE'),
                                     ('[data-category]', 'UNSAVED-CATEGORY'), ('[data-trip]', '')):
                 page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.evaluate("navigator.clipboard.writeText('KEEP')")
                 if selector == '[data-trip]':
                     page.locator(selector).select_option(value)
@@ -691,6 +706,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(permissions=['clipboard-read', 'clipboard-write']).new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('[data-total="' + other + '"]').fill('700')
             page.locator('#copy-trip').select_option(self.trip)
             page.click('#copy-tsv')
@@ -705,6 +721,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             self.request('/api/receipts/edit', {'identity': identity, 'total_jpy': 2000}, token=self.csrf())
             before = self.store.read_bytes()
             page.locator('[data-payee]').fill('OLD-PAGE-PAYEE')
@@ -722,6 +739,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             self.request('/api/receipts/confirm', {'identity': identity, 'payee': 'NEW-PAYEE',
                                                   'category': 'NEW-CATEGORY'}, token=self.csrf())
             before = self.store.read_bytes()
@@ -739,6 +757,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             pending = []
             page.route('**/api/receipts/edit', lambda route: pending.append(route))
             page.locator('[data-total]').fill('2300')
@@ -768,6 +787,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = browser.new_page()
             for operation in ('edit', 'confirm'):
                 page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 if operation == 'edit':
                     page.locator('[data-total]').fill('2400')
                 else:
@@ -802,6 +822,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator(f'[data-total="{other}"]').fill('900')
             page.locator(f'[data-payee="{other}"]').fill('UNSAVED-PAYEE')
             page.locator('#r-merchant').fill('UNSAVED-REGION')
@@ -834,6 +855,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = browser.new_page()
             for status, expected in ((401, '다시 로그인'), (500, '저장 여부를 확인')):
                 page.goto(self.base + '/receipts')
+                page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
                 page.locator('[data-total]').fill('2700')
                 def fail_response(route):
                     route.fulfill(status=status, content_type='text/html', body='<h1>PRIVATE-SERVER-DETAILS</h1>')
@@ -855,6 +877,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/receipts')
+            page.evaluate("document.getElementById('other-methods') && (document.getElementById('other-methods').open=true)")
             page.locator('[data-total]').fill('2800')
             for selector, value in (('#r-merchant', 'NEW-SHOP'),
                                     ('#r-date', '2027-08-03'), ('#r-total', '700')):

@@ -286,7 +286,14 @@ def reading_key(values: dict) -> str:
 
 
 def _recognizer(guidance, lesson=False):
-    return lambda image_path: opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+    def run(image_path):
+        result = opencode_receipt_vision.recognize_with_fallback(image_path, guidance=guidance, lesson=lesson)
+        # The reading is what Muse first gave; a later correction must not change which receipt it is.
+        for item in result.get('receipts', []):
+            item['reading'] = reading_key({'merchant': item['merchant'], 'date': item['date'], 'total': item['amount'],
+                                           'currency': item['currency'], 'payment': item['payment']})
+        return result
+    return run
 
 
 def learn_from_job(path: Path, *, image: str, job_id: str) -> dict:
@@ -878,36 +885,233 @@ def _hold_html(hold: dict) -> str:
     return '<li>' + html.escape(detail + MESSAGES.get(hold['reason'], hold['reason']) + box) + source + '</li>'
 
 
-LEARNING_SCRIPT = r"""const rescanChoices={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};
-const jobDone=async job=>{const started=Date.now();let state=job;while(state.status==='queued'||state.status==='running'){if(Date.now()-started>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');say('Muse로 다시 인식하고 있습니다. '+Math.round((Date.now()-started)/1000)+'초 경과');await new Promise(r=>setTimeout(r,2000));state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse)}return state};
-const renderNotes=async()=>{const list=document.getElementById('learn-list');if(!list)return;const body=await fetch('/api/receipts/learn',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);list.replaceChildren();const add=text=>{const li=document.createElement('li');li.textContent=text;list.append(li)};if(!body.enabled){add('학습 저장 위치가 설정되지 않았습니다.');return}if(!body.notes.length){add('저장된 학습 메모가 없습니다.');return}for(const note of body.notes){const li=document.createElement('li');li.textContent=note.text+' ';const button=document.createElement('button');button.type='button';button.textContent='삭제';button.onclick=()=>save(()=>post('/api/receipts/learn/delete',{id:note.id}),()=>renderNotes().catch(()=>{}));li.append(button);list.append(li)}};
-const renderNew=(out,receipts,sha,jobId)=>{if(!receipts.length)return;const box=document.createElement('div');for(const item of receipts){const row=document.createElement('div');row.className='rescan-row';row.dataset.reading=item.reading;row.dataset.ordinal=String(item.ordinal);row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.rescanCheck='1';const label=document.createElement('label');label.append(check,' 새 영수증으로 등록');row.append(label);for(const field of ['merchant','date','amount','currency','payment']){const choices=rescanChoices[field];const input=document.createElement(choices?'select':'input');input.dataset.rescanField=field;if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}else input.placeholder=field;input.value=item[field]??'';input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input)}box.append(row)}const submit=document.createElement('button');submit.type='button';submit.id='rescan-register';submit.textContent='선택한 새 영수증 등록';box.append(submit);submit.onclick=()=>{const regions=[...box.querySelectorAll('.rescan-row')].filter(r=>r.querySelector('[data-rescan-check]').checked).map(r=>{const v=f=>r.querySelector('[data-rescan-field='+f+']').value.trim();return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1,ordinal:Number(r.dataset.ordinal),reading:r.dataset.reading}});if(!regions.length){say('등록할 새 영수증을 선택하세요.');return}if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),result=>{const remembered=jobId?post('/api/receipts/learn',{image:sha,job_id:jobId}).then(r=>r.status==='saved').catch(()=>false):Promise.resolve(false);remembered.then(saved=>{say('새 영수증 '+result.added+'건을 등록했습니다.'+(saved?' 이 피드백은 다음 분석에 참고합니다.':'')+' 후보 새로고침을 누르세요.');renderNotes().catch(()=>{})})})};out.append(box)};
+VISION_SCRIPT = r"""const visionChoices={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};
+const selectedTrip=document.getElementById('selected-trip');
+try{const old=sessionStorage.getItem('cost-receipt-trip');if(old)selectedTrip.value=old;}catch{}
+const syncTrip=()=>{document.getElementById('copy-trip').value=selectedTrip.value};
+syncTrip();
+selectedTrip.onchange=()=>{try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};syncTrip()};
+const pendingKey='cost-receipt-pending';
+let pending=[];
+try{pending=JSON.parse(sessionStorage.getItem(pendingKey)||'[]')}catch{pending=[]}
+const storePending=()=>{try{sessionStorage.setItem(pendingKey,JSON.stringify(pending))}catch{say('분석 결과를 임시 저장하지 못했습니다. 이 화면에서 바로 등록해 주세요.')}};
+const photoNumber=sha=>{const b=document.querySelector('[data-image-sha="'+sha+'"]');return b?b.dataset.photoIndex:'?'};
+const setPhotoState=(sha,text)=>{const el=document.querySelector('[data-photo-state="'+sha+'"]');if(el)el.textContent=text};
+const fieldInput=(type,value,placeholder,label)=>{const input=document.createElement('input');input.type=type;input.value=value??'';input.placeholder=placeholder;input.setAttribute('aria-label',label);return input};
+const fieldSelect=(choices,value,label)=>{const select=document.createElement('select');select.setAttribute('aria-label',label);for(const [v,t] of choices){const option=document.createElement('option');option.value=v;option.textContent=t;select.append(option)}select.value=value||'';return select};
+const receiptCard=(group,index,receipt)=>{
+ const card=document.createElement('article');card.className='receipt-card';card.dataset.key=group.sha+'|'+index;
+ const include=document.createElement('input');include.type='checkbox';include.checked=receipt.include!==false;
+ const top=document.createElement('label');top.className='card-top';top.append(include,' 등록에 포함');
+ const merchant=fieldInput('text',receipt.merchant,'상호 (읽히지 않으면 직접 입력)','상호');
+ const amount=fieldInput('number',receipt.amount,'금액','금액');amount.inputMode='numeric';amount.className='amount-input';
+ const date=fieldInput('text',receipt.date,'날짜 2026-10-01','날짜');
+ const currency=fieldSelect(visionChoices.currency,receipt.currency,'통화');
+ const payment=fieldSelect(visionChoices.payment,receipt.payment,'결제수단');
+ const row2=document.createElement('div');row2.className='row2';row2.append(date,currency,payment);
+ const error=document.createElement('p');error.className='card-error';error.setAttribute('role','alert');
+ const remove=document.createElement('button');remove.type='button';remove.className='remove';remove.textContent='이 후보 제외';
+ remove.onclick=()=>{group.receipts=group.receipts.filter(r=>r!==receipt);if(!group.receipts.length)pending=pending.filter(g=>g!==group);storePending();renderPending()};
+ const sync=()=>{Object.assign(receipt,{include:include.checked,merchant:merchant.value.trim()||null,date:date.value.trim()||null,
+   amount:amount.value===''?null:Number(amount.value),currency:currency.value||null,payment:payment.value||null});storePending()};
+ for(const control of [include,merchant,amount,date,currency,payment]){control.addEventListener('change',sync);control.addEventListener('input',sync)}
+ card.append(top,merchant,amount,row2,error,remove);
+ return card;
+};
+const renderPending=()=>{
+ const box=document.getElementById('vision-results');if(!box)return;
+ box.replaceChildren();
+ for(const group of pending){
+  const section=document.createElement('div');section.className='result-group';
+  const head=document.createElement('h3');
+  head.textContent='사진 '+photoNumber(group.sha)+(group.kind==='rescan'?' · 다시 찾은 영수증 ':' · 분석 결과 ')+group.receipts.length+'건';
+  section.append(head);
+  group.receipts.forEach((receipt,index)=>section.append(receiptCard(group,index,receipt)));
+  box.append(section);
+ }
+ if(pending.length){const go=document.createElement('button');go.type='button';go.id='vision-register';go.className='primary';
+  go.textContent='선택한 영수증 등록';go.onclick=registerPending;box.append(go)}
+};
+const pollJob=async(state,label)=>{const t0=Date.now();
+ while(state.status==='queued'||state.status==='running'){
+  if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있어요. 잠시 후 다시 시도해 주세요.');
+  say(label+' 분석 중 · '+Math.round((Date.now()-t0)/1000)+'초 경과');
+  await new Promise(r=>setTimeout(r,2000));
+  state=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}}).then(readResponse);
+ }
+ return state};
+const jobFailure=state=>state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':
+ state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 직접 입력해 주세요.';
+const visionGo=document.getElementById('vision-go');
+if(visionGo)visionGo.onclick=async()=>{
+ if(receiptBusy)return;
+ if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}
+ const shas=[...document.querySelectorAll('.photo-check:checked')].map(c=>c.value);
+ if(!shas.length){say('분석할 사진을 체크하세요.');return}
+ receiptBusy=true;const restore=lockControls();const failed=[];let found=0;
+ try{
+  for(const [i,sha] of shas.entries()){
+   const label='사진 '+photoNumber(sha)+' ('+(i+1)+'/'+shas.length+')';
+   setPhotoState(sha,'분석 중');
+   try{
+    const state=await pollJob(await post('/api/receipts/vision',{image:sha}),label);
+    if(state.status!=='done')throw new Error(jobFailure(state));
+    const receipts=state.result.receipts.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,reading:r.reading,include:true}));
+    found+=receipts.length;
+    setPhotoState(sha,receipts.length?'후보 '+receipts.length+'건':'인식된 영수증 없음');
+    if(receipts.length){pending.push({sha,kind:'analysis',jobId:state.job_id,receipts});storePending();renderPending()}
+   }catch(error){failed.push(label+' · '+(error.message||'실패'));setPhotoState(sha,'분석 실패')}
+  }
+  say((failed.length?'분석을 마쳤습니다. 실패한 사진: '+failed.join(' / ')+' ':'분석을 마쳤습니다. ')+(found?'결과를 확인한 뒤 등록하세요.':'인식된 영수증이 없습니다. 직접 입력할 수 있습니다.'));
+ }finally{restore();receiptBusy=false}
+};
+const cardError=(group,index,message)=>{const card=document.querySelector('[data-key="'+group.sha+'|'+index+'"]');if(card)card.querySelector('.card-error').textContent=message};
+const registerPending=async()=>{
+ if(receiptBusy)return;
+ const trip=selectedTrip.value;
+ if(!trip){say('여행을 먼저 선택하세요.');return}
+ const plan=[];
+ for(const group of pending){const items=group.receipts.map((r,i)=>({r,i})).filter(({r})=>r.include!==false);
+  for(const {r,i} of items){if(!r.currency){cardError(group,i,'통화를 선택해 주세요.');say('통화를 선택한 뒤 등록해 주세요.');return}
+   if(!r.merchant&&!r.date&&r.amount==null){cardError(group,i,'상호·날짜·금액 중 하나는 입력해 주세요.');say('등록할 내용이 없는 후보가 있습니다.');return}}
+  if(items.length)plan.push({group,items})}
+ if(!plan.length){say('등록할 영수증을 하나 이상 선택하세요.');return}
+ receiptBusy=true;const restore=lockControls();let added=0;
+ try{
+  for(const {group,items} of plan){
+   say('사진 '+photoNumber(group.sha)+'의 영수증을 등록하고 있습니다.');
+   const regions=items.map(({r})=>({box:null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
+     ordinal:r.ordinal,reading:r.reading}));
+   const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions});
+   added+=result.added;
+   if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
+   group.receipts=group.receipts.filter(r=>r.include===false);
+  }
+  pending=pending.filter(g=>g.receipts.length);storePending();
+  say('영수증 '+added+'건을 등록했습니다. 후보를 새로 불러옵니다.');
+  location.reload();
+ }catch(error){pending=pending.filter(g=>g.receipts.length);storePending();renderPending();say(error.message||'등록하지 못했습니다. 다시 시도해 주세요.')}
+ finally{restore();receiptBusy=false}
+};
 const rescanGo=document.getElementById('rescan-go');
-if(rescanGo)rescanGo.onclick=async()=>{if(receiptBusy)return;const sha=document.getElementById('image-sha').value;if(!sha){say('사진을 먼저 선택해 주세요.');return}if(!selectedTrip.value){say('여행을 먼저 선택해 주세요.');return}const feedback=document.getElementById('feedback').value.trim();if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}receiptBusy=true;const restore=lockControls();const out=document.getElementById('rescan-results');out.replaceChildren();try{let state=await post('/api/receipts/vision/rescan',{image:sha,feedback});state=await jobDone(state);if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'다시 인식에 실패했습니다. 직접 추가해 주세요.');const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});renderNew(out,found.new,sha,state.job_id);const label=state.result&&state.result.label;say((label&&label!=='Muse'?'Muse 사용이 제한되어 '+label+'로 분석했습니다. ':'')+(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인 후 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.'))}catch(error){say(error.message||'다시 인식에 실패했습니다.')}finally{restore();receiptBusy=false}};
+if(rescanGo)rescanGo.onclick=async()=>{
+ if(receiptBusy)return;
+ const sha=document.getElementById('image-sha').value;
+ if(!sha){say('사진을 먼저 선택해 주세요.');return}
+ if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}
+ const feedback=document.getElementById('feedback').value.trim();
+ if(!feedback){say('빠진 점이나 잘못된 점을 적어 주세요.');return}
+ receiptBusy=true;const restore=lockControls();
+ try{
+  const state=await pollJob(await post('/api/receipts/vision/rescan',{image:sha,feedback}),'다시 인식');
+  if(state.status!=='done')throw new Error(jobFailure(state));
+  const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});
+  if(found.new.length){
+   pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,
+     currency:r.currency,payment:r.payment,reading:r.reading,ordinal:r.ordinal,include:true}))});
+   storePending();renderPending();document.getElementById('feedback').value='';
+  }
+  say(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인한 뒤 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.');
+ }catch(error){say(error.message||'다시 인식에 실패했습니다.')}
+ finally{restore();receiptBusy=false}
+};
+document.querySelectorAll('[data-image-sha]').forEach(b=>b.addEventListener('click',()=>{const t=document.getElementById('rescan-target');if(t)t.textContent='사진 '+b.dataset.photoIndex}));
+renderPending();
+"""
+
+LEARNING_SCRIPT = r"""const renderNotes=async()=>{const list=document.getElementById('learn-list');if(!list)return;const body=await fetch('/api/receipts/learn',{headers:{'X-CSRF-Token':csrf}}).then(readResponse);list.replaceChildren();const add=text=>{const li=document.createElement('li');li.textContent=text;list.append(li)};if(!body.enabled){add('학습 저장 위치가 설정되지 않았습니다.');return}if(!body.notes.length){add('저장된 학습 메모가 없습니다.');return}for(const note of body.notes){const li=document.createElement('li');li.textContent=note.text+' ';const button=document.createElement('button');button.type='button';button.textContent='삭제';button.onclick=()=>save(()=>post('/api/receipts/learn/delete',{id:note.id}),()=>renderNotes().catch(()=>{}));li.append(button);list.append(li)}};
 if(document.getElementById('learn-list'))renderNotes().catch(()=>{});
 """
 
+PAGE_CSS = r"""*{box-sizing:border-box}
+body{font-family:system-ui,sans-serif;margin:0;padding:12px 12px 80px;background:#f7f9fc;color:#182230;font-size:16px;overflow-x:hidden}
+h1{font-size:22px;margin:6px 0 10px}h2{font-size:17px;margin:0 0 8px}h3{font-size:15px;margin:6px 0}
+section,details{background:#fff;border:1px solid #e4e7ec;border-radius:10px;padding:14px;margin:12px 0;min-width:0}
+details>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:600}
+.hint{font-size:13px;color:#667085;margin:6px 0 10px}
+input,select,button,.work-back{font:inherit;max-width:100%}
+input,select{min-height:44px;padding:8px;border:1px solid #d0d5dd;border-radius:8px;background:#fff}
+input[type=checkbox]{width:22px;height:22px;min-height:22px;min-width:22px;padding:0;margin:0;accent-color:#166444}
+button,.work-back{min-height:44px;padding:10px 14px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;display:inline-flex;align-items:center}
+button.primary{background:#166444;color:#fff;border-color:#166444;width:100%;margin-top:10px}
+button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
+.work-back{color:#166444;text-decoration:none}
+#status:not(:empty){position:sticky;top:0;z-index:10;background:#eff6ff;color:#1e3a8a;padding:12px;border:1px solid #bfdbfe;border-radius:8px;font-weight:600;margin-bottom:10px}
+.photo-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:10px}
+.photo{border:1px solid #e4e7ec;border-radius:8px;padding:6px;background:#fff;display:flex;flex-direction:column;gap:4px;min-width:0}
+.photo>button{padding:0;border:0;min-height:0;width:100%;background:none}
+.photo img{width:100%;height:auto;border-radius:6px;display:block}
+.photo button[aria-pressed=true] img{outline:2px solid #166444;outline-offset:2px}
+.photo-pick{font-size:14px;display:flex;align-items:center;gap:6px;min-height:44px}
+.photo-state{font-size:12px;color:#475467}
+.result-group{border-top:1px solid #e4e7ec;padding-top:8px;margin-top:8px}
+.receipt-card{border:1px solid #d0d5dd;border-radius:10px;padding:12px;margin:8px 0;background:#fff;display:grid;gap:8px;min-width:0}
+.receipt-card input:not([type=checkbox]),.receipt-card select{width:100%;min-width:0}
+.receipt-card .amount-input{font-size:22px;font-weight:700;text-align:right}
+.receipt-card .row2{display:grid;grid-template-columns:1fr;gap:8px}
+.card-top{display:flex;align-items:center;gap:6px;min-height:44px;font-size:14px}
+.card-error{color:#b42318;font-size:14px;margin:0}
+.remove{color:#b42318;justify-self:start}
+.rescan{border-top:1px solid #e4e7ec;margin-top:12px;padding-top:10px}
+.rescan textarea{width:100%;min-height:72px;font:inherit;padding:8px;border:1px solid #d0d5dd;border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:14px;background:white}td,th{border:1px solid #e4e7ec;padding:8px;text-align:left}
+td{vertical-align:top}td label{display:block;font-size:12px;margin:6px 0}
+td input,td select{display:block;width:100%;min-width:0}
+@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}
+thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+tr{border:1px solid #e4e7ec;border-radius:8px;background:white;padding:10px;margin:0 0 12px}
+td{border:0;border-bottom:1px solid #f2f4f7;padding:8px 0}td:last-child{border:0}
+td::before{content:attr(data-label);display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+input,select,button{min-height:44px;font-size:16px}td button{width:100%}}
+@media(min-width:760px){body{margin:16px auto;max-width:960px;padding:0 16px 80px}.receipt-card .row2{grid-template-columns:1fr 1fr 1fr}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"""
 
-def _learning_html() -> str:
-    return ("<section><h2>Muse 다시 인식</h2>"
-            "<p>빠진 영수증이나 잘못된 점을 적고 다시 인식하세요. 새로 찾은 영수증만 보여 주며, 등록하면 그 피드백을 다음 분석에 참고합니다.</p>"
-            "<textarea id='feedback' rows='2' maxlength='300' style='width:100%' "
-            "placeholder='예: 6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아'></textarea>"
-            "<button type='button' id='rescan-go'>다시 인식</button>"
-            "<div id='rescan-results' aria-live='polite'></div>"
-            "<details><summary>저장된 학습 메모</summary><ul id='learn-list'></ul></details></section>")
+
+def _photo_strip(data: dict) -> str:
+    counts = {}
+    for candidate in data['candidates']:
+        if candidate.get('image_sha'):
+            counts[candidate['image_sha']] = counts.get(candidate['image_sha'], 0) + 1
+    latest = data['images'][-1] if data['images'] else None
+    shown = data['images'][-12:]
+    first = max(1, len(data['images']) - len(shown) + 1)
+    items = []
+    for index, sha in enumerate(shown, start=first):
+        count = counts.get(sha, 0)
+        state = f'후보 {count}건' if count else '분석 전'
+        checked = '' if count else ' checked'
+        pressed = 'true' if sha == latest else 'false'
+        items.append(
+            "<div class='photo'>"
+            f"<button type='button' data-image-sha='{sha}' data-photo-index='{index}' aria-pressed='{pressed}' "
+            f"aria-label='사진 {index} 선택'><img src='/api/receipts/image/{sha}' alt='사진 {index}'></button>"
+            f"<label class='photo-pick'><input type='checkbox' class='photo-check' value='{sha}'{checked}> 분석</label>"
+            f"<span class='photo-state' data-photo-state='{sha}'>{state}</span></div>")
+    return "".join(items)
+
+
+def _rescan_html(target: str) -> str:
+    return ("<div class='rescan'><h3>빠진 영수증이 있나요?</h3>"
+            "<p class='hint'>빠진 점이나 잘못된 점을 적고 다시 인식하세요. 기존 후보는 바뀌지 않고, 새로 찾은 영수증만 위에 보여 줍니다.</p>"
+            f"<p class='hint'>다시 인식할 사진: <strong id='rescan-target'>{target}</strong> (썸네일을 눌러 바꿀 수 있습니다)</p>"
+            "<textarea id='feedback' maxlength='300' placeholder='예: 6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아'></textarea>"
+            "<button type='button' id='rescan-go'>다시 인식</button></div>")
+
+
+def _notes_html() -> str:
+    return ("<details><summary>저장된 학습 메모</summary>"
+            "<p class='hint'>확인된 피드백만 자동으로 저장되며, 다음 분석에 참고됩니다.</p>"
+            "<ul id='learn-list'></ul></details>")
 
 
 def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
     trips = trips or []
     trip_options = "".join(f"<option value='{html.escape(t['id'])}'>{html.escape(t['name'])}</option>"
                             for t in trips)
-    rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 영수증 영역과 값을 입력해 주세요.</td></tr>'
+    rows = "".join(_row_html(c, trips) for c in data["candidates"]) or '<tr><td colspan="5">등록된 후보가 없습니다. 사진을 분석하거나 직접 입력하세요.</td></tr>'
     holds = ''.join(_hold_html(h) for h in data['holds']) or '<li>보류된 영수증이 없습니다.</li>'
-    images = "".join(
-        f"<button type='button' data-image-sha='{sha}' aria-pressed='{'true' if sha == data['images'][-1] else 'false'}' "
-        f"style='max-width:30%'>사진 {index} 선택<img src='/api/receipts/image/{sha}' alt='등록한 영수증 사진' style='max-width:100%'></button>"
-        for index, sha in enumerate(data['images'][-12:], start=max(1, len(data['images']) - 11)))
+    latest = data['images'][-1] if data['images'] else ''
+    ai = opencode_receipt_vision.enabled()
     script = (
         f"const csrf={json.dumps(csrf)};"
         f"const messages={json.dumps(MESSAGES)};const message=code=>messages[code]||code;"
@@ -967,14 +1171,15 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
         "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}))};"
-        "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
-        "save(()=>post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
-        "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
+        "const editBody=b=>{const id=b.dataset.edit||b.dataset.confirm;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
+        "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
+        "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
         "document.getElementById('r-currency').onchange=()=>{document.getElementById('r-total').placeholder='금액('+document.getElementById('r-currency').value+')'};"
         "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
-        "if([...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input))){"
-        "say('금액·결제수단·여행 변경은 수정 버튼으로 먼저 저장한 뒤 확정해 주세요.');return}"
-        "save(()=>post('/api/receipts/confirm',{identity:id,expected_version:b.closest('tr').dataset.version,payee:val('data-payee',id),category:val('data-category',id)}),result=>updateCandidate(b,result))});"
+        "const dirty=[...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input));"
+        "save(async()=>{let version=b.closest('tr').dataset.version;"
+        "if(dirty){const saved=await post('/api/receipts/edit',editBody(b));updateCandidate(b,saved);version=saved.version}"
+        "return post('/api/receipts/confirm',{identity:id,expected_version:version,payee:val('data-payee',id),category:val('data-category',id)})},result=>updateCandidate(b,result))});"
         "document.getElementById('copy-tsv').onclick=async()=>{if(receiptBusy)return;"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
         "const dirty=[...document.querySelectorAll('tr[data-version]')].some(row=>{const assigned=row.querySelector('[data-trip]');"
@@ -989,136 +1194,54 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}"
         "say('영수증 '+x.row_count+'행을 클립보드에 복사했습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning)}"
         "catch(error){say(error.message||'복사하지 못했습니다. 다시 시도해 주세요')}finally{restore();receiptBusy=false}};")
-    vision_script = (
-        "const selectedTrip=document.getElementById('selected-trip');"
-        "try{const old=sessionStorage.getItem('cost-receipt-trip');if(old)selectedTrip.value=old;}catch{}"
-        "if(selectedTrip.value)document.getElementById('copy-trip').value=selectedTrip.value;"
-        "selectedTrip.onchange=()=>{try{sessionStorage.setItem('cost-receipt-trip',selectedTrip.value)}catch{};"
-        "document.getElementById('copy-trip').value=selectedTrip.value;};"
-        "const visionGo=document.getElementById('vision-go');"
-        "if(visionGo)visionGo.onclick=async()=>{if(receiptBusy)return;"
-        "const sha=document.getElementById('image-sha').value;"
-        "if(!sha){say('사진을 먼저 등록하세요.');return}"
-        "if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
-        "receiptBusy=true;const restore=lockControls();say('Muse가 영수증 영역과 금액을 인식하고 있습니다.');"
-        "try{let state=await post('/api/receipts/vision',{image:sha});const t0=Date.now();"
-        "while(state.status==='queued'||state.status==='running'){"
-        "say('Muse로 분석 중입니다. '+Math.round((Date.now()-t0)/1000)+'초 경과');"
-        "if(Date.now()-t0>420000)throw new Error('인식 시간이 길어지고 있어요. 다시 분석하거나 수동으로 입력하세요.');"
-        "await new Promise(r=>setTimeout(r,2000));"
-        "const poll=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}});"
-        "const body=await poll.json();"
-        "if(!poll.ok)throw new Error(body.message||'분석 기록을 확인하지 못했습니다. 다시 분석해 주세요.');"
-        "state=body;}"
-        "if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':state.code==='VISION_ALL_MODELS_UNAVAILABLE'?'무료 AI 모델을 사용할 수 없습니다. 직접 입력해 주세요.':'Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요.');"
-        "const response=state.result;"
-        "const view=document.getElementById('vision-preview');const items=document.getElementById('vision-results');"
-        "view.replaceChildren();items.replaceChildren();"
-        "const previewImg=document.createElement('img');previewImg.src='/api/receipts/image/'+sha;"
-        "previewImg.alt='업로드한 원본 영수증 사진';previewImg.style.width='100%';view.append(previewImg);"
-        "if(!response.receipts.length){say('인식된 영수증이 없습니다. 사진을 확인하거나 직접 지출을 추가해 주세요.');return}"
-        "const visionOptions={currency:[['','통화 선택'],['JPY','엔화 JPY'],['KRW','원화 KRW']],payment:[['','결제수단 선택'],['cash','현금'],['private_card','개인카드'],['corporate_card','법인카드']]};"
-        "for(const slip of response.receipts){const row=document.createElement('div');row.className='vision-row';"
-        "row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';"
-        "const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.visionCheck='1';"
-        "const label=document.createElement('label');label.append(check,' 등록에 포함');row.append(label);"
-        "for(const field of ['merchant','date','amount','currency','payment']){const choices=visionOptions[field];"
-        "const input=document.createElement(choices?'select':'input');input.dataset.visionField=field;"
-        "if(choices){for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;input.append(option)}}"
-        "else input.placeholder=field;input.value=slip[field]??'';"
-        "input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input);}"
-        "items.append(row);}"
-        "const submit=document.createElement('button');submit.type='button';submit.id='vision-register';"
-        "submit.textContent='선택한 영수증 등록';items.append(submit);"
-        "submit.onclick=()=>{const regions=[...items.querySelectorAll('.vision-row')].filter(r=>r.querySelector('[data-vision-check]').checked).map(r=>{"
-        "const v=f=>r.querySelector('[data-vision-field='+f+']').value.trim();"
-        "return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,"
-        "total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1}});"
-        "if(!regions.length){say('등록할 영수증을 하나 이상 선택하세요.');return}"
-        "if(regions.some(r=>!r.currency)){say('통화를 선택한 뒤 등록해 주세요.');return}"
-        "save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),"
-        "result=>{say('영수증 '+result.added+'건을 등록했습니다. 후보 새로고침을 누르세요.')})};"
-        "say((response.label&&response.label!=='Muse'?'Muse 사용이 제한되어 '+response.label+'로 분석했습니다. ':'')+'영수증 '+response.receipts.length+'건을 찾았습니다. 금액·날짜를 원본과 비교한 뒤 등록하세요.');"
-        "}catch(error){say(error.message||'Muse 인식이 실패했습니다. 수동으로 입력하세요.');}"
-        "finally{restore();receiptBusy=false}};"
-        "const visionFinish=document.getElementById('vision-finish');"
-        "if(visionFinish)visionFinish.onclick=()=>location.reload();"
-        "const groupSelection=()=>[...document.querySelectorAll('[data-group-select]:checked')].map(input=>input.closest('tr'));"
-        "document.getElementById('group-go').onclick=()=>{const chosen=groupSelection();"
-        "if(chosen.length<2){say('두 장 이상 선택한 뒤 묶어 주세요.');return}"
-        "const trip=selectedTrip.value;if(!trip){say('묶을 여행을 선택하세요.');return}"
-        "const identities=chosen.map(row=>row.querySelector('[data-group-select]').dataset.groupSelect);"
-        "const versions=Object.fromEntries(chosen.map(row=>[row.querySelector('[data-group-select]').dataset.groupSelect,row.dataset.version]));"
-        "save(()=>post('/api/receipts/group',{trip_id:trip,identities,expected_versions:versions}))};"
-        "document.getElementById('ungroup-go').onclick=()=>{const chosen=groupSelection();"
-        "const ids=[...new Set(chosen.map(row=>row.dataset.groupId).filter(Boolean))];"
-        "if(ids.length!==1||!chosen.length){say('해제할 묶음에 속한 영수증 하나를 선택하세요.');return}"
-        "save(()=>post('/api/receipts/ungroup',{group_id:ids[0]}))};"
-    )
+    ocr = ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
+           "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label> "
+           f"<button type='button' id='ocr-go'>{ui_icons.icon('search')}선택한 사진 글자 읽기</button>"
+           "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
+           if local_receipt_ocr.enabled() else
+           "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>")
+    ai_section = ("<section id='step-ai'><h2>3. AI 분석</h2>"
+                  "<p class='hint'>체크한 사진을 Muse가 한 장씩 읽습니다. 원본 사진은 무료 AI 모델로 전송되며, 결과는 등록 전까지 회계에 반영되지 않습니다.</p>"
+                  "<button type='button' id='vision-go'>체크한 사진 분석</button>"
+                  "<div id='vision-results' aria-live='polite'></div>"
+                  + _rescan_html(f"사진 {len(data['images'])}" if data['images'] else "사진을 먼저 고르세요")
+                  + "</section>") if ai else ""
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-            "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 후보</title>"
-            "<style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:16px;background:#f7f9fc;color:#182230}"
-            "h1{font-size:24px}h2{font-size:18px}section{margin:16px 0;padding:16px;background:white;border:1px solid #e4e7ec;border-radius:8px}"
-            "table{border-collapse:collapse;width:100%;font-size:14px;background:white}td,th{border:1px solid #e4e7ec;padding:8px;text-align:left}"
-            "td{vertical-align:top}td label{display:block;font-size:12px;margin:6px 0}"
-            "td input,td select{display:block;width:100%;min-width:0}input,select,button{font:inherit;max-width:100%;min-height:36px}"
-            "input,select{padding:6px;border:1px solid #d0d5dd;border-radius:6px;background:white}"
-            "button,.work-back{padding:8px 12px;border:1px solid #d0d5dd;border-radius:6px;background:white;cursor:pointer}"
-            "button .ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
-            "button .ic:first-child{margin-right:6px}"
-            "@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}"
-            ".work-back{display:inline-flex;align-items:center;min-height:44px;color:#166444;text-decoration:none}"
-            "#status:not(:empty){position:sticky;top:0;z-index:10;background:#eff6ff;color:#1e3a8a;padding:12px;border:1px solid #bfdbfe;border-radius:8px;font-weight:600}"
-            "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}"
-            "thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
-            "tr{border:1px solid #e4e7ec;border-radius:8px;background:white;padding:10px;margin:0 0 12px}"
-            "td{border:0;border-bottom:1px solid #f2f4f7;padding:8px 0}td:last-child{border:0}"
-            "td::before{content:attr(data-label);display:block;font-size:13px;font-weight:600;margin-bottom:6px}"
-            "input,select,button{min-height:44px;font-size:16px}td button{width:100%}"
-            "section>input,section>select{width:100%;margin:4px 0}section{padding:12px}"
-            "#copy-trip{width:100%;margin:6px 0}#copy-tsv{width:100%}h1{font-size:22px}}"
-            "</style></head><body>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 정리</title>"
+            f"<style>{PAGE_CSS}</style></head><body>"
             f"<nav aria-label='장부 이동'><a class='work-back' href='/board'>{ui_icons.icon('chevron-left')}장부로 돌아가기</a></nav>"
-            "<h1>영수증 후보</h1><p id='status' role='status' aria-live='polite'></p>"
-            + ("<p>Windows OCR로 사진의 글자를 읽습니다. 인식값은 확정되지 않은 참고값이며 금액과 결제수단을 확인해야 합니다.</p>"
-               "<label>인식 언어<select id='ocr-language'><option value='ja'>일본어</option><option value='ko'>한국어</option></select></label>"
-                f"<button type='button' id='ocr-go'>{ui_icons.icon('search')}선택한 사진 글자 읽기</button>"
-               "<label>인식한 글자<textarea id='ocr-text' readonly style='display:block;width:100%;min-height:120px'></textarea></label>"
-               if local_receipt_ocr.enabled() else
-               "<p>자동 추출은 연결되지 않았습니다. 사진을 보면서 영수증별로 상호·날짜·통화·금액을 입력해 주세요.</p>") +
-            "<p>원화는 입력 금액 그대로 사용합니다. 일본 현금·개인카드는 JPY×10을 적용합니다. 법인카드는 카드와 대사하는 증빙이며 추가 지출로 복사하지 않습니다.</p>"
-             "<section><h2>영수증 여행 선택</h2><label>이 페이지의 모든 영수증이 속한 여행"
+            "<h1>영수증 정리</h1><p id='status' role='status' aria-live='polite'></p>"
+            "<section id='step-trip'><h2>1. 여행 선택</h2><label>이 영수증들이 속한 여행"
             "<select id='selected-trip'><option value=''>여행을 먼저 선택하세요</option>" + trip_options +
             "</select></label></section>"
-            "<section><h2>사진 등록</h2><input id='img-file' type='file' multiple accept='image/*'>"
-             f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
-            f"<input type='hidden' id='image-sha' value='{data['images'][-1] if data['images'] else ''}'>"
-            f"<p>iPhone 사진(HEIC 포함)이나 큰 사진은 업로드 전에 JPEG로 변환합니다. 글자가 선명한지 확인해 주세요. 최근 사진을 선택할 수 있습니다.</p><div>{images}</div></section>"
-            + ("<section><h2>Muse Spark AI 영수증 인식</h2>"
-               "<p>선택한 여행의 사진만 분석합니다. OpenCode Contributor Free 모델로 원본 이미지가 전송되며 "
-               "학습·개선에 이용될 수 있습니다. 후보는 확인 전까지 회계에 반영되지 않습니다.</p>"
-               "<button type='button' id='vision-go'>Muse로 영수증 자동 찾기</button>"
-               "<div id='vision-preview' style='position:relative;max-width:560px'></div>"
-               "<div id='vision-results' aria-live='polite'></div>"
-               "<button type='button' id='vision-finish'>후보 새로고침</button></section>"
-               if opencode_receipt_vision.enabled() else "")
-            + (_learning_html() if opencode_receipt_vision.enabled() else "")
-            + "<section><h2>직접 입력</h2>"
-            "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
-"<label>통화<select id='r-currency'><option value=''>통화 확인</option><option value='JPY' selected>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label>"
-            "<input id='r-total' type='number' placeholder='금액(JPY)'> "
-"<select id='r-payment'><option value=''>결제수단 확인</option><option value='cash' selected>현금</option><option value='private_card'>개인카드</option>"
-            "<option value='corporate_card'>법인카드</option></select>"
-             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></section>"
-            "<h2>후보</h2>"
+            "<section id='step-photos'><h2>2. 사진</h2>"
+            "<input id='img-file' type='file' multiple accept='image/*'> "
+            f"<button type='button' id='img-go'>{ui_icons.icon('upload')}사진 등록</button>"
+            f"<input type='hidden' id='image-sha' value='{latest}'>"
+            "<p class='hint'>iPhone 사진(HEIC 포함)이나 큰 사진은 업로드 전에 JPEG로 바꿉니다. 분석할 사진을 체크하세요.</p>"
+            f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
+            + ai_section +
+            "<section id='step-review'><h2>4. 후보 검토</h2>"
+            "<p class='hint'>상호·날짜·금액을 확인하고 수정·확정하세요. 확정한 영수증만 지출로 복사됩니다.</p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
-            f"</tr></thead><tbody>{rows}</tbody></table>"
-            "<section><h2>승선권 등 선택 묶기</h2>"
-            "<p>같은 여행·날짜·업체·결제수단의 확정된 영수증 여러 장을 선택하면 "
-            "하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
+            f"</tr></thead><tbody>{rows}</tbody></table></section>"
+            "<section><h2>5. 승선권 등 선택 묶기</h2>"
+            "<p class='hint'>같은 여행·날짜·업체·결제수단의 확정된 영수증 여러 장을 선택하면 하나의 지출 행으로 합산됩니다. 원본 증빙과 개별 금액은 보존됩니다.</p>"
             "<button id='group-go' type='button'>선택한 영수증을 한 지출로 묶기</button> "
             "<button id='ungroup-go' type='button'>선택한 묶음 해제</button></section>"
-            f"<h2>보류</h2><ul>{holds}</ul>"
-            f"<p><label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label> "
-             f"<button type='button' id='copy-tsv'>{ui_icons.icon('copy')}구글 지출 7열 복사</button></p>"
-            f"<script>{script}{vision_script}{LEARNING_SCRIPT}</script></body></html>")
+            "<section><h2>6. 구글 지출 7열 복사</h2>"
+            f"<label>복사할 여행 <select id='copy-trip'>{trip_options}</select></label>"
+            f"<button type='button' id='copy-tsv' class='primary'>{ui_icons.icon('copy')}구글 지출 7열 복사</button>"
+            f"<h3>보류</h3><ul>{holds}</ul></section>"
+            "<details id='other-methods'><summary>직접 입력 / 다른 방법</summary>"
+            + ocr +
+            "<div style='margin-top:12px'><h3>직접 입력</h3>"
+            "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
+            "<label>통화<select id='r-currency'><option value=''>통화 확인</option><option value='JPY' selected>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label> "
+            "<input id='r-total' type='number' placeholder='금액(JPY)'> "
+            "<select id='r-payment'><option value=''>결제수단 확인</option><option value='cash' selected>현금</option><option value='private_card'>개인카드</option>"
+            "<option value='corporate_card'>법인카드</option></select> "
+            f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></div>"
+            + (_notes_html() if ai else "") +
+            "</details>"
+            f"<script>{script}{VISION_SCRIPT}{LEARNING_SCRIPT}</script></body></html>")
