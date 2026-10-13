@@ -1148,6 +1148,15 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     # is every unassigned row in the whole ledger, which is not the viewer's data.
     # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
     if board.current_role() == "owner" and (not query or "미배정 지출" in query or "분류대기" in query):
+        from app import quarter_tab
+        store = board._active_store()
+        quarter_items = []
+        for number in range(1, 5):
+            tab = quarter_tab.tab_id_for(2026, number)
+            count = len(quarter_tab.pending_rows(store.conn, tab)) if store is not None else 0
+            quarter_items.append(entry(f"{number}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
+                                       count or None, tab_id == tab))
+        sections.append(("<h2 class='nav-sec'>분기 기타비용</h2>", "<ul class='nav-list'>" + "".join(quarter_items) + "</ul>"))
         sections.append(("<h2 class='nav-sec'>미배정 지출</h2>",
                          "<ul class='nav-list'>" + entry(
                              "미배정 지출",
@@ -2157,6 +2166,37 @@ def _sort_expenses_for_display(rows: list) -> list:
                                       _expense_category_rank(r.get("item"))))
 
 
+def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
+    """A quarter's cost tab: rows waiting for confirmation, the booked rows, and the one action that books the waiting rows."""
+    from app import quarter_tab
+    store = board._active_store()
+    pending = quarter_tab.pending_rows(store.conn, tab_id) if store is not None else []
+    booked = [r for r in board._expense_rows() if r.get('display_tab_id') == tab_id]
+    pending_total = sum(int(r['amount_krw'] or 0) for r in pending)
+    booked_total = sum(int(r.get('amount_krw') or 0) for r in booked)
+    note = (f"<p class='status err' role='alert'>{board.esc(error)}</p>" if error else
+            f"<p class='status' role='status'>{board.esc(message)}</p>" if message else "")
+
+    def line(day, merchant, amount):
+        return (f"<tr><td>{board.esc(day or '')}</td><td>{board.esc(merchant or '')}</td>"
+                f"<td class='num'>{int(amount or 0):,}원</td></tr>")
+    waiting = "".join(line((r.get('approval_date') or r.get('posting_date') or '')[:10], r.get('merchant'),
+                           r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>확정 대기 거래가 없습니다.</td></tr>"
+    done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
+                   for r in booked) or "<tr><td colspan='3'>확정된 기록이 없습니다.</td></tr>"
+    disabled = '' if pending and store is not None else ' disabled'
+    return ("<div class='body'>" + note +
+            "<p class='hint'>확정 대기 거래를 한 번에 확정하면 장부 기록으로 남습니다. 이미 기록된 거래는 건너뜁니다.</p>"
+            f"<p>확정 대기 {len(pending)}건 · {pending_total:,}원</p>"
+            f"<form method='post' action='/api/quarters/{board.esc(tab_id)}/confirm'>"
+            f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
+            f"<button class='btn primary' type='submit'{disabled}>이 분기 {len(pending)}건 확정</button></form>"
+            "<h3>확정 대기</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
+            f"<tbody>{waiting}</tbody></table>"
+            f"<h3>확정된 기록 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
+            f"<tbody>{done}</tbody></table></div>")
+
+
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     """The rows this tab and filter show, and the unfiltered totals beside them.
 
@@ -2202,6 +2242,12 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     """The main ledger screen in the new design."""
     if _STORE_missing():
         return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
+    from app import quarter_tab
+    if quarter_tab.parse_tab(tab_id):
+        year, quarter = quarter_tab.parse_tab(tab_id)
+        title = f"{year}년 {quarter}분기 기타비용"
+        return shell(title, tab_id=tab_id, heading=title, query=query,
+                     body=_quarter_body(tab_id, message, error))
     if tab_id == 'refunds':
         from .refund_tab import render as refund_body
         return shell('환불', tab_id='refunds', heading='환불', query=query,

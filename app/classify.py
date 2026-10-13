@@ -151,7 +151,7 @@ def _card3820_residual(transaction: dict, verdict: dict) -> dict:
     return dict(verdict, classification_state=STATE_CLASSIFIED, classification_source='owner_card_residual',
                 classification_basis='사용자 규칙: 기존 대사 후 남은 카드 3820 거래를 분기 기타비용으로 분류',
                 item='분기 기타비용', description=f'{day.year}년 {quarter}분기 기타비용',
-                display_tab_id='unclassified', trip_id='', rule_id='owner-card3820-residual-20261012')
+                display_tab_id=f'quarter:{day.year}:{quarter}', trip_id='', rule_id='owner-card3820-residual-20261012')
 
 
 def _classify_transaction(transaction: dict, *, rules: list,
