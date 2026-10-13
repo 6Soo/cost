@@ -1059,7 +1059,7 @@ def _quarter_of(trip):
 
 
 def _quarter_groups(trips):
-    """Always the 1st and 2nd quarter of the current year, plus any other quarter a trip falls in."""
+    """The quarters the previous trips fall in, plus the 1st and 2nd quarter of the current year."""
     found = {_quarter_of(t) for t in trips} - {None}
     return sorted(found | {(_CURRENT_YEAR, 1), (_CURRENT_YEAR, 2)})
 
@@ -1147,16 +1147,6 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     # control is not drawn for a viewer rather than drawn and refused. Its count
     # is every unassigned row in the whole ledger, which is not the viewer's data.
     # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
-    if board.current_role() == "owner" and (not query or "미배정 지출" in query or "분류대기" in query):
-        from app import quarter_tab
-        store = board._active_store()
-        quarter_items = []
-        for number in range(1, 5):
-            tab = quarter_tab.tab_id_for(2026, number)
-            count = len(quarter_tab.pending_rows(store.conn, tab)) if store is not None else 0
-            quarter_items.append(entry(f"{number}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
-                                       count or None, tab_id == tab))
-        sections.append(("<h2 class='nav-sec'>분기 기타비용</h2>", "<ul class='nav-list'>" + "".join(quarter_items) + "</ul>"))
         sections.append(("<h2 class='nav-sec'>미배정 지출</h2>",
                          "<ul class='nav-list'>" + entry(
                              "미배정 지출",
@@ -1204,17 +1194,30 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     previous = ""
     matching_previous = [t for t in previous_rows
                          if not query or query in (t["display_key"] + t["destination"])]
-    if matching_previous:
+    from app import quarter_tab
+    show_quarters = board.current_role() == "owner"
+    if matching_previous or show_quarters:
         # Default collapsed: the server never auto-opens for a selected trip or
         # a search. The user expands with one click (native details/summary).
         # Each quarter opens with the list, and focus moves into a group the
         # user has just opened, only after that user action.
+        store = board._active_store()
+        quarters = _quarter_groups(matching_previous)
+        if show_quarters:
+            quarters = sorted(set(quarters) | {(_CURRENT_YEAR, n) for n in range(1, 5)})
         groups = []
-        for year, quarter in _quarter_groups(matching_previous):
+        for year, quarter in quarters:
             members = [t for t in matching_previous if _quarter_of(t) == (year, quarter)]
             label = f"{quarter}분기" if year == _CURRENT_YEAR else f"{year}년 {quarter}분기"
-            body = ('<ul class="nav-list">' + ''.join(trip_entry(t) for t in members) + '</ul>'
-                    if members else "<p class='nav-sec'>여행 없음</p>")
+            cost = ""
+            if show_quarters and year == _CURRENT_YEAR:
+                tab = quarter_tab.tab_id_for(year, quarter)
+                count = len(quarter_tab.pending_rows(store.conn, tab)) if store is not None else 0
+                cost = entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
+                             count or None, tab_id == tab)
+            rows = cost + ''.join(trip_entry(t) for t in members)
+            body = ('<ul class="nav-list">' + rows + '</ul>' if rows
+                    else "<p class='nav-sec'>여행 없음</p>")
             groups.append(
                 "<details class='prev-q' open>"
                 f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span>"
