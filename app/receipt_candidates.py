@@ -29,6 +29,7 @@ class Region:
     confidence: float
     ordinal: int = 0  # k-th identical reading on the same page, so identical tickets stay separate
     reading: str | None = None  # the reading as the model first gave it; edits never change it
+    category: str | None = None  # the cost item the reading suggests, from the existing category rules
 
 
 def _overlap(a: tuple, b: tuple) -> float:

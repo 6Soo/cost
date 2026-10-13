@@ -230,12 +230,13 @@ def test_identical_tickets_are_separate_and_only_the_missing_copy_is_offered(tmp
     assert len(rr.load(path)['candidates']) == 2
 
 
-def test_new_candidates_stay_unconfirmed_until_a_person_confirms(tmp_path):
+def test_a_recognised_receipt_takes_its_merchant_as_payee_and_needs_an_item_only_when_none_is_suggested(tmp_path):
     path = tmp_path / 'receipts.json'
     rr._save(path, {'images': [SHA], 'candidates': [], 'holds': []})
     rr.scan(path, {'image': SHA, 'regions': [reading('SHOP', '2026-10-01', 820)]})
-    assert all('payee' not in c or c.get('payee') is None for c in rr.load(path)['candidates'])
-    assert all(c.get('category') is None for c in rr.load(path)['candidates'])
+    candidate, = rr.load(path)['candidates']
+    assert candidate['payee'] == 'SHOP' and candidate['category'] is None
+    assert candidate['hold'] is None
 
 
 def test_the_learning_routes_are_owner_routes(monkeypatch):

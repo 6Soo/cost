@@ -8,6 +8,7 @@ import re
 import sqlite3
 
 from . import quarter_costs
+from . import auto_record_policy
 from .db import utc_now
 from .ledger import _already_booked
 
@@ -30,15 +31,16 @@ def parse_tab(tab: str):
     return int(match.group(1)), int(match.group(2))
 
 
-def pending_rows(conn, tab: str) -> list[dict]:
-    """Assigned to the tab, not yet confirmed, not a duplicate."""
+def pending_rows(conn, tab: str, batch_id: str | None = None) -> list[dict]:
+    """Assigned to the tab, not yet recorded, not a duplicate. With a batch, only that batch's rows."""
+    scope = " AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)" if batch_id else ""
+    args = (ITEM, tab, batch_id) if batch_id else (ITEM, tab)
     try:
         rows = conn.execute(
             "SELECT transaction_id, batch_id, source_hash, merchant, approval_date, posting_date, amount_krw, "
             "transaction_direction, card_tail FROM transactions "
-            "WHERE item=? AND display_tab_id=? AND user_confirmed=0 AND COALESCE(duplicate_of,'')='' "
-            "ORDER BY COALESCE(NULLIF(approval_date,''),posting_date), transaction_id",
-            (ITEM, tab)).fetchall()
+            "WHERE item=? AND display_tab_id=? AND user_confirmed=0 AND COALESCE(duplicate_of,'')=''" + scope +
+            " ORDER BY COALESCE(NULLIF(approval_date,''),posting_date), transaction_id", args).fetchall()
     except sqlite3.OperationalError:
         return []  # no card tables yet: nothing is waiting on any quarter tab
     keys = ['transaction_id', 'batch_id', 'source_hash', 'merchant', 'approval_date', 'posting_date',
@@ -65,8 +67,19 @@ def assign_unassigned(conn) -> dict:
     return placed
 
 
-def confirm_tab(store, tab: str) -> dict:
-    """Books every confirmable row of the tab in one transaction and returns the counts."""
+def book_batch(store, batch_id: str) -> int:
+    """Records the quarter-cost rows of one newly collected batch. Older batches are never touched."""
+    if not auto_record_policy.batch_is_new(store.conn, batch_id):
+        return 0
+    tabs = [r[0] for r in store.conn.execute(
+        "SELECT DISTINCT display_tab_id FROM transactions WHERE item=? AND user_confirmed=0 "
+        "AND display_tab_id LIKE 'quarter:%' AND transaction_id IN "
+        "(SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)", (ITEM, batch_id)).fetchall()]
+    return sum(confirm_tab(store, tab, batch_id=batch_id)['booked'] for tab in tabs if parse_tab(tab))
+
+
+def confirm_tab(store, tab: str, batch_id: str | None = None) -> dict:
+    """Records the tab's rows in one transaction and returns the counts. Already recorded rows are skipped."""
     if parse_tab(tab) is None:
         raise QuarterError('QUARTER_TAB_INVALID')
     booked, skipped = [], []
@@ -74,7 +87,7 @@ def confirm_tab(store, tab: str) -> dict:
     with store.lock:
         store.conn.execute('BEGIN IMMEDIATE')
         try:
-            for row in pending_rows(store.conn, tab):
+            for row in pending_rows(store.conn, tab, batch_id):
                 transaction_id = row['transaction_id']
                 amount = row['amount_krw']
                 undated = not (row['approval_date'] or row['posting_date'])

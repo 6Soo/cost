@@ -1212,7 +1212,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
             cost = ""
             if show_quarters and year == _CURRENT_YEAR:
                 tab = quarter_tab.tab_id_for(year, quarter)
-                count = len(quarter_tab.pending_rows(store.conn, tab)) if store is not None else 0
+                count = 0  # nothing waits for a person on a quarter tab
                 cost = entry(f"{quarter}분기 기타비용", "/board?" + state_query(tab, query, kind, archived),
                              count or None, tab_id == tab)
             rows = cost + ''.join(trip_entry(t) for t in members)
@@ -2187,17 +2187,13 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
                            r.get('amount_krw')) for r in pending) or "<tr><td colspan='3'>확정 대기 거래가 없습니다.</td></tr>"
     done = "".join(line(str(r.get('occurred_on') or '')[:10], r.get('merchant'), r.get('amount_krw'))
                    for r in booked) or "<tr><td colspan='3'>확정된 기록이 없습니다.</td></tr>"
-    disabled = '' if pending and store is not None else ' disabled'
     return ("<div class='body'>" + note +
-            "<p class='hint'>확정 대기 거래를 한 번에 확정하면 장부 기록으로 남습니다. 이미 기록된 거래는 건너뜁니다.</p>"
-            f"<p>확정 대기 {len(pending)}건 · {pending_total:,}원</p>"
-            f"<form method='post' action='/api/quarters/{board.esc(tab_id)}/confirm'>"
-            f"<input type='hidden' name='csrf' value='{board.CSRF_TOKEN}'>"
-            f"<button class='btn primary' type='submit'{disabled}>이 분기 {len(pending)}건 확정</button></form>"
-            "<h3>확정 대기</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
-            f"<tbody>{waiting}</tbody></table>"
-            f"<h3>확정된 기록 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
-            f"<tbody>{done}</tbody></table></div>")
+            "<p class='hint'>새로 수집된 정상 거래는 자동으로 기록됩니다. 잘못 옮겨진 거래만 여행이나 항목을 바꾸세요.</p>"
+            f"<h3>기록된 거래 {len(booked)}건 · {booked_total:,}원</h3><table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead>"
+            f"<tbody>{done}</tbody></table>"
+            f"<h3>기록 전 기존 거래 {len(pending)}건 · {pending_total:,}원</h3>"
+            "<p class='hint'>자동 기록 시작 이전의 거래입니다. 자동으로 기록하지 않으며, 필요하면 여행이나 항목을 직접 바꾸세요.</p>"
+            f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
 
 
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):

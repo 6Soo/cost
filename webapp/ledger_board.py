@@ -4389,9 +4389,6 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "rows" and parts[3] == "revert":
                 self._handle_revert(parts[2], read_payload, check_csrf, content_type)
                 return
-            if len(parts) == 4 and parts[0] == "api" and parts[1] == "quarters" and parts[3] == "confirm":
-                self._handle_quarter_confirm(parts[2], read_payload, check_csrf)
-                return
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "income" and parts[3] == "allocations":
                 self._handle_allocations(parts[2], read_payload, check_csrf, content_type)
                 return
@@ -4920,24 +4917,6 @@ class Handler(BaseHTTPRequestHandler):
                             code=STATUS_FOR_CODE.get(exc.code, 422))
             return
         self._send_json(result, code=200)
-
-    def _handle_quarter_confirm(self, tab_id, read_payload, check_csrf) -> None:
-        """Books the quarter tab's confirmable rows at once, then returns to that tab."""
-        from urllib.parse import urlencode
-        from app import quarter_tab
-        from .ledger_store import SaveError
-
-        try:
-            check_csrf(read_payload())
-            if _active_store() is None:
-                raise SaveError("RECEIPT_STORE_UNAVAILABLE", "장부 저장소를 확인하지 못했어요")
-            result = quarter_tab.confirm_tab(_active_store(), tab_id)
-            message = f"{result['booked']}건을 확정했습니다. 이미 기록된 {result['skipped']}건은 건너뛰었습니다."
-        except (SaveError, quarter_tab.QuarterError) as exc:
-            message = str(exc) or "확정하지 못했어요"
-        self.send_response(303)
-        self.send_header("Location", "/board?" + urlencode({"tab": tab_id, "msg": message}))
-        self.end_headers()
 
     def _handle_revert(self, row_id, read_payload, check_csrf, content_type) -> None:
         from .ledger_store import SaveError

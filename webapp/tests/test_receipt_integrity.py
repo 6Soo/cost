@@ -51,15 +51,15 @@ def test_invalid_edit_preserves_file_and_confirmation(tmp_path, changes):
     assert path.read_bytes() == before
 
 
-def test_amount_edit_requires_confirmation_again(tmp_path):
+def test_amount_edit_is_exported_at_once_without_a_second_confirmation(tmp_path):
     path = tmp_path / 'receipts.json'
-    rr.scan(path, {'regions': [region()]})
+    rr.scan(path, {'regions': [{**region(), 'category': '식비'}]})
     identity = rr.load(path)['candidates'][0]['identity']
     rr.edit(path, identity=identity, changes={'trip_id': 'trip-syn'}, valid_trips={'trip-syn'})
-    rr.confirm(path, identity=identity, payee='SYN-SHOP', category='식비')
     assert rr.tsv(path, 'trip-syn')['row_count'] == 1
     rr.edit(path, identity=identity, changes={'total_jpy': 1300})
-    assert rr.tsv(path, 'trip-syn')['row_count'] == 0
+    result = rr.tsv(path, 'trip-syn')
+    assert result['row_count'] == 1 and '1300' in result['tsv']
 
 
 def test_cash_receipt_with_card_evidence_is_held_instead_of_counted_twice(tmp_path, monkeypatch):

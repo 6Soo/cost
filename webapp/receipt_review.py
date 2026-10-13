@@ -276,7 +276,8 @@ def _regions(payload: dict) -> list[rc.Region]:
         regions.append(rc.Region(page_id=page_id, box=tuple(r['box']) if r.get('box') is not None else None,
                                  merchant=r.get("merchant"), date=r.get("date"),
                                  currency=r.get("currency", "JPY"), total=r.get("total"), payment=r.get("payment"),
-                                 confidence=float(r.get("confidence", 1.0)), ordinal=ordinal, reading=reading))
+                                 confidence=float(r.get("confidence", 1.0)), ordinal=ordinal, reading=reading,
+                                 category=r.get("category") or None))
     return regions
 
 
@@ -397,6 +398,8 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
         region = next(r for r in regions if rc._identity(r) == candidate.identity)
         stored = {**candidate.__dict__, "history": [], "hold": None, 'box': _box_list(region.box)}
         stored['reading'] = region.reading
+        stored['payee'] = region.merchant or None
+        stored['category'] = region.category
         if requested_trip is not None:
             stored['trip_id'] = requested_trip
         _settle(stored, cards)
@@ -525,7 +528,7 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
             return stored
         _check_candidate_version(stored, expected_version)
         total_field = 'total_original' if stored.get('currency') == 'KRW' else 'total_jpy'
-        allowed = {"merchant", "date", total_field, "payment", "trip_id"}
+        allowed = {"merchant", "date", total_field, "payment", "trip_id", "payee", "category"}
         unknown = set(changes) - allowed
         if unknown:
             raise ValueError("FIELD_NOT_EDITABLE")
@@ -551,8 +554,9 @@ def edit(path: Path, *, identity: str, changes: dict, note: str = "", valid_trip
         if any(_same_physical_receipt(c, stored) for c in others):
             raise ValueError("DUPLICATE_CONTENT")
         _settle(stored, card_rows_list or [])
+        if ("merchant" in changes and before.get("merchant") == stored.get("payee") and not ("payee" in changes)):
+            stored["payee"] = stored["merchant"]
         if any(before[k] != stored.get(k) for k in changes):
-            stored["payee"], stored["category"] = None, None
             stored.setdefault("history", []).append({"edit": before, "to": changes, "note": note,
                                                      "operation": "edit", "request_version": expected_version})
         _save(path, data)
@@ -865,10 +869,10 @@ def _row_html(candidate: dict, trips: list) -> str:
         + "".join(f"<option value='{p}'{' selected' if p == candidate['payment'] else ''}>{PAYMENT_LABELS[p]}</option>" for p in PAYMENTS)
         + "</select></label>"
         f"<button type='button' data-edit='{identity}'>{ui_icons.icon('pencil')}수정</button></td>"
-        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('확정됨' if confirmed else '사람 확인 필요'))}</td>"
-        f"<td data-label='확정'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
+        f"<td data-label='원화' data-amount>{amount}</td><td data-label='상태' data-state>{html.escape(MESSAGES.get(candidate.get('hold'), candidate.get('hold')) or ('분류됨' if confirmed else '분류 확인 필요'))}</td>"
+        f"<td data-label='분류'><label>지급처<input data-payee='{identity}' aria-label='지급처' value='{html.escape(candidate.get('payee') or '')}' placeholder='지급처'></label>"
         f"<label>비용 분류<input data-category='{identity}' aria-label='비용 분류' value='{html.escape(candidate.get('category') or '')}' placeholder='식비·숙박비 등'></label>"
-        f"<button type='button' data-confirm='{identity}'>{ui_icons.icon('check')}확정</button></td></tr>")
+        "</td></tr>")
 
 
 def _hold_html(hold: dict) -> str:
@@ -956,7 +960,7 @@ if(visionGo)visionGo.onclick=async()=>{
    try{
     const state=await pollJob(await post('/api/receipts/vision',{image:sha}),label);
     if(state.status!=='done')throw new Error(jobFailure(state));
-    const receipts=state.result.receipts.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,reading:r.reading,include:true}));
+    const receipts=state.result.receipts.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,include:true}));
     found+=receipts.length;
     setPhotoState(sha,receipts.length?'후보 '+receipts.length+'건':'인식된 영수증 없음');
     if(receipts.length){pending.push({sha,kind:'analysis',jobId:state.job_id,receipts});storePending();renderPending()}
@@ -981,7 +985,7 @@ const registerPending=async()=>{
   for(const {group,items} of plan){
    say('사진 '+photoNumber(group.sha)+'의 영수증을 등록하고 있습니다.');
    const regions=items.map(({r})=>({box:null,merchant:r.merchant,date:r.date,currency:r.currency,total:r.amount,payment:r.payment,confidence:1,
-     ordinal:r.ordinal,reading:r.reading}));
+     ordinal:r.ordinal,reading:r.reading,category:r.category}));
    const result=await post('/api/receipts/scan',{image:group.sha,trip_id:trip,regions});
    added+=result.added;
    if(group.kind==='rescan'&&group.jobId){try{await post('/api/receipts/learn',{image:group.sha,job_id:group.jobId})}catch{}}
@@ -1008,7 +1012,7 @@ if(rescanGo)rescanGo.onclick=async()=>{
   const found=await post('/api/receipts/vision/new',{image:sha,job_id:state.job_id});
   if(found.new.length){
    pending.push({sha,kind:'rescan',jobId:state.job_id,receipts:found.new.map(r=>({merchant:r.merchant,date:r.date,amount:r.amount,
-     currency:r.currency,payment:r.payment,reading:r.reading,ordinal:r.ordinal,include:true}))});
+     currency:r.currency,payment:r.payment,category:r.category_hint,reading:r.reading,ordinal:r.ordinal,include:true}))});
    storePending();renderPending();document.getElementById('feedback').value='';
   }
   say(found.new.length?'새 후보 '+found.new.length+'건을 찾았습니다. 확인한 뒤 등록하세요.':'새로 찾은 영수증이 없습니다. 메모는 저장하지 않았습니다.');
@@ -1136,7 +1140,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "['payment','payment'],['payee','payee'],['category','category']]){const input=row.querySelector('[data-'+field+']');"
         "input.value=(field==='total'&&result.currency==='KRW'?result.total_original:result[key])??'';originalValues.set(input,input.value)}"
         "row.querySelector('[data-amount]').textContent=result.amount_krw==null?'':result.amount_krw.toLocaleString('ko-KR')+'원';"
-        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'확정됨':'사람 확인 필요');"
+        "row.querySelector('[data-state]').textContent=result.hold?message(result.hold):(result.payee&&result.category?'분류됨':'분류 확인 필요');"
         "say('영수증 변경을 저장했습니다.')};"
         "const save=async(action,onSaved)=>{if(receiptBusy)return;"
         "if(!onSaved&&[...document.querySelectorAll(reviewFields)].some(input=>input.value!==originalValues.get(input))){"
@@ -1171,15 +1175,10 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
         "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}))};"
-        "const editBody=b=>{const id=b.dataset.edit||b.dataset.confirm;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
+        "const editBody=b=>{const id=b.dataset.edit;return {identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),payee:val('data-payee',id),category:val('data-category',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>save(()=>post('/api/receipts/edit',editBody(b)),result=>updateCandidate(b,result)));"
         "document.getElementById('r-currency').onchange=()=>{document.getElementById('r-total').placeholder='금액('+document.getElementById('r-currency').value+')'};"
-        "document.querySelectorAll('[data-confirm]').forEach(b=>b.onclick=()=>{const id=b.dataset.confirm;"
-        "const dirty=[...b.closest('tr').querySelectorAll(editableFields)].some(input=>input.value!==originalValues.get(input));"
-        "save(async()=>{let version=b.closest('tr').dataset.version;"
-        "if(dirty){const saved=await post('/api/receipts/edit',editBody(b));updateCandidate(b,saved);version=saved.version}"
-        "return post('/api/receipts/confirm',{identity:id,expected_version:version,payee:val('data-payee',id),category:val('data-category',id)})},result=>updateCandidate(b,result))});"
         "document.getElementById('copy-tsv').onclick=async()=>{if(receiptBusy)return;"
         "const selection=document.getElementById('copy-trip');const trip=selection.value;if(!trip){say('복사할 여행을 고르세요');return}"
         "const dirty=[...document.querySelectorAll('tr[data-version]')].some(row=>{const assigned=row.querySelector('[data-trip]');"

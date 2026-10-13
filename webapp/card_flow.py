@@ -982,9 +982,14 @@ class CardFlow:
             return self._auto_record_locked(batch_id)
 
     def _auto_record_locked(self, batch_id):
-        from .history_policy import cutoff
+        from app import auto_record_policy, quarter_tab
+        # Only batches collected after activation are recorded. Older rows keep their recorded state.
+        if not auto_record_policy.batch_is_new(self.pipeline.store.conn, batch_id):
+            state = self.state(batch_id)
+            state['auto_recorded'] = 0
+            return state
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
-                       review_from=cutoff() or None, entry_metadata=self.preview_metadata(),
+                       review_from=None, entry_metadata=self.preview_metadata(),
                        additional_holds=self.automatic_holds(batch_id))
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
@@ -994,6 +999,7 @@ class CardFlow:
                 'auto-record:' + batch_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
+        applied += quarter_tab.book_batch(self.pipeline.store, batch_id)
         state = self.state(batch_id)
         state['auto_recorded'] = applied
         return state

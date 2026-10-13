@@ -15,6 +15,8 @@ def flow(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     monkeypatch.setenv('WEBLEDGER_CARD_FLOW', '1')
     monkeypatch.setenv('WEBLEDGER_REVIEW_FROM', '2026-04-01')
+    # Every batch in these tests is collected now, so it counts as new collection.
+    monkeypatch.setenv('WEBLEDGER_AUTO_RECORD_SINCE', '2000-01-01T00:00:00+00:00')
     board = LedgerStore(tmp_path/'ux.sqlite', seed_demo=False)
     previous = ledger_board._STORE
     ledger_board.bind_store(board)

@@ -56,3 +56,22 @@ def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_confirmed_onc
 def test_an_invalid_tab_is_refused():
     with pytest.raises(quarter_tab.QuarterError):
         quarter_tab.confirm_tab(FakeStore(), 'quarter:2026:9')
+
+
+def test_only_a_batch_collected_after_activation_is_recorded_and_older_rows_wait(monkeypatch):
+    store = FakeStore()
+    store.conn.executescript("""
+        CREATE TABLE import_batches(batch_id TEXT PRIMARY KEY, received_at TEXT);
+        CREATE TABLE import_batch_rows(batch_id TEXT, transaction_id TEXT);
+        INSERT INTO import_batches VALUES ('old', '2026-10-09T14:00:00+00:00'), ('new', '2026-10-14T01:00:00+00:00');
+    """)
+    add(store, 'legacy', '2026-09-02', 5000)
+    add(store, 'fresh', '2026-10-14', 7000)
+    store.conn.executemany("INSERT INTO import_batch_rows VALUES (?,?)", [('old', 'legacy'), ('new', 'fresh')])
+    quarter_tab.assign_unassigned(store.conn)
+    monkeypatch.setenv('WEBLEDGER_AUTO_RECORD_SINCE', '2026-10-13T15:00:00+00:00')
+    assert quarter_tab.book_batch(store, 'old') == 0
+    assert quarter_tab.book_batch(store, 'new') == 1
+    booked = store.conn.execute("SELECT transaction_id FROM ledger_entries").fetchall()
+    assert booked == [('fresh',)]
+    assert store.conn.execute("SELECT user_confirmed FROM transactions WHERE transaction_id='legacy'").fetchone()[0] == 0
