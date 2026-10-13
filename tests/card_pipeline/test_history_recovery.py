@@ -437,3 +437,17 @@ def test_an_owner_inference_is_not_applied_when_the_payment_is_more_than_30_days
     assert result['classification_state']=='needs_review' and not result['trip_id']
     near=dict(early,approval_date='2026-11-25')
     assert classify_transaction(near,rules=[rule],trip_resolver=flow().retail_trip)['trip_id']=='future'
+
+
+def test_a_stay_period_assignment_wins_over_the_payment_lead_rule():
+    from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    row=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-09-01',amount_krw=50000)
+    stay=normalize_rule({'conditions':{'merchant_normalized':'TRIP.COM'},
+                         'optional':{'source_hash':'a'*64,'booking_period':{
+                             'starts_on':'2026-12-01','ends_on':'2026-12-02',
+                             'target_code':'1201_도쿄','source_sha256':'c'*64}},
+                         'effects':{'item':'숙박비'}})
+    inference=inference_rule(target='future')
+    inference['origin']=OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    result=classify_transaction(row,rules=[stay,inference],trip_resolver=flow().retail_trip)
+    assert result['trip_id']=='future' and result['classification_source']=='rule'
