@@ -973,10 +973,6 @@ def work_menu_html() -> str:
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
     else:
         actions += action('receipt', '영수증 처리 · 설정 필요', '비공개 저장 위치를 연결하면 수동 입력을 사용할 수 있어요')
-    if google_ledger_page.enabled():
-        actions += action('table', '확정 장부', '여행별 수입·지출 · 동기화 상태 확인', '/google-ledger')
-    else:
-        actions += action('table', '확정 장부 · 미연결', '읽기 전용 동기화를 연결해야 최종 금액을 확인할 수 있어요')
     return ("<section class='work-menu' id='work-menu' aria-label='지금 할 업무'>"
             f"<h2>지금 할 업무</h2><nav class='work-actions'>{actions}</nav></section>")
 
@@ -990,7 +986,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     """
     from . import ui_icons as _icons
     if board.current_role() == 'owner':
-        from . import google_ledger_page, receipt_review
+        from . import receipt_review
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>카드 검토</span></a>"
@@ -999,9 +995,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
                         "<span class='nm'>영수증 처리</span></a>")
-        if google_ledger_page.enabled():
-            primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
-                        "<span class='nm'>확정 장부</span></a>")
         primary += ("</nav><h2 class='nav-sec'>관리</h2>"
                     "<nav class='site-links' aria-label='관리 메뉴'>"
                     f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
@@ -1009,12 +1002,8 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
                     f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
                     "</nav>")
     else:
-        from . import google_ledger_page
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
-        if google_ledger_page.enabled():
-            primary += (f"<a href='/google-ledger'>{_icons.icon('table', 18)}"
-                        "<span class='nm'>확정 장부</span></a>")
         primary += '</nav>'
     search = (
         "<form class='nav-q' method='get' action='/board'>"
