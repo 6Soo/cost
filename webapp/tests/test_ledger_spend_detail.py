@@ -1,0 +1,146 @@
+"""Expense text for lodging and flights: stay dates and passenger names, shown only from evidence.
+
+Every name and date here is synthetic.
+"""
+from copy import deepcopy
+
+from app import flight_evidence
+from app.google_tsv import expense_tsv
+from webapp import ledger_design as design
+from webapp import ota_payment_review
+from webapp.read_scope import scoped
+
+
+def row(row_id, item, **values):
+    base = dict(row_id=row_id, row_kind='expense', item=item, occurred_on='2026-10-01',
+                amount_krw=1200, description=item, source_merchant='Synthetic merchant',
+                reservation_no='', service_period='', operator_note='Preserved note')
+    base.update(values)
+    return base
+
+
+def sub(values, passengers=None):
+    """The party sub-line for one row, with a passenger index installed for the render."""
+    index = passengers or {}
+    original = design._load_flight_passengers
+    design._load_flight_passengers = lambda: index
+    try:
+        return design._row_party_sub(values)
+    finally:
+        design._load_flight_passengers = original
+
+
+class TestLodgingText:
+    def test_a_confirmed_stay_shows_check_in_and_check_out_not_the_reservation(self):
+        text = sub(row('stay', '숙박비', reservation_no='664206015', service_period='2026-10-14~2026-10-16'))
+        assert text == '10/14 체크인 ~ 10/16 체크아웃'
+        assert '664206015' not in text
+
+    def test_a_stay_that_crosses_a_year_shows_the_years(self):
+        text = sub(row('stay', '숙박비', service_period='2026-12-30~2027-01-02'))
+        assert text == '2026/12/30 체크인 ~ 2027/01/02 체크아웃'
+
+    def test_a_stay_without_a_period_is_unknown_even_with_a_reservation_number(self):
+        text = sub(row('stay', '숙박비', reservation_no='664206015', service_period=''))
+        assert text == '이용일 확인 필요'
+
+    def test_a_reversed_or_implausibly_long_period_is_unknown(self):
+        assert sub(row('a', '숙박비', service_period='2026-10-16~2026-10-14')) == '이용일 확인 필요'
+        assert sub(row('b', '숙박비', service_period='2026-01-01~2026-12-31')) == '이용일 확인 필요'
+
+    def test_an_invalid_calendar_date_is_unknown(self):
+        assert sub(row('c', '숙박비', service_period='2026-02-30~2026-03-02')) == '이용일 확인 필요'
+
+    def test_the_card_date_is_never_used_as_the_stay(self):
+        text = sub(row('d', '숙박비', occurred_on='2026-10-20', service_period=''))
+        assert '10/20' not in text and text == '이용일 확인 필요'
+
+    def test_a_typed_description_is_kept_verbatim_beside_the_stay(self):
+        text = sub(row('e', '숙박비', description='팀 숙소 2박', service_period='2026-10-14~2026-10-16'))
+        assert text == '10/14 체크인 ~ 10/16 체크아웃 · 팀 숙소 2박'
+
+
+class TestFlightText:
+    def test_one_passenger_is_named(self):
+        index = {'1400827192926537': {'names': ['KIM ALPHA'], 'conflict': False}}
+        assert sub(row('f1', '항공료', reservation_no='1400827192926537'), index) == '탑승자: KIM ALPHA'
+
+    def test_several_passengers_show_the_first_and_the_count(self):
+        index = {'R-9': {'names': ['KIM ALPHA', 'LEE BETA', 'PARK GAMMA'], 'conflict': False}}
+        assert sub(row('f2', '항공료', reservation_no='R-9'), index) == '탑승자: KIM ALPHA 외 2명'
+
+    def test_no_evidence_or_a_conflict_is_unknown_not_guessed(self):
+        assert sub(row('f3', '항공료', reservation_no='R-X'), {}) == '탑승자 확인 필요'
+        index = {'R-Y': {'names': ['KIM ALPHA'], 'conflict': True}}
+        assert sub(row('f4', '항공료', reservation_no='R-Y'), index) == '탑승자 확인 필요'
+
+    def test_the_payer_name_is_never_used_as_a_passenger(self):
+        """Only the names in the index appear; a card holder or booker has no place in it."""
+        index = {'R-Z': {'names': ['KIM ALPHA'], 'conflict': False}}
+        text = sub(row('f5', '항공료', reservation_no='R-Z', source_merchant='LEE BETA 결제'), index)
+        assert text == '탑승자: KIM ALPHA'
+        assert 'LEE BETA' not in text
+
+    def test_a_typed_flight_note_is_kept_and_a_bare_category_is_not_repeated(self):
+        index = {'R-Q': {'names': ['KIM ALPHA'], 'conflict': False}}
+        assert sub(row('f6', '항공료', reservation_no='R-Q', description='항공료'), index) == '탑승자: KIM ALPHA'
+        assert sub(row('f7', '항공료', reservation_no='R-Q', description='인천-도쿄'), index) == \
+            '탑승자: KIM ALPHA · 인천-도쿄'
+
+    def test_a_flight_without_a_reservation_number_keeps_the_existing_text(self):
+        assert sub(row('f8', '항공료', reservation_no='', description='Synthetic note')) == 'Synthetic note'
+
+
+class TestPassengerIndex:
+    def test_the_index_keeps_trip_passengers_and_drops_other_providers(self, monkeypatch):
+        evidence = {
+            ('trip', 'R-1'): {'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+                              'conflict': False},
+            ('other', 'R-2'): {'passengers': [{'surname': 'LEE', 'given_name': 'BETA'}],
+                               'conflict': False},
+        }
+        monkeypatch.setattr(flight_evidence, 'collect_flight_evidence', lambda directories: evidence)
+        assert ota_payment_review._passenger_index([]) == {'R-1': {'names': ['KIM ALPHA'], 'conflict': False}}
+
+    def test_a_mail_read_failure_leaves_the_index_empty(self, monkeypatch):
+        def broken(directories):
+            raise OSError('synthetic read failure')
+        monkeypatch.setattr(flight_evidence, 'collect_flight_evidence', broken)
+        assert ota_payment_review._passenger_index([]) == {}
+
+
+class TestStoredValue:
+    def test_the_reservation_number_stays_on_the_row_and_in_the_seven_column_copy(self):
+        lodging = row('g1', '숙박비', reservation_no='664206015', service_period='2026-10-14~2026-10-16')
+        before = deepcopy(lodging)
+        sub(lodging)
+        assert lodging == before
+        seven = dict(transaction_id='T-1', date='2026-10-14', payee='Synthetic merchant', category='숙박비',
+                     period='2026-10-14~2026-10-16', reservation_no='664206015', evidence='card',
+                     amount_krw=120000, status='ready')
+        tsv = expense_tsv([seven], layout='rev')['tsv']
+        assert '664206015' in tsv.split('\t')
+
+
+class TestPassengerVisibility:
+    def test_without_a_refreshed_snapshot_the_name_is_unknown(self, monkeypatch):
+        monkeypatch.setattr(ota_payment_review, 'enabled', lambda: False)
+        assert design._load_flight_passengers() == {}
+        assert sub(row('h1', '항공료', reservation_no='R-7')) == '탑승자 확인 필요'
+
+    def test_the_render_scope_reads_the_index_once(self, monkeypatch):
+        calls = []
+
+        def load():
+            calls.append(1)
+            return {}
+
+        monkeypatch.setattr(design, '_load_flight_passengers', load)
+
+        @scoped
+        def render():
+            design._flight_passengers()
+            design._flight_passengers()
+
+        render()
+        assert len(calls) == 1

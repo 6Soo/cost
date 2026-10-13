@@ -812,8 +812,29 @@ def reconcile_for(backend) -> dict:
         "links": {str(event_id): _link_transaction_id(link)
                   for event_id, link in links.items() if _link_transaction_id(link)},
         # In memory only: actions read it, the disk copy never carries it.
-        "data": {"events": events, "transactions": transactions, "links": links, "results": results},
+        "data": {"events": events, "transactions": transactions, "links": links, "results": results,
+                 "passengers": _passenger_index(backend.sources.get("mail_directories", []))},
     }
+
+
+def _passenger_index(mail_directories) -> dict:
+    """booking ref -> the flight passengers the authenticated Trip.com mail names.
+
+    Display evidence only: the booker and payer are never in this list, and a
+    failure to read the mail leaves the index empty rather than failing the refresh.
+    """
+    from app import flight_evidence
+    try:
+        evidence = flight_evidence.collect_flight_evidence(mail_directories)
+    except Exception:
+        return {}
+    index = {}
+    for (provider, booking_ref), found in evidence.items():
+        if provider != "trip":
+            continue
+        names = [f"{person['surname']} {person['given_name']}" for person in found.get("passengers", [])]
+        index[str(booking_ref)] = {"names": names, "conflict": bool(found.get("conflict"))}
+    return index
 
 
 def reconcile(board) -> dict:
