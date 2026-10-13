@@ -196,6 +196,8 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
  display:flex;flex-direction:column;min-height:0;overflow:auto}
 .nav-hd{padding:18px 16px 14px}
+.nav-hd a.brand{display:flex;align-items:center;justify-content:center;gap:8px;width:100%}
+.nav-hd .brand img{width:20px;height:20px;flex:0 0 auto}
 .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
 .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
 a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
@@ -1023,7 +1025,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         f" value='{board.esc(query)}' autocomplete='off'></form>")
     return (
         "<aside class='nav' id='nav' aria-label='여행 목록'>"
-        "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'>숲길여행 회계</a></div>"
+        "<div class='nav-hd'><a class='brand brand-link' href='/' aria-label='숲길여행 회계 홈으로 이동'><img src='/assets/brand/wallet-favicon-v2.png' alt='' width='20' height='20'>숲길여행 회계</a></div>"
         f"{primary}{search}"
         + nav_region(tab_id, query, kind, archived)
         + "</aside>"
