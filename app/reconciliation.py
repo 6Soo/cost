@@ -2,8 +2,9 @@
 
 Card side: the card's use date (이용일) when the statement has one, else its approval date (승인일). The posting
 date (매입일) is never used to place a row.
-Booking side: a lodging stay runs from check-in to check-out, and its last night is the day before check-out. A flight
-runs from departure to arrival, and both days are service days.
+Booking side: a lodging stay runs from check-in to check-out, and a trip's last day is the check-out day, so the nights
+of a stay inside a trip are the ones before the trip's end. A flight runs from departure to arrival, and both days are
+service days.
 """
 from datetime import date, timedelta
 
@@ -31,15 +32,21 @@ def card_use_date(transaction):
 
 
 def covers_stay(trip_start, trip_end, check_in, check_out, *, service=False):
-    """Whether every service day of a booking falls inside the trip. Dates are ISO strings."""
-    last_day = check_out if service else (date.fromisoformat(check_out) - timedelta(days=1)).isoformat()
-    return bool(trip_start and trip_end and trip_start <= check_in and last_day <= trip_end)
+    """Whether a booking's whole stay is inside the trip. Dates are ISO strings.
+
+    A trip's last day is its check-out day: a lodging's nights run from check-in up to but not including check-out,
+    and the trip ends on the check-out day. A flight's arrival day is a service day, so it must fall inside the trip.
+    """
+    return bool(trip_start and trip_end and trip_start <= check_in and check_out <= trip_end)
 
 
 def overlaps_stay(trip_start, trip_end, check_in, check_out, *, service=False):
-    """Whether any service day of a booking falls inside the trip. A check-out day alone is not an overlap."""
-    last_day = check_out if service else (date.fromisoformat(check_out) - timedelta(days=1)).isoformat()
-    return bool(trip_start and trip_end and max(check_in, trip_start) <= min(last_day, trip_end))
+    """Whether any service day of a booking falls inside the trip. A lodging's check-out day is not a night of the stay."""
+    if not (trip_start and trip_end):
+        return False
+    if service:
+        return max(check_in, trip_start) <= min(check_out, trip_end)
+    return max(check_in, trip_start) < min(check_out, trip_end)
 
 
 def payment_within_lead(card_day, trip_start, lead_days=LEAD_DAYS):
