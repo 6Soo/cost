@@ -28,6 +28,7 @@ class Region:
     payment: str | None
     confidence: float
     ordinal: int = 0  # k-th identical reading on the same page, so identical tickets stay separate
+    reading: str | None = None  # the reading as the model first gave it; edits never change it
 
 
 def _overlap(a: tuple, b: tuple) -> float:

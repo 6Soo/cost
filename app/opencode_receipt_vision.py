@@ -223,8 +223,8 @@ def _opencode_executable():
     return None
 
 
-def recognize(image, *, runner=None):
-    """No direct model API, no paid fallback, no model-accessible tools."""
+def recognize(image, *, runner=None, guidance=None):
+    """No direct model API, no paid fallback, no model-accessible tools. guidance is plain text added to the prompt."""
     if not enabled():
         raise VisionUnavailable('VISION_DISABLED')
     image = Path(image)
@@ -256,7 +256,7 @@ def recognize(image, *, runner=None):
         # is read as a second file. --pure keeps external plugins and MCP servers out of the call.
         command = [executable,'run','--pure','--model',MODEL,'--agent','receipt-readonly',
                    '--title','COST receipt reading (free)',
-                   '--format','json',f'--file={attachment}','--',PROMPT]
+                   '--format','json',f'--file={attachment}','--',PROMPT if not guidance else PROMPT + '\n' + guidance]
         try:
             proc = (runner or _run_bounded)(command,cwd=str(root),env=environment)
         except (OSError,subprocess.TimeoutExpired):

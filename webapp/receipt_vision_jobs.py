@@ -29,36 +29,39 @@ def _snapshot(job):
             'created_at': job['created_at'], 'finished_at': job.get('finished_at')}
 
 
+def _forget(job):
+    key = job.get('key', job['image'])
+    if _BY_IMAGE.get(key) == job['job_id']:
+        del _BY_IMAGE[key]
+
+
 def _prune(now):
     for job_id in [j for j, job in _JOBS.items() if job['status'] in ('done', 'failed')
                    and now - (job.get('finished_at') or now) > RESULT_TTL_SECONDS]:
-        job = _JOBS.pop(job_id)
-        if _BY_IMAGE.get(job['image']) == job_id:
-            del _BY_IMAGE[job['image']]
+        _forget(_JOBS.pop(job_id))
     while len(_JOBS) > MAX_JOBS:
         oldest = min(_JOBS, key=lambda j: _JOBS[j]['created_at'])
         if _JOBS[oldest]['status'] in ('queued', 'running'):
             break
-        job = _JOBS.pop(oldest)
-        if _BY_IMAGE.get(job['image']) == oldest:
-            del _BY_IMAGE[job['image']]
+        _forget(_JOBS.pop(oldest))
 
 
-def submit(image, image_path, recognize):
-    """Queue one recognition for an image, or return the job that already covers it."""
+def submit(image, image_path, recognize, *, key=None):
+    """Queue one recognition for an image, or return the job that already covers it. A key makes a separate run."""
+    key = key or image
     now = time.time()
     with _LOCK:
         _prune(now)
-        current = _BY_IMAGE.get(image)
+        current = _BY_IMAGE.get(key)
         if current in _JOBS and _JOBS[current]['status'] in ('queued', 'running', 'done'):
             return _snapshot(_JOBS[current])
         waiting = sum(1 for job in _JOBS.values() if job['status'] in ('queued', 'running'))
         if waiting >= MAX_QUEUED:
             raise JobBusy('VISION_BUSY')
         job_id = uuid.uuid4().hex
-        job = {'job_id': job_id, 'image': image, 'status': 'queued', 'created_at': now}
+        job = {'job_id': job_id, 'image': image, 'key': key, 'status': 'queued', 'created_at': now}
         _JOBS[job_id] = job
-        _BY_IMAGE[image] = job_id
+        _BY_IMAGE[key] = job_id
         snapshot = _snapshot(job)
     _POOL.submit(_run, job_id, image_path, recognize)
     return snapshot

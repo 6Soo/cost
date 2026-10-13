@@ -814,6 +814,8 @@ if ($missing) {
 $env:WEBLEDGER_REVIEW_CONFIG = $ReviewConfig
 # Muse receipt reading is an explicit opt-in: the free model only, tools refused, never a paid fallback.
 $env:WEBLEDGER_RECEIPT_VISION = 'opencode-muse-free'
+# Owner-confirmed reading notes. The file is data, not release content, so it survives every release.
+$env:WEBLEDGER_RECEIPT_LEARNING = 'D:/WebLedgerHost/data/receipt_learning.jsonl'
 
 # The reservation source configuration is passed the same way the review
 # configuration is: read once here, handed to the board process, and therefore
