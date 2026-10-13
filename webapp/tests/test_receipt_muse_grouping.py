@@ -1,5 +1,6 @@
 """HTTP-level proof for Muse read-only extraction and optional ticket grouping."""
 from unittest.mock import patch
+import time
 import pytest
 
 from webapp.tests.test_receipt_review import ReceiptReviewTests, PNG
@@ -29,10 +30,23 @@ def test_vision_is_owner_scoped_read_only_and_muse_unavailable_defaults_closed(c
                  "merchant": "합성 승선권", "date": "2026-09-20", "currency": "JPY",
                  "payment": None, "category_hint": "교통비", "note": None,
                  "requires_review": True}], "confirmed": False}
+    from webapp import receipt_vision_jobs
+    with receipt_vision_jobs._LOCK:
+        receipt_vision_jobs._JOBS.clear()
+        receipt_vision_jobs._BY_IMAGE.clear()
     with patch("webapp.receipt_review.opencode_receipt_vision.enabled", return_value=True), \
          patch("webapp.receipt_review.opencode_receipt_vision.recognize", return_value=response) as model:
-        status, data = case.request("/api/receipts/vision", {"image": image}, token=case.csrf())
-        assert status == 200 and data["confirmed"] is False
+        status, started = case.request("/api/receipts/vision", {"image": image}, token=case.csrf())
+        assert status == 202 and started["job_id"]
+        data = None
+        for _ in range(300):
+            status, state = case.request("/api/receipts/vision/" + started["job_id"], token=case.csrf())
+            assert status == 200
+            if state["status"] == "done":
+                data = state["result"]
+                break
+            time.sleep(0.02)
+        assert data is not None and data["confirmed"] is False
         assert len(data["receipts"]) == 1
         assert len(case.request("/api/receipts")[1]["candidates"]) == 0
         model.assert_called_once()

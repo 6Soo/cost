@@ -24,11 +24,12 @@ from app import receipt_candidates as rc
 from app import local_receipt_ocr
 from app import opencode_receipt_vision
 from app.google_tsv import expense_tsv
-from . import ui_icons
+from . import receipt_vision_jobs, ui_icons
 
 ROUTES = ("/receipts", "/api/receipts", "/api/receipts/scan", "/api/receipts/confirm",
           "/api/receipts/edit", "/api/receipts/tsv", "/api/receipts/upload", "/api/receipts/image", "/api/receipts/vision", "/api/receipts/group", "/api/receipts/ungroup")
 IMAGE_PATH = re.compile(r"^/api/receipts/image/([0-9a-f]{64})$")
+VISION_JOB = re.compile(r"^/api/receipts/vision/([0-9a-f]{32})$")
 # Matches the board's own request ceiling (5 MB), so a photo is refused at the same size either way.
 IMAGE_LIMIT = 5 * 1024 * 1024
 PAYMENTS = ("cash", "private_card", "corporate_card")
@@ -109,7 +110,7 @@ def enabled() -> bool:
 
 
 def owns_route(path: str) -> bool:
-    return path in ROUTES or IMAGE_PATH.match(path) is not None
+    return path in ROUTES or IMAGE_PATH.match(path) is not None or VISION_JOB.match(path) is not None
 
 
 def _store_path() -> Path:
@@ -562,6 +563,15 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                             "message": "글자를 읽는 엔진이 승인되지 않았습니다. 영역과 값을 직접 입력하세요."}, 501)
         return True
     if raw is None:
+        job = VISION_JOB.match(parsed.path)
+        if job:
+            state = receipt_vision_jobs.lookup(job.group(1))
+            if state is None:
+                handler._send_json({"code": "VISION_JOB_EXPIRED",
+                                    "message": "분석 기록이 사라졌어요. 다시 분석해 주세요."}, 404)
+            else:
+                handler._send_json(state)
+            return True
         if parsed.path == "/receipts":
             handler._send(render_html(load(path), csrf, _trips(board)))
         elif parsed.path == "/api/receipts":
@@ -605,11 +615,13 @@ def dispatch(handler, parsed, *, raw=None, csrf: str = "", board=None, is_owner:
                 raise ValueError("IMAGE_NOT_FOUND")
             image_bytes(path, sha)  # Owner's registered source image only.
             try:
-                result = opencode_receipt_vision.recognize(_images_dir(path) / f"{sha}.bin")
-                handler._send_json(result)
-            except opencode_receipt_vision.VisionUnavailable as error:
-                handler._send_json({"code": error.code,
-                    "message": "Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요."}, 503)
+                state = receipt_vision_jobs.submit(sha, _images_dir(path) / f"{sha}.bin",
+                                                   opencode_receipt_vision.recognize)
+            except receipt_vision_jobs.JobBusy:
+                handler._send_json({"code": "VISION_BUSY",
+                    "message": "이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요."}, 429)
+                return True
+            handler._send_json(state, 202)
         elif parsed.path == "/api/receipts/scan":
             handler._send_json(scan(path, body, board=board))
         elif parsed.path == "/api/receipts/group":
@@ -798,7 +810,17 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(!sha){say('사진을 먼저 등록하세요.');return}"
         "if(!selectedTrip.value){say('여행을 먼저 선택하세요.');return}"
         "receiptBusy=true;const restore=lockControls();say('Muse가 영수증 영역과 금액을 인식하고 있습니다.');"
-        "try{const response=await post('/api/receipts/vision',{image:sha});"
+        "try{let state=await post('/api/receipts/vision',{image:sha});const t0=Date.now();"
+        "while(state.status==='queued'||state.status==='running'){"
+        "say('Muse가 영수증 영역과 금액을 인식하고 있습니다. '+Math.round((Date.now()-t0)/1000)+'초 경과');"
+        "if(Date.now()-t0>150000)throw new Error('인식 시간이 길어지고 있어요. 다시 분석하거나 수동으로 입력하세요.');"
+        "await new Promise(r=>setTimeout(r,2000));"
+        "const poll=await fetch('/api/receipts/vision/'+state.job_id,{headers:{'X-CSRF-Token':csrf}});"
+        "const body=await poll.json();"
+        "if(!poll.ok)throw new Error(body.message||'분석 기록을 확인하지 못했습니다. 다시 분석해 주세요.');"
+        "state=body;}"
+        "if(state.status!=='done')throw new Error(state.code==='VISION_BUSY'?'이미 분석 중인 사진이 많아요. 잠시 후 다시 눌러 주세요.':'Muse 인식에 실패했습니다. 인식 설정을 확인하거나 수동으로 입력하세요.');"
+        "const response=state.result;"
         "const view=document.getElementById('vision-preview');const items=document.getElementById('vision-results');"
         "view.replaceChildren();items.replaceChildren();"
         "const previewImg=document.createElement('img');previewImg.src='/api/receipts/image/'+sha;"
