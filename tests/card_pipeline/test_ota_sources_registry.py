@@ -88,8 +88,28 @@ class TestExplicitSourceRegistry:
         found=ota_sources.resolve_sources(tmp_path,mail_default=tmp_path/'ota-mail',
                                           portal_default=tmp_path/'portal.sqlite')
         assert [str(p) for p in found['mail_directories']]==[str(tmp_path/'ota-mail'),str(second)]
-        assert [str(p) for p in found['portal_databases']]==[str(tmp_path/'portal.sqlite'),str(portal)]
+        # The default portal file was never created, so only the registered one remains.
+        assert [str(p) for p in found['portal_databases']]==[str(portal)]
         assert found['missing']==[]
+
+    def test_a_missing_default_portal_does_not_fail_when_the_manifest_registers_one(self,tmp_path):
+        """The release-folder default has no outputs/; the registered copy is the source."""
+        portal=tmp_path/'registered.sqlite';portal.write_bytes(b'synthetic')
+        sources_file(tmp_path,schema_version=ota_sources.SCHEMA_VERSION,
+            portal_databases=[str(portal)])
+        found=ota_sources.resolve_sources(tmp_path,mail_default=tmp_path/'ota-mail',
+                                          portal_default=tmp_path/'release-outputs'/'absent.sqlite')
+        assert [str(p) for p in found['portal_databases']]==[str(portal)]
+        assert found['missing']==[] and found['diagnostics']==[]
+
+    def test_a_present_default_portal_is_kept_beside_the_registered_one(self,tmp_path):
+        default=tmp_path/'default.sqlite';default.write_bytes(b'synthetic')
+        portal=tmp_path/'registered.sqlite';portal.write_bytes(b'synthetic')
+        sources_file(tmp_path,schema_version=ota_sources.SCHEMA_VERSION,
+            portal_databases=[str(portal)])
+        found=ota_sources.resolve_sources(tmp_path,mail_default=tmp_path/'ota-mail',
+                                          portal_default=default)
+        assert [str(p) for p in found['portal_databases']]==[str(default),str(portal)]
 
     def test_a_registered_path_that_is_gone_is_reported_not_hidden(self,tmp_path):
         sources_file(tmp_path,schema_version=ota_sources.SCHEMA_VERSION,

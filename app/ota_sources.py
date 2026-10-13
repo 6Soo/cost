@@ -152,8 +152,13 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
         }
     mails=_merge([Path(mail_default)] if mail_default is not None else [],
                  manifest_entries(manifest,'mail_directories'))
-    portals=_merge([Path(portal_default)] if portal_default is not None else [],
-                   manifest_entries(manifest,'portal_databases'))
+    # With a manifest, the registered list is the authority. A default that is not
+    # there (for example a path inside a release folder that has no outputs/) is
+    # dropped, so it cannot fail the whole reconciliation. Without a manifest the
+    # single previous path stays, and its absence still stops the read.
+    portal_fallback=[Path(portal_default)] if portal_default is not None else []
+    portal_fallback=[p for p in portal_fallback if p.is_file()]
+    portals=_merge(portal_fallback,manifest_entries(manifest,'portal_databases'))
     # 참고 자료는 선택 항목이다. 없으면 빈 목록이고 동작은 그대로다.
     references=manifest_entries(manifest,'reference_documents') if 'reference_documents' in manifest else []
     registered_mails=manifest_entries(manifest,'mail_directories')
