@@ -638,7 +638,7 @@ def import_trips(board, snapshot: dict) -> dict:
     counts = Counter()
     for trip in snapshot.get('trips', []):
         period = trip.get('period') or {}
-        destination = trip['key'].split('_', 1)[1].strip('_ ') if '_' in trip['key'] else ''
+        destination = re.sub(r'^\d{4}(?:_\d{4})?_', '', trip['key']).strip('_ ')
         if trip.get('kind') == 'quarter':
             continue
         if not period.get('starts_on') or not destination:
@@ -662,7 +662,9 @@ def start_trip_import(board, interval: float = 600.0) -> None:
     def run():
         while True:
             try:
-                import_trips(board, google_authority.load_snapshot(_snapshot_path()))
+                snapshot = google_authority.load_snapshot(_snapshot_path())
+                import_trips(board, snapshot)
+                auto_link_trips(_snapshot_path(), snapshot, board.list_trips(include_archived=True))
             except Exception:
                 # The snapshot may not exist yet or may be mid-write; the next pass reads it again.
                 pass

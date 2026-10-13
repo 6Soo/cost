@@ -194,8 +194,8 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
     }
 
 
-TRIP_HEADER_DATES_FIRST = re.compile(r"확인자료_(\d{4})_(\d{4})_(.+?)\s*$")
-TRIP_HEADER_DATES_LAST = re.compile(r"확인자료_(.+?)_(\d{4})_(\d{4})\s*$")
+TRIP_HEADER_DATES_FIRST = re.compile(r"(?:확인자료|수기장부형 자료)_(\d{4})_(\d{4})_(.+?)\s*$")
+TRIP_HEADER_DATES_LAST = re.compile(r"(?:확인자료|수기장부형 자료)_(.+?)_(\d{4})_(\d{4})\s*$")
 
 
 def parse_trip_period(ws_v, sheet: str) -> dict:
@@ -207,7 +207,7 @@ def parse_trip_period(ws_v, sheet: str) -> dict:
     for row in range(1, 5):
         for column in range(1, 13):
             text = _text(ws_v.cell(row=row, column=column).value)
-            if "확인자료" in text:
+            if "확인자료" in text or "수기장부형 자료" in text:
                 title = text
                 break
         if title:

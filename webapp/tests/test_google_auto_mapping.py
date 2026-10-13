@@ -74,13 +74,28 @@ def test_import_creates_trips_from_the_sheet_top_and_keeps_missing_ends_empty(tm
                                                          'ends_on': '2026-07-04', 'destination': '오제'}},
         {'key': '0712_몽골', 'kind': 'trip', 'period': {'year': 2026, 'starts_on': '2026-07-12',
                                                          'ends_on': None, 'destination': ''}},
-        {'key': '0506_0610_유럽', 'kind': 'trip', 'period': {'year': None, 'starts_on': None,
-                                                             'ends_on': None, 'destination': ''}},
+        {'key': '0506_0610_유럽', 'kind': 'trip', 'period': {'year': 2026, 'starts_on': '2026-05-06',
+                                                             'ends_on': '2026-06-10', 'destination': '유럽'}},
+        {'key': '0801_한티', 'kind': 'trip', 'period': {'year': None, 'starts_on': None,
+                                                     'ends_on': None, 'destination': ''}},
         {'key': '1005_Q', 'kind': 'quarter', 'period': {}},
     ]}
-    assert page.import_trips(board, snap) == {'created': 2, 'held': 1}
+    assert page.import_trips(board, snap) == {'created': 3, 'held': 1}
     tabs = {t['display_key']: t for t in board.list_trips(include_archived=True)}
     assert tabs['0630_오제']['ends_on'] == '2026-07-04' and tabs['0630_오제']['destination'] == '오제'
     assert tabs['0712_몽골']['ends_on'] in ('', None)
+    assert tabs['0506_0610_유럽']['destination'] == '유럽'
     assert page.import_trips(board, snap)['held'] == 1
-    assert len(board.list_trips(include_archived=True)) == 2
+    assert len(board.list_trips(include_archived=True)) == 3
+
+
+def test_import_then_auto_link_connects_the_new_tabs_to_their_google_keys(tmp_path):
+    from webapp.ledger_store import LedgerStore
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    snapshot_path = tmp_path / 'snapshot.json'
+    snap = {'trips': [{'key': '0630_오제', 'kind': 'trip', 'period': {
+        'year': 2026, 'starts_on': '2026-06-30', 'ends_on': '2026-07-04', 'destination': '오제'}}]}
+    page.import_trips(board, snap)
+    assert page.auto_link_trips(snapshot_path, snap, board.list_trips(include_archived=True)) == 1
+    tab = next(t['tab_id'] for t in board.list_trips(include_archived=True) if t['display_key'] == '0630_오제')
+    assert page.load_mapping(snapshot_path) == {'0630_오제': tab}
