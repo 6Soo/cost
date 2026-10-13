@@ -61,7 +61,7 @@ class MobileIncomeTests(state.unittest.TestCase):
                     self.assertIn('닉네임만',table.inner_text())
                     self.assertNotIn('숨길 닉네임',table.inner_text())
                     self.assertNotIn('중복닉네임',table.inner_text())
-                    self.assertEqual(page.locator('#google-trip-income summary').inner_text(),'수입')
+                    self.assertTrue(page.locator('#google-trip-income > summary').inner_text().startswith('수입'))
                     self.assertNotIn('수입 내역이 없어요',page.locator('main').inner_text())
                     self.assertNotIn('수입 (COST 기록)',page.locator('main').inner_text())
                     expense = page.locator('.lst button[data-id]').first

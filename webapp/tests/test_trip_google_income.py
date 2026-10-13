@@ -27,12 +27,12 @@ def test_income_connects_only_explicit_trip_and_preserves_rows(income_context):
     body = page.trip_income_html('trip-syn')
     assert '1,000원' in body and 'INCOME-NAME' in body
     assert '예약금' in body and '잔금' in body and '추가금' in body
-    assert 'docs.google.com/spreadsheets/d/' in body and '확정 수입' in body
+    assert 'docs.google.com/spreadsheets/d/' in body and '수입 1,000원' in body
     assert page.google_authority.SPREADSHEET_IDS['main'] in body
     assert '/google-ledger/rows?' not in body
     assert 'target=\'_blank\'' in body and "rel='noopener noreferrer'" in body
     assert 'INCOME-NAME' not in page.trip_income_html('other-trip')
-    assert '미연결' in page.trip_income_html('other-trip')
+    assert '연결되지 않았습니다' in page.trip_income_html('other-trip')
 
 
 def test_income_does_not_guess_ambiguous_mapping(income_context, monkeypatch):
@@ -46,12 +46,12 @@ def test_income_requires_canonical_copy_and_marks_unverified(income_context, mon
     snapshot, _ = income_context
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     body = page.trip_income_html('trip-syn')
-    assert '최종 장부 선택' in body and 'INCOME-NAME' not in body
+    assert '사용할 장부 사본' in body and 'INCOME-NAME' not in body
     snapshot['trips'][0]['verified'] = False
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     snapshot['trips'][0]['copies']['archive'] = None
     body = page.trip_income_html('trip-syn')
-    assert '확인 필요' in body and '확정 수입 1,000원' not in body
+    assert '수입 확인 필요' in body and '확정 수입 1,000원' not in body
 
 
 def test_viewer_income_checks_both_grant_and_current_trip_access(income_context, monkeypatch):
@@ -74,15 +74,16 @@ def test_missing_rows_and_unavailable_snapshot_never_display_zero(income_context
         raise page.google_authority.SnapshotError('TEST_UNAVAILABLE')
     monkeypatch.setattr(page.google_authority, 'load_consistent', unavailable)
     body = page.trip_income_html('trip-syn')
-    assert '조회 불가' in body and '0원' not in body
+    assert '수입 내역을 불러오지 못했습니다' in body and '0원' not in body
 
 
 def test_verified_zero_is_distinct_from_unlinked(income_context):
     snapshot, _ = income_context
     copy = snapshot['trips'][0]['copies']['main']
     copy['income'].update(total=0, sheet_total=0, row_sum=0)
-    assert '확정 수입 0원' in page.trip_income_html('trip-syn')
-    assert '확정 수입 0원' not in page.trip_income_html('unknown')
+    # The ledger rows still hold 1,000원 while the sheet says 0원: that gap is reported, not hidden.
+    assert '수입 합계 차이 있음' in page.trip_income_html('trip-syn')
+    assert '수입 합계 차이 있음' not in page.trip_income_html('unknown')
 
 
 def test_source_link_uses_selected_archive_and_quotes_actual_sheet(income_context, monkeypatch):
@@ -104,7 +105,6 @@ def test_unverified_income_explains_total_error_without_exposing_rows(income_con
                    'review': ['TOTAL_MISMATCH', 'TOTAL_RANGE_MISMATCH']}],
         'synced_at': '2026-10-12T19:00:00+09:00'})
     body = page.trip_income_html('trip-syn')
-    assert '확인 필요 이유' in body
     assert page.REVIEW_LABELS['TOTAL_MISMATCH'] in body
     assert page.REVIEW_LABELS['TOTAL_RANGE_MISMATCH'] in body
     assert 'INCOME-NAME' not in body

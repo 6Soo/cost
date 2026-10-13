@@ -46,6 +46,7 @@ class LedgerLayoutBrowserTests(unittest.TestCase):
                 with self.subTest(width=width):
                     page.set_viewport_size({'width': width, 'height': 1000})
                     page.goto(self._url('?tab=trip-demo-a'))
+                    page.evaluate("document.querySelectorAll('#google-trip-income .income-detail').forEach(d=>d.open=true)")
                     income_table = page.locator('#google-trip-income table')
                     self.assertNotIn('Google', page.locator('main').inner_text())
                     self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())

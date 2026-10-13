@@ -209,7 +209,7 @@ def trip_income_html(tab_id: str) -> str:
                 f"<p class='income-status'>{ui_icons.icon('book-open')}{message}</p>{body}{settings}</details>")
 
     if not enabled():
-        return panel('미연결 · 확정 장부 연결이 필요합니다.')
+        return panel('수입 장부가 연결되지 않았습니다.')
     try:
         path = _snapshot_path()
         mapping = load_mapping(path)
@@ -219,29 +219,27 @@ def trip_income_html(tab_id: str) -> str:
             allowed = (viewer_allowed_keys(load_grants(path), session.user_id, mapping,
                                            board.viewer_visible_tabs(session)) if session else set())
             if len(keys) != 1 or keys[0] not in allowed:
-                return panel('열람 권한이 없거나 수입 장부가 연결되지 않았습니다.')
+                return panel('열람 권한이 없습니다.')
         if len(keys) != 1:
-            return panel('미연결 · 이 여행의 확정 장부를 하나 선택해 연결해 주세요.')
+            return panel('수입 장부가 연결되지 않았습니다.')
         snapshot, rows = google_authority.load_consistent(path, _rows_path())
         payload = owner_payload(snapshot_for_display(snapshot), load_choices(path))
         matches = [trip for trip in payload['trips'] if trip['key'] == keys[0]]
         if len(matches) != 1:
-            return panel('조회 불가 · 연결한 여행의 확정 장부를 확인해 주세요.')
+            return panel('수입 장부를 찾지 못했습니다.')
         trip = matches[0]
         source = trip.get('chosen_source')
         if source not in ('main', 'archive'):
-            return panel('최종 장부 선택이 필요합니다. 메인·보관 장부 중 사용할 사본을 확인해 주세요.')
+            return panel('사용할 장부 사본을 선택해 주세요.')
         detail = owner_rows(rows, keys[0], source)
         if detail is None:
-            return panel('조회 불가 · 연결한 수입 행을 확인하지 못했습니다.')
-        verified = trip.get('verified')
-        message = (f"확정 수입 {_money(trip['income_total'])}" if verified else
-                   '확인 필요 · 동기화 또는 합계 검증이 끝나지 않아 확정 수입을 표시하지 않습니다.')
-        if not verified:
-            reasons = ' / '.join(REVIEW_LABELS.get(code, code)
-                                 for code in (trip.get('review') or []))
-            if reasons:
-                message += f" · 확인 필요 이유: {html.escape(reasons)}"
+            return panel('수입 내역을 불러오지 못했습니다.')
+        # The ledger rows are the figure shown. The sheet's own total is only compared with it.
+        rows_total = sum(int(row.get('amount') or 0) for row in detail['income'])
+        sheet_total = trip.get('income_total')
+        numeric_gap = sheet_total is not None and int(sheet_total) != rows_total
+        unverified = not trip.get('verified') or sheet_total is None
+        reasons = ' / '.join(REVIEW_LABELS.get(code, code) for code in (trip.get('review') or []))
         synced_raw = html.escape(str(payload.get('synced_at') or ''))
         info_time = format_display_time(payload.get('synced_at'))
         time_row = (f"<div class='income-sync'><span>{'메인 장부' if source == 'main' else '보관 장부'}</span>"
@@ -250,27 +248,40 @@ def trip_income_html(tab_id: str) -> str:
         sheet_range = "'" + sheet.replace("'", "''") + "'!A1"
         source_href = (f"https://docs.google.com/spreadsheets/d/{google_authority.SPREADSHEET_IDS[source]}"
                        f"/edit#range={quote(sheet_range, safe='')}")
-        body = (time_row + f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
-                f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
-        if verified:
-            esc = lambda value: html.escape('' if value is None else str(value))
-            lines = ''.join(
-                f"<tr><td class='income-date' title='{esc(row.get('date'))}'>{esc(format_transaction_date(row.get('date')))}</td>"
-                f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
-                + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
-                          for field in ('deposit', 'balance', 'extra'))
-                + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
-                for row in sorted(detail['income'], key=transaction_date_sort_key))
-            body += ("<div class='google-income-scroll'><table><caption>수입 내역</caption>"
-                     f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
-                     f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
-                     "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
-                     f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th></tr></thead>"
-                     f"<tbody>{lines or '<tr><td colspan=\"6\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
-                     "</tbody></table></div>")
+        esc = lambda value: html.escape('' if value is None else str(value))
+        lines = ''.join(
+            f"<tr><td class='income-date' title='{esc(row.get('date'))}'>{esc(format_transaction_date(row.get('date')))}</td>"
+            f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
+            + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
+                      for field in ('deposit', 'balance', 'extra'))
+            + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
+            for row in sorted(detail['income'], key=transaction_date_sort_key))
+        show_rows = bool(trip.get('verified')) and not numeric_gap
+        table = ("<div class='google-income-scroll'><table><caption>수입 내역</caption>"
+                 f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
+                 f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
+                 "<th class='income-breakdown'>예약금</th><th class='income-breakdown'>잔금</th>"
+                 f"<th class='income-breakdown'>추가금</th><th class='income-total'>{ui_icons.icon('credit-card', 14)}총액</th></tr></thead>"
+                 f"<tbody>{lines or '<tr><td colspan=\"6\">연결된 장부에 수입내역이 없습니다.</td></tr>'}"
+                 "</tbody></table></div>")
+        figures = (f"<p class='small'>장부 행 합계 {_money(rows_total)} · 장부 집계 "
+                   f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
+        source_link = (f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
+                       f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
+        details = ((f"<p class='small'>{html.escape(reasons)}</p>" if reasons else '') + figures + time_row + source_link)
+        summary = '상세 보기' if (numeric_gap or unverified) else '상세'
+        notice = f"<details class='income-detail'><summary>{summary}</summary>{details}</details>"
+        # A total that is not verified is not shown as an amount, and its names stay hidden.
+        body = (table if show_rows else '') + notice
+        if numeric_gap:
+            message = '수입 합계 차이 있음'
+        elif show_rows:
+            message = f"수입 {_money(rows_total)}"
+        else:
+            message = '수입 확인 필요'
         return panel(message, body)
     except (google_authority.SnapshotError, ValueError, OSError):
-        return panel('조회 불가 · 동기화와 연결 설정을 확인한 뒤 새로고침해 주세요.')
+        return panel('수입 내역을 불러오지 못했습니다. 새로고침해 주세요.')
 
 
 def render_rows_html(detail: dict) -> str:

@@ -39,7 +39,7 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
         board_url = base + '/board?tab=' + trip['tab_id']
         page.goto(board_url)
         panel = page.locator('#google-trip-income')
-        self.assertIn('미연결', panel.inner_text())
+        self.assertIn('연결되지 않았습니다', panel.inner_text())
         panel.get_by_role('link', name='수입 장부 연결 설정').click()
         page.locator('#google-settings').evaluate('(el) => el.open = true')
         self.assertEqual(page.input_value('#settings-tab'), trip['tab_id'])
@@ -51,11 +51,13 @@ class TripIncomeBrowserTests(LinkBrowserFixture):
         page.get_by_role('link', name='선택한 여행으로 돌아가기').click()
         self.assertEqual(page.url, board_url)
         panel = page.locator('#google-trip-income')
-        self.assertIn('확정 수입 1,000원', panel.inner_text())
+        self.assertIn('수입 1,000원', panel.inner_text())
+        self.assertNotIn('확정 수입', panel.inner_text())
         self.assertIn('INCOME-NAME', panel.inner_text())
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
         page.reload()
         self.assertIn('INCOME-NAME', page.locator('#google-trip-income').inner_text())
+        page.evaluate("document.querySelectorAll('#google-trip-income .income-detail').forEach(d=>d.open=true)")
         link = page.locator('#google-trip-income').get_by_role('link', name='수입·지출 원본 상세')
         self.assertTrue(link.get_attribute('href').startswith(
             'https://docs.google.com/spreadsheets/d/' + ga.SPREADSHEET_IDS['main'] + '/edit#range='))
