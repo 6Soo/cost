@@ -798,24 +798,35 @@ class CardFlow:
         원문 해시만으로는 구분하지 않는다. 해시에 행 위치가 들어가지 않아 정당한 여러 건이
         같은 해시를 공유하기 때문이다.
         """
-        conn = self.board.conn
-        if conn.execute("SELECT 1 FROM board_rows WHERE json_extract(payload_json,'$.source_event_id')=? "
-                        "LIMIT 1", (entry['transaction_id'],)).fetchone():
+        by_event, legacy = self._projection_index()
+        if entry['transaction_id'] in by_event:
             return True
         if not source[2]:
             # 승인번호가 없으면 거래 ID가 유일한 정본이다. 좁은 조건을 쓸 근거가 없다.
             return False
-        row = conn.execute(
-            "SELECT 1 FROM board_rows WHERE COALESCE(json_extract(payload_json,'$.source_event_id'),'')='' "
-            "AND json_extract(payload_json,'$.source_issuer')=? "
-            "AND json_extract(payload_json,'$.source_card_last4')=? "
-            "AND json_extract(payload_json,'$.source_approval_number')=? "
-            "AND json_extract(payload_json,'$.occurred_on')=? "
-            "AND json_extract(payload_json,'$.amount_krw')=? "
-            "AND COALESCE(json_extract(payload_json,'$.event_kind'),'')=? LIMIT 1",
-            (source[0], source[1], source[2], entry['occurred_on'],
-             entry['amount_krw'], source[6] or '')).fetchone()
-        return bool(row)
+        return (source[0], source[1], source[2], entry['occurred_on'],
+                entry['amount_krw'], source[6] or '') in legacy
+
+    def _projection_index(self):
+        """장부 행의 거래 ID와 옛 행의 승인 키를 한 번에 모은다. 장부 행이 바뀔 때만 다시 만든다."""
+        conn = self.board.conn
+        version = tuple(conn.execute(
+            "SELECT COUNT(*), COALESCE(MAX(rowid),0), COALESCE(SUM(revision),0) FROM board_rows").fetchone())
+        cached = getattr(self, '_projection_cache', None)
+        if cached and cached[0] == version:
+            return cached[1]
+        by_event = {row[0] for row in conn.execute(
+            "SELECT json_extract(payload_json,'$.source_event_id') FROM board_rows "
+            "WHERE COALESCE(json_extract(payload_json,'$.source_event_id'),'')!=''")}
+        legacy = {row for row in conn.execute(
+            "SELECT json_extract(payload_json,'$.source_issuer'), json_extract(payload_json,'$.source_card_last4'), "
+            "json_extract(payload_json,'$.source_approval_number'), json_extract(payload_json,'$.occurred_on'), "
+            "json_extract(payload_json,'$.amount_krw'), COALESCE(json_extract(payload_json,'$.event_kind'),'') "
+            "FROM board_rows WHERE COALESCE(json_extract(payload_json,'$.source_event_id'),'')=''")
+            if None not in row[:5]}
+        index = (by_event, legacy)
+        self._projection_cache = (version, index)
+        return index
 
     def _ota_sources(self):
         """등록된 OTA 근거 자료를 모두 모은다. 임의로 훑지 않는다."""
