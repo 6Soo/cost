@@ -216,6 +216,10 @@ def image_bytes(path: Path, sha: str) -> bytes:
     return body
 
 
+def _box_list(box) -> list | None:
+    return None if box is None else list(box)
+
+
 def _regions(payload: dict) -> list[rc.Region]:
     if not isinstance(payload, dict):
         raise ValueError('INVALID_VALUE')
@@ -225,8 +229,10 @@ def _regions(payload: dict) -> list[rc.Region]:
     for region in raw:
         if not isinstance(region, dict):
             raise ValueError('REGION_INVALID')
+        if all(region.get(key) in (None, '') for key in ('merchant', 'date', 'total')):
+            raise ValueError('REGION_EMPTY')
         box = region.get('box')
-        if (not isinstance(box, (list, tuple)) or len(box) != 4
+        if box is not None and (not isinstance(box, (list, tuple)) or len(box) != 4
                 or any(type(x) not in (int, float) or not math.isfinite(x) or x < 0 for x in box)
                 or box[0] >= box[2] or box[1] >= box[3]):
             raise ValueError('BOX_INVALID')
@@ -235,12 +241,28 @@ def _regions(payload: dict) -> list[rc.Region]:
                 or not 0 <= confidence <= 1):
             raise ValueError('CONFIDENCE_INVALID')
     image = str(payload.get("image") or "")
-    # The page fingerprint is the picture and the regions typed on it, so the same entry sent again is one receipt.
-    basis = json.dumps({"image": image, "regions": raw}, ensure_ascii=False, sort_keys=True)
-    page_id = hashlib.sha256(basis.encode("utf-8")).hexdigest()
-    return [rc.Region(page_id=page_id, box=tuple(r["box"]), merchant=r.get("merchant"), date=r.get("date"),
-                      currency=r.get("currency", "JPY"), total=r.get("total"), payment=r.get("payment"),
-                      confidence=float(r.get("confidence", 1.0))) for r in raw]
+    boxed = any(r.get('box') is not None for r in raw)
+    # A photo analysed without positions is identified by the photo alone, so a re-analysis finds the same receipts.
+    if image and not boxed:
+        page_id = hashlib.sha256(image.encode("utf-8")).hexdigest()
+    else:
+        # The page fingerprint is the picture and the regions typed on it, so the same entry sent again is one receipt.
+        basis = json.dumps({"image": image, "regions": raw}, ensure_ascii=False, sort_keys=True)
+        page_id = hashlib.sha256(basis.encode("utf-8")).hexdigest()
+    regions, copies = [], {}
+    for r in raw:
+        ordinal = 0
+        if r.get('box') is None:
+            # Identical readings without a position are told apart by their copy number, not by their list order.
+            key = json.dumps([r.get('merchant'), r.get('date'), r.get('total'), r.get('currency', 'JPY'), r.get('payment')],
+                             ensure_ascii=False)
+            ordinal = copies.get(key, 0)
+            copies[key] = ordinal + 1
+        regions.append(rc.Region(page_id=page_id, box=tuple(r['box']) if r.get('box') is not None else None,
+                                 merchant=r.get("merchant"), date=r.get("date"),
+                                 currency=r.get("currency", "JPY"), total=r.get("total"), payment=r.get("payment"),
+                                 confidence=float(r.get("confidence", 1.0)), ordinal=ordinal))
+    return regions
 
 
 def card_rows(board) -> list[dict]:
@@ -279,7 +301,7 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     by_identity = {rc._identity(region): region for region in regions}
     for hold in result['holds']:
         region = by_identity[hold['identity']]
-        hold['region'] = {**region.__dict__, 'box': list(region.box)}
+        hold['region'] = {**region.__dict__, 'box': _box_list(region.box)}
         if payload.get('image'):
             hold['image_sha'] = payload['image']
     duplicates = []
@@ -287,15 +309,16 @@ def scan(path: Path, payload: dict, *, board=None) -> dict:
     resolved = set()
     for candidate in result["candidates"]:
         region = next(r for r in regions if rc._identity(r) == candidate.identity)
-        stored = {**candidate.__dict__, "history": [], "hold": None, 'box': list(region.box)}
+        stored = {**candidate.__dict__, "history": [], "hold": None, 'box': _box_list(region.box)}
         if requested_trip is not None:
             stored['trip_id'] = requested_trip
         _settle(stored, cards)
         if payload.get("image"):
-            source_region = hashlib.sha256(json.dumps(
-                [payload["image"], list(region.box)], sort_keys=True).encode()).hexdigest()
+            # Without a position, the candidate identity (photo + reading + copy number) is the source key.
+            key = [payload["image"], _box_list(region.box)] if region.box is not None else [payload["image"], candidate.identity]
+            source_region = hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()
             stored["source_region"] = source_region
-            stored.update(image_sha=payload['image'], box=list(region.box))
+            stored.update(image_sha=payload['image'], box=_box_list(region.box))
             if any(c.get("source_region") == source_region for c in data["candidates"]):
                 duplicates.append({"identity": candidate.identity, "reason": "DUPLICATE_CONTENT", 'candidate': stored})
                 continue
@@ -701,7 +724,7 @@ def _hold_html(hold: dict) -> str:
     image = hold.get('image_sha') or candidate.get('image_sha')
     source = (f" <a href='/api/receipts/image/{html.escape(image)}' target='_blank' rel='noopener'>원본 사진</a>"
               if image else '')
-    box = ' · 영역 ' + str(candidate['box']) if 'box' in candidate else ''
+    box = ' · 영역 ' + str(candidate['box']) if candidate.get('box') is not None else ''
     return '<li>' + html.escape(detail + MESSAGES.get(hold['reason'], hold['reason']) + box) + source + '</li>'
 
 
@@ -752,7 +775,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.querySelectorAll('[data-image-sha]').forEach(button=>button.onclick=()=>{"
         "document.getElementById('image-sha').value=button.dataset.imageSha;"
         "document.querySelectorAll('[data-image-sha]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));"
-        "say('선택한 사진의 영역과 값을 입력해 주세요.')});"
+        "say('선택한 사진의 영수증 값을 입력해 주세요.')});"
         "const normalizeReceiptImage=async file=>{const limit=5*1024*1024;if((file.type==='image/jpeg'||file.type==='image/png')&&file.size<=limit)return file;if(!file.type.startsWith('image/'))throw new Error('사진 형식만 등록할 수 있습니다.');const url=URL.createObjectURL(file);const img=new Image();try{await new Promise((ok,fail)=>{img.onload=ok;img.onerror=()=>fail(new Error('이 사진을 열 수 없습니다. iPhone에서 JPEG로 내보내 다시 시도하세요.'));img.src=url;});if(!img.naturalWidth||!img.naturalHeight)throw new Error('사진 크기를 확인할 수 없습니다.');for(const maxSide of [3000,2600,2200]){const scale=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));const context=canvas.getContext('2d');if(!context)throw new Error('사진 변환을 사용할 수 없습니다.');context.drawImage(img,0,0,canvas.width,canvas.height);for(const quality of [.92,.82,.72]){const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));if(blob&&blob.size>0&&blob.size<=limit)return blob;}}throw new Error('사진이 5MB 제한을 넘었습니다. 더 작은 사진으로 다시 촬영해 주세요.');}finally{URL.revokeObjectURL(url)}};"
         "document.getElementById('img-go').onclick=async()=>{const files=[...document.getElementById('img-file').files];"
         "if(!files.length){say('사진 파일을 고르세요');return}await save(async()=>{"
@@ -766,16 +789,13 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "document.getElementById('ocr-text').value=result.text;"
         "const hints=result.suggestions||{};if(hints.date&&!document.getElementById('r-date').value)document.getElementById('r-date').value=hints.date;"
         "if(hints.total_jpy&&document.getElementById('r-currency').value==='JPY'&&!document.getElementById('r-total').value)document.getElementById('r-total').value=hints.total_jpy;"
-        "say('글자를 읽었습니다. 여러 영수증은 영역별로 나누고 금액·통화·결제수단을 직접 확인해 주세요.');"
+        "say('글자를 읽었습니다. 여러 영수증은 한 건씩 나누어 금액·통화·결제수단을 직접 확인해 주세요.');"
         "}catch(error){say(error.message)}finally{restore();receiptBusy=false}};"
         "document.getElementById('region-go').onclick=()=>{const sha=document.getElementById('image-sha').value;"
-        "const region={box:[1,2,3,4].map(i=>Number(document.getElementById('box'+i).value)),"
+        "const region={box:null,"
         "merchant:document.getElementById('r-merchant').value,date:document.getElementById('r-date').value,"
         "currency:document.getElementById('r-currency').value,total:Number(document.getElementById('r-total').value),payment:document.getElementById('r-payment').value,confidence:1};"
-        "const chosen=[...document.querySelectorAll('#vision-results button')].find(b=>b.dataset.visionSelected==='1');"
-        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}),"
-        "chosen?result=>{chosen.dataset.visionSelected='0';chosen.textContent+=' [등록 '+result.added+'건]';"
-        "say('이 영수증을 등록했습니다. 다른 후보도 검토한 뒤 후보 새로고침을 누르세요.');}:undefined)};"
+        "save(()=>post('/api/receipts/scan',{image:sha||undefined,trip_id:selectedTrip.value||undefined,regions:[region]}))};"
         "document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const id=b.dataset.edit;"
         "save(()=>post('/api/receipts/edit',{identity:id,expected_version:b.closest('tr').dataset.version,trip_id:val('data-trip',id),merchant:val('data-merchant',id),date:val('data-date',id),"
         "[b.closest('tr').dataset.currency==='KRW'?'total_original':'total_jpy']:Number(val('data-total',id)),payment:val('data-payment',id)}),result=>updateCandidate(b,result))});"
@@ -824,29 +844,26 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "const view=document.getElementById('vision-preview');const items=document.getElementById('vision-results');"
         "view.replaceChildren();items.replaceChildren();"
         "const previewImg=document.createElement('img');previewImg.src='/api/receipts/image/'+sha;"
-        "previewImg.alt='인식 영역이 표시된 원본 영수증';previewImg.style.width='100%';view.append(previewImg);"
-        "for(const [index,slip] of response.receipts.entries()){"
-        "const outline=document.createElement('div');outline.style.cssText="
-        "'position:absolute;border:2px solid #2563eb;pointer-events:none;box-sizing:border-box';"
-        "outline.style.left=(slip.box[0]*100)+'%';outline.style.top=(slip.box[1]*100)+'%';"
-        "outline.style.width=((slip.box[2]-slip.box[0])*100)+'%';"
-        "outline.style.height=((slip.box[3]-slip.box[1])*100)+'%';view.append(outline);"
-        "const button=document.createElement('button');button.type='button';"
-        "button.textContent=(index+1)+'. '+(slip.merchant||'상호 미확인')+' — '+"
-        "(slip.amount==null?'금액 확인':slip.amount+' '+(slip.currency||'통화 확인'))+' (검토 입력)';"
-        "button.style.cssText='display:block;margin:8px 0;width:100%;text-align:left';"
-        "button.onclick=()=>{document.querySelectorAll('#vision-results button').forEach(b=>b.dataset.visionSelected='0');"
-        "button.dataset.visionSelected='1';"
-        "slip.box.forEach((v,i)=>document.getElementById('box'+(i+1)).value=v);"
-        "document.getElementById('r-merchant').value=slip.merchant||'';"
-        "document.getElementById('r-date').value=slip.date||'';"
-        "document.getElementById('r-currency').value=slip.currency||'';"
-        "document.getElementById('r-total').value=slip.amount??'';"
-        "document.getElementById('r-payment').value=slip.payment||'';"
-        "document.getElementById('box1').scrollIntoView({block:'center',behavior:'smooth'});"
-        "say('선택한 영수증을 원본과 비교한 뒤 영역 추가를 누르세요.');};"
-        "items.append(button);}"
-        "say('영수증 '+response.receipts.length+'건을 찾았습니다. 각 후보를 검토해 등록하세요.');"
+        "previewImg.alt='업로드한 원본 영수증 사진';previewImg.style.width='100%';view.append(previewImg);"
+        "if(!response.receipts.length){say('인식된 영수증이 없습니다. 사진을 확인하거나 직접 지출을 추가해 주세요.');return}"
+        "for(const slip of response.receipts){const row=document.createElement('div');row.className='vision-row';"
+        "row.style.cssText='margin:8px 0;padding:8px;border:1px solid #e4e7ec;border-radius:8px';"
+        "const check=document.createElement('input');check.type='checkbox';check.checked=true;check.dataset.visionCheck='1';"
+        "const label=document.createElement('label');label.append(check,' 등록에 포함');row.append(label);"
+        "for(const field of ['merchant','date','amount','currency','payment']){const input=document.createElement('input');"
+        "input.dataset.visionField=field;input.placeholder=field;input.value=slip[field]??'';"
+        "input.style.cssText='display:block;width:100%;margin:4px 0';row.append(input);}"
+        "items.append(row);}"
+        "const submit=document.createElement('button');submit.type='button';submit.id='vision-register';"
+        "submit.textContent='선택한 영수증 등록';items.append(submit);"
+        "submit.onclick=()=>{const regions=[...items.querySelectorAll('.vision-row')].filter(r=>r.querySelector('[data-vision-check]').checked).map(r=>{"
+        "const v=f=>r.querySelector('[data-vision-field='+f+']').value.trim();"
+        "return {box:null,merchant:v('merchant')||null,date:v('date')||null,currency:v('currency')||null,"
+        "total:v('amount')?Number(v('amount')):null,payment:v('payment')||null,confidence:1}});"
+        "if(!regions.length){say('등록할 영수증을 하나 이상 선택하세요.');return}"
+        "save(()=>post('/api/receipts/scan',{image:sha,trip_id:selectedTrip.value||undefined,regions}),"
+        "result=>{say('영수증 '+result.added+'건을 등록했습니다. 후보 새로고침을 누르세요.')})};"
+        "say('영수증 '+response.receipts.length+'건을 찾았습니다. 금액·날짜를 원본과 비교한 뒤 등록하세요.');"
         "}catch(error){say(error.message||'Muse 인식이 실패했습니다. 수동으로 입력하세요.');}"
         "finally{restore();receiptBusy=false}};"
         "const visionFinish=document.getElementById('vision-finish');"
@@ -863,8 +880,6 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
         "if(ids.length!==1||!chosen.length){say('해제할 묶음에 속한 영수증 하나를 선택하세요.');return}"
         "save(()=>post('/api/receipts/ungroup',{group_id:ids[0]}))};"
     )
-    box_inputs = "".join(f"<input id='box{i}' type='number' step='any' value='0' aria-label='영역 {i}' style='width:4.5em'>"
-                         for i in range(1, 5))
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'><title>영수증 후보</title>"
             "<style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;margin:16px;background:#f7f9fc;color:#182230}"
@@ -912,14 +927,13 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
                "<div id='vision-results' aria-live='polite'></div>"
                "<button type='button' id='vision-finish'>후보 새로고침</button></section>"
                if opencode_receipt_vision.enabled() else "")
-            + "<section><h2>영역 입력</h2>"
-            f"<p>사진 위치 (x0, y0, x1, y1): {box_inputs}</p>"
+            + "<section><h2>직접 입력</h2>"
             "<input id='r-merchant' placeholder='상호'> <input id='r-date' placeholder='2027-08-03'> "
 "<label>통화<select id='r-currency'><option value=''>통화 확인</option><option value='JPY' selected>엔화 JPY</option><option value='KRW'>원화 KRW</option></select></label>"
             "<input id='r-total' type='number' placeholder='금액(JPY)'> "
 "<select id='r-payment'><option value=''>결제수단 확인</option><option value='cash' selected>현금</option><option value='private_card'>개인카드</option>"
             "<option value='corporate_card'>법인카드</option></select>"
-             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영역 추가</button></section>"
+             f"<button type='button' id='region-go'>{ui_icons.icon('pencil')}영수증 추가</button></section>"
             "<h2>후보</h2>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>확정</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"

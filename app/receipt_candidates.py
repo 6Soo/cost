@@ -20,13 +20,14 @@ BOX_OVERLAP_HOLD = 0.2  # Overlap share of the smaller box that makes two region
 @dataclass
 class Region:
     page_id: str
-    box: tuple  # (x0, y0, x1, y1) in page units
+    box: tuple | None  # (x0, y0, x1, y1) in page units; None when the position is not known
     merchant: str | None
     date: str | None
     currency: str | None
     total: int | None
     payment: str | None
     confidence: float
+    ordinal: int = 0  # k-th identical reading on the same page, so identical tickets stay separate
 
 
 def _overlap(a: tuple, b: tuple) -> float:
@@ -40,10 +41,13 @@ def _overlap(a: tuple, b: tuple) -> float:
 
 def _identity(region: Region) -> str:
     # page_id is the scanned image's content fingerprint, so a re-upload of the same image has the same identity.
-    raw = json.dumps([region.page_id, list(region.box), region.merchant, region.date, region.total, region.payment],
+    box = None if region.box is None else list(region.box)
+    raw = json.dumps([region.page_id, box, region.merchant, region.date, region.total, region.payment],
                      ensure_ascii=False, sort_keys=True)
     if region.currency != 'JPY':
         raw += ':' + str(region.currency)
+    if region.ordinal:
+        raw += ':#' + str(region.ordinal)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -62,8 +66,9 @@ def split_page(regions: list[Region]) -> dict:
             reason = "PAYMENT_UNKNOWN"
         elif not region.date or not region.merchant:
             reason = "FIELD_MISSING"
-        elif any(_identity(other) != _identity(region) and _overlap(region.box, other.box) > BOX_OVERLAP_HOLD
-                 for other in regions):
+        elif region.box is not None and any(
+                other.box is not None and _identity(other) != _identity(region)
+                and _overlap(region.box, other.box) > BOX_OVERLAP_HOLD for other in regions):
             reason = "OVERLAP"
         if reason:
             holds.append({"identity": _identity(region), "reason": reason})

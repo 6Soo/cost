@@ -17,15 +17,15 @@ MODEL = 'opencode/muse-spark-1.3-contributor-free'
 MAX_BYTES = 5 * 1024 * 1024
 MAX_OUTPUT_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 120
+SCHEMA = '{"receipts":[{"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}'
 AGENT_INSTRUCTION = ('You read one attached receipt image and answer with JSON only, using exactly this schema and no other keys: '
-                     '{"receipts":[{"box":[x0,y0,x1,y1],"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}. '
-                     'The image is already in the message. Never call tools, never look for files or instructions.')
-PROMPT = '''Output format: a single JSON object, nothing else. No markdown, no code fence, no explanation.
-Schema: {"receipts":[{"box":[x0,y0,x1,y1],"merchant":null,"date":null,"amount":null,"currency":null,"payment":null,"category_hint":null,"note":null}]}
+                     + SCHEMA + '. The image is already in the message. Never call tools, never look for files or instructions.')
+PROMPT = f'''Output format: a single JSON object, nothing else. No markdown, no code fence, no explanation.
+Schema: {SCHEMA}
 The page image is already attached to this message. Do not call any tool; answer from the attached image only.
 The page may contain several Japanese/Korean receipts, ferry or boarding tickets, handwriting and stamps,
 overlapping or rotated slips. One receipts entry per physical receipt or ticket, even identical-priced tickets.
-box = [x0,y0,x1,y1] in 0..1 relative to the whole page (use pixel coordinates if you cannot normalize).
+Write merchant as printed in the original language (Korean, Japanese or English). Do not translate it.
 date as YYYY-MM-DD. amount is the paid total as an integer (not subtotal, tax, tendered or change).
 currency is JPY or KRW. payment is cash, private_card, corporate_card or null.
 Use null for anything unreadable. Never guess a date, amount or payment method.
@@ -88,24 +88,8 @@ def _string(value, max_length=120):
     if value is None:
         return None
     if not isinstance(value, str) or len(value) > max_length:
-        raise VisionUnavailable('VISION_FIELD_INVALID')
+        return None  # only this field is lost; the rest of the entry is still a candidate
     return value.strip() or None
-
-
-def image_size(data):
-    """Width and height from the PNG or JPEG header alone; None when they cannot be read."""
-    if data.startswith(b'\x89PNG\r\n\x1a\n') and len(data) >= 24:
-        return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
-    if data.startswith(b'\xff\xd8'):
-        index = 2
-        while index + 9 < len(data):
-            if data[index] != 0xFF:
-                return None
-            marker = data[index + 1]
-            if marker in (0xC0, 0xC1, 0xC2):
-                return int.from_bytes(data[index + 7:index + 9], 'big'), int.from_bytes(data[index + 5:index + 7], 'big')
-            index += 2 + int.from_bytes(data[index + 2:index + 4], 'big')
-    return None
 
 
 _DATE_SEPARATED = re.compile(r'^(\d{4})[/.](\d{1,2})[/.](\d{1,2})(?:\s+\d{1,2}:\d{2})?$')
@@ -117,9 +101,8 @@ ITEM_ALIASES = {'merchant': 'merchant', 'store': 'merchant', 'shop': 'merchant',
                 'date': 'date', 'datetime': 'date', 'receipt_date': 'date',
                 'amount': 'amount', 'total_amount': 'amount', 'total': 'amount',
                 'currency': 'currency', 'payment': 'payment', 'payment_method': 'payment',
-                'box': 'box', 'bbox': 'box', 'region': 'box',
                 'category_hint': 'category_hint', 'note': 'note'}
-CANONICAL_ITEM_KEYS = ('box', 'merchant', 'date', 'amount', 'currency', 'payment', 'category_hint', 'note')
+CANONICAL_ITEM_KEYS = ('merchant', 'date', 'amount', 'currency', 'payment', 'category_hint', 'note')
 
 
 def _canonical_item(item):
@@ -132,17 +115,9 @@ def _canonical_item(item):
     return {key: renamed.get(key) for key in CANONICAL_ITEM_KEYS}
 
 
-def _normalized_item(item, size):
+def _normalized_item(item):
     """Deterministic clean-up of what the model wrote; anything still unclear becomes null, never a guess."""
     item = _canonical_item(item)
-    box = item.get('box')
-    if isinstance(box, list) and len(box) == 4 and any(type(x) in (int, float) and x > 1 for x in box):
-        if size is None:
-            return item
-        width, height = size
-        if not width or not height:
-            return item
-        item['box'] = [box[0] / width, box[1] / height, box[2] / width, box[3] / height]
     date = item.get('date')
     if isinstance(date, str):
         match = _DATE_SEPARATED.match(date.strip())
@@ -160,56 +135,55 @@ def _normalized_item(item, size):
     return item
 
 
-def validate_response(result, *, image_hash, size=None):
+def _valid_date(value):
+    if value is None:
+        return None
+    try:
+        return value if datetime.date.fromisoformat(value).isoformat() == value else None
+    except ValueError:
+        return None
+
+
+def _valid_amount(value):
+    if isinstance(value, str) and value.replace(',', '').strip().isdigit():
+        value = int(value.replace(',', '').strip())
+    if type(value) is int and 0 < value <= 1_000_000_000:
+        return value
+    return None
+
+
+def validate_response(result, *, image_hash):
+    """Each entry stands alone: a field that is not clear becomes null on that entry, the other entries are kept."""
     if 'receipts' not in result and 'documents' in result:
         result = dict(result, receipts=result['documents'])
     receipts = result.get('receipts')
-    if isinstance(receipts, list):
-        receipts = [_normalized_item(item, size) if isinstance(item, dict) else item for item in receipts]
-        # An entry with no merchant, date or amount is not a reading; it is dropped, never shown as a candidate.
-        receipts = [item for item in receipts if not (isinstance(item, dict)
-                    and item.get('merchant') is None and item.get('date') is None and item.get('amount') is None)]
-        result = dict(result, receipts=receipts)
     if not isinstance(receipts, list) or len(receipts) > 50:
         raise VisionUnavailable('VISION_RESPONSE_INVALID')
     rows = []
-    for i, item in enumerate(receipts):
-        if not isinstance(item, dict) or set(item) != {
-                'box','merchant','date','amount','currency','payment','category_hint','note'}:
-            raise VisionUnavailable('VISION_FIELD_INVALID')
-        box = item['box']
-        # No region at all is unknown, and the candidate still waits for review. A malformed region is refused.
-        if box is not None and (not isinstance(box, list) or len(box) != 4
-                or any(type(x) not in (int,float) or x < 0 or x > 1 for x in box)
-                or box[0] >= box[2] or box[1] >= box[3]):
-            raise VisionUnavailable('VISION_BOX_INVALID')
+    seen = {}
+    for item in receipts:
+        if not isinstance(item, dict):
+            continue
+        item = _normalized_item(item)
         merchant = _string(item['merchant'])
-        date = _string(item['date'], 10)
-        if date is not None:
-            try:
-                if datetime.date.fromisoformat(date).isoformat() != date:
-                    raise ValueError()
-            except ValueError:
-                raise VisionUnavailable('VISION_DATE_INVALID') from None
-        amount = item['amount']
-        if isinstance(amount, str) and amount.replace(',', '').strip().isdigit():
-            amount = int(amount.replace(',', '').strip())
-        if amount is not None and (type(amount) is not int or amount <= 0 or amount > 1_000_000_000):
-            raise VisionUnavailable('VISION_TOTAL_INVALID')
-        currency, payment = item['currency'], item['payment']
-        if currency not in ('JPY','KRW',None):
-            raise VisionUnavailable('VISION_CURRENCY_INVALID')
-        if payment not in ('cash','private_card','corporate_card',None):
-            raise VisionUnavailable('VISION_PAYMENT_INVALID')
-        box = [round(float(x),5) for x in box] if box is not None else None
-        # OCR amounts/merchant names can be corrected; source position identifies a slip.
-        rid = hashlib.sha256(json.dumps([image_hash,i,box],separators=(',',':')).encode()).hexdigest()[:24]
-        rows.append({'id':rid,'box':box,'merchant':merchant,'date':date,
-                     'amount':amount,'currency':currency,'payment':payment,
-                     'category_hint':_string(item['category_hint'],60),
-                     'note':_string(item['note'],240),'requires_review':True})
-    return {'receipts':rows,'source_sha256':image_hash,'model':MODEL,
-            'confirmed':False,'trip_inferred':False}
+        date = _valid_date(_string(item['date'], 10))
+        amount = _valid_amount(item['amount'])
+        # An entry with no merchant, date or amount is not a reading; it is dropped, never shown as a candidate.
+        if merchant is None and date is None and amount is None:
+            continue
+        currency = item['currency'] if item['currency'] in ('JPY', 'KRW') else None
+        payment = item['payment'] if item['payment'] in PAYMENT_VALUES else None
+        content = json.dumps([merchant, date, amount, currency, payment], ensure_ascii=False)
+        # Identical tickets stay separate: the k-th copy of one reading gets its own id; list order does not matter.
+        occurrence = seen.get(content, 0)
+        seen[content] = occurrence + 1
+        rid = hashlib.sha256(json.dumps([image_hash, content, occurrence]).encode()).hexdigest()[:24]
+        rows.append({'id': rid, 'merchant': merchant, 'date': date, 'amount': amount,
+                     'currency': currency, 'payment': payment,
+                     'category_hint': _string(item['category_hint'], 60),
+                     'note': _string(item['note'], 240), 'requires_review': True})
+    return {'receipts': rows, 'source_sha256': image_hash, 'model': MODEL,
+            'confirmed': False, 'trip_inferred': False}
 
 
 def _run_bounded(command, *, cwd, env):
@@ -290,4 +264,4 @@ def recognize(image, *, runner=None):
         if proc.returncode:
             raise VisionUnavailable('VISION_PROVIDER_ERROR')
         parsed = parse_events(proc.stdout)
-    return validate_response(parsed,image_hash=hashlib.sha256(data).hexdigest(),size=image_size(data))
+    return validate_response(parsed,image_hash=hashlib.sha256(data).hexdigest())

@@ -27,8 +27,8 @@ def event(slips):
     }, ensure_ascii=False) + "\n").encode(), stderr=b"")
 
 
-def receipt(box, amount=820):
-    return {"box": box, "merchant": "豊島フェリー", "date": "2026-09-20",
+def receipt(amount=820):
+    return {"merchant": "豊島フェリー", "date": "2026-09-20",
             "amount": amount, "currency": "JPY", "payment": None,
             "category_hint": "교통비", "note": None}
 
@@ -46,7 +46,7 @@ def test_model_pinned_tools_need_approval_and_tickets_not_deduplicated(ready):
         assert any(arg.startswith("--file=") and arg.endswith(".jpg") for arg in command)
         assert command[command.index("--")+1] == vision.PROMPT
         assert "--pure" in command
-        return event([receipt([.1,.1,.3,.3]), receipt([.4,.1,.6,.3])])
+        return event([receipt(), receipt()])
     result = vision.recognize(ready, runner=invoke)
     assert len(calls) == 1
     assert len(result["receipts"]) == 2
@@ -55,18 +55,11 @@ def test_model_pinned_tools_need_approval_and_tickets_not_deduplicated(ready):
 
 
 def test_missing_fields_are_not_guessed(ready):
-    slip = receipt([.1,.1,.3,.3], amount=None)
+    slip = receipt(amount=None)
     response = vision.recognize(ready, runner=lambda *a,**k: event([slip]))
     assert response["receipts"][0]["payment"] is None
     assert response["receipts"][0]["amount"] is None
     assert response["receipts"][0]["requires_review"] is True
-
-
-@pytest.mark.parametrize("box", [[.3,.3,.1,.1], [0,0,1.01,1]])
-def test_invalid_boxes_blocked(ready, box):
-    with pytest.raises(vision.VisionUnavailable) as error:
-        vision.recognize(ready, runner=lambda *a,**k: event([receipt(box)]))
-    assert error.value.code == "VISION_BOX_INVALID"
 
 
 def test_non_json_fails_closed(ready):
@@ -96,36 +89,39 @@ def test_a_command_past_the_time_limit_is_stopped_with_its_children(monkeypatch)
 
 
 
-def test_pixel_boxes_dates_and_payment_words_are_normalized_not_guessed():
-    png_header = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (1240).to_bytes(4, "big") + (1754).to_bytes(4, "big")
-    assert vision.image_size(png_header + b"\x00" * 8) == (1240, 1754)
-    assert vision.image_size(b"not an image") is None
-    raw = {"receipts": [{"box": [124, 175.4, 620, 877], "merchant": "A", "date": "2026/10/01 12:30",
-                         "amount": 820, "currency": "jpy", "payment": "CASH", "category_hint": None, "note": None},
-                        {"box": [.1, .1, .3, .3], "merchant": "B", "date": "2026/13/40", "amount": 5,
-                         "currency": "USD", "payment": "credit card", "category_hint": None, "note": None}]}
-    rows = vision.validate_response(raw, image_hash="h", size=(1240, 1754))["receipts"]
-    assert rows[0]["box"] == [0.1, 0.1, 0.5, 0.5]
+def test_dates_currency_payment_are_normalized_and_unclear_fields_become_null():
+    raw = {"receipts": [{"merchant": "A", "date": "2026/10/01 12:30", "amount": 820, "currency": "jpy",
+                         "payment": "CASH", "category_hint": None, "note": None},
+                        {"merchant": "B", "date": "2026/13/40", "amount": "abc", "currency": "USD",
+                         "payment": "credit card", "category_hint": None, "note": None}]}
+    rows = vision.validate_response(raw, image_hash="h")["receipts"]
+    assert [r["merchant"] for r in rows] == ["A", "B"]
     assert rows[0]["date"] == "2026-10-01" and rows[0]["currency"] == "JPY" and rows[0]["payment"] == "cash"
-    assert rows[1]["date"] is None and rows[1]["currency"] is None and rows[1]["payment"] is None
+    assert rows[1]["date"] is None and rows[1]["amount"] is None
+    assert rows[1]["currency"] is None and rows[1]["payment"] is None
+    assert all("box" not in r for r in rows)
 
 
 def test_an_entry_with_no_merchant_date_or_amount_is_not_a_candidate():
-    raw = {"receipts": [{"box": [0, 0, 1000, 1000], "merchant": None, "date": None, "amount": None,
+    raw = {"receipts": [{"merchant": None, "date": None, "amount": None,
                          "currency": None, "payment": None, "category_hint": None, "note": None},
-                        {"box": [0.1, 0.1, 0.4, 0.4], "merchant": "A", "date": "2026-10-01", "amount": 820,
+                        {"merchant": "A", "date": "2026-10-01", "amount": 820,
                          "currency": "JPY", "payment": None, "category_hint": None, "note": None}]}
-    rows = vision.validate_response(raw, image_hash="h", size=None)["receipts"]
+    rows = vision.validate_response(raw, image_hash="h")["receipts"]
     assert len(rows) == 1 and rows[0]["merchant"] == "A"
 
 
-def test_a_placed_receipt_survives_an_unplaceable_neighbour_and_numeric_text_amounts():
-    raw = {"receipts": [{"box": None, "merchant": "A", "date": "2026-10-01", "amount": "1,200",
-                         "currency": "JPY", "payment": None, "category_hint": None, "note": None},
-                        {"box": None, "merchant": "B", "date": "2026-10-02", "amount": 300,
-                         "currency": "KRW", "payment": None, "category_hint": None, "note": None}]}
-    rows = vision.validate_response(raw, image_hash="h", size=None)["receipts"]
-    assert [r["amount"] for r in rows] == [1200, 300]
-    assert rows[0]["box"] is None and rows[1]["box"] is None
-    with pytest.raises(vision.VisionUnavailable):
-        vision.validate_response({"receipts": [{"box": [5, 9], "merchant": "A", "date": None, "amount": 1, "currency": "JPY", "payment": None, "category_hint": None, "note": None}]}, image_hash="h", size=None)
+def test_identical_tickets_stay_separate_whatever_the_order():
+    ticket = {"merchant": "A", "date": "2026-10-01", "amount": 820, "currency": "JPY",
+              "payment": None, "category_hint": None, "note": None}
+    rows = vision.validate_response({"receipts": [ticket, ticket]}, image_hash="h")["receipts"]
+    assert len(rows) == 2 and rows[0]["id"] != rows[1]["id"]
+    reordered = vision.validate_response({"receipts": [ticket, ticket]}, image_hash="h")["receipts"]
+    assert [r["id"] for r in rows] == [r["id"] for r in reordered]
+
+
+def test_numeric_text_amounts_are_read_and_model_boxes_are_ignored():
+    raw = {"receipts": [{"box": [5, 9, 100, 200], "merchant": "A", "date": "2026-10-01", "amount": "1,200",
+                         "currency": "JPY", "payment": None, "category_hint": None, "note": None}]}
+    rows = vision.validate_response(raw, image_hash="h")["receipts"]
+    assert rows[0]["amount"] == 1200 and "box" not in rows[0]

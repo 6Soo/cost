@@ -63,8 +63,6 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         assert uploaded.value.status == 200
                         pg.locator("img[src*='/api/receipts/image/']").first.wait_for()
                         pg.wait_for_load_state()
-                        for index, value in enumerate((0, 0, 100, 100), 1):
-                            pg.locator(f'#box{index}').fill(str(value))
                         pg.locator('#r-merchant').fill('합성 현금 상점')
                         pg.locator('#r-date').fill('2027-08-03')
                         pg.locator('#r-total').fill('1200')

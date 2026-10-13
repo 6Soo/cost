@@ -325,7 +325,6 @@ class ReceiptReviewTests(unittest.TestCase):
             # The page reloads after a registration, so the registered photo itself is the signal.
             page.locator("img[src*='/api/receipts/image/']").first.wait_for()
             page.wait_for_load_state()
-            page.fill('#box1', '0'); page.fill('#box2', '0'); page.fill('#box3', '100'); page.fill('#box4', '100')
             page.fill('#r-merchant', '라멘집'); page.fill('#r-date', '2027-08-03'); page.fill('#r-total', '1234')
             page.click('#region-go')
             page.wait_for_load_state()
@@ -477,8 +476,6 @@ class ReceiptReviewTests(unittest.TestCase):
             page.goto(self.base + '/receipts')
             page.locator('[data-image-sha]').first.click()
             self.assertEqual(page.locator('#image-sha').input_value(), first)
-            for index, value in enumerate((0, 0, 100, 100), start=1):
-                page.fill('#box' + str(index), str(value))
             page.fill('#r-merchant', 'SYN-SHOP')
             page.fill('#r-date', '2027-08-03')
             page.fill('#r-total', '1234')
@@ -489,7 +486,7 @@ class ReceiptReviewTests(unittest.TestCase):
             browser.close()
         candidate, = self.request('/api/receipts')[1]['candidates']
         self.assertEqual(candidate['image_sha'], first)
-        self.assertEqual(candidate['box'], [0, 0, 100, 100])
+        self.assertIsNone(candidate['box'])
 
     def test_browser_photo_upload_blocks_double_click_and_recovers_from_error(self):
         pending = []
@@ -858,7 +855,7 @@ class ReceiptReviewTests(unittest.TestCase):
             page = browser.new_page()
             page.goto(self.base + '/receipts')
             page.locator('[data-total]').fill('2800')
-            for selector, value in (('#box3', '100'), ('#box4', '100'), ('#r-merchant', 'NEW-SHOP'),
+            for selector, value in (('#r-merchant', 'NEW-SHOP'),
                                     ('#r-date', '2027-08-03'), ('#r-total', '700')):
                 page.locator(selector).fill(value)
             requests = []

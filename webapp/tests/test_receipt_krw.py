@@ -36,8 +36,7 @@ def test_krw_manual_review_edit_reload_and_copy_preserves_original_amount(app):
             page = context.new_page()
             page.goto(app.base + '/receipts')
             page.locator('#r-currency').select_option('KRW')
-            for field, value in (('r-merchant', '원화 합성 매장'), ('r-date', '2026-10-12'), ('r-total', '12500'),
-                                 ('box1', '0'), ('box2', '0'), ('box3', '100'), ('box4', '100')):
+            for field, value in (('r-merchant', '원화 합성 매장'), ('r-date', '2026-10-12'), ('r-total', '12500')):
                 page.locator('#' + field).fill(value)
             page.locator('#region-go').click()
             page.locator('[data-total]').wait_for()
