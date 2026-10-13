@@ -123,6 +123,20 @@ def authenticated_headers(message, domains):
     return headers, canonical
 
 
+def flight_period(text):
+    """Outbound and return dates of a flight confirmation: 가는편 and 오는편 lines carry 'YYYY년 M월 D일'."""
+    dates = {}
+    for key, label in (('starts_on', '가는편'), ('ends_on', '오는편')):
+        match = re.search(label + r':[^|]*\|\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일', text)
+        if not match:
+            return None
+        try:
+            dates[key] = datetime.date(int(match[1]), int(match[2]), int(match[3])).isoformat()
+        except ValueError:
+            return None
+    return dates if dates['ends_on'] >= dates['starts_on'] else None
+
+
 def service_period(text):
     # Without any check-in or check-out wording no date can be read; the scan below would find nothing.
     if not re.search(r'check|체크', text, re.I):
@@ -302,12 +316,13 @@ def extract_mail(message):
         if not paid:
             paid = {int(n.replace(',','')) for n in re.findall(
                 r'(?<![가-힣])금액:\s*₩\s*([0-9][0-9,]*)',text)}
-    period = service_period(text) if item=='숙박비' else None
+    flight_confirmed = '항공권 예약 확정' in subject
+    period = service_period(text) if item=='숙박비' else flight_period(text) if flight_confirmed else None
     digest=hashlib.sha256(json.dumps(message,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()).hexdigest()
     return dict(provider=provider,booking_ref=next(iter(refs)),item=item,
                 paid_amount_krw=next(iter(paid)) if len(paid)==1 else None,
                 paid_on=paid_on.isoformat(),period=period,source_sha256=digest,
-                reservation_status='cancelled' if cancelled else 'observed',
+                reservation_status='cancelled' if cancelled else 'confirmed' if flight_confirmed else 'observed',
                 message_id=message['id'],ignored_zero_cost_guides=sorted(set(ignored_guides)))
 
 

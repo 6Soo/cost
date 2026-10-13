@@ -207,6 +207,15 @@ def test_agreeing_inference_evidence_is_not_a_financial_conflict():
     row=dict(merchant='BOOKING.COM',source_hash='a'*64)
     verdict=classify_transaction(row,rules=[old,fresh])
     assert verdict['classification_state']=='classified'
-    assert '중간' in verdict['classification_basis']
+    assert '높음' in verdict['classification_basis'] and '과거 장부' in verdict['classification_basis']
     disagreement=rule('예약 12345678','중간','예약 메일','other-trip')
     assert classify_transaction(row,rules=[old,disagreement])['classification_source']=='inference_conflict'
+
+
+def test_flight_confirmation_gives_its_outbound_and_return_dates_and_is_confirmed():
+    body='예약번호 1400826610904891\n가는편: 서울 - 고마쓰 | 2026년 8월 1일\n07:30 ICN\n오는편: 고마쓰 - 서울 | 2026년 8월 5일 10:15 KMQ'
+    fact=extract_mail(message(body,subject='[트립닷컴] 항공권 예약 확정 안내: 서울 - 고마쓰, 고마쓰 - 서울'))
+    assert fact['item']=='항공료' and fact['reservation_status']=='confirmed'
+    assert fact['period']=={'starts_on':'2026-08-01','ends_on':'2026-08-05'}
+    cancelled=message(body,subject='[트립닷컴] 항공권 예약 확정 안내: 서울 - 고마쓰 취소 완료')
+    assert extract_mail(cancelled)['reservation_status']=='cancelled'
