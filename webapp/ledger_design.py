@@ -966,8 +966,8 @@ def work_menu_html() -> str:
                 f"<span><strong>{title}</strong>"
                 f"</span></{tag}>")
 
-    actions = action('upload', '카드 검토·규칙 수정', '업로드 · 여행 배정 · 지출표 복사', '/import')
-    actions += action('credit-card', '카드 내역', '저장된 카드 거래 · 검색 · 카드별 조회', '/cards')
+    actions = action('upload', '카드 검토', '자료 올리기 · 확인 필요 거래 처리 · 지출표 복사', '/import')
+    actions += action('credit-card', '카드 내역', '저장된 모든 카드 거래 조회 · 검색 (읽기 전용)', '/cards')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
