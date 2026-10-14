@@ -201,7 +201,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             page.locator(".ota-linked-cards summary").click()
                             linked_text = page.locator(".ota-linked-cards .ota-card-row").first.inner_text()
                             self.assertNotIn("evt-synth-other", linked_text)
-                            self.assertIn("다른 예약에 이미 연결된 거래입니다.", linked_text)
+                            self.assertIn("다른 예약에 연결됨", linked_text)
                             self.assertEqual(page.evaluate("document.documentElement.scrollWidth"), width)
                             row = rows.nth(2)
                             row.get_by_role("radio").check()

@@ -50,9 +50,9 @@ _CONDITION_FIELDS = (
     "minimum_amount_krw", "rounding_mode", "payment_method", "valid_from", "valid_to",
 )
 _LINK_REASON_TEXT = {
-    "자동 연결": "다른 예약에 자동으로 연결된 거래입니다. 이 화면에서는 연결을 바꿀 수 없습니다.",
-    "기존 연결": "다른 예약에 이미 연결된 거래입니다. 이 화면에서는 연결을 바꿀 수 없습니다.",
-    "사용자 확정 연결": "다른 예약에 사용자가 확정한 거래입니다. 이 화면에서는 연결을 바꿀 수 없습니다.",
+    "자동 연결": "다른 예약에 연결됨",
+    "기존 연결": "다른 예약에 연결됨",
+    "사용자 확정 연결": "다른 예약에 연결됨",
 }
 
 
@@ -144,7 +144,7 @@ def public_snapshot(snapshot):
             row["selection_disabled_reason"] = block_reason
             if row.get("already_linked_event_id"):
                 row["already_linked_reason"] = _LINK_REASON_TEXT.get(
-                    row.get("already_linked_reason"), "다른 예약에 이미 연결된 거래입니다. 이 화면에서는 연결을 바꿀 수 없습니다.")
+                    row.get("already_linked_reason"), "다른 예약에 연결됨")
             rows.append(row)
         cards_by_event[str(event_id)] = rows
     proposals = []
@@ -1059,7 +1059,6 @@ def render_import_section(csrf: str) -> str:
     icons = json.dumps(_ICONS, ensure_ascii=False)
     return f'''<section id="ota-review" aria-labelledby="ota-title" data-ota-review>
 <h2 id="ota-title" class="ota-title">{_icon("alert")}OTA 결제 보류 검토</h2>
-<p class="small ota-lead">실제 결제 근거가 있는 항목만 표시합니다. 결제 금액·날짜·방향이 같은 카드 거래를 고르면 연결할 수 있고, 맞는 거래가 없으면 보류로 둡니다.</p>
 <div id="ota-status" role="status" aria-live="polite">보류 내역을 불러오고 있습니다.</div>
 <p id="ota-freshness" aria-live="polite"></p>
 <div id="ota-events"></div><div id="ota-proposals"></div>
@@ -1135,12 +1134,12 @@ def render_import_section(csrf: str) -> str:
       const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',label(EVENT_TYPE_LABELS,event.event_type)],['결제일',event.paid_on],['결제 금액',amountText],['이용 기간',period],['항목',event.item],['보류 이유',label(REASON_LABELS,event.reason)],['원본 근거',evidence]];
       if(group)facts.push(['묶음 건수',group]);
       if(basis)facts.push(['배정 근거',basis]);
-      const verdict=sameAmount?`결제 금액과 같은 카드 거래가 ${{sameAmount}}건 있습니다. 날짜와 방향을 확인한 뒤 하나를 고르세요.`:'결제 금액과 같은 카드 거래가 없습니다. 맞는 거래가 없으면 연결하지 않고 보류로 둡니다.';
+      const verdict=sameAmount?`결제 금액과 같은 카드 거래가 ${{sameAmount}}건 있습니다.`:'결제 금액과 같은 카드 거래가 없습니다.';
       const ids=[...(event.ota_group_ids?.length?[['예약 거래 ID',event.ota_group_ids.join(', ')]]:[]),...(event.card_group_ids?.length?[['카드 거래 ID',event.card_group_ids.join(', ')]]:[])];
       const fact=(name,value)=>value===null||value===undefined||value===''?'':`<span>${{name}}: ${{esc(value)}}</span>`;
       const renderCard=card=>{{
         const same=gap(card)===0,linked=card.already_linked_event_id,blocked=card.selection_disabled||linked||event.evidence_missing;
-        const reason=card.selection_disabled?(card.selection_disabled_reason||'선택할 수 없습니다.'):linked?(card.already_linked_reason||'이미 다른 결제와 연결된 거래입니다.'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'';
+        const reason=card.selection_disabled?(card.selection_disabled_reason||'선택할 수 없습니다.'):linked?(card.already_linked_reason||'다른 예약에 연결됨'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'';
         return `<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{blocked?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong class="ota-card-title">${{icon('card')}}${{esc(card.issuer||'카드')}} ·${{esc(card.approval_date||card.transaction_date||'날짜 없음')}}</strong>${{same?'<em class="ota-match">금액 일치</em>':''}}<span class="ota-card-facts">${{fact('가맹점',card.merchant)}}${{fact('원화 금액',money(card.amount_krw))}}${{fact('외화 금액',card.foreign_amount)}}${{fact('승인일',card.approval_date)}}${{fact('매입일',card.posting_date)}}${{fact('카드 끝 네 자리',card.card_tail)}}${{fact('카드 종류',card.card_kind)}}${{fact('승인 번호',card.approval_number||card.authorization_id)}}${{fact('거래 방향',label(DIRECTION_LABELS,card.transaction_direction||card.direction))}}${{fact('취소 상태',card.cancellation_status)}}${{fact('환불 상태',label(REFUND_LABELS,card.refund_status))}}${{fact('연결된 예약',card.already_linked_label)}}</span>${{reason?`<span class="ota-blocked">${{icon('lock')}}<span>${{esc(reason)}}</span></span>`:`<span class="ota-ok">${{icon('check')}}<span>선택 가능</span></span>`}}</span></label>`;
       }};
       const openRows=rows.filter(card=>!card.already_linked_event_id).map(renderCard).join('');
@@ -1223,7 +1222,7 @@ def render_import_section(csrf: str) -> str:
       const state=snapshot.status||'ready';
       const body=bodyOf(snapshot);
       if(state==='loading'){{
-        freshness.textContent='OTA 자료를 처음 확인하고 있습니다. 끝나면 자동으로 표시합니다.';
+        freshness.textContent='OTA 자료를 확인하고 있습니다.';
         scheduleLoad(8000);
         return;
       }}

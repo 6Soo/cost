@@ -1151,7 +1151,6 @@ def split_page(source_id: str) -> str:
         principal_fields = (
             "<p><label>원금(선택, 배분안과 함께 저장)</label>"
             f"<input name='new_principal_amount' value='{source['amount_krw']}'></p>"
-            "<p class='muted'>은행 원천은 정정 경로에서 배분안과 함께 조정해요.</p>"
         )
     body = (
         "<div class='sect'><h2>입금 나누기</h2>"
@@ -1320,7 +1319,6 @@ def allocation_detail_body(allocation, edit: bool) -> str:
             f"<p><label>입금 종류</label><select name='income_kind'>{kind_options}</select></p>"
             f"<p><label>거래일자</label><input value='{esc(allocation['occurred_on'])}' readonly></p>"
             f"<p><label>배분 금액</label><input value='{esc(allocation['amount_krw'])}' readonly></p>"
-            "<p class='muted'>고객 정보·여행·입금 종류만 바꿀 수 있어요. 날짜와 금액은 전체 배분 편집에서 원천 규칙에 따라 조정해요.</p>"
             "<button type='submit'>배분 행 저장</button> "
             f"<a href='/row?id={esc(allocation['row_id'])}'>취소</a></form>"
         )
@@ -1412,7 +1410,7 @@ def board_page(tab_id: str, query: str = "") -> str:
         rows = _unclassified_rows()
         unc_total = sum(_shown_amount(r) for r in rows)
         inc_rows = [r for r in _income_rows() if r["display_tab_id"] is None]
-        head = "<h2>분류대기</h2><p class='muted'>분류를 기다리는 내역이에요.</p>"
+        head = "<h2>분류대기</h2>"
         tables = income_table(inc_rows) + expense_table(rows)
         summary = f"<div class='card'><span class='muted'>미배정</span><div class='big'>{unc_total:,}원</div></div>"
     elif trip is None:
@@ -1570,7 +1568,7 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     if _active_store() is None:
         return ledger_design.render(ledger_design.shell(
             '규칙 대화', tab_id='', heading='규칙 대화',
-            body="<div class='sect'><p>저장소가로 연결되지 않아요.</p></div>"))
+            body="<div class='sect'><p>저장소가 연결되지 않았어요.</p></div>"))
     state = _active_store().dialog_page_state(case_id)
     row = _active_store().get_row(state["row_id"]) if state.get("row_id") else None
     if row is None:
@@ -1885,10 +1883,7 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
             f"<input name='company_name' value='{esc(profile['company_name'])}'></p>"
             "<p><label>기본 담당자명</label>"
             f"<input name='assignee_name' value='{esc(profile['assignee_name'])}'></p>"
-            "<p class='muted'>기본 담당자명은 지금부터 새로 만드는 여행에 복사돼요."
-            "이미 있는 여행의 담당자와 작성일은 바뀌지 않아요. "
-            "값을 비워 두면 새 여행의 담당자는 비어 있고, 그때는 아래에서 직접 입력해 주세요."
-            "</p>"
+            "<p class='muted'>새로 만드는 여행에만 복사되고, 이미 있는 여행은 바뀌지 않습니다.</p>"
             f"<button type='submit'>{ui_icons.icon('save')}출처 정보 저장</button></form></div>")
     preview_html = ""
     if preview_tab:
@@ -2041,7 +2036,7 @@ def export_page() -> str:
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
         f"{options}{archived}"
-        "<p class='muted'>저장된 내역을 출력합니다. 분류대기 거래가 포함될 수 있습니다.</p>"
+        "<p class='muted'>분류대기 거래가 포함될 수 있습니다.</p>"
         f"{progress_note}"
         + (("<p class='muted warntext'>담당자 확인이 필요한 여행 "
             + str(len(unconfirmed))
@@ -2063,12 +2058,10 @@ def import_page() -> str:
 
     body = (
         "<div class='sect'><h2>카드 가져오기 (합성 프로필)</h2>"
-        "<p class='muted'>합성 CSV만 받아요. 실제 카드 파일 형식은 프로필 확인 뒤에 연결해요.</p>"
         f"<input type='file' id='f' accept='.csv'>"
         f"<button id='up'>올리기</button><p id='msg' class='muted'></p>"
         "<div id='res'></div>"
         "<h2>은행 가져오기 (합성 프로필)</h2>"
-        "<p class='muted'>합성 은행 CSV만 받아요. 실제 은행 양식은 확인 뒤에 연결해요. 출금은 수입으로 올리지 않아요.</p>"
         f"<input type='file' id='bf' accept='.csv'>"
         f"<button id='bup'>올리기</button><p id='bmsg' class='muted'></p>"
         "<div id='bres'></div>"
@@ -2212,7 +2205,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
     from . import ledger_design
 
     if row is None:
-        return layout("행 없음", "<div class='top'><h1>웹 장부</h1></div><div class='body'><p>행이 없어요. 목록으로 돌아가 주세요.</p></div>")
+        return layout("행 없음", "<div class='top'><h1>웹 장부</h1></div><div class='body'><p>행이 없어요.</p></div>")
     from . import ledger_design
 
     if row.get("is_allocation") and _active_store() is not None:
@@ -2233,7 +2226,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
             if _active_store() is None:
                 form = (
                     "<h3>행 편집 (저장 준비 중)</h3>"
-                    "<p class='muted'>저장소가 연결되지 않았어요. 서버를 작업 DB와 함께 실행해 주세요.</p>"
+                    "<p class='muted'>저장소가 연결되지 않았어요.</p>"
                     "<button class='btnprep' disabled>저장 준비 중</button>"
                 )
             else:

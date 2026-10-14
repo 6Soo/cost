@@ -1066,7 +1066,7 @@ def _photo_strip(data: dict) -> str:
 def _rescan_html(target: str) -> str:
     return ("<div class='rescan'><h3>빠진 영수증이 있나요?</h3>"
             "<p class='hint'>빠진 점이나 잘못된 점을 적고 다시 인식하세요. 기존 후보는 바뀌지 않고, 새로 찾은 영수증만 위에 보여 줍니다.</p>"
-            f"<p class='hint'>다시 인식할 사진: <strong id='rescan-target'>{target}</strong> (썸네일을 눌러 바꿀 수 있습니다)</p>"
+            f"<p class='hint'>다시 인식할 사진: <strong id='rescan-target'>{target}</strong> </p>"
             "<textarea id='feedback' maxlength='300' placeholder='예: 6장인데 5장만 찾았어. 작은 승선권 하나 더 찾아'></textarea>"
             "<button type='button' id='rescan-go'>다시 인식</button></div>")
 
@@ -1190,7 +1190,7 @@ def render_html(data: dict, csrf: str, trips: list | None = None) -> str:
             f"<div class='photo-strip'>{_photo_strip(data)}</div></section>"
             + ai_section +
             "<section id='step-review'><h2>4. 후보 검토</h2>"
-            "<p class='hint'>상호·날짜·금액을 확인하고 필요하면 수정하세요. 분류가 끝난 영수증만 지출로 복사됩니다.</p>"
+            "<p class='hint'>분류가 끝난 영수증만 지출로 복사됩니다.</p>"
             "<table><thead><tr><th>상호·날짜</th><th>금액·결제</th><th>원화</th><th>상태</th><th>분류</th>"
             f"</tr></thead><tbody>{rows}</tbody></table></section>"
             "<section><h2>5. 승선권 등 선택 묶기</h2>"
