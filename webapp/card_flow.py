@@ -1683,6 +1683,21 @@ def _cleanup_card_items(board):
         " GROUP BY t.transaction_id ORDER BY 3 DESC LIMIT 300").fetchall()
 
 
+def _evidence_block(index, amount, day):
+    """예약 자료 확인이 필요한 거래 옆에 같은 금액의 예약 메일 내용을 그대로 보여 준다. 배정은 하지 않는다."""
+    from app import booking_evidence
+    from . import ledger_board
+    esc = ledger_board.esc
+    found, searched = booking_evidence.find(index, amount, day)
+    if not found:
+        return (f"<p class='cleanup-evidence-none'>같은 금액 {abs(int(amount or 0)):,}원의 예약 메일이 없습니다."
+                f" 메일 {searched:,}통을 확인했습니다.</p>")
+    items = ''.join('<li>' + '<br>'.join(esc(line) for line in booking_evidence.describe(entry)) + '</li>'
+                    for entry in found)
+    return (f"<details class='cleanup-evidence'><summary>예약 자료 {len(found)}건 · 금액 일치</summary>"
+            f"<ul>{items}</ul></details>")
+
+
 def render_expense_cleanup(board, csrf):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board
@@ -1696,13 +1711,20 @@ def render_expense_cleanup(board, csrf):
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
     items = []
-    for tid, batch, day, merchant, amount, item, source, revision, held in _cleanup_card_items(board):
+    rows_card = _cleanup_card_items(board)
+    evidence_index = None
+    if any(row[6] == 'booking_evidence_needed' for row in rows_card):
+        from app import booking_evidence
+        from . import ota_catalog
+        evidence_index = booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
+    for tid, batch, day, merchant, amount, item, source, revision, held in rows_card:
         reason = CARD_REASON.get(source, '확인이 필요한 거래입니다')
+        evidence = _evidence_block(evidence_index, amount, day) if source == 'booking_evidence_needed' else ''
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
             f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
-            f"<small>{esc(day or '')} · {esc(reason)}</small></div>"
+            f"<small>{esc(day or '')} · {esc(reason)}</small>{evidence}</div>"
             f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
             f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
@@ -1728,7 +1750,10 @@ def render_expense_cleanup(board, csrf):
              "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
              "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
              "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
-             "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}</style>")
+             "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}"
+             "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
+             "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
+             "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}</style>")
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>정리할 지출 <span id='cleanup-count'>{len(items)}건</span></h2>"
             f"<ul class='cleanup-list'>{body}</ul>"
