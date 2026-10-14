@@ -519,7 +519,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                         raise StoreError(CODE_INVALID_INPUT,
                                          "게시 함수가 아니에요")
                     projection(dict(entry, batch_id=batch_id, now=now))
-            done = set(booked) | set(already)
+            # 이미 기록된 행은 보류 표시가 있어도 기록된 상태로 본다. 짝을 맞출 때 기준이 된다.
+            done = set(booked) | set(already) | {e["transaction_id"] for e in current["rows"] if e.get("already_booked")}
             for entry in current["rows"]:
                 link = entry.get("refund_link")
                 if link and not entry.get("blocked") and (
