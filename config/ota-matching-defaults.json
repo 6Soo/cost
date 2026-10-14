@@ -23,8 +23,8 @@
       {"alias": "트립닷컴(구)_NICE", "status": "approved", "version": 1,
        "source": "user-approved-trip-card-descriptor-2026-10-14"}
     ],
-    "klook": [{"alias": "klook", "status": "candidate", "version": 1,
-               "source": "legacy-built-in-not-user-approved"}],
+    "klook": [{"alias": "klook", "status": "approved", "version": 1,
+               "source": "user-approved-klook-descriptor-2026-10-14"}],
     "booking": [{"alias": "booking.com", "status": "candidate", "version": 1,
                  "source": "legacy-built-in-not-user-approved"}]
   },
