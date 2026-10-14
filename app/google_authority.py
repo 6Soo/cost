@@ -479,14 +479,13 @@ def _close_open_ends(view: list[dict]) -> None:
         period = trip["period"]
         if period.get("ends_on"):
             continue
+        from .reconciliation import open_trip_end
         following = next((t["period"]["starts_on"] for t in dated[index + 1:]
                           if t["period"]["starts_on"] > period["starts_on"]), None)
-        if following is None:
+        ends = open_trip_end(period["starts_on"], following)
+        if ends is None:
             continue
-        ends = dt.date.fromisoformat(following) - dt.timedelta(days=1)
-        if ends < dt.date.fromisoformat(period["starts_on"]):
-            continue
-        period["ends_on"] = ends.isoformat()
+        period["ends_on"] = ends
         period["flags"] = [f for f in period["flags"] if f != "PERIOD_END_MISSING"] + ["PERIOD_END_FROM_NEXT_TRIP"]
 
 

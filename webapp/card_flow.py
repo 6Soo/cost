@@ -17,8 +17,8 @@ _OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고�
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
 _GOOGLE_PERIOD_CACHE = {}
-# 시트에 종료일이 없어 다음 여행 전날로 정했거나 비어 있는 종료일. 기간 검증에는 쓰되(빈 종료일 제외),
-# 옮긴 시트의 원본 제목보다 앞서지는 않는다.
+# 시트에 종료일이 적히지 않은 탭. 다음 여행 직전일로 정한 종료일(사용자 확정 규칙, reconciliation.open_trip_end)은
+# 여행 기간으로 검증에 그대로 쓴다. 다만 옮긴 시트의 해시 확인된 원본 제목에 종료일이 적혀 있으면 그쪽이 앞선다.
 _GUESSED_PERIOD_FLAGS = frozenset({'PERIOD_END_FROM_NEXT_TRIP', 'PERIOD_END_MISSING'})
 
 

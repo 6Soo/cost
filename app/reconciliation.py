@@ -24,6 +24,17 @@ GUIDE_AIRFARE_ORIGIN = "guide-airfare-live"
 CONFIRMED_STATUSES = frozenset({"confirmed", "completed", "upcoming"})
 
 
+def open_trip_end(starts_on, next_starts_on):
+    """사용자 확정 규칙: 종료일이 없는 여행(종료일 누락 또는 당일여행)은 다음 여행의 직전일에 끝난다.
+
+    이렇게 정한 종료일은 시트에 적힌 종료일과 같은 효력의 여행 기간이다. 다음 여행이 없거나 같은 날 시작하면
+    None(종료일 없음)이다. 바꾸려면 사용자의 명시 지시가 필요하다(AGENTS.md 사용자 확정 규칙).
+    """
+    if not starts_on or not next_starts_on or next_starts_on <= starts_on:
+        return None
+    return (date.fromisoformat(next_starts_on) - timedelta(days=1)).isoformat()
+
+
 def card_use_date(transaction):
     """The card row's date for placing it on a trip: 이용일 when the statement has one, else 승인일."""
     return transaction.get("approval_date") or ""

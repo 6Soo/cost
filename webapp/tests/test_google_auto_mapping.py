@@ -66,7 +66,7 @@ def test_auto_route_requires_csrf_and_returns_saved_count(tmp_path, monkeypatch)
     assert handler.sent[0] == ('json', 200, {'code': 'OK', 'linked': 1})
 
 
-def test_import_creates_trips_from_the_sheet_top_and_keeps_missing_ends_empty(tmp_path):
+def test_import_creates_trips_from_the_sheet_top_and_leaves_an_end_empty_only_when_no_next_trip_exists(tmp_path):
     from webapp.ledger_store import LedgerStore
     board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
     snap = {'trips': [

@@ -628,6 +628,16 @@ def auto_mapping_candidates(snapshot: dict, tabs: list, existing: dict) -> dict:
     return result
 
 
+def _end_set_by_sync(board, tab_id: str) -> bool:
+    """Whether the trip's current end date was last written by the Google import, not by a person."""
+    for prev, new, actor in board.conn.execute(
+            "SELECT prev_json, new_json, actor FROM trip_tab_history WHERE tab_id=? ORDER BY id DESC", (tab_id,)):
+        before, after = json.loads(prev or '{}'), json.loads(new or '{}')
+        if before.get('ends_on') != after.get('ends_on'):
+            return actor == 'google-sync'
+    return False
+
+
 def import_trips(board, snapshot: dict) -> dict:
     """Creates a COST trip tab for each Google trip tab that has a year and a start date on its sheet.
 
@@ -644,7 +654,11 @@ def import_trips(board, snapshot: dict) -> dict:
             continue
         if trip['key'] in named:
             tab = named[trip['key']]
-            if not tab.get('ends_on') and period.get('ends_on'):
+            # 다음 여행 직전일로 정한 종료일은 다음 여행이 바뀌면 따라 바뀐다. 사용자가 직접 정한 종료일은 덮지 않는다.
+            follows = ('PERIOD_END_FROM_NEXT_TRIP' in (period.get('flags') or ()) and tab.get('ends_on')
+                       and period.get('ends_on') and tab['ends_on'] != period['ends_on']
+                       and _end_set_by_sync(board, tab['tab_id']))
+            if (not tab.get('ends_on') or follows) and period.get('ends_on'):
                 try:
                     board.save_trip_meta(tab_id=tab['tab_id'], expected_revision=tab['revision'],
                                          client_request_id='google-end-' + tab['tab_id'] + period['ends_on'],
