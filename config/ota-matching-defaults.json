@@ -21,7 +21,9 @@
       {"alias": "대표_카카오페이-트립닷컴", "status": "approved", "version": 2,
        "source": "user-approved-trip-airfare-exact-descriptor-2026-10-09"},
       {"alias": "트립닷컴(구)_NICE", "status": "approved", "version": 1,
-       "source": "user-approved-trip-card-descriptor-2026-10-14"}
+       "source": "user-approved-trip-card-descriptor-2026-10-14"},
+      {"alias": "나이스정보통신", "status": "approved", "version": 1,
+       "source": "user-approved-trip-card-descriptor-2026-10-15"}
     ],
     "klook": [{"alias": "klook", "status": "approved", "version": 1,
                "source": "user-approved-klook-descriptor-2026-10-14"}],
