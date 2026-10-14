@@ -249,9 +249,6 @@ def scope_group(store, result: dict, original_id: str) -> dict:
                          "묶인 거래가 이 접수 건에 모두 없어 기록하지 않아요")
     rows = [by_id[member] for member in members]
     booked = [bool(row.get("already_booked")) for row in rows]
-    if any(booked) and not all(booked):
-        raise StoreError(CODE_REFUND_PAIR_PARTIALLY_BOOKED,
-                         "원거래와 환불 중 일부만 이미 기록돼 있어 기록하지 않았어요. 확인해 주세요")
     held = [row for row in rows if row.get("blocked")]
     scoped = dict(result, rows=rows, scope="refund_group", original_id=original_id, members=members,
                   ready=len(recordable_rows(rows)), unresolved=len(held),
@@ -303,13 +300,16 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
         if link["status"] == "excess":
             _block_pair(pair, "refund_exceeds_original", "환불 합계가 원결제보다 커서 보류해요", ready, unresolved)
             continue
+        # 원거래가 먼저 기록되고 환불이 나중에 온 경우(또는 반대): 기록된 쪽의 배속을 빠진 쪽이 이어받아 함께 맞춘다.
         if bool(original.get("already_booked")) != bool(refund.get("already_booked")):
-            _block_pair(pair, "refund_pair_partially_booked", "원거래와 환불 중 한쪽만 이미 기록돼 함께 보류해요", ready, unresolved)
-            continue
-        if original.get("blocked"):
+            source, target = (original, refund) if original.get("already_booked") else (refund, original)
+        else:
+            source, target = original, refund
+        # 이미 기록된 쪽의 "기록됨" 표시는 보류가 아니다. 빠진 쪽만 보류 여부를 본다.
+        if original.get("blocked") and not original.get("already_booked"):
             _block_pair([refund], "refund_pair_incomplete", "원거래가 보류 중이라 환불도 함께 보류해요", ready, unresolved)
             continue
-        if refund.get("blocked") and refund["blocked"] not in _PAIR_UNBLOCKABLE:
+        if refund.get("blocked") and refund["blocked"] not in _PAIR_UNBLOCKABLE and not refund.get("already_booked"):
             _block_pair([original], "refund_pair_incomplete", "환불 거래가 보류 중이라 원거래도 함께 보류해요", ready, unresolved)
             continue
         clash = [k for k in ("item", "display_tab_id", "trip_id")
@@ -318,17 +318,17 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
             _block_pair(pair, "refund_pair_mismatch", "환불과 원거래의 분류가 달라 보류해요", ready, unresolved)
             continue
         for key in ("item", "display_tab_id", "trip_id", "description"):
-            if not refund.get(key):
-                refund[key] = original.get(key) or ""
-        block = _authority_block(refund, trip_validator, tab_validator)
-        if block or not refund.get("item"):
+            if not target.get(key):
+                target[key] = source.get(key) or ""
+        block = _authority_block(target, trip_validator, tab_validator)
+        if block or not target.get("item"):
             _block_pair(pair, block[0] if block else "refund_pair_incomplete",
                         block[1] if block else "환불에 이어받을 항목이 없어 함께 보류해요", ready, unresolved)
             continue
-        if refund.get("blocked"):
-            refund.pop("blocked", None)
-            refund.pop("reason", None)
-            _move(refund, ready, unresolved, True)
+        if target.get("blocked"):
+            target.pop("blocked", None)
+            target.pop("reason", None)
+            _move(target, ready, unresolved, True)
         net = {"gross_krw": link["gross_krw"], "refund_krw": link["refunds_total_krw"],
                "net_krw": link["net_krw"], "status": link["status"]}
         refund["refund_link"] = dict(net, role="refund", counterpart_id=original["transaction_id"])
@@ -416,9 +416,6 @@ def _check_refund_groups(store, rows) -> None:
     for original_id in {link["original_id"] for link in links.values()}:
         members = refund_group(store.conn, original_id)
         booked = [m for m in members if _already_booked(store, m)]
-        if booked and len(booked) != len(members):
-            raise StoreError(CODE_REFUND_PAIR_PARTIALLY_BOOKED,
-                             "원거래와 환불 중 일부만 이미 기록돼 있어 기록하지 않았어요. 확인해 주세요")
         ready_members = [m for m in members if m in ready]
         if not booked and 0 < len(ready_members) < len(members):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,

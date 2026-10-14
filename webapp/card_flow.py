@@ -543,7 +543,8 @@ class CardFlow:
         ))
 
     def tab_valid(self, tab):
-        return tab in ('', 'unclassified') or self.trip_valid(tab)
+        from app import quarter_tab
+        return tab in ('', 'unclassified') or bool(quarter_tab.parse_tab(tab)) or self.trip_valid(tab)
 
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
@@ -1203,19 +1204,25 @@ class CardFlow:
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date'))):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
         from app.partial_refund import refund_links
+        booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         for refund, link in refund_links(self.board.conn, [r['transaction_id'] for r in rows]).items():
             if link['original_id'] not in holds and holds.get(refund, {}).get('kind') in ('trip_needed', 'classification_needed'):
                 holds.pop(refund)
+            # 환불이 이미 기록돼 있으면 원거래는 그 배속을 이어받으므로 원거래의 여행 확인 보류를 풀어준다.
+            if refund in booked_now and holds.get(link['original_id'], {}).get('kind') in ('trip_needed', 'classification_needed'):
+                holds.pop(link['original_id'])
         from .refund_tab import groups
         from app.review_holds import active_holds
         active = active_holds(self.board.conn)
         ids = {r['transaction_id'] for r in rows}
         booked = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
+        # 이미 기록된 쪽의 "기록됨" 표시는 보류가 아니다. 빠진 쪽에 실제 보류가 있을 때만 묶음을 함께 보류한다.
+        blocking = {tid for tid, hold in holds.items() if hold.get('kind') != 'existing_ledger'}
         for group in groups(self.board):
             members = {r['transaction_id'] for r in group}
             if not members & ids:
                 continue
-            if not members <= ids or members & (set(holds) | set(active)) or (members & booked and not members <= booked):
+            if not members <= ids or members & (blocking | set(active)):
                 for tid in members & ids:
                     holds.setdefault(tid, {'kind': 'refund_group_incomplete', 'reason': '원결제와 모든 환불을 함께 확인해야 합니다.'})
         return holds

@@ -42,6 +42,12 @@ def confirm_original(pipe, batch, item='항공료', tab='unclassified'):
     return original['transaction_id']
 
 
+def decide_refund(pipe, batch, approval):
+    refund = next(r for r in pipe.get_batch(batch)['rows'] if r['approval_number'] == approval)
+    pipe.save_decision(refund['transaction_id'], refund['revision'], item='항공료', display_tab_id='unclassified',
+                       tab_validator=OK, request_id='decide-' + approval)
+
+
 def preview(pipe, batch):
     return pipe.preview(batch, tab_validator=OK, trip_validator=OK)
 
@@ -197,43 +203,36 @@ def test_retry_of_an_all_booked_group_is_a_noop():
     assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 3
 
 
-def test_original_booked_alone_rejects_the_commit_without_writes():
+
+def test_refund_arriving_after_its_original_is_booked_completes_the_pair():
     pipe, batch = build()
     confirm_original(pipe, batch)
     book_alone(pipe, batch, '100')
-    result = preview(pipe, batch)
-    calls = []
-    with pytest.raises(StoreError) as caught:
-        pipe.commit(batch, result['digest'], 'half-1', tab_validator=OK, trip_validator=OK, projection=calls.append)
-    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
-    assert calls == []
-    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    done = pipe.commit(batch, preview(pipe, batch)['digest'], 'late-refund', tab_validator=OK, trip_validator=OK)
+    assert done['applied'] == 1
+    assert ledger_state(pipe) == (2, 300000)
 
 
-def test_refund_booked_alone_rejects_the_commit_without_writes():
+
+def test_original_arriving_after_its_refund_is_booked_completes_the_pair():
     pipe, batch = build()
     confirm_original(pipe, batch)
+    decide_refund(pipe, batch, '200')
     book_alone(pipe, batch, '200')
-    result = preview(pipe, batch)
-    calls = []
-    with pytest.raises(StoreError) as caught:
-        pipe.commit(batch, result['digest'], 'half-2', tab_validator=OK, trip_validator=OK, projection=calls.append)
-    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
-    assert calls == []
-    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    done = pipe.commit(batch, preview(pipe, batch)['digest'], 'late-original', tab_validator=OK, trip_validator=OK)
+    assert done['applied'] == 1
+    assert ledger_state(pipe) == (2, 300000)
 
 
-def test_one_of_two_refunds_booked_rejects_the_whole_group_without_writes():
+
+def test_missing_members_of_a_partly_booked_group_are_completed_together():
     pipe, batch = build(refunds=(-700000, -200000))
     confirm_original(pipe, batch)
+    decide_refund(pipe, batch, '201')
     book_alone(pipe, batch, '201')
-    result = preview(pipe, batch)
-    calls = []
-    with pytest.raises(StoreError) as caught:
-        pipe.commit(batch, result['digest'], 'half-3', tab_validator=OK, trip_validator=OK, projection=calls.append)
-    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
-    assert calls == []
-    assert pipe.store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
+    done = pipe.commit(batch, preview(pipe, batch)['digest'], 'late-group', tab_validator=OK, trip_validator=OK)
+    assert done['applied'] == 2
+    assert ledger_state(pipe) == (3, 100000)
 
 
 def test_a_refund_decision_after_the_preview_makes_the_preview_stale():
@@ -329,14 +328,15 @@ def test_stale_original_or_refund_rejects_the_group_commit():
         assert ledger_state(pipe) == (0, 0)
 
 
-def test_partly_booked_group_is_rejected_without_writes():
+
+def test_partly_booked_group_completes_the_missing_original():
     pipe, batch = build(extra=True)
     original_id = confirm_original(pipe, batch)
+    decide_refund(pipe, batch, '200')
     book_alone(pipe, batch, '200')
-    with pytest.raises(StoreError) as caught:
-        group_of(pipe, batch, original_id)
-    assert caught.value.code == 'REFUND_PAIR_PARTIALLY_BOOKED'
-    assert ledger_state(pipe) == (1, -700000)
+    done = group_commit(pipe, batch, original_id, 'late-group-commit')
+    assert done['applied'] == 1
+    assert ledger_state(pipe) == (2, 300000)
 
 
 def test_group_with_a_member_outside_the_batch_is_rejected():
