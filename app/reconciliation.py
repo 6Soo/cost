@@ -71,18 +71,29 @@ def shared_days(trip_start, trip_end, check_in, check_out, *, service=False):
     return (date.fromisoformat(end) - date.fromisoformat(start)).days + (1 if service else 0)
 
 
+def prep_trip(trips, check_in, check_out):
+    """The trip a lodging stay prepares for: the nearest trip that starts on or after its check-out. A tie is left unassigned."""
+    upcoming = [t for t in trips if t['starts_on'] and t['starts_on'] >= check_out]
+    if not upcoming:
+        return None
+    first = min(t['starts_on'] for t in upcoming)
+    nearest = [t for t in upcoming if t['starts_on'] == first]
+    return nearest[0] if len(nearest) == 1 else None
+
+
 def stay_trip(trips, check_in, check_out, *, service=False, nets=None):
     """The verified trip a booking stay belongs to, or None when no trip shares a day with it.
 
     A trip that covers the whole stay wins; otherwise the trip sharing the most nights. A tie goes to the trip with
-    the larger income minus expense (nets by tab id), and a tie that remains is left unassigned.
+    the larger income minus expense (nets by tab id), and a tie that remains is left unassigned. A lodging stay that
+    shares no night with any trip is the preparation stay of the nearest following trip (`prep_trip`).
     """
     nets = nets or {}
     covering = [t for t in trips if covers_stay(t['starts_on'], t['ends_on'], check_in, check_out, service=service)]
     pool = covering or [t for t in trips if overlaps_stay(t['starts_on'], t['ends_on'], check_in, check_out,
                                                           service=service)]
     if not pool:
-        return None
+        return None if service else prep_trip(trips, check_in, check_out)
     rank = lambda t: (0 if covering else shared_days(t['starts_on'], t['ends_on'], check_in, check_out, service=service),
                       nets.get(t['tab_id'], float('-inf')))
     pool.sort(key=rank, reverse=True)

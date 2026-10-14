@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from app import google_authority
-from app.reconciliation import card_use_date, ledger_date_for_booking, open_trip_end
+from app.reconciliation import card_use_date, ledger_date_for_booking, open_trip_end, stay_trip
 
 
 def test_owner_rule_a_trip_without_an_end_ends_the_day_before_the_next_trip():
@@ -59,3 +59,10 @@ def test_owner_rule_an_ota_booking_is_dated_by_its_service_date_and_payment_only
     assert ledger_date_for_booking('2026-09-28', '2026-09-17') == '2026-09-28'
     assert ledger_date_for_booking('', '2026-09-17') == '2026-09-17'
     assert ledger_date_for_booking(None, None) == ''
+
+
+def test_owner_rule_a_lodging_before_a_trip_with_no_trip_on_its_nights_prepares_for_the_nearest_next_trip():
+    trips = [{'tab_id': 'trip-mongolia', 'starts_on': '2026-07-12', 'ends_on': '2026-07-16'},
+             {'tab_id': 'trip-golden', 'starts_on': '2026-07-21', 'ends_on': '2026-07-21'}]
+    assert stay_trip(trips, '2026-07-18', '2026-07-19')['tab_id'] == 'trip-golden'
+    assert stay_trip(trips, '2026-07-18', '2026-07-19', service=True) is None

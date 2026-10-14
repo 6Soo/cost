@@ -33,12 +33,12 @@ def test_agoda_portal_cash_is_recorded_with_or_without_a_card_payment():
 
 
 def test_agoda_confirmation_mail_gives_the_cash_amount_and_check_in_day():
-    text = ("Booking ID: 1718900708 체크인 2026년 4월 20일 (월요일) 15:00 "
+    text = ("Booking ID: 1718900708 체크인 2026년 4월 20일 (월요일) 15:00 체크아웃 2026년 4월 23일 (목요일) 11:00 "
             "예약 확정 및 결제 완료 AgodaCash -¥ 12,312 총 금액 ¥ 0")
     found = agoda_mail_cash(text)
     assert found == {"cash_krw": 123120, "basis": "간편환율 100엔=1,000원",
-                     "check_in": "2026-04-20", "booking_ref": "1718900708",
-                     "location": "Booking ID: 1718900708 체크인 2026년 4월 20일 (월요일) 15:00 예약 확정 및 결제 완료 AgodaCash -¥ 12,312 총 금액 ¥ 0"}
+                     "check_in": "2026-04-20", "check_out": "2026-04-23", "booking_ref": "1718900708",
+                     "location": text}
 
 
 def test_cash_part_is_dated_by_service_day_and_placed_in_the_one_covering_trip():
@@ -76,3 +76,24 @@ def test_two_trips_covering_the_stay_are_settled_by_the_destination_of_the_booki
                                        {"tab_id": "trip-osaka", "starts_on": "2026-04-20", "ends_on": "2026-04-23", "destination": "오사카"}],
                                 review_from="2026-04-01")
     assert rows[0]["display_tab_id"] == "trip-osaka"
+
+
+def test_lodging_before_a_trip_that_no_trip_covers_is_that_trips_preparation_stay():
+    rows, _ = cash_expense_rows([use(provider="agoda", booking_ref="1748521808", item="숙박비", cash_krw=87881,
+                                     service_start="2026-07-18", service_end="2026-07-19")],
+                                trips=[{"tab_id": "trip-mongolia", "starts_on": "2026-07-12", "ends_on": "2026-07-16"},
+                                       {"tab_id": "trip-golden", "starts_on": "2026-07-21", "ends_on": "2026-07-21"}],
+                                review_from="2026-04-01")
+    assert rows[0]["display_tab_id"] == "trip-golden"
+    assert rows[0]["occurred_on"] == "2026-07-18"
+
+
+def test_preparation_stay_with_two_upcoming_trips_goes_to_the_nearest_and_a_tie_stays_unassigned():
+    stay = {"provider": "agoda", "booking_ref": "P1", "item": "숙박비", "cash_krw": 1000, "basis": "자료 원화 금액",
+            "service_start": "2026-07-18", "service_end": "2026-07-19"}
+    near = [{"tab_id": "trip-far", "starts_on": "2026-07-30", "ends_on": "2026-08-02"},
+            {"tab_id": "trip-near", "starts_on": "2026-07-21", "ends_on": "2026-07-21"}]
+    assert cash_expense_rows([stay], trips=near, review_from="2026-04-01")[0][0]["display_tab_id"] == "trip-near"
+    tied = [{"tab_id": "trip-a", "starts_on": "2026-07-21", "ends_on": "2026-07-21"},
+            {"tab_id": "trip-b", "starts_on": "2026-07-21", "ends_on": "2026-07-22"}]
+    assert cash_expense_rows([stay], trips=tied, review_from="2026-04-01")[0][0]["display_tab_id"] == "unclassified"

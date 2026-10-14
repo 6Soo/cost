@@ -9,7 +9,7 @@
 import re
 from datetime import date
 
-from app.reconciliation import ledger_date_for_booking
+from app.reconciliation import ledger_date_for_booking, stay_trip
 
 JPY_KRW_PER_100 = 1000  # 간편환율: 100엔 = 1,000원 (사용자 확정 2026-10-14)
 EVIDENCE_LABEL = {"klook": "클룩 포인트", "agoda": "아고다캐시", "trip": "트립코인"}
@@ -58,6 +58,7 @@ def agoda_mail_cash(text):
     """아고다 예약 확정 메일의 캐시 차감 (엔화 또는 원화)와 체크인 날짜."""
     match = re.search(r"AgodaCash\s*-\s*([¥₩])\s*([0-9][0-9,]*)", text)
     check_in = re.search(r"체크인\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", text)
+    check_out = re.search(r"체크아웃\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", text)
     if not match or not check_in:
         return None
     amount = int(match.group(2).replace(",", ""))
@@ -66,17 +67,19 @@ def agoda_mail_cash(text):
     else:
         cash_krw, basis = amount, "자료 원화 금액"
     day = date(int(check_in.group(1)), int(check_in.group(2)), int(check_in.group(3))).isoformat()
+    end = date(int(check_out.group(1)), int(check_out.group(2)), int(check_out.group(3))).isoformat() if check_out else ""
     ref = re.search(r"(?:Booking ID|예약 번호는?)\s*[:：]?\s*(\d{8,20})", text)
-    return {"cash_krw": cash_krw, "basis": basis, "check_in": day, "booking_ref": ref.group(1) if ref else "",
-            "location": text}
+    return {"cash_krw": cash_krw, "basis": basis, "check_in": day, "check_out": end,
+            "booking_ref": ref.group(1) if ref else "", "location": text}
 
 
 def cash_expense_rows(uses, *, cancelled_refs=(), trips=(), review_from=""):
     """기장할 비용 행 목록과 건너뛴 사유.
 
-    uses: [{provider, booking_ref, item, cash_krw, basis, service_start, payment_date}]
+    uses: [{provider, booking_ref, item, cash_krw, basis, service_start, service_end, payment_date}]
     trips: [{tab_id, starts_on, ends_on}] (검증된 여행만)
-    이용일을 덮는 여행이 하나뿐이면 그 여행, 없으면 미배정(unclassified)으로 기장한다.
+    이용일을 덮는 여행이 하나뿐이면 그 여행, 숙박이 어느 여행도 덮지 않으면 다음 여행의 준비 숙박(`stay_trip`),
+    그 밖에는 미배정(unclassified)으로 기장한다.
     """
     rows, skipped = [], []
     cancelled = {tuple(item) for item in cancelled_refs}
@@ -93,7 +96,14 @@ def cash_expense_rows(uses, *, cancelled_refs=(), trips=(), review_from=""):
         # 여러 여행이 같은 날을 덮으면 숙소·장소가 행선지와 맞는 여행을 고른다.
         if len(covering) > 1 and use.get("location"):
             covering = [t for t in covering if t.get("destination") and t["destination"] in use["location"]]
-        tab = covering[0]["tab_id"] if len(covering) == 1 else "unclassified"
+        if len(covering) == 1:
+            tab = covering[0]["tab_id"]
+        elif not covering and use.get("service_end"):
+            # 어느 여행도 덮지 않는 숙박은 다음 여행의 준비 숙박으로 본다 (AGENTS.md 4-3).
+            chosen = stay_trip(trips, day, use["service_end"])
+            tab = chosen["tab_id"] if chosen else "unclassified"
+        else:
+            tab = "unclassified"
         rows.append({
             "display_tab_id": tab,
             "occurred_on": day,
