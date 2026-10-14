@@ -86,7 +86,7 @@ def render(store, query='', kind=''):
             state = '장부 기록됨' if row else '미기록'
             trip = names.get(row.get('display_tab_id'), '미배정') if row else ''
             detail = (f"<a href='/row?id={quote(row['row_id'])}&amp;back={quote('/board?tab=refunds', safe='')}'>자료 검토</a>"
-                      if row else "<a href='/import'>카드 검토</a>")
+                      if row else "<a href='/import'>지출 정리</a>")
             rows.append(f"<div class='refund-line'><span>{'원결제' if index == 0 else '환불'} · "
                         f"{esc(source['occurred_on'] or '날짜 확인 필요')}</span>"
                         f"<strong>{money(source['amount_krw'])}</strong>"

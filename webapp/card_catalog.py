@@ -1,7 +1,6 @@
 """Owner-only, read-only listing of stored card transactions across all imports."""
 import html
 import re
-import json
 from urllib.parse import urlencode
 
 from app.db import decided_sql
@@ -233,15 +232,15 @@ def render_html(data, query, *, csrf=''):
                     f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason'])}</p>"
                     f"<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>카드 검토 · 모든 자료</title>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'><title>지출 정리 · 모든 자료</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
         "<nav class='catalog-actions' aria-label='카드 검토 범위'>"
         f"<a class='catalog-btn' href='/import'>{ui_icons.icon('upload')}이 자료에서 검토</a>"
         f"<a class='catalog-btn primary' href='/import?scope=all' aria-current='page'>{ui_icons.icon('list')}모든 자료</a></nav>"
-        "<h1>카드 검토 · 모든 자료</h1>"
-        "<p class='small'>저장된 모든 카드 거래를 찾아봅니다. 처리는 거래를 눌러 카드 검토에서 합니다.</p>"
+        "<h1>지출 정리 · 모든 자료</h1>"
+        "<p class='small'>저장된 모든 카드 거래를 찾아봅니다. 처리는 거래를 눌러 지출 정리에서 합니다.</p>"
         f"<p id='card-count'>전체 {data['all_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
-        "<p id='card-auto-status' role='status' aria-live='polite'></p>"
+        ""
         "<form id='card-filters' method='get' action='/import'><input name='q' aria-label='카드 거래 검색' placeholder='지급처·분류·설명·승인번호·여행 검색'"
         f" value='{esc(value('q'))}'><button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button>"
         f"<a class='catalog-btn' href='/import?scope=all'>{ui_icons.icon('rotate-ccw')}초기화</a>"
@@ -253,35 +252,4 @@ def render_html(data, query, *, csrf=''):
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(link(data['page']-1))}'>{ui_icons.icon('chevron-left')}이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(link(data['page']+1))}'>다음{ui_icons.icon('chevron-right')}</a>" if data['page'] < data['pages'] else '')
-        + '</nav><script>' + CATALOG_SCRIPT + '</script>' + _automatic_script(data, csrf) + '</main></body></html>')
-
-
-def _automatic_script(data, csrf):
-    if not csrf:
-        return ''
-    batches = sorted({r['batch_id'] for r in data['rows'] if r['classification_state'] not in ('booked', 'preserved')
-                      and r['next_action']['status'] != '기록 완료'
-                      and not r['duplicate_of'] and not r['company_excluded']})
-    return "<script>(async()=>{const batches=" + json.dumps(batches).replace('<', '\\u003c') + ";const csrf=" + json.dumps(csrf) + """;
-    const status=document.getElementById('card-auto-status');let recorded=0;status.textContent=batches.length?'자동 반영 중…':'';
-    for(const batch of batches){try{const response=await fetch('/api/imports/'+encodeURIComponent(batch)+'/auto-record',
-      {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
-      if(!response.ok){let message='자동 반영을 완료하지 못했습니다. 처리 결과 확인을 눌러 다시 확인해 주세요.';
-        try{const error=await response.json();message=error.message||message}catch{}throw Error(message)}
-      const state=await response.json();recorded+=state.auto_recorded||0;for(const item of state.preview.rows){
-        const row=[...document.querySelectorAll('[data-transaction]')].find(e=>e.dataset.transaction===item.transaction_id);
-        if(!row||!item.next_action)continue;const a=item.next_action;
-        row.querySelector('[data-label="상태"]').textContent=a.status;
-        const cell=row.querySelector('[data-label="다음 행동"]');cell.querySelector('p').textContent=a.reason;
-        cell.querySelector('a').textContent=a.label;cell.querySelector('a').href=a.href;
-      }
-    }catch(error){for(const row of document.querySelectorAll('[data-transaction]')){
-      const link=row.querySelector('[data-label="다음 행동"] a');if(link.href.includes(encodeURIComponent(batch))){
-        if(row.querySelector('[data-label="상태"]').textContent.startsWith('자동 반영 대기')){
-          row.querySelector('[data-label="상태"]').textContent='자동 반영 오류';
-          row.querySelector('.action-reason').textContent=error.message;link.textContent='다시 처리';
-        }
-      }
-    }}}
-    status.dataset.complete='true';status.textContent=recorded?recorded+'건을 자동 반영했습니다.':'';
-    })();</script>"""
+        + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')

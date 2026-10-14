@@ -58,7 +58,7 @@ ERROR_TEXT = {
     'NOT_FOUND': '이 예약을 찾을 수 없습니다. 목록을 새로고침해 주세요.',
     'CSRF_REQUIRED': '화면을 새로 연 뒤 다시 시도해 주세요.',
     'INVALID_INPUT': '입력 내용을 확인해 주세요.',
-    'REVIEW_UNAVAILABLE': '예약 근거 자료를 읽지 못해 분류를 다시 계산하지 못했습니다. 카드 검토에서 확인해 주세요.',
+    'REVIEW_UNAVAILABLE': '예약 근거 자료를 읽지 못해 분류를 다시 계산하지 못했습니다. 지출 정리에서 확인해 주세요.',
 }
 
 #: Bump when the index's shape changes, so a saved index from an older release is never read.
@@ -457,7 +457,7 @@ def _build_index(board, sources):
     trip_by_id = {trip['tab_id']: trip for trip in trips}
     live, cancelled, card_error = _card_matches(flow)
     if card_error:
-        warnings.append('카드 결제와 예약을 대조하지 못했습니다. 카드 검토에서 자료를 확인해 주세요.')
+        warnings.append('카드 결제와 예약을 대조하지 못했습니다. 지출 정리에서 자료를 확인해 주세요.')
     states = _owner_rule_states()
     rules = {key: rule for key, rule in states.items() if rule['status'] == 'active'}
     entries = []
@@ -653,7 +653,7 @@ def _state_label(card):
     if card is None:
         return '카드 자료에서 찾지 못함'
     if card['decided']:
-        return '사용자가 카드 검토에서 정한 거래 · 예약 배정 적용 안 됨'
+        return '사용자가 지출 정리에서 정한 거래 · 예약 배정 적용 안 됨'
     if card['state'] == 'booked':
         return '장부 기록됨'
     if card['state'] == 'classified':
@@ -837,7 +837,7 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
         link = ''
         if state.get('batch_id'):
             target = '/import?' + urlencode({'batch': state['batch_id'], 'transaction': card['transaction_id']})
-            link = f"<a href='{esc(target)}'>카드 검토에서 보기</a>"
+            link = f"<a href='{esc(target)}'>지출 정리에서 보기</a>"
         rows.append(
             f"<tr><td>{esc(card['paid_on'] or state.get('day') or '미확인')}</td>"
             f"<td>{esc(card['merchant'] or state.get('merchant') or '미확인')}</td>"

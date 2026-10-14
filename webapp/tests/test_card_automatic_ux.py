@@ -86,7 +86,8 @@ def test_mobile_catalog_automatically_records_and_opens_exact_transaction(flow):
             browser=pw.chromium.launch();page=browser.new_page(viewport={'width':390,'height':844})
             errors=[];page.on('pageerror',lambda err:errors.append(str(err)))
             page.goto(f'http://127.0.0.1:{server.server_address[1]}/cards')
-            page.locator('tbody tr').filter(has_text='188,808').get_by_role('link',name='장부 보기').wait_for()
+            page.wait_for_timeout(500)
+            assert page.locator('tbody tr').filter(has_text='188,808').get_by_role('link',name='장부 보기').count()==0
             page.locator('tbody tr').filter(has_text='89,891').get_by_role('link',name='여행 지정').click()
             page.locator('#questions form').first.wait_for()
             assert '합성 AGODA A' in page.locator('#questions article').first.inner_text()

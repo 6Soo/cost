@@ -966,7 +966,7 @@ def work_menu_html() -> str:
                 f"<span><strong>{title}</strong>"
                 f"</span></{tag}>")
 
-    actions = action('upload', '카드 검토', '자료 올리기 · 확인 필요 거래 처리 · 모든 카드 거래 조회 · 지출표 복사', '/import')
+    actions = action('upload', '지출 정리', '카드 파일 추가 · 미배정 지출 정리 · 오분류 수정 · 전체 카드 검색', '/import')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
@@ -988,7 +988,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         from . import receipt_review
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
-                   f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>카드 검토</span></a>"
+                   f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
@@ -1128,17 +1128,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
                                 None, tab_id == tab))
     sections.append(("<h2 class='nav-sec'>여행 목록</h2>",
                      f"<ul class='nav-list' id='trips'>{''.join(listed) or '<li class=\"muted\" style=\"padding:6px 8px\">여행이 없어요</li>'}</ul>"))
-    if board.current_role() == "owner":
-        # 분류대기 is the unassigned bucket. A viewer is never assigned it, so the
-        # control is not drawn for a viewer rather than drawn and refused. Its count
-        # is every unassigned row in the whole ledger, which is not the viewer's data.
-        # 새 표시명과 예전 검색어 모두 받는다. 항목 이름은 바뀌었지만 검색 동작은 그대로 둔다.
-        sections.append(("<h2 class='nav-sec'>미배정 지출</h2>",
-                         "<ul class='nav-list'>" + entry(
-                             "미배정 지출",
-                             f"/board?{state_query('unclassified', query, kind, archived)}",
-                             f"{len(unclassified)}건",
-                             tab_id == "unclassified", warn=True) + "</ul>"))
+    # 미배정 지출은 지출 정리(/import) 맨 위에서 처리한다. 여행 레일에는 따로 두지 않는다.
     arch_head = ""
     if board.current_role() == 'owner':
         sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(

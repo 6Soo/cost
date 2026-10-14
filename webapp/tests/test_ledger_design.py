@@ -37,7 +37,7 @@ class DesignScreenTests(unittest.TestCase):
                 trip_link = page.locator('#previous-trips a[href*="tab=trip-demo-a"]').first.inner_text()
                 self.assertIn('04.08~04.14', trip_link)
                 self.assertNotIn('수입', trip_link)
-                self.assertIn('미배정 지출', page.inner_text('.nav'))
+                self.assertNotIn('미배정 지출', page.inner_text('.nav'))
                 self.assertEqual(page.locator('.nav-ft').count(), 0)
                 self.assertEqual(page.locator('#ledger-note').count(), 0)
                 self.assertIn('기록된 거래', page.locator('#live-sum').inner_text())
@@ -202,7 +202,7 @@ class DesignScreenTests(unittest.TestCase):
         page.locator('#previous-trips > summary').click()
         nav = page.inner_text(".nav")
         self.assertIn("0408_예시여행A", nav)
-        self.assertIn("미배정 지출", nav)
+        self.assertNotIn("미배정 지출", nav)
         # The action bar is pinned exactly, because a button appearing here
         # without a decision is how a rail grows by accident. The review button
         # is absent because no review is configured in this environment; the
@@ -721,7 +721,7 @@ def test_trip_rail_badges_show_dates_never_income_in_initial_render_and_live_fra
     try:
         for markup in (ledger_design._nav_region_inner('', '', '', ''),
                        ledger_design.nav_part('', '', '', '')):
-            assert '미배정 지출' in markup
+            assert '미배정 지출' not in markup
             assert '04.08~04.14' in markup
             assert '수입' not in markup
             assert '수입 0원' not in markup
