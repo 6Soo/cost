@@ -67,7 +67,8 @@ def agoda_mail_cash(text):
         cash_krw, basis = amount, "자료 원화 금액"
     day = date(int(check_in.group(1)), int(check_in.group(2)), int(check_in.group(3))).isoformat()
     ref = re.search(r"(?:Booking ID|예약 번호는?)\s*[:：]?\s*(\d{8,20})", text)
-    return {"cash_krw": cash_krw, "basis": basis, "check_in": day, "booking_ref": ref.group(1) if ref else ""}
+    return {"cash_krw": cash_krw, "basis": basis, "check_in": day, "booking_ref": ref.group(1) if ref else "",
+            "location": text}
 
 
 def cash_expense_rows(uses, *, cancelled_refs=(), trips=(), review_from=""):
@@ -89,6 +90,9 @@ def cash_expense_rows(uses, *, cancelled_refs=(), trips=(), review_from=""):
             skipped.append((key, "기장 기간 밖이거나 날짜 없음"))
             continue
         covering = [t for t in trips if t["starts_on"] <= day <= t["ends_on"]]
+        # 여러 여행이 같은 날을 덮으면 숙소·장소가 행선지와 맞는 여행을 고른다.
+        if len(covering) > 1 and use.get("location"):
+            covering = [t for t in covering if t.get("destination") and t["destination"] in use["location"]]
         tab = covering[0]["tab_id"] if len(covering) == 1 else "unclassified"
         rows.append({
             "display_tab_id": tab,

@@ -37,7 +37,8 @@ def test_agoda_confirmation_mail_gives_the_cash_amount_and_check_in_day():
             "예약 확정 및 결제 완료 AgodaCash -¥ 12,312 총 금액 ¥ 0")
     found = agoda_mail_cash(text)
     assert found == {"cash_krw": 123120, "basis": "간편환율 100엔=1,000원",
-                     "check_in": "2026-04-20", "booking_ref": "1718900708"}
+                     "check_in": "2026-04-20", "booking_ref": "1718900708",
+                     "location": "Booking ID: 1718900708 체크인 2026년 4월 20일 (월요일) 15:00 예약 확정 및 결제 완료 AgodaCash -¥ 12,312 총 금액 ¥ 0"}
 
 
 def test_cash_part_is_dated_by_service_day_and_placed_in_the_one_covering_trip():
@@ -66,3 +67,12 @@ def test_cancelled_and_out_of_period_bookings_are_skipped_with_reasons():
     assert rows == []
     assert dict(skipped) == {("klook", "CANCEL1"): "취소·환불된 예약",
                              ("klook", "OLD1"): "기장 기간 밖이거나 날짜 없음"}
+
+
+def test_two_trips_covering_the_stay_are_settled_by_the_destination_of_the_booking():
+    rows, _ = cash_expense_rows([use(provider="agoda", booking_ref="1718900708", service_start="2026-04-20",
+                                     location="오사카, 일본 숙소 체크인 2026년 4월 20일")],
+                                trips=[{"tab_id": "trip-aomori", "starts_on": "2026-04-17", "ends_on": "2026-04-23", "destination": "아오모리"},
+                                       {"tab_id": "trip-osaka", "starts_on": "2026-04-20", "ends_on": "2026-04-23", "destination": "오사카"}],
+                                review_from="2026-04-01")
+    assert rows[0]["display_tab_id"] == "trip-osaka"
