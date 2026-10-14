@@ -6199,7 +6199,8 @@ class LedgerStore:
         for key in ("display_tab_id", "occurred_on", "amount_krw", "item"):
             if key not in fields:
                 raise SaveError("INVALID_VALUE", f"{key}가 필요해요")
-        if fields.get("pay_method") not in ("현금", "계좌이체"):
+        # OTA 캐시·포인트 사용분은 지급 수단 대신 증빙 종류(evidence_type)를 쓴다.
+        if not fields.get("evidence_type") and fields.get("pay_method") not in ("현금", "계좌이체"):
             raise SaveError("INVALID_VALUE", "지급 수단을 현금·계좌이체 중에서 골라 주세요")
         if isinstance(fields["amount_krw"], bool) or not isinstance(fields["amount_krw"], int):
             raise SaveError("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요")
@@ -6229,9 +6230,10 @@ class LedgerStore:
                 "occurred_on": str(fields["occurred_on"]),
                 "item": str(fields["item"]),
                 "description": str(fields.get("description") or ""),
-                "service_period": "",
-                "reservation_no": "",
-                "evidence_type": "현금" if fields["pay_method"] == "현금" else "계좌이체",
+                "service_period": str(fields.get("service_period") or ""),
+                "reservation_no": str(fields.get("reservation_no") or ""),
+                "evidence_type": (str(fields["evidence_type"]) if fields.get("evidence_type")
+                                  else "현금" if fields["pay_method"] == "현금" else "계좌이체"),
                 "amount_krw": fields["amount_krw"],
                 "source_kind": "수기",
                 "source_event_id": row_id,
