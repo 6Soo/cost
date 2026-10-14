@@ -544,7 +544,8 @@ class CardFlow:
 
     def tab_valid(self, tab):
         from app import quarter_tab
-        return tab in ('', 'unclassified') or bool(quarter_tab.parse_tab(tab)) or self.trip_valid(tab)
+        from app.ledger import REFUND_TAB
+        return tab in ('', 'unclassified', REFUND_TAB) or bool(quarter_tab.parse_tab(tab)) or self.trip_valid(tab)
 
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
@@ -1207,6 +1208,11 @@ class CardFlow:
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         for refund, link in refund_links(self.board.conn, [r['transaction_id'] for r in rows]).items():
             if link['original_id'] not in holds and holds.get(refund, {}).get('kind') in ('trip_needed', 'classification_needed'):
+                holds.pop(refund)
+            # 전액 상쇄 쌍은 환불이 여행이나 항목을 기다릴 필요가 없다. 원거래가 기록돼 있으면 환불도 환불 탭으로 간다.
+            if (link['status'] == 'full' and refund not in booked_now
+                    and holds.get(refund, {}).get('kind') in ('trip_needed', 'classification_needed')
+                    and holds.get(link['original_id'], {}).get('kind') == 'existing_ledger'):
                 holds.pop(refund)
             # 환불이 이미 기록돼 있으면 원거래는 그 배속을 이어받으므로 원거래의 여행 확인 보류를 풀어준다.
             if refund in booked_now and holds.get(link['original_id'], {}).get('kind') in ('trip_needed', 'classification_needed'):

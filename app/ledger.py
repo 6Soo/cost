@@ -262,6 +262,8 @@ def scope_group(store, result: dict, original_id: str) -> dict:
 PREVIEW_VERSION = "ledger-preview-v3"
 
 _PAIR_UNBLOCKABLE = ("needs_review", "item_missing")
+# 원거래와 환불이 전액 상쇄되면 비용 탭에서 빼서 환불 탭에 둔다(소유자 규칙 2026-10-15).
+REFUND_TAB = "refunds"
 
 
 def _move(entry, ready, unresolved, to_ready):
@@ -312,14 +314,20 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
         if refund.get("blocked") and refund["blocked"] not in _PAIR_UNBLOCKABLE and not refund.get("already_booked"):
             _block_pair([original], "refund_pair_incomplete", "환불 거래가 보류 중이라 원거래도 함께 보류해요", ready, unresolved)
             continue
+        # 전액 상쇄 쌍은 환불의 배속이 원거래와 달라도 된다. 어느 쪽이든 환불 탭으로 간다.
         clash = [k for k in ("item", "display_tab_id", "trip_id")
-                 if refund.get(k) and original.get(k) and refund[k] != original[k]]
+                 if link["status"] != "full" and refund.get(k) and original.get(k) and refund[k] != original[k]]
         if clash:
             _block_pair(pair, "refund_pair_mismatch", "환불과 원거래의 분류가 달라 보류해요", ready, unresolved)
             continue
         for key in ("item", "display_tab_id", "trip_id", "description"):
             if not target.get(key):
                 target[key] = source.get(key) or ""
+        if link["status"] == "full":
+            for row in pair:
+                if not row.get("already_booked"):
+                    row["display_tab_id"] = REFUND_TAB
+                    row["trip_id"] = ""
         block = _authority_block(target, trip_validator, tab_validator)
         if block or not target.get("item"):
             _block_pair(pair, block[0] if block else "refund_pair_incomplete",

@@ -402,3 +402,14 @@ def test_group_commit_against_a_batch_that_does_not_hold_the_group_is_rejected()
         group_of(pipe, other_batch, original_id)
     assert caught.value.code == 'REFUND_GROUP_INCOMPLETE'
     assert ledger_state(pipe) == (0, 0)
+
+
+def test_a_fully_offset_pair_leaves_the_trip_for_the_refund_tab():
+    from app.ledger import REFUND_TAB
+    pipe, batch = build(refunds=(-1000000,))
+    confirm_original(pipe, batch, tab='trip-x')
+    decide_refund(pipe, batch, '200')
+    result = preview(pipe, batch)
+    rows = by_approval(pipe, result)
+    assert rows['100']['display_tab_id'] == REFUND_TAB and rows['200']['display_tab_id'] == REFUND_TAB
+    assert rows['100']['trip_id'] == '' and rows['200']['trip_id'] == ''

@@ -3347,7 +3347,8 @@ class LedgerStore:
 
             from app import quarter_tab
             target = changes["display_tab_id"]
-            valid = board.valid_tab_ids() | {None}
+            from app.ledger import REFUND_TAB
+            valid = board.valid_tab_ids() | {None, REFUND_TAB}
             if target not in valid and not quarter_tab.parse_tab(target):
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
         if "amount_krw" in changes:
