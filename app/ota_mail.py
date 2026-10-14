@@ -316,6 +316,9 @@ def extract_mail(message):
         if not paid:
             paid = {int(n.replace(',','')) for n in re.findall(
                 r'(?<![가-힣])금액:\s*₩\s*([0-9][0-9,]*)',text)}
+        if not paid and re.search(r'전액을\s*결제\s*완료',text) and re.search(r'추가\s*결제\s*금액은\s*없습니다',text):
+            # 포인트를 뺀 실제 결제액이 "결제 금액"으로 적힌 전액 결제 양식이다.
+            paid = {int(n.replace(',','')) for n in re.findall(r'결제\s*금액\s*₩\s*([0-9][0-9,]*)',text)}
     flight_confirmed = '항공권 예약 확정' in subject
     confirmation = '확정' in subject
     period = service_period(text) if item=='숙박비' else flight_period(text) if flight_confirmed else None

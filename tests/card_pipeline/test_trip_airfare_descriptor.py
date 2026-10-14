@@ -40,15 +40,22 @@ def test_all_approved_flight_vocabulary_uses_the_existing_delta_rule(item):
 def test_exact_descriptor_has_versioned_explicit_user_provenance():
     records = load_defaults()["provider_merchant_alias_records"]["trip"]
     approved = [record for record in records if record["status"] == "approved"]
-    assert approved == [{"alias": EXACT_MERCHANT, "status": "approved", "version": 2,
-                         "source": "user-approved-trip-airfare-exact-descriptor-2026-10-09"}]
+    assert {"alias": EXACT_MERCHANT, "status": "approved", "version": 2,
+            "source": "user-approved-trip-airfare-exact-descriptor-2026-10-09"} in approved
     assert {record["alias"] for record in records if record["status"] == "candidate"} == {
         "trip.com", "trip.com korea"}
     assert _descriptor_matches(event(), card())
 
 
-@pytest.mark.parametrize("merchant", ["트립닷컴", "TRIP.COM", "trip.com korea",
-                                     "트립닷컴(구)_NICE", "네이버페이-트립닷컴"])
+def test_the_card_descriptor_approved_on_2026_10_14_is_exact_and_versioned():
+    records = load_defaults()["provider_merchant_alias_records"]["trip"]
+    assert {"alias": "트립닷컴(구)_NICE", "status": "approved", "version": 1,
+            "source": "user-approved-trip-card-descriptor-2026-10-14"} in records
+    assert _descriptor_matches(event(), card(merchant="트립닷컴(구)_NICE", merchant_normalized="트립닷컴(구)_nice"))
+    assert not _descriptor_matches(event(), card(merchant="트립닷컴_이니시스", merchant_normalized="트립닷컴_이니시스"))
+
+
+@pytest.mark.parametrize("merchant", ["트립닷컴", "TRIP.COM", "trip.com korea", "네이버페이-트립닷컴"])
 def test_other_trip_descriptors_do_not_inherit_the_new_approval(merchant):
     transaction = card(merchant=merchant, merchant_normalized=merchant.casefold())
     assert not _descriptor_matches(event(), transaction)

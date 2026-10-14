@@ -1362,9 +1362,25 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                             _strict_card_identity(event, row, rules) and
                             _has_corroborator(event, row, rules)]
             status = "HOLD_AMOUNT_MISMATCH" if wrong_amount else "HOLD_NO_CARD"
+            # 같은 금액·날짜·방향의 카드가 있어도 가맹점 별칭 승인이 없으면 연결하지 않는다. 사유를 따로 밝힌다.
+            exact_direction = "refund" if event.get("event_type") == "refund" else "purchase"
+            exact_cards = [row for row in transactions
+                           if row.get("approval_date") == event.get("paid_on") and
+                           _direction(row) == exact_direction and
+                           row.get("transaction_id") not in claimed and
+                           not row.get("duplicate_of") and not row.get("parse_error") and
+                           not row.get("conflict_reason") and
+                           _amount_matches(event, row, rules) and
+                           _strict_card_identity(event, row, rules)]
+            if wrong_amount:
+                reason = "amount_differs"
+            elif exact_cards:
+                reason = "exact_card_needs_descriptor_approval"
+            else:
+                reason = "no_exact_amount_date_direction_card"
             result.append(dict(event, status=status, transaction_id=None,
                                candidates=[row.get("transaction_id") for row in wrong_amount],
-                               reason="amount_differs" if wrong_amount else "no_exact_amount_date_direction_card"))
+                               reason=reason))
         elif len(free) != 1 or competing:
             result.append(dict(event, status="HOLD_AMBIGUOUS", transaction_id=None,
                                candidates=[row["transaction_id"] for row in options],

@@ -1019,6 +1019,7 @@ _OTA_STATUS = {
 _OTA_REASON = {
     'no_exact_amount_date_direction_card': '결제 금액·날짜·방향이 모두 맞는 카드 거래가 없습니다',
     'amount_differs': '같은 날짜의 카드 거래는 있지만 금액이 다릅니다',
+    'exact_card_needs_descriptor_approval': '금액·날짜가 같은 카드 거래는 있으나 가맹점 별칭이 승인되지 않아 연결하지 않았습니다',
 }
 _OTA_EVENT_TYPE = {'charge': '결제', 'refund': '환불'}
 _OTA_DIRECTION = {'purchase': '구매', 'refund': '환불', 'cancellation': '취소'}

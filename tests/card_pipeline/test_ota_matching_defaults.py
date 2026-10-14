@@ -127,7 +127,7 @@ def test_agoda_dot_com_alias_has_an_explicit_versioned_source_record():
                       "source":"user-selected-default-2026-10-08"}
     trip_records = load_defaults()["provider_merchant_alias_records"]["trip"]
     assert {item["alias"] for item in trip_records if item["status"] == "approved"} == {
-        "대표_카카오페이-트립닷컴"}
+        "대표_카카오페이-트립닷컴", "트립닷컴(구)_NICE"}
     assert all(item["status"] == "candidate" for item in trip_records
                if item["alias"] in {"trip.com", "trip.com korea"})
     result = match([event(provider="agoda", card_last4=None)],
