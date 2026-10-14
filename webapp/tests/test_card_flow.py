@@ -967,3 +967,10 @@ class OtaPreviewMetadataTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_import_summary_counts_match_the_metric_tiles():
+    # The header and the tiles must use the same row states, or "확인 필요" shows two different numbers.
+    from webapp.card_flow import PAGE as page
+    assert "기록 가능 '+reviewCounts.ready" in page and "확인 필요 '+reviewCounts.review" in page
+    assert "자동분류 '+(counts.classified" not in page and "'+(counts.needs_review" not in page

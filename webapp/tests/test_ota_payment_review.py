@@ -291,12 +291,20 @@ class OtaPaymentReviewTests(unittest.TestCase):
         self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["merchant"], "Merchant 11")
         self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["approval_number"], "AUTH-11")
         self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["already_linked_event_id"], "evt-synth-other")
+        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["already_linked_label"], "다른 예약")
         self.assertIn("다음 결제에도 적용할까요?", snapshot["proposals"][0]["question"])
         serialized = json.dumps(snapshot)
         for forbidden in ("raw_row_json", "classification_private", "source_inventory",
                           "private-fixture-path", "secret-event", "source_digest"):
             self.assertNotIn(forbidden, serialized)
         self.assertEqual([call[0] for call in backend.calls], ["snapshot"])
+
+    def test_a_linked_card_names_the_owning_booking_not_the_internal_id(self):
+        events = {"evt-a": {"ota_event_id": "evt-a", "provider": "Synthetic Stay", "booking_ref": "BOOK-1"}}
+        self.assertEqual(ota_payment_review._event_label(events, "evt-a"), "Synthetic Stay · BOOK-1")
+        self.assertEqual(ota_payment_review._event_label(events, "evt-a|evt-a"), "Synthetic Stay · BOOK-1")
+        self.assertEqual(ota_payment_review._event_label(events, "evt-x"), "다른 예약")
+        self.assertEqual(ota_payment_review._event_label(events, ""), "다른 예약")
 
     def test_partial_group_reservations_reach_the_adapter_occupancy_boundary(self):
         from webapp.ota_payment_review import CoreOtaPaymentBackend
