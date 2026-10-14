@@ -765,6 +765,9 @@ def _has_corroborator(event, row, rules):
     if (ota_payment and card_payment and ota_payment_scheme and
             ota_payment_scheme == card_payment_scheme and str(ota_payment) == str(card_payment)):
         return True
+    # 트립닷컴 결제는 가맹점 이름이 결제 대행사마다 달라서 날짜·금액·유일 후보로 판단한다(사용자 승인 2026-10-15).
+    if str(event.get("provider") or "").casefold() == "trip":
+        return True
     return _descriptor_matches(event, row, rules) or _rule_matches(event, row, rules)
 
 

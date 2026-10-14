@@ -88,6 +88,10 @@ def classify_transaction(transaction: dict, *, rules: list,
     owned = [r for r in matches if r.get('origin') == OWNER_BOOKING_ORIGIN]
     if owned:
         matches = owned
+    # 확정 예약 메일의 이용기간·항목은 과거 장부에서 복원한 추론보다 앞선다.
+    booked = [r for r in matches if r.get('origin') == PERIOD_OTA_ORIGIN]
+    if booked and not owned:
+        matches = booked
     import json
     if len({json.dumps([r['effects'].get('item'),r['effects'].get('display_tab_id',''),
                         r['optional']['inferred_assignment']['trip_id']],sort_keys=True) for r in matches})!=1:

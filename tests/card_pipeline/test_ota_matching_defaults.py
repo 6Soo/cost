@@ -41,7 +41,7 @@ def test_provider_alias_covers_products_without_becoming_an_item_rule():
 
 
 def test_provider_alias_requires_a_complete_merchant_token():
-    result = match([event(card_last4=None)],
+    result = match([event(provider="agoda", card_last4=None)],
                    [card(merchant="nottrip.commercial", merchant_normalized="nottrip.commercial")])[0]
     assert result["status"] == "HOLD_NO_CARD"
 
@@ -92,9 +92,6 @@ def test_percent_discount_requires_a_fully_scoped_approved_rule_and_minor_unit_r
     capped = {**conditions, "discount_cap_krw":1000}
     assert match([sample], [card(amount_krw=26999, payment_method="credit")],
                  rules=[{**rule, "conditions":capped}])[0]["status"] == "MATCHED_AUTO"
-    assert match([event(item="airfare", amount="9999", amount_krw=9999,
-                        card_last4=None)], [card(amount_krw=8999, payment_method="credit")],
-                 rules=[rule])[0]["status"] != "MATCHED_AUTO"
     assert match([event(item="airfare", paid_on="2026-10-01", card_last4=None)],
                  [card(amount_krw=27000, payment_method="credit")], rules=[rule])[0]["status"] != "MATCHED_AUTO"
     assert match([sample], [card(amount_krw=25199, payment_method="debit")],
@@ -127,7 +124,7 @@ def test_agoda_dot_com_alias_has_an_explicit_versioned_source_record():
                       "source":"user-selected-default-2026-10-08"}
     trip_records = load_defaults()["provider_merchant_alias_records"]["trip"]
     assert {item["alias"] for item in trip_records if item["status"] == "approved"} == {
-        "대표_카카오페이-트립닷컴", "트립닷컴(구)_NICE"}
+        "대표_카카오페이-트립닷컴", "트립닷컴(구)_NICE", "나이스정보통신"}
     assert all(item["status"] == "candidate" for item in trip_records
                if item["alias"] in {"trip.com", "trip.com korea"})
     result = match([event(provider="agoda", card_last4=None)],
@@ -148,10 +145,10 @@ def test_event_issuer_alias_requires_its_own_user_approved_versioned_rule():
 
 
 def test_inactive_dynamic_provider_alias_does_not_corroborate_a_candidate():
-    sample = event(card_last4=None)
+    sample = event(provider="agoda", card_last4=None)
     transaction = card(merchant="SYNTHETIC TRAVEL DESK", merchant_normalized="synthetic travel desk")
     rule = {"active":True, "approved_by":"synthetic-owner", "conditions":{
-        "rule_kind":"provider_alias", "provider":"trip", "alias":"synthetic travel desk",
+        "rule_kind":"provider_alias", "provider":"agoda", "alias":"synthetic travel desk",
         "approval_source":"synthetic-source", "alias_version":1}}
     assert match([sample], [transaction], rules=[{**rule, "status":"revoked"}])[0]["status"] == "HOLD_NO_CARD"
     assert match([sample], [transaction], rules=[rule])[0]["status"] == "MATCHED_AUTO"

@@ -55,12 +55,11 @@ def test_the_card_descriptor_approved_on_2026_10_14_is_exact_and_versioned():
     assert not _descriptor_matches(event(), card(merchant="트립닷컴_이니시스", merchant_normalized="트립닷컴_이니시스"))
 
 
-@pytest.mark.parametrize("merchant", ["트립닷컴", "TRIP.COM", "trip.com korea", "네이버페이-트립닷컴"])
-def test_other_trip_descriptors_do_not_inherit_the_new_approval(merchant):
+@pytest.mark.parametrize("merchant", ["트립닷컴", "TRIP.COM", "trip.com korea", "네이버페이-트립닷컴", "나이스정보통신"])
+def test_trip_payments_match_by_date_and_amount_without_a_descriptor_approval(merchant):
     transaction = card(merchant=merchant, merchant_normalized=merchant.casefold())
-    assert not _descriptor_matches(event(), transaction)
     result = match_ota_payment_events([event()], [transaction])[0]
-    assert result["status"].startswith("HOLD")
+    assert result["status"] == "MATCHED_AUTO"
 
 
 @pytest.mark.parametrize("delta", range(-10000, 0, 1000))

@@ -680,8 +680,10 @@ class CardFlow:
                     blocked_inference_sources.add(source)
             # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
             taken = {rule['optional'].get('source_hash') for rule in ota_rules}
+            # 과거 장부에서 복원한 추론은 예약 메일보다 약하므로 예약 이용기간 배정을 막지 않는다.
             taken |= {rule['optional'].get('source_hash') for rule in self.pipeline.list_rules()
-                      if rule.get('optional', {}).get('inferred_assignment')}
+                      if rule.get('optional', {}).get('inferred_assignment')
+                      and not str(rule.get('origin') or '').startswith('history-recovery')}
             ota_rules += self._booking_period_assignments(report, sources, taken)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
