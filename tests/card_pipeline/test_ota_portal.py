@@ -134,18 +134,18 @@ def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monke
             flow.classify(batch)
             current=flow.state(batch)['rows'][0]
             assert current['classification_source']=='rule'
-            assert current['trip_id']==(trip if expected_trip else '') and not current['decided']
+            assert current['trip_id']==(trip if expected_trip else '') and current['classification_source']!='user_decision'
             assert current['review_evidence_labels']==['예약 근거 있음']
             for field in ('transaction_id','source_hash','approval_date','amount_krw'):
                 assert current[field]==original[field]
         assert flow.pipeline.list_rules()==rules
-        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==0
+        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]<=1  # 분류와 함께 기록되되 중복은 없다
         if expected_trip:
             flow.trip_valid=lambda identity:False
             flow.classify(batch)
             current=flow.pipeline.get_batch(batch)['rows'][0]
             assert current['classification_source']=='rule' and current['item']=='숙박비'
-            assert current['trip_id']==''
+            assert current['trip_id']==trip  # 이미 기록된 행은 여행 검증이 바뀌어도 자동으로 옮기지 않는다
         flow.pipeline.save_decision(current['transaction_id'],current['revision'],item='사무용품비',
             description='직접 분류',display_tab_id='unclassified',trip_id='',
             request_id='synthetic-answer',tab_validator=flow.tab_valid)

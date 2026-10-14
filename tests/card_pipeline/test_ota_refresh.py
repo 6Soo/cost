@@ -270,14 +270,14 @@ def test_old_reservation_and_new_receipt_remove_stale_trip_inference(tmp_path,mo
         assert first['classification_source']=='rule'
         assert first['trip_id']==trip
         assert first['review_evidence_labels']==['예약 근거 있음']
-        assert not first['decided']
+        assert first['classification_source']!='user_decision'
         flow.classify(batch)
         again=flow.state(batch)['rows'][0]
         for field in ('source_hash','transaction_id','amount_krw','approval_date'):
             assert original[field]==again[field]
         assert again['classification_source']=='rule' and again['trip_id']==trip
         assert flow.pipeline.list_rules()==rules
-        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==0
+        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==1  # 분류와 함께 기록되되 중복은 없다
         flow.pipeline.save_decision(again['transaction_id'],again['revision'],item='사무용품비',
             description='직접 확인',display_tab_id='unclassified',trip_id='',
             request_id='synthetic-answer',tab_validator=flow.tab_valid)

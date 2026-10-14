@@ -457,7 +457,7 @@ class CardFlowTests(unittest.TestCase):
         second=self.flow.state(batch)
         self.assertTrue(second['preview']['rows'][0]['blocked'])
         self.assertFalse(second['trips'][0]['available'])
-        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],0)
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0],1)  # 처음 유효했을 때 기록된 한 건만 남는다
 
     def pending_fixture(self):
         trip = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',

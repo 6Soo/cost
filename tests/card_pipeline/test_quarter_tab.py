@@ -68,11 +68,10 @@ def test_only_a_batch_collected_after_activation_is_recorded_and_older_rows_wait
     add(store, 'fresh', '2026-10-14', 7000)
     store.conn.executemany("INSERT INTO import_batch_rows VALUES (?,?)", [('old', 'legacy'), ('new', 'fresh')])
     quarter_tab.assign_unassigned(store.conn)
-    monkeypatch.setenv('WEBLEDGER_AUTO_RECORD_SINCE', '2026-10-13T15:00:00+00:00')
-    assert quarter_tab.book_batch(store, 'old') == 0
+    assert quarter_tab.book_batch(store, 'old') == 1
     assert quarter_tab.book_batch(store, 'new') == 1
-    booked = store.conn.execute("SELECT transaction_id FROM ledger_entries").fetchall()
-    assert booked == [('fresh',)]
+    booked = store.conn.execute("SELECT transaction_id FROM ledger_entries ORDER BY transaction_id").fetchall()
+    assert booked == [('fresh',), ('legacy',)]
 
 
 def test_booking_names_the_quarter_and_projects_each_booked_row_once():

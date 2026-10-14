@@ -606,6 +606,8 @@ class CardFlow:
     def classify(self, batch_id, *, transaction_ids=None):
         with self.board._lock:
             result = self._classify(batch_id,transaction_ids=transaction_ids)
+            # 분류와 기록은 한 동작이다. 분류 가능한 거래는 같은 자리에서 장부에 기록한다.
+            self._auto_record_locked(batch_id)
             self.sync_ledger_rows()
             return result
 

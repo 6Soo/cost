@@ -34,7 +34,7 @@ def test_card_flow_classifies_residual_without_changing_original_or_confirming(t
         assert after['item'] == '분기 기타비용'
         for field in ('transaction_id', 'source_hash', 'amount_krw', 'approval_date', 'posting_date'):
             assert after[field] == before[field]
-        assert not after['decided']
+        assert after['decided']  # 분류와 기록은 한 동작이라 잔여 거래도 자동으로 장부에 기록된다
         flow.classify(batch)
         assert flow.pipeline.get_batch(batch)['rows'][0]['description'] == '2026년 4분기 기타비용'
         actual_kind = dict(card_tail='3820', transaction_kind='일시불매입', transaction_direction='purchase',
