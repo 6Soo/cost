@@ -15,6 +15,7 @@
 - 카드 이용일과 예약 이용기간은 다른 날짜다. 카드 쪽은 `card_use_date()`, 예약 쪽은 `covers_stay()` / `overlaps_stay()`로 판정한다.
 - 숙박은 밤 단위로 본다. 여행의 밤은 시작일 밤부터 종료일 전날 밤까지다(종료일은 체크아웃하고 돌아오는 날). 그래서 숙박이 여행 안이려면 체크인 ≥ 시작일, 체크아웃 ≤ 종료일이어야 한다. 여행 종료일에 체크인하는 숙박은 그 여행과 겹치지 않는다(다음 일정의 숙박이다). 시작일에 체크아웃하는 숙박도 겹치지 않는다.
 - 항공은 출발일과 도착일을 모두 이용일로 본다. 여행 종료일에 출발하는 귀국편은 그 여행과 겹친다.
+- 여행 시작 전 숙박의 준비 기간(AGENTS.md 4-3): 어느 여행과도 밤을 공유하지 않는 숙박은 체크아웃이 시작일 이하이고 체크인이 직전 검증 여행 종료일 이후일 때, 시작일이 가장 가까운 다음 여행의 준비 숙박이다. 거리가 같으면 미배정이다. 기간 제한은 없다(`reconciliation.prep_trip`). 항공에는 적용하지 않는다.
 
 ## 2. 여행의 검증 (`CardFlow.trip_valid`)
 
@@ -82,7 +83,9 @@
 | `card_use_date(tx)` | reconciliation | 카드 이용일 또는 승인일 |
 | `covers_stay(ts, te, ci, co, service=)` | reconciliation | 체크인(출발일) ≥ 시작일이고 체크아웃(도착일) ≤ 종료일 |
 | `overlaps_stay(ts, te, ci, co, service=)` | reconciliation | 숙박은 여행의 밤이 하나라도 겹침, 항공은 이용일이 하루라도 겹침 |
-| `stay_trip(trips, ci, co, service=, nets=)` | reconciliation | 덮는 여행 → 겹치는 밤이 많은 여행 → 수입-비용 차액이 큰 여행 |
+| `stay_trip(trips, ci, co, service=, nets=)` | reconciliation | 덮는 여행 → 겹치는 밤이 많은 여행 → 수입-비용 차액이 큰 여행 → 겹치는 밤이 없는 숙박은 `prep_trip`(준비 숙박) |
+| `prep_trip(trips, ci, co)` | reconciliation | 체크아웃 이후 시작하는 가장 가까운 여행, 거리가 같으면 None |
+| `cash_expense_rows(uses, trips=)` | app/ota_cash_use | 캐시 사용분: 이용일을 덮는 여행 1곳 → 숙박 기준 `stay_trip` → 미배정 |
 | `trip_valid(tab)` | webapp/card_flow | 2장의 여행 검증 |
 | `booking_trip(tx, period)` | webapp/card_flow | 저장된 이름의 여행이 이용기간과 겹치면 그 여행, 아니면 `stay_trip` |
 | `retail_trip(tx, country)` | webapp/card_flow | 현지 구매(경계일은 수입-비용 차액) 또는 추론 여행 확인 |
