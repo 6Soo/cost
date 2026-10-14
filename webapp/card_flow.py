@@ -1157,6 +1157,25 @@ class CardFlow:
             return {}
         return _mail_evidence_from_report(report, sources)
 
+    def record_decision(self, batch_id, transaction_id):
+        """사용자가 정한 거래 한 건만 장부에 기록한다. 같은 배치의 다른 거래는 기록 제외로 두어 소급 반영하지 않는다."""
+        from app.ledger import recordable_rows
+        options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
+                       review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), entry_metadata=self.preview_metadata())
+        with self.board._lock:
+            holds = dict(self.automatic_holds(batch_id))
+            probe = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            for row in probe['rows']:
+                if row['transaction_id'] != transaction_id:
+                    holds.setdefault(row['transaction_id'], {'kind': 'batch_scope', 'reason': '이번에 정한 거래만 기록합니다'})
+            preview = self.pipeline.preview(batch_id, **options, additional_holds=holds)
+            if not any(row['transaction_id'] == transaction_id for row in recordable_rows(preview['rows'])):
+                return 0
+            result = self.pipeline.commit(batch_id, preview['digest'],
+                'decision-record:' + transaction_id + ':' + preview['digest'],
+                projection=lambda entry: self.project(entry), additional_holds=holds, **options)
+            return result['applied']
+
     def saved_state(self, batch_id, *, classify=False):
         """Only call after the write committed; refresh failure cannot undo that write."""
         try:
@@ -1488,7 +1507,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
             elif parsed.path == '/import':
                 body = page(csrf)
-                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + render_expense_cleanup(board, csrf), 1)
+                cleanup = render_expense_cleanup(board, csrf)
+                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
+                body = body.replace('</main>', '</details></main>', 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
                 handler._send(body)
@@ -1594,6 +1615,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 note=payload.get('note',''), reuse_rule=bool(payload.get('reuse_rule')),
                 resolve_hold=payload.get('resolve_hold') is True,
                 request_id=payload['request_id'])
+            flow.record_decision(batch_id, payload['transaction_id'])
             handler._send_json(flow.saved_state(batch_id, classify=True))
         elif len(parts) == 6 and parts[3] == 'refund-groups' and parts[5] == 'commit':
             result = flow.pipeline.commit(batch_id,payload['digest'],payload['request_id'],projection=flow.project,
@@ -1623,13 +1645,18 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
 document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('submit',async e=>{
-  e.preventDefault();const item=form.closest('.cleanup-row'),select=form.querySelector('select'),error=form.querySelector('.cleanup-error'),button=form.querySelector('button');
+  e.preventDefault();const item=form.closest('.cleanup-row'),select=form.querySelector('select[name=display_tab_id]'),error=form.querySelector('.cleanup-error'),button=form.querySelector('button');
   if(!select.value){error.textContent='여행을 골라 주세요';return}
   error.textContent='';button.disabled=true;
-  try{const response=await fetch('/api/rows/'+encodeURIComponent(item.dataset.rowId)+'/save',{method:'POST',
+  const isCard=item.dataset.kind==='card';
+  const request=isCard?fetch('/api/imports/'+encodeURIComponent(item.dataset.batch)+'/decision',{method:'POST',
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
-      body:JSON.stringify({csrf:csrf,expected_revision:Number(form.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
-    const result=await response.json().catch(()=>({}));
+      body:JSON.stringify({transaction_id:item.dataset.transaction,revision:Number(item.dataset.revision),item:form.querySelector('input[name=item]').value.trim(),
+        description:'',display_tab_id:select.value,note:'지출 정리',reuse_rule:false,resolve_hold:item.dataset.held==='1',request_id:crypto.randomUUID().replace(/-/g,'')})})
+    :fetch('/api/rows/'+encodeURIComponent(item.dataset.rowId)+'/save',{method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+      body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
+  try{const response=await request;const result=await response.json().catch(()=>({}));
     if(!response.ok)throw Error(result.message||'저장하지 못했어요');
     item.remove();const left=document.querySelectorAll('.cleanup-row').length;
     document.getElementById('cleanup-count').textContent=left+'건';
@@ -1637,30 +1664,57 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
   }catch(err){button.disabled=false;error.textContent=err.message}
 }))})();"""
 
+CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이용일을 확인해 주세요',
+               'travel_location_hold': '사용 국가와 명시 여행이 맞는지 확인해 주세요'}
+
+
+def _cleanup_card_items(board):
+    """기록되지 않았고 사람이 확인해야 하는 카드 거래. 중복·충돌·제외 거래는 뺀다."""
+    return board.conn.execute(
+        "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
+        " t.amount_krw, t.item, t.classification_source, t.revision,"
+        " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
+        " WHERE t.classification_state='needs_review' AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')=''"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
+        " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+        " GROUP BY t.transaction_id ORDER BY 3 DESC LIMIT 300").fetchall()
+
 
 def render_expense_cleanup(board, csrf):
-    """지출 정리 맨 위. 장부에 기록됐지만 여행이 없는 지출을 여기서 바로 여행에 배정한다."""
+    """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board
     if ledger_board.current_role() != 'owner':
         return ''
     esc = ledger_board.esc
-    trips = sorted((t for t in board.list_trips() if not t.get('deleted') and not t.get('archived')),
+    flow = CardFlow(board)
+    trips = sorted((t for t in board.list_trips()
+                    if not t.get('deleted') and not t.get('archived') and flow.trip_valid(t['tab_id'])),
                    key=lambda t: t.get('starts_on') or '', reverse=True)
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
-    rows = board.conn.execute(
+    items = []
+    for tid, batch, day, merchant, amount, item, source, revision, held in _cleanup_card_items(board):
+        reason = CARD_REASON.get(source, '확인이 필요한 거래입니다')
+        items.append(
+            f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
+            f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
+            f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
+            f"<small>{esc(day or '')} · {esc(reason)}</small></div>"
+            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
+            f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
+            "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
+    ledger = board.conn.execute(
         "SELECT row_id, revision, payload_json FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL"
         " ORDER BY json_extract(payload_json,'$.occurred_on') DESC").fetchall()
-    items = []
-    for row_id, revision, payload in rows:
+    for row_id, revision, payload in ledger:
         record = json.loads(payload)
         items.append(
-            f"<li class='cleanup-row' data-row-id='{esc(row_id)}'>"
+            f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row_id)}' data-revision='{int(revision)}'>"
             f"<div class='cleanup-info'><strong>{esc(record.get('source_merchant') or record.get('description') or '지출')}</strong>"
             f"<span class='cleanup-amount'>{int(record.get('amount_krw') or 0):,}원</span>"
             f"<small>{esc(record.get('occurred_on') or '')} · {esc(record.get('item') or '항목 없음')}</small></div>"
-            f"<form class='cleanup-form' data-revision='{int(revision)}'>"
-            f"<select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
+            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
     body = ''.join(items) or '<li class="muted">정리할 지출이 없습니다.</li>'
     style = ("<style>#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:8px 0}"
@@ -1670,10 +1724,11 @@ def render_expense_cleanup(board, csrf):
              "#expense-cleanup .cleanup-amount{font-size:17px;font-weight:700}"
              "#expense-cleanup .cleanup-info small{color:#657068}"
              "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
-             "#expense-cleanup .cleanup-form select{flex:1 1 180px;min-width:0}"
+             "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
+             "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
              "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}</style>")
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>정리할 지출 <span id='cleanup-count'>{len(rows)}건</span></h2>"
+            f"<h2>정리할 지출 <span id='cleanup-count'>{len(items)}건</span></h2>"
             f"<ul class='cleanup-list'>{body}</ul>"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
 
@@ -1759,7 +1814,7 @@ el('rulefilter').oninput=()=>renderRules(rules);el('newrule').onclick=()=>{el('r
 call('/api/imports/rules').then(j=>renderRules(j.rules)).catch(e=>el('status').textContent=e.message);
 if(location.hash==='#newupload'){var _up=document.getElementById('newupload');if(_up)_up.open=true;}
 function focusReservationCard(transaction){const root=el('ota-review');if(!root)return;root.scrollIntoView({block:'start'});root.focusObserver?.disconnect();let scrolled=false;const mark=()=>{const radio=[...root.querySelectorAll('input[type=radio]')].find(r=>r.value===transaction);if(radio){radio.closest('label').style.outline='2px solid #1C7A52';if(!scrolled){radio.closest('label').scrollIntoView({block:'center'});radio.focus({preventScroll:true});scrolled=true;root.focusObserver?.disconnect()}}};root.focusObserver=new MutationObserver(mark);root.focusObserver.observe(root,{childList:true,subtree:true});mark();}
-async function loadBatch(id){const generation=++batchGeneration;invalidateProposal();try{const response=await fetch('/api/imports/'+encodeURIComponent(id));const j=await response.json();if(!response.ok)throw Error(j.message||'거래 자료를 불러오지 못했습니다');if(generation===batchGeneration){render(j,true);const focus=new URLSearchParams(location.search).get('transaction');if(focus&&j.rows.some(r=>r.transaction_id===focus)){if(location.hash==='#ota-review'){focusReservationCard(focus)}else if(location.hash==='#preview'){reviewState='all';render(j);el('preview').scrollIntoView({block:'start'})}else{editing=focus;render(j);el('questions').scrollIntoView({block:'start'});el('questions').querySelector('select[name=display_tab_id]')?.focus()}}}}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}}const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&!el('upload').disabled){const started=Date.now(),batch=model.batch_id,generation=batchGeneration,version=stamp;try{const j=await call('/api/imports/'+batch);if(generation===batchGeneration&&model.batch_id===batch&&stamp===version&&stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){if(generation===batchGeneration&&model.batch_id===batch&&stamp===version)el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
+async function loadBatch(id){const generation=++batchGeneration;invalidateProposal();try{const response=await fetch('/api/imports/'+encodeURIComponent(id));const j=await response.json();if(!response.ok)throw Error(j.message||'거래 자료를 불러오지 못했습니다');if(generation===batchGeneration){render(j,true);const focus=new URLSearchParams(location.search).get('transaction');if(focus&&j.rows.some(r=>r.transaction_id===focus)){document.getElementById('card-review-detail')?.setAttribute('open','');if(location.hash==='#ota-review'){focusReservationCard(focus)}else if(location.hash==='#preview'){reviewState='all';render(j);el('preview').scrollIntoView({block:'start'})}else{editing=focus;render(j);el('questions').scrollIntoView({block:'start'});el('questions').querySelector('select[name=display_tab_id]')?.focus()}}}}catch(e){if(generation===batchGeneration)el('status').textContent=e.message}}const pollCard=async()=>{let wait=2000;if(model&&!document.hidden&&!el('upload').disabled){const started=Date.now(),batch=model.batch_id,generation=batchGeneration,version=stamp;try{const j=await call('/api/imports/'+batch);if(generation===batchGeneration&&model.batch_id===batch&&stamp===version&&stateStamp(j)!==stamp){if(busy()){el('status').textContent='다른 기기에서 내용이 바뀌었습니다. 입력 중인 답변과 수정은 유지됩니다. 저장할 때 최신 버전을 확인합니다.'}else{render(j);el('status').textContent='다른 기기의 변경을 불러왔습니다.'}}}catch(e){if(generation===batchGeneration&&model.batch_id===batch&&stamp===version)el('status').textContent=e.message}wait=Math.max(2000,4*(Date.now()-started))}setTimeout(pollCard,wait)};setTimeout(pollCard,2000);
 async function companyExclude(id,excluded,btn){const r=model.preview.rows.find(r=>r.transaction_id===id);if(!r)return;if(!confirm(excluded?'이 거래를 회사 경비 집계와 구글 복사에서 제외할까요? 원본은 유지합니다.':'회사 경비 제외를 되돌릴까요?'))return;const batch=model.batch_id,generation=batchGeneration;btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/company-exclusion',mutationBody(btn,{transaction_id:id,revision:r.revision,exclusion_revision:r.exclusion_revision||0,excluded:excluded,confirmed:true,note:excluded?'회사 경비 아님':'회사 경비 제외 되돌리기'}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('rule-result').innerHTML='';el('status').textContent=j.refresh_required?'회사 경비 변경은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':excluded?'회사 경비에서 제외했습니다. 원본 거래는 보존했습니다.':'회사 경비 제외를 되돌렸습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;btn.disabled=false}}document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-company-restore]');if(b)companyExclude(b.dataset.companyRestore,false,b)});
 let proposalGeneration=0;function invalidateProposal(){proposalGeneration++;window.ruleProposal=null;el('rule-result').innerHTML=''}el('rule-focus').onchange=invalidateProposal;el('rule-text').oninput=invalidateProposal;const fillFocus=()=>{if(!model||el('rule-focus').dataset.focusBatch===model.batch_id)return;el('rule-focus').dataset.focusBatch=model.batch_id;el('rule-focus').innerHTML=model.preview.rows.map(r=>'<option value="'+esc(r.transaction_id)+'">'+esc(r.merchant)+' · '+money(r.amount_krw)+(r.blocked?' (보류)':'')+'</option>').join('')};el('rule-propose').onclick=async()=>{if(!model){el('status').textContent='거래 자료를 먼저 불러오세요';return}fillFocus();const text=el('rule-text').value.trim();const tx=el('rule-focus').value;if(!text||!tx){el('status').textContent='지시와 대상 거래를 입력하세요';return}const batch=model.batch_id,generation=++proposalGeneration;window.ruleProposal=null;el('rule-result').innerHTML='';try{const p=await call('/api/imports/'+batch+'/rule-proposal',JSON.stringify({text:text,transaction_id:tx,request_id:crypto.randomUUID()}),{'Content-Type':'application/json'});if(generation!==proposalGeneration||model.batch_id!==batch||el('rule-focus').value!==tx||el('rule-text').value.trim()!==text){el('status').textContent='현재 선택이 바뀌었습니다. 다시 제안하세요.';return}if(p.interpreted_text){el('rule-text').value=p.interpreted_text;}window.ruleProposal={...p,batch_id:batch};const lines=p.changes.map(c=>'<li>'+esc(c.before_item||'(없음)')+' → '+esc(c.after_item||'회사 경비 제외')+'</li>').join('');const note=p.status==='AI_PENDING'?'로컬 AI가 응답하지 않아 해석을 대기 중입니다. 입력값을 유지했습니다. 다시 시도하거나 예시처럼 직접 입력해 주세요.':p.status!=='proposed'?'이 지시는 해석하지 못했거나 원본 값 변경을 요청했습니다. 아무 것도 바꾸지 않습니다.':p.needs_confirmation?'원본 거래를 보존하고 회사 경비 집계와 복사에서만 제외합니다. 별도 확인이 필요합니다.':'답변한 거래 '+p.skipped_confirmed+'건은 바꾸지 않습니다. 아래 '+p.payloads.length+'건만 바뀝니다.';el('rule-result').innerHTML='<p>'+note+'</p><ul>'+lines+'</ul>'+(p.needs_confirmation&&p.changes.length?'<button type="button" id="company-exclude">__ICON_CIRCLE_MINUS__회사 경비 제외 확인</button>':p.payloads.length?'<button type="button" id="rule-approve">승인하고 적용</button>':'');if(p.future_rule){const future=document.createElement('button');future.type='button';future.id='future-rule-draft';future.textContent='향후 사용 규칙 초안';future.onclick=()=>{const form=el('ruleform');form.reset();form.elements.rule_id.value='';form.elements.version.value='0';form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;el('rules').open=true;form.scrollIntoView({block:'center'});form.elements.merchant.focus();el('status').textContent='새 거래의 사용 규칙 초안을 채웠습니다. 거래 구분과 적용 조건을 확인한 뒤 규칙 저장 버튼을 눌러 주세요.'};el('rule-result').appendChild(future)}const ap=el('rule-approve');if(ap)ap.onclick=ruleApprove;const ce=el('company-exclude');if(ce)ce.onclick=()=>companyExclude(p.transaction_id,true,ce)}catch(e){if(generation===proposalGeneration&&model.batch_id===batch)el('status').textContent=e.message}};async function ruleApprove(){const p=window.ruleProposal;if(!p||p.batch_id!==model.batch_id||p.transaction_id!==el('rule-focus').value||p.text!==el('rule-text').value.trim()){invalidateProposal();return}const btn=el('rule-approve'),batch=p.batch_id,generation=batchGeneration;if(btn)btn.disabled=true;try{const j=await call('/api/imports/'+batch+'/rule-proposal/approve',JSON.stringify({text:p.text,transaction_id:p.transaction_id,digest:p.digest,approved:true,request_id:(p.request_id??=crypto.randomUUID())}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.state)render(j.state);el('status').textContent=j.refresh_required?'승인은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':j.applied.length+'건을 한 번에 적용했습니다. 실패하면 한 건도 바뀌지 않습니다.';el('rule-result').innerHTML=''}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message;if(btn)btn.disabled=false}}document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-google-copy]');if(!b||!model||googleCopyPending)return;const key='gcopy-trip:'+b.dataset.googleCopy;let before=null;try{before=localStorage.getItem(key)}catch{if(!confirm('복사 이력을 읽을 수 없습니다. 이미 Google에 붙여넣었는지 확인해 주세요. 중복 붙여넣기에 주의하고 계속 복사할까요?'))return;}if(before&&!confirm('이 여행은 '+before+'에 이미 구글 시트용으로 복사했습니다. 시트에 이미 붙여넣었다면 다시 붙여넣지 마세요. 그래도 복사할까요?'))return;googleCopyPending=true;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=true);const batch=model.batch_id,version=stamp,generation=batchGeneration;try{const x=await call('/api/imports/'+batch+'/google-tsv?tab='+encodeURIComponent(b.dataset.googleCopy));if(model.batch_id!==batch||stamp!==version||batchGeneration!==generation)throw Error('자료가 바뀌었습니다. 현재 자료에서 다시 복사해 주세요.');if(!x.row_count){el('status').textContent='복사할 행이 없습니다. 보류 '+x.held.length+'건은 시트에 넣지 않습니다.';return}await navigator.clipboard.writeText(x.tsv);let historyWarning='';try{localStorage.setItem(key,new Date().toLocaleString('ko-KR'))}catch{historyWarning=' 복사 이력을 저장하지 못했습니다. 중복 붙여넣기에 주의해 주세요.'}el('status').textContent='구글 지출 '+x.row_count+'행, 합계 '+money(x.total_krw)+'을 클립보드에 복사했습니다. 보류 '+x.held.length+'건은 복사하지 않았습니다. 이 복사는 장부를 바꾸지 않습니다. 구글 시트에 붙여넣은 뒤에만 반영됩니다.'+historyWarning}catch(err){el('status').textContent=err.message}finally{googleCopyPending=false;document.querySelectorAll('[data-google-copy]').forEach(button=>button.disabled=false)}});
 document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-group-commit]');if(!b||!model||b.disabled)return;const batch=model.batch_id,generation=batchGeneration;b.disabled=true;try{const x=await call('/api/imports/'+batch+'/refund-groups/'+encodeURIComponent(b.dataset.groupCommit)+'/commit',mutationBody(b,{digest:b.dataset.digest}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(!x.refresh_required)render(x);el('status').textContent=x.refresh_required?'장부 기록은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'환불 쌍을 장부에 기록했습니다.'}catch(err){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=err.message;b.disabled=false}});

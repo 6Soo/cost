@@ -48,3 +48,24 @@ def test_the_primary_menu_has_one_expense_cleanup_entry_and_no_rail_unassigned_s
     finally:
         ledger_board.bind_store(None)
         board.conn.close()
+
+
+def test_a_decision_books_only_the_decided_card_row(tmp_path, monkeypatch):
+    from webapp.card_flow import CardFlow
+    from webapp.tests.test_card_flow import CARD
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'decide.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        trip = board.create_trip(starts_on='2026-09-28', ends_on='2026-10-05', destination='합성', client_request_id='decide-trip')
+        monkeypatch.setattr(flow, 'trip_valid', lambda target: target == trip['tab_id'])
+        two_rows = CARD + '국민,1234,domestic,purchase,합성상점2,5000,,,5000,2026-10-03,2026-10-04,A124,,매입\n'.encode()
+        batch = flow.pipeline.receive(two_rows, 'synthetic.csv')['batch_id']
+        flow.pipeline.classify_batch(batch)
+        first = flow.pipeline.get_batch(batch)['rows'][0]
+        flow.pipeline.save_decision(first['transaction_id'], first['revision'], item='소모품', description='사무실 소모품',
+                                    display_tab_id=trip['tab_id'], trip_id=trip['tab_id'], trip_validator=flow.trip_valid, tab_validator=flow.tab_valid, request_id='answer')
+        assert flow.record_decision(batch, first['transaction_id']) == 1
+        assert board.conn.execute("SELECT COUNT(*) FROM board_rows WHERE row_kind='expense'").fetchone()[0] == 1
+    finally:
+        board.close()
