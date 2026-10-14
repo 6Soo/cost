@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 
 from app import google_authority
-from app.reconciliation import card_use_date, open_trip_end
+from app.reconciliation import card_use_date, ledger_date_for_booking, open_trip_end
 
 
 def test_owner_rule_a_trip_without_an_end_ends_the_day_before_the_next_trip():
@@ -53,3 +53,9 @@ def test_owner_rule_an_end_from_the_next_trip_follows_a_new_next_trip_but_not_an
 
 def test_owner_rule_a_card_row_uses_its_use_date_never_the_posting_date():
     assert card_use_date({'approval_date': '2026-05-07', 'posting_date': '2026-05-09'}) == '2026-05-07'
+
+
+def test_owner_rule_an_ota_booking_is_dated_by_its_service_date_and_payment_only_as_fallback():
+    assert ledger_date_for_booking('2026-09-28', '2026-09-17') == '2026-09-28'
+    assert ledger_date_for_booking('', '2026-09-17') == '2026-09-17'
+    assert ledger_date_for_booking(None, None) == ''

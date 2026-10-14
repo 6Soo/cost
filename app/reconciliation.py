@@ -24,6 +24,11 @@ GUIDE_AIRFARE_ORIGIN = "guide-airfare-live"
 CONFIRMED_STATUSES = frozenset({"confirmed", "completed", "upcoming"})
 
 
+def ledger_date_for_booking(service_date, payment_date):
+    """사용자 확정 규칙: OTA 예약의 장부 날짜는 이용일(체크인·픽업·출발)이고, 결제일은 이용일이 없을 때만 쓴다."""
+    return service_date or payment_date or ""
+
+
 def open_trip_end(starts_on, next_starts_on):
     """사용자 확정 규칙: 종료일이 없는 여행(종료일 누락 또는 당일여행)은 다음 여행의 직전일에 끝난다.
 
