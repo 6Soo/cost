@@ -1221,26 +1221,12 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                     reserved_card_ids=all_card_ids)
             continue
         selected = dict(spec["pairs"])
-        if not spec.get("pin") and any(not str(ota.get("card_last4") or "") for ota in sorted_events):
-            reserved_partial.update(card_ids)
-            mapping = {str(identity):str(card_id) for identity, card_id in selected.items()}
-            for ota in sorted_events:
-                grouped_results[ota["ota_event_id"]] = dict(ota,
-                    status="HOLD_GROUP_CONFIRMATION_REQUIRED", transaction_id=None,
-                    candidates=[mapping[str(ota["ota_event_id"])]],
-                    reason="card_hint_missing_requires_user_group_confirmation",
-                    allocation_basis="user_confirmed_group_required", individual_payment_evidence=False,
-                    matched_count=len(selected), unmatched_ota_count=0, unmatched_card_count=0,
-                    group_count={"ota":len(sorted_events), "cards":len(card_ids)},
-                    ota_group_ids=all_event_ids, card_group_ids=all_card_ids,
-                    proposed_mapping=mapping, group_order_snapshot=spec["order_snapshot"],
-                    reserved_card_ids=all_card_ids)
-            continue
+        # 같은 금액 반복 결제는 승인 없이 승인번호·예약번호 순서로 자동 배정하고, 기록 근거를 남겨 월별 검토에서 고친다.
         for ota in sorted_events:
             identity = ota["ota_event_id"]
             card_id = selected[identity]
             allocation_basis = ("frozen_user_confirmed_order" if spec.get("pin")
-                                else "user_approved_stable_order")
+                                else "auto_stable_order")
             grouped_results[identity] = dict(ota, status="MATCHED_AUTO", transaction_id=card_id,
                 candidates=[card_id], reason=allocation_basis, allocation_basis=allocation_basis,
                 group_order_frozen=bool(spec.get("pin")),

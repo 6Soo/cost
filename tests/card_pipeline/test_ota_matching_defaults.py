@@ -241,8 +241,8 @@ def test_group_signature_ignores_missing_ota_card_facts_but_requires_one_card_id
     results = match(events, [card("c-a", authorization_number="AUTH-A"),
                              card("c-b", authorization_number="AUTH-B"),
                              card("c-c", authorization_number="AUTH-C")], rules=[alias_rule])
-    assert {row["status"] for row in results} == {"HOLD_GROUP_CONFIRMATION_REQUIRED"}
-    assert all(row["allocation_basis"] == "user_confirmed_group_required" for row in results)
+    assert {row["status"] for row in results} == {"MATCHED_AUTO"}
+    assert all(row["allocation_basis"] == "auto_stable_order" for row in results)
     assert all(row["group_count"] == {"ota":3, "cards":3} for row in results)
 
 
@@ -317,7 +317,7 @@ def test_complete_group_uses_stable_user_approved_order_and_preserves_periods():
     results = match(events, cards)
     by_id = {row["ota_event_id"]: row for row in results}
     assert by_id["evt-a"]["transaction_id"] == "card-a"
-    assert by_id["evt-a"]["allocation_basis"] == "user_approved_stable_order"
+    assert by_id["evt-a"]["allocation_basis"] == "auto_stable_order"
     assert by_id["evt-a"]["individual_payment_evidence"] is False
     assert by_id["evt-a"]["service_period"] == {"starts_on": "2026-10-01", "ends_on": "2026-10-03"}
 
@@ -454,31 +454,16 @@ def test_acceptance_04_signed_lag_range_matches_candidates_and_rejects_outside_d
     assert set(matched[0]["candidates"]) == {"lag--1", "lag-0", "lag-1", "lag-2"}
 
 
-def test_acceptance_06_blank_card_hint_requires_confirmation_then_stores_actual_group():
-    from app.ota_review import OtaReviewStore
-    from pathlib import Path
-    from tempfile import TemporaryDirectory
-
+def test_acceptance_06_blank_card_hint_groups_are_assigned_automatically_in_order():
     events = [event(f"no-hint-{index}", booking_ref=f"BOOK-{index}", card_last4=None) for index in range(2)]
     cards = [card("no-hint-card-a"), card("no-hint-card-b", approval_number="B")]
     alias_rule = {"approved_by":"synthetic-owner", "active":True, "conditions":{
         "rule_kind":"provider_alias", "provider":"trip", "alias":"trip.com",
         "approval_source":"synthetic-review", "alias_version":1}}
     automatic = match(events, cards, rules=[alias_rule])
-    assert {row["status"] for row in automatic} == {"HOLD_GROUP_CONFIRMATION_REQUIRED"}
-    assert all(row.get("transaction_id") is None for row in automatic)
-    with TemporaryDirectory() as directory:
-        store = OtaReviewStore(Path(directory) / "synthetic-review.sqlite")
-        try:
-            mapping = {events[0]["ota_event_id"]:"no-hint-card-a",
-                       events[1]["ota_event_id"]:"no-hint-card-b"}
-            store.confirm_group_order(mapping, mapping.values(), mapping,
-                user="synthetic-owner", order_snapshot=automatic[0]["group_order_snapshot"], request_id="manual-group")
-            confirmed = match(events, cards, rules=[alias_rule], frozen_groups=store.group_pins())
-            assert {row["status"] for row in confirmed} == {"MATCHED_AUTO"}
-            assert all(row["group_order_frozen"] is True for row in confirmed)
-        finally:
-            store.close()
+    assert {row["status"] for row in automatic} == {"MATCHED_AUTO"}
+    assert {row["allocation_basis"] for row in automatic} == {"auto_stable_order"}
+    assert {row["transaction_id"] for row in automatic} == {"no-hint-card-a", "no-hint-card-b"}
 
 
 def test_acceptance_07_approved_delta_is_limited_to_its_full_edge_scope():
