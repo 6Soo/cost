@@ -1777,24 +1777,8 @@ def trips_page(preview_tab: str = "", role: str = "") -> str:
                and hasattr(store, "owner_profile")
                else {"company_name": "", "assignee_name": "", "revision": 0})
     cards = []
-    from app.reserve_trips import registrations, sync_status as reserve_sync_status, KST
+    from app.reserve_trips import registrations
     reserve_trips = registrations(store)
-    sync_status = reserve_sync_status(store)
-    if os.environ.get('WEBLEDGER_RESERVE_TRIP_SYNC') == '1' and role == 'owner':
-        note = ('조회 중입니다.' if sync_status.get('status') == 'running' else
-                '최근 동기화에서 새 여행 '+str(sync_status.get('created',0))+'개를 등록했습니다.'
-                if sync_status.get('status') == 'ok' else
-                '여행 목록을 가져오지 못했습니다. 다음 0시에 다시 확인합니다.'
-                if sync_status.get('status') == 'failed' else '다음 0시에 조회합니다.')
-        next_run = sync_status.get('next_run_at')
-        next_note = (dt.datetime.fromisoformat(next_run).astimezone(KST).strftime('%Y-%m-%d %H:%M')
-                     if next_run else '')
-        cards.append("<div class='card'><h3>출발 예정 여행 자동 등록</h3>"
-                     "<p>여행글 댓글이 5개 이상이고 출발일이 오늘 이후이면 장부에 등록합니다. 한국 시간 매일 0시에 하루 한 번 조회합니다.</p>"
-                     f"<p>{note} · 등록된 여행 {len(reserve_trips)}개</p>"
-                     + (f"<p>다음 조회: {next_note} (한국 시간)</p>" if next_note else '')
-                     + "<p>여행 정보와 일정은 저장되어 있습니다. 수입·지출은 실제 내역을 장부에 기록하면 표시됩니다. "
-                     "<a href='/import'>카드 분류 결과 보기</a></p></div>")
     for t in live_trips(include_archived=True):
         if t.get("deleted"):
             continue
