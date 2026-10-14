@@ -622,7 +622,10 @@ class CardFlow:
             " FROM board_rows b JOIN transactions t ON b.row_id = 'card-' || t.transaction_id"
             " WHERE b.row_kind='expense' AND t.classification_state='classified'").fetchall()
         synced = 0
+        from app.ledger import REFUND_TAB
         for row_id, revision, board_tab, payload, tab, item, description in rows:
+            if board_tab == REFUND_TAB:
+                continue  # 상쇄되어 환불 탭에 둔 행은 여행 분류가 되돌리지 않는다.
             record = json.loads(payload)
             tab = '' if tab in (None, 'unclassified') else tab
             target = {}
