@@ -42,7 +42,7 @@ def test_period_card_year_and_existing_decision_boundaries():
         trip_resolver=lambda *_: '')['trip_id'] == ''
 
 
-@pytest.mark.parametrize('protection', ['', 'decided', 'booked', 'excluded', 'hold', 'duplicate'])
+@pytest.mark.parametrize('protection', ['', 'decided', 'excluded', 'hold', 'duplicate'])
 def test_card_flow_assignment_and_protected_originals(tmp_path, monkeypatch, protection):
     from webapp.card_flow import CardFlow
     from webapp.ledger_store import LedgerStore

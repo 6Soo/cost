@@ -44,7 +44,7 @@ def test_card_flow_classifies_residual_without_changing_original_or_confirming(t
         board.close()
 
 
-@pytest.mark.parametrize('protection', ['decided', 'excluded', 'booked', 'duplicate', 'conflict'])
+@pytest.mark.parametrize('protection', ['decided', 'excluded', 'duplicate', 'conflict'])
 def test_existing_protected_rows_do_not_receive_residual_policy(tmp_path, monkeypatch, protection):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'protected.sqlite', seed_demo=False)
@@ -69,5 +69,20 @@ def test_existing_protected_rows_do_not_receive_residual_policy(tmp_path, monkey
         assert after['item'] != '분기 기타비용'
         if protection in ('decided', 'excluded', 'booked'):
             assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (tid,)).fetchone() == before
+    finally:
+        board.close()
+
+
+def test_a_recorded_row_without_a_trip_is_reconciled_by_the_residual_rule(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'recorded.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive(CARD.replace(b',1234,', b',3820,'), 'synthetic.csv')['batch_id']
+        tid = flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
+        board.conn.execute("INSERT INTO ledger_entries VALUES (?,?,'기존 기록','','unclassified','',37000,'합성상점','2026-10-01','purchase','','')", (tid, batch))
+        board.conn.commit()
+        flow.classify(batch)
+        assert flow.pipeline.get_batch(batch)['rows'][0]['item'] == '분기 기타비용'
     finally:
         board.close()

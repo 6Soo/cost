@@ -3345,9 +3345,10 @@ class LedgerStore:
         if "display_tab_id" in changes:
             from . import ledger_board as board
 
+            from app import quarter_tab
             target = changes["display_tab_id"]
             valid = board.valid_tab_ids() | {None}
-            if target not in valid:
+            if target not in valid and not quarter_tab.parse_tab(target):
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
         if "amount_krw" in changes:
             value = changes["amount_krw"]

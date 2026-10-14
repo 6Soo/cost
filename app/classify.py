@@ -152,6 +152,33 @@ def _card3820_singapore(transaction, verdict, trip_resolver):
                 rule_id='owner-card3820-singapore-20261012')
 
 
+RESIDUAL_SOURCES = ('', 'pattern', 'card_category', 'booking_evidence_needed', 'inference', 'rule',
+                    'travel_location_hold')
+
+
+def pair_refunds(conn) -> int:
+    """취소·환불 거래는 같은 카드의 원거래 배정을 따른다(원거래 승인번호). 사용자가 직접 정한 거래는 건드리지 않는다."""
+    paired = 0
+    refunds = conn.execute(
+        "SELECT transaction_id, card_tail, original_approval_number FROM transactions"
+        " WHERE transaction_direction='cancellation' AND original_approval_number<>''"
+        " AND COALESCE(classification_source,'') NOT LIKE 'user_%'").fetchall()
+    for transaction_id, card_tail, original in refunds:
+        source = conn.execute(
+            "SELECT classification_state, display_tab_id, trip_id, item, description FROM transactions"
+            " WHERE card_tail=? AND approval_number=? AND transaction_direction='purchase'"
+            " ORDER BY approval_date DESC LIMIT 1", (card_tail, original)).fetchone()
+        if not source or source[0] not in (STATE_CLASSIFIED, STATE_NEEDS_REVIEW) or source[1] in (None, '', 'unclassified'):
+            continue
+        state, tab, trip, item, description = source
+        conn.execute(
+            "UPDATE transactions SET classification_state=?, classification_source='refund_original',"
+            " classification_basis=?, item=?, description=?, display_tab_id=?, trip_id=? WHERE transaction_id=?",
+            (state, f'원거래 승인번호 {original}의 배정을 따름', item, description, tab, trip, transaction_id))
+        paired += 1
+    return paired
+
+
 def _card3820_residual(transaction: dict, verdict: dict) -> dict:
     """Owner policy after reconciliation; classification only, never posting."""
     if (transaction.get('card_tail') != '3820'
@@ -159,7 +186,9 @@ def _card3820_residual(transaction: dict, verdict: dict) -> dict:
                    for marker in ('refund', 'cancel', '취소', '승인'))
             or transaction.get('transaction_direction') != 'purchase'
             or type(transaction.get('amount_krw')) is not int or transaction['amount_krw'] <= 0
-            or verdict['classification_source'] not in ('', 'pattern', 'card_category', 'booking_evidence_needed')
+            or verdict['classification_source'] not in RESIDUAL_SOURCES
+            # 해외 사용의 위치 보류는 여행 국가 확인이 먼저다. 국내 사용은 여행과 무관하므로 잔여로 본다.
+            or (verdict['classification_source'] == 'travel_location_hold' and transaction.get('foreign_currency'))
             or verdict.get('trip_id') or transaction.get('parse_error')):
         return verdict
     from datetime import date
@@ -396,7 +425,12 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
              current_item, current_description, current_tab, current_trip) = row
             if selected is not None and transaction_id not in selected:
                 continue
-            if decided:
+            # 3820 장부 행의 미배정은 규칙으로 다시 대사한다. 사용자가 정한 거래와 배정된 거래는 보호한다.
+            reconcile_booked = (decided and residual_policy and card_tail == '3820'
+                                and current_tab in (None, '', 'unclassified') and current_source not in ('user_decision', 'user_exception')
+                                and store.conn.execute("SELECT decided_at FROM transactions WHERE transaction_id=?",
+                                                       (transaction_id,)).fetchone()[0] is None)
+            if decided and not reconcile_booked:
                 counts[state] = counts.get(state, 0) + 1
                 protected += 1
                 continue
@@ -432,7 +466,9 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                     'FROM transactions t WHERE transaction_id=?', (transaction_id,)).fetchone()
                 held = store.conn.execute('SELECT 1 FROM transaction_review_holds WHERE transaction_id=?',
                                           (transaction_id,)).fetchone()
-                if booked or excluded or held or current_trip:
+                # 장부에 기록됐어도 배정이 비어 있는 거래는 규칙으로 다시 대사한다. 배정된 거래와 사용자 결정은 보호한다.
+                unassigned = current_tab in (None, '', 'unclassified')
+                if (booked and not unassigned) or excluded or held or current_trip:
                     counts[state] = counts.get(state, 0) + 1
                     protected += 1
                     continue
@@ -453,6 +489,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                 " classification_source=?, classification_basis=?, item=?,"
                 " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=?",
                 values+(transaction_id,))
+        pair_refunds(store.conn)
         store.conn.execute(
             "UPDATE import_batches SET parsed_at=?, status='classified'"
             " WHERE batch_id=?", (now, batch_id))

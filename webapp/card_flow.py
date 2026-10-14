@@ -605,7 +605,36 @@ class CardFlow:
 
     def classify(self, batch_id, *, transaction_ids=None):
         with self.board._lock:
-            return self._classify(batch_id,transaction_ids=transaction_ids)
+            result = self._classify(batch_id,transaction_ids=transaction_ids)
+            self.sync_ledger_rows()
+            return result
+
+    def sync_ledger_rows(self):
+        """규칙 결과를 장부 행에 반영한다. 사용자가 고친 필드(`board_manual_overrides`)는 건드리지 않고, 배정이 있던 자리를 비우지 않는다."""
+        conn = self.board.conn
+        overridden = {(row_id, field) for row_id, field in conn.execute('SELECT row_id, field FROM board_manual_overrides')}
+        rows = conn.execute(
+            "SELECT b.row_id, b.revision, b.display_tab_id, b.payload_json, t.display_tab_id, t.item, t.description"
+            " FROM board_rows b JOIN transactions t ON b.row_id = 'card-' || t.transaction_id"
+            " WHERE b.row_kind='expense' AND t.classification_state='classified'").fetchall()
+        synced = 0
+        for row_id, revision, board_tab, payload, tab, item, description in rows:
+            record = json.loads(payload)
+            tab = '' if tab in (None, 'unclassified') else tab
+            target = {}
+            if tab and tab != board_tab and (row_id, 'display_tab_id') not in overridden:
+                target['display_tab_id'] = tab
+            if item and item != record.get('item') and (row_id, 'item') not in overridden:
+                target['item'] = item
+            if description and description != record.get('description') and (row_id, 'description') not in overridden:
+                target['description'] = description
+            if not target:
+                continue
+            key = hashlib.sha256(json.dumps(target, sort_keys=True).encode()).hexdigest()[:12]
+            self.board.save(row_id=row_id, expected_revision=revision, client_request_id=f'sync-{row_id}-{revision}-{key}',
+                            change_mode='rule_change', changes=target, actor='automatic')
+            synced += 1
+        return synced
 
     def _classify(self, batch_id, *, transaction_ids=None):
         ota_rules=[]
