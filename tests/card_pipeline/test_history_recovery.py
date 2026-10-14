@@ -428,18 +428,24 @@ def test_when_two_inferences_agree_on_the_trip_the_higher_confidence_gives_the_b
     assert result['trip_id']=='japan' and '추론 배정 · 높음 · 높은 근거' in result['classification_basis']
 
 
-def test_an_owner_inference_is_not_applied_when_the_payment_is_more_than_30_days_before_the_trip():
+def test_an_owner_inference_is_applied_however_early_the_payment_is():
     from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
     rule=inference_rule(target='future')
     rule['origin']=OWNER_AUTHORIZED_INFERENCE_ORIGIN
     early=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-09-01',amount_krw=50000)
-    result=classify_transaction(early,rules=[rule],trip_resolver=flow().retail_trip)
-    assert result['classification_state']=='needs_review' and not result['trip_id']
-    near=dict(early,approval_date='2026-11-25')
-    assert classify_transaction(near,rules=[rule],trip_resolver=flow().retail_trip)['trip_id']=='future'
+    assert classify_transaction(early,rules=[rule],trip_resolver=flow().retail_trip)['trip_id']=='future'
 
 
-def test_a_stay_period_assignment_wins_over_the_payment_lead_rule():
+def test_an_inference_to_an_unknown_trip_leaves_the_row_unassigned_without_a_suggestion():
+    from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    rule=inference_rule(target='gone')
+    rule['origin']=OWNER_AUTHORIZED_INFERENCE_ORIGIN
+    row=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-09-01',amount_krw=50000)
+    result=classify_transaction(row,rules=[rule],trip_resolver=flow().retail_trip)
+    assert not result['trip_id'] and '추천' not in result['classification_basis']
+
+
+def test_a_stay_period_assignment_wins_over_an_inference():
     from app.classify import OWNER_AUTHORIZED_INFERENCE_ORIGIN
     row=dict(merchant='TRIP.COM',source_hash='a'*64,approval_date='2026-09-01',amount_krw=50000)
     stay=normalize_rule({'conditions':{'merchant_normalized':'TRIP.COM'},

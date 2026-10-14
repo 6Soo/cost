@@ -1,5 +1,5 @@
 """The date rules that place a booking or a card row on a trip, pinned at their edges."""
-from app.reconciliation import card_use_date, covers_stay, overlaps_stay, payment_within_lead
+from app.reconciliation import card_use_date, covers_stay, overlaps_stay, stay_trip
 
 
 def test_a_lodging_is_covered_only_when_it_checks_out_by_the_trip_end():
@@ -25,10 +25,18 @@ def test_a_flight_arriving_on_the_trip_end_overlaps_it():
     assert overlaps_stay('2026-09-24', '2026-09-27', '2026-09-27', '2026-09-28', service=True)
 
 
-def test_a_payment_is_within_the_lead_up_to_thirty_days_before_the_trip():
-    assert payment_within_lead('2026-08-02', '2026-09-01')
-    assert not payment_within_lead('2026-08-01', '2026-09-01')
-    assert not payment_within_lead('', '2026-09-01')
+def _trip(tab, starts_on, ends_on):
+    return {'tab_id': tab, 'starts_on': starts_on, 'ends_on': ends_on}
+
+
+def test_a_stay_goes_to_the_covering_trip_then_the_most_shared_nights_then_the_larger_net():
+    a, b = _trip('a', '2026-09-20', '2026-09-24'), _trip('b', '2026-09-24', '2026-09-30')
+    assert stay_trip([a, b], '2026-09-21', '2026-09-23')['tab_id'] == 'a'
+    assert stay_trip([a, b], '2026-09-22', '2026-09-27')['tab_id'] == 'b'
+    c = _trip('c', '2026-09-26', '2026-10-02')
+    assert stay_trip([b, c], '2026-09-26', '2026-09-28') is None
+    assert stay_trip([b, c], '2026-09-26', '2026-09-28', nets={'b': 5, 'c': 9})['tab_id'] == 'c'
+    assert stay_trip([a], '2026-10-05', '2026-10-06') is None
 
 
 def test_the_card_row_is_placed_by_its_use_date_when_it_has_one():

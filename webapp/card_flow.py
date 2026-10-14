@@ -7,9 +7,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from app.db import decided_sql
-from app.reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN,
-                                   OWNER_AUTHORIZED_INFERENCE_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN, card_use_date,
-                                   covers_stay, overlaps_stay, payment_within_lead)
+from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
+                                   overlaps_stay, stay_trip)
 
 from . import read_scope
 
@@ -18,22 +17,32 @@ _OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고�
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
 _GOOGLE_PERIOD_CACHE = {}
-# 시트에 적힌 날짜가 아니라 다음 여행으로 추정했거나 비어 있는 종료일은 검증 근거가 아니다.
+# 시트에 종료일이 없어 다음 여행 전날로 정했거나 비어 있는 종료일. 기간 검증에는 쓰되(빈 종료일 제외),
+# 옮긴 시트의 원본 제목보다 앞서지는 않는다.
 _GUESSED_PERIOD_FLAGS = frozenset({'PERIOD_END_FROM_NEXT_TRIP', 'PERIOD_END_MISSING'})
 
 
 def _google_periods():
     """구글 여행 탭의 기간을 연결된 COST 탭 ID별 (시작일, 종료일, 추정 여부)로 돌려준다. 설정이 없거나 읽을 수 없으면 비어 있다."""
+    return _google_trips()[0]
+
+
+def _google_nets():
+    """구글 여행 탭의 수입-비용 차액을 연결된 COST 탭 ID별로 돌려준다."""
+    return _google_trips()[1]
+
+
+def _google_trips():
     raw = os.environ.get('WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT', '').strip()
     if not raw:
-        return {}
+        return {}, {}
     from app import google_authority
     from . import google_ledger_page
     path = Path(raw)
     try:
         stamp = tuple((p.stat().st_size, p.stat().st_mtime_ns) for p in (path, google_ledger_page.mapping_path(path)))
     except OSError:
-        return {}
+        return {}, {}
     cached = _GOOGLE_PERIOD_CACHE.get(raw)
     if cached is not None and cached[0] == stamp:
         return cached[1]
@@ -41,16 +50,19 @@ def _google_periods():
         snapshot = google_authority.load_snapshot(path)
         mapping = google_ledger_page.load_mapping(path)
     except (google_authority.SnapshotError, OSError, ValueError):
-        return {}
-    by_key = {trip.get('key'): trip.get('period') or {} for trip in snapshot.get('trips', [])}
-    periods = {}
+        return {}, {}
+    by_key = {trip.get('key'): trip for trip in snapshot.get('trips', [])}
+    periods, nets = {}, {}
     for key, tab_id in mapping.items():
-        period = by_key.get(key) or {}
+        trip = by_key.get(key) or {}
+        if isinstance(trip.get('net'), (int, float)):
+            nets[tab_id] = trip['net']
+        period = trip.get('period') or {}
         if period.get('starts_on'):
             guessed = not period.get('ends_on') or bool(_GUESSED_PERIOD_FLAGS & set(period.get('flags') or ()))
             periods.setdefault(tab_id, set()).add((period['starts_on'], period.get('ends_on') or '', guessed))
-    _GOOGLE_PERIOD_CACHE[raw] = (stamp, periods)
-    return periods
+    _GOOGLE_PERIOD_CACHE[raw] = (stamp, (periods, nets))
+    return periods, nets
 
 
 def _trip_authority(path):
@@ -466,7 +478,7 @@ class CardFlow:
         if not trip or trip['deleted'] or trip['archived']:
             return False
         google = _google_periods().get(trip_id, set())
-        if (trip['starts_on'], trip['ends_on'], False) in google:
+        if trip['ends_on'] and any((start, end) == (trip['starts_on'], trip['ends_on']) for start, end, _ in google):
             return True
         path = os.environ.get('WEBLEDGER_TRIP_AUTHORITY')
         if not path:
@@ -533,10 +545,6 @@ class CardFlow:
     def tab_valid(self, tab):
         return tab in ('', 'unclassified') or self.trip_valid(tab)
 
-    def _payment_within_lead(self, transaction, trip_id):
-        trip=next((t for t in self.board.list_trips() if t['tab_id']==trip_id),None)
-        return trip is not None and payment_within_lead(card_use_date(transaction), trip.get('starts_on'))
-
     def retail_trip(self, transaction, country):
         from app.rules import merchant_country
         if isinstance(country,dict):
@@ -549,8 +557,6 @@ class CardFlow:
             if 'inferred_trip_id' in country:
                 target=country['inferred_trip_id']
                 if not self.trip_valid(target):
-                    return ''
-                if country.get('origin')==OWNER_AUTHORIZED_INFERENCE_ORIGIN and not self._payment_within_lead(transaction,target):
                     return ''
                 return target
             return self.booking_trip(transaction,country)
@@ -576,20 +582,26 @@ class CardFlow:
                       and trip['starts_on'] <= occurred <= trip['ends_on']]
         if not candidates:
             return ''
-        candidates.sort(key=lambda t:(t['starts_on']==occurred,t['starts_on'],t['ends_on']),reverse=True)
+        # 한 여행이 끝나고 다음 여행이 시작하는 날이면 수입-비용 차액이 큰 여행으로 보낸다.
+        handover = len(candidates)>1 and all(occurred in (t['starts_on'], t['ends_on']) for t in candidates)
+        nets = _google_nets() if handover else {}
+        candidates.sort(key=lambda t:(nets.get(t['tab_id'], float('-inf')),t['starts_on']==occurred,t['starts_on'],t['ends_on']),reverse=True)
         top = candidates[0]
-        if len(candidates)>1 and (top['starts_on'],top['ends_on']) == (candidates[1]['starts_on'],candidates[1]['ends_on']):
+        if len(candidates)>1 and (nets.get(top['tab_id']), top['starts_on'],top['ends_on']) == (
+                nets.get(candidates[1]['tab_id']), candidates[1]['starts_on'],candidates[1]['ends_on']):
             return ''
         return top['tab_id']
 
     def booking_trip(self, transaction, period):
-        # 이용기간을 덮는 검증된 여행이 하나뿐이어야 한다. 저장된 여행 이름은 여러 여행이 덮을 때만 고르는 데 쓴다.
-        candidates = [t for t in self.board.list_trips() if self.trip_valid(t['tab_id'])
-                      and covers_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'],
-                                      service=period.get('service', False))]
-        named = [t for t in candidates if t['display_key']==period.get('target_code')]
-        chosen = named or candidates
-        return chosen[0]['tab_id'] if len(chosen)==1 else ''
+        # 이용기간에 맞는 검증된 여행이다. 저장된 여행 이름이 그 기간과 겹치는 여행이면 그 여행을 쓴다.
+        verified = [t for t in self.board.list_trips() if self.trip_valid(t['tab_id'])]
+        service = period.get('service', False)
+        named = [t for t in verified if t['display_key']==period.get('target_code')
+                 and overlaps_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'], service=service)]
+        if len(named)==1:
+            return named[0]['tab_id']
+        chosen = stay_trip(verified, period['starts_on'], period['ends_on'], service=service, nets=_google_nets())
+        return chosen['tab_id'] if chosen else ''
 
     def classify(self, batch_id, *, transaction_ids=None):
         with self.board._lock:
@@ -630,17 +642,16 @@ class CardFlow:
                 draft=dict(template,optional=dict(template['optional']),effects=dict(template['effects']))
                 fact=evidence.get(source,{})
                 period=fact.get('period')
-                if (period and fact.get('reservation_status') in CONFIRMED_STATUSES
+                # 취소되지 않은 예약의 이용기간이 있으면 그 기간의 여행으로 보낸다. 확정 메일 여부는 묻지 않는다.
+                if (period and fact.get('reservation_status')!='cancelled'
                         and not fact.get('period_conflict')):
                     if verified_trips is None:
                         verified_trips=[trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
                     service=fact.get('item')=='항공료'
-                    candidates=[trip for trip in verified_trips
-                                if covers_stay(trip['starts_on'],trip['ends_on'],period['starts_on'],period['ends_on'],
-                                               service=service)]
+                    chosen=stay_trip(verified_trips,period['starts_on'],period['ends_on'],service=service,nets=_google_nets())
                     digests=fact.get('source_digests') or fact.get('evidence_digests') or [fact.get('source_sha256')]
-                    if len(candidates)==1 and digests and digests[0]:
-                        draft['optional']['booking_period']=dict(period,target_code=candidates[0]['display_key'],
+                    if chosen and digests and digests[0]:
+                        draft['optional']['booking_period']=dict(period,target_code=chosen['display_key'],
                                                                  source_sha256=digests[0],service=service)
                     else:
                         # 명시 이용기간과 맞지 않는 과거 추론 여행을 다시 붙이지 않는다.

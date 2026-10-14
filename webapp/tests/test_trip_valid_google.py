@@ -41,9 +41,26 @@ def test_a_period_that_differs_from_the_google_tab_is_not_verified(google):
     assert not card_flow.CardFlow.trip_valid(_flow(_trip()), 'trip-a')
 
 
-def test_a_guessed_google_end_does_not_verify_a_trip(google):
+def test_an_end_set_to_the_day_before_the_next_trip_verifies_a_trip(google):
     google({'starts_on': '2026-10-05', 'ends_on': '2026-10-08', 'flags': ['PERIOD_END_FROM_NEXT_TRIP']})
-    assert not card_flow.CardFlow.trip_valid(_flow(_trip()), 'trip-a')
+    assert card_flow.CardFlow.trip_valid(_flow(_trip()), 'trip-a')
+
+
+def test_a_trip_without_any_end_is_not_verified(google):
+    google({'starts_on': '2026-10-05', 'ends_on': None, 'flags': ['PERIOD_END_MISSING']})
+    assert not card_flow.CardFlow.trip_valid(_flow(_trip(ends_on='')), 'trip-a')
+
+
+def test_a_boundary_day_purchase_goes_to_the_trip_with_the_larger_net(google, monkeypatch):
+    monkeypatch.setattr(card_flow, '_google_nets', lambda: {'trip-a': 100, 'trip-b': 900})
+    trips = [_trip(tab_id='trip-a', starts_on='2026-09-24', ends_on='2026-09-27', destination='야마구치'),
+             _trip(tab_id='trip-b', starts_on='2026-09-27', ends_on='2026-10-01', destination='북큐슈')]
+    flow = SimpleNamespace(board=SimpleNamespace(list_trips=lambda: trips), trip_valid=lambda tab: True)
+    monkeypatch.setattr('app.rules.merchant_country', lambda tx: 'JP')
+    assert card_flow.CardFlow.retail_trip(flow, {'approval_date': '2026-09-27'}, 'JP') == 'trip-b'
+    monkeypatch.setattr(card_flow, '_google_nets', lambda: {'trip-a': 900, 'trip-b': 100})
+    del flow._retail_trips
+    assert card_flow.CardFlow.retail_trip(flow, {'approval_date': '2026-09-27'}, 'JP') == 'trip-a'
 
 
 def test_an_unlinked_or_deleted_trip_is_not_verified(google):

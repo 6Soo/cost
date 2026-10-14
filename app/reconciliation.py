@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 #: A trip the owner picked for one OTA booking. Applied to that booking's card rows only.
 OWNER_BOOKING_ORIGIN = "owner-ota-booking"
-#: Inferences the owner authorized from payment history. They never reach back more than LEAD_DAYS before a trip.
+#: Inferences the owner authorized from payment history.
 OWNER_AUTHORIZED_INFERENCE_ORIGIN = "owner-authorized-inference-20261003"
 #: The owner's exception for Georgia and Kazakhstan purchases in the European trip.
 OWNER_COUNTRY_EXCEPTION_ORIGIN = "owner-country-exception-20261003"
@@ -22,8 +22,6 @@ GUIDE_AIRFARE_ORIGIN = "guide-airfare-live"
 
 #: Booking statuses that count as a reservation the trip may be assigned from.
 CONFIRMED_STATUSES = frozenset({"confirmed", "completed", "upcoming"})
-#: How far before a trip a payment may be and still be assigned by inference without a booking.
-LEAD_DAYS = 30
 
 
 def card_use_date(transaction):
@@ -49,8 +47,29 @@ def overlaps_stay(trip_start, trip_end, check_in, check_out, *, service=False):
     return max(check_in, trip_start) < min(check_out, trip_end)
 
 
-def payment_within_lead(card_day, trip_start, lead_days=LEAD_DAYS):
-    """Whether a card row falls no more than lead_days before the trip starts. An unknown date is not within it."""
-    if not card_day or not trip_start:
-        return False
-    return date.fromisoformat(card_day) >= date.fromisoformat(trip_start) - timedelta(days=lead_days)
+def shared_days(trip_start, trip_end, check_in, check_out, *, service=False):
+    """How many nights (or, for a flight, service days) a booking shares with a trip."""
+    if not overlaps_stay(trip_start, trip_end, check_in, check_out, service=service):
+        return 0
+    start, end = max(check_in, trip_start), min(check_out, trip_end)
+    return (date.fromisoformat(end) - date.fromisoformat(start)).days + (1 if service else 0)
+
+
+def stay_trip(trips, check_in, check_out, *, service=False, nets=None):
+    """The verified trip a booking stay belongs to, or None when no trip shares a day with it.
+
+    A trip that covers the whole stay wins; otherwise the trip sharing the most nights. A tie goes to the trip with
+    the larger income minus expense (nets by tab id), and a tie that remains is left unassigned.
+    """
+    nets = nets or {}
+    covering = [t for t in trips if covers_stay(t['starts_on'], t['ends_on'], check_in, check_out, service=service)]
+    pool = covering or [t for t in trips if overlaps_stay(t['starts_on'], t['ends_on'], check_in, check_out,
+                                                          service=service)]
+    if not pool:
+        return None
+    rank = lambda t: (0 if covering else shared_days(t['starts_on'], t['ends_on'], check_in, check_out, service=service),
+                      nets.get(t['tab_id'], float('-inf')))
+    pool.sort(key=rank, reverse=True)
+    if len(pool) > 1 and rank(pool[0]) == rank(pool[1]):
+        return None
+    return pool[0]

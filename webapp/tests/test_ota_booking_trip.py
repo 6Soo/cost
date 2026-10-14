@@ -238,8 +238,8 @@ def test_checkout_on_the_trip_start_day_is_not_an_overlap_and_reasons_are_plain(
     assert ota_catalog._relation(('2026-08-26', '2026-08-27'), trip) == 'none'
     assert ota_catalog._relation(('2026-08-26', '2026-08-28'), trip) == 'overlaps'
     stay = {'trips': [], 'status_codes': ['observed'], 'stay': ('2026-08-27', '2026-08-28'), 'candidates': []}
-    assert ota_catalog._unassigned_reason(stay, False) == 'not_confirmed'
-    assert ota_catalog._unassigned_reason({**stay, 'status_codes': ['confirmed']}, False) == 'no_trip'
+    assert ota_catalog._unassigned_reason(stay, False) == 'no_trip'
+    assert ota_catalog._unassigned_reason({**stay, 'status_codes': ['cancelled']}, False) == 'cancelled'
 
 
 def test_revoking_a_stay_assignment_without_a_rule_is_recorded(tmp_path):
@@ -271,11 +271,13 @@ def test_a_saved_index_made_by_other_logic_is_not_reused(world, monkeypatch):
 
 
 def test_an_unverified_trip_covering_the_stay_does_not_block_the_one_verified_trip():
-    candidates = [{'tab_id': 'a', 'name': 'A', 'relation': 'covers', 'valid': False},
-                  {'tab_id': 'b', 'name': 'B', 'relation': 'covers', 'valid': True},
-                  {'tab_id': 'c', 'name': 'C', 'relation': 'overlaps', 'valid': True}]
-    assert ota_catalog._period_trip(candidates) == {'id': 'b', 'name': 'B', 'source': 'period'}
-    assert ota_catalog._period_trip(candidates + [{'tab_id': 'd', 'name': 'D', 'relation': 'covers', 'valid': True}]) is None
+    candidates = [{'tab_id': 'a', 'name': 'A', 'starts_on': '2026-09-01', 'ends_on': '2026-09-10', 'valid': False},
+                  {'tab_id': 'b', 'name': 'B', 'starts_on': '2026-09-02', 'ends_on': '2026-09-08', 'valid': True},
+                  {'tab_id': 'c', 'name': 'C', 'starts_on': '2026-09-06', 'ends_on': '2026-09-12', 'valid': True}]
+    stay = ('2026-09-03', '2026-09-07')
+    assert ota_catalog._period_trip(candidates, stay) == {'id': 'b', 'name': 'B', 'source': 'period'}
+    twin = {'tab_id': 'd', 'name': 'D', 'starts_on': '2026-09-02', 'ends_on': '2026-09-08', 'valid': True}
+    assert ota_catalog._period_trip(candidates + [twin], stay) is None
 
 
 def test_a_stored_stay_reaches_the_one_verified_trip_covering_it_even_after_a_rename():

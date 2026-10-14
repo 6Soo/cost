@@ -101,11 +101,8 @@ def classify_transaction(transaction: dict, *, rules: list,
         if rule.get('origin') == OWNER_BOOKING_ORIGIN:
             return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
                         classification_basis='사용자가 고른 여행의 일정 원본을 다시 확인해야 합니다')
-        if rule.get('origin')==OWNER_AUTHORIZED_INFERENCE_ORIGIN:
-            return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
-                        classification_basis='결제일이 여행 시작보다 30일 넘게 앞서거나 여행을 확인할 수 없어 자동 배정하지 않았습니다. 추천 여행으로만 확인해 주세요')
-        return dict(verdict,classification_state=STATE_NEEDS_REVIEW,
-                    classification_basis='추론한 여행 일정이 변경되어 다시 확인해야 합니다')
+        # 근거가 맞지 않는 추론은 여행 없이 둔다. 다른 여행을 제시하지 않는다.
+        return verdict
     exception=rule.get('origin')==OWNER_COUNTRY_EXCEPTION_ORIGIN
     if rule.get('origin')==GUIDE_AIRFARE_ORIGIN:
         return dict(classification_state=STATE_CLASSIFIED,classification_source='guide_airfare_evidence',

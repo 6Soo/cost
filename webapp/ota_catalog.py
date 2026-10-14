@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 
 from app import ota_payments, ota_portal, ota_sources
-from app.reconciliation import CONFIRMED_STATUSES, covers_stay, overlaps_stay
+from app.reconciliation import covers_stay, overlaps_stay, stay_trip
 from . import ui_icons
 from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
@@ -35,11 +35,9 @@ UNASSIGNED_REASONS = {
     'cancelled': '취소된 예약',
     'revoked': '사용자가 배정을 해제함',
     'no_stay': '이용기간이 수집되지 않음',
-    'not_confirmed': '예약 확정 상태가 수집되지 않음(결제 메일만 확인됨)',
-    'many_valid': '기간을 덮는 검증된 여행이 여러 개',
-    'trip_unverified': '기간을 덮는 여행의 일정 원본이 확인되지 않음',
-    'partial': '여행과 일부만 겹침(박이 겹침)',
-    'no_trip': '기간을 덮는 여행이 없음',
+    'tie': '같은 조건의 여행이 둘 이상이고 수입-비용 차액도 같음',
+    'trip_unverified': '기간과 겹치는 여행의 일정 원본이 확인되지 않음',
+    'no_trip': '기간과 겹치는 여행이 없음',
 }
 NOTICES = {
     'saved': '여행 배정을 저장했습니다. 카드 결제 원본은 다시 분류했습니다.',
@@ -155,12 +153,12 @@ def _stay(periods):
     return min(starts), max(ends)
 
 
-def _period_trip(candidates):
-    """The one verified trip that covers a confirmed stay, or None. An unverified covering trip does not count."""
-    covering = [c for c in candidates if c['relation'] == 'covers' and c['valid']]
-    if len(covering) != 1:
-        return None
-    return {'id': covering[0]['tab_id'], 'name': covering[0]['name'], 'source': 'period'}
+def _period_trip(candidates, stay, *, service=False):
+    """The verified trip a stay belongs to (`stay_trip`), or None. An unverified trip does not count."""
+    from .card_flow import _google_nets
+    chosen = stay and stay_trip([c for c in candidates if c['valid']], stay[0], stay[1], service=service,
+                                nets=_google_nets())
+    return {'id': chosen['tab_id'], 'name': chosen['name'], 'source': 'period'} if chosen else None
 
 
 def _relation(stay, trip, *, service=False):
@@ -293,15 +291,10 @@ def _unassigned_reason(entry, revoked):
         return 'revoked'
     if not entry['stay']:
         return 'no_stay'
-    if not codes & CONFIRMED_STATUSES:
-        return 'not_confirmed'
-    covering = [c for c in entry['candidates'] if c['relation'] == 'covers']
-    if sum(1 for c in covering if c['valid']) > 1:
-        return 'many_valid'
-    if covering:
-        return 'trip_unverified'
+    if any(c['valid'] for c in entry['candidates']):
+        return 'tie'
     if entry['candidates']:
-        return 'partial'
+        return 'trip_unverified'
     return 'no_trip'
 
 
@@ -497,11 +490,11 @@ def _build_index(board, sources):
         assigned = portal + ledger + ([{'id': rule['trip_tab_id'], 'name': rule_view['trip_name'], 'source': 'rule'}]
                                       if rule_view else [])
         revoked = states.get(key, {}).get('status') == 'revoked'
-        # 예약이 확정됐고 이용기간을 덮는 검증된 여행이 하나뿐이면 기간으로 배정한다. 해제한 예약은 제외한다.
+        # 취소되지 않은 예약은 이용기간에 맞는 검증된 여행으로 배정한다. 해제한 예약은 제외한다.
         period_trip = None
         codes = set(row['statuses'])
-        if not assigned and not revoked and stay and 'cancelled' not in codes and codes & CONFIRMED_STATUSES:
-            period_trip = _period_trip(candidates)
+        if not assigned and not revoked and stay and 'cancelled' not in codes:
+            period_trip = _period_trip(candidates, stay, service=service)
             if period_trip:
                 assigned = [period_trip]
         entries.append({'period_trip': period_trip, 'revoked': revoked,
@@ -681,22 +674,14 @@ def _summary(entry, rule_active):
         return f"「{trip['trip_name']}」에 배정되어 있지만 그 여행의 일정 원본을 다시 확인해야 적용됩니다."
     period = [t for t in entry['trips'] if t.get('source') == 'period']
     if period:
-        return (f"예약 이용기간이 여행 「{period[0]['name']}」 기간 안에 있고 예약이 확정되어 기간으로 배정되어 있습니다. "
-                "다른 여행이라면 아래에서 바꾸세요.")
+        return f"예약 이용기간에 맞춰 여행 「{period[0]['name']}」에 배정되어 있습니다."
     if not entry['stay']:
-        return '이용기간이 없어 여행을 판단할 수 없습니다. 예약 메일을 먼저 확인해 주세요.'
-    covers = [c for c in entry['candidates'] if c['relation'] == 'covers']
-    valid_covers = [c for c in covers if c['valid']]
-    if valid_covers:
-        names = ', '.join(c['name'] for c in valid_covers)
-        return f"이용기간을 모두 덮는 검증된 여행이 있습니다: {names}. 확인 후 배정하세요."
-    if covers:
-        names = ', '.join(c['name'] for c in covers)
-        return f"이용기간을 덮는 여행({names})이 있지만 일정 원본이 확인되지 않아 배정할 수 없습니다. 아래 사유를 확인하세요."
+        return '이용기간이 없어 여행 미배정입니다.'
+    if any(c['valid'] for c in entry['candidates']):
+        return '같은 조건의 여행이 둘 이상이고 수입-비용 차액도 같아 여행 미배정입니다.'
     if entry['candidates']:
-        names = ', '.join(c['name'] for c in entry['candidates'])
-        return f"여행과 일부만 겹칩니다({names}). 직접 판단해 배정하세요."
-    return '이 이용기간과 겹치는 여행이 없습니다. 여행 일정이 아직 등록되지 않았을 수 있습니다.'
+        return '이용기간과 겹치는 여행의 일정 원본이 확인되지 않아 여행 미배정입니다.'
+    return '이용기간과 겹치는 여행이 없어 여행 미배정입니다.'
 
 
 def render_html(data, query, *, csrf=''):
