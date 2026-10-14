@@ -37,10 +37,9 @@ def klook_pickup_day(text):
 
 
 def agoda_cash_use(record):
-    """포털 상세 기록 한 건의 캐시 차감과 카드 결제. 카드 결제가 없으면 None (보관)."""
+    """포털 상세 기록 한 건의 캐시 차감. 카드 결제가 함께 있거나 캐시만 쓴 예약 모두 기장한다."""
     cash = [c for c in record.get("price_components") or [] if c.get("kind") == "agoda_cash"]
-    paid = [c for c in record.get("price_components") or [] if c.get("kind") == "paid_today"]
-    if not cash or not paid:
+    if not cash:
         return None
     currency = str(cash[0].get("currency") or "").upper()
     amount = abs(int(float(str(cash[0].get("decimal_text")).replace(",", ""))))
@@ -55,34 +54,44 @@ def agoda_cash_use(record):
     return {"cash_krw": cash_krw, "basis": basis, "card_last4": record.get("card_last4")}
 
 
-def cash_expense_rows(uses, *, cancelled_refs=(), card_linked_refs=(), trips=(), review_from=""):
+def agoda_mail_cash(text):
+    """아고다 예약 확정 메일의 캐시 차감 (엔화 또는 원화)와 체크인 날짜."""
+    match = re.search(r"AgodaCash\s*-\s*([¥₩])\s*([0-9][0-9,]*)", text)
+    check_in = re.search(r"체크인\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일", text)
+    if not match or not check_in:
+        return None
+    amount = int(match.group(2).replace(",", ""))
+    if match.group(1) == "¥":
+        cash_krw, basis = jpy_to_krw(amount), "간편환율 100엔=1,000원"
+    else:
+        cash_krw, basis = amount, "자료 원화 금액"
+    day = date(int(check_in.group(1)), int(check_in.group(2)), int(check_in.group(3))).isoformat()
+    ref = re.search(r"(?:Booking ID|예약 번호는?)\s*[:：]?\s*(\d{8,20})", text)
+    return {"cash_krw": cash_krw, "basis": basis, "check_in": day, "booking_ref": ref.group(1) if ref else ""}
+
+
+def cash_expense_rows(uses, *, cancelled_refs=(), trips=(), review_from=""):
     """기장할 비용 행 목록과 건너뛴 사유.
 
     uses: [{provider, booking_ref, item, cash_krw, basis, service_start, payment_date}]
     trips: [{tab_id, starts_on, ends_on}] (검증된 여행만)
-    card_linked_refs: 카드 결제가 같은 예약에 연결된 (provider, booking_ref) 목록
+    이용일을 덮는 여행이 하나뿐이면 그 여행, 없으면 미배정(unclassified)으로 기장한다.
     """
     rows, skipped = [], []
-    linked = {tuple(item) for item in card_linked_refs}
     cancelled = {tuple(item) for item in cancelled_refs}
     for use in uses:
         key = (use["provider"], use["booking_ref"])
         if key in cancelled:
             skipped.append((key, "취소·환불된 예약"))
             continue
-        if key not in linked:
-            skipped.append((key, "같은 예약의 카드 결제가 없어 보관"))
-            continue
         day = ledger_date_for_booking(use.get("service_start"), use.get("payment_date"))
         if not day or (review_from and day < review_from):
             skipped.append((key, "기장 기간 밖이거나 날짜 없음"))
             continue
-        trip = next((t for t in trips if t["starts_on"] <= day <= t["ends_on"]), None)
-        if trip is None:
-            skipped.append((key, "이용일에 맞는 검증된 여행이 없음"))
-            continue
+        covering = [t for t in trips if t["starts_on"] <= day <= t["ends_on"]]
+        tab = covering[0]["tab_id"] if len(covering) == 1 else "unclassified"
         rows.append({
-            "display_tab_id": trip["tab_id"],
+            "display_tab_id": tab,
             "occurred_on": day,
             "amount_krw": int(use["cash_krw"]),
             "item": use["item"],
@@ -90,6 +99,6 @@ def cash_expense_rows(uses, *, cancelled_refs=(), card_linked_refs=(), trips=(),
             "evidence_type": EVIDENCE_LABEL[use["provider"]],
             "reservation_no": use["booking_ref"],
             "service_period": day,
-            "memo": f"{use['basis']}; 카드 결제분은 같은 예약번호의 카드 거래",
+            "memo": use["basis"],
         })
     return rows, skipped
