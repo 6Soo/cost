@@ -21,3 +21,12 @@ def test_lookup_needs_the_same_amount_within_the_window():
     assert len(be.find(index, 149927, '2026-09-23')[0]) == 1
     assert be.find(index, 149927, '2027-09-23')[0] == []
     assert be.find(index, 1234, '2026-09-23')[0] == []
+
+
+def test_description_keeps_only_the_decision_lines():
+    entry = be.summarize('[예약 확정 안내] 토요코인 대구 동성로 예약이 확정되었습니다-NoReply', date(2026, 9, 21), MAIL)
+    lines = be.describe(entry)
+    assert lines[0] == '토요코인 대구 동성로 · 확정'
+    assert '예약번호 1400829364445735' in lines
+    assert '이용 2026-11-05 ~ 2026-11-06' in lines
+    assert not any('원화 금액' in line for line in lines)

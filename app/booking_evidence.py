@@ -84,13 +84,23 @@ def find(index, amount_krw, occurred_on):
 
 
 def describe(entry):
-    """화면에 보여 줄 줄 목록. 예약번호, 기간, 금액 표기, 결제·취소·환불 문장을 그대로 옮긴다."""
-    lines = [f"메일: {entry['subject']} (수신 {entry['sent'] or '날짜 미확인'})"]
+    """판단에 필요한 줄만: 예약명·상태, 예약번호, 이용기간, 결제·환불 상태."""
+    subject = entry['subject']
+    status = '취소' if '취소' in subject else '확정' if '확정' in subject else ''
+    name = re.split(r'\s*예약|\s*-NoReply', re.sub(r'^\[[^\]]*\]\s*', '', subject))[0].strip() or subject
+    lines = [f"{name} · {status}" if status else name]
     if entry['refs']:
-        lines.append('예약번호: ' + ', '.join(entry['refs']))
+        lines.append('예약번호 ' + ', '.join(entry['refs']))
     if entry['starts_on'] or entry['ends_on']:
-        lines.append(f"기간: {entry['starts_on'] or '?'} ~ {entry['ends_on'] or '?'}")
-    if entry['amounts']:
-        lines.append('메일의 원화 금액: ' + ', '.join(f'{n:,}원' for n in entry['amounts']))
-    lines.extend(entry['notes'])
+        lines.append(f"이용 {entry['starts_on'] or '?'} ~ {entry['ends_on'] or '?'}")
+    notes = ' '.join(entry['notes'])
+    state = []
+    if '결제 완료' in notes or '온라인 사전 결제' in notes:
+        state.append('결제 완료')
+    if '돌려드립니다' in notes:
+        state.append('체크아웃 후 돌려주는 보증금')
+    elif '환불' in notes:
+        state.append('환불 안내')
+    if state:
+        lines.append(' · '.join(state))
     return lines

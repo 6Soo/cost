@@ -1772,9 +1772,15 @@ def _evidence_block(index, amount, day):
     if not found:
         return (f"<p class='cleanup-evidence-none'>같은 금액 {abs(int(amount or 0)):,}원의 예약 메일이 없습니다."
                 f" 메일 {searched:,}통을 확인했습니다.</p>")
+    latest = {}
+    for entry in found:
+        key = tuple(entry['refs']) or (entry['subject'],)
+        if key not in latest or entry['sent'] > latest[key]['sent']:
+            latest[key] = entry
+    entries = sorted(latest.values(), key=lambda e: e['sent'], reverse=True)
     items = ''.join('<li>' + '<br>'.join(esc(line) for line in booking_evidence.describe(entry)) + '</li>'
-                    for entry in found)
-    return (f"<details class='cleanup-evidence' open><summary>예약 자료 {len(found)}건 · 금액 일치</summary>"
+                    for entry in entries)
+    return (f"<details class='cleanup-evidence' open><summary>같은 금액의 예약 {len(entries)}건</summary>"
             f"<ul>{items}</ul></details>")
 
 
