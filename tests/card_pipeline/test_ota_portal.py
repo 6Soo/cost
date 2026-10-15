@@ -109,7 +109,7 @@ def test_mail_and_portal_disagreement_blocks_booking_and_old_trip_inference(tmp_
     assert labels==['예약 근거 충돌 · 연결 확인 필요']
 
 
-@pytest.mark.parametrize('trip_end,expected_trip',[('2026-08-06',True),('2026-08-02',False)])
+@pytest.mark.parametrize('trip_end,expected_trip',[('2026-08-06',True),('2026-08-02',True),('2026-08-01',False)])
 def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monkeypatch,trip_end,expected_trip):
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow

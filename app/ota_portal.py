@@ -259,12 +259,14 @@ def portal_matches(databases, transactions, *, analysis=None):
                 candidates[row['transaction_id']].append((row,fact))
                 rows_by_booking[booking].add(row['transaction_id'])
     matches=[]
+    matched=set()
     for options in candidates.values():
         if len(options)!=1:
             continue
         row,fact=options[0]
         if len(rows_by_booking[fact['booking_ref']])!=1:
             continue
+        matched.add(row['transaction_id'])
         matches.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
             merchant=row['merchant_normalized'],card_kind=row['card_kind'],direction='purchase',
             provider='agoda',booking_ref=fact['booking_ref'],item='숙박비',period=fact['period'],
@@ -275,7 +277,46 @@ def portal_matches(databases, transactions, *, analysis=None):
                    '가 카드 원행과 일대일로 일치' if fact.get('payment_format')=='legacy_confirmed_paid'
                    else '아고다 전수조사 페이지의 완료 예약·실제 결제액·통화·카드 끝자리'
                         '와 카드 원행이 일대일로 일치')))
+    matches+=_identical_group_matches(candidates, rows_by_booking, matched)
     return matches
+
+
+def _identical_group_matches(candidates, rows_by_booking, matched):
+    """Identical payments and identical bookings (same card, amount, currency and stay) cannot be told apart by amount,
+    but they all land on the same trip. When a group has as many unmatched card rows as bookings, pair them one to one."""
+    groups=defaultdict(lambda: {'rows':{}, 'bookings':set()})
+    row_keys={}
+    for tid,options in candidates.items():
+        if tid in matched:
+            continue
+        keys={(fact['card_last4'],fact['currency'],str(fact['amount']),json.dumps(fact['period'],sort_keys=True,default=str))
+              for _,fact in options}
+        if len(keys)!=1:
+            continue
+        key=next(iter(keys))
+        row_keys[tid]=key
+        groups[key]['rows'][tid]=options[0][0]
+    out=[]
+    for key,group in groups.items():
+        bookings={fact['booking_ref'] for tid in group['rows'] for _,fact in candidates[tid]}
+        if len(bookings)!=len(group['rows']):
+            continue
+        if any(set(rows_by_booking[b])-set(group['rows']) or b in {f['booking_ref'] for tid in candidates if tid in matched for _,f in candidates[tid]} for b in bookings):
+            continue
+        fact_of={}
+        for tid in group['rows']:
+            for _,fact in candidates[tid]:
+                fact_of.setdefault(fact['booking_ref'],fact)
+        for tid,booking in zip(sorted(group['rows']),sorted(bookings)):
+            row=group['rows'][tid]; fact=fact_of[booking]
+            out.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
+                merchant=row['merchant_normalized'],card_kind=row['card_kind'],direction='purchase',
+                provider='agoda',booking_ref=booking,item='숙박비',period=fact['period'],
+                source_sha256=fact['source_sha256'],evidence_kind='portal_payment_claim',
+                reservation_status='observed',strict_service_period=True,
+                payment_format=fact.get('payment_format','canonical_paid'),
+                basis='아고다 전수조사 페이지의 같은 카드·금액·기간 예약과 카드 원행이 같은 수만큼 있어 한 쌍씩 대응'))
+    return out
 
 
 def portal_inventory(databases):

@@ -2,9 +2,10 @@
 from app.reconciliation import card_use_date, covers_stay, overlaps_stay, stay_trip
 
 
-def test_a_lodging_is_covered_only_when_it_checks_out_by_the_trip_end():
+def test_a_lodging_is_covered_when_its_nights_are_inside_the_trip_including_the_last_night():
     assert covers_stay('2026-09-24', '2026-09-27', '2026-09-24', '2026-09-27')
-    assert not covers_stay('2026-09-24', '2026-09-27', '2026-09-24', '2026-09-28')
+    assert covers_stay('2026-09-24', '2026-09-27', '2026-09-24', '2026-09-28')
+    assert not covers_stay('2026-09-24', '2026-09-27', '2026-09-24', '2026-09-29')
 
 
 def test_a_flight_counts_its_arrival_day():
@@ -12,9 +13,13 @@ def test_a_flight_counts_its_arrival_day():
     assert not covers_stay('2026-08-01', '2026-08-05', '2026-08-01', '2026-08-06', service=True)
 
 
-def test_a_checkout_on_the_trip_start_or_a_check_in_on_the_trip_end_is_not_an_overlap():
+def test_a_checkout_on_the_trip_start_is_not_an_overlap_but_the_last_night_of_the_trip_is():
     assert not overlaps_stay('2026-09-24', '2026-09-27', '2026-09-20', '2026-09-24')
-    assert not overlaps_stay('2026-09-24', '2026-09-27', '2026-09-27', '2026-09-29')
+    assert overlaps_stay('2026-09-24', '2026-09-27', '2026-09-27', '2026-09-29')
+
+
+def test_the_last_night_goes_to_the_trip_that_starts_that_day():
+    assert not overlaps_stay('2026-09-24', '2026-09-27', '2026-09-27', '2026-09-29', handover={'2026-09-27'})
 
 
 def test_a_stay_that_runs_past_the_trip_end_partly_overlaps_it():

@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlencode
 
 from app import ota_payments, ota_portal, ota_sources
-from app.reconciliation import covers_stay, overlaps_stay, stay_trip
+from app.reconciliation import covers_stay, handover_days, overlaps_stay, stay_trip
 from . import ui_icons
 from .card_catalog import CATALOG_SCRIPT, CATALOG_STYLE
 
@@ -161,14 +161,14 @@ def _period_trip(candidates, stay, *, service=False):
     return {'id': chosen['tab_id'], 'name': chosen['name'], 'source': 'period'} if chosen else None
 
 
-def _relation(stay, trip, *, service=False):
+def _relation(stay, trip, *, service=False, handover=()):
     """How a booking's stay sits on a trip: covered, partly overlapping, or apart. A flight counts both days."""
     if not stay or not trip['starts_on'] or not trip['ends_on']:
         return 'none'
     start, end = stay
-    if covers_stay(trip['starts_on'], trip['ends_on'], start, end, service=service):
+    if covers_stay(trip['starts_on'], trip['ends_on'], start, end, service=service, handover=handover):
         return 'covers'
-    if overlaps_stay(trip['starts_on'], trip['ends_on'], start, end, service=service):
+    if overlaps_stay(trip['starts_on'], trip['ends_on'], start, end, service=service, handover=handover):
         return 'overlaps'
     return 'none'
 
@@ -473,8 +473,9 @@ def _build_index(board, sources):
             nights = None
         candidates = []
         service = any('항공' in label for label in row['labels'])
+        handover = handover_days(trips)
         for trip in trips:
-            relation = _relation(stay, trip, service=service)
+            relation = _relation(stay, trip, service=service, handover=handover)
             if relation != 'none':
                 candidates.append({**trip, 'relation': relation})
         candidates.sort(key=lambda c: (c['relation'] != 'covers', c['starts_on'], c['tab_id']))

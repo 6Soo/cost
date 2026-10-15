@@ -45,30 +45,57 @@ def card_use_date(transaction):
     return transaction.get("approval_date") or ""
 
 
-def covers_stay(trip_start, trip_end, check_in, check_out, *, service=False):
+def handover_days(trips):
+    """Days on which one trip ends and another trip starts. The night of such a day belongs to the trip that starts."""
+    return {t['ends_on'] for t in trips if t.get('ends_on') and any(
+        u is not t and u.get('starts_on') == t['ends_on'] for u in trips)}
+
+
+def _nights(trip_start, trip_end, check_in, check_out, handover=()):
+    """The lodging nights (check-in up to, not including, check-out) that belong to the trip, or None.
+
+    The trip's last day owns its night, unless another trip starts that day (handover).
+    """
+    last = trip_end
+    if trip_end in handover:
+        last = (date.fromisoformat(trip_end) - timedelta(days=1)).isoformat()
+    first = max(check_in, trip_start)
+    end = min((date.fromisoformat(check_out) - timedelta(days=1)).isoformat(), last)
+    return (first, end) if first <= end else None
+
+
+def covers_stay(trip_start, trip_end, check_in, check_out, *, service=False, handover=()):
     """Whether a booking's whole stay is inside the trip. Dates are ISO strings.
 
-    A trip's last day is its check-out day: a lodging's nights run from check-in up to but not including check-out,
-    and the trip ends on the check-out day. A flight's arrival day is a service day, so it must fall inside the trip.
+    A lodging's nights run from check-in up to but not including check-out; the trip's last day owns its night
+    unless another trip starts that day. A flight's arrival day is a service day, so it must fall inside the trip.
     """
-    return bool(trip_start and trip_end and trip_start <= check_in and check_out <= trip_end)
+    if not (trip_start and trip_end):
+        return False
+    if service:
+        return trip_start <= check_in and check_out <= trip_end
+    nights = _nights(trip_start, trip_end, check_in, check_out, handover)
+    return nights is not None and nights == (check_in, (date.fromisoformat(check_out) - timedelta(days=1)).isoformat())
 
 
-def overlaps_stay(trip_start, trip_end, check_in, check_out, *, service=False):
-    """Whether any service day of a booking falls inside the trip. A lodging's check-out day is not a night of the stay."""
+def overlaps_stay(trip_start, trip_end, check_in, check_out, *, service=False, handover=()):
+    """Whether any service day of a booking falls inside the trip (a lodging counts its nights)."""
     if not (trip_start and trip_end):
         return False
     if service:
         return max(check_in, trip_start) <= min(check_out, trip_end)
-    return max(check_in, trip_start) < min(check_out, trip_end)
+    return _nights(trip_start, trip_end, check_in, check_out, handover) is not None
 
 
-def shared_days(trip_start, trip_end, check_in, check_out, *, service=False):
+def shared_days(trip_start, trip_end, check_in, check_out, *, service=False, handover=()):
     """How many nights (or, for a flight, service days) a booking shares with a trip."""
-    if not overlaps_stay(trip_start, trip_end, check_in, check_out, service=service):
+    if not overlaps_stay(trip_start, trip_end, check_in, check_out, service=service, handover=handover):
         return 0
-    start, end = max(check_in, trip_start), min(check_out, trip_end)
-    return (date.fromisoformat(end) - date.fromisoformat(start)).days + (1 if service else 0)
+    if service:
+        start, end = max(check_in, trip_start), min(check_out, trip_end)
+        return (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+    first, last = _nights(trip_start, trip_end, check_in, check_out, handover)
+    return (date.fromisoformat(last) - date.fromisoformat(first)).days + 1
 
 
 def prep_trip(trips, check_in, check_out):
@@ -89,12 +116,15 @@ def stay_trip(trips, check_in, check_out, *, service=False, nets=None):
     shares no night with any trip is the preparation stay of the nearest following trip (`prep_trip`).
     """
     nets = nets or {}
-    covering = [t for t in trips if covers_stay(t['starts_on'], t['ends_on'], check_in, check_out, service=service)]
+    handover = handover_days(trips)
+    covering = [t for t in trips if covers_stay(t['starts_on'], t['ends_on'], check_in, check_out, service=service,
+                                                handover=handover)]
     pool = covering or [t for t in trips if overlaps_stay(t['starts_on'], t['ends_on'], check_in, check_out,
-                                                          service=service)]
+                                                          service=service, handover=handover)]
     if not pool:
         return None if service else prep_trip(trips, check_in, check_out)
-    rank = lambda t: (0 if covering else shared_days(t['starts_on'], t['ends_on'], check_in, check_out, service=service),
+    rank = lambda t: (0 if covering else shared_days(t['starts_on'], t['ends_on'], check_in, check_out, service=service,
+                                                       handover=handover),
                       nets.get(t['tab_id'], float('-inf')))
     pool.sort(key=rank, reverse=True)
     if len(pool) > 1 and rank(pool[0]) == rank(pool[1]):

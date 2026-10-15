@@ -281,8 +281,9 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
    against the line that explains it. The first line is what the row is, the
    second is who it was with, and both are the row's own values: a merchant equal
    to the content is not printed twice. */
-td.c-party{white-space:normal;line-height:1.35}
-.party-line{display:flex;align-items:center;gap:9px;min-width:0}
+td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
+.party-line{display:flex;align-items:center;gap:6px;min-width:0}
+td.c-stay{white-space:nowrap;font-size:12.5px;color:var(--mut)}
 .party-copy{display:block;min-width:0;flex:1}
 .party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
 .category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
@@ -1618,9 +1619,7 @@ def _row_party_sub(row) -> str:
     parts = []
     # A lodging or flight row names its stay or its passengers instead of the number;
     # the number itself stays in the row, the search and the source link.
-    if item == "\uC219\uBC15\uBE44":
-        parts.append(_stay_text(row))
-    elif item == "\uD56D\uACF5\uB8CC" and reservation:
+    if item == "\uD56D\uACF5\uB8CC" and reservation:
         parts.append(_passenger_text(row))
     elif reservation and reservation != main:
         parts.append("\uC608\uC57D\uBC88\uD638 " + reservation)
@@ -1700,20 +1699,6 @@ def _row_item(row) -> str:
     return "-"
 
 
-def _row_tag_class(row) -> str:
-    """The tag's modifier for a row the store marks as waiting or cancelled.
-
-    Both states are the row's own: no travel assigned, or a cancellation in the
-    source. Nothing here concludes work that has not happened.
-    """
-    meter = _row_kind_meter(row)
-    if meter == "대기":
-        return " wait"
-    if meter == "취소":
-        return " cancel"
-    return ""
-
-
 def _party_cell(row) -> str:
     """거래처·내용: the counterparty and what the transaction was, in one cell.
 
@@ -1755,7 +1740,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
     for row in rows:
         rid = row["row_id"]
         amount = board._shown_amount(row)
-        meter = _row_kind_meter(row)
+        item = row.get('item') or ''
         # A keyboard reader reaches a row the way a pointer reader does, so the row
         # itself is focusable and Enter or Space opens it. `tabindex` is what
         # makes that possible; the click path is unchanged underneath.
@@ -1767,8 +1752,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
             f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
-            f"<td class='c-kind'><span class='tag{' in' if meter == '수입' else ''}"
-            f"{_row_tag_class(row)}'>{meter}</span></td>"
+            f"<td class='c-stay'>{board.esc(_stay_text(row)) if item == '숙박비' else ''}</td>"
             + f"<td class='num tnum c-amt {_row_amount_class(row)}'>{_money(amount)}</td>"
             f"</tr>")
         if unclassified:
@@ -1783,7 +1767,7 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
 def _column_head_row() -> str:
     """Column titles repeated above the expense rows (display only)."""
     return ("<tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
-            "<th scope='col'>분류</th><th scope='col'>구분</th>"
+            "<th scope='col'>분류</th><th scope='col'>이용일</th>"
             "<th scope='col' class='num'>금액</th></tr>")
 
 
@@ -1796,10 +1780,10 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
         "<colgroup><col style='width:108px'><col><col style='width:104px'>"
-        "<col style='width:62px'>"
+        "<col style='width:150px'>"
         "<col style='width:126px'></colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
-        "<th scope='col'>분류</th><th scope='col'>구분</th>"
+        "<th scope='col'>분류</th><th scope='col'>이용일</th>"
         "<th scope='col' class='num'>금액</th></tr></thead>")
     income_total = sum(board._shown_amount(r) for r in incomes)
     expense_total = sum(board._shown_amount(r) for r in expenses)

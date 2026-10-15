@@ -8,7 +8,7 @@ from urllib.parse import unquote
 
 from app.db import decided_sql
 from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
-                                   overlaps_stay, stay_trip)
+                                   handover_days, overlaps_stay, stay_trip)
 
 from . import read_scope
 
@@ -598,8 +598,10 @@ class CardFlow:
         # 이용기간에 맞는 검증된 여행이다. 저장된 여행 이름이 그 기간과 겹치는 여행이면 그 여행을 쓴다.
         verified = [t for t in self.board.list_trips() if self.trip_valid(t['tab_id'])]
         service = period.get('service', False)
+        handover = handover_days(verified)
         named = [t for t in verified if t['display_key']==period.get('target_code')
-                 and overlaps_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'], service=service)]
+                 and overlaps_stay(t['starts_on'], t['ends_on'], period['starts_on'], period['ends_on'], service=service,
+                                   handover=handover)]
         if len(named)==1:
             return named[0]['tab_id']
         chosen = stay_trip(verified, period['starts_on'], period['ends_on'], service=service, nets=_google_nets())
@@ -704,6 +706,7 @@ class CardFlow:
                 ota_rules += owned
             # 확정 전이라도 예약 이용기간과 하루도 겹치지 않는 여행으로는 저장된 추론을 배정하지 않는다. 사용자 예외는 그대로 둔다.
             trips_by_id = {trip['tab_id']: trip for trip in self.board.list_trips()}
+            handover = handover_days(list(trips_by_id.values()))
             for rule in self.pipeline.list_rules():
                 source = rule.get('optional', {}).get('source_hash')
                 inference = rule.get('optional', {}).get('inferred_assignment') or {}
@@ -712,7 +715,7 @@ class CardFlow:
                 if (source in sources and period and trip and trip['starts_on'] and trip['ends_on']
                         and rule.get('origin') != OWNER_COUNTRY_EXCEPTION_ORIGIN
                         and not overlaps_stay(trip['starts_on'], trip['ends_on'], period['starts_on'], period['ends_on'],
-                                              service=fact.get('item') == '항공료')):
+                                              service=fact.get('item') == '항공료', handover=handover)):
                     blocked_inference_sources.add(source)
             # 이용기간으로 정해진 예약 배정은 같은 원본에 다른 제안이 없을 때만 적용한다.
             taken = {rule['optional'].get('source_hash') for rule in ota_rules}

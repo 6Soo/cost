@@ -17,7 +17,8 @@ def test_expense_headers_and_move_form_survive_memo_column_removal(monkeypatch):
     before = deepcopy(row)
     body = design._tables_html([], [row], selected='', unclassified=True)
     assert '<tbody class=\'colhead\'><tr><th scope=\'col\'>날짜</th>' in body
-    assert body.count("<th scope='col'>구분</th>") == 2
+    assert body.count("<th scope='col'>구분</th>") == 0
+    assert body.count("<th scope='col'>이용일</th>") == 2
     assert "c-note" not in body and '>메모</th>' not in body
     assert "class='move-row' data-move-for='waiting'" in body
     assert "action='/api/rows/waiting/save'" in body
