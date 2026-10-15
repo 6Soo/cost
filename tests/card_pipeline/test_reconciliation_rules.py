@@ -46,3 +46,9 @@ def test_a_stay_goes_to_the_covering_trip_then_the_most_shared_nights_then_the_l
 
 def test_the_card_row_is_placed_by_its_use_date_when_it_has_one():
     assert card_use_date({'approval_date': '2026-05-07', 'posting_date': '2026-05-09'}) == '2026-05-07'
+
+
+def test_a_night_on_the_day_before_the_next_trip_starts_is_that_trips_preparation_night():
+    trips = [_trip('0408', '2026-04-08', '2026-04-12'), _trip('0413', '2026-04-13', '2026-04-16')]
+    assert stay_trip(trips, '2026-04-12', '2026-04-13')['tab_id'] == '0413'
+    assert stay_trip(trips, '2026-04-11', '2026-04-12')['tab_id'] == '0408'

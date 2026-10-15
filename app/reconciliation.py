@@ -46,15 +46,20 @@ def card_use_date(transaction):
 
 
 def handover_days(trips):
-    """Days on which one trip ends and another trip starts. The night of such a day belongs to the trip that starts."""
+    """Last days of a trip whose night belongs to the next trip: another trip starts that day (handover) or the
+    day after (the preparation night of the next trip, `prep_trip`). Such a night is not a night of the ending trip."""
     return {t['ends_on'] for t in trips if t.get('ends_on') and any(
-        u is not t and u.get('starts_on') == t['ends_on'] for u in trips)}
+        u is not t and u.get('starts_on') in (t['ends_on'], _next_day(t['ends_on'])) for u in trips)}
+
+
+def _next_day(value):
+    return (date.fromisoformat(value) + timedelta(days=1)).isoformat()
 
 
 def _nights(trip_start, trip_end, check_in, check_out, handover=()):
     """The lodging nights (check-in up to, not including, check-out) that belong to the trip, or None.
 
-    The trip's last day owns its night, unless another trip starts that day (handover).
+    The trip's last day owns its night, unless another trip starts that day or the day after (handover).
     """
     last = trip_end
     if trip_end in handover:
