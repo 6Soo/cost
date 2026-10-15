@@ -69,3 +69,36 @@ def test_a_decision_books_only_the_decided_card_row(tmp_path, monkeypatch):
         assert board.conn.execute("SELECT COUNT(*) FROM board_rows WHERE row_kind='expense'").fetchone()[0] == 1
     finally:
         board.close()
+
+
+def test_a_classified_row_waiting_for_a_trip_is_listed_and_one_trip_choice_records_it(tmp_path, monkeypatch):
+    from app.db import StoreError
+    from webapp.card_flow import CardFlow
+    from webapp.tests.test_card_flow import CARD
+    import pytest
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'waiting.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        flow = CardFlow(board)
+        trip = board.create_trip(starts_on='2026-09-28', ends_on='2026-10-05', destination='합성', client_request_id='waiting-trip')
+        monkeypatch.setattr(flow, 'trip_valid', lambda target: target == trip['tab_id'])
+        batch = flow.pipeline.receive(CARD, 'synthetic.csv')['batch_id']
+        flow.pipeline.classify_batch(batch)
+        row = flow.pipeline.get_batch(batch)['rows'][0]
+        board.conn.execute("UPDATE transactions SET classification_state='classified', item='소모품' WHERE transaction_id=?",
+                           (row['transaction_id'],))
+        board.conn.commit()
+        assert f"data-transaction='{row['transaction_id']}'" in render_expense_cleanup(board, 'token')
+        with pytest.raises(StoreError) as blocked:
+            flow.record_decision(batch, row['transaction_id'])
+        assert blocked.value.code == 'NOT_RECORDED' and '여행' in str(blocked.value)
+        flow.pipeline.save_decision(row['transaction_id'], board.conn.execute(
+            "SELECT revision FROM transactions WHERE transaction_id=?", (row['transaction_id'],)).fetchone()[0],
+            item='소모품', description='', display_tab_id=trip['tab_id'], trip_id=trip['tab_id'],
+            trip_validator=flow.trip_valid, tab_validator=flow.tab_valid, request_id='waiting-choice')
+        assert flow.record_decision(batch, row['transaction_id']) == 1
+        assert f"data-transaction='{row['transaction_id']}'" not in render_expense_cleanup(board, 'token')
+    finally:
+        ledger_board.bind_store(None)
+        board.close()

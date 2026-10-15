@@ -58,7 +58,7 @@ def test_holds_and_lost_authority_prevent_recording(flow):
     f.board.conn.commit()
     assert f.auto_record(batch)['auto_recorded'] == 0
     action = next(r['next_action'] for r in f.state(batch)['preview']['rows'] if r['transaction_id']==ready['transaction_id'])
-    assert action['label'] == '보류 사유 확인' and '환불' in action['reason']
+    assert action['label'] == '사유 확인' and action['status'] == '확인 필요' and '환불' in action['reason']
     f.board.conn.execute('DELETE FROM transaction_review_holds');f.board.conn.commit()
     with patch.object(CardFlow,'trip_valid',return_value=False):
         assert f.auto_record(batch)['auto_recorded'] == 0

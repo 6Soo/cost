@@ -114,6 +114,9 @@ def authenticated_headers(message, domains):
     canonical = next((base for base in domains if domain == base or domain.endswith('.'+base)), None)
     if canonical is None:
         return None
+    # 소유자가 직접 수집한 메일은 발신 인증 헤더가 없어도 같은 발신 도메인이면 사용한다(소유자 지시 2026-10-15).
+    if message.get('owner_collected') is True:
+        return headers, canonical
     signatures = re.findall(r'dkim=pass\s+([^;]+)', headers.get('authentication-results',''), re.I)
     aligned = any(any(signed == canonical or signed.endswith('.'+canonical)
                       for signed in re.findall(r'header\.(?:i=@|d=)([a-z0-9.-]+)(?=\s|$)', part, re.I))

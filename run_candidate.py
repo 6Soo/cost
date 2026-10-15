@@ -358,6 +358,9 @@ def main(argv=None) -> int:
         return 2
     from webapp import ota_catalog
     threading.Thread(target=ota_catalog.prewarm, args=(server.card_store,), name='ota-prewarm', daemon=True).start()
+    from webapp import card_flow
+    threading.Thread(target=card_flow.prewarm_booking_evidence, args=(server.card_store,),
+                     name='booking-evidence-prewarm', daemon=True).start()
     from webapp import google_ledger_page
     if google_ledger_page.enabled():
         google_ledger_page.start_trip_import(server.card_store)

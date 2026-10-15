@@ -721,6 +721,8 @@ class CardFlow:
                       if rule.get('optional', {}).get('inferred_assignment')
                       and not str(rule.get('origin') or '').startswith('history-recovery')}
             ota_rules += self._booking_period_assignments(report, sources, taken)
+        taken = {rule['optional'].get('source_hash') for rule in ota_rules}
+        ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
         if ota_rules or blocked_inference_sources or board_rules:
@@ -736,6 +738,51 @@ class CardFlow:
         return classify_batch(self.pipeline.store, batch_id, trip_resolver=self.retail_trip,
                               review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'),transaction_ids=selected,
                               residual_policy=True)
+
+    def _evidence_period_assignments(self, batch_id, sources, taken, selected):
+        """결제 완료 근거는 없고 예약 확정 메일만 있는 카드 거래. 금액이 같은 확정 예약이 하나뿐이고
+        이용기간을 덮는 검증된 여행이 하나면 그 여행에 숙박비로 배정한다. 결제·취소 메일과 다른 예약은 쓰지 않는다."""
+        from app import booking_evidence
+        from app.classify import PERIOD_OTA_ORIGIN
+        from app.normalize import normalize_merchant
+        from . import ota_catalog
+        rows = self.board.conn.execute(
+            "SELECT t.transaction_id, t.source_hash, t.amount_krw, COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant"
+            " FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id"
+            " WHERE b.batch_id=? AND t.classification_source='booking_evidence_needed' AND t.classification_state='needs_review'"
+            " AND t.transaction_direction='purchase' AND t.amount_krw > 0", (batch_id,)).fetchall()
+        rows = [row for row in rows if row[1] in sources and row[1] not in taken
+                and (selected is None or row[0] in selected) and _is_ota_row({'merchant': row[4] or ''})]
+        if not rows:
+            return []
+        index = booking_evidence.build_index(ota_catalog.configured_sources(self.board)['mail_directories'])
+        rules = []
+        for tid, source, amount, day, merchant in rows:
+            found, _ = booking_evidence.find(index, amount, day)
+            bookings = {}
+            for entry in found:
+                subject = entry['subject']
+                if '확정' not in subject or '취소' in subject or not entry['starts_on'] or not entry['ends_on'] or not entry['refs']:
+                    continue
+                bookings.setdefault(tuple(entry['refs']), set()).add((entry['starts_on'], entry['ends_on']))
+            if len(bookings) != 1:
+                continue
+            (refs, periods), = bookings.items()
+            if len(periods) != 1:
+                continue
+            starts_on, ends_on = next(iter(periods))
+            trip = self.booking_trip({}, {'starts_on': starts_on, 'ends_on': ends_on})
+            if not trip:
+                continue
+            rules.append({
+                'conditions': {'merchant_normalized': normalize_merchant(merchant or ''), 'transaction_direction': 'purchase'},
+                'optional': {'source_hash': source, 'inferred_assignment': {
+                    'trip_id': trip, 'confidence': '높음',
+                    'basis': f"같은 금액의 예약 확정 메일이 있고 이용기간 {starts_on}~{ends_on}이 여행 기간 안에 있음"}},
+                'effects': {'item': '숙박비'}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
+                'rule_id': f"auto-evidence-period-{refs[0]}-{source[:12]}",
+            })
+        return rules
 
     def _booking_trip_rules(self):
         """사용자가 예약마다 고른 여행 배정. 검토 자료가 설정되지 않았거나 읽을 수 없으면 비어 있다."""
@@ -1007,7 +1054,20 @@ class CardFlow:
                      'change_mode,actor,created_at,client_request_id) VALUES (?,?,?,?,?,?,?,?,?)',
                      (row_id,1,'{}',payload,'','exception','automatic' if entry.get('automatic_record') else 'owner',entry['now'],row_id))
 
-    def _already_projected(self, source, entry):
+    def projected_ids(self, rows):
+        """(거래 ID, 금액, 일자) 목록 가운데 이미 장부에 있는 거래 ID. 장부 색인은 한 번만 만든다."""
+        index = self._projection_index()
+        found = set()
+        for transaction_id, amount_krw, occurred_on in rows:
+            source = self.board.conn.execute(
+                'SELECT issuer,card_tail,approval_number,posting_date,foreign_amount,foreign_currency,transaction_kind,approval_date'
+                ' FROM transactions WHERE transaction_id=?', (transaction_id,)).fetchone()
+            if self._already_projected(source, {'transaction_id': transaction_id, 'amount_krw': amount_krw,
+                                                'occurred_on': occurred_on}, index):
+                found.add(transaction_id)
+        return found
+
+    def _already_projected(self, source, entry, index=None):
         """같은 거래를 두 번 기록하지 않으면서 실제 여러 건은 함께 남긴다.
 
         카드 행이 스스로 가진 거래 ID를 정본으로 삼는다. 같은 승인번호라도 거래 ID가 다른
@@ -1016,7 +1076,7 @@ class CardFlow:
         원문 해시만으로는 구분하지 않는다. 해시에 행 위치가 들어가지 않아 정당한 여러 건이
         같은 해시를 공유하기 때문이다.
         """
-        by_event, legacy = self._projection_index()
+        by_event, legacy = index or self._projection_index()
         if entry['transaction_id'] in by_event:
             return True
         if not source[2]:
@@ -1169,6 +1229,7 @@ class CardFlow:
         from app.ledger import recordable_rows
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=os.environ.get('WEBLEDGER_REVIEW_FROM'), entry_metadata=self.preview_metadata())
+        from app.db import StoreError
         with self.board._lock:
             holds = dict(self.automatic_holds(batch_id))
             probe = self.pipeline.preview(batch_id, **options, additional_holds=holds)
@@ -1177,7 +1238,10 @@ class CardFlow:
                     holds.setdefault(row['transaction_id'], {'kind': 'batch_scope', 'reason': '이번에 정한 거래만 기록합니다'})
             preview = self.pipeline.preview(batch_id, **options, additional_holds=holds)
             if not any(row['transaction_id'] == transaction_id for row in recordable_rows(preview['rows'])):
-                return 0
+                if any(row['transaction_id'] == transaction_id and row.get('already_booked') for row in preview['rows']):
+                    return 0
+                reason =(holds.get(transaction_id) or {}).get('reason') or '지금은 장부에 기록할 수 없습니다'
+                raise StoreError('NOT_RECORDED', reason)
             result = self.pipeline.commit(batch_id, preview['digest'],
                 'decision-record:' + transaction_id + ':' + preview['digest'],
                 projection=lambda entry: self.project(entry), additional_holds=holds, **options)
@@ -1687,13 +1751,13 @@ CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이
 
 
 def _cleanup_card_items(board):
-    """기록되지 않았고 사람이 확인해야 하는 카드 거래. 중복·충돌·제외 거래는 뺀다."""
+    """장부에 아직 없는 카드 거래. 분류만 끝나고 기록이 막힌 거래도 여기서 여행을 고르면 한 번에 배정·기록된다. 중복·충돌·제외 거래는 뺀다."""
     return board.conn.execute(
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
         " t.amount_krw, t.item, t.classification_source, t.revision,"
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
-        " WHERE t.classification_state='needs_review' AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')=''"
+        " WHERE t.classification_state IN ('needs_review','classified') AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')=''"
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
         " GROUP BY t.transaction_id ORDER BY 3 DESC LIMIT 300").fetchall()
@@ -1710,8 +1774,18 @@ def _evidence_block(index, amount, day):
                 f" 메일 {searched:,}통을 확인했습니다.</p>")
     items = ''.join('<li>' + '<br>'.join(esc(line) for line in booking_evidence.describe(entry)) + '</li>'
                     for entry in found)
-    return (f"<details class='cleanup-evidence'><summary>예약 자료 {len(found)}건 · 금액 일치</summary>"
+    return (f"<details class='cleanup-evidence' open><summary>예약 자료 {len(found)}건 · 금액 일치</summary>"
             f"<ul>{items}</ul></details>")
+
+
+def prewarm_booking_evidence(board):
+    """서버 시작 때 예약 메일 색인을 미리 만들어, 첫 지출 정리 화면이 수 초 기다리지 않게 한다."""
+    from app import booking_evidence
+    from . import ota_catalog
+    try:
+        booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
+    except Exception:
+        pass  # 화면에서 다시 만들며 그때 경고를 보여 준다.
 
 
 def render_expense_cleanup(board, csrf):
@@ -1733,8 +1807,11 @@ def render_expense_cleanup(board, csrf):
         from app import booking_evidence
         from . import ota_catalog
         evidence_index = booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
+    booked = flow.projected_ids([(row[0], row[4], row[2]) for row in rows_card])
     for tid, batch, day, merchant, amount, item, source, revision, held in rows_card:
-        reason = CARD_REASON.get(source, '확인이 필요한 거래입니다')
+        if tid in booked:
+            continue  # 이미 장부에 있는 거래라 정리할 것이 없다.
+        reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
         evidence = _evidence_block(evidence_index, amount, day) if source == 'booking_evidence_needed' else ''
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
