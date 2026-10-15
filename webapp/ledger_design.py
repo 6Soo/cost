@@ -1656,9 +1656,16 @@ def _stay_text(row) -> str:
         return unknown
     if not start <= end <= start + timedelta(days=_MAX_STAY_DAYS):
         return unknown
-    if start.year == end.year:
-        return f"{start:%m/%d} \uCCB4\uD06C\uC778 ~ {end:%m/%d} \uCCB4\uD06C\uC544\uC6C3"
-    return f"{start:%Y/%m/%d} \uCCB4\uD06C\uC778 ~ {end:%Y/%m/%d} \uCCB4\uD06C\uC544\uC6C3"
+    nights = (end - start).days
+    stay = f"{nights}박" if nights else "당일"
+    return f"{_day_label(start, start.year != end.year)} ~ {_day_label(end, start.year != end.year)} · {stay}"
+
+
+def _day_label(day, with_year: bool) -> str:
+    """A calendar day as read on a ledger line: 10월 14일(수), with the year when the stay crosses one."""
+    weekday = "월화수목금토일"[day.weekday()]
+    prefix = f"{day.year}년 " if with_year else ""
+    return f"{prefix}{day.month}월 {day.day}일({weekday})"
 
 
 def _flight_passengers() -> dict:

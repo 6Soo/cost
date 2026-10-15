@@ -30,37 +30,48 @@ def sub(values, passengers=None):
         design._load_flight_passengers = original
 
 
+def stay(values):
+    return design._stay_text(values)
+
+
+def lab(value):
+    import datetime
+    day = datetime.date.fromisoformat(value)
+    return f"{day.month}월 {day.day}일({'월화수목금토일'[day.weekday()]})"
+
+
 class TestLodgingText:
-    def test_a_confirmed_stay_shows_check_in_and_check_out_not_the_reservation(self):
-        text = sub(row('stay', '숙박비', reservation_no='664206015', service_period='2026-10-14~2026-10-16'))
-        assert text == '10/14 체크인 ~ 10/16 체크아웃'
+    def test_a_confirmed_stay_shows_its_dates_and_nights_not_the_reservation(self):
+        text = stay(row('stay', '숙박비', reservation_no='664206015', service_period='2026-10-14~2026-10-16'))
+        assert text == f"{lab('2026-10-14')} ~ {lab('2026-10-16')} · 2박"
         assert '664206015' not in text
 
     def test_a_stay_that_crosses_a_year_shows_the_years(self):
-        text = sub(row('stay', '숙박비', service_period='2026-12-30~2027-01-02'))
-        assert text == '2026/12/30 체크인 ~ 2027/01/02 체크아웃'
+        text = stay(row('stay', '숙박비', service_period='2026-12-30~2027-01-02'))
+        assert text == '2026년 12월 30일(수) ~ 2027년 1월 2일(토) · 3박'
 
     def test_a_stay_without_a_period_is_unknown_even_with_a_reservation_number(self):
-        text = sub(row('stay', '숙박비', reservation_no='664206015', service_period=''))
+        text = stay(row('stay', '숙박비', reservation_no='664206015', service_period=''))
         assert text == '이용일 확인 필요'
 
     def test_a_reversed_or_implausibly_long_period_is_unknown(self):
-        assert sub(row('a', '숙박비', service_period='2026-10-16~2026-10-14')) == '이용일 확인 필요'
-        assert sub(row('b', '숙박비', service_period='2026-01-01~2027-06-01')) == '이용일 확인 필요'
+        assert stay(row('a', '숙박비', service_period='2026-10-16~2026-10-14')) == '이용일 확인 필요'
+        assert stay(row('b', '숙박비', service_period='2026-01-01~2027-06-01')) == '이용일 확인 필요'
 
     def test_a_long_stay_with_a_clear_period_is_not_an_error(self):
-        assert sub(row('c', '숙박비', service_period='2026-09-01~2026-10-31')) == '09/01 체크인 ~ 10/31 체크아웃'
+        assert stay(row('c', '숙박비', service_period='2026-09-01~2026-10-31')) == f"{lab('2026-09-01')} ~ {lab('2026-10-31')} · 60박"
 
     def test_an_invalid_calendar_date_is_unknown(self):
-        assert sub(row('c', '숙박비', service_period='2026-02-30~2026-03-02')) == '이용일 확인 필요'
+        assert stay(row('c', '숙박비', service_period='2026-02-30~2026-03-02')) == '이용일 확인 필요'
 
     def test_the_card_date_is_never_used_as_the_stay(self):
-        text = sub(row('d', '숙박비', occurred_on='2026-10-20', service_period=''))
+        text = stay(row('d', '숙박비', occurred_on='2026-10-20', service_period=''))
         assert '10/20' not in text and text == '이용일 확인 필요'
 
     def test_a_typed_description_is_kept_verbatim_beside_the_stay(self):
-        text = sub(row('e', '숙박비', description='팀 숙소 2박', service_period='2026-10-14~2026-10-16'))
-        assert text == '10/14 체크인 ~ 10/16 체크아웃 · 팀 숙소 2박'
+        text = stay(row('e', '숙박비', description='팀 숙소 2박', service_period='2026-10-14~2026-10-16'))
+        assert text == f"{lab('2026-10-14')} ~ {lab('2026-10-16')} · 2박"
+        assert '팀 숙소 2박' in sub(row('e', '숙박비', description='팀 숙소 2박', service_period='2026-10-14~2026-10-16'))
 
 
 class TestFlightText:

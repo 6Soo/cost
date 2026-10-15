@@ -1493,6 +1493,24 @@ def income_new_page() -> str:
     return layout("수입 직접 입력", f"{top}<div class='wrap'>{body}</div>")
 
 
+MANUAL_EXPENSE_STYLE = """<style>
+.mx-card{max-width:680px;margin:24px auto 40px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:26px 28px 22px;box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.mx-card h2{margin:0 0 20px;font-size:20px;font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+.mx-sub{font-size:14px;font-weight:500;color:var(--mut);margin-left:6px}
+.mx-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 18px}
+.mx-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.mx-field.wide{grid-column:1 / -1}
+.mx-field label{font-size:13px;font-weight:600;color:var(--mut)}
+.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:#fff;font:inherit;font-size:14.5px;color:var(--ink)}
+.mx-field input:focus,.mx-field select:focus{outline:2px solid #3B82F6;outline-offset:-1px}
+.mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
+.mx-submit{height:42px;padding:0 24px;border:0;border-radius:9px;background:#1D4ED8;color:#fff;font:inherit;font-size:14.5px;font-weight:600;cursor:pointer}
+.mx-submit:hover{background:#1E40AF}
+@media (max-width:640px){.mx-grid{grid-template-columns:1fr}.mx-card{margin:12px;padding:20px}}
+</style>"""
+
+
 def expense_new_page() -> str:
     options = "".join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t['display_key'])}</option>" for t in live_trips()
@@ -1504,21 +1522,25 @@ def expense_new_page() -> str:
         "<a href='/export'>선택 탭 출력</a> · <a href='/trips'>여행 관리</a></p></div>"
     )
     body = (
-        "<div class='body'><h2>수기 지출 추가 (현금·계좌이체)</h2>"
-        f"<form method='post' action='/api/expenses/manual'>"
+        "<section class='mx-card'><h2>수기 지출 추가 <span class='mx-sub'>현금·계좌이체</span></h2>"
+        f"<form method='post' action='/api/expenses/manual' class='mx-form'>"
         f"<input type='hidden' name='csrf' value='{CSRF_TOKEN}'>"
         f"<input type='hidden' name='client_request_id' value='{uuid.uuid4().hex}'>"
-        f"<p><label>여행</label><select name='display_tab_id'>{options}</select></p>"
-        "<p><label>거래일자</label><input name='occurred_on' placeholder='2026-04-01'></p>"
-        "<p><label>지급 수단</label><select name='pay_method'>"
-        "<option value='현금'>현금</option><option value='계좌이체'>계좌이체</option></select></p>"
-        "<p><label>항목</label><input name='item'></p>"
-        "<p><label>내용</label><input name='description'></p>"
-        "<p><label>금액(원, 환불은 음수)</label><input name='amount_krw'></p>"
-        "<p><label>메모</label><input name='operator_note'></p>"
-        "<button type='submit'>저장</button></form></div>"
+        "<div class='mx-grid'>"
+        f"<div class='mx-field wide'><label for='mx-tab'>여행</label><select id='mx-tab' name='display_tab_id'>{options}</select></div>"
+        "<div class='mx-field'><label for='mx-date'>거래일자</label><input id='mx-date' type='date' name='occurred_on' required></div>"
+        "<div class='mx-field'><label for='mx-pay'>지급 수단</label><select id='mx-pay' name='pay_method'>"
+        "<option value='현금'>현금</option><option value='계좌이체'>계좌이체</option></select></div>"
+        "<div class='mx-field'><label for='mx-item'>항목</label><input id='mx-item' name='item'></div>"
+        "<div class='mx-field'><label for='mx-desc'>내용</label><input id='mx-desc' name='description'></div>"
+        "<div class='mx-field wide mx-amount'><label for='mx-amount'>금액 (원, 환불은 음수)</label>"
+        "<input id='mx-amount' name='amount_krw' inputmode='numeric' placeholder='0'></div>"
+        "<div class='mx-field wide'><label for='mx-memo'>메모</label><input id='mx-memo' name='operator_note'></div>"
+        "</div>"
+        "<div class='mx-actions'><button class='mx-submit' type='submit'>저장</button></div>"
+        "</form></section>"
     )
-    return layout("수기 지출 추가", f"{top}<div class='wrap'>{body}</div>")
+    return layout("수기 지출 추가", f"{top}<div class='wrap'>{MANUAL_EXPENSE_STYLE}{body}</div>")
 
 
 RULE_MODE_LABEL = SYNTHETIC_MODE_NOTE
