@@ -1769,6 +1769,8 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
+const tripOptions=document.getElementById('cleanup-trip-options');
+if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>select.replaceChildren(tripOptions.content.cloneNode(true)));
 document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('submit',async e=>{
   e.preventDefault();const item=form.closest('.cleanup-row'),select=form.querySelector('select[name=display_tab_id]'),error=form.querySelector('.cleanup-error'),button=form.querySelector('button');
   if(!select.value){error.textContent='여행을 골라 주세요';return}
@@ -1850,7 +1852,7 @@ def _ota_entries_by_card(board) -> dict:
     """카드 거래 ID -> 같은 거래와 연결된 OTA 예약 (OTA 내역 화면과 같은 자료)."""
     from . import ota_catalog
     try:
-        index = ota_catalog._index(board, ota_catalog.configured_sources(board))
+        index = ota_catalog._index(board, ota_catalog.configured_sources(board), allow_stale=True)
     except (OSError, ValueError, KeyError, TypeError):
         return {}
     return {card['transaction_id']: entry for entry in index.get('entries', [])
@@ -1884,7 +1886,7 @@ def _catalog_block(entry) -> str:
 
 def render_expense_cleanup(board, csrf):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
-    from . import ledger_board
+    from . import ledger_board, ota_catalog
     if ledger_board.current_role() != 'owner':
         return ''
     esc = ledger_board.esc
@@ -1919,7 +1921,7 @@ def render_expense_cleanup(board, csrf):
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
             f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
             f"<small>{esc(day or '')} · {esc(reason)}</small>{evidence}</div>"
-            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
+            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
             f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
     ledger = board.conn.execute(
@@ -1932,7 +1934,7 @@ def render_expense_cleanup(board, csrf):
             f"<div class='cleanup-info'><strong>{esc(record.get('source_merchant') or record.get('description') or '지출')}</strong>"
             f"<span class='cleanup-amount'>{int(record.get('amount_krw') or 0):,}원</span>"
             f"<small>{esc(record.get('occurred_on') or '')} · {esc(record.get('item') or '항목 없음')}</small></div>"
-            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'>{options}</select>"
+            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
     body = ''.join(items) or '<li class="muted">정리할 지출이 없습니다.</li>'
     style = ("<style>#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:8px 0}"
@@ -1948,8 +1950,11 @@ def render_expense_cleanup(board, csrf):
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
              "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}</style>")
+    note = ("<p class='muted'>예약 근거를 다시 계산하고 있어요. 잠시 뒤 새로고침하면 최신 근거가 보입니다.</p>"
+            if ota_catalog.rebuilding() else '')
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>정리할 지출 <span id='cleanup-count'>{len(items)}건</span></h2>"
+            f"<h2>정리할 지출 <span id='cleanup-count'>{len(items)}건</span></h2>{note}"
+            f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
 

@@ -102,3 +102,58 @@ def test_a_classified_row_waiting_for_a_trip_is_listed_and_one_trip_choice_recor
     finally:
         ledger_board.bind_store(None)
         board.close()
+
+
+def test_a_changed_booking_index_is_served_stale_while_it_rebuilds(tmp_path):
+    import threading
+    import time
+    from webapp import ota_catalog
+    board = LedgerStore(tmp_path / 'stale-index.sqlite', seed_demo=False)
+    release = threading.Event()
+    keys, builds = ['first'], []
+
+    def fake_build(_board, _sources):
+        builds.append(keys[0])
+        if len(builds) > 1:
+            release.wait(5)
+        return {'entries': [], 'label': keys[0]}
+
+    saved_signature, saved_build = ota_catalog._signature, ota_catalog._build_index
+    ota_catalog._signature = lambda _board, _sources: keys[0]
+    ota_catalog._build_index = fake_build
+    ota_catalog._INDEX.update(key=None, value=None)
+    try:
+        first = ota_catalog._index(board, {}, allow_stale=True)
+        assert first['label'] == 'first' and builds == ['first']
+        keys[0] = 'second'
+        stale = ota_catalog._index(board, {}, allow_stale=True)
+        assert stale is first and ota_catalog.rebuilding()
+        release.set()
+        deadline = time.monotonic() + 5
+        while ota_catalog.rebuilding() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not ota_catalog.rebuilding()
+        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'second'
+    finally:
+        ota_catalog._signature, ota_catalog._build_index = saved_signature, saved_build
+        ota_catalog._INDEX.update(key=None, value=None)
+        board.conn.close()
+
+
+def test_the_trip_list_is_written_once_and_each_row_gets_only_its_placeholder(tmp_path, monkeypatch):
+    from webapp.card_flow import CardFlow
+    board = LedgerStore(tmp_path / 'trip-options.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        for index in range(3):
+            unassigned_row(board, row_id=f'expense-options-{index}')
+        trip = board.create_trip(starts_on='2026-09-28', ends_on='2026-10-01', destination='합성',
+                                 client_request_id='options-trip')
+        monkeypatch.setattr(CardFlow, 'trip_valid', lambda self, target: target == trip['tab_id'])
+        html = render_expense_cleanup(board, 'token')
+        assert html.count("<template id='cleanup-trip-options'>") == 1
+        assert html.count(f"<option value='{trip['tab_id']}'>") == 1
+        assert html.count("<select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>") == 3
+    finally:
+        ledger_board.bind_store(None)
+        board.conn.close()

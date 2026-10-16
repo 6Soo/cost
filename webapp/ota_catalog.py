@@ -536,12 +536,24 @@ def _load_saved_index(board, key):
     return saved.get('value')
 
 
+def _saved_value_for_stale(board):
+    """The last saved index whatever its key, so a restart can show the previous evidence at once."""
+    try:
+        saved = json.loads(_index_path(board).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(saved, dict) or saved.get('version') != INDEX_VERSION:
+        return None
+    return saved.get('value')
+
+
 def _save_index(board, key, value):
     """Written beside the board file, atomically. A failed write costs only a rebuild next time."""
     path = _index_path(board)
     temp = path.with_suffix('.tmp')
     try:
-        temp.write_text(json.dumps({'key': key, 'value': value}, ensure_ascii=False, default=str), encoding='utf-8')
+        temp.write_text(json.dumps({'version': INDEX_VERSION, 'key': key, 'value': value},
+                                   ensure_ascii=False, default=str), encoding='utf-8')
         os.replace(temp, path)
     except OSError:
         try:
@@ -550,11 +562,49 @@ def _save_index(board, key, value):
             pass
 
 
-def _index(board, sources, *, rebuild=False):
-    """The booking index for these sources and this board state. Rebuilt only when an input changes."""
+_REBUILD = {'running': False}
+_REBUILD_LOCK = threading.Lock()
+
+
+def rebuilding() -> bool:
+    return _REBUILD['running']
+
+
+def _start_rebuild(board, sources, key):
+    with _REBUILD_LOCK:
+        if _REBUILD['running']:
+            return
+        _REBUILD['running'] = True
+
+    def rebuild_in_background():
+        try:
+            value = _build_index(board, sources)
+            _save_index(board, key, value)
+            with _INDEX_LOCK:
+                _INDEX['value'] = value
+                _INDEX['key'] = (id(board), key)
+        except Exception:
+            pass  # The next visit starts the rebuild again and shows its own warning.
+        finally:
+            with _REBUILD_LOCK:
+                _REBUILD['running'] = False
+
+    threading.Thread(target=rebuild_in_background, name='ota-index-rebuild', daemon=True).start()
+
+
+def _index(board, sources, *, rebuild=False, allow_stale=False):
+    """The booking index for these sources and this board state. Rebuilt only when an input changes.
+
+    With allow_stale, a changed state returns the last index at once and rebuilds it in the background,
+    so a page that only shows evidence does not wait for the rebuild."""
     key = _signature(board, sources)
     with _INDEX_LOCK:
         if _INDEX['key'] != (id(board), key):
+            if allow_stale and not rebuild:
+                stale = _INDEX['value'] if _INDEX['key'] and _INDEX['key'][0] == id(board) else _saved_value_for_stale(board)
+                if stale is not None:
+                    _start_rebuild(board, sources, key)
+                    return stale
             value = None if rebuild else _load_saved_index(board, key)
             if value is None:
                 value = _build_index(board, sources)
