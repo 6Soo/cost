@@ -307,15 +307,17 @@ def _identical_group_matches(candidates, rows_by_booking, matched):
         for tid in group['rows']:
             for _,fact in candidates[tid]:
                 fact_of.setdefault(fact['booking_ref'],fact)
-        for tid,booking in zip(sorted(group['rows']),sorted(bookings)):
-            row=group['rows'][tid]; fact=fact_of[booking]
+        # 같은 카드·금액·기간의 예약은 어느 것인지 가릴 수 없다. 예약번호를 행마다 고르지 않고 묶음 건수와 여행 기간만 남긴다.
+        representative=fact_of[min(bookings)]
+        for tid in sorted(group['rows']):
+            row=group['rows'][tid]
             out.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
                 merchant=row['merchant_normalized'],card_kind=row['card_kind'],direction='purchase',
-                provider='agoda',booking_ref=booking,item='숙박비',period=fact['period'],
-                source_sha256=fact['source_sha256'],evidence_kind='portal_payment_claim',
+                provider='agoda',booking_ref='',group_size=len(bookings),item='숙박비',period=representative['period'],
+                source_sha256=representative['source_sha256'],evidence_kind='portal_payment_claim',
                 reservation_status='observed',strict_service_period=True,
-                payment_format=fact.get('payment_format','canonical_paid'),
-                basis='아고다 전수조사 페이지의 같은 카드·금액·기간 예약과 카드 원행이 같은 수만큼 있어 한 쌍씩 대응'))
+                payment_format=representative.get('payment_format','canonical_paid'),
+                basis=f'아고다 전수조사 페이지의 같은 카드·금액·기간 예약 {len(bookings)}건과 카드 원행이 같은 수만큼 있어 묶음으로 대응(예약번호 미선택)'))
     return out
 
 
@@ -363,7 +365,8 @@ def extend_report(report, database, transactions):
         by_source[source]=fact
         report['rules'].append(dict(conditions={'merchant_normalized':fact['merchant'],
             'card_kind':fact['card_kind'],'transaction_direction':'purchase'},
-            optional={'source_hash':source},effects={'item':'숙박비','description':'예약 '+fact['booking_ref']},
+            optional={'source_hash':source},effects={'item':'숙박비','description':(
+                '예약 '+fact['booking_ref'] if fact.get('booking_ref') else f"예약 묶음 {fact.get('group_size', 1)}건(예약번호 미선택)")},
             origin=OTA_PORTAL_ORIGIN,note=fact['basis']))
     exact={fact['source_hash'] for fact in report['matches']}
     report['type_only_candidates']=[fact for fact in report.get('type_only_candidates',[])

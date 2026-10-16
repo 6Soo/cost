@@ -10,8 +10,10 @@
     "agoda": [
       {"alias": "AGODA.COM", "status": "approved", "version": 1,
        "source": "user-selected-default-2026-10-08"},
-      {"alias": "agoda", "status": "candidate", "version": 1,
-       "source": "legacy-built-in-not-user-approved"}
+      {"alias": "agoda", "status": "approved", "version": 2,
+       "source": "owner-approved-2026-10-16-agoda-descriptor"},
+      {"alias": "AGODA_NICE-Agoda", "status": "approved", "version": 1,
+       "source": "owner-approved-2026-10-16-agoda-nice-descriptor"}
     ],
     "trip": [
       {"alias": "trip.com", "status": "candidate", "version": 1,
@@ -27,8 +29,8 @@
     ],
     "klook": [{"alias": "klook", "status": "approved", "version": 1,
                "source": "user-approved-klook-descriptor-2026-10-14"}],
-    "booking": [{"alias": "booking.com", "status": "candidate", "version": 1,
-                 "source": "legacy-built-in-not-user-approved"}]
+    "booking": [{"alias": "booking.com", "status": "approved", "version": 2,
+                 "source": "owner-approved-2026-10-16-booking-descriptor"}]
   },
   "trip_flight_charge_delta": {
     "enabled": true,
@@ -41,5 +43,6 @@
     "discount_cause_confirmed": false
   },
   "provider_date_lag_days": {"minimum": -7, "maximum": 7},
+  "foreign_date_lag_days": 1,
   "portal_payment_date_required": true
 }

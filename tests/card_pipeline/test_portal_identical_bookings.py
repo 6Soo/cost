@@ -24,12 +24,13 @@ def analysis(*facts):
     return {'facts': merged, 'blocked': {}, 'rejected': {}}
 
 
-def test_three_identical_payments_pair_with_three_identical_bookings():
+def test_three_identical_payments_form_one_group_without_booking_numbers():
     facts = analysis(fact('B1'), fact('B2'), fact('B3'))
     rows = [row('T1'), row('T2'), row('T3')]
     matches = portal_matches([], rows, analysis=facts)
-    assert sorted(m['booking_ref'] for m in matches) == ['B1', 'B2', 'B3']
     assert sorted(m['transaction_id'] for m in matches) == ['T1', 'T2', 'T3']
+    assert all(m['booking_ref'] == '' and m['group_size'] == 3 for m in matches)
+    assert all(m['period'] == PERIOD for m in matches)
 
 
 def test_fewer_payments_than_bookings_stays_unmatched():

@@ -702,6 +702,24 @@ def _approved_lag_match(event, row, rules):
     return False
 
 
+def foreign_date_lag_days():
+    """외화 결제에서 카드 날짜와 결제일이 다를 수 있는 일수. 소유자 2026-10-16 승인에 따라 하루다."""
+    value = load_defaults().get("foreign_date_lag_days", 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 7 else 0
+
+
+def _foreign_day_lag_match(event, row):
+    currency = str(event.get("currency") or "").upper()
+    limit = foreign_date_lag_days()
+    if not limit or currency in ("", "KRW") or not event.get("paid_on") or not row.get("approval_date"):
+        return False
+    try:
+        lag = abs((date.fromisoformat(row["approval_date"]) - date.fromisoformat(event["paid_on"])).days)
+    except (TypeError, ValueError):
+        return False
+    return lag <= limit
+
+
 def _date_lag_bounds(conditions):
     low, high = conditions.get("date_lag_min_days"), conditions.get("date_lag_max_days")
     if low is not None and high is not None:
@@ -784,7 +802,7 @@ def _eligible_cards(event, transactions, links=None, rules=None):
         if _direction(row) != expected_direction or not _amount_matches(event, row, rules):
             continue
         exact_date = row.get("approval_date") == event.get("paid_on")
-        if not exact_date and not _approved_lag_match(event, row, rules or []):
+        if not exact_date and not _approved_lag_match(event, row, rules or []) and not _foreign_day_lag_match(event, row):
             continue
         last4 = str(event.get("card_last4") or "")
         if last4 and not (str(row.get("card_tail") or row.get("card_last4") or "").endswith(last4)):
@@ -819,7 +837,7 @@ def pair_check(event, row, rules=None):
         return "direction"
     if not _amount_matches(event, row, rules):
         return "amount"
-    if paid_on and row.get("approval_date") != paid_on and not _approved_lag_match(event, row, rules):
+    if paid_on and row.get("approval_date") != paid_on and not _approved_lag_match(event, row, rules) and not _foreign_day_lag_match(event, row):
         return "date"
     last4 = str(event.get("card_last4") or "")
     if last4 and not str(row.get("card_tail") or row.get("card_last4") or "").endswith(last4):

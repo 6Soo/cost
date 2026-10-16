@@ -49,11 +49,14 @@ def test_trip_without_card_hint_pairs_on_exact_amount_day_and_uniqueness_rules()
     assert ota_payments.pair_check(trip, row(merchant='임의 가맹점')) is None
 
 
-def test_foreign_currency_must_match_exactly_and_a_one_day_gap_needs_an_approved_rule():
+def test_foreign_currency_must_match_exactly_and_allows_only_the_approved_one_day_gap():
     foreign = charge(provider='trip', card_last4=None, currency='JPY', amount=Decimal('34625'), amount_krw=None)
     foreign_row = row(merchant='임의 가맹점', amount_krw=150000, foreign_currency='JPY', foreign_amount='34625')
     assert ota_payments.pair_check(foreign, foreign_row) is None
-    assert ota_payments.pair_check(foreign, dict(foreign_row, approval_date='2026-04-30')) == 'date'
+    assert ota_payments.pair_check(foreign, dict(foreign_row, approval_date='2026-04-30')) is None
+    assert ota_payments.pair_check(foreign, dict(foreign_row, approval_date='2026-04-29')) == 'date'
+    krw_day = charge(provider='trip', card_last4=None, paid_on='2026-05-01')
+    assert ota_payments.pair_check(krw_day, row(merchant='임의 가맹점', approval_date='2026-04-30')) == 'date'
 
 
 def gate_report(*matches, rules=(), unmatched=(), types=(), diagnoses=()):
@@ -100,8 +103,9 @@ def test_shared_period_group_without_an_alias_does_not_assign_a_trip_for_agoda_o
     trip_group = dict(transaction_id='t2', source_hash='b' * 64, item='숙박비',
                       shared_period=dict(starts_on='2026-07-22', ends_on='2026-07-25'))
     report = gate_report(types=[agoda_group, trip_group])
-    result = ota_exact.apply_gate(report, [row(), row('t2', merchant='임의')], events=[charge()], rules=[],
-                                  open_ids={'t1', 't2'})
+    other = dict(merchant='임의 가맹점', merchant_normalized='임의 가맹점')
+    result = ota_exact.apply_gate(report, [row(**other), row('t2', **other)], events=[charge()],
+                                  rules=[], open_ids={'t1', 't2'})
     assert [item['transaction_id'] for item in result['type_only_candidates']] == ['t2']
     assert all(rule['optional']['source_hash'] != 'a' * 64 for rule in result['rules'])
 

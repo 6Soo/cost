@@ -820,8 +820,10 @@ def ledger_metadata(report, entry):
         return empty
     # 예약번호 모호성은 matcher의 type-only 결과를 그대로 따른다.
     refs = {f.get('booking_ref') for f in exact}
-    if exact and (len(refs) != 1 or not next(iter(refs))
-                  or any(f.get('reservation_status') not in ('observed', 'confirmed') for f in exact)):
+    group = bool(exact) and refs == {''} and all(f.get('group_size') for f in exact)
+    if exact and not group and (len(refs) != 1 or not next(iter(refs))):
+        return empty
+    if exact and any(f.get('reservation_status') not in ('observed', 'confirmed') for f in exact):
         return empty
     periods = [f.get('period') if exact else f.get('shared_period') for f in facts]
     if any(p != periods[0] for p in periods):
@@ -835,9 +837,9 @@ def ledger_metadata(report, entry):
                       if digest})
     if not digests:
         return empty
-    return {'booking_ref': next(iter(refs)) if exact else '',
+    return {'booking_ref': '' if group or not exact else next(iter(refs)),
             'service_period': period['starts_on'] + '~' + period['ends_on'] if period else '',
-            'ota_evidence': {'kind': 'exact' if exact else 'shared_period',
+            'ota_evidence': {'kind': 'portal_group' if group else 'exact' if exact else 'shared_period',
                              'source_digests': digests,
                              'providers': sorted({f['provider'] for f in facts if f.get('provider')}),
                              'evidence_kinds': sorted({f['evidence_kind'] for f in facts if f.get('evidence_kind')})}}
