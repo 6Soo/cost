@@ -311,7 +311,9 @@ def _canonical(value):
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
-                'app/classify.py', 'app/rules.py', 'app/reconciliation.py')
+                'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
+                'app/ota_sources.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',
+                'config/ota-matching-defaults.json')
 
 
 @functools.lru_cache(maxsize=None)
