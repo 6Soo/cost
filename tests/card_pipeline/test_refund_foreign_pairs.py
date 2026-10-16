@@ -37,18 +37,28 @@ def test_a_krw_difference_from_the_rate_stays_in_the_net(conn):
     assert link['status'] == 'partial' and link['net_krw'] == 100
 
 
-def test_two_identical_purchases_are_not_guessed(conn):
+def test_identical_purchases_pair_in_date_order(conn):
     add(conn, 'P1', 'purchase', 12000, '2026-04-01')
     add(conn, 'P2', 'purchase', 12000, '2026-04-02')
-    add(conn, 'C', 'cancellation', -12000, '2026-04-05')
-    assert refund_links(conn, ['C']) == {}
+    add(conn, 'C1', 'cancellation', -12000, '2026-04-05')
+    add(conn, 'C2', 'cancellation', -12000, '2026-04-06')
+    links = refund_links(conn, ['C1', 'C2'])
+    assert links['C1']['original_id'] == 'P1' and links['C2']['original_id'] == 'P2'
 
 
-def test_two_refunds_for_one_purchase_are_not_paired(conn):
+def test_extra_identical_refunds_stay_unpaired(conn):
     add(conn, 'P', 'purchase', 12000, '2026-04-01')
-    add(conn, 'C1', 'cancellation', -6000, '2026-04-05', foreign='500.000')
-    add(conn, 'C2', 'cancellation', -6000, '2026-04-06', foreign='500.000')
-    assert refund_links(conn, ['C1', 'C2']) == {}
+    add(conn, 'C1', 'cancellation', -12000, '2026-04-05')
+    add(conn, 'C2', 'cancellation', -12000, '2026-04-06')
+    assert set(refund_links(conn, ['C1', 'C2'])) == {'C1'}
+
+
+def test_a_purchase_paired_by_number_is_skipped_in_order(conn):
+    add(conn, 'P1', 'purchase', 12000, '2026-04-01', number='A1')
+    add(conn, 'C1', 'cancellation', -12000, '2026-04-02', original='A1')
+    add(conn, 'P2', 'purchase', 12000, '2026-04-03')
+    add(conn, 'C2', 'cancellation', -12000, '2026-04-05')
+    assert refund_links(conn, ['C2'])['C2']['original_id'] == 'P2'
 
 
 def test_a_refund_before_the_purchase_is_not_paired(conn):

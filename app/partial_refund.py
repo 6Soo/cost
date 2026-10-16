@@ -5,8 +5,8 @@ A cancellation row names the approval it cancels in `original_approval_number`.
 The link exists only when exactly one purchase has that approval number on the
 same issuer and card. Overseas statements carry no approval numbers, so a
 cancellation without one is paired by merchant, card, foreign currency and foreign
-amount instead (config/refund-pairing.json). That pair needs exactly one purchase
-for the cancellation and exactly one cancellation for the purchase. The KRW
+amount instead (config/refund-pairing.json). Identical rows pair in date order, one
+purchase for one cancellation; a cancellation left over stays unpaired. The KRW
 difference (rate or fee) stays in the net. Both source rows keep their own amounts;
 the net is derived from them and never stored over either.
 """
@@ -133,9 +133,10 @@ def _day(value):
 def _foreign_links(conn, taken, requested=None) -> dict:
     """{refund_transaction_id: link} for cancellations without an approval number, paired by foreign amount.
 
-    The pair needs one purchase that fits the cancellation (same card, merchant, currency and foreign amount,
-    not later than the cancellation and within the window) and one cancellation that fits that purchase.
-    `taken` holds purchases already paired by approval number; a pair never uses one of them."""
+    Purchases and cancellations with the same card, merchant, currency and foreign amount pair in date order, one
+    purchase for one cancellation: each cancellation takes the earliest open purchase that is not later than it and
+    within the window. The rows are identical, so the order changes no total. A cancellation with no open purchase
+    stays unpaired. `taken` holds purchases already paired by approval number; a pair never uses one of them."""
     settings = _settings()
     if not settings.get("enabled"):
         return {}
@@ -156,26 +157,22 @@ def _foreign_links(conn, taken, requested=None) -> dict:
             continue
         key = (issuer, tail, merchant, currency, foreign_amount)
         if direction == "purchase":
-            purchases.setdefault(key, []).append((tid, amount, when))
+            if tid not in taken:
+                purchases.setdefault(key, []).append((tid, amount, when))
         elif not original:
             cancels.setdefault(key, []).append((tid, amount, when))
 
-    def fits(refund_when, purchase_when):
-        return 0 <= (refund_when - purchase_when).days <= window
-
     links = {}
     for key, refunds in cancels.items():
-        for refund_id, refund_amount, refund_when in refunds:
+        open_purchases = sorted(purchases.get(key, []), key=lambda p: (p[2], p[0]))
+        for refund_id, refund_amount, refund_when in sorted(refunds, key=lambda r: (r[2], r[0])):
+            match = next((p for p in open_purchases if 0 <= (refund_when - p[2]).days <= window), None)
+            if match is None:
+                continue
+            open_purchases.remove(match)
             if requested is not None and refund_id not in requested:
                 continue
-            options = [p for p in purchases.get(key, []) if fits(refund_when, p[2])]
-            if len(options) != 1:
-                continue
-            original_id, gross, purchase_when = options[0]
-            if original_id in taken:
-                continue
-            if any(other[0] != refund_id and fits(other[2], purchase_when) for other in refunds):
-                continue
+            original_id, gross, _ = match
             net = gross + refund_amount
             links[refund_id] = {
                 "original_id": original_id, "gross_krw": gross, "refund_krw": refund_amount,
