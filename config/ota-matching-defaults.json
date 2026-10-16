@@ -44,5 +44,6 @@
   },
   "provider_date_lag_days": {"minimum": -7, "maximum": 7},
   "foreign_date_lag_days": 1,
-  "portal_payment_date_required": true
+  "portal_payment_date_required": true,
+  "portal_scheduled_card_date_enabled": true
 }

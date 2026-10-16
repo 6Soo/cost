@@ -337,12 +337,176 @@ def portal_inventory(databases):
     return {'sources':inventory,'errors':[entry for entry in inventory if entry.get('error')]}
 
 
+SCHEDULED_CARD_DATE_EVIDENCE='portal_scheduled_card_date'
+SCHEDULED_AUTO_CHARGE=re.compile(r'future_due:auto_charge_scheduled_(\d{4}-\d{2}-\d{2})')
+AGODA_MERCHANT=re.compile(r'^(?:AGODA(?:\b|[._ *-])|아고다)')
+
+
+def scheduled_card_date_enabled():
+    from app.ota_matching_defaults import load_defaults
+    return bool(load_defaults().get('portal_scheduled_card_date_enabled', False))
+
+
+def _scheduled_charge(fact):
+    """자동결제 예정일과 총액. 실제 결제일이 아니므로 카드 원행의 이용일이 같을 때만 결제로 쓴다."""
+    found=SCHEDULED_AUTO_CHARGE.fullmatch(str(fact.get('payment_status') or ''))
+    if not found or fact.get('collection_model')!='agoda_collect_card_auto_charge':
+        return None
+    try:
+        day=datetime.date.fromisoformat(found.group(1)).isoformat()
+    except ValueError:
+        return None
+    parts={}
+    for component in fact.get('price_components') or []:
+        kind=component.get('kind')
+        if kind in ('base','taxes_and_fees','gross_total'):
+            if kind in parts:
+                return None
+            parts[kind]=component
+    gross=parts.get('gross_total')
+    if gross is None or str(gross.get('currency') or '').upper()!='KRW':
+        return None
+    try:
+        amount=Decimal(str(gross['decimal_text']).replace(',',''))
+        if (not amount.is_finite() or amount<=0
+                or amount*(Decimal(10)**gross['scale'])!=gross['minor_units']):
+            return None
+        if 'base' in parts and 'taxes_and_fees' in parts:
+            if sum(Decimal(str(parts[kind]['decimal_text']).replace(',','')) for kind in ('base','taxes_and_fees'))!=amount:
+                return None
+    except (InvalidOperation,KeyError,TypeError,ValueError):
+        return None
+    return dict(day=day,amount=amount)
+
+
+def _status_progression_only(conflict_json):
+    """이전 캡처의 예정 상태가 확정으로 바뀐 것만 허용한다. 다른 충돌이 하나라도 있으면 막는다."""
+    try:
+        items=json.loads(conflict_json or '[]')
+    except (TypeError,ValueError):
+        return False
+    return bool(items) and all(isinstance(item,dict) and item.get('field')=='status'
+                               and item.get('existing')=='upcoming' and item.get('incoming')=='confirmed'
+                               for item in items)
+
+
+def _read_scheduled_records(path,index):
+    """_read_records와 같은 행을 읽되 충돌 상세도 함께 읽는다. 상세 열이 없는 자료는 충돌을 막는 쪽으로 읽는다."""
+    query=("SELECT b.booking_number,b.service_start_on,b.service_end_on,b.status,"
+           "d.id,d.payload_json,d.source_sha256,e.evidence_role,e.evidence_status,e.conflict_count,{detail} "
+           "FROM bookings b JOIN booking_source_evidence e ON e.booking_id=b.id "
+           "JOIN direct_source_records d ON d.id=e.direct_source_record_id "
+           "WHERE b.provider='agoda' AND d.source_kind='agoda_portal_detail'")
+    conn=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+    conn.row_factory=sqlite3.Row
+    try:
+        try:
+            records=conn.execute(query.format(detail='e.conflict_json AS conflict_json')).fetchall()
+        except sqlite3.OperationalError:
+            records=conn.execute(query.format(detail='NULL AS conflict_json')).fetchall()
+    finally:
+        conn.close()
+    return [dict(row, database=index) for row in records]
+
+
+def scheduled_card_date_matches(databases, transactions):
+    """포털 자동결제 예정일이 카드 이용일과 같고 금액·카드 끝자리가 맞으면 그 카드 원행을 결제로 본다.
+
+    포털에는 실제 결제일이 없어 기존 규칙으로는 막히던 예약이다. 카드 원행의 이용일이 예정일과 같을 때만
+    쓴다(소유자 결정 2026-10-16). 예약이 예정에서 확정으로 바뀐 충돌만 허용하고 다른 충돌은 막는다.
+    """
+    if not scheduled_card_date_enabled():
+        return []
+    paths=[path for path in (Path(item).resolve() for item in as_databases(databases)) if path.is_file()]
+    rows=[]
+    for index,path in enumerate(paths):
+        rows.extend(_read_scheduled_records(path,index))
+    grouped=defaultdict(list)
+    for row in rows:
+        grouped[(row['database'],row['booking_number'],row['id'])].append(row)
+    signatures=defaultdict(set)
+    digests=defaultdict(set)
+    excluded=set()
+    for (database,booking,record_id),evidence in sorted(grouped.items(),key=lambda item:str(item[0])):
+        first=evidence[0]
+        raw=first['payload_json']
+        if hashlib.sha256(raw.encode('utf-8')).hexdigest()!=first['source_sha256']:
+            raise ValueError('OTA_PORTAL_PAYLOAD_HASH_MISMATCH')
+        fact=json.loads(raw)
+        if fact.get('provider')!='agoda' or fact.get('booking_number')!=booking:
+            excluded.add(booking)
+            continue
+        if (fact.get('reservation_status') in ('cancelled','refunded')
+                or fact.get('refund_status') not in (None,'none_displayed')):
+            excluded.add(booking)
+            continue
+        charge=_scheduled_charge(fact)
+        if charge is None:
+            if payment_verdict(fact,first['status'])=='paid':
+                excluded.add(booking)
+            continue
+        card_last4=str(fact.get('card_last4') or '')
+        start,end=fact.get('service_start_on'),fact.get('service_end_on')
+        try:
+            ok=(datetime.date.fromisoformat(start)<=datetime.date.fromisoformat(end))
+        except (TypeError,ValueError):
+            ok=False
+        ok=(ok and REQUIRED_EVIDENCE_ROLES<={row['evidence_role'] for row in evidence}
+            and all(row['evidence_status']=='observed' for row in evidence)
+            and all(not row['conflict_count'] or _status_progression_only(row['conflict_json']) for row in evidence)
+            and fact.get('status')=='confirmed' and re.fullmatch(r'\d{4}',card_last4) is not None
+            and start==first['service_start_on'] and end==first['service_end_on'])
+        if not ok:
+            excluded.add(booking)
+            continue
+        signatures[booking].add((charge['day'],str(charge['amount']),card_last4,start,end))
+        digests[booking].add(first['source_sha256'])
+    facts={}
+    for booking,options in signatures.items():
+        if booking in excluded or len(options)!=1:
+            continue
+        day,amount,card_last4,start,end=next(iter(options))
+        facts[booking]=dict(day=day,amount=Decimal(amount),card_last4=card_last4,
+                            period={'starts_on':start,'ends_on':end},source_sha256=sorted(digests[booking])[0])
+    candidates=defaultdict(list)
+    rows_by_booking=defaultdict(set)
+    for row in unique_transactions(transactions):
+        if (row.get('transaction_direction')!='purchase' or row.get('duplicate_of') or row.get('parse_error')
+                or row.get('conflict_reason') or not row.get('amount_krw')
+                or not AGODA_MERCHANT.match(str(row.get('merchant') or '').upper())):
+            continue
+        for booking,fact in facts.items():
+            if (row.get('card_tail')==fact['card_last4'] and row.get('approval_date')==fact['day']
+                    and Decimal(str(row['amount_krw']))==fact['amount']):
+                candidates[row['transaction_id']].append((row,booking,fact))
+                rows_by_booking[booking].add(row['transaction_id'])
+    matches=[]
+    for options in candidates.values():
+        if len(options)!=1:
+            continue
+        row,booking,fact=options[0]
+        if len(rows_by_booking[booking])!=1:
+            continue
+        matches.append(dict(transaction_id=row['transaction_id'],source_hash=row['source_hash'],
+            merchant=row['merchant_normalized'],card_kind=row['card_kind'],direction='purchase',
+            provider='agoda',booking_ref=booking,item='숙박비',period=fact['period'],
+            source_sha256=fact['source_sha256'],evidence_kind=SCHEDULED_CARD_DATE_EVIDENCE,
+            scheduled_on=fact['day'],card_last4=fact['card_last4'],amount_krw=int(fact['amount']),
+            reservation_status='observed',strict_service_period=True,payment_format='scheduled_card_date',
+            basis='아고다 자동결제 예정일과 카드 이용일이 같고 금액·카드 끝자리가 카드 원행과 일대일로 일치'
+                  '(포털에는 실제 결제일이 없음)'))
+    return matches
+
+
 def extend_report(report, database, transactions):
     """메일과 페이지를 함께 쓰되 서로 다른 예약을 제안하면 여행 연결을 보류한다."""
     # 자료가 하나도 연결되지 않아도 출처 목록과 진단은 남긴다.
     report['portal_sources']=portal_inventory(database)
     analysis=collect_portal_facts(database)
     matches=portal_matches(database,transactions,analysis=analysis)
+    paid_rows={fact["transaction_id"] for fact in matches}
+    matches+=[fact for fact in scheduled_card_date_matches(database,transactions)
+              if fact["transaction_id"] not in paid_rows]
     if not matches:
         apply_diagnoses(report,portal_diagnoses(report,transactions,analysis))
         return report

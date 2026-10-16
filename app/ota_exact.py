@@ -7,6 +7,7 @@ import os
 from collections import Counter, defaultdict
 
 from app import ota_payments
+from app.ota_portal import SCHEDULED_CARD_DATE_EVIDENCE
 
 ENV = 'WEBLEDGER_OTA_EXACT_GATE'
 PROTECTED_SOURCES = ('user_decision', 'user_exception', 'user_completed_period', 'owner_card_residual',
@@ -36,12 +37,32 @@ def _paid_charges(events):
     return index
 
 
+def _scheduled_card_reason(match, row):
+    """자동결제 예정일 연결은 카드 원행의 이용일·금액·카드 끝자리가 그대로 맞아야 한다."""
+    if row.get('duplicate_of') or row.get('parse_error') or row.get('conflict_reason'):
+        return 'row_flagged'
+    if row.get('transaction_direction') != 'purchase':
+        return 'direction'
+    if row.get('approval_date') != match.get('scheduled_on'):
+        return 'date'
+    try:
+        if int(row.get('amount_krw') or 0) != int(match.get('amount_krw') or 0):
+            return 'amount'
+    except (TypeError, ValueError):
+        return 'amount'
+    if str(row.get('card_tail') or '') != str(match.get('card_last4') or ''):
+        return 'card_identity'
+    return None
+
+
 def _match_reason(match, row, charges, rules):
     if charges is None:
         return 'evidence_unavailable'
     if row is None:
         return 'row_missing'
-    candidates = charges.get((str(match.get('provider') or ''), str(match.get('booking_ref') or '')), [])
+    if match.get('evidence_kind') == SCHEDULED_CARD_DATE_EVIDENCE:
+        return _scheduled_card_reason(match, row)
+    candidates =charges.get((str(match.get('provider') or ''), str(match.get('booking_ref') or '')), [])
     if not candidates:
         return 'no_core_event'
     reasons = []

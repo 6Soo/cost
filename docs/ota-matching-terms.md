@@ -20,7 +20,7 @@
 | 용어 | 뜻 | 근거와 저장 | 대사에 쓰는가 |
 |---|---|---|---|
 | 실제 결제일 | OTA가 고객 카드에 실제로 청구한 날 | 결제 완료 메일의 발송일(한국 시간, `app/ota_mail.py`의 `sent_day`). 포털에 명시된 날짜가 있을 때만 그 날짜 | 예. 카드 승인일과 비교하는 기준 |
-| 예정 결제일 | 메일에 명시된 자동 결제 예정일 | `scheduled_charge_day`. 결제 완료가 아니다 | 아니오. 실제 결제로 승격하지 않는다 |
+| 예정 결제일 | 메일에 명시된 자동 결제 예정일, 포털의 자동결제 예정일 | `scheduled_charge_day`, 포털 `future_due:auto_charge_scheduled_*`. 결제 완료가 아니다 | 아니오. 다만 카드 원행의 이용일이 예정일과 같고 금액·카드가 맞을 때만 결제로 인정한다(§5 결정 2) |
 | 이용기간 | 숙박 체크인~체크아웃, 항공 출발~도착 | `period`, `service_period` | 여행 배정에만 쓴다 |
 | 예약일 | 예약을 만든 날 | 메일 본문 | 아니오 |
 | 관측 시각 | 포털 페이지를 읽은 시각(`observed_at`) | 포털 기록 | 아니오 |
@@ -62,6 +62,7 @@
 - **근거를 못 읽을 때**: OTA 원천을 읽지 못하면 열린 거래의 연결을 모두 막는다(닫힌 쪽으로 실패).
 - **끄는 방법**: 환경변수 `WEBLEDGER_OTA_EXACT_GATE=0`(재시작 필요).
 - **포털 결제일 설정**: `config/ota-matching-defaults.json`의 `portal_payment_date_required`. 기본값은 `true`다.
+- **포털 예정 결제 설정**: `portal_scheduled_card_date_enabled`. 기본값은 `true`다. 끄면 §5 결정 2 연결을 만들지 않는다.
 
 ## 5. 2026-10-16 소유자 결정 반영
 
@@ -71,6 +72,7 @@
 4. **외화 하루 차이**: 허용했다(`foreign_date_lag_days: 1`). 원화는 같은 날만 허용한다.
 5. **가맹점 별칭**: `AGODA`, `AGODA_NICE-Agoda`, `BOOKING.COM`을 승인했다(`config/ota-matching-defaults.json`, 출처 `owner-approved-2026-10-16-*`).
 6. **포털 동일 묶음의 예약번호**: 새 분류부터 행마다 예약번호를 고르지 않고 묶음 건수만 남긴다. 기존 기록은 바꾸지 않았다.
+7. **자동결제 예정일 = 카드 이용일 (결정 2, 코드 반영)**: 포털에 실제 결제일이 없고 `future_due:auto_charge_scheduled_YYYY-MM-DD`로만 예정된 예약은, 카드 원행의 이용일이 그 날짜와 같고 총액(KRW)·카드 끝자리·아고다 가맹점이 맞을 때만 그 원행과 연결한다. 예약은 확정이고 취소·환불이 없어야 하며, 원행과 예약이 일대일로만 맞아야 한다. 예약 상태가 예정에서 확정으로 바뀐 충돌(`upcoming`→`confirmed`)만 허용하고 다른 충돌은 막는다. 검사는 `app/ota_portal.py` `scheduled_card_date_matches`와 `app/ota_exact.py` `_scheduled_card_reason`이다. 이 규칙으로 연결된 예약은 이용기간 여행으로 배정된다. 장부 기록은 분류 실행 때 따로 이뤄진다.
 
 ## 6. 2026-10-16 적용 결과
 
