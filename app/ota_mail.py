@@ -349,6 +349,29 @@ def shared_lodging_period(facts, *, paid_on, amount_krw):
             'source_digests':sorted({f['source_sha256'] for f in options})}
 
 
+def _lodging_provider(row):
+    merchant=str(row.get('merchant') or '').upper()
+    return 'agoda' if 'AGODA' in merchant or '아고다' in merchant else 'booking' if 'BOOKING' in merchant or '부킹닷컴' in merchant else ''
+
+
+def shared_lodging_stay(facts, *, provider, paid_on, amount_krw):
+    """같은 결제일·원화 금액으로 실제 결제된 숙박 예약들의 이용기간이 모두 같을 때만 그 기간을 준다.
+    예약번호는 고르지 않는다. 같은 제공자·금액의 취소 후보가 하나라도 있으면 배정하지 않는다."""
+    from decimal import Decimal
+    amount=Decimal(str(amount_krw))
+    same=[f for f in facts if f['provider']==provider and ('KRW',amount) in f['amounts']]
+    if any(f['cancelled'] for f in same):
+        return None
+    options=[f for f in same if f['paid'] and f['paid_on']==paid_on]
+    if not options or any(not f['period'] for f in options):
+        return None
+    periods={tuple(sorted(f['period'].items())) for f in options}
+    if len(periods)!=1:
+        return None
+    return {'period':dict(next(iter(periods))),'booking_count':len({f['booking_ref'] for f in options}),
+            'source_digests':sorted({f['source_sha256'] for f in options})}
+
+
 def reference_records(document):
     """과거 정규화 인덱스·예약 후보 문서의 예약 번호와 상충 여부만 읽는다.
 
@@ -606,6 +629,26 @@ def match_mail(directory, transactions, source_key=None):
         matches.append(dict(fact,transaction_id=row.get('transaction_id',fact['source_hash']),
                             merchant=row['merchant_normalized'],card_kind=row['card_kind'],
                             direction=row['transaction_direction']))
+    # 같은 결제일·금액의 숙박 결제가 여러 예약에 걸리면 예약번호를 고르지 않고 공통 이용기간만 제안한다.
+    matched_sources={fact['source_hash'] for fact in matches}
+    group_rows=collections.Counter()
+    for row in transactions:
+        provider=_lodging_provider(row)
+        if provider and row['transaction_direction']=='purchase' and row.get('approval_date') and (row.get('amount_krw') or 0)>0:
+            group_rows[(provider,row['approval_date'],row['amount_krw'])]+=1
+    for row in transactions:
+        provider=_lodging_provider(row)
+        if (not provider or row['transaction_direction']!='purchase' or row['source_hash'] in matched_sources
+                or not row.get('approval_date') or (row.get('amount_krw') or 0)<=0 or row['approval_date']<'2026-04-01'):
+            continue
+        shared=shared_lodging_stay(lodging_facts,provider=provider,
+                                   paid_on=datetime.date.fromisoformat(row['approval_date']),amount_krw=row['amount_krw'])
+        if not shared or group_rows[(provider,row['approval_date'],row['amount_krw'])]>shared['booking_count']:
+            continue
+        type_only.append(dict(transaction_id=row.get('transaction_id'),source_hash=row['source_hash'],
+            merchant=row['merchant_normalized'],card_kind=row['card_kind'],direction=row['transaction_direction'],
+            provider=provider,item='숙박비',evidence_kind='payment_receipt',shared_period=shared['period'],
+            booking_count=shared['booking_count'],reservation_status='confirmed',source_digests=shared['source_digests']))
     matches.sort(key=lambda f:(f['transaction_id'],f['booking_ref']))
     rules=[dict(conditions={'merchant_normalized':f['merchant'],'card_kind':f['card_kind'],
                             'transaction_direction':f['direction']},optional={'source_hash':f['source_hash']},
