@@ -1807,6 +1807,42 @@ def cleanup_total(board) -> int:
     return sum(1 for r in cards if r[0] not in booked) + unassigned
 
 
+def _ota_entries_by_card(board) -> dict:
+    """카드 거래 ID -> 같은 거래와 연결된 OTA 예약 (OTA 내역 화면과 같은 자료)."""
+    from . import ota_catalog
+    try:
+        index = ota_catalog._index(board, ota_catalog.configured_sources(board))
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    return {card['transaction_id']: entry for entry in index.get('entries', [])
+            for card in entry.get('card_matches') or []}
+
+
+def ota_catalog_summary(entry) -> str:
+    from . import ota_catalog
+    return ota_catalog._summary(entry, bool(entry.get('rule')))
+
+
+def _catalog_block(entry) -> str:
+    """OTA 예약의 판단에 필요한 줄: 예약번호·상태, 이용기간, 후보 여행, 연결 카드 결제."""
+    from . import ledger_board
+    esc = ledger_board.esc
+    relation = {'covers': '전체 포함', 'overlaps': '일부 겹침', 'none': ''}
+    lines = [f"예약 {entry['booking_ref']} · {entry.get('status') or '상태 미확인'}"]
+    if entry.get('period'):
+        lines.append(f"이용 {entry['period']}")
+    candidates = [f"{c.get('display_key') or c.get('tab_id')}({relation.get(c.get('relation'), '')})"
+                  for c in entry.get('candidates') or []]
+    if candidates:
+        lines.append('후보 여행: ' + ', '.join(candidates))
+    cancelled = entry.get('cancelled_matches') or 0
+    if cancelled:
+        lines.append(f'취소 결제 {cancelled}건')
+    items = ''.join(f"<li>{esc(line)}</li>" for line in lines)
+    return (f"<details class='cleanup-evidence' open><summary>{esc(entry.get('provider') or 'OTA')} 예약 자료</summary>"
+            f"<ul>{items}</ul></details>")
+
+
 def render_expense_cleanup(board, csrf):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board
@@ -1822,16 +1858,23 @@ def render_expense_cleanup(board, csrf):
     items = []
     rows_card = _cleanup_card_items(board)
     evidence_index = None
-    if any(row[6] == 'booking_evidence_needed' for row in rows_card):
+    if any(row[6] == 'booking_evidence_needed' or _is_ota_row({'merchant': row[3]}) for row in rows_card):
         from app import booking_evidence
         from . import ota_catalog
         evidence_index = booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
     booked = flow.projected_ids([(row[0], row[4], row[2]) for row in rows_card])
+    ota_by_card = _ota_entries_by_card(board)
     for tid, batch, day, merchant, amount, item, source, revision, held in rows_card:
         if tid in booked:
             continue  # 이미 장부에 있는 거래라 정리할 것이 없다.
-        reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
-        evidence = _evidence_block(evidence_index, amount, day) if source == 'booking_evidence_needed' else ''
+        entry = ota_by_card.get(tid)
+        if entry is not None:
+            reason = ota_catalog_summary(entry)
+            evidence = _catalog_block(entry)
+        else:
+            reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
+            evidence = (_evidence_block(evidence_index, amount, day)
+                        if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else '')
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
