@@ -370,6 +370,7 @@ def home_page(board):
     except (OSError, ValueError, KeyError, TypeError, StoreError, sqlite3.Error):
         pending_unknown = True
     pending_bookings = None if pending_unknown else len(pending_booking_ids)
+    cleanup = cleanup_total(board)
 
     trips = board.list_trips()
     registered = registrations(board)
@@ -438,8 +439,8 @@ def home_page(board):
             "}"
             "</style>"
             "<section class='home-overview' aria-label='장부 상태와 주요 작업'>"
-            f"<p class='home-status'>카드 <b>{saved:,}</b> · 확인 필요 <b>{questions:,}</b> · 장부 반영 대기 <b>{'-' if pending_bookings is None else f'{pending_bookings:,}'}</b> · 장부 <b>{posted:,}</b></p>"
-            f"<a class='home-review btn primary' href='/import'>{ui_icons.icon('check')}지출 정리 {questions:,}건</a>"
+            f"<p class='home-status'>카드 <b>{saved:,}</b> · 정리할 지출 <b>{cleanup:,}</b> · 장부 반영 대기 <b>{'-' if pending_bookings is None else f'{pending_bookings:,}'}</b> · 장부 <b>{posted:,}</b></p>"
+            f"<a class='home-review btn primary' href='/import'>{ui_icons.icon('check')}지출 정리 {cleanup:,}건</a>"
             "<nav class='home-secondary' aria-label='장부 보조 작업'>"
             f"<a class='btn' href='/import#newupload'>{ui_icons.icon('upload')}새 카드 가져오기</a>"
             f"<a class='btn' href='/board?tab={esc(board_tab)}'>{ui_icons.icon('book-open')}장부</a>"
@@ -1795,6 +1796,15 @@ def prewarm_booking_evidence(board):
         booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
     except Exception:
         pass  # 화면에서 다시 만들며 그때 경고를 보여 준다.
+
+
+def cleanup_total(board) -> int:
+    """정리할 지출 건수. 지출 정리 목록과 메인 화면이 같은 기준으로 센다."""
+    cards = _cleanup_card_items(board)
+    booked = CardFlow(board).projected_ids([(r[0], r[4], r[2]) for r in cards])
+    unassigned = board.conn.execute(
+        "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL").fetchone()[0]
+    return sum(1 for r in cards if r[0] not in booked) + unassigned
 
 
 def render_expense_cleanup(board, csrf):

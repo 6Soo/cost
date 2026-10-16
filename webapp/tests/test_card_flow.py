@@ -429,7 +429,7 @@ class CardFlowTests(unittest.TestCase):
             html = home_page(self.board)
         finally:
             ledger_board.bind_store(previous)
-        self.assertIn("카드 <b>2</b> · 확인 필요 <b>2</b> · 장부 반영 대기 <b>0</b> · 장부 <b>0</b>", html)
+        self.assertIn("카드 <b>2</b> · 정리할 지출 <b>2</b> · 장부 반영 대기 <b>0</b> · 장부 <b>0</b>", html)
         self.assertIn("class='home-review btn primary' href='/import'>", html)
         self.assertIn("지출 정리 2건</a>", html)
         self.assertIn("class='home-secondary'", html)
