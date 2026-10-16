@@ -7,6 +7,7 @@ import pytest
 
 from app import ota_exact, ota_portal
 from app.ota_portal import scheduled_card_date_matches
+from webapp import ota_payment_review
 
 ROLES = ('identity', 'service_period', 'portal_payment_claim', 'portal_card_observation', 'lifecycle')
 PROGRESSION = [{'field': 'status', 'existing': 'upcoming', 'incoming': 'confirmed'}]
@@ -133,3 +134,9 @@ def test_the_shipped_defaults_turn_the_rule_on():
     from app.ota_matching_defaults import load_defaults
     assert load_defaults()['portal_scheduled_card_date_enabled'] is True
     assert ota_portal.scheduled_card_date_enabled() is True
+
+
+def test_the_worker_settles_the_scheduled_row_unless_another_result_already_holds_it(tmp_path):
+    sources = {'portal_databases': [str(portal_database(tmp_path / 'portal.sqlite', [({}, [])]))]}
+    assert ota_payment_review.scheduled_card_settlements(sources, [card()], occupied=set()) == ['scheduled-card']
+    assert ota_payment_review.scheduled_card_settlements(sources, [card()], occupied={'scheduled-card'}) == []

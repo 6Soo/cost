@@ -1556,6 +1556,8 @@ class CardFlow:
                 elif fresh:
                     settled = {str(r.get("transaction_id")) for r in results
                                if r.get("transaction_id") and r.get("status") in ("MATCHED_AUTO", "MATCHED_USER")}
+                    # 예정 자동결제 연결(결정 2)은 최신 스냅샷에서만 새로 인정한다.
+                    settled |= {str(transaction_id) for transaction_id in (current.get("data") or {}).get("scheduled_card_ids", ())}
                 else:
                     settled = {str(transaction_id) for transaction_id in current["links"].values() if transaction_id}
                 for card in backend._transactions():

@@ -119,3 +119,10 @@ def test_a_board_failure_in_authority_mode_fails_closed():
     with pytest.raises(RuntimeError):
         holds_with(AUTHORITY, backend, FakeService(snapshot(RESULTS)))
     assert backend.closed
+
+
+def test_a_scheduled_card_settles_in_authority_mode_only_on_a_fresh_snapshot():
+    scheduled = dict(snapshot(RESULTS), data={"scheduled_card_ids": ["open"]})
+    assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(scheduled))) == {"grouped"}
+    stale = dict(snapshot(RESULTS), data={"scheduled_card_ids": ["open"]})
+    assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(stale, fresh=False))) == {"settled", "open", "grouped"}

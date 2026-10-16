@@ -800,6 +800,19 @@ def input_key(board) -> str:
         backend.close()
 
 
+def scheduled_card_settlements(sources, transactions, occupied):
+    """Card rows a portal auto-charge scheduled for their use date settle in authority mode (owner decision 2)."""
+    from app import ota_portal
+    databases = sources.get("portal_databases", [])
+    # 규칙이 읽는 열이 없는 최소 투영 자료는 건너뛴다. 운영 자료는 전체 열을 가진다.
+    if not databases or any(not {"transaction_id", "source_hash", "merchant_normalized", "card_kind"} <= set(row)
+                            for row in transactions):
+        return []
+    matches = ota_portal.scheduled_card_date_matches(databases, transactions)
+    # 다른 결과나 연결이 이미 쓰는 카드 원행은 두 번 연결하지 않는다.
+    return sorted({str(fact["transaction_id"]) for fact in matches} - set(occupied))
+
+
 def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
     data = backend._data()
@@ -826,6 +839,7 @@ def reconcile_for(backend) -> dict:
         authority = guide_airfare_review.authority_summary(backend.board)
     except Exception:
         authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
+    scheduled = scheduled_card_settlements(backend.sources, transactions, backend._occupied_cards(links, results))
     return {
         "public": public_snapshot(backend.snapshot_from(data)),
         "authority": authority,
@@ -834,7 +848,8 @@ def reconcile_for(backend) -> dict:
                   for event_id, link in links.items() if _link_transaction_id(link)},
         # In memory only: actions read it, the disk copy never carries it.
         "data": {"events": events, "transactions": transactions, "links": links, "results": results,
-                 "passengers": _passenger_index(backend.sources.get("mail_directories", []))},
+                 "passengers": _passenger_index(backend.sources.get("mail_directories", [])),
+                 "scheduled_card_ids": scheduled},
     }
 
 
