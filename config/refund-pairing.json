@@ -1,0 +1,8 @@
+{
+  "schema_version": "refund-pairing-v1",
+  "foreign_amount_pairing": {
+    "enabled": true,
+    "max_days_after_purchase": 365,
+    "rule": "승인번호가 없는 취소는 같은 카드·같은 가맹점명·같은 외화 통화·같은 외화 금액의 구매와 짝짓는다. 구매와 취소가 서로에게 하나씩만 맞고 구매가 취소보다 앞설 때만 짝이다. 원화 차이는 환율·수수료로 보고 잔액으로 남긴다."
+  }
+}
