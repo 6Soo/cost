@@ -1341,6 +1341,10 @@ class CardFlow:
             if not members <= ids or members & (blocking | set(active)):
                 for tid in members & ids:
                     holds.setdefault(tid, {'kind': 'refund_group_incomplete', 'reason': '원결제와 모든 환불을 함께 확인해야 합니다.'})
+        from app.partial_refund import count_held_cancellations
+        for tid in count_held_cancellations(self.board.conn):
+            if tid in ids and tid not in holds:
+                holds[tid] = {'kind': 'refund_count_group', 'reason': '같은 조건의 구매가 있지만 짝을 정하지 못한 취소라 개수를 명세와 맞춘 뒤 기록합니다.'}
         return holds
 
     def auto_record(self, batch_id):

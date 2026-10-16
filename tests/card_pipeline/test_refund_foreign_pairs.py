@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from app import partial_refund
-from app.partial_refund import refund_group, refund_links
+from app.partial_refund import count_held_cancellations, refund_group, refund_links
 
 
 @pytest.fixture
@@ -87,6 +87,22 @@ def test_a_numbered_refund_keeps_the_approval_number_rule(conn):
     add(conn, 'C', 'cancellation', -12000, '2026-04-05', original='A1', foreign='')
     link = refund_links(conn, ['C'])['C']
     assert link['original_id'] == 'P' and link['status'] == 'full'
+
+
+def test_cancellations_beyond_identical_purchases_are_held_as_a_count_group(conn):
+    add(conn, 'P', 'purchase', 12000, '2026-04-01')
+    add(conn, 'C1', 'cancellation', -12000, '2026-04-05')
+    add(conn, 'C2', 'cancellation', -12000, '2026-04-06')
+    add(conn, 'C3', 'cancellation', -12000, '2026-04-07')
+    assert set(count_held_cancellations(conn)) == {'C2', 'C3'}
+    assert count_held_cancellations(conn)['C2'] == {'purchases': 1, 'cancellations': 3}
+
+
+def test_a_cancellation_without_an_identical_purchase_or_with_a_number_is_not_held(conn):
+    add(conn, 'P', 'purchase', 12000, '2026-04-01', number='A1')
+    add(conn, 'N', 'cancellation', -12000, '2026-04-02', original='A1')
+    add(conn, 'X', 'cancellation', -9000, '2026-04-03')
+    assert count_held_cancellations(conn) == {}
 
 
 def test_a_purchase_already_paired_by_number_is_not_reused(conn):

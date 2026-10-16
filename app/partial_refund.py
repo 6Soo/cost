@@ -19,7 +19,7 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
-__all__ = ["refund_group", "refund_links"]
+__all__ = ["count_held_cancellations", "refund_group", "refund_links"]
 
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
@@ -130,17 +130,8 @@ def _day(value):
         return None
 
 
-def _foreign_links(conn, taken, requested=None) -> dict:
-    """{refund_transaction_id: link} for cancellations without an approval number, paired by foreign amount.
-
-    Purchases and cancellations with the same card, merchant, currency and foreign amount pair in date order, one
-    purchase for one cancellation: each cancellation takes the earliest open purchase that is not later than it and
-    within the window. The rows are identical, so the order changes no total. A cancellation with no open purchase
-    stays unpaired. `taken` holds purchases already paired by approval number; a pair never uses one of them."""
-    settings = _settings()
-    if not settings.get("enabled"):
-        return {}
-    window = int(settings["max_days_after_purchase"])
+def _foreign_pool(conn, taken) -> tuple:
+    """Purchases and cancellations that can pair by foreign amount, keyed by card, merchant, currency and amount."""
     rows = conn.execute(
         "SELECT transaction_id, transaction_direction, issuer, card_tail, merchant_normalized, amount_krw,"
         " foreign_amount, foreign_currency, COALESCE(NULLIF(approval_date,''),posting_date), original_approval_number"
@@ -161,6 +152,21 @@ def _foreign_links(conn, taken, requested=None) -> dict:
                 purchases.setdefault(key, []).append((tid, amount, when))
         elif not original:
             cancels.setdefault(key, []).append((tid, amount, when))
+    return purchases, cancels
+
+
+def _foreign_links(conn, taken, requested=None) -> dict:
+    """{refund_transaction_id: link} for cancellations without an approval number, paired by foreign amount.
+
+    Purchases and cancellations with the same card, merchant, currency and foreign amount pair in date order, one
+    purchase for one cancellation: each cancellation takes the earliest open purchase that is not later than it and
+    within the window. The rows are identical, so the order changes no total. A cancellation with no open purchase
+    stays unpaired. `taken` holds purchases already paired by approval number; a pair never uses one of them."""
+    settings = _settings()
+    if not settings.get("enabled"):
+        return {}
+    window = int(settings["max_days_after_purchase"])
+    purchases, cancels = _foreign_pool(conn, taken)
 
     links = {}
     for key, refunds in cancels.items():
@@ -181,3 +187,24 @@ def _foreign_links(conn, taken, requested=None) -> dict:
                 "basis": "merchant_card_foreign_amount",
             }
     return links
+
+
+def count_held_cancellations(conn) -> dict:
+    """{cancellation_id: counts} for identical cancellations left over while identical purchases exist.
+
+    Among identical rows the purchase a cancellation undoes is unknown, so these are not recorded one by one. They wait
+    as a count group until the statement's counts are checked."""
+    settings = _settings()
+    if not settings.get("enabled"):
+        return {}
+    taken = {link["original_id"] for link in _number_links(conn).values()}
+    purchases, cancels = _foreign_pool(conn, taken)
+    paired = _foreign_links(conn, taken)
+    held = {}
+    for key, refunds in cancels.items():
+        if not purchases.get(key):
+            continue
+        for refund_id, _amount, _when in refunds:
+            if refund_id not in paired:
+                held[refund_id] = {"purchases": len(purchases[key]), "cancellations": len(refunds)}
+    return held
