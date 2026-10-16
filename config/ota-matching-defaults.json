@@ -40,5 +40,6 @@
     "step_krw": -1000,
     "discount_cause_confirmed": false
   },
-  "provider_date_lag_days": {"minimum": -7, "maximum": 7}
+  "provider_date_lag_days": {"minimum": -7, "maximum": 7},
+  "portal_payment_date_required": true
 }

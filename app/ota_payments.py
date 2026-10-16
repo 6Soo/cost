@@ -799,6 +799,36 @@ def _eligible_cards(event, transactions, links=None, rules=None):
     return eligible
 
 
+def portal_payment_date_required():
+    """실제 결제일이 없는 포털 결제를 자동 연결에서 막을지 정한다. 소유자 2026-10-08 선택은 막는 쪽이다."""
+    return bool(load_defaults().get("portal_payment_date_required", True))
+
+
+def pair_check(event, row, rules=None):
+    """이벤트와 카드 행 한 쌍을 코어 규칙으로만 확인한다. 통과하면 None, 막히면 사유 코드를 돌려준다."""
+    rules = rules or []
+    if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
+        return "row_flagged"
+    paid_on = event.get("paid_on")
+    if not paid_on and portal_payment_date_required():
+        return "payment_date_unknown"
+    if not _strict_card_identity(event, row, rules):
+        return "card_identity"
+    expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
+    if _direction(row) != expected_direction:
+        return "direction"
+    if not _amount_matches(event, row, rules):
+        return "amount"
+    if paid_on and row.get("approval_date") != paid_on and not _approved_lag_match(event, row, rules):
+        return "date"
+    last4 = str(event.get("card_last4") or "")
+    if last4 and not str(row.get("card_tail") or row.get("card_last4") or "").endswith(last4):
+        return "card_identity"
+    if not _has_corroborator(event, row, rules):
+        return "corroboration"
+    return None
+
+
 def _assign_exact_first(events, options_by_event, *, unavailable=(), excluded_edges=()):
     """Maximize cardinality, then exact edges, then the approved stable order."""
     ordered_events = sorted(events, key=lambda item:(str(item.get("booking_ref") or ""),

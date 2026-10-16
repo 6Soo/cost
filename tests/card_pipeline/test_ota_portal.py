@@ -111,6 +111,10 @@ def test_mail_and_portal_disagreement_blocks_booking_and_old_trip_inference(tmp_
 
 @pytest.mark.parametrize('trip_end,expected_trip',[('2026-08-06',True),('2026-08-02',True),('2026-08-01',False)])
 def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monkeypatch,trip_end,expected_trip):
+    # 실제 결제일 없는 포털 결제를 자동 연결하던 이전 설계를 검사한다. 기본값은 날짜를 요구한다(test_ota_exact_gate).
+    from app import ota_payments
+    monkeypatch.setattr(ota_payments,'portal_payment_date_required',lambda:False)
+    (tmp_path/'no-mail').mkdir(exist_ok=True)
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
     from tests.card_pipeline.fixtures import make_csv,domestic_row
@@ -157,6 +161,10 @@ def test_card_flow_uses_portal_without_mail_and_keeps_user_answer(tmp_path,monke
 
 
 def test_canonical_conflict_refreshes_portal_cache_even_without_count_change(tmp_path,monkeypatch):
+    # 실제 결제일 없는 포털 결제를 자동 연결하던 이전 설계를 검사한다. 기본값은 날짜를 요구한다(test_ota_exact_gate).
+    from app import ota_payments
+    monkeypatch.setattr(ota_payments,'portal_payment_date_required',lambda:False)
+    (tmp_path/'no-mail').mkdir(exist_ok=True)
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
     from tests.card_pipeline.fixtures import make_csv,domestic_row
@@ -181,6 +189,10 @@ def test_canonical_conflict_refreshes_portal_cache_even_without_count_change(tmp
 
 @pytest.mark.parametrize('width,height',[(390,844),(1440,900)])
 def test_portal_evidence_and_classification_render_through_real_http(tmp_path,monkeypatch,width,height):
+    # 실제 결제일 없는 포털 결제를 자동 연결하던 이전 설계를 검사한다. 기본값은 날짜를 요구한다(test_ota_exact_gate).
+    from app import ota_payments
+    monkeypatch.setattr(ota_payments,'portal_payment_date_required',lambda:False)
+    (tmp_path/'no-mail').mkdir(exist_ok=True)
     import threading
     from unittest.mock import patch
     from playwright.sync_api import sync_playwright

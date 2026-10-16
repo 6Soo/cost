@@ -175,6 +175,10 @@ class CardFlowTests(unittest.TestCase):
         self.assertTrue(any('OTA 검토' in label for label in labels))
 
     def test_overwritten_mail_file_refreshes_cancellation_evidence(self):
+        # 메일 캐시와 취소 갱신만 검사한다. 정확 매칭 게이트는 test_ota_exact_gate.py에서 따로 확인한다.
+        gate=patch.dict(os.environ,{'WEBLEDGER_OTA_EXACT_GATE':'0'})
+        gate.start()
+        self.addCleanup(gate.stop)
         from tests.card_pipeline.test_booking_mail import message
         from tests.card_pipeline.test_ota_refresh import save
         batch=self.flow.pipeline.receive(CARD.replace('합성상점'.encode(),b'AGODA'),'synthetic-mail.csv')['batch_id']
@@ -214,6 +218,10 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], 0)
 
     def test_classification_and_review_share_evidence_without_repeated_mail_parsing(self):
+        # 메일 캐시와 취소 갱신만 검사한다. 정확 매칭 게이트는 test_ota_exact_gate.py에서 따로 확인한다.
+        gate=patch.dict(os.environ,{'WEBLEDGER_OTA_EXACT_GATE':'0'})
+        gate.start()
+        self.addCleanup(gate.stop)
         from app.ota_mail import match_mail
         from tests.card_pipeline.test_booking_mail import message
         from tests.card_pipeline.test_ota_refresh import save

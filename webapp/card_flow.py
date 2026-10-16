@@ -215,6 +215,16 @@ def _link_diagnosis_label(reason):
         'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
         'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
         'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
+        'payment_date_unknown': '결제일 근거 없음 · 날짜 확인 필요',
+        'card_identity': '카드 끝자리나 카드사가 맞지 않음 · 확인 필요',
+        'corroboration': '업체 근거(승인된 가맹점 별칭) 없음 · 확인 필요',
+        'date': '카드 날짜와 결제일이 맞지 않음 · 확인 필요',
+        'amount': '카드 금액과 결제 금액이 맞지 않음 · 확인 필요',
+        'direction': '거래 방향이 맞지 않음 · 확인 필요',
+        'row_flagged': '중복이나 오류가 있는 카드 거래 · 확인 필요',
+        'row_missing': '카드 거래 원본 없음 · 확인 필요',
+        'no_core_event': 'OTA 결제 자료와 연결되지 않음 · 확인 필요',
+        'evidence_unavailable': 'OTA 근거 자료를 읽지 못함 · 확인 필요',
     }
     return labels.get(reason, '예약 근거 확인 필요')
 
@@ -788,6 +798,22 @@ class CardFlow:
             })
         return rules
 
+    def _review_rules(self):
+        """검토 저장소에 사용자가 승인한 좁은 규칙. 경로가 없거나 읽을 수 없으면 비어 있다."""
+        from app import ota_review
+        from . import ota_payment_review
+        path = ota_payment_review.review_db_path()
+        if not path or not Path(path).is_file():
+            return []
+        try:
+            store = ota_review.OtaReviewStore(path)
+        except ValueError:
+            return []
+        try:
+            return store.active_rules()
+        finally:
+            store.close()
+
     def _booking_trip_rules(self):
         """사용자가 예약마다 고른 여행 배정. 검토 자료가 설정되지 않았거나 읽을 수 없으면 비어 있다."""
         from app import ota_review
@@ -1156,16 +1182,20 @@ class CardFlow:
             key=lambda stamp: stamp['path']))
         columns=('transaction_id','source_hash','merchant','merchant_normalized','card_kind','card_tail',
                  'transaction_direction','approval_date','amount_krw','foreign_currency','foreign_amount',
-                 'duplicate_of','parse_error','conflict_reason')
+                 'duplicate_of','parse_error','conflict_reason','issuer','approval_number')
+        from app import ota_exact
         with self.board._lock:
             rows=[tuple(row) for row in self.board.conn.execute(
                 'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
+            open_ids=sorted(ota_exact.open_transaction_ids(self.board.conn))
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
+        # 장부 기록 여부가 게이트 결과를 바꾸므로 열린 거래 집합도 지문에 넣는다.
+        open_digest=hashlib.sha256(json.dumps(open_ids,separators=(',',':')).encode()).hexdigest()
         # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
         key = (str([str(path) for path in mail_dirs]),
                str([str(path) for path in portal_dbs]),
                str([str(path) for path in sources['reference_documents']]),
-               sources['manifest_stamp'], stamps, fingerprint)
+               sources['manifest_stamp'], stamps, fingerprint, open_digest)
         cache=getattr(self.board,'_card_review_mail_cache',None)
         if cache and cache.get('key')==key:
             return cache['report']
@@ -1176,6 +1206,14 @@ class CardFlow:
                 return cache['report']
             transactions=[dict(zip(columns,row)) for row in rows]
             report=extend_report(match_mail(mail_dirs,transactions,source_key=repr(stamps)),portal_dbs,transactions)
+            import sqlite3
+            from app import ota_payments
+            try:
+                events=ota_payments.build_ota_payment_events(sources)
+            except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):
+                events=None
+            report=ota_exact.apply_gate(report,transactions,events=events,rules=self._review_rules(),
+                                        open_ids=set(open_ids))
             references = load_reference_documents(sources['reference_documents'])
             report['reference_sources']=references
             report['ota_source_inventory']={
