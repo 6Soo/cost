@@ -680,6 +680,7 @@ class CardFlow:
                 if f.get('reservation_status')=='cancelled' or f.get('period_conflict')}
             blocked_inference_sources.update(f['source_hash'] for f in report.get('type_only_candidates',[])
                                              if not f.get('shared_period'))
+            blocked_inference_sources.update(report.get('evidence_gate',{}).get('blocked_inference_sources',()))
             evidence={f['source_hash']:f for f in report['matches']}
             evidence.update({f['source_hash']:dict(f,period=f.get('shared_period'))
                              for f in report.get('type_only_candidates',[])})

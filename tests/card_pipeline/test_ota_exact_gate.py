@@ -134,3 +134,14 @@ def test_portal_payment_without_a_date_is_refused_by_default_and_allowed_only_wh
     monkeypatch.setattr(ota_payments, 'portal_payment_date_required', lambda: False)
     assert ota_payments.pair_check(portal, row()) is None
     assert ota_payments.pair_check(portal, row(card_tail='3820')) == 'card_identity'
+
+
+def test_refused_match_with_a_known_stay_blocks_inference_but_one_without_a_stay_does_not():
+    stay = dict(starts_on='2026-08-06', ends_on='2026-08-12')
+    with_stay = dict(transaction_id='t1', source_hash='a' * 64, provider='agoda', booking_ref='B1', item='숙박비', period=stay)
+    without_stay = dict(transaction_id='t2', source_hash='b' * 64, provider='agoda', booking_ref='B2', item='숙박비')
+    report = gate_report(with_stay, without_stay)
+    events = [charge(paid_on=None), charge(booking_ref='B2', paid_on=None)]
+    result = ota_exact.apply_gate(report, [row('t1'), row('t2')], events=events, rules=[], open_ids={'t1', 't2'})
+    assert result['matches'] == []
+    assert result['evidence_gate']['blocked_inference_sources'] == ['a' * 64]

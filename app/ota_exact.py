@@ -63,6 +63,8 @@ def apply_gate(report, transactions, *, events, rules, open_ids):
     rows = {str(row.get('transaction_id')): row for row in transactions}
     charges = None if events is None else _paid_charges(events)
     dropped = {}
+    # 이용기간을 아는 예약은 결제 월로 다른 여행을 고르지 않는다. 막힌 연결의 추론 배정도 함께 막는다.
+    blocked_inference = set()
     kept = []
     checked = 0
     for match in report.get('matches', []):
@@ -77,6 +79,8 @@ def apply_gate(report, transactions, *, events, rules, open_ids):
         else:
             dropped.setdefault(match.get('source_hash'), dict(transaction_id=tid, source_hash=match.get('source_hash'),
                                                               provider=match.get('provider'), reason=reason))
+            if match.get('period'):
+                blocked_inference.add(match.get('source_hash'))
     kept_type = []
     for candidate in report.get('type_only_candidates', []):
         tid = str(candidate.get('transaction_id'))
@@ -92,6 +96,7 @@ def apply_gate(report, transactions, *, events, rules, open_ids):
             if reason:
                 dropped.setdefault(candidate.get('source_hash'), dict(transaction_id=tid,
                                    source_hash=candidate.get('source_hash'), provider=provider, reason=reason))
+                blocked_inference.add(candidate.get('source_hash'))
                 continue
         kept_type.append(candidate)
     report['matches'] = kept
@@ -111,5 +116,6 @@ def apply_gate(report, transactions, *, events, rules, open_ids):
     report['exact_matches'] = len(kept)
     report['type_only_matches'] = len(kept_type)
     report['unmatched_reason_counts'] = dict(Counter(row['reason'] for row in report['unmatched_transactions']))
-    report['evidence_gate'] = dict(checked=checked, dropped=list(dropped.values()))
+    report['evidence_gate'] = dict(checked=checked, dropped=list(dropped.values()),
+                                   blocked_inference_sources=sorted(blocked_inference))
     return report
