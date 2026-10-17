@@ -1931,22 +1931,19 @@ def render_expense_cleanup(board, csrf, *, page=1):
     ledger_offset = max(0, offset - card_total)
     ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
-    evidence_index = None
-    if any(row[6] == 'booking_evidence_needed' or _is_ota_row({'merchant': row[3]}) for row in rows_card):
-        from app import booking_evidence
-        from . import ota_catalog
-        evidence_index = booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
     ota_by_card = _ota_entries_by_card(board)
     for tid, batch, day, merchant, amount, item, source, revision, held, conflict_reason, parse_error in rows_card:
+        detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
         if entry is not None:
             reason = ota_catalog_summary(entry)
             evidence = _catalog_block(entry)
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
-            evidence = (_evidence_block(evidence_index, amount, day)
-                        if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else '')
-        detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
+            evidence = (
+                f"<p class='cleanup-evidence-none'>예약 근거는 <a href='{esc(detail)}'>상세 검토</a>에서 확인해 주세요.</p>"
+                if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
+            )
         if conflict_reason or parse_error:
             protected = (f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
                          f"{esc(conflict_reason or parse_error)} · <a href='{esc(detail)}'>상세 검토</a></p>")

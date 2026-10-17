@@ -193,6 +193,33 @@ def test_cleanup_counts_all_cards_but_renders_only_one_page(tmp_path, monkeypatc
         board.close()
 
 
+def test_cleanup_does_not_build_booking_mail_index_during_initial_render(tmp_path, monkeypatch):
+    from app import booking_evidence
+
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-ota-lazy.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 1)
+        tid = rows[0]['transaction_id']
+        board.conn.execute(
+            "UPDATE transactions SET merchant='AGODA.COM', classification_source='booking_evidence_needed' "
+            "WHERE transaction_id=?",
+            (tid,),
+        )
+        board.conn.commit()
+
+        def fail_if_built(*_args, **_kwargs):
+            raise AssertionError('booking mail index was built during initial cleanup render')
+
+        monkeypatch.setattr(booking_evidence, 'build_index', fail_if_built)
+        html = render_expense_cleanup(board, 'token')
+        assert f"data-transaction='{tid}'" in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_cleanup_keeps_source_conflicts_visible_for_review(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'cleanup-conflict.sqlite', seed_demo=False)
