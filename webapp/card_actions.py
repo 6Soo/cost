@@ -3,9 +3,9 @@ from urllib.parse import urlencode
 from app import quarter_costs
 
 
-#: The four states a person sees for a card row, whichever screen shows it.
-GROUP_LABELS = {'ready': '기록 가능', 'review': '확인 필요', 'booked': '기록 완료', 'excluded': '기록 제외'}
-GROUP_OF_STATUS = {'기록 가능': 'ready', '기록 완료': 'booked', '기존 기록': 'booked',
+#: The visible states a person sees for a card row, whichever screen shows it.
+GROUP_LABELS = {'review': '확인 필요', 'booked': '기록 완료', 'excluded': '기록 제외'}
+GROUP_OF_STATUS = {'기록 완료': 'booked', '기존 기록': 'booked',
                    '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
 
 
@@ -13,8 +13,11 @@ def next_action(row, preview=None, extra_hold=None):
     preview = preview or {}
     href = '/import?' + urlencode({'batch': row['batch_id'], 'transaction': row['transaction_id']})
     def action(status, label, reason='', required=True, target=None):
-        return dict(status=status, label=label, reason=reason, required=required, href=target or href,
-                    group=GROUP_OF_STATUS.get(status, 'review'))
+        result = dict(status=status, label=label, reason=reason, required=required, href=target or href)
+        group = GROUP_OF_STATUS.get(status, 'review' if required else None)
+        if group:
+            result['group'] = group
+        return result
     if preview.get('already_booked'):
         return action('기록 완료', '장부 보기', required=False,
                       target='/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified',
@@ -48,4 +51,4 @@ def next_action(row, preview=None, extra_hold=None):
         return action('확인 필요', '문제 확인', preview.get('reason') or '배정 내용을 확인해 주세요.')
     if row.get('classification_state') not in ('classified',):
         return action('분류 확인 필요', '분류 확인', '비용 항목과 배정 내용을 확인해 주세요.')
-    return action('기록 가능', '처리 결과 확인', required=False)
+    return action('', '처리 결과 확인', required=False)

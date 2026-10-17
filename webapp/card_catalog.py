@@ -8,7 +8,7 @@ from app.db import decided_sql
 from . import ui_icons
 
 PAGE_SIZE = 50
-STATES = {'needs_review': '확인 필요', 'classified': '기록 가능', 'booked': '기록 완료',
+STATES = {'needs_review': '확인 필요', 'booked': '기록 완료',
           'preserved': '기존 보존'}
 TRADE_DATE = "COALESCE(NULLIF(t.approval_date,''),t.posting_date)"
 
@@ -210,15 +210,15 @@ def render_html(data, query, *, csrf=''):
         from .card_actions import next_action
         action = r.get('next_action') or next_action(r)
         from .card_actions import GROUP_LABELS
-        state = GROUP_LABELS[action.get('group', 'review')]
+        state = GROUP_LABELS.get(action.get('group'), '')
         if r['decided']:
-            state += ' · 직접 분류'
+            state += (' · ' if state else '') + '직접 분류'
         if r['duplicate_of']:
-            state += ' · 중복'
+            state += (' · ' if state else '') + '중복'
         if r['company_excluded']:
-            state += ' · 회사 경비 제외'
+            state += (' · ' if state else '') + '회사 경비 제외'
         if r['conflict_reason'] or r['parse_error']:
-            state += ' · 오류 확인'
+            state += (' · ' if state else '') + '오류 확인'
         direction = {'purchase': '결제', 'cancellation': '취소', 'refund': '환불'}.get(
             r['transaction_direction'], r['transaction_direction'])
         amount = f"{r['amount_krw']:,}원" if type(r['amount_krw']) is int else '금액 미확인'

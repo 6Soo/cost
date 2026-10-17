@@ -22,7 +22,7 @@
 
 자동 분류 결과와 사용자 답변 결과를 미리 보여 준다. 원본 오류와 충돌, 무효 여행 배정은 기록 대상에서 제외한다. 사용자 기록 버튼이 최종 승인이다. 장부 반영 실패는 거래 상태와 영수증과 장부와 감사 이력을 함께 되돌린다. 같은 요청을 재시도해도 장부가 늘지 않는다.
 
-홈은 카드, 정리할 지출, 장부 건수만 표시한다. 기록 가능한 카드 거래의 사용자 표시 상태는 `기록 가능`이며, 실제 장부 기록 여부는 `ledger_entries` 근거로 판정한다.
+홈은 카드, 정리할 지출, 장부 건수만 표시한다. 정상 분류됐지만 아직 장부에 기록되지 않은 카드 거래에는 별도 상태명을 표시하지 않는다. 실제 장부 기록 여부는 `ledger_entries` 근거로 판정한다.
 
 카드 검토의 OTA 예약번호와 이용기간은 기존 대조 report에서 가져온다. `CardFlow.preview_metadata()`가 한 미리보기 요청에서 같은 report를 재사용하며, `entry_metadata`로 미리보기 행에 연결한다. `ledger-preview-v2` digest는 `booking_ref`, `service_period`, `ota_evidence`까지 보호한다. 기록 요청은 새 resolver로 미리보기를 다시 계산하고 digest를 비교한 뒤 그 행을 그대로 projection한다. 예약번호는 `board_rows` payload의 `reservation_no`에, 이용기간은 `service_period`에 저장하고 근거 digest는 기존 `classification_basis`에 OTA 출처로 보존한다. `ledger_entries` 스키마는 확장하지 않는다. 자세한 확정·모호성 조건은 [OTA 문서](ota_mail.md)를 따른다.
 

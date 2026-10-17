@@ -66,12 +66,12 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                 self.assertGreaterEqual(panel['x'], 0)
                 self.assertLessEqual(panel['x'] + panel['width'], width)
                 with page.expect_navigation():
-                    page.get_by_role('button', name='기록 가능', exact=True).click()
-                self.assertEqual(page.locator('input[name="state"]').input_value(), 'classified')
+                    page.get_by_role('button', name='확인 필요', exact=True).click()
+                self.assertEqual(page.locator('input[name="state"]').input_value(), 'needs_review')
                 self.assertEqual(page.get_by_label('카드 거래 검색').input_value(), 'no match')
                 self.assertEqual(page.locator('input[name="month"]').input_value(), '2026-02')
                 self.assertIn('검색 결과 0건', page.inner_text('#card-count'))
-                self.assertIn('기록 가능', page.get_by_role('button', name='상태', exact=True).inner_text())
+                self.assertIn('확인 필요', page.get_by_role('button', name='상태', exact=True).inner_text())
                 context.close()
         self.assertEqual(conn.total_changes, before)
 
