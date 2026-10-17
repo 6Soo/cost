@@ -312,7 +312,7 @@ def batch_catalog(board):
             "SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
-            "AND t.classification_state!='booked' " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
+            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END) AS questions "
             "FROM import_batches b JOIN import_batch_rows x ON x.batch_id=b.batch_id "
             "JOIN transactions t ON t.transaction_id=x.transaction_id "
             "WHERE t.classification_state!='preserved' "
@@ -342,7 +342,7 @@ def home_page(board):
             "SELECT COUNT(*),COALESCE(SUM(CASE WHEN (t.classification_state='needs_review' OR "
             "(t.classification_source='inference' AND t.classification_basis LIKE ?)) "
             "AND NOT " + decided_sql('t') + " AND COALESCE(t.duplicate_of,'')='' "
-            "AND t.classification_state!='booked' " + hold_filter + "THEN 1 ELSE 0 END),0) "
+            "AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) " + hold_filter + "THEN 1 ELSE 0 END),0) "
             "FROM transactions t WHERE t.classification_state!='preserved' "
             "AND (?='' OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)='' "
             "OR COALESCE(NULLIF(t.approval_date,''),t.posting_date)>=?)",
@@ -1306,7 +1306,7 @@ class CardFlow:
         rows = self.pipeline.get_batch(batch_id)['rows']
         for row in rows:
             tid = row['transaction_id']
-            if row.get('classification_state') not in ('classified', 'booked'):
+            if row.get('classification_state') != 'classified':
                 holds.setdefault(tid, {'kind': 'classification_needed', 'reason': '비용 항목과 배정 내용을 확인해 주세요.'})
             elif not row.get('display_tab_id') or row['display_tab_id'] == 'unclassified':
                 if not quarter_costs.destination(row):
@@ -1638,7 +1638,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
             elif parsed.path == '/import':
                 body = page(csrf)
-                cleanup = render_expense_cleanup(board, csrf)
+                try:
+                    cleanup_page = int(((query or {}).get('cleanup_page') or ['1'])[0])
+                except (TypeError, ValueError):
+                    cleanup_page = 1
+                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page)
                 body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
                 body = body.replace('</main>', '</details></main>', 1)
                 if ota_payment_review.enabled():
@@ -1785,15 +1789,15 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
   const request=isCard?fetch('/api/imports/'+encodeURIComponent(item.dataset.batch)+'/decision',{method:'POST',
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
       body:JSON.stringify({transaction_id:item.dataset.transaction,revision:Number(item.dataset.revision),item:form.querySelector('input[name=item]').value.trim(),
-        description:'',display_tab_id:select.value,note:'지출 정리',reuse_rule:false,resolve_hold:item.dataset.held==='1',request_id:crypto.randomUUID().replace(/-/g,'')})})
+        description:'',display_tab_id:select.value,note:'지출 정리',reuse_rule:false,request_id:crypto.randomUUID().replace(/-/g,'')})})
     :fetch('/api/rows/'+encodeURIComponent(item.dataset.rowId)+'/save',{method:'POST',
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
       body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
   try{const response=await request;const result=await response.json().catch(()=>({}));
     if(!response.ok)throw Error(result.message||'저장하지 못했어요');
-    item.remove();const left=document.querySelectorAll('.cleanup-row').length;
-    document.getElementById('cleanup-count').textContent=left+'건';
-    if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">정리할 지출이 없습니다.</li>';
+    item.remove();const counter=document.getElementById('cleanup-count'),left=document.querySelectorAll('.cleanup-row').length;
+    const total=Math.max(0,Number(counter.dataset.total||0)-1);counter.dataset.total=String(total);counter.textContent=total+'건';
+    if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
   }catch(err){button.disabled=false;error.textContent=err.message}
 }))})();"""
 
@@ -1801,17 +1805,31 @@ CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이
                'travel_location_hold': '사용 국가와 명시 여행이 맞는지 확인해 주세요'}
 
 
-def _cleanup_card_items(board):
-    """장부에 아직 없는 카드 거래. 분류만 끝나고 기록이 막힌 거래도 여기서 여행을 고르면 한 번에 배정·기록된다. 중복·충돌·제외 거래는 뺀다."""
+_CLEANUP_PAGE_SIZE = 20
+
+
+def _cleanup_card_where():
+    return (
+        " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
+        " WHERE t.classification_state IN ('needs_review','classified','booked') AND COALESCE(t.duplicate_of,'')=''"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
+        " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+    )
+
+
+def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0):
+    """장부에 아직 없는 카드 거래를 한 페이지씩 읽는다. 충돌 거래도 숨기지 않고 검토 대상으로 보여 준다."""
     return board.conn.execute(
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
         " t.amount_krw, t.item, t.classification_source, t.revision,"
-        " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
-        " FROM transactions t JOIN import_batch_rows r ON r.transaction_id=t.transaction_id"
-        " WHERE t.classification_state IN ('needs_review','classified') AND COALESCE(t.duplicate_of,'')='' AND COALESCE(t.conflict_reason,'')=''"
-        " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
-        " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
-        " GROUP BY t.transaction_id ORDER BY 3 DESC LIMIT 300").fetchall()
+        " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
+        " t.conflict_reason, t.parse_error" + _cleanup_card_where() +
+        " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+
+
+def _cleanup_card_count(board):
+    return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
 
 
 def _evidence_block(index, amount, day):
@@ -1847,11 +1865,9 @@ def prewarm_booking_evidence(board):
 
 def cleanup_total(board) -> int:
     """정리할 지출 건수. 지출 정리 목록과 메인 화면이 같은 기준으로 센다."""
-    cards = _cleanup_card_items(board)
-    booked = CardFlow(board).projected_ids([(r[0], r[4], r[2]) for r in cards])
     unassigned = board.conn.execute(
         "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL").fetchone()[0]
-    return sum(1 for r in cards if r[0] not in booked) + unassigned
+    return _cleanup_card_count(board) + unassigned
 
 
 def _ota_entries_by_card(board) -> dict:
@@ -1890,7 +1906,7 @@ def _catalog_block(entry) -> str:
             f"<ul>{items}</ul></details>")
 
 
-def render_expense_cleanup(board, csrf):
+def render_expense_cleanup(board, csrf, *, page=1):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board, ota_catalog
     if ledger_board.current_role() != 'owner':
@@ -1902,18 +1918,26 @@ def render_expense_cleanup(board, csrf):
                    key=lambda t: t.get('starts_on') or '', reverse=True)
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
+    card_total = _cleanup_card_count(board)
+    ledger_total = board.conn.execute(
+        "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL").fetchone()[0]
+    total = card_total + ledger_total
+    pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
+    page = min(max(1, int(page or 1)), pages)
+    offset = (page - 1) * _CLEANUP_PAGE_SIZE
+    card_offset = min(offset, card_total)
+    card_limit = max(0, min(_CLEANUP_PAGE_SIZE, card_total - card_offset)) if offset < card_total else 0
+    rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset) if card_limit else []
+    ledger_offset = max(0, offset - card_total)
+    ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
-    rows_card = _cleanup_card_items(board)
     evidence_index = None
     if any(row[6] == 'booking_evidence_needed' or _is_ota_row({'merchant': row[3]}) for row in rows_card):
         from app import booking_evidence
         from . import ota_catalog
         evidence_index = booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
-    booked = flow.projected_ids([(row[0], row[4], row[2]) for row in rows_card])
     ota_by_card = _ota_entries_by_card(board)
-    for tid, batch, day, merchant, amount, item, source, revision, held in rows_card:
-        if tid in booked:
-            continue  # 이미 장부에 있는 거래라 정리할 것이 없다.
+    for tid, batch, day, merchant, amount, item, source, revision, held, conflict_reason, parse_error in rows_card:
         entry = ota_by_card.get(tid)
         if entry is not None:
             reason = ota_catalog_summary(entry)
@@ -1922,17 +1946,27 @@ def render_expense_cleanup(board, csrf):
             reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
             evidence = (_evidence_block(evidence_index, amount, day)
                         if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else '')
+        detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
+        if conflict_reason or parse_error:
+            protected = (f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
+                         f"{esc(conflict_reason or parse_error)} · <a href='{esc(detail)}'>상세 검토</a></p>")
+        elif held:
+            protected = (f"<p class='cleanup-protected'>보류 중 · 보류 해제는 상세 검토에서 별도로 확인해 주세요. "
+                         f"<a href='{esc(detail)}'>상세 검토</a></p>")
+        else:
+            protected = (f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
+                         f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
+                         "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form>")
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
             f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
             f"<small>{esc(day or '')} · {esc(reason)}</small>{evidence}</div>"
-            f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
-            f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
-            "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
+            f"{protected}</li>")
     ledger = board.conn.execute(
         "SELECT row_id, revision, payload_json FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL"
-        " ORDER BY json_extract(payload_json,'$.occurred_on') DESC").fetchall()
+        " ORDER BY json_extract(payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
+        (ledger_limit, ledger_offset)).fetchall() if ledger_limit else []
     for row_id, revision, payload in ledger:
         record = json.loads(payload)
         items.append(
@@ -1953,15 +1987,21 @@ def render_expense_cleanup(board, csrf):
              "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
              "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
              "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}"
+             "#expense-cleanup .cleanup-protected{margin:8px 0 0;color:#657068}"
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
              "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}</style>")
     note = ("<p class='muted'>예약 근거를 다시 계산하고 있어요. 잠시 뒤 새로고침하면 최신 근거가 보입니다.</p>"
             if ota_catalog.rebuilding() else '')
+    nav = ''
+    if pages > 1:
+        previous = (f"<a href='/import?cleanup_page={page - 1}'>이전 20건</a>" if page > 1 else '<span>이전 20건</span>')
+        following = (f"<a href='/import?cleanup_page={page + 1}'>다음 20건</a>" if page < pages else '<span>다음 20건</span>')
+        nav = f"<nav class='cleanup-pages'><p class='muted'>{total}건을 20건씩 봅니다 · {page}/{pages}페이지</p>{previous} · {following}</nav>"
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>정리할 지출 <span id='cleanup-count'>{len(items)}건</span></h2>{note}"
+            f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{note}"
             f"<template id='cleanup-trip-options'>{options}</template>"
-            f"<ul class='cleanup-list'>{body}</ul>"
+            f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
 
 

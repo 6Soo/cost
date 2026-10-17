@@ -694,12 +694,13 @@ def _card_states(board, transaction_ids):
     with board._lock:
         rows = board.conn.execute(
             f"SELECT t.transaction_id,b.batch_id,t.merchant,t.approval_date,t.posting_date,t.amount_krw,"
-            f"t.classification_state,t.display_tab_id,t.item,{decided_sql('t')} "
+            f"t.classification_state,t.display_tab_id,t.item,{decided_sql('t')},"
+            f"EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id) "
             f"FROM transactions t LEFT JOIN import_batch_rows b ON b.transaction_id=t.transaction_id "
             f"WHERE t.transaction_id IN ({marks})", list(transaction_ids)).fetchall()
     return {row[0]: {'batch_id': row[1] or '', 'merchant': row[2] or '', 'day': row[3] or row[4] or '',
                      'amount_krw': row[5], 'state': row[6] or '', 'tab': row[7] or '', 'item': row[8] or '',
-                     'decided': bool(row[9])} for row in rows}
+                     'decided': bool(row[9]), 'already_booked': bool(row[10])} for row in rows}
 
 
 def _state_label(card):
@@ -707,7 +708,7 @@ def _state_label(card):
         return '카드 자료에서 찾지 못함'
     if card['decided']:
         return '사용자가 지출 정리에서 정한 거래 · 예약 배정 적용 안 됨'
-    if card['state'] == 'booked':
+    if card.get('already_booked'):
         return '장부 기록됨'
     if card['state'] == 'classified':
         return '분류됨' + (f" · {card['tab']}" if card['tab'] and card['tab'] != 'unclassified' else '')

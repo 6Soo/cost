@@ -2,7 +2,7 @@
 import json
 
 from webapp import card_catalog, ledger_board, ledger_design
-from webapp.card_flow import PAGE, render_expense_cleanup
+from webapp.card_flow import PAGE, cleanup_total, render_expense_cleanup
 from webapp.ledger_store import LedgerStore
 
 
@@ -14,6 +14,24 @@ def unassigned_row(board, row_id='expense-cleanup-1'):
                'confirmed_by': 'owner', 'event_kind': '', 'source_card_last4': '', 'source_approval_number': ''}
     board.conn.execute("INSERT INTO board_rows VALUES (?,?,?,?,?)",
                        (row_id, 'expense', None, 1, json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+
+
+def card_rows(board, count):
+    from webapp.card_flow import CardFlow
+    header = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
+              'Date,Post Date,Authorization Code,Cancel,Status\n')
+    lines = ''.join(
+        f'국민,1234,domestic,purchase,합성상점{index},5000,,,5000,2026-10-03,2026-10-04,A{index:05d},,매입\n'
+        for index in range(count)
+    )
+    flow = CardFlow(board)
+    batch = flow.pipeline.receive((header + lines).encode(), 'cleanup-synthetic.csv')['batch_id']
+    board.conn.execute(
+        "UPDATE transactions SET classification_state='classified', item='소모품' WHERE batch_id=?",
+        (batch,),
+    )
+    board.conn.commit()
+    return flow, batch, flow.pipeline.get_batch(batch)['rows']
 
 
 def test_unassigned_expense_is_listed_and_leaves_the_list_once_assigned(tmp_path):
@@ -157,3 +175,86 @@ def test_the_trip_list_is_written_once_and_each_row_gets_only_its_placeholder(tm
     finally:
         ledger_board.bind_store(None)
         board.conn.close()
+
+
+def test_cleanup_counts_all_cards_but_renders_only_one_page(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-page.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        card_rows(board, 301)
+        assert cleanup_total(board) == 301
+        html = render_expense_cleanup(board, 'token')
+        assert html.count("class='cleanup-row'") == 20
+        assert "id='cleanup-count' data-total='301'>301건" in html
+        assert '다음 20건' in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
+def test_cleanup_keeps_source_conflicts_visible_for_review(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-conflict.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 1)
+        tid = rows[0]['transaction_id']
+        board.conn.execute("UPDATE transactions SET conflict_reason='synthetic conflict' WHERE transaction_id=?", (tid,))
+        board.conn.commit()
+        html = render_expense_cleanup(board, 'token')
+        assert f"data-transaction='{tid}'" in html
+        assert '원본 충돌' in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
+def test_cleanup_trip_choice_never_auto_resolves_a_review_hold(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-hold.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 1)
+        row = rows[0]
+        board.conn.execute(
+            'INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+            (row['transaction_id'], row['source_hash'], 'evidence_pending', 'receipt check'),
+        )
+        board.conn.commit()
+        html = render_expense_cleanup(board, 'token')
+        assert "data-held='1'" in html
+        assert "resolve_hold:item.dataset.held==='1'" not in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
+def test_booked_state_without_a_ledger_entry_is_not_reported_as_recorded(tmp_path, monkeypatch):
+    from webapp.card_actions import next_action
+    from webapp import ota_catalog
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'booked-state.sqlite', seed_demo=False)
+    try:
+        flow, batch, rows = card_rows(board, 1)
+        tid = rows[0]['transaction_id']
+        board.conn.execute("UPDATE transactions SET classification_state='booked' WHERE transaction_id=?", (tid,))
+        board.conn.commit()
+        row = flow.pipeline.get_batch(batch)['rows'][0]
+        row['batch_id'] = batch
+        assert board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (tid,)).fetchone() is None
+        assert next_action(row, {'already_booked': False})['group'] != 'booked'
+        card = ota_catalog._card_states(board, [tid])[tid]
+        assert not card['already_booked'] and ota_catalog._state_label(card) != '장부 기록됨'
+
+        board.conn.execute(
+            "INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) "
+            "SELECT transaction_id,batch_id,item,'','unclassified','',amount_krw,merchant,approval_date,transaction_direction,source_hash,'2026-10-17T00:00:00Z' "
+            "FROM transactions WHERE transaction_id=?",
+            (tid,),
+        )
+        board.conn.commit()
+        card = ota_catalog._card_states(board, [tid])[tid]
+        assert card['already_booked']
+    finally:
+        board.close()

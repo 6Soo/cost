@@ -59,6 +59,23 @@ def _decision_rows(store, batch_id: str):
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
 
 
+def _recording_guard(*, source_hash, state, conflict_reason, parse_error, exclusion=None, hold=None):
+    """Common source/review guards that must block every path into ledger_entries."""
+    if exclusion and exclusion['source_hash'] != source_hash:
+        return 'exclusion_source_changed', '회사 경비 제외를 확인한 원본이 달라 다시 검토해야 합니다'
+    if exclusion and exclusion['excluded']:
+        return 'company_excluded', '사용자가 회사 경비에서 제외했습니다'
+    if hold:
+        return 'review_hold', hold['reason']
+    if conflict_reason:
+        return 'source_conflict', conflict_reason
+    if parse_error:
+        return 'amount_unreadable', parse_error
+    if state != 'classified':
+        return 'needs_review', '분류가 끝나지 않아 장부에 기록하지 않아요'
+    return None
+
+
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
              additional_holds=None, group_original=None) -> dict:
@@ -118,34 +135,18 @@ def preview(store, batch_id: str, *, trip_validator=None,
         exclusion = exclusions.get(transaction_id)
         entry['exclusion_revision'] = exclusion['revision'] if exclusion else 0
         entry['excluded_from_company'] = bool(exclusion and exclusion['excluded'])
-        if exclusion and exclusion['source_hash'] != source_hash:
-            entry['blocked'] = 'exclusion_source_changed'
-            entry['reason'] = '회사 경비 제외를 확인한 원본이 달라 다시 검토해야 합니다'
-            unresolved.append(entry)
-            rows.append(entry)
-            continue
-        if entry['excluded_from_company']:
-            entry['blocked'] = 'company_excluded'
-            entry['reason'] = '사용자가 회사 경비에서 제외했습니다'
-            rows.append(entry)
-            continue
-        if transaction_id in holds:
-            entry['blocked']='review_hold'
-            entry['review_hold']=holds[transaction_id]
-            entry['reason']=holds[transaction_id]['reason']
-            unresolved.append(entry)
-            rows.append(entry)
-            continue
-        if conflict_reason:
-            entry["blocked"] = "source_conflict"
-            entry["reason"] = conflict_reason
-            conflicts.append(entry)
-            rows.append(entry)
-            continue
-        if parse_error:
-            entry["blocked"] = "amount_unreadable"
-            entry["reason"] = parse_error
-            unresolved.append(entry)
+        hold = holds.get(transaction_id)
+        blocked = _recording_guard(source_hash=source_hash, state=state,
+                                   conflict_reason=conflict_reason, parse_error=parse_error,
+                                   exclusion=exclusion, hold=hold)
+        if blocked:
+            entry['blocked'], entry['reason'] = blocked
+            if hold:
+                entry['review_hold'] = hold
+            if entry['blocked'] == 'source_conflict':
+                conflicts.append(entry)
+            elif entry['blocked'] != 'company_excluded':
+                unresolved.append(entry)
             rows.append(entry)
             continue
         if amount_krw is None:
@@ -157,12 +158,6 @@ def preview(store, batch_id: str, *, trip_validator=None,
         if not approval_date or not merchant:
             entry['blocked'] = 'source_fields_missing'
             entry['reason'] = '원본의 거래일과 가맹점을 확인해 주세요'
-            unresolved.append(entry)
-            rows.append(entry)
-            continue
-        if state != 'classified':
-            entry["blocked"] = "needs_review"
-            entry["reason"] = "분류가 끝나지 않아 장부에 기록하지 않아요"
             unresolved.append(entry)
             rows.append(entry)
             continue

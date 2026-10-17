@@ -15,7 +15,7 @@ def next_action(row, preview=None, extra_hold=None):
     def action(status, label, reason='', required=True, target=None):
         return dict(status=status, label=label, reason=reason, required=required, href=target or href,
                     group=GROUP_OF_STATUS.get(status, 'review'))
-    if preview.get('already_booked') or row.get('classification_state') == 'booked':
+    if preview.get('already_booked'):
         return action('기록 완료', '장부 보기', required=False,
                       target='/board?' + urlencode({'tab': row.get('display_tab_id') or 'unclassified',
                                                     'row': 'card-' + row['transaction_id']}))

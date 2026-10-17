@@ -14,11 +14,16 @@ class FakeStore:
             CREATE TABLE transactions(transaction_id TEXT PRIMARY KEY, batch_id TEXT, source_hash TEXT,
               merchant TEXT, approval_date TEXT, posting_date TEXT, amount_krw INTEGER,
               transaction_direction TEXT, card_tail TEXT, item TEXT, display_tab_id TEXT, trip_id TEXT,
-              classification_source TEXT, decided_at TEXT, duplicate_of TEXT, classification_state TEXT);
+              classification_source TEXT, decided_at TEXT, duplicate_of TEXT, classification_state TEXT,
+              conflict_reason TEXT NOT NULL DEFAULT '', parse_error TEXT NOT NULL DEFAULT '');
             CREATE TABLE ledger_entries(transaction_id TEXT NOT NULL UNIQUE, batch_id TEXT NOT NULL, item TEXT NOT NULL,
               description TEXT NOT NULL, display_tab_id TEXT NOT NULL, trip_id TEXT NOT NULL DEFAULT '',
               amount_krw INTEGER, merchant TEXT NOT NULL, occurred_on TEXT NOT NULL,
               transaction_direction TEXT NOT NULL, source_hash TEXT NOT NULL, committed_at TEXT NOT NULL);
+            CREATE TABLE transaction_review_holds(transaction_id TEXT PRIMARY KEY, source_hash TEXT NOT NULL,
+              kind TEXT NOT NULL, reason TEXT NOT NULL);
+            CREATE TABLE transaction_company_exclusions(transaction_id TEXT PRIMARY KEY, source_hash TEXT NOT NULL,
+              excluded INTEGER NOT NULL, revision INTEGER NOT NULL, note TEXT NOT NULL, updated_at TEXT NOT NULL);
         """)
         self.changes = []
 
@@ -55,6 +60,34 @@ def test_rows_are_placed_on_their_quarter_tab_by_approval_date_and_booked_once()
 def test_an_invalid_tab_is_refused():
     with pytest.raises(quarter_tab.QuarterError):
         quarter_tab.confirm_tab(FakeStore(), 'quarter:2026:9')
+
+
+@pytest.mark.parametrize('blocker', ['conflict', 'parse_error', 'review_hold', 'company_excluded', 'needs_review'])
+def test_quarter_tab_does_not_bypass_general_recording_guards(blocker):
+    store = FakeStore()
+    add(store, 'guarded', '2026-10-02', 3000)
+    quarter_tab.assign_unassigned(store.conn)
+    source_hash = 'h-guarded'
+    if blocker == 'conflict':
+        store.conn.execute("UPDATE transactions SET conflict_reason='source changed' WHERE transaction_id='guarded'")
+    elif blocker == 'parse_error':
+        store.conn.execute("UPDATE transactions SET parse_error='amount unreadable' WHERE transaction_id='guarded'")
+    elif blocker == 'review_hold':
+        store.conn.execute(
+            "INSERT INTO transaction_review_holds VALUES (?,?,?,?)",
+            ('guarded', source_hash, 'user_hold', 'owner hold'),
+        )
+    elif blocker == 'company_excluded':
+        store.conn.execute(
+            "INSERT INTO transaction_company_exclusions VALUES (?,?,?,?,?,?)",
+            ('guarded', source_hash, 1, 1, 'company expense', '2026-10-17T00:00:00Z'),
+        )
+    else:
+        store.conn.execute("UPDATE transactions SET classification_state='needs_review' WHERE transaction_id='guarded'")
+
+    result = quarter_tab.confirm_tab(store, 'quarter:2026:4')
+    assert result == {'tab': 'quarter:2026:4', 'booked': 0, 'skipped': 1}
+    assert store.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
 
 
 def test_only_a_batch_collected_after_activation_is_recorded_and_older_rows_wait(monkeypatch):

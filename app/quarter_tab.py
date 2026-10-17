@@ -10,7 +10,7 @@ import sqlite3
 from . import quarter_costs
 from . import auto_record_policy
 from .db import decided_sql, utc_now
-from .ledger import _already_booked
+from .ledger import _already_booked, _recording_guard
 
 ITEM = '분기 기타비용'
 TAB_RE = re.compile(r'quarter:(20\d{2}):([1-4])')
@@ -38,14 +38,14 @@ def pending_rows(conn, tab: str, batch_id: str | None = None) -> list[dict]:
     try:
         rows = conn.execute(
             "SELECT transaction_id, batch_id, source_hash, merchant, approval_date, posting_date, amount_krw, "
-            "transaction_direction, card_tail FROM transactions "
+            "transaction_direction, card_tail, classification_state, conflict_reason, parse_error FROM transactions "
             "WHERE item=? AND display_tab_id=? AND COALESCE(duplicate_of,'')=''"
             " AND NOT EXISTS (SELECT 1 FROM ledger_entries l WHERE l.transaction_id=transactions.transaction_id)" + scope +
             " ORDER BY COALESCE(NULLIF(approval_date,''),posting_date), transaction_id", args).fetchall()
     except sqlite3.OperationalError:
         return []  # no card tables yet: nothing is waiting on any quarter tab
     keys = ['transaction_id', 'batch_id', 'source_hash', 'merchant', 'approval_date', 'posting_date',
-            'amount_krw', 'transaction_direction', 'card_tail']
+            'amount_krw', 'transaction_direction', 'card_tail', 'classification_state', 'conflict_reason', 'parse_error']
     return [dict(zip(keys, row)) for row in rows]
 
 
@@ -94,11 +94,20 @@ def confirm_tab(store, tab: str, batch_id: str | None = None, projection=None) -
     with store.lock:
         store.conn.execute('BEGIN IMMEDIATE')
         try:
+            from .company_expenses import states as company_expense_states
+            from .review_holds import active_holds
+            exclusions = company_expense_states(store.conn)
+            holds = active_holds(store.conn)
             for row in pending_rows(store.conn, tab, batch_id):
                 transaction_id = row['transaction_id']
                 amount = row['amount_krw']
                 undated = not (row['approval_date'] or row['posting_date'])
                 if row['transaction_direction'] != 'purchase' or type(amount) is not int or amount <= 0 or undated:
+                    skipped.append(transaction_id)
+                    continue
+                if _recording_guard(source_hash=row['source_hash'], state=row['classification_state'],
+                                    conflict_reason=row['conflict_reason'], parse_error=row['parse_error'],
+                                    exclusion=exclusions.get(transaction_id), hold=holds.get(transaction_id)):
                     skipped.append(transaction_id)
                     continue
                 if _already_booked(store, transaction_id):
