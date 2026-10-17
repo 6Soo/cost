@@ -72,7 +72,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
             finally:
                 browser.close()
 
-    def test_flagged_rows_render_disabled_with_safe_reasons_on_mobile_and_desktop(self):
+    def test_flagged_rows_are_hidden_while_normal_row_remains_selectable_on_mobile_and_desktop(self):
         rows = []
         for identity, flag in (("duplicate", "duplicate_of"),
                                ("parse-error", "parse_error"),
@@ -86,10 +86,17 @@ class OtaReviewBrowserTests(unittest.TestCase):
             else:
                 row["direction"] = "refund"
             rows.append(row)
+        rows.append({"transaction_id": "card-linked-group", "issuer": "Synthetic Bank",
+                     "approval_date": "2026-09-04", "amount_krw": 12500,
+                     "merchant": "Linked synthetic merchant", "transaction_direction": "purchase",
+                     "already_linked_event_id": "evt-other", "already_linked_label": "OTHER-BOOKING",
+                     "already_linked_reason": "confirmed_group_reservation", "selection_disabled": True})
         snapshot = ota_payment_review.public_snapshot({
             "events": [{"ota_event_id": "evt-browser", "provider": "Synthetic Stay",
                         "booking_ref": "BOOK-BROWSER", "event_type": "charge",
-                        "paid_on": "2026-09-04", "status": "HOLD_AMBIGUOUS"}],
+                        "paid_on": "2026-09-04", "amount": 12500,
+                        "currency": "KRW", "amount_krw": 12500,
+                        "status": "HOLD_AMBIGUOUS"}],
             "cards_by_event": {"evt-browser": rows}, "proposals": []})
 
         with sync_playwright() as playwright:
@@ -105,20 +112,26 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         page.set_content("<base href='http://localhost/'>" +
                                          ota_payment_review.render_import_section("token-synth"))
                         page.get_by_text("BOOK-BROWSER", exact=True).wait_for()
-                        visible_rows = page.locator(".ota-card-row")
-                        self.assertEqual(visible_rows.count(), 4)
-                        expected = ["중복 거래라 선택할 수 없습니다.",
-                                    "거래 파싱 오류가 있어 선택할 수 없습니다.",
-                                    "거래 충돌이 있어 선택할 수 없습니다."]
-                        for index, reason in enumerate(expected):
-                            self.assertTrue(visible_rows.nth(index).get_by_role("radio").is_disabled())
-                            self.assertIn(reason, visible_rows.nth(index).inner_text())
-                            self.assertNotIn("synthetic private diagnostic", visible_rows.nth(index).inner_text())
-                        self.assertFalse(visible_rows.nth(3).get_by_role("radio").is_disabled())
-                        self.assertIn("거래 방향: 구매", visible_rows.nth(3).inner_text())
-                        self.assertNotIn("거래 방향: refund", visible_rows.nth(3).inner_text())
-                        visible_rows.nth(3).get_by_role("radio").check()
-                        self.assertTrue(visible_rows.nth(3).get_by_role("radio").is_checked())
+                        visible_rows = page.locator(".ota-event > .ota-cards > .ota-card-row")
+                        self.assertEqual(visible_rows.count(), 1)
+                        body = page.locator("#ota-events").inner_text()
+                        self.assertNotIn("card-duplicate", body)
+                        self.assertNotIn("card-parse-error", body)
+                        self.assertNotIn("card-conflict", body)
+                        self.assertNotIn("선택할 수 없습니다", body)
+                        self.assertIn("결제일과 승인 규칙 범위의 카드 거래 1건", body)
+                        self.assertIn("결제 금액과 같은 카드 거래가 1건 있습니다", body)
+                        self.assertFalse(visible_rows.nth(0).get_by_role("radio").is_disabled())
+                        self.assertIn("거래 방향: 구매", visible_rows.nth(0).inner_text())
+                        self.assertNotIn("거래 방향: refund", visible_rows.nth(0).inner_text())
+                        visible_rows.nth(0).get_by_role("radio").check()
+                        self.assertTrue(visible_rows.nth(0).get_by_role("radio").is_checked())
+                        linked = page.locator(".ota-linked-cards")
+                        self.assertEqual(linked.count(), 1)
+                        self.assertIn("다른 예약에 연결된 거래 1건", linked.locator("summary").inner_text())
+                        linked.locator("summary").click()
+                        self.assertEqual(linked.locator(".ota-card-row").count(), 1)
+                        self.assertIn("Linked synthetic merchant", linked.locator(".ota-card-row").inner_text())
                         self.assertEqual(page.evaluate("document.documentElement.scrollWidth"), width)
                         page.close()
             finally:
