@@ -50,6 +50,12 @@ def test_ready_auto_records_missing_trip_waits_and_replay_is_noop(flow):
     catalog = card_catalog.catalog(f.board, {'state':['booked']})
     assert catalog['total']==1 and catalog['rows'][0]['next_action']['status']=='기록 완료'
 
+def test_ready_action_is_named_recordable(flow):
+    f, batch, _ = flow
+    action = next(r['next_action'] for r in f.state(batch)['preview']['rows'] if r['amount_krw'] == 188808)
+    assert action['status'] == '기록 가능'
+    assert action['group'] == 'ready'
+
 def test_holds_and_lost_authority_prevent_recording(flow):
     f, batch, trip = flow
     ready = next(r for r in f.pipeline.get_batch(batch)['rows'] if r['amount_krw']==188808)

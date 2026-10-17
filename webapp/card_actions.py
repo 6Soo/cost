@@ -5,7 +5,7 @@ from app import quarter_costs
 
 #: The four states a person sees for a card row, whichever screen shows it.
 GROUP_LABELS = {'ready': '기록 가능', 'review': '확인 필요', 'booked': '기록 완료', 'excluded': '기록 제외'}
-GROUP_OF_STATUS = {'자동 반영 대기': 'ready', '기록 완료': 'booked', '기존 기록': 'booked',
+GROUP_OF_STATUS = {'기록 가능': 'ready', '기록 완료': 'booked', '기존 기록': 'booked',
                    '중복 제외': 'excluded', '회사 경비 제외': 'excluded', '전액 환불': 'excluded'}
 
 
@@ -48,4 +48,4 @@ def next_action(row, preview=None, extra_hold=None):
         return action('확인 필요', '문제 확인', preview.get('reason') or '배정 내용을 확인해 주세요.')
     if row.get('classification_state') not in ('classified',):
         return action('분류 확인 필요', '분류 확인', '비용 항목과 배정 내용을 확인해 주세요.')
-    return action('자동 반영 대기', '처리 결과 확인', required=False)
+    return action('기록 가능', '처리 결과 확인', required=False)

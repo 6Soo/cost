@@ -437,7 +437,8 @@ class CardFlowTests(unittest.TestCase):
             html = home_page(self.board)
         finally:
             ledger_board.bind_store(previous)
-        self.assertIn("카드 <b>2</b> · 정리할 지출 <b>2</b> · 장부 반영 대기 <b>0</b> · 장부 <b>0</b>", html)
+        self.assertIn("카드 <b>2</b> · 정리할 지출 <b>2</b> · 장부 <b>0</b>", html)
+        self.assertNotIn("장부 반영 대기", html)
         self.assertIn("class='home-review btn primary' href='/import'>", html)
         self.assertIn("지출 정리 2건</a>", html)
         self.assertIn("class='home-secondary'", html)
@@ -513,7 +514,6 @@ class CardFlowTests(unittest.TestCase):
             preview = self.flow.state(second_batch)['preview']
             first_ids = {r['transaction_id'] for r in recordable_rows(self.flow.state(batch)['preview']['rows'])}
             self.assertEqual(first_ids, {row['transaction_id']})
-            self.assertIn('장부 반영 대기 <b>1</b>', self.pending_home())
         visible = recordable_rows(preview['rows'])
         self.assertEqual(preview['ready'], len({r['transaction_id'] for r in visible}))
         self.assertEqual({r['transaction_id'] for r in visible}, {row['transaction_id']})
@@ -522,64 +522,12 @@ class CardFlowTests(unittest.TestCase):
         self.assertFalse(recordable_rows([dict(sample, blocked='needs_review'),
                                          dict(sample, already_booked=True)]))
 
-    def test_home_pending_reuses_valid_authority_once_across_batches(self):
-        trip, batch, row = self.pending_fixture()
-        self.flow.pipeline.receive(CARD + CARD.splitlines(keepends=True)[1].replace(b'A123', b'NEXT'),
-                                   'second.csv')
-        with patch.object(CardFlow, 'trip_valid', return_value=True) as authority:
-            self.assertIn('장부 반영 대기 <b>1</b>', self.pending_home())
-            authority.assert_called_once_with(trip)
-            preview = self.flow.state(batch)['preview']
-        self.assertFalse(preview['rows'][0].get('blocked'))
-
-    def test_home_pending_excludes_already_booked(self):
-        trip, batch, row = self.pending_fixture()
-        with patch.object(CardFlow, 'trip_valid', return_value=True):
-            preview = self.flow.state(batch)['preview']
-            self.flow.pipeline.commit(batch, preview['digest'], 'synthetic-pending-commit',
-                                      trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
-            self.assertIn('장부 반영 대기 <b>0</b>', self.pending_home())
-
-    def test_home_pending_excludes_hold_and_preview_blockers(self):
-        trip, batch, row = self.pending_fixture()
-        cases = ('hold', 'invalid-trip', 'invalid-tab', 'needs-review', 'parse-error',
-                 'conflict', 'preserved', 'review-period')
-        for case in cases:
-            with self.subTest(case=case):
-                self.board.conn.execute('DELETE FROM transaction_review_holds')
-                self.board.conn.execute("UPDATE transactions SET classification_state='classified', "
-                                        "parse_error='', conflict_reason='', trip_id=?, display_tab_id=?",
-                                        (trip, trip))
-                if case == 'hold':
-                    self.board.conn.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)',
-                                            (row['transaction_id'], row['source_hash'], 'user_hold', '합성 보류'))
-                elif case == 'invalid-tab':
-                    self.board.conn.execute("UPDATE transactions SET display_tab_id='unknown'")
-                elif case == 'needs-review':
-                    self.board.conn.execute("UPDATE transactions SET classification_state='needs_review'")
-                elif case == 'parse-error':
-                    self.board.conn.execute("UPDATE transactions SET parse_error='synthetic error'")
-                elif case == 'conflict':
-                    self.board.conn.execute("UPDATE transactions SET conflict_reason='synthetic conflict'")
-                elif case == 'preserved':
-                    self.board.conn.execute("UPDATE transactions SET classification_state='preserved'")
-                self.board.conn.commit()
-                with patch.object(CardFlow, 'trip_valid', return_value=case != 'invalid-trip'), \
-                        patch.dict(os.environ, {'WEBLEDGER_REVIEW_FROM':
-                                               '2026-10-02' if case == 'review-period' else ''}):
-                    self.assertIn('장부 반영 대기 <b>0</b>', self.pending_home())
-
-    def test_home_pending_failure_is_unknown_instead_of_zero(self):
-        import sqlite3
-        from app.db import StoreError, CODE_NOT_FOUND
+    def test_home_does_not_scan_pending_ledger_previews(self):
         self.pending_fixture()
-        for target, error in (('app.ledger.preview', sqlite3.OperationalError('synthetic read failure')),
-                              ('app.ledger.preview', StoreError(CODE_NOT_FOUND, 'synthetic missing batch')),
-                              ('webapp.card_flow.CardFlow.trip_valid', OSError('synthetic proof failure'))):
-            with self.subTest(target=target, error=type(error).__name__), patch(target, side_effect=error):
-                html = self.pending_home()
-                self.assertIn('장부 반영 대기 <b>-</b>', html)
-                self.assertNotIn('장부 반영 대기 <b>0</b>', html)
+        with patch('app.ledger.preview', side_effect=AssertionError('home must not scan pending previews')), \
+                patch.object(CardFlow, 'trip_valid', side_effect=AssertionError('home must not validate pending rows')):
+            html = self.pending_home()
+        self.assertNotIn('장부 반영 대기', html)
 
     def test_mobile_page_has_answer_preview_and_no_cell_column(self):
         html = page('synthetic')

@@ -1020,19 +1020,6 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         "<div class='nav-mask' id='nav-mask' hidden></div>")
 
 
-def _ledger_note_html() -> str:
-    """장부 화면에만 한 번 표시하는 기록 범위 안내다.
-
-    공통 메뉴의 하단 장문 안내를 여기로 옮겼다. 장부 반영 대기 확인은
-    소유자에게만 보이고, 행의 출처 한 줄은 기존 문구를 그대로 둔다.
-    """
-    pending_note = ("<a href='/import'>장부 반영 대기 확인</a><br>"
-                    if board.current_role() == 'owner' else '')
-    return ("<p class='meta ledger-note' id='ledger-note'>"
-            + pending_note
-            + "</p>")
-
-
 _CURRENT_YEAR = 2026
 _FOCUS_ON_OPEN = ("var d=this.parentNode;setTimeout(function(){if(d.open){"
                   "var t=d.querySelector('.prev-q>summary, a');if(t)t.focus()}},0)")
