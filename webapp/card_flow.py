@@ -1800,6 +1800,14 @@ def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
 
 
+def _cleanup_unassigned_where():
+    return (
+        " FROM board_rows b WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
+        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m"
+        " WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+    )
+
+
 def _evidence_block(index, amount, day):
     """예약 자료 확인이 필요한 거래 옆에 같은 금액의 예약 메일 내용을 그대로 보여 준다. 배정은 하지 않는다."""
     from app import booking_evidence
@@ -1833,8 +1841,7 @@ def prewarm_booking_evidence(board):
 
 def cleanup_total(board) -> int:
     """정리할 지출 건수. 지출 정리 목록과 메인 화면이 같은 기준으로 센다."""
-    unassigned = board.conn.execute(
-        "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL").fetchone()[0]
+    unassigned = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
     return _cleanup_card_count(board) + unassigned
 
 
@@ -1887,8 +1894,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
     card_total = _cleanup_card_count(board)
-    ledger_total = board.conn.execute(
-        "SELECT COUNT(*) FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL").fetchone()[0]
+    ledger_total = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
     total = card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
@@ -1935,8 +1941,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
             f"<small>{esc(day or '')} · {esc(reason)}</small></div>"
             f"{review}</li>")
     ledger = board.conn.execute(
-        "SELECT row_id, revision, payload_json FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL"
-        " ORDER BY json_extract(payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
+        "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
+        " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
         (ledger_limit, ledger_offset)).fetchall() if ledger_limit else []
     for row_id, revision, payload in ledger:
         record = json.loads(payload)

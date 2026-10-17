@@ -51,6 +51,26 @@ def test_unassigned_expense_is_listed_and_leaves_the_list_once_assigned(tmp_path
         board.conn.close()
 
 
+def test_manual_trip_override_is_not_counted_as_expense_cleanup_review(tmp_path):
+    from webapp.card_flow import CardFlow
+    board = LedgerStore(tmp_path / 'manual-trip-protected.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        CardFlow(board)
+        unassigned_row(board, row_id='expense-manual-trip')
+        board.conn.execute(
+            "INSERT INTO board_manual_overrides(row_id,field,event_id) VALUES (?,?,?)",
+            ('expense-manual-trip', 'display_tab_id', 'owner-trip-edit'),
+        )
+        board.conn.commit()
+
+        assert cleanup_total(board) == 0
+        assert "data-row-id='expense-manual-trip'" not in render_expense_cleanup(board, 'token')
+    finally:
+        ledger_board.bind_store(None)
+        board.conn.close()
+
+
 def test_browsing_the_cleanup_and_catalog_never_posts_an_auto_record():
     opening = PAGE[PAGE.index('async function loadBatch'):]
     assert 'auto-record' not in opening[:opening.index('const pollCard')]
