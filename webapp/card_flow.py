@@ -1783,6 +1783,9 @@ def _cleanup_card_where():
         " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
         " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
         " AND NOT EXISTS(SELECT 1 FROM board_rows b WHERE b.row_id='card-'||t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id"
+        " AND d.revision=(SELECT MAX(d2.revision) FROM review_decisions d2 WHERE d2.transaction_id=t.transaction_id)"
+        " AND COALESCE(d.display_tab_id,'')!='')"
     )
 
 

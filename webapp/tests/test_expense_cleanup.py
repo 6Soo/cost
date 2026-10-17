@@ -71,6 +71,29 @@ def test_manual_trip_override_is_not_counted_as_expense_cleanup_review(tmp_path)
         board.conn.close()
 
 
+def test_owner_card_trip_decision_is_not_counted_as_expense_cleanup_review(tmp_path, monkeypatch):
+    from webapp.card_flow import CardFlow
+    board = LedgerStore(tmp_path / 'owner-card-trip-protected.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        flow, batch, rows = card_rows(board, 1)
+        row = rows[0]
+        trip = board.create_trip(starts_on='2026-10-01', ends_on='2026-10-05', destination='test',
+                                 client_request_id='owner-card-trip')
+        monkeypatch.setattr(flow, 'trip_valid', lambda target: target == trip['tab_id'])
+        flow.pipeline.save_decision(
+            row['transaction_id'], row['revision'], item='meal', description='',
+            display_tab_id=trip['tab_id'], trip_id=trip['tab_id'],
+            trip_validator=flow.trip_valid, tab_validator=flow.tab_valid,
+            request_id='owner-card-trip-decision')
+
+        assert cleanup_total(board) == 0
+        assert f"data-transaction='{row['transaction_id']}'" not in render_expense_cleanup(board, 'token')
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_browsing_the_cleanup_and_catalog_never_posts_an_auto_record():
     opening = PAGE[PAGE.index('async function loadBatch'):]
     assert 'auto-record' not in opening[:opening.index('const pollCard')]
