@@ -1744,7 +1744,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
 const tripOptions=document.getElementById('cleanup-trip-options');
-if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>select.replaceChildren(tripOptions.content.cloneNode(true)));
+if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>{
+  select.replaceChildren(tripOptions.content.cloneNode(true));
+  const current=select.closest('.cleanup-row')?.dataset.currentTab||'';
+  if(current&&Array.from(select.options).some(option=>option.value===current))select.value=current;
+});
 document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('submit',async e=>{
   e.preventDefault();const item=form.closest('.cleanup-row'),select=form.querySelector('select[name=display_tab_id]'),error=form.querySelector('.cleanup-error'),button=form.querySelector('button');
   if(!select.value){error.textContent='여행을 골라 주세요';return}
@@ -1786,7 +1790,7 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0):
     """장부에 아직 없는 카드 거래를 한 페이지씩 읽는다. 충돌 거래도 숨기지 않고 검토 대상으로 보여 준다."""
     return board.conn.execute(
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
-        " t.amount_krw, t.item, t.classification_source, t.revision,"
+        " t.amount_krw, t.item, t.classification_source, t.display_tab_id, t.revision,"
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
         " t.conflict_reason, t.parse_error" + _cleanup_card_where() +
         " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
@@ -1896,7 +1900,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
     ota_by_card = _ota_entries_by_card(board)
-    for tid, batch, day, merchant, amount, item, source, revision, held, conflict_reason, parse_error in rows_card:
+    for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
         if entry is not None:
@@ -1905,25 +1909,31 @@ def render_expense_cleanup(board, csrf, *, page=1):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
             evidence = (
-                f"<p class='cleanup-evidence-none'>예약 근거는 <a href='{esc(detail)}'>상세 검토</a>에서 확인해 주세요.</p>"
+                "<p class='cleanup-evidence-none'>예약 근거를 카드 자료에서 확인해 주세요.</p>"
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
         if conflict_reason or parse_error:
-            protected = (f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
-                         f"{esc(conflict_reason or parse_error)} · <a href='{esc(detail)}'>상세 검토</a></p>")
+            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>"
+                      f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
+                      f"{esc(conflict_reason or parse_error)}</p>"
+                      f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
         elif held:
-            protected = (f"<p class='cleanup-protected'>보류 중 · 보류 해제는 상세 검토에서 별도로 확인해 주세요. "
-                         f"<a href='{esc(detail)}'>상세 검토</a></p>")
+            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
+                      "<p class='cleanup-protected'>보류 중 · 여행 변경과 보류 해제는 카드 자료 전체 검토에서 "
+                      "명시적으로 확인해 주세요.</p>"
+                      f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
         else:
-            protected = (f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
-                         f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
-                         "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form>")
+            review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
+                      f"<p class='cleanup-review-note'>분류 근거 · {esc(reason)}</p>"
+                      f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
+                      f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
+                      "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
-            f" data-revision='{int(revision)}' data-held='{1 if held else 0}'>"
+            f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-current-tab='{esc(current_tab or '')}'>"
             f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
-            f"<small>{esc(day or '')} · {esc(reason)}</small>{evidence}</div>"
-            f"{protected}</li>")
+            f"<small>{esc(day or '')} · {esc(reason)}</small></div>"
+            f"{review}</li>")
     ledger = board.conn.execute(
         "SELECT row_id, revision, payload_json FROM board_rows WHERE row_kind='expense' AND display_tab_id IS NULL"
         " ORDER BY json_extract(payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
@@ -1948,6 +1958,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
              "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
              "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}"
+             "#expense-cleanup .cleanup-review{margin-top:8px}"
+             "#expense-cleanup .cleanup-review>summary{cursor:pointer;font-weight:700}"
+             "#expense-cleanup .cleanup-review-note{margin:8px 0 0;color:#657068;font-size:13px}"
              "#expense-cleanup .cleanup-protected{margin:8px 0 0;color:#657068}"
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"

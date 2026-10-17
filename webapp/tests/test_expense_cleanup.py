@@ -177,6 +177,35 @@ def test_the_trip_list_is_written_once_and_each_row_gets_only_its_placeholder(tm
         board.conn.close()
 
 
+def test_card_detail_opens_inline_and_keeps_current_trip_for_immediate_edit(tmp_path, monkeypatch):
+    from webapp.card_flow import CardFlow
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-inline-detail.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 1)
+        tid = rows[0]['transaction_id']
+        trip = board.create_trip(starts_on='2026-09-28', ends_on='2026-10-05', destination='합성',
+                                 client_request_id='cleanup-inline-trip')
+        monkeypatch.setattr(CardFlow, 'trip_valid', lambda self, target: target == trip['tab_id'])
+        board.conn.execute(
+            "UPDATE transactions SET display_tab_id=?, trip_id=?, item='숙박비' WHERE transaction_id=?",
+            (trip['tab_id'], trip['tab_id'], tid),
+        )
+        board.conn.commit()
+
+        html = render_expense_cleanup(board, 'token')
+
+        assert "<details class='cleanup-review'><summary>상세 검토</summary>" in html
+        assert "<button type='submit'>여행 수정</button>" in html
+        assert f"data-current-tab='{trip['tab_id']}'" in html
+        assert "const current=select.closest('.cleanup-row')?.dataset.currentTab||'';" in html
+        assert "select.value=current" in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_cleanup_counts_all_cards_but_renders_only_one_page(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'cleanup-page.sqlite', seed_demo=False)
