@@ -8,10 +8,12 @@ import functools
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import sqlite3
 import threading
+import time
 import zipfile
 from collections import Counter, defaultdict
 from contextlib import closing
@@ -340,7 +342,9 @@ def _signature(board, sources):
             return (str(path), -1, -1)
 
     for path in dict.fromkeys(str(p) for p in sources.get('portal_databases', [])):
-        parts += [stat_key(path), stat_key(path + '-wal'), stat_key(path + '-shm')]
+        # SQLite's -shm is a disposable shared-memory index. Reading a WAL database
+        # can rewrite it without changing a booking, causing endless rebuilds.
+        parts += [stat_key(path), stat_key(path + '-wal')]
     for directory in dict.fromkeys(str(p) for p in sources.get('mail_directories', [])):
         if Path(directory).is_dir():
             parts += [stat_key(p) for p in sorted(Path(directory).glob('*.json'))]
@@ -550,46 +554,94 @@ def _saved_value_for_stale(board):
 
 
 def _save_index(board, key, value):
-    """Written beside the board file, atomically. A failed write costs only a rebuild next time."""
+    """Write beside the board atomically; report failure so stale evidence stays marked stale."""
     path = _index_path(board)
     temp = path.with_suffix('.tmp')
     try:
         temp.write_text(json.dumps({'version': INDEX_VERSION, 'key': key, 'value': value},
                                    ensure_ascii=False, default=str), encoding='utf-8')
         os.replace(temp, path)
+        return True
     except OSError:
         try:
             temp.unlink()
         except OSError:
             pass
+        return False
 
 
-_REBUILD = {'running': False}
+_REBUILD = {'running': False, 'active_key': None, 'failed_key': None, 'failed_at': 0.0}
 _REBUILD_LOCK = threading.Lock()
 
 
 def rebuilding() -> bool:
-    return _REBUILD['running']
+    with _REBUILD_LOCK:
+        return _REBUILD['running']
+
+
+def rebuild_failed() -> bool:
+    """Whether the last background refresh failed, leaving saved evidence stale."""
+    with _REBUILD_LOCK:
+        return bool(_REBUILD['failed_key']) and not _REBUILD['running']
+
+
+def refresh_state(board, sources):
+    """Minimal state for the owner's page; never expose the bookings or their key."""
+    key = _signature(board, sources)
+    with _INDEX_LOCK:
+        if _INDEX['key'] == (id(board), key):
+            return 'ready'
+    with _REBUILD_LOCK:
+        if _REBUILD['running']:
+            return 'running'
+        if _REBUILD['failed_key'] == key:
+            return 'failed'
+    return 'pending'
 
 
 def _start_rebuild(board, sources, key):
     with _REBUILD_LOCK:
         if _REBUILD['running']:
             return
+        # A broken source must not start another expensive refresh on every page view.
+        if _REBUILD['failed_key'] == key and time.monotonic() - _REBUILD['failed_at'] < 60:
+            return
         _REBUILD['running'] = True
+        _REBUILD['active_key'] = key
+        _REBUILD['failed_key'] = None
 
     def rebuild_in_background():
+        active_key = key
         try:
-            value = _build_index(board, sources)
-            _save_index(board, key, value)
-            with _INDEX_LOCK:
-                _INDEX['value'] = value
-                _INDEX['key'] = (id(board), key)
-        except Exception:
-            pass  # The next visit starts the rebuild again and shows its own warning.
+            active_sources = sources
+            for attempt in range(2):
+                value = _build_index(board, active_sources)
+                current_sources = configured_sources(board)
+                current_key = _signature(board, current_sources)
+                if current_key != active_key:
+                    if attempt:
+                        active_key = current_key
+                        raise RuntimeError('OTA_REFRESH_INPUTS_CHANGED')
+                    active_key, active_sources = current_key, current_sources
+                    with _REBUILD_LOCK:
+                        _REBUILD['active_key'] = active_key
+                    continue
+                with _INDEX_LOCK:
+                    if not _save_index(board, active_key, value):
+                        raise OSError('OTA_INDEX_SAVE_FAILED')
+                    _INDEX['value'] = value
+                    _INDEX['key'] = (id(board), active_key)
+                return
+        except Exception as exc:
+            # Do not log booking contents, transaction details or source paths.
+            logging.getLogger(__name__).error('OTA index refresh failed: %s', type(exc).__name__)
+            with _REBUILD_LOCK:
+                _REBUILD['failed_key'] = active_key
+                _REBUILD['failed_at'] = time.monotonic()
         finally:
             with _REBUILD_LOCK:
                 _REBUILD['running'] = False
+                _REBUILD['active_key'] = None
 
     threading.Thread(target=rebuild_in_background, name='ota-index-rebuild', daemon=True).start()
 
@@ -1074,12 +1126,19 @@ def _write_rule(board, sources, form, *, revoke):
 
 def dispatch(handler, parsed, *, board, is_owner, query, csrf=''):
     """GET: list, detail, JSON. Returns False when the path is not an OTA path."""
-    if parsed.path not in ('/ota', '/api/ota', '/ota/booking'):
+    if parsed.path not in ('/ota', '/api/ota', '/ota/booking', '/api/ota-refresh-state'):
         return False
     if not is_owner:
         handler._send_json({'code': 'NOT_FOUND'}, 404)
     elif board is None:
         handler._send_json({'code': 'STORE_UNBOUND'}, 503)
+    elif parsed.path == '/api/ota-refresh-state':
+        try:
+            sources = configured_sources(board)
+            _index(board, sources, allow_stale=True)
+            handler._send_json({'state': refresh_state(board, sources)})
+        except (OSError, ValueError, sqlite3.Error, ota_sources.OtaSourcesError):
+            handler._send_json({'state': 'failed'}, 503)
     elif parsed.path == '/ota/booking':
         try:
             sources = configured_sources(board)

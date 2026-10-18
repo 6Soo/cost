@@ -1974,8 +1974,27 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
              "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}</style>")
-    note = ("<p class='muted'>예약 근거를 다시 계산하고 있어요. 잠시 뒤 새로고침하면 최신 근거가 보입니다.</p>"
-            if ota_catalog.rebuilding() else '')
+    if ota_catalog.rebuilding():
+        note = ("<p id='ota-refresh-note' class='muted'>예약 근거를 갱신하고 있어요. "
+                "완료되면 화면이 자동으로 새로고침됩니다.</p>"
+                "<script>(()=>{const note=document.getElementById('ota-refresh-note');"
+                "const start=Date.now();async function check(){try{"
+                "const response=await fetch('/api/ota-refresh-state',{credentials:'same-origin',cache:'no-store'});"
+                "if(!response.ok)throw Error('refresh status');"
+                "const state=(await response.json()).state;"
+                "if(state==='ready'){location.reload();return;}"
+                "if(state==='failed'){note.textContent='예약 근거 갱신에 실패했습니다. "
+                "기존 근거가 표시되고 있습니다. 잠시 뒤 새로고침해 주세요.';return;}"
+                "}catch(e){note.textContent='예약 근거 갱신 상태를 확인하지 못했습니다. "
+                "잠시 뒤 새로고침해 주세요.';return;}"
+                "if(Date.now()-start<180000){setTimeout(check,5000);}else{"
+                "note.textContent='예약 근거 갱신이 지연되고 있습니다. 잠시 뒤 새로고침해 주세요.';}}"
+                "setTimeout(check,5000);})();</script>")
+    elif ota_catalog.rebuild_failed():
+        note = ("<p class='cleanup-protected' role='alert'>예약 근거 갱신에 실패했습니다. "
+                "기존 근거가 표시되고 있습니다. 잠시 뒤 새로고침해 주세요.</p>")
+    else:
+        note = ''
     nav = ''
     if pages > 1:
         previous = (f"<a href='/import?cleanup_page={page - 1}'>이전 20건</a>" if page > 1 else '<span>이전 20건</span>')

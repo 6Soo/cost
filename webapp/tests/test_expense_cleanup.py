@@ -201,6 +201,162 @@ def test_a_changed_booking_index_is_served_stale_while_it_rebuilds(tmp_path):
         board.conn.close()
 
 
+def test_booking_index_ignores_disposable_sqlite_shared_memory_metadata(tmp_path):
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    portal = tmp_path / 'portal.sqlite'
+    shared_memory = tmp_path / 'portal.sqlite-shm'
+    portal.write_bytes(b'example')
+    shared_memory.write_bytes(b'first')
+    try:
+        sources = {'portal_databases': [portal]}
+        first = ota_catalog._signature(board, sources)
+        shared_memory.write_bytes(b'changed by a read')
+        assert ota_catalog._signature(board, sources) == first
+        portal.write_bytes(b'a real source change')
+        assert ota_catalog._signature(board, sources) != first
+    finally:
+        board.close()
+
+
+def test_failed_booking_refresh_stops_repeating_and_displays_failure(tmp_path, monkeypatch, caplog):
+    import time
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    ledger_board.bind_store(board)
+    key = ['first']
+    builds = []
+
+    def build(_board, _sources):
+        builds.append(key[0])
+        if key[0] == 'second':
+            raise RuntimeError('private booking content must not be logged')
+        return {'entries': [], 'warnings': [], 'trips': [], 'months': [], 'providers': []}
+
+    monkeypatch.setattr(ota_catalog, '_signature', lambda _board, _sources: key[0])
+    monkeypatch.setattr(ota_catalog, '_build_index', build)
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
+    ota_catalog._INDEX.update(key=None, value=None)
+    try:
+        ota_catalog._index(board, {}, allow_stale=True)
+        key[0] = 'second'
+        ota_catalog._index(board, {}, allow_stale=True)
+        deadline = time.monotonic() + 5
+        while ota_catalog.rebuilding() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ota_catalog.rebuild_failed()
+        assert 'RuntimeError' in caplog.text
+        assert 'private booking content' not in caplog.text
+        markup = render_expense_cleanup(board, 'token')
+        assert '예약 근거 갱신에 실패했습니다' in markup
+        assert 'location.reload()' not in markup
+        assert builds == ['first', 'second']
+    finally:
+        ota_catalog._INDEX.update(key=None, value=None)
+        with ota_catalog._REBUILD_LOCK:
+            ota_catalog._REBUILD.update(running=False, failed_key=None, failed_at=0.0)
+        ledger_board.bind_store(None)
+        board.close()
+
+
+def test_booking_refresh_rebuilds_changed_inputs_before_marking_current(tmp_path, monkeypatch):
+    import time
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    key = ['first']
+    builds = []
+
+    def build(_board, _sources):
+        current = key[0]
+        builds.append(current)
+        if current == 'second':
+            key[0] = 'third'  # A source changes while the second index is being built.
+        return {'entries': [], 'label': current}
+
+    monkeypatch.setattr(ota_catalog, '_signature', lambda _board, _sources: key[0])
+    monkeypatch.setattr(ota_catalog, '_build_index', build)
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
+    ota_catalog._INDEX.update(key=None, value=None)
+    try:
+        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
+        key[0] = 'second'
+        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
+        deadline = time.monotonic() + 5
+        while ota_catalog.rebuilding() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert builds == ['first', 'second', 'third']
+        assert ota_catalog.refresh_state(board, {}) == 'ready'
+        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'third'
+        assert ota_catalog._load_saved_index(board, key[0])['label'] == 'third'
+    finally:
+        ota_catalog._INDEX.update(key=None, value=None)
+        board.close()
+
+
+def test_failed_booking_index_save_keeps_old_evidence_and_reports_failure(tmp_path, monkeypatch):
+    import time
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    key = ['first']
+    saved = ota_catalog._save_index
+    monkeypatch.setattr(ota_catalog, '_signature', lambda _board, _sources: key[0])
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
+    monkeypatch.setattr(ota_catalog, '_build_index',
+                        lambda _board, _sources: {'entries': [], 'label': key[0]})
+    ota_catalog._INDEX.update(key=None, value=None)
+    try:
+        ota_catalog._index(board, {}, allow_stale=True)
+        monkeypatch.setattr(ota_catalog, '_save_index', lambda _board, _key, _value: False)
+        key[0] = 'second'
+        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
+        deadline = time.monotonic() + 5
+        while ota_catalog.rebuilding() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ota_catalog.refresh_state(board, {}) == 'failed'
+        assert ota_catalog._INDEX['value']['label'] == 'first'
+        assert ota_catalog._load_saved_index(board, 'first')['label'] == 'first'
+        assert ota_catalog._load_saved_index(board, 'second') is None
+    finally:
+        monkeypatch.setattr(ota_catalog, '_save_index', saved)
+        with ota_catalog._REBUILD_LOCK:
+            ota_catalog._REBUILD.update(running=False, active_key=None, failed_key=None, failed_at=0.0)
+        ota_catalog._INDEX.update(key=None, value=None)
+        board.close()
+
+
+def test_refresh_status_route_is_owner_only_and_cleanup_polls_it(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    ledger_board.bind_store(board)
+    replies = []
+    handler = SimpleNamespace(_send_json=lambda value, code=200: replies.append((code, value)))
+    request = SimpleNamespace(path='/api/ota-refresh-state')
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
+    monkeypatch.setattr(ota_catalog, '_index', lambda _board, _sources, **_kw: {'entries': []})
+    monkeypatch.setattr(ota_catalog, 'refresh_state', lambda _board, _sources: 'ready')
+    try:
+        assert ota_catalog.dispatch(handler, request, board=board, is_owner=False, query={})
+        assert replies.pop() == (404, {'code': 'NOT_FOUND'})
+        assert ota_catalog.dispatch(handler, request, board=board, is_owner=True, query={})
+        assert replies.pop() == (200, {'state': 'ready'})
+        with ota_catalog._REBUILD_LOCK:
+            ota_catalog._REBUILD.update(running=True, failed_key=None)
+        markup = render_expense_cleanup(board, 'token')
+        assert '/api/ota-refresh-state' in markup
+        assert "state==='ready'" in markup and 'location.reload()' in markup
+    finally:
+        with ota_catalog._REBUILD_LOCK:
+            ota_catalog._REBUILD.update(running=False, active_key=None, failed_key=None, failed_at=0.0)
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_the_trip_list_is_written_once_and_each_row_gets_only_its_placeholder(tmp_path, monkeypatch):
     from webapp.card_flow import CardFlow
     board = LedgerStore(tmp_path / 'trip-options.sqlite', seed_demo=False)
