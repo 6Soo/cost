@@ -47,14 +47,21 @@ def propose(state: dict, *, text: str, transaction_id: str) -> dict:
     if proposal.get('kind') == 'MERCHANT_RULE':
         from app.normalize import normalize_merchant
         future_rule = {'merchant': normalize_merchant(focus.get('merchant')),
-                       'item': rule_proposals.parse(text)['item']}
+                       'item': rule_proposals.parse(text, merchant_hint=focus.get('merchant'))['item']}
+    trip_notice = None
+    if re.search(r'(여행|이용기간)', text) and re.search(r'(찾|배정|지정|미배정)', text):
+        trip_notice = ('여행 배정은 이번 분류 제안에 포함되지 않습니다. 예약 이용기간과 여러 여행이 '
+                       '겹치는 경우에는 기존 승인 규칙을 적용합니다. 상세 검토에서 확인해 주세요.')
+        if re.search(r'여러|복수|겹치', text) and '미배정' in text:
+            trip_notice += ' 여러 여행이면 미배정하라는 요청은 기존 승인 규칙과 달라 적용하지 않습니다.'
     return {"text": text, "transaction_id": transaction_id, "status": proposal["status"],
             "kind": proposal.get("kind"), "skipped_decided": proposal.get("skipped_decided", 0),
             "needs_confirmation": bool(proposal.get("needs_confirmation")),
             "changes": [{"transaction_id": c["transaction_id"], "before_item": c["before_item"],
                          "after_item": c["after_item"]} for c in proposal.get("changes", [])
                         ],
-            "payloads": payloads, "digest": fingerprint(payloads, rows), 'future_rule': future_rule}
+            "payloads": payloads, "digest": fingerprint(payloads, rows), 'future_rule': future_rule,
+            'trip_notice': trip_notice}
 
 
 class RequestIdReused(Exception):

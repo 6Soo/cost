@@ -21,6 +21,53 @@ TWO_ROWS = CARD + (
 
 
 class RuleReviewTests(unittest.TestCase):
+    def test_agoda_compound_instruction_previews_category_only_with_trip_warning(self):
+        # The screenshot's travel directive conflicts with the existing multiple-trip owner rule.
+        # It must be called out, and only the category can be proposed for approval.
+        card = CARD.replace('합성상점'.encode(), b'AGODA.COM').replace(b'A123', b'AGODA-TEST')
+        batch = self.flow.pipeline.receive(card, 'agoda-compound-synthetic.csv')['batch_id']
+        transaction_id = self.flow.pipeline.get_batch(batch)['rows'][0]['transaction_id']
+        instruction = ('아고다 결제는 숙박비로 분류하고, 예약 이용기간으로 여행을 찾아줘. '
+                       '여러 여행에 해당하면 미배정으로 남겨.')
+        status, preview = self.post(f'/api/imports/{batch}/rule-proposal',
+                                    {'text': instruction, 'transaction_id': transaction_id},
+                                    token=ledger_board.CSRF_TOKEN)
+        self.assertEqual(status, 200)
+        self.assertEqual(preview['status'], 'proposed')
+        self.assertEqual(preview['kind'], 'MERCHANT_RULE')
+        self.assertEqual(preview['future_rule']['item'], '숙박비')
+        self.assertIn('미배정하라는 요청', preview['trip_notice'])
+        original_trip = self.server.card_store.conn.execute(
+            'SELECT trip_id, display_tab_id, amount_krw FROM transactions WHERE transaction_id=?',
+            (transaction_id,)).fetchone()
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.on('dialog', lambda dialog: dialog.accept())
+                page.goto(self.base + '/import')
+                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{transaction_id}']")
+                row.locator('.cleanup-instruction').fill(instruction)
+                row.locator('[data-cleanup-propose]').click()
+                row.get_by_text('새 분류 규칙 제안').wait_for()
+                self.assertIn('여행 배정', row.locator('.cleanup-proposal-result').inner_text())
+                self.assertIn('기존 승인 규칙', row.locator('.cleanup-proposal-result').inner_text())
+                self.assertIn('숙박비', row.locator('.cleanup-proposal-grid').inner_text())
+                self.assertEqual(self.server.card_store.conn.execute(
+                    'SELECT COALESCE(item, \'\') FROM transactions WHERE transaction_id=?',
+                    (transaction_id,)).fetchone()[0], '')
+                self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                row.locator('.cleanup-approve').click()
+                row.get_by_text('분류 1건을 적용했습니다', exact=False).wait_for()
+                self.assertEqual(self.server.card_store.conn.execute(
+                    'SELECT trip_id, display_tab_id, amount_krw FROM transactions WHERE transaction_id=?',
+                    (transaction_id,)).fetchone(), original_trip)
+                self.assertEqual(self.server.card_store.conn.execute(
+                    'SELECT item FROM transactions WHERE transaction_id=?',
+                    (transaction_id,)).fetchone()[0], '숙박비')
+            finally:
+                browser.close()
+
     def test_cleanup_card_proposal_preview_requires_separate_approval(self):
         with sync_playwright() as api:
             browser = api.chromium.launch(headless=True)
@@ -49,18 +96,22 @@ class RuleReviewTests(unittest.TestCase):
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.goto(self.base + '/import')
-                page.locator('#rule-focus option').nth(1).wait_for(state='attached')
-                page.select_option('#rule-focus', self.tx[0])
-                page.fill('#rule-text', '이 가맹점은 앞으로 현지잡비로 분류해 줘')
-                page.click('#rule-propose')
-                page.locator('#future-rule-draft').click()
+                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{self.tx[0]}']")
+                row.locator('.cleanup-instruction').fill('이 가맹점은 앞으로 현지잡비로 분류해 줘')
+                row.locator('[data-cleanup-propose]').click()
+                row.locator('.cleanup-draft').click()
                 form = page.locator('#ruleform')
                 merchant = normalize_merchant(self.rows[0]['merchant'])
                 self.assertEqual(form.locator('[name=merchant]').input_value(), merchant)
                 self.assertEqual(form.locator('[name=rule_item]').input_value(), '현지잡비')
                 self.assertEqual(set(self.items().values()), {''})
+                ledger_before = self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]
                 page.get_by_role('button', name='규칙 저장하고 다시 분류', exact=True).click()
-                page.get_by_text('규칙을 저장하고 분류에 적용했습니다.', exact=False).wait_for()
+                page.get_by_text('규칙은 저장되고 분류도 다시 계산됐습니다.', exact=False).wait_for()
+                self.assertEqual(self.server.card_store.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0], ledger_before)
+                self.assertTrue(any(r['conditions']['merchant_normalized'] == merchant
+                                    and r['effects']['item'] == '현지잡비'
+                                    for r in self.flow.pipeline.list_rules()))
                 # A later import uses the saved rule, without a repeated instruction.
                 new_card = CARD.replace(b'A123', b'FUTURE-SYNTHETIC')
                 batch = self.flow.pipeline.receive(new_card, 'future-synthetic.csv')['batch_id']
@@ -279,14 +330,14 @@ class RuleReviewTests(unittest.TestCase):
             page = browser.new_page()
             page.goto(self.base + '/import')
             page.wait_for_function('(id)=>model?.batch_id===id', arg=self.batch)
-            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.getElementById('rules').open=true")
+            page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.getElementById('card-review-detail').open=true;document.getElementById('rules').open=true")
             form = page.locator('#ruleform')
             form.locator('[name="merchant"]').fill('SYNTHETIC-SHOP')
             form.locator('[name="rule_item"]').fill('식비')
             page.route(f'**/api/imports/{self.batch}',
                        lambda route: route.fulfill(status=500, json={'message': 'FOLLOWUP-STATE-FAILED'}))
             form.get_by_role('button', name='규칙 저장하고 다시 분류').click()
-            page.get_by_text('규칙은 저장됐습니다.', exact=False).wait_for()
+            page.get_by_text('화면을 갱신하지 못했습니다.', exact=False).wait_for()
             rule_id = form.locator('[name="rule_id"]').input_value()
             self.assertTrue(rule_id)
             self.assertEqual(form.locator('[name="version"]').input_value(), '1')

@@ -15,6 +15,7 @@ from pathlib import Path
 
 PATTERN_MERCHANT = re.compile(r"^(?:이|같은) 가맹점(?:\s*\S+)?\s*(?:은|는)?\s*(?:앞으로\s*)?(?P<item>\S+?)(?:으로|로)\s*(?:분류|처리)")
 PATTERN_THIS_ONLY = re.compile(r"^이 건(?:만|은)?\s*(?P<item>\S+?)(?:으로|로)\s*(?:분류|처리|바꿔)")
+PATTERN_AGODA = re.compile(r"^아고다\s*결제는\s*(?P<item>\S+?)(?:으로|로)\s*(?:분류|처리)")
 PATTERN_NOT_COMPANY = re.compile(r"회사 경비 아님")
 PATTERN_ORIGINAL = re.compile(r"(금액|날짜|일자|거래 ?id|승인번호).{0,20}?(바꿔|수정|변경)", re.IGNORECASE)
 
@@ -30,6 +31,10 @@ def parse(text: str, merchant_hint: str | None = None) -> dict:
         return {"kind": "THIS_ONLY", "item": match.group("item")}
     if match := PATTERN_MERCHANT.match(cleaned):
         return {"kind": "MERCHANT_RULE", "item": match.group("item"), "merchant": merchant_hint}
+    # A named provider must match the focused transaction; never widen a rule to unrelated cards.
+    if match := PATTERN_AGODA.match(cleaned):
+        if merchant_hint and re.search(r"AGODA|아고다", merchant_hint, re.IGNORECASE):
+            return {"kind": "MERCHANT_RULE", "item": match.group("item"), "merchant": merchant_hint}
     return {"kind": "NOT_UNDERSTOOD"}
 
 

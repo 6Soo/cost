@@ -35,6 +35,17 @@ def test_merchant_rule_previews_only_unconfirmed_rows_of_that_merchant():
     assert proposal["skipped_decided"] == 1  # t4 is the same merchant but already decided
 
 
+def test_agoda_named_merchant_instruction_only_matches_actual_agoda_rows():
+    text = '아고다 결제는 숙박비로 분류하고, 예약 이용기간으로 여행을 찾아줘.'
+    assert parse(text, merchant_hint='AGODA.COM') == {
+        'kind': 'MERCHANT_RULE', 'item': '숙박비', 'merchant': 'AGODA.COM'}
+    assert parse(text, merchant_hint='OTHER-SYN')['kind'] == 'NOT_UNDERSTOOD'
+    rows = [row('a', merchant='AGODA.COM'), row('b', merchant='AGODA.COM'),
+            row('c', merchant='OTHER-SYN', item='')]
+    proposal = propose(text, rows=rows, focus={'transaction_id': 'a', 'merchant': 'AGODA.COM'})
+    assert [c['transaction_id'] for c in proposal['changes']] == ['a', 'b']
+
+
 def test_decided_rows_are_counted_and_never_changed(tmp_path):
     rows = [row("t1"), row("t4", merchant="CONVI-SYN", decided=True, item="숙박비")]
     proposal = propose("이 가맹점은 앞으로 현지잡비로 분류해 줘", rows=rows, focus=FOCUS)
