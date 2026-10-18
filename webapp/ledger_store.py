@@ -933,6 +933,35 @@ class LedgerStore:
                     out.append(self._remainder_display_row(source))
         return out
 
+    def visible_row_count(self) -> int:
+        """Count rows shown across existing tabs without loading their payloads.
+
+        A split source is replaced by its active income allocations and, when
+        nonzero, its unassigned remainder. Deleted or missing tabs are not
+        displayed by the board, so their ordinary rows are not counted.
+        """
+        def visible_tab(alias):
+            return (
+                f"({alias}.display_tab_id IS NULL OR EXISTS(SELECT 1 FROM trip_tabs t "
+                f"WHERE t.tab_id={alias}.display_tab_id AND t.deleted=0))"
+            )
+        ordinary = self.conn.execute(
+            "SELECT COUNT(*) FROM board_rows b"
+            " WHERE b.row_kind IN ('expense','income') AND " + visible_tab('b') +
+            " AND NOT EXISTS(SELECT 1 FROM income_allocations a"
+            " WHERE a.source_row_id=b.row_id AND a.active=1)"
+        ).fetchone()[0]
+        allocations = self.conn.execute(
+            "SELECT COUNT(*) FROM income_allocations a"
+            " JOIN board_rows b ON b.row_id=a.source_row_id"
+            " WHERE a.active=1 AND " + visible_tab('a')
+        ).fetchone()[0]
+        remainders = sum(
+            self.get_row(source_id) is not None and self.split_remainder(source_id) != 0
+            for source_id in self.split_source_ids()
+        )
+        return ordinary + allocations + remainders
+
     def record_conflict(self, *, row_id: str, expected_revision: int,
                         attempted: dict, client_request_id: str = "",
                         actor: str = "owner") -> dict:

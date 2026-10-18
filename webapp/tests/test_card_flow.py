@@ -489,6 +489,47 @@ class CardFlowTests(unittest.TestCase):
         finally:
             ledger_board.bind_store(previous)
 
+    def test_home_counts_visible_ledger_rows_without_loading_all_tabs(self):
+        from webapp import ledger_board
+
+        trip = self.board.create_trip(
+            starts_on='2026-10-10', ends_on='2026-10-13',
+            destination='Synthetic', client_request_id='count-visible-trip')['tab_id']
+        rows = [
+            ('expense-trip', 'expense', trip, 10),
+            ('income-split', 'income', None, 70),
+            ('expense-hidden', 'expense', 'missing-trip', 20),
+        ]
+        for row_id, kind, tab_id, amount in rows:
+            record = {'row_id': row_id, 'row_kind': kind,
+                      'occurred_on': '2026-10-11', 'amount_krw': amount,
+                      'source_kind': 'synthetic'}
+            self.board.conn.execute(
+                'INSERT INTO board_rows(row_id,row_kind,display_tab_id,revision,payload_json)'
+                ' VALUES(?,?,?,?,?)',
+                (row_id, kind, tab_id, 1, json.dumps(record)))
+        for index, amount in enumerate((50, 10)):
+            self.board.conn.execute(
+                'INSERT INTO income_allocations('
+                'allocation_id,source_row_id,display_tab_id,amount_krw,'
+                'source_revision,created_at,client_request_id)'
+                ' VALUES(?,?,?,?,?,?,?)',
+                (f'allocation-{index}', 'income-split', trip, amount,
+                 1, '2026-10-11', f'allocation-request-{index}'))
+        self.board.conn.commit()
+
+        previous = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            self.assertEqual(
+                len(ledger_board._expense_rows()) + len(ledger_board._income_rows()), 4)
+            self.assertEqual(self.board.visible_row_count(), 4)
+            with patch.object(ledger_board, '_expense_rows', side_effect=AssertionError('full expense scan')), \
+                    patch.object(ledger_board, '_income_rows', side_effect=AssertionError('full income scan')):
+                self.assertIn('장부 <b>4</b>', self.pending_home())
+        finally:
+            ledger_board.bind_store(previous)
+
     def test_ready_matches_recordable_transactions_before_and_after_commit(self):
         from app.ledger import recordable_rows
         trip, batch, row = self.pending_fixture()

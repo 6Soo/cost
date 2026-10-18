@@ -1081,8 +1081,6 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
               and not previous_trip(t)]
     archived_rows = [t for t in trips if t.get("archived") and not t.get("deleted")
                      and not previous_trip(t)]
-    unclassified = _selected_rows('unclassified')[1]
-
     def short_date(value):
         parts = str(value or '').split('-')
         if len(parts) == 3 and parts[0].isdigit() and len(parts[0]) == 4:

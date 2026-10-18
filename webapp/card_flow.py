@@ -357,7 +357,7 @@ def home_page(board):
         (t for t in trips if not t.get('deleted') and not t.get('archived')),
         key=lambda t:(t['starts_on'], t['display_key']))
     trip_heading = '출발 예정 여행' if upcoming else '등록된 여행'
-    posted = len(ledger_board._expense_rows()) + len(ledger_board._income_rows())
+    posted = board.visible_row_count()
     board_tab = upcoming[0]['tab_id'] if upcoming else ledger_board.default_board_tab()
     def short_date(value):
         parts = str(value).split('-')

@@ -894,15 +894,30 @@ def _store_holds_only_the_examples() -> bool:
     example trips, is the example board whether or not it was written by the
     seeder. The moment a row of its own is there, it is not.
     """
-    rows = _expense_rows() + _income_rows()
-    if not rows:
+    store = _active_store()
+    if store is None:
         return False
     examples = example_row_ids()
-    if any(r["row_id"] not in examples for r in rows):
+    total = store.visible_row_count()
+    if not total:
         return False
     example_tabs = {t["tab_id"] for t in TRIPS}
-    tabs = {r.get("display_tab_id") for r in rows} - {None}
-    return not tabs or tabs <= example_tabs
+    # Count only example rows on existing example tabs. Splits, remainders,
+    # imported rows and other tabs make the total larger than this count.
+    placeholders = ','.join('?' for _ in examples)
+    tab_placeholders = ','.join('?' for _ in example_tabs)
+    matching = store.conn.execute(
+        'SELECT COUNT(*) FROM board_rows b'
+        ' WHERE b.row_kind IN (\'expense\',\'income\')'
+        f' AND b.row_id IN ({placeholders})'
+        f' AND (b.display_tab_id IS NULL OR b.display_tab_id IN ({tab_placeholders}))'
+        ' AND (b.display_tab_id IS NULL OR EXISTS ('
+        'SELECT 1 FROM trip_tabs t WHERE t.tab_id=b.display_tab_id AND t.deleted=0))'
+        ' AND NOT EXISTS (SELECT 1 FROM income_allocations a'
+        ' WHERE a.source_row_id=b.row_id AND a.active=1)',
+        (*examples, *example_tabs),
+    ).fetchone()[0]
+    return total == matching
 
 
 def data_status_mark() -> str:
@@ -919,7 +934,7 @@ def data_status_mark() -> str:
             cards = store.conn.execute("SELECT COUNT(*) FROM transactions WHERE classification_state!='preserved'").fetchone()[0]
             if cards:
                 parts.append(f"카드 자료 {cards:,}건")
-    count = len(_expense_rows()) + len(_income_rows())
+    count = store.visible_row_count()
     parts.append(f"장부 기록 {count:,}건")
     return " · ".join(parts)
 
