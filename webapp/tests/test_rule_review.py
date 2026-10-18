@@ -21,6 +21,27 @@ TWO_ROWS = CARD + (
 
 
 class RuleReviewTests(unittest.TestCase):
+    def test_cleanup_card_proposal_preview_requires_separate_approval(self):
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={'width': 390, 'height': 844})
+                page.on('dialog', lambda dialog: dialog.accept())
+                page.goto(self.base + '/import')
+                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{self.tx[0]}']")
+                row.locator('.cleanup-instruction').fill('이 건만 숙박비로 분류해 줘')
+                row.locator('[data-cleanup-propose]').click()
+                row.get_by_text('새 분류 규칙 제안').wait_for()
+                self.assertEqual(set(self.items().values()), {''})
+                self.assertIn('현재 카드 거래 1건', row.locator('.cleanup-proposal-grid').inner_text())
+                self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
+                row.locator('.cleanup-approve').click()
+                row.get_by_text('분류 1건을 적용했습니다', exact=False).wait_for()
+                self.assertEqual(self.items()[self.tx[0]], '숙박비')
+                self.assertEqual(self.items()[self.tx[1]], '')
+            finally:
+                browser.close()
+
     def test_same_merchant_proposal_connects_to_existing_future_rule_form(self):
         from app.normalize import normalize_merchant
         with sync_playwright() as api:

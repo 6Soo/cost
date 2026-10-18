@@ -1767,7 +1767,88 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
     const total=Math.max(0,Number(counter.dataset.total||0)-1);counter.dataset.total=String(total);counter.textContent=total+'건';
     if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
   }catch(err){button.disabled=false;error.textContent=err.message}
-}))})();"""
+}));
+// 제안은 읽기 전용이며 승인 때만 기존 원자적 카드 결정 API로 기록한다.
+const node=(tag,value)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=value;return n};
+document.querySelectorAll('#expense-cleanup [data-cleanup-propose]').forEach(button=>{
+  const row=button.closest('.cleanup-row'),input=row.querySelector('.cleanup-instruction'),result=row.querySelector('.cleanup-proposal-result');
+  let proposal=null,serial=0;
+  input.addEventListener('input',()=>{serial++;proposal=null;result.replaceChildren()});
+  button.addEventListener('click',async()=>{
+    const instruction=input.value.trim(),sequence=++serial;
+    proposal=null;result.replaceChildren();
+    if(!instruction){result.textContent='분류 방법을 입력해 주세요.';return}
+    button.disabled=true;result.textContent='분류 변경 내용을 확인하고 있어요.';
+    try{
+      const response=await fetch('/api/imports/'+encodeURIComponent(row.dataset.batch)+'/rule-proposal',{
+        method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+        body:JSON.stringify({text:instruction,transaction_id:row.dataset.transaction,request_id:crypto.randomUUID()})});
+      const p=await response.json();if(!response.ok)throw Error(p.message||p.code||'규칙 제안에 실패했습니다');
+      if(sequence!==serial||!row.isConnected)return;
+      if(p.interpreted_text)input.value=p.interpreted_text;
+      result.replaceChildren();
+      if(p.status!=='proposed'){
+        result.appendChild(node('p',p.status==='AI_PENDING'?'지시 해석을 기다리고 있습니다. 다시 시도해 주세요.':
+          p.status==='REJECTED_ORIGINAL_EDIT'?'원본 금액·날짜·거래 ID는 수정할 수 없습니다.':
+          '지시를 해석하지 못했습니다. 예: 이 가맹점은 숙박비로 분류 / 이 건만 식비로 분류'));
+        return;
+      }
+      proposal=p;
+      const heading=node('h3','새 분류 규칙 제안');result.appendChild(heading);
+      const grid=node('dl');grid.className='cleanup-proposal-grid';
+      const changed=p.changes||[],applicable=p.payloads||[];
+      const itemName=p.future_rule?.item||changed.find(c=>c.after_item)?.after_item||'회사 경비 제외';
+      const add=(label,value)=>{grid.appendChild(node('dt',label));grid.appendChild(node('dd',value))};
+      add('조건',p.kind==='MERCHANT_RULE'?'가맹점 = '+(p.future_rule?.merchant||row.dataset.merchant):'현재 카드 거래 1건');
+      add('비용 항목',itemName);
+      add('여행','기존 여행 지정 유지 · OTA 이용기간 기준은 별도 확인');
+      add('적용 범위',`이 카드 자료에서 변경 후보 ${changed.length}건 · 실제 변경 ${applicable.length}건`);
+      add('예외',`기존 사용자 결정 ${p.skipped_decided||0}건 제외 · 보류·충돌·파싱 오류는 승인 시 차단`);
+      result.appendChild(grid);
+      result.appendChild(node('p','제안 확인만으로 장부에 기록하거나 여행을 배정하지 않습니다.'));
+      if(p.needs_confirmation){result.appendChild(node('p','회사 경비 제외는 카드 자료 전체 검토에서 별도로 확인해 주세요.'));return}
+      if(applicable.length){
+        const approve=node('button','확인하고 '+applicable.length+'건 적용');approve.type='button';approve.className='cleanup-approve';result.appendChild(approve);
+        approve.addEventListener('click',async()=>{
+          if(!proposal||sequence!==serial||input.value.trim()!==proposal.text)return;
+          if(!confirm('검토한 분류 '+applicable.length+'건을 적용할까요? 여행 배정과 보류 해제는 변경하지 않습니다.'))return;
+          approve.disabled=true;
+          const requestId=(proposal.request_id??=crypto.randomUUID());
+          try{
+            const saved=await fetch('/api/imports/'+encodeURIComponent(row.dataset.batch)+'/rule-proposal/approve',{
+              method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+              body:JSON.stringify({text:proposal.text,transaction_id:proposal.transaction_id,digest:proposal.digest,approved:true,request_id:requestId})});
+            const data=await saved.json();if(!saved.ok)throw Error(data.message||data.code||'승인하지 못했습니다');
+            if(sequence!==serial||!row.isConnected)return;
+            for(const updated of data.state?.rows||[]){
+              const same=Array.from(document.querySelectorAll('#expense-cleanup .cleanup-row[data-kind=card]'))
+                .find(r=>r.dataset.batch===row.dataset.batch&&r.dataset.transaction===updated.transaction_id);
+              if(!same)continue;
+              same.dataset.revision=String(updated.revision);
+              const field=same.querySelector('.cleanup-form input[name=item]');if(field)field.value=updated.item||'';
+            }
+            proposal=null;result.replaceChildren(node('p',data.refresh_required?
+              '분류가 저장됐습니다. 최신 결과는 새로고침 후 확인해 주세요.':
+              '분류 '+data.applied.length+'건을 적용했습니다. 여행 지정은 상세 검토에서 계속할 수 있습니다.'));
+          }catch(error){approve.disabled=false;result.appendChild(node('p',error.message+' · 거래가 바뀌었다면 다시 제안해 주세요.'))}
+        });
+      }else result.appendChild(node('p','변경할 거래가 없습니다.'));
+      if(p.future_rule){
+        const draft=node('button','향후 거래 규칙 초안 열기');draft.type='button';draft.className='cleanup-draft';result.appendChild(draft);
+        draft.addEventListener('click',()=>{
+          const form=document.getElementById('ruleform'),detail=document.getElementById('card-review-detail');
+          if(!form)return;
+          detail.open=true;document.getElementById('rules').open=true;form.reset();
+          form.elements.rule_id.value='';form.elements.version.value='0';
+          form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;
+          form.scrollIntoView({block:'center'});
+          form.elements.rule_item.focus();
+        });
+      }
+    }catch(error){if(sequence===serial)result.replaceChildren(node('p',error.message))}
+    finally{if(sequence===serial)button.disabled=false}
+  });
+});})();"""
 
 CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이용일을 확인해 주세요',
                'travel_location_hold': '사용 국가와 명시 여행이 맞는지 확인해 주세요'}
@@ -1937,12 +2018,26 @@ def render_expense_cleanup(board, csrf, *, page=1):
                       f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
                       f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
                       "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
+        protected = bool(held or conflict_reason or parse_error)
+        label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
+                 '보류 중' if held else '분류 필요' if not item else '여행 확인 필요')
+        assistant = ("<div class='cleanup-assistant'>"
+                     "<label>AI에게 처리 방법 알려주기"
+                     "<textarea class='cleanup-instruction' rows='2' "
+                     "placeholder='예: 이 가맹점은 숙박비로 분류해 줘'></textarea></label>"
+                     "<button type='button' data-cleanup-propose>이 지시로 규칙 제안하기 →</button>"
+                     "<div class='cleanup-proposal-result' role='status' aria-live='polite'></div>"
+                     "</div>") if not protected else ''
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
-            f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-current-tab='{esc(current_tab or '')}'>"
-            f"<div class='cleanup-info'><strong>{esc(merchant)}</strong><span class='cleanup-amount'>{int(amount or 0):,}원</span>"
-            f"<small>{esc(day or '')} · {esc(reason)}</small></div>"
-            f"{review}</li>")
+            f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
+            f" data-current-tab='{esc(current_tab or '')}'>"
+            f"<div class='cleanup-card-head'><h3>거래 검토</h3>"
+            f"<span class='cleanup-badge{' cleanup-badge-protected' if protected else ''}'>{label}</span></div>"
+            f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
+            f"<div class='cleanup-title'><strong>{esc(merchant)}</strong><small>{esc(day or '')} · 카드 결제</small></div></div>"
+            f"<div class='cleanup-amount'>{int(amount or 0):,}원</div>"
+            f"<p class='cleanup-reason'>{esc(reason)}</p>{assistant}{review}</li>")
     ledger = board.conn.execute(
         "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
         " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
@@ -1951,29 +2046,65 @@ def render_expense_cleanup(board, csrf, *, page=1):
         record = json.loads(payload)
         items.append(
             f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row_id)}' data-revision='{int(revision)}'>"
-            f"<div class='cleanup-info'><strong>{esc(record.get('source_merchant') or record.get('description') or '지출')}</strong>"
-            f"<span class='cleanup-amount'>{int(record.get('amount_krw') or 0):,}원</span>"
-            f"<small>{esc(record.get('occurred_on') or '')} · {esc(record.get('item') or '항목 없음')}</small></div>"
+            "<div class='cleanup-card-head'><h3>여행 지정</h3>"
+            "<span class='cleanup-badge'>여행 미배정</span></div>"
+            f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
+            f"<div class='cleanup-title'><strong>{esc(record.get('source_merchant') or record.get('description') or '지출')}</strong>"
+            f"<small>{esc(record.get('occurred_on') or '')} · {esc(record.get('item') or '항목 없음')}</small></div></div>"
+            f"<div class='cleanup-amount'>{int(record.get('amount_krw') or 0):,}원</div>"
             f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
     body = ''.join(items) or '<li class="muted">정리할 지출이 없습니다.</li>'
-    style = ("<style>#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:8px 0}"
-             "#expense-cleanup .cleanup-row{border-bottom:1px solid #E3E7E3;padding:10px 0}"
-             "#expense-cleanup .cleanup-info{display:flex;flex-direction:column;gap:2px;min-width:0}"
-             "#expense-cleanup .cleanup-info strong{overflow-wrap:anywhere}"
-             "#expense-cleanup .cleanup-amount{font-size:17px;font-weight:700}"
-             "#expense-cleanup .cleanup-info small{color:#657068}"
+    style = ("<style>#expense-cleanup{background:transparent;border:0;padding:0}"
+             "#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:12px}"
+             "#expense-cleanup .cleanup-row{border:1px solid #E3E7E3;background:#fff;border-radius:18px;padding:20px;min-width:0}"
+             "#expense-cleanup .cleanup-card-head{display:flex;align-items:center;justify-content:space-between;"
+             "gap:8px;margin:0 0 12px}"
+             "#expense-cleanup .cleanup-card-head h3{margin:0;font-size:17px}"
+             "#expense-cleanup .cleanup-info{display:flex;align-items:center;gap:12px;min-width:0}"
+             "#expense-cleanup .cleanup-receipt-icon{display:grid;place-items:center;width:46px;height:46px;flex:none;"
+             "border-radius:13px;background:#F4F5F4;color:#4B554F;font-size:27px}"
+             "#expense-cleanup .cleanup-title{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}"
+             "#expense-cleanup .cleanup-title strong{font-size:17px;overflow-wrap:anywhere}"
+             "#expense-cleanup .cleanup-title small{color:#657068}"
+             "#expense-cleanup .cleanup-badge{font-size:12px;font-weight:700;border-radius:999px;padding:5px 9px;"
+             "background:#F0F2F1;color:#4B554F;flex:none}"
+             "#expense-cleanup .cleanup-badge-protected{background:#FFF0E7;color:#974B1A}"
+             "#expense-cleanup .cleanup-amount{font-size:24px;font-weight:800;margin:14px 0 4px;font-variant-numeric:tabular-nums}"
+             "#expense-cleanup .cleanup-reason{font-size:13px;color:#657068;margin:0 0 10px}"
+             "#expense-cleanup .cleanup-assistant{margin-top:16px;padding-top:14px;border-top:1px solid #EEF1EE}"
+             "#expense-cleanup .cleanup-assistant label{font-weight:700;display:block}"
+             "#expense-cleanup .cleanup-instruction{display:block;margin:8px 0 10px;min-height:76px;"
+             "width:100%;font-weight:400;resize:vertical;border-radius:10px}"
+             "#expense-cleanup [data-cleanup-propose]{background:#202521;color:#fff;border-color:#202521;"
+             "width:100%;min-height:44px;border-radius:12px}"
+             "#expense-cleanup .cleanup-proposal-result:not(:empty){padding:16px;margin-top:12px;"
+             "border:1px solid #E3E7E3;border-radius:14px;background:#FCFDFC}"
+             "#expense-cleanup .cleanup-proposal-result h3{font-size:16px;margin:0 0 12px}"
+             "#expense-cleanup .cleanup-proposal-result p{font-size:13px;color:#657068}"
+             "#expense-cleanup .cleanup-proposal-grid{display:grid;grid-template-columns:100px minmax(0,1fr);margin:0}"
+             "#expense-cleanup .cleanup-proposal-grid dt,#expense-cleanup .cleanup-proposal-grid dd{"
+             "margin:0;padding:10px 0;border-bottom:1px solid #E3E7E3;overflow-wrap:anywhere}"
+             "#expense-cleanup .cleanup-proposal-grid dt{color:#657068}"
+             "#expense-cleanup .cleanup-proposal-grid dd{font-weight:600}"
+             "#expense-cleanup .cleanup-approve{background:#1C7A52;color:white;border-color:#1C7A52}"
+             "#expense-cleanup .cleanup-approve,#expense-cleanup .cleanup-draft{margin:8px 8px 0 0}"
              "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
              "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
              "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
              "#expense-cleanup .cleanup-error{flex:0 0 100%;margin:0;color:#b42318}"
-             "#expense-cleanup .cleanup-review{margin-top:8px}"
-             "#expense-cleanup .cleanup-review>summary{cursor:pointer;font-weight:700}"
+             "#expense-cleanup .cleanup-review{margin-top:14px;border-top:1px solid #EEF1EE}"
+             "#expense-cleanup .cleanup-review>summary{cursor:pointer;font-weight:700;min-height:44px}"
              "#expense-cleanup .cleanup-review-note{margin:8px 0 0;color:#657068;font-size:13px}"
              "#expense-cleanup .cleanup-protected{margin:8px 0 0;color:#657068}"
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
-             "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}</style>")
+             "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}"
+             "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
+             "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
+             "#expense-cleanup .cleanup-proposal-grid{grid-template-columns:85px minmax(0,1fr)}"
+             "#expense-cleanup .cleanup-approve,#expense-cleanup .cleanup-draft{width:100%;margin:8px 0 0}}"
+             "</style>")
     if ota_catalog.rebuilding():
         note = ("<p id='ota-refresh-note' class='muted'>예약 근거를 갱신하고 있어요. "
                 "완료되면 화면이 자동으로 새로고침됩니다.</p>"

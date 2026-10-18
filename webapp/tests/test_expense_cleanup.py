@@ -485,6 +485,36 @@ def test_cleanup_trip_choice_never_auto_resolves_a_review_hold(tmp_path, monkeyp
         board.close()
 
 
+def test_cleanup_cards_show_in_place_rule_proposal_and_protect_held_rows(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-proposal-ui.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 2)
+        protected = rows[1]
+        board.conn.execute(
+            'INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+            (protected['transaction_id'], protected['source_hash'], 'evidence_pending', 'receipt check'),
+        )
+        board.conn.commit()
+
+        html = render_expense_cleanup(board, 'token')
+        first = html.split(f"data-transaction='{rows[0]['transaction_id']}'", 1)[1]
+        first = first.split("</li>", 1)[0]
+        held = html.split(f"data-transaction='{protected['transaction_id']}'", 1)[1]
+        held = held.split("</li>", 1)[0]
+        assert '거래 검토' in first and "class='cleanup-badge'" in first
+        assert 'AI에게 처리 방법 알려주기' in first
+        assert '이 지시로 규칙 제안하기' in first
+        assert '상세 검토' in first and '여행 수정' in first
+        assert 'data-cleanup-propose' not in held and '보류 중' in held
+        assert "'rule-proposal/approve'" not in first  # HTML은 서버 승인 없이 기록하지 않는다.
+        assert 'resolve_hold:' not in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_booked_state_without_a_ledger_entry_is_not_reported_as_recorded(tmp_path, monkeypatch):
     from webapp.card_actions import next_action
     from webapp import ota_catalog
