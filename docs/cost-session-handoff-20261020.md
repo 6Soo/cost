@@ -6,6 +6,8 @@
 >
 > **권위 분리**: 현재 배포 실적은 [operations.md](operations.md)의 *최상단 최신 절*, 진행 중 기능은 현행 소스·Git 로그를 먼저 따른다. 오래된 운영 수치와 세션 보고는 당시의 기록이다. Windows 현지 프로세스/DB 실측은 이 문서 작업에서 수행하지 않았다. 문서 작업을 이유로 운영 서비스를 재시작하거나 DB를 수정하지 않는다.
 
+**병행 세션 최신화**: 이 문서의 최초 조사 뒤 `main`에 `70bcf82d317a90443e0a4212bd2aecfa7ac14b69`가 추가돼 예약 미연결 안내의 별도 [현장 인계](handoff/session-20261020-booking-evidence.md)를 기록했다. 본 브랜치는 해당 문서와 `docs/session_handoff.md` 최신화도 보존해 합친다. 현재 작업 재개 시 이 병행 기록도 함께 확인한다.
+
 ## 1. 새 세션 1분 요약
 
 - 제품: 숲길따라 감성여행의 비공개 COST 회계/지출 플랫폼. 운영 URL `https://ledger.foresttour.kr`, 저장소 `6Soo/cost` (private), Windows `D:/WebLedgerHost`, Cloudflare Tunnel, SQLite 내부 장부. Google 시트는 목표 업무에서는 최종 회계 정본이며 COST는 사용자 승인 없는 자동 Google 쓰기를 하지 않는다.
