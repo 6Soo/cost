@@ -34,6 +34,31 @@ def card_rows(board, count):
     return flow, batch, flow.pipeline.get_batch(batch)['rows']
 
 
+def test_unlinked_booking_explains_missing_connection_without_requesting_card_evidence(tmp_path, monkeypatch):
+    from webapp import card_flow
+
+    board = LedgerStore(tmp_path / 'unlinked-booking.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 1)
+        tid = rows[0]['transaction_id']
+        board.conn.execute("UPDATE transactions SET merchant='AGODA.COM' WHERE transaction_id=?", (tid,))
+        board.conn.commit()
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _board: {})
+        before = tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone())
+
+        markup = render_expense_cleanup(board, 'token')
+
+        assert '이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다.' in markup
+        assert '예약 확인서에서 예약번호와 이용기간을 확인해 주세요.' in markup
+        assert '카드 결제일만으로는 여행을 정할 수 없습니다.' in markup
+        assert '예약 근거를 카드 자료에서 확인' not in markup
+        assert tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone()) == before
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
 def test_unassigned_expense_is_listed_and_leaves_the_list_once_assigned(tmp_path):
     board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
     try:

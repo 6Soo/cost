@@ -1999,7 +1999,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
             evidence = (
-                "<p class='cleanup-evidence-none'>예약 근거를 카드 자료에서 확인해 주세요.</p>"
+                "<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
+                "예약 확인서에서 예약번호와 이용기간을 확인해 주세요. "
+                "카드 결제일만으로는 여행을 정할 수 없습니다.</p>"
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
         if conflict_reason or parse_error:
