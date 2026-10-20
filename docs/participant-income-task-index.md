@@ -9,13 +9,15 @@
 | 작업 ID | 요구사항 | 상태 | 근거 또는 다음 단계 |
 | --- | --- | --- | --- |
 | SPEC | 계획 및 명세 작성 | COMPLETE | 사용자 요구, 기존 Google 수입 경계, 전달·대조·예외·화면·검증 계획을 명세에 기록했다. |
-| P0 | 구조화 명단 수신·참가자 저장 | PLANNED | 구현 요청 전이다. 실제 DB에 기록하지 않았다. |
-| P1 | 금액 없는 Google 이름 행 조회 | PLANNED | 현재 파서의 제외 경로를 확인했다. 코드 변경·검증은 미실행이다. |
-| P2 | 수입 대조·연결·수동 결정 | PLANNED | 구현 요청 후 P0/P1 계약을 사용한다. |
-| P3 | 관리자 참가자 대조 화면 | PLANNED | 기존 수입 화면의 읽기 경계와 권한을 유지한다. |
-| P4 | 합성 통합 확인 | PLANNED | 구현된 경로만 한 번 검증한다. |
+| P0 | 구조화 명단 수신·참가자 저장 | IMPLEMENTED | `app/participant_roster.py`, `tools/ingest_participant_roster.py`, 커밋 `945c218`. 표적 테스트 `tests/card_pipeline/test_participant_roster.py` 통과. |
+| P1 | 금액 없는 Google 이름 행 조회 | IMPLEMENTED | `app/google_authority.py` 이름 인덱스, 커밋 `650b730`. `tests/card_pipeline/test_google_authority.py` 58건 통과. |
+| P2 | 수입 대조·연결·수동 결정 | IMPLEMENTED | `app/participant_income.py`, 커밋 `b2366f2`. `tests/card_pipeline/test_participant_income.py` 통과. |
+| P3 | 관리자 참가자 대조 화면 | IMPLEMENTED | `webapp/participant_income_page.py`, 커밋 `a14a414`. `webapp/tests/test_participant_income.py` 통과. |
+| P4 | 합성 통합 확인 | IMPLEMENTED | `tests/card_pipeline/test_participant_integration.py`, 커밋 `b94204c`. 수신→표시→수동연결→재수신→Google 변경 한 번 확인. |
 
-2026-10-20 후속 요청으로 P0~P4의 실제 구현을 승인받았다. 구현 작업자는 Muse Spark 1.3 Free이며 실패 시 Space Bunny Free로 전환한다. 표의 PLANNED는 아직 착수하지 않은 구현 항목을 뜻하며, 작업자가 착수·검증 근거에 맞춰 갱신한다. SPEC은 완료된 설계 근거로 유지한다. 운영 배포와 실제 고객 명단 등록은 이번 요청에 포함되지 않는다.
+구현은 승인된 범위 안에서 끝까지 수행했고 운영 배포·실제 명단 등록은 하지 않았다. Google 쓰기·수입 자동 기장·미납·완납 추정은 구현하지 않았다.
+
+2026-10-20 후속 요청으로 P0~P4의 실제 구현을 승인받았다. 구현 작업자는 OpenCode 1.19.3의 `opencode/minimax-m3.1-flash-free`(추론 high)로 실행했다. 앞선 Muse Spark·Space Bunny 호출은 반복하지 않았다. 표의 상태는 작업자가 착수·검증 근거에 맞춰 갱신했다. SPEC은 완료된 설계 근거로 유지한다. 운영 배포와 실제 고객 명단 등록은 이번 요청에 포함되지 않는다.
 
 구현은 기존 COST 작업 공간에서 작업자 한 명이 담당한다. Supervisor는 요구 해석과 읽기 전용 검토를 맡고 같은 파일을 동시에 수정하지 않는다. 전달 자료는 코드·명세·합성 자료로 제한하며 기존 미커밋 아고다 변경은 수정·stage하지 않는다. 설계·구현 방법은 현재 승인 범위 안에서 결정하고 다시 승인을 요청하지 않는다.
 
@@ -32,13 +34,62 @@
 
 업데이트 후 두 지정 모델에 대해 파일 조회·도구 사용을 금지한 최소 응답 요청을 CLI로 각각 한 번 실행했다. 두 요청 모두 종료 코드 1과 `UnknownError / Unexpected server error`로 실패했으며, 앞선 HTTP 410과 같은 오류라고 단정하지 않는다. 재시도 오류 참조는 Muse `err_fcaf26bd`, Space Bunny `err_7b4f5f96`다. Paseo의 모델 목록 조회도 `Provider 'opencode' is not available`을 반환했다. 같은 시점 제공자 검사에서는 available로 표시돼 상태가 일치하지 않았다. Paseo 재시작이나 앱 복구는 수행하지 않았다. 지정 모델의 구현은 여전히 미착수이고 대체 모델은 임의 실행하지 않았다.
 
+### 구현 실행 결과 (2026-10-20)
+
+실행 경로: OpenCode 1.19.3, 모델 `opencode/minimax-m3.1-flash-free`, 추론 high, 작업 공간 `C:/AX/cost`, 착수 HEAD `a1efbda`. 앞선 Muse Spark·Space Bunny 실패 호출은 반복하지 않았다.
+
+커밋(모두 `main`, 다른 작업의 아고다 변경 미포함):
+
+| 커밋 | 내용 |
+| --- | --- |
+| `945c218` | P0 참가자 명단 수신·저장 (`app/participant_roster.py`, `tools/ingest_participant_roster.py`) |
+| `650b730` | P1 Google 수입 이름 인덱스 (`app/google_authority.py`, `webapp/google_ledger_page.py`) |
+| `b2366f2` | P2 대조·수동 결정 (`app/participant_income.py`) |
+| `a14a414` | P3 관리자 전용 화면·API (`webapp/participant_income_page.py`, `webapp/ledger_board.py`, `webapp/access_control.py`) |
+| `b94204c` | P4 합성 통합 확인 (`tests/card_pipeline/test_participant_integration.py`) |
+
+구현한 경계:
+
+- P0: `manifest.json`·`participants.json` 필드·타입·해시·페이지·경로 검증, 개인정보 필드 거부, 여행 연결 확인(`TRIP_MAPPING_REQUIRED` 보류), 참가 확정 저장, 부분 명단·판독 대기, 재수신 멱등성, 같은 배치 id 충돌(`SOURCE_ID_CONFLICT`), 이름 변경 정정 제안, 같은 사람의 항목 재사용, 명단 트랜잭션과 동시 등록.
+- P1: 이름·닉네임이 있는 수입 행을 금액 집계와 분리된 비공개 이름 인덱스로 저장. 금액 행·합계·오류 플래그 계약은 그대로이고, 이름 인덱스가 없는 세대·비표준 탭·오래된 동기화는 누락 판정을 보류한다.
+- P2: 유일한 이름 일치만 자동 연결하고 동명이인·복수입금은 `연결 확인 필요`로 남긴다. 수동 연결·해제·공동입금·정정·별칭·같은 사람 확인을 저장하고, 원문 지문이 바뀌면 그 연결만 `연결 확인 필요`로 되돌린다. 입금 행은 고유 원본 행을 한 번만 센다.
+- P3: `/participants`, `/api/participants/state`, `/api/participants/link`, `/api/participants/unlink`, `/api/participants/participant`. 소유자 세션만 처리하고, 일반 열람자는 403, 익명 요청은 401로 거절한다. 기존 장부 화면·기존 API·XLSX에는 실명·참가 표시·원본 경로가 들어가지 않는다. 오래된 화면의 결정은 409 `STALE_RECONCILIATION`으로 거절한다.
+
+실제로 실행한 검증(모두 변경 기능과 직접 인접 계약에 한정):
+
+| 명령 | 결과 |
+| --- | --- |
+| `python -m pytest tests/card_pipeline/test_participant_roster.py -q` | 23 passed |
+| `python -m pytest tests/card_pipeline/test_participant_income.py -q` | 17 passed |
+| `python -m pytest tests/card_pipeline/test_participant_integration.py -q` | 1 passed |
+| `python -m pytest tests/card_pipeline/test_google_authority.py -q -k participant` | 6 passed, 52 deselected |
+| `python -m pytest tests/card_pipeline/test_google_authority.py -q` | 58 passed |
+| `python -m pytest webapp/tests/test_participant_income.py -q` | 7 passed |
+| `python -m pytest webapp/tests/test_access_control_phase7.py -q` | 47 passed |
+
+기존 실패(변경과 무관): `webapp/tests/test_google_ledger_page.py` 23건, `webapp/tests/test_google_canonical_workflow.py` 5건, `webapp/tests/test_google_viewer_http.py` 6건은 기준 커밋 `945c218`을 별도 worktree로 체크아웃해 그대로 실패함을 확인했다. Google 장부 화면 경로가 이미 제거된 뒤 남은 테스트이며 이번 변경과 무관해 고치지 않았다.
+
+의도적 생략과 이유:
+
+- 전체 pytest·전체 브라우저 E2E·OTA 전수 대사·전체 회귀는 실행하지 않았다. 카드·OTA 연결과 회계 쓰기를 건드리지 않고, 위 표적 검사와 인접 통합 검사만으로 변경 범위를 확인했다.
+- 운영 배포·운영 스키마 변경·운영 DB 확인·브라우저 E2E는 하지 않았다. 승인 범위가 구현까지이고 운영 적용은 별도 승인 단계다.
+- 실명 명단 등록·실제 여행 연결·Google 쓰기는 하지 않았다. 실제 자료와 여행 참조가 필요하고 원본을 건드리지 않는 것이 이번 범위다.
+
+실제 차단:
+
+- 없음. 지정 모델 호출과 표적 테스트가 모두 정상 실행됐다.
+
+재개점: 실명 명단을 등록하려면 `.local-archive/participant-rosters/<batch_id>/`에 `manifest.json`·`participants.json`·`sources/`를 놓고 `tools/ingest_participant_roster.py --batch-dir <경로> --db .local-archive/participant-rosters/participant.sqlite --mapping <google-tab-mapping.json>`을 실행한다. 여행 연결이 모호하면 `TRIP_MAPPING_REQUIRED`로 보류되고 참가 확정은 저장되지 않는다. 그다음 소유자 계정으로 `/participants?trip=<탭 id>`에서 대조를 확인한다.
+
 ## 변경 파일과 보호 범위
 
-이번 문서 작업의 파일은 이 인덱스, [상세 명세](participant-income-reconciliation-spec.md), [README](../README.md), [상위 목표 명세](target-workflow-google-authority.md)다. 원본 명단과 실명은 포함하지 않는다.
+이 문서 작업의 파일은 이 인덱스, [상세 명세](participant-income-reconciliation-spec.md), [README](../README.md), [상위 목표 명세](target-workflow-google-authority.md)다. 원본 명단과 실명은 포함하지 않는다.
 
 작업 시작 시 `main`의 HEAD는 `8aaf09c`였다. 기존 변경 `app/ota_portal.py`, `docs/session_handoff.md`와 미추적 `app/agoda_capture.py`, `docs/trip-booking-mail-investigation.md`, `tests/card_pipeline/test_agoda_capture.py`, `tools/ingest_agoda_aside.py`는 별도 작업으로 보존한다. 기존 변경은 이번 커밋에 포함하지 않는다.
 
 문서 검증은 변경 diff, 상대 링크, 상태 선언과 개인정보 없는 합성 예시를 확인한다. 문서만 바꾸므로 코드 테스트·빌드·브라우저·운영 DB 조회·백업·배포·재시작은 수행하지 않는다. 실제 검사와 커밋 결과는 완료 보고와 Git 이력으로 확인한다.
+
+후속 구현(P0~P4)에서 만든 파일은 `app/participant_roster.py`, `app/participant_income.py`, `webapp/participant_income_page.py`, `tools/ingest_participant_roster.py`, `tests/card_pipeline/test_participant_roster.py`, `tests/card_pipeline/test_participant_income.py`, `tests/card_pipeline/test_participant_integration.py`, `webapp/tests/test_participant_income.py`이고, 수정한 파일은 `app/google_authority.py`, `webapp/google_ledger_page.py`, `webapp/ledger_board.py`, `webapp/access_control.py`, `tests/card_pipeline/test_google_authority.py`, `README.md`, 이 문서와 상세 명세다. 위의 아고다 변경 파일은 이번 구현에서도 수정·stage하지 않았다.
 
 ## 세션 인수 기록
 
@@ -50,7 +101,7 @@
 
 ## 다음 정확한 시작점
 
-사용자가 구현을 요청하면 다음 읽기 명령으로 진입한다. 명세 11절의 P0부터 시작하고 첫 구현의 테스트는 새 명단 수신 경로로 한정한다.
+구현(P0~P4)은 완료했다. 다음 단계는 승인 뒤에만 진행한다.
 
 ```powershell
 Get-Content -Encoding UTF8 docs/participant-income-task-index.md
@@ -58,4 +109,4 @@ Get-Content -Encoding UTF8 docs/participant-income-reconciliation-spec.md
 git status --short
 ```
 
-실제 첨부 명단 등록에는 기존 Google 여행 참조와 전사 자료가 필요하다. 여행 참조가 없으면 해당 등록만 대기하고, 합성 자료를 사용하는 독립 구현을 차단하지 않는다.
+실제 첨부 명단 등록에는 기존 Google 여행 참조와 전사 자료가 필요하다. 여행 참조가 없으면 해당 등록만 대기하고, 이미 만든 합성 구현 경로와는 분리한다. 운영 적용(배포·운영 스키마·운영 DB)을 시작하기 전에 복구 사본과 복원 확인을 먼저 수행한다.

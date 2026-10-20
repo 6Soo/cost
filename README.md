@@ -36,7 +36,7 @@ python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environmen
 
 ## 문서 안내
 
-- [보험가입 명단 기반 참가자 확정·수입 대조 계획과 명세](docs/participant-income-reconciliation-spec.md)와 [해당 기능 작업 인덱스](docs/participant-income-task-index.md): 계획 작성 완료이며 제품 구현·운영 적용은 미실행이다.
+- [보험가입 명단 기반 참가자 확정·수입 대조 계획과 명세](docs/participant-income-reconciliation-spec.md)와 [해당 기능 작업 인덱스](docs/participant-income-task-index.md): 구현(P0~P4)까지 완료했고 운영 적용·실명 등록은 아직 하지 않았다. 명단 수신·참가 확정은 `app/participant_roster.py`, 대조·연결 결정은 `app/participant_income.py`, 관리자 전용 화면은 `webapp/participant_income_page.py`에 있다. 명단 원본과 저장소는 `.local-archive` 아래에 둔다.
 - [현재 운영 상태와 검증](docs/operations.md)
 - [미결 작업과 다음 세션 인계](docs/session_handoff.md)
 - [업무 규칙](docs/business_rules.md)
