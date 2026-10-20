@@ -139,6 +139,23 @@ def owner_rows(rows: dict, key: str, source: str) -> dict | None:
             "expense": expense(tab.get("expense", []))}
 
 
+def owner_income_names(rows: dict, key: str, source: str) -> dict | None:
+    """The private name index of one trip tab: names without a verified amount too.
+
+    `None` means this snapshot generation has no name index at all, so a missing name
+    cannot be concluded from it. An empty list means the tab was read and held no name.
+    """
+    if source not in ("main", "archive"):
+        raise ValueError("SOURCE_INVALID")
+    names = rows.get(source, {}).get("income_names")
+    if not isinstance(names, dict):
+        return None
+    entry = names.get(key)
+    if not isinstance(entry, dict):
+        return None
+    return {"available": bool(entry.get("available")), "rows": list(entry.get("income") or [])}
+
+
 def format_display_time(value):
     """Show an explicit timestamp in Seoul time, without fractional seconds."""
     if value is None or value == '':

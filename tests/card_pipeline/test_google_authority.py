@@ -422,6 +422,97 @@ def _rows_text(snapshot_path: Path, rows_path: Path) -> str:
     return ga._rows_file(rows_path, generation).read_text(encoding="utf-8")
 
 
+# --------------------------------------------------------------- participant name index
+
+def _name_row_book():
+    """수입에 금액이 있는 행 하나, 이름만 있고 날짜·금액이 비어 있는 행 하나."""
+    def build(wb):
+        ws = wb.create_sheet("0404_에히메")
+        ws["B4"] = "수입 내용"
+        for col, label in zip("BCDEFGH", INCOME):
+            ws[f"{col}5"] = label
+        ws["B6"], ws["C6"], ws["H6"] = dt.date(2027, 4, 4), "김가람", 100000
+        ws["C7"] = "박다온"
+        ws["C9"] = "=sum(H6:H7)"
+        ws["B10"] = "지출 내용"
+        for col, label in zip("BCDEFGH", EXPENSE):
+            ws[f"{col}11"] = label
+        ws["B12"], ws["C12"], ws["H12"] = dt.date(2027, 4, 5), "지출처", 30000
+        ws["C13"] = "=SUM(H12:H12)"
+    return workbook_bytes(build)
+
+
+def test_participant_name_index_keeps_the_amount_rows_and_totals_unchanged():
+    (trip,) = ga.parse_workbook(_name_row_book())
+    assert trip["income_rows"] == 1
+    assert trip["income"]["row_sum"] == 100000
+    assert [row["amount"] for row in trip["rows"]["income"]] == [100000]
+    names = trip["name_index"]["income"]
+    assert [(row["name"], row["amount"], row["amount_state"]) for row in names] == [
+        ("김가람", 100000, "amounted"), ("박다온", None, "blank")]
+    assert trip["name_index"]["available"] is True
+
+
+def test_participant_name_index_does_not_make_a_zero_income_row():
+    (trip,) = ga.parse_workbook(_name_row_book())
+    assert all(row["amount"] != 0 for row in trip["rows"]["income"])
+    assert trip["income"]["row_sum"] == 100000
+
+
+def test_participant_name_index_keeps_an_amount_error_out_of_the_amount():
+    def build(wb):
+        ws = wb.create_sheet("0404_에히메")
+        for col, label in zip("BCDEFGH", INCOME):
+            ws[f"{col}5"] = label
+        ws["B6"], ws["C6"], ws["H6"] = dt.date(2027, 4, 4), "김가람", 100000
+        ws["C7"], ws["H7"] = "이나래", "#REF!"
+        ws["C9"] = "=sum(H6:H7)"
+        ws["B10"] = "지출 내용"
+        for col, label in zip("BCDEFGH", EXPENSE):
+            ws[f"{col}11"] = label
+        ws["B12"], ws["C12"], ws["H12"] = dt.date(2027, 4, 5), "지출처", 30000
+        ws["C13"] = "=SUM(H12:H12)"
+    (trip,) = ga.parse_workbook(workbook_bytes(build))
+    assert "FORMULA_ERROR" in trip["flags"]
+    assert trip["income"]["total"] is None
+    states = {row["name"]: row["amount_state"] for row in trip["name_index"]["income"]}
+    assert states["김가람"] == "amounted" and states["이나래"] == "formula_error"
+
+
+def test_participant_name_index_is_private_and_the_public_snapshot_stays_clean(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _name_row_book()
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    public = snapshot_path.read_text(encoding="utf-8")
+    assert "김가람" not in public and "박다온" not in public
+    private = json.loads(_rows_text(snapshot_path, rows_path))
+    names = private["sources"]["main"]["income_names"]["0404_에히메"]
+    assert names["available"] is True
+    assert [row["name"] for row in names["income"]] == ["김가람", "박다온"]
+
+
+def test_participant_name_index_is_unavailable_for_a_nonstandard_tab():
+    def build(wb):
+        ws = wb.create_sheet("0909_제주")
+        ws["B25"], ws["D25"], ws["F25"], ws["H25"], ws["I25"] = "거래일자", "항목", "내용", "증빙유형", "금액(원)"
+        ws["B26"], ws["I26"] = dt.date(2026, 9, 9), 30000
+    (trip,) = ga.parse_workbook(workbook_bytes(build))
+    assert trip["name_index"]["available"] is False
+    assert trip["name_index"]["income"] == []
+
+
+def test_participant_name_index_is_missing_in_an_older_generation(tmp_path: Path):
+    from webapp import google_ledger_page as page
+    rows = {"main": {"trips": {"0404_에히메": {"income": [], "expense": []}}}}
+    assert page.owner_income_names(rows, "0404_에히메", "main") is None
+    rows["main"]["income_names"] = {"0404_에히메": {"available": True, "income": [
+        {"row": 6, "cells": {"B": "", "C": "김가람", "D": "", "E": "", "F": "", "G": ""},
+         "name": "김가람", "nickname": "", "amount": None, "amount_state": "blank"}]}}
+    index = page.owner_income_names(rows, "0404_에히메", "main")
+    assert index["available"] is True and index["rows"][0]["name"] == "김가람"
+
+
 def test_adc_setup_failure_marks_last_good_stale_without_public_fallback(tmp_path, monkeypatch, capsys):
     from app import google_adc_export, sync_schedule
     from tools import google_authority_sync as cli

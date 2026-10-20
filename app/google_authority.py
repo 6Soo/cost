@@ -78,10 +78,13 @@ def _cell_value(value):
 
 
 def _sum_block(first: int, last: int, ws_f, ws_v, flags: set,
-               out_rows: list | None = None) -> tuple[int, int, int | None, int | None]:
+               out_rows: list | None = None, out_names: list | None = None) -> tuple[int, int, int | None, int | None]:
     total, rows, first_row, last_row = 0, 0, None, None
     for row in range(first, last + 1):
         value = ws_v.cell(row=row, column=8).value
+        if out_names is not None:
+            # 이름 인덱스는 금액 집계와 무관하다. 금액이 없는 이름 행도 여기만 남는다.
+            _collect_name_row(ws_f, ws_v, row, value, out_names)
         if value is None or value == "":
             formula = ws_f.cell(row=row, column=8).value
             if isinstance(formula, str) and formula.startswith("="):
@@ -103,6 +106,35 @@ def _sum_block(first: int, last: int, ws_f, ws_v, flags: set,
                          for index, column in enumerate("BCDEFG", start=2)}
                 out_rows.append({"row": row, "cells": cells, "amount": int(value)})
     return total, rows, first_row, last_row
+
+
+#: 이름 행의 금액 상태. 금액이 없다는 사실과 0원이라는 사실은 다르다.
+AMOUNT_STATES = ("amounted", "blank", "not_cached", "formula_error", "invalid")
+
+
+def _collect_name_row(ws_f, ws_v, row: int, value, out_names: list) -> None:
+    """이름 또는 닉네임이 있는 수입 행. 회계 집계에는 들어가지 않는다."""
+    name = _text(ws_v.cell(row=row, column=3).value)
+    nickname = _text(ws_v.cell(row=row, column=4).value)
+    if not name and not nickname:
+        return
+    if value is None or value == "":
+        formula = ws_f.cell(row=row, column=8).value
+        state = "not_cached" if isinstance(formula, str) and formula.startswith("=") else "blank"
+        amount = None
+    elif isinstance(value, str) and value.startswith("#"):
+        state = "formula_error"
+        amount = None
+    elif isinstance(value, bool) or not isinstance(value, (int, float)) or not float(value).is_integer():
+        state = "invalid"
+        amount = None
+    else:
+        state = "amounted"
+        amount = int(value)
+    cells = {column: _cell_value(ws_v.cell(row=row, column=index).value)
+             for index, column in enumerate("BCDEFG", start=2)}
+    out_names.append({"row": row, "cells": cells, "name": name, "nickname": nickname,
+                      "amount": amount, "amount_state": state})
 
 
 def _sum_formulas(ws_f) -> list[tuple[int, int, int, int]]:
@@ -158,7 +190,8 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
             expense_rows.append(row)
     if len(income_rows) != 1 or len(expense_rows) != 1 or income_rows[0] >= expense_rows[0]:
         return {"layout": "nonstandard", "flags": ["LAYOUT_NOT_STANDARD"], "income": None, "expense": None,
-                "net": None, "verified": False, "income_rows": None, "expense_rows": None}
+                "net": None, "verified": False, "income_rows": None, "expense_rows": None,
+                "name_index": {"income": [], "available": False}}
 
     income_header, expense_header = income_rows[0], expense_rows[0]
     formulas = _sum_formulas(ws_f)
@@ -170,10 +203,12 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
 
     flags: set = set()
     result, counts, entries = {}, {}, {}
+    name_rows: list = []
     for name, (first, last) in blocks.items():
         block_flags: set = set()
         entries[name] = []
-        row_sum, rows, first_row, last_data = _sum_block(first, last, ws_f, ws_v, block_flags, entries[name])
+        row_sum, rows, first_row, last_data = _sum_block(first, last, ws_f, ws_v, block_flags, entries[name],
+                                                        name_rows if name == "income" else None)
         sheet_total = _check_total(formulas, first, last, ws_v, row_sum, rows, first_row, last_data, block_flags)
         flags |= block_flags
         result[name] = _block(sheet_total, None if block_flags & BLOCKING_FLAGS else row_sum, block_flags)
@@ -191,6 +226,8 @@ def parse_trip_sheet(ws_f, ws_v) -> dict:
         "income_rows": counts["income"],
         "expense_rows": counts["expense"],
         "rows": entries,
+        # 이름 인덱스는 비공개 자료에만 둔다. 공개 스냅샷에는 이름이 남지 않는다.
+        "name_index": {"income": name_rows, "available": True},
     }
 
 
@@ -313,7 +350,8 @@ def parse_quarter_sheet(ws_f, ws_v, quarter: int) -> dict:
             'ledger_year': int(year_match[1]) if year_match else None}
     if len(headers) != 1:
         return {**base, 'layout': 'nonstandard', 'flags': ['LAYOUT_NOT_STANDARD'],
-                'income': None, 'expense': None, 'net': None, 'verified': False}
+                'income': None, 'expense': None, 'net': None, 'verified': False,
+                'name_index': {'income': [], 'available': False}}
     first = headers[0] + 1
     formulas = _sum_formulas(ws_f)
     totals = [f for f in formulas if f[2] in (first - 1, first) and f[0] >= first]
@@ -326,7 +364,8 @@ def parse_quarter_sheet(ws_f, ws_v, quarter: int) -> dict:
     return {**base, 'layout': 'rev', 'flags': sorted(flags),
             'income': {'sheet_total': 0, 'row_sum': 0, 'total': 0, 'verified': True},
             'expense': expense, 'net': None, 'verified': expense['verified'],
-            'income_rows': 0, 'expense_rows': count, 'rows': {'income': [], 'expense': entries}}
+            'income_rows': 0, 'expense_rows': count, 'rows': {'income': [], 'expense': entries},
+            'name_index': {'income': [], 'available': False}}
 
 
 def _download(url: str, *, timeout: float, max_bytes: int) -> bytes:
@@ -384,7 +423,8 @@ def _row_changes(previous: dict, current: dict) -> dict:
 
 
 def _public_trips(trips: list[dict]) -> list[dict]:
-    return [{k: v for k, v in trip.items() if k != "rows"} for trip in trips]
+    """공개 스냅샷에는 행 내용과 이름 인덱스를 남기지 않는다."""
+    return [{k: v for k, v in trip.items() if k not in ("rows", "name_index")} for trip in trips]
 
 
 def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetcher) -> tuple[dict, dict | None]:
@@ -405,11 +445,13 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
     if not trips and previous.get("trips"):
         return _retained(previous, code="SOURCE_NO_TRIP_SHEETS", checked_at=now), None
     current_rows = {t["sheet"]: t.get("rows", {}) for t in trips}
+    # 이름 인덱스는 금액 행과 별개로 저장한다. 금액이 없는 이름 행도 여기만 남는다.
+    current_names = {t["sheet"]: t.get("name_index", {"income": [], "available": False}) for t in trips}
     record = {"status": "ok", "error_code": None, "stale": False, "checked_at": now, "last_ok_at": now,
               'parser_version': PARSER_VERSION,
               "content_sha256": digest, "unchanged": False, "trips": _public_trips(trips),
               "row_changes": _row_changes(previous_rows, current_rows)}
-    return record, {"content_sha256": digest, "trips": current_rows}
+    return record, {"content_sha256": digest, "trips": current_rows, "income_names": current_names}
 
 
 def _copy(trip: dict | None) -> dict | None:
