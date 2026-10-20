@@ -1,6 +1,6 @@
 # cost 작업 지침
 
-목적은 카드 파일 → 자동분류 → 미확정 확인 → 미리보기 → 장부 기록이다. README.md와 docs/operations.md에서 현재 상태를 확인한다.
+목적은 카드 파일 → 자동분류 → 보호 검사 통과 거래의 COST 내부 장부 자동 기록 → 예외만 ‘지출 정리’에서 수정하는 흐름이다. Google 최종 장부에는 자동 쓰기하지 않는다. README.md, docs/operations.md 및 docs/cost-session-handoff-20261020.md에서 현재 상태와 미완성 목표를 구분한다.
 
 ## 사용자 확정 규칙 (변경·격하 금지)
 
@@ -53,4 +53,4 @@
 
 ## 현재 상태를 읽는 순서
 
-현재 수치와 검증은 `docs/operations.md`, 남은 작업과 보호할 파일은 `docs/session_handoff.md`를 따른다. `docs/history/`와 `outputs/`의 날짜가 붙은 보고서는 과거 실행 기록이며 현재 운영 상태로 해석하지 않는다. 문서 정리에서도 사용자 업무 규칙과 원본 증거를 보존한다.
+현재 수치와 검증은 `docs/operations.md`, 이번 세션의 최신 의사결정 및 재개 경계는 `docs/cost-session-handoff-20261020.md`, 과거 미결 작업과 보호할 파일은 `docs/session_handoff.md`를 따른다. `docs/history/`와 `outputs/`의 날짜가 붙은 보고서는 과거 실행 기록이며 현재 운영 상태로 해석하지 않는다. 문서 정리에서도 사용자 업무 규칙과 원본 증거를 보존한다.
