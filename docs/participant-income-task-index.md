@@ -15,7 +15,7 @@
 | P3 | 관리자 참가자 대조 화면 | IMPLEMENTED | `webapp/participant_income_page.py`, 커밋 `a14a414`. `webapp/tests/test_participant_income.py` 통과. |
 | P4 | 합성 통합 확인 | IMPLEMENTED | `tests/card_pipeline/test_participant_integration.py`, 커밋 `b94204c`. 수신→표시→수동연결→재수신→Google 변경 한 번 확인. |
 
-구현은 승인된 범위 안에서 끝까지 수행했고 운영 배포·실제 명단 등록은 하지 않았다. Google 쓰기·수입 자동 기장·미납·완납 추정은 구현하지 않았다.
+구현은 승인된 범위 안에서 끝까지 수행했고 운영 배포·실제 명단 등록은 하지 않았다. Google 쓰기·수입 자동 기장·미납·완납 추정은 구현하지 않았다. 2026-10-20 Supervisor 검토로 지적된 명세 누락과 결함도 반영해 표적 검사로 닫았다.
 
 2026-10-20 후속 요청으로 P0~P4의 실제 구현을 승인받았다. 구현 작업자는 OpenCode 1.19.3의 `opencode/minimax-m3.1-flash-free`(추론 high)로 실행했다. 앞선 Muse Spark·Space Bunny 호출은 반복하지 않았다. 표의 상태는 작업자가 착수·검증 근거에 맞춰 갱신했다. SPEC은 완료된 설계 근거로 유지한다. 운영 배포와 실제 고객 명단 등록은 이번 요청에 포함되지 않는다.
 
@@ -78,6 +78,37 @@
 실제 차단:
 
 - 없음. 지정 모델 호출과 표적 테스트가 모두 정상 실행됐다.
+
+### Supervisor 검토 반영 (2026-10-20, 같은 모델 작업자)
+
+Supervisor가 초기 구현을 검토해 지적한 결함을 반영했다. 기능 확장이 아니라 원래 명세의 누락과 결함을 고친 것이고, 지적 항목은 모두 코드와 표적 검사로 닫았다.
+
+| 지적 | 반영 |
+| --- | --- |
+| 같은 배치 재전달이 최초 결과와 개수를 바꾸고 이력을 다시 썼다 | 같은 지문의 재전달은 최초 결과·등록시각·개수를 그대로 돌려주고 항목과 감사 이력을 다시 쓰지 않는다(`945c218` 이후 보강). 보류→연결 전이만 따로 허용한다. |
+| `PARSER_VERSION`이 두 번 정의돼 이름 인덱스를 만들지 못했다 | 정의를 하나로 정리해 실제 세대가 `quarter-expense-v2`다. 구버전 스냅샷도 같은 workbook 해시여도 다시 읽어 이름 인덱스를 만든다. |
+| 수동 해제 결정을 전달해도 이름이 다시 연결됐다 | 명시적으로 해제한 쌍은 자동 연결하지 않고 기존 결정을 보존한다. |
+| 쓰기에 지문·여행·ref 검증과 원자성이 없었다 | 모든 쓰기가 지문을 필수로 받고, 참가자의 현재 여행 소속·현재 정본에 있는 수입 행·실제 여행 대상을 확인한 뒤 한 트랜잭션으로 결정과 이력을 함께 남긴다. 지문은 수동 결정 revision을 포함한다. |
+| 정본 선택을 수동 기록에만 의존했다 | 기존 `owner_payload` 정본 선택 계약을 재사용해 한 사본뿐인 여행도 연결된다. 원본 수입 행과 이름 인덱스를 고유 행 기준으로 합쳐 이름이 공란인 금액 행도 잃지 않는다. |
+| 화면에서 임의 수입 행 연결·정정·별칭·동일인 확인이 없었다 | 참가자별 폼으로 임의 행 연결(대리·공동입금), 이름 정정, 여행 연결 수정, 별칭 확인, 같은 사람 확인, 서로 다른 사람 확인을 제공한다. 근거는 내부 상태 문자열 대신 설명으로 보여 준다. |
+| 참가 확정 인원이 이름 연결 상태에 따라 줄었다 | 명단으로 확정된 활성 참가자 전체를 참가 인원으로 세고 대조 확인 대상은 따로 센다. 미연결 수입의 명시적 검토 결정을 저장·표시한다. |
+| 문서를 완료로 표시했다 | 아래 검토 반영 뒤에만 완료로 갱신한다. |
+
+이 반영으로 추가·보강한 커밋: `8f20e84`(재전달·파서 세대·지문·참가 확정 분리), `3a67c41`(쓰기 안전·여행 연결 수정·0원 표기·동명이인), `65af90c`(표적 검사), `6bf27f3`(여행 상세 수입 영역의 관리자 링크).
+
+실제로 실행한 검증(변경 기능과 직접 인접 계약에 한정):
+
+| 명령 | 결과 |
+| --- | --- |
+| `python -m pytest tests/card_pipeline/test_participant_roster.py -q` | 23 passed |
+| `python -m pytest tests/card_pipeline/test_participant_income.py -q` | 25 passed |
+| `python -m pytest tests/card_pipeline/test_participant_integration.py -q` | 1 passed |
+| `python -m pytest tests/card_pipeline/test_google_authority.py -q` | 59 passed |
+| `python -m pytest webapp/tests/test_participant_income.py -q` | 27 passed (합성 브라우저 흐름 1건 포함) |
+| `python -m pytest webapp/tests/test_trip_google_income.py -q` | 16 passed |
+| `python -m pytest webapp/tests/test_access_control_phase7.py -q` | 47 passed |
+
+합성 브라우저 흐름은 소유자 세션으로 참가 대조 화면을 열어 이름만 있는 수입 행을 골라 연결하고, 결과가 `수동 연결`로 남는 것까지 한 번 확인했다. 전체 브라우저·전체 회귀는 반복하지 않았다.
 
 재개점: 실명 명단을 등록하려면 `.local-archive/participant-rosters/<batch_id>/`에 `manifest.json`·`participants.json`·`sources/`를 놓고 `tools/ingest_participant_roster.py --batch-dir <경로> --db .local-archive/participant-rosters/participant.sqlite --mapping <google-tab-mapping.json>`을 실행한다. 여행 연결이 모호하면 `TRIP_MAPPING_REQUIRED`로 보류되고 참가 확정은 저장되지 않는다. 그다음 소유자 계정으로 `/participants?trip=<탭 id>`에서 대조를 확인한다.
 
