@@ -177,6 +177,7 @@ def build_state(trip_id: str, *, store=None) -> dict:
         return {"trip_id": trip_id, "configured": True, "participants": result["participants"],
                 "unlinked_income": result["unlinked_income"], "counts": result["counts"],
                 "completion": result["completion"], "input_fingerprint": result["input_fingerprint"],
+                "roster_version": result["roster_version"], "rule_version": result["rule_version"],
                 "google": context, "income_rows": rows, "decisions": decisions,
                 "roster_total_declared": result.get("roster_total_declared", False),
                 "roster": {"batches": batches, "scope": scope, "pending": pending,
@@ -553,11 +554,13 @@ def _write(store, path: str, trip_id: str, payload: dict) -> dict:
                                       income_fingerprint=fingerprint, decided_by="owner",
                                       presented_fingerprint=presented, current_fingerprint=current,
                                       expected_revision=expected)
-        # 대조 실행 기록을 함께 남긴다. 이전 완료 이력은 지워지지 않는다.
+        # 결정이 반영된 실제 대조 상태를 한 번 더 계산해 이력으로 남긴다.
+        # 명단 범위가 아니라 실제 명단 버전과 Google 세대를 함께 기록한다.
+        latest = build_state(trip_id, store=store)
         income.record_run(store.conn, trip_id=trip_id,
-                          roster_version=(state.get("roster") or {}).get("scope") or "",
-                          google_generation=(state.get("google") or {}).get("generation") or "",
-                          result=state)
+                          roster_version=latest.get("roster_version") or "",
+                          google_generation=(latest.get("google") or {}).get("generation") or "",
+                          result=latest)
         return result
 
 

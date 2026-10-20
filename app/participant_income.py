@@ -515,18 +515,28 @@ def save_decision(conn, *, participant_id: str, income_ref: str, decision: str,
 
 def record_run(conn, *, trip_id: str, roster_version: str, google_generation: str,
                result: dict) -> str:
-    """대조 실행과 완료 상태를 기록한다."""
+    """대조 실행과 업무 완료 상태를 기록한다.
+
+    기록에는 인원 집계와 함께 완료 여부와 보류 이유를 남긴다. 같은 입력으로 다시
+    기록돼도 이미 남은 완료 이력은 덮지 않는다. `completed_at`은 실행 종료 시각이고
+    업무 완료 여부는 요약에 있다.
+    """
     stamp = utc_now()
     run_id = "run-" + hashlib.sha256(
         f"{trip_id}|{roster_version}|{google_generation}|{result.get('input_fingerprint')}"
         .encode("utf-8")).hexdigest()[:24]
+    summary = {
+        "counts": result.get("counts") or {},
+        "completion": result.get("completion") or {},
+        "rule_version": result.get("rule_version") or RULE_VERSION,
+        "roster_total_declared": bool(result.get("roster_total_declared")),
+    }
     conn.execute(
         "INSERT INTO participant_reconciliation_runs(run_id, trip_id, roster_version, google_generation,"
         " rule_version, result_fingerprint, summary_json, completed_at) VALUES (?,?,?,?,?,?,?,?)"
-        " ON CONFLICT(run_id) DO UPDATE SET summary_json=excluded.summary_json,"
-        " completed_at=excluded.completed_at",
+        " ON CONFLICT(run_id) DO UPDATE SET completed_at=excluded.completed_at",
         (run_id, trip_id, roster_version, google_generation, RULE_VERSION,
-         result.get("input_fingerprint") or "", canonical(result.get("counts") or {}), stamp))
+         result.get("input_fingerprint") or "", canonical(summary), stamp))
     return run_id
 
 
@@ -537,7 +547,7 @@ def runs(conn, trip_id: str = "") -> list[dict]:
     if trip_id:
         query += " WHERE trip_id=?"
         params = (trip_id,)
-    query += " ORDER BY completed_at DESC, run_id"
+    query += " ORDER BY completed_at DESC, rowid DESC"
     rows = conn.execute(query, params).fetchall()
     return [{"run_id": r[0], "trip_id": r[1], "roster_version": r[2], "google_generation": r[3],
              "rule_version": r[4], "result_fingerprint": r[5], "summary": json.loads(r[6]),

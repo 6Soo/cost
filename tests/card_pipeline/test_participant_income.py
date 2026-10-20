@@ -320,3 +320,41 @@ def test_a_decision_with_an_old_revision_is_refused(tmp_path):
         assert stored == [] or stored[0]["decision"] == "linked"
     finally:
         store.close()
+
+
+def test_the_run_history_keeps_the_completion_and_a_later_run_does_not_erase_it(tmp_path):
+    store = pr.ParticipantStore.open(tmp_path / "participant.sqlite")
+    try:
+        pi.ensure_decision_schema(store.conn)
+        people = [person("pt-1", "김가람")]
+        rows = [income_row(6, "김가람", amount=100000)]
+        decisions = [{"participant_id": "pt-1", "income_ref": "main|0404_에히메|6",
+                      "decision": "linked", "link_method": "manual", "revision": 1,
+                      "income_fingerprint": rows[0]["fingerprint"]}]
+        finished = reconcile(people, rows, decisions=decisions, roster_complete=True)
+        assert finished["completion"]["complete"] is True
+        pi.record_run(store.conn, trip_id="trip-syn", roster_version=finished["roster_version"],
+                      google_generation="gen-1", result=finished)
+        # 같은 입력을 다시 기록해도 완료 이력은 그대로 남는다.
+        pi.record_run(store.conn, trip_id="trip-syn", roster_version=finished["roster_version"],
+                      google_generation="gen-1", result=finished)
+        history = pi.runs(store.conn, "trip-syn")
+        assert len(history) == 1
+        assert history[0]["summary"]["completion"]["complete"] is True
+        assert history[0]["summary"]["counts"]["participants"] == 1
+        assert history[0]["roster_version"] == finished["roster_version"]
+
+        # 다음 Google 확인이 없으면 대조는 보류 상태로 남는다.
+        changed = reconcile(people, rows, decisions=decisions, roster_complete=True,
+                            google_generation="gen-2", index_available=False)
+        assert changed["completion"]["complete"] is False
+        pi.record_run(store.conn, trip_id="trip-syn", roster_version=changed["roster_version"],
+                      google_generation="gen-2", result=changed)
+        history = pi.runs(store.conn, "trip-syn")
+        assert len(history) == 2
+        assert history[0]["summary"]["completion"]["complete"] is False
+        assert "INPUT_CHANGED" in history[0]["summary"]["completion"]["blocked_by"]
+        # 이전 완료 이력은 남는다.
+        assert history[1]["summary"]["completion"]["complete"] is True
+    finally:
+        store.close()
