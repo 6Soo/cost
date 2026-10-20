@@ -296,7 +296,13 @@ def trip_income_html(tab_id: str) -> str:
                    f"{_money(sheet_total) if sheet_total is not None else '확인 안 됨'}</p>")
         source_link = (f"<a class='btn' href='{html.escape(source_href, quote=True)}' target='_blank' rel='noopener noreferrer'>"
                        f"{ui_icons.icon('list')}수입·지출 원본 상세</a>")
-        details = ((f"<p class='small'>{html.escape(reasons)}</p>" if reasons else '') + figures + time_row + source_link)
+        # 참가 대조는 관리자 전용이다. 일반 열람자에게는 링크도 보이지 않는다.
+        participant_link = ""
+        if owner:
+            participant_link = (f"<a class='btn' href='/participants?trip={html.escape(quote(tab_id, safe=''), quote=True)}'>"
+                                f"{ui_icons.icon('users')}참가자 대조</a>")
+        details = ((f"<p class='small'>{html.escape(reasons)}</p>" if reasons else '') + figures + time_row
+                   + source_link + participant_link)
         summary = '상세 보기' if (numeric_gap or unverified) else '상세'
         notice = f"<details class='income-detail'><summary>{summary}</summary>{details}</details>"
         # A total that is not verified is not shown as an amount, and its names stay hidden.
