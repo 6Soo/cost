@@ -166,6 +166,9 @@ def test_a_changed_name_becomes_a_correction_and_keeps_the_old_name(tmp_path, st
     assert people[0]["state"] == "correction_pending"
     corrections = store.corrections()
     assert corrections[0]["before_value"] == "김가람" and corrections[0]["after_value"] == "김가람이"
+    # 원문 이력도 덮어쓰지 않는다.
+    items = store.items("roster-syn-001")
+    assert items[0]["name"] == "김가람"
 
 
 def test_resend_with_a_new_roster_id_keeps_one_person(tmp_path, store):

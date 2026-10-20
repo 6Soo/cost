@@ -286,6 +286,11 @@ class ParticipantIncomePageTests(unittest.TestCase):
         status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
         state = json.loads(body)
         participant = state["participants"][0]
+        store = pr.ParticipantStore.open(Path(self._dir.name) / "participant.sqlite")
+        try:
+            events_before = len(store.events())
+        finally:
+            store.close()
         status, body = self.call('/api/participants/participant', OWNER, 'POST', payload={
             'trip': self.trip, 'action': 'rename', 'participant_id': participant["participant_id"],
             'name': '   ', 'input_fingerprint': state["input_fingerprint"]})
@@ -293,6 +298,60 @@ class ParticipantIncomePageTests(unittest.TestCase):
         after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
         self.assertEqual(after["participants"][0]["display_name"], PARTICIPANT)
         self.assertEqual(after["counts"]["linked_income_rows"], 1)
+        store = pr.ParticipantStore.open(Path(self._dir.name) / "participant.sqlite")
+        try:
+            self.assertEqual(len(store.events()), events_before)
+        finally:
+            store.close()
+
+    def test_an_unverified_total_is_not_shown_as_a_confirmed_amount(self):
+        # 수입 합계 수식이 깨진 장부다. 금액 행은 그대로 보이지만 확정 금액이 아니다.
+        main = workbook()
+        archive = workbook("0107_대만")
+        ga.sync(self.snapshot, self.rows, now=dt.datetime.now(ga.KST),
+                fetcher=lambda url: main if ga.SPREADSHEET_IDS['main'] in url else archive)
+        status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        state = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertIn('확정', body)  # 합계가 확정 금액이 아니라는 설명이 있다.
+
+    def test_a_joint_payment_says_the_individual_amount_is_not_settled(self):
+        # 다른 참가자도 있다. 한 수입 행을 두 명이 나눠 낸 사람이 한 명이다.
+        write_roster(Path(self._dir.name), tab_id=self.trip, name="이나래-합성",
+                     batch_id="batch-syn-p2", roster_id="roster-syn-p2", row_label="2")
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        target = next(row for row in state["income_rows"] if row["amount"] is None)
+        for entry in state["participants"]:
+            status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+                'trip': self.trip, 'participant_id': entry["participant_id"],
+                'income_ref': target["ref"], 'joint': True,
+                'input_fingerprint': state["input_fingerprint"]})
+            self.assertEqual(status, 200, body)
+            state = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual([item["state"] for item in after["participants"]], ["joint", "joint"])
+        # 같은 입금 행은 한 번만 센다. 참가자별 연결 수보다 작다.
+        links = sum(len(item["links"]) for item in after["participants"])
+        self.assertEqual(links, 3)
+        self.assertEqual(after["counts"]["linked_income_rows"], 2)
+        self.assertEqual(after["counts"]["participants"], 2)
+        status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+        self.assertIn('공동 입금', body)
+        self.assertIn('개인별 금액 미확정', body)
+
+    def test_an_unlinked_income_row_can_be_marked_reviewed(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        target = next(row for row in state["unlinked_income"] if row["state"] == 'not_in_roster')
+        status, body = self.call('/api/participants/link', OWNER, 'POST', form={
+            'trip': self.trip, 'decision': 'reviewed', 'income_ref': target["ref"],
+            'reason': '참가자 아님', 'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 200, body)
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(after["counts"]["unlinked_income_rows"], 0)
+        self.assertEqual(after["counts"]["reviewed_income_rows"], 1)
+        self.assertNotIn('INCOME_UNCLASSIFIED', after["completion"]["blocked_by"])
 
     def test_a_trip_with_one_copy_is_connected_without_a_choice(self):
         # 보관본에 같은 탭이 없으면 이 여행은 메인 한 사본뿐이다.
