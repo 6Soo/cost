@@ -1,5 +1,11 @@
 # 현재 운영 상태
 
+## 2026-10-20 예약 자료 미연결 안내 수정
+
+운영 릴리스는 `f5e27d3a06ad010656dd43f8d01af2ccc42cb5b5`다. 지출 정리에서 카드 거래와 연결된 OTA 예약이 검토 목록에 없으면 표시되던 부정확한 안내를 수정했다. 이제 현재 연결된 자료가 없다는 사실, 예약 확인서의 예약번호·이용기간 확인, 카드 결제일만으로 여행을 정할 수 없다는 점을 표시한다. 전체 예약 자료 조사 완료나 예약 자체의 부재를 뜻하지 않는다. 예약 연결·여행 배정·회계 쓰기 로직과 운영 거래는 수정하지 않았다.
+
+합성 격리 DB에서 수정 전 실패를 재현하고 표적 테스트 1개가 수정 후 통과했다. 조회 전후 거래 전체 필드도 동일했다. 전체 회귀는 안내 문구만 변경해 생략했다. diff 검사와 릴리스 파일의 Git 객체 일치 검사를 통과하고 main에 push한 뒤 기존 배포 절차로 반영했다. 백업·복원 근거 `D:/WebLedgerHost/data/backups/v2-owner-ui-20261020T154914/restore-evidence.json`에서 DB 4개·파일 55개, 운영 원본 불변·복원된 검토 연결 일치를 확인했다. 배포 결과 `OWNER_UI_DEPLOYMENT_PASS`, 배포 중 로컬 health/ready 각각 200, Board·SourceRefresh Running을 확인했다. 후속 PowerShell 요청에서 health 200, 비로그인 `/import` 401, Board Running·SourceRefresh Ready를 확인했다. Python HTTP 요청은 시간 초과됐으나 PowerShell 요청은 정상 응답했다. Aside 브라우저는 빈 상태만 반환하고 새 탭이 유지되지 않아 로그인된 실제 화면의 문구는 확인하지 못했다. 재개 시 정상 로그인 브라우저에서 지출 정리의 아고다 상세 검토 안내만 읽기 전용으로 확인하면 된다.
+
 ## 2026-10-19 아고다 자연어 분류 규칙 운영 반영
 
 현재 실행 중인 코드 릴리스는 `d90bef2e8370c4bca065328dc0df64df7a24616e`다. `origin/main`에 push한 뒤 고정 릴리스로 배포했으며 `OWNER_UI_DEPLOYMENT_PASS`, 로컬 `/healthz`와 `/readyz` 각각 200, `WebLedger-Board`와 `WebLedger-SourceRefresh` 모두 Running을 확인했다. 배포 전 릴리스는 `e59cb1c0a7deaab46bdf4d8a4025341fcf47564b`이며 운영 복구 스크립트가 이전 작업 등록 상태를 확인했다.
