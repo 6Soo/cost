@@ -9,11 +9,11 @@
 | 작업 ID | 요구사항 | 상태 | 근거 또는 다음 단계 |
 | --- | --- | --- | --- |
 | SPEC | 계획 및 명세 작성 | COMPLETE | 사용자 요구, 기존 Google 수입 경계, 전달·대조·예외·화면·검증 계획을 명세에 기록했다. |
-| P0 | 구조화 명단 수신·참가자 저장 | IMPLEMENTED | `app/participant_roster.py`, `tools/ingest_participant_roster.py`, 커밋 `945c218`. 표적 테스트 `tests/card_pipeline/test_participant_roster.py` 통과. |
-| P1 | 금액 없는 Google 이름 행 조회 | IMPLEMENTED | `app/google_authority.py` 이름 인덱스, 커밋 `650b730`. `tests/card_pipeline/test_google_authority.py` 58건 통과. |
-| P2 | 수입 대조·연결·수동 결정 | IMPLEMENTED | `app/participant_income.py`, 커밋 `b2366f2`. `tests/card_pipeline/test_participant_income.py` 통과. |
-| P3 | 관리자 참가자 대조 화면 | IMPLEMENTED | `webapp/participant_income_page.py`, 커밋 `a14a414`. `webapp/tests/test_participant_income.py` 통과. |
-| P4 | 합성 통합 확인 | IMPLEMENTED | `tests/card_pipeline/test_participant_integration.py`, 커밋 `b94204c`. 수신→표시→수동연결→재수신→Google 변경 한 번 확인. |
+| P0 | 구조화 명단 수신·참가자 저장 | COMPLETE | `app/participant_roster.py`, `tools/ingest_participant_roster.py`, 커밋 `945c218`. 표적 테스트 `tests/card_pipeline/test_participant_roster.py` 통과. |
+| P1 | 금액 없는 Google 이름 행 조회 | COMPLETE | `app/google_authority.py` 이름 인덱스, 커밋 `650b730`. 검토 보강 후 `tests/card_pipeline/test_google_authority.py` 59건 통과. |
+| P2 | 수입 대조·연결·수동 결정 | COMPLETE | `app/participant_income.py`, 커밋 `b2366f2`. 검토 보강과 마지막 이력 경계 검사 결과는 아래 최신 기록을 따른다. |
+| P3 | 관리자 참가자 대조 화면 | COMPLETE | `webapp/participant_income_page.py`, 커밋 `a14a414`. 검토 보강 후 화면·권한·합성 브라우저 흐름 27건 통과. |
+| P4 | 합성 통합 확인 | COMPLETE | `tests/card_pipeline/test_participant_integration.py`, 커밋 `b94204c`. 수신→표시→수동연결→재수신→Google 변경 한 번 확인. |
 
 구현은 승인된 범위 안에서 끝까지 수행했고 운영 배포·실제 명단 등록은 하지 않았다. Google 쓰기·수입 자동 기장·미납·완납 추정은 구현하지 않았다. 2026-10-20 Supervisor 검토로 지적된 명세 누락과 결함도 반영해 표적 검사로 닫았다.
 
@@ -22,6 +22,8 @@
 구현은 기존 COST 작업 공간에서 작업자 한 명이 담당한다. Supervisor는 요구 해석과 읽기 전용 검토를 맡고 같은 파일을 동시에 수정하지 않는다. 전달 자료는 코드·명세·합성 자료로 제한하며 기존 미커밋 아고다 변경은 수정·stage하지 않는다. 설계·구현 방법은 현재 승인 범위 안에서 결정하고 다시 승인을 요청하지 않는다.
 
 ### 구현 작업자 실행 결과
+
+아래 두 모델의 실패와 업데이트 재시도는 Minimax 구현 착수 전의 과거 기록이다. 당시의 미착수·재개 조건을 현재 상태로 해석하지 않는다. 현재 상태는 위 완료 표와 아래 최신 검토 반영 결과를 따른다.
 
 - Muse Spark 1.3 Free: Paseo 에이전트 `2b5cf5ce-58cd-4440-8024-f327d2ad1611`, OpenCode 모델 `opencode/muse-spark-1.3-contributor-free`, 추론 `high`로 위임했다. 실제 호출은 HTTP 410 `ModelDeprecated`로 실패했다. 기존 세션의 모델 설정 변경 후에도 이전 Muse 오류가 반환돼 대체 모델은 새 세션으로 실행했다.
 - Space Bunny Free: Paseo 에이전트 `fc519dc8-d7af-42ce-8337-2efc0f905ded`, OpenCode 모델 `opencode/space-bunny-free`, 추론 `high`로 위임했다. 실제 호출은 HTTP 410 `ModelDeprecated`로 실패했다. 서버가 안내한 대체 ID는 `minimax-m3.1-flash-free`지만 실제 제공 목록과 사용 가능 여부는 미확인이다.
