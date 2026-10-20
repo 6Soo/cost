@@ -26,6 +26,12 @@
 - 모델 목록에는 두 모델이 남아 있었으나 실제 호출은 모두 제공 중단을 반환했다. 구현 코드와 테스트는 실행되지 않았다. 명세 문제가 아닌 지정 모델의 사용 불가 상태이며, 대체 작업자 선택만 사용자에게 확인했다. P0~P4는 승인됐지만 미착수 상태다.
 - 재개: 대체 작업자가 결정되면 실제 모델 목록과 비용·추론 옵션을 확인하고, 기존 COST 작업 공간에서 이 인덱스와 상세 명세 11절 P0부터 구현한다. 앞선 두 실패 호출을 반복하지 않는다. 운영 배포·실제 명단 등록은 계속 범위 밖이다.
 
+### OpenCode 업데이트 후 재시도
+
+사용자 후속 지시로 `opencode upgrade --method npm`을 실행했고 종료 코드 0과 `Upgrade complete`를 확인했다. `opencode --version`은 기존 `1.18.35`에서 `1.19.3`으로 바뀌었다. `opencode models opencode --refresh`도 종료 코드 0으로 완료됐다. 갱신한 목록에는 Muse Spark와 Space Bunny가 없고 `opencode/minimax-m3.1-flash-free`가 있다.
+
+업데이트 후 두 지정 모델에 대해 파일 조회·도구 사용을 금지한 최소 응답 요청을 CLI로 각각 한 번 실행했다. 두 요청 모두 종료 코드 1과 `UnknownError / Unexpected server error`로 실패했으며, 앞선 HTTP 410과 같은 오류라고 단정하지 않는다. 재시도 오류 참조는 Muse `err_fcaf26bd`, Space Bunny `err_7b4f5f96`다. Paseo의 모델 목록 조회도 `Provider 'opencode' is not available`을 반환했다. 같은 시점 제공자 검사에서는 available로 표시돼 상태가 일치하지 않았다. Paseo 재시작이나 앱 복구는 수행하지 않았다. 지정 모델의 구현은 여전히 미착수이고 대체 모델은 임의 실행하지 않았다.
+
 ## 변경 파일과 보호 범위
 
 이번 문서 작업의 파일은 이 인덱스, [상세 명세](participant-income-reconciliation-spec.md), [README](../README.md), [상위 목표 명세](target-workflow-google-authority.md)다. 원본 명단과 실명은 포함하지 않는다.
