@@ -283,3 +283,55 @@ def test_the_event_log_records_the_registration(tmp_path, store):
     pr.register_roster(store, batch, trip_resolver=resolver())
     events = store.events("batch-syn-001")
     assert events and events[0]["kind"] == "roster_registered"
+
+
+def test_the_owner_can_correct_a_name_and_the_change_is_recorded(tmp_path, store):
+    batch = build_batch(tmp_path / "batch")
+    pr.register_roster(store, batch, trip_resolver=resolver())
+    participant = store.participants("trip-syn")[0]
+    pr.correct_participant_name(store, participant["participant_id"], "김가람이",
+                                 reason="전사 오류", decided_by="owner")
+    people = store.participants("trip-syn")
+    assert people[0]["display_name"] == "김가람이"
+    kinds = [event["kind"] for event in store.events(participant["participant_id"])]
+    assert "participant_name_corrected" in kinds
+
+
+def test_the_owner_can_move_a_participant_to_another_trip(tmp_path, store):
+    batch = build_batch(tmp_path / "batch")
+    pr.register_roster(store, batch, trip_resolver=resolver())
+    participant = store.participants("trip-syn")[0]
+    pr.remap_participant_trip(store, participant["participant_id"], "trip-other",
+                              reason="다른 여행", decided_by="owner")
+    assert store.participants("trip-syn") == []
+    assert [p["participant_id"] for p in store.participants("trip-other")] == [
+        participant["participant_id"]]
+
+
+def test_the_owner_can_confirm_that_two_items_are_one_person(tmp_path, store):
+    batch = build_batch(tmp_path / "batch", items=[
+        {"source_item_id": "item-syn-001", "source_id": "source-syn-001", "page": 1,
+         "row_label": "1", "name": "김가람", "nickname": None, "english_name": None,
+         "transcription_status": "verified"},
+        {"source_item_id": "item-syn-002", "source_id": "source-syn-001", "page": 1,
+         "row_label": "2", "name": "가람", "nickname": None, "english_name": None,
+         "transcription_status": "verified"},
+    ])
+    pr.register_roster(store, batch, trip_resolver=resolver())
+    people = store.participants("trip-syn")
+    assert len(people) == 2
+    pr.confirm_same_person(store, people[0]["participant_id"], people[1]["participant_id"],
+                           decided_by="owner")
+    active = store.participants("trip-syn")
+    assert len(active) == 1
+    assert len(store.conn.execute(
+        "SELECT participant_id FROM participant_item_links WHERE participant_id=?",
+        (people[0]["participant_id"],)).fetchall()) == 2
+
+
+def test_the_owner_can_confirm_an_alias(tmp_path, store):
+    batch = build_batch(tmp_path / "batch")
+    pr.register_roster(store, batch, trip_resolver=resolver())
+    participant = store.participants("trip-syn")[0]
+    pr.add_participant_alias(store, participant["participant_id"], "가람이", decided_by="owner")
+    assert store.participants("trip-syn")[0]["nickname"] == "가람이"

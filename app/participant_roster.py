@@ -758,3 +758,102 @@ def mapping_resolver(mapping: dict):
         return {"trip_id": tab_id, "google_trip_key": key}
 
     return resolve
+
+
+# --------------------------------------------------------------- owner decisions
+
+def correct_participant_name(store: ParticipantStore, participant_id: str, new_name: str, *,
+                             reason: str = "", decided_by: str = "") -> dict:
+    """이름 정정. 원본 명단과 사용자의 정정을 모두 남긴다."""
+    name = _text(new_name, "PARTICIPANT_NAME_INVALID")
+    if re.fullmatch(r"[\d\s\-]+", name):
+        raise RosterError("PARTICIPANT_NAME_INVALID", "숫자 식별자는 이름이 아니에요")
+    row = store.conn.execute(
+        "SELECT display_name, trip_id FROM trip_participants WHERE participant_id=?",
+        (participant_id,)).fetchone()
+    if row is None:
+        raise RosterError("PARTICIPANT_NOT_FOUND", "참가자를 찾지 못했어요")
+    stamp = utc_now()
+    store.conn.execute(
+        "UPDATE trip_participants SET display_name=?, state='confirmed', updated_at=?"
+        " WHERE participant_id=?", (name, stamp, participant_id))
+    store.conn.execute(
+        "UPDATE roster_corrections SET state='accepted', reason=? WHERE participant_id=?"
+        " AND state='proposed'", (reason or decided_by, participant_id))
+    store.log_event("participant_name_corrected", participant_id,
+                    {"before": row[0], "after": name, "reason": reason, "by": decided_by})
+    return {"participant_id": participant_id, "display_name": name, "trip_id": row[1]}
+
+
+def remap_participant_trip(store: ParticipantStore, participant_id: str, trip_id: str, *,
+                           reason: str = "", decided_by: str = "") -> dict:
+    """여행 연결 수정. 참가 확정은 유지되고 연결만 바뀐다."""
+    if not trip_id:
+        raise RosterError("TRIP_REF_INVALID", "여행이 필요해요")
+    row = store.conn.execute(
+        "SELECT trip_id FROM trip_participants WHERE participant_id=?", (participant_id,)).fetchone()
+    if row is None:
+        raise RosterError("PARTICIPANT_NOT_FOUND", "참가자를 찾지 못했어요")
+    stamp = utc_now()
+    store.conn.execute(
+        "UPDATE trip_participants SET trip_id=?, updated_at=? WHERE participant_id=?",
+        (trip_id, stamp, participant_id))
+    store.log_event("participant_trip_remapped", participant_id,
+                    {"before": row[0], "after": trip_id, "reason": reason, "by": decided_by})
+    return {"participant_id": participant_id, "trip_id": trip_id}
+
+
+def add_participant_alias(store: ParticipantStore, participant_id: str, alias: str, *,
+                           decided_by: str = "") -> dict:
+    """확인된 별칭. 원문에 적힌 값만 대조 비교에 쓴다."""
+    text = _text(alias, "PARTICIPANT_NAME_INVALID")
+    row = store.conn.execute(
+        "SELECT nickname FROM trip_participants WHERE participant_id=?", (participant_id,)).fetchone()
+    if row is None:
+        raise RosterError("PARTICIPANT_NOT_FOUND", "참가자를 찾지 못했어요")
+    stamp = utc_now()
+    store.conn.execute(
+        "UPDATE trip_participants SET nickname=?, updated_at=? WHERE participant_id=?",
+        (text, stamp, participant_id))
+    store.log_event("participant_alias_confirmed", participant_id,
+                    {"before": row[0], "after": text, "by": decided_by})
+    return {"participant_id": participant_id, "nickname": text}
+
+
+def confirm_same_person(store: ParticipantStore, participant_id: str, other_participant_id: str, *,
+                        decided_by: str = "") -> dict:
+    """같은 사람 확인. 두 명단 항목이 한 참가자다.
+
+    남는 참가자 하나만 활성 상태로 두고 다른 쪽의 항목 연결을 남는 쪽으로 옮긴다.
+    인원은 줄어들지 않고 두 항목이 하나의 참가자로 보인다.
+    """
+    if participant_id == other_participant_id:
+        raise RosterError("INVALID_VALUE", "서로 다른 참가자를 골라 주세요")
+    rows = store.conn.execute(
+        "SELECT participant_id, trip_id, display_name FROM trip_participants"
+        " WHERE participant_id IN (?,?)", (participant_id, other_participant_id)).fetchall()
+    if len(rows) != 2:
+        raise RosterError("PARTICIPANT_NOT_FOUND", "참가자를 찾지 못했어요")
+    if rows[0][1] != rows[1][1]:
+        raise RosterError("TRIP_MAPPING_REQUIRED", "다른 여행의 참가자는 합치지 않아요")
+    stamp = utc_now()
+    links = store.conn.execute(
+        "SELECT roster_id, source_item_id FROM participant_item_links WHERE participant_id=?",
+        (other_participant_id,)).fetchall()
+    for roster_id, source_item_id in links:
+        store.conn.execute(
+            "DELETE FROM participant_item_links WHERE roster_id=? AND source_item_id=?",
+            (roster_id, source_item_id))
+        store.conn.execute(
+            "INSERT INTO participant_item_links(participant_id, roster_id, source_item_id,"
+            " evidence, created_at) VALUES (?,?,?,?,?)"
+            " ON CONFLICT(roster_id, source_item_id) DO UPDATE SET"
+            " participant_id=excluded.participant_id, evidence=excluded.evidence",
+            (participant_id, roster_id, source_item_id, "same_person_confirmed", stamp))
+    store.conn.execute(
+        "UPDATE trip_participants SET active=0, state='merged', updated_at=?"
+        " WHERE participant_id=?", (stamp, other_participant_id))
+    store.log_event("participants_merged", participant_id,
+                    {"merged": other_participant_id, "by": decided_by})
+    return {"participant_id": participant_id, "merged": other_participant_id,
+            "items_moved": len(links)}
