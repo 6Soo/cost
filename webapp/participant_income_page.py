@@ -545,14 +545,20 @@ def _write(store, path: str, trip_id: str, payload: dict) -> dict:
         else:
             _participant_in_trip(state, participant_id)
         expected = _decision_revision(state, participant_id, income_ref)
-        return income.save_decision(store.conn, participant_id=participant_id, income_ref=income_ref,
-                                    decision=decision, trip_id=trip_id,
-                                    link_method="manual" if decision != income.DECISION_REVIEWED
-                                    else "review",
-                                    joint=bool(payload.get("joint")), reason=reason,
-                                    income_fingerprint=fingerprint, decided_by="owner",
-                                    presented_fingerprint=presented, current_fingerprint=current,
-                                    expected_revision=expected)
+        result = income.save_decision(store.conn, participant_id=participant_id, income_ref=income_ref,
+                                      decision=decision, trip_id=trip_id,
+                                      link_method="manual" if decision != income.DECISION_REVIEWED
+                                      else "review",
+                                      joint=bool(payload.get("joint")), reason=reason,
+                                      income_fingerprint=fingerprint, decided_by="owner",
+                                      presented_fingerprint=presented, current_fingerprint=current,
+                                      expected_revision=expected)
+        # 대조 실행 기록을 함께 남긴다. 이전 완료 이력은 지워지지 않는다.
+        income.record_run(store.conn, trip_id=trip_id,
+                          roster_version=(state.get("roster") or {}).get("scope") or "",
+                          google_generation=(state.get("google") or {}).get("generation") or "",
+                          result=state)
+        return result
 
 
 def _decision_revision(state: dict, participant_id: str, income_ref: str) -> int | None:
