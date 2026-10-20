@@ -52,7 +52,7 @@
 
 - P0: `manifest.json`·`participants.json` 필드·타입·해시·페이지·경로 검증, 개인정보 필드 거부, 여행 연결 확인(`TRIP_MAPPING_REQUIRED` 보류), 참가 확정 저장, 부분 명단·판독 대기, 재수신 멱등성, 같은 배치 id 충돌(`SOURCE_ID_CONFLICT`), 이름 변경 정정 제안, 같은 사람의 항목 재사용, 명단 트랜잭션과 동시 등록.
 - P1: 이름·닉네임이 있는 수입 행을 금액 집계와 분리된 비공개 이름 인덱스로 저장. 금액 행·합계·오류 플래그 계약은 그대로이고, 이름 인덱스가 없는 세대·비표준 탭·오래된 동기화는 누락 판정을 보류한다.
-- P2: 유일한 이름 일치만 자동 연결하고 동명이인·복수입금은 `연결 확인 필요`로 남긴다. 수동 연결·해제·공동입금·정정·별칭·같은 사람 확인을 저장하고, 원문 지문이 바뀌면 그 연결만 `연결 확인 필요`로 되돌린다. 입금 행은 고유 원본 행을 한 번만 센다.
+- P2: 유일한 이름 일치만 자동 연결하고 동명이인·복수입금은 `연결 확인 필요`로 남긴다. 수동 연결·해제·공동입금·정정·별칭·같은 사람 확인을 저장하고, 원문 지문이 바뀌면 그 연결만 `연결 확인 필요`로 되돌린다. 사용자가 해제한 행은 이름이 맞아도 다시 연결하지 않는다. 입금 행은 고유 원본 행을 한 번만 센다.
 - P3: `/participants`, `/api/participants/state`, `/api/participants/link`, `/api/participants/unlink`, `/api/participants/participant`. 소유자 세션만 처리하고, 일반 열람자는 403, 익명 요청은 401로 거절한다. 기존 장부 화면·기존 API·XLSX에는 실명·참가 표시·원본 경로가 들어가지 않는다. 오래된 화면의 결정은 409 `STALE_RECONCILIATION`으로 거절한다.
 
 실제로 실행한 검증(모두 변경 기능과 직접 인접 계약에 한정):
@@ -60,11 +60,11 @@
 | 명령 | 결과 |
 | --- | --- |
 | `python -m pytest tests/card_pipeline/test_participant_roster.py -q` | 23 passed |
-| `python -m pytest tests/card_pipeline/test_participant_income.py -q` | 17 passed |
+| `python -m pytest tests/card_pipeline/test_participant_income.py -q` | 19 passed |
 | `python -m pytest tests/card_pipeline/test_participant_integration.py -q` | 1 passed |
 | `python -m pytest tests/card_pipeline/test_google_authority.py -q -k participant` | 6 passed, 52 deselected |
 | `python -m pytest tests/card_pipeline/test_google_authority.py -q` | 58 passed |
-| `python -m pytest webapp/tests/test_participant_income.py -q` | 7 passed |
+| `python -m pytest webapp/tests/test_participant_income.py -q` | 8 passed |
 | `python -m pytest webapp/tests/test_access_control_phase7.py -q` | 47 passed |
 
 기존 실패(변경과 무관): `webapp/tests/test_google_ledger_page.py` 23건, `webapp/tests/test_google_canonical_workflow.py` 5건, `webapp/tests/test_google_viewer_http.py` 6건은 기준 커밋 `945c218`을 별도 worktree로 체크아웃해 그대로 실패함을 확인했다. Google 장부 화면 경로가 이미 제거된 뒤 남은 테스트이며 이번 변경과 무관해 고치지 않았다.

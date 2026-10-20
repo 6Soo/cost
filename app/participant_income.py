@@ -149,12 +149,19 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     by_ref = {row["ref"]: row for row in rows}
 
     manual_links: dict[str, list[dict]] = {}
+    manual_unlinks: dict[str, set] = {}
     for decision in list(decisions or []):
+        participant_id = decision.get("participant_id") or ""
+        if not participant_id:
+            continue
+        if decision.get("decision") == DECISION_UNLINKED:
+            # 사용자가 해제한 행은 이름이 맞아도 다시 연결하지 않는다.
+            manual_unlinks.setdefault(participant_id, set()).add(decision.get("income_ref") or "")
+            continue
         if decision.get("decision") != DECISION_LINKED:
             continue
-        participant_id = decision.get("participant_id") or ""
         row = by_ref.get(decision.get("income_ref"))
-        if not participant_id or row is None:
+        if row is None:
             continue
         link = _link(participant_id, row, decision.get("link_method") or "manual",
                      joint=bool(decision.get("joint")), reason=decision.get("reason") or "",
@@ -183,7 +190,18 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     results = []
     for person in people:
         pid = person["participant_id"]
-        links = list(manual_links.get(pid, []))
+        manual = list(manual_links.get(pid, []))
+        found = candidates.get(pid, [])
+        unlinked = manual_unlinks.get(pid, set())
+        taken = [row for row in found if row["ref"] in manual_refs]
+        remaining = [row for row in found if row["ref"] not in unlinked]
+        auto = []
+        if len(remaining) == 1 and len(row_candidates.get(remaining[0]["ref"], [])) == 1 \
+                and not taken:
+            auto = [_link(pid, remaining[0], "name_match")]
+            linked_rows.setdefault(remaining[0]["ref"], []).append(pid)
+        links = manual + [link for link in auto
+                          if link["income_ref"] not in {item["income_ref"] for item in manual}]
         if links:
             shared = any(len(linked_rows.get(link["income_ref"], [])) > 1 for link in links)
             if any(link.get("fingerprint_mismatch") for link in links):
@@ -197,22 +215,14 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
                 state = STATE_NAME_MATCH
             else:
                 state = STATE_INCOME_PRESENT
+        elif taken:
+            # 이미 다른 참가자에게 수동 연결된 행이다. 이름만으로 함께 묶지 않는다.
+            state = STATE_NEEDS_CHECK
+        elif remaining:
+            state = STATE_NEEDS_CHECK
         else:
-            found = candidates.get(pid, [])
-            taken = [row for row in found if row["ref"] in manual_refs]
-            if found and taken:
-                # 이미 다른 참가자에게 수동 연결된 행이다. 이름만으로 함께 묶지 않는다.
-                state = STATE_NEEDS_CHECK
-            elif len(found) == 1 and len(row_candidates.get(found[0]["ref"], [])) == 1:
-                link = _link(pid, found[0], "name_match")
-                links = [link]
-                linked_rows.setdefault(link["income_ref"], []).append(pid)
-                state = (STATE_NAME_MATCH if found[0].get("amount_state") == "amounted"
-                         else STATE_INCOME_PRESENT)
-            elif found:
-                state = STATE_NEEDS_CHECK
-            else:
-                state = STATE_NO_INCOME if index_available else STATE_UNVERIFIED
+            # 후보가 없거나 사용자가 전부 해제한 경우다. 해제 결정이 우선한다.
+            state = STATE_NO_INCOME if index_available else STATE_UNVERIFIED
         results.append({
             "participant_id": pid,
             "trip_id": trip_id,
@@ -231,8 +241,8 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         unlinked_rows.append({
             "ref": row["ref"], "row": row["row"], "name": row.get("name") or "",
             "nickname": row.get("nickname") or "", "amount": row.get("amount"),
-            "amount_state": row.get("amount_state"), "state": STATE_NOT_IN_ROSTER,
-            "candidates": row_candidates.get(row["ref"], []),
+            "amount_state": row.get("amount_state"), "cells": row.get("cells") or {},
+            "state": STATE_NOT_IN_ROSTER, "candidates": row_candidates.get(row["ref"], []),
         })
 
     counts = {

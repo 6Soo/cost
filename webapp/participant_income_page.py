@@ -177,9 +177,14 @@ def render_page(state: dict, *, csrf: str = "") -> str:
         detail = []
         for link in links:
             row = link["row"]
+            cells = row.get("cells") or {}
+            total = row.get("amount")
             detail.append(
-                f"<div class='small'>수입 {esc(row.get('row'))}행 · {esc(row.get('name') or '')} · "
-                f"{_money(row.get('amount')) if row.get('amount') is not None else '금액 공란'}"
+                f"<div class='small'>수입 {esc(row.get('row'))}행"
+                f"{(' · ' + esc(cells.get('B'))) if cells.get('B') else ''} · "
+                f"{esc(row.get('name') or '')} · 예약금 {esc(cells.get('E') or '')}"
+                f" · 잔금 {esc(cells.get('F') or '')} · 추가금 {esc(cells.get('G') or '')} · "
+                f"총액 {_money(total) if total is not None else '금액 공란'}"
                 f"<form method='post' action='/api/participants/unlink'>"
                 f"{hidden()}<input type='hidden' name='participant_id' value='{esc(entry['participant_id'])}'>"
                 f"<input type='hidden' name='income_ref' value='{esc(link['income_ref'])}'>"
@@ -192,6 +197,15 @@ def render_page(state: dict, *, csrf: str = "") -> str:
                 f"{hidden()}<input type='hidden' name='participant_id' value='{esc(entry['participant_id'])}'>"
                 f"<input type='hidden' name='income_ref' value='{esc(ref)}'>"
                 f"<button type='submit'>수입 {esc(ref.split('|')[-1])}행 연결</button></form>")
+        if not links:
+            # 이름으로 걸리지 않은 참가자에게는 남은 원본 수입 행을 직접 고를 수 있게 한다.
+            for row in state.get("unlinked_income") or []:
+                detail.append(
+                    f"<form method='post' action='/api/participants/link' class='small'>"
+                    f"{hidden()}<input type='hidden' name='participant_id' value='{esc(entry['participant_id'])}'>"
+                    f"<input type='hidden' name='income_ref' value='{esc(row['ref'])}'>"
+                    f"<button type='submit'>수입 {esc(row.get('row'))}행"
+                    f"({esc(row.get('name') or '이름 미확인')}) 연결</button></form>")
         rows.append(
             f"<tr><td>{esc(entry['display_name'])}"
             f"{(' · ' + esc(entry['nickname'])) if entry.get('nickname') else ''}</td>"
@@ -201,9 +215,11 @@ def render_page(state: dict, *, csrf: str = "") -> str:
 
     unlinked = []
     for row in state.get("unlinked_income") or []:
+        cells = row.get("cells") or {}
         unlinked.append(
             f"<tr><td>{esc(row.get('name'))}</td><td>{esc(row.get('nickname'))}</td>"
             f"<td>{esc(STATE_LABELS.get(income.STATE_NOT_IN_ROSTER, ''))}</td>"
+            f"<td>{esc(cells.get('E') or '')} / {esc(cells.get('F') or '')} / {esc(cells.get('G') or '')}</td>"
             f"<td>{_money(row.get('amount')) if row.get('amount') is not None else '금액 공란'}</td>"
             f"<td>{esc(row.get('ref'))}</td></tr>")
 
@@ -212,8 +228,8 @@ def render_page(state: dict, *, csrf: str = "") -> str:
              f"<tbody>{''.join(rows) or '<tr><td colspan=\"5\">등록된 참가자가 없습니다.</td></tr>'}"
              "</tbody></table>")
     other = ("<table><caption>명단에서 확인 안 됨</caption><thead><tr><th>이름</th><th>닉네임</th>"
-             "<th>상태</th><th>금액</th><th>원본</th></tr></thead>"
-             f"<tbody>{''.join(unlinked) or '<tr><td colspan=\"5\">없음</td></tr>'}</tbody></table>")
+             "<th>상태</th><th>예약금/잔금/추가금</th><th>총액</th><th>원본</th></tr></thead>"
+             f"<tbody>{''.join(unlinked) or '<tr><td colspan=\"6\">없음</td></tr>'}</tbody></table>")
     total = _money(google.get("rows_total")) if google.get("rows_total") is not None else "확인 안 됨"
     footer = (f"<p class='small'>Google 수입 행 합계 {total} · 합계는 Google 회계 합계이며 "
               f"명단에서 만든 금액이 아닙니다.</p>")

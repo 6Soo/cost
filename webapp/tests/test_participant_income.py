@@ -200,6 +200,24 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertEqual(status, 403, body)
         self.assertEqual(json.loads(body)['code'], 'CSRF_REQUIRED')
 
+    def test_the_owner_can_link_an_income_row_and_the_state_follows(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        target = next(row for row in state["income_rows"] if row["amount"] is None)
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+            'trip': self.trip, 'participant_id': participant["participant_id"],
+            'income_ref': target["ref"], 'reason': '사용자 확인',
+            'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 200, body)
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        linked = after["participants"][0]
+        self.assertEqual(linked["state"], 'manual')
+        self.assertEqual(linked["links"][0]["row"]["amount"], None)
+        # 이름만 있는 행은 0원 수입으로 바뀌지 않는다.
+        self.assertEqual(after["counts"]["linked_income_rows"], 2)
+
 
 if __name__ == '__main__':
     unittest.main()

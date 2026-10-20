@@ -226,3 +226,29 @@ def test_a_partial_name_is_not_a_match():
     rows = [income_row(6, "김가람수", amount=100000)]
     result = reconcile([person("pt-1", "김가람")], rows)
     assert result["participants"][0]["state"] == pi.STATE_NO_INCOME
+
+
+def test_a_row_the_owner_unlinked_is_not_linked_again_by_name():
+    rows = [income_row(6, "김가람", amount=100000)]
+    decisions = [{"participant_id": "pt-1", "income_ref": "main|0404_에히메|6",
+                  "decision": "unlinked"}]
+    result = reconcile([person("pt-1", "김가람")], rows, decisions=decisions)
+    assert result["participants"][0]["state"] == pi.STATE_NO_INCOME
+    assert result["participants"][0]["links"] == []
+    assert result["counts"]["linked_income_rows"] == 0
+
+
+def test_a_manual_link_keeps_the_name_matched_row_too():
+    rows = [income_row(6, "김가람", amount=100000),
+            income_row(7, "박다온", amount=None, amount_state="blank")]
+    decisions = [{"participant_id": "pt-1", "income_ref": "main|0404_에히메|7",
+                  "decision": "linked", "link_method": "manual",
+                  "income_fingerprint": rows[1]["fingerprint"]}]
+    result = reconcile([person("pt-1", "김가람")], rows, decisions=decisions)
+    entry = result["participants"][0]
+    assert entry["state"] == pi.STATE_MANUAL
+    assert sorted(link["income_ref"] for link in entry["links"]) == [
+        "main|0404_에히메|6", "main|0404_에히메|7"]
+    # 고유 원본 행을 한 번씩만 센다.
+    assert result["counts"]["linked_income_rows"] == 2
+    assert result["counts"]["participants"] == 1
