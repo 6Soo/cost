@@ -33,6 +33,10 @@ DECISION_LINKED = "linked"
 DECISION_UNLINKED = "unlinked"
 #: 명단과 미연결인 수입 행에 대한 명시적 검토 결정.
 DECISION_REVIEWED = "reviewed"
+#: 같은 이름의 두 참가자가 서로 다른 사람이라는 확인.
+DECISION_SEPARATE = "separate"
+#: 참가자 쌍 결정을 담는 수입 행 자리. 실제 수입 행과 겹치지 않는다.
+PARTICIPANT_PAIR_PREFIX = "participant:"
 
 #: 대조가 끝났다고 말할 수 없는 이유.
 BLOCKING_REASONS = ("ROSTER_INCOMPLETE", "TRANSCRIPTION_PENDING", "CONNECTION_PENDING",
@@ -196,9 +200,17 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     manual_links: dict[str, list[dict]] = {}
     manual_unlinks: dict[str, set] = {}
     reviewed_refs: dict[str, str] = {}
+    separate_pairs: set = set()
     for decision in list(decisions or []):
         income_ref = str(decision.get("income_ref") or "")
         kind = decision.get("decision")
+        if kind == DECISION_SEPARATE:
+            # 같은 이름의 두 참가자가 서로 다른 사람이라는 확인.
+            other = income_ref[len(PARTICIPANT_PAIR_PREFIX):] \
+                if income_ref.startswith(PARTICIPANT_PAIR_PREFIX) else income_ref
+            if decision.get("participant_id") and other:
+                separate_pairs.add(frozenset({decision["participant_id"], other}))
+            continue
         if kind == DECISION_REVIEWED:
             # 명단과 미연결인 수입 행에 대한 명시적 검토 결정.
             if income_ref:
@@ -302,7 +314,7 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         })
 
     # 참가 인원은 명단으로 확정된 활성 참가자 전체다. 이름 연결 상태와 따로 센다.
-    duplicate_names = _duplicate_names(people)
+    duplicate_names = _duplicate_names(people, separate_pairs)
     correction_pending = sum(1 for person in people
                              if (person.get("state") or "") == "correction_pending")
     counts = {
@@ -320,7 +332,8 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         "reviewed_income_rows": sum(1 for item in unlinked_rows
                                     if item["state"] == STATE_REVIEWED),
         "income_rows": len(rows),
-        "duplicate_names": duplicate_names,
+        "duplicate_names": len(duplicate_names),
+        "duplicate_name_list": duplicate_names,
         "correction_pending": correction_pending,
     }
 
@@ -358,15 +371,28 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     }
 
 
-def _duplicate_names(people) -> list[str]:
-    """같은 이름의 활성 참가자. 동명이인일 수 있어 인원을 확정하지 못한다."""
+def _duplicate_names(people, separate_pairs=None) -> list[str]:
+    """같은 이름의 활성 참가자 중 아직 확인이 끝나지 않은 이름.
+
+    동명이인일 수 있어 인원을 확정하지 못한다. 관리자가 서로 다른 사람이라고
+    확인하면 그 이름은 더 이상 미해결이 아니다.
+    """
+    separate_pairs = separate_pairs or set()
     groups: dict[str, list[str]] = {}
     for person in people:
         name = normalize_name(person.get("display_name"))
         if not name:
             continue
         groups.setdefault(name, []).append(person.get("participant_id") or "")
-    return sorted(name for name, ids in groups.items() if len(ids) > 1)
+    unresolved = []
+    for name, ids in groups.items():
+        if len(ids) < 2:
+            continue
+        confirmed = all(frozenset((ids[index], ids[other])) in separate_pairs
+                        for index in range(len(ids)) for other in range(index + 1, len(ids)))
+        if not confirmed:
+            unresolved.append(name)
+    return sorted(unresolved)
 
 
 # ------------------------------------------------------------------- decisions
@@ -450,7 +476,7 @@ def save_decision(conn, *, participant_id: str, income_ref: str, decision: str,
     """
     if not income_ref:
         raise ReconciliationError("INVALID_VALUE", "수입 행이 필요해요")
-    if decision not in (DECISION_LINKED, DECISION_UNLINKED, DECISION_REVIEWED):
+    if decision not in (DECISION_LINKED, DECISION_UNLINKED, DECISION_REVIEWED, DECISION_SEPARATE):
         raise ReconciliationError("INVALID_VALUE", "결정 값이 맞지 않아요")
     if decision != DECISION_REVIEWED and not participant_id:
         raise ReconciliationError("INVALID_VALUE", "참가자가 필요해요")

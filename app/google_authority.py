@@ -33,14 +33,14 @@ KST = dt.timezone(dt.timedelta(hours=9))
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
-#: 파서 세대. 이름 인덱스를 만들기 전 세대는 같은 workbook 해시여도 다시 읽어야 한다.
+#: 파서 세대. 이름 인덱스를 만들기 전 세대(`quarter-expense-v1`)는 같은 workbook
+#: 해시여도 다시 읽어야 이름 인덱스가 생긴다.
 PARSER_VERSION = 'quarter-expense-v2'
 
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
 TRIP_NAME = re.compile(r"^\d{4}_\S")
 QUARTER_NAME = re.compile(r"^([1-4])분기_기타비용(?:\s*의 사본)?$")
-PARSER_VERSION = 'quarter-expense-v1'
 COPY_SUFFIX = re.compile(r"\s*의 사본$")
 SUM_OF_AMOUNTS = re.compile(r"^=\s*SUM\(\s*H(\d+)(?:\s*:\s*H(\d+))?\s*\)$", re.IGNORECASE)
 # A block with any of these cannot be summed safely. Its total is None, never 0.

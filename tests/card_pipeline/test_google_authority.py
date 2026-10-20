@@ -533,6 +533,7 @@ def test_participant_name_index_is_created_for_an_older_snapshot_of_the_same_wor
                     fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
     # 같은 workbook 해시여도 이름 인덱스가 없으면 다시 읽는다.
     assert again["sources"]["main"]["unchanged"] is False
+    assert again["sources"]["main"]["parser_version"] == ga.PARSER_VERSION == "quarter-expense-v2"
     private = json.loads(_rows_text(snapshot_path, rows_path))
     index = private["sources"]["main"]["income_names"]["0404_에히메"]
     assert index["available"] is True

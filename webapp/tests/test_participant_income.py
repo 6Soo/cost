@@ -32,15 +32,21 @@ INCOME = ["거래일자", "이름", "닉네임", "예약금", "잔금", "추가�
 EXPENSE = ["거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)"]
 
 
-def workbook():
+def workbook(title="0630_오제", *, unnamed_amount=False, zero_deposit=False):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-    ws = wb.create_sheet("0630_오제")
+    ws = wb.create_sheet(title)
     ws["B4"] = "수입 내용"
     for col, label in zip("BCDEFGH", INCOME):
         ws[f"{col}5"] = label
     ws["B6"], ws["C6"], ws["H6"] = dt.date(2027, 6, 30), PARTICIPANT, 100000
+    if zero_deposit:
+        # 실제 0원 구성액이다. 공란과 구분되어야 한다.
+        ws["E6"] = 0
     ws["C7"] = NAME_ONLY
+    if unnamed_amount:
+        # 이름이 공란인 실제 금액 행이다. 이름 인덱스만 보면 사라진다.
+        ws["B8"], ws["H8"] = dt.date(2027, 6, 30), 50000
     ws["C9"] = "=sum(H6:H7)"
     ws["B10"] = "지출 내용"
     for col, label in zip("BCDEFGH", EXPENSE):
@@ -52,13 +58,14 @@ def workbook():
     return out.getvalue()
 
 
-def write_roster(root: Path, *, tab_id: str, name: str = PARTICIPANT) -> Path:
-    batch = root / "batch"
-    (batch / "sources").mkdir(parents=True)
+def write_roster(root: Path, *, tab_id: str, name: str = PARTICIPANT, batch_id: str = "batch-syn-p",
+                 roster_id: str = "roster-syn-p", row_label: str = "1") -> Path:
+    batch = root / ("batch-" + batch_id)
+    (batch / "sources").mkdir(parents=True, exist_ok=True)
     (batch / "sources" / "page-01.png").write_bytes(b"synthetic-roster-source")
     import hashlib
     manifest = {
-        "schema_version": 1, "batch_id": "batch-syn-p", "roster_id": "roster-syn-p",
+        "schema_version": 1, "batch_id": batch_id, "roster_id": roster_id,
         "revision": 1, "authority": "owner_confirmed_insurance",
         "trip_ref": {"cost_trip_id": tab_id, "google_trip_key": "0630_오제"},
         "submitted_by": "local-roster-agent", "submitted_at": "2026-10-20T18:00:00+09:00",
@@ -68,8 +75,8 @@ def write_roster(root: Path, *, tab_id: str, name: str = PARTICIPANT) -> Path:
                      "sha256": hashlib.sha256(b"synthetic-roster-source").hexdigest()}],
     }
     participants = {"schema_version": 1, "items": [
-        {"source_item_id": "item-syn-p", "source_id": "source-syn-p", "page": 1,
-         "row_label": "1", "name": name, "nickname": None, "english_name": None,
+        {"source_item_id": f"item-{roster_id}", "source_id": "source-syn-p", "page": 1,
+         "row_label": row_label, "name": name, "nickname": None, "english_name": None,
          "transcription_status": "verified"}]}
     (batch / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     (batch / "participants.json").write_text(json.dumps(participants, ensure_ascii=False), encoding="utf-8")
@@ -89,7 +96,7 @@ class ParticipantIncomePageTests(unittest.TestCase):
         book = workbook()
         self.snapshot, self.rows = root / 'google-snapshot.json', root / 'google-rows-private.json'
         ga.sync(self.snapshot, self.rows,
-                fetcher=lambda url: book, now=NOW)
+                fetcher=lambda url: book, now=dt.datetime.now(ga.KST))
         self._env = patch.dict(os.environ, {
             'WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT': str(self.snapshot),
             'WEBLEDGER_GOOGLE_LEDGER_ROWS': str(self.rows),
@@ -144,7 +151,6 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 return response.status, response.read().decode('utf-8')
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode('utf-8')
-
     def test_the_owner_sees_the_reconciliation_table(self):
         status, body = self.call(f'/participants?trip={self.trip}', OWNER)
         self.assertEqual(status, 200, body)
@@ -217,6 +223,225 @@ class ParticipantIncomePageTests(unittest.TestCase):
         self.assertEqual(linked["links"][0]["row"]["amount"], None)
         # 이름만 있는 행은 0원 수입으로 바뀌지 않는다.
         self.assertEqual(after["counts"]["linked_income_rows"], 2)
+
+    def test_the_same_screen_saved_twice_is_refused(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        target = next(row for row in state["income_rows"] if row["amount"] is None)
+        payload = {'trip': self.trip, 'participant_id': participant["participant_id"],
+                   'income_ref': target["ref"], 'input_fingerprint': state["input_fingerprint"]}
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload=payload)
+        self.assertEqual(status, 200, body)
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload=payload)
+        self.assertEqual(status, 409, body)
+        self.assertEqual(json.loads(body)['code'], 'STALE_RECONCILIATION')
+
+    def test_a_write_without_the_fingerprint_is_refused(self):
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+            'trip': self.trip, 'participant_id': 'pt-x', 'income_ref': 'main|0630_오제|7'})
+        self.assertEqual(status, 422, body)
+        self.assertEqual(json.loads(body)['code'], 'INVALID_VALUE')
+
+    def test_a_write_to_an_income_row_that_is_not_there_is_refused(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+            'trip': self.trip, 'participant_id': participant["participant_id"],
+            'income_ref': 'main|0630_오제|999',
+            'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 422, body)
+        self.assertEqual(json.loads(body)['code'], 'INCOME_ROW_UNKNOWN')
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(after["counts"]["linked_income_rows"], 1)
+
+    def test_a_write_for_a_person_of_another_trip_is_refused(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        target = next(row for row in state["income_rows"] if row["amount"] is None)
+        status, body = self.call('/api/participants/link', OWNER, 'POST', payload={
+            'trip': self.trip, 'participant_id': 'pt-other-trip',
+            'income_ref': target["ref"], 'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 422, body)
+        self.assertEqual(json.loads(body)['code'], 'PARTICIPANT_NOT_FOUND')
+
+    def test_a_name_correction_needs_the_fingerprint_too(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', payload={
+            'trip': self.trip, 'action': 'rename', 'participant_id': participant["participant_id"],
+            'name': '가람-합성-정정'})
+        self.assertEqual(status, 422, body)
+        self.assertEqual(json.loads(body)['code'], 'INVALID_VALUE')
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', payload={
+            'trip': self.trip, 'action': 'rename', 'participant_id': participant["participant_id"],
+            'name': '가람-합성-정정', 'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 200, body)
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(after["participants"][0]["display_name"], '가람-합성-정정')
+
+    def test_a_failed_write_leaves_nothing_behind(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', payload={
+            'trip': self.trip, 'action': 'rename', 'participant_id': participant["participant_id"],
+            'name': '   ', 'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 422, body)
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(after["participants"][0]["display_name"], PARTICIPANT)
+        self.assertEqual(after["counts"]["linked_income_rows"], 1)
+
+    def test_a_trip_with_one_copy_is_connected_without_a_choice(self):
+        # 보관본에 같은 탭이 없으면 이 여행은 메인 한 사본뿐이다.
+        main = workbook()
+        archive = workbook("0107_대만")
+        ga.sync(self.snapshot, self.rows, now=dt.datetime.now(ga.KST),
+                fetcher=lambda url: main if ga.SPREADSHEET_IDS['main'] in url else archive)
+        gl.choice_path(self.snapshot).write_text(json.dumps({"choices": {}, "history": []}),
+                                                 encoding="utf-8")
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        state = json.loads(body)
+        self.assertEqual(state["google"]["source"], "main")
+        self.assertTrue(state["google"]["available"])
+        self.assertEqual(state["counts"]["linked_income_rows"], 1)
+
+    def test_an_amount_row_without_a_name_is_not_lost(self):
+        main = workbook(unnamed_amount=True)
+        archive = workbook("0107_대만")
+        ga.sync(self.snapshot, self.rows, now=dt.datetime.now(ga.KST),
+                fetcher=lambda url: main if ga.SPREADSHEET_IDS['main'] in url else archive)
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        # 이름이 공란인 금액 행도 미연결 목록에 남는다.
+        self.assertEqual(state["counts"]["unlinked_income_rows"], 2)
+        self.assertIn(50000, [row["amount"] for row in state["unlinked_income"]])
+
+    def test_the_page_offers_the_owner_the_decisions_it_needs(self):
+        # 같은 여행에 다른 참가자가 있으면 동일인 확인도 화면에서 할 수 있다.
+        write_roster(Path(self._dir.name), tab_id=self.trip, name="이나래-합성",
+                     batch_id="batch-syn-p2", roster_id="roster-syn-p2", row_label="2")
+        status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        self.assertIn('action=\'/api/participants/link\'', body)
+        self.assertIn('action=\'/api/participants/unlink\'', body)
+        self.assertIn('action=\'/api/participants/participant\'', body)
+        self.assertIn('value=\'rename\'', body)
+        self.assertIn('value=\'alias\'', body)
+        self.assertIn('value=\'same_person\'', body)
+        self.assertIn('value=\'remap\'', body)
+        self.assertIn('공동 입금', body)
+        # 근거는 내부 상태 문자열이 아니라 설명으로 보인다.
+        self.assertIn('명단으로 참가 확정', body)
+        self.assertNotIn('>confirmed<', body)
+
+    def test_the_trip_income_area_links_to_the_owner_page(self):
+        from webapp import google_ledger_page as gl_page
+        from webapp import ledger_board as board_mod
+        original = board_mod.current_role
+        board_mod.current_role = lambda: 'owner'
+        try:
+            body = gl_page.trip_income_html(self.trip)
+        finally:
+            board_mod.current_role = original
+        self.assertIn('/participants?trip=', body)
+
+    def test_browser_owner_links_a_name_only_income_row_once(self):
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(extra_http_headers={
+                    access_control.SyntheticSessionAdapter.HEADER: OWNER})
+                pg = context.new_page()
+                response = pg.goto(f'http://127.0.0.1:{self.port}/participants?trip={self.trip}')
+                self.assertEqual(response.status, 200)
+                self.assertIn(PARTICIPANT, pg.content())
+                form = pg.locator("form[action='/api/participants/link']").filter(
+                    has=pg.locator("select[name='income_ref']")).first
+                form.locator("select[name='income_ref']").select_option(value="main|0630_오제|7")
+                with pg.expect_navigation():
+                    form.locator("button").click()
+                self.assertIn('"code": "OK"', pg.content())
+                pg.goto(f'http://127.0.0.1:{self.port}/participants?trip={self.trip}')
+                self.assertIn('수동 연결', pg.content())
+            finally:
+                browser.close()
+
+    def test_the_trip_remap_form_moves_only_that_participant(self):
+        gl.set_mapping(self.snapshot, key='0107_대만', tab_id='trip-demo-b',
+                       known_keys={'0630_오제', '0107_대만'})
+        status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        self.assertIn('name=\'target_trip\'', body)
+        state = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        participant = state["participants"][0]
+        form = {'trip': self.trip, 'action': 'remap',
+                'participant_id': participant["participant_id"],
+                'target_trip': 'trip-demo-b', 'reason': '다른 여행',
+                'input_fingerprint': state["input_fingerprint"]}
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', form=form)
+        self.assertEqual(status, 200, body)
+        moved = json.loads(self.call(f'/api/participants/state?trip=trip-demo-b', OWNER)[1])
+        self.assertEqual([item["display_name"] for item in moved["participants"]], [PARTICIPANT])
+        left = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(left["participants"], [])
+
+    def test_a_remap_to_a_trip_that_is_not_there_is_refused(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', form={
+            'trip': self.trip, 'action': 'remap',
+            'participant_id': participant["participant_id"], 'target_trip': 'trip-nope',
+            'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 422, body)
+        self.assertEqual(json.loads(body)['code'], 'TRIP_UNKNOWN')
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(len(after["participants"]), 1)
+
+    def test_a_remap_with_an_old_screen_is_refused(self):
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        participant = state["participants"][0]
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', form={
+            'trip': self.trip, 'action': 'remap',
+            'participant_id': participant["participant_id"], 'target_trip': 'trip-demo-b',
+            'input_fingerprint': 'stale'})
+        self.assertEqual(status, 409, body)
+        self.assertEqual(json.loads(body)['code'], 'STALE_RECONCILIATION')
+
+    def test_a_zero_amount_is_not_shown_as_a_blank(self):
+        main = workbook(zero_deposit=True)
+        archive = workbook("0107_대만")
+        ga.sync(self.snapshot, self.rows, now=dt.datetime.now(ga.KST),
+                fetcher=lambda url: main if ga.SPREADSHEET_IDS['main'] in url else archive)
+        status, body = self.call(f'/participants?trip={self.trip}', OWNER)
+        self.assertEqual(status, 200, body)
+        self.assertIn('예약금 0원', body)
+        self.assertNotIn('예약금 공란', body)
+
+    def test_two_people_with_the_same_name_can_be_confirmed_as_different(self):
+        write_roster(Path(self._dir.name), tab_id=self.trip, name=PARTICIPANT,
+                     batch_id="batch-syn-p2", roster_id="roster-syn-p2", row_label="2")
+        status, body = self.call(f'/api/participants/state?trip={self.trip}', OWNER)
+        state = json.loads(body)
+        self.assertEqual(state["counts"]["roster_confirmed"], 2)
+        self.assertEqual(state["counts"]["duplicate_names"], 1)
+        self.assertIn('DUPLICATE_UNRESOLVED', state["completion"]["blocked_by"])
+        first, second = state["participants"]
+        status, body = self.call('/api/participants/participant', OWNER, 'POST', form={
+            'trip': self.trip, 'action': 'separate', 'participant_id': first["participant_id"],
+            'other_participant_id': second["participant_id"], 'reason': '다른 사람',
+            'input_fingerprint': state["input_fingerprint"]})
+        self.assertEqual(status, 200, body)
+        after = json.loads(self.call(f'/api/participants/state?trip={self.trip}', OWNER)[1])
+        self.assertEqual(after["counts"]["roster_confirmed"], 2)
+        self.assertEqual(after["counts"]["duplicate_names"], 0)
+        self.assertNotIn('DUPLICATE_UNRESOLVED', after["completion"]["blocked_by"])
 
 
 if __name__ == '__main__':
