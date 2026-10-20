@@ -115,6 +115,16 @@ def _rows_path() -> Path:
     return Path(os.environ["WEBLEDGER_GOOGLE_LEDGER_ROWS"])
 
 
+def snapshot_path() -> Path:
+    """The configured snapshot file. Other modules read it without repeating the env name."""
+    return _snapshot_path()
+
+
+def rows_path() -> Path:
+    """The configured private rows file."""
+    return _rows_path()
+
+
 def owner_rows(rows: dict, key: str, source: str) -> dict | None:
     """Every row of one trip tab from one source, as stored in the private rows file. Owner only."""
     if source not in ("main", "archive"):

@@ -251,6 +251,17 @@ def _receipts_owner_request() -> bool:
         return False
     session = getattr(_ROLE_LOCAL, "session", None)
     return session is not None and is_owner_session(session)
+
+
+def _participant_owner_request() -> bool:
+    """참가 대조는 소유자만 본다. 인증을 강제하지 않는 서버에는 소유자가 없다.
+
+    실명·참가 표시·원본 경로가 담기기 때문에, 인증 경계가 없는 서버에서는 열지 않는다.
+    """
+    if not ACCESS_ENFORCEMENT:
+        return False
+    session = getattr(_ROLE_LOCAL, "session", None)
+    return session is not None and is_owner_session(session)
 def _active_role(user_id) -> str | None:
     """The role the access store lists right now. A deactivated or removed account has none."""
     return _ACCESS.account_role(user_id) if _ACCESS else None
@@ -3975,6 +3986,14 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
             return
+        from . import participant_income_page as _participant_page
+        if _participant_page.owns_route(parsed.path):
+            # The owner gate was already decided above for an enforced server.
+            # The page refuses anyone else on its own, so a direct address request
+            # cannot read a name.
+            if _participant_page.dispatch(self, parsed, is_owner=_participant_owner_request(),
+                                          csrf=CSRF_TOKEN, query=query):
+                return
         from . import ota_catalog
         if ota_catalog.dispatch(self, parsed, board=_active_store(),
                                 is_owner=_receipts_owner_request(), query=query, csrf=CSRF_TOKEN):
@@ -4267,6 +4286,13 @@ class Handler(BaseHTTPRequestHandler):
         from . import google_demo_page
         if google_demo_page.dispatch(self, parsed, raw=raw):
             return
+        from . import participant_income_page as _participant_page
+        if _participant_page.owns_route(parsed.path):
+            # The viewer refusal was already decided above when the server enforces
+            # access. The write itself is CSRF-checked inside the page.
+            if _participant_page.dispatch(self, parsed, is_owner=_participant_owner_request(),
+                                          raw=raw, csrf=CSRF_TOKEN, content_type=content_type):
+                return
         from . import card_flow
         if card_flow.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN):
             return

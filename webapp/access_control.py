@@ -152,6 +152,9 @@ OWNER_ONLY_PATHS = (
     "/api/trips",
     "/api/rows",
     "/api/income",
+    # 보험 명단은 실명·참가 표시·원본 경로를 담는다. 여행 장부 열람 권한으로는 열 수 없다.
+    "/participants",
+    "/api/participants",
 )
 
 # The original evidence file is never served to anyone through the board, and
