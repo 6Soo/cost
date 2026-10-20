@@ -135,7 +135,9 @@ def test_receipt_display_manual_link_resend_and_google_change(tmp_path, monkeypa
         # 4. 재수신. 같은 배치는 같은 결과이고 인원은 늘지 않는다.
         again = roster.register_roster(store, write_roster(root),
                                        trip_resolver=roster.mapping_resolver({KEY: TAB}))
-        assert again["reused"] is True and again["new_participants"] == 0
+        assert again["reused"] is True
+        assert again["new_participants"] == received["new_participants"]
+        assert again["registered_at"] == received["registered_at"]
         assert len(store.participants(TAB)) == 2
         assert len(income.decisions_for_trip(store.conn, TAB)) == 1
 

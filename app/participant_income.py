@@ -27,13 +27,17 @@ STATE_MANUAL = "manual"
 STATE_JOINT = "joint"
 STATE_UNVERIFIED = "unverified"
 STATE_NOT_IN_ROSTER = "not_in_roster"
+STATE_REVIEWED = "reviewed"
 
 DECISION_LINKED = "linked"
 DECISION_UNLINKED = "unlinked"
+#: 명단과 미연결인 수입 행에 대한 명시적 검토 결정.
+DECISION_REVIEWED = "reviewed"
 
 #: 대조가 끝났다고 말할 수 없는 이유.
 BLOCKING_REASONS = ("ROSTER_INCOMPLETE", "TRANSCRIPTION_PENDING", "CONNECTION_PENDING",
-                    "INCOME_UNCLASSIFIED", "INPUT_CHANGED")
+                    "INCOME_UNCLASSIFIED", "INPUT_CHANGED", "CORRECTION_PENDING",
+                    "DUPLICATE_UNRESOLVED")
 
 
 class ReconciliationError(RosterError):
@@ -109,12 +113,53 @@ def income_rows_from_index(index, *, source: str, sheet: str) -> list[dict]:
     return rows
 
 
-def input_fingerprint(*, roster_version: str, google_generation: str, income_rows) -> str:
-    """대조 입력의 지문. 화면이 오래됐는지 판단할 때 쓴다."""
+def income_rows_from_trip(*, index, amount_rows, source: str, sheet: str) -> list[dict]:
+    """원본 수입 행과 이름 인덱스를 고유 행 기준으로 합친다.
+
+    이름 인덱스만 보면 이름이 공란인 실제 금액 행이 빠진다. 원본 행을 기준으로
+    다시 합쳐 어떤 행도 잃지 않는다. 날짜·구성액·금액은 원문 그대로 둔다.
+    """
+    rows = income_rows_from_index(index, source=source, sheet=sheet)
+    by_row = {row["row"]: row for row in rows}
+    for raw in amount_rows or []:
+        cells = {"B": raw.get("date"), "C": raw.get("name"), "D": raw.get("nickname"),
+                 "E": raw.get("deposit"), "F": raw.get("balance"), "G": raw.get("extra")}
+        row = by_row.get(raw.get("row"))
+        if row is None:
+            row = {"source": source, "sheet": sheet, "row": raw.get("row"), "cells": dict(cells),
+                   "name": raw.get("name") or "", "nickname": raw.get("nickname") or "",
+                   "amount": raw.get("amount"), "amount_state": "amounted"}
+            row["ref"] = income_ref(source, sheet, row["row"])
+            row["fingerprint"] = income_fingerprint(row)
+            by_row[row["row"]] = row
+            rows.append(row)
+            continue
+        # 원본 행의 날짜·구성액을 그대로 채운다.
+        row["cells"].update(cells)
+        if row.get("amount") is None and raw.get("amount") is not None:
+            row["amount"] = raw.get("amount")
+            row["amount_state"] = "amounted"
+            row["fingerprint"] = income_fingerprint(row)
+    rows.sort(key=lambda item: (item["row"] if isinstance(item["row"], int) else 0))
+    return rows
+
+
+def input_fingerprint(*, roster_version: str, google_generation: str, income_rows,
+                      decisions=None) -> str:
+    """대조 입력의 지문. 화면이 오래됐는지 판단할 때 쓴다.
+
+    수동 결정의 revision도 지문에 들어간다. 결정이 하나 바뀌면 그 화면은 오래된
+    화면이 되어 이전 결정을 덮어쓸 수 없다.
+    """
+    revision_part = sorted(
+        (str(decision.get("participant_id") or ""), str(decision.get("income_ref") or ""),
+         str(decision.get("decision") or ""), int(decision.get("revision") or 0))
+        for decision in (decisions or []))
     return hashlib.sha256(canonical({
         "roster_version": roster_version,
         "google_generation": google_generation,
         "income": [{"ref": row["ref"], "fingerprint": row["fingerprint"]} for row in income_rows],
+        "decisions": revision_part,
     }).encode("utf-8")).hexdigest()
 
 
@@ -150,17 +195,25 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
 
     manual_links: dict[str, list[dict]] = {}
     manual_unlinks: dict[str, set] = {}
+    reviewed_refs: dict[str, str] = {}
     for decision in list(decisions or []):
+        income_ref = str(decision.get("income_ref") or "")
+        kind = decision.get("decision")
+        if kind == DECISION_REVIEWED:
+            # 명단과 미연결인 수입 행에 대한 명시적 검토 결정.
+            if income_ref:
+                reviewed_refs[income_ref] = decision.get("reason") or ""
+            continue
         participant_id = decision.get("participant_id") or ""
         if not participant_id:
             continue
-        if decision.get("decision") == DECISION_UNLINKED:
+        if kind == DECISION_UNLINKED:
             # 사용자가 해제한 행은 이름이 맞아도 다시 연결하지 않는다.
-            manual_unlinks.setdefault(participant_id, set()).add(decision.get("income_ref") or "")
+            manual_unlinks.setdefault(participant_id, set()).add(income_ref)
             continue
-        if decision.get("decision") != DECISION_LINKED:
+        if kind != DECISION_LINKED:
             continue
-        row = by_ref.get(decision.get("income_ref"))
+        row = by_ref.get(income_ref)
         if row is None:
             continue
         link = _link(participant_id, row, decision.get("link_method") or "manual",
@@ -238,18 +291,23 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
     for row in rows:
         if row["ref"] in linked_rows:
             continue
+        reviewed = row["ref"] in reviewed_refs
         unlinked_rows.append({
             "ref": row["ref"], "row": row["row"], "name": row.get("name") or "",
             "nickname": row.get("nickname") or "", "amount": row.get("amount"),
             "amount_state": row.get("amount_state"), "cells": row.get("cells") or {},
-            "state": STATE_NOT_IN_ROSTER, "candidates": row_candidates.get(row["ref"], []),
+            "state": STATE_REVIEWED if reviewed else STATE_NOT_IN_ROSTER,
+            "review_reason": reviewed_refs.get(row["ref"], ""),
+            "candidates": row_candidates.get(row["ref"], []),
         })
 
+    # 참가 인원은 명단으로 확정된 활성 참가자 전체다. 이름 연결 상태와 따로 센다.
+    duplicate_names = _duplicate_names(people)
+    correction_pending = sum(1 for person in people
+                             if (person.get("state") or "") == "correction_pending")
     counts = {
         "participants": len(people),
-        "confirmed": sum(1 for item in results if item["state"] in
-                         (STATE_NAME_MATCH, STATE_INCOME_PRESENT, STATE_NO_INCOME,
-                          STATE_MANUAL, STATE_JOINT)),
+        "roster_confirmed": len(people),
         "linked": sum(1 for item in results if item["state"] in
                       (STATE_NAME_MATCH, STATE_INCOME_PRESENT, STATE_MANUAL, STATE_JOINT)),
         "name_only": sum(1 for item in results if item["state"] in
@@ -257,8 +315,13 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         "needs_check": sum(1 for item in results if item["state"] == STATE_NEEDS_CHECK),
         "unverified": sum(1 for item in results if item["state"] == STATE_UNVERIFIED),
         "linked_income_rows": len(linked_rows),
-        "unlinked_income_rows": len(unlinked_rows),
+        "unlinked_income_rows": sum(1 for item in unlinked_rows
+                                    if item["state"] == STATE_NOT_IN_ROSTER),
+        "reviewed_income_rows": sum(1 for item in unlinked_rows
+                                    if item["state"] == STATE_REVIEWED),
         "income_rows": len(rows),
+        "duplicate_names": duplicate_names,
+        "correction_pending": correction_pending,
     }
 
     reasons = []
@@ -268,10 +331,14 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         reasons.append("TRANSCRIPTION_PENDING")
     if counts["needs_check"]:
         reasons.append("CONNECTION_PENDING")
-    if unlinked_rows:
+    if counts["unlinked_income_rows"]:
         reasons.append("INCOME_UNCLASSIFIED")
     if not index_available:
         reasons.append("INPUT_CHANGED")
+    if correction_pending:
+        reasons.append("CORRECTION_PENDING")
+    if duplicate_names:
+        reasons.append("DUPLICATE_UNRESOLVED")
 
     return {
         "trip_id": trip_id,
@@ -281,13 +348,25 @@ def reconcile(*, trip_id: str, participants, income_rows, index_available: bool,
         "google_generation": google_generation,
         "input_fingerprint": input_fingerprint(roster_version=roster_version,
                                                google_generation=google_generation,
-                                               income_rows=rows),
+                                               income_rows=rows, decisions=decisions),
         "participants": results,
         "income_rows": rows,
         "unlinked_income": unlinked_rows,
         "counts": counts,
+        "roster_total_declared": bool(roster_complete),
         "completion": {"complete": not reasons, "blocked_by": reasons},
     }
+
+
+def _duplicate_names(people) -> list[str]:
+    """같은 이름의 활성 참가자. 동명이인일 수 있어 인원을 확정하지 못한다."""
+    groups: dict[str, list[str]] = {}
+    for person in people:
+        name = normalize_name(person.get("display_name"))
+        if not name:
+            continue
+        groups.setdefault(name, []).append(person.get("participant_id") or "")
+    return sorted(name for name, ids in groups.items() if len(ids) > 1)
 
 
 # ------------------------------------------------------------------- decisions
@@ -296,6 +375,7 @@ DECISION_SCHEMA = """
 CREATE TABLE IF NOT EXISTS participant_income_links (
     link_id TEXT PRIMARY KEY,
     participant_id TEXT NOT NULL,
+    trip_id TEXT NOT NULL DEFAULT '',
     income_ref TEXT NOT NULL,
     income_fingerprint TEXT NOT NULL DEFAULT '',
     link_method TEXT NOT NULL DEFAULT 'manual',
@@ -323,15 +403,29 @@ CREATE TABLE IF NOT EXISTS participant_reconciliation_runs (
 
 def ensure_decision_schema(conn) -> None:
     conn.executescript(DECISION_SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(participant_income_links)")}
+    if "trip_id" not in columns:
+        # 이전 형식의 저장소에도 결정을 보존한다. 여행은 참가자 소속으로 대신 찾는다.
+        conn.execute("ALTER TABLE participant_income_links ADD COLUMN trip_id TEXT NOT NULL DEFAULT ''")
+
+
+def decision_table_exists(conn) -> bool:
+    """결정 표가 있는지. 읽기 전용 경로가 준비되지 않은 저장소를 읽을 때 쓴다."""
+    return any(row[0] == "participant_income_links" for row in
+               conn.execute("SELECT name FROM sqlite_master WHERE type='table'"))
 
 
 def decisions_for_trip(conn, trip_id: str) -> list[dict]:
+    if not decision_table_exists(conn):
+        # 아직 결정이 없는 저장소다. 읽기 경로는 스키마를 만들지 않는다.
+        return []
     rows = conn.execute(
         "SELECT l.link_id, l.participant_id, l.income_ref, l.income_fingerprint, l.link_method,"
         " l.decision, l.joint, l.reason, l.revision, l.input_fingerprint, l.decided_by, l.decided_at"
-        " FROM participant_income_links l JOIN trip_participants p"
-        " ON p.participant_id=l.participant_id WHERE p.trip_id=?"
-        " ORDER BY l.decided_at, l.link_id", (trip_id,)).fetchall()
+        " FROM participant_income_links l LEFT JOIN trip_participants p"
+        " ON p.participant_id=l.participant_id"
+        " WHERE l.trip_id=? OR (l.trip_id='' AND p.trip_id=?)"
+        " ORDER BY l.decided_at, l.link_id", (trip_id, trip_id)).fetchall()
     return [{"link_id": r[0], "participant_id": r[1], "income_ref": r[2], "income_fingerprint": r[3],
              "link_method": r[4], "decision": r[5], "joint": bool(r[6]), "reason": r[7],
              "revision": r[8], "input_fingerprint": r[9], "decided_by": r[10], "decided_at": r[11]}
@@ -343,40 +437,51 @@ def _link_id(participant_id: str, income_ref: str) -> str:
 
 
 def save_decision(conn, *, participant_id: str, income_ref: str, decision: str,
-                  link_method: str = "manual", joint: bool = False, reason: str = "",
+                  trip_id: str = "", link_method: str = "manual", joint: bool = False,
+                  reason: str = "",
                   income_fingerprint: str = "", decided_by: str = "",
-                  presented_fingerprint: str = "", current_fingerprint: str = "") -> dict:
-    """수동 연결·해제 결정을 저장한다.
+                  presented_fingerprint: str = "", current_fingerprint: str = "",
+                  expected_revision: int | None = None) -> dict:
+    """수동 연결·해제·검토 결정을 저장한다.
 
-    화면이 오래됐으면 `STALE_RECONCILIATION`으로 거절한다. 현재 입력 지문이
-    화면에 제시된 지문과 다르면 다시 읽어야 한다.
+    화면이 오래됐으면 `STALE_RECONCILIATION`으로 거절한다. 지문은 필수다. 지문이
+    없으면 검사를 건너뛰는 대신 refuse한다. 결정의 revision도 함께 비교해 이전
+    결정을 덮어쓰지 않게 한다.
     """
-    if not participant_id or not income_ref:
-        raise ReconciliationError("INVALID_VALUE", "참가자와 수입 행이 필요해요")
-    if decision not in (DECISION_LINKED, DECISION_UNLINKED):
+    if not income_ref:
+        raise ReconciliationError("INVALID_VALUE", "수입 행이 필요해요")
+    if decision not in (DECISION_LINKED, DECISION_UNLINKED, DECISION_REVIEWED):
         raise ReconciliationError("INVALID_VALUE", "결정 값이 맞지 않아요")
-    if presented_fingerprint and current_fingerprint and presented_fingerprint != current_fingerprint:
+    if decision != DECISION_REVIEWED and not participant_id:
+        raise ReconciliationError("INVALID_VALUE", "참가자가 필요해요")
+    if not presented_fingerprint or not current_fingerprint:
+        raise ReconciliationError("INVALID_VALUE", "화면 지문이 필요해요")
+    if presented_fingerprint != current_fingerprint:
         raise ReconciliationError("STALE_RECONCILIATION", "화면이 오래됐어요. 다시 확인해 주세요")
     stamp = utc_now()
     link_id = _link_id(participant_id, income_ref)
     existing = conn.execute(
         "SELECT revision FROM participant_income_links WHERE link_id=?", (link_id,)).fetchone()
-    revision = (existing[0] + 1) if existing else 1
+    current_revision = existing[0] if existing else 0
+    if expected_revision is not None and int(expected_revision) != current_revision:
+        # 이 결정을 다른 화면이 이미 바꿨다. 이전 결정을 덮어쓰지 않는다.
+        raise ReconciliationError("STALE_RECONCILIATION", "결정이 이미 바뀌었어요. 다시 확인해 주세요")
+    revision = current_revision + 1
     conn.execute(
-        "INSERT INTO participant_income_links(link_id, participant_id, income_ref, income_fingerprint,"
-        " link_method, decision, joint, reason, revision, input_fingerprint, decided_by, decided_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        "INSERT INTO participant_income_links(link_id, participant_id, trip_id, income_ref,"
+        " income_fingerprint, link_method, decision, joint, reason, revision, input_fingerprint,"
+        " decided_by, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
         " ON CONFLICT(link_id) DO UPDATE SET decision=excluded.decision,"
         " link_method=excluded.link_method, joint=excluded.joint, reason=excluded.reason,"
         " revision=excluded.revision, income_fingerprint=excluded.income_fingerprint,"
-        " input_fingerprint=excluded.input_fingerprint, decided_by=excluded.decided_by,"
-        " decided_at=excluded.decided_at",
-        (link_id, participant_id, income_ref, income_fingerprint, link_method, decision,
-         1 if joint else 0, reason, revision, current_fingerprint or presented_fingerprint,
+        " trip_id=excluded.trip_id, input_fingerprint=excluded.input_fingerprint,"
+        " decided_by=excluded.decided_by, decided_at=excluded.decided_at",
+        (link_id, participant_id, trip_id, income_ref, income_fingerprint, link_method, decision,
+         1 if joint else 0, reason, revision, current_fingerprint,
          decided_by, stamp))
     conn.execute(
         "INSERT INTO roster_events(at, kind, subject, detail_json) VALUES (?,?,?,?)",
-        (stamp, "participant_income_decision", participant_id,
+        (stamp, "participant_income_decision", participant_id or income_ref,
          canonical({"income_ref": income_ref, "decision": decision, "revision": revision})))
     return {"link_id": link_id, "participant_id": participant_id, "income_ref": income_ref,
             "decision": decision, "joint": bool(joint), "revision": revision, "decided_at": stamp}

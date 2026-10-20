@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -408,8 +409,33 @@ class ParticipantStore:
         store.ensure_schema()
         return store
 
+    @classmethod
+    def open_readonly(cls, path) -> "ParticipantStore":
+        """Reads a prepared store without creating or changing anything."""
+        target = Path(path).resolve()
+        if not target.exists():
+            raise FileNotFoundError(str(target))
+        conn = sqlite3.connect(target.as_uri() + "?mode=ro", uri=True, timeout=15)
+        conn.execute("PRAGMA busy_timeout=10000")
+        return cls(conn)
+
     def ensure_schema(self) -> None:
         self.conn.executescript(SCHEMA_SQL)
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """One write transaction. The comparison and the write commit together or not at all."""
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield self.conn
+        except BaseException:
+            try:
+                self.conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        else:
+            self.conn.execute("COMMIT")
 
     def close(self) -> None:
         self.conn.close()
@@ -576,9 +602,12 @@ def register_roster(store: ParticipantStore, batch_dir, *, trip_resolver=None, n
             store.log_event("roster_held", batch_id, {"reason": "TRIP_MAPPING_REQUIRED"})
             conn.execute("COMMIT")
             return result
-        if existing is not None:
-            # 보류했던 배치를 이제 여행에 붙인다. 같은 내용이라 참가자 수는 늘지 않는다.
-            pass
+        if existing is not None and existing["status"] != STATUS_HELD:
+            # 같은 배치·같은 내용이다. 최초 결과를 그대로 돌려주고 항목과 이력을 다시 쓰지 않는다.
+            result = dict(existing["result"])
+            result["reused"] = True
+            conn.execute("COMMIT")
+            return result
 
         trip_id = trip["trip_id"]
         google_trip_key = trip.get("google_trip_key") or manifest["trip_ref"]["google_trip_key"]
@@ -596,9 +625,12 @@ def register_roster(store: ParticipantStore, batch_dir, *, trip_resolver=None, n
                 " registered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(roster_id, source_item_id) DO UPDATE SET batch_id=excluded.batch_id,"
                 " source_sha256=excluded.source_sha256, page=excluded.page, row_label=excluded.row_label,"
-                " name=excluded.name, nickname=excluded.nickname, english_name=excluded.english_name,"
-                " transcription_status=excluded.transcription_status, fingerprint=excluded.fingerprint,"
-                " registered_at=excluded.registered_at",
+                # 등록된 이름은 나중에 온 판독본으로 덮지 않는다. 바뀐 이름은 정정 제안으로 남긴다.
+                " name=CASE WHEN roster_items.name='' THEN excluded.name ELSE roster_items.name END,"
+                " nickname=CASE WHEN roster_items.name='' THEN excluded.nickname ELSE roster_items.nickname END,"
+                " english_name=CASE WHEN roster_items.name='' THEN excluded.english_name"
+                "  ELSE roster_items.english_name END,"
+                " transcription_status=excluded.transcription_status, fingerprint=excluded.fingerprint",
                 (roster_id, item["source_item_id"], batch_id, item["source_id"], source_sha,
                  item["page"], item["row_label"], item["name"], item["nickname"], item["english_name"],
                  item["transcription_status"], _item_fingerprint(item), stamp))

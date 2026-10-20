@@ -33,6 +33,9 @@ KST = dt.timezone(dt.timedelta(hours=9))
 DEFAULT_TIMEOUT = 60.0
 DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 
+#: 파서 세대. 이름 인덱스를 만들기 전 세대는 같은 workbook 해시여도 다시 읽어야 한다.
+PARSER_VERSION = 'quarter-expense-v2'
+
 INCOME_HEADER = ("거래일자", "이름", "닉네임", "예약금", "잔금", "추가금", "금액(원)")
 EXPENSE_HEADER = ("거래일자", "항목", "내용", "기간", "예약번호", "증빙유형", "금액(원)")
 TRIP_NAME = re.compile(r"^\d{4}_\S")
@@ -106,10 +109,6 @@ def _sum_block(first: int, last: int, ws_f, ws_v, flags: set,
                          for index, column in enumerate("BCDEFG", start=2)}
                 out_rows.append({"row": row, "cells": cells, "amount": int(value)})
     return total, rows, first_row, last_row
-
-
-#: 이름 행의 금액 상태. 금액이 없다는 사실과 0원이라는 사실은 다르다.
-AMOUNT_STATES = ("amounted", "blank", "not_cached", "formula_error", "invalid")
 
 
 def _collect_name_row(ws_f, ws_v, row: int, value, out_names: list) -> None:
@@ -427,7 +426,8 @@ def _public_trips(trips: list[dict]) -> list[dict]:
     return [{k: v for k, v in trip.items() if k not in ("rows", "name_index")} for trip in trips]
 
 
-def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetcher) -> tuple[dict, dict | None]:
+def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetcher,
+                 previous_index: bool = True) -> tuple[dict, dict | None]:
     """Returns the public source record and the private rows to store, or None to keep the old rows."""
     try:
         data = fetcher(EXPORT_URL.format(sheet_id=SPREADSHEET_IDS[role]))
@@ -435,7 +435,8 @@ def _sync_source(role: str, previous: dict, previous_rows: dict, now: str, fetch
         return _retained(previous, code=error.code, checked_at=now), None
     digest = hashlib.sha256(data).hexdigest()
     if (previous.get("status") == "ok" and previous.get("content_sha256") == digest
-            and previous.get('parser_version') == PARSER_VERSION):
+            and previous.get('parser_version') == PARSER_VERSION and previous_index):
+        # 같은 workbook라도 이름 인덱스가 없는 세대면 다시 읽어야 인덱스가 생긴다.
         return {**previous, "checked_at": now, "last_ok_at": now, "unchanged": True,
                 "row_changes": {"added": 0, "removed": 0, "changed": 0}}, None
     try:
@@ -633,8 +634,11 @@ def sync(snapshot_path: Path, rows_path: Path, *, timeout: float = DEFAULT_TIMEO
     checked_at = (now or dt.datetime.now(KST)).isoformat()
     sources, private = {}, dict(previous_rows)
     for role in SPREADSHEET_IDS:
+        previous_role_rows = previous_rows.get(role, {})
+        has_index = isinstance(previous_role_rows.get("income_names"), dict)
         record, rows = _sync_source(role, previous.get("sources", {}).get(role, {}),
-                                    previous_rows.get(role, {}).get("trips", {}), checked_at, fetcher)
+                                    previous_role_rows.get("trips", {}), checked_at, fetcher,
+                                    has_index)
         sources[role] = record
         if rows is not None:
             private[role] = rows

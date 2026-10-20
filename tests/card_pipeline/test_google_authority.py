@@ -513,6 +513,32 @@ def test_participant_name_index_is_missing_in_an_older_generation(tmp_path: Path
     assert index["available"] is True and index["rows"][0]["name"] == "김가람"
 
 
+def test_participant_name_index_is_created_for_an_older_snapshot_of_the_same_workbook(tmp_path: Path):
+    snapshot_path = tmp_path / "snapshot.json"
+    rows_path = tmp_path / "rows-private.json"
+    data = _name_row_book()
+    ga.sync(snapshot_path, rows_path, fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    # 구버전 스냅샷: 이전 파서 세대이고 이름 인덱스가 없다.
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    for record in snapshot["sources"].values():
+        record["parser_version"] = "quarter-expense-v1"
+    snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+    rows_file = ga._rows_file(rows_path, snapshot["rows_generation"])
+    rows_doc = json.loads(rows_file.read_text(encoding="utf-8"))
+    for source in rows_doc["sources"].values():
+        source.pop("income_names", None)
+    rows_file.write_text(json.dumps(rows_doc, ensure_ascii=False), encoding="utf-8")
+
+    again = ga.sync(snapshot_path, rows_path,
+                    fetcher=_fetcher({"main": data, "archive": data}), now=NOW)
+    # 같은 workbook 해시여도 이름 인덱스가 없으면 다시 읽는다.
+    assert again["sources"]["main"]["unchanged"] is False
+    private = json.loads(_rows_text(snapshot_path, rows_path))
+    index = private["sources"]["main"]["income_names"]["0404_에히메"]
+    assert index["available"] is True
+    assert [row["name"] for row in index["income"]] == ["김가람", "박다온"]
+
+
 def test_adc_setup_failure_marks_last_good_stale_without_public_fallback(tmp_path, monkeypatch, capsys):
     from app import google_adc_export, sync_schedule
     from tools import google_authority_sync as cli

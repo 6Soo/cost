@@ -107,11 +107,19 @@ def test_complete_coverage_needs_pages_and_people(tmp_path, store):
 def test_same_batch_and_content_gives_the_same_answer_and_no_extra_person(tmp_path, store):
     batch = build_batch(tmp_path / "batch")
     first = pr.register_roster(store, batch, trip_resolver=resolver())
+    items_before = store.items("roster-syn-001")
+    events_before = store.events("batch-syn-001")
     second = pr.register_roster(store, batch, trip_resolver=resolver())
+    # 같은 배치·같은 지문이면 최초 결과를 그대로 돌려준다.
     assert second["reused"] is True
-    assert second["new_participants"] == 0
+    assert second["new_participants"] == first["new_participants"]
+    assert second["reused_participants"] == first["reused_participants"]
+    assert second["registered_at"] == first["registered_at"]
     assert len(store.participants("trip-syn")) == 1
     assert first["batch_id"] == second["batch_id"]
+    # 항목과 감사 이력은 다시 쓰지 않는다.
+    assert store.items("roster-syn-001") == items_before
+    assert store.events("batch-syn-001") == events_before
 
 
 def test_same_batch_id_with_other_content_is_a_conflict(tmp_path, store):
@@ -270,10 +278,13 @@ def test_two_registrars_at_once_keep_one_person(tmp_path):
         thread.join(timeout=30)
     assert errors == []
     assert len(results) == 2
-    assert sum(1 for item in results if item["new_participants"] == 1) == 1
+    # 한 등록기만 실제로 기록하고 다른 등록기는 같은 결과를 받는다.
+    assert sum(1 for item in results if item["reused"] is False) == 1
+    assert results[0]["new_participants"] == results[1]["new_participants"]
     opened = pr.ParticipantStore.open(path)
     try:
         assert len(opened.participants("trip-syn")) == 1
+        assert len(opened.events("batch-syn-001")) == 1
     finally:
         opened.close()
 

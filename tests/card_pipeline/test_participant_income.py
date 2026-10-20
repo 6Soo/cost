@@ -252,3 +252,71 @@ def test_a_manual_link_keeps_the_name_matched_row_too():
     # 고유 원본 행을 한 번씩만 센다.
     assert result["counts"]["linked_income_rows"] == 2
     assert result["counts"]["participants"] == 1
+
+
+def test_the_participant_headcount_does_not_depend_on_the_link_state():
+    people = [person("pt-1", "김가람"), person("pt-2", "이나래")]
+    result = reconcile(people, [], index_available=True, roster_complete=True)
+    # 명단으로 확정된 참가자는 이름 연결 상태와 상관없이 인원에 남는다.
+    assert result["counts"]["roster_confirmed"] == 2
+    assert result["counts"]["participants"] == 2
+    assert result["counts"]["name_only"] == 2
+    assert result["counts"]["needs_check"] == 0
+
+
+def test_two_people_with_the_same_name_block_the_completion():
+    people = [person("pt-1", "김가람"), person("pt-2", "김가람")]
+    result = reconcile(people, [], index_available=True, roster_complete=True)
+    assert result["counts"]["duplicate_names"]
+    assert "DUPLICATE_UNRESOLVED" in result["completion"]["blocked_by"]
+    assert result["completion"]["complete"] is False
+
+
+def test_an_explicit_review_decision_classifies_an_unlinked_income_row():
+    rows = [income_row(6, "외부인", amount=20000)]
+    decisions = [{"participant_id": "", "income_ref": "main|0404_에히메|6",
+                  "decision": "reviewed", "reason": "참가자 아님"}]
+    result = reconcile([person("pt-1", "김가람")], rows, decisions=decisions, roster_complete=True)
+    assert result["unlinked_income"][0]["state"] == pi.STATE_REVIEWED
+    assert result["counts"]["unlinked_income_rows"] == 0
+    assert result["counts"]["reviewed_income_rows"] == 1
+    assert "INCOME_UNCLASSIFIED" not in result["completion"]["blocked_by"]
+
+
+def test_the_fingerprint_moves_when_a_decision_changes():
+    rows = [income_row(6, "김가람", amount=100000)]
+    first = reconcile([person("pt-1", "김가람")], rows)
+    second = reconcile([person("pt-1", "김가람")], rows,
+                       decisions=[{"participant_id": "pt-1", "income_ref": "main|0404_에히메|6",
+                                   "decision": "linked", "revision": 1}])
+    assert first["input_fingerprint"] != second["input_fingerprint"]
+
+
+def test_a_decision_without_a_fingerprint_is_refused(tmp_path):
+    store = pr.ParticipantStore.open(tmp_path / "participant.sqlite")
+    try:
+        pi.ensure_decision_schema(store.conn)
+        with pytest.raises(pi.ReconciliationError) as raised:
+            pi.save_decision(store.conn, participant_id="pt-1", income_ref="main|0404_에히메|6",
+                             decision="linked")
+        assert raised.value.code == "INVALID_VALUE"
+        assert pi.decisions_for_trip(store.conn, "trip-syn") == []
+    finally:
+        store.close()
+
+
+def test_a_decision_with_an_old_revision_is_refused(tmp_path):
+    store = pr.ParticipantStore.open(tmp_path / "participant.sqlite")
+    try:
+        pi.ensure_decision_schema(store.conn)
+        pi.save_decision(store.conn, participant_id="pt-1", income_ref="main|0404_에히메|6",
+                         decision="linked", presented_fingerprint="a", current_fingerprint="a")
+        with pytest.raises(pi.ReconciliationError) as raised:
+            pi.save_decision(store.conn, participant_id="pt-1", income_ref="main|0404_에히메|6",
+                             decision="unlinked", presented_fingerprint="a", current_fingerprint="a",
+                             expected_revision=0)
+        assert raised.value.code == "STALE_RECONCILIATION"
+        stored = pi.decisions_for_trip(store.conn, "trip-syn")
+        assert stored == [] or stored[0]["decision"] == "linked"
+    finally:
+        store.close()
