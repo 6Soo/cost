@@ -115,7 +115,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
 
     # One read of the booked ids instead of one query per row: every query is a
     # GIL hand-off, and a preview of ~1000 rows was dominated by those hand-offs.
-    booked_ids = {tid for (tid,) in store.conn.execute("SELECT transaction_id FROM ledger_entries")}
+    booked_dates = dict(store.conn.execute("SELECT transaction_id,occurred_on FROM ledger_entries"))
+    booked_ids = set(booked_dates)
     for row in _ready_rows(store, batch_id, review_from):
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
          direction, item, description, tab, trip_id, revision, decided,
@@ -124,7 +125,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
         entry = {
             "transaction_id": transaction_id, "source_hash": source_hash,
             "merchant": merchant, "amount_krw": amount_krw,
-            "occurred_on": approval_date, "transaction_direction": direction,
+            "occurred_on": booked_dates.get(transaction_id, approval_date), "transaction_direction": direction,
             "item": (decision or {}).get("item", item) or "",
             "description": (decision or {}).get("description", description) or "",
             "display_tab_id": (decision or {}).get("display_tab_id", tab) or "",
@@ -353,6 +354,19 @@ def _merge_metadata(entries: list, entry_metadata) -> None:
         for key in METADATA_KEYS:
             if key in metadata:
                 entry[key] = metadata[key]
+        # 카드 원문 날짜는 그대로 두고, 새 OTA 비용 날짜에만 검증된 이용일을 쓴다.
+        evidence = entry.get('ota_evidence') or {}
+        if (not entry.get('already_booked') and entry.get('transaction_direction') == 'purchase'
+                and entry.get('booking_ref') and evidence.get('source_digests')
+                and evidence.get('kind') in ('exact', 'inferred', 'ordered_group')):
+            from datetime import date
+            from .reconciliation import ledger_date_for_booking
+            service_day = str(entry.get('service_period') or '').split('~')[0].strip()
+            try:
+                service_day = date.fromisoformat(service_day).isoformat()
+            except ValueError:
+                continue
+            entry['occurred_on'] = ledger_date_for_booking(service_day, entry['occurred_on'])
 
 
 def _authority_block(entry: dict, trip_validator, tab_validator):

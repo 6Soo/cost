@@ -842,7 +842,7 @@ def ledger_metadata(report, entry):
     group = bool(exact) and refs == {''} and all(f.get('group_size') for f in exact)
     if exact and not group and (len(refs) != 1 or not next(iter(refs))):
         return empty
-    if exact and any(f.get('reservation_status') not in ('observed', 'confirmed') for f in exact):
+    if exact and any(f.get('reservation_status') not in ('observed', 'confirmed', 'completed') for f in exact):
         return empty
     periods = [f.get('period') if exact else f.get('shared_period') for f in facts]
     if any(p != periods[0] for p in periods):
@@ -856,9 +856,16 @@ def ledger_metadata(report, entry):
                       if digest})
     if not digests:
         return empty
+    inferred = any(f.get('inferred_link') for f in facts)
+    allocations = sorted({f['allocation_basis'] for f in facts if f.get('allocation_basis')})
+    ordered = any(value in ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                  for value in allocations)
     return {'booking_ref': '' if group or not exact else next(iter(refs)),
             'service_period': period['starts_on'] + '~' + period['ends_on'] if period else '',
-            'ota_evidence': {'kind': 'portal_group' if group else 'exact' if exact else 'shared_period',
+            'ota_evidence': {'kind': 'inferred' if inferred else 'ordered_group' if ordered else
+                                    'portal_group' if group else 'exact' if exact else 'shared_period',
+                             **({'payment_date_verified': False} if inferred else {}),
+                             **({'allocation_basis': allocations} if allocations else {}),
                              'source_digests': digests,
                              'providers': sorted({f['provider'] for f in facts if f.get('provider')}),
                              'evidence_kinds': sorted({f['evidence_kind'] for f in facts if f.get('evidence_kind')})}}

@@ -269,7 +269,7 @@ def legacy_exact_bindings(events, transactions, report):
         expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
         matching = []
         for fact in (report or {}).get("matches", []):
-            if fact.get('inferred_link'):
+            if fact.get('inferred_link') or fact.get('core_link'):
                 continue
             transaction_id = str(fact.get("transaction_id") or "")
             row = rows.get(transaction_id)
