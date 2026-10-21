@@ -41,7 +41,7 @@ def test_explicit_charge_without_date_never_uses_capture_day_and_is_stable(tmp_p
         assert len(events) == 1 and events[0]['paid_on'] is None
         assert pair_check(events[0], {'transaction_direction': 'purchase'}) == 'payment_date_unknown'
         assert 'aside-v1:' in events[0]['source_ids'][0]
-        assert collect_portal_facts([store.path])['facts']['1234567890']
+        assert collect_portal_facts([store.path])['rejected']['1234567890']['reason'] == 'payment_date_unknown'
     finally:
         store.close()
 
