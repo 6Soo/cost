@@ -46,6 +46,66 @@ def test_explicit_charge_without_date_never_uses_capture_day_and_is_stable(tmp_p
         store.close()
 
 
+def test_pay_at_property_and_explicit_cancel_date_are_not_paid_ota_charges(tmp_path):
+    property_capture = capture()
+    property_capture['snapshot_text'] = property_capture['snapshot_text'].replace(
+        '오늘 결제됨 KRW 30,000', '체크인 시 Example Hotel에서 결제 KRW 30,000')
+    fact = parse_detail(property_capture)
+    assert fact['payment_status'] == 'pay_at_property'
+    assert [p['minor_units'] for p in fact['price_components'] if p['kind']=='property_due'] == [30000]
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        store.ingest(property_capture)
+        assert _portal_events([store.path]) == []
+    finally:
+        store.close()
+    cancelled = capture()
+    cancelled['snapshot_text'] = cancelled['snapshot_text'].replace('투숙 완료', '예약 취소일: 2026년 7월 31일')
+    fact = parse_detail(cancelled)
+    assert fact['reservation_status'] == 'cancelled' and fact['refund_status'] == 'none_displayed'
+    policy = capture()
+    policy['snapshot_text'] += '- text: "예약 취소 시 예약 금액의 100%가 부과됩니다"\n'
+    assert parse_detail(policy)['reservation_status'] == 'completed'
+
+
+def test_cash_only_usage_and_gel_property_amount_remain_separate_from_card_payment():
+    from app.ota_cash_use import agoda_cash_use
+    raw = capture()
+    raw['snapshot_text'] = raw['snapshot_text'].replace('오늘 결제됨 KRW 30,000', 'AgodaCash-KRW 30,000').replace(
+        '총 금액 KRW 30,000', '총 금액 KRW 0').replace('카드 종류 MasterCard 카드 번호•••• •••• •••• 1234', '')
+    fact = parse_detail(raw)
+    assert fact['payment_status'] == 'cash_only' and fact['card_last4'] is None
+    assert agoda_cash_use(fact)['cash_krw'] == 30000
+    assert not any(c['kind']=='paid_today' for c in fact['price_components'])
+    zero_card = {**raw, 'snapshot_text':raw['snapshot_text'].replace(
+        'AgodaCash-KRW 30,000', 'AgodaCash-KRW 30,000 오늘 결제됨 KRW 0')}
+    assert parse_detail(zero_card)['payment_status'] == 'cash_only'
+    property_raw = capture()
+    property_raw['snapshot_text'] = property_raw['snapshot_text'].replace(
+        '오늘 결제됨 KRW 30,000', '체크인 시 Example Hotel에서 결제 GEL 396.00')
+    fact = parse_detail(property_raw)
+    assert fact['payment_status'] == 'pay_at_property'
+    component = next(c for c in fact['price_components'] if c['kind']=='property_due')
+    assert component['currency'] == 'GEL' and component['minor_units'] == 39600
+
+
+def test_expected_card_refund_is_pending_and_never_a_completed_refund(tmp_path):
+    raw = capture()
+    raw['snapshot_text'] = raw['snapshot_text'].replace('투숙 완료', '예약 취소됨').replace(
+        '총 금액 KRW 30,000', '신용카드 환불 KRW 30,000 환불될 금액 KRW 30,000')
+    fact = parse_detail(raw)
+    assert fact['refund_status'] == 'refund_pending'
+    assert next(c for c in fact['price_components'] if c['kind']=='refund_expected')['minor_units'] == 30000
+    zero = {**raw, 'snapshot_text':raw['snapshot_text'].replace('환불될 금액 KRW 30,000', '환불될 금액 KRW 0')}
+    assert parse_detail(zero)['refund_status'] == 'refund_expected_zero'
+    store = CaptureStore(tmp_path / 'refund.sqlite')
+    try:
+        store.ingest(raw)
+        assert _portal_events([store.path]) == []
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('changes', [
     {'entry_proof': {'booking_number': '1234567890', 'button_name': '아고다 고객센터에 연락하기'}},
     {'snapshot_text': '- text: "예약 번호: 9999999999"'},

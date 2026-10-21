@@ -2,7 +2,7 @@
 
 ## 현재 OTA 자료 연결
 
-메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](docs/ota_mail.md)의 최신 항목을 따른다.
+모든 OTA의 직접 수집·메일·참고 자료는 운영 `D:/WebLedgerHost/data/ota-evidence.sqlite`에서 함께 관리한다. `ota-sources.json`의 `unified_database`가 단일 읽기 경로이며 상시 메일 수집도 같은 DB에 반영한다. 원본·기존 결제 ID·사용자 확정을 보존한다. 실제 전환과 남은 상세 수집 범위는 [단일 OTA DB 기록](docs/ota-unified-store.md)과 [운영 문서](docs/operations.md)를 따른다.
 
 카드 파일 업로드 → 자동 분류 → 미확정 거래 확인 → 미리보기 → 장부 기록.
 

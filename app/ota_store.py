@@ -189,7 +189,8 @@ def direct_facts(conn):
         groups.setdefault(row['booking_id'], []).append((dict(row), fact))
     result = []
     for observations in groups.values():
-        observations.sort(key=lambda item:(item[1].get('observed_at') or item[0]['observed_at'], encoded(item[1])))
+        observations.sort(key=lambda item:(item[1].get('observed_at') or item[0]['observed_at'],
+            item[1].get('parser_version') if isinstance(item[1].get('parser_version'),int) else 0, encoded(item[1])))
         conflicts = []
         for field in ('service_start_on', 'service_end_on', 'card_last4'):
             values = {fact.get(field) for _,fact in observations} - {None, ''}
@@ -411,7 +412,8 @@ class OtaStore:
             _, revision, inserted = self._revision('direct_capture', path, {'raw': raw})
             if raw.get('kind') == 'detail':
                 fact = parse_detail(raw)
-                self._evidence('agoda', fact['booking_number'], revision, 'detail', 'direct', fact,
+                self._evidence('agoda', fact['booking_number'], revision,
+                               'detail:v' + str(fact['parser_version']), 'direct', fact,
                                raw['account_key'])
             elif raw.get('kind') == 'list':
                 for ref in raw['booking_numbers']:

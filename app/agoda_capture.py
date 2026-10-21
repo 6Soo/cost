@@ -12,9 +12,10 @@ from pathlib import Path
 
 SCHEMA = 'agoda-aside-capture-v1'
 FORMAT = 'agoda-aside-v1'
+PARSER_VERSION = 2  # 공개한 해석을 바꿀 때 올린다. DB는 원문과 이전 해석을 보존한다.
 ROLES = ('identity', 'service_period', 'portal_payment_claim',
          'portal_card_observation', 'lifecycle')
-CURRENCIES = r'(KRW|JPY|USD|EUR|GBP|₩|¥|€|US\$)'
+CURRENCIES = r'(KRW|JPY|USD|EUR|GBP|GEL|₩|¥|€|US\$)'
 NUMBER = r'((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)(?![\d,.])'
 
 
@@ -87,7 +88,8 @@ def parse_detail(capture):
     start, end = _day('체크인', text), _day('체크아웃', text)
     if start and end and end < start:
         raise ValueError('CAPTURE_INVALID_SERVICE_PERIOD')
-    status = ('cancelled' if re.search(r'예약이 취소되었습니다|취소된 예약|예약 취소됨', text)
+    status = ('cancelled' if (re.search(r'예약이 취소되었습니다|취소된 예약|예약 취소됨', text)
+              or _day('예약 취소일', text))
               else 'completed' if '투숙 완료' in text else
               'confirmed' if re.search(r'예약은 확정|예약이 확정|예약 확정됨', text) else 'unknown')
     section = re.split(r'결제 정보', text, maxsplit=1)
@@ -100,34 +102,48 @@ def parse_detail(capture):
     scheduled = bool(re.search(r'결제될 예정|결제 예정|will be charged', payment, re.I))
     refund = bool(re.search(r'환불\s*(?:완료|처리됨)|refund completed', payment, re.I))
     refund_pending = bool(re.search(r'환불\s*(?:요청|예정|진행)', payment))
+    property_due = [money(c,n,'property_due') for c,n in re.findall(
+        r'체크인 시[^\n]*?에서 결제\s*' + CURRENCIES + r'\s*' + NUMBER, payment)]
+    property_due = list({dump(x):x for x in property_due}.values())
+    cash_use = [money(c,n,'agoda_cash') for c,n in re.findall(
+        r'AgodaCash\s*-\s*' + CURRENCIES + r'\s*' + NUMBER, payment)]
+    cash_use = list({dump(x):x for x in cash_use}.values())
+    expected_refund = [money(c,n,'refund_expected') for c,n in re.findall(
+        r'환불될 금액\s*' + CURRENCIES + r'\s*' + NUMBER, payment)]
+    expected_refund = list({dump(x):x for x in expected_refund}.values())
+    refund_pending |= any(part['minor_units']>0 for part in expected_refund)
     diagnostics = []
     if status == 'unknown': diagnostics.append('reservation_status_unknown')
     if not start or not end: diagnostics.append('service_period_missing')
-    if not last4: diagnostics.append('card_observation_missing')
+    if not last4 and not cash_use: diagnostics.append('card_observation_missing')
     if len(paid) > 1: diagnostics.append('amount_ambiguous')
     if refund or refund_pending: diagnostics.append('refund_layout_requires_review')
     if status == 'cancelled': diagnostics.append('cancelled_booking')
     if scheduled: diagnostics.append('scheduled_payment')
+    if property_due: diagnostics.append('pay_at_property_not_an_ota_charge')
     paid_on = _day(r'(?:결제일|결제 완료일)', payment)
     if not paid_on: diagnostics.append('payment_date_unknown')
-    components = paid[:]
+    components = paid[:] + property_due + cash_use + expected_refund
     for label, kind in [('총 금액', 'gross_total'), ('세금 및 봉사료', 'taxes_and_fees')]:
         components.extend(money(c, n, kind) for c, n in re.findall(label + r'\s*' + CURRENCIES + r'\s*' + NUMBER, payment))
     # 사용과 적립을 구분한다. 아직 관측하지 않은 캐시/환불 양식은 기장 근거로 만들지 않는다.
-    if re.search(r'AgodaCash\s*(?:사용|차감)|사용한\s*AgodaCash', payment, re.I):
+    if not cash_use and re.search(r'AgodaCash\s*(?:사용|차감)|사용한\s*AgodaCash', payment, re.I):
         diagnostics.append('cash_layout_requires_review')
-    confirmed_paid = bool(len(paid) == 1 and last4 and not scheduled and not refund and not refund_pending)
+    confirmed_paid = bool(len(paid) == 1 and last4 and not scheduled and not refund and not refund_pending and not property_due)
     roles = ['identity']
     if start and end: roles.append('service_period')
-    if paid or scheduled: roles.append('portal_payment_claim')
+    if paid or scheduled or property_due or cash_use: roles.append('portal_payment_claim')
     if last4: roles.append('portal_card_observation')
     if status != 'unknown': roles.append('lifecycle')
     return {'provider': 'agoda', 'booking_number': booking,
             'service_start_on': start, 'service_end_on': end, 'reservation_status': status,
-            'status': status, 'evidence_format': FORMAT,
-            'payment_status': 'scheduled' if scheduled else 'paid' if confirmed_paid else 'unknown',
+            'status': status, 'evidence_format': FORMAT, 'parser_version': PARSER_VERSION,
+            'payment_status': ('cash_only' if cash_use and not any(p['minor_units']>0 for p in paid) and not property_due else
+                               'pay_at_property' if property_due and not paid else
+                               'scheduled' if scheduled else 'paid' if confirmed_paid else 'unknown'),
             'portal_payment_state': 'paid_observed' if confirmed_paid else 'unverified',
-            'refund_status': 'refund_pending' if refund_pending else 'unknown' if refund else 'none_displayed',
+            'refund_status': ('refund_pending' if refund_pending else 'refund_expected_zero' if expected_refund
+                              else 'unknown' if refund else 'none_displayed'),
             'card_last4': last4, 'price_components': components, 'paid_on': paid_on,
             'scheduled_for': _day(r'(?:결제 예정일)', payment) if scheduled else None,
             'source_namespace': 'aside-v1', 'snapshot_sha256': digest(capture['snapshot_text']),
