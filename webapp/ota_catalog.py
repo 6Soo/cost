@@ -271,40 +271,8 @@ def _card_matches(flow):
 
 
 def _with_core_card_matches(facts, data):
-    """검증된 코어 연결을 화면에 보완하며 기존 연결과 카드 점유는 유지한다."""
-    facts = list(facts)
-    occupied = {str(fact.get('transaction_id')) for fact in facts if fact.get('transaction_id')}
-    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
-    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
-    claims = defaultdict(list)
-    for result in data.get('results', []):
-        if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and result.get('transaction_id'):
-            claims[str(result['transaction_id'])].append(result)
-    for tid, results in claims.items():
-        if tid in occupied or len(results) != 1:
-            continue
-        result = results[0]
-        event = events.get(str(result.get('ota_event_id')))
-        card = cards.get(tid)
-        if not event or not card or any(result.get(k) or event.get(k) for k in
-                ('evidence_changed', 'evidence_missing', 'service_period_conflict')):
-            continue
-        if not event.get('provider') or not event.get('booking_ref'):
-            continue
-        if card.get('duplicate_of') or card.get('parse_error') or card.get('conflict_reason'):
-            continue
-        facts.append({
-            'provider': event['provider'], 'booking_ref': event['booking_ref'],
-            'transaction_id': tid, 'source_hash': card.get('source_hash'),
-            'merchant': card.get('merchant'), 'paid_on': event.get('paid_on'),
-            'paid_amount_krw': card.get('amount_krw'), 'item': event.get('item'),
-            'direction': card.get('transaction_direction'),
-            'reservation_status': event.get('reservation_status'),
-            'inferred_link': bool(result.get('inferred_link')),
-            'allocation_basis': result.get('allocation_basis'),
-        })
-        occupied.add(tid)
-    return facts
+    from app.ota_core_projection import card_matches
+    return card_matches(facts, data)
 
 
 def _review_store():
@@ -362,7 +330,7 @@ def _canonical(value):
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py',
-                'app/ota_booking_context.py',
+                'app/ota_booking_context.py', 'app/ota_core_projection.py',
                 'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
                 'app/ota_sources.py', 'app/ota_store.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',

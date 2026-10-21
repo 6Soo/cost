@@ -732,6 +732,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         self.assertEqual(links[event["ota_event_id"]]["transaction_id"], "card-legacy")
         self.assertTrue(links[event["ota_event_id"]]["legacy_exact"])
         for changed in (
+                {**fact, "core_link": True},
                 {**fact, "source_sha256": "digest-b"},
                 {**fact, "booking_ref": "OTHER"},
                 {**fact, "direction": "refund"},
@@ -1056,4 +1057,3 @@ class OtaPaymentReviewTests(unittest.TestCase):
                              {"range-card--1", "range-card-0", "range-card-1", "range-card-2"})
             backend.close()
             board_conn.close()
-

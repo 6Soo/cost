@@ -1115,10 +1115,18 @@ class CardFlow:
         """한 조회 안에서는 미리보기와 근거 조회가 같은 대사 결과를 쓴다."""
         memo = getattr(self, '_request_report', None)
         if memo is None:
-            return self._compute_ota_report()
-        if not memo:
-            memo.append(self._compute_ota_report())
-        return memo[0]
+            report = self._compute_ota_report()
+        else:
+            if not memo:
+                memo.append(self._compute_ota_report())
+            report = memo[0]
+        from . import ota_payment_review
+        if report is not None and ota_payment_review.enabled():
+            current, fresh = ota_payment_review.snapshot_service(self.board).held()
+            if current is not None and fresh:
+                from app.ota_core_projection import extend_report
+                report = extend_report(report, current.get('data') or {})
+        return report
 
     def _compute_ota_report(self):
         """분류와 화면이 같은 읽기 전용 대사를 쓰며 실제 입력 변경 시 다시 계산한다."""
