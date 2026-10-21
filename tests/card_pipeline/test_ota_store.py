@@ -1,5 +1,6 @@
 """단일 OTA DB가 원문·결제 ID·출처 충돌을 보존하는지 확인한다."""
 import copy
+import gc
 import json
 import sqlite3
 
@@ -28,6 +29,8 @@ def test_consolidation_keeps_mail_payment_ids_references_and_survives_original_r
     report = consolidate(manifest, destination)
     assert report['status'] == 'PASS', report
     manifest.write_text(json.dumps(report['candidate_manifest']), encoding='utf-8')
+    # 기존 합성 DB 도우미의 연결을 정리한 뒤 Windows에서 원본을 제거한다.
+    gc.collect()
     for original in [*portals, reference, mail / 'gmail.json']:
         original.unlink()
     sources = ota_sources.resolve_sources(tmp_path, portal_default=tmp_path / 'unrelated.sqlite')
