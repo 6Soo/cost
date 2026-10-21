@@ -242,10 +242,17 @@ def _card_matches(flow):
         report = flow._ota_report()
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
         return {}, {}, True
-    if not report:
-        return {}, {}, False
+    facts = list((report or {}).get('matches', []))
+    from . import ota_payment_review
+    pending = False
+    if ota_payment_review.enabled():
+        current, fresh = ota_payment_review.snapshot_service(flow.board).held()
+        if current is not None and fresh:
+            facts = _with_core_card_matches(facts, current.get('data') or {})
+        else:
+            pending = True
     live, cancelled = defaultdict(list), defaultdict(int)
-    for fact in report.get('matches', []):
+    for fact in facts:
         key = (str(fact.get('provider') or '').lower(), str(fact.get('booking_ref') or ''))
         if fact.get('reservation_status') == 'cancelled':
             cancelled[key] += 1
@@ -259,7 +266,45 @@ def _card_matches(flow):
                           'direction': str(fact.get('direction') or 'purchase'),
                           'period_conflict': bool(fact.get('period_conflict'))})
         live[key][-1]['inferred_link'] = bool(fact.get('inferred_link'))
-    return dict(live), dict(cancelled), False
+        live[key][-1]['allocation_basis'] = fact.get('allocation_basis')
+    return dict(live), dict(cancelled), pending
+
+
+def _with_core_card_matches(facts, data):
+    """검증된 코어 연결을 화면에 보완하며 기존 연결과 카드 점유는 유지한다."""
+    facts = list(facts)
+    occupied = {str(fact.get('transaction_id')) for fact in facts if fact.get('transaction_id')}
+    events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
+    claims = defaultdict(list)
+    for result in data.get('results', []):
+        if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and result.get('transaction_id'):
+            claims[str(result['transaction_id'])].append(result)
+    for tid, results in claims.items():
+        if tid in occupied or len(results) != 1:
+            continue
+        result = results[0]
+        event = events.get(str(result.get('ota_event_id')))
+        card = cards.get(tid)
+        if not event or not card or any(result.get(k) or event.get(k) for k in
+                ('evidence_changed', 'evidence_missing', 'service_period_conflict')):
+            continue
+        if not event.get('provider') or not event.get('booking_ref'):
+            continue
+        if card.get('duplicate_of') or card.get('parse_error') or card.get('conflict_reason'):
+            continue
+        facts.append({
+            'provider': event['provider'], 'booking_ref': event['booking_ref'],
+            'transaction_id': tid, 'source_hash': card.get('source_hash'),
+            'merchant': card.get('merchant'), 'paid_on': event.get('paid_on'),
+            'paid_amount_krw': card.get('amount_krw'), 'item': event.get('item'),
+            'direction': card.get('transaction_direction'),
+            'reservation_status': event.get('reservation_status'),
+            'inferred_link': bool(result.get('inferred_link')),
+            'allocation_basis': result.get('allocation_basis'),
+        })
+        occupied.add(tid)
+    return facts
 
 
 def _review_store():
@@ -316,7 +361,7 @@ def _canonical(value):
 
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
-_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
+_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py',
                 'app/ota_booking_context.py',
                 'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
@@ -339,6 +384,10 @@ def _signature(board, sources):
     from .card_flow import CardFlow
     CardFlow(board)  # creates the card tables on a fresh board, so they are part of the first signature
     parts = [INDEX_VERSION, _code_stamp(), hashlib.sha256(json.dumps(_canonical(sources), ensure_ascii=False).encode()).hexdigest()]
+    from . import ota_payment_review
+    if ota_payment_review.enabled():
+        current, fresh = ota_payment_review.snapshot_service(board).held()
+        parts.append(('core', (current or {}).get('key'), (current or {}).get('generation'), fresh))
 
     def stat_key(path):
         try:
@@ -525,6 +574,7 @@ def _build_index(board, sources):
             'trips': assigned, 'rule': rule_view,
             'candidates': candidates,
             'card_matches': live.get(key, []),
+            'card_reconciliation_pending': card_error,
             'cancelled_matches': cancelled.get(key, 0),
         })
     return {'entries': entries, 'warnings': warnings, 'trips': trips,
@@ -955,10 +1005,18 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             f"<td>{esc(card['merchant'] or state.get('merchant') or '미확인')}</td>"
             f"<td>{esc(amount_text)}</td>"
             f"<td>{esc(_state_label(state or None))}"
-            + ("<br><small>추론 연결 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '') + "</td>"
+            + ("<br><small>추론 연결 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '')
+            + ("<br><small>사용자 승인 순서 배정 · 개별 결제 근거 미확인</small>"
+               if card.get('allocation_basis') == 'user_approved_stable_order' else
+               "<br><small>반복 거래 순서 배정 · 개별 결제 근거 미확인</small>"
+               if card.get('allocation_basis') == 'auto_stable_order' else
+               "<br><small>사용자 확정 순서 배정 · 개별 결제 근거 미확인</small>"
+               if card.get('allocation_basis') == 'frozen_user_confirmed_order' else '') + "</td>"
             f"<td>{link}</td></tr>")
     payment_table = ('<table><thead><tr><th>카드 이용일</th><th>가맹점</th><th>결제 금액</th><th>현재 상태</th><th></th></tr></thead>'
                      f"<tbody>{''.join(rows)}</tbody></table>") if rows else (
+        "<p class='muted'>카드 대사 결과를 확인 중입니다. 잠시 뒤 다시 조회해 주세요.</p>"
+        if entry.get('card_reconciliation_pending') else
         "<p class='muted'>대사된 카드 결제가 없습니다. 카드 결제 근거가 없으면 여행 배정은 규칙으로만 남고, "
         "카드 결제가 들어오면 그때 적용됩니다.</p>")
     stay_text = (f"{entry['stay'][0]} ~ {entry['stay'][1]}" + (f" · {entry['nights']}박" if entry['nights'] is not None else '')
