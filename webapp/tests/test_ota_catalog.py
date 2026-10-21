@@ -68,6 +68,60 @@ def test_inferred_link_displays_card_use_date_and_keeps_ota_payment_date_unknown
     assert board.conn.total_changes == before
 
 
+def test_core_ordered_pairs_reach_booking_screen_without_promoting_exact(data, monkeypatch):
+    from types import SimpleNamespace
+    from webapp import ota_payment_review
+    board, sources = data
+    core = {'events': [], 'transactions': [], 'results': []}
+    for number in (1, 2):
+        core['events'].append({'ota_event_id': str(number), 'provider': 'trip',
+                               'booking_ref': f'BOOK-{number}', 'paid_on': '2026-09-23'})
+        core['transactions'].append({'transaction_id': f'card-{number}', 'source_hash': f'hash-{number}',
+            'merchant': 'TRIP.COM', 'amount_krw': 90121, 'transaction_direction': 'purchase'})
+        core['results'].append({'ota_event_id': str(number), 'transaction_id': f'card-{number}',
+            'status': 'MATCHED_AUTO', 'allocation_basis': 'auto_stable_order'})
+    current = {'key': 'synthetic', 'generation': 1, 'data': core}
+    state = {'fresh': True}
+    monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
+    monkeypatch.setattr(ota_payment_review, 'snapshot_service', lambda _: SimpleNamespace(
+        held=lambda: (current, state['fresh'])))
+    flow = SimpleNamespace(board=board, _ota_report=lambda: {'matches': []})
+    before = board.conn.total_changes
+    live, _, error = ota_catalog._card_matches(flow)
+    assert not error and len(live) == 2
+    assert live['trip', 'BOOK-1'][0]['transaction_id'] == 'card-1'
+    assert live['trip', 'BOOK-2'][0]['transaction_id'] == 'card-2'
+    assert all(not card['inferred_link'] for cards in live.values() for card in cards)
+    entry = ota_catalog._entry(board, sources, 'trip', 'BOOK-1')
+    entry['card_matches'] = live['trip', 'BOOK-1']
+    markup = ota_catalog.render_detail(board, entry, csrf='synthetic')
+    assert '90,121원' in markup
+    assert '반복 거래 순서 배정 · 개별 결제 근거 미확인' in markup
+    ready_signature = ota_catalog._signature(board, sources)
+    state['fresh'] = False
+    assert ota_catalog._card_matches(flow) == ({}, {}, True)
+    assert ota_catalog._signature(board, sources) != ready_signature
+    assert board.conn.total_changes == before
+
+
+def test_core_display_preserves_occupied_cards_and_rejects_holds_or_conflicts():
+    from copy import deepcopy
+    old = [{'transaction_id': 'occupied', 'provider': 'agoda', 'booking_ref': 'OLD'}]
+    data = {'events': [], 'transactions': [], 'results': []}
+    for tid, status in [('occupied', 'MATCHED_AUTO'), ('partial', 'HOLD_PARTIAL_GROUP'),
+                        ('changed', 'MATCHED_USER'), ('missing', 'MATCHED_AUTO'),
+                        ('double', 'MATCHED_AUTO'), ('double', 'MATCHED_AUTO')]:
+        eid = str(len(data['events']))
+        data['events'].append({'ota_event_id': eid, 'provider': 'trip', 'booking_ref': 'NEW-' + eid})
+        data['transactions'].append({'transaction_id': tid})
+        data['results'].append({'ota_event_id': eid, 'status': status, 'transaction_id': tid,
+                                'evidence_changed': tid == 'changed'})
+    data['transactions'] = [c for c in data['transactions'] if c['transaction_id'] != 'missing']
+    original = deepcopy(data)
+    assert ota_catalog._with_core_card_matches(old, data) == old
+    assert data == original
+
+
 def test_exact_provider_identity_merging_and_conflicting_sources(data, tmp_path):
     board, sources = data
     second = tmp_path / 'second.sqlite'
