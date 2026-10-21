@@ -52,6 +52,22 @@ def test_all_and_unassigned_include_cancelled_unpaid_and_do_not_write(data):
     assert board.conn.total_changes == before
 
 
+def test_inferred_link_displays_card_use_date_and_keeps_ota_payment_date_unknown(data, monkeypatch):
+    board, sources = data
+    entry = ota_catalog._entry(board, sources, 'agoda', 'BOOK-1')
+    entry['card_matches'] = [{'transaction_id': 'synthetic', 'merchant': 'AGODA', 'paid_on': '',
+                              'paid_amount_krw': 35000, 'inferred_link': True}]
+    monkeypatch.setattr(ota_catalog, '_card_states', lambda *_: {
+        'synthetic': {'day': '2026-10-01', 'decided': False, 'state': 'needs_review'}})
+    before = board.conn.total_changes
+    markup = ota_catalog.render_detail(board, entry, csrf='synthetic')
+    assert '카드 이용일' in markup
+    assert '추론 연결 · 아고다 결제일 미확인' in markup
+    assert '2026-10-01' in markup and '35,000원' in markup
+    assert entry['card_matches'][0]['paid_on'] == ''
+    assert board.conn.total_changes == before
+
+
 def test_exact_provider_identity_merging_and_conflicting_sources(data, tmp_path):
     board, sources = data
     second = tmp_path / 'second.sqlite'

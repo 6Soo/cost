@@ -16,6 +16,7 @@ from app.ota_matching_defaults import load_defaults
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
+PARSER_VERSION = 3
 
 
 class OtaSourcesError(ValueError):
@@ -66,6 +67,7 @@ def _mail_events(directories, *, read_only=False):
 
 
 def _parse_mail_events(directories):
+    from app import ota_booking_context
     try:
         messages, inventory = ota_mail.load_messages_from(directories)
     except Exception as exc:
@@ -74,6 +76,7 @@ def _parse_mail_events(directories):
     if failures:
         raise OtaSourcesError(failures)
     events = {}
+    context = ota_booking_context.collect(messages)
     for message_id, message in sorted(messages.items()):
         fact = ota_mail.extract_mail(message)
         if not fact:
@@ -113,12 +116,14 @@ def _parse_mail_events(directories):
             "source_digests": [digest],
             "evidence_kind": "authenticated_payment_mail", "source_inventory": inventory,
             "payment_id": payment_id,
+            "card_issuer": ota_booking_context.payment_issuer(text),
             "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
         }
         if not event["card_last4"] and card_match:
             event["card_last4"] = card_match.group(1)
         event["ota_event_id"] = _event_id(event["identity_source_ids"])
-        events[event["ota_event_id"]] = event
+        events[event["ota_event_id"]] = ota_booking_context.attach(
+            event, context.get((event['provider'], event['booking_ref']), ()))
     return list(events.values())
 
 
@@ -289,6 +294,7 @@ def _portal_events(databases):
                 "payment_id": str(payment_id) if payment_id else None,
                 "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
                 "evidence_kind": "portal_payment_claim",
+                "verified_portal_snapshot": fact.get('evidence_format') == 'agoda-aside-v1',
             }
             event["ota_event_id"] = _event_id(event["identity_source_ids"])
             events.append(event)
@@ -664,6 +670,13 @@ def _approved_delta_match(event, row, rules):
     return False
 
 
+def _foreign_decimal(value):
+    text = str(value).strip()
+    if not re.fullmatch(r'[+-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?', text):
+        raise ValueError('INVALID_FOREIGN_AMOUNT')
+    return Decimal(text.replace(',', ''))
+
+
 def _amount_matches(event, row, rules):
     currency = str(event.get("currency") or "").upper()
     if currency == "KRW":
@@ -676,8 +689,8 @@ def _amount_matches(event, row, rules):
     if not currency:
         return False
     try:
-        expected = abs(Decimal(str(event.get("amount"))))
-        signed_card_amount = Decimal(str(row.get("foreign_amount")))
+        expected = abs(_foreign_decimal(event.get("amount")))
+        signed_card_amount = _foreign_decimal(row.get("foreign_amount"))
         actual = abs(signed_card_amount)
         return (str(row.get("foreign_currency") or "").upper() == currency and
                 expected.is_finite() and actual.is_finite() and expected == actual and
@@ -819,7 +832,7 @@ def _eligible_cards(event, transactions, links=None, rules=None):
 
 
 def portal_payment_date_required():
-    """실제 결제일이 없는 포털 결제를 자동 연결에서 막을지 정한다. 소유자 2026-10-08 선택은 막는 쪽이다."""
+    """2026-10-08 결제일 필수 기본값. 2026-10-21 승인한 아고다 일대일 추론은 별도 규칙에서 검증한다."""
     return bool(load_defaults().get("portal_payment_date_required", True))
 
 
@@ -1302,6 +1315,9 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
     singleton_selected = dict(singleton_pairs)
     singleton_conflicts = _ambiguous_optimal_singletons(
         singleton_events, options_by_event, singleton_pairs, unavailable=singleton_unavailable)
+    from app import ota_inference
+    inferred_pairs = ota_inference.unique_pairs(events, transactions,
+        occupied=set(claimed) | set(reserved_partial), rules=rules)
     for event in events:
         identity = event.get("ota_event_id")
         if identity in grouped_results:
@@ -1353,6 +1369,13 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
         if event.get("event_type") == "refund" and event.get("refund_status") not in ("refunded", "refund_completed"):
             result.append(dict(event, status="HOLD_EVIDENCE_CONFLICT", transaction_id=None,
                                candidates=[], reason="refund_not_explicitly_verified"))
+            continue
+        if identity in inferred_pairs:
+            transaction_id = inferred_pairs[identity]['transaction_id']
+            result.append(dict(event, status='MATCHED_AUTO', transaction_id=transaction_id,
+                               candidates=[transaction_id], reason=ota_inference.BASIS,
+                               allocation_basis=ota_inference.BASIS, inferred_link=True,
+                               inference_basis=ota_inference.NOTE, payment_date_verified=False))
             continue
         if not event.get("paid_on"):
             result.append(dict(event, status="HOLD_DATE_UNKNOWN", transaction_id=None,

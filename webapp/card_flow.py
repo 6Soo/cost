@@ -1153,9 +1153,11 @@ class CardFlow:
             rows=[tuple(row) for row in self.board.conn.execute(
                 'SELECT '+','.join(columns)+' FROM transactions ORDER BY transaction_id').fetchall()]
             open_ids=sorted(ota_exact.open_transaction_ids(self.board.conn))
+            inference_excluded_ids = ({row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
+                if self.board.conn.execute("SELECT 1 FROM sqlite_master WHERE name='transaction_review_holds'").fetchone() else set())
         fingerprint=hashlib.sha256(json.dumps(rows,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
         # 장부 기록 여부가 게이트 결과를 바꾸므로 열린 거래 집합도 지문에 넣는다.
-        open_digest=hashlib.sha256(json.dumps(open_ids,separators=(',',':')).encode()).hexdigest()
+        open_digest=hashlib.sha256(json.dumps([open_ids, sorted(inference_excluded_ids)],separators=(',',':')).encode()).hexdigest()
         # manifest 자체와 추가 소스의 추가·삭제·변경이 모두 지문에 들어간다.
         key = (str([str(path) for path in mail_dirs]),
                str([str(path) for path in portal_dbs]),
@@ -1178,7 +1180,7 @@ class CardFlow:
             except (OSError,ValueError,KeyError,TypeError,sqlite3.Error):
                 events=None
             report=ota_exact.apply_gate(report,transactions,events=events,rules=self._review_rules(),
-                                        open_ids=set(open_ids))
+                                        open_ids=set(open_ids), inference_excluded_ids=inference_excluded_ids)
             references = load_reference_documents(sources['reference_documents'])
             report['reference_sources']=references
             report['ota_source_inventory']={
