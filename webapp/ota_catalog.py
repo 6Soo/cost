@@ -402,10 +402,17 @@ def _signature(board, sources):
 
 def _rows_from_sources(board, sources, warnings):
     merged = {}
+    invalid_provider_bookings = set()
 
     def add(provider, ref, label='', start='', end='', status='', trips=()):
         provider, ref = str(provider or 'unknown').lower(), str(ref or '').strip()
         if not ref:
+            return
+        # 오래된 참고 DB에 'Gmail Trip.com 예약 ...'처럼 자료 제목이 공급자로
+        # 들어간 행이 있다. 예약번호가 같더라도 독립적인 결제/일정 근거가 아니므로
+        # 정상 Trip 예약과 병합하거나 별개 OTA 예약으로 자동 배정하지 않는다.
+        if provider not in PROVIDERS and provider != 'unknown':
+            invalid_provider_bookings.add((provider, ref))
             return
         row = merged.setdefault((provider, ref), {'provider': provider, 'booking_ref': ref,
             'labels': set(), 'periods': set(), 'statuses': set(), 'portal_trips': set(), 'ledger_trips': set()})
@@ -455,6 +462,8 @@ def _rows_from_sources(board, sources, warnings):
             period = {}
         add(event.get('provider'), event.get('booking_ref'), event.get('item'),
             period.get('starts_on'), period.get('ends_on'), event.get('reservation_status'))
+    if invalid_provider_bookings:
+        warnings.append(f'공급자 표기가 잘못된 예약 {len(invalid_provider_bookings)}건은 자동 배정에서 보류했습니다. 통합 DB의 원본은 보존됩니다.')
     _join_by_booking_number(merged)
     _saved_board_links(board, merged)
     return merged
