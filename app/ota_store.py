@@ -181,12 +181,36 @@ def _scheduled_details(entries):
 
 def direct_facts(conn):
     """관측은 모두 보존하고, 현재 자료의 서로 다른 금액·카드·기간은 보류한다."""
+    # Later verified mail cancellation overrides an earlier direct confirmation.
+    # It never overwrites the observed payment or refund facts.
+    cancellations = {}
+    for mail in conn.execute(
+        "SELECT b.booking_number,e.entry_key,e.fact_json,m.payload_json "
+        "FROM ota_booking_evidence e JOIN ota_bookings b ON b.booking_id=e.booking_id "
+        "JOIN ota_messages m ON m.message_id=e.entry_key "
+        "WHERE b.provider='agoda' AND e.evidence_kind='mail' "
+        "AND e.fact_json LIKE '%\"reservation_status\":\"cancelled\"%'"
+    ):
+        evidence = json.loads(mail['fact_json'])
+        if evidence.get('reservation_status') != 'cancelled':
+            continue
+        message = unpacked(mail['payload_json'])
+        try:
+            cancelled_at = datetime.fromtimestamp(
+                int(message['internal_date']) / 1000, timezone.utc)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        ref = mail['booking_number']
+        if ref not in cancellations or cancelled_at > cancellations[ref][0]:
+            cancellations[ref] = (cancelled_at, mail['entry_key'])
     groups = {}
+    direct_accounts = {}
     for row in conn.execute("SELECT b.*,e.fact_json,r.observed_at FROM ota_booking_evidence e "
         "JOIN ota_bookings b USING(booking_id) "
         "JOIN ota_source_revisions r ON r.revision_id=e.revision_id WHERE e.evidence_kind='direct'"):
         fact = json.loads(row['fact_json'])
         groups.setdefault(row['booking_id'], []).append((dict(row), fact))
+        direct_accounts.setdefault((row['provider'], row['booking_number']), set()).add(row['account_key'])
     result = []
     for observations in groups.values():
         observations.sort(key=lambda item:(item[1].get('observed_at') or item[0]['observed_at'],
@@ -207,6 +231,29 @@ def direct_facts(conn):
                 conflicts.append('active_after_cancellation')
             terminal |= fact.get('reservation_status') == 'cancelled'
         row, fact = observations[-1]
+        cancellation = cancellations.get(row['booking_number']) if row['provider'] == 'agoda' else None
+        if cancellation:
+            cancellation_at, message_id = cancellation
+            if len(direct_accounts[('agoda', row['booking_number'])]) > 1:
+                conflicts.append('cancellation_account_ambiguous')
+            else:
+                last_seen = fact.get('observed_at') or row['observed_at']
+                try:
+                    seen_at = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                    if seen_at.utcoffset() is None:
+                        seen_at = None
+                    else:
+                        seen_at = seen_at.astimezone(timezone.utc)
+                except (AttributeError, TypeError, ValueError):
+                    seen_at = None
+                if seen_at is None:
+                    conflicts.append('cancellation_chronology_unknown')
+                elif seen_at > cancellation_at and fact.get('reservation_status') != 'cancelled':
+                    conflicts.append('active_after_cancellation')
+                elif seen_at <= cancellation_at:
+                    fact = {**fact, 'reservation_status':'cancelled',
+                        'cancellation_mail_message_id':message_id,
+                        'cancellation_mail_observed_at':cancellation_at.isoformat()}
         result.append((row, fact, conflicts))
     return result
 
