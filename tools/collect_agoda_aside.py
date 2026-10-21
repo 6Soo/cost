@@ -47,7 +47,10 @@ globalThis.captureBooking = async function(booking, status) {
     const s=await snapshot(page);
     console.log(s.diff);
     const ids=Array.from(s.tree.matchAll(/예약\s*번호\s*[:：]?\s*(\d{6,20})/g)).map(m=>m[1]);
-    if(ids.includes(booking)) {detail=s;break;}
+    /* Flight pages put the booking ID in a separate node.
+       Require an adjacent label, not an unrelated number on the page. */
+    const flightIds=Array.from(s.tree.matchAll(/- text: "[^"\n]*예약\s*번호\s*[:：]\s*"\s*\n- generic "(\d{6,20})"/g)).map(m=>m[1]);
+    if(ids.includes(booking) || flightIds.includes(booking)) {detail=s;break;}
     if(attempt<4) await sleep(800);
   }
   if(!detail) throw new Error('DETAIL_IDENTITY_NOT_CONFIRMED');
