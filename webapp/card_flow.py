@@ -828,6 +828,10 @@ class CardFlow:
 
     def _booking_period_assignments(self, report, sources, taken):
         """예약이 확정되어 이용기간을 덮는 검증된 여행이 하나뿐인 카드 결제에 그 여행을 추론 배정으로 적용한다."""
+        candidates = [fact for fact in report.get('matches', [])
+                      if fact.get('source_hash') in sources and fact.get('source_hash') not in taken]
+        if not candidates:
+            return []
         import sqlite3
         from app import ota_sources
         from app.classify import PERIOD_OTA_ORIGIN
@@ -842,7 +846,7 @@ class CardFlow:
         if not periods:
             return []
         rules = {}
-        for fact in report.get('matches', []):
+        for fact in candidates:
             source = fact.get('source_hash')
             if source not in sources or source in taken or fact.get('reservation_status') == 'cancelled' \
                     or fact.get('period_conflict') or fact.get('direction', 'purchase') != 'purchase':
