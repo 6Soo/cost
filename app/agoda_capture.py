@@ -62,11 +62,16 @@ def money(currency, raw, kind):
             'minor_units': int(units), 'scale': scale, 'observed_text': currency + ' ' + raw}
 
 
-def _day(label, text):
+def _days(label, text):
     found = set()
     pattern = label + r'\s*[:：]?\s*(?:(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일|(\d{4}-\d{2}-\d{2}))'
     for year, month, day, iso in re.findall(pattern, text):
         found.add(date.fromisoformat(iso).isoformat() if iso else date(int(year), int(month), int(day)).isoformat())
+    return found
+
+
+def _day(label, text):
+    found = _days(label, text)
     return next(iter(found)) if len(found) == 1 else None
 
 
@@ -82,16 +87,23 @@ def parse_detail(capture):
             not re.search(r'예약 확인/변경하기\s+' + re.escape(booking) + r'\b', str(proof.get('button_name') or ''))):
         raise ValueError('CAPTURE_ENTRY_PROOF_REQUIRED')
     text = visible_text(capture.get('snapshot_text') or '')
-    identities = set(re.findall(r'예약\s*번호\s*[:：]\s*(\d{6,20})\b', text))
+    identities = set(re.findall(r'예약\s*번호\s*[:：]?\s*(\d{6,20})\b', text))
     if identities != {booking}:
         raise ValueError('CAPTURE_BOOKING_IDENTITY_MISMATCH')
-    start, end = _day('체크인', text), _day('체크아웃', text)
+    starts, ends = _days('체크인', text), _days('체크아웃', text)
+    for sy, sm, sd, ey, em, ed in re.findall(
+        r'숙박\s*날짜\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일[^\d\n]*?[-–~]\s*'
+        r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일', text):
+        starts.add(date(int(sy),int(sm),int(sd)).isoformat())
+        ends.add(date(int(ey),int(em),int(ed)).isoformat())
+    start = next(iter(starts)) if len(starts)==1 else None
+    end = next(iter(ends)) if len(ends)==1 else None
     if start and end and end < start:
         raise ValueError('CAPTURE_INVALID_SERVICE_PERIOD')
     status = ('cancelled' if (re.search(r'예약이 취소되었습니다|취소된 예약|예약 취소됨', text)
               or _day('예약 취소일', text))
               else 'completed' if '투숙 완료' in text else
-              'confirmed' if re.search(r'예약은 확정|예약이 확정|예약 확정됨', text) else 'unknown')
+              'confirmed' if re.search(r'예약(?:은|이)\s*확정|예약\s*확정됨', text) else 'unknown')
     section = re.split(r'결제 정보', text, maxsplit=1)
     payment = re.split(r'결제 방법|이 예약으로 적립됨|도움말·문의', section[1], maxsplit=1)[0] if len(section) == 2 else ''
     cards = set(re.findall(r'카드\s*번호\s*[•●*Xx\s-]*(\d{4})\b', text))
@@ -102,6 +114,9 @@ def parse_detail(capture):
     scheduled = bool(re.search(r'결제될 예정|결제 예정|will be charged', payment, re.I))
     refund = bool(re.search(r'환불\s*(?:완료|처리됨)|refund completed', payment, re.I))
     refund_pending = bool(re.search(r'환불\s*(?:요청|예정|진행)', payment))
+    payment_failed = bool(re.search(r'결제\s*관련\s*문제\s*발생|신용카드\s*결제\s*거부', text))
+    deadlines = set(re.findall(r'(\d{1,2}월\s*\d{1,2}일\s*\d{1,2}:\d{2})\s*전에?\s*'
+                              r'본\s*예약에\s*대한\s*결제를\s*완료', text))
     property_due = [money(c,n,'property_due') for c,n in re.findall(
         r'체크인 시[^\n]*?에서 결제\s*' + CURRENCIES + r'\s*' + NUMBER, payment)]
     property_due = list({dump(x):x for x in property_due}.values())
@@ -115,11 +130,13 @@ def parse_detail(capture):
     diagnostics = []
     if status == 'unknown': diagnostics.append('reservation_status_unknown')
     if not start or not end: diagnostics.append('service_period_missing')
+    if len(starts)>1 or len(ends)>1: diagnostics.append('service_period_conflict')
     if not last4 and not cash_use: diagnostics.append('card_observation_missing')
     if len(paid) > 1: diagnostics.append('amount_ambiguous')
     if refund or refund_pending: diagnostics.append('refund_layout_requires_review')
     if status == 'cancelled': diagnostics.append('cancelled_booking')
     if scheduled: diagnostics.append('scheduled_payment')
+    if payment_failed: diagnostics.append('payment_failed')
     if property_due: diagnostics.append('pay_at_property_not_an_ota_charge')
     paid_on = _day(r'(?:결제일|결제 완료일)', payment)
     if not paid_on: diagnostics.append('payment_date_unknown')
@@ -129,19 +146,24 @@ def parse_detail(capture):
     # 사용과 적립을 구분한다. 아직 관측하지 않은 캐시/환불 양식은 기장 근거로 만들지 않는다.
     if not cash_use and re.search(r'AgodaCash\s*(?:사용|차감)|사용한\s*AgodaCash', payment, re.I):
         diagnostics.append('cash_layout_requires_review')
-    confirmed_paid = bool(len(paid) == 1 and last4 and not scheduled and not refund and not refund_pending and not property_due)
+    observed_paid = bool(len(paid) == 1 and paid[0]['minor_units']>0 and not scheduled
+                         and not refund and not refund_pending and not property_due and not payment_failed)
+    confirmed_paid = bool(observed_paid and last4)
     roles = ['identity']
     if start and end: roles.append('service_period')
-    if paid or scheduled or property_due or cash_use: roles.append('portal_payment_claim')
+    if paid or scheduled or property_due or cash_use or payment_failed: roles.append('portal_payment_claim')
     if last4: roles.append('portal_card_observation')
     if status != 'unknown': roles.append('lifecycle')
     return {'provider': 'agoda', 'booking_number': booking,
             'service_start_on': start, 'service_end_on': end, 'reservation_status': status,
             'status': status, 'evidence_format': FORMAT, 'parser_version': PARSER_VERSION,
-            'payment_status': ('cash_only' if cash_use and not any(p['minor_units']>0 for p in paid) and not property_due else
+            'payment_status': ('failed' if payment_failed else
+                               'cash_only' if cash_use and not any(p['minor_units']>0 for p in paid) and not property_due else
                                'pay_at_property' if property_due and not paid else
-                               'scheduled' if scheduled else 'paid' if confirmed_paid else 'unknown'),
-            'portal_payment_state': 'paid_observed' if confirmed_paid else 'unverified',
+                               'scheduled' if scheduled else 'paid' if confirmed_paid else
+                               'paid_observed_without_card' if observed_paid else 'unknown'),
+            'portal_payment_state': 'payment_failed' if payment_failed else 'paid_observed' if observed_paid else 'unverified',
+            'payment_deadline_display':next(iter(deadlines)) if payment_failed and len(deadlines)==1 else None,
             'refund_status': ('refund_pending' if refund_pending else 'refund_expected_zero' if expected_refund
                               else 'unknown' if refund else 'none_displayed'),
             'card_last4': last4, 'price_components': components, 'paid_on': paid_on,

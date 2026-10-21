@@ -190,3 +190,12 @@ def test_parser_upgrade_preserves_original_observation_and_uses_new_fact_version
         assert before == database_digest(store)
     finally:
         store.close()
+
+
+@pytest.mark.parametrize('target', [None, '', 'relative.sqlite'])
+def test_invalid_unified_target_never_silently_falls_back_to_legacy(tmp_path, target):
+    (tmp_path / 'ota-sources.json').write_text(json.dumps({'schema_version':'ota-sources-v1',
+        'unified_database':target}), encoding='utf-8')
+    with pytest.raises(ota_sources.OtaSourcesError):
+        ota_sources.resolve_sources(tmp_path, mail_default=tmp_path / 'old-mail',
+                                    portal_default=tmp_path / 'old-portal.sqlite')

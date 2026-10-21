@@ -106,6 +106,49 @@ def test_expected_card_refund_is_pending_and_never_a_completed_refund(tmp_path):
         store.close()
 
 
+def test_paid_claim_without_card_is_preserved_but_never_becomes_a_card_payment(tmp_path):
+    raw = capture()
+    raw['snapshot_text'] = raw['snapshot_text'].replace('카드 종류 MasterCard 카드 번호•••• •••• •••• 1234', '')
+    fact = parse_detail(raw)
+    assert fact['payment_status'] == 'paid_observed_without_card'
+    assert fact['portal_payment_state'] == 'paid_observed'
+    assert 'card_observation_missing' in fact['diagnostics']
+    assert next(c for c in fact['price_components'] if c['kind']=='paid_today')['minor_units'] == 30000
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        store.ingest(raw)
+        assert _portal_events([store.path]) == []
+    finally:
+        store.close()
+
+
+def test_upcoming_header_without_colon_and_failed_payment_deadline_are_separate_facts(tmp_path):
+    raw = capture()
+    raw['snapshot_text'] = raw['snapshot_text'].replace(
+        '투숙 완료 예약 번호: 1234567890 참조 코드: 1111111111',
+        '고객님의 예약은  확정되었으며 결제가 성공적으로 처리되었습니다 예약 번호 1234567890 '
+        '숙박 날짜 2026년 10월 23일 금요일 - 2026년 10월 24일 토요일 객실 1')
+    labelled = '- text: "체크인 2026년 8월 1일 토요일 15:00 1박 체크아웃 2026년 8월 2일 일요일 11:00"\n'
+    raw['snapshot_text'] = raw['snapshot_text'].replace(labelled, '')
+    fact = parse_detail(raw)
+    assert fact['reservation_status'] == 'confirmed'
+    assert (fact['service_start_on'], fact['service_end_on']) == ('2026-10-23', '2026-10-24')
+    failed = {**raw, 'snapshot_text':raw['snapshot_text'] + '- text: "[결제 관련 문제 발생] 신용카드 결제 거부 문제. '
+        '예약이 취소되지 않도록 10월 21일 21:43 전에 본 예약에 대한 결제를 완료하시기 바랍니다."\n'}
+    fact = parse_detail(failed)
+    assert fact['reservation_status'] == 'confirmed' and fact['payment_status'] == 'failed'
+    assert fact['payment_deadline_display'] == '10월 21일 21:43'
+    store = CaptureStore(tmp_path / 'failed.sqlite')
+    try:
+        store.ingest(failed)
+        assert _portal_events([store.path]) == []
+    finally:
+        store.close()
+    conflicting = {**raw, 'snapshot_text':raw['snapshot_text'] + labelled}
+    assert parse_detail(conflicting)['service_start_on'] is None
+    assert 'service_period_conflict' in parse_detail(conflicting)['diagnostics']
+
+
 @pytest.mark.parametrize('changes', [
     {'entry_proof': {'booking_number': '1234567890', 'button_name': '아고다 고객센터에 연락하기'}},
     {'snapshot_text': '- text: "예약 번호: 9999999999"'},
