@@ -213,6 +213,10 @@ def collect_portal_facts(databases):
         if len(amounts)!=1:
             note(booking,'amount_ambiguous',card_last4,amounts,period,roles)
             continue
+        if fact.get('evidence_format') == 'agoda-aside-v1' and not fact.get('paid_on'):
+            # 결제일 없는 새 관측이 기존 예정일·카드 원행의 검증된 연결을 가로채지 않는다.
+            note(booking,'payment_date_unknown',card_last4,amounts,period,roles)
+            continue
         currency,amount=next(iter(amounts))
         signature=(fact['card_last4'],currency,amount,start,end)
         facts[booking][signature]=dict(booking_ref=booking,card_last4=fact['card_last4'],
@@ -402,6 +406,9 @@ def _status_progression_only(conflict_json):
 
 def _read_scheduled_records(path,index):
     """_read_records와 같은 행을 읽되 충돌 상세도 함께 읽는다. 상세 열이 없는 자료는 충돌을 막는 쪽으로 읽는다."""
+    from app.ota_store import is_store, portal_rows
+    if is_store(path):
+        return portal_rows(path,index,scheduled=True)
     query=("SELECT b.booking_number,b.service_start_on,b.service_end_on,b.status,"
            "d.id,d.payload_json,d.source_sha256,e.evidence_role,e.evidence_status,e.conflict_count,{detail} "
            "FROM bookings b JOIN booking_source_evidence e ON e.booking_id=b.id "

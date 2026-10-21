@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS ota_source_revisions(
 CREATE TABLE IF NOT EXISTS ota_raw_entries(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),entry_key TEXT,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,entry_key));
+CREATE TABLE IF NOT EXISTS ota_raw_blobs(
+ sha256 TEXT PRIMARY KEY,payload_json BLOB NOT NULL);
 CREATE TABLE IF NOT EXISTS ota_messages(
  message_id TEXT PRIMARY KEY,core_sha256 TEXT NOT NULL,payload_json TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS ota_mail_origins(
@@ -41,6 +43,9 @@ CREATE TABLE IF NOT EXISTS ota_portal_rows(
 CREATE TABLE IF NOT EXISTS ota_catalog_rows(
  revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
  payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
+CREATE TABLE IF NOT EXISTS ota_scheduled_rows(
+ revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
+ payload_json BLOB NOT NULL,PRIMARY KEY(revision_id,row_no));
 '''
 
 
@@ -64,6 +69,7 @@ def connect_read(path):
     conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA query_only=ON')
+    conn.execute('BEGIN')
     return conn
 
 
@@ -91,20 +97,47 @@ def _current_rows(conn, table, kind):
 def _entries(conn, revision):
     entries = {row['entry_key']: unpacked(row['payload_json']) for row in conn.execute(
         'SELECT entry_key,payload_json FROM ota_raw_entries WHERE revision_id=?', (revision,))}
+    for key, value in entries.items():
+        if isinstance(value, dict) and set(value) == {'ota_blob_sha256'}:
+            blob = conn.execute('SELECT payload_json FROM ota_raw_blobs WHERE sha256=?',
+                                (value['ota_blob_sha256'],)).fetchone()
+            if not blob:
+                raise ValueError('OTA_STORE_RAW_BLOB_MISSING')
+            decoded = unpacked(blob[0])
+            if sha(encoded(decoded)) != value['ota_blob_sha256']:
+                raise ValueError('OTA_STORE_RAW_HASH_MISMATCH')
+            entries[key] = decoded
     expected = conn.execute('SELECT sha256 FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
     if not expected or sha(encoded(entries)) != expected[0]:
         raise ValueError('OTA_STORE_RAW_HASH_MISMATCH')
     return entries
 
 
-def portal_rows(path, outer_index):
+def portal_rows(path, outer_index, *, scheduled=False):
     with closing(connect_read(path)) as conn:
         # 출처별 원래 ID와 그룹 경계를 유지한다. 파일 하나로 합쳐도 숫자 ID를 섞지 않는다.
-        rows = [{**row, 'database': f'{outer_index}:{source["source_id"]}'}
-                for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
-                for row in _entries(conn, source['current_revision'])['_portal_read_rows']]
+        table = 'ota_scheduled_rows' if scheduled else 'ota_portal_rows'
+        available = conn.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone()
+        if available:
+            rows = [{**unpacked(row['payload_json']), 'database':f'{outer_index}:{row["source_id"]}'}
+                    for row in _current_rows(conn, table, 'portal_database')]
+            if scheduled:
+                for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal"):
+                    if conn.execute('SELECT 1 FROM ota_scheduled_rows WHERE revision_id=? LIMIT 1',
+                                    (source['current_revision'],)).fetchone():
+                        continue
+                    rows.extend({**row, 'database':f'{outer_index}:{source["source_id"]}'}
+                                for row in _scheduled_details(_entries(conn, source['current_revision'])))
+        else:
+            rows = [{**row, 'database':f'{outer_index}:{source["source_id"]}'}
+                    for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
+                    for row in _scheduled_details(_entries(conn, source['current_revision']))]
         for booking, fact, conflicts in direct_facts(conn):
             if booking['provider'] != 'agoda' or fact.get('evidence_format') != 'agoda-aside-v1':
+                continue
+            # 새 Aside 양식은 예정일 대사의 입력이 아니다. 명시 취소·환불·충돌은 차단 근거로 유지한다.
+            if scheduled and not (conflicts or fact['reservation_status'] in ('cancelled','refunded')
+                                  or fact.get('refund_status') not in (None,'none_displayed')):
                 continue
             identity = 'aside-v1:' + sha(booking['account_key'])[:16] + ':agoda:' + booking['booking_number']
             for role in fact['roles']:
@@ -112,13 +145,13 @@ def portal_rows(path, outer_index):
                     'service_start_on':fact['service_start_on'], 'service_end_on':fact['service_end_on'],
                     'status':fact['reservation_status'], 'id':identity, 'payload_json':encoded(fact),
                     'source_sha256':sha(encoded(fact)), 'evidence_role':role, 'evidence_status':'observed',
-                    'conflict_count':len(conflicts), 'database':f'{outer_index}:direct'})
+                    'conflict_count':len(conflicts), 'conflict_json':encoded(conflicts),
+                    'database':f'{outer_index}:direct'})
         return rows
 
 
 def catalog_rows(conn):
-    rows = [row for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
-            for row in _entries(conn, source['current_revision'])['_catalog_read_rows']]
+    rows = [unpacked(row['payload_json']) for row in _current_rows(conn, 'ota_catalog_rows', 'portal_database')]
     rows.extend({'id':booking['booking_id'], 'provider':booking['provider'],
                  'booking_number':booking['booking_number'], 'product_type':fact.get('product_type', 'lodging'),
                  'label':fact.get('label'), 'service_start_on':None if conflicts else fact.get('service_start_on'),
@@ -130,6 +163,19 @@ def catalog_rows(conn):
         rows.append({'id':row['booking_id'], 'provider':row['provider'], 'booking_number':row['booking_number'],
             'product_type':'unknown', 'label':None, 'service_start_on':None, 'service_end_on':None,
             'status':fact['list_status'], 'trips':[]})
+    return rows
+
+
+def _scheduled_details(entries):
+    bookings = {row['id']:row['booking_number'] for row in entries['bookings']}
+    details = {}
+    for evidence in entries.get('booking_source_evidence', []):
+        key = (bookings.get(evidence['booking_id']), evidence['direct_source_record_id'], evidence['evidence_role'])
+        details.setdefault(key, set()).add(evidence.get('conflict_json'))
+    rows = []
+    for row in entries['_portal_read_rows']:
+        values = details.get((row['booking_number'],row['id'],row['evidence_role']), set())
+        rows.append({**row, 'conflict_json':next(iter(values)) if len(values)==1 else None})
     return rows
 
 
@@ -179,8 +225,8 @@ def mail_bundles(path):
 
 def reference_bundles(path):
     with closing(connect_read(path)) as conn:
-        return [(row['locator'], _entries(conn, row['current_revision'])['raw']) for row in conn.execute(
-            "SELECT * FROM ota_sources WHERE kind='reference_document' ORDER BY ordinal")]
+        for row in conn.execute("SELECT * FROM ota_sources WHERE kind='reference_document' ORDER BY ordinal"):
+            yield row['locator'], _entries(conn, row['current_revision'])['raw']
 
 
 class OtaStore:
@@ -190,6 +236,7 @@ class OtaStore:
             raise ValueError('OTA_STORE_REFUSE_UNRELATED_DATABASE')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path, timeout=30)
+        self.conn.execute('PRAGMA journal_mode=WAL')
         self.conn.row_factory = sqlite3.Row
         self._fact_cache = {}
         self.conn.executescript(DDL)
@@ -229,8 +276,11 @@ class OtaStore:
         inserted = self.conn.execute('INSERT OR IGNORE INTO ota_source_revisions VALUES(?,?,?,?)',
             (revision, identity, digest, datetime.now(timezone.utc).isoformat())).rowcount
         if inserted:
-            self.conn.executemany('INSERT INTO ota_raw_entries VALUES(?,?,?)',
-                [(revision, key, packed(value)) for key, value in entries.items()])
+            for key, value in entries.items():
+                content_sha = sha(encoded(value))
+                self.conn.execute('INSERT OR IGNORE INTO ota_raw_blobs VALUES(?,?)', (content_sha, packed(value)))
+                self.conn.execute('INSERT INTO ota_raw_entries VALUES(?,?,?)',
+                    (revision, key, encoded({'ota_blob_sha256':content_sha})))
         self.conn.execute('UPDATE ota_sources SET current_revision=? WHERE source_id=? AND current_revision IS NOT ?',
                           (revision, identity, revision))
         return identity, revision, bool(inserted)
@@ -282,7 +332,6 @@ class OtaStore:
         if is_store(path):
             raise ValueError('OTA_STORE_RECURSIVE_IMPORT')
         with closing(connect_read(path)) as original:
-            original.execute('BEGIN')
             tables = {r[0] for r in original.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             names = ('bookings', 'direct_source_records', 'booking_source_evidence',
                      'booking_target_links', 'allocation_targets', 'capture_pages',
@@ -316,10 +365,23 @@ class OtaStore:
                                       [(revision, n, packed(row)) for n, row in enumerate(rows)])
                 self.conn.executemany('INSERT INTO ota_catalog_rows VALUES(?,?,?)',
                                       [(revision, n, packed(row)) for n, row in enumerate(catalog)])
+                self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
+                    [(revision, n, packed(row)) for n, row in enumerate(_scheduled_details(entries))])
                 for n, row in enumerate(entries['bookings']):
                     self._evidence(row['provider'], row['booking_number'], revision,
                                    'bookings:' + str(n), 'portal', row)
         return inserted
+
+    def rebuild_scheduled_index(self):
+        """기존 통합 DB의 보존 원문에서 예정일 대사 조회용 행을 한 번 만든다."""
+        with self.atomic():
+            for row in self.conn.execute("SELECT current_revision FROM ota_sources WHERE kind='portal_database'"):
+                revision = row[0]
+                if self.conn.execute('SELECT 1 FROM ota_scheduled_rows WHERE revision_id=? LIMIT 1', (revision,)).fetchone():
+                    continue
+                entries = _entries(self.conn, revision)
+                self.conn.executemany('INSERT INTO ota_scheduled_rows VALUES(?,?,?)',
+                    [(revision, n, packed(item)) for n, item in enumerate(_scheduled_details(entries))])
 
     def import_reference(self, path):
         raw = json.loads(Path(path).read_text(encoding='utf-8'))
@@ -375,6 +437,6 @@ class OtaStore:
         return inserted
 
     def summary(self):
-        tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_messages',
+        tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_raw_blobs', 'ota_messages',
                   'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows')
         return {table: self.conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables}

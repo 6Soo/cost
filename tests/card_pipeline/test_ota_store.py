@@ -119,3 +119,50 @@ def test_direct_capture_is_read_from_same_db_and_conflicting_history_is_held(tmp
         assert store.summary()['ota_source_revisions'] == 2
     finally:
         store.close()
+
+
+def test_full_card_report_keeps_scheduled_links_and_explicit_cancellation_still_blocks(tmp_path):
+    from app import ota_portal
+    from tests.card_pipeline.test_ota_portal_scheduled_card_date import portal_database as scheduled_db, card, PROGRESSION
+    original = scheduled_db(tmp_path / 'scheduled.sqlite', [({'booking_number':'1234567890'}, PROGRESSION)])
+    transactions = [card()]
+    before = ota_portal.extend_report({'matches':[], 'rules':[]}, [original], transactions)
+    assert len(before['matches']) == 1
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_portal(original)
+        after = ota_portal.extend_report({'matches':[], 'rules':[]}, [store.path], transactions)
+        assert before['matches'] == after['matches']
+        direct = capture()
+        direct['snapshot_text'] = direct['snapshot_text'].replace('2026년 8월 1일', '2026년 10월 5일').replace(
+            '2026년 8월 2일', '2026년 10월 8일').replace('30,000', '225,498').replace('•••• 1234', '•••• 8835')
+        path = tmp_path / 'direct.json'
+        path.write_text(json.dumps(direct), encoding='utf-8')
+        store.import_capture(path)
+        assert ota_portal.scheduled_card_date_matches([store.path], transactions) == before['matches']
+        assert ota_portal.extend_report({'matches':[], 'rules':[]}, [store.path], transactions)['matches'] == before['matches']
+        direct['snapshot_text'] = direct['snapshot_text'].replace('투숙 완료', '예약 취소됨')
+        direct['observed_at'] = '2026-10-21T08:00:00Z'
+        path.write_text(json.dumps(direct), encoding='utf-8')
+        store.import_capture(path)
+        assert ota_portal.scheduled_card_date_matches([store.path], transactions) == []
+    finally:
+        store.close()
+
+
+def test_collection_metadata_updates_do_not_copy_unchanged_mail_files(tmp_path):
+    mail = write_mail(tmp_path / 'mail', [message('합성 원문', identity='unchanged')])
+    state = mail / 'collection.json'
+    state.write_text(json.dumps({'last_run':'first', 'fetched':1}), encoding='utf-8')
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_mail(mail)
+        before = store.summary()
+        state.write_text(json.dumps({'last_run':'second', 'fetched':0}), encoding='utf-8')
+        store.import_mail(mail)
+        after = store.summary()
+        assert after['ota_raw_blobs'] == before['ota_raw_blobs'] + 1
+        assert after['ota_messages'] == before['ota_messages'] == 1
+        assert set(ota_mail.load_messages_from([store.path])[0]) == {'unchanged'}
+    finally:
+        store.close()
