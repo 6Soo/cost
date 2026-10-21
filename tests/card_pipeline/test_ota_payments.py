@@ -234,6 +234,31 @@ def test_foreign_payment_matches_exact_foreign_amount_and_currency():
     assert result['status'] == 'MATCHED_AUTO'
 
 
+@pytest.mark.parametrize('amount,raw,currency,direction,matched', [
+    ('52560', '52,560.000', 'JPY', 'purchase', True),
+    ('52,560.00', '52560', 'JPY', 'purchase', True),
+    ('52560', '-52,560.000', 'JPY', 'refund', True),
+    ('52560', '-52,560.000', 'JPY', 'purchase', False),
+    ('52560', '52,560.001', 'JPY', 'purchase', False),
+    ('52560', '52,560.000', 'USD', 'purchase', False),
+    ('52560', '5,2560.000', 'JPY', 'purchase', False),
+    ('52560', '52,,560', 'JPY', 'purchase', False),
+    ('52560', 'NaN', 'JPY', 'purchase', False),
+    ('52560', 'Infinity', 'JPY', 'purchase', False),
+    ('52560', '5.256e4', 'JPY', 'purchase', False),
+])
+def test_foreign_card_format_does_not_change_amount_currency_or_direction(amount, raw, currency, direction, matched):
+    fact = event(amount=amount, currency='JPY', amount_krw=None,
+                 event_type='refund' if direction == 'refund' else 'charge',
+                 evidence_status='refund_verified' if direction == 'refund' else 'paid_verified',
+                 refund_status='refunded' if direction == 'refund' else None)
+    row = card('foreign-formatted', foreign_amount=raw, foreign_currency=currency,
+               transaction_direction=direction, amount_krw=-30000 if direction == 'refund' else 30000)
+    result = match_ota_payment_events([fact], [row])[0]
+    assert (result['status'] == 'MATCHED_AUTO') is matched
+    assert row['foreign_amount'] == raw
+
+
 def test_signed_approved_amount_delta_matches_but_absolute_or_unapproved_delta_does_not():
     fact = event(amount=279013, amount_krw=279013)
     row = card(amount_krw=275013)

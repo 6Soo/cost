@@ -664,6 +664,13 @@ def _approved_delta_match(event, row, rules):
     return False
 
 
+def _foreign_decimal(value):
+    text = str(value).strip()
+    if not re.fullmatch(r'[+-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?', text):
+        raise ValueError('INVALID_FOREIGN_AMOUNT')
+    return Decimal(text.replace(',', ''))
+
+
 def _amount_matches(event, row, rules):
     currency = str(event.get("currency") or "").upper()
     if currency == "KRW":
@@ -676,8 +683,8 @@ def _amount_matches(event, row, rules):
     if not currency:
         return False
     try:
-        expected = abs(Decimal(str(event.get("amount"))))
-        signed_card_amount = Decimal(str(row.get("foreign_amount")))
+        expected = abs(_foreign_decimal(event.get("amount")))
+        signed_card_amount = _foreign_decimal(row.get("foreign_amount"))
         actual = abs(signed_card_amount)
         return (str(row.get("foreign_currency") or "").upper() == currency and
                 expected.is_finite() and actual.is_finite() and expected == actual and
