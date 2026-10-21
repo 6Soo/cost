@@ -1,5 +1,15 @@
 # 현재 운영 상태
 
+## 2026-10-22 아고다 인증 복구 후 상세 수집 및 증거 증분 적재
+
+아고다 로그인 세션이 복구되어 전용 Aside REPL 수집기 `tools/collect_agoda_aside.py`가 같은 작업 공간에서 실행 중이다. 04:43 KST 체크포인트 기준 대상 1,180건 중 완료 925건, 실패 0건, 대기 255건이다. 이후 수치는 `.local-archive/ota-resolution-20261021/remaining-details/collection-checkpoint.json`이 기준이며 별도의 중복 수집기를 실행하지 않는다. 기존 Python 프로세스 ID는 5612다.
+
+완료된 상세 중 체크포인트로 검증한 896건을 통합 OTA 증거 DB `D:/WebLedgerHost/data/ota-evidence.sqlite`에 증분 반영했다. 새 직접 수집 출처 131건이 추가되어 `ota_sources` 1,245개에서 1,376개, `ota_booking_evidence` 37,124개에서 37,255개로 증가했다. 복구 사본 `D:/WebLedgerHost/data/backups/ota-evidence-completed-20261022T043706.sqlite`의 무결성과 전체 테이블 내용 비교를 검사했고, 실제 적재 결과는 `.local-archive/ota-resolution-20261021/remaining-details/ingest-completed-20261022T043706.json`에 기록했다. 금융 장부에는 쓰지 않았다.
+
+재대사에서는 기존 아고다 미해결 카드 27건 중 추가 확정 연결 0건이었다. 완료된 직접 수집 근거를 기준으로 금액과 카드 끝자리가 모두 같은 예약 후보가 없는 거래는 9건, 후보가 둘 이상인 거래는 18건이다. 이 분포는 전체 수집이 끝나기 전의 읽기 전용 진단이므로 최종 연결로 승격하지 않는다. 기존에 기록된 아고다 21건과 트립닷컴 3건, 총 24건 7,188,006원을 보호한다. 장부 자동 추가 및 Google 최종 장부 자동 쓰기는 실행하지 않았다. 트립닷컴·부킹닷컴의 미해결 추가 승인과 완료 환불도 원본 확인 전까지 보류한다.
+
+수집 종료 후 체크포인트·캡처 파일의 예약번호와 파싱 결과를 검증하고, 완료 건을 통합 DB에 증분 반영한다. 보존된 스크립트 `.local-archive/ota-resolution-20261021/remaining-details/sync_completed.py`는 체크포인트 완료 파일만 대상으로 백업과 복원 비교 후 적재한다. 이후 읽기 전용 `.local-archive/ota-resolution-20261021/reconcile_remaining_20261022.py`를 사용해 미해결 27건을 다시 확인하고, 확정 연결에 필요한 개별 금융 근거가 없으면 기장을 보류한다. 이 항목 이후 아래의 과거 기록에 있는 아고다 인증 차단과 672건 기준 숫자는 당시 상태다.
+
 ## 2026-10-22 트립닷컴 비정상 공급자 예약 조회 보호 배포
 
 운영 릴리스 `d418719bb84e252eacfbac9f6a5256577e8a4029`를 분리 브랜치 `deploy/ota-unified-20261021`에 push하고 관리 배포했다. main 구현 커밋은 `d9f07b7`이다. 기존 릴리스 `44ed59b`와 비교해 예약 조회 코드 1개만 변경하고 합성 표적 테스트 1개를 추가했다. 이전 릴리스의 나머지 파일 918개 해시가 같고, 변경 코드와 테스트 파일은 검사한 Git 작업본과 일치한다. 배포 결과 `OWNER_UI_DEPLOYMENT_PASS`, Board `Running`, SourceRefresh `Ready`, 로컬 health/ready 각각 200이다. 운영 배포 복구 증거 `D:/WebLedgerHost/data/backups/v2-owner-ui-20261022T032307/restore-evidence.json`에서 운영 DB 5개·파일 56개의 복원 비교, 원본 불변 및 검토 연결 동등성을 확인했다. 백업 당시 장부 행은 2,249개였다.
