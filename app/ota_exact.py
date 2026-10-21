@@ -74,7 +74,7 @@ def _match_reason(match, row, charges, rules):
     return reasons[0]
 
 
-def apply_gate(report, transactions, *, events, rules, open_ids):
+def apply_gate(report, transactions, *, events, rules, open_ids, inference_excluded_ids=()):
     """열린 거래의 연결만 확인해 막힌 것을 빼고, 빠진 근거를 미연결 사유로 남긴다.
 
     `events`가 None이면 OTA 근거를 읽지 못한 것이므로 열린 거래의 연결을 모두 막는다(닫힌 쪽으로 실패).
@@ -134,8 +134,19 @@ def apply_gate(report, transactions, *, events, rules, open_ids):
             diagnoses.append(dict(source_hash=item['source_hash'], reason=item['reason'], booking_ref_count=0))
         else:
             entry['reason'] = item['reason']
-    report['exact_matches'] = len(kept)
-    report['type_only_matches'] = len(kept_type)
+    from app import ota_inference
+    if events is not None:
+        report = ota_inference.extend_report(report, events, transactions, open_ids=open_ids,
+                                             excluded_ids=inference_excluded_ids, rules=rules)
+    else:
+        report['exact_matches'] = len(kept)
+    inferred_sources = {f['source_hash'] for f in report['matches'] if f.get('inferred_link')}
+    blocked_inference.difference_update(inferred_sources)
+    dropped = {source: value for source, value in dropped.items() if source not in inferred_sources}
+    for diagnosis in diagnoses:
+        if diagnosis.get('source_hash') in inferred_sources:
+            diagnosis.update(reason=ota_inference.BASIS, inferred_link=True)
+    report['type_only_matches'] = len(report['type_only_candidates'])
     report['unmatched_reason_counts'] = dict(Counter(row['reason'] for row in report['unmatched_transactions']))
     report['evidence_gate'] = dict(checked=checked, dropped=list(dropped.values()),
                                    blocked_inference_sources=sorted(blocked_inference))

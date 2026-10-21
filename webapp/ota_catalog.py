@@ -258,6 +258,7 @@ def _card_matches(flow):
                           'item': str(fact.get('item') or ''),
                           'direction': str(fact.get('direction') or 'purchase'),
                           'period_conflict': bool(fact.get('period_conflict'))})
+        live[key][-1]['inferred_link'] = bool(fact.get('inferred_link'))
     return dict(live), dict(cancelled), False
 
 
@@ -316,6 +317,8 @@ def _canonical(value):
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
+                'app/ota_booking_context.py',
+                'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
                 'app/ota_sources.py', 'app/ota_store.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',
                 'config/ota-matching-defaults.json')
@@ -948,12 +951,13 @@ def render_detail(board, entry, *, csrf, notice='', error=''):
             target = '/import?' + urlencode({'batch': state['batch_id'], 'transaction': card['transaction_id']})
             link = f"<a href='{esc(target)}'>지출 정리에서 보기</a>"
         rows.append(
-            f"<tr><td>{esc(card['paid_on'] or state.get('day') or '미확인')}</td>"
+            f"<tr><td>{esc(state.get('day') or card['paid_on'] or '미확인')}</td>"
             f"<td>{esc(card['merchant'] or state.get('merchant') or '미확인')}</td>"
             f"<td>{esc(amount_text)}</td>"
-            f"<td>{esc(_state_label(state or None))}</td>"
+            f"<td>{esc(_state_label(state or None))}"
+            + ("<br><small>추론 연결 · 아고다 결제일 미확인</small>" if card.get('inferred_link') else '') + "</td>"
             f"<td>{link}</td></tr>")
-    payment_table = ('<table><thead><tr><th>결제일</th><th>가맹점</th><th>결제 금액</th><th>현재 상태</th><th></th></tr></thead>'
+    payment_table = ('<table><thead><tr><th>카드 이용일</th><th>가맹점</th><th>결제 금액</th><th>현재 상태</th><th></th></tr></thead>'
                      f"<tbody>{''.join(rows)}</tbody></table>") if rows else (
         "<p class='muted'>대사된 카드 결제가 없습니다. 카드 결제 근거가 없으면 여행 배정은 규칙으로만 남고, "
         "카드 결제가 들어오면 그때 적용됩니다.</p>")

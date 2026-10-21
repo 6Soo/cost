@@ -45,5 +45,10 @@
   "provider_date_lag_days": {"minimum": -7, "maximum": 7},
   "foreign_date_lag_days": 1,
   "portal_payment_date_required": true,
+  "agoda_undated_unique_match": {
+    "enabled": true,
+    "approval_source": "owner-approved-2026-10-21-mutually-unique-card-booking",
+    "payment_date_remains_unknown": true
+  },
   "portal_scheduled_card_date_enabled": true
 }

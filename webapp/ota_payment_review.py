@@ -26,7 +26,9 @@ _write_backend_factory = None
 
 _EVENT_FIELDS = (
     "ota_event_id", "provider", "booking_ref", "event_type", "paid_on", "amount",
-    "currency", "amount_krw", "card_last4", "service_period", "item",
+    "currency", "amount_krw", "card_last4", "card_issuer", "service_period", "item",
+    "service_period_conflict", "service_period_candidates", "booking_changes",
+    "inferred_link", "inference_basis", "payment_date_verified",
     "reservation_status", "payment_status", "evidence_status", "status", "reason",
     "refund_status", "evidence_changed", "evidence_missing", "review_warning",
     "matched_count", "unmatched_ota_count", "unmatched_card_count", "group_count",
@@ -267,6 +269,8 @@ def legacy_exact_bindings(events, transactions, report):
         expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
         matching = []
         for fact in (report or {}).get("matches", []):
+            if fact.get('inferred_link'):
+                continue
             transaction_id = str(fact.get("transaction_id") or "")
             row = rows.get(transaction_id)
             if row is None or row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
@@ -357,7 +361,17 @@ class CoreOtaPaymentBackend:
             cursor = self.board.conn.execute("SELECT * FROM transactions")
             columns = [column[0] for column in cursor.description or ()]
             rows = cursor.fetchall()
-        return [dict(row) if hasattr(row, "keys") else dict(zip(columns, row)) for row in rows]
+            from app import ota_exact
+            tables = {row[0] for row in self.board.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            eligible = (ota_exact.open_transaction_ids(self.board.conn)
+                        if {'board_rows', 'transactions'} <= tables and
+                        {'classification_source', 'classification_state'} <= set(columns) else set())
+            if 'transaction_review_holds' in tables:
+                eligible -= {row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
+        result = [dict(row) if hasattr(row, 'keys') else dict(zip(columns, row)) for row in rows]
+        for row in result:
+            row['ota_inference_eligible'] = str(row.get('transaction_id')) in eligible
+        return result
 
     def _data(self):
         events = self.payments.build_ota_payment_events(self.sources)
@@ -496,6 +510,7 @@ class CoreOtaPaymentBackend:
             if result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id"):
                 occupied.setdefault(str(result["transaction_id"]),
                                     (str(result.get("ota_event_id") or ""),
+                                     "추론 연결" if result.get('inferred_link') else
                                      "자동 연결" if result["status"] == "MATCHED_AUTO" else "사용자 확정 연결"))
         return occupied
 
@@ -776,6 +791,7 @@ def input_key_for(backend) -> str:
                    "pins": _store_value(store, "group_pins", []),
                    "events": _store_value(store, "event_snapshots", {})},
         "matching": load_defaults(),
+        "payment_parser": getattr(getattr(backend, 'payments', None), 'PARSER_VERSION', 1),
         "guide_airfare": _guide_input_digest(backend.board),
     })
 
@@ -830,7 +846,8 @@ def reconcile_for(backend) -> dict:
     published = []
     for row in results:
         item = {key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
-                                              "reserved_card_ids", "allocation_basis")}
+                                              "reserved_card_ids", "allocation_basis", "inferred_link",
+                                              "inference_basis", "payment_date_verified")}
         verdict = guide.get(str(row.get("ota_event_id")))
         if verdict is not None:
             item["guide_airfare"] = verdict
@@ -1038,7 +1055,8 @@ _OTA_REASON = {
 }
 _OTA_EVENT_TYPE = {'charge': '결제', 'refund': '환불'}
 _OTA_DIRECTION = {'purchase': '구매', 'refund': '환불', 'cancellation': '취소'}
-_OTA_REFUND = {'no_refund': '환불 없음'}
+_OTA_REFUND = {'no_refund': '환불 없음', 'refund_pending': '환불 요청·대기',
+               'refund_requested': '환불 요청·대기', 'refunded': '환불 완료', 'refund_completed': '환불 완료'}
 _OTA_LABELS_JS = ("const label=(map,value)=>value===null||value===undefined||value===''?''"
                   ":(map[value]??(/^[a-z_]+$/.test(String(value))?'확인이 필요합니다':String(value)));\n"
                   f'const STATUS_LABELS={json.dumps(_OTA_STATUS, ensure_ascii=False)};'
@@ -1146,10 +1164,16 @@ def render_import_section(csrf: str) -> str:
       const sameAmount=candidateRows.filter(card=>gap(card)===0).length;
       const period=event.service_period&&typeof event.service_period==='object'?`${{event.service_period.starts_on||'자료 없음'}} ~ ${{event.service_period.ends_on||'자료 없음'}}`:event.service_period;
       const group=event.group_count?`${{event.group_count.ota}}건 ↔ ${{event.group_count.cards}}건, 대응 ${{event.matched_count??Math.min(event.group_count.ota,event.group_count.cards)}}건`:'';
-      const basis=event.allocation_basis==='user_approved_stable_order'?'사용자 승인 순서 배정 · 개별 결제 근거 미확인':event.status==='HOLD_PARTIAL_GROUP'?'부분 묶음 · 개별 연결과 장부 기록 차단':'';
+      const basis=event.inferred_link?event.inference_basis:event.allocation_basis==='user_approved_stable_order'?'사용자 승인 순서 배정 · 개별 결제 근거 미확인':event.status==='HOLD_PARTIAL_GROUP'?'부분 묶음 · 개별 연결과 장부 기록 차단':'';
       const amountText=event.currency&&event.currency!=='KRW'?`${{event.amount}} ${{event.currency}} (원화 환산 ${{money(event.amount_krw)}})`:money(event.amount??event.amount_krw);
       const evidence=event.evidence_missing?'근거 사라짐':event.evidence_changed?'변경됨':'확인됨';
       const facts=[['예약 제공자',event.provider],['예약 번호',event.booking_ref],['결제 구분',label(EVENT_TYPE_LABELS,event.event_type)],['결제일',event.paid_on],['결제 금액',amountText],['이용 기간',period],['항목',event.item],['보류 이유',label(REASON_LABELS,event.reason)],['원본 근거',evidence]];
+      if(event.card_issuer)facts.push(['메일의 결제 카드사',event.card_issuer]);
+      if(event.reservation_status==='cancelled')facts.push(['예약 상태','취소됨']);
+      if(event.refund_status&&event.refund_status!=='none_displayed')facts.push(['환불 상태',label(REFUND_LABELS,event.refund_status)]);
+      if(event.service_period_conflict)facts.push(['이용기간 확인','같은 예약의 메일에 서로 다른 기간이 있습니다']);
+      const changedTotals=[...new Set((event.booking_changes||[]).flatMap(change=>change.booking_totals_krw||[]))];
+      if(changedTotals.length)facts.push(['변경 안내의 예약 총액',changedTotals.map(money).join(', ')+' · 추가 결제 완료 여부는 별도 확인']);
       if(group)facts.push(['묶음 건수',group]);
       if(basis)facts.push(['배정 근거',basis]);
       const verdict=sameAmount?`결제 금액과 같은 카드 거래가 ${{sameAmount}}건 있습니다.`:'결제 금액과 같은 카드 거래가 없습니다.';
