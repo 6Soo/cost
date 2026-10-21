@@ -138,6 +138,11 @@ def _extract_signed_payment_message(message):
     subject = headers.get("subject", "")
     text = ota_mail.body_text(message.get("payload", {}))
     combined = subject + "\n" + text
+    agoda_cancellation = (
+        domain in ("agoda.com", "agoda-messaging.com")
+        and bool(re.search(r"취소된\s*예약|예약\s*취소\s*완료", subject))
+        and bool(re.search(r"예약\s*취소일\s*:", text))
+    )
     is_refund = bool(re.search(r"환불|refund", subject, re.I))
     scheduled_for = ota_mail.scheduled_charge_day(text)
     scheduled = scheduled_for is not None or bool(re.search(
@@ -206,7 +211,7 @@ def _extract_signed_payment_message(message):
             "amount": str(amount) if amount is not None else None, "currency": currency,
             "paid_on": paid_on.isoformat() if paid_on else None,
             "period": period, "source_sha256": digest,
-            "reservation_status": "observed", "payment_status": "scheduled" if scheduled else
+            "reservation_status": "cancelled" if agoda_cancellation else "observed", "payment_status": "scheduled" if scheduled else
                 "paid" if complete else "unknown",
             "evidence_status": status, "scheduled_for": scheduled_for.isoformat() if scheduled_for else None,
             "event_type": event_type, "refund_status": "refunded" if is_refund and complete else "none_displayed",

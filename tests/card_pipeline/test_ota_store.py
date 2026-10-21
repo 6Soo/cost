@@ -192,6 +192,117 @@ def test_parser_upgrade_preserves_original_observation_and_uses_new_fact_version
         store.close()
 
 
+def test_later_agoda_cancellation_mail_keeps_original_payment_and_rejects_later_conflict(tmp_path):
+    from app.agoda_capture import parse_detail
+
+    raw = capture()
+    raw['observed_at'] = '2026-10-21T02:54:54Z'
+    booking = parse_detail(raw)['booking_number']
+    direct = tmp_path / 'direct.json'
+    direct.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+    mail_dir = tmp_path / 'mail'
+    mail_dir.mkdir()
+    mail = {'id': 'agoda-cancel-verified', 'internal_date': '1792587733653',
+            'owner_collected': True, 'payload': {'headers': [
+                {'name': 'From', 'value': 'customerservice@agoda.com'},
+                {'name': 'Subject', 'value': '취소된 예약 - 아고다 예약 번호: ' + booking},
+                {'name': 'Date', 'value': 'Wed, 21 Oct 2026 13:02:13 +0000'}],
+                'body': {'content': '예약 번호: ' + booking + '\n예약 취소일: October 21, 2026'}}}
+    (mail_dir / 'gmail-cancel.json').write_text(
+        json.dumps({'responses': [mail]}, ensure_ascii=False), encoding='utf-8')
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_capture(direct)
+        original = next(f for _, f, _ in direct_facts(store.conn)
+                        if f['booking_number'] == booking)
+        store.import_mail(mail_dir)
+        row, revised, conflicts = next((r, f, c) for r, f, c in direct_facts(store.conn)
+                                       if f['booking_number'] == booking)
+        assert conflicts == []
+        assert revised['reservation_status'] == 'cancelled'
+        assert revised['cancellation_mail_message_id'] == 'agoda-cancel-verified'
+        for field in ('payment_status', 'refund_status', 'price_components', 'card_last4'):
+            assert revised[field] == original[field]
+        assert store.summary()['ota_messages'] == 1
+        first_digest = database_digest(store)
+        store.import_mail(mail_dir)
+        assert database_digest(store) == first_digest
+        raw['observed_at'] = '2026-10-21T14:00:00Z'
+        direct.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+        store.import_capture(direct)
+        _, _, later_conflicts = next((r, f, c) for r, f, c in direct_facts(store.conn)
+                                       if f['booking_number'] == booking)
+        assert 'active_after_cancellation' in later_conflicts
+    finally:
+        store.close()
+
+
+def test_agoda_cancellation_does_not_cross_ambiguous_direct_accounts(tmp_path):
+    from app.agoda_capture import parse_detail
+
+    raw = capture()
+    raw['observed_at'] = '2026-10-21T02:54:54Z'
+    booking = parse_detail(raw)['booking_number']
+    original_status = parse_detail(raw)['reservation_status']
+    first = tmp_path / 'first.json'
+    second = tmp_path / 'second.json'
+    first.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+    other = {**raw, 'account_key': 'other-agoda-account'}
+    second.write_text(json.dumps(other, ensure_ascii=False), encoding='utf-8')
+    mail_dir = tmp_path / 'mail'
+    mail_dir.mkdir()
+    mail = {'id': 'verified-cancel', 'internal_date': '1792587733653',
+            'owner_collected': True, 'payload': {'headers': [
+                {'name': 'From', 'value': 'customerservice@agoda.com'},
+                {'name': 'Subject', 'value': '취소된 예약 - 아고다 예약 번호: ' + booking}],
+                'body': {'content': '예약 번호: ' + booking + '\n예약 취소일: October 21, 2026'}}}
+    (mail_dir / 'gmail-cancel.json').write_text(json.dumps({'responses': [mail]},
+                                                        ensure_ascii=False), encoding='utf-8')
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_capture(first)
+        store.import_capture(second)
+        store.import_mail(mail_dir)
+        matches = [(r, fact, conflicts) for r, fact, conflicts in direct_facts(store.conn)
+                   if r['booking_number'] == booking]
+        assert len(matches) == 2
+        assert all('cancellation_account_ambiguous' in conflicts for _, _, conflicts in matches)
+        assert all(fact['reservation_status'] == original_status for _, fact, _ in matches)
+    finally:
+        store.close()
+
+
+def test_unauthenticated_agoda_cancellation_is_preserved_but_not_applied(tmp_path):
+    from app.agoda_capture import parse_detail
+
+    raw = capture()
+    raw['observed_at'] = '2026-10-21T02:54:54Z'
+    booking = parse_detail(raw)['booking_number']
+    original_status = parse_detail(raw)['reservation_status']
+    path = tmp_path / 'direct.json'
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding='utf-8')
+    mail_dir = tmp_path / 'mail'
+    mail_dir.mkdir()
+    message = {'id': 'unverified-cancel', 'internal_date': '1792587733653',
+               'payload': {'headers': [
+                   {'name': 'From', 'value': 'customerservice@agoda.com'},
+                   {'name': 'Subject', 'value': '취소된 예약 - 아고다 예약 번호: ' + booking}],
+                   'body': {'content': '예약 번호: ' + booking + '\n예약 취소일: October 21, 2026'}}}
+    (mail_dir / 'gmail-cancel.json').write_text(json.dumps({'responses': [message]},
+                                                        ensure_ascii=False), encoding='utf-8')
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_capture(path)
+        store.import_mail(mail_dir)
+        assert store.summary()['ota_messages'] == 1
+        assert all(r['entry_key'] != 'unverified-cancel' for r in store.conn.execute(
+            'SELECT entry_key FROM ota_booking_evidence'))
+        assert next(f for _, f, _ in direct_facts(store.conn)
+                    if f['booking_number'] == booking)['reservation_status'] == original_status
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('target', [None, '', 'relative.sqlite'])
 def test_invalid_unified_target_never_silently_falls_back_to_legacy(tmp_path, target):
     (tmp_path / 'ota-sources.json').write_text(json.dumps({'schema_version':'ota-sources-v1',
