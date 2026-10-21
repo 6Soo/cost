@@ -2,7 +2,7 @@
 
 ## 현재 OTA 자료 연결
 
-메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](docs/ota_mail.md)의 최신 항목을 따른다.
+모든 OTA의 직접 수집·메일·참고 자료는 운영 `D:/WebLedgerHost/data/ota-evidence.sqlite`에서 함께 관리한다. `ota-sources.json`의 `unified_database`가 단일 읽기 경로이며 상시 메일 수집도 같은 DB에 반영한다. 원본·기존 결제 ID·사용자 확정을 보존한다. 아고다 관측 목록 1,550건·우선 상세 370건과 메일 1,932개를 반영했다. 실제 전환과 연결 보류 사유는 [단일 OTA DB 기록](docs/ota-unified-store.md)과 [운영 문서](docs/operations.md)를 따른다.
 
 카드 파일 업로드 → 자동 분류 → 미확정 거래 확인 → 미리보기 → 장부 기록.
 
@@ -36,6 +36,7 @@ python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environmen
 
 ## 문서 안내
 
+- [보험가입 명단 기반 참가자 확정·수입 대조 계획과 명세](docs/participant-income-reconciliation-spec.md)와 [해당 기능 작업 인덱스](docs/participant-income-task-index.md): 구현(P0~P4)까지 완료했고 운영 적용·실명 등록은 아직 하지 않았다. 명단 수신·참가 확정은 `app/participant_roster.py`, 대조·연결 결정은 `app/participant_income.py`, 관리자 전용 화면은 `webapp/participant_income_page.py`에 있다. 명단 원본과 저장소는 `.local-archive` 아래에 둔다.
 - [현재 운영 상태와 검증](docs/operations.md)
 - [미결 작업과 다음 세션 인계](docs/session_handoff.md)
 - [업무 규칙](docs/business_rules.md)
