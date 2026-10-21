@@ -74,30 +74,41 @@ def _load_messages_uncached(directories):
     messages = {}
     fingerprints = {}
     inventory = []
-    for directory in as_directories(directories):
+    def bundles():
+        from app.ota_store import is_store, mail_bundles
+        for directory in as_directories(directories):
+            path = Path(directory)
+            if path.is_file() and is_store(path):
+                yield from mail_bundles(path)
+            elif not path.is_dir():
+                yield str(path), None, []
+            else:
+                messages = [message for file_path in sorted(path.glob('gmail*.json'))
+                            for message in json.loads(file_path.read_text(encoding='utf-8'))['responses']]
+                yield str(path), collection_of(path), messages
+    for directory, collection, loaded in bundles():
         path=Path(directory)
         entry={'kind':'mail_directory','path':str(path),'messages':0,
-               'collection':collection_of(path)}
-        if not path.is_dir():
+               'collection':collection or {}}
+        if collection is None:
             entry['error']='directory_not_found'
             inventory.append(entry)
             continue
-        for file_path in sorted(path.glob('gmail*.json')):
-            for message in json.loads(file_path.read_text(encoding='utf-8'))['responses']:
-                identity = message['id']
-                payload=message['payload']
-                # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
-                core = dict(id=identity,internal_date=message.get('internal_date'),
-                            headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
-                            text=body_text(payload))
-                _BODY_TEXT[id(message)] = (message, core['text'])
-                if identity in fingerprints:
-                    if _core_digest(fingerprints[identity]) != _core_digest(core):
-                        raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
-                else:
-                    fingerprints[identity] = core
-                messages[identity] = message
-                entry['messages']+=1
+        for message in loaded:
+            identity = message['id']
+            payload=message['payload']
+            # 재수집 때 첨부 메타 정보가 추가되어도 같은 본문과 인증 헤더면 같은 메일이다.
+            core = dict(id=identity,internal_date=message.get('internal_date'),
+                        headers={h['name'].lower():h['value'] for h in payload.get('headers',[])},
+                        text=body_text(payload))
+            _BODY_TEXT[id(message)] = (message, core['text'])
+            if identity in fingerprints:
+                if _core_digest(fingerprints[identity]) != _core_digest(core):
+                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+            else:
+                fingerprints[identity] = core
+            messages[identity] = message
+            entry['messages']+=1
         inventory.append(entry)
     return messages, inventory
 
@@ -372,14 +383,15 @@ def shared_lodging_stay(facts, *, provider, paid_on, amount_krw):
             'source_digests':sorted({f['source_sha256'] for f in options})}
 
 
-def reference_records(document):
+def reference_records(document, *, raw=None):
     """과거 정규화 인덱스·예약 후보 문서의 예약 번호와 상충 여부만 읽는다.
 
     원문 대조가 없는 참고 자료다. sha 값이 있어도 검증으로 보지 않는다.
     구조가 표준 records(list)이든 예약번호 기준 dict이든 예약 번호 집합으로
     낮춰서 진단에만 쓴다. 중첩된 records/rows/list 항목까지 함께 본다.
     """
-    raw=json.loads(Path(document).read_text(encoding='utf-8'))
+    if raw is None:
+        raw=json.loads(Path(document).read_text(encoding='utf-8'))
     entries=[]
     keyed={}
     def collect(value, depth=0, booking_key=''):
@@ -470,17 +482,24 @@ def load_reference_documents(documents):
     index={'by_booking_ref':collections.defaultdict(lambda:{'documents':set(),'conflicting':set()}),
             'by_transaction_id':collections.defaultdict(lambda:{'documents':set()}),
             'by_source_hash':collections.defaultdict(lambda:{'documents':set()})}
-    for document in as_directories(documents):
+    def documents_with_raw():
+        from app.ota_store import is_store, reference_bundles
+        for document in as_directories(documents):
+            if Path(document).is_file() and is_store(document):
+                yield from reference_bundles(document)
+            else:
+                yield document, None
+    for document, stored_raw in documents_with_raw():
         path=Path(document)
         entry={'kind':'reference_document','path':str(path),'records':0,
                'booking_refs':[],'conflicting_booking_refs':[],
                'transaction_ids':[],'source_hashes':[]}
-        if not path.is_file():
+        if stored_raw is None and not path.is_file():
             entry['error']='file_not_found'
             inventory.append(entry)
             continue
         try:
-            found=reference_records(path)
+            found=reference_records(path, raw=stored_raw)
         except (OSError,ValueError) as exc:
             entry['error']=f'unreadable: {exc}'
             inventory.append(entry)

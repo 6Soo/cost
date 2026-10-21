@@ -1,0 +1,161 @@
+"""수집 원문·실제 결제일·식별자·반복 적재를 합성 자료로 확인한다."""
+import copy
+import json
+
+import pytest
+
+from app.agoda_capture import CaptureStore, parse_detail
+from app.ota_payments import _portal_events, pair_check
+from app.ota_portal import collect_portal_facts
+
+
+def capture(booking='1234567890', **changes):
+    text = f'''- text: "투숙 완료 예약 번호: {booking} 참조 코드: 1111111111"
+- text: "체크인 2026년 8월 1일 토요일 15:00 1박 체크아웃 2026년 8월 2일 일요일 11:00"
+- heading "결제 정보" [level=5]
+- text: "객실 1개 x 1박 KRW 25,000 세금 및 봉사료 KRW 5,000 오늘 결제됨 KRW 30,000"
+- text: "총 금액 KRW 30,000 세금 및 제반요금 포함"
+- heading "결제 방법" [level=6]
+- text: "카드 종류 MasterCard 카드 번호•••• •••• •••• 1234"
+'''
+    value = {'schema_version': 'agoda-aside-capture-v1', 'kind': 'detail',
+             'account_key': 'aside-u0', 'booking_number': booking,
+             'observed_at': '2026-10-20T08:00:00Z', 'list_status': 'completed', 'list_page': 1,
+             'entry_proof': {'booking_number': booking, 'button_name': '예약 확인/변경하기 ' + booking},
+             'snapshot_text': text}
+    value.update(changes)
+    return value
+
+
+def test_explicit_charge_without_date_never_uses_capture_day_and_is_stable(tmp_path):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    item = capture()
+    try:
+        fact = parse_detail(item)
+        assert fact['paid_on'] is None and fact['payment_status'] == 'paid'
+        assert store.ingest(item)
+        before = store.summary()
+        assert not store.ingest({**item, 'observed_at': '2026-10-21T08:00:00Z'})
+        assert store.summary() == before
+        events = _portal_events([store.path])
+        assert len(events) == 1 and events[0]['paid_on'] is None
+        assert pair_check(events[0], {'transaction_direction': 'purchase'}) == 'payment_date_unknown'
+        assert 'aside-v1:' in events[0]['source_ids'][0]
+        assert collect_portal_facts([store.path])['facts']['1234567890']
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize('changes', [
+    {'entry_proof': {'booking_number': '1234567890', 'button_name': '아고다 고객센터에 연락하기'}},
+    {'snapshot_text': '- text: "예약 번호: 9999999999"'},
+    {'account_key': 'other-account'},
+])
+def test_wrong_button_identity_or_account_cannot_be_inserted(tmp_path, changes):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        with pytest.raises(ValueError): store.ingest(capture(**changes))
+        assert store.summary()['bookings'] == 0
+    finally:
+        store.close()
+
+
+def test_new_observations_keep_event_identity_and_conflicting_amount_is_held(tmp_path):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        original = capture()
+        store.ingest(original)
+        identity = _portal_events([store.path])[0]['ota_event_id']
+        enriched = copy.deepcopy(original)
+        enriched['observed_at'] = '2026-10-21T08:00:00Z'
+        enriched['snapshot_text'] += '- text: "결제일 2026년 7월 1일"\n'
+        # The date belongs to the payment section; a date elsewhere is not a paid date.
+        store.ingest(enriched)
+        assert _portal_events([store.path])[0]['ota_event_id'] == identity
+        changed = {**original, 'observed_at': '2026-10-22T08:00:00Z',
+                   'snapshot_text': original['snapshot_text'].replace('30,000', '31,000')}
+        store.ingest(changed)
+        assert store.summary()['source_observations'] == 3
+        assert store.summary()['conflicting_bookings'] == 1
+        assert _portal_events([store.path]) == []
+    finally:
+        store.close()
+
+
+def test_progression_and_late_file_do_not_restore_old_reservation_state(tmp_path):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        done = capture()
+        old = {**done, 'observed_at': '2026-10-19T08:00:00Z',
+               'snapshot_text': done['snapshot_text'].replace('투숙 완료', '예약은 확정되었습니다')}
+        store.ingest(done)
+        store.ingest(old)
+        row = store.conn.execute('SELECT status FROM bookings').fetchone()
+        assert row[0] == 'completed' and store.summary()['conflicting_bookings'] == 0
+        cancelled = {**done, 'observed_at': '2026-10-21T08:00:00Z',
+                     'snapshot_text': done['snapshot_text'].replace('투숙 완료', '예약이 취소되었습니다')}
+        store.ingest(cancelled)
+        assert store.conn.execute('SELECT status FROM bookings').fetchone()[0] == 'cancelled'
+        assert store.summary()['source_observations'] == 3
+    finally:
+        store.close()
+
+
+def test_list_records_no_year_and_requires_exact_list_members(tmp_path):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    page = {'schema_version': 'agoda-aside-capture-v1', 'kind': 'list', 'account_key': 'aside-u0',
+            'observed_at': '2026-10-20T08:00:00Z', 'list_status': 'completed', 'list_page': 1,
+            'snapshot_text': '- heading "ID 1234567890" [level=2]\n- text: "10월 18일"',
+            'booking_numbers': ['1234567890'], 'next_disabled': True}
+    try:
+        store.ingest(page, run_id='synthetic')
+        assert store.conn.execute('SELECT service_start_on FROM bookings').fetchone()[0] is None
+        with pytest.raises(ValueError): store.ingest({**page, 'booking_numbers': []})
+    finally:
+        store.close()
+
+
+def test_mail_join_is_repeatable_and_same_id_changed_content_is_rolled_back(tmp_path):
+    from tests.card_pipeline.test_booking_mail import message
+    directory = tmp_path / 'mail'
+    directory.mkdir()
+    path = directory / 'gmail-synthetic.json'
+    mail = message('예약 번호: 1234567890\n총 금액 KRW 30,000',
+                   subject='결제가 완료되었습니다', domain='agoda.com')
+    path.write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        assert store.ingest_mail([directory]) == 1
+        store.ingest(capture())
+        baseline = store.summary()
+        assert baseline['booking_mail_links'] == 1
+        assert store.ingest_mail([directory]) == 0
+        assert store.summary() == baseline
+        mail['payload']['body']['content'] += '\n다른 원문'
+        path.write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
+        with pytest.raises(ValueError, match='MAIL_CONTENT_CONFLICT'):
+            store.ingest_mail([directory])
+        assert store.summary() == baseline
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize('replacement', ['KRW 1,23', 'KRW 30,000.5'])
+def test_invalid_or_fractional_won_is_not_verified(replacement):
+    item = capture()
+    item['snapshot_text'] = item['snapshot_text'].replace('KRW 30,000', replacement)
+    if replacement.endswith('.5'):
+        with pytest.raises(ValueError, match='INVALID_MONEY'): parse_detail(item)
+    else:
+        assert parse_detail(item)['payment_status'] == 'unknown'
+
+
+def test_interactive_only_snapshot_cannot_be_published_as_complete_evidence(tmp_path):
+    store = CaptureStore(tmp_path / 'capture.sqlite')
+    try:
+        item = capture()
+        item['snapshot_text'] = '# note: interactive (clickable / focusable) elements only.\n' + item['snapshot_text']
+        with pytest.raises(ValueError, match='FULL_SNAPSHOT_REQUIRED'): store.ingest(item)
+        assert store.summary()['bookings'] == 0
+    finally:
+        store.close()

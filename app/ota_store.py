@@ -1,0 +1,380 @@
+"""모든 OTA의 직접 수집·메일·참고 자료를 원문과 함께 한 DB에서 관리한다."""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import sqlite3
+import zlib
+from contextlib import closing, contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+SCHEMA = 'ota-store-v1'
+DDL = '''
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS ota_store_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ota_sources(
+ source_id TEXT PRIMARY KEY,kind TEXT NOT NULL,locator TEXT NOT NULL,
+ ordinal INTEGER NOT NULL,current_revision TEXT,UNIQUE(kind,locator));
+CREATE TABLE IF NOT EXISTS ota_source_revisions(
+ revision_id TEXT PRIMARY KEY,source_id TEXT REFERENCES ota_sources(source_id),
+ sha256 TEXT NOT NULL,observed_at TEXT NOT NULL,UNIQUE(source_id,sha256));
+CREATE TABLE IF NOT EXISTS ota_raw_entries(
+ revision_id TEXT REFERENCES ota_source_revisions(revision_id),entry_key TEXT,
+ payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,entry_key));
+CREATE TABLE IF NOT EXISTS ota_messages(
+ message_id TEXT PRIMARY KEY,core_sha256 TEXT NOT NULL,payload_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ota_mail_origins(
+ message_id TEXT REFERENCES ota_messages(message_id),source_id TEXT REFERENCES ota_sources(source_id),
+ PRIMARY KEY(message_id,source_id));
+CREATE TABLE IF NOT EXISTS ota_bookings(
+ booking_id TEXT PRIMARY KEY,provider TEXT NOT NULL,account_key TEXT NOT NULL,
+ booking_number TEXT NOT NULL,UNIQUE(provider,account_key,booking_number));
+CREATE TABLE IF NOT EXISTS ota_booking_evidence(
+ booking_id TEXT REFERENCES ota_bookings(booking_id),revision_id TEXT REFERENCES ota_source_revisions(revision_id),
+ entry_key TEXT NOT NULL,evidence_kind TEXT NOT NULL,fact_json TEXT NOT NULL,
+ PRIMARY KEY(booking_id,revision_id,entry_key));
+CREATE TABLE IF NOT EXISTS ota_portal_rows(
+ revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
+ payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
+CREATE TABLE IF NOT EXISTS ota_catalog_rows(
+ revision_id TEXT REFERENCES ota_source_revisions(revision_id),row_no INTEGER,
+ payload_json TEXT NOT NULL,PRIMARY KEY(revision_id,row_no));
+'''
+
+
+def encoded(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+
+def sha(value):
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
+
+def packed(value):
+    return zlib.compress(encoded(value).encode('utf-8'))
+
+
+def unpacked(value):
+    return json.loads(zlib.decompress(value).decode('utf-8') if isinstance(value, bytes) else value)
+
+
+def connect_read(path):
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
+    conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA query_only=ON')
+    return conn
+
+
+def is_store(path):
+    if not Path(path).is_file():
+        return False
+    with Path(path).open('rb') as handle:
+        if handle.read(16) != b'SQLite format 3\x00':
+            return False
+    with closing(connect_read(path)) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='ota_store_meta'").fetchone():
+            return False
+        row = conn.execute("SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
+        if not row or row[0] != SCHEMA:
+            raise ValueError('OTA_STORE_SCHEMA_MISMATCH')
+        return True
+
+
+def _current_rows(conn, table, kind):
+    return conn.execute('SELECT s.ordinal,s.source_id,r.* FROM ' + table + ' r '
+        'JOIN ota_sources s ON s.current_revision=r.revision_id WHERE s.kind=? '
+        'ORDER BY s.ordinal,r.row_no', (kind,)).fetchall()
+
+
+def _entries(conn, revision):
+    entries = {row['entry_key']: unpacked(row['payload_json']) for row in conn.execute(
+        'SELECT entry_key,payload_json FROM ota_raw_entries WHERE revision_id=?', (revision,))}
+    expected = conn.execute('SELECT sha256 FROM ota_source_revisions WHERE revision_id=?', (revision,)).fetchone()
+    if not expected or sha(encoded(entries)) != expected[0]:
+        raise ValueError('OTA_STORE_RAW_HASH_MISMATCH')
+    return entries
+
+
+def portal_rows(path, outer_index):
+    with closing(connect_read(path)) as conn:
+        # 출처별 원래 ID와 그룹 경계를 유지한다. 파일 하나로 합쳐도 숫자 ID를 섞지 않는다.
+        rows = [{**row, 'database': f'{outer_index}:{source["source_id"]}'}
+                for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
+                for row in _entries(conn, source['current_revision'])['_portal_read_rows']]
+        for booking, fact, conflicts in direct_facts(conn):
+            if booking['provider'] != 'agoda' or fact.get('evidence_format') != 'agoda-aside-v1':
+                continue
+            identity = 'aside-v1:' + sha(booking['account_key'])[:16] + ':agoda:' + booking['booking_number']
+            for role in fact['roles']:
+                rows.append({'booking_number':booking['booking_number'],
+                    'service_start_on':fact['service_start_on'], 'service_end_on':fact['service_end_on'],
+                    'status':fact['reservation_status'], 'id':identity, 'payload_json':encoded(fact),
+                    'source_sha256':sha(encoded(fact)), 'evidence_role':role, 'evidence_status':'observed',
+                    'conflict_count':len(conflicts), 'database':f'{outer_index}:direct'})
+        return rows
+
+
+def catalog_rows(conn):
+    rows = [row for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal")
+            for row in _entries(conn, source['current_revision'])['_catalog_read_rows']]
+    rows.extend({'id':booking['booking_id'], 'provider':booking['provider'],
+                 'booking_number':booking['booking_number'], 'product_type':fact.get('product_type', 'lodging'),
+                 'label':fact.get('label'), 'service_start_on':None if conflicts else fact.get('service_start_on'),
+                 'service_end_on':None if conflicts else fact.get('service_end_on'), 'status':fact.get('reservation_status', 'unknown'),
+                 'trips':[]} for booking,fact,conflicts in direct_facts(conn))
+    for row in conn.execute("SELECT b.*,e.fact_json FROM ota_booking_evidence e JOIN ota_bookings b USING(booking_id) "
+        "JOIN ota_sources s ON s.current_revision=e.revision_id WHERE e.evidence_kind='direct_list'"):
+        fact = json.loads(row['fact_json'])
+        rows.append({'id':row['booking_id'], 'provider':row['provider'], 'booking_number':row['booking_number'],
+            'product_type':'unknown', 'label':None, 'service_start_on':None, 'service_end_on':None,
+            'status':fact['list_status'], 'trips':[]})
+    return rows
+
+
+def direct_facts(conn):
+    """관측은 모두 보존하고, 현재 자료의 서로 다른 금액·카드·기간은 보류한다."""
+    groups = {}
+    for row in conn.execute("SELECT b.*,e.fact_json,r.observed_at FROM ota_booking_evidence e "
+        "JOIN ota_bookings b USING(booking_id) "
+        "JOIN ota_source_revisions r ON r.revision_id=e.revision_id WHERE e.evidence_kind='direct'"):
+        fact = json.loads(row['fact_json'])
+        groups.setdefault(row['booking_id'], []).append((dict(row), fact))
+    result = []
+    for observations in groups.values():
+        observations.sort(key=lambda item:(item[1].get('observed_at') or item[0]['observed_at'], encoded(item[1])))
+        conflicts = []
+        for field in ('service_start_on', 'service_end_on', 'card_last4'):
+            values = {fact.get(field) for _,fact in observations} - {None, ''}
+            if len(values) > 1:
+                conflicts.append(field)
+        amounts = {encoded(sorted((part['currency'],part['decimal_text'])
+                   for part in fact.get('price_components', []) if part['kind']=='paid_today'))
+                   for _,fact in observations if any(part['kind']=='paid_today' for part in fact.get('price_components', []))}
+        if len(amounts) > 1:
+            conflicts.append('paid_amount')
+        terminal = False
+        for _, fact in observations:
+            if terminal and fact.get('reservation_status') in ('confirmed', 'completed'):
+                conflicts.append('active_after_cancellation')
+            terminal |= fact.get('reservation_status') == 'cancelled'
+        row, fact = observations[-1]
+        result.append((row, fact, conflicts))
+    return result
+
+
+def mail_bundles(path):
+    with closing(connect_read(path)) as conn:
+        bundles = []
+        for source in conn.execute("SELECT * FROM ota_sources WHERE kind='mail_directory' ORDER BY ordinal"):
+            entries = _entries(conn, source['current_revision'])
+            collection = {key:value for key,value in entries.get('collection', {}).items()
+                          if key in ('after', 'before', 'query_exhausted', 'fetched')}
+            messages = [message for key in sorted(entries) if key.startswith('gmail') and key.endswith('.json')
+                        for message in entries[key]['responses']]
+            bundles.append((source['locator'], collection, messages))
+        return bundles
+
+
+def reference_bundles(path):
+    with closing(connect_read(path)) as conn:
+        return [(row['locator'], _entries(conn, row['current_revision'])['raw']) for row in conn.execute(
+            "SELECT * FROM ota_sources WHERE kind='reference_document' ORDER BY ordinal")]
+
+
+class OtaStore:
+    def __init__(self, path):
+        self.path = Path(path).resolve()
+        if self.path.exists() and self.path.stat().st_size and not is_store(self.path):
+            raise ValueError('OTA_STORE_REFUSE_UNRELATED_DATABASE')
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.path, timeout=30)
+        self.conn.row_factory = sqlite3.Row
+        self._fact_cache = {}
+        self.conn.executescript(DDL)
+        current = self.conn.execute("SELECT value FROM ota_store_meta WHERE key='schema_version'").fetchone()
+        if current and current[0] != SCHEMA:
+            self.conn.close()
+            raise ValueError('OTA_STORE_SCHEMA_MISMATCH')
+        with self.conn:
+            self.conn.execute('INSERT OR IGNORE INTO ota_store_meta VALUES(?,?)', ('schema_version', SCHEMA))
+
+    def close(self):
+        self.conn.close()
+
+    @contextmanager
+    def atomic(self):
+        if self.conn.in_transaction:
+            self.conn.execute('SAVEPOINT ota_import')
+            try:
+                yield
+                self.conn.execute('RELEASE ota_import')
+            except BaseException:
+                self.conn.execute('ROLLBACK TO ota_import')
+                self.conn.execute('RELEASE ota_import')
+                raise
+        else:
+            with self.conn:
+                yield
+
+    def _revision(self, kind, locator, entries):
+        locator = str(locator) if kind == 'direct_observation' else str(Path(locator).resolve())
+        identity = sha(encoded([kind, locator]))
+        digest = sha(encoded(entries))
+        revision = sha(encoded([identity, digest]))
+        ordinal = self.conn.execute('SELECT coalesce(max(ordinal),-1)+1 FROM ota_sources').fetchone()[0]
+        self.conn.execute('INSERT OR IGNORE INTO ota_sources VALUES(?,?,?,?,NULL)',
+                          (identity, kind, locator, ordinal))
+        inserted = self.conn.execute('INSERT OR IGNORE INTO ota_source_revisions VALUES(?,?,?,?)',
+            (revision, identity, digest, datetime.now(timezone.utc).isoformat())).rowcount
+        if inserted:
+            self.conn.executemany('INSERT INTO ota_raw_entries VALUES(?,?,?)',
+                [(revision, key, packed(value)) for key, value in entries.items()])
+        self.conn.execute('UPDATE ota_sources SET current_revision=? WHERE source_id=? AND current_revision IS NOT ?',
+                          (revision, identity, revision))
+        return identity, revision, bool(inserted)
+
+    def _evidence(self, provider, ref, revision, key, kind, fact, account='legacy-owner'):
+        if not provider or not ref:
+            return
+        identity = sha(encoded([provider, account, str(ref)]))
+        self.conn.execute('INSERT OR IGNORE INTO ota_bookings VALUES(?,?,?,?)',
+                          (identity, provider, account, str(ref)))
+        self.conn.execute('INSERT OR IGNORE INTO ota_booking_evidence VALUES(?,?,?,?,?)',
+                          (identity, revision, key, kind, encoded(fact)))
+
+    def import_mail(self, directory):
+        from app import ota_mail, ota_payments
+        messages, inventory = ota_mail.load_messages_from([directory])
+        if any(row.get('error') for row in inventory):
+            raise ValueError('OTA_STORE_MAIL_INCOMPLETE')
+        files = {p.name: json.loads(p.read_text(encoding='utf-8'))
+                 for p in sorted(Path(directory).glob('gmail*.json'))}
+        collection_path = Path(directory) / 'collection.json'
+        files['collection'] = json.loads(collection_path.read_text(encoding='utf-8')) if collection_path.is_file() else {}
+        with self.atomic():
+            source, revision, inserted = self._revision('mail_directory', directory, files)
+            if not inserted:
+                return False
+            for message_id, message in messages.items():
+                core = dict(id=message_id, internal_date=message.get('internal_date'),
+                    headers={h['name'].lower(): h['value'] for h in message['payload'].get('headers', [])},
+                    text=ota_mail.body_text(message['payload']))
+                digest = ota_mail._core_digest(core)
+                old = self.conn.execute('SELECT core_sha256 FROM ota_messages WHERE message_id=?', (message_id,)).fetchone()
+                if old and old[0] != digest:
+                    raise ValueError('OTA_MESSAGE_CONTENT_CONFLICT')
+                self.conn.execute('INSERT OR IGNORE INTO ota_messages VALUES(?,?,?)',
+                                  (message_id, digest, packed(message)))
+                self.conn.execute('INSERT OR IGNORE INTO ota_mail_origins VALUES(?,?)', (message_id, source))
+                fact_key = sha(encoded(message))
+                if fact_key not in self._fact_cache:
+                    self._fact_cache[fact_key] = (ota_mail.extract_mail(message)
+                        or ota_payments._extract_signed_payment_message(message))
+                fact = self._fact_cache[fact_key]
+                if fact:
+                    self._evidence(fact['provider'], fact['booking_ref'], revision, message_id, 'mail', fact)
+        return inserted
+
+    def import_portal(self, path):
+        from app import ota_portal
+        if is_store(path):
+            raise ValueError('OTA_STORE_RECURSIVE_IMPORT')
+        with closing(connect_read(path)) as original:
+            original.execute('BEGIN')
+            tables = {r[0] for r in original.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            names = ('bookings', 'direct_source_records', 'booking_source_evidence',
+                     'booking_target_links', 'allocation_targets', 'capture_pages',
+                     'source_observations', 'portal_projection', 'capture_meta')
+            entries = {name: [dict(row) for row in original.execute('SELECT * FROM "' + name + '"')]
+                       for name in names if name in tables}
+            if 'bookings' not in entries:
+                raise ValueError('OTA_STORE_BOOKINGS_REQUIRED')
+            links = {}
+            if {'booking_target_links', 'allocation_targets'} <= tables:
+                for row in original.execute("SELECT l.booking_id,t.code,t.name FROM booking_target_links l "
+                    "JOIN allocation_targets t ON t.id=l.target_id WHERE l.link_status IN ('confirmed','legacy') "
+                    "AND t.target_type='trip'"):
+                    links.setdefault(row[0], []).append({'id': row[1], 'name': row[2] or row[1]})
+            # 기존 SQL과 같은 원문·근거 행을 하나의 일관된 읽기 트랜잭션에서 보존한다.
+            rows = [dict(row) for row in original.execute(
+                "SELECT b.booking_number,b.service_start_on,b.service_end_on,b.status,"
+                "d.id,d.payload_json,d.source_sha256,e.evidence_role,e.evidence_status,e.conflict_count "
+                "FROM bookings b JOIN booking_source_evidence e ON e.booking_id=b.id "
+                "JOIN direct_source_records d ON d.id=e.direct_source_record_id "
+                "WHERE b.provider='agoda' AND d.source_kind='agoda_portal_detail'")]
+            entries['_portal_read_rows'] = rows
+            catalog = [{**{key: row.get(key) for key in ('id', 'provider', 'booking_number', 'product_type',
+                       'label', 'service_start_on', 'service_end_on', 'status')}, 'trips': links.get(row['id'], [])}
+                       for row in entries['bookings']]
+            entries['_catalog_read_rows'] = catalog
+        with self.atomic():
+            source, revision, inserted = self._revision('portal_database', path, entries)
+            if inserted:
+                self.conn.executemany('INSERT INTO ota_portal_rows VALUES(?,?,?)',
+                                      [(revision, n, packed(row)) for n, row in enumerate(rows)])
+                self.conn.executemany('INSERT INTO ota_catalog_rows VALUES(?,?,?)',
+                                      [(revision, n, packed(row)) for n, row in enumerate(catalog)])
+                for n, row in enumerate(entries['bookings']):
+                    self._evidence(row['provider'], row['booking_number'], revision,
+                                   'bookings:' + str(n), 'portal', row)
+        return inserted
+
+    def import_reference(self, path):
+        raw = json.loads(Path(path).read_text(encoding='utf-8'))
+        with self.atomic():
+            return self._revision('reference_document', path, {'raw': raw})[2]
+
+    def import_capture(self, path):
+        from app.agoda_capture import parse_detail, utc
+        raw = json.loads(Path(path).read_text(encoding='utf-8'))
+        if raw.get('schema_version') != 'agoda-aside-capture-v1':
+            raise ValueError('OTA_STORE_CAPTURE_SCHEMA')
+        if '# note: interactive' in raw.get('snapshot_text', ''):
+            raise ValueError('CAPTURE_FULL_SNAPSHOT_REQUIRED')
+        utc(raw['observed_at'])
+        if not raw.get('account_key') or not raw.get('snapshot_text'):
+            raise ValueError('CAPTURE_ACCOUNT_OR_SNAPSHOT_REQUIRED')
+        if raw.get('kind') == 'list':
+            actual = re.findall(r'heading "ID (\d{6,20})"', raw['snapshot_text'])
+            numbers = raw.get('booking_numbers')
+            if (not isinstance(numbers, list) or sorted(actual) != sorted(numbers)
+                    or len(actual) != len(set(actual))):
+                raise ValueError('CAPTURE_LIST_IDENTITY_MISMATCH')
+            if (raw.get('list_status') not in ('upcoming', 'completed', 'cancelled')
+                    or not isinstance(raw.get('next_disabled'), bool)):
+                raise ValueError('CAPTURE_LIST_STATUS_INVALID')
+        with self.atomic():
+            _, revision, inserted = self._revision('direct_capture', path, {'raw': raw})
+            if raw.get('kind') == 'detail':
+                fact = parse_detail(raw)
+                self._evidence('agoda', fact['booking_number'], revision, 'detail', 'direct', fact,
+                               raw['account_key'])
+            elif raw.get('kind') == 'list':
+                for ref in raw['booking_numbers']:
+                    self._evidence('agoda', ref, revision, str(ref), 'direct_list',
+                                   {'list_status': raw['list_status']}, raw['account_key'])
+            else:
+                raise ValueError('OTA_STORE_CAPTURE_KIND')
+        return inserted
+
+    def import_direct(self, *, provider, account_key, source_key, snapshot, facts):
+        """공급자별 수집기가 쓰는 공통 진입점. 원문·판단을 보존하고 결제를 만들어내지 않는다."""
+        if provider not in ('agoda', 'trip', 'booking', 'klook') or not account_key or not source_key:
+            raise ValueError('OTA_STORE_DIRECT_IDENTITY_REQUIRED')
+        for fact in facts:
+            if fact.get('provider') != provider or not fact.get('booking_number'):
+                raise ValueError('OTA_STORE_DIRECT_FACT_IDENTITY_MISMATCH')
+        with self.atomic():
+            _, revision, inserted = self._revision('direct_observation',
+                'direct/' + provider + '/' + sha(encoded([account_key, source_key])),
+                {'snapshot':snapshot, 'facts':facts, 'account_key':account_key, 'source_key':source_key})
+            for n, fact in enumerate(facts):
+                self._evidence(provider, fact['booking_number'], revision, str(n), 'direct', fact, account_key)
+        return inserted
+
+    def summary(self):
+        tables = ('ota_sources', 'ota_source_revisions', 'ota_raw_entries', 'ota_messages',
+                  'ota_bookings', 'ota_booking_evidence', 'ota_portal_rows', 'ota_catalog_rows')
+        return {table: self.conn.execute('SELECT count(*) FROM ' + table).fetchone()[0] for table in tables}

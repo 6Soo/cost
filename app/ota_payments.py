@@ -385,7 +385,8 @@ def build_ota_payment_events(sources):
                       ("reference_documents", "reference_document")):
         for value in _as_items(registered.get(key)):
             path = Path(value)
-            exists = path.is_dir() if kind == "mail_directory" else path.is_file()
+            from app.ota_store import is_store
+            exists = (path.is_dir() or is_store(path)) if kind == "mail_directory" else path.is_file()
             if not exists:
                 failures.append({"kind":kind, "path":str(path)})
     if failures:

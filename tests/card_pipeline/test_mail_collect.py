@@ -69,3 +69,19 @@ def test_owner_batch_is_loaded_and_never_rewritten(tmp_path):
     messages = ota_mail.load_messages_from(tmp_path)[0]
     assert set(messages) == {'owner-3'}
     assert 'Booking ID 1' in ota_mail.message_text(messages['owner-3'])
+
+
+def test_new_and_owner_mail_are_automatically_added_to_configured_unified_db(tmp_path):
+    from app.ota_store import OtaStore
+    directory = tmp_path / 'ota-mail'
+    directory.mkdir()
+    store = OtaStore(tmp_path / 'ota.sqlite')
+    store.close()
+    (tmp_path / 'ota-sources.json').write_text(json.dumps({'schema_version':'ota-sources-v1',
+        'unified_database':str(tmp_path / 'ota.sqlite')}), encoding='utf-8')
+    mail_collect.collect(FakeGmail(['new-auto']), directory, datetime(2026, 10, 15, 9, 0))
+    record = mail_collect.owner_record('new-owner', {'From':'Trip.com <kr_noreply@trip.com>',
+        'Subject':'합성 예약'}, '예약번호: BOOK12345')
+    mail_collect.write_owner_batch(directory, [record], datetime(2026, 10, 15, 10, 0))
+    messages, _ = ota_mail.load_messages_from([tmp_path / 'ota.sqlite'])
+    assert set(messages) == {'new-auto', 'new-owner'}
