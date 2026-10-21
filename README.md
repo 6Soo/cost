@@ -2,7 +2,7 @@
 
 ## 현재 OTA 자료 연결
 
-모든 OTA의 직접 수집·메일·참고 자료는 운영 `D:/WebLedgerHost/data/ota-evidence.sqlite`에서 함께 관리한다. `ota-sources.json`의 `unified_database`가 단일 읽기 경로이며 상시 메일 수집도 같은 DB에 반영한다. 원본·기존 결제 ID·사용자 확정을 보존한다. 실제 전환과 남은 상세 수집 범위는 [단일 OTA DB 기록](docs/ota-unified-store.md)과 [운영 문서](docs/operations.md)를 따른다.
+모든 OTA의 직접 수집·메일·참고 자료는 운영 `D:/WebLedgerHost/data/ota-evidence.sqlite`에서 함께 관리한다. `ota-sources.json`의 `unified_database`가 단일 읽기 경로이며 상시 메일 수집도 같은 DB에 반영한다. 원본·기존 결제 ID·사용자 확정을 보존한다. 아고다 관측 목록 1,550건·우선 상세 370건과 메일 1,932개를 반영했다. 실제 전환과 연결 보류 사유는 [단일 OTA DB 기록](docs/ota-unified-store.md)과 [운영 문서](docs/operations.md)를 따른다.
 
 카드 파일 업로드 → 자동 분류 → 미확정 거래 확인 → 미리보기 → 장부 기록.
 
