@@ -27,6 +27,38 @@ def capture(booking='1234567890', **changes):
     return value
 
 
+def test_flight_booking_number_in_adjacent_generic_node(tmp_path):
+    from app.ota_store import OtaStore
+
+    item = capture()
+    item['snapshot_text'] = (
+        '- text: "10월 15일 탑승객 2명 편도 예약 번호:"\n'
+        '- generic "1234567890" [ref=e29]\n'
+    )
+    fact = parse_detail(item)
+    assert fact['booking_number'] == '1234567890'
+    assert fact['service_start_on'] is None
+
+    path = tmp_path / 'flight.json'
+    path.write_text(json.dumps(item, ensure_ascii=False), encoding='utf-8')
+    store = OtaStore(tmp_path / 'ota.sqlite')
+    try:
+        assert store.import_capture(path)
+        assert store.summary()['ota_booking_evidence'] == 1
+        assert not store.import_capture(path)
+        assert store.summary()['ota_booking_evidence'] == 1
+    finally:
+        store.close()
+
+    item['snapshot_text'] = (
+        '- text: "10월 15일 예약 번호:"\n'
+        '- paragraph: unrelated amount\n'
+        '- generic "1234567890" [ref=e29]\n'
+    )
+    with pytest.raises(ValueError, match='CAPTURE_BOOKING_IDENTITY_MISMATCH'):
+        parse_detail(item)
+
+
 def test_explicit_charge_without_date_never_uses_capture_day_and_is_stable(tmp_path):
     store = CaptureStore(tmp_path / 'capture.sqlite')
     item = capture()

@@ -88,6 +88,11 @@ def parse_detail(capture):
         raise ValueError('CAPTURE_ENTRY_PROOF_REQUIRED')
     text = visible_text(capture.get('snapshot_text') or '')
     identities = set(re.findall(r'예약\s*번호\s*[:：]?\s*(\d{6,20})\b', text))
+    # Flight detail pages render the number in a separate generic node.
+    # Only trust a number immediately following the booking-number label.
+    identities.update(re.findall(
+        r'- text: "[^"\n]*예약\s*번호\s*[:：]\s*"\s*\n\s*- generic "(\d{6,20})"',
+        capture.get('snapshot_text') or ''))
     if identities != {booking}:
         raise ValueError('CAPTURE_BOOKING_IDENTITY_MISMATCH')
     starts, ends = _days('체크인', text), _days('체크아웃', text)
