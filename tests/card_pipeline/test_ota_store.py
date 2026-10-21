@@ -1,0 +1,118 @@
+"""단일 OTA DB가 원문·결제 ID·출처 충돌을 보존하는지 확인한다."""
+import copy
+import json
+import sqlite3
+
+import pytest
+
+from app import ota_mail, ota_payments, ota_sources
+from app.ota_store import OtaStore, encoded
+from webapp.ota_catalog import _database_rows
+from tools.consolidate_ota_sources import consolidate, database_digest
+from tests.card_pipeline.test_booking_mail import message
+from tests.card_pipeline.test_ota_sources_registry import portal_database, write_mail
+from tests.card_pipeline.test_agoda_capture import capture
+
+
+def test_consolidation_keeps_mail_payment_ids_references_and_survives_original_removal(tmp_path):
+    mail = write_mail(tmp_path / 'mail', [message('예약번호: BOOK12345\n총 금액 30,000원',
+        subject='[Trip.com] 결제 완료 안내', identity='stable-message')])
+    portals = [portal_database(tmp_path / 'one.sqlite'), portal_database(tmp_path / 'two.sqlite')]
+    reference = tmp_path / 'reference.json'
+    reference.write_text(json.dumps({'BOOK12345': {'amount':30000}}), encoding='utf-8')
+    manifest = tmp_path / 'ota-sources.json'
+    manifest.write_text(json.dumps({'schema_version':'ota-sources-v1', 'mail_directories':[str(mail)],
+        'portal_databases':[str(p) for p in portals], 'reference_documents':[str(reference)]}), encoding='utf-8')
+    before = ota_payments.build_ota_payment_events(ota_sources.resolve_sources(tmp_path))
+    destination = tmp_path / 'unified.sqlite'
+    report = consolidate(manifest, destination)
+    assert report['status'] == 'PASS', report
+    manifest.write_text(json.dumps(report['candidate_manifest']), encoding='utf-8')
+    for original in [*portals, reference, mail / 'gmail.json']:
+        original.unlink()
+    sources = ota_sources.resolve_sources(tmp_path, portal_default=tmp_path / 'unrelated.sqlite')
+    assert sources['portal_databases'] == [destination]
+    assert sources['mail_directories'] == [destination]
+    assert sources['reference_documents'] == [destination]
+    assert ota_payments.build_ota_payment_events(sources) == before
+    assert not ota_mail.load_reference_documents([destination])['errors']
+
+
+def test_same_message_id_changed_body_rolls_back_whole_source(tmp_path):
+    first = message('예약번호: BOOK12345\n총 금액 30,000원', identity='same')
+    one = write_mail(tmp_path / 'one', [first])
+    changed = copy.deepcopy(first)
+    changed['payload']['body'] = {'content':'다른 원문'}
+    two = write_mail(tmp_path / 'two', [changed])
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        store.import_mail(one)
+        before = database_digest(store)
+        with pytest.raises(ValueError, match='OTA_MESSAGE_CONTENT_CONFLICT'):
+            store.import_mail(two)
+        assert database_digest(store) == before
+    finally:
+        store.close()
+
+
+def test_all_providers_share_store_but_accounts_and_real_observations_stay_separate(tmp_path):
+    store = OtaStore(tmp_path / 'store.sqlite')
+    try:
+        for provider in ('agoda', 'booking', 'trip', 'klook'):
+            kwargs = dict(provider=provider, account_key='owner-one', source_key='observation',
+                          snapshot={'text':'직접 확인한 예약'}, facts=[{'provider':provider,
+                          'booking_number':'1234567890', 'payment_status':'unknown'}])
+            assert store.import_direct(**kwargs)
+            assert not store.import_direct(**kwargs)
+            assert store.import_direct(**{**kwargs, 'account_key':'owner-two'})
+        assert store.summary()['ota_bookings'] == 8
+        assert {row['provider'] for row in _database_rows(store.conn)} == {'agoda', 'booking', 'trip', 'klook'}
+        assert ota_payments.build_ota_payment_events({'portal_databases':[store.path],
+            'mail_directories':[store.path], 'reference_documents':[store.path]}) == []
+    finally:
+        store.close()
+
+
+def test_unrelated_database_is_never_modified_and_tampered_raw_is_rejected(tmp_path):
+    unrelated = tmp_path / 'board.sqlite'
+    with sqlite3.connect(unrelated) as conn:
+        conn.execute('CREATE TABLE owner_data(id TEXT)')
+    before = unrelated.read_bytes()
+    with pytest.raises(ValueError, match='OTA_STORE_REFUSE_UNRELATED_DATABASE'):
+        OtaStore(unrelated)
+    assert unrelated.read_bytes() == before
+    mail = write_mail(tmp_path / 'mail', [message('합성 본문', identity='id-one')])
+    store = OtaStore(tmp_path / 'store.sqlite')
+    store.import_mail(mail)
+    store.conn.execute("UPDATE ota_raw_entries SET payload_json=? WHERE entry_key='collection'",
+                       (encoded({'fetched':999}),))
+    store.conn.commit()
+    store.close()
+    with pytest.raises(ValueError, match='OTA_STORE_RAW_HASH_MISMATCH'):
+        ota_mail.load_messages_from([tmp_path / 'store.sqlite'])
+
+
+def test_direct_capture_is_read_from_same_db_and_conflicting_history_is_held(tmp_path):
+    store = OtaStore(tmp_path / 'store.sqlite')
+    raw = capture()
+    path = tmp_path / 'detail.json'
+    path.write_text(json.dumps(raw), encoding='utf-8')
+    try:
+        store.import_capture(path)
+        events = ota_payments._portal_events([store.path])
+        assert len(events) == 1 and events[0]['paid_on'] is None
+        assert 'aside-v1:' in events[0]['source_ids'][0]
+        before = database_digest(store)
+        store.conn.execute('BEGIN IMMEDIATE')
+        store.import_direct(provider='booking', account_key='one', source_key='x', snapshot={},
+                            facts=[{'provider':'booking', 'booking_number':'8765432100'}])
+        store.conn.rollback()
+        assert before == database_digest(store)
+        raw['snapshot_text'] = raw['snapshot_text'].replace('30,000', '31,000')
+        raw['observed_at'] = '2026-10-21T08:00:00Z'
+        path.write_text(json.dumps(raw), encoding='utf-8')
+        store.import_capture(path)
+        assert ota_payments._portal_events([store.path]) == []
+        assert store.summary()['ota_source_revisions'] == 2
+    finally:
+        store.close()

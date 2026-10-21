@@ -85,6 +85,13 @@ def payment_verdict(fact, booking_status):
     """
     if scheduled_payment(fact):
         return 'scheduled'
+    # Aside의 명시 결제 표시를 읽는다. 수집일이나 예약 완료를 결제일로 바꾸지 않는다.
+    if (fact.get('evidence_format') == 'agoda-aside-v1'
+            and fact.get('portal_payment_state') == 'paid_observed'
+            and fact.get('payment_status') == 'paid'
+            and re.fullmatch(r'\d{4}', str(fact.get('card_last4') or ''))
+            and len(price_amounts(fact)) == 1):
+        return 'paid'
     canonical=(fact.get('reservation_status')=='completed' and booking_status=='completed'
                and fact.get('payment_status')=='paid'
                and fact.get('collection_model')=='agoda_collect')
@@ -101,6 +108,9 @@ def payment_verdict(fact, booking_status):
 
 def _read_records(path, index):
     """포털 DB 한 곳의 근거 행. DB마다 같은 숫자 ID가 있으므로 DB를 함께 구분한다."""
+    from app.ota_store import is_store, portal_rows
+    if is_store(path):
+        return portal_rows(path, index)
     conn=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
     conn.row_factory=sqlite3.Row
     try:

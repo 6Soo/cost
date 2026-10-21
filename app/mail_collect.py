@@ -68,6 +68,25 @@ def stored_ids(directory: Path) -> set:
     return ids
 
 
+def sync_unified_store(directory: Path) -> None:
+    """운영이 단일 DB를 쓰면 새 수집을 같은 DB에 넣는다. 실패한 원문은 폴더에 남는다."""
+    from app import ota_sources
+    from app.ota_store import OtaStore
+    manifest = ota_sources.read_manifest(ota_sources.manifest_path(Path(directory).parent))
+    if not manifest or not manifest.get('unified_database'):
+        return
+    resolved = ota_sources.resolve_sources(Path(directory).parent)
+    if resolved['missing']:
+        raise ValueError('OTA_STORE_COLLECTOR_TARGET_MISSING')
+    store = OtaStore(resolved['unified_database'])
+    try:
+        store.conn.execute('BEGIN IMMEDIATE')
+        store.import_mail(directory)
+        store.conn.commit()
+    finally:
+        store.close()
+
+
 def collect(client, directory: Path, now: datetime | None = None) -> dict:
     """마지막 수집 이후 메일을 새 파일로 저장하고 collection.json을 갱신한다. 이미 받은 메일은 다시 받지 않는다."""
     directory = Path(directory)
@@ -98,6 +117,7 @@ def collect(client, directory: Path, now: datetime | None = None) -> dict:
     temp = state_path.with_suffix('.tmp')
     temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
     os.replace(temp, state_path)
+    sync_unified_store(directory)
     return {'matched': len(listed), 'fetched': len(messages), 'query': query}
 
 
@@ -124,6 +144,7 @@ def write_owner_batch(directory: Path, records: list, now: datetime) -> Path | N
     known = set(state.get('message_ids', []))
     fresh = [record for record in records if record['id'] not in known]
     if not fresh:
+        sync_unified_store(directory)
         return None
     path = directory / f'gmail-owner-{now.strftime("%Y%m%dT%H%M%S")}.json'
     path.write_text(json.dumps({'responses': fresh}, ensure_ascii=False), encoding='utf-8')
@@ -132,6 +153,7 @@ def write_owner_batch(directory: Path, records: list, now: datetime) -> Path | N
     temp = state_path.with_suffix('.tmp')
     temp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding='utf-8')
     os.replace(temp, state_path)
+    sync_unified_store(directory)
     return path
 
 

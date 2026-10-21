@@ -93,6 +93,9 @@ def configured_sources(board):
 def _database_rows(conn):
     """결제 근거가 부족한 예약도 제외하지 않는다. 원문·고객 정보는 읽지 않는다."""
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if 'ota_store_meta' in tables:
+        from app.ota_store import catalog_rows
+        return catalog_rows(conn)
     if 'bookings' not in tables:
         raise ValueError('not an OTA database')
     records = [dict(row) for row in conn.execute(
@@ -314,7 +317,7 @@ def _canonical(value):
 #: The modules whose logic decides the index. A saved index made by other code is never read.
 _LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'app/ota_mail.py', 'app/ota_payments.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
-                'app/ota_sources.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',
+                'app/ota_sources.py', 'app/ota_store.py', 'app/booking_evidence.py', 'app/ota_matching_defaults.py',
                 'config/ota-matching-defaults.json')
 
 
@@ -411,7 +414,7 @@ def _rows_from_sources(board, sources, warnings):
         except (OSError, ValueError, sqlite3.Error):
             warnings.append('일부 자료를 읽지 못했습니다. 예약 DB를 확인한 뒤 다시 조회해 주세요.')
     directories = [str(p) for p in dict.fromkeys(str(p) for p in sources.get('mail_directories', []))
-                   if Path(p).is_dir()]
+                   if Path(p).is_dir() or Path(p).is_file()]
     events = []
     if directories:
         try:

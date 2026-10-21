@@ -94,6 +94,17 @@ def database_inputs(data, manifest, options):
         path = Path(ota)
         if path.resolve() not in {p.resolve() for p in databases.values()}:
             databases['ota-review.sqlite'] = path
+    sources_path = data / 'ota-sources.json'
+    if sources_path.is_file():
+        from app import ota_sources
+        from app.ota_store import is_store
+        sources = ota_sources.read_manifest(sources_path, required=True)
+        unified = sources.get('unified_database')
+        if unified:
+            path = Path(unified)
+            if not is_store(path):
+                raise RuntimeError('UNIFIED_OTA_BACKUP_INPUT_INVALID')
+            databases['ota-evidence.sqlite'] = path
     return databases, decision_name
 
 
@@ -115,6 +126,8 @@ def main(evidence_out=None):
     for name, path in databases.items():
         backup_database(path, bundle / "databases" / name)
     files = {"config/real-review-original.json": config}
+    if (data / 'ota-sources.json').is_file():
+        files['data/ota-sources.json'] = data / 'ota-sources.json'
     for kind in ("snapshot", "review", "master"):
         files["review/" + Path(manifest[kind + "_path"]).name] = Path(manifest[kind + "_path"])
     # Optional product stores are as important as SQLite: photos, receipt edits,

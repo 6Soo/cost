@@ -72,6 +72,8 @@ def mail_stamps(directories):
         path = Path(directory)
         if path.is_dir():
             watched += sorted(path.glob('gmail*.json')) + [path / 'collection.json']
+        elif path.is_file():
+            watched += [path, Path(str(path) + '-wal')]
     return tuple(sorted((stamp for stamp in (content_stamp(item) for item in {Path(p) for p in watched})
                          if stamp), key=lambda stamp: stamp['path']))
 
@@ -94,6 +96,8 @@ def mail_stamps_paths(directories):
         path = Path(directory)
         if path.is_dir():
             paths += sorted(path.glob('gmail*.json')) + [path / 'collection.json']
+        elif path.is_file():
+            paths += [path, Path(str(path) + '-wal')]
     return paths
 
 
@@ -139,6 +143,20 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
     path=Path(manifest_file) if manifest_file is not None else manifest_path(data_directory)
     explicit=os.environ.get('WEBLEDGER_OTA_SOURCES') is not None or manifest_file is not None
     manifest=read_manifest(path,required=explicit)
+    if manifest is not None and manifest.get('unified_database'):
+        databases = manifest_entries({'db': [manifest['unified_database']]}, 'db')
+        database = databases[0]
+        missing = [] if database.is_file() else [{'kind': 'unified_database', 'path': str(database)}]
+        if not missing:
+            from app.ota_store import is_store
+            if not is_store(database):
+                raise OtaSourcesError('통합 OTA DB 형식이 올바르지 않습니다', code='OTA_STORE_SCHEMA_MISMATCH')
+        return {'manifest_path':str(path), 'manifest_present':True, 'manifest_stamp':manifest_stamp(path),
+                'unified_database':database, 'mail_directories':databases, 'portal_databases':databases,
+                'reference_documents':databases,
+                'registered':{'mail_directories':databases, 'portal_databases':databases,
+                              'reference_documents':databases},
+                'missing':missing, 'diagnostics':[]}
     if manifest is None:
         return {
             'manifest_path':str(path),'manifest_present':False,
