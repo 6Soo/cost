@@ -7,7 +7,7 @@ import sqlite3
 import pytest
 
 from app import ota_mail, ota_payments, ota_sources
-from app.ota_store import OtaStore, encoded
+from app.ota_store import OtaStore, encoded, direct_facts
 from webapp.ota_catalog import _database_rows
 from tools.consolidate_ota_sources import consolidate, database_digest
 from tests.card_pipeline.test_booking_mail import message
@@ -166,3 +166,36 @@ def test_collection_metadata_updates_do_not_copy_unchanged_mail_files(tmp_path):
         assert set(ota_mail.load_messages_from([store.path])[0]) == {'unchanged'}
     finally:
         store.close()
+
+
+def test_parser_upgrade_preserves_original_observation_and_uses_new_fact_version(tmp_path):
+    raw = capture()
+    raw['snapshot_text'] = raw['snapshot_text'].replace('투숙 완료', '예약 취소일: 2026년 7월 31일')
+    path = tmp_path / 'cancelled.json'
+    path.write_text(json.dumps(raw), encoding='utf-8')
+    store = OtaStore(tmp_path / 'unified.sqlite')
+    try:
+        store.import_capture(path)
+        old = json.loads(store.conn.execute('SELECT fact_json FROM ota_booking_evidence').fetchone()[0])
+        old.pop('parser_version')
+        old['reservation_status'] = 'unknown'
+        store.conn.execute("UPDATE ota_booking_evidence SET entry_key='detail',fact_json=?", (encoded(old),))
+        store.conn.commit()
+        store.import_capture(path)
+        assert store.summary()['ota_source_revisions'] == 1
+        assert store.summary()['ota_booking_evidence'] == 2
+        assert direct_facts(store.conn)[0][1]['reservation_status'] == 'cancelled'
+        before = database_digest(store)
+        store.import_capture(path)
+        assert before == database_digest(store)
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize('target', [None, '', 'relative.sqlite'])
+def test_invalid_unified_target_never_silently_falls_back_to_legacy(tmp_path, target):
+    (tmp_path / 'ota-sources.json').write_text(json.dumps({'schema_version':'ota-sources-v1',
+        'unified_database':target}), encoding='utf-8')
+    with pytest.raises(ota_sources.OtaSourcesError):
+        ota_sources.resolve_sources(tmp_path, mail_default=tmp_path / 'old-mail',
+                                    portal_default=tmp_path / 'old-portal.sqlite')

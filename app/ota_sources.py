@@ -143,7 +143,7 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
     path=Path(manifest_file) if manifest_file is not None else manifest_path(data_directory)
     explicit=os.environ.get('WEBLEDGER_OTA_SOURCES') is not None or manifest_file is not None
     manifest=read_manifest(path,required=explicit)
-    if manifest is not None and manifest.get('unified_database'):
+    if manifest is not None and 'unified_database' in manifest:
         databases = manifest_entries({'db': [manifest['unified_database']]}, 'db')
         database = databases[0]
         missing = [] if database.is_file() else [{'kind': 'unified_database', 'path': str(database)}]
