@@ -435,6 +435,76 @@ def test_signed_booking_id_total_price_payment_receipt_extracts_without_cards(tm
     assert events[0]['service_period'] == {'starts_on':'2026-08-01','ends_on':'2026-08-03'}
 
 
+def test_trip_prepaid_confirmation_captures_only_actual_online_payment_without_inventing_date(tmp_path):
+    import json
+    mail = message(
+        '예약 번호: 1400830177908672\n체크인: 2026년 10월 23일\n체크아웃: 2026년 10월 24일\n'
+        '온라인 사전 결제\n결제 완료\nKB국민카드(신용카드) 199,173원\n'
+        '총 예약 요금 202,000원\n온라인 사전 결제 199,173원',
+        subject='[예약 확정 안내] 합성 숙소 예약이 확정되었습니다', identity='trip-prepaid')
+    # 실제 Gmail 원본의 필드명도 확인한다. 이 필드는 결제일의 증거가 아니다.
+    mail['internalDate'] = mail.pop('internal_date')
+    path = tmp_path / 'gmail-trip.json'
+    path.write_text(json.dumps({'responses':[mail]}, ensure_ascii=False), encoding='utf-8')
+    events = build_ota_payment_events({'mail_directories':[tmp_path]})
+    assert len(events) == 1
+    actual = events[0]
+    assert (actual['booking_ref'], actual['event_type'], actual['evidence_status']) == (
+        '1400830177908672', 'charge', 'paid_verified')
+    assert (actual['amount'],actual['currency'],actual['amount_krw'],actual['paid_on']) == (
+        '199173','KRW',199173,None)
+    assert actual['service_period'] == {'starts_on':'2026-10-23','ends_on':'2026-10-24'}
+    assert actual['source_ids'] == ['mail:trip-prepaid']
+    # A paid reservation without an explicit payment date must not bind to an
+    # otherwise same-amount/same-card transaction.
+    candidate = card('possible-trip-payment', amount_krw=199173,
+                     approval_date='2026-10-21', card_tail='1234')
+    linked = match_ota_payment_events([actual], [candidate])
+    assert linked[0]['transaction_id'] is None
+
+
+def test_booking_receipt_uses_explicit_paid_date_and_excludes_onsite_tax(tmp_path):
+    import json
+    receipt = message(
+        '예약 번호 5374676720\n결제일 2026년 10월 21일\n'
+        '체크인: 2026년 10월 23일\n체크아웃: 2026년 10월 24일\n'
+        '2026년 10월 21일에 결제된 금액 ¥24,200',
+        subject='고객님의 영수증입니다', identity='booking-receipt',domain='booking.com')
+    confirmation = message(
+        '예약 번호 5374676720\n체크인: 2026년 10월 23일\n체크아웃: 2026년 10월 24일\n'
+        '합계 ¥24,500\n총 지불 금액 ¥24,200\n현장 온천세 ¥300',
+        subject='예약이 확정되었습니다', identity='booking-confirmation', domain='booking.com')
+    for mail in (receipt, confirmation):
+        mail['internalDate'] = mail.pop('internal_date')
+    (tmp_path / 'gmail-booking.json').write_text(
+        json.dumps({'responses':[receipt,confirmation]}, ensure_ascii=False), encoding='utf-8')
+    events = build_ota_payment_events({'mail_directories':[tmp_path]})
+    paid = [e for e in events if e['evidence_status'] == 'paid_verified']
+    assert len(events) == 2 and len(paid) == 1
+    assert (paid[0]['amount'],paid[0]['currency'],paid[0]['paid_on']) == (
+        '24200','JPY','2026-10-21')
+    assert paid[0]['source_ids'] == ['mail:booking-receipt']
+    assert paid[0]['service_period'] == {'starts_on':'2026-10-23','ends_on':'2026-10-24'}
+    assert any(e['event_type'] == 'reservation' for e in events)
+    # The separately due onsite tax is not a second online charge.
+    onsite_tax = card('onsite-tax', approval_date='2026-10-21',
+                     foreign_currency='JPY', foreign_amount='300', amount_krw=3000)
+    assert match_ota_payment_events(paid, [onsite_tax])[0]['transaction_id'] is None
+
+
+def test_booking_receipt_with_conflicting_paid_dates_does_not_create_charge(tmp_path):
+    import json
+    receipt = message('예약 번호 5374676720\n결제일 2026년 10월 20일\n'
+                      '2026년 10월 21일에 결제된 금액 ¥24,200',
+                      subject='고객님의 영수증입니다',identity='conflict',domain='booking.com')
+    receipt['internalDate'] = receipt.pop('internal_date')
+    (tmp_path/'gmail-conflict.json').write_text(
+        json.dumps({'responses':[receipt]}, ensure_ascii=False),encoding='utf-8')
+    events = build_ota_payment_events({'mail_directories':[tmp_path]})
+    assert len(events) == 1
+    assert events[0]['evidence_status'] == 'not_card_charge'
+
+
 def test_booking_payment_receipt_subject_and_amount_label_variants_are_extracted(tmp_path):
     import json
     labels = ['총 금액', '총 지불 금액', '총 요금']

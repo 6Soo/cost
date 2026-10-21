@@ -138,6 +138,29 @@ def _extract_signed_payment_message(message):
     subject = headers.get("subject", "")
     text = ota_mail.body_text(message.get("payload", {}))
     combined = subject + "\n" + text
+    # 일부 숙박 확정서에는 실제 온라인 결제 완료가, 영수증에는 결제일이
+    # 제목과 다른 위치에 적힌다. 예약 총액이나 현장 세금을 결제로 보지 않는다.
+    trip_prepaid = (
+        domain in ("trip.com", "trip.co.kr")
+        and "예약 확정 안내" in subject
+        and bool(re.search(r"결제\s*완료", text))
+        and bool(re.search(r"온라인\s*사전\s*결제\s*[0-9][0-9,]*\s*원", text))
+        and not ota_mail.reservation_cancelled(subject)
+    )
+    receipt_day = None
+    booking_receipt = domain == "booking.com" and "영수증" in subject
+    if booking_receipt:
+        dates = set(re.findall(r"결제일\s*[:：]?\s*(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)", text))
+        paid_dates = set(re.findall(
+            r"(\d{4}년\s*\d{1,2}월\s*\d{1,2}일)에\s*결제된\s*금액\s*[¥￥]\s*[0-9][0-9,]*", text))
+        if len(dates) == len(paid_dates) == 1:
+            try:
+                parse_day = lambda value: date(*map(int, re.findall(r"\d+", value)))
+                day = parse_day(next(iter(dates)))
+                if day == parse_day(next(iter(paid_dates))):
+                    receipt_day = day
+            except ValueError:
+                pass
     agoda_cancellation = (
         domain in ("agoda.com", "agoda-messaging.com")
         and bool(re.search(r"취소된\s*예약|예약\s*취소\s*완료", subject))
@@ -156,9 +179,13 @@ def _extract_signed_payment_message(message):
     else:
         complete = bool(re.search(
             r"결제.*완료|결제가 완료|payment.*(?:confirm|received|successful|completed)",
-            subject, re.I))
+            subject, re.I)) or trip_prepaid or receipt_day is not None
         label = r"(?:총\s*(?:지불\s*)?(?:금액|요금)|total(?:\s+price)?|결제\s*(?:완료|금액)|paid\s+amount|payment\s+amount|charged)"
         event_type = "scheduled_charge" if scheduled else "charge"
+        if trip_prepaid:
+            label = r"(?:온라인\s*사전\s*결제)"
+        elif receipt_day is not None:
+            label = r"(?:결제된\s*금액)"
     refs = set(re.findall(r"(?:예약\s*(?:번호|코드|ID)|booking\s*(?:reference|number|ID)|reservation\s*(?:number|ID))\s*[:：#]?\s*([A-Z0-9-]{6,32})",
                           text, re.I))
     if len(refs) != 1:
@@ -189,8 +216,10 @@ def _extract_signed_payment_message(message):
     if len(set(values)) > 1:
         return None
     currency, amount = values[0] if values else ("", None)
-    paid_on = ota_mail.sent_day(message, headers) if complete and not scheduled else None
-    if complete and not scheduled and paid_on is None:
+    paid_on = (receipt_day if receipt_day is not None else
+               None if trip_prepaid else
+               ota_mail.sent_day(message, headers) if complete and not scheduled else None)
+    if complete and not scheduled and paid_on is None and not trip_prepaid:
         return None
     provider = next((name for name, domain_names in (("trip", ("trip.com", "trip.co.kr")),
                      ("klook", ("klook.com",)), ("agoda", ("agoda.com", "agoda-messaging.com")),
