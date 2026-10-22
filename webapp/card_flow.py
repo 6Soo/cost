@@ -1988,9 +1988,12 @@ def assign_existing_local_expenses(flow, *, failures=None):
         if not trip:
             continue
         try:
+            previous_note = json.loads(payload).get('operator_note') or ''
+            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
             flow.board.save(row_id=row_id, expected_revision=revision,
                             client_request_id=f'cleanup-trip-{row_id}-{revision}-{trip}',
-                            change_mode='rule_change', changes={'display_tab_id': trip}, actor='automatic')
+                            change_mode='rule_change', changes={'display_tab_id': trip,
+                                'operator_note': (previous_note + '\n' + basis).strip()}, actor='automatic')
         except SaveError as exc:
             if failures is None:
                 raise

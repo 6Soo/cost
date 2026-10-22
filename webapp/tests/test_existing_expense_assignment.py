@@ -30,8 +30,12 @@ def test_existing_expense_only_gets_a_verified_missing_trip_without_changing_mon
         monkeypatch.setattr(flow,'trip_valid',lambda _:True)
         assert assign_existing_local_expenses(flow)==expected
         after=json.loads(board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
-        assert {k:v for k,v in after.items() if k not in ('display_tab_id','revision')}=={k:v for k,v in record.items() if k not in ('display_tab_id','revision')}
+        assert {k:v for k,v in after.items() if k not in ('display_tab_id','revision','operator_note')}=={k:v for k,v in record.items() if k not in ('display_tab_id','revision','operator_note')}
         assert after['display_tab_id']==(trip['tab_id'] if expected else None)
+        if expected:
+            assert '자동 추론' in after['operator_note']
+            assert board.conn.execute('SELECT COUNT(*) FROM board_manual_overrides').fetchone()[0]==0
+            assert board.conn.execute('SELECT COUNT(*) FROM board_learning_cases').fetchone()[0]==0
         assert assign_existing_local_expenses(flow)==0
     finally:
         ledger_board.bind_store(None)
