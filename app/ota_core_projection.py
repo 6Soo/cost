@@ -1,11 +1,12 @@
 """검증된 코어 연결을 카드 검토와 장부에 같은 근거로 전달한다."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 def card_matches(facts, data):
     """검증된 코어 연결을 화면에 보완하며 기존 연결과 카드 점유는 유지한다."""
     facts = list(facts)
     occupied = {str(fact.get('transaction_id')): index for index, fact in enumerate(facts)
                 if fact.get('transaction_id')}
+    existing_counts = Counter(str(fact.get('transaction_id')) for fact in facts if fact.get('transaction_id'))
     events = {str(e.get('ota_event_id')): e for e in data.get('events', [])}
     cards = {str(c.get('transaction_id')): c for c in data.get('transactions', [])}
     claims = defaultdict(list)
@@ -35,7 +36,7 @@ def card_matches(facts, data):
             old = facts[occupied[tid]]
             period = event.get('service_period') or {}
             from app import ota_payments
-            if (old.get('period') or old.get('period_conflict')
+            if (existing_counts[tid] != 1 or old.get('period') or old.get('period_conflict')
                     or old.get('reservation_status') in ('cancelled', 'refunded')
                     or event.get('reservation_status') in ('cancelled', 'refunded')
                     or str(old.get('provider')) != str(event['provider'])
