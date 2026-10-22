@@ -542,6 +542,7 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
 
 def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, monkeypatch):
     from webapp.card_flow import _cleanup_card_breakdown
+    monkeypatch.setattr('webapp.card_flow._ota_entries_by_card', lambda _: {})
 
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'cleanup-counts.sqlite', seed_demo=False)
@@ -570,15 +571,15 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         board.conn.commit()
 
         assert _cleanup_card_breakdown(board) == {
-            'no_item': 1, 'no_trip': 1, 'record': 1, 'protected': 1,
+            'no_item': 1, 'no_trip': 1, 'protected': 2,
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
         assert '정리할 지출 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
         assert '항목 미분류 1건' in html
         assert '여행 미배정 2건' in html
-        assert '장부 기록 대기 1건' in html
-        assert '보류·오류 1건' in html
+        assert '기록 대기' not in html
+        assert '보류·오류 2건' in html
     finally:
         ledger_board.bind_store(None)
         board.close()
