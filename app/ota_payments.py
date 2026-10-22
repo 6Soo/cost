@@ -302,6 +302,13 @@ def _portal_events(databases):
                 period = {"starts_on": start, "ends_on": end}
             except (TypeError, ValueError):
                 continue
+        # Aside v1의 completed는 상세 화면의 '투숙 완료'에서만 나온다.
+        # 이전 수집 원문에 item이 없어도 이 검증된 숙박 사실은 전달한다.
+        # 다른 상태·형식·기간 누락은 가맹점 이름만으로 숙박이라고 만들지 않는다.
+        item = fact.get("item")
+        if (not item and fact.get("evidence_format") == "agoda-aside-v1"
+                and fact.get("reservation_status") == "completed" and period):
+            item = "숙박비"
         components = [component for component in fact.get("price_components", []) or []
                       if component.get("kind") == "paid_today"]
         for component_index, component in enumerate(components):
@@ -320,7 +327,7 @@ def _portal_events(databases):
                 "provider": "agoda", "booking_ref": booking, "event_type": "charge",
                 "paid_on": fact.get("paid_on"), "amount": str(amount), "currency": currency,
                 "amount_krw": int(amount) if currency == "KRW" and amount == amount.to_integral_value() else None,
-                "card_last4": card_last4, "service_period": period, "item": fact.get("item"),
+                "card_last4": card_last4, "service_period": period, "item": item,
                 "reservation_status": fact.get("reservation_status"), "payment_status": "paid",
                 "refund_status": fact.get("refund_status"), "evidence_status": "paid_verified",
                 "source_digest": digest, "source_digests": [digest], "source_ids": [source_id],
@@ -358,7 +365,7 @@ def _portal_events(databases):
                          "currency":str(component.get("currency") or "").upper(),
                          "amount_krw":int(amount) if component.get("currency") == "KRW" and
                              amount == amount.to_integral_value() else None,
-                         "card_last4":card_last4, "service_period":period, "item":fact.get("item"),
+                         "card_last4":card_last4, "service_period":period, "item":item,
                          "reservation_status":fact.get("reservation_status"), "payment_status":"paid",
                          "refund_status":"refunded", "evidence_status":"refund_verified",
                          "source_digest":digest, "source_digests":[digest], "source_ids":[source_id],
