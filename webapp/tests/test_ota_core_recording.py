@@ -110,6 +110,8 @@ def test_same_booking_payment_receipt_gains_verified_service_period_only():
     assert result['matches'][0]['source_sha256'] == 'receipt'
     assert result['rules'][0]['optional']['source_hash'] == 'source'
     assert report == original
+    ambiguous = dict(report, matches=[old, dict(old, booking_ref='OTHER')])
+    assert extend_report(ambiguous, data) == ambiguous
     for changes in ({'booking_ref': 'OTHER'}, {'reservation_status': 'cancelled'},
                     {'source_hash': 'different'}, {'period_conflict': True},
                     {'period': {'starts_on': '2026-09-01', 'ends_on': '2026-09-02'}}):
