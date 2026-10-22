@@ -63,7 +63,7 @@
 | 기존 OTA 코어 | \`app/ota_payments.py\`, \`app/ota_portal.py\`, \`app/ota_mail.py\` | 날짜가 없는 charge의 후보를 차단하는 이전 코드가 있음 |
 | 기존 기록 게이트 | \`app/ota_exact.py\`, \`webapp/card_flow.py::_ota_group_holds_base\` | 일부 OTA 미확정 자체가 장부 기록을 막는 운영 구현이 있음 |
 | 기존 검토 | \`webapp/ota_payment_review.py\`, \`webapp/ota_snapshot.py\`, \`webapp/ledger_store.py\` | 수동 pin·안전/비동기/기록 보호. 보존하고 진단 연결 |
-| **PR #87** | [PR #87](https://github.com/6Soo/cost/pull/87) | 문서와 \`30000\`/\`30000.00\` Decimal N:M 수정을 push했으나 main 미병합, 합성 표적 pytest 미실행 |
+| **PR #87** | [PR #87](https://github.com/6Soo/cost/pull/87) | 문서와 \`30000\`/\`30000.00\` Decimal N:M 수정을 push했으나 **main에 squash 병합 (`f8ccd13`)**, 합성 표적 pytest 미실행 |
 | R0~R6 | 상세 명세에 계획 | **아직 신규 통합 엔진/정책 A 런타임 구현 아님** |
 
 이것은 소스 코드 자체를 변경하는 지침이 아니다. 코드의 실제 보호 체크와 위 목표가 충돌하면 **금융 데이터 보존·사용자 결정 우선의 구현**을 설계하고 합성 테스트로 새 변경을 점진 적용한다.
