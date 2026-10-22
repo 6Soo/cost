@@ -1021,10 +1021,30 @@ def same_date_cards(event, transactions, *, links=None, rules=None):
         str(row.get("transaction_id") or "")))
 
 
+def _canonical_group_amount(value):
+    """Canonicalize the *same* finite, positive payment amount across source formats.
+
+    A signed mail may report "30000.00" while a portal reports 30000. Decimal
+    equality is financial equality; raw string equality is not. Do not round,
+    apply a currency conversion, or treat an invalid value as a match.
+    """
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not amount.is_finite() or amount <= 0:
+        return None
+    return format(amount.normalize(), "f")
+
+
 def _event_group_signature(event):
+    currency = str(event.get("currency") or "").strip().upper()
+    raw_amount = event.get("amount_krw") if currency == "KRW" else event.get("amount")
+    amount = _canonical_group_amount(raw_amount)
+    # A non-numeric amount must never make unrelated source events equal.
+    amount_key = amount if amount is not None else ("INVALID", str(event.get("ota_event_id") or ""))
     return (event.get("provider"), event.get("item"), event.get("event_type"),
-            event.get("paid_on"), str(event.get("currency") or "").upper(),
-            str(event.get("amount") if event.get("currency") != "KRW" else event.get("amount_krw")))
+            event.get("paid_on"), currency, amount_key)
 
 
 def _card_identity(row):
