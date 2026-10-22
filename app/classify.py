@@ -26,6 +26,8 @@ money:
 
 from __future__ import annotations
 
+import re
+
 from .db import decided_sql
 from .normalize import normalize_merchant
 from .reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTAL_ORIGIN,
@@ -49,6 +51,12 @@ CLEAR_PATTERNS = (
     ("gs25", "편의점", "편의점 구매", ("T-식비",)),
     ("cu", "편의점", "편의점 구매", ("T-식비",)),
     ("세븐일레븐", "편의점", "편의점 구매", ("T-식비",)),
+    ("seven-eleven", "편의점", "편의점 구매", ("T-식비",)),
+    ("familymart", "편의점", "편의점 구매", ("T-식비",)),
+    ("lawson", "편의점", "편의점 구매", ("T-식비",)),
+    ("eneos-ss", "교통비", "주유소 이용", ("T-교통",)),
+    ("eneos", "교통비", "주유소 이용", ("T-교통",)),
+    ("idemitsu", "교통비", "주유소 이용", ("T-교통",)),
     ("taxi", "택시비", "택시 이용", ("T-교통",)),
     ("택시", "택시비", "택시 이용", ("T-교통",)),
     ("지하철", "대중교통", "교통비", ("T-교통",)),
@@ -62,7 +70,40 @@ def _pattern_for(merchant_normalized: str):
     for needle, item, description, tabs in CLEAR_PATTERNS:
         if merchant_normalized == needle or merchant_normalized.startswith(needle + " "):
             return item, description, tabs
+    # 호텔 브랜드 뒤의 지점명, 띄어쓰기, 연결 기호는 달라도 같은 숙박업으로 본다.
+    # 다른 사업체 이름에 브랜드 글자가 우연히 포함된 경우는 제외한다.
+    name = re.sub(r'[\s._()\-·,]+', '', merchant_normalized.casefold())
+    # 지역명이 붙은 해외 렌터카·호텔 브랜드는 업체의 용도를 분명히 알 수 있다.
+    if re.match(r'^toyotarent(?:and)?lease[a-z0-9]*$', name):
+        return '렌터카', '렌터카 이용', ('T-교통',)
+    if re.match(r'^(?:hotelrouteinn|livemaxresort)[a-z0-9]*$', name):
+        return '숙박비', '호텔 숙박', ('T-숙박',)
+    # 한글/영문 브랜드 및 지점 표기 차이를 흡수하되 다른 상호로 번지지 않게 한다.
+    if re.fullmatch(
+        r'(?:토요코인|토요코인호텔|toyokoinn|toyokoinnhotel)'
+        r'(?:(?:서울|대구|부산|인천|대전|울산|광주|제주|수원|창원|강남|동성로|'
+        r'daegu|seoul|busan|incheon|daejeon|ulsan|gwangju|jeju|suwon|changwon)'
+        r'[가-힣a-z0-9]*)?', name,
+    ):
+        return '숙박비', '호텔 숙박', ('T-숙박',)
+    if re.search(r'(?:국밥|칼국수|김밥|설렁탕|순대국|냉면)$', name):
+        return '식비', '식당 식사', ('T-식비',)
     return None
+
+
+def _verified_local_trip(transaction, item, trip_resolver):
+    """현지 구매로 판단되는 항목만 검증된 여행 일정에 배정한다.
+
+    숙박·교통편 예약 등의 카드 결제일은 이용일이 아닐 수 있으므로 제외한다.
+    """
+    if (not trip_resolver or not transaction.get('approval_date')
+            or transaction.get('transaction_direction') != 'purchase'
+            or item in ('숙박비', '항공료', '렌터카')
+            or is_booking_or_online(transaction)):
+        return ''
+    from .rules import merchant_country
+    country = merchant_country(transaction)
+    return trip_resolver(transaction, country) if country else ''
 
 
 def classify_transaction(transaction: dict, *, rules: list,
@@ -332,16 +373,18 @@ def _classify_transaction(transaction: dict, *, rules: list,
         }
         for item, industries in groups.items():
             if industry in industries:
+                trip = _verified_local_trip(transaction, item, trip_resolver)
                 return dict(classification_state=STATE_CLASSIFIED,classification_source='card_category',
-                            classification_basis='카드사 업종: '+industry,item=item,description='',
-                            display_tab_id=DEFAULT_TAB,trip_id='',rule_id='')
+                            classification_basis='카드사 업종: '+industry + (' · 검증된 여행 기간의 현지 사용' if trip else ''),
+                            item=item,description='',display_tab_id=trip or DEFAULT_TAB,trip_id=trip,rule_id='')
     if pattern:
         item, description, tabs = pattern
+        trip = _verified_local_trip(transaction, item, trip_resolver)
         return {"classification_state": STATE_CLASSIFIED,
                 "classification_source": "pattern",
-                "classification_basis": "가맹점 이름이 분명해요",
+                "classification_basis": "가맹점 업종 자동분류" + (' · 검증된 여행 기간의 현지 사용' if trip else ''),
                 "item": item, "description": description,
-                "display_tab_id": DEFAULT_TAB, "trip_id": "", "rule_id": ""}
+                "display_tab_id": trip or DEFAULT_TAB, "trip_id": trip, "rule_id": ""}
 
     # 사용자가 지정한 현지 경비 기본값은 구체적 규칙과 명확한 업종 뒤에만 적용한다.
     # 예약·온라인 공급자의 결제일을 실제 이용일로 바꾸지 않는다.

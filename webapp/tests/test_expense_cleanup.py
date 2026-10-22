@@ -510,7 +510,7 @@ def test_cleanup_trip_choice_never_auto_resolves_a_review_hold(tmp_path, monkeyp
         board.close()
 
 
-def test_cleanup_cards_show_in_place_rule_proposal_and_protect_held_rows(tmp_path, monkeypatch):
+def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, monkeypatch):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'cleanup-proposal-ui.sqlite', seed_demo=False)
     try:
@@ -529,14 +529,148 @@ def test_cleanup_cards_show_in_place_rule_proposal_and_protect_held_rows(tmp_pat
         held = html.split(f"data-transaction='{protected['transaction_id']}'", 1)[1]
         held = held.split("</li>", 1)[0]
         assert '거래 검토' in first and "class='cleanup-badge'" in first
-        assert 'AI에게 처리 방법 알려주기' in first
-        assert '이 지시로 규칙 제안하기' in first
+        assert 'AI에게 처리 방법 알려주기' not in first
+        assert '이 지시로 규칙 제안하기' not in first
         assert '상세 검토' in first and '여행 수정' in first
         assert 'data-cleanup-propose' not in held and '보류 중' in held
         assert "'rule-proposal/approve'" not in first  # HTML은 서버 승인 없이 기록하지 않는다.
         assert 'resolve_hold:' not in html
     finally:
         ledger_board.bind_store(None)
+        board.close()
+
+
+def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, monkeypatch):
+    from webapp.card_flow import _cleanup_card_breakdown
+
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-counts.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        _, _, rows = card_rows(board, 4)
+        trip = board.create_trip(starts_on='2026-10-01', ends_on='2026-10-05',
+                                 destination='합성', client_request_id='cleanup-breakdown')
+        board.conn.execute(
+            "UPDATE transactions SET classification_state='needs_review', item='',"
+            " display_tab_id='unclassified' WHERE transaction_id=?", (rows[0]['transaction_id'],),
+        )
+        board.conn.execute(
+            "UPDATE transactions SET classification_state='classified', item='식비',"
+            " display_tab_id='unclassified' WHERE transaction_id=?", (rows[1]['transaction_id'],),
+        )
+        board.conn.execute(
+            "UPDATE transactions SET classification_state='classified', item='식비',"
+            " display_tab_id=? WHERE transaction_id=?", (trip['tab_id'], rows[2]['transaction_id']),
+        )
+        board.conn.execute(
+            'INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+            (rows[3]['transaction_id'], rows[3]['source_hash'], 'evidence_pending', 'synthetic'),
+        )
+        unassigned_row(board, row_id='cleanup-unassigned')
+        board.conn.commit()
+
+        assert _cleanup_card_breakdown(board) == {
+            'no_item': 1, 'no_trip': 1, 'record': 1, 'protected': 1,
+        }
+        assert cleanup_total(board) == 5
+        html = render_expense_cleanup(board, 'token')
+        assert '정리할 지출 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
+        assert '항목 미분류 1건' in html
+        assert '여행 미배정 2건' in html
+        assert '장부 기록 대기 1건' in html
+        assert '보류·오류 1건' in html
+    finally:
+        ledger_board.bind_store(None)
+        board.close()
+
+
+def test_direct_hotel_card_uses_matching_reservation_period_only_once(tmp_path, monkeypatch):
+    from datetime import date
+    from app import booking_evidence
+    from webapp import ota_catalog
+
+    board = LedgerStore(tmp_path / 'direct-hotel.sqlite', seed_demo=False)
+    try:
+        flow, batch, rows = card_rows(board, 2)
+        confirmed = booking_evidence.summarize(
+            '[예약 확정 안내] 토요코인 대구 동성로 예약이 확정되었습니다',
+            date(2026, 10, 1),
+            '예약 번호 1400829364445735\n체크인: 2026년 10월 4일\n'
+            '체크아웃: 2026년 10월 5일\n237,500원 결제 완료',
+        )
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [confirmed]}, 'count': 1,
+        })
+        monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _: {'mail_directories': []})
+        monkeypatch.setattr(flow, 'booking_trip', lambda _tx, _period: 'verified-trip')
+        for row in rows:
+            board.conn.execute(
+                "UPDATE transactions SET merchant='토요코인 대구동성로',"
+                "merchant_normalized='토요코인 대구동성로', amount_krw=237500,"
+                "classification_source='pattern',item='숙박비',display_tab_id='unclassified'"
+                " WHERE transaction_id=?", (row['transaction_id'],),
+            )
+        board.conn.commit()
+
+        # 같은 호텔에서 같은 금액이 두 번 결제되면 예약을 한쪽에 임의로 붙이지 않는다.
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+        board.conn.execute('UPDATE transactions SET amount_krw=123000 WHERE transaction_id=?',
+                           (rows[1]['transaction_id'],))
+        board.conn.commit()
+        assignments = flow._evidence_period_assignments(batch, set(), set(), None)
+        assert len(assignments) == 1
+        assert assignments[0]['optional']['inferred_assignment']['trip_id'] == 'verified-trip'
+        assert assignments[0]['optional']['inferred_assignment']['confidence'] == '중간'
+
+        # 같은 지점을 다른 띄어쓰기로 승인한 카드 거래도 중복 결제로 차단한다.
+        board.conn.execute(
+            "UPDATE transactions SET merchant='토요코인호텔 대구 동성로',"
+            " merchant_normalized='토요코인호텔 대구 동성로', amount_krw=237500"
+            " WHERE transaction_id=?", (rows[1]['transaction_id'],),
+        )
+        board.conn.commit()
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+        board.conn.execute('UPDATE transactions SET amount_krw=123000 WHERE transaction_id=?',
+                           (rows[1]['transaction_id'],))
+        board.conn.commit()
+
+        # 예약 확정만 있고 카드 결제 완료 증빙이 없는 메일로 자동 기장하지 않는다.
+        only_reserved = dict(confirmed, paid_amounts=[])
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [only_reserved]}, 'count': 1,
+        })
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [confirmed, dict(confirmed, subject='토요코인 대구 동성로 예약 취소')]},
+            'count': 2,
+        })
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [confirmed]}, 'count': 1,
+        })
+
+        # 취소 메일에 금액이 없더라도 같은 예약번호면 자동 연결을 보류한다.
+        cancelled = booking_evidence.summarize(
+            '토요코인 대구 동성로 예약 취소', date(2026, 10, 12),
+            '예약 번호 1400829364445735\n예약이 취소되었습니다',
+        )
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [confirmed]},
+            'by_ref': {'1400829364445735': [confirmed, cancelled]}, 'count': 2,
+        })
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+        monkeypatch.setattr(booking_evidence, 'build_index', lambda _: {
+            'by_amount': {237500: [confirmed]}, 'count': 1,
+        })
+
+        # 환불·충돌·보류 근거가 생기면 사용자가 확인할 때까지 연결하지 않는다.
+        board.conn.execute(
+            'INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+            (rows[0]['transaction_id'], rows[0]['source_hash'], 'evidence_pending', 'synthetic'),
+        )
+        board.conn.commit()
+        assert flow._evidence_period_assignments(batch, set(), set(), None) == []
+    finally:
         board.close()
 
 

@@ -30,7 +30,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
                 context.set_extra_http_headers({access_control.SyntheticSessionAdapter.HEADER: OWNER})
                 page = context.new_page()
                 page.goto(f'http://127.0.0.1:{self.port}/cards')
-                self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 2)
+                self.assertEqual(page.locator('.catalog-actions .catalog-btn').count(), 1)
                 self.assertEqual(page.locator('#card-filters button').evaluate(
                     "e=>getComputedStyle(e).backgroundColor"), 'rgb(28, 122, 82)')
                 self.assertEqual(page.locator('thead select').count(), 0)
@@ -89,7 +89,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         script_errors = []
         page.on('pageerror', lambda error: script_errors.append(str(error)))
         page.goto(f'http://127.0.0.1:{self.port}/import')
-        page.get_by_role('link', name='모든 자료', exact=True).click()
+        page.get_by_role('link', name='전체 카드 거래 검색', exact=True).click()
         self.assertIn('전체 3건', page.inner_text('#card-count'))
         self.assertEqual(page.locator('tbody tr').count(), 3)
         self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
