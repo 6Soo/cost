@@ -12,7 +12,7 @@
 
 ## 현재 작업 상태
 
-- **GitHub [PR #87](https://github.com/6Soo/cost/pull/87):** 사용자 확정 V3 정책/명세·문서 통합 및 N:M `30000` vs `30000.00` Decimal 금액 정규화 코드/합성 테스트. **main 미병합·미배포, 새 합성 테스트 미실행.**
+- **GitHub [PR #87](https://github.com/6Soo/cost/pull/87):** 사용자 확정 V3 정책/명세·문서 통합 및 N:M `30000` vs `30000.00` Decimal 금액 정규화 코드/합성 테스트. **2026-10-23 main `f8ccd13`에 squash 병합 완료·운영 서버 미배포, 새 합성 테스트 미실행.**
 - **운영 코드 현황:** 이전 정확 매칭/OTA-first 경로가 병존하고 OTA 링크 미확정에 따른 비용 HOLD가 일부 존재. 새 정책 A는 **문서화됐으나 구현/배포 전**.
 - **다음 실행 과제 R0:** `tools/audit_ota_card_coverage.py`의 읽기 전용 후보·추출 탈락·원본 계보/ID 충돌·legacy diff 진단과 합성 표적 테스트. 실운영 원본 접근 전에는 실제 미매칭 건수·정확도 수치 단정 불가.
 - **이어갈 작업:** R1 출처/ID, R2 날짜 없는 후보·공통 alias, R3 단일 matcher/N:M, R4 정상 카드 독립 비용 readiness, R5 수동 여행 이동·AI 1/2/3 대화 및 항공권 참가, R6 단계별 cutover.
