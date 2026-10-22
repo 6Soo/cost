@@ -6,12 +6,12 @@ from webapp.card_flow import PAGE, cleanup_total, render_expense_cleanup
 from webapp.ledger_store import LedgerStore
 
 
-def unassigned_row(board, row_id='expense-cleanup-1'):
+def unassigned_row(board, row_id='expense-cleanup-1', *, confirmed=False):
     payload = {'row_id': row_id, 'row_kind': 'expense', 'display_tab_id': None, 'revision': 1,
                'occurred_on': '2026-09-30', 'amount_krw': 12000, 'item': '', 'description': '합성 상점',
                'source_merchant': '합성 상점', 'source_kind': '수기', 'source_event_id': '', 'service_period': '',
-               'reservation_no': '', 'evidence_type': '카드', 'memo': '', 'classification_state': 'confirmed',
-               'confirmed_by': 'owner', 'event_kind': '', 'source_card_last4': '', 'source_approval_number': ''}
+               'reservation_no': '', 'evidence_type': '카드', 'memo': '', 'classification_state': 'confirmed' if confirmed else 'needs_review',
+               'confirmed_by': 'owner' if confirmed else '', 'event_kind': '', 'source_card_last4': '', 'source_approval_number': ''}
     board.conn.execute("INSERT INTO board_rows VALUES (?,?,?,?,?)",
                        (row_id, 'expense', None, 1, json.dumps(payload, ensure_ascii=False, sort_keys=True)))
 
