@@ -1,5 +1,8 @@
 # Google 정본 동기화 준비 체크리스트 (비활성)
 
+> **구현 전 검토 문서**입니다. 2026-10-11 기록을 바탕으로 하며 현재 Google 정본 연동이나 예약 작업이 실제 활성화되었다는 뜻이 아닙니다. 최신 목표 및 작업 순서는 [COST V3 START HERE](COST_V3_START_HERE.md) 및 [Google 업무 명세](target-workflow-google-authority.md)에서 확인합니다.
+
+
 > 상태: **준비 문서. 스케줄러는 등록하지 않았고 운영 설정도 바꾸지 않았다.**
 > 대상 구현: `app/google_authority.py`, `tools/google_authority_sync.py` (PR #71, #73).
 > 기준 시각은 Asia/Seoul이다.
