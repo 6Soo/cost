@@ -46,19 +46,19 @@ class RuleReviewTests(unittest.TestCase):
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.on('dialog', lambda dialog: dialog.accept())
                 page.goto(self.base + '/import')
-                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{transaction_id}']")
-                row.locator('.cleanup-instruction').fill(instruction)
-                row.locator('[data-cleanup-propose]').click()
-                row.get_by_text('새 분류 규칙 제안').wait_for()
-                self.assertIn('여행 배정', row.locator('.cleanup-proposal-result').inner_text())
-                self.assertIn('기존 승인 규칙', row.locator('.cleanup-proposal-result').inner_text())
-                self.assertIn('숙박비', row.locator('.cleanup-proposal-grid').inner_text())
+                page.locator('#card-review-detail > summary').click()
+                page.locator('#rule-focus option').first.wait_for(state='attached')
+                page.select_option('#rule-focus', transaction_id)
+                page.fill('#rule-text', instruction)
+                page.click('#rule-propose')
+                page.locator('#rule-approve').wait_for()
+                self.assertIn('숙박비', page.locator('#rule-result').inner_text())
                 self.assertEqual(self.server.card_store.conn.execute(
-                    'SELECT COALESCE(item, \'\') FROM transactions WHERE transaction_id=?',
+                    "SELECT COALESCE(item, '') FROM transactions WHERE transaction_id=?",
                     (transaction_id,)).fetchone()[0], '')
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                row.locator('.cleanup-approve').click()
-                row.get_by_text('분류 1건을 적용했습니다', exact=False).wait_for()
+                page.click('#rule-approve')
+                page.locator('#rule-approve').wait_for(state='detached')
                 self.assertEqual(self.server.card_store.conn.execute(
                     'SELECT trip_id, display_tab_id, amount_krw FROM transactions WHERE transaction_id=?',
                     (transaction_id,)).fetchone(), original_trip)
@@ -75,15 +75,17 @@ class RuleReviewTests(unittest.TestCase):
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.on('dialog', lambda dialog: dialog.accept())
                 page.goto(self.base + '/import')
-                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{self.tx[0]}']")
-                row.locator('.cleanup-instruction').fill('이 건만 숙박비로 분류해 줘')
-                row.locator('[data-cleanup-propose]').click()
-                row.get_by_text('새 분류 규칙 제안').wait_for()
+                page.locator('#card-review-detail > summary').click()
+                page.locator('#rule-focus option').first.wait_for(state='attached')
+                page.select_option('#rule-focus', self.tx[0])
+                page.fill('#rule-text', '이 건만 숙박비로 분류해 줘')
+                page.click('#rule-propose')
+                page.locator('#rule-approve').wait_for()
                 self.assertEqual(set(self.items().values()), {''})
-                self.assertIn('현재 카드 거래 1건', row.locator('.cleanup-proposal-grid').inner_text())
+                self.assertIn('숙박비', page.locator('#rule-result').inner_text())
                 self.assertEqual(page.evaluate('document.documentElement.scrollWidth - innerWidth'), 0)
-                row.locator('.cleanup-approve').click()
-                row.get_by_text('분류 1건을 적용했습니다', exact=False).wait_for()
+                page.click('#rule-approve')
+                page.locator('#rule-approve').wait_for(state='detached')
                 self.assertEqual(self.items()[self.tx[0]], '숙박비')
                 self.assertEqual(self.items()[self.tx[1]], '')
             finally:
@@ -91,15 +93,18 @@ class RuleReviewTests(unittest.TestCase):
 
     def test_same_merchant_proposal_connects_to_existing_future_rule_form(self):
         from app.normalize import normalize_merchant
+
         with sync_playwright() as api:
             browser = api.chromium.launch()
             try:
                 page = browser.new_page(viewport={'width': 390, 'height': 844})
                 page.goto(self.base + '/import')
-                row = page.locator(f"#expense-cleanup .cleanup-row[data-transaction='{self.tx[0]}']")
-                row.locator('.cleanup-instruction').fill('이 가맹점은 앞으로 현지잡비로 분류해 줘')
-                row.locator('[data-cleanup-propose]').click()
-                row.locator('.cleanup-draft').click()
+                page.locator('#card-review-detail > summary').click()
+                page.locator('#rule-focus option').first.wait_for(state='attached')
+                page.select_option('#rule-focus', self.tx[0])
+                page.fill('#rule-text', '이 가맹점은 앞으로 현지잡비로 분류해 줘')
+                page.click('#rule-propose')
+                page.locator('#future-rule-draft').click()
                 form = page.locator('#ruleform')
                 merchant = normalize_merchant(self.rows[0]['merchant'])
                 self.assertEqual(form.locator('[name=merchant]').input_value(), merchant)
@@ -112,7 +117,6 @@ class RuleReviewTests(unittest.TestCase):
                 self.assertTrue(any(r['conditions']['merchant_normalized'] == merchant
                                     and r['effects']['item'] == '현지잡비'
                                     for r in self.flow.pipeline.list_rules()))
-                # A later import uses the saved rule, without a repeated instruction.
                 new_card = CARD.replace(b'A123', b'FUTURE-SYNTHETIC')
                 batch = self.flow.pipeline.receive(new_card, 'future-synthetic.csv')['batch_id']
                 self.flow.classify(batch)
@@ -541,6 +545,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_context(viewport={'width': width, 'height': height}).new_page()
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').nth(1).wait_for(state='attached')
             chosen = self.tx[1]
             page.select_option('#rule-focus', chosen)
@@ -555,7 +560,13 @@ class RuleReviewTests(unittest.TestCase):
             page.get_by_text('한 번에 적용했습니다', exact=False).wait_for()
             # Re-query: a fresh load of the page shows the saved item, not just the in-page state.
             page.reload()
-            page.locator('#preview').get_by_text('현지잡비').first.wait_for()
+            # A reload may preserve the native <details> state. Set it explicitly instead of
+            # toggling it, which can accidentally close the preview on desktop Chromium.
+            page.locator('#card-review-detail').evaluate('(node) => { node.open = true; }')
+            # The preview contains unresolved rows, so the successfully classified row is
+            # expected to disappear after reload. Wait for the other row to prove the batch loaded.
+            page.wait_for_function('(batch) => model && model.batch_id === batch', arg=self.batch)
+            page.locator('#preview').wait_for(state='visible')
             items = self.items()
             self.assertEqual(items[chosen], '현지잡비')
             self.assertEqual(items[self.tx[0]], '')  # the other merchant's row is untouched
@@ -574,6 +585,7 @@ class RuleReviewTests(unittest.TestCase):
             page = browser.new_page(viewport={'width': 390, 'height': 844})
             page.route('**/rule-proposal', lambda route: pending.append(route))
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').nth(1).wait_for(state='attached')
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
@@ -592,6 +604,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').nth(1).wait_for(state='attached')
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             page.click('#rule-propose')
@@ -608,6 +621,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').nth(1).wait_for(state='attached')
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             page.select_option('#rule-focus', self.tx[0])
@@ -634,6 +648,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').first.wait_for(state='attached')
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
@@ -661,6 +676,7 @@ class RuleReviewTests(unittest.TestCase):
             browser = api.chromium.launch(headless=True)
             page = browser.new_page(viewport={'width': width, 'height': 812})
             page.goto(self.base + '/import')
+            page.locator('#card-review-detail > summary').click()
             page.locator('#rule-focus option').first.wait_for(state='attached')
             page.evaluate("Object.defineProperty(document,'hidden',{configurable:true,get:()=>true})")
             page.select_option('#rule-focus', self.tx[0])
@@ -705,6 +721,7 @@ class RuleReviewTests(unittest.TestCase):
             page.goto(self.base + '/import')
             page.locator(f'[data-batch="{self.batch}"]').click()
             page.wait_for_function('(batch)=>model.batch_id===batch', arg=self.batch)
+            page.locator('#card-review-detail > summary').click()
             page.select_option('#rule-focus', self.tx[0])
             page.fill('#rule-text', '이 건만 식비로 분류해 줘')
             page.click('#rule-propose')

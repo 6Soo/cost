@@ -292,11 +292,11 @@ class SignedSessionHttpTests(unittest.TestCase):
         self.assertEqual(headers.get('Location'), '/import?scope=all')
         status, body, _ = self.request('/import?scope=all', cookie=self.cookie(OWNER))
         self.assertEqual(status, 200, body)
-        self.assertIn('모든 자료', body)
+        self.assertIn('전체 카드 거래 검색', body)
         for user in (VIEWER, None):
             status, body, _ = self.request('/import?scope=all', cookie=self.cookie(user) if user else None)
             self.assertNotEqual(status, 200)
-            self.assertNotIn('모든 자료', body)
+            self.assertNotIn('전체 카드 거래 검색', body)
         self.assertEqual(self.server.card_store.conn.total_changes, before)
 
     def test_expired_tampered_revoked_and_deactivated_cookies_are_refused_over_http(self):

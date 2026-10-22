@@ -541,7 +541,9 @@ class CardFlow:
             return ''
         if not hasattr(self, '_retail_trips'):
             # 명시된 일정의 지역만 사용한다. 새 지역은 자동으로 국가를 만들어 붙이지 않는다.
-            countries = {'KR':{'부산','의왕','금오도','호남','군산','화순'}, 'TW':{'대만'},'MN':{'몽골'},
+            countries = {'KR':{'부산','의왕','금오도','호남','군산','화순','영남','경주',
+                               '통영','황금해안','변산','양평','제주','세종','길상사',
+                               '박달고치','함양','한티','해남'}, 'TW':{'대만'},'MN':{'몽골'},
                          'JP':{'에히메','교토','나가센도','아오모리','오사카','알펜루트','북해도',
                                '레분토&리시리','묘코','묘코고원','아키타','오제','야마가타','세토우치',
                                '야마구치','북큐슈','도고','가루이자와','야쿠시마','도쿄','노리쿠라','다테시나','도쿠시마'}}
@@ -719,25 +721,85 @@ class CardFlow:
                               residual_policy=True)
 
     def _evidence_period_assignments(self, batch_id, sources, taken, selected):
-        """결제 완료 근거는 없고 예약 확정 메일만 있는 카드 거래. 금액이 같은 확정 예약이 하나뿐이고
-        이용기간을 덮는 검증된 여행이 하나면 그 여행에 숙박비로 배정한다. 결제·취소 메일과 다른 예약은 쓰지 않는다."""
+        """예약 확정 메일의 서비스 기간으로 OTA 및 직접 결제 호텔의 미배정 거래를 연결한다.
+
+        호텔 직접 결제는 호텔명·지점·금액·단일 카드 거래까지 확인한 경우에만 추론한다.
+        결제일은 숙박일로 간주하지 않는다.
+        """
         from app import booking_evidence
-        from app.classify import PERIOD_OTA_ORIGIN
+        from app.classify import PERIOD_OTA_ORIGIN, _pattern_for
         from app.normalize import normalize_merchant
         from . import ota_catalog
         rows = self.board.conn.execute(
             "SELECT t.transaction_id, t.source_hash, t.amount_krw, COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant"
             " FROM transactions t JOIN import_batch_rows b ON b.transaction_id=t.transaction_id"
-            " WHERE b.batch_id=? AND t.classification_source='booking_evidence_needed' AND t.classification_state='needs_review'"
-            " AND t.transaction_direction='purchase' AND t.amount_krw > 0", (batch_id,)).fetchall()
-        rows = [row for row in rows if row[1] in sources and row[1] not in taken
-                and (selected is None or row[0] in selected) and _is_ota_row({'merchant': row[4] or ''})]
+            " WHERE b.batch_id=? AND t.classification_state IN ('needs_review','classified')"
+            " AND t.transaction_direction='purchase' AND t.amount_krw > 0"
+            " AND COALESCE(t.display_tab_id,'') IN ('','unclassified')"
+            " AND NOT " + decided_sql('t') +
+            " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
+            " AND COALESCE(t.duplicate_of,'')=''"
+            " AND NOT EXISTS(SELECT 1 FROM ledger_entries l WHERE l.transaction_id=t.transaction_id)"
+            " AND NOT EXISTS(SELECT 1 FROM board_rows b2 WHERE b2.row_id='card-'||t.transaction_id)"
+            " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)",
+            (batch_id,)).fetchall()
+        def eligible(row):
+            if row[1] in taken or (selected is not None and row[0] not in selected):
+                return False
+            if _is_ota_row({'merchant': row[4] or ''}):
+                # 기존 OTA 확정 경로만 유지한다. 일반적인 미배정 OTA 결제까지
+                # 금액이 같은 메일만으로 추론 연결하는 범위를 넓히지 않는다.
+                state, classification_source = self.board.conn.execute(
+                    "SELECT classification_state,classification_source FROM transactions WHERE transaction_id=?",
+                    (row[0],),
+                ).fetchone()
+                return (row[1] in sources and state == 'needs_review'
+                        and classification_source == 'booking_evidence_needed')
+            pattern = _pattern_for(normalize_merchant(row[4] or ''))
+            return bool(pattern and pattern[0] == '숙박비')
+        rows = [row for row in rows if eligible(row)]
         if not rows:
             return []
         index = booking_evidence.build_index(ota_catalog.configured_sources(self.board)['mail_directories'])
         rules = []
         for tid, source, amount, day, merchant in rows:
-            found, _ = booking_evidence.find(index, amount, day)
+            direct = not _is_ota_row({'merchant': merchant or ''})
+            found, _ = booking_evidence.find(index, amount, day, limit=None)
+            if direct:
+                # 띄어쓰기 등 카드 가맹점 표기가 다른 복수 결제도 중복 후보로 본다.
+                if not day:
+                    continue
+                same_amount_cards = self.board.conn.execute(
+                    "SELECT merchant FROM transactions WHERE amount_krw=?"
+                    " AND transaction_direction='purchase'"
+                    " AND COALESCE(NULLIF(approval_date,''),posting_date) BETWEEN date(?,'-120 days') AND date(?,'+120 days')",
+                    (amount, day, day),
+                ).fetchall()
+                if sum(booking_evidence.same_direct_hotel_branch(other[0], merchant)
+                       for other in same_amount_cards) != 1:
+                    continue
+                same_branch = [entry for entry in found
+                               if booking_evidence.direct_hotel_branch_matches(entry, merchant)]
+                # 동일 예약에 취소 또는 보증금 안내가 있으면 이전 확정 메일로 연결하지 않는다.
+                if any('취소' in entry.get('subject', '') or any(
+                        word in ' '.join(entry.get('notes') or ())
+                        for word in ('환불', '돌려드립니다', '객실 확보', '보증금', '결제 실패', '결제 거부'))
+                       for entry in same_branch):
+                    continue
+                # 같은 호텔·금액의 다른 예약번호가 있으면 결제 대상 예약을 결정할 수 없다.
+                refs_in_branch = {tuple(entry.get('refs') or ()) for entry in same_branch}
+                if len(refs_in_branch) != 1 or not all(refs_in_branch):
+                    continue
+                refs = next(iter(refs_in_branch))
+                # 취소 및 환불 메일에는 카드 결제 금액이 생략되는 경우가 있다.
+                # 이전 예약 확정 메일의 금액만으로 연결하지 않도록 예약번호 전체 이력을 확인한다.
+                if any('취소' in entry.get('subject', '') or any(
+                        word in ' '.join(entry.get('notes') or ())
+                        for word in ('환불', '돌려드립니다', '객실 확보', '보증금', '결제 실패', '결제 거부'))
+                       for entry in booking_evidence.find_refs(index, refs)):
+                    continue
+                found = [entry for entry in same_branch
+                         if booking_evidence.matches_direct_hotel(entry, merchant, amount=amount)]
             bookings = {}
             for entry in found:
                 subject = entry['subject']
@@ -756,8 +818,9 @@ class CardFlow:
             rules.append({
                 'conditions': {'merchant_normalized': normalize_merchant(merchant or ''), 'transaction_direction': 'purchase'},
                 'optional': {'source_hash': source, 'inferred_assignment': {
-                    'trip_id': trip, 'confidence': '높음',
-                    'basis': f"같은 금액의 예약 확정 메일이 있고 이용기간 {starts_on}~{ends_on}이 여행 기간 안에 있음"}},
+                    'trip_id': trip, 'confidence': '중간' if direct else '높음',
+                    'basis': (f"호텔 지점·예약번호·결제 완료 금액이 일치하는 메일의 이용기간 {starts_on}~{ends_on}이 검증된 여행에 속함"
+                              if direct else f"같은 금액의 예약 확정 메일이 있고 이용기간 {starts_on}~{ends_on}이 여행 기간 안에 있음")}},
                 'effects': {'item': '숙박비'}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
                 'rule_id': f"auto-evidence-period-{refs[0]}-{source[:12]}",
             })
@@ -1782,87 +1845,7 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
     if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
   }catch(err){button.disabled=false;error.textContent=err.message}
 }));
-// 제안은 읽기 전용이며 승인 때만 기존 원자적 카드 결정 API로 기록한다.
-const node=(tag,value)=>{const n=document.createElement(tag);if(value!==undefined)n.textContent=value;return n};
-document.querySelectorAll('#expense-cleanup [data-cleanup-propose]').forEach(button=>{
-  const row=button.closest('.cleanup-row'),input=row.querySelector('.cleanup-instruction'),result=row.querySelector('.cleanup-proposal-result');
-  let proposal=null,serial=0;
-  input.addEventListener('input',()=>{serial++;proposal=null;result.replaceChildren()});
-  button.addEventListener('click',async()=>{
-    const instruction=input.value.trim(),sequence=++serial;
-    proposal=null;result.replaceChildren();
-    if(!instruction){result.textContent='분류 방법을 입력해 주세요.';return}
-    button.disabled=true;result.textContent='분류 변경 내용을 확인하고 있어요.';
-    try{
-      const response=await fetch('/api/imports/'+encodeURIComponent(row.dataset.batch)+'/rule-proposal',{
-        method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
-        body:JSON.stringify({text:instruction,transaction_id:row.dataset.transaction,request_id:crypto.randomUUID()})});
-      const p=await response.json();if(!response.ok)throw Error(p.message||p.code||'규칙 제안에 실패했습니다');
-      if(sequence!==serial||!row.isConnected)return;
-      if(p.interpreted_text)input.value=p.interpreted_text;
-      result.replaceChildren();
-      if(p.status!=='proposed'){
-        result.appendChild(node('p',p.status==='AI_PENDING'?'지시 해석을 기다리고 있습니다. 다시 시도해 주세요.':
-          p.status==='REJECTED_ORIGINAL_EDIT'?'원본 금액·날짜·거래 ID는 수정할 수 없습니다.':
-          '지시를 해석하지 못했습니다. 예: 이 가맹점은 숙박비로 분류 / 이 건만 식비로 분류'));
-        return;
-      }
-      proposal=p;
-      const heading=node('h3','새 분류 규칙 제안');result.appendChild(heading);
-      const grid=node('dl');grid.className='cleanup-proposal-grid';
-      const changed=p.changes||[],applicable=p.payloads||[];
-      const itemName=p.future_rule?.item||changed.find(c=>c.after_item)?.after_item||'회사 경비 제외';
-      const add=(label,value)=>{grid.appendChild(node('dt',label));grid.appendChild(node('dd',value))};
-      add('조건',p.kind==='MERCHANT_RULE'?'가맹점 = '+(p.future_rule?.merchant||row.dataset.merchant):'현재 카드 거래 1건');
-      add('비용 항목',itemName);
-      add('여행',p.trip_notice||'기존 여행 지정 유지 · OTA 이용기간 기준은 별도 확인');
-      add('적용 범위',`이 카드 자료에서 변경 후보 ${changed.length}건 · 실제 변경 ${applicable.length}건`);
-      add('예외',`기존 사용자 결정 ${p.skipped_decided||0}건 제외 · 보류·충돌·파싱 오류는 승인 시 차단`);
-      result.appendChild(grid);
-      result.appendChild(node('p','제안 확인만으로 장부에 기록하거나 여행을 배정하지 않습니다.'));
-      if(p.needs_confirmation){result.appendChild(node('p','회사 경비 제외는 카드 자료 전체 검토에서 별도로 확인해 주세요.'));return}
-      if(applicable.length){
-        const approve=node('button','확인하고 '+applicable.length+'건 적용');approve.type='button';approve.className='cleanup-approve';result.appendChild(approve);
-        approve.addEventListener('click',async()=>{
-          if(!proposal||sequence!==serial||input.value.trim()!==proposal.text)return;
-          if(!confirm('검토한 분류 '+applicable.length+'건을 적용할까요? 여행 배정과 보류 해제는 변경하지 않습니다.'))return;
-          approve.disabled=true;
-          const requestId=(proposal.request_id??=crypto.randomUUID());
-          try{
-            const saved=await fetch('/api/imports/'+encodeURIComponent(row.dataset.batch)+'/rule-proposal/approve',{
-              method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
-              body:JSON.stringify({text:proposal.text,transaction_id:proposal.transaction_id,digest:proposal.digest,approved:true,request_id:requestId})});
-            const data=await saved.json();if(!saved.ok)throw Error(data.message||data.code||'승인하지 못했습니다');
-            if(sequence!==serial||!row.isConnected)return;
-            for(const updated of data.state?.rows||[]){
-              const same=Array.from(document.querySelectorAll('#expense-cleanup .cleanup-row[data-kind=card]'))
-                .find(r=>r.dataset.batch===row.dataset.batch&&r.dataset.transaction===updated.transaction_id);
-              if(!same)continue;
-              same.dataset.revision=String(updated.revision);
-              const field=same.querySelector('.cleanup-form input[name=item]');if(field)field.value=updated.item||'';
-            }
-            proposal=null;result.replaceChildren(node('p',data.refresh_required?
-              '분류가 저장됐습니다. 최신 결과는 새로고침 후 확인해 주세요.':
-              '분류 '+data.applied.length+'건을 적용했습니다. 여행 지정은 상세 검토에서 계속할 수 있습니다.'));
-          }catch(error){approve.disabled=false;result.appendChild(node('p',error.message+' · 거래가 바뀌었다면 다시 제안해 주세요.'))}
-        });
-      }else result.appendChild(node('p','변경할 거래가 없습니다.'));
-      if(p.future_rule){
-        const draft=node('button','향후 거래 규칙 초안 열기');draft.type='button';draft.className='cleanup-draft';result.appendChild(draft);
-        draft.addEventListener('click',()=>{
-          const form=document.getElementById('ruleform'),detail=document.getElementById('card-review-detail');
-          if(!form)return;
-          detail.open=true;document.getElementById('rules').open=true;form.reset();
-          form.elements.rule_id.value='';form.elements.version.value='0';
-          form.elements.merchant.value=p.future_rule.merchant;form.elements.rule_item.value=p.future_rule.item;
-          form.scrollIntoView({block:'center'});
-          form.elements.rule_item.focus();
-        });
-      }
-    }catch(error){if(sequence===serial)result.replaceChildren(node('p',error.message))}
-    finally{if(sequence===serial)button.disabled=false}
-  });
-});})();"""
+})();"""
 
 CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이용일을 확인해 주세요',
                'travel_location_hold': '사용 국가와 명시 여행이 맞는지 확인해 주세요'}
@@ -1896,6 +1879,22 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0):
 
 def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
+
+
+def _cleanup_card_breakdown(board):
+    """정리할 일의 종류를 분리하되 장부 미기록 거래는 모두 합계에 남긴다."""
+    categories = (
+        "CASE WHEN COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!=''"
+        " OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " THEN 'protected' WHEN COALESCE(t.item,'')='' THEN 'no_item'"
+        " WHEN COALESCE(t.display_tab_id,'') IN ('','unclassified') THEN 'no_trip'"
+        " ELSE 'record' END"
+    )
+    rows = board.conn.execute(
+        "SELECT status, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + categories +
+        " AS status" + _cleanup_card_where() + ") GROUP BY status"
+    ).fetchall()
+    return dict(rows)
 
 
 def _cleanup_unassigned_where():
@@ -1992,6 +1991,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
     card_total = _cleanup_card_count(board)
+    card_breakdown = _cleanup_card_breakdown(board)
     ledger_total = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
     total = card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
@@ -2011,7 +2011,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
             reason = ota_catalog_summary(entry)
             evidence = _catalog_block(entry)
         else:
-            reason = CARD_REASON.get(source) or ('비용 항목을 골라 주세요' if not item else '여행을 골라 기록해 주세요')
+            reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
+                      '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
+                      '항목과 여행이 정해졌지만 장부 기록이 남아 있습니다')
             evidence = (
                 "<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
                 "예약 확인서에서 예약번호와 이용기간을 확인해 주세요. "
@@ -2036,14 +2038,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
                       "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
-                 '보류 중' if held else '분류 필요' if not item else '여행 확인 필요')
-        assistant = ("<div class='cleanup-assistant'>"
-                     "<label>AI에게 처리 방법 알려주기"
-                     "<textarea class='cleanup-instruction' rows='2' "
-                     "placeholder='예: 이 가맹점은 숙박비로 분류해 줘'></textarea></label>"
-                     "<button type='button' data-cleanup-propose>이 지시로 규칙 제안하기 →</button>"
-                     "<div class='cleanup-proposal-result' role='status' aria-live='polite'></div>"
-                     "</div>") if not protected else ''
+                 '보류 중' if held else '분류 필요' if not item else
+                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '장부 기록 대기')
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
@@ -2053,7 +2049,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
             f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
             f"<div class='cleanup-title'><strong>{esc(merchant)}</strong><small>{esc(day or '')} · 카드 결제</small></div></div>"
             f"<div class='cleanup-amount'>{int(amount or 0):,}원</div>"
-            f"<p class='cleanup-reason'>{esc(reason)}</p>{assistant}{review}</li>")
+            f"<p class='cleanup-reason'>{esc(reason)}</p>{review}</li>")
     ledger = board.conn.execute(
         "SELECT b.row_id, b.revision, b.payload_json" + _cleanup_unassigned_where() +
         " ORDER BY json_extract(b.payload_json,'$.occurred_on') DESC LIMIT ? OFFSET ?",
@@ -2072,6 +2068,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
             "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>")
     body = ''.join(items) or '<li class="muted">정리할 지출이 없습니다.</li>'
     style = ("<style>#expense-cleanup{background:transparent;border:0;padding:0}"
+             "#expense-cleanup .cleanup-breakdown{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px;font-size:13px}"
+             "#expense-cleanup .cleanup-breakdown span{background:#eef2ef;border-radius:999px;padding:5px 10px}"
              "#expense-cleanup .cleanup-list{list-style:none;padding:0;margin:12px 0;display:grid;gap:12px}"
              "#expense-cleanup .cleanup-row{border:1px solid #E3E7E3;background:#fff;border-radius:18px;padding:20px;min-width:0}"
              "#expense-cleanup .cleanup-card-head{display:flex;align-items:center;justify-content:space-between;"
@@ -2088,23 +2086,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-badge-protected{background:#FFF0E7;color:#974B1A}"
              "#expense-cleanup .cleanup-amount{font-size:24px;font-weight:800;margin:14px 0 4px;font-variant-numeric:tabular-nums}"
              "#expense-cleanup .cleanup-reason{font-size:13px;color:#657068;margin:0 0 10px}"
-             "#expense-cleanup .cleanup-assistant{margin-top:16px;padding-top:14px;border-top:1px solid #EEF1EE}"
-             "#expense-cleanup .cleanup-assistant label{font-weight:700;display:block}"
-             "#expense-cleanup .cleanup-instruction{display:block;margin:8px 0 10px;min-height:76px;"
-             "width:100%;font-weight:400;resize:vertical;border-radius:10px}"
-             "#expense-cleanup [data-cleanup-propose]{background:#202521;color:#fff;border-color:#202521;"
-             "width:100%;min-height:44px;border-radius:12px}"
-             "#expense-cleanup .cleanup-proposal-result:not(:empty){padding:16px;margin-top:12px;"
-             "border:1px solid #E3E7E3;border-radius:14px;background:#FCFDFC}"
-             "#expense-cleanup .cleanup-proposal-result h3{font-size:16px;margin:0 0 12px}"
-             "#expense-cleanup .cleanup-proposal-result p{font-size:13px;color:#657068}"
-             "#expense-cleanup .cleanup-proposal-grid{display:grid;grid-template-columns:100px minmax(0,1fr);margin:0}"
-             "#expense-cleanup .cleanup-proposal-grid dt,#expense-cleanup .cleanup-proposal-grid dd{"
-             "margin:0;padding:10px 0;border-bottom:1px solid #E3E7E3;overflow-wrap:anywhere}"
-             "#expense-cleanup .cleanup-proposal-grid dt{color:#657068}"
-             "#expense-cleanup .cleanup-proposal-grid dd{font-weight:600}"
-             "#expense-cleanup .cleanup-approve{background:#1C7A52;color:white;border-color:#1C7A52}"
-             "#expense-cleanup .cleanup-approve,#expense-cleanup .cleanup-draft{margin:8px 8px 0 0}"
              "#expense-cleanup .cleanup-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}"
              "#expense-cleanup .cleanup-form select{flex:1 1 160px;min-width:0}"
              "#expense-cleanup .cleanup-form input{flex:1 1 120px;min-width:0;height:34px}"
@@ -2118,8 +2099,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:#657068;margin:6px 0 0}"
              "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
              "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
-             "#expense-cleanup .cleanup-proposal-grid{grid-template-columns:85px minmax(0,1fr)}"
-             "#expense-cleanup .cleanup-approve,#expense-cleanup .cleanup-draft{width:100%;margin:8px 0 0}}"
+             "}"
              "</style>")
     if ota_catalog.rebuilding():
         note = ("<p id='ota-refresh-note' class='muted'>예약 근거를 갱신하고 있어요. "
@@ -2147,8 +2127,15 @@ def render_expense_cleanup(board, csrf, *, page=1):
         previous = (f"<a href='/import?cleanup_page={page - 1}'>이전 20건</a>" if page > 1 else '<span>이전 20건</span>')
         following = (f"<a href='/import?cleanup_page={page + 1}'>다음 20건</a>" if page < pages else '<span>다음 20건</span>')
         nav = f"<nav class='cleanup-pages'><p class='muted'>{total}건을 20건씩 봅니다 · {page}/{pages}페이지</p>{previous} · {following}</nav>"
+    breakdown = (
+        "<div class='cleanup-breakdown' aria-label='지출 정리 사유별 건수'>"
+        f"<span>항목 미분류 {card_breakdown.get('no_item', 0):,}건</span>"
+        f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span>"
+        f"<span>장부 기록 대기 {card_breakdown.get('record', 0):,}건</span>"
+        f"<span>보류·오류 {card_breakdown.get('protected', 0):,}건</span></div>"
+    )
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{note}"
+            f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
             f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
@@ -2192,7 +2179,7 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 .flow{margin:12px 0;font-size:13px;color:#657068;border:1px solid #E3E7E3;border-radius:4px;background:#FFFFFF;padding:8px 12px}
 @media(max-width:550px){.grid{grid-template-columns:1fr}body{padding:10px}main{min-width:0}article,section{padding:14px;margin:10px 0}h1{font-size:19px}input:not([type=checkbox]),select,textarea{font-size:16px;min-height:44px}input:not([type=checkbox]),select{height:44px}button{min-height:44px;font-size:14px}td button,form[data-index] button,[data-edit],#commit,#upload{width:100%;min-height:44px}.batch-choice{min-height:56px}#preview table,#preview tbody,#preview tr,#preview td{display:block;width:100%}#preview thead{display:none}#preview tr{border:1px solid #E3E7E3;border-radius:4px;padding:10px 12px;margin:0 0 10px;min-width:0}#preview td{border-bottom:0;padding:5px 0;min-width:0}.pv-label{display:block;font-size:12px;color:#657068}.review-item summary{min-height:48px;font-size:14px}.ri-flag{flex-basis:100%}}
 #review-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}#review-metrics button{text-align:left;padding:10px;line-height:1.5}#review-metrics button[aria-pressed=true]{background:#e9f4ed;border-color:#1c7a52}#review-metrics strong{display:block;font-size:20px}.ota-icon,.review-icon .ic{width:18px;height:18px;vertical-align:-3px;margin-right:6px}.review-state{font-size:12px;color:#657068}.review-money{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}#review-controls{margin:12px 0}#review-controls label{display:block}#preview th button{padding:0;border:0;background:transparent}#review-empty{padding:20px;text-align:center;color:#657068}@media(max-width:550px){#review-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}#preview thead{display:table-header-group}#preview thead tr{display:table-row;border:0;padding:0}#preview th{display:table-cell;padding:4px;font-size:12px}#preview td.review-money{text-align:left}}
-</style><body><main><nav aria-label='지출 정리 범위'><a href="/import" aria-current="page">이 자료</a> <a href="/import?scope=all">모든 자료</a></nav><h1>지출 정리</h1><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
+</style><body><main><h1>지출 정리</h1><p class="small">아래는 아직 장부 정리가 필요한 거래입니다. <a href="/import?scope=all">전체 카드 거래 검색</a></p><details id="saved-materials"><summary>저장된 카드 자료 선택</summary><section><h2>저장된 카드 자료</h2><div id="batches"></div></section></details>
 <details id="newupload"><summary>새 카드 파일 추가</summary><section><p class="small">카드사에서 받은 XLS·XLSX 또는 CSV 파일을 올려 주세요. 기존 거래와 중복되는 내역은 다시 기록하지 않습니다.</p><input id="file" type="file" accept=".xls,.xlsx,.csv"><button id="upload">__ICON_UPLOAD__업로드하고 분류</button></section></details>
 <details id="rules"><summary>분류 규칙 수정</summary><section><p class="small">가맹점이 정확히 일치할 때 비용 항목을 적용합니다. 여행은 가맹점만으로 자동 배정하지 않습니다.</p><form id="ruleform"><input name="rule_id" type="hidden"><input name="version" type="hidden" value="0"><label>가맹점<input name="merchant" required></label><label>카드 종류<input name="card_kind" placeholder="국내 또는 해외 · 비우면 모든 종류"></label><label>거래 구분<select name="direction"><option value="purchase">사용</option><option value="cancellation">취소·환불</option></select></label><label>여행 중 사용 조건<select name="rule_country"><option value="">여행 조건 없음</option><option value="local">사용 국가와 해당 여행이 일치할 때</option><option value="AT">오스트리아 현지 사용 · 유럽 여행 일치</option><option value="IT">이탈리아 현지 사용 · 유럽 여행 일치</option><option value="FR">프랑스 현지 사용 · 유럽 여행 일치</option><option value="JP">일본 현지 사용 · 명시 여행 일치</option><option value="KR">국내 사용 · 국내 여행 일치</option><option value="TW">대만 현지 사용 · 명시 여행 일치</option></select></label><p id="rule_scope" class="small"></p><label>비용 항목<input name="rule_item" required></label><label>내용<input name="rule_description"></label><button>__ICON_SAVE__규칙 저장하고 다시 분류</button><button type="button" id="newrule">__ICON_PENCIL__새 규칙 작성</button></form><label>저장된 규칙 찾기<input id="rulefilter" type="search" placeholder="가맹점 또는 비용 항목"></label><div id="rulelist"></div></section></details>
 <p id="status" role="status"></p><div id="review-metrics"></div><section id="review-controls"><label>거래 검색<input id="review-search" type="search" placeholder="가맹점·항목·여행 검색"></label><div class="grid"><details id="review-date"><summary><button type="button" aria-label="거래일 정렬 및 월 선택" id="review-date-toggle">__ICON_SEARCH__거래일·월</button></summary><label>정렬<select id="review-sort"><option value="date-asc">이전 거래부터</option><option value="date-desc">최근 거래부터</option><option value="amount-desc">큰 금액부터</option></select></label><label>월<select id="review-month"><option value="">전체 월</option></select></label></details><label>비용 항목<select id="review-category"><option value="">전체 항목</option></select></label></div><button type="button" id="review-reset" aria-label="조회 조건 초기화">__ICON_ROTATE__조회 조건 초기화</button></section><section id="summary" class="hidden"></section><section id="holds"></section><section id="preview" class="hidden"></section><div id="questions"></div><section id="rule-panel"><h2>자연어 지시로 분류 제안</h2><p class="small">제안은 승인해야 적용됩니다. 직접 정한 거래는 바뀌지 않습니다.</p><label>대상 거래 <select id="rule-focus"></select></label><textarea id="rule-text" rows="2" style="width:100%"></textarea><p><button type="button" id="rule-propose">__ICON_SEARCH__제안 보기</button></p><div id="rule-result" role="status"></div></section>
