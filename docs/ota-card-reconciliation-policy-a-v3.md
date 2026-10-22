@@ -19,7 +19,7 @@
 
 **핵심 불변조건:** `EXACT`/ `INFERRED`/ `UNLINKED`만 다른 동일 카드 거래는, 카드가 `ELIGIBLE`이고 여행이 정해졌다면 모두 `READY_FOR_INTERNAL_SAVE`를 반환한다. OTA 링크 미확정 자체가 비용 기록 보류 원인이 되지 않는다.
 
-**보호:** 카드 원본 금액·통화·ID/중복·취소/환불·이미 기록된 비용·권한·Google은 무결성 우선. 아직 연결을 추정한 OTA 예약번호를 Google B:H 7열의 예약번호 E열에 **확정값으로 쓰지 않는다**. 사용자가 예약을 명시적으로 확정하지 않았다면 복사 출력에서는 해당 칸을 비우되 비용 1행은 유지. 사용자 여행 A→B 이동은 AI/새 매칭·재수집보다 우선한다. 새로운 OTA 실제 결제 근거만으로 카드 비용 행을 추가 생성하지 않는다.
+**보호:** 카드 원본 금액·통화·ID/중복·취소/환불·이미 기록된 비용·권한·Google은 무결성 우선. 아직 연결을 추정한 OTA 예약번호를 Google B:H 7열의 예약번호 F열에 **확정값으로 쓰지 않는다**. 사용자가 예약을 명시적으로 확정하지 않았다면 복사 출력에서는 해당 칸을 비우되 비용 1행은 유지. 사용자 여행 A→B 이동은 AI/새 매칭·재수집보다 우선한다. 새로운 OTA 실제 결제 근거만으로 카드 비용 행을 추가 생성하지 않는다.
 
 ## 1. 실제 코드에서 확인된 고장 가능 지점
 
@@ -277,3 +277,135 @@ UI는 **카드 비용 상태 / OTA 연결 상태 / 여행 배정 상태**를 별
 ## 11. 무료 코딩 모델 인수 지시
 
 첫 번째 작업은 **R0, read-only 미매칭 전수 진단기 + 합성 테스트**다. `AGENTS.md`, 본 문서, `app/ota_payments.py`, `app/ota_mail.py`, `app/ota_portal.py`, `app/ota_exact.py`, `app/ota_review.py`, `webapp/ota_payment_review.py`, `webapp/card_flow.py`, `docs/ota-matching-terms.md`를 읽고 **이미 있는 기능을 재구현하지 않는다**. DISCOVER → CONTRACT → IMPLEMENT → TARGETED TEST → REVIEW → COMMIT/PR. 기능별 작은 PR로 후속 R1~R6 수행한다. 각 단계는 구현·검증·미검증을 분리해 보고하고 운영 변경은 별도 승인 없이 진행하지 않는다.
+ 
+
+
+## 12. 구현 가능한 핵심 DB DDL 예시 (새 DB 또는 기존 review DB 재사용)
+
+**DDL은 제안이며 실행 지시가 아니다.** 먼저 실제 `OtaReviewStore`의 schema, WAL/locking, user pin 저장 위치를 확인한다. 동일 개념 테이블이 있으면 아래 논리 스키마를 기존 테이블에 매핑한다. 운영 본 장부 테이블을 갈아엎지 않는다.
+
+~~~sql
+CREATE TABLE IF NOT EXISTS reconciliation_runs (
+  run_id TEXT PRIMARY KEY,
+  source_set_digest TEXT NOT NULL,
+  card_set_digest TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  pins_digest TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('complete','incomplete','failed')),
+  generated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reconciliation_observations (
+  observation_id TEXT PRIMARY KEY,
+  source_lineage_id TEXT NOT NULL,
+  source_record_id TEXT NOT NULL,
+  source_digest TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  parsed_facts_json TEXT NOT NULL,
+  extraction_outcome TEXT NOT NULL,
+  failure_codes_json TEXT NOT NULL,
+  parser_version TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reconciliation_candidate_edges (
+  run_id TEXT NOT NULL,
+  observation_id TEXT NOT NULL,
+  card_transaction_id TEXT NOT NULL,
+  tier TEXT NOT NULL,
+  signals_json TEXT NOT NULL,
+  blockers_json TEXT NOT NULL,
+  rank INTEGER,
+  PRIMARY KEY(run_id, observation_id, card_transaction_id)
+);
+CREATE TABLE IF NOT EXISTS reconciliation_id_crosswalk (
+  legacy_event_id TEXT PRIMARY KEY,
+  canonical_observation_id TEXT NOT NULL,
+  resolution_status TEXT NOT NULL,
+  migration_version TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recon_edges_card
+  ON reconciliation_candidate_edges(run_id, card_transaction_id);
+~~~
+
+- 저장 결정 `reconciliation_decisions`는 **기존 수동 link·group pins의 단일 writer를 재사용**하고, 계산 이력은 별도 append-only run/result projection으로 저장한다. 서로 다른 run이 한 카드에서 서로 다른 추정을 내더라도 사용자 확정을 수정하는 UPDATE는 없다.
+- `source_digest`와 `source_lineage_id`는 다르다. digest가 같아도 출처 역할과 실제 금전 사건의 고유 증거를 확인하기 전에는 단일 charge 병합을 확정하지 않는다.
+- 마이그레이션은 우선 테스트 fixture와 격리 DB만. 한 rollback에서 구 snapshot·구 manual pin을 온전히 읽을 수 있어야 한다.
+
+## 13. 순수 함수 수준 의사코드와 단계별 실패 진단
+
+~~~python
+def explain_source(raw, parser):
+    result = parser.extract_with_reasons(raw)
+    # parse 실패를 예외 처리로 조용히 버리지 않고 observation에 남긴다.
+    return ExtractionOutcome(
+        source_id=raw.identity,
+        outcome=result.kind,
+        facts=result.facts,
+        reason_codes=tuple(sorted(set(result.reasons))),
+    )
+
+def reconcile_v2(observations, card_rows, manual_links, group_pins, policy):
+    normalized = normalize_sources_and_cards(observations, card_rows, policy)
+    candidates = search_candidates(
+        normalized.events, normalized.card_rows, policy,
+        allow_missing_payment_day=True,  # 조회 가능, 정확 연결 확정과 별개
+    )
+    evaluated = evaluate_all_edges(candidates, policy)
+    resolved = solve_using_existing_global_matcher(
+        evaluated, manual_links=manual_links, group_pins=group_pins
+    )
+    return ReconciliationRun(
+        decisions=resolved,
+        candidate_edges=evaluated,
+        trace=explain_pipeline(normalized, candidates, evaluated, resolved),
+        source_digest=normalized.source_set_digest,
+        policy_version=policy.version,
+    )
+~~~
+
+**필수 실패 진단 예:** Agoda 원본 100건 → 관측 100건(그중 3건 원본 DB 계보 충돌) → 유효/불완전 payment claim 95건 → 실제 결제 증거 84건 → 카드 후보 72건 → 전역 solver에서 66건 대응. 이 숫자는 *가상의 단위 테스트 사례*이며 실운영 통계가 아니다. 추출에서 5건이 빠진 이유와 그 5건의 원본 ID는 감사에 남아야 한다.
+
+## 14. API 응답 계약 예시와 화면
+
+~~~json
+{
+  "card_transaction_id": "card:opaque",
+  "financial_state": "ELIGIBLE",
+  "ota_resolution": {
+    "level": "INFERRED",
+    "candidate_count": 1,
+    "booking_ref_confirmed": false,
+    "reason_codes": ["PAID_DATE_MISSING"],
+    "evidence_signals": [
+      {"kind": "amount", "result": "MATCH"},
+      {"kind": "card_last4", "result": "MATCH"},
+      {"kind": "payment_day", "result": "UNKNOWN"}
+    ]
+  },
+  "trip_assignment": {
+    "trip_id": "trip-existing",
+    "authority": "AUTO_INFERRED",
+    "confidence": "low",
+    "user_override": false
+  },
+  "expense_preparation": {
+    "state": "READY_FOR_INTERNAL_SAVE",
+    "google_booking_ref_export": "",
+    "google_write_permitted": false
+  },
+  "trace": {
+    "run_id": "recon-run:opaque",
+    "snapshot_state": "fresh",
+    "source_set_digest": "sha256:...",
+    "reconciliation_policy_version": "A-v1"
+  }
+}
+~~~
+
+모든 API는 기존 라우터의 owner 인증·CSRF·재조회 방지·rate 제한·필드 allowlist를 따른다. Trace 상세 API는 예약번호·실명·원본문서를 다른 역할이나 공개 API에 반환하지 않는다. 사용자 수동 재연결은 현 preview digest와 데이터 revision이 일치할 때만 저장; 브라우저에 오래된 근거가 남았으면 `409 STALE_EVIDENCE`를 돌리고 새 근거 검토만 요청한다. Google 저장 API는 만들지 않는다.
+
+## 15. P0 실행 확인 순서
+
+1. 코드/원본 역할·활성 환경변수·스키마를 **읽기 전용**으로 발견한다.
+2. 합성 케이스 6개(결제일 미상, `paid_today` 누락, 다른 DB record=0, NICE alias, 2:2, 기존 수동 pin)로 진단 결과 생성.
+3. 운영에서는 **승인된 읽기 전용 복제 스냅샷**과 안전한 로컬 출력 경로를 사용해 실제 coverage만 산출한다. 실제 운영 원본은 열람 전후 변경 0.
+4. `coverage-summary.json`에서 **어디에서 이벤트를 버렸는지**, `unmatched-cases.jsonl`에서 **카드 존재↔OTA 원본 존재인데 후보 없음 사례**를 각 제공자별로 구분한다.
+5. 상위 원인이 검증되면 R1~R4 순서로 작은 PR을 작성한다. 매칭률 개선 수치는 실제 P0 기준선 이후에만 제시한다.
