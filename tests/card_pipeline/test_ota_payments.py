@@ -404,6 +404,36 @@ def test_portal_explicit_completed_refund_becomes_separate_event(tmp_path):
     assert refunds[0]['paid_on'] == '2026-08-03'
 
 
+def test_completed_aside_stay_supplies_missing_item_without_changing_payment(tmp_path):
+    from tests.card_pipeline.test_ota_portal import portal_database
+    path = portal_database(tmp_path / 'completed-aside.sqlite', facts=[{
+        'evidence_format': 'agoda-aside-v1', 'reservation_status': 'completed'}])
+    original = path.read_bytes()
+    event = build_ota_payment_events({'portal_databases': [path]})[0]
+    assert event['item'] == '숙박비'
+    assert event['paid_on'] is None
+    assert event['service_period'] == {'starts_on': '2026-08-02', 'ends_on': '2026-08-03'}
+    assert event['amount_krw'] == 30000 and event['card_last4'] == '1234'
+    assert event['booking_ref'] == 'synthetic-booking'
+    from app.ota_payments import _event_id
+    assert event['ota_event_id'] == _event_id(event['identity_source_ids'])
+    assert path.read_bytes() == original
+
+
+def test_missing_item_is_not_inferred_from_agoda_name_or_unverified_stay(tmp_path):
+    from tests.card_pipeline.test_ota_portal import portal_database
+    cases = [
+        ({}, None),
+        ({'evidence_format': 'agoda-aside-v1', 'reservation_status': 'confirmed'}, None),
+        ({'evidence_format': 'agoda-aside-v1', 'service_start_on': None}, None),
+        ({'evidence_format': 'agoda-aside-v1', 'item': '항공료'}, '항공료'),
+    ]
+    for index, (changes, expected) in enumerate(cases):
+        path = portal_database(tmp_path / f'item-guard-{index}.sqlite', facts=[changes])
+        event = build_ota_payment_events({'portal_databases': [path]})[0]
+        assert event['item'] == expected
+
+
 def test_later_cancel_notice_does_not_replace_verified_charge(tmp_path):
     import json
     paid = message('예약번호: BOOK12345\n총 금액 30,000원',
