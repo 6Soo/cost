@@ -78,6 +78,15 @@ def _pattern_for(merchant_normalized: str):
         return '렌터카', '렌터카 이용', ('T-교통',)
     if re.match(r'^(?:hotelrouteinn|livemaxresort)[a-z0-9]*$', name):
         return '숙박비', '호텔 숙박', ('T-숙박',)
+    if re.match(r'^(?:hotelfrontinn|motosuphoenixhotel|rakutenpayhotelsol|'
+                r'twinlinehotel|washingtonhotelplaza|yumotokankohotel)', name):
+        return '숙박비', '호텔 숙박', ('T-숙박',)
+    if re.fullmatch(r'(?:주)?파라타항공', name):
+        return '항공료', '항공권 구매', ('T-교통',)
+    if name == '철도승차권발매':
+        return '교통비', '철도 승차권', ('T-교통',)
+    if name == '국립세종수목원':
+        return '입장료', '수목원 이용', ('T-기타',)
     # 한글/영문 브랜드 및 지점 표기 차이를 흡수하되 다른 상호로 번지지 않게 한다.
     if re.fullmatch(
         r'(?:토요코인|토요코인호텔|toyokoinn|toyokoinnhotel)'
@@ -86,7 +95,7 @@ def _pattern_for(merchant_normalized: str):
         r'[가-힣a-z0-9]*)?', name,
     ):
         return '숙박비', '호텔 숙박', ('T-숙박',)
-    if re.search(r'(?:국밥|칼국수|김밥|설렁탕|순대국|냉면)$', name):
+    if re.search(r'(?:국밥|칼국수|김밥|설렁탕|순대국|냉면|코다리)$', name):
         return '식비', '식당 식사', ('T-식비',)
     return None
 
@@ -99,6 +108,7 @@ def _verified_local_trip(transaction, item, trip_resolver):
     if (not trip_resolver or not transaction.get('approval_date')
             or transaction.get('transaction_direction') != 'purchase'
             or item in ('숙박비', '항공료', '렌터카')
+            or '승차권' in str(transaction.get('merchant') or '')
             or is_booking_or_online(transaction)):
         return ''
     from .rules import merchant_country
@@ -122,6 +132,13 @@ def classify_transaction(transaction: dict, *, rules: list,
         return verdict
     matches = [r for r in inferred if rule_matches(r,transaction)[0]]
     if not matches:
+        matching_rule = next((r for r in regular if r.get('rule_id') == verdict.get('rule_id')), None)
+        if (verdict.get('classification_source') == 'rule' and matching_rule
+                and not matching_rule.get('effects', {}).get('display_tab_id')):
+            trip = _verified_local_trip(transaction, verdict.get('item', ''), trip_resolver)
+            if trip:
+                verdict = dict(verdict, trip_id=trip, display_tab_id=trip,
+                               classification_basis=verdict['classification_basis'] + ' · 검증된 여행 기간의 현지 사용')
         if residual_policy:
             return _card3820_residual(transaction, verdict)
         return verdict
