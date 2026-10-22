@@ -82,7 +82,7 @@
 
 ## 6. 레거시 문서 처리 원칙
 
-- 과거 OTA 코어·파일별 매칭·승인 defaults 제안·UI pilot·검증 계획·이전 에이전트 플레이북은 `docs/archive/ota-legacy-20261023/`에 **원문 그대로** 보존하고 이전 경로에는 이 문서/원문을 가리키는 얇은 안내만 둔다.
+- 과거 OTA 코어·파일별 매칭·승인 defaults 제안·UI pilot·검증 계획·이전 에이전트 플레이북은 `docs/archive/ota-legacy-20261023/`에 **본문·실행 근거를 보존(이동 후 상대 링크만 교정)**하고 이전 경로에는 이 문서/원문을 가리키는 얇은 안내만 둔다.
 - 과거 정밀한 실측 보고서(`ota-first-verification-report.md`), 운영 기록(`operations.md`)은 삭제하지 않고 **역사 자료임을 상단에 명기**. 숫자는 그 날짜의 snapshot에만 해당한다.
 - 기능별 여전히 실제로 유효한 규칙(`reconciliation-rules.md`, `business_rules.md`, `target-workflow-google-authority.md`)은 보존하되 이 문서의 **최신 사용자 결정과 충돌하는 범위**를 명시.
 - 문서의 교정은 코드/운영 검증이나 사용자 결제를 완료했다고 주장할 근거가 아니다.
