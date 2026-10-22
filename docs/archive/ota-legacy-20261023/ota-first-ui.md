@@ -1,6 +1,6 @@
 # OTA 결제 보류 검토 UI
 
-운영 자료의 읽기 전용 비교와 최종 통합 검사는 [검증 보고서](ota-first-verification-report.md)를 따릅니다. 아래 표적 검사 기록은 화면 담당자의 작업 범위입니다.
+운영 자료의 읽기 전용 비교와 최종 통합 검사는 [검증 보고서](../../../docs/ota-first-verification-report.md)를 따릅니다. 아래 표적 검사 기록은 화면 담당자의 작업 범위입니다.
 
 ## 범위와 활성화 조건
 
@@ -53,5 +53,5 @@ python -m unittest webapp.tests.test_ota_payment_review_browser
 
 브라우저 검증은 로컬 합성 HTTP server와 Playwright Chromium을 사용합니다. 390x844와 1440x900에서 합성 카드 12건, 승인일·매입일·승인 번호·환불 상태, 이미 연결된 거래의 선택 차단과 사유, 차이 preview, 수동 확정, 대기 제안을 확인하고 가로 넘침이 0인지 확인합니다. 별도 실 브라우저 경로는 실제 기본 adapter와 실제 검토 store로 수동 확정, 이번 건만 처리, 규칙 승인을 거친 뒤 카드 입력 DB와 source-gone GET의 검토 DB hash가 유지되는지 확인합니다. 캡처와 자료는 합성 데이터만 포함합니다.
 
-- [모바일 합성 화면](ota-first-ui-mobile.png)
-- [데스크톱 합성 화면](ota-first-ui-desktop.png)
+- [모바일 합성 화면](../../../docs/ota-first-ui-mobile.png)
+- [데스크톱 합성 화면](../../../docs/ota-first-ui-desktop.png)
