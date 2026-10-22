@@ -77,3 +77,24 @@ def test_clear_local_cost_can_be_recorded_unassigned_but_reservations_need_servi
             assert reclassify_cleanup(board)['recorded']==0
     finally:
         board.close()
+
+
+def test_cancelled_charge_is_a_reconciliation_case_not_a_category_question(tmp_path,monkeypatch):
+    from webapp import card_flow
+    board=LedgerStore(tmp_path/'cancelled.sqlite',seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        flow,batch,rows=card_rows(board,1)
+        board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-5000,item='' ")
+        board.conn.commit()
+        before=board.conn.execute('SELECT * FROM transactions').fetchall()
+        monkeypatch.setattr(card_flow,'_ota_entries_by_card',lambda _: {})
+        assert card_flow._cleanup_card_breakdown(board)=={'protected':1}
+        html=card_flow.render_expense_cleanup(board,'token')
+        assert '취소·환불 확인' in html and '원결제 근거가 필요' in html
+        assert '가맹점을 하나씩 입력할 목록이 아닙니다' in html
+        assert "<input name='item'" not in html
+        assert board.conn.execute('SELECT * FROM transactions').fetchall()==before
+    finally:
+        ledger_board.bind_store(None)
+        board.close()

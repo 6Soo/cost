@@ -575,7 +575,7 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
-        assert '정리할 지출 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
+        assert '근거 확인이 필요한 거래 <span id=\'cleanup-count\' data-total=\'5\'>5건' in html
         assert '항목 미분류 1건' in html
         assert '여행 미배정 2건' in html
         assert '기록 대기' not in html
