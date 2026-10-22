@@ -427,6 +427,8 @@ def test_missing_item_is_not_inferred_from_agoda_name_or_unverified_stay(tmp_pat
         ({'evidence_format': 'agoda-aside-v1', 'reservation_status': 'confirmed'}, None),
         ({'evidence_format': 'agoda-aside-v1', 'service_start_on': None}, None),
         ({'evidence_format': 'agoda-aside-v1', 'item': '항공료'}, '항공료'),
+        ({'product_type': 'lodging'}, '숙박비'),
+        ({'product_type': 'flight'}, None),
     ]
     for index, (changes, expected) in enumerate(cases):
         path = portal_database(tmp_path / f'item-guard-{index}.sqlite', facts=[changes])

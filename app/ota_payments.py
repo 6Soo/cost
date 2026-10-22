@@ -302,12 +302,13 @@ def _portal_events(databases):
                 period = {"starts_on": start, "ends_on": end}
             except (TypeError, ValueError):
                 continue
-        # Aside v1의 completed는 상세 화면의 '투숙 완료'에서만 나온다.
-        # 이전 수집 원문에 item이 없어도 이 검증된 숙박 사실은 전달한다.
-        # 다른 상태·형식·기간 누락은 가맹점 이름만으로 숙박이라고 만들지 않는다.
+        # 명시된 숙박 상품과 Aside v1의 '투숙 완료'를 비용 항목에 전달한다.
+        # 이전 수집 원문의 item 누락 때문에 확인된 상품 종류를 버리지 않는다.
+        # 상품 근거나 이용기간이 없으면 가맹점 이름만으로 숙박이라고 만들지 않는다.
         item = fact.get("item")
-        if (not item and fact.get("evidence_format") == "agoda-aside-v1"
-                and fact.get("reservation_status") == "completed" and period):
+        if (not item and period and (fact.get("product_type") == "lodging"
+                or (fact.get("evidence_format") == "agoda-aside-v1"
+                    and fact.get("reservation_status") == "completed"))):
             item = "숙박비"
         components = [component for component in fact.get("price_components", []) or []
                       if component.get("kind") == "paid_today"]
