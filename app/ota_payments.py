@@ -16,7 +16,7 @@ from app.ota_matching_defaults import load_defaults
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 
 
 class OtaSourcesError(ValueError):
