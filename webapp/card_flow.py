@@ -1866,8 +1866,8 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
 }));
 })();"""
 
-CARD_REASON = {'booking_evidence_needed': '예약 자료로 구매 상품과 이용일을 확인해 주세요',
-               'travel_location_hold': '사용 국가와 명시 여행이 맞는지 확인해 주세요'}
+CARD_REASON = {'booking_evidence_needed': '예약 상품과 이용일을 연결할 원문 근거가 필요합니다',
+               'travel_location_hold': '사용 국가와 명시 여행의 일치가 확인되지 않았습니다'}
 
 
 _CLEANUP_PAGE_SIZE = 20
@@ -2002,7 +2002,7 @@ def assign_existing_local_expenses(flow, *, failures=None):
 def _cleanup_card_breakdown(board):
     """정리할 일의 종류를 분리하되 장부 미기록 거래는 모두 합계에 남긴다."""
     categories = (
-        "CASE WHEN COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!=''"
+        "CASE WHEN t.transaction_direction='cancellation' OR COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!=''"
         " OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " THEN 'protected' WHEN COALESCE(t.item,'')='' THEN 'no_item'"
         " WHEN COALESCE(t.display_tab_id,'') IN ('','unclassified') THEN 'no_trip'"
@@ -2135,6 +2135,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
     ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
     ota_by_card = _ota_entries_by_card(board)
+    cancellation_ids = {row[0] for row in board.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -2151,11 +2153,17 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 "카드 결제일만으로는 여행을 정할 수 없습니다.</p>"
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
+        if tid in cancellation_ids:
+            reason = '취소·환불과 연결할 원결제 근거가 필요합니다. 새 지출로 분류하지 않습니다.'
         if conflict_reason or parse_error:
             review = (f"<details class='cleanup-review'><summary>상세 검토</summary>"
                       f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
                       f"{esc(conflict_reason or parse_error)}</p>"
                       f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
+        elif tid in cancellation_ids:
+            review = (f"<details class='cleanup-review'><summary>원결제·취소 자료</summary>{evidence}"
+                      f"<p class='cleanup-protected'>{esc(reason)}</p>"
+                      f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
         elif held:
             review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
                       "<p class='cleanup-protected'>보류 중 · 여행 변경과 보류 해제는 카드 자료 전체 검토에서 "
@@ -2169,6 +2177,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
                       "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
+                 '취소·환불 확인' if tid in cancellation_ids else
                  '보류 중' if held else '분류 필요' if not item else
                  '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '검토 필요')
         items.append(
@@ -2265,7 +2274,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
         f"<span>보류·오류 {card_breakdown.get('protected', 0):,}건</span></div>"
     )
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
-            f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
+            f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
+            "<p class='muted'>자동 처리 가능한 지출은 장부에 반영했습니다. 아래는 예약·원결제 등 연결 근거가 더 필요한 자료이며, 가맹점을 하나씩 입력할 목록이 아닙니다.</p>"
             "<button type='button' id='cleanup-reclassify'>전체 지출 자동 정리</button>"
             "<p id='cleanup-reclassify-status' class='muted' role='status'>"
             "현재 규칙으로 분류하고 항목과 여행이 확인된 거래는 장부에 바로 반영합니다.</p>"
