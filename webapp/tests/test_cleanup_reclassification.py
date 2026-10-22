@@ -31,7 +31,7 @@ def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeyp
             calls.append('warm')
         monkeypatch.setattr(card_flow.CardFlow, '_compute_ota_report', warm)
         monkeypatch.setattr(card_flow.CardFlow, '_classify', lambda *args, **kwargs: calls.append('classify'))
-        monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked', lambda *args: {'auto_recorded': 0})
+        monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked', lambda *args, **kwargs: {'auto_recorded': 0})
         monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
         monkeypatch.setattr(ota_payment_review, 'snapshot_service', lambda _: SimpleNamespace(
             request_check=lambda **kwargs: calls.append('check')))
@@ -78,7 +78,7 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         monkeypatch.setattr(card_flow.CardFlow, '_board_future_rules', lambda *args: [])
         monkeypatch.setattr(card_flow.CardFlow, 'retail_trip', lambda *args: '')
         monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked',
-                            lambda *args: {'auto_recorded': 0})
+                            lambda *args, **kwargs: {'auto_recorded': 0})
         result = card_flow.reclassify_cleanup(board)
         assert result['processed'] == 2
         assert result['failures'] == [{'kind': 'ota', 'count': 1, 'code': 'OTA_EVIDENCE_UNAVAILABLE'}]
@@ -119,6 +119,8 @@ def test_ready_cards_are_recorded_in_the_same_action_and_retry_does_not_duplicat
         monkeypatch.setattr(card_flow.CardFlow, '_ota_report', lambda _: None)
         monkeypatch.setattr(card_flow.CardFlow, 'trip_valid', lambda _self, tid: tid == trip['tab_id'])
         monkeypatch.setattr(card_flow.CardFlow, 'tab_valid', lambda _self, tid: tid == trip['tab_id'])
+        monkeypatch.setattr(card_flow.CardFlow, 'state', lambda *args: (_ for _ in ()).throw(
+            AssertionError('일괄 기록 뒤 화면 자료를 다시 계산하면 안 됩니다')))
         result = card_flow.reclassify_cleanup(board)
         assert result['recorded'] == 1 and result['failures'] == []
         assert 'record' not in result['breakdown']
