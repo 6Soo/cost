@@ -86,3 +86,32 @@ def test_completed_inference_keeps_booking_metadata_without_becoming_exact():
     assert result['ota_evidence']['kind'] == 'inferred'
     assert result['ota_evidence']['payment_date_verified'] is False
     assert fact['paid_on'] is None
+
+
+def test_same_booking_payment_receipt_gains_verified_service_period_only():
+    from copy import deepcopy
+    old = dict(transaction_id='card', source_hash='source', provider='booking', booking_ref='SYN',
+               item='숙박비', period=None, reservation_status='observed', source_sha256='receipt',
+               direction='purchase', merchant='BOOKING.COM')
+    event = dict(ota_event_id='event', provider='booking', booking_ref='SYN', item='숙박비',
+                 event_type='charge', payment_status='paid', evidence_status='paid_verified',
+                 reservation_status='observed', source_digest='period-proof',
+                 service_period={'starts_on': '2026-08-14', 'ends_on': '2026-08-15'})
+    card = dict(transaction_id='card', source_hash='source', merchant='BOOKING.COM',
+                transaction_direction='purchase', ota_inference_eligible=True)
+    data = dict(events=[event], transactions=[card], links={}, results=[
+        dict(ota_event_id='event', transaction_id='card', status='MATCHED_AUTO')])
+    report = dict(matches=[old], rules=[], type_only_candidates=[])
+    original = deepcopy(report)
+    result = extend_report(report, data)
+    assert len(result['matches']) == 1
+    assert result['matches'][0]['period'] == event['service_period']
+    assert result['matches'][0]['source_digests'] == ['period-proof', 'receipt']
+    assert result['matches'][0]['source_sha256'] == 'receipt'
+    assert result['rules'][0]['optional']['source_hash'] == 'source'
+    assert report == original
+    for changes in ({'booking_ref': 'OTHER'}, {'reservation_status': 'cancelled'},
+                    {'source_hash': 'different'}, {'period_conflict': True},
+                    {'period': {'starts_on': '2026-09-01', 'ends_on': '2026-09-02'}}):
+        protected = dict(report, matches=[dict(old, **changes)])
+        assert extend_report(protected, data) == protected
