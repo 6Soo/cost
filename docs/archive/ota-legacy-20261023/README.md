@@ -4,10 +4,10 @@
 
 ## 지금 개발할 때 읽을 문서
 
-- **단일 현행 진입점:** [COST V3 START HERE](../COST_V3_START_HERE.md)
-- **OTA 매칭·readiness·R0~R6:** [OTA–카드 정책 A](../ota-card-reconciliation-policy-a-v3.md)
-- **여행 추론·사용자 교정·AI 대화·항공권:** [V3 기능 명세](../cost-v3-inference-ai-passenger-nm-test-architecture.md)
-- **실제 운영 이력:** [operations.md](../operations.md)
+- **단일 현행 진입점:** [COST V3 START HERE](../../COST_V3_START_HERE.md)
+- **OTA 매칭·readiness·R0~R6:** [OTA–카드 정책 A](../../ota-card-reconciliation-policy-a-v3.md)
+- **여행 추론·사용자 교정·AI 대화·항공권:** [V3 기능 명세](../../cost-v3-inference-ai-passenger-nm-test-architecture.md)
+- **실제 운영 이력:** [operations.md](../../operations.md)
 
 ## 변경하지 않고 보존한 원본 11개
 
