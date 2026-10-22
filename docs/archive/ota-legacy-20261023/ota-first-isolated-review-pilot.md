@@ -47,7 +47,7 @@ Git main 병합은 운영 배포나 OTA-first authority 전환을 뜻하지 않�
 - merge safety targeted는 7 passed / 2 subtests passed입니다.
 - full regression은 2394 passed / 1 known unrelated doc failure / 3 skipped / 2398 subtests passed입니다. 해당 문서는 복구했고 해당 test만 1 passed로 확인했습니다. 전체 회귀는 반복하지 않습니다.
 
-상세 기록은 [기존 검증 보고서](ota-first-verification-report.md)를 따릅니다. 보고서의 main과 검토 브랜치 상태는 병합 전 기록이며, 이번 병합의 경계는 이 문서를 따릅니다.
+상세 기록은 [기존 검증 보고서](../../../docs/ota-first-verification-report.md)를 따릅니다. 보고서의 main과 검토 브랜치 상태는 병합 전 기록이며, 이번 병합의 경계는 이 문서를 따릅니다.
 
 ## 다음 단계의 목적과 시작 조건
 
