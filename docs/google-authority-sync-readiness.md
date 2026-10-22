@@ -34,7 +34,7 @@
 
 ## 4. 저장 위치와 권한
 
-- 공개 스냅샷과 비공개 행 파일은 **저장소 밖**에 둔다. 예: `D:\WebLedgerHost\data\google-authority\`. 저장소 안이나 임시 공개 폴더에 두지 않는다.
+- 공개 스냅샷과 비공개 행 파일은 **저장소 밖**에 둔다. 예: `D:\WebLedgerHost\data\google-authority`. 저장소 안이나 임시 공개 폴더에 두지 않는다.
 - 비공개 행 파일은 고객 개인정보와 재무 행을 포함한다. 접근 권한을 운영자 계정으로 제한하고, 백업에 포함할지 별도로 정한다.
 - 공개 스냅샷에는 개인정보가 없다는 것을 테스트(`test_public_snapshot_has_no_row_contents_but_private_file_does`)로 확인한다.
 
