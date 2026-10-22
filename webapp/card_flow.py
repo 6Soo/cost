@@ -1350,7 +1350,7 @@ class CardFlow:
             if row.get('classification_state') != 'classified':
                 holds.setdefault(tid, {'kind': 'classification_needed', 'reason': '비용 항목과 배정 내용을 확인해 주세요.'})
             elif not row.get('display_tab_id') or row['display_tab_id'] == 'unclassified':
-                if not quarter_costs.destination(row):
+                if not quarter_costs.destination(row) and not local_expense_without_trip(row):
                     holds.setdefault(tid, {'kind': 'trip_needed', 'reason': '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.'})
             source = self.board.conn.execute('SELECT issuer,card_tail,approval_number,posting_date,foreign_amount,foreign_currency,transaction_kind,approval_date FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date'))):
@@ -2021,7 +2021,20 @@ def _cleanup_unassigned_where():
         " FROM board_rows b WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m"
         " WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT (COALESCE(json_extract(b.payload_json,'$.confirmed_by'),'') IN ('owner','automatic')"
+        " AND COALESCE(json_extract(b.payload_json,'$.classification_state'),'') IN ('confirmed','classified'))"
     )
+
+
+def local_expense_without_trip(row):
+    """현지 지출의 정상 미배정은 완료 가능하다. 예약 이용기간이 필요한 결제는 제외한다."""
+    from app.rules import is_booking_or_online
+    local_items = {'식비','주유비','통행료','입장료','대중교통','택시비','주차비','현지경비','편의점'}
+    return (row.get('classification_state') == 'classified'
+            and row.get('transaction_direction') == 'purchase'
+            and row.get('item') in local_items
+            and '승차권' not in str(row.get('merchant') or '')
+            and not is_booking_or_online(row))
 
 
 def _evidence_block(index, amount, day):

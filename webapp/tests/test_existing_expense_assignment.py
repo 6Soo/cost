@@ -14,7 +14,7 @@ def test_existing_expense_only_gets_a_verified_missing_trip_without_changing_mon
         flow,batch,rows=card_rows(board,1)
         tid=rows[0]['transaction_id']
         trip=board.create_trip(starts_on='2026-10-01',ends_on='2026-10-05',destination='합성',client_request_id='existing-trip')
-        unassigned_row(board)
+        unassigned_row(board,confirmed=True)
         record=json.loads(board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
         record.update(source_event_id=tid,item='숙박비' if mode=='hotel' else '식비')
         board.conn.execute('UPDATE board_rows SET payload_json=?',(json.dumps(record),))
@@ -35,4 +35,41 @@ def test_existing_expense_only_gets_a_verified_missing_trip_without_changing_mon
         assert assign_existing_local_expenses(flow)==0
     finally:
         ledger_board.bind_store(None)
+        board.close()
+
+
+def test_confirmed_unassigned_expense_is_complete_without_inventing_a_trip(tmp_path):
+    from webapp.card_flow import CardFlow,cleanup_total
+    board=LedgerStore(tmp_path/'complete.sqlite',seed_demo=False)
+    try:
+        CardFlow(board)
+        unassigned_row(board,confirmed=True)
+        before=board.conn.execute('SELECT * FROM board_rows').fetchall()
+        assert cleanup_total(board)==0
+        assert board.conn.execute('SELECT * FROM board_rows').fetchall()==before
+    finally:
+        board.close()
+
+
+@pytest.mark.parametrize('item,merchant,expected', [('식비','식당',1),('숙박비','숙소',0),('교통비','철도승차권 발매',0)])
+def test_clear_local_cost_can_be_recorded_unassigned_but_reservations_need_service_evidence(tmp_path,monkeypatch,item,merchant,expected):
+    from webapp.card_flow import CardFlow,reclassify_cleanup,cleanup_total
+    board=LedgerStore(tmp_path/'unassigned-card.sqlite',seed_demo=False)
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
+    try:
+        flow,batch,rows=card_rows(board,1)
+        board.conn.execute("UPDATE transactions SET item=?,merchant=?,merchant_normalized=?,display_tab_id='unclassified'",(item,merchant,merchant))
+        board.conn.commit()
+        monkeypatch.setattr(CardFlow,'_classify',lambda *args,**kwargs: {})
+        monkeypatch.setattr(CardFlow,'_ota_report',lambda _:None)
+        monkeypatch.setattr(CardFlow,'_guide_airfare_rules',lambda *args:[])
+        result=reclassify_cleanup(board)
+        assert result['recorded']==expected
+        assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0]==expected
+        assert cleanup_total(board)==(0 if expected else 1)
+        if expected:
+            saved=json.loads(board.conn.execute('SELECT payload_json FROM board_rows').fetchone()[0])
+            assert saved['display_tab_id'] is None and saved['amount_krw']==5000
+            assert reclassify_cleanup(board)['recorded']==0
+    finally:
         board.close()
