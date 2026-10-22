@@ -7,6 +7,44 @@ from webapp.ledger_store import LedgerStore
 from webapp.tests.test_expense_cleanup import card_rows
 
 
+def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from webapp import ota_payment_review
+    board = LedgerStore(tmp_path / 'worker-lock.sqlite', seed_demo=False)
+    worker = None
+    try:
+        _, _, rows = card_rows(board, 1)
+        board.conn.execute("UPDATE transactions SET merchant='AGODA.COM'")
+        board.conn.commit()
+        original = board.conn.execute('SELECT * FROM transactions').fetchall()
+        checked = threading.Event()
+        calls = []
+        def warm(_flow):
+            nonlocal worker
+            def check():
+                with board._lock:
+                    checked.set()
+            worker = threading.Thread(target=check)
+            worker.start()
+            assert checked.wait(1), '예약 해석 중 입력 확인 워커가 막혔습니다'
+            calls.append('warm')
+        monkeypatch.setattr(card_flow.CardFlow, '_compute_ota_report', warm)
+        monkeypatch.setattr(card_flow.CardFlow, '_classify', lambda *args, **kwargs: calls.append('classify'))
+        monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked', lambda *args: {'auto_recorded': 0})
+        monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
+        monkeypatch.setattr(ota_payment_review, 'snapshot_service', lambda _: SimpleNamespace(
+            request_check=lambda **kwargs: calls.append('check')))
+        result = card_flow.reclassify_cleanup(board)
+        assert result['failures'] == []
+        assert calls == ['warm', 'check', 'classify']
+        assert board.conn.execute('SELECT * FROM transactions').fetchall() == original
+    finally:
+        if worker is not None:
+            worker.join(2)
+        board.close()
+
+
 def test_bulk_classification_survives_booking_failure_without_changing_protected_data(tmp_path, monkeypatch):
     board = LedgerStore(tmp_path / 'bulk.sqlite', seed_demo=False)
     try:

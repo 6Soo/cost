@@ -1914,6 +1914,19 @@ def reclassify_cleanup(board):
 
     flow = CardFlow(board)
     result = {'processed': 0, 'recorded': 0, 'assigned_existing': 0, 'failures': []}
+    # 오래 걸리는 예약 원문 해석 중에도 워커가 입력을 확인할 수 있어야 한다.
+    # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
+    # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
+    with board._lock:
+        merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
+    if any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
+        try:
+            flow._compute_ota_report()
+        except (StoreError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+            pass  # 해당 OTA 묶음에서 기존 오류 처리로 보고하고 현지 지출은 계속한다.
+        from . import ota_payment_review
+        if ota_payment_review.enabled():
+            ota_payment_review.snapshot_service(board).request_check(wait_seconds=3)
     with board._lock:
         batches = [row[0] for row in board.conn.execute(
             "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
