@@ -1,5 +1,8 @@
 # COST 영수증 Muse Spark Contributor Free 연결
 
+> **독립 영수증 기능의 당시 실험·대체 모델 설정 기록.** [COST V3 단일 개발 진입점](COST_V3_START_HERE.md)에서 별도 기능으로 분류했다. `integration/cost-final`은 현재 V3 기준 브랜치가 아니며 모델 이름·무료 과금·CLI 제공 여부를 현재 사실로 단정하지 않는다. 해당 기능 요청 시 실제 코드/모델 가용성/개인정보 전송 동의를 새로 확인하고, V3 매칭 R0~R6를 막지 않는다.
+
+
 > 구현은 `integration/cost-final`의 비운영 코드이며, 실제 Windows OpenCode 호출·운영 배포 검증 전까지 완료로 간주하지 않는다.
 
 ## 제품 동작
