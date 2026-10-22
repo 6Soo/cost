@@ -1834,12 +1834,12 @@ CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
 const reclassify=document.getElementById('cleanup-reclassify');
 if(reclassify)reclassify.addEventListener('click',async()=>{
   reclassify.disabled=true;const status=document.getElementById('cleanup-reclassify-status');
-  status.textContent='저장된 전체 카드 자료에 자동분류 규칙을 적용하고 있습니다.';
+  status.textContent='저장된 카드 자료를 분류하고 확인된 지출을 장부에 반영하고 있습니다.';
   try{const response=await fetch('/api/imports/reclassify-pending',{method:'POST',
     headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
     const result=await response.json();if(!response.ok)throw Error(result.message||'자동분류를 적용하지 못했습니다.');
-    if(result.failures.length){status.textContent=result.processed+'건에 규칙을 적용했습니다. 자료를 확인하지 못한 '+
-      result.failures.reduce((sum,f)=>sum+f.count,0)+'건은 그대로 두었습니다. 새로고침하면 적용 결과를 볼 수 있습니다.';}
+    if(result.failures.length){status.textContent='분류 '+result.processed+'건, 장부 반영 '+result.recorded+
+      '건을 처리했습니다. 일부 자료의 보호 검사나 처리를 완료하지 못했습니다. 해당 거래는 보존했으며 새로고침하면 확인할 수 있습니다.';}
     else{location.reload();}
   }catch(error){status.textContent=error.message;}finally{reclassify.disabled=false;}
 });
@@ -1905,7 +1905,7 @@ def _cleanup_card_count(board):
 
 
 def reclassify_cleanup(board):
-    """미정리 카드 전체에 현재 규칙을 적용한다. 장부 쓰기와 사용자 결정은 건드리지 않는다."""
+    """미정리 카드를 분류하고 보호 검사를 통과한 거래는 같은 동작에서 기록한다."""
     from app import StoreError
     from app.classify import _pattern_for
     from app.normalize import normalize_merchant
@@ -1913,8 +1913,10 @@ def reclassify_cleanup(board):
     import sqlite3
 
     flow = CardFlow(board)
-    result = {'processed': 0, 'failures': []}
+    result = {'processed': 0, 'recorded': 0, 'failures': []}
     with board._lock:
+        batches = [row[0] for row in board.conn.execute(
+            "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
         rows = board.conn.execute(
             "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where() +
             " AND NOT " + decided_sql('t') +
@@ -1942,6 +1944,12 @@ def reclassify_cleanup(board):
                                            'code': getattr(exc, 'code', 'CLASSIFICATION_UNAVAILABLE')})
             else:
                 result['processed'] += len(ids)
+        for batch in batches:
+            try:
+                result['recorded'] += flow._auto_record_locked(batch)['auto_recorded']
+            except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
+                result['failures'].append({'kind': 'validation', 'count': 1,
+                                           'code': getattr(exc, 'code', 'RECORDING_UNAVAILABLE')})
         result['breakdown'] = _cleanup_card_breakdown(board)
     return result
 
@@ -1953,7 +1961,7 @@ def _cleanup_card_breakdown(board):
         " OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
         " THEN 'protected' WHEN COALESCE(t.item,'')='' THEN 'no_item'"
         " WHEN COALESCE(t.display_tab_id,'') IN ('','unclassified') THEN 'no_trip'"
-        " ELSE 'record' END"
+        " ELSE 'protected' END"
     )
     rows = board.conn.execute(
         "SELECT status, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + categories +
@@ -2078,7 +2086,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         else:
             reason = CARD_REASON.get(source) or ('비용 항목을 확인해 주세요' if not item else
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
-                      '항목과 여행이 정해졌지만 장부 기록이 남아 있습니다')
+                      '배정과 거래의 보호 검사 결과를 확인해 주세요')
             evidence = (
                 "<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
                 "예약 확인서에서 예약번호와 이용기간을 확인해 주세요. "
@@ -2104,7 +2112,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
                  '보류 중' if held else '분류 필요' if not item else
-                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '장부 기록 대기')
+                 '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '검토 필요')
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
@@ -2196,14 +2204,13 @@ def render_expense_cleanup(board, csrf, *, page=1):
         "<div class='cleanup-breakdown' aria-label='지출 정리 사유별 건수'>"
         f"<span>항목 미분류 {card_breakdown.get('no_item', 0):,}건</span>"
         f"<span>여행 미배정 {card_breakdown.get('no_trip', 0) + ledger_total:,}건</span>"
-        f"<span>장부 기록 대기 {card_breakdown.get('record', 0):,}건</span>"
         f"<span>보류·오류 {card_breakdown.get('protected', 0):,}건</span></div>"
     )
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
-            "<button type='button' id='cleanup-reclassify'>전체 자료 자동분류</button>"
+            "<button type='button' id='cleanup-reclassify'>전체 지출 자동 정리</button>"
             "<p id='cleanup-reclassify-status' class='muted' role='status'>"
-            "가맹점을 하나씩 입력하지 않고 현재 규칙을 전체 미정리 카드에 적용합니다.</p>"
+            "현재 규칙으로 분류하고 항목과 여행이 확인된 거래는 장부에 바로 반영합니다.</p>"
             f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")

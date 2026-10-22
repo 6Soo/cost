@@ -1,4 +1,4 @@
-"""일괄 자동분류는 미정리 구매만 처리하고 금융 원본과 장부를 보존한다."""
+"""일괄 처리는 준비된 거래를 기록하고 원문·사용자 확정·환불 보호를 유지한다."""
 from urllib.parse import urlparse
 
 from app.db import StoreError
@@ -40,7 +40,7 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         monkeypatch.setattr(card_flow.CardFlow, '_board_future_rules', lambda *args: [])
         monkeypatch.setattr(card_flow.CardFlow, 'retail_trip', lambda *args: '')
         monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked',
-                            lambda *args: (_ for _ in ()).throw(AssertionError('must not post')))
+                            lambda *args: {'auto_recorded': 0})
         result = card_flow.reclassify_cleanup(board)
         assert result['processed'] == 2
         assert result['failures'] == [{'kind': 'ota', 'count': 1, 'code': 'OTA_EVIDENCE_UNAVAILABLE'}]
@@ -59,6 +59,37 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         assert "id='cleanup-reclassify'" in html
         assert '/api/imports/reclassify-pending' in html
         assert 'location.reload()' in html
+        assert '기록 대기' not in html
+    finally:
+        board.close()
+
+
+def test_ready_cards_are_recorded_in_the_same_action_and_retry_does_not_duplicate(tmp_path, monkeypatch):
+    board = LedgerStore(tmp_path / 'ready.sqlite', seed_demo=False)
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    try:
+        flow, batch, rows = card_rows(board, 2)
+        trip = board.create_trip(starts_on='2026-10-01', ends_on='2026-10-05',
+                                 destination='합성', client_request_id='ready-trip')
+        board.conn.execute("UPDATE transactions SET item='식비',display_tab_id=?,trip_id=?",
+                           (trip['tab_id'], trip['tab_id']))
+        board.conn.execute('INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+                           (rows[1]['transaction_id'], rows[1]['source_hash'], 'evidence_pending', 'synthetic'))
+        board.conn.commit()
+        raw = board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date FROM transactions ORDER BY transaction_id').fetchall()
+        held = board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (rows[1]['transaction_id'],)).fetchone()
+        monkeypatch.setattr(card_flow.CardFlow, '_ota_report', lambda _: None)
+        monkeypatch.setattr(card_flow.CardFlow, 'trip_valid', lambda _self, tid: tid == trip['tab_id'])
+        monkeypatch.setattr(card_flow.CardFlow, 'tab_valid', lambda _self, tid: tid == trip['tab_id'])
+        result = card_flow.reclassify_cleanup(board)
+        assert result['recorded'] == 1 and result['failures'] == []
+        assert 'record' not in result['breakdown']
+        assert board.conn.execute('SELECT transaction_id FROM ledger_entries').fetchall() == [(rows[0]['transaction_id'],)]
+        assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0] == 1
+        assert board.conn.execute('SELECT * FROM transactions WHERE transaction_id=?', (rows[1]['transaction_id'],)).fetchone() == held
+        assert board.conn.execute('SELECT transaction_id,raw_row_json,amount_krw,approval_date FROM transactions ORDER BY transaction_id').fetchall() == raw
+        assert card_flow.reclassify_cleanup(board)['recorded'] == 0
+        assert board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 1
     finally:
         board.close()
 
