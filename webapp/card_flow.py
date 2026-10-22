@@ -1393,10 +1393,12 @@ class CardFlow:
         with self.board._lock:
             return self._auto_record_locked(batch_id)
 
-    def _auto_record_locked(self, batch_id):
+    def _auto_record_locked(self, batch_id, *, include_state=True):
         from app import auto_record_policy, quarter_tab
         # Only batches collected after activation are recorded. Older rows keep their recorded state.
         if not auto_record_policy.batch_is_new(self.pipeline.store.conn, batch_id):
+            if not include_state:
+                return {'auto_recorded': 0}
             state = self.state(batch_id)
             state['auto_recorded'] = 0
             return state
@@ -1412,6 +1414,8 @@ class CardFlow:
                 projection=lambda entry: self.project(dict(entry, automatic_record=True)), automatic_record=True, **options)
             applied = result['applied']
         applied += quarter_tab.book_batch(self.pipeline.store, batch_id, projection=self.project)
+        if not include_state:
+            return {'auto_recorded': applied}
         state = self.state(batch_id)
         state['auto_recorded'] = applied
         return state
@@ -1959,7 +1963,7 @@ def reclassify_cleanup(board):
                 result['processed'] += len(ids)
         for batch in batches:
             try:
-                result['recorded'] += flow._auto_record_locked(batch)['auto_recorded']
+                result['recorded'] += flow._auto_record_locked(batch, include_state=False)['auto_recorded']
             except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
                 result['failures'].append({'kind': 'validation', 'count': 1,
                                            'code': getattr(exc, 'code', 'RECORDING_UNAVAILABLE')})
