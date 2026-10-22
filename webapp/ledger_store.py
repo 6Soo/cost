@@ -3475,7 +3475,7 @@ class LedgerStore:
             )
             learning_case_id = (
                 f"case-{client_request_id}"
-                if change_mode == "rule_change" and business_changed
+                if change_mode == "rule_change" and business_changed and actor != "automatic"
                 else None
             )
             # R01: revision 확인은 쓰기 트랜잭션 안에서 다시 수행한다.
@@ -3522,7 +3522,7 @@ class LedgerStore:
                     (row_id, new["revision"], _canonical(prev), _canonical(new), "",
                      change_mode, actor, created_at, client_request_id),
                 )
-                for field in changes:
+                for field in changes if actor != "automatic" else ():
                     self.conn.execute(
                         "INSERT OR REPLACE INTO board_manual_overrides(row_id, field, event_id)"
                         " VALUES (?,?,?)",
