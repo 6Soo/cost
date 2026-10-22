@@ -1669,6 +1669,17 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler.send_header('Content-Length', '0')
                 handler.end_headers()
             return True
+        if parsed.path == '/api/imports/reclassify-pending':
+            from .ledger_board import current_role
+            if current_role() != 'owner':
+                handler._send_json({'code': 'FORBIDDEN'}, 403)
+            elif raw is None:
+                handler._send_json({'code': 'METHOD_NOT_ALLOWED'}, 405)
+            elif not csrf or handler.headers.get('X-CSRF-Token') != csrf:
+                handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
+            else:
+                handler._send_json(reclassify_cleanup(board))
+            return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
         if raw is None:
@@ -1820,6 +1831,18 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
+const reclassify=document.getElementById('cleanup-reclassify');
+if(reclassify)reclassify.addEventListener('click',async()=>{
+  reclassify.disabled=true;const status=document.getElementById('cleanup-reclassify-status');
+  status.textContent='저장된 전체 카드 자료에 자동분류 규칙을 적용하고 있습니다.';
+  try{const response=await fetch('/api/imports/reclassify-pending',{method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
+    const result=await response.json();if(!response.ok)throw Error(result.message||'자동분류를 적용하지 못했습니다.');
+    if(result.failures.length){status.textContent=result.processed+'건에 규칙을 적용했습니다. 자료를 확인하지 못한 '+
+      result.failures.reduce((sum,f)=>sum+f.count,0)+'건은 그대로 두었습니다. 새로고침하면 적용 결과를 볼 수 있습니다.';}
+    else{location.reload();}
+  }catch(error){status.textContent=error.message;}finally{reclassify.disabled=false;}
+});
 const tripOptions=document.getElementById('cleanup-trip-options');
 if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>{
   select.replaceChildren(tripOptions.content.cloneNode(true));
@@ -1879,6 +1902,48 @@ def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0):
 
 def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
+
+
+def reclassify_cleanup(board):
+    """미정리 카드 전체에 현재 규칙을 적용한다. 장부 쓰기와 사용자 결정은 건드리지 않는다."""
+    from app import StoreError
+    from app.classify import _pattern_for
+    from app.normalize import normalize_merchant
+    from collections import defaultdict
+    import sqlite3
+
+    flow = CardFlow(board)
+    result = {'processed': 0, 'failures': []}
+    with board._lock:
+        rows = board.conn.execute(
+            "SELECT t.transaction_id, MIN(r.batch_id), t.merchant" + _cleanup_card_where() +
+            " AND NOT " + decided_sql('t') +
+            " AND t.transaction_direction='purchase'"
+            " AND t.amount_krw>0"
+            " AND COALESCE(t.display_tab_id,'') IN ('','unclassified')"
+            " AND COALESCE(t.trip_id,'')=''"
+            " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
+            " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+            " GROUP BY t.transaction_id"
+        ).fetchall()
+        groups = defaultdict(list)
+        for tid, batch, merchant in rows:
+            pattern = _pattern_for(normalize_merchant(merchant or ''))
+            kind = ('ota' if _is_ota_row({'merchant': merchant or ''}) else
+                    'hotel' if pattern and pattern[0] == '숙박비' else 'local')
+            groups[batch, kind].append(tid)
+        # 예약 자료 장애가 있어도 식당 등 일반 가맹점의 분류는 끝낸다.
+        for (batch, kind), ids in sorted(groups.items(), key=lambda group: (
+                {'local': 0, 'hotel': 1, 'ota': 2}[group[0][1]], group[0][0])):
+            try:
+                flow._classify(batch, transaction_ids=ids)
+            except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
+                result['failures'].append({'kind': kind, 'count': len(ids),
+                                           'code': getattr(exc, 'code', 'CLASSIFICATION_UNAVAILABLE')})
+            else:
+                result['processed'] += len(ids)
+        result['breakdown'] = _cleanup_card_breakdown(board)
+    return result
 
 
 def _cleanup_card_breakdown(board):
@@ -2136,6 +2201,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
     )
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>정리할 지출 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
+            "<button type='button' id='cleanup-reclassify'>전체 자료 자동분류</button>"
+            "<p id='cleanup-reclassify-status' class='muted' role='status'>"
+            "가맹점을 하나씩 입력하지 않고 현재 규칙을 전체 미정리 카드에 적용합니다.</p>"
             f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")

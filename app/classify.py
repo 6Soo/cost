@@ -197,14 +197,16 @@ RESIDUAL_SOURCES = ('', 'pattern', 'card_category', 'booking_evidence_needed', '
                     'travel_location_hold')
 
 
-def pair_refunds(conn) -> int:
-    """취소·환불 거래는 같은 카드의 원거래 배정을 따른다(원거래 승인번호). 사용자가 직접 정한 거래는 건드리지 않는다."""
+def pair_refunds(conn, *, transaction_ids=None) -> int:
+    """환불은 원거래 배정을 따른다. 일부 거래 분류에서는 지정된 환불만 처리한다."""
     paired = 0
     refunds = conn.execute(
         "SELECT transaction_id, card_tail, original_approval_number FROM transactions"
         " WHERE transaction_direction='cancellation' AND original_approval_number<>''"
         " AND COALESCE(classification_source,'') NOT LIKE 'user_%'").fetchall()
     for transaction_id, card_tail, original in refunds:
+        if transaction_ids is not None and transaction_id not in transaction_ids:
+            continue
         source = conn.execute(
             "SELECT classification_state, display_tab_id, trip_id, item, description FROM transactions"
             " WHERE card_tail=? AND approval_number=? AND transaction_direction='purchase'"
@@ -532,7 +534,7 @@ def _classify_batch(store, batch_id: str, *, rules=None, trip_resolver=None, rev
                 " classification_source=?, classification_basis=?, item=?,"
                 " description=?, display_tab_id=?, trip_id=? WHERE transaction_id=?",
                 values+(transaction_id,))
-        pair_refunds(store.conn)
+        pair_refunds(store.conn, transaction_ids=selected)
         store.conn.execute(
             "UPDATE import_batches SET parsed_at=?, status='classified'"
             " WHERE batch_id=?", (now, batch_id))
