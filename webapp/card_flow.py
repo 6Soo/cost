@@ -1913,7 +1913,7 @@ def reclassify_cleanup(board):
     import sqlite3
 
     flow = CardFlow(board)
-    result = {'processed': 0, 'recorded': 0, 'failures': []}
+    result = {'processed': 0, 'recorded': 0, 'assigned_existing': 0, 'failures': []}
     with board._lock:
         batches = [row[0] for row in board.conn.execute(
             "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
@@ -1950,8 +1950,54 @@ def reclassify_cleanup(board):
             except (StoreError, OSError, ValueError, sqlite3.Error) as exc:
                 result['failures'].append({'kind': 'validation', 'count': 1,
                                            'code': getattr(exc, 'code', 'RECORDING_UNAVAILABLE')})
+        result['assigned_existing'] = assign_existing_local_expenses(flow, failures=result['failures'])
         result['breakdown'] = _cleanup_card_breakdown(board)
     return result
+
+
+def assign_existing_local_expenses(flow, *, failures=None):
+    """기존 미배정 장부의 현지 사용만 원문과 검증된 일정으로 연결한다."""
+    from app.classify import _verified_local_trip
+    from .ledger_store import SaveError
+    conn = flow.board.conn
+    rows = conn.execute(
+        "SELECT b.row_id,b.revision,b.payload_json,t.transaction_id,t.merchant,t.card_kind,"
+        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json"
+        " FROM board_rows b JOIN transactions t ON t.transaction_id=json_extract(b.payload_json,'$.source_event_id')"
+        " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
+        " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
+        " AND COALESCE(t.conflict_reason,'')='' AND COALESCE(t.parse_error,'')=''"
+        " AND NOT EXISTS(SELECT 1 FROM board_manual_overrides m WHERE m.row_id=b.row_id AND m.field='display_tab_id')"
+        " AND NOT EXISTS(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
+        " AND NOT EXISTS(SELECT 1 FROM transaction_company_exclusions e WHERE e.transaction_id=t.transaction_id AND e.excluded=1)"
+        " AND NOT EXISTS(SELECT 1 FROM transactions refund WHERE refund.card_tail=t.card_tail"
+        " AND refund.transaction_direction='cancellation' AND refund.original_approval_number=t.approval_number"
+        " AND COALESCE(t.approval_number,'')!='')"
+    ).fetchall()
+    local_items = {'식비','주유비','통행료','입장료','교통비','대중교통','택시비','주차비','현지경비','편의점'}
+    assigned = 0
+    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw in rows:
+        item = json.loads(payload).get('item')
+        if item not in local_items:
+            continue
+        transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
+                           approval_date=day, posting_date=posted, issuer=issuer,
+                           transaction_direction='purchase', raw_row=json.loads(raw))
+        trip = _verified_local_trip(transaction, item, flow.retail_trip)
+        if not trip:
+            continue
+        try:
+            flow.board.save(row_id=row_id, expected_revision=revision,
+                            client_request_id=f'cleanup-trip-{row_id}-{revision}-{trip}',
+                            change_mode='rule_change', changes={'display_tab_id': trip}, actor='automatic')
+        except SaveError as exc:
+            if failures is None:
+                raise
+            failures.append({'kind': 'assignment', 'count': 1, 'code': exc.code})
+            continue
+        assigned += 1
+    return assigned
 
 
 def _cleanup_card_breakdown(board):

@@ -19,6 +19,16 @@ def transaction(merchant, **changes):
     ('토요코인 대구동성로', '숙박비'),
     ('토요코인호텔-대구 동성로', '숙박비'),
     ('Toyoko Inn Daegu Dongseongro', '숙박비'),
+    ('HOTEL FRONT INN FUKUOKA AFukuoka JP', '숙박비'),
+    ('MOTOSUPHOENIXHOTEL 0555-20-6800 JP', '숙박비'),
+    ('WASHINGTON HOTEL PLAZA TAKAYAMA JP', '숙박비'),
+    ('TWIN-LINEHOTEL KARUIZAWA JP', '숙박비'),
+    ('YUMOTO KANKO HOTEL SAIKYO Tokyo JP', '숙박비'),
+    ('RAKUTENPAY HOTELSOL HOKKAIDO JP', '숙박비'),
+    ('(주)파라타항공', '항공료'),
+    ('철도승차권 발매', '교통비'),
+    ('국립세종수목원', '입장료'),
+    ('우리네코다리', '식비'),
 ])
 def test_recognizes_restaurant_suffixes_and_hotel_branch_variations(merchant, item):
     result = classify_transaction(transaction(merchant), rules=[])
@@ -47,3 +57,15 @@ def test_a_cancelled_card_does_not_get_local_trip_assignment(monkeypatch):
     result = classify_transaction(transaction('시장할매국밥', transaction_direction='cancellation'),
                                   rules=[], trip_resolver=lambda *_: 'trip-id')
     assert result['trip_id'] == ''
+
+
+@pytest.mark.parametrize('merchant,item', [('식당','식비'),('철도승차권 발매','교통비'),('숙소','숙박비')])
+def test_item_only_rule_also_resolves_local_use_but_never_service_payment_dates(merchant, item):
+    rule = dict(rule_id='item-only',version=1,conditions={'merchant_normalized':merchant},
+                effects={'item':item},optional={})
+    tx = transaction(merchant, card_kind='국내')
+    result = classify_transaction(tx,rules=[rule],trip_resolver=lambda *_:'verified-trip')
+    assert result['trip_id'] == ('verified-trip' if item=='식비' else '')
+    rule['effects']['display_tab_id']='unclassified'
+    explicit = classify_transaction(tx,rules=[rule],trip_resolver=lambda *_:'verified-trip')
+    assert explicit['trip_id']=='' and explicit['display_tab_id']=='unclassified'
