@@ -463,6 +463,8 @@ class CardFlowTests(unittest.TestCase):
             {'transaction_id': 'inferred', 'status': 'MATCHED_AUTO', 'inferred_link': True},
             {'transaction_id': 'manual', 'status': 'MATCHED_USER'},
             {'reserved_card_ids': ['contested'], 'status': 'HOLD_PARTIAL_GROUP'},
+            {'transaction_id':'grouped', 'status':'MATCHED_AUTO', 'allocation_basis':'auto_stable_order',
+             'individual_payment_evidence':False},
         ]}
         service = type('Service', (), {'held': lambda _self: (current, True)})()
         with patch('webapp.ota_payment_review.enabled', return_value=True), \
@@ -470,7 +472,8 @@ class CardFlowTests(unittest.TestCase):
             statuses, generation = self.flow._ota_card_statuses([])
         self.assertEqual(generation, 9)
         self.assertEqual(statuses, {'exact': 'EXACT', 'inferred': 'INFERRED',
-                                    'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED'})
+                                    'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED',
+                                    'grouped':'GROUP_RECONCILED'})
 
     def test_card_request_reuses_one_ota_snapshot_generation(self):
         from types import SimpleNamespace

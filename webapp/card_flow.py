@@ -1706,7 +1706,11 @@ class CardFlow:
         states = {}
         for result in current.get('results') or ():
             transaction_id = str(result.get('transaction_id') or '')
-            state = ('USER_CONFIRMED' if result.get('status') == 'MATCHED_USER' else
+            group_only = (result.get('allocation_basis') in
+                          ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                          and result.get('individual_payment_evidence') is False)
+            state = ('GROUP_RECONCILED' if group_only else
+                     'USER_CONFIRMED' if result.get('status') == 'MATCHED_USER' else
                      'INFERRED' if result.get('inferred_link') else
                      'EXACT' if result.get('status') == 'MATCHED_AUTO' else None)
             if transaction_id and state:
@@ -1728,6 +1732,17 @@ class CardFlow:
         events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
         notes = {}
         for result in data.get('results', []):
+            group_only = (result.get('allocation_basis') in
+                          ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                          and result.get('individual_payment_evidence') is False)
+            if group_only:
+                event = events.get(str(result.get('ota_event_id') or ''), {})
+                note = ('OTA 반복 결제 그룹은 대응됐지만 이 카드와 예약의 개별 연결 근거는 확인되지 않았습니다.'
+                        if event else 'OTA 반복 결제 그룹 대응이며 개별 예약 연결은 미확정입니다.')
+                identity = str(result.get('transaction_id') or '')
+                if identity in wanted:
+                    notes.setdefault(identity, set()).add(note)
+                continue
             if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER'):
                 continue
             event = events.get(str(result.get('ota_event_id') or ''), {})
@@ -2633,7 +2648,7 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='review';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':''));
-const otaLabels={EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const otaLabels={EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
 const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status],...(r.ota_candidate_notes||[])].filter(Boolean).join(' / ');
 function reviewRows(j){const originals=new Map(j.rows.map(r=>[r.transaction_id,r]));let rows=j.preview.rows.map(r=>({...originals.get(r.transaction_id),...r}));const focus=new URLSearchParams(location.search).get('transaction');if(location.hash==='#preview'&&focus)rows=rows.filter(r=>r.transaction_id===focus||r.refund_link?.counterpart_id===focus);const term=el('review-search').value.trim().toLowerCase(),month=el('review-month').value,category=el('review-category').value;rows=rows.filter(r=>(reviewState==='all'||reviewStatus(r)===reviewState)&&(!month||reviewDate(r).startsWith(month))&&(!category||r.item===category)&&(!term||[r.merchant,r.item,r.description,j.trips.find(t=>t.id===r.display_tab_id)?.name].join(' ').toLowerCase().includes(term)));const sort=el('review-sort').value;return rows.sort((a,b)=>!reviewDate(a)||!reviewDate(b)?Number(!reviewDate(a))-Number(!reviewDate(b)):sort==='amount-desc'?Number(b.amount_krw)-Number(a.amount_krw):sort==='date-asc'?reviewDate(a).localeCompare(reviewDate(b)):reviewDate(b).localeCompare(reviewDate(a)))}

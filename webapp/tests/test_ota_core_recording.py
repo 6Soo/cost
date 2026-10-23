@@ -35,7 +35,7 @@ def test_core_ordered_pair_reaches_classification_preview_and_ledger(tmp_path, m
                  'service_period': {'starts_on': '2026-11-06', 'ends_on': '2026-11-07'}}
         data = {'events': [event], 'transactions': [card], 'results': [
             {'ota_event_id': event['ota_event_id'], 'status': 'MATCHED_AUTO', 'transaction_id': tid,
-             'allocation_basis': 'auto_stable_order'}]}
+             'allocation_basis': 'auto_stable_order', 'individual_payment_evidence': False}]}
         raw = {'matches': [], 'rules': [], 'type_only_candidates': [], 'unmatched_transactions': []}
         current = {'data': data, 'results': data['results'], 'links': {}}
         monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
@@ -45,6 +45,9 @@ def test_core_ordered_pair_reaches_classification_preview_and_ledger(tmp_path, m
         monkeypatch.setattr(flow, 'trip_valid', lambda tab: tab == 'trip-x')
         monkeypatch.setattr(flow, 'tab_valid', lambda tab: tab == 'trip-x')
         monkeypatch.setattr(flow, 'retail_trip', lambda *args, **kwargs: 'trip-x')
+        flow.pipeline.save_decision(tid, card['revision'], item='숙박비', description='사용자 여행 지정',
+                                    display_tab_id='trip-x', trip_id='trip-x', request_id='synthetic-owner-trip',
+                                    trip_validator=flow.trip_valid, tab_validator=flow.tab_valid)
         flow._classify(batch, transaction_ids=[tid])
         row = board.conn.execute('SELECT classification_state,trip_id FROM transactions WHERE transaction_id=?',
                                  (tid,)).fetchone()
@@ -53,36 +56,37 @@ def test_core_ordered_pair_reaches_classification_preview_and_ledger(tmp_path, m
                        entry_metadata=flow.preview_metadata())
         preview = flow.pipeline.preview(batch, **options)
         target = next(r for r in preview['rows'] if r['transaction_id'] == tid)
-        assert target['booking_ref'] == 'SYN-BOOK'
-        assert target['ota_evidence']['kind'] == 'ordered_group'
-        assert target['service_period'] == '2026-11-06~2026-11-07'
-        assert target['occurred_on'] == '2026-11-06'
+        assert target.get('booking_ref') in (None, '')
+        assert not target.get('ota_evidence')
+        assert target.get('service_period') in (None, '')
+        assert target['occurred_on'] == '2026-09-23'
         recorded = flow.pipeline.commit(batch, preview['digest'], 'synthetic-record',
                                        projection=flow.project, **options)
         assert recorded['applied'] == 1
         expense = board.conn.execute('SELECT payload_json FROM board_rows WHERE row_id=?', ('card-' + tid,)).fetchone()
         import json
         payload = json.loads(expense[0])
-        assert payload['occurred_on'] == '2026-11-06' and payload['reservation_no'] == 'SYN-BOOK'
+        assert payload['occurred_on'] == '2026-09-23' and payload['reservation_no'] == ''
         assert payload['source_approval_date'] == '2026-09-23'
         repeated = flow.pipeline.commit(batch, preview['digest'], 'synthetic-record',
                                        projection=flow.project, **options)
         assert repeated == recorded
         assert board.conn.execute('SELECT count(*) FROM ledger_entries').fetchone()[0] == 1
         next_preview = flow.pipeline.preview(batch, **options)
-        assert next(r for r in next_preview['rows'] if r['transaction_id'] == tid)['occurred_on'] == '2026-11-06'
+        assert next(r for r in next_preview['rows'] if r['transaction_id'] == tid)['occurred_on'] == '2026-09-23'
         assert raw['matches'] == [] and raw['rules'] == []
     finally:
         board.close()
 
 
-def test_completed_inference_keeps_booking_metadata_without_becoming_exact():
+def test_completed_inference_keeps_service_period_without_asserting_booking_number():
     fact = {'transaction_id': 'card', 'source_hash': 'source', 'provider': 'agoda',
             'booking_ref': 'SYN-BOOK', 'item': '숙박비', 'reservation_status': 'completed',
             'period': {'starts_on': '2026-10-14', 'ends_on': '2026-10-16'},
             'source_sha256': 'a' * 64, 'inferred_link': True, 'paid_on': None}
     result = ledger_metadata({'matches': [fact]}, dict(fact, transaction_direction='purchase'))
-    assert result['booking_ref'] == 'SYN-BOOK'
+    assert result['booking_ref'] == ''
+    assert result['service_period'] == '2026-10-14~2026-10-16'
     assert result['ota_evidence']['kind'] == 'inferred'
     assert result['ota_evidence']['payment_date_verified'] is False
     assert fact['paid_on'] is None

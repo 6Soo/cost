@@ -12,6 +12,12 @@ def card_matches(facts, data):
     claims = defaultdict(list)
     for result in data.get('results', []):
         if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and result.get('transaction_id'):
+            if (result.get('allocation_basis') in
+                    ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order') and
+                    result.get('individual_payment_evidence') is False):
+                # A group-level ordering is not proof that this card paid this booking.
+                # Keep it out of per-card booking metadata, travel dates, and ledger fields.
+                continue
             claims[str(result['transaction_id'])].append(result)
     for tid, results in claims.items():
         if len(results) != 1:
