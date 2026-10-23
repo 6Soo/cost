@@ -203,6 +203,38 @@ def fetch_authority(base_url=None, token=None, *, timeout=15, opener=None):
     return authority
 
 
+def fetch_passenger_candidates(tour_fldid, base_url=None, token=None, *, timeout=15, opener=None):
+    """Read the minimum candidate fields for one tour; this endpoint never writes reservations."""
+    tour_id = str(tour_fldid or '').strip()
+    if not tour_id:
+        raise AuthorityUnavailable('malformed')
+    base = _base_url(base_url)
+    token = (configured_token() if token is None else token).strip()
+    if not token:
+        raise AuthorityUnavailable('not_configured')
+    query = urllib.parse.urlencode({'tourFldid': tour_id})
+    payload = _get(base + '/api/internal/passenger-candidates?' + query, token, timeout, opener)
+    if (payload.get('tour_id') != tour_id or not _text(payload.get('source_revision')) or
+            not isinstance(payload.get('candidates'), list)):
+        raise AuthorityUnavailable('malformed')
+    candidates = []
+    seen = set()
+    for row in payload['candidates']:
+        candidate = _pick(row, ('kind', 'reference_id', 'name_kr', 'status'))
+        candidate['name_en'] = row.get('name_en')
+        if (candidate['kind'] not in ('lead', 'companion', 'guide') or
+                not _text(candidate['reference_id']) or not _text(candidate['name_kr']) or
+                not _optional_text(candidate['name_en']) or not _text(candidate['status'])):
+            raise AuthorityUnavailable('malformed')
+        identity = (candidate['kind'], candidate['reference_id'])
+        if identity in seen:
+            raise AuthorityUnavailable('malformed')
+        seen.add(identity)
+        candidates.append(candidate)
+    return {'tour_id': tour_id, 'source_revision': payload['source_revision'],
+            'candidates': candidates}
+
+
 def authority_digest(authority):
     body = {'schema': SCHEMA, 'guides': authority['guides'], 'tours': authority['tours']}
     text = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(',', ':'))

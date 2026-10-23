@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from app.reservation_authority import (SCHEMA, TOKEN_ENV, TOKEN_FILE_ENV, AuthorityUnavailable,
-                                       authority_digest, configured_token, fetch_authority)
+                                       authority_digest, configured_token, fetch_authority,
+                                       fetch_passenger_candidates)
+from app.flight_passenger_matching import candidate_matches, match_booking_passengers
 
 GUIDES_PATH = '/api/internal/guides'
 TOURS_PATH = '/api/internal/tours?include_past=1'
@@ -87,6 +89,52 @@ def test_success_sends_bearer_and_drops_extra_keys(server):
     assert {auth for _, auth in state.requests} == {'Bearer tok-123'}
     dumped = json.dumps(result, ensure_ascii=False)
     assert 'phone' not in dumped and '010-' not in dumped and 'capacity' not in dumped
+
+
+def test_read_only_passenger_candidates_are_minimized_and_bound_to_requested_tour(server):
+    state, base = server
+    state.set('/api/internal/passenger-candidates?tourFldid=t1', {
+        'tour_id': 't1', 'source_revision': 'roster-v7',
+        'candidates': [{'kind': 'lead', 'reference_id': 'opaque-a', 'name_kr': '김알파',
+                        'name_en': 'KIM/ALPHA', 'status': 'active', 'phone': 'private'}]})
+    result = fetch_passenger_candidates('t1', base, 'tok-passenger')
+    assert result == {'tour_id': 't1', 'source_revision': 'roster-v7', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-a', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'active'}]}
+    assert state.requests[-1] == ('/api/internal/passenger-candidates?tourFldid=t1',
+                                  'Bearer tok-passenger')
+    assert 'phone' not in json.dumps(result)
+
+
+def test_passenger_candidates_require_exact_unique_english_identity_only():
+    passenger = {'surname': 'KIM', 'given_name': 'JI-WON'}
+    candidates = [
+        {'kind': 'lead', 'reference_id': 'opaque-a', 'name_kr': '김지원', 'name_en': 'KIM/JI WON'},
+        {'kind': 'companion', 'reference_id': 'opaque-b', 'name_kr': '김지언', 'name_en': 'KIM/JI WON'},
+        {'kind': 'guide', 'reference_id': 'opaque-c', 'name_kr': '이알파', 'name_en': 'LEE/ALPHA'},
+    ]
+    result = candidate_matches(passenger, candidates)
+    assert result['status'] == 'AMBIGUOUS'
+    assert [item['reference_id'] for item in result['candidates']] == ['opaque-b', 'opaque-a']
+    hangul_only = candidate_matches(passenger, [{'kind': 'lead', 'reference_id': 'opaque-d',
+                                                  'name_kr': '김지원', 'name_en': None}])
+    assert hangul_only['status'] == 'UNMATCHED'
+
+
+def test_booking_passengers_remain_unconfirmed_candidates_and_are_source_scoped():
+    evidence = {'booking_ref': 'SYNTH-100', 'source_digests': ['sha-mail-a'],
+                'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}]}
+    authority = {'tour_id': 'tour-a', 'source_revision': 'roster-2', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-a', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'active'}]}
+    result = match_booking_passengers(evidence, authority)
+    passenger = result['passengers'][0]
+    assert passenger['status'] == 'EXACT_CANDIDATE'
+    assert passenger['assignment_status'] == 'PENDING_USER_CONFIRMATION'
+    assert passenger['confirmed'] is False
+    assert passenger['actual_boarding_confirmed'] is False
+    assert passenger['source_digests'] == ['sha-mail-a']
+    assert match_booking_passengers(evidence, authority)['passengers'][0]['proposal_id'] == passenger['proposal_id']
 
 
 def test_digest_stable_across_fetches_and_reordered_source(server):
