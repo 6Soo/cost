@@ -860,7 +860,7 @@ def ledger_metadata(report, entry):
     allocations = sorted({f['allocation_basis'] for f in facts if f.get('allocation_basis')})
     ordered = any(value in ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
                   for value in allocations)
-    return {'booking_ref': '' if group or not exact else next(iter(refs)),
+    return {'booking_ref': '' if group or inferred or not exact else next(iter(refs)),
             'service_period': period['starts_on'] + '~' + period['ends_on'] if period else '',
             'ota_evidence': {'kind': 'inferred' if inferred else 'ordered_group' if ordered else
                                     'portal_group' if group else 'exact' if exact else 'shared_period',

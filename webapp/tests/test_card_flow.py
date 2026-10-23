@@ -559,6 +559,58 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(saved['display_tab_id'], trip)
         self.assertEqual(saved['reservation_no'], '')
 
+    def test_canonical_undated_ota_inference_flows_through_classification_and_expense(self):
+        from types import SimpleNamespace
+        from app import ota_payments
+        from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
+        from webapp import ota_payment_review
+        header, source_line = CARD.splitlines(keepends=True)
+        fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
+        fields[4], fields[5], fields[8] = 'TRIP.COM', '30000', '30000'
+        csv_data = header + (','.join(fields) + '\n').encode('utf-8')
+        trip = self.board.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                                      destination='Synthetic stay trip', client_request_id='ota-inferred-trip')['tab_id']
+        batch = self.flow.pipeline.receive(csv_data, 'ota-undated.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        source_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
+                               merchant='TRIP.COM', merchant_normalized='trip.com',
+                               approval_date='2026-08-01', amount_krw=30000,
+                               card_tail='1234', ota_inference_eligible=True)
+        event = ota_event('ota-undated-synthetic', paid_on=None,
+                          verified_portal_snapshot=True, reservation_status='completed',
+                          service_period={'starts_on':'2026-08-01','ends_on':'2026-08-03'})
+        result = ota_payments.match_ota_payment_events([event], [source_card])[0]
+        self.assertTrue(result['inferred_link'])
+        data = {'events':[event], 'transactions':[source_card], 'links':{}, 'results':[result]}
+        current = {'generation':91, 'data':data, 'results':[result]}
+        service = SimpleNamespace(held=lambda: (current, True))
+        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        base_report = {'matches':[], 'type_only_candidates':[], 'rules':[],
+                       'ota_source_errors':[], 'ota_source_inventory':{'missing':[]},
+                       'evidence_gate':{}}
+        with patch.dict(os.environ, {'WEBLEDGER_OTA_REVIEW_MODE':'isolated',
+                                     'WEBLEDGER_OTA_REVIEW_DB':str(Path(self.tmp.name)/'ota.sqlite')}), \
+                patch.object(ota_payment_review, 'enabled', return_value=True), \
+                patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                patch.object(self.flow, '_compute_ota_report', return_value=base_report), \
+                patch.object(self.flow, 'trip_valid', side_effect=lambda identity: identity == trip):
+            self.flow.classify(batch)
+            state = self.flow.state(batch)
+        reviewed = state['preview']['rows'][0]
+        self.assertEqual(reviewed['display_tab_id'], trip)
+        self.assertEqual(reviewed['ota_link_status'], 'INFERRED')
+        self.assertEqual(reviewed['ota_snapshot_generation'], 91)
+        self.assertIn(reviewed['internal_expense_status'], ('READY_FOR_INTERNAL_SAVE', 'SAVED'))
+        self.assertEqual(reviewed.get('booking_ref') or '', '')
+        if reviewed['internal_expense_status'] == 'READY_FOR_INTERNAL_SAVE':
+            self.flow.pipeline.commit(batch, state['preview']['digest'], 'inferred-expense-save',
+                                      projection=self.flow.project,
+                                      trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        saved = self.board.get_row('card-' + row['transaction_id'])
+        self.assertEqual(saved['display_tab_id'], trip)
+        self.assertEqual(saved['reservation_no'], '')
+
     def test_stale_ota_report_extension_uses_the_snapshot_freshness_value(self):
         current = {'data': {'synthetic': 'shared-result'}}
         service = type('Service', (), {'held': lambda _self: (current, True)})()
@@ -1317,6 +1369,10 @@ class OtaPreviewMetadataTests(unittest.TestCase):
                 metadata = ledger_metadata({'matches':[dict(fact, **flags)]}, entry)
                 self.assertEqual(metadata['booking_ref'], '')
                 self.assertEqual(metadata['service_period'], '')
+
+        inferred = ledger_metadata({'matches':[dict(fact, inferred_link=True)]}, entry)
+        self.assertEqual(inferred['booking_ref'], '')
+        self.assertEqual(inferred['service_period'], '2026-08-02~2026-08-03')
 
     def test_digest_protects_each_written_metadata_field(self):
         from copy import deepcopy
