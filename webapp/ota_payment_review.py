@@ -419,12 +419,10 @@ class CoreOtaPaymentBackend:
             events, self.store.links(), stored_events,
             getattr(self.store, "event_crosswalks", lambda: {})())
         canonical_by_id = {str(event.get("ota_event_id")): event for event in events}
-        legacy_links = self._legacy_exact_snapshot(events, transactions)
-        manually_claimed = {_link_transaction_id(link): event_id
-                            for event_id, link in manual_links.items() if _link_transaction_id(link)}
-        links = {event_id: link for event_id, link in legacy_links.items()
-                 if manually_claimed.get(_link_transaction_id(link), event_id) == event_id}
-        links.update(manual_links)
+        # The app.ota_payments solver is the single decision owner. Historical
+        # mail/portal exact matches remain available as diagnostics, but cannot
+        # occupy a card or affect group allocation without a user pin.
+        links = dict(manual_links)
         stale_manual_ids = set()
         old_ids_by_current = {new: old for old, new in id_crosswalk.items()}
         for event_id, link in manual_links.items():
