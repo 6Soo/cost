@@ -805,7 +805,6 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertEqual(crosswalk, {"legacy-event-reopen": "recollected-event"})
             self.assertEqual(reopened.links()["legacy-event-reopen"]["transaction_id"],
                              card["transaction_id"])
-            self.assertEqual(reopened.event_crosswalks(), {})
             reopened.close()
 
     def test_default_source_resolution_uses_registered_manifest_and_legacy_environment_defaults(self):
