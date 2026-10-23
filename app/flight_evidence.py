@@ -93,12 +93,13 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
 
 def _cancellation_status(tokens):
     subject = " ".join(tokens[:5]).casefold()
-    body = " ".join(tokens).casefold()
-    completed = (re.search(r"booking\s+cancellation\s+confirmed", subject)
-                 or re.search(r"예약\s*취소(?:가)?\s*(?:완료(?:되었습니다|됐습니다)?|되었습니다|됐습니다)", body)
-                 or "예약이 취소되었습니다" in body)
-    conditional = re.search(r"취소\s*가?\s*완료(?:되면|될\s*경우|\s*시|할\s*경우)", body)
-    if completed and not conditional:
+    lines = [line.casefold() for line in tokens]
+    policy = re.compile(r"(?:완료|요청)\s*(?:되면|될\s*경우|시|할\s*경우)|요청\s*시")
+    lines = [line for line in lines if not policy.search(line)]
+    body = " ".join(lines)
+    if (re.search(r"booking\s+cancellation\s+confirmed", subject)
+            or re.search(r"예약\s*취소(?:가)?\s*(?:완료(?:되었습니다|됐습니다)|되었습니다|됐습니다)", body)
+            or "예약 취소 완료" in body or "예약이 취소되었습니다" in body):
         return "CANCELLED"
     if (re.search(r"booking\s+cancellation\s+(?:requested|request received)", subject)
             or re.search(r"취소\s*(?:요청이\s*)?(?:접수|완료|되었습니다|됐습니다)", body)):

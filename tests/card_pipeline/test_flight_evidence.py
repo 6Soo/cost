@@ -56,14 +56,16 @@ def test_cancellation_only_notice_needs_booking_reference_and_policy_phrases_are
     assert notice["booking_ref"] == "1400826934962683"
     assert notice["cancellation_status"] == "CANCELLED"
     assert parse_flight_text("Subject: Booking cancellation confirmed") is None
-    policy_body = parse_flight_text(_confirmation().replace("?? ?? ? ????? ??", "?? ?? ? ???? ????"))
-    policy_subject = parse_flight_text("Subject: ?? ?? ??\n" + _confirmation())
+    policy_body = parse_flight_text("취소 요청 시 수수료가 발생합니다\n" + _confirmation())
+    policy_subject = parse_flight_text("Subject: 취소 규정 안내\n" + _confirmation())
     assert policy_body["cancellation_status"] == "NONE"
     assert policy_subject["cancellation_status"] == "NONE"
-    conditional_policy = parse_flight_text(_confirmation().replace(
-        "규정 조회 및 취소·변경 요청", "예약 취소가 완료되면 이메일로 안내합니다"))
-    assert conditional_policy["cancellation_status"] == "NONE"
-    assert parse_flight_text("예약 취소가 완료되었습니다") is None
+    assert parse_flight_text("예약 취소가 완료되면 이메일로 안내합니다\n" + _confirmation())["cancellation_status"] == "NONE"
+    assert parse_flight_text("예약 취소 완료 시 이메일로 안내합니다\n" + _confirmation())["cancellation_status"] == "NONE"
+    assert parse_flight_text("취소 요청 시 수수료가 발생합니다\n" + _confirmation())["cancellation_status"] == "NONE"
+    assert parse_flight_text("예약 취소 완료\n" + _confirmation())["cancellation_status"] == "CANCELLED"
+    assert parse_flight_text("예약 취소가 완료되었습니다\n" + _confirmation())["cancellation_status"] == "CANCELLED"
+    assert parse_flight_text("예약 취소가 완료되었습니다\n예약 취소가 완료되면 이메일로 안내합니다\n" + _confirmation())["cancellation_status"] == "CANCELLED"
 
 
 def test_two_passengers_keep_inner_space_and_hangul_names():
