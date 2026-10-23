@@ -1331,6 +1331,41 @@ class CardFlow:
                 projection=lambda entry: self.project(entry), additional_holds=holds, **options)
             return result['applied']
 
+    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+        """Persist an owner move on an existing COST row, then open the existing rule dialogue."""
+        source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
+        if not source_trip or not target_trip or source_trip == target_trip:
+            return {"status": "not_needed"}
+        row_id = 'card-' + str(transaction_id)
+        row = self.board.get_row(row_id)
+        if row is None:
+            return {"status": "not_recorded"}
+        case_request_id = 'card-trip-move-' + hashlib.sha256(
+            f"{transaction_id}\0{request_id}".encode('utf-8')).hexdigest()[:32]
+        case_id = 'case-' + case_request_id
+        if row.get('display_tab_id') != target_trip:
+            saved = self.board.save(row_id=row_id, expected_revision=int(row['revision']),
+                                    client_request_id=case_request_id, change_mode='rule_change',
+                                    changes={'display_tab_id': target_trip}, actor='owner')
+            case_id = saved.get('learning_case_id') or case_id
+        self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
+        current = self.board.get_row(row_id)
+        draft = {
+            'learning_case_id': case_id,
+            'rule_kind': '', 'evidence_basis': '',
+            'conditions': {},
+            'scope': {'trip_id': target_trip},
+            'effects': {'item': current.get('item') or '',
+                        'display_tab_id': target_trip},
+        }
+        self.board.open_rule_dialog(learning_case_id=case_id, draft=draft,
+                                    client_request_id=case_request_id + ':dialog')
+        self.board.open_conversation(learning_case_id=case_id,
+                                     client_request_id=case_request_id + ':conversation')
+        return {"status": "opened", "case_id": case_id,
+                "conversation_id": 'conv-' + case_id,
+                "url": '/rules?case=' + case_id}
+
     def saved_state(self, batch_id, *, classify=False):
         """Only call after the write committed; refresh failure cannot undo that write."""
         try:
@@ -1813,6 +1848,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                                      (payload['transaction_id'], batch_id)).fetchone()
             if not row:
                 raise StoreError('NOT_FOUND', '이 파일에 없는 거래입니다')
+            previous = board.conn.execute('SELECT display_tab_id FROM transactions WHERE transaction_id=?',
+                                          (payload['transaction_id'],)).fetchone()
+            previous_trip = str(previous[0] or '') if previous else ''
             tab = str(payload.get('display_tab_id') or '')
             if not flow.tab_valid(tab):
                 raise StoreError('TRIP_AUTHORITY_REQUIRED', '원본 일정이 확인된 여행을 선택해 주세요')
@@ -1824,7 +1862,16 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 resolve_hold=payload.get('resolve_hold') is True,
                 request_id=payload['request_id'])
             flow.record_decision(batch_id, payload['transaction_id'])
-            handler._send_json(flow.saved_state(batch_id, classify=True))
+            response = flow.saved_state(batch_id, classify=True)
+            if previous_trip and tab and previous_trip != tab:
+                try:
+                    response['trip_move_learning'] = flow.open_trip_move_learning(
+                        payload['transaction_id'], previous_trip, tab,
+                        request_id=str(payload['request_id']))
+                except Exception:
+                    # The owner decision and row move already committed; learning is optional.
+                    response['trip_move_learning'] = {'status': 'unavailable'}
+            handler._send_json(response)
         elif len(parts) == 6 and parts[3] == 'refund-groups' and parts[5] == 'commit':
             result = flow.pipeline.commit(batch_id,payload['digest'],payload['request_id'],projection=flow.project,
                                            trip_validator=flow.trip_valid,tab_validator=flow.tab_valid,
@@ -2396,7 +2443,7 @@ el('questions').innerHTML=(ed?'<article><h2>'+esc(j.preview.rows.find(r=>r.trans
 const groups=(j.refund_groups||[]).map(g=>g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p=j.preview;el('preview').className='';el('preview').innerHTML=groups+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+'<h2>거래 처리 결과</h2><p>기록 완료 '+p.rows.filter(r=>r.already_booked).length+'건 · 확인할 거래 '+p.rows.filter(r=>r.next_action?.required).length+'건</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({user_exception:'사용자 예외',guide_airfare_evidence:'대장 항공권 근거'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'추론 배정')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 확인 필요')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>'+[...new Set(p.rows.filter(r=>!r.blocked&&!j.rows.some(x=>x.transaction_id===r.transaction_id&&x.item==='분기 기타비용')).map(r=>r.display_tab_id).filter(Boolean))].map(t=>'<p><button type="button" data-google-copy="'+esc(t)+'">__ICON_COPY__'+esc(j.trips.find(x=>x.id===t)?.name||'여행')+' 구글 지출 7열 복사</button></p>').join('');
 document.querySelectorAll('[data-group-commit]').forEach(b=>b.hidden=true);el('preview').insertAdjacentHTML('beforeend',(j.quarter_targets||[]).map(t=>'<section class="quarter-copy"><h2>'+esc(t.name)+'</h2><p class="small">여행 외 비용 · '+t.transaction_ids.length+'건 · 원본과 기록 상태는 그대로 유지합니다.</p>'+(t.available?'<a href="'+esc(t.href)+'" target="_blank" rel="noopener noreferrer">Google 분기 원본 열기</a><p><button type="button" data-google-copy="'+esc(t.id)+'">__ICON_COPY__'+esc(t.name)+' 지출 7열 복사</button></p>':'<p role="status">'+esc(t.reason)+'</p>')+'</section>').join(''));
 document.querySelector('[data-review-date]').onclick=()=>{el('review-date').open=true;el('review-date').scrollIntoView({block:'center'});};
-document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'답변은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'답변을 적용했습니다. 검사를 통과한 거래는 자동 반영했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})
+document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.trip_move_learning?.status==='opened'){location.assign(j.trip_move_learning.url);return}if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'답변은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'답변을 적용했습니다. 검사를 통과한 거래는 자동 반영했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})
 document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{editing=b.dataset.edit;render(model);el('questions').scrollIntoView({block:'start',behavior:'smooth'});el('status').textContent='선택한 거래의 답변을 고쳐 쓸 수 있습니다.'});
 if(el('prevpage'))el('prevpage').onclick=()=>{page=Math.max(0,page-1);render(model)};
 if(el('nextpage'))el('nextpage').onclick=()=>{page=page+1;render(model)};}

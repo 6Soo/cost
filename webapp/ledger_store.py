@@ -2369,6 +2369,34 @@ class LedgerStore:
                     "source_ref": source_ref, "candidate_key": candidate_key,
                     "source_ref_sha256": sha256_text(source_ref), "created": True}
 
+    def ensure_learning_case(self, *, case_id: str, row_id: str) -> dict:
+        """Create an idempotent case for an already projected, owner-moved card row."""
+        if not case_id or not row_id:
+            raise SaveError("INVALID_VALUE", "learning case and row IDs are required")
+        with self._lock:
+            self._replay_pending()
+            row = self.get_row(row_id)
+            if row is None or row.get("row_kind") == "income":
+                raise SaveError("INVALID_VALUE", "learning case requires an existing expense row")
+            existing = self.conn.execute(
+                "SELECT row_id FROM board_learning_cases WHERE case_id=?", (case_id,)).fetchone()
+            if existing:
+                if existing[0] != row_id:
+                    raise SaveError("REQUEST_ID_REUSED", "learning case already belongs to another row")
+                return {"case_id": case_id, "row_id": row_id, "created": False}
+            created_at = _utc_now()
+            self._begin_write()
+            try:
+                self.conn.execute(
+                    "INSERT INTO board_learning_cases(case_id,row_id,event_id,dialog_state,created_at)"
+                    " VALUES(?,?,?,?,?)",
+                    (case_id, row_id, str(row.get("source_event_id") or ""), "waiting", created_at))
+                self._commit_write()
+            except Exception:
+                self._rollback_write()
+                raise
+            return {"case_id": case_id, "row_id": row_id, "created": True}
+
     def review_rule_case(self, case_id: str):
         """등록된 원천 사례 근거를 읽습니다. 없으면 None. 읽기 전용."""
         import json as _json

@@ -86,6 +86,41 @@ class CardFlowTests(unittest.TestCase):
             'AND subject=?', (row['transaction_id'],)).fetchone()[0]
         self.assertEqual(audit, 2)
 
+    def test_recorded_card_trip_move_updates_ledger_and_opens_existing_rule_conversation(self):
+        trip_a = self.board.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                                        destination='synthetic-a', client_request_id='ai-trip-a')['tab_id']
+        trip_b = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                        destination='synthetic-b', client_request_id='ai-trip-b')['tab_id']
+        self.flow.trip_valid = lambda value: value in {trip_a, trip_b}
+        batch = self.flow.pipeline.receive(CARD, 'dialog-trip-move.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id=trip_a, trip_id=trip_a, request_id='dialog-move-to-a',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, row['transaction_id'])
+        moved = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(moved['transaction_id'], moved['revision'], item='숙박비',
+            display_tab_id=trip_b, trip_id=trip_b, request_id='dialog-move-to-b',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, moved['transaction_id'])
+
+        from webapp import ledger_board
+        previous_store = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            learning = self.flow.open_trip_move_learning(
+                moved['transaction_id'], trip_a, trip_b, request_id='dialog-move-to-b')
+        finally:
+            ledger_board.bind_store(previous_store)
+        ledger_row = self.board.get_row('card-' + moved['transaction_id'])
+        self.assertEqual(ledger_row['display_tab_id'], trip_b)
+        self.assertEqual(learning['status'], 'opened')
+        case = self.board.conn.execute(
+            'SELECT row_id FROM board_learning_cases WHERE case_id=?', (learning['case_id'],)).fetchone()
+        self.assertEqual(case[0], ledger_row['row_id'])
+        conversation = self.board.conversation_state('conv-' + learning['case_id'])
+        self.assertEqual(conversation['row_id'], ledger_row['row_id'])
+
     def test_review_evidence_labels_distinguish_existing_mail_evidence(self):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
