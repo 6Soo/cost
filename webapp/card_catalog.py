@@ -171,6 +171,11 @@ def catalog(board, query):
     for row in rows:
         row['review_hold'] = holds.get(row['transaction_id'])
         row['next_action'] = next_action(row, {'already_booked': row['transaction_id'] in booked})
+    if any(re.search(r'toyoko|토요코인', row.get('merchant') or '', re.I) for row in rows):
+        from .card_flow import CardFlow
+        notes = CardFlow(board)._ota_candidate_notes(rows)
+        for row in rows:
+            row['ota_candidate_notes'] = notes.get(row['transaction_id'], [])
     return {'rows': rows,
             'total': total, 'all_count': all_count, 'cards': cards, 'months': months, 'page': page, 'pages': pages}
 
@@ -228,9 +233,10 @@ def render_html(data, query, *, csrf=''):
                  ('분류', r['item'] or '미분류'), ('여행', r['trip_name'] or
                   (quarter['name'] + ' · 여행 외 비용' if quarter else '여행 확인 필요')), ('상태', state)]
         row = ''.join(f"<td data-label='{esc(label)}'>{esc(text)}</td>" for label, text in cells)
+        evidence = ''.join(f"<p class='small'>{esc(note)}</p>" for note in r.get('ota_candidate_notes') or ())
         rows.append(f"<tr data-transaction='{esc(r['transaction_id'])}'>" + row +
                     f"<td data-label='다음 행동'><p class='action-reason'>{esc(action['reason'])}</p>"
-                    f"<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
+                    f"{evidence}<a class='catalog-btn' href='{esc(action['href'])}'>{esc(action['label'])}</a></td></tr>")
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'><title>전체 카드 거래 검색</title>"
         f"<style>{CATALOG_STYLE}</style></head><body><main class='card-catalog'>"
