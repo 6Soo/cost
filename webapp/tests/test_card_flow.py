@@ -576,8 +576,15 @@ class CardFlowTests(unittest.TestCase):
                   'status': 'MATCHED_AUTO', 'inferred_link': True}
         current = {'generation': 73, 'results': [result], 'data': {
             'events': [event], 'transactions': [row], 'links': {}, 'results': [result]}}
+        current['public'] = ota_payment_review.public_snapshot({
+            'events': [event], 'cards_by_event': {'ota-synthetic': [row]}, 'proposals': []})
         service = SimpleNamespace(held=lambda: (current, True))
-        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        backend = SimpleNamespace(
+            store=SimpleNamespace(group_pins=lambda: []), close=lambda: None,
+            snapshot_view=lambda: {'current': current, 'status': 'ready', 'stale': False,
+                                   'refreshing': False, 'generation': current['generation'],
+                                   'generated_at': 'synthetic', 'snapshot_key': 'snapshot-key',
+                                   'last_error': None})
         with patch.dict(os.environ, {'WEBLEDGER_OTA_REVIEW_MODE': 'isolated',
                                      'WEBLEDGER_OTA_REVIEW_DB': str(Path(self.tmp.name) / 'review.sqlite')}), \
                 patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
@@ -586,11 +593,21 @@ class CardFlowTests(unittest.TestCase):
                 patch.object(self.flow, 'ota_group_holds', return_value={}), \
                 patch.object(self.flow, 'trip_valid', return_value=True):
             card_state = self.flow.state(batch)
-            ota_view = ota_payment_review.public_snapshot({
-                'events': [event], 'cards_by_event': {'ota-synthetic': [row]}, 'proposals': []})
+            from urllib.parse import urlsplit
+            host = type('Host', (), {'headers': {}, '_send_json': lambda self, payload, status=200:
+                                     setattr(self, 'response', (status, payload))})()
+            self.assertTrue(ota_payment_review.dispatch(host, urlsplit('/api/imports/ota'),
+                                                        backend=backend))
+            response_status, ota_view = host.response
+            self.assertEqual(response_status, 200)
             card = next(item for item in card_state['preview']['rows']
                         if item['transaction_id'] == row['transaction_id'])
-            self.assertEqual(ota_view['events'][0]['paid_on'], '미확인')
+            ota_event_view = next(item for item in ota_view['events']
+                                  if item['ota_event_id'] == 'ota-synthetic')
+            self.assertEqual(ota_view['generation'], card['ota_snapshot_generation'])
+            self.assertEqual(ota_event_view['paid_on'], current['public']['events'][0]['paid_on'])
+            self.assertEqual(ota_view['cards_by_event']['ota-synthetic'][0]['transaction_id'],
+                             row['transaction_id'])
             self.assertEqual(card['ota_link_status'], 'INFERRED')
             self.assertEqual(card['ota_snapshot_generation'], 73)
             self.assertEqual(card['display_tab_id'], trip)
