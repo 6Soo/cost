@@ -30,6 +30,24 @@ def summarize(subject, sent, text):
     """메일 한 통에서 판단에 필요한 사실만 뽑는다. 문장은 짧게 자른다."""
     refs = sorted(set(_REF.findall(text)))
     period = ota_mail.service_period(text) or {}
+    toyoko = bool(re.search(r'토요코인|toyoko', subject, re.I))
+    if toyoko:
+        refs = sorted(set(re.findall(r'예약\s*번호\s*[:：]?\s*([0-9]{7,20})(?![0-9])', text)))
+        # 토요코인 원문은 체크인/체크아웃 대신 숙박일과 숙박 수를 적는다.
+        stays = set()
+        for year, month, day, nights in re.findall(
+                r'숙박일\s*[:：]\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일'
+                r'\s*(?:\([^\n)]*\))?\s*부터\s*(\d+)\s*박', text):
+            try:
+                start = date(int(year), int(month), int(day))
+                count = int(nights)
+                if 1 <= count <= 365:
+                    stays.add((start.isoformat(), (start + timedelta(days=count)).isoformat()))
+            except ValueError:
+                continue
+        if not period and len(stays) == 1:
+            start, end = next(iter(stays))
+            period = {'starts_on': start, 'ends_on': end}
     notes = []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for words in (REFUND_WORDS, NOTE_WORDS):
@@ -63,9 +81,23 @@ def summarize(subject, sent, text):
     if len(paid_amounts) != 1:
         paid_amounts.clear()
     paid_amounts.intersection_update(amounts)
+    totals = {}
+    hotel_name = ''
+    if toyoko:
+        for number, unit in re.findall(r'합계금액\s*[:：]\s*([0-9][0-9,]*)\s*(원|엔)', text):
+            currency = 'KRW' if unit == '원' else 'JPY'
+            totals.setdefault(currency, set()).add(int(number.replace(',', '')))
+        totals = {currency: sorted(values) for currency, values in totals.items()}
+        # 법인 예약 메일의 제목에는 지점이 없으므로 본문의 독립된 호텔명만 사용한다.
+        for line in lines:
+            if (re.fullmatch(r'토요코인\s+[가-힣A-Za-z0-9 .-]{1,40}', line)
+                    and not any(word in line for word in ('클럽', '회원', '코퍼레이트', '예약', '바랍니다'))):
+                hotel_name = line
+                break
     return {'subject': subject, 'sent': sent.isoformat() if sent else '', 'refs': refs,
             'starts_on': period.get('starts_on', ''), 'ends_on': period.get('ends_on', ''),
-            'amounts': amounts, 'notes': notes, 'paid_amounts': sorted(paid_amounts)}
+            'amounts': amounts, 'notes': notes, 'paid_amounts': sorted(paid_amounts),
+            'currency_totals': totals, 'hotel_name': hotel_name}
 
 
 def build_index(mail_directories):
@@ -81,6 +113,7 @@ def build_index(mail_directories):
         headers, _ = authenticated
         text = ota_mail.message_text(message)
         entry = summarize(headers.get('subject', ''), _sent_day(headers), text)
+        entry['message_id'] = message.get('id', '')
         for amount in entry['amounts']:
             by_amount.setdefault(amount, []).append(entry)
         for ref in entry['refs']:
@@ -115,6 +148,7 @@ def _direct_hotel_key(value):
     """같은 지점의 띄어쓰기·호텔 접미사 표기를 통일한다."""
     compact = lambda value: re.sub(r'[^0-9a-z가-힣]', '', str(value or '').casefold())
     name = compact(value).replace('토요코인호텔', '토요코인').replace('toyokoinnhotel', 'toyokoinn')
+    name = re.sub(r'ii$', '2', name)
     prefix = '토요코인' if name.startswith('토요코인') else 'toyokoinn' if name.startswith('toyokoinn') else ''
     return name if prefix and len(name) > len(prefix) else ''
 
@@ -129,7 +163,7 @@ def direct_hotel_branch_matches(entry, merchant):
     name = _direct_hotel_key(merchant)
     subject = re.sub(r'[^0-9a-z가-힣]', '', str(entry.get('subject') or '').casefold())
     subject = subject.replace('토요코인호텔', '토요코인').replace('toyokoinnhotel', 'toyokoinn')
-    return bool(name and name in subject)
+    return bool(name and (name in subject or same_direct_hotel_branch(entry.get('hotel_name'), merchant)))
 
 
 def matches_direct_hotel(entry, merchant, *, amount=None):
@@ -147,7 +181,8 @@ def matches_direct_hotel(entry, merchant, *, amount=None):
 def describe(entry):
     """판단에 필요한 줄만: 예약명·상태, 예약번호, 이용기간, 결제·환불 상태."""
     subject = entry['subject']
-    status = '취소' if '취소' in subject else '확정' if '확정' in subject else ''
+    status = ('취소' if '취소' in subject else '확정' if '확정' in subject else
+              '예약 확인' if re.search(r'예약\s*확인', subject) else '')
     name = re.split(r'\s*예약|\s*-NoReply', re.sub(r'^\[[^\]]*\]\s*', '', subject))[0].strip() or subject
     lines = [f"{name} · {status}" if status else name]
     if entry['refs']:

@@ -8,7 +8,8 @@ import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com', 'agoda-messaging.com')
+SUPPLIER_DOMAINS = ('trip.com', 'trip.co.kr', 'klook.com', 'agoda.com', 'booking.com', 'agoda-messaging.com',
+                    'toyoko-inn.com', 'toyoko-inn.co.jp')
 # 공급사 발신 여부와 관계없이 항상 수집한다.
 ALWAYS_RECIPIENTS = ('kew2000@hanmail.net', 'kew2000@daum.net')
 OVERLAP_DAYS = 2
@@ -134,6 +135,29 @@ def owner_record(message_id: str, headers: dict, body: str) -> dict:
     data = urlsafe_b64encode(body.encode('utf-8')).decode('ascii')
     return {'id': message_id, 'internal_date': str(internal) if internal else None, 'owner_collected': True,
             'payload': {'headers': found, 'mime_type': 'text/plain', 'body': {'data': data}}}
+
+
+def owner_raw_record(message_id: str, raw: str, *, internal_date=None) -> dict:
+    """소유자 연결에서 받은 원본 MIME의 문자셋을 보존해 예약 근거로 만든다."""
+    from base64 import urlsafe_b64decode
+    from email import policy
+    from email.parser import BytesParser
+
+    message = BytesParser(policy=policy.default).parsebytes(
+        urlsafe_b64decode(raw + '=' * (-len(raw) % 4)))
+
+    def part_payload(part):
+        payload = {'mime_type': part.get_content_type(),
+                   'headers': [{'name': name, 'value': str(value)} for name, value in part.items()]}
+        if part.is_multipart():
+            payload['parts'] = [part_payload(child) for child in part.iter_parts()]
+        elif part.get_content_maintype() == 'text' and part.get_content_disposition() != 'attachment':
+            data = part.get_payload(decode=True) or b''
+            payload['body'] = {'content': data.decode(part.get_content_charset() or 'utf-8', errors='strict')}
+        return payload
+
+    return {'id': message_id, 'internal_date': internal_date, 'owner_collected': True,
+            'raw': raw, 'payload': part_payload(message)}
 
 
 def write_owner_batch(directory: Path, records: list, now: datetime) -> Path | None:
