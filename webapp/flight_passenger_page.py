@@ -47,7 +47,7 @@ const values=new FormData(form), booking_ref=String(values.get('booking_ref')||'
 try{const response=await fetch('/api/flight-passengers/candidates?booking_ref='+encodeURIComponent(booking_ref)+'&tour_id='+encodeURIComponent(tour_id));
 const data=await response.json();if(!response.ok)throw Error(data.code||'후보를 불러오지 못했습니다.');
 for(const passenger of data.passengers||[]){const article=document.createElement('article'), title=document.createElement('h2');
-if(passenger.assignment){const saved=document.createElement('p');saved.textContent=passenger.assignment.stale?'저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'???')+' · 사용자가 확인했습니다.';article.append(saved)}
+if(passenger.assignment){const saved=document.createElement('p');saved.textContent=passenger.assignment.stale?'저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'참가자')+' · 사용자가 확인했습니다.';article.append(saved)}
 title.textContent=passenger.passenger_name_en+' · '+passenger.status;article.append(title);
 if(!passenger.candidates.length){const empty=document.createElement('p');empty.textContent='일치 후보가 없습니다. 이름만으로 새 고객을 만들지 않습니다.';article.append(empty)}
 for(const candidate of passenger.candidates){const label=document.createElement('label'), radio=document.createElement('input');radio.type='radio';radio.name=passenger.proposal_id;radio.value=candidate.reference_id;
