@@ -744,8 +744,16 @@ class CardFlowTests(unittest.TestCase):
         self.assertTrue(result['inferred_link'])
         data = {'events':[event], 'transactions':[source_card], 'links':{}, 'results':[result]}
         current = {'generation':91, 'data':data, 'results':[result]}
-        service = SimpleNamespace(held=lambda: (current, True))
-        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        current['public'] = ota_payment_review.public_snapshot({
+            'events': [event], 'cards_by_event': {event['ota_event_id']: [source_card]}, 'proposals': []})
+        held_calls = []
+        service = SimpleNamespace(held=lambda: (held_calls.append(91) or current, True))
+        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None,
+                                  snapshot_view=lambda: {
+                                      'current': current, 'status': 'ready', 'stale': False,
+                                      'refreshing': False, 'generation': 91,
+                                      'generated_at': 'synthetic', 'snapshot_key': 'synthetic-key',
+                                      'last_error': None})
         base_report = {'matches':[], 'type_only_candidates':[], 'rules':[],
                        'ota_source_errors':[], 'ota_source_inventory':{'missing':[]},
                        'evidence_gate':{}}
@@ -758,12 +766,23 @@ class CardFlowTests(unittest.TestCase):
                 patch.object(self.flow, 'trip_valid', side_effect=lambda identity: identity == trip):
             self.flow.classify(batch)
             state = self.flow.state(batch)
+            host = type('Host', (), {'headers': {}, '_send_json': lambda self, payload, status=200:
+                                     setattr(self, 'response', (status, payload))})()
+            from urllib.parse import urlsplit
+            self.assertTrue(ota_payment_review.dispatch(host, urlsplit('/api/imports/ota'), backend=backend))
+            ota_status, ota_view = host.response
+        self.assertEqual(ota_status, 200)
         reviewed = state['preview']['rows'][0]
+        self.assertEqual(ota_view['generation'], reviewed['ota_snapshot_generation'])
+        self.assertEqual(ota_view['events'][0]['ota_event_id'], event['ota_event_id'])
+        self.assertEqual(ota_view['cards_by_event'][event['ota_event_id']][0]['transaction_id'],
+                         row['transaction_id'])
         self.assertEqual(reviewed['display_tab_id'], trip)
         self.assertEqual(reviewed['ota_link_status'], 'INFERRED')
         self.assertEqual(reviewed['ota_snapshot_generation'], 91)
         self.assertIn(reviewed['internal_expense_status'], ('READY_FOR_INTERNAL_SAVE', 'SAVED'))
         self.assertEqual(reviewed.get('booking_ref') or '', '')
+        self.assertEqual(len(held_calls), 2)  # 분류 요청과 카드 화면 요청은 각각 한 번만 스냅샷을 고정한다.
         if reviewed['internal_expense_status'] == 'READY_FOR_INTERNAL_SAVE':
             self.flow.pipeline.commit(batch, state['preview']['digest'], 'inferred-expense-save',
                                       projection=self.flow.project,
