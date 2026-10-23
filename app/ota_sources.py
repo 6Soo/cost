@@ -65,6 +65,37 @@ def content_stamp(path):
     return {'path':str(path.resolve()),'sha256':digest.hexdigest()}
 
 
+def source_lineage_id(registry, path):
+    """Resolve an optional operator-assigned stable source ID, with a path fallback."""
+    path = Path(path).resolve()
+    normalized = os.path.normcase(str(path))
+    for registered_path, lineage in (registry or {}).items():
+        try:
+            if os.path.normcase(str(Path(registered_path).resolve())) == normalized:
+                return str(lineage)
+        except (OSError, TypeError, ValueError):
+            continue
+    return "path_" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _lineage_registry(manifest):
+    values = manifest.get("source_lineage_ids", {}) if manifest else {}
+    if not isinstance(values, dict):
+        raise OtaSourcesError('source_lineage_ids는 절대 경로와 식별자 쌍이어야 합니다',
+                              code='OTA_SOURCES_SCHEMA_MISMATCH')
+    result = {}
+    seen = set()
+    for raw_path, raw_lineage in values.items():
+        path = Path(raw_path)
+        if (not path.is_absolute() or not isinstance(raw_lineage, str) or
+                not raw_lineage.strip() or raw_lineage.strip() in seen):
+            raise OtaSourcesError('source_lineage_ids 항목이 올바르지 않습니다',
+                                  code='OTA_SOURCES_SCHEMA_MISMATCH')
+        seen.add(raw_lineage.strip())
+        result[str(path.resolve())] = raw_lineage.strip()
+    return result
+
+
 def mail_stamps(directories):
     """Content stamps of the mail files a directory contributes; the mail parse depends on nothing else."""
     watched = []
@@ -143,6 +174,7 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
     path=Path(manifest_file) if manifest_file is not None else manifest_path(data_directory)
     explicit=os.environ.get('WEBLEDGER_OTA_SOURCES') is not None or manifest_file is not None
     manifest=read_manifest(path,required=explicit)
+    lineages = _lineage_registry(manifest)
     if manifest is not None and 'unified_database' in manifest:
         databases = manifest_entries({'db': [manifest['unified_database']]}, 'db')
         database = databases[0]
@@ -152,6 +184,7 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
             if not is_store(database):
                 raise OtaSourcesError('통합 OTA DB 형식이 올바르지 않습니다', code='OTA_STORE_SCHEMA_MISMATCH')
         return {'manifest_path':str(path), 'manifest_present':True, 'manifest_stamp':manifest_stamp(path),
+                'source_lineage_ids':lineages,
                 'unified_database':database, 'mail_directories':databases, 'portal_databases':databases,
                 'reference_documents':databases,
                 'registered':{'mail_directories':databases, 'portal_databases':databases,
@@ -161,6 +194,7 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
         return {
             'manifest_path':str(path),'manifest_present':False,
             'manifest_stamp':None,
+            'source_lineage_ids':{},
             'mail_directories':[Path(mail_default)] if mail_default is not None else [],
             'portal_databases':[Path(portal_default)] if portal_default is not None else [],
             'reference_documents':[],
@@ -200,6 +234,7 @@ def resolve_sources(data_directory, *, mail_default=None, portal_default=None, m
                                 'registered_in':str(path)})
     diagnostics=[f'등록된 {item["kind"]} 이(가) 없습니다: {item["path"]}' for item in missing]
     return {'manifest_path':str(path),'manifest_present':True,
+            'source_lineage_ids':lineages,
             'manifest_stamp':manifest_stamp(path),
             'mail_directories':mails,'portal_databases':portals,
             'reference_documents':references,

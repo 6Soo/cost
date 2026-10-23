@@ -29,6 +29,8 @@ def test_japanese_paid_stay_keeps_original_currency_and_two_distinct_payments(tm
     for e in events:
         assert e['amount'] == '9737' and e['currency'] == 'JPY' and e['amount_krw'] is None
         assert e['item'] == '숙박비' and e['paid_on'] == '2026-09-25'
+        assert e['paid_on_semantics'] == 'mail_sent_proxy'
+        assert e['payment_event_id'] is None
         assert e['service_period'] == {'starts_on': '2026-09-30', 'ends_on': '2026-10-01'}
         assert e['card_last4'] is None and e['evidence_status'] == 'paid_verified'
     results = match_ota_payment_events(events, [card('krw-a', amount_krw=85621,
@@ -366,6 +368,7 @@ def test_portal_source_extract_keeps_two_same_amount_payment_ids(tmp_path):
     events = build_ota_payment_events({'portal_databases':[path]})
     assert len(events) == 2
     assert {event['payment_id'] for event in events} == {'pay-a','pay-b'}
+    assert len({event['payment_event_id'] for event in events}) == 2
     assert all(event['paid_on'] is None for event in events)
 
 
@@ -565,6 +568,7 @@ def test_booking_receipt_uses_explicit_paid_date_and_excludes_onsite_tax(tmp_pat
     assert len(events) == 2 and len(paid) == 1
     assert (paid[0]['amount'],paid[0]['currency'],paid[0]['paid_on']) == (
         '24200','JPY','2026-10-21')
+    assert paid[0]['paid_on_semantics'] == 'explicit_charge_date'
     assert paid[0]['source_ids'] == ['mail:booking-receipt']
     assert paid[0]['service_period'] == {'starts_on':'2026-10-23','ends_on':'2026-10-24'}
     assert any(e['event_type'] == 'reservation' for e in events)
@@ -634,6 +638,20 @@ def test_portal_snapshot_copies_with_only_observed_at_change_deduplicate(tmp_pat
     assert len(events) == 1
     assert len(events[0]['source_digests']) == 1
     assert events[0]['paid_on'] is None
+    assert len(events[0]['source_lineage_ids']) == 2
+    assert len(events[0]['observation_ids']) == 2
+    assert events[0]['payment_event_id'] is None
+
+
+def test_portal_source_lineage_can_use_registered_stable_id(tmp_path):
+    from tests.card_pipeline.test_ota_portal import portal_database
+    path = portal_database(tmp_path / 'portal-lineage.sqlite')
+    events = build_ota_payment_events({
+        'portal_databases': [path],
+        'source_lineage_ids': {str(path.resolve()): 'agoda-primary-source'},
+    })
+    assert events[0]['source_lineage_ids'] == ['agoda-primary-source']
+    assert len(events[0]['observation_ids']) == 1
 
 
 def test_same_payload_under_distinct_portal_source_ids_is_not_collapsed(tmp_path):

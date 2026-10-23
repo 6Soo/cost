@@ -116,9 +116,21 @@ def _parse_mail_events(directories):
             "source_digests": [digest],
             "evidence_kind": "authenticated_payment_mail", "source_inventory": inventory,
             "payment_id": payment_id,
+            "payment_event_id": None,
+            "paid_on_semantics": fact.get("paid_on_semantics") or
+                ("mail_sent_proxy" if paid_on else "missing"),
             "card_issuer": ota_booking_context.payment_issuer(text),
             "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
         }
+        if status in ("paid_verified", "refund_verified"):
+            payment_identity = (("payment_id", str(payment_id)) if payment_id else
+                                ("binding", event["source_binding_ids"][0])
+                                if len(event["source_binding_ids"]) == 1 else None)
+            if payment_identity:
+                event["payment_event_id"] = "pay_" + _digest([fact["provider"], *payment_identity])
+        event["source_lineage_ids"] = ["mail_" + _digest(source_id)]
+        event["observation_ids"] = ["obs_" + _digest([event["source_lineage_ids"][0], message_id,
+            0, "authenticated_mail", event_type])]
         if not event["card_last4"] and card_match:
             event["card_last4"] = card_match.group(1)
         event["ota_event_id"] = _event_id(event["identity_source_ids"])
@@ -156,7 +168,8 @@ def _trip_japanese_paid_stay(message, headers, text):
             'paid_on': paid_on.isoformat(), 'period': {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()},
             'source_sha256': _digest(message), 'reservation_status': 'observed',
             'payment_status': 'paid', 'evidence_status': 'paid_verified', 'event_type': 'charge',
-            'refund_status': 'none_displayed', 'card_last4': None, 'payment_id': None, 'source_binding_ids': []}
+            'refund_status': 'none_displayed', 'card_last4': None, 'payment_id': None,
+            'paid_on_semantics': 'mail_sent_proxy', 'source_binding_ids': []}
 
 
 def _extract_signed_payment_message(message):
@@ -281,10 +294,12 @@ def _extract_signed_payment_message(message):
             "event_type": event_type, "refund_status": "refunded" if is_refund and complete else "none_displayed",
             "card_last4": last4.group(1) if last4 else None,
             "payment_id": payment_id.group(1) if payment_id else None,
+            "paid_on_semantics": "explicit_charge_date" if receipt_day else
+                "mail_sent_proxy" if paid_on else "missing",
             "source_binding_ids": []}
 
 
-def _portal_events(databases):
+def _portal_events(databases, *, source_lineage_ids=None):
     grouped = defaultdict(list)
     database_paths = [Path(item).resolve() for item in ota_portal.as_databases(databases)]
     missing = [{"kind":"portal_database", "path":str(path)} for path in database_paths
@@ -301,6 +316,15 @@ def _portal_events(databases):
         grouped[(row["database"], row["booking_number"], row["id"])].append(row)
     events = []
     for (database_index, booking, record_id), evidence in sorted(grouped.items()):
+        try:
+            database_number = int(str(database_index).split(":", 1)[0])
+        except (TypeError, ValueError):
+            database_number = 0
+        source_path = database_paths[database_number] if database_paths and database_number < len(database_paths) else None
+        from app import ota_sources
+        lineage_basis = (ota_sources.source_lineage_id(source_lineage_ids or {}, source_path)
+                         if source_path else str(database_index))
+        source_lineage_id = lineage_basis
         roles = {row["evidence_role"] for row in evidence}
         if (not ota_portal.REQUIRED_EVIDENCE_ROLES <= roles or
                 any(row["conflict_count"] or row["evidence_status"] != "observed" for row in evidence)):
@@ -369,6 +393,15 @@ def _portal_events(databases):
                 "source_digest": digest, "source_digests": [digest], "source_ids": [source_id],
                 "identity_source_ids": [source_id],
                 "payment_id": str(payment_id) if payment_id else None,
+                "payment_event_id": ("pay_" + _digest(["agoda", "payment_id", str(payment_id)])
+                                     if payment_id else "pay_" + _digest(["agoda", "binding",
+                                         str(fact["source_binding_ids"][0])])
+                                     if len(fact.get("source_binding_ids") or []) == 1 else None),
+                "paid_on_semantics": str(fact.get("paid_on_semantics") or
+                    ("explicit_source_date" if fact.get("paid_on") else "missing")),
+                "source_lineage_ids": [source_lineage_id],
+                "observation_ids": ["obs_" + _digest([source_lineage_id, str(record_id),
+                    component_index, "portal_payment_claim", "charge"])],
                 "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
                 "evidence_kind": "portal_payment_claim",
                 "verified_portal_snapshot": fact.get('evidence_format') == 'agoda-aside-v1',
@@ -407,6 +440,14 @@ def _portal_events(databases):
                          "source_digest":digest, "source_digests":[digest], "source_ids":[source_id],
                          "identity_source_ids":[source_id],
                          "payment_id":str(payment_id) if payment_id else None,
+                         "payment_event_id":("pay_" + _digest(["agoda", "payment_id", str(payment_id)])
+                                              if payment_id else "pay_" + _digest(["agoda", "binding",
+                                                  str(fact["source_binding_ids"][0])])
+                                              if len(fact.get("source_binding_ids") or []) == 1 else None),
+                         "paid_on_semantics":"explicit_refund_date" if refunded_on else "missing",
+                         "source_lineage_ids":[source_lineage_id],
+                         "observation_ids":["obs_" + _digest([source_lineage_id, str(record_id),
+                             component_index, "portal_refund_claim", "refund"])],
                          "source_binding_ids":[], "evidence_kind":"portal_refund_claim"}
                 event["ota_event_id"] = _event_id(event["identity_source_ids"])
                 events.append(event)
@@ -433,6 +474,10 @@ def _combine_evidence(group, *, conflict=False):
                              else _digest(item["source_digests"]))
     item["source_binding_ids"] = sorted({binding for event in group
                                          for binding in event.get("source_binding_ids", [])})
+    item["source_lineage_ids"] = sorted({lineage for event in group
+                                          for lineage in event.get("source_lineage_ids", []) if lineage})
+    item["observation_ids"] = sorted({identity for event in group
+                                      for identity in event.get("observation_ids", [])})
     if conflict:
         item["evidence_status"] = "evidence_conflict"
     item["ota_event_id"] = _event_id(item.get("identity_source_ids") or item["source_ids"])
@@ -483,7 +528,8 @@ def build_ota_payment_events(sources):
         if reference_report.get("errors"):
             raise OtaSourcesError(reference_report["errors"])
     events = _mail_events(sources.get("mail_directories"))
-    events.extend(_portal_events(sources.get("portal_databases")))
+    events.extend(_portal_events(sources.get("portal_databases"),
+                                 source_lineage_ids=sources.get("source_lineage_ids")))
     events = _merge_proven_duplicate_payments(events)
     # 참고 문서는 진단에만 쓰며 금전 이벤트를 공급하지 않는다.
     events.sort(key=lambda event: event["ota_event_id"])

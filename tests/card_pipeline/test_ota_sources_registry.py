@@ -70,6 +70,16 @@ def sources_file(tmp_path, **payload):
 
 
 class TestExplicitSourceRegistry:
+    def test_source_lineage_registry_assigns_stable_registered_id(self,tmp_path):
+        portal=tmp_path/'portal.sqlite'
+        sources_file(tmp_path,schema_version=ota_sources.SCHEMA_VERSION,
+            portal_databases=[str(portal)],
+            source_lineage_ids={str(portal):'agoda-primary-source'})
+        found=ota_sources.resolve_sources(tmp_path,mail_default=tmp_path/'ota-mail',
+                                          portal_default=tmp_path/'missing.sqlite')
+        assert found['source_lineage_ids']=={str(portal.resolve()):'agoda-primary-source'}
+        assert ota_sources.source_lineage_id(found['source_lineage_ids'],portal)=='agoda-primary-source'
+
     def test_no_manifest_keeps_the_single_previous_paths(self,tmp_path):
         found=ota_sources.resolve_sources(tmp_path,mail_default=tmp_path/'ota-mail',
                                           portal_default=tmp_path/'portal.sqlite')
