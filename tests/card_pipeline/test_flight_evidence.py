@@ -60,6 +60,10 @@ def test_cancellation_only_notice_needs_booking_reference_and_policy_phrases_are
     policy_subject = parse_flight_text("Subject: ?? ?? ??\n" + _confirmation())
     assert policy_body["cancellation_status"] == "NONE"
     assert policy_subject["cancellation_status"] == "NONE"
+    conditional_policy = parse_flight_text(_confirmation().replace(
+        "규정 조회 및 취소·변경 요청", "예약 취소가 완료되면 이메일로 안내합니다"))
+    assert conditional_policy["cancellation_status"] == "NONE"
+    assert parse_flight_text("예약 취소가 완료되었습니다") is None
 
 
 def test_two_passengers_keep_inner_space_and_hangul_names():

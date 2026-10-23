@@ -274,6 +274,16 @@ def test_cancelled_post_is_rejected_without_database_row_and_stale_history_is_bo
                       query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']},candidate_fetch=lambda _tour:AUTHORITY)
         assert len(current.response[1]['stale_assignments']) == 1
         assert current.response[1]['passengers'] == []
+        assert current.response[1]['cancellation_status'] == 'NONE'
+        assert current.response[1]['evidence_conflict'] is False
+    cancelled_empty = {**empty, 'cancellation_status':'CANCELLED'}
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':cancelled_empty}):
+        current_cancelled=Handler()
+        page.dispatch(current_cancelled,urlsplit('/api/flight-passengers/candidates'),is_owner=True,board=object(),
+                      query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']},candidate_fetch=lambda _tour:AUTHORITY)
+        assert current_cancelled.response[1]['cancellation_status'] == 'CANCELLED'
+        assert current_cancelled.response[1]['passengers'] == []
     assert proposals[0]['proposal_id'] != proposals[1]['proposal_id']
     duplicate_db = tmp_path / 'duplicate.sqlite'
     paired = {**EVIDENCE, 'passengers': [dict(EVIDENCE['passengers'][0]), dict(EVIDENCE['passengers'][0])]}

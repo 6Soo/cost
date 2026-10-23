@@ -47,10 +47,10 @@ const values=new FormData(form), booking_ref=String(values.get('booking_ref')||'
 try{const response=await fetch('/api/flight-passengers/candidates?booking_ref='+encodeURIComponent(booking_ref)+'&tour_id='+encodeURIComponent(tour_id));
 const data=await response.json();if(!response.ok)throw Error(data.code||'후보를 불러오지 못했습니다.');
 for(const old of data.stale_assignments||[]){const notice=document.createElement('p');notice.textContent='저장된 COST 연결 이력이 있지만 원본이 바뀌었거나 현재 승객 제안과 일치하지 않아 다시 확인해야 합니다.';root.append(notice)}
+if(data.cancellation_status==='CANCELLED'||data.cancellation_status==='CONFLICT'||data.evidence_conflict){const warning=document.createElement('p');warning.textContent=data.cancellation_status==='CANCELLED'?'항공권 취소가 확인된 원본입니다. 참가자 COST 확정 근거로 사용할 수 없습니다.':'항공권 예약/취소 원본이 충돌합니다. 참가자 COST 연결을 확정할 수 없습니다.';root.append(warning)}
 for(const passenger of data.passengers||[]){const article=document.createElement('article'), title=document.createElement('h2');
 if(passenger.assignment){const saved=document.createElement('p');saved.textContent=passenger.assignment.stale?'저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'참가자')+' · 사용자가 확인했습니다.';article.append(saved)}
 for(const old of passenger.stale_assignments||[]){const notice=document.createElement('p');notice.textContent='저장된 COST 연결 이력이 있지만 원본이 바뀌었거나 현재 승객 제안과 일치하지 않아 다시 확인해야 합니다.';article.append(notice)}
-if(passenger.cancellation_status==='CANCELLED'||passenger.cancellation_status==='CONFLICT'||passenger.evidence_conflict){const warning=document.createElement('p');warning.textContent=passenger.cancellation_status==='CANCELLED'?'항공권 취소가 확인된 원본입니다. 참가자 COST 확정 근거로 사용할 수 없습니다.':'항공권 예약/취소 원본이 충돌합니다. 참가자 COST 연결을 확정할 수 없습니다.';article.append(warning)}
 title.textContent=passenger.passenger_name_en+' · '+passenger.status;article.append(title);
 if(!passenger.candidates.length){const empty=document.createElement('p');empty.textContent='일치 후보가 없습니다. 이름만으로 새 고객을 만들지 않습니다.';article.append(empty)}
 if(passenger.candidates.length>1){const warning=document.createElement('p');warning.textContent='같은 영문 이름의 예약 참가자가 '+passenger.candidates.length+'명 있습니다. 자료를 확인해 직접 선택해 주세요.';article.append(warning)}

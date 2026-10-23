@@ -94,8 +94,11 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
 def _cancellation_status(tokens):
     subject = " ".join(tokens[:5]).casefold()
     body = " ".join(tokens).casefold()
-    if ("booking cancellation confirmed" in subject or "예약 취소가 완료" in body
-            or "예약 취소 완료" in body or "예약이 취소되었습니다" in body):
+    completed = (re.search(r"booking\s+cancellation\s+confirmed", subject)
+                 or re.search(r"예약\s*취소(?:가)?\s*(?:완료(?:되었습니다|됐습니다)?|되었습니다|됐습니다)", body)
+                 or "예약이 취소되었습니다" in body)
+    conditional = re.search(r"취소\s*가?\s*완료(?:되면|될\s*경우|\s*시|할\s*경우)", body)
+    if completed and not conditional:
         return "CANCELLED"
     if (re.search(r"booking\s+cancellation\s+(?:requested|request received)", subject)
             or re.search(r"취소\s*(?:요청이\s*)?(?:접수|완료|되었습니다|됐습니다)", body)):
@@ -125,10 +128,9 @@ def collect_flight_evidence(mail_directories) -> dict:
         body_text = ota_mail.message_text(message)
         parsed = parse_flight_text("Subject: " + subject + "\n" + body_text)
         if parsed:
-            if re.search(r"booking\s+cancellation\s+confirmed|취소(?:가|이)?\s*(?:완료|되었|됐|됨)", subject, re.I):
-                parsed["cancellation_status"] = "CANCELLED"
-            elif re.search(r"booking\s+cancellation\s+(?:requested|request received)|취소\s*(?:요청|접수)", subject, re.I):
-                parsed["cancellation_status"] = "CONFLICT"
+            subject_status = _cancellation_status(["Subject: " + subject])
+            if subject_status != "NONE":
+                parsed["cancellation_status"] = subject_status
         if not parsed or not parsed["booking_ref"]:
             continue
         parsed["source_digest"] = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()

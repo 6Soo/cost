@@ -150,6 +150,8 @@ def match_booking_passengers(evidence, authority):
         })
     return {'tour_id': tour_id, 'booking_ref': booking_ref, 'source_revision': revision,
             'evidence_digest': evidence_digest,
+            'cancellation_status': evidence.get('cancellation_status', 'NONE'),
+            'evidence_conflict': bool(evidence.get('conflict')),
             'passengers': matches}
 
 
