@@ -194,6 +194,64 @@ class CardFlowBrowserTests(unittest.TestCase):
                 server.shutdown(); server.server_close(); server.card_store.close()
                 thread.join(timeout=3); ledger_board.bind_store(previous)
 
+    def test_browser_trip_move_can_choose_a_synthetic_ai_reason_and_keeps_direct_input(self):
+        from webapp.card_flow import CardFlow
+        from webapp.dialog_turn import SyntheticAdapter
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                trip_a = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                    destination='Synthetic A', client_request_id='browser-reason-a')['tab_id']
+                trip_b = server.card_store.create_trip(starts_on='2026-08-10', ends_on='2026-08-12',
+                    destination='Synthetic B', client_request_id='browser-reason-b')['tab_id']
+                batch = flow.pipeline.receive(CARD, 'browser-ai-reason.csv')['batch_id']
+                row = flow.pipeline.get_batch(batch)['rows'][0]
+                flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+                    display_tab_id=trip_a, trip_id=trip_a, request_id='browser-reason-assign-a',
+                    trip_validator=lambda _value: True, tab_validator=lambda _value: True)
+                flow.pipeline.save_decision(row['transaction_id'], row['revision'] + 1, item='숙박비',
+                    display_tab_id=trip_b, trip_id=trip_b, request_id='browser-reason-assign-b',
+                    trip_validator=lambda _value: True, tab_validator=lambda _value: True)
+                flow.trip_valid = lambda _value: True
+                flow.record_decision(batch, row['transaction_id'])
+                learning = flow.open_trip_move_learning(row['transaction_id'], trip_a, trip_b,
+                                                        request_id='browser-reason-assign-b')
+                adapter = SyntheticAdapter('muse', 'free-synthetic', summary=json.dumps(
+                    {'options':['여행 일정에 맞는 비용이라서','이 여행을 준비하며 쓴 거래라서']},
+                    ensure_ascii=False))
+                base_url = f'http://127.0.0.1:{server.server_address[1]}'
+                with patch.object(ledger_board, '_MUSE', adapter), patch.object(CardFlow, 'trip_valid', return_value=True):
+                    with sync_playwright() as api:
+                        browser = api.chromium.launch(headless=True)
+                        try:
+                            page = browser.new_page(viewport={'width':390,'height':844})
+                            page.goto(base_url + '/rules?case=' + learning['case_id'])
+                            page.get_by_role('button', name='AI 예상 이유 2개 제안').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            page.get_by_text('여행 일정에 맞는 비용이라서', exact=True).wait_for()
+                            self.assertTrue(page.locator('textarea[name=direct_answer]').count())
+                            answer_form = page.locator('form[action="/api/classification/dialog/answer"]').first
+                            answer_form.locator('input[type=radio]').first.check()
+                            answer_form.locator('button').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            case_id = learning['case_id']
+                            dialog = server.card_store.rule_dialog_state(case_id)
+                            self.assertIn(dialog['answers']['trip_move_reason'],
+                                          ('여행 일정에 맞는 비용이라서','이 여행을 준비하며 쓴 거래라서'))
+                            self.assertNotIn('reservation_no', json.dumps(adapter.calls[-1]))
+                        finally:
+                            browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_browser_shows_inferred_undated_ota_without_confirming_booking_number(self):
         from types import SimpleNamespace
         from app import ota_payments
