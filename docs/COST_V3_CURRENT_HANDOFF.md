@@ -34,6 +34,12 @@
 - Reservation Production은 `3296255e`에서 `READY`, GitHub Actions run `39953733785`는 `main` SHA `3296255e`에서 `success`다. 이전에 확인된 같은 run의 unit 270/270 및 smoke 성공을 재사용했다.
 - **남은 운영 P1:** 성공한 404는 COST 호스트의 보호 파일 값으로 API 인증이 된 증거이나, 두 Vercel 변수 중 구체적으로 어느 값과 일치하는지나 유효한 실제 여행의 후보 payload를 확인한 증거는 아니다. 개인정보 확인을 위해 실제 참가자 응답을 가져오지 않았다. 실제 고객 후보 데이터·source revision의 운영값과 원본 변경 뒤 stale 재확정은 승인된 비파괴 실데이터 검증이 아직 없다. Google, DB 쓰기, 비밀 변경, 배포는 수행하지 않았다.
 
+## 0.4 2026-10-23 합성 교차 저장소 브라우저 재검증
+
+- 0.3에서 사용한 Reservation 로컬 작업 브랜치에는 테스트 fixture가 없었지만, 원격 `main=3296255e`에는 `tests/fixtures/passengerCandidatesHttpFixture.ts`가 이미 포함돼 있었다. 사용자 변경을 보존하기 위해 main을 별도 격리 worktree로 열고 저장소의 원래 fixture를 수정 없이 사용했다.
+- `COST_R5B_RESERVATION_ROOT=C:\AX\reservation-v3-synthetic-329` 설정으로 `python -m pytest webapp/tests/test_passenger_cross_repo_integration.py -q`를 실행해 **1 passed**를 확인했다. 실제 Reservation 핸들러 → HTTP → COST adapter → 브라우저 후보 선택 → COST SQLite 저장과 재조회 → 합성 원본 변경 → stale 표시 → 사용자 재확정 흐름이 통과했다. API 응답에 `source_revision`과 최소 후보 필드가 있고, 저장 결과에서 원본 예약 ID와 주민 식별번호 표본이 제외되는 검사도 통과했다.
+- 격리 worktree에서 fixture를 바꿔 실행한 첫 시도는 원본 검증 근거로 쓰지 않았다. fixture를 `3296255e`의 원래 내용으로 복원한 후 성공 결과를 얻었다. 격리 worktree는 검사 후 제거했고 Reservation 사용자 작업 공간은 수정하지 않았다.
+- 0.3의 **6 passed, 1 skipped**는 fixture가 없는 로컬 브랜치에서의 최초 기록이다. 원격 main의 공식 합성 fixture로 교차 저장소 브라우저 흐름을 재검증했다. 운영 실제 여행 후보 payload와 실자료 `source_revision`은 읽지 않았다. 따라서 P1 코드/합성 통합 검증은 완료했고, 운영 실자료 검증은 미수행으로 남는다.
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
