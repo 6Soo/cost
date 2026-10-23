@@ -1331,8 +1331,8 @@ class CardFlow:
                 projection=lambda entry: self.project(entry), additional_holds=holds, **options)
             return result['applied']
 
-    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
-        """Persist an owner move on an existing COST row, then open the existing rule dialogue."""
+    def persist_card_trip_move(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+        """Save the owner's trip move to the COST row before any optional AI work."""
         source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
         if not source_trip or not target_trip or source_trip == target_trip:
             return {"status": "not_needed"}
@@ -1349,6 +1349,19 @@ class CardFlow:
                                     changes={'display_tab_id': target_trip}, actor='owner')
             case_id = saved.get('learning_case_id') or case_id
         self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
+        return {"status": "saved", "case_id": case_id, "row_id": row_id,
+                "request_id": case_request_id}
+
+    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+        """Open the existing rule dialogue after the owner move has been persisted."""
+        source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
+        persisted = self.persist_card_trip_move(transaction_id, source_trip, target_trip,
+                                                request_id=request_id)
+        if persisted['status'] != 'saved':
+            return persisted
+        case_id = persisted['case_id']
+        case_request_id = persisted['request_id']
+        row_id = persisted['row_id']
         current = self.board.get_row(row_id)
         draft = {
             'learning_case_id': case_id,
@@ -1864,6 +1877,13 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             flow.record_decision(batch_id, payload['transaction_id'])
             response = flow.saved_state(batch_id, classify=True)
             if previous_trip and tab and previous_trip != tab:
+                try:
+                    response['trip_move_persisted'] = flow.persist_card_trip_move(
+                        payload['transaction_id'], previous_trip, tab,
+                        request_id=str(payload['request_id']))
+                except Exception:
+                    # The card decision is already saved; do not let optional learning undo it.
+                    response['trip_move_persisted'] = {'status': 'unavailable'}
                 try:
                     response['trip_move_learning'] = flow.open_trip_move_learning(
                         payload['transaction_id'], previous_trip, tab,
