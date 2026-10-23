@@ -495,6 +495,10 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 }
 @media (max-width:759px){
  #btn-menu{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center}
+ /* The bar is inside #main, the page's own scrollport. Keep the menu control
+    with that scrollport so long expense lists do not strand navigation. */
+ .bar{position:sticky;top:0;z-index:3;background:var(--paper)}
+ .tw thead th{top:var(--mobile-bar-height,0px)}
  .nav{position:fixed;top:0;left:0;bottom:0;z-index:45;transform:translateX(-100%);
   transition:transform .18s ease;border-right:1px solid var(--line)}
  .nav.open{transform:none}
@@ -554,6 +558,14 @@ SCRIPT = """
 (function(){
  var main=document.getElementById('main'), nav=document.getElementById('nav'),
      mask=document.getElementById('nav-mask');
+ var stickyBar=main&&main.querySelector('.bar');
+ if(stickyBar&&window.ResizeObserver){
+  var syncStickyBarHeight=function(){
+   main.style.setProperty('--mobile-bar-height',stickyBar.getBoundingClientRect().height+'px');
+  };
+  new ResizeObserver(syncStickyBarHeight).observe(stickyBar);
+  syncStickyBarHeight();
+ }
  function csrf(form){var el=form.querySelector("input[name='csrf']");return el?el.value:'';}
  function post(url,data){
   return fetch(url,{method:'POST',headers:{'Content-Type':'application/json',
