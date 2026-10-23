@@ -412,11 +412,13 @@ class CoreOtaPaymentBackend:
             eligible = (ota_exact.open_transaction_ids(self.board.conn)
                         if {'board_rows', 'transactions'} <= tables and
                         {'classification_source', 'classification_state'} <= set(columns) else set())
-            if 'transaction_review_holds' in tables:
-                eligible -= {row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
+            review_held = ({row[0] for row in self.board.conn.execute('SELECT transaction_id FROM transaction_review_holds')}
+                           if 'transaction_review_holds' in tables else set())
+            eligible -= review_held
         result = [dict(row) if hasattr(row, 'keys') else dict(zip(columns, row)) for row in rows]
         for row in result:
             row['ota_inference_eligible'] = str(row.get('transaction_id')) in eligible
+            row['ota_review_held'] = row.get('transaction_id') in review_held
         return result
 
     def _data(self):
@@ -485,7 +487,7 @@ class CoreOtaPaymentBackend:
                 event_id = str(result.get("ota_event_id") or "")
                 event = canonical_by_id.get(event_id)
                 if (not event or result.get("status") not in
-                        ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH") or
+                        ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH", "RESERVATION_ONLY") or
                         result.get("evidence_missing") or result.get("evidence_changed")):
                     continue
                 trace = candidate_search(event, transactions, existing_links=links, rules=rules)
@@ -571,7 +573,11 @@ class CoreOtaPaymentBackend:
             is_ordered_group = result.get("allocation_basis") in (
                 "user_approved_stable_order", "frozen_user_confirmed_order",
                 "user_confirmed_group_required")
-            if not is_hold and not is_changed_manual and not is_ordered_group:
+            trace = result.get('candidate_search') or {}
+            is_reservation_candidate = (result.get('status') == 'RESERVATION_ONLY'
+                                        and bool(trace.get('candidates') or trace.get('rejected')))
+            if (not is_hold and not is_changed_manual and not is_ordered_group
+                    and not is_reservation_candidate):
                 continue
             event = {**event_by_id.get(event_id, {}), **result}
             search = result.get("candidate_search") or {}
@@ -605,6 +611,8 @@ class CoreOtaPaymentBackend:
                                  candidate_resolution_allowed=bool(candidate.get("resolution_allowed")),
                                  selection_disabled=True,
                                  selection_disabled_reason=(
+                                     "같은 호텔·숙박기간의 후보지만 원문 금액이 달라 결제 연결은 확정할 수 없습니다."
+                                     if candidate.get('basis') == 'HOTEL_BRANCH_AND_STAY_ONLY' else
                                      "결제일이 확인되지 않아 OTA 예약 연결은 확정할 수 없습니다."
                                      if date_status == "UNKNOWN" else
                                      "결제일이 맞지 않아 OTA 예약 연결은 확정할 수 없습니다.")))
@@ -1118,12 +1126,15 @@ def _stop_quietly(service) -> None:
 
 
 _OTA_STATUS = {
+    'RESERVATION_ONLY': '예약 근거 · 결제 연결 미확정',
     'HOLD_NO_CARD': '맞는 카드 거래 없음', 'HOLD_AMOUNT_MISMATCH': '금액이 다른 카드 거래만 있음',
     'HOLD_DATE_UNKNOWN': '결제일 미확인', 'HOLD_AMBIGUOUS': '후보 거래가 여러 건',
     'HOLD_PARTIAL_GROUP': '부분 묶음', 'HOLD_EVIDENCE_CONFLICT': '근거 충돌',
     'PENDING_PAYMENT': '결제 대기', 'NOT_CARD_CHARGE': '카드 결제 아님',
 }
 _OTA_REASON = {
+    'no_verified_paid_evidence': '예약 확인은 결제 완료 증빙이 아니므로 후보로 표시합니다.',
+    'RESERVATION_CANCELLED': '동일 호텔·예약번호에 취소 이력이 있어 연결을 보류합니다.',
     'payment_date_not_in_source': 'OTA 결제일이 원본에 없어 결제 연결을 확정하지 않았습니다.',
     'AMOUNT_MISMATCH': '카드 정보는 일부 맞지만 결제 금액이 다릅니다.',
     'CURRENCY_MISMATCH': '카드 정보는 일부 맞지만 결제 통화가 다릅니다.',
@@ -1131,7 +1142,7 @@ _OTA_REASON = {
     'amount_differs': '같은 날짜의 카드 거래는 있지만 금액이 다릅니다',
     'exact_card_needs_descriptor_approval': '금액·날짜가 같은 카드 거래는 있으나 가맹점 별칭이 승인되지 않아 연결하지 않았습니다',
 }
-_OTA_EVENT_TYPE = {'charge': '결제', 'refund': '환불'}
+_OTA_EVENT_TYPE = {'charge': '결제', 'refund': '환불', 'reservation': '예약 확인'}
 _OTA_DIRECTION = {'purchase': '구매', 'refund': '환불', 'cancellation': '취소'}
 _OTA_REFUND = {'no_refund': '환불 없음', 'refund_pending': '환불 요청·대기',
                'refund_requested': '환불 요청·대기', 'refunded': '환불 완료', 'refund_completed': '환불 완료'}

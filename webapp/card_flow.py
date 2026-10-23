@@ -1739,10 +1739,19 @@ class CardFlow:
                 states[transaction_id] = state
             for reserved in result.get('reserved_card_ids') or ():
                 states[str(reserved)] = 'REVIEW_REQUIRED'
+        for result in (current.get('data') or {}).get('results') or ():
+            trace = result.get('candidate_search') or {}
+            if not trace.get('reservation_only'):
+                continue
+            for candidate in trace.get('candidates') or ():
+                identity = str(candidate.get('transaction_id') or '')
+                if identity:
+                    states.setdefault(identity, 'CANDIDATE')
         return states, current.get('generation'), reconciliation
 
     def _ota_candidate_notes(self, rows):
         """Attach unresolved canonical OTA candidates as review-only screen notes."""
+        import re
         from . import ota_payment_review
         if not ota_payment_review.enabled():
             return {}
@@ -1775,22 +1784,49 @@ class CardFlow:
             reason = ota_payment_review._OTA_REASON.get(str(result.get('reason') or ''),
                                                         str(result.get('reason') or '추가 근거 확인 필요').replace('_', ' '))
             note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
+            if provider == 'toyoko':
+                period = event.get('service_period') or {}
+                basis = ('묶음 합계 · 객실별 결제 미확정' if event.get('reservation_group_only')
+                         else '객실 소계 · 결제 완료 근거 미확인')
+                note = (f"호텔 예약 후보(미확정): {booking_ref} · "
+                        f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · {basis}")
             search_candidates = [candidate.get('transaction_id')
                                  for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
             search_rejections = (result.get('candidate_search') or {}).get('rejected') or ()
             rejected_ids = [candidate.get('transaction_id') for candidate in search_rejections]
             for transaction_id in [*(result.get('candidates') or ()), *search_candidates, *rejected_ids]:
                 identity = str(transaction_id or '')
+                if provider == 'toyoko' and identity in rejected_ids and identity not in search_candidates:
+                    continue
                 if identity and identity in wanted:
-                    notes.setdefault(identity, set()).add(note)
+                    candidate_note = note
+                    if provider == 'toyoko' and any(
+                            str(candidate.get('transaction_id')) == identity
+                            and candidate.get('basis') == 'HOTEL_BRANCH_AND_STAY_ONLY'
+                            for candidate in (result.get('candidate_search') or {}).get('candidates') or ()):
+                        candidate_note = (f"호텔 일정 후보(금액 불일치): {booking_ref} · "
+                                          f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · "
+                                          "같은 지점·숙박기간만 확인 · 결제 미확정")
+                    notes.setdefault(identity, set()).add(candidate_note)
             for rejected in search_rejections:
                 identity = str(rejected.get('transaction_id') or '')
                 if identity not in wanted:
                     continue
                 rejected_reason = ota_payment_review._OTA_REASON.get(
                     str(rejected.get('reason') or ''), '같은 카드 조건에서 금액 또는 통화가 다릅니다.')
-                notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
-        return {identity: sorted(values)[:2] for identity, values in notes.items()}
+                if provider == 'toyoko':
+                    notes.setdefault(identity, set()).add(f'호텔 후보 제외: {booking_ref} · {rejected_reason}')
+                else:
+                    notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
+        for row in rows:
+            identity = str(row.get('transaction_id') or '')
+            merchant = re.sub(r'[^a-z0-9]', '', str(row.get('merchant') or '').casefold())
+            if (identity and identity not in notes and merchant.startswith('toyokoinn')
+                    and (not row.get('foreign_currency') or not row.get('foreign_amount'))):
+                notes[identity] = {'호텔 예약 연결 보류: 카드 원본의 현지 금액·통화 확인이 필요합니다.'}
+        return {identity: sorted(values, key=lambda note: (
+                    note.startswith('호텔 후보 제외:'), note.startswith('호텔 일정 후보'), note))[:2]
+                for identity, values in notes.items()}
 
     def refund_group_views(self, preview, trips):
         """Each linked refund pair as its own group, with the digest its own commit button uses."""
@@ -2663,7 +2699,7 @@ article,section{background:#FFFFFF;border:1px solid #E3E7E3;border-radius:4px;pa
 const csrf=__CSRF__;let model,stamp='',page=0,editing='',batchGeneration=0,googleCopyPending=false;const PAGE_SIZE=20;const el=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // 자동갱신이 입력 중인 내용을 덮지 않게 하는 조건. 폼에 focus가 있거나 규칙 편집 중이면 그대로 둔다.
 const busy=()=>!!document.activeElement?.closest('form')||el('rules').open;
-const stateStamp=j=>JSON.stringify([j.batch_id,j.preview.digest,j.rows.map(r=>[r.transaction_id,r.revision,r.classification_state,r.item,r.decided,r.review_evidence_labels]),j.trips.map(t=>[t.id,t.available]),j.quarter_targets||[]]);
+const stateStamp=j=>JSON.stringify([j.batch_id,j.preview.digest,j.rows.map(r=>[r.transaction_id,r.revision,r.classification_state,r.item,r.decided,r.review_evidence_labels,r.ota_link_status,r.ota_snapshot_generation,r.ota_candidate_notes]),j.trips.map(t=>[t.id,t.available]),j.quarter_targets||[]]);
 function mutationBody(target,payload){const basis=JSON.stringify(payload);if(target.pendingMutation?.basis!==basis)target.pendingMutation={basis,id:crypto.randomUUID()};return JSON.stringify({...payload,request_id:target.pendingMutation.id})}
 const money=n=>n==null?'금액 확인 필요':Number(n).toLocaleString('ko-KR')+'원';
 const evidence=r=>(r.review_evidence_labels||[]).slice(0,3).join(' · ');
@@ -2673,7 +2709,7 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='review';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':''));
-const otaLabels={EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
 const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status],...(r.ota_candidate_notes||[])].filter(Boolean).join(' / ');
 function reviewRows(j){const originals=new Map(j.rows.map(r=>[r.transaction_id,r]));let rows=j.preview.rows.map(r=>({...originals.get(r.transaction_id),...r}));const focus=new URLSearchParams(location.search).get('transaction');if(location.hash==='#preview'&&focus)rows=rows.filter(r=>r.transaction_id===focus||r.refund_link?.counterpart_id===focus);const term=el('review-search').value.trim().toLowerCase(),month=el('review-month').value,category=el('review-category').value;rows=rows.filter(r=>(reviewState==='all'||reviewStatus(r)===reviewState)&&(!month||reviewDate(r).startsWith(month))&&(!category||r.item===category)&&(!term||[r.merchant,r.item,r.description,j.trips.find(t=>t.id===r.display_tab_id)?.name].join(' ').toLowerCase().includes(term)));const sort=el('review-sort').value;return rows.sort((a,b)=>!reviewDate(a)||!reviewDate(b)?Number(!reviewDate(a))-Number(!reviewDate(b)):sort==='amount-desc'?Number(b.amount_krw)-Number(a.amount_krw):sort==='date-asc'?reviewDate(a).localeCompare(reviewDate(b)):reviewDate(b).localeCompare(reviewDate(a)))}
