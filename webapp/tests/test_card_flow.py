@@ -656,15 +656,44 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(saved['display_tab_id'], trip)
         self.assertEqual(saved['reservation_no'], '')
 
-    def test_stale_ota_report_extension_uses_the_snapshot_freshness_value(self):
+    def test_fresh_canonical_snapshot_skips_legacy_report_and_extends_once(self):
         current = {'data': {'synthetic': 'shared-result'}}
         service = type('Service', (), {'held': lambda _self: (current, True)})()
         with patch('webapp.ota_payment_review.enabled', return_value=True), \
-                patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
-                patch.object(self.flow, '_compute_ota_report', return_value={'base': True}), \
-                patch('app.ota_core_projection.extend_report', return_value={'extended': True}) as extend:
+             patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+             patch.object(self.flow, '_compute_ota_report', side_effect=AssertionError('legacy matcher called')), \
+             patch('app.ota_core_projection.extend_report', return_value={'extended': True}) as extend:
             self.assertEqual(self.flow._ota_report(), {'extended': True})
-        extend.assert_called_once_with({'base': True}, current['data'])
+        canonical = extend.call_args.args[0]
+        self.assertEqual(canonical['matches'], [])
+        self.assertEqual(canonical['rules'], [])
+        extend.assert_called_once_with(canonical, current['data'])
+
+    def test_stale_canonical_snapshot_keeps_existing_legacy_fallback(self):
+        current = {'data': {'synthetic': 'stale-result'}}
+        service = type('Service', (), {'held': lambda _self: (current, False)})()
+        fallback = {'matches': [], 'rules': [], 'fallback': True}
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+             patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+             patch.object(self.flow, '_compute_ota_report', return_value=fallback) as legacy, \
+             patch('app.ota_core_projection.extend_report') as extend:
+            self.assertEqual(self.flow._ota_report(), fallback)
+        legacy.assert_called_once_with()
+        extend.assert_not_called()
+
+    def test_canonical_period_conflict_blocks_only_travel_inference(self):
+        data = {
+            'events': [{'ota_event_id':'conflict-event', 'service_period_conflict':True}],
+            'transactions': [{'transaction_id':'conflict-card', 'source_hash':'synthetic-source'}],
+            'results': [{'ota_event_id':'conflict-event', 'reserved_card_ids':['conflict-card']}],
+        }
+        current = {'data':data}
+        service = type('Service', (), {'held': lambda _self: (current, True)})()
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+             patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+             patch('app.ota_core_projection.extend_report', side_effect=lambda report, _data: report):
+            report = self.flow._ota_report()
+        self.assertEqual(report['evidence_gate']['blocked_inference_sources'], ['synthetic-source'])
 
     def test_overwritten_mail_file_refreshes_cancellation_evidence(self):
         # 메일 캐시와 취소 갱신만 검사한다. 정확 매칭 게이트는 test_ota_exact_gate.py에서 따로 확인한다.

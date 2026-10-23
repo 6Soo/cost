@@ -1183,6 +1183,30 @@ class CardFlow:
 
     def _ota_report(self):
         """한 조회 안에서는 미리보기와 근거 조회가 같은 대사 결과를 쓴다."""
+        from . import ota_payment_review
+        if ota_payment_review.enabled():
+            current, fresh = self._held_ota_snapshot()
+            if current is not None and fresh:
+                from app.ota_core_projection import extend_report
+                data = current.get('data') or {}
+                events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
+                cards = {str(card.get('transaction_id')): card for card in data.get('transactions', [])}
+                blocked = set()
+                for result in data.get('results', []):
+                    event = events.get(str(result.get('ota_event_id')))
+                    if not event or not (event.get('service_period_conflict') or event.get('period_conflict')
+                                         or result.get('service_period_conflict') or result.get('period_conflict')):
+                        continue
+                    identities = [result.get('transaction_id'), *(result.get('reserved_card_ids') or [])]
+                    blocked.update(str(cards[str(identity)].get('source_hash')) for identity in identities
+                                   if identity and str(identity) in cards and cards[str(identity)].get('source_hash'))
+                canonical = {
+                    'matches': [], 'type_only_candidates': [], 'rules': [],
+                    'ota_source_errors': [], 'ota_source_inventory': {'missing': []},
+                    'evidence_gate': {'blocked_inference_sources': sorted(blocked)},
+                }
+                return extend_report(canonical, data)
+
         memo = getattr(self, '_request_report', None)
         if memo is None:
             report = self._compute_ota_report()
@@ -1190,7 +1214,6 @@ class CardFlow:
             if not memo:
                 memo.append(self._compute_ota_report())
             report = memo[0]
-        from . import ota_payment_review
         if report is not None and ota_payment_review.enabled():
             current, fresh = self._held_ota_snapshot()
             if current is not None and fresh:
