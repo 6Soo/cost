@@ -2050,6 +2050,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                     closer = getattr(locals().get('backend'), 'close', None)
                     if closer:
                         closer()
+            # OTA refresh can make a row recordable after classify's first pass.
             recorded = flow.auto_record(received['batch_id'])
             if 'ota_refresh_status' in result:
                 recorded['ota_refresh_status'] = result['ota_refresh_status']
