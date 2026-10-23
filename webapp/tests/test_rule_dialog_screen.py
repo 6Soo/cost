@@ -200,6 +200,38 @@ class RuleDialogScreenTests(unittest.TestCase):
                 self.assertTrue(self.store.get_rule(rule["rule_id"])["apply_existing"])
                 self.assertFalse(self.store.get_rule(rule["rule_id"])["apply_future"])
                 self.assertEqual(overflow(page) <= 0, True)
+
+                # 9. approve future scope from the screen, then classify a new card row.
+                revision_before = self.store.get_row("expense-demo-c1")["revision"]
+                c4_revision_before = self.store.get_row("expense-demo-c4")["revision"]
+                preview_form = page.locator("form[action='/api/classification/rules/preview']")
+                preview_form.locator("input[name='apply_existing']").uncheck()
+                preview_form.locator("input[name='apply_future']").check()
+                preview_form.locator("button[type='submit']").click()
+                page.wait_for_load_state()
+                apply_form = page.locator("form[action='/api/classification/rules/apply']")
+                apply_form.locator("button[type='submit']").click()
+                page.wait_for_load_state()
+                activated = self.store.get_rule(rule["rule_id"])
+                self.assertFalse(activated["apply_existing"])
+                self.assertTrue(activated["apply_future"])
+                self.assertEqual(self.store.get_row("expense-demo-c1")["revision"], revision_before)
+                self.assertEqual(self.store.get_row("expense-demo-c4")["display_tab_id"], "trip-demo-b")
+                self.assertEqual(self.store.get_row("expense-demo-c4")["revision"], c4_revision_before)
+
+                from webapp.card_flow import CardFlow
+                from webapp.tests.test_card_flow import CARD
+                lines = CARD.decode("utf-8").splitlines()
+                fields = lines[1].split(",")
+                merchant = self.gemini.draft["conditions"]["merchant_normalized"]
+                fields[4], fields[5], fields[8], fields[11] = merchant, "2468", "2468", "FUTURE01"
+                fresh_batch = CardFlow(self.store).pipeline.receive(
+                    (lines[0] + "\n" + ",".join(fields) + "\n").encode("utf-8"),
+                    "approved-future-rule.csv")["batch_id"]
+                flow = CardFlow(self.store)
+                flow.classify(fresh_batch)
+                fresh_row = flow.pipeline.get_batch(fresh_batch)["rows"][0]
+                self.assertEqual(fresh_row["display_tab_id"], "trip-demo-b")
             finally:
                 browser.close()
 
