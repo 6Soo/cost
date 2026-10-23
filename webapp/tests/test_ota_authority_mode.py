@@ -79,10 +79,9 @@ def test_isolated_mode_only_holds_contested_groups():
     assert set(holds) == {"grouped"}
 
 
-def test_authority_mode_holds_unresolved_ota_cards_but_not_settled_or_ordinary_rows():
+def test_authority_mode_does_not_block_unlinked_ota_card_expense_readiness():
     holds = holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(snapshot(RESULTS)))
-    assert set(holds) == {"grouped", "open"}
-    assert holds["open"]["kind"] == "ota_authority_unresolved"
+    assert set(holds) == {"grouped"}
     assert holds["grouped"]["kind"] == "ota_group_review"
 
 
@@ -91,21 +90,21 @@ def test_manual_matches_settle_a_card_in_authority_mode():
     assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(snapshot(results)))) == {"grouped"}
 
 
-def test_without_a_snapshot_authority_holds_every_ota_card():
+def test_without_a_snapshot_authority_does_not_block_unlinked_ota_expenses():
     holds = holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(None, fresh=False))
-    assert set(holds) == {"settled", "open", "grouped"}
+    assert holds == {}
 
 
-def test_without_a_snapshot_isolated_mode_also_holds_every_ota_card():
+def test_without_a_snapshot_isolated_mode_does_not_block_unlinked_ota_expenses():
     holds = holds_with(ISOLATED, FakeBackend(CARDS), FakeService(None, fresh=False))
-    assert set(holds) == {"settled", "open", "grouped"}
+    assert holds == {}
 
 
 def test_stale_snapshot_grants_no_new_automatic_link_but_keeps_held_links():
     service = FakeService(snapshot(RESULTS, links={"e1": "settled"}), fresh=False)
     holds = holds_with(AUTHORITY, FakeBackend(CARDS), service)
     assert "settled" not in holds
-    assert set(holds) == {"open", "grouped"}
+    assert set(holds) == {"grouped"}
 
 
 def test_legacy_mode_adds_nothing_and_never_opens_the_backend():
@@ -114,10 +113,9 @@ def test_legacy_mode_adds_nothing_and_never_opens_the_backend():
         assert flow().ota_group_holds() == {}
 
 
-def test_a_board_failure_in_authority_mode_fails_closed():
+def test_ota_readiness_does_not_load_card_rows_to_block_unresolved_links():
     backend = FakeBackend(CARDS, fail=True)
-    with pytest.raises(RuntimeError):
-        holds_with(AUTHORITY, backend, FakeService(snapshot(RESULTS)))
+    assert set(holds_with(AUTHORITY, backend, FakeService(snapshot(RESULTS)))) == {"grouped"}
     assert backend.closed
 
 
@@ -125,4 +123,4 @@ def test_a_scheduled_card_settles_in_authority_mode_only_on_a_fresh_snapshot():
     scheduled = dict(snapshot(RESULTS), data={"scheduled_card_ids": ["open"]})
     assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(scheduled))) == {"grouped"}
     stale = dict(snapshot(RESULTS), data={"scheduled_card_ids": ["open"]})
-    assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(stale, fresh=False))) == {"settled", "open", "grouped"}
+    assert set(holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(stale, fresh=False))) == {"grouped"}
