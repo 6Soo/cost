@@ -510,6 +510,31 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(classified[0]['generation'], 1)
         self.assertEqual(calls, [1])
 
+    def test_saved_card_request_keeps_one_generation_through_visible_state(self):
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+        calls = []
+        def held():
+            calls.append(len(calls) + 1)
+            return {'generation': calls[-1]}, True
+        def read_state(_batch_id):
+            return self.flow._held_ota_snapshot()[0]
+        def auto_record(_batch_id):
+            self.flow._held_ota_snapshot()
+            return self.flow.state(_batch_id)
+        with patch.object(ota_payment_review, 'snapshot_service',
+                          return_value=SimpleNamespace(held=held)), \
+             patch.object(self.flow, '_classify', side_effect=lambda *_args, **_kwargs:
+                          self.flow._held_ota_snapshot()), \
+             patch.object(self.flow, '_auto_record_locked', side_effect=lambda *_args, **_kwargs:
+                          self.flow._held_ota_snapshot()), \
+             patch.object(self.flow, 'sync_ledger_rows', return_value=0), \
+             patch.object(self.flow, 'auto_record', side_effect=auto_record), \
+             patch.object(self.flow, '_state', side_effect=read_state):
+            response = self.flow.saved_state('synthetic-batch', classify=True)
+        self.assertEqual(response['generation'], 1)
+        self.assertEqual(calls, [1])
+
     def test_api_readiness_is_independent_of_exact_inferred_or_missing_ota_dates(self):
         from types import SimpleNamespace
         from webapp import ota_payment_review
