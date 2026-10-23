@@ -299,6 +299,18 @@ class OtaPaymentReviewTests(unittest.TestCase):
             {"legacy-event":{"transaction_id":"card-pinned"}}, saved)
         self.assertIn("legacy-event", ambiguous)
         self.assertEqual(no_crosswalk, {})
+        persisted, saved_crosswalk = ota_payment_review._manual_link_crosswalk(
+            [events[0], {**events[0], "ota_event_id":"new-a-copy"}],
+            {"legacy-event":{"transaction_id":"card-pinned"}}, saved,
+            {"legacy-event":{"current_event_id":"new-a-copy", "evidence_digest":"same-proof"}})
+        self.assertEqual(persisted, {"new-a-copy":{"transaction_id":"card-pinned"}})
+        self.assertEqual(saved_crosswalk, {"legacy-event":"new-a-copy"})
+        changed, rejected_crosswalk = ota_payment_review._manual_link_crosswalk(
+            [{**events[0], "ota_event_id":"new-a-copy", "amount_krw":51000}],
+            {"legacy-event":{"transaction_id":"card-pinned"}}, saved,
+            {"legacy-event":{"current_event_id":"new-a-copy", "evidence_digest":"same-proof"}})
+        self.assertEqual(changed, {"legacy-event":{"transaction_id":"card-pinned"}})
+        self.assertEqual(rejected_crosswalk, {})
 
     def test_get_renders_every_card_and_proposal_without_calling_a_write_method(self):
         backend = FakeBackend()
