@@ -1,6 +1,8 @@
 # COST V3 — 단일 개발 진입점 및 통합 계약
 
-> **상태:** 2026-10-23 사용자 확정 *목표 설계* · main/운영에 일괄 구현된 상태가 아님. 새 코딩 에이전트는 반드시 이 문서부터 읽는다.  
+> **현재 진행·재개 증거:** [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md) — 2026-10-23 두 저장소 SHA, Reservation Production READY, CI unit 실패, 실운영 인증 미검증 및 다음 작업 큐를 기록한 **현행 재개 문서**. 새 세션은 이 문서와 인계 문서만으로 시작한다.
+>
+> **상태:** 사용자 확정 *기능·금융 정책 계약*. COST V3 주요 경로는 Git main과 합성 검증에 반영됐으나 COST 운영 호스트/실서비스 완전 검증은 별개다. 과거 R0부터 구현하라는 지시는 새 세션의 재구현 명령이 아니다.  
 > **목적:** 이 문서만으로 작업 우선순위·현재 vs 미래·위험 경계·권위·진입 파일을 결정한다. 세부 구현은 **두 개의 부속 명세**를 참조하되 과거 문서의 목표·TODO를 구현 지시로 혼용하지 않는다.
 
 ## 1. 문서 권위와 충돌 해결
@@ -37,7 +39,9 @@
 
 **유효 카드라도 authoritative 여행 후보가 전혀 없으면** 여행을 창작하지 말고 `NEEDS_AUTHORIZED_TRIP`으로 남긴다. 하지만 신뢰도가 낮거나 후보가 복수라는 이유만으로 기본 미배정하지 않는다. 사용자 확정이 있다면 언제나 그 여행 유지.
 
-## 3. 구현 순서 — 반드시 R0부터
+## 3. R0→R6 최초 구현 순서 (역사적 계획, 현재 재실행 순서가 아님)
+
+> 이미 구현·검증된 작업을 R0부터 다시 수행하지 않는다. 현재 실제 남은 실행·검증 대상과 우선순위는 [현행 인계](COST_V3_CURRENT_HANDOFF.md) §3의 P0~P3를 따른다.
 
 1. **R0: Read-only 전수 진단.** 운영 소스 manifest·Agoda/메일 관측·카드 실원행·기존 pin·legacy 게이트·snapshot을 단계별로 비식별 집계. 실제 운영 DB/원문 변경 0. 이 단계 전에는 자동 정확연결 범위를 늘리지 않는다.
 2. **R1: source lineage 및 파서 누락 근거.** 동일 `record_id`를 다른 DB가 갖는 충돌을 분리; 과거 DB 복원본을 새로운 별개 결제로 중복 생성 금지; 기존 이벤트 ID와 사용자 pin을 crosswalk.
@@ -60,8 +64,8 @@
 | 종류 | 현재 확인 근거 | 의미 |
 | --- | --- | --- |
 | 배포·운영 사실 | [operations.md](operations.md)와 실제 운영에서 확인된 release SHA | 당시 구현/배포 증거. 최신 현재값은 현장 재확인 |
-| 기존 OTA 코어 | `app/ota_payments.py`, `app/ota_portal.py`, `app/ota_mail.py` | 날짜가 없는 charge의 후보를 차단하는 이전 코드가 있음 |
-| 기존 기록 게이트 | `app/ota_exact.py`, `webapp/card_flow.py::_ota_group_holds_base` | 일부 OTA 미확정 자체가 장부 기록을 막는 운영 구현이 있음 |
+| 기존 OTA 코어 | `app/ota_payments.py`, `app/ota_portal.py`, `app/ota_mail.py` | 초기 분석 당시 참고 경로. 현재 날짜 미상 후보 처리는 Git main 코드/검사와 [현행 인계](COST_V3_CURRENT_HANDOFF.md)를 재확인 |
+| 기존 기록 게이트 | `app/ota_exact.py`, `webapp/card_flow.py::_ota_group_holds_base` | 역사적 경로. 최신 A 정책의 내부 준비/금융 가드는 Git main 코드·표적 검증으로 판단 |
 | 기존 검토 | `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, `webapp/ledger_store.py` | 수동 pin·안전/비동기/기록 보호. 보존하고 진단 연결 |
 | **PR #87 (병합 완료)** | [PR #87](https://github.com/6Soo/cost/pull/87) | **2026-10-23 main `f8ccd13`에 squash 병합**. Decimal N:M 숫자 형식 수정 및 합성 테스트 3개가 코드에 포함됐으나 pytest **실행·통과 증거 없음**, 운영 서버 배포 검증 없음 |
 | R0~R6 코드 상태 | 2026-10-23 Git main과 표적 검증 이력 | **아래 상태표가 초기 계획 표기를 대체한다. 운영 배포는 별도 사실로 확인한다.** |
@@ -74,7 +78,7 @@
 | R3 | 중앙 snapshot을 OTA·카드·분류·지출 준비가 공유하며 stale fallback이 fresh canonical 결과를 덮지 않는다. 대량 재분류도 중앙 `_ota_report`를 사용한다. | 오래된 snapshot 복구 fallback은 보존한다. 운영 전환은 별도 승인 범위다. |
 | R4 | 유효 카드와 미확정 OTA 연결을 분리하고 비용 준비 UI/API를 제공한다. 미확정 예약번호는 장부·Google 복사값에 넣지 않는다. | Google 직접 쓰기는 없다. |
 | R5 | 사용자 여행 이동, AI 답변·추가 질문·규칙 미리보기/승인 흐름과 브라우저 검증을 반영했다. | 무료 모델 실패 시 수동 답변 경로를 쓰며 고객 원문을 외부 AI에 보내지 않는다. |
-| R5-B | 예약 후보 읽기 전용 API PR [#22](https://github.com/6Soo/reservation/pull/22)가 2026-10-23 `cc4e325`로 Reservation `main`에 병합됐다. COST adapter·owner UI·SQLite 저장/stale 재확정 합성 종단 검증 완료. | 합성 미리보기는 통과했다. 운영 토큰과 실제 자료를 사용한 인증 검증은 하지 않았다. GitHub 배포 화면의 마지막 Production 배포는 2026-10-21로 확인됐으며, 이번 병합에 따른 운영 배포는 확인되지 않았다. |
+| R5-B | 예약 후보 읽기 전용 API PR [#22](https://github.com/6Soo/reservation/pull/22)가 2026-10-23 `cc4e325`로 Reservation `main`에 병합됐다. COST adapter·owner UI·SQLite 저장/stale 재확정 합성 종단 검증 완료. | **Reservation Vercel Production `cc4e325` READY 확인** ([배포](https://vercel.com/6soos-projects/reservation/2codsKnAfoYRM4cnLYquvkHnggDV)). 운영 내부 API/DB 읽기 자격증명 설정·실서비스 조회는 미검증. GitHub Actions `smoke` 성공, `unit` 실패 ([실행](https://github.com/6Soo/reservation/actions/runs/39936103139)). |
 | R6 | legacy 직접 소비 경로를 중앙 report로 정렬하고 fresh snapshot 권한 보호, stale fallback과 진단 전용 경로의 역할을 분리했다. COST `268f7d8`, `f52533e`. | 운영 DB 전환·배포는 하지 않았다. |
 | N:M·금융 안전 | 반복 결제 그룹은 개별 결제 근거 없이 개별 예약 확정으로 승격하지 않는다. 중복·환불·원본 충돌·수동 결정 보호를 유지한다. | 실제 운영 원장 변경은 하지 않았다. |
 
@@ -118,9 +122,9 @@
 ### 배포·개발 관련 최종 구분
 
 - **코드 반영:** R0~R6 핵심 경로와 R5 참가자 COST 흐름이 COST `main`에 반영됐다. Reservation 후보 API는 PR #22 병합 커밋 `cc4e325`로 Reservation `main`에 반영됐다.
-- **실행하지 않은 검증:** 운영 DB 전수 진단, 예약 운영 토큰 인증, 운영 서버 배포. 실제 서비스 연결에는 예약 쪽 읽기 전용 DB 자격증명과 승인된 내부 토큰이 필요하다.
-- **현재 구현률:** 승인된 저장소 명세의 구현·합성 검증 항목 17개 중 16개를 확인해 **약 94%**로 평가한다. 남은 한 항목은 실제 예약 서비스에서 읽기 전용 자격증명으로 인증 요청을 확인하는 절차다. 이는 운영 준비율이나 배포 완료율을 뜻하지 않는다.
-- **다음 개발 착수:** 합성으로 완료된 기능을 재작성하지 말고, 새 필수 코드 결함이 확인될 때만 해당 경로를 표적 수정한다. 실제 DB와 Google 원본을 외부 서비스에 올리지 않는다.
+- **실행하지 않은 검증:** 운영 DB 전수 진단, 예약 운영 토큰 인증, COST V3 운영 호스트의 실제 동작 검증. **Reservation은 Production `cc4e325` READY**이나 운영 인증 성공은 미확인이다. 예약 DB의 읽기 전용 자격증명과 승인된 내부 토큰이 필요하다.
+- **과거 구현률 추정:** 당시 에이전트가 정의한 17개 체크 중 16개로 **약 94%**를 보고했으나 명세 전체·실서비스 운영률을 독립 측정한 값은 아니다. 실제 남은 작업에는 **Reservation Actions unit 실패 원인 확인/필요한 수정**, 운영 인증정보·권한과 실제 읽기 연동, COST V3 운영 SHA 확인이 있다. [현행 작업 큐](COST_V3_CURRENT_HANDOFF.md#3-미완료미검증-작업-큐-재개-우선순위)를 따른다.
+- **다음 개발 착수:** [현행 인계](COST_V3_CURRENT_HANDOFF.md)의 P0 CI 실패, P1 운영 읽기 인증, P2 새로 확인된 필수 갭 순으로 수행한다. 합성으로 완료된 기능을 재작성하지 않는다. 실제 DB와 Google 원본을 외부 서비스에 올리지 않는다.
 
 ## 8. 문서 자체 검증 및 유지 규칙 (2026-10-23)
 
