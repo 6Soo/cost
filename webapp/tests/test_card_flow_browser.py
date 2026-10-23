@@ -141,15 +141,15 @@ class CardFlowBrowserTests(unittest.TestCase):
                     destination='Synthetic candidate trip', client_request_id='candidate-trip')['tab_id']
                 header, source_line = CARD.splitlines(keepends=True)
                 fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
-                fields[4], fields[5], fields[8] = 'AGODA.COM', '30000', '30000'
+                fields[4], fields[5], fields[8] = 'AGODA.COM', '120000', '120000'
                 batch = flow.pipeline.receive(header + (','.join(fields)+'\n').encode(),
                                               'ota-unlinked-browser.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 candidate_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
                     merchant='AGODA.COM', merchant_normalized='agoda.com', approval_date='2026-10-01',
-                    amount_krw=30000, card_tail='1234', ota_inference_eligible=True)
+                    amount_krw=120000, card_tail='1234', ota_inference_eligible=True)
                 event = ota_event('ota-unlinked-browser', booking_ref='SYNTHETIC-UNCONFIRMED-REF',
-                    paid_on=None, amount=30000, amount_krw=30000, verified_portal_snapshot=True,
+                    paid_on=None, amount=120000, amount_krw=120000, verified_portal_snapshot=True,
                     reservation_status='completed',
                     service_period={'starts_on':'2026-10-01','ends_on':'2026-10-03'})
                 from app import ota_payments
@@ -195,6 +195,25 @@ class CardFlowBrowserTests(unittest.TestCase):
                         self.assertEqual(copied['row_count'], 1)
                         self.assertNotIn('SYNTHETIC-UNCONFIRMED-REF', copied['tsv'])
                         self.assertEqual(copied['tsv'].splitlines()[0].split('\t')[4], '')
+                        page.locator('[data-edit]').first.click()
+                        decision = page.locator('form[data-index]').first
+                        self.assertEqual(decision.locator('select[name=display_tab_id]').input_value(), trip)
+                        status_before = page.locator('#status').inner_text()
+                        decision.locator('button').click()
+                        page.wait_for_function("old => document.querySelector('#status')?.textContent !== old",
+                                               arg=status_before)
+                        stored = server.card_store.get_row('card-' + row['transaction_id'])
+                        self.assertEqual(stored['display_tab_id'], trip)
+                        self.assertEqual(stored['reservation_no'], '')
+                        self.assertEqual(stored['amount_krw'], 120000)
+                        self.assertEqual(server.card_store.conn.execute(
+                            'SELECT COUNT(*) FROM board_rows WHERE row_id=?',
+                            ('card-' + row['transaction_id'],)).fetchone()[0], 1)
+                        self.assertEqual(server.card_store.conn.execute(
+                            'SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?',
+                            (row['transaction_id'],)).fetchone()[0], 1)
+                        self.assertEqual(server.card_store.conn.execute(
+                            'SELECT COUNT(*) FROM board_rows').fetchone()[0], 1)
                         browser.close()
             finally:
                 server.shutdown(); server.server_close(); server.card_store.close()
