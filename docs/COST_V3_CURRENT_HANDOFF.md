@@ -117,7 +117,7 @@
 
 **최신 상태(0.3~0.5): 코드 구현 COMPLETE / Turso readonly 설정·Production READY / 합성 운영 API 인증 PASS(404) / 원격 main 합성 브라우저 PASS(1) / 전용 vs 범용 토큰 일치 UNKNOWN / 실자료 후보·운영 revision UNVERIFIED.** 과거 401은 PR #25 이전 이력. 토큰 값을 조회하지 않았으며 승인 없이 비밀 변경하지 않는다. 운영 실제 후보 조회는 개인정보 접근 승인 전 수행하지 않는다.
 
-1. Vercel reservation의 Production `c315c17` READY와 도메인/환경을 재확인했다. 운영 환경변수는 **이름·환경만** 확인하고 값은 출력·복사·로그하지 않는다.
+1. Vercel Reservation의 현재 Production `3296255e` READY와 도메인/환경을 확인했다. 운영 환경변수는 **이름·대상 환경만** 확인하고 값은 출력·복사·로그하지 않는다. 과거 `c315c17` 배포는 기록으로 보존한다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
 3. 필요한 설정 **Reservation**: INTERNAL_API_TOKEN(기존 내부 소비자 영향 검토), TURSO_READONLY_AUTH_TOKEN(해당 단일 DB read-only scope 필수), 선택 TURSO_READONLY_DATABASE_URL. **COST**: RESERVATION_INTERNAL_BASE_URL, RESERVATION_INTERNAL_API_TOKEN 또는 보호된 토큰 파일 경로(정확한 변수 이름은 webapp/reservation-passenger.env.example에서 재확인).
 4. 변수 이름에 READONLY라고 적힌 것만으로 DB 권한을 증명하지 않는다. 운영 DB에 INSERT/CREATE를 시험하지 않는다. 격리 비운영 DB의 동일 권한 정책으로 조회 허용·쓰기 거부를 확인하거나 제공자 권한 표시를 검증한다.
