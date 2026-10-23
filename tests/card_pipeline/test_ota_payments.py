@@ -8,6 +8,56 @@ from tests.card_pipeline.test_booking_mail import message
 from app.ota_payments import build_ota_payment_events, match_ota_payment_events, same_date_cards
 
 
+JP_PAID_SUBJECT = '\u304a\u652f\u6255\u3044\u304c\u5b8c\u4e86\u3044\u305f\u3057\u307e\u3057\u305f-NoReply'
+JP_CHARGED = '\u5186\u3092\u3054\u6307\u5b9a\u306e\u304a\u652f\u6255\u65b9\u6cd5\u306b\u8acb\u6c42\u3055\u305b\u3066\u3044\u305f\u3060\u304d\u307e\u3057\u305f'
+JP_PAID_BODY = ('\u4e88\u7d04\u756a\u53f7: 1400830000000001\n9,737' + JP_CHARGED + '\n'
+                'VISA\uff08\u30af\u30ec\u30b8\u30c3\u30c8\u30ab\u30fc\u30c9\uff09 9,737\u5186\n'
+                '\u30c1\u30a7\u30c3\u30af\u30a4\u30f3 2026\u5e749\u670830\u65e5\n'
+                '\u30c1\u30a7\u30c3\u30af\u30a2\u30a6\u30c8 2026\u5e7410\u67081\u65e5\n'
+                'Hotel tax JPY 150\n78 Trip Coins earned (KRW 1,034)')
+
+
+def test_japanese_paid_stay_keeps_original_currency_and_two_distinct_payments(tmp_path):
+    directory = tmp_path / 'jp-mail'
+    directory.mkdir()
+    mails = [message(JP_PAID_BODY.replace('1400830000000001', ref), subject=JP_PAID_SUBJECT,
+                     identity='jp-' + ref, sent='2026-09-25')
+             for ref in ('1400830000000001', '1400830000000002')]
+    (directory / 'gmail-jp.json').write_text(json.dumps({'responses': mails}), encoding='utf-8')
+    events = build_ota_payment_events({'mail_directories': [directory]})
+    assert len(events) == 2 and len({e['ota_event_id'] for e in events}) == 2
+    for e in events:
+        assert e['amount'] == '9737' and e['currency'] == 'JPY' and e['amount_krw'] is None
+        assert e['item'] == '숙박비' and e['paid_on'] == '2026-09-25'
+        assert e['service_period'] == {'starts_on': '2026-09-30', 'ends_on': '2026-10-01'}
+        assert e['card_last4'] is None and e['evidence_status'] == 'paid_verified'
+    results = match_ota_payment_events(events, [card('krw-a', amount_krw=85621,
+        approval_date='2026-09-25'), card('krw-b', amount_krw=85621, approval_date='2026-09-25')])
+    assert all(not r.get('transaction_id') for r in results)
+
+
+@pytest.mark.parametrize('body', [
+    JP_PAID_BODY.replace('9,737' + JP_CHARGED, 'Total JPY 9,737'),
+    JP_PAID_BODY + '\n9,738' + JP_CHARGED,
+    JP_PAID_BODY + '\n\u4e88\u7d04\u756a\u53f7: 1400830000000002',
+    JP_PAID_BODY.replace('2026\u5e749\u670830\u65e5', '2026\u5e7410\u67082\u65e5'),
+    JP_PAID_BODY.replace('2026\u5e7410\u67081\u65e5', '2026\u5e7413\u67081\u65e5'),
+    JP_PAID_BODY.replace('\u30af\u30ec\u30b8\u30c3\u30c8\u30ab\u30fc\u30c9', 'Trip Coins'),
+])
+def test_japanese_paid_stay_rejects_ambiguous_or_unpaid_layouts(body):
+    from app.ota_payments import _extract_signed_payment_message
+    assert _extract_signed_payment_message(message(body, subject=JP_PAID_SUBJECT)) is None
+
+
+def test_japanese_paid_stay_requires_verified_trip_sender():
+    from app.ota_payments import _extract_signed_payment_message
+    mail = message(JP_PAID_BODY, subject=JP_PAID_SUBJECT)
+    mail['payload']['headers'][-1]['value'] = 'mx.google.com; dkim=fail header.i=@trip.com'
+    assert _extract_signed_payment_message(mail) is None
+    assert _extract_signed_payment_message(message(JP_PAID_BODY, subject=JP_PAID_SUBJECT,
+                                                   domain='booking.com')) is None
+
+
 def event(identity='event-a', **changes):
     value = dict(ota_event_id=identity, provider='agoda', booking_ref='BOOK12345',
                  item='숙박비',

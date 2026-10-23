@@ -16,7 +16,7 @@ from app.ota_matching_defaults import load_defaults
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 4
+PARSER_VERSION = 5
 
 
 class OtaSourcesError(ValueError):
@@ -127,6 +127,38 @@ def _parse_mail_events(directories):
     return list(events.values())
 
 
+def _trip_japanese_paid_stay(message, headers, text):
+    """서명 검증 뒤 호출한다. 명시 청구액만 읽고 현장세·적립액은 제외한다."""
+    text = text.translate(ota_mail._format_char_table())
+    refs = set(re.findall(r'\u4e88\u7d04\u756a\u53f7\s*[:\uff1a]?\s*(\d{8,20})', text))
+    amounts = set(re.findall(
+        r'([0-9][0-9,]*)\s*\u5186\u3092\u3054\u6307\u5b9a\u306e\u304a\u652f\u6255\u65b9\u6cd5\u306b'
+        r'\u8acb\u6c42\u3055\u305b\u3066\u3044\u305f\u3060\u304d\u307e\u3057\u305f', text))
+    if len(refs) != 1 or len(amounts) != 1 or '\u30af\u30ec\u30b8\u30c3\u30c8\u30ab\u30fc\u30c9' not in text:
+        return None
+    amount = int(next(iter(amounts)).replace(',', ''))
+    paid_on = ota_mail.sent_day(message, headers)
+    if amount <= 0 or paid_on is None:
+        return None
+    days = []
+    for label in ('\u30c1\u30a7\u30c3\u30af\u30a4\u30f3', '\u30c1\u30a7\u30c3\u30af\u30a2\u30a6\u30c8'):
+        values = set(re.findall(label + r'\s*(\d{4})\u5e74\s*(\d{1,2})\u6708\s*(\d{1,2})\u65e5', text))
+        if len(values) != 1:
+            return None
+        try:
+            days.append(date(*map(int, next(iter(values)))))
+        except ValueError:
+            return None
+    if days[0] >= days[1]:
+        return None
+    return {'provider': 'trip', 'booking_ref': next(iter(refs)), 'item': '숙박비',
+            'paid_amount_krw': None, 'amount': str(amount), 'currency': 'JPY',
+            'paid_on': paid_on.isoformat(), 'period': {'starts_on': days[0].isoformat(), 'ends_on': days[1].isoformat()},
+            'source_sha256': _digest(message), 'reservation_status': 'observed',
+            'payment_status': 'paid', 'evidence_status': 'paid_verified', 'event_type': 'charge',
+            'refund_status': 'none_displayed', 'card_last4': None, 'payment_id': None, 'source_binding_ids': []}
+
+
 def _extract_signed_payment_message(message):
     """지원 공급자의 서명된 결제·환불 메일을 카드 없이 읽는다."""
     authenticated = ota_mail.authenticated_headers(message, (
@@ -137,6 +169,9 @@ def _extract_signed_payment_message(message):
     headers, domain = authenticated
     subject = headers.get("subject", "")
     text = ota_mail.body_text(message.get("payload", {}))
+    if (domain in ('trip.com', 'trip.co.kr')
+            and '\u304a\u652f\u6255\u3044\u304c\u5b8c\u4e86\u3044\u305f\u3057\u307e\u3057\u305f' in subject):
+        return _trip_japanese_paid_stay(message, headers, text)
     combined = subject + "\n" + text
     # 일부 숙박 확정서에는 실제 온라인 결제 완료가, 영수증에는 결제일이
     # 제목과 다른 위치에 적힌다. 예약 총액이나 현장 세금을 결제로 보지 않는다.
