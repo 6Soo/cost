@@ -1012,10 +1012,10 @@ class CardFlow:
 
     def _canonical_candidate_period_assignments(self, sources, taken, selected, blocked_sources):
         """Infer a trip from verified OTA service dates without confirming its payment link."""
-        from collections import defaultdict
         from app import ota_payments
         from app.classify import PERIOD_OTA_ORIGIN
-        from app.normalize import normalize_merchant
+        from app.ota_core_projection import project_canonical_candidate_period_assignments
+        from collections import defaultdict
 
         current, fresh = self._held_ota_snapshot()
         if not current or not fresh:
@@ -1023,16 +1023,17 @@ class CardFlow:
         data = current.get('data') or {}
         events = {str(event.get('ota_event_id') or ''): event for event in data.get('events', [])}
         cards = {str(card.get('transaction_id') or ''): card for card in data.get('transactions', [])}
-        reserved = {str(identity) for result in data.get('results', [])
+        results = data.get('results', [])
+        reserved = {str(identity) for result in results
                     for identity in result.get('reserved_card_ids') or ()}
         reserved.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
                         if isinstance(link, dict) and link.get('transaction_id'))
-        reserved.update(str(result.get('transaction_id')) for result in data.get('results', [])
+        reserved.update(str(result.get('transaction_id')) for result in results
                         if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and
                         result.get('transaction_id'))
         verified_trips = [trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
         choices = defaultdict(set)
-        for result in data.get('results', []):
+        for result in results:
             reservation_only = result.get('status') == 'RESERVATION_ONLY'
             if result.get('status') not in ('HOLD_DATE_UNKNOWN', 'RESERVATION_ONLY'):
                 continue
@@ -1054,9 +1055,8 @@ class CardFlow:
             item = str(event.get('item') or '').strip()
             if not item:
                 continue
-            is_stay = item in ('숙박비', '숙박료')
             trip = stay_trip(verified_trips, period['starts_on'], period['ends_on'],
-                             service=not is_stay, nets=_google_nets())
+                             service=item not in ('숙박비', '숙박료'), nets=_google_nets())
             if not trip:
                 continue
             for candidate in search.get('candidates') or ():
@@ -1074,26 +1074,10 @@ class CardFlow:
                 choices[source].add((str(trip['tab_id']), item,
                                      str(period['starts_on']), str(period['ends_on'])))
 
-        rules = []
-        for source, options in choices.items():
-            if len(options) != 1:
-                continue
-            trip_id, item, starts_on, ends_on = next(iter(options))
-            card = next((card for card in cards.values() if str(card.get('source_hash') or '') == source), None)
-            if not card or not self.trip_valid(trip_id):
-                continue
-            basis = (f"결제일 미상 OTA 후보의 검증된 이용기간 {starts_on}~{ends_on}이 "
-                     "기존 여행과 겹칩니다. 예약 연결과 예약번호는 확정하지 않았습니다.")
-            rules.append({
-                'conditions': {'merchant_normalized': normalize_merchant(
-                    card.get('merchant_normalized') or card.get('merchant') or ''),
-                    'transaction_direction': 'purchase'},
-                'optional': {'source_hash': source, 'inferred_assignment': {
-                    'trip_id': trip_id, 'confidence': '낮음', 'basis': basis}},
-                'effects': {'item': item}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
-                'rule_id': f"auto-ota-undated-candidate-{source[:16]}",
-            })
-        return rules
+        flattened = [(source, *option) for source, options in choices.items() for option in options]
+        rules = project_canonical_candidate_period_assignments(
+            cards=cards, choices=flattened)
+        return [rule for rule in rules if self.trip_valid(rule['optional']['inferred_assignment']['trip_id'])]
 
     def _board_future_rules(self):
         """장부에서 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.

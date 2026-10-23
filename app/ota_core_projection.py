@@ -3,6 +3,41 @@ from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
+def project_canonical_candidate_period_assignments(
+    *,
+    cards: Dict[str, Dict[str, Any]],
+    choices: List[Tuple[str, str, str, str, str]],
+) -> List[Dict[str, Any]]:
+    """순수하게 이미 판정된 선택을 기존 규칙 형태로 만든다."""
+    from collections import defaultdict
+    from app.classify import PERIOD_OTA_ORIGIN
+    from app.normalize import normalize_merchant
+
+    grouped: Dict[str, Set[Tuple[str, str, str, str]]] = defaultdict(set)
+    for source, trip_id, item, starts_on, ends_on in choices:
+        grouped[str(source)].add((str(trip_id), str(item), str(starts_on), str(ends_on)))
+    rules = []
+    for source, options in grouped.items():
+        if len(options) != 1:
+            continue
+        trip_id, item, starts_on, ends_on = next(iter(options))
+        card = next((card for card in cards.values() if str(card.get('source_hash') or '') == source), None)
+        if not card:
+            continue
+        basis = (f"결제일 미상 OTA 후보의 검증된 이용기간 {starts_on}~{ends_on}이 "
+                 "기존 여행과 겹칩니다. 예약 연결과 예약번호는 확정하지 않았습니다.")
+        rules.append({
+            'conditions': {'merchant_normalized': normalize_merchant(
+                card.get('merchant_normalized') or card.get('merchant') or ''),
+                'transaction_direction': 'purchase'},
+            'optional': {'source_hash': source, 'inferred_assignment': {
+                'trip_id': trip_id, 'confidence': '낮음', 'basis': basis}},
+            'effects': {'item': item}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
+            'rule_id': f"auto-ota-undated-candidate-{source[:16]}",
+        })
+    return rules
+
+
 # OTA 상태/사유 라벨은 ota_payment_review와 동일하게 유지한다.
 from app.ota_labels import OTA_STATUS as _OTA_STATUS
 from app.ota_labels import OTA_REASON as _OTA_REASON
