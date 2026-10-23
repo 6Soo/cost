@@ -97,6 +97,12 @@ def test_foreign_original_amount_required_without_exchange_rate_guess():
     assert not toyoko_mail.search_candidates(event, [card(amount_krw=12000)])['candidates']
     assert not toyoko_mail.search_candidates(event,
         [card(foreign_currency='USD', foreign_amount=12000)])['candidates']
+    domestic = message('domestic')
+    won_event = toyoko_mail.collect({domestic['id']: domestic})[0]
+    assert not toyoko_mail.search_candidates(won_event,
+        [card(merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount=12000)])['candidates']
+    assert not toyoko_mail.search_candidates(won_event,
+        [card(merchant='TOYOKO INN Tokyo JP')])['candidates']
 
 
 def test_branch_and_stay_can_explain_amount_difference_but_never_confirm_payment():

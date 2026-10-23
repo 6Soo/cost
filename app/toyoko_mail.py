@@ -146,7 +146,10 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
             return {'status': 'SEARCH_LIMIT_EXCEEDED', 'candidates': [], 'comparisons': comparisons}
         try:
             actual = Decimal(str(row.get('amount_krw') if currency == 'KRW' else row.get('foreign_amount')))
-            same_currency = currency == 'KRW' or str(row.get('foreign_currency') or '').upper() == currency
+            card_currency = str(row.get('foreign_currency') or '').upper()
+            # 해외 결제의 원화 환산액을 국내 호텔 예약금액과 비교하지 않는다.
+            same_currency = ((branch_known and card_currency in ('', 'KRW')) if currency == 'KRW'
+                             else card_currency == currency)
             valid_actual = actual.is_finite() and actual > 0
             matches = same_currency and valid_actual and actual == expected
         except InvalidOperation:
