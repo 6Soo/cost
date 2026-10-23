@@ -775,6 +775,39 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 backend.close()
                 board_conn.close()
 
+    def test_manual_link_crosswalk_is_reconstructed_after_store_reopen_and_recollection(self):
+        from app.ota_review import OtaReviewStore
+
+        old_event = {**EVENT, "ota_event_id": "legacy-event-reopen", "provider": "agoda",
+                     "booking_ref": "SYNTHETIC-REOPEN-BOOKING", "event_type": "charge",
+                     "amount_krw": 30000, "source_digest": "same-verified-proof",
+                     "card_last4": "2042", "evidence_status": "paid_verified", "payment_status": "paid"}
+        current_event = {**old_event, "ota_event_id": "recollected-event"}
+        card = {"transaction_id": "synthetic-reopen-card", "source_hash": "synthetic-source-hash",
+                "merchant": "AGODA.COM", "merchant_normalized": "agoda.com", "issuer": "Synthetic Bank",
+                "card_tail": "2042", "approval_date": "2026-10-01", "transaction_direction": "purchase",
+                "amount_krw": 30000}
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "review.sqlite"
+            first = OtaReviewStore(path)
+            preview = first.preview(old_event, card)
+            first.confirm(old_event, card, preview["preview_digest"], request_id="synthetic-first-link",
+                          user="synthetic-owner", allocations={})
+            first.close()
+
+            reopened = OtaReviewStore(path)
+            stored_links = reopened.links()
+            stored_events = reopened.event_snapshots()
+            crosswalks = reopened.event_crosswalks()
+            links, crosswalk = ota_payment_review._manual_link_crosswalk(
+                [current_event], stored_links, stored_events, crosswalks)
+            self.assertEqual(links["recollected-event"]["transaction_id"], card["transaction_id"])
+            self.assertEqual(crosswalk, {"legacy-event-reopen": "recollected-event"})
+            self.assertEqual(reopened.links()["legacy-event-reopen"]["transaction_id"],
+                             card["transaction_id"])
+            self.assertEqual(reopened.event_crosswalks(), {})
+            reopened.close()
+
     def test_default_source_resolution_uses_registered_manifest_and_legacy_environment_defaults(self):
         from app import ota_sources
         from webapp.ota_payment_review import CoreOtaPaymentBackend
