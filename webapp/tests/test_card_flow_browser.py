@@ -12,6 +12,85 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_browser_unlinked_candidate_reason_and_expense_preview_keep_booking_unconfirmed(self):
+        from types import SimpleNamespace
+        from webapp.card_flow import CardFlow
+        from webapp import ota_payment_review
+        from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':'',
+                 'WEBLEDGER_OTA_REVIEW_MODE':'isolated',
+                 'WEBLEDGER_OTA_REVIEW_DB':str(Path(directory)/'ota.sqlite')}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                trip = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                    destination='Synthetic candidate trip', client_request_id='candidate-trip')['tab_id']
+                header, source_line = CARD.splitlines(keepends=True)
+                fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
+                fields[4], fields[5], fields[8] = 'AGODA.COM', '30000', '30000'
+                batch = flow.pipeline.receive(header + (','.join(fields)+'\n').encode(),
+                                              'ota-unlinked-browser.csv')['batch_id']
+                row = flow.pipeline.get_batch(batch)['rows'][0]
+                candidate_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
+                    merchant='AGODA.COM', merchant_normalized='agoda.com', approval_date='2026-08-01',
+                    amount_krw=30000, card_tail='1234', ota_inference_eligible=True)
+                event = ota_event('ota-unlinked-browser', booking_ref='SYNTHETIC-UNCONFIRMED-REF',
+                    paid_on=None, amount=39000, amount_krw=39000, verified_portal_snapshot=True,
+                    reservation_status='completed',
+                    service_period={'starts_on':'2026-08-01','ends_on':'2026-08-03'})
+                result = {'ota_event_id':event['ota_event_id'], 'transaction_id':None,
+                          'status':'HOLD_AMOUNT_MISMATCH', 'reason':'amount_differs',
+                          'candidates':[row['transaction_id']]}
+                current = {'generation':28, 'data':{'events':[event], 'transactions':[candidate_card],
+                    'links':{}, 'results':[result]}, 'results':[result]}
+                service = SimpleNamespace(held=lambda: (current, True))
+                backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+                base = {'matches':[], 'type_only_candidates':[], 'rules':[], 'ota_source_errors':[],
+                        'ota_source_inventory':{'missing':[]}, 'evidence_gate':{}}
+                with patch.object(ota_payment_review, 'enabled', return_value=True), \
+                     patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                     patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                     patch.object(flow, '_compute_ota_report', return_value=base), \
+                     patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
+                    flow.classify(batch)
+                    server.card_store.conn.execute(
+                        "UPDATE transactions SET classification_state='classified', item=?, trip_id=?, "
+                        "display_tab_id=? WHERE transaction_id=?",
+                        ('숙박비', trip, trip, row['transaction_id']))
+                    server.card_store.conn.commit()
+                    with sync_playwright() as api:
+                        browser = api.chromium.launch(headless=True)
+                        page = browser.new_page(viewport={'width':390,'height':844})
+                        base_url = f'http://127.0.0.1:{server.server_address[1]}'
+                        page.goto(base_url + '/import?batch=' + batch + '&transaction=' +
+                                  row['transaction_id'] + '#preview')
+                        page.locator('#preview tbody tr').first.wait_for()
+                        state = page.request.get(base_url + '/api/imports/' + batch).json()
+                        reviewed = state['preview']['rows'][0]
+                        self.assertEqual(reviewed['ota_link_status'], 'UNLINKED')
+                        self.assertEqual(reviewed['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE', reviewed)
+                        self.assertEqual(reviewed['display_tab_id'], trip)
+                        self.assertEqual(reviewed.get('booking_ref') or '', '')
+                        visible = page.locator('#preview').inner_text()
+                        self.assertIn('SYNTHETIC-UNCONFIRMED-REF', visible)
+                        self.assertIn('미확정', visible)
+                        copied = page.request.get(base_url + '/api/imports/' + batch +
+                                                   '/google-tsv?tab=' + trip).json()
+                        self.assertEqual(copied['row_count'], 1)
+                        self.assertNotIn('SYNTHETIC-UNCONFIRMED-REF', copied['tsv'])
+                        self.assertEqual(copied['tsv'].splitlines()[0].split('\t')[4], '')
+                        browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_browser_trip_move_saves_before_opening_existing_learning_dialog(self):
         from webapp.card_flow import CardFlow
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
