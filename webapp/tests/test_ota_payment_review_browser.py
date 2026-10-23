@@ -22,6 +22,41 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_nm_order_proposal_shows_booking_to_card_pairs_as_unverified(self):
+        event_ids = ["synthetic-event-a", "synthetic-event-b"]
+        card_ids = ["synthetic-card-a", "synthetic-card-b"]
+        events = [{"ota_event_id": event_ids[index], "provider": "Synthetic OTA",
+                   "booking_ref": f"SYNTHETIC-BOOKING-{index}", "event_type": "charge",
+                   "amount": 30000, "amount_krw": 30000, "currency": "KRW",
+                   "status": "MATCHED_AUTO", "transaction_id": card_ids[index],
+                   "allocation_basis": "user_approved_stable_order",
+                   "group_count": {"ota": 2, "cards": 2}, "matched_count": 2,
+                   "ota_group_ids": event_ids, "card_group_ids": card_ids}
+                  for index in range(2)]
+        cards = [{"transaction_id": identity, "issuer": "Synthetic Bank", "amount_krw": 30000,
+                  "selection_disabled": True, "selection_disabled_reason": "group mapping review"}
+                 for identity in card_ids]
+        snapshot = ota_payment_review.public_snapshot({
+            "events": events,
+            "cards_by_event": {identity: cards for identity in event_ids}, "proposals": []})
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(snapshot, ensure_ascii=False)))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                pair = page.locator(".ota-group-proposal").first
+                pair.locator("summary").click()
+                text = pair.inner_text()
+                self.assertIn("SYNTHETIC-BOOKING-0", text)
+                self.assertIn("synthetic-card-a", text)
+                self.assertIn("개별 결제 근거가 아닌 정렬 순서 제안", text)
+            finally:
+                browser.close()
+
     def test_partial_nm_group_shows_each_card_evidence_and_keeps_individual_links_blocked(self):
         cards = [{"transaction_id": f"synthetic-card-{index}", "issuer": "Synthetic Bank",
                   "merchant": f"Synthetic merchant {index}", "amount_krw": 30000,

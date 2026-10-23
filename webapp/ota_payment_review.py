@@ -25,7 +25,7 @@ _read_backend_factory = None
 _write_backend_factory = None
 
 _EVENT_FIELDS = (
-    "ota_event_id", "provider", "booking_ref", "event_type", "paid_on", "amount",
+    "ota_event_id", "transaction_id", "provider", "booking_ref", "event_type", "paid_on", "amount",
     "currency", "amount_krw", "card_last4", "card_issuer", "service_period", "item",
     "service_period_conflict", "service_period_candidates", "booking_changes",
     "inferred_link", "inference_basis", "payment_date_verified",
@@ -1230,6 +1230,8 @@ def render_import_section(csrf: str) -> str:
       if(basis)facts.push(['배정 근거',basis]);
       const verdict=sameAmount?`결제 금액과 같은 카드 거래가 ${{sameAmount}}건 있습니다.`:'결제 금액과 같은 카드 거래가 없습니다.';
       const ids=[...(event.ota_group_ids?.length?[['예약 거래 ID',event.ota_group_ids.join(', ')]]:[]),...(event.card_group_ids?.length?[['카드 거래 ID',event.card_group_ids.join(', ')]]:[])];
+      const proposedMapping=event.proposed_mapping&&Object.keys(event.proposed_mapping).length?event.proposed_mapping:Object.fromEntries(events.filter(row=>(event.ota_group_ids||[]).includes(row.ota_event_id)&&row.transaction_id).map(row=>[row.ota_event_id,row.transaction_id]));
+      const groupPairs=Object.entries(proposedMapping).filter(([eventId,transactionId])=>(event.ota_group_ids||[]).includes(eventId)&&(event.card_group_ids||[]).includes(transactionId)).map(([eventId,transactionId])=>{{const booking=events.find(row=>row.ota_event_id===eventId);return `<p><strong>${{esc(booking?.booking_ref||eventId)}}</strong> ↔ ${{esc(transactionId)}}</p>`;}});
       const fact=(name,value)=>value===null||value===undefined||value===''?'':`<span>${{name}}: ${{esc(value)}}</span>`;
       const renderCard=card=>{{
         const same=gap(card)===0,linked=card.already_linked_event_id,blocked=card.selection_disabled||linked||event.evidence_missing;
@@ -1238,7 +1240,7 @@ def render_import_section(csrf: str) -> str:
       }};
       const openRows=[...candidateRows,...reviewOnlyRows].map(renderCard).join('');
       const linkedRows=linkedCards.map(renderCard).join('');
-      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-verdict">${{esc(verdict)}}</p><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 거래 ${{candidateRows.length+reviewOnlyRows.length}}건 · 결제 금액과 가까운 순</h4><div class="ota-cards">${{openRows}}</div>${{linkedRows?`<details class="ota-linked-cards"><summary>다른 예약에 연결된 거래 ${{linkedCards.length}}건</summary><div class="ota-cards">${{linkedRows}}</div></details>`:''}}<div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
+      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-verdict">${{esc(verdict)}}</p><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}${{groupPairs.length?`<details class="ota-group-proposal"><summary>순서 대응 제안 ${{groupPairs.length}}건 보기</summary><p>이 대응은 개별 결제 근거가 아닌 정렬 순서 제안입니다. 예약별 연결을 확인한 뒤 묶음을 고정하세요.</p>${{groupPairs.join('')}}</details>`:''}}<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 거래 ${{candidateRows.length+reviewOnlyRows.length}}건 · 결제 금액과 가까운 순</h4><div class="ota-cards">${{openRows}}</div>${{linkedRows?`<details class="ota-linked-cards"><summary>다른 예약에 연결된 거래 ${{linkedCards.length}}건</summary><div class="ota-cards">${{linkedRows}}</div></details>`:''}}<div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
     }}).join(''):'<p>검토할 OTA 결제 보류가 없습니다.</p>';
     const orderGroups=new Map();
     events.filter(event=>((event.allocation_basis==='user_approved_stable_order'||event.allocation_basis==='user_confirmed_group_required')&&!event.group_order_frozen)||event.review_warning==='confirm_group_reallocation')
