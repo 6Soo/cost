@@ -163,6 +163,64 @@ class CardFlowTests(unittest.TestCase):
         self.assertTrue(handler.response[1]['trip_move_learning']['url'].startswith('/rules?case='))
         self.assertEqual(self.board.get_row('card-' + row['transaction_id'])['display_tab_id'], trip_b)
 
+    def test_trip_move_dialog_synthetic_answer_preview_and_future_approval(self):
+        from webapp.dialog_turn import SyntheticAdapter
+        trip_a = self.board.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                                        destination='dialog-a', client_request_id='e2e-trip-a')['tab_id']
+        trip_b = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                        destination='dialog-b', client_request_id='e2e-trip-b')['tab_id']
+        self.flow.trip_valid = lambda value: value in {trip_a, trip_b}
+        batch = self.flow.pipeline.receive(CARD, 'dialog-e2e.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id=trip_a, trip_id=trip_a, request_id='e2e-move-a',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, row['transaction_id'])
+        current = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(current['transaction_id'], current['revision'], item='숙박비',
+            display_tab_id=trip_b, trip_id=trip_b, request_id='e2e-move-b',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, current['transaction_id'])
+        from webapp import ledger_board
+        previous_store = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            learning = self.flow.open_trip_move_learning(
+                current['transaction_id'], trip_a, trip_b, request_id='e2e-move-b')
+        finally:
+            ledger_board.bind_store(previous_store)
+        self.assertEqual(learning['status'], 'opened')
+        dialog = self.board.rule_dialog_state(learning['case_id'])
+        choices = {'rule_kind': 'repeatable', 'evidence_basis': 'schedule_or_booking',
+                   'event_year': 'this_year', 'period': 'no_period_limit'}
+        for question in dialog['open_questions']:
+            answer = choices.get(question['question_key'], question['options'][0])
+            self.board.answer_rule_question(
+                question_id=question['question_id'], answer=answer,
+                expected_row_revision=dialog['row_revision'],
+                client_request_id='e2e-answer-' + question['question_key'])
+
+        row_view = self.board.get_row('card-' + current['transaction_id'])
+        synthetic = SyntheticAdapter('muse', 'opencode/muse-spark-1.3-contributor-free', draft={
+            'conditions': {'merchant_normalized': row_view['source_merchant']},
+            'effects': {'item': '숙박비', 'display_tab_id': trip_b},
+            'scope': {'trip_id': trip_b, 'event_year': 2026, 'applicability': 'future'},
+        })
+        turn = self.board.advance_dialog_conversation(
+            learning_case_id=learning['case_id'], client_request_id='e2e-free-turn', muse=synthetic)
+        self.assertEqual(turn['turn']['state'], 'answered')
+        self.assertFalse(turn['is_real_call'])
+        approved = self.board.confirm_dialog_draft(
+            learning_case_id=learning['case_id'], client_request_id='e2e-owner-approve-draft')
+        rule = approved['rule']
+        preview = self.board.preview_rule(rule_id=rule['rule_id'],
+                                          apply_existing=False, apply_future=True)
+        applied = self.board.apply_rule(
+            preview_id=preview['preview_id'], apply_existing=False, apply_future=True,
+            client_request_id='e2e-approve-future-rule')
+        self.assertGreaterEqual(applied['applied_count'], 0)
+        self.assertEqual(self.board.get_row('card-' + current['transaction_id'])['display_tab_id'], trip_b)
+
     def test_review_evidence_labels_distinguish_existing_mail_evidence(self):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
