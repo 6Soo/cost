@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from webapp.ledger_store import LedgerStore
 from webapp.card_flow import (
-    CardFlow, page, batch_catalog, _mail_evidence_from_report, _review_evidence_labels,
+    CardFlow, page, batch_catalog, dispatch, _mail_evidence_from_report, _review_evidence_labels,
 )
 
 
@@ -120,6 +120,48 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(case[0], ledger_row['row_id'])
         conversation = self.board.conversation_state('conv-' + learning['case_id'])
         self.assertEqual(conversation['row_id'], ledger_row['row_id'])
+
+    def test_card_decision_api_moves_recorded_row_and_returns_dialog_url(self):
+        from urllib.parse import urlsplit
+        from webapp import ledger_board
+        trip_a = self.board.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                                        destination='route-a', client_request_id='route-trip-a')['tab_id']
+        trip_b = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                        destination='route-b', client_request_id='route-trip-b')['tab_id']
+        batch = self.flow.pipeline.receive(CARD, 'route-trip-move.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.trip_valid = lambda value: value in {trip_a, trip_b}
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id=trip_a, trip_id=trip_a, request_id='route-move-a',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, row['transaction_id'])
+        current = self.flow.pipeline.get_batch(batch)['rows'][0]
+
+        class Handler:
+            headers = {'X-CSRF-Token': 'csrf-test'}
+            def _send_json(self, body, status=200):
+                self.response = (status, body)
+
+        handler = Handler()
+        body = {'transaction_id': row['transaction_id'], 'revision': current['revision'],
+                'item': '숙박비', 'description': '', 'display_tab_id': trip_b,
+                'request_id': 'route-move-b'}
+        previous_store = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            with patch.dict(os.environ, {'WEBLEDGER_CARD_FLOW': '1'}), \
+                    patch.object(CardFlow, 'tab_valid', lambda _self, value: value in {trip_a, trip_b}), \
+                    patch.object(CardFlow, 'trip_valid', lambda _self, value: value in {trip_a, trip_b}):
+                handled = dispatch(
+                    handler, urlsplit(f'/api/imports/{batch}/decision'), raw=json.dumps(body).encode(),
+                    csrf='csrf-test')
+        finally:
+            ledger_board.bind_store(previous_store)
+        self.assertTrue(handled)
+        self.assertEqual(handler.response[0], 200, handler.response)
+        self.assertEqual(handler.response[1]['trip_move_learning']['status'], 'opened')
+        self.assertTrue(handler.response[1]['trip_move_learning']['url'].startswith('/rules?case='))
+        self.assertEqual(self.board.get_row('card-' + row['transaction_id'])['display_tab_id'], trip_b)
 
     def test_review_evidence_labels_distinguish_existing_mail_evidence(self):
         row = {
