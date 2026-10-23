@@ -1189,7 +1189,7 @@ class CardFlow:
             report = memo[0]
         from . import ota_payment_review
         if report is not None and ota_payment_review.enabled():
-            current, _fresh = ota_payment_review.snapshot_service(self.board).held()
+            current, fresh = ota_payment_review.snapshot_service(self.board).held()
             if current is not None and fresh:
                 from app.ota_core_projection import extend_report
                 report = extend_report(report, current.get('data') or {})
@@ -1470,6 +1470,17 @@ class CardFlow:
                                                   review_from=review_from or None,
                                                   entry_metadata=self.preview_metadata(),
                                                   additional_holds=self.ota_group_holds())
+        ota_statuses, ota_generation = self._ota_card_statuses(result['rows'])
+        for row in result['rows']:
+            status = ota_statuses.get(row['transaction_id'], 'UNLINKED')
+            row['ota_link_status'] = status if ota_generation else 'UNKNOWN'
+            row['ota_snapshot_generation'] = ota_generation
+        for row in result['preview']['rows']:
+            row['ota_link_status'] = ota_statuses.get(row['transaction_id'], 'UNLINKED') if ota_generation else 'UNKNOWN'
+            row['ota_snapshot_generation'] = ota_generation
+            row['internal_expense_status'] = (
+                'SAVED' if row.get('already_booked') else
+                'READY_FOR_INTERNAL_SAVE' if not row.get('blocked') else 'HELD')
         result['trips'] = [dict(id=t['tab_id'],name=t['display_key'],available=available[t['tab_id']]) for t in trips]
         result['refund_groups'] = self.refund_group_views(result['preview'], result['trips'])
         from .card_actions import next_action
@@ -1493,6 +1504,26 @@ class CardFlow:
             row['review_evidence_labels'] = _review_evidence_labels(
                 row, mail_evidence.get(row.get('source_hash')))
         return result
+
+    def _ota_card_statuses(self, rows):
+        """Read OTA resolution labels from the published matcher generation; never run a matcher here."""
+        from . import ota_payment_review
+        if not ota_payment_review.enabled():
+            return {}, None
+        current, fresh = ota_payment_review.snapshot_service(self.board).held()
+        if current is None or not fresh:
+            return {}, None
+        states = {}
+        for result in current.get('results') or ():
+            transaction_id = str(result.get('transaction_id') or '')
+            state = ('USER_CONFIRMED' if result.get('status') == 'MATCHED_USER' else
+                     'INFERRED' if result.get('inferred_link') else
+                     'EXACT' if result.get('status') == 'MATCHED_AUTO' else None)
+            if transaction_id and state:
+                states[transaction_id] = state
+            for reserved in result.get('reserved_card_ids') or ():
+                states[str(reserved)] = 'REVIEW_REQUIRED'
+        return states, current.get('generation')
 
     def refund_group_views(self, preview, trips):
         """Each linked refund pair as its own group, with the digest its own commit button uses."""
@@ -2347,7 +2378,9 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='review';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':''));
-const reviewLabel=r=>r.next_action?.status||{review:'확인 필요',booked:'기록 완료',excluded:'기록 제외'}[reviewStatus(r)]||'';
+const otaLabels={EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
+const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status]].filter(Boolean).join(' / ');
 function reviewRows(j){const originals=new Map(j.rows.map(r=>[r.transaction_id,r]));let rows=j.preview.rows.map(r=>({...originals.get(r.transaction_id),...r}));const focus=new URLSearchParams(location.search).get('transaction');if(location.hash==='#preview'&&focus)rows=rows.filter(r=>r.transaction_id===focus||r.refund_link?.counterpart_id===focus);const term=el('review-search').value.trim().toLowerCase(),month=el('review-month').value,category=el('review-category').value;rows=rows.filter(r=>(reviewState==='all'||reviewStatus(r)===reviewState)&&(!month||reviewDate(r).startsWith(month))&&(!category||r.item===category)&&(!term||[r.merchant,r.item,r.description,j.trips.find(t=>t.id===r.display_tab_id)?.name].join(' ').toLowerCase().includes(term)));const sort=el('review-sort').value;return rows.sort((a,b)=>!reviewDate(a)||!reviewDate(b)?Number(!reviewDate(a))-Number(!reviewDate(b)):sort==='amount-desc'?Number(b.amount_krw)-Number(a.amount_krw):sort==='date-asc'?reviewDate(a).localeCompare(reviewDate(b)):reviewDate(b).localeCompare(reviewDate(a)))}
 function renderReviewControls(j){const rows=j.preview.rows;el('review-metrics').innerHTML=[['all','전체 거래'],['review','확인 필요'],['booked','기록 완료'],['excluded','기록 제외']].map(([state,label])=>'<button type="button" data-review-state="'+state+'" aria-pressed="'+(state===reviewState)+'">'+label+'<strong>'+rows.filter(r=>state==='all'||reviewStatus(r)===state).length+'</strong></button>').join('');for(const [id,values] of [['review-month',[...new Set(j.rows.map(r=>reviewDate(r).slice(0,7)).filter(Boolean))].sort()],['review-category',[...new Set(j.rows.map(r=>r.item).filter(Boolean))].sort()]]){const select=el(id),value=select.value;select.innerHTML='<option value="">'+(id==='review-month'?'전체 월':'전체 항목')+'</option>'+values.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join('');select.value=values.includes(value)?value:''}document.querySelectorAll('[data-review-state]').forEach(b=>b.onclick=()=>{reviewState=b.dataset.reviewState;page=0;render(model)})}
 for(const id of ['review-search','review-month','review-category','review-sort'])el(id).addEventListener(id==='review-search'?'input':'change',()=>{page=0;render(model)});

@@ -219,6 +219,31 @@ class CardFlowTests(unittest.TestCase):
         labels = _review_evidence_labels(row, evidence['synthetic-source'])
         self.assertTrue(any('OTA 검토' in label for label in labels))
 
+    def test_ota_resolution_statuses_come_from_one_fresh_snapshot(self):
+        current = {'generation': 9, 'results': [
+            {'transaction_id': 'exact', 'status': 'MATCHED_AUTO'},
+            {'transaction_id': 'inferred', 'status': 'MATCHED_AUTO', 'inferred_link': True},
+            {'transaction_id': 'manual', 'status': 'MATCHED_USER'},
+            {'reserved_card_ids': ['contested'], 'status': 'HOLD_PARTIAL_GROUP'},
+        ]}
+        service = type('Service', (), {'held': lambda _self: (current, True)})()
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch('webapp.ota_payment_review.snapshot_service', return_value=service):
+            statuses, generation = self.flow._ota_card_statuses([])
+        self.assertEqual(generation, 9)
+        self.assertEqual(statuses, {'exact': 'EXACT', 'inferred': 'INFERRED',
+                                    'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED'})
+
+    def test_stale_ota_report_extension_uses_the_snapshot_freshness_value(self):
+        current = {'data': {'synthetic': 'shared-result'}}
+        service = type('Service', (), {'held': lambda _self: (current, True)})()
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+                patch.object(self.flow, '_compute_ota_report', return_value={'base': True}), \
+                patch('app.ota_core_projection.extend_report', return_value={'extended': True}) as extend:
+            self.assertEqual(self.flow._ota_report(), {'extended': True})
+        extend.assert_called_once_with({'base': True}, current['data'])
+
     def test_overwritten_mail_file_refreshes_cancellation_evidence(self):
         # 메일 캐시와 취소 갱신만 검사한다. 정확 매칭 게이트는 test_ota_exact_gate.py에서 따로 확인한다.
         gate=patch.dict(os.environ,{'WEBLEDGER_OTA_EXACT_GATE':'0'})
@@ -583,12 +608,15 @@ class CardFlowTests(unittest.TestCase):
             visible = recordable_rows(before['rows'])
             self.assertEqual(before['ready'], len(visible))
             self.assertEqual({r['transaction_id'] for r in visible}, {row['transaction_id']})
+            self.assertEqual(visible[0]['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
+            self.assertEqual(visible[0]['ota_link_status'], 'UNKNOWN')
             self.flow.pipeline.commit(batch, before['digest'], 'ready-commit',
                                       trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
             after = self.flow.state(batch)['preview']
             self.assertEqual(after['ready'], len(recordable_rows(after['rows'])))
             self.assertFalse(recordable_rows(after['rows']))
             self.assertTrue(after['rows'][0]['already_booked'])
+            self.assertEqual(after['rows'][0]['internal_expense_status'], 'SAVED')
 
     def test_ready_counts_shared_source_transaction_once_and_excludes_blockers(self):
         from app.ledger import recordable_rows

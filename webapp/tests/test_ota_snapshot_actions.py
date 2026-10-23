@@ -16,6 +16,7 @@ from app import ota_matching_defaults
 from webapp import ota_payment_review
 from webapp.ota_payment_review import CoreOtaPaymentBackend
 from webapp.ota_snapshot import OtaSnapshotService
+from webapp.card_flow import CardFlow
 from webapp.tests.test_ota_payment_review import EVENT, FakeCorePayments, FakeCoreStore, primed
 
 
@@ -59,6 +60,33 @@ class SnapshotActionTests(unittest.TestCase):
             preview = self._preview()
         self.assertEqual(preview["snapshot_generation"], 1)
         self.assertTrue(preview["preview_digest"])
+
+    def test_review_api_and_expense_holds_read_the_same_published_generation(self):
+        class Host:
+            headers = {}
+            def _send_json(inner, payload, status=200):
+                inner.response = (status, payload)
+
+        host = Host()
+        env = {"WEBLEDGER_OTA_REVIEW_MODE":"isolated",
+               "WEBLEDGER_OTA_REVIEW_DB":str(self.review_path)}
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(CoreOtaPaymentBackend, "_data", side_effect=AssertionError("request recomputed")):
+            self.assertTrue(ota_payment_review.dispatch(
+                host, urlsplit("/api/imports/ota"), backend=self.backend))
+        response = host.response[1]
+        current, fresh = self.service.held()
+        self.assertEqual(response["generation"], current["generation"])
+        self.assertEqual(response["snapshot_key"], current["key"][:12])
+        self.assertTrue(fresh)
+
+        flow = CardFlow.__new__(CardFlow)
+        flow.board = self.board
+        with mock.patch.object(ota_payment_review.CoreOtaPaymentBackend, "from_host",
+                               return_value=SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []),
+                                                            close=lambda: None)):
+            holds = flow._ota_group_holds_base()
+        self.assertNotIn("card-02", holds)
 
     def test_source_content_change_makes_the_preview_stale(self):
         (self.mail / "gmail-1.json").write_text('{"responses": [ ]}', encoding="utf-8")
