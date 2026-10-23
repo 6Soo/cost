@@ -13,7 +13,6 @@ from app.reconciliation import (GUIDE_AIRFARE_ORIGIN, OTA_MAIL_ORIGIN, OTA_PORTA
 from . import read_scope
 
 
-_OTA_MARKERS = ('TRIP.COM', '트립닷컴', 'KLOOK', '클룩', 'AGODA', '아고다', 'BOOKING', '부킹닷컴')
 _OTA_REPORT_LOCK = threading.Lock()
 _AUTHORITY_CACHE = {}
 _GOOGLE_PERIOD_CACHE = {}
@@ -79,7 +78,8 @@ def _trip_authority(path):
 
 def _is_ota_row(row):
     merchant = str(row.get('merchant') or row.get('merchant_normalized') or '').upper()
-    return any(marker.upper() in merchant for marker in _OTA_MARKERS)
+    from app.ota_matching_defaults import provider_for_merchant
+    return bool(provider_for_merchant(merchant))
 
 
 def _unchanged_workbook_schedule(record, current_bytes, cache):

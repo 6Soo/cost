@@ -97,6 +97,14 @@ class CardFlowTests(unittest.TestCase):
             ['예약 근거 있음', '여행 배정 확인 권장'],
         )
 
+    def test_ota_merchant_classification_uses_approved_shared_nice_alias(self):
+        from app.ota_matching_defaults import provider_for_merchant
+        self.assertEqual(provider_for_merchant('나이스정보통신'), 'trip')
+        self.assertEqual(provider_for_merchant('Trip.com Korea'), 'trip')
+        self.assertIsNone(provider_for_merchant('ordinary grocery store'))
+        from webapp.card_flow import _is_ota_row
+        self.assertTrue(_is_ota_row({'merchant': '나이스정보통신'}))
+
     def test_review_evidence_labels_distinguish_mail_from_card_linkage(self):
         row = {
             'merchant':'TRIP.COM', 'classification_source':'rule',
