@@ -89,6 +89,20 @@ def test_post_persists_only_explicit_cost_assignment_idempotently(tmp_path):
         assert conn.execute('SELECT COUNT(*) FROM flight_passenger_assignments').fetchone()[0] == 1
     finally:
         conn.close()
+    with patch.dict(os.environ, {page.FEATURE_FLAG: '1', page.DB_ENV: str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500': EVIDENCE}):
+        current = Handler()
+        page.dispatch(current, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
+                      board=object(), query={'booking_ref': ['SYNTH-500'], 'tour_id': ['tour-synth']},
+                      candidate_fetch=lambda _tour: AUTHORITY)
+        saved = current.response[1]['passengers'][0]['assignment']
+        assert saved['candidate_reference_id'] == 'opaque-synth'
+        assert saved['stale'] is False
+        changed = Handler()
+        page.dispatch(changed, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
+                      board=object(), query={'booking_ref': ['SYNTH-500'], 'tour_id': ['tour-synth']},
+                      candidate_fetch=lambda _tour: {**AUTHORITY, 'source_revision': 'roster-synth-v2'})
+        assert changed.response[1]['passengers'][0]['assignment']['stale'] is True
 
 
 def test_assignment_refuses_non_owner_missing_csrf_and_stale_proposal(tmp_path):

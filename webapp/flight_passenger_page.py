@@ -47,6 +47,7 @@ const values=new FormData(form), booking_ref=String(values.get('booking_ref')||'
 try{const response=await fetch('/api/flight-passengers/candidates?booking_ref='+encodeURIComponent(booking_ref)+'&tour_id='+encodeURIComponent(tour_id));
 const data=await response.json();if(!response.ok)throw Error(data.code||'후보를 불러오지 못했습니다.');
 for(const passenger of data.passengers||[]){const article=document.createElement('article'), title=document.createElement('h2');
+if(passenger.assignment){const saved=document.createElement('p');saved.textContent=passenger.assignment.stale?'저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'???')+' · 사용자가 확인했습니다.';article.append(saved)}
 title.textContent=passenger.passenger_name_en+' · '+passenger.status;article.append(title);
 if(!passenger.candidates.length){const empty=document.createElement('p');empty.textContent='일치 후보가 없습니다. 이름만으로 새 고객을 만들지 않습니다.';article.append(empty)}
 for(const candidate of passenger.candidates){const label=document.createElement('label'), radio=document.createElement('input');radio.type='radio';radio.name=passenger.proposal_id;radio.value=candidate.reference_id;
@@ -73,7 +74,48 @@ def _candidate_result(board, booking_ref, tour_id, *, candidate_fetch=None):
         raise LookupError('VERIFIED_FLIGHT_EVIDENCE_NOT_FOUND')
     fetch = candidate_fetch or reservation_authority.fetch_passenger_candidates
     snapshot = fetch(tour_id)
-    return flight_passenger_matching.match_booking_passengers(evidence, snapshot)
+    result = flight_passenger_matching.match_booking_passengers(evidence, snapshot)
+    result['assignments'] = _assignments_for(booking_ref, tour_id, result['source_revision'])
+    by_source = {(item.get('passenger_name_en'), tuple(item.get('source_digests') or ())): item
+                 for item in result['assignments']}
+    for passenger in result['passengers']:
+        key = (passenger.get('passenger_name_en'), tuple(passenger.get('source_digests') or ()))
+        assignment = by_source.get(key)
+        if assignment:
+            assignment = dict(assignment)
+            assignment['candidate'] = next((candidate for candidate in passenger['candidates']
+                                            if candidate.get('reference_id') == assignment.get('candidate_reference_id')), None)
+        passenger['assignment'] = assignment
+    return result
+
+
+def _assignments_for(booking_ref, tour_id, source_revision):
+    """Read COST confirmations and mark them stale when reservation evidence changes."""
+    path = _db_path()
+    if path is None or not path.is_file():
+        return []
+    conn = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
+    try:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='flight_passenger_assignments'").fetchone()
+        if not table:
+            return []
+        rows = conn.execute(
+            'SELECT assignment_json FROM flight_passenger_assignments '
+            'WHERE booking_ref=? AND tour_id=? ORDER BY created_at',
+            (booking_ref, tour_id)).fetchall()
+    finally:
+        conn.close()
+    values = []
+    for (encoded,) in rows:
+        try:
+            assignment = json.loads(encoded)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        assignment['stale'] = (str(assignment.get('source_revision') or '') != str(source_revision or '')
+                               or not assignment.get('candidate_reference_id'))
+        values.append(assignment)
+    return values
 
 
 def _save_assignment(path, assignment):
