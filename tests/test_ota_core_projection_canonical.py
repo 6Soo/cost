@@ -79,7 +79,8 @@ def test_frozen_base_wrapper_matches_refactored_wrapper():
                  results=[result(), result("e2")]), [trip_a, trip_b], {"source-a"}, set(), None,
          set(), {"trip-a": 9, "trip-b": 8}, False),
         ("last_trip_validation", snapshot(), [trip_a], {"source-a"}, set(), None, set(),
-         {"trip-a": 9}, False, False, True),
+         {"trip-a": 9}, False, True, True),
+        ("snapshot_none", None, [trip_a], {"source-a"}, set(), None, set(), {}, False),
     ]
 
     calls = []
@@ -97,26 +98,35 @@ def test_frozen_base_wrapper_matches_refactored_wrapper():
 
             class Flow:
                 board = Board()
+                def __init__(self): self.trip_valid_calls = []
                 def _held_ota_snapshot(self): return snap, not stale
-                def trip_valid(self, trip_id): return not (invalidate_last and trip_id == "trip-a")
+                def trip_valid(self, trip_id):
+                    self.trip_valid_calls.append(trip_id)
+                    return not (invalidate_last and trip_id == "trip-a" and
+                                self.trip_valid_calls.count(trip_id) == 2)
 
             old_calls = []
             calls.clear()
-            old = _base_method()(Flow(), sources, taken, selected, blocked)
+            old_flow = Flow()
+            old = _base_method()(old_flow, sources, taken, selected, blocked)
             old_calls = list(calls)
             calls.clear()
+            new_flow = Flow()
             new = card_flow.CardFlow._canonical_candidate_period_assignments(
-                Flow(), sources, taken, selected, blocked)
+                new_flow, sources, taken, selected, blocked)
             new_calls = list(calls)
 
             assert old == new, name
             assert old_calls == new_calls, name
+            assert old_flow.trip_valid_calls == new_flow.trip_valid_calls, name
             assert snap == before, name
             assert bool(old) is expected, name
             if name == "paid_lodging":
                 assert old[0]["effects"]["item"] == "숙박비"
                 assert old[0]["origin"] == PERIOD_OTA_ORIGIN
             if name == "last_trip_validation":
+                assert old_flow.trip_valid_calls == ["trip-a", "trip-a"]
+                assert old_flow.trip_valid_calls.count("trip-a") == 2
                 assert old == []
     finally:
         card_flow._google_nets = original_nets
