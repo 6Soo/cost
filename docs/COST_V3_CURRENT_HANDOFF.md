@@ -18,20 +18,20 @@
 
 | 표면 | GitHub/플랫폼에서 확인한 사실 | 구분 |
 | --- | --- | --- |
-| COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **0bd6e933ab** 이후 2026-10-23 인계용 문서 커밋 789ada8, 8cf8c4f, 895280d, ceba4f0 추가 | 앱 기능 변경 기준 SHA와 문서 최신 HEAD를 구분한다. **최신 HEAD는 시작 시 git fetch로 확인.** COST V3 전체가 운영 호스트에 배포됐다는 뜻이 아니다 |
-| Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **cc4e325b9a**; 현 인계 연결만 추가한 문서 커밋 **dd734e0** 후속 | [PR #22](https://github.com/6Soo/reservation/pull/22) 2026-10-23 병합 완료. 새 문서 커밋은 별도 Vercel 빌드를 일으키므로 현재 상태를 다시 확인 |
-| Reservation Vercel | [앱 코드 배포 dpl_2codsKnAfoYRM4cnLYquvkHnggDV](https://vercel.com/6soos-projects/reservation/2codsKnAfoYRM4cnLYquvkHnggDV) — target=production, state=READY, sha=cc4e325b9a. **문서-only dd734e0도 별도 production 자동 배포 후 READY로 확인** ([후속 배포](https://vercel.com/6soos-projects/reservation/Fovk7TKMasxHte5iQaAFGXKDMmah)) | 사용자가 기존 병합·배포를 지시했다. 인계 링크만 포함된 문서 수정도 자동 배포를 트리거했다. 다음 세션에서 최신 배포 결과 확인. API 인증·운영 DB 연결 성공은 미검증 |
-| Reservation Actions | [main 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39936103139): **smoke success / unit failure** | CI 전체 녹색 아님. unit의 정확한 실패 원인은 이 문서 작성 시 로그 전문으로 독립 확정하지 않음 |
-| COST 배포 | [기존 운영 이력](operations.md)에 관리 호스트 배포·기장 기록 존재 | 운영 릴리스 SHA는 V3 Git main과 별개. V3 전체의 실제 운영 프로세스 SHA·기능 상태는 미검증 |
+| COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **8425a1e332** (이 문서 수정 전 확인), V3 앱 코드 기준 **0bd6e933ab** | 8425a1e는 문서-only HEAD. 운영 호스트 릴리스는 별개이며 main 전체 배포가 아니다. 재개 시 원격 HEAD 다시 확인 |
+| Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **70b00859e5** (2026-10-23 확인) | [PR #22](https://github.com/6Soo/reservation/pull/22) 참가자 API 병합 cc4e325, dd734e0 문서 후속, [PR #23](https://github.com/6Soo/reservation/pull/23) CI 테스트 날짜 고정만 추가. 개인정보·운영 런타임 코드는 PR #23에서 미변경 |
+| Reservation Vercel | [최신 확인 Production 배포 dpl_FGCSnVdbo39mriFVZXwaAbjDewHZ](https://vercel.com/6soos-projects/reservation/FGCSnVdbo39mriFVZXwaAbjDewHZ) — target=production, state=READY, sha=**70b00859e5** | PR #23은 테스트-only이지만 main 병합이 자동 Production 빌드를 트리거했다. **READY는 배포/빌드 증거로만 인정**. 운영 DB 읽기·인증 성공은 미검증 |
+| Reservation Actions | [PR #23 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39939654895): **unit SUCCESS / smoke SUCCESS** | **P0 완료.** 기존 실패 39936103139 및 39938731786은 10/21 기준선(39639564867)에서도 발생한 날짜 고정 부재였다. 운영 코드는 변경하지 않음 |
+| COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 개발 main **8425a1e**와 **diverged** (main 쪽 174커밋, 운영 쪽 25커밋 차이). 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
 
 **수치 주의:** 과거 에이전트의 “94%”는 **17개 자체 정의 체크 중 16개 확인**이라는 추정 지표이며 독립적인 명세 전체 완료율·운영 준비율이 아니다. 저장소 구현·합성 종단 검증은 상당 부분 완료됐으나 실제 운영 기능 검증과 별도로 취급한다. 새 에이전트가 임의로 백분율을 다시 만들지 않는다.
 
 ### 실제 배포와 기능 동작의 구분
 
-- PR #22의 Reservation **Production 배포는 READY**다. 과거 session_handoff의 “10/21 마지막 Production” 기록은 작성 당시 관측이며 지금의 최신 상태가 아니다.
-- 운영 환경에 INTERNAL_API_TOKEN, TURSO_READONLY_AUTH_TOKEN, COST 쪽 RESERVATION_INTERNAL_BASE_URL과 내부 API 토큰 등이 올바르게 존재하는지는 **검증되지 않았다**. 배포 성공을 API 조회 성공으로 보고하지 않는다.
-- GitHub Actions **unit이 실패**했다. 이전 에이전트는 tests/masterDataQueue.test.ts가 17개 중 1개 실패(기대 3/실제 2)하며 기준 main에서도 재현된다고 보고했지만, 현 병합 커밋의 unit 실패 원인과 동일한지는 **CI 로그로 다시 확인**한다.
+- Reservation **최신 Production 배포(70b00859)는 READY**, [GitHub Actions unit/smoke](https://github.com/6Soo/reservation/actions/runs/39939654895)는 모두 PASS다. PR #22 및 dd734e0 배포 기록은 과거 관측으로 보존한다.
+- Vercel Reservation 환경변수 메타데이터에서 **INTERNAL_API_TOKEN(Production/Preview) 존재**, **TURSO_READONLY_AUTH_TOKEN 미설정**, 선택 항목 `TURSO_READONLY_DATABASE_URL` 미설정을 확인했다(값 미조회). 예약 DB 전용 읽기 토큰이 없으면 코드에서 503으로 실패 폐쇄된다. COST 쪽 BASE_URL/내부 토큰, 토큰 일치·권한 scope는 미검증이며 이 운영 단계만 **BLOCKED**.
+- 과거 unit 실패는 로그에서 정확히 `tests/masterDataQueue.test.ts`의 기대 3/실제 2로 확인됐고, [PR #22 이전 기준선](https://github.com/6Soo/reservation/actions/runs/39639564867)에서도 같았다. GET route만 실제 오늘(KST)을 쓰고 test fixture는 2026-10-10 기준이라 2026-09-20 종료 여행이 실행일에 따라 30일 범위를 벗어난 것이 원인. [PR #23](https://github.com/6Soo/reservation/pull/23)에서 해당 테스트에만 Node 22 `t.mock.method(Date,'now',...)` 적용 후 CI 녹색.
 - 실제 예약 참가자의 이름·신원·여행 데이터를 운영 조회하거나 외부 AI에 제공하지 않았다. 사용자 선택은 COST 내부 연결이며 **실제 탑승 확정/보험 명단 변경**이 아니다.
 
 ## 2. 구현된 범위 — 우선 재사용할 근거
@@ -56,15 +56,18 @@
 
 ## 3. 미완료·미검증 작업 큐 (재개 우선순위)
 
-### P0 — 병합 커밋 GitHub Actions unit 실패 (실행 가능)
+### P0 — Reservation GitHub Actions unit 실패 복구 (**COMPLETE**)
 
-**상태: FAILED/원인 독립 미확정.** Reservation cc4e325의 workflow 39936103139에서 smoke=PASS, unit=FAIL. CI job 실패 로그를 조회하고 정확한 테스트/단계를 확정. 기존 에이전트가 지적한 masterDataQueue의 기대값 3/실제 2와 동일한 문제인지 검증. 영향 없는 기준선 실패라면 base와 head 양쪽 같은 명령/실패를 증거로 기록하고, 별도 명세에 어긋나는 실제 버그라면 원인·회귀 범위부터 고친다. 테스트 기대값만 임의로 2로 바꿔 녹색으로 만들지 않는다. 합당한 소규모 코드 수정은 Reservation AGENTS의 PII 스테이징 확인 후 커밋·Git 반영. 새 운영 배포가 수반되는 경우 범위를 확인하고 기존 사용자 승인 범위를 임의 확장하지 않는다.
+**2026-10-23 실제 확인:** PR #22 이전 기준선 [workflow 39639564867](https://github.com/6Soo/reservation/actions/runs/39639564867)과 cc4e325/ dd734e0의 CI에서 동일한 `tests/masterDataQueue.test.ts` 기대 3/실제 2 실패를 로그로 확인했다. 테스트 fixture는 `TODAY='2026-10-10'`이지만 실제 GET route는 실행 시점의 KST 날짜를 계산해 2026-09-20 귀국 여행이 30일 조건에서 탈락했다. 운영 로직/기대 건수는 정상이고 테스트 실행 날짜 격리만 누락된 문제였다.
 
-**완료 증거:** 실패 원인, 기준선 여부, 변경 diff 또는 분리 판정, 해당 CI/표적 검증 링크. 'Preview READY'만으로 CI unit 실패를 무시하지 않는다.
+- [Reservation PR #23](https://github.com/6Soo/reservation/pull/23), squash main `70b00859e50a3239038f469ce1d07c006a9f78c5`: `tests/masterDataQueue.test.ts` **1파일**, +4/-1, scoped Date.now mock. 코드/DB/PII/.env 변경 없음.
+- [main workflow 39939654895](https://github.com/6Soo/reservation/actions/runs/39939654895): **unit SUCCESS, smoke SUCCESS**. 반복 전체 테스트 불필요.
+- [Production 자동 배포](https://vercel.com/6soos-projects/reservation/FGCSnVdbo39mriFVZXwaAbjDewHZ): target=production, sha=70b00859, state=READY. 이번 변경은 테스트-only이며 배포 확인이 실 DB API 인증 성공을 보장하지 않는다.
+- **재개 규칙:** 같은 P0를 다시 구현·검사하지 않는다. 미래에 새로운 실패 로그/변경 SHA가 확인될 때만 새로운 영향 범위를 조사한다.
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE / 운영 설정·실조회 UNVERIFIED.**
+**상태: 코드 구현 COMPLETE / 운영 필수 읽기 토큰 미설정으로 실조회 BLOCKED (2026-10-23 확인).** Reservation Vercel 환경변수 **이름·target 메타데이터만** 확인: `INTERNAL_API_TOKEN` 존재(Production/Preview), `TURSO_READONLY_AUTH_TOKEN` 없음, 선택 `TURSO_READONLY_DATABASE_URL` 없음. 내부 토큰 값·DB 토큰 값·운영 고객 자료는 열람/출력하지 않았다. COST 서비스 환경변수 존재 여부는 미검증. 이외 안전한 코드 작업은 계속 가능.
 
 1. Vercel reservation의 Production cc4e325 READY 여부와 대상 도메인/환경을 재확인. 운영 환경변수의 **존재 여부만** 권한이 허용하면 점검하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
@@ -77,7 +80,7 @@
 
 ### P2 — COST V3 전역 실사용 갭 및 운영 배포 경계 (오해 방지)
 
-**상태: 저장소 구현은 주요 기능 완료 / 실제 COST V3 운영 릴리스는 미확인.** 코드와 V3 핵심 사용자 수용 기준을 대조하여 **새로 확인된 필수 결함**만 수정한다. 운영 호스트 배포가 사용자의 명시 승인 범위인지 먼저 구분한다. Git main SHA만으로 운영 반영 완료라고 주장하지 않는다.
+**상태: 저장소 구현은 주요 기능 완료 / 실제 COST V3 운영 릴리스는 미확인.** 2026-10-23 GitHub 비교상 개발 main `8425a1e`와 운영용 `deploy/ota-unified-20261021` `6bda111`은 서로 갈라져 있다(main 174 ahead, 25 behind). 현재 운영 호스트의 구동 프로세스 SHA는 접근하지 않아 검증하지 못했으며 운영 브랜치와 같다고 단정하지 않는다. 배포 혼합은 고위험이므로 별도 운영 배포 승인·롤백/복구 검사 없이 일괄 병합·배포하지 않는다. 코드와 V3 핵심 사용자 수용 기준을 대조하여 **새로 확인된 필수 결함**만 수정한다. 운영 호스트 배포가 사용자의 명시 승인 범위인지 먼저 구분한다. Git main SHA만으로 운영 반영 완료라고 주장하지 않는다.
 
 **보호할 실제 사용자 수용 기준:** 유효한 카드의 OTA 날짜/매칭 미확정→존재하는 실제 여행으로 추론 귀속→COST 내부 비용 준비→Google B:H 수동 복사 F 예약번호 공란; 중복·환불·원본 충돌은 비용 생성 금지; 2:2 그룹은 개별 예약 결제 동일시 금지/2:3 보류; 수동 여행 A→B 영구 우선; 승인 없는 AI 규칙 미적용; 참가자 한/영 후보는 사용자가 확인해야만 COST 연결, 원본 갱신 stale; 운영 Google 자동 쓰기 0. 필요한 실제 운영 시연에는 계정/운영 데이터 권한과 비파괴 범위를 먼저 확인한다.
 
@@ -114,8 +117,8 @@
 
 시작 단계:
 - COST와 reservation 각각의 원격 main, 작업트리, 배포된 Vercel Production commit, GitHub Actions 병합 커밋 결과 조회.
-- Reservation Actions run 39936103139 unit 실패 세부 파악. tests/masterDataQueue.test.ts 기준선 차이 검증. 실제 버그라면 최소 수정+회귀 검사 및 적법한 Git 반영.
-- Reservation 참가자 API를 실제 DB가 아니라 기존 합성 E2E/표적 테스트로 재확인하고, Production의 API가 인증/읽기권한/비밀설정 때문에 아직 막혔는지 **비밀값 없는 방식**으로 파악.
+- **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
+- **P1 BLOCKED:** Reservation Production에 `TURSO_READONLY_AUTH_TOKEN`이 없다. 기존 합성 E2E/표적 검사 근거는 보존하고, 읽기 전용 scope가 검증된 전용 토큰을 사용자가 비밀 저장소에 설정한 뒤에만 최소 운영 읽기 검증을 재개한다. 인증 없이 운영 API 401은 이번 세션의 외부 접근 도구 제약으로 독립 실측하지 못했으며, 실제 DB 503 동작도 코드 계약·합성 테스트로만 확인했다.
 - 사용자 인증이 필요한 마지막 P1 단계만 차단하고 그 외 승인 구현을 수행. 결과를 이 인계 문서의 날짜·HEAD·테스트·실행 증거로 갱신.
 
 표적 검사 예시 (로컬 의존성 설치와 실제 환경을 확인한 후):
