@@ -4,7 +4,7 @@
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
-## 0.1 2026-10-23 실행 갱신
+## 0.1 2026-10-23 실행 갱신 (당시 기록 — 이후 검증은 0.3~0.5 참조)
 
 - COST `main`과 `origin/main`은 `15cdccc5536bd3b4b6af97e595a12af49fcb8456`으로 같았다. 작업 트리의 기존 미추적 `.claude/stop-gate/`는 보존했다.
 - 운영 코드 체크아웃 `C:\AX\cost`에서 보호 백업·별도 복원 검증을 실행했다. 데이터베이스 5개와 파일 59개의 비교, 원본 상태 불변, 복원 연결 일치를 확인했다. 실제 요청 재실행, 운영 자료 가져오기, 비밀 파일 복사는 하지 않았다.
@@ -12,7 +12,7 @@
 - 최신 `main`의 읽기 전용 런타임 검증은 `LIGHTWEIGHT_RUNTIME_VERIFIED`로 통과했다. DB 무결성 `ok`, 인증 없는 `/healthz`·`/readyz`는 200, `/import`·`/api/imports`는 401이었다. 여행 62개 중 20개는 검증됐고 42개는 일정 권위 확인 대기다. 원본 6,395건과 장부 행 2,564건은 조회만 했다. 근거 파일은 로컬 `.local-archive/lightweight-20261003/runtime-verification.json`에 있으며, 해당 파일은 Git에 추가하지 않는다.
 - 참가자 API에 COST의 기존 보호 토큰 파일을 사용해 합성 식별자 한 건만 읽기 요청했다. 응답은 `401 Unauthorized`였고 후보 자료는 반환되지 않았다. 이 파일은 Reservation의 현재 `INTERNAL_API_TOKEN`과 일치하지 않거나 더 이상 유효하지 않다. 토큰 값은 읽거나 출력하지 않았고 교체·발급도 하지 않았다. 따라서 COST↔Reservation 인증 읽기와 화면의 실제 원본 연결은 여전히 차단 상태다.
 - 오래된 `deploy/ota-unified-20261021`은 최신 `main`과 통합하면 V3 코드·검사를 포함한 107개 경로에서 약 11,700줄을 삭제한다. 이 브랜치 병합은 중단했고 `main`에는 해당 삭제를 반영하지 않았다.
-- **다음 작업:** 권한 있는 운영자가 COST의 `D:\WebLedgerHost\secrets\reservation-internal-token.txt`를 Reservation의 기존 내부 API 토큰과 안전한 비밀 채널로 맞춘 뒤, 값이 노출되지 않는 상태 코드만으로 인증된 읽기를 재검증한다. 토큰을 채팅·Git·로그에 붙이지 않는다.
+- **당시 다음 작업(현재 폐기됨):** 보호 토큰과 내부 API의 인증 불일치를 조사해야 했다. 이후 0.3의 합성 404로 인증 통과가 확인됐다. **현재 인증 재시험·무조건 토큰 교체 금지.**
 
 ## 0.2 2026-10-23 추가 확인 — 참가자 전용 내부 토큰 인증 불일치 수정
 
@@ -20,7 +20,7 @@
 - [Reservation PR #25](https://github.com/6Soo/reservation/pull/25) → `main` **3296255e07e0c654c41b48e347095c2aedd8443e**: 참가자 라우트가 공용 상수시간 내부 토큰 검증을 사용하도록 정렬. 무인증·미설정 fail-closed, DB 조회 전 401, `no-store, private`, auth 토큰 종류와 관계없이 동일한 후보 HMAC revision 유지. 바뀐 파일은 `src/lib/internalAuth.ts`, `src/lib/passengerCandidateRoute.ts`, `tests/passengerCandidateRoute.test.ts` 3개만.
 - [Preview dpl_GVUxx8AKW5xoxxeK6nJsn6wydn2K](https://vercel.com/6soos-projects/reservation/GVUxx8AKW5xoxxeK6nJsn6wydn2K) READY, [main Actions run 39953733785](https://github.com/6Soo/reservation/actions/runs/39953733785) **unit 270/270 PASS, smoke PASS**, [Production dpl_DQGvxo765hwryWWURP2XFVDdXkkm](https://vercel.com/6soos-projects/reservation/DQGvxo765hwryWWURP2XFVDdXkkm) **READY**. 이 결과는 인증 로직/배포 검증이며 실제 운영 호스트의 인증 성공·실고객 읽기 성공 증거는 아니다.
 - COST `webapp/reservation-passenger.env.example`을 `13705183` 문서 커밋으로 갱신: 호스트의 `RESERVATION_INTERNAL_API_TOKEN` 또는 보호된 파일은 **Reservation의 `COST_INTERNAL_API_TOKEN`(권장 COST 전용) 또는 기존 `INTERNAL_API_TOKEN`과 동일해야 한다**. `TURSO_READONLY_AUTH_TOKEN`은 Reservation DB에만 사용하며 호스트 내부 HTTP 토큰으로 사용 금지.
-- **남은 P1 차단:** 보안 운영자가 호스트 서비스의 실제 활성 토큰 소스 우선순위(환경변수 `RESERVATION_INTERNAL_API_TOKEN` → `RESERVATION_INTERNAL_API_TOKEN_FILE` → 제공 기본 파일 경로), 해당 비밀파일 값이 Reservation **COST_INTERNAL_API_TOKEN**에 맞는지 비밀 저장소에서 확인. 서로 맞지 않으면 전용 토큰을 안전하게 회전/동기화하고 Vercel 새 Production 배포 및 호스트 프로세스 설정 반영 여부를 확인. 채팅·CI·Git에 값을 남기지 않는다. 이후 **합성 tour ID**로 상태코드만 검사: `401`이면 인증 불일치, `404`이면 인증 통과+미존재 여행, `503`이면 인증 통과 뒤 소스/DB 불가. 올바른 권위 여행에 대한 개인정보 최소화/원본 변경 stale 검사는 별도 승인된 비파괴 운영 시연으로만. **이 세션에서 호스트 비밀 파일 접근·새 실서비스 인증 호출은 하지 않았다.**
+- **당시 P1 재개 지침(이후 0.3/0.4/0.5가 우선):** 보호된 COST 토큰과 Reservation 내부 토큰 중 무엇이 일치하는지 구별되지 않았다. 합성 404 인증 성공과 합성 브라우저 검증 이후에는 전용 토큰 일치 여부만 별도 확인하며, 인증 재시험이나 변경은 관성적으로 하지 않는다.
 
 ## 0.3 2026-10-23 후속 실행 — 합성 인증 요청 및 호스트 상태
 
@@ -40,6 +40,15 @@
 - `COST_R5B_RESERVATION_ROOT=C:\AX\reservation-v3-synthetic-329` 설정으로 `python -m pytest webapp/tests/test_passenger_cross_repo_integration.py -q`를 실행해 **1 passed**를 확인했다. 실제 Reservation 핸들러 → HTTP → COST adapter → 브라우저 후보 선택 → COST SQLite 저장과 재조회 → 합성 원본 변경 → stale 표시 → 사용자 재확정 흐름이 통과했다. API 응답에 `source_revision`과 최소 후보 필드가 있고, 저장 결과에서 원본 예약 ID와 주민 식별번호 표본이 제외되는 검사도 통과했다.
 - 격리 worktree에서 fixture를 바꿔 실행한 첫 시도는 원본 검증 근거로 쓰지 않았다. fixture를 `3296255e`의 원래 내용으로 복원한 후 성공 결과를 얻었다. 격리 worktree는 검사 후 제거했고 Reservation 사용자 작업 공간은 수정하지 않았다.
 - 0.3의 **6 passed, 1 skipped**는 fixture가 없는 로컬 브랜치에서의 최초 기록이다. 원격 main의 공식 합성 fixture로 교차 저장소 브라우저 흐름을 재검증했다. 운영 실제 여행 후보 payload와 실자료 `source_revision`은 읽지 않았다. 따라서 P1 코드/합성 통합 검증은 완료했고, 운영 실자료 검증은 미수행으로 남는다.
+## 0.5 2026-10-23 최신 재확인 — 합성 404 인증 성공 재사용·전용 토큰 일치 여부 미확인
+
+- GitHub 원격 HEAD는 COST `678d97a617b19dd9618e2fb4cb40babd9b29f10d`, Reservation `3296255e07e0c654c41b48e347095c2aedd8443e`로 확인했다. Vercel Reservation Production의 **비밀값이 아닌 이름과 대상**만 조회해 `COST_INTERNAL_API_TOKEN`, `INTERNAL_API_TOKEN`, `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL` 설정을 확인했다. 어떠한 secret 원문도 조회·복호화하지 않았다.
+- **합성 운영 API의 404는 이미 인증 성공(0.3)을 증명한다.** 이번 검증에서는 호출하지 않았다. 합성 교차 저장소 브라우저 1 passed(0.4)도 재실행하지 않았다. 과거 401은 PR #25 이전 이력이다. 404로는 COST 보호 토큰이 전용 `COST_INTERNAL_API_TOKEN`인지 기존 `INTERNAL_API_TOKEN`인지 구별할 수 없다.
+- **보안 운영자의 선택적 관리 점검:** 먼저 실제 실행 서비스의 COST 토큰 소스 우선순위(환경변수 `RESERVATION_INTERNAL_API_TOKEN` → `RESERVATION_INTERNAL_API_TOKEN_FILE` → 보호 기본 파일)를 확인한다. 승인된 비밀 관리 기능에서 두 저장소 값의 메모리 내 동등성만 비교하고, 외부 결과는 `dedicated_match=true/false/unknown`과 점검 시각만 남긴다. Vercel 저장된 Secret 값을 보호된 방식으로 확인할 수 없다면 `unknown`으로 남기고 비교를 강행하지 않는다. 값·해시·복사 파일을 채팅/콘솔/로그/Git/CI에 남기지 않는다.
+- **비밀 변경 기본 금지:** 현재 인증은 성공한다. 전용 토큰 일치 여부가 unknown인 것만으로 토큰을 새로 만들거나 Vercel/호스트를 재배포하지 않는다. 불일치가 실제 확인되고 전용화 변경이 별도로 승인되면 기존 소비자를 보호하며 최소 Secret·호스트 설정만 동기화한다. 범용 `INTERNAL_API_TOKEN`은 무단 변경 금지.
+- **남은 P1:** 운영 실제 여행 후보 payload, 실제 `source_revision`, 실데이터 원본 변경에 따른 stale 재확정은 개인정보 접근이 수반되므로 별도 승인 전 **UNVERIFIED/BLOCKED**. 운영 DB/Google 쓰기, 실제 고객자료 조회, 추가 합성 인증 요청, 작업 공간 변경 없음.
+
+
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
@@ -58,17 +67,17 @@
 | Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **3296255e07** (2026-10-23 확인) | PR #22 참가자 API, PR #23 KST 테스트 날짜 고정, PR #24 오류 응답 캐시 방지, [PR #25](https://github.com/6Soo/reservation/pull/25) COST 전용 토큰 공통 인증 정합화 |
 | Reservation Vercel | [Production dpl_DQGvxo765hwryWWURP2XFVDdXkkm](https://vercel.com/6soos-projects/reservation/DQGvxo765hwryWWURP2XFVDdXkkm) — target=production, state=READY, sha=**3296255e07** | PR #25 인증 정합화 배포 READY. c315c17 때의 무인증 401/no-store 검증은 이력이며, 새 호스트 인증 성공은 아직 미검증 |
 | Reservation Actions | [PR #25 main workflow](https://github.com/6Soo/reservation/actions/runs/39953733785): **unit 270/270 SUCCESS, smoke SUCCESS** | **P0 완료 유지.** COST 전용 토큰 인증/기존 토큰 동등 응답/인가 실패 시 DB 미조회 회귀를 추가했으며 새 커밋 CI 통과 |
-| COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 2026-10-23 비교 시 main 쪽 179커밋, 운영 쪽 25커밋 차이. 그 뒤 main 문서-only 커밋이 추가돼 앱 코드 차이는 그대로다. 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
+| COST 배포 | 운영 보고상 승인된 `main` 앱 코드가 `C:\AX\cost`에서 실행되고 `LIGHTWEIGHT_RUNTIME_VERIFIED`·health/ready 200 확인 | 구형 운영 릴리스 `6bda111`은 과거 이력. `deploy/ota-unified-20261021`의 자동 병합은 V3 대량 삭제를 유발하므로 금지. 외부 GitHub 연결만으로 Windows 프로세스를 직접 재검증하지 않음 |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
 
 **수치 주의:** 과거 에이전트의 “94%”는 **17개 자체 정의 체크 중 16개 확인**이라는 추정 지표이며 독립적인 명세 전체 완료율·운영 준비율이 아니다. 저장소 구현·합성 종단 검증은 상당 부분 완료됐으나 실제 운영 기능 검증과 별도로 취급한다. 새 에이전트가 임의로 백분율을 다시 만들지 않는다.
 
 ### 실제 배포와 기능 동작의 구분
 
-- Reservation **최신 Production 배포(70b00859)는 READY**, [GitHub Actions unit/smoke](https://github.com/6Soo/reservation/actions/runs/39939654895)는 모두 PASS다. PR #22 및 dd734e0 배포 기록은 과거 관측으로 보존한다.
-- 사용자 승인에 따라 Aside에서 Turso `6soo/reservation` 전용 읽기 토큰을 발급하고 Vercel Reservation의 **Production Secret**으로 `TURSO_READONLY_AUTH_TOKEN`과 `TURSO_READONLY_DATABASE_URL`을 저장했다. 제공자가 발급한 토큰의 권한 claim `a=ro`, 만료 `2026-12-22T11:01:37Z`를 확인했다. 기존 `INTERNAL_API_TOKEN`(Production/Preview)은 변경하지 않았다. 설정은 저장됐지만 새 배포가 필요하며 이번 설정 후 재배포는 실행하지 않았다. COST 쪽 BASE_URL/내부 토큰 일치와 실제 API 인증은 미검증이다.
+- Reservation 최신 확인 Production은 `3296255e` [dpl_DQGvxo765hwryWWURP2XFVDdXkkm](https://vercel.com/6soos-projects/reservation/DQGvxo765hwryWWURP2XFVDdXkkm) READY, [main Actions unit 270/270·smoke](https://github.com/6Soo/reservation/actions/runs/39953733785) SUCCESS. 기존 `70b00859`는 과거 기록이다.
+- 사용자 승인으로 Turso 읽기 전용 DB 자격증명 `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL`이 Reservation Production에 저장됐고 제공자 권한 claim `a=ro`(기록상 만료 2026-12-22T11:01:37Z)를 검증했다. 이후 Production 재배포도 READY. COST 보호 토큰은 합성 tour 404로 인증 통과했으나 어떤 허용 토큰과 일치하는지는 미확인(0.3~0.5).
 - 과거 unit 실패는 로그에서 정확히 `tests/masterDataQueue.test.ts`의 기대 3/실제 2로 확인됐고, [PR #22 이전 기준선](https://github.com/6Soo/reservation/actions/runs/39639564867)에서도 같았다. GET route만 실제 오늘(KST)을 쓰고 test fixture는 2026-10-10 기준이라 2026-09-20 종료 여행이 실행일에 따라 30일 범위를 벗어난 것이 원인. [PR #23](https://github.com/6Soo/reservation/pull/23)에서 해당 테스트에만 Node 22 `t.mock.method(Date,'now',...)` 적용 후 CI 녹색.
-- 실제 운영 API를 통한 참가자 검증은 미수행이다. 이전 Aside 시도에서 데이터 표가 잠시 열렸고 Block Reads가 잘못 켜졌으나 꺼짐으로 복원했다. 이번 설정 재시도에서는 데이터 표를 열지 않고 읽기·쓰기 차단 모두 꺼짐을 확인했으며 DB 행·스키마 수정이나 데이터 내보내기는 하지 않았다. 예약 원문을 문서에 복사하지 않는다. 사용자 선택은 COST 내부 연결이며 **실제 탑승 확정/보험 명단 변경**이 아니다.
+- 실제 운영 여행의 **참가자 후보 응답**은 개인정보 승인 없이 조회하지 않았다. 합성 없는 여행 ID로 404 인증 통과만 확인했다(0.3). 과거 데이터 표/권한 설정 점검 이력은 0.3 이전 당시 기록이며 운영 DB 행·스키마 변경/내보내기는 없었다. 선택은 COST 내부 연결일 뿐 실제 탑승·보험 확정이 아니다.
 
 ## 2. 구현된 범위 — 우선 재사용할 근거
 
@@ -79,7 +88,7 @@
 | R3 중앙 대사 | app/ota_payments.py, webapp/ota_snapshot.py, webapp/ota_payment_review.py, webapp/card_flow.py; COST 30b29fd 등에서 API/카드/귀속/준비 같은 발행 세대 종단 검증 | stale fallback은 복구용. 분류·재분류에서 구형 엔진이 중앙 정본을 덮지 못하도록 유지 |
 | R4 금융 readiness | 실제 카드 원행 기준 경비 준비; COST cbc1c9a 120,000원 OTA 미확정→웹 저장→Google 복사 예약번호 공란. 중복·환불·원본 충돌 보류 | 실제 운영 장부 자동 대량 재기장 금지 |
 | R5 사용자 이동·AI 학습 | 여행 A→B 즉시 수동 저장, 선택지 1/2/직접 답변3, 규칙 미리보기·승인·미래 거래 반영, 브라우저 합성 검증 | 모델 장애에도 사용자 배정 유지, 규칙은 승인 전 미적용 |
-| R5-B 참가자 후보 | COST 58f569d owner 화면/HTTP adapter/SQLite 저장/재조회·stale 재확정; Reservation PR #22 API+snapshot; 양 저장소 실제 handler→HTTP→브라우저 합성 E2E 통과 보고 | Production READY이나 운영 토큰 인증/실자료 결과 미검증. 신원 자동 확정·실탑승 아님 |
+| R5-B 참가자 후보 | COST owner 화면/HTTP adapter/SQLite 저장/재조회·stale 재확정; Reservation PR #22/#25; 원격 main 원본 fixture 기반 교차 저장소 합성 브라우저 `1 passed`(0.4) | Production READY, 합성 tour 404로 인증 통과. 전용/범용 어떤 토큰인지 UNKNOWN. 운영 실자료 후보·revision·stale는 미검증. 신원 자동 확정·실탑승 아님 |
 | R6 레거시 소비 정리 | COST f52533e 대량 재분류 중앙 _ota_report, 268f7d8 stale fallback 경합 방지; 중앙 결정 권한 우선 | 오래된 스냅샷 복구용 fallback과 진단 전용 순수 비교 함수는 보존. 의미 없는 제거 금지 |
 | N:M 그룹 | 2:2·2:3 그룹 제안, 결제일·금액/승인일·가맹점 증거 표시, 카드 원행 1건 1회 기록, 개별 대응 확정 금지 | 그룹 제안은 카드별 예약번호/이용기간/장부 날짜 확정의 근거가 아님 |
 
@@ -106,7 +115,7 @@
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE(전용 토큰 검증 PR #25 포함) / Turso 설정 저장 COMPLETE / Production 배포 READY / 이전 무인증 경계 검사 COMPLETE / 새 코드에서 운영 호스트 인증 읽기 UNVERIFIED / 실제 후보 데이터 미검증.** 기존 기록에 따라 Turso 읽기 전용 권한과 Reservation 배포는 완료됐다. 2026-10-23 **PR #25 이전** COST 호스트의 보호된 토큰 파일로 합성 식별자 한 건을 요청했지만 `401 Unauthorized`를 받았다. 후보 자료는 반환되지 않았고 토큰 원문은 출력하지 않았다. PR #25 이후에는 COST 측 기존 토큰이 Reservation의 `COST_INTERNAL_API_TOKEN`(전용) 또는 `INTERNAL_API_TOKEN`(기존)과 일치하는지 운영자가 비밀 저장소에서 확인해야 한다. 값이 다르거나 만료됐다면 두 서비스의 기존 승인 경계 안에서 안전하게 맞춘다. 인증된 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
+**최신 상태(0.3~0.5): 코드 구현 COMPLETE / Turso readonly 설정·Production READY / 합성 운영 API 인증 PASS(404) / 원격 main 합성 브라우저 PASS(1) / 전용 vs 범용 토큰 일치 UNKNOWN / 실자료 후보·운영 revision UNVERIFIED.** 과거 401은 PR #25 이전 이력. 토큰 값을 조회하지 않았으며 승인 없이 비밀 변경하지 않는다. 운영 실제 후보 조회는 개인정보 접근 승인 전 수행하지 않는다.
 
 1. Vercel reservation의 Production `c315c17` READY와 도메인/환경을 재확인했다. 운영 환경변수는 **이름·환경만** 확인하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
@@ -119,7 +128,7 @@
 
 ### P2 — COST V3 전역 실사용 갭 및 운영 배포 경계 (오해 방지)
 
-**상태: COST `main` 코드 배포 COMPLETE / 호스트 health·ready COMPLETE / 참가자 API 인증 연결 BLOCKED.** 2026-10-23 승인된 운영 요청에 따라 `C:\AX\cost`의 `main=15cdccc5536bd3b4b6af97e595a12af49fcb8456`에서 보호 백업·별도 복원 검증 뒤 호스트 작업을 재시작했다. `/healthz`와 `/readyz`가 정상 응답했다. 구형 운영 브랜치는 V3 코드와 검사를 대량 삭제하므로 통합하지 않았다. 직접 재시작 스크립트가 예약 작업 인자 검사에서 실패했지만, wrapper가 예약 작업을 다시 시작했고 호스트 응답을 확인했다. 안전 검사를 우회하지 않았다. 실제 COST↔Reservation 인증 요청은 401이므로 후보 조회와 화면 연결의 운영 종단 동작은 확인되지 않았다. 운영 데이터와 Google에는 쓰지 않았다.
+**최신 상태(0.3~0.5): COST `main` 앱 코드 운영 배포 COMPLETE / health·ready COMPLETE / 합성 운영 참가자 API 인증 PASS(404) / 운영 실자료 미검증.** 기존 보호 백업·복원 검증 후 승인된 메인 코드에서 서비스가 실행됐다. 초기 401은 PR #25 이전 이력이며 수정 후 합성 404를 확인했다. 운영 후보·실데이터 화면 종단 동작은 미검증이고 Google·운영 DB는 변경하지 않았다.
 
 **보호할 실제 사용자 수용 기준:** 유효한 카드의 OTA 날짜/매칭 미확정→존재하는 실제 여행으로 추론 귀속→COST 내부 비용 준비→Google B:H 수동 복사 F 예약번호 공란; 중복·환불·원본 충돌은 비용 생성 금지; 2:2 그룹은 개별 예약 결제 동일시 금지/2:3 보류; 수동 여행 A→B 영구 우선; 승인 없는 AI 규칙 미적용; 참가자 한/영 후보는 사용자가 확인해야만 COST 연결, 원본 갱신 stale; 운영 Google 자동 쓰기 0. 필요한 실제 운영 시연에는 계정/운영 데이터 권한과 비파괴 범위를 먼저 확인한다.
 
@@ -157,8 +166,8 @@
 시작 단계:
 - COST와 reservation 각각의 원격 main, 작업트리, 배포된 Vercel Production commit, GitHub Actions 병합 커밋 결과 조회.
 - **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
-- **P1 설정·배포·무인증 경계 확인 완료 / 실연동 확인 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret 저장, `70b00859` 설정 적용 재배포, PR #24 `c315c17`, PR #25 공통 내부 토큰 인증 정합화 `3296255e` 배포가 완료됐다. `a=ro`와 만료 `2026-12-22T11:01:37Z`를 확인했다. 무인증 API 요청은 401이고 오류 응답도 `no-store, private`다. COST의 별도 내부 API 주소·토큰이 Reservation의 `INTERNAL_API_TOKEN`과 맞는지, 인증 읽기·source revision·stale 재확정은 검증하지 않았다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB 쓰기 시험은 하지 않는다.
-- 사용자 인증이 필요한 마지막 P1 단계만 차단하고 그 외 승인 구현을 수행. 결과를 이 인계 문서의 날짜·HEAD·테스트·실행 증거로 갱신.
+- **P1 설정·배포·무인증 경계·합성 404 인증·원격 main 합성 브라우저 확인 완료 / 실자료 검증 별도 승인 대기:** Reservation Production의 `TURSO_READONLY_*` Secret 적용 및 PR #25 `3296255e` Production READY. 합성 API 요청 404로 인증 성공, 교차 저장소 원격 main fixture 브라우저 1 passed. 정확히 전용 `COST_INTERNAL_API_TOKEN`인지 범용 `INTERNAL_API_TOKEN`인지 미확인. 실운영 후보·revision·stale는 미검증이며 운영 DB 쓰기 금지.
+- 실운영 개인정보 접근이 필요한 P1 검증만 별도 승인 대기 상태로 유지하고 나머지 승인 작업은 계속한다. 운영 토큰 변경/회전은 일치 불일치가 실제 확인되고 별도 승인된 경우에만 한다.
 
 표적 검사 예시 (로컬 의존성 설치와 실제 환경을 확인한 후):
 - COST: python -m pytest webapp/tests/test_passenger_cross_repo_integration.py -q
