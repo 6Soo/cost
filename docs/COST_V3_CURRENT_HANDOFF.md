@@ -4,6 +4,15 @@
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
+## 0.1 2026-10-23 실행 갱신
+
+- COST `main`과 `origin/main`은 `15cdccc5536bd3b4b6af97e595a12af49fcb8456`으로 같았다. 작업 트리의 기존 미추적 `.claude/stop-gate/`는 보존했다.
+- 운영 코드 체크아웃 `C:\AX\cost`에서 보호 백업·별도 복원 검증을 실행했다. 데이터베이스 5개와 파일 59개의 비교, 원본 상태 불변, 복원 연결 일치를 확인했다. 실제 요청 재실행, 운영 자료 가져오기, 비밀 파일 복사는 하지 않았다.
+- 호스트 작업 재시작 후 `127.0.0.1:8751/healthz`와 `/readyz`가 모두 정상 응답했다. 현재 코드는 승인된 `main` 체크아웃에서 제공된다. 자동화된 직접 재시작 스크립트는 예약 작업 인자 형식 검사에서 `SUPERVISOR_IDENTITY_UNVERIFIED`로 종료했지만, 보호 절차가 예약 작업을 다시 시작했고 서비스 정상 응답을 확인했다. 해당 검사 우회는 하지 않았다.
+- 참가자 API에 COST의 기존 보호 토큰 파일을 사용해 합성 식별자 한 건만 읽기 요청했다. 응답은 `401 Unauthorized`였고 후보 자료는 반환되지 않았다. 이 파일은 Reservation의 현재 `INTERNAL_API_TOKEN`과 일치하지 않거나 더 이상 유효하지 않다. 토큰 값은 읽거나 출력하지 않았고 교체·발급도 하지 않았다. 따라서 COST↔Reservation 인증 읽기와 화면의 실제 원본 연결은 여전히 차단 상태다.
+- 오래된 `deploy/ota-unified-20261021`은 최신 `main`과 통합하면 V3 코드·검사를 포함한 107개 경로에서 약 11,700줄을 삭제한다. 이 브랜치 병합은 중단했고 `main`에는 해당 삭제를 반영하지 않았다.
+- **다음 작업:** 권한 있는 운영자가 COST의 `D:\WebLedgerHost\secrets\reservation-internal-token.txt`를 Reservation의 기존 내부 API 토큰과 안전한 비밀 채널로 맞춘 뒤, 값이 노출되지 않는 상태 코드만으로 인증된 읽기를 재검증한다. 토큰을 채팅·Git·로그에 붙이지 않는다.
+
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
@@ -70,7 +79,7 @@
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / Production 배포 COMPLETE / 무인증 경계 검사 COMPLETE / 인증 읽기와 COST 연결 미검증.** 사용자의 직접 설정·재시도 지시에 따라 Aside의 기존 GitHub 로그인으로 `6soo/reservation` 전용 토큰을 발급했다. 발급 화면의 Read Only 선택과 토큰 claim `a=ro`를 확인했으며 만료는 **2026-12-22 20:01:37 한국 시간**이다. Vercel `reservation`에 `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL`을 **Production에만 Secret으로 저장**했다. 저장 설정을 적용한 `70b00859` 재배포와 후속 PR #24의 `c315c17` 자동 Production 배포가 모두 READY다. Preview에는 운영 읽기 권한을 추가하지 않았다. 기존 `INTERNAL_API_TOKEN`은 설정 목록에 존재하며 변경하지 않았다. 최종 Production 도메인의 참가자 API에 무인증 합성 식별자로 GET 요청해 **401 `Unauthorized`**, `Cache-Control: no-store, private`, `Vary: Authorization`을 확인했고 후보 자료는 반환되지 않았다. Turso DB의 Block Reads/Block Writes는 모두 꺼짐을 확인했다. DB 행·스키마 변경이나 운영 쓰기 거부 시험은 실행하지 않았다. 토큰 원문은 Git이나 비밀 파일에 저장하지 않고 브라우저 메모리에서 Vercel로 전달했다. COST 서비스 설정과 양쪽 내부 API 토큰 일치, 인증된 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
+**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / Production 배포 COMPLETE / 무인증 경계 검사 COMPLETE / 인증 읽기 FAILED(401) / 실제 후보 데이터 미검증.** 기존 기록에 따라 Turso 읽기 전용 권한과 Reservation 배포는 완료됐다. 2026-10-23 COST 호스트의 보호된 토큰 파일로 합성 식별자 한 건을 요청했지만 `401 Unauthorized`를 받았다. 후보 자료는 반환되지 않았고 토큰 원문은 출력하지 않았다. COST 측 기존 토큰이 Reservation의 현재 `INTERNAL_API_TOKEN`과 일치하는지 운영자가 비밀 저장소에서 확인해야 한다. 값이 다르거나 만료됐다면 두 서비스의 기존 승인 경계 안에서 안전하게 맞춘다. 인증된 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
 
 1. Vercel reservation의 Production `c315c17` READY와 도메인/환경을 재확인했다. 운영 환경변수는 **이름·환경만** 확인하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
@@ -83,7 +92,7 @@
 
 ### P2 — COST V3 전역 실사용 갭 및 운영 배포 경계 (오해 방지)
 
-**상태: 저장소 구현은 주요 기능 완료 / 실제 COST V3 운영 릴리스는 미확인.** 2026-10-23 GitHub 비교에서 개발 main과 운영용 `deploy/ota-unified-20261021` `6bda111`은 서로 갈라져 있었다(main 179 ahead, 25 behind). 이후 main에는 문서-only 커밋만 추가돼 앱 코드 차이는 그대로다. 현재 운영 호스트의 구동 프로세스 SHA는 접근하지 않아 검증하지 못했으며 운영 브랜치와 같다고 단정하지 않는다. 배포 혼합은 고위험이므로 별도 운영 배포 승인·롤백/복구 검사 없이 일괄 병합·배포하지 않는다. 코드와 V3 핵심 사용자 수용 기준을 대조하여 **새로 확인된 필수 결함**만 수정한다. 운영 호스트 배포가 사용자의 명시 승인 범위인지 먼저 구분한다. Git main SHA만으로 운영 반영 완료라고 주장하지 않는다.
+**상태: COST `main` 코드 배포 COMPLETE / 호스트 health·ready COMPLETE / 참가자 API 인증 연결 BLOCKED.** 2026-10-23 승인된 운영 요청에 따라 `C:\AX\cost`의 `main=15cdccc5536bd3b4b6af97e595a12af49fcb8456`에서 보호 백업·별도 복원 검증 뒤 호스트 작업을 재시작했다. `/healthz`와 `/readyz`가 정상 응답했다. 구형 운영 브랜치는 V3 코드와 검사를 대량 삭제하므로 통합하지 않았다. 직접 재시작 스크립트가 예약 작업 인자 검사에서 실패했지만, wrapper가 예약 작업을 다시 시작했고 호스트 응답을 확인했다. 안전 검사를 우회하지 않았다. 실제 COST↔Reservation 인증 요청은 401이므로 후보 조회와 화면 연결의 운영 종단 동작은 확인되지 않았다. 운영 데이터와 Google에는 쓰지 않았다.
 
 **보호할 실제 사용자 수용 기준:** 유효한 카드의 OTA 날짜/매칭 미확정→존재하는 실제 여행으로 추론 귀속→COST 내부 비용 준비→Google B:H 수동 복사 F 예약번호 공란; 중복·환불·원본 충돌은 비용 생성 금지; 2:2 그룹은 개별 예약 결제 동일시 금지/2:3 보류; 수동 여행 A→B 영구 우선; 승인 없는 AI 규칙 미적용; 참가자 한/영 후보는 사용자가 확인해야만 COST 연결, 원본 갱신 stale; 운영 Google 자동 쓰기 0. 필요한 실제 운영 시연에는 계정/운영 데이터 권한과 비파괴 범위를 먼저 확인한다.
 
