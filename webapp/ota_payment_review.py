@@ -487,7 +487,10 @@ class CoreOtaPaymentBackend:
 
     def _legacy_exact_snapshot(self, events, transactions):
         """Read the previous exact matcher once per in-memory evidence/card snapshot."""
-        event_ids = tuple(sorted(str(event.get("ota_event_id")) for event in events))
+        # Event identity alone is insufficient: a source can retain its local ID while
+        # the observed payment evidence changes. Key every normalized event fact so an
+        # old exact binding cannot leak into the canonical matcher as a current pin.
+        event_state = ota_snapshot.digest(events)
         card_state = tuple(sorted((str(row.get("transaction_id") or ""),
                                    str(row.get("source_hash") or ""),
                                    str(row.get("issuer") or ""),
@@ -496,7 +499,7 @@ class CoreOtaPaymentBackend:
                                    str(row.get("amount_krw") or ""),
                                    str(row.get("transaction_direction") or ""))
                                   for row in transactions))
-        cache_key = (event_ids, card_state)
+        cache_key = (event_state, card_state)
         cache = getattr(self.board, "_ota_legacy_exact_snapshot", None) or {"key": None, "links": {}}
         if cache.get("key") != cache_key:
             # Some isolated UI fixtures intentionally expose only the core's
@@ -518,13 +521,13 @@ class CoreOtaPaymentBackend:
                 report = mail.match_mail(mail_dirs, transactions, source_key=source_key)
                 report = portal.extend_report(report, self.sources.get("portal_databases", []), transactions)
                 fresh = legacy_exact_bindings(events, transactions, report)
-            retained = dict(cache.get("links", {}))
-            for event_id, link in fresh.items():
-                retained.setdefault(event_id, link)
-            cache = {"key": cache_key, "links": retained}
+            # Each key represents one complete input generation. Carrying old links
+            # forward here would make stale evidence an input to the canonical matcher.
+            cache = {"key": cache_key, "links": fresh}
             self.board._ota_legacy_exact_snapshot = cache
+        event_ids = {str(event.get("ota_event_id")) for event in events}
         return {event_id: link for event_id, link in cache.get("links", {}).items()
-                if event_id in set(event_ids)}
+                if event_id in event_ids}
 
     def _event_rows(self, event, transactions, links, rules=None):
         try:
