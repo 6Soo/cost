@@ -436,13 +436,15 @@ class CardFlowTests(unittest.TestCase):
         mail_dir = Path(self.tmp.name)/'ota-mail'
         mail_dir.mkdir()
         report = {
-            'matches':[{'source_hash':row['source_hash'], 'reservation_status':'confirmed'}],
+            'matches':[{'transaction_id':row['transaction_id'], 'source_hash':row['source_hash'],
+                        'reservation_status':'confirmed'}],
             'type_only_candidates':[], 'unmatched_transactions':[],
         }
         with patch('app.ota_mail.match_mail', return_value=report) as matcher:
             first = self.flow.review_mail_evidence([row])
             second = self.flow.review_mail_evidence([row])
-        self.assertEqual(first, {row['source_hash']:{'booking_match':True}})
+        self.assertEqual(first, {row['source_hash']:{'mail_link_absent':True,
+                                                    'link_diagnosis':'no_core_event'}})
         self.assertEqual(second, first)
         self.assertEqual(matcher.call_count, 1)
 
@@ -930,7 +932,7 @@ class CardFlowTests(unittest.TestCase):
         html = page('synthetic')
         self.assertIn('width=device-width',html)
         self.assertIn('내 답변·수정 이유',html)
-        self.assertIn('장부 미리보기',html)
+        self.assertIn('거래 처리 결과',html)
         self.assertNotIn('<th>칸</th>',html)
 
 
