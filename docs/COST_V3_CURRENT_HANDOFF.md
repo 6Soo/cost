@@ -22,6 +22,18 @@
 - COST `webapp/reservation-passenger.env.example`을 `13705183` 문서 커밋으로 갱신: 호스트의 `RESERVATION_INTERNAL_API_TOKEN` 또는 보호된 파일은 **Reservation의 `COST_INTERNAL_API_TOKEN`(권장 COST 전용) 또는 기존 `INTERNAL_API_TOKEN`과 동일해야 한다**. `TURSO_READONLY_AUTH_TOKEN`은 Reservation DB에만 사용하며 호스트 내부 HTTP 토큰으로 사용 금지.
 - **남은 P1 차단:** 보안 운영자가 호스트 서비스의 실제 활성 토큰 소스 우선순위(환경변수 `RESERVATION_INTERNAL_API_TOKEN` → `RESERVATION_INTERNAL_API_TOKEN_FILE` → 제공 기본 파일 경로), 해당 비밀파일 값이 Reservation **COST_INTERNAL_API_TOKEN**에 맞는지 비밀 저장소에서 확인. 서로 맞지 않으면 전용 토큰을 안전하게 회전/동기화하고 Vercel 새 Production 배포 및 호스트 프로세스 설정 반영 여부를 확인. 채팅·CI·Git에 값을 남기지 않는다. 이후 **합성 tour ID**로 상태코드만 검사: `401`이면 인증 불일치, `404`이면 인증 통과+미존재 여행, `503`이면 인증 통과 뒤 소스/DB 불가. 올바른 권위 여행에 대한 개인정보 최소화/원본 변경 stale 검사는 별도 승인된 비파괴 운영 시연으로만. **이 세션에서 호스트 비밀 파일 접근·새 실서비스 인증 호출은 하지 않았다.**
 
+## 0.3 2026-10-23 후속 실행 — 합성 인증 요청 및 호스트 상태
+
+- COST `origin/main`과 작업 디렉터리를 `1a094bbfec1ee06fcfe011969893e38836fee182`로 맞췄다. 직전 COST 커밋에서 `origin/main`까지는 handoff·진입점·환경 예시 문서만 포함한 3개 fast-forward 커밋이었으며, 앱 코드는 바뀌지 않았다. 기존 미추적 `.claude/stop-gate/`는 보존했다.
+- Reservation `origin/main`은 `3296255e07e0c654c41b48e347095c2aedd8443e`로 원격 조회했고, 로컬 작업 디렉터리는 `da6a1e82...`의 별도 브랜치에서 사용자 수정 파일을 그대로 보존했다. 해당 디렉터리를 전환·수정하지 않았다.
+- COST Windows 작업 `WebLedger-Board`는 `Running`이며 실행 인자는 승인된 `C:\AX\cost` 체크아웃을 가리킨다. 현재 `/healthz`와 `/readyz` 모두 200이다.
+- `app/reservation_authority.py`의 토큰 순서는 환경변수 `RESERVATION_INTERNAL_API_TOKEN` → 환경변수 파일 경로 `RESERVATION_INTERNAL_API_TOKEN_FILE` → 호출자가 넘긴 보호 기본 파일이다. 현재 검증 프로세스와 사용자/시스템 환경에는 첫 번째 변수가 설정되지 않았고, 작업 정의에도 해당 변수를 인자로 지정하지 않았다. 보호 파일 경로에서만 인증값을 읽어 검증했으며 실제 실행 프로세스의 환경 메모리를 직접 덤프하지 않았다.
+- 보호 파일 토큰으로 `https://reserve.foresttour.kr/api/internal/passenger-candidates`에 합성 여행 ID GET **1회**를 보냈고 응답은 **404**였다. 이는 PR #25의 Production 코드에서 인증을 통과했고 합성 여행이 없음을 뜻한다. 401이 아니므로 기존 보호 파일 값은 Reservation이 허용하는 두 내부 토큰 중 하나와 일치한다. Vercel 비밀값은 조회하지 않아 `COST_INTERNAL_API_TOKEN`과 `INTERNAL_API_TOKEN` 중 어느 이름의 값과 일치하는지는 구분하지 않았다. 인증 성공이 확인되어 별도 비밀값 변경은 하지 않았다.
+- Reservation `3296255e`의 실제 코드 계약을 읽기 전용으로 검토했다. 응답은 `tour_id`, HMAC `source_revision`, 후보의 `kind`, 불투명 `reference_id`, 한글/영문 이름, 상태로 제한되며 고객 식별번호·연락처·결제/예약 원문은 응답에 없다. 저장된 이름 및 동반자 필드는 서버 내부에서만 복호화해 후보 최소 필드로 만든다. 응답은 `no-store, private`, `Pragma: no-cache`, `Vary: Authorization`을 지정하고 취소·삭제 상태를 제외한다. 인증 전에는 DB를 조회하지 않으며 데이터 접근/복호화 오류는 503으로 닫힌다.
+- COST 표적 검사는 `python -m pytest webapp/tests/test_passenger_cross_repo_integration.py webapp/tests/test_flight_passenger_page.py -q`에서 **6 passed, 1 skipped**였다. 화면·저장·재조회·stale 재확정 단위 경계는 통과했다. 교차 저장소 브라우저 통합 검사는 Reservation 사용자 작업 디렉터리에 테스트 전용 `tests/fixtures/passengerCandidatesHttpFixture.ts`가 없어 skip됐다. 미커밋 Reservation 파일을 건드리지 않았다. 과거 handoff의 교차 저장소 합성 E2E 통과 보고는 이력으로 보존하되 이번 실행에서 재현했다고 간주하지 않는다.
+- Reservation Production은 `3296255e`에서 `READY`, GitHub Actions run `39953733785`는 `main` SHA `3296255e`에서 `success`다. 이전에 확인된 같은 run의 unit 270/270 및 smoke 성공을 재사용했다.
+- **남은 운영 P1:** 성공한 404는 COST 호스트의 보호 파일 값으로 API 인증이 된 증거이나, 두 Vercel 변수 중 구체적으로 어느 값과 일치하는지나 유효한 실제 여행의 후보 payload를 확인한 증거는 아니다. 개인정보 확인을 위해 실제 참가자 응답을 가져오지 않았다. 실제 고객 후보 데이터·source revision의 운영값과 원본 변경 뒤 stale 재확정은 승인된 비파괴 실데이터 검증이 아직 없다. Google, DB 쓰기, 비밀 변경, 배포는 수행하지 않았다.
+
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
