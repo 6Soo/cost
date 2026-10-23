@@ -25,24 +25,19 @@ def _event_id(event):
 
 
 def _candidate_reasons(event, card, rules):
-    """Explain pair checks without allowing unknown dates to suppress candidates."""
-    reason = ota_payments.pair_check(event, card, rules)
-    if not reason:
-        return "EXACT_DATE_CANDIDATE"
-    if reason == "payment_date_unknown":
-        dated = dict(event, paid_on=card.get("approval_date"))
-        if not dated.get("paid_on"):
-            return "PAID_DATE_MISSING"
-        return ota_payments.pair_check(dated, card, rules) or "DATE_UNKNOWN_CANDIDATE"
-    if reason == "date":
-        dated = dict(event, paid_on=card.get("approval_date"))
-        return ota_payments.pair_check(dated, card, rules) or "DATE_MISMATCH_CANDIDATE"
-    return {
-        "amount": "AMOUNT_MISMATCH",
-        "card_identity": "CARD_IDENTITY_MISMATCH",
-        "direction": "DIRECTION_MISMATCH",
-        "row_flagged": "CARD_FINANCIAL_HOLD",
-    }.get(reason, f"PAIR_REJECTED_{str(reason).upper()}")
+    """Explain shared candidate-search results without treating them as confirmed links."""
+    result = ota_payments.search_card_candidates(event, [card], rules=rules, max_comparisons=1)
+    candidates = result.get("candidates", ())
+    if candidates:
+        return {"UNKNOWN": "DATE_UNKNOWN_CANDIDATE", "MISMATCH": "DATE_MISMATCH_CANDIDATE",
+                "MATCH": "EXACT_DATE_CANDIDATE"}.get(candidates[0].get("date_status"),
+                                                       "EXACT_DATE_CANDIDATE")
+    reasons = result.get("rejection_counts", {})
+    for code in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "CARD_IDENTITY_MISMATCH",
+                 "CARD_FINANCIAL_HOLD", "PROVIDER_ALIAS_MISSING"):
+        if reasons.get(code):
+            return code
+    return "NO_CARD_CANDIDATE"
 
 
 def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
@@ -78,7 +73,8 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                           "DATE_MISMATCH_CANDIDATE", "PAID_DATE_MISSING"):
                 event_candidates[eid].append((cid, reason))
                 card_candidates[cid].append((eid, reason))
-            else:
+            elif reason in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "CARD_IDENTITY_MISMATCH",
+                            "CARD_FINANCIAL_HOLD", "PROVIDER_ALIAS_MISSING"):
                 event_rejections[eid].append((cid, reason))
                 card_rejections[cid].append((eid, reason))
 

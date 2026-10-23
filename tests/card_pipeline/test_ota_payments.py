@@ -654,6 +654,57 @@ def test_portal_source_lineage_can_use_registered_stable_id(tmp_path):
     assert len(events[0]['observation_ids']) == 1
 
 
+def test_undated_payment_candidate_search_is_separate_from_exact_matching():
+    from app.ota_payments import search_card_candidates
+    fact = event('undated-event', paid_on=None)
+    row = card('candidate-card')
+    trace = search_card_candidates(fact, [row])
+    assert trace['status'] == 'CANDIDATES_FOUND'
+    assert trace['date_status'] == 'UNKNOWN'
+    assert trace['candidates'] == [{
+        'transaction_id': 'candidate-card', 'date_status': 'UNKNOWN',
+        'resolution_allowed': False, 'basis': 'EXACT_AMOUNT_AND_CARD_EVIDENCE'}]
+    assert match_ota_payment_events([fact], [row])[0]['status'] == 'HOLD_DATE_UNKNOWN'
+
+
+def test_undated_candidate_search_keeps_hard_card_identity_exclusion():
+    from app.ota_payments import search_card_candidates
+    fact = event('undated-event', paid_on=None)
+    row = card('wrong-card', card_tail='9999')
+    assert search_card_candidates(fact, [row])['status'] == 'NO_CANDIDATE'
+
+
+def test_candidate_search_reports_known_date_mismatch_without_allowing_resolution():
+    from app.ota_payments import search_card_candidates
+    fact = event('dated-event', paid_on='2026-08-01')
+    row = card('later-card', approval_date='2026-08-03')
+    result = search_card_candidates(fact, [row])
+    assert result['candidates'][0]['date_status'] == 'MISMATCH'
+    assert result['candidates'][0]['resolution_allowed'] is False
+
+
+def test_candidate_search_reports_amount_and_currency_mismatch_reasons():
+    from app.ota_payments import search_card_candidates
+    fact = event('amount-event', paid_on=None)
+    wrong_amount = card('wrong-amount', amount_krw=31000)
+    amount_result = search_card_candidates(fact, [wrong_amount])
+    assert amount_result['rejection_counts']['AMOUNT_MISMATCH'] == 1
+
+    foreign_fact = event('currency-event', paid_on=None, currency='JPY', amount='30000', amount_krw=None)
+    wrong_currency = card('wrong-currency', foreign_amount='30000', foreign_currency='USD')
+    currency_result = search_card_candidates(foreign_fact, [wrong_currency])
+    assert currency_result['rejection_counts']['CURRENCY_MISMATCH'] == 1
+
+
+def test_candidate_search_uses_approved_provider_alias_defaults():
+    from app.ota_payments import search_card_candidates
+    fact = event('agoda-alias', paid_on=None, card_last4=None)
+    row = card('agoda-nice', card_tail='1234', merchant_normalized='agoda nice-agoda')
+    result = search_card_candidates(fact, [row])
+    assert result['status'] == 'CANDIDATES_FOUND'
+    assert result['candidates'][0]['date_status'] == 'UNKNOWN'
+
+
 def test_same_payload_under_distinct_portal_source_ids_is_not_collapsed(tmp_path):
     from tests.card_pipeline.test_ota_portal import portal_database
     path = portal_database(tmp_path / 'distinct-records.sqlite', [{},{}])

@@ -6,14 +6,12 @@ from tools.audit_ota_card_coverage import main
 
 
 def test_unknown_ota_date_keeps_candidate_trace_and_redacts_ids(monkeypatch):
-    event = {"ota_event_id": "real-booking-event", "provider": "agoda",
-             "event_type": "charge", "evidence_status": "paid_verified", "paid_on": None}
-    card = {"transaction_id": "real-card-row", "approval_date": "2026-10-01"}
-
-    def pair_check(candidate_event, candidate_card, rules):
-        return "payment_date_unknown" if not candidate_event.get("paid_on") else None
-
-    monkeypatch.setattr("app.reconcile.trace.ota_payments.pair_check", pair_check)
+    event = {"ota_event_id": "real-booking-event", "provider": "agoda", "event_type": "charge",
+             "evidence_status": "paid_verified", "payment_status": "paid", "paid_on": None,
+             "amount": "12000", "amount_krw": 12000, "currency": "KRW", "card_last4": "1234"}
+    card = {"transaction_id": "real-card-row", "approval_date": "2026-10-01", "amount_krw": 12000,
+            "transaction_direction": "purchase", "card_tail": "1234", "issuer": "issuer-x",
+            "merchant": "Agoda", "merchant_normalized": "agoda"}
     summary, cases = trace.build_coverage_report(events=[event], cards=[card], run_secret=b"x" * 32)
     assert summary["candidate_recall_proxy"] == 1
     ota_case = next(case for case in cases if case["direction"] == "OTA_TO_CARD")

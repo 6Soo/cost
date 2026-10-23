@@ -6,7 +6,7 @@ import copy
 import hashlib
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -982,6 +982,77 @@ def pair_check(event, row, rules=None):
     if not _has_corroborator(event, row, rules):
         return "corroboration"
     return None
+
+
+def search_card_candidates(event, transactions, *, existing_links=None, rules=None,
+                           max_comparisons=250000):
+    """Find evidence-based diagnostic candidates without promoting them to matches.
+
+    Unknown OTA payment dates are allowed in this search only. The exact matcher
+    and ``pair_check`` default still require the existing approved date policy.
+    A bounded scan reports truncation rather than implying complete coverage.
+    """
+    links = existing_links or {}
+    rules = rules or []
+    identity = str(event.get("ota_event_id") or "")
+    if identity in links:
+        return {"status": "USER_PINNED", "candidates": [], "comparisons": 0}
+    if not _event_is_paid(event):
+        return {"status": "PAYMENT_STATE_UNVERIFIED", "candidates": [], "comparisons": 0}
+    expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
+    expected_last4 = str(event.get("card_last4") or "")
+    narrowed = []
+    rejection_counts = Counter()
+    for row in transactions:
+        if row.get("duplicate_of"):
+            rejection_counts["CARD_DUPLICATE"] += 1
+            continue
+        if row.get("parse_error") or row.get("conflict_reason"):
+            rejection_counts["CARD_FINANCIAL_HOLD"] += 1
+            continue
+        if _direction(row) != expected_direction:
+            continue
+        if not _strict_card_identity(event, row, rules):
+            if expected_last4 or event.get("card_issuer"):
+                rejection_counts["CARD_IDENTITY_MISMATCH"] += 1
+            continue
+        narrowed.append(row)
+        if len(narrowed) > max_comparisons:
+            return {"status": "SEARCH_LIMIT_EXCEEDED", "candidates": [],
+                    "comparisons": len(narrowed), "limit": max_comparisons}
+    candidates = []
+    rejected = []
+    for row in narrowed:
+        amount_matches = _amount_matches(event, row, rules)
+        if not amount_matches:
+            currency = str(event.get("currency") or "").upper()
+            reason = ("CURRENCY_MISMATCH" if currency not in ("", "KRW") and
+                      str(row.get("foreign_currency") or "").upper() != currency
+                      else "AMOUNT_MISMATCH")
+            rejection_counts[reason] += 1
+            rejected.append({"transaction_id": row.get("transaction_id"), "reason": reason})
+            continue
+        if not _has_corroborator(event, row, rules):
+            rejection_counts["PROVIDER_ALIAS_MISSING"] += 1
+            rejected.append({"transaction_id": row.get("transaction_id"),
+                             "reason": "PROVIDER_ALIAS_MISSING"})
+            continue
+        paid_on = event.get("paid_on")
+        if not paid_on:
+            date_status = "UNKNOWN"
+        elif row.get("approval_date") == paid_on or _approved_lag_match(event, row, rules) or _foreign_day_lag_match(event, row):
+            date_status = "MATCH"
+        else:
+            date_status = "MISMATCH"
+        candidates.append({"transaction_id": row.get("transaction_id"),
+                          "date_status": date_status,
+                          "resolution_allowed": bool(paid_on and date_status == "MATCH"),
+                          "basis": "EXACT_AMOUNT_AND_CARD_EVIDENCE"})
+    return {"status": "CANDIDATES_FOUND" if candidates else "NO_CANDIDATE",
+            "candidates": candidates, "comparisons": len(narrowed),
+            "rejected": rejected, "rejection_counts": dict(sorted(rejection_counts.items())),
+            "date_status": "UNKNOWN" if not event.get("paid_on") else "KNOWN",
+            "hard_identity_filter_applied": bool(expected_last4 or event.get("card_issuer"))}
 
 
 def _assign_exact_first(events, options_by_event, *, unavailable=(), excluded_edges=()):
