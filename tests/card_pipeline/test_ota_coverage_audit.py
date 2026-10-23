@@ -2,7 +2,7 @@ import json
 import sqlite3
 
 from app.reconcile import trace
-from tools.audit_ota_card_coverage import main
+from tools.audit_ota_card_coverage import _canonical_results, main
 
 
 def test_unknown_ota_date_keeps_candidate_trace_and_redacts_ids(monkeypatch):
@@ -67,3 +67,17 @@ def test_global_matcher_divergence_is_redacted_and_counted():
     assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
     assert "private-event" not in json.dumps(summary)
     assert "private-card" not in json.dumps(summary)
+
+
+def test_shadow_engine_only_receives_user_links_as_frozen_decisions(monkeypatch):
+    import tools.audit_ota_card_coverage as audit
+
+    calls = []
+    monkeypatch.setattr(audit.ota_payments, "match_ota_payment_events",
+                        lambda events, cards, **kwargs: calls.append((events, cards, kwargs)) or [])
+    events, cards = [{"ota_event_id": "synthetic-event"}], [{"transaction_id": "synthetic-card"}]
+    user_links = {"synthetic-event": {"transaction_id": "synthetic-card", "status": "MATCHED_USER"}}
+
+    assert _canonical_results(events, cards, user_links, [{"event_ids": ["synthetic-event"]}]) == []
+    assert calls == [(events, cards, {"existing_links": user_links,
+                                      "frozen_groups": [{"event_ids": ["synthetic-event"]}]})]

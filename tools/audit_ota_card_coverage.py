@@ -71,6 +71,14 @@ def _snapshot_summary(review_db):
                 "stale": None, "status": "SNAPSHOT_UNREADABLE_" + type(exc).__name__}
 
 
+def _canonical_results(events, cards, user_links, frozen_groups):
+    """Run the new engine with owner decisions only; legacy links are comparison data."""
+    if not events or not cards:
+        return []
+    return ota_payments.match_ota_payment_events(
+        events, cards, existing_links=user_links, frozen_groups=frozen_groups)
+
+
 def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None):
     board_path = Path(board_db).resolve(strict=True)
     data_path = Path(data_dir).resolve() if data_dir else board_path.parent
@@ -134,10 +142,7 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
     run_secret = secrets.token_bytes(32)
     reconciliation_results = []
     try:
-        if events and cards:
-            reconciliation_results = ota_payments.match_ota_payment_events(
-                events, cards, existing_links=legacy_links | user_links,
-                frozen_groups=frozen_groups)
+        reconciliation_results = _canonical_results(events, cards, user_links, frozen_groups)
     except Exception as exc:
         failures.append("RECONCILIATION_ENGINE_" + type(exc).__name__)
     summary, cases = build_coverage_report(
