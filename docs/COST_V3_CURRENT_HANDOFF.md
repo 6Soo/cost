@@ -9,6 +9,7 @@
 - COST `main`과 `origin/main`은 `15cdccc5536bd3b4b6af97e595a12af49fcb8456`으로 같았다. 작업 트리의 기존 미추적 `.claude/stop-gate/`는 보존했다.
 - 운영 코드 체크아웃 `C:\AX\cost`에서 보호 백업·별도 복원 검증을 실행했다. 데이터베이스 5개와 파일 59개의 비교, 원본 상태 불변, 복원 연결 일치를 확인했다. 실제 요청 재실행, 운영 자료 가져오기, 비밀 파일 복사는 하지 않았다.
 - 호스트 작업 재시작 후 `127.0.0.1:8751/healthz`와 `/readyz`가 모두 정상 응답했다. 현재 코드는 승인된 `main` 체크아웃에서 제공된다. 자동화된 직접 재시작 스크립트는 예약 작업 인자 형식 검사에서 `SUPERVISOR_IDENTITY_UNVERIFIED`로 종료했지만, 보호 절차가 예약 작업을 다시 시작했고 서비스 정상 응답을 확인했다. 해당 검사 우회는 하지 않았다.
+- 최신 `main`의 읽기 전용 런타임 검증은 `LIGHTWEIGHT_RUNTIME_VERIFIED`로 통과했다. DB 무결성 `ok`, 인증 없는 `/healthz`·`/readyz`는 200, `/import`·`/api/imports`는 401이었다. 여행 62개 중 20개는 검증됐고 42개는 일정 권위 확인 대기다. 원본 6,395건과 장부 행 2,564건은 조회만 했다. 근거 파일은 로컬 `.local-archive/lightweight-20261003/runtime-verification.json`에 있으며, 해당 파일은 Git에 추가하지 않는다.
 - 참가자 API에 COST의 기존 보호 토큰 파일을 사용해 합성 식별자 한 건만 읽기 요청했다. 응답은 `401 Unauthorized`였고 후보 자료는 반환되지 않았다. 이 파일은 Reservation의 현재 `INTERNAL_API_TOKEN`과 일치하지 않거나 더 이상 유효하지 않다. 토큰 값은 읽거나 출력하지 않았고 교체·발급도 하지 않았다. 따라서 COST↔Reservation 인증 읽기와 화면의 실제 원본 연결은 여전히 차단 상태다.
 - 오래된 `deploy/ota-unified-20261021`은 최신 `main`과 통합하면 V3 코드·검사를 포함한 107개 경로에서 약 11,700줄을 삭제한다. 이 브랜치 병합은 중단했고 `main`에는 해당 삭제를 반영하지 않았다.
 - **다음 작업:** 권한 있는 운영자가 COST의 `D:\WebLedgerHost\secrets\reservation-internal-token.txt`를 Reservation의 기존 내부 API 토큰과 안전한 비밀 채널로 맞춘 뒤, 값이 노출되지 않는 상태 코드만으로 인증된 읽기를 재검증한다. 토큰을 채팅·Git·로그에 붙이지 않는다.
