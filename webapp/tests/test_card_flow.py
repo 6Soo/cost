@@ -519,6 +519,46 @@ class CardFlowTests(unittest.TestCase):
             self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
             self.assertEqual(card['ota_snapshot_generation'], 12)
 
+    def test_reconciliation_snapshot_drives_ota_card_status_and_preserves_trip_expense(self):
+        from types import SimpleNamespace
+        from app.ledger import recordable_rows
+        from webapp import ota_payment_review
+        trip, batch, row = self.pending_fixture()
+        event = {'ota_event_id': 'ota-synthetic', 'provider': 'Synthetic OTA',
+                 'booking_ref': 'UNCONFIRMED-SYNTH', 'paid_on': None,
+                 'amount_krw': 37000, 'event_type': 'charge'}
+        result = {'ota_event_id': 'ota-synthetic', 'transaction_id': row['transaction_id'],
+                  'status': 'MATCHED_AUTO', 'inferred_link': True}
+        current = {'generation': 73, 'results': [result], 'data': {
+            'events': [event], 'transactions': [row], 'links': {}, 'results': [result]}}
+        service = SimpleNamespace(held=lambda: (current, True))
+        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        with patch.dict(os.environ, {'WEBLEDGER_OTA_REVIEW_MODE': 'isolated',
+                                     'WEBLEDGER_OTA_REVIEW_DB': str(Path(self.tmp.name) / 'review.sqlite')}), \
+                patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                patch.object(self.flow, 'preview_metadata', return_value=lambda _entry: {}), \
+                patch.object(self.flow, 'ota_group_holds', return_value={}), \
+                patch.object(self.flow, 'trip_valid', return_value=True):
+            card_state = self.flow.state(batch)
+            ota_view = ota_payment_review.public_snapshot({
+                'events': [event], 'cards_by_event': {'ota-synthetic': [row]}, 'proposals': []})
+            card = next(item for item in card_state['preview']['rows']
+                        if item['transaction_id'] == row['transaction_id'])
+            self.assertEqual(ota_view['events'][0]['paid_on'], '미확인')
+            self.assertEqual(card['ota_link_status'], 'INFERRED')
+            self.assertEqual(card['ota_snapshot_generation'], 73)
+            self.assertEqual(card['display_tab_id'], trip)
+            self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
+            prepared = recordable_rows(card_state['preview']['rows'])
+            self.assertEqual([item['transaction_id'] for item in prepared], [row['transaction_id']])
+            self.flow.pipeline.commit(batch, card_state['preview']['digest'], 'shared-snapshot-save',
+                                      projection=self.flow.project,
+                                      trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        saved = self.board.get_row('card-' + row['transaction_id'])
+        self.assertEqual(saved['display_tab_id'], trip)
+        self.assertEqual(saved['reservation_no'], '')
+
     def test_stale_ota_report_extension_uses_the_snapshot_freshness_value(self):
         current = {'data': {'synthetic': 'shared-result'}}
         service = type('Service', (), {'held': lambda _self: (current, True)})()
