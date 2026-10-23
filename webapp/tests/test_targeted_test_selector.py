@@ -31,3 +31,18 @@ def test_selector_does_not_report_success_when_no_paths_match():
 
     assert targets == []
     assert unknown == ["README.md"]
+
+
+def test_repository_map_recognizes_feature_tests_as_well_as_implementation_files():
+    import json
+
+    impact_map = json.loads((SCRIPT.parents[1] / "config" / "test-impact-map.json").read_text(
+        encoding="utf-8"))
+    targets, unknown = SELECTOR.select_targets(
+        ["webapp/tests/test_card_flow_browser.py", "webapp/tests/test_ota_payment_review.py",
+         "webapp/tests/test_flight_passenger_page.py"], impact_map["groups"])
+
+    assert unknown == []
+    assert "webapp/tests/test_card_flow_browser.py" in targets
+    assert "webapp/tests/test_ota_payment_review.py" in targets
+    assert "webapp/tests/test_flight_passenger_page.py" in targets
