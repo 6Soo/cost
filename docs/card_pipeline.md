@@ -1,8 +1,11 @@
 # 카드 처리
 
+> **현재 카드 원본/회계 안전 계약 및 이전 런타임 기록.** 새로운 OTA 연결 미확정이라도 유효 카드 비용 준비를 허용하는 사용자 A 정책은 [COST V3 단일 진입점](COST_V3_START_HERE.md)과 [OTA 정책 A](ota-card-reconciliation-policy-a-v3.md)에 있습니다. 기존 OTA 매칭의 구현·수동 확정 보호는 변경 전까지 유지하며, 본문의 과거 기록 수치와 OTA 링크의 무조건 HOLD 문구는 최신 목표가 아닙니다.
+
+
 ## 현재 OTA 자료 연결
 
-메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](ota_mail.md)의 최신 항목을 따른다.
+메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [현재 OTA A 정책](ota-card-reconciliation-policy-a-v3.md)의 최신 항목을 따른다.
 
 화면 하나에서 업로드, 자동 분류, 질문 답변, 규칙 수정, 미리보기, 장부 기록을 수행한다. 서버의 별도 카드 작업자 없이 업로드 요청에서 분류까지 처리한다.
 
@@ -20,11 +23,11 @@
 
 사용자가 허용한 원행별 추론도 미리보기에 반영한다. 추론 배정과 사용자 예외를 구분해 표시하고 배정 근거를 펼쳐 볼 수 있다. 확신이 낮은 추론은 질문 영역에 확인 권장으로 표시하며 수정하지 않아도 기록할 수 있다. 한 번의 조회에서는 여행별 검증 결과를 미리보기와 선택지가 함께 사용해 반복 원본 읽기를 줄인다. 다음 조회와 장부 기록에서는 명시 일정 근거를 다시 검사한다.
 
-자동 분류 결과와 사용자 답변 결과를 미리 보여 준다. 원본 오류와 충돌, 무효 여행 배정은 기록 대상에서 제외한다. 사용자 기록 버튼이 최종 승인이다. 장부 반영 실패는 거래 상태와 영수증과 장부와 감사 이력을 함께 되돌린다. 같은 요청을 재시도해도 장부가 늘지 않는다.
+자동 분류 결과와 사용자 답변 결과를 미리 보여 준다. 원본 오류와 충돌, 무효 여행 배정은 기록 대상에서 제외한다. **이 문장은 2026-10-08 당시 수동 경로 설명이다.** 이후 2026-10-13에는 소유자의 답변 저장·자동 처리 요청에 한해 기존 검증된 원자적 기록 경로를 통한 자동 내부 기록이 도입됐다. 최신 목표 A 정책은 정상 카드의 OTA 링크 미확정만으로 내부 준비를 막지 않지만, 이 변경은 아직 구현되지 않았다. 조회 API에서 새 자동 쓰기를 수행하지 않는다. 장부 반영 실패는 거래 상태와 영수증과 장부와 감사 이력을 함께 되돌린다. 같은 요청을 재시도해도 장부가 늘지 않는다.
 
 홈은 카드, 정리할 지출, 장부 건수만 표시한다. 정상 분류됐지만 아직 장부에 기록되지 않은 카드 거래에는 별도 상태명을 표시하지 않는다. 실제 장부 기록 여부는 `ledger_entries` 근거로 판정한다.
 
-카드 검토의 OTA 예약번호와 이용기간은 기존 대조 report에서 가져온다. `CardFlow.preview_metadata()`가 한 미리보기 요청에서 같은 report를 재사용하며, `entry_metadata`로 미리보기 행에 연결한다. `ledger-preview-v2` digest는 `booking_ref`, `service_period`, `ota_evidence`까지 보호한다. 기록 요청은 새 resolver로 미리보기를 다시 계산하고 digest를 비교한 뒤 그 행을 그대로 projection한다. 예약번호는 `board_rows` payload의 `reservation_no`에, 이용기간은 `service_period`에 저장하고 근거 digest는 기존 `classification_basis`에 OTA 출처로 보존한다. `ledger_entries` 스키마는 확장하지 않는다. 자세한 확정·모호성 조건은 [OTA 문서](ota_mail.md)를 따른다.
+카드 검토의 OTA 예약번호와 이용기간은 기존 대조 report에서 가져온다. `CardFlow.preview_metadata()`가 한 미리보기 요청에서 같은 report를 재사용하며, `entry_metadata`로 미리보기 행에 연결한다. `ledger-preview-v2` digest는 `booking_ref`, `service_period`, `ota_evidence`까지 보호한다. 기록 요청은 새 resolver로 미리보기를 다시 계산하고 digest를 비교한 뒤 그 행을 그대로 projection한다. 예약번호는 `board_rows` payload의 `reservation_no`에, 이용기간은 `service_period`에 저장하고 근거 digest는 기존 `classification_basis`에 OTA 출처로 보존한다. `ledger_entries` 스키마는 확장하지 않는다. 자세한 확정·모호성 조건은 [현재 OTA A 정책](ota-card-reconciliation-policy-a-v3.md)를 따른다.
 
 ## API
 

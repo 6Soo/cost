@@ -1,22 +1,32 @@
-# 숲길여행 비용처리
+# COST — 숲길여행 비용 자동화
 
-## 현재 OTA 자료 연결
+**개발 또는 에이전트 작업은 반드시 [COST V3 단일 구현 진입점](docs/COST_V3_START_HERE.md)에서 시작합니다.** 이전 OTA-first 실험·문서의 `HOLD` 규칙과 10월 8~16일의 스냅샷 숫자는 최신 구현 지시가 아닙니다.
 
-모든 OTA의 직접 수집·메일·참고 자료는 운영 `D:/WebLedgerHost/data/ota-evidence.sqlite`에서 함께 관리한다. `ota-sources.json`의 `unified_database`가 단일 읽기 경로이며 상시 메일 수집도 같은 DB에 반영한다. 원본·기존 결제 ID·사용자 확정을 보존한다. 아고다 관측 목록 1,550건·우선 상세 370건과 메일 1,932개를 반영했다. 실제 전환과 연결 보류 사유는 [단일 OTA DB 기록](docs/ota-unified-store.md)과 [운영 문서](docs/operations.md)를 따른다.
+## 현재 운영과 목표를 구분합니다
 
-카드 파일 업로드 → 자동 분류 → 미확정 거래 확인 → 미리보기 → 장부 기록.
+- **현재 운영 코드:** 카드 업로드·정규화·환불/취소·여행 배정·OTA 대사·사용자 검토 및 SQLite 기반 저장 경로가 존재합니다. 최신 실제 운영 릴리스·검증 증거는 [운영 이력](docs/operations.md)과 해당 배포 SHA로 확인합니다.
+- **V3 목표:** 카드 매입 원본이 유효하면 OTA 예약 연결이 추정/미연결이어도 여행 우선배정 및 COST 내부 비용 준비를 허용합니다. 사용자가 A→B로 옮긴 거래는 보존하고 AI는 사후에 질문·규칙 학습합니다. 원본 금액·실제 중복·환불·사용자 결정의 안전성은 유지합니다.
+- **Google 목표:** 사용자에게 최종 회계 정본은 Google 시트이며 COST는 카드·영수증 지출 후보를 검토·정리하고 **사용자 직접 복사/붙여넣기**를 제공합니다. COST의 Google 자동 쓰기는 금지됩니다.
+- **현재 구현 여부:** [PR #87](https://github.com/6Soo/cost/pull/87)의 V3 명세와 N:M Decimal 정규화 코드가 **2026-10-23 main 커밋 `f8ccd13`으로 병합됐습니다**. 다만 R0~R6 대사/비용 준비 개편과 사후 AI 대화는 **아직 구현·운영 배포되지 않았으며**, N:M 신규 표적 테스트 실행 결과도 확인되지 않았습니다.
 
-[운영 장부](https://ledger.foresttour.kr/)는 카드 자료와 기록된 장부를 구분한다. [카드 검토](https://ledger.foresttour.kr/import)에서 파일·거래·질문을 확인하고 미리보기 뒤 기록한다. 사용자 답변과 원본을 보존하며 XLSX는 출력 자료로 사용한다.
+[운영 장부](https://ledger.foresttour.kr/) · [카드 검토](https://ledger.foresttour.kr/import)
 
-## 현재 상태
+## 문서 인덱스 (현재 유효한 용도)
 
-2026-10-09 확인 기준으로 운영 정본은 `D:/WebLedgerHost/data/board.sqlite`다. 원본 거래 6,037건 중 완료 기간 3,653건은 내부 보존하고, 2026-04-01 이후 2,384건을 검토한다. 이 중 국민 국내·해외 매입에서 새로 가져온 709건은 분류 331건, 사용자 검토 377건, 보존 1건이며 장부에 기록하지 않았다. 장부에는 734건, 취소를 포함한 순액 73,702,707원이 기록됐다. 여행 탭에 496건, 분류대기 장부에 238건이 있다. 일정 검증 차단 926건과 기존 보류 16건은 남아 있다.
+| 읽는 목적 | 문서 |
+| --- | --- |
+| **첫 진입, 모든 구현 우선순위·충돌 해결** | [COST V3 START HERE](docs/COST_V3_START_HERE.md) |
+| OTA↔카드 미매칭 R0~R6, 금융 readiness | [OTA–카드 통합 정책 A](docs/ota-card-reconciliation-policy-a-v3.md) |
+| 여행 자동 귀속·A→B 이동·AI 대화·항공권 탑승자 | [V3 AI 및 참가자 명세](docs/cost-v3-inference-ai-passenger-nm-test-architecture.md) |
+| Google B:H 출력, 업무 정본·읽기 권한 | [Google 목표](docs/target-workflow-google-authority.md), [실측 열](docs/google-workbook-layout.md) |
+| 보존되는 회계·여행 사용자 결정 | [규칙](docs/reconciliation-rules.md), [업무 보호](docs/business_rules.md), [카드 입력](docs/card_pipeline.md) |
+| 현재 코드 구조 / 새 세션 | [구조](docs/architecture.md), [인계](docs/session_handoff.md), [에이전트 지침](AGENTS.md) |
+| 과거 실행·검증 증거 | [운영 기록](docs/operations.md), [2026-10-08 OTA 검증](docs/ota-first-verification-report.md) |
+| 은퇴시킨 구형 OTA/병렬 개발 문서 전문 | [레거시 문서 보관함](docs/archive/ota-legacy-20261023/) |
 
-승인번호가 같은 결제와 취소를 서로 다른 거래로 보존하는 수정과 ready 집계·읽기 전용 출력 조회·여행 목록의 수입 안내를 운영 코드에 적용했다. OTA 예약번호와 이용기간은 미리보기 digest를 거쳐 장부 행에 전달한다. 최신 실행 결과와 미결 사유는 아래 문서에 기록한다.
+## 로컬 합성 개발 예시
 
-## 개발 실행
-
-운영과 다른 절대 경로를 사용한다. 합성 로그인은 개발 환경에서만 사용한다.
+**실제 운영 DB와 다른 경로**로만 실행합니다. 다음 옵션은 로컬 합성 세션을 전제로 한 기존 개발 진입 예시이며, 운영 서버 실행 명령이 아닙니다.
 
 ```powershell
 $env:WEBLEDGER_CARD_FLOW='1'
@@ -24,28 +34,6 @@ $env:WEBLEDGER_UNIFIED_DB='1'
 python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environment local-synthetic --synthetic-sessions
 ```
 
-운영 서버는 별도 실행기와 설정으로 시작한다. 개발 명령에 운영 DB나 운영 자료 경로를 넣지 않는다.
+## 작업 절차
 
-## 개발·검증 원칙
-
-[AGENTS.md](AGENTS.md)의 **검증 최소화·재검증 금지** 정책을 따른다. 변경된 기능과 직접 영향을 받는 범위만 한 번 검증하고, 기존 유효한 테스트·브라우저·운영 결과를 관성적으로 반복하지 않는다. 장부·거래·환불·사용자 확정 등 실제 영향을 받는 회계 불변조건은 필요한 만큼 보호한다.
-
-## 목표 업무 구조 (현재 운영과 구분)
-
-[Google 최종정본 / COST 카드·영수증 지출 작성 보조 — 목표 명세](docs/target-workflow-google-authority.md)를 따른다. 수입과 은행 이체 지출은 사용자가 Google에 직접 입력하며 COST는 읽기 전용으로 가져온다. 법인카드·현지 영수증 지출은 COST에서 검토·분류한 후 사용자가 Google에 직접 복사·붙여넣는다. 이 구조는 **후속 개편 목표**이며 현재 SQLite 운영 정본이 이미 전환되었다는 뜻이 아니다. 구현 전 미확정 사항은 목표 명세 9절에서 확인한다.
-
-## 문서 안내
-
-- [보험가입 명단 기반 참가자 확정·수입 대조 계획과 명세](docs/participant-income-reconciliation-spec.md)와 [해당 기능 작업 인덱스](docs/participant-income-task-index.md): 구현(P0~P4)까지 완료했고 운영 적용·실명 등록은 아직 하지 않았다. 명단 수신·참가 확정은 `app/participant_roster.py`, 대조·연결 결정은 `app/participant_income.py`, 관리자 전용 화면은 `webapp/participant_income_page.py`에 있다. 명단 원본과 저장소는 `.local-archive` 아래에 둔다.
-- [현재 운영 상태와 검증](docs/operations.md)
-- [미결 작업과 다음 세션 인계](docs/session_handoff.md)
-- [업무 규칙](docs/business_rules.md)
-- [구조와 정본](docs/architecture.md)
-- [카드 처리와 API](docs/card_pipeline.md)
-- [OTA 예약 근거](docs/ota_mail.md)
-- [카드 수집과 원본 검증](docs/card_downloads.md)
-- [웹 실행](webapp/README.md)
-- [장부 화면 검증](webapp/DESIGN_REVIEW.md)
-- [과거 원장 도구의 역할](ledger/README.md)
-
-원본·운영 DB·비밀값·실행 증거는 로컬에 보존하고 Git에 추가하지 않는다. 과거 작업 수치와 현재 운영 수치는 구분한다.
+`DISCOVER → CONTRACT → IMPLEMENT → TARGETED TEST → REVIEW → COMMIT/PR → NEXT`. 새 대사 개발은 **R0 읽기 전용 원본·미매칭 전수 진단**부터. 운영 원문을 공개 무료 모델에 올리지 않으며, 문서만 바꾼 경우에는 코드 실행이나 재배포를 수행하지 않습니다.

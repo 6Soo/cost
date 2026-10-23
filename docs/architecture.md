@@ -1,47 +1,34 @@
-# 구조
+# COST 구조 — 현재/목표 분리
 
-## 현재 OTA 자료 연결
+> **2026-10-23 정리.** [COST V3 단일 개발 진입점](COST_V3_START_HERE.md)을 먼저 읽으세요. **구조 설명은 목표 설계이며 main/운영 코드가 모두 전환된 상태가 아닙니다.** [기존 구조 전문](archive/ota-legacy-20261023/architecture.md)은 역사 자료입니다.
 
-메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. 현재 연결 수와 남은 항목, 실제 검증 범위는 [OTA 문서](ota_mail.md)의 최신 항목을 따른다.
+## 현재 구현 코드 진입
 
-Import → Normalize → Classify → Review unresolved → Preview → Commit ledger.
+| 관심사 | 코드 |
+| --- | --- |
+| 카드 원본 수집·매입/승인·중복 | `app/import_card.py`, `app/reconciliation.py`, `app/normalize.py` |
+| OTA 메일·포털 사실 | `app/ota_mail.py`, `app/ota_portal.py`, `app/ota_sources.py` |
+| 현재 OTA 전역/그룹 매칭 | `app/ota_payments.py`, `app/ota_review.py` |
+| 예전/병존 exact 경로 | `app/ota_exact.py`, `webapp/card_flow.py::_compute_ota_report` |
+| 검토 스냅샷·수동 링크/그룹 | `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py` |
+| 카드 화면·내부 준비 | `webapp/card_flow.py`, `webapp/card_actions.py` |
+| 장부 거래·수정 이력 | `webapp/ledger_store.py`, `webapp/ledger_board.py` |
+| Google 읽기 정본·출력 | [Google 권위 계약](target-workflow-google-authority.md) 및 실제 webapp 코드 확인 |
 
-app/의 여덟 Python 파일이 카드 처리의 핵심이며 OTA 메일, 여행 수집과 보류 처리는 같은 패키지의 별도 모듈이 담당한다.
+## 목표 구조와 개발 우선순위
 
 ```text
-app/
-  __init__.py       처리 흐름 연결
-  import_card.py    실제 카드 양식과 원본 보존
-  normalize.py      날짜와 금액 정규화
-  classify.py       규칙과 명확한 업종 적용
-  rules.py          재사용 규칙 관리
-  review.py         답변과 수정 충돌 검사
-  ledger.py         미리보기와 중복 없는 기록
-  db.py             저장과 변경 이력
-  ota_mail.py       예약 메일 분류와 카드 대조
-  ota_portal.py     보존 Agoda 포털 근거의 읽기 전용 대조
-  reserve_trips.py  출발 예정 여행 수집
-  review_holds.py   취소·환불과 확인 대기 보호
-webapp/
-  card_flow.py      기존 로그인과 연결한 카드 처리 화면
-  ledger_design.py  거래 테이블·모바일 목록·편집 패널
-  ledger_board.py   기존 장부 API·수입·배분·출력
-  ledger_store.py   장부 정본과 저장 충돌·중복 방지
-tests/card_pipeline/
+카드 원본/OTA 메일·포털 원본
+    → 출처 계보·파싱 결과/탈락 사유
+    → 결제 관측(날짜 미상 유지)
+    → 후보 검색(날짜 null 가능, alias 공유)
+    → 단일 전역 대사/N:M/수동 links 보존
+    → 금융 검증과 OTA 증거 별도 출력
+    → 여행 우선 추론 + 사용자 override
+    → COST 내부 지출 준비 / AI 사후 학습
+    → 사용자 직접 Google B:H 복사 (Google API 쓰기 금지)
 ```
 
-운영 DB는 D:/WebLedgerHost/data/board.sqlite 하나다. board_rows가 현재 장부이며 ledger_entries는 최초 기록 영수증이다. 장부 수정은 현재 장부와 수정 이력에 저장한다. 영수증을 별도 수정 가능한 장부로 사용하지 않는다.
+작업은 **[R0~R6 통합 구현 명세](ota-card-reconciliation-policy-a-v3.md)**부터. 전체 전면 rewrite 금지, 원본·거래 ID·실금액·환불·기록된 장부·사용자 결정을 보존합니다.
 
-카드 처리의 기본 테이블은 import_batches, import_batch_rows, transactions, cost_classification_rules, review_decisions, ledger_entries, change_log, requests다. transaction_review_holds는 취소·환불과 확인 대기를 보호한다. 원본 파일과 거래 내용, 분류 결과와 사용자 답변을 구분한다. 거래와 감사 이력과 장부 반영은 같은 DB 트랜잭션에서 처리한다.
-
-기존 여행 관리, 입금, 로그인, 권한, 출력 기능의 호환 테이블은 유지한다. 운영 DB 전체가 네 테이블로 줄었다고 주장하지 않는다. 과거 검토 답변과 감사 이력은 이 DB에 이관했다. 이전 DB 파일은 복구용으로 보존하며 현재 쓰기 경로로 사용하지 않는다.
-
-파일 fingerprint, stable transaction key, source hash와 기록 여부가 중복 방지의 핵심이다. 별도 shadow, baseline, 전환 gate 없이 처리한다. 명시 일정과 원본 hash 검증은 잘못된 여행 배정을 막기 때문에 유지한다.
-
-AI 호출은 새 카드 처리 흐름에 없다. 규칙과 이전 사용자 결정, 명확한 업종으로 분류하고 나머지를 사람에게 질문한다.
-
-## 현재 실행과 중복 방지
-
-2026-10-08 기준으로 운영 카드 흐름은 기존 단일 DB를 사용한다. `app.ledger.recordable_rows()`는 blocked·already_booked를 제외한 고유 거래를 반환하며 미리보기 ready와 홈 집계가 함께 사용한다. 출력 화면과 작업 조회는 읽기 전용 SELECT를 사용한다. 장부 projection은 거래 ID를 먼저 검사하고 거래 ID가 없는 과거 행에만 카드사·카드·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다. 승인과 취소를 같은 거래로 합치지 않는다.
-
-명시 일정의 원본과 최신 근거가 맞지 않으면 기록을 차단한다. 서버 정상 여부와 모든 여행 일정의 검증 완료 여부는 별개다. 최신 운영 수치와 미결 항목은 [운영 문서](operations.md)를 따른다.
+운영 중 실제 상태는 [operations.md](operations.md)와 해당 배포 SHA를 따릅니다. 과거 구조 문구의 “shadow 없이 처리” 등은 V3 목표 정책이 아닙니다.
