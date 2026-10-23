@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **8425a1e332** (이 문서 수정 전 확인), V3 앱 코드 기준 **0bd6e933ab** | 8425a1e는 문서-only HEAD. 운영 호스트 릴리스는 별개이며 main 전체 배포가 아니다. 재개 시 원격 HEAD 다시 확인 |
 | Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **70b00859e5** (2026-10-23 확인) | [PR #22](https://github.com/6Soo/reservation/pull/22) 참가자 API 병합 cc4e325, dd734e0 문서 후속, [PR #23](https://github.com/6Soo/reservation/pull/23) CI 테스트 날짜 고정만 추가. 개인정보·운영 런타임 코드는 PR #23에서 미변경 |
-| Reservation Vercel | [최신 확인 Production 배포 dpl_FGCSnVdbo39mriFVZXwaAbjDewHZ](https://vercel.com/6soos-projects/reservation/FGCSnVdbo39mriFVZXwaAbjDewHZ) — target=production, state=READY, sha=**70b00859e5** | PR #23은 테스트-only이지만 main 병합이 자동 Production 빌드를 트리거했다. **READY는 배포/빌드 증거로만 인정**. 운영 DB 읽기·인증 성공은 미검증 |
+| Reservation Vercel | [최신 수동 재배포 dpl_36njAr5b7hTsGsZLgAFeHt96ZWzR](https://vercel.com/6soos-projects/reservation/36njAr5b7hTsGsZLgAFeHt96ZWzR) — target=production, state=READY, sha=**70b00859e5** | Production Secret 적용을 위해 같은 main 커밋을 최신 프로젝트 설정으로 재배포했다. **READY는 배포/빌드 증거로만 인정**. 운영 인증 후 읽기는 미검증 |
 | Reservation Actions | [PR #23 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39939654895): **unit SUCCESS / smoke SUCCESS** | **P0 완료.** 기존 실패 39936103139 및 39938731786은 10/21 기준선(39639564867)에서도 발생한 날짜 고정 부재였다. 운영 코드는 변경하지 않음 |
 | COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 개발 main **8425a1e**와 **diverged** (main 쪽 174커밋, 운영 쪽 25커밋 차이). 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
@@ -62,14 +62,14 @@
 
 - [Reservation PR #23](https://github.com/6Soo/reservation/pull/23), squash main `70b00859e50a3239038f469ce1d07c006a9f78c5`: `tests/masterDataQueue.test.ts` **1파일**, +4/-1, scoped Date.now mock. 코드/DB/PII/.env 변경 없음.
 - [main workflow 39939654895](https://github.com/6Soo/reservation/actions/runs/39939654895): **unit SUCCESS, smoke SUCCESS**. 반복 전체 테스트 불필요.
-- [Production 자동 배포](https://vercel.com/6soos-projects/reservation/FGCSnVdbo39mriFVZXwaAbjDewHZ): target=production, sha=70b00859, state=READY. 이번 변경은 테스트-only이며 배포 확인이 실 DB API 인증 성공을 보장하지 않는다.
+- [Production 수동 재배포](https://vercel.com/6soos-projects/reservation/36njAr5b7hTsGsZLgAFeHt96ZWzR): target=production, sha=70b00859, state=READY. 이번 재배포는 저장한 Production 설정을 반영하며, 실 DB API 인증 성공을 보장하지 않는다.
 - **재개 규칙:** 같은 P0를 다시 구현·검사하지 않는다. 미래에 새로운 실패 로그/변경 SHA가 확인될 때만 새로운 영향 범위를 조사한다.
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / 새 배포 및 실제 API 인증 미검증 (2026-10-23 후속).** 사용자의 직접 설정·재시도 지시에 따라 Aside의 기존 GitHub 로그인으로 `6soo/reservation` 전용 토큰을 발급했다. 발급 화면의 Read Only 선택과 토큰 claim `a=ro`를 확인했으며 만료는 **2026-12-22 20:01:37 한국 시간**이다. Vercel `reservation`에 `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL`을 **Production에만 Secret으로 저장**했고 저장 성공 및 새 배포 필요 메시지를 확인했다. Preview에는 운영 읽기 권한을 추가하지 않았다. 기존 `INTERNAL_API_TOKEN`은 설정 목록에 존재하며 변경하지 않았다. Turso DB의 Block Reads/Block Writes는 모두 꺼짐을 확인했다. DB 행·스키마 변경이나 운영 쓰기 거부 시험은 실행하지 않았다. 토큰 원문은 Git이나 비밀 파일에 저장하지 않고 브라우저 메모리에서 Vercel로 전달했다. COST 서비스 설정과 양쪽 내부 API 토큰 일치는 미검증이다.
+**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / Production 재배포 COMPLETE / 실제 인증 읽기 미검증 (2026-10-23 후속).** 사용자의 직접 설정·재시도 지시에 따라 Aside의 기존 GitHub 로그인으로 `6soo/reservation` 전용 토큰을 발급했다. 발급 화면의 Read Only 선택과 토큰 claim `a=ro`를 확인했으며 만료는 **2026-12-22 20:01:37 한국 시간**이다. Vercel `reservation`에 `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL`을 **Production에만 Secret으로 저장**했고, 최신 `main` `70b00859`에서 재배포한 `36njAr5b7hTsGsZLgAFeHt96ZWzR`가 **Production READY**임을 확인했다. Preview에는 운영 읽기 권한을 추가하지 않았다. 기존 `INTERNAL_API_TOKEN`은 설정 목록에 존재하며 변경하지 않았다. 배포 도메인의 참가자 API에 무인증 합성 식별자로 GET 요청해 **401 `Unauthorized`**를 확인했고 후보 자료는 반환되지 않았다. 해당 401 응답의 `Cache-Control`은 `public, max-age=0, must-revalidate`였다. 이 응답 본문에는 후보 자료가 없으며, 정상 후보 응답의 코드상 `no-store, private` 설정은 실제 운영 인증으로 확인하지 못했다. Turso DB의 Block Reads/Block Writes는 모두 꺼짐을 확인했다. DB 행·스키마 변경이나 운영 쓰기 거부 시험은 실행하지 않았다. 토큰 원문은 Git이나 비밀 파일에 저장하지 않고 브라우저 메모리에서 Vercel로 전달했다. COST 서비스 설정과 양쪽 내부 API 토큰 일치, 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
 
-1. Vercel reservation의 Production cc4e325 READY 여부와 대상 도메인/환경을 재확인. 운영 환경변수의 **존재 여부만** 권한이 허용하면 점검하고 값은 출력·복사·로그하지 않는다.
+1. Vercel reservation의 Production `70b00859` READY와 도메인/환경을 재확인했다. 운영 환경변수는 **이름·환경만** 확인하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
 3. 필요한 설정 **Reservation**: INTERNAL_API_TOKEN(기존 내부 소비자 영향 검토), TURSO_READONLY_AUTH_TOKEN(해당 단일 DB read-only scope 필수), 선택 TURSO_READONLY_DATABASE_URL. **COST**: RESERVATION_INTERNAL_BASE_URL, RESERVATION_INTERNAL_API_TOKEN 또는 보호된 토큰 파일 경로(정확한 변수 이름은 webapp/reservation-passenger.env.example에서 재확인).
 4. 변수 이름에 READONLY라고 적힌 것만으로 DB 권한을 증명하지 않는다. 운영 DB에 INSERT/CREATE를 시험하지 않는다. 격리 비운영 DB의 동일 권한 정책으로 조회 허용·쓰기 거부를 확인하거나 제공자 권한 표시를 검증한다.
@@ -118,7 +118,7 @@
 시작 단계:
 - COST와 reservation 각각의 원격 main, 작업트리, 배포된 Vercel Production commit, GitHub Actions 병합 커밋 결과 조회.
 - **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
-- **P1 설정 저장 완료 / 적용 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret은 저장됐다. 토큰 권한 `a=ro`, 만료 `2026-12-22T11:01:37Z`를 확인했다. 다음 단계는 승인된 새 배포로 설정을 적용하고 COST의 별도 내부 API 인증 설정을 확인한 뒤 최소 읽기 검증을 수행하는 것이다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB에 쓰기 거부 시험을 하지 않는다. 실제 API 인증 성공은 아직 주장하지 않는다.
+- **P1 설정·배포 완료 / 실연동 확인 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret 저장과 `70b00859` 재배포가 완료됐다. 토큰 권한 `a=ro`, 만료 `2026-12-22T11:01:37Z`를 확인했다. 무인증 API 요청은 401로 거부됐다. COST의 별도 내부 API 주소·토큰이 Reservation의 `INTERNAL_API_TOKEN`과 맞는지, 실제 읽기·source revision·stale 재확정은 검증하지 않았다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB 쓰기 시험은 하지 않는다.
 - 사용자 인증이 필요한 마지막 P1 단계만 차단하고 그 외 승인 구현을 수행. 결과를 이 인계 문서의 날짜·HEAD·테스트·실행 증거로 갱신.
 
 표적 검사 예시 (로컬 의존성 설치와 실제 환경을 확인한 후):
