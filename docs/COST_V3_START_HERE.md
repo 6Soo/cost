@@ -89,6 +89,7 @@
 | 작업 | **읽을 유일한 세부 명세** | 보조 권위 |
 | --- | --- | --- |
 | R0~R4: OTA↔카드 미매칭, 소스 충돌, N:M, 비용 준비 | [OTA–카드 통합 A 정책](ota-card-reconciliation-policy-a-v3.md) | 실제 `app/ota_payments.py` 등 현재 코드 |
+| **OTA·카드 리팩터링(L0→L3, 사용자 승인 2026-10-24)** | **[A 정책 §16 — 중급 모델 실행 명세](ota-card-reconciliation-policy-a-v3.md#16-2026-10-24-카드ota-대사-구조-경량화-실행-명세-중급-모델용)** | 행동 불변·작은 PR·L0 감사 후 L1 projection부터. 별도 승인 없이 solver/legacy fallback/운영 DB 변경 금지 |
 | R5: 여행 자동 배정, 사용자 A→B, AI 1/2/3 대화 규칙 | [COST V3 구현](cost-v3-inference-ai-passenger-nm-test-architecture.md) | `webapp/ledger_store.py` 사용자 override |
 | 항공권 영어 이름/여행 참가자 | [COST V3 구현 §4](cost-v3-inference-ai-passenger-nm-test-architecture.md) | `6Soo/reservation` 실제 schema/API |
 | Google 수입/지출/B:H/권한 | [Google 정본 목표](target-workflow-google-authority.md) | [실측 B:H 열](google-workbook-layout.md) |
