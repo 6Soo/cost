@@ -18,11 +18,11 @@
 
 | 표면 | GitHub/플랫폼에서 확인한 사실 | 구분 |
 | --- | --- | --- |
-| COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **8425a1e332** (이 문서 수정 전 확인), V3 앱 코드 기준 **0bd6e933ab** | 8425a1e는 문서-only HEAD. 운영 호스트 릴리스는 별개이며 main 전체 배포가 아니다. 재개 시 원격 HEAD 다시 확인 |
+| COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **849d0bd6d9** (이번 인계 문서 HEAD), V3 앱 코드 기준 **0bd6e933ab** | 849d0bd는 문서-only HEAD. 운영 호스트 릴리스는 별개이며 main 전체 배포가 아니다. |
 | Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **c315c17a0f** (2026-10-23 확인) | [PR #22](https://github.com/6Soo/reservation/pull/22) 참가자 API, [PR #23](https://github.com/6Soo/reservation/pull/23) KST 테스트 날짜 고정, [PR #24](https://github.com/6Soo/reservation/pull/24) 참가자 API 모든 응답의 비저장 캐시 정책 적용 |
 | Reservation Vercel | [Production 배포 dpl_7dNPpkvC5sWHtkPGn8gWfAns6GU1](https://vercel.com/6soos-projects/reservation/7dNPpkvC5sWHtkPGn8gWfAns6GU1) — target=production, state=READY, sha=**c315c17a0f** | Turso Production Secret 반영을 위한 재배포와 PR #24 병합 자동 배포가 모두 READY. 최종 배포의 무인증 API 응답은 401, `no-store, private`, `Vary: Authorization` |
 | Reservation Actions | [PR #23 workflow](https://github.com/6Soo/reservation/actions/runs/39939654895) 및 [PR #24 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39945322228): **unit SUCCESS / smoke SUCCESS** | **P0 완료.** 이전 날짜 테스트 실패는 10/21 기준선(39639564867)에서도 발생한 테스트 날짜 고정 부재였다. PR #24의 캐시 오류 응답 수정 표적 검사와 전체 CI가 통과했다 |
-| COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 개발 main **8425a1e**와 **diverged** (main 쪽 174커밋, 운영 쪽 25커밋 차이). 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
+| COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 개발 main **849d0bd**와 **diverged** (main 쪽 179커밋, 운영 쪽 25커밋 차이). 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
 
 **수치 주의:** 과거 에이전트의 “94%”는 **17개 자체 정의 체크 중 16개 확인**이라는 추정 지표이며 독립적인 명세 전체 완료율·운영 준비율이 아니다. 저장소 구현·합성 종단 검증은 상당 부분 완료됐으나 실제 운영 기능 검증과 별도로 취급한다. 새 에이전트가 임의로 백분율을 다시 만들지 않는다.
@@ -83,7 +83,7 @@
 
 ### P2 — COST V3 전역 실사용 갭 및 운영 배포 경계 (오해 방지)
 
-**상태: 저장소 구현은 주요 기능 완료 / 실제 COST V3 운영 릴리스는 미확인.** 2026-10-23 GitHub 비교상 개발 main `8425a1e`와 운영용 `deploy/ota-unified-20261021` `6bda111`은 서로 갈라져 있다(main 174 ahead, 25 behind). 현재 운영 호스트의 구동 프로세스 SHA는 접근하지 않아 검증하지 못했으며 운영 브랜치와 같다고 단정하지 않는다. 배포 혼합은 고위험이므로 별도 운영 배포 승인·롤백/복구 검사 없이 일괄 병합·배포하지 않는다. 코드와 V3 핵심 사용자 수용 기준을 대조하여 **새로 확인된 필수 결함**만 수정한다. 운영 호스트 배포가 사용자의 명시 승인 범위인지 먼저 구분한다. Git main SHA만으로 운영 반영 완료라고 주장하지 않는다.
+**상태: 저장소 구현은 주요 기능 완료 / 실제 COST V3 운영 릴리스는 미확인.** 2026-10-23 GitHub 비교상 개발 main `849d0bd`와 운영용 `deploy/ota-unified-20261021` `6bda111`은 서로 갈라져 있다(main 179 ahead, 25 behind). 현재 운영 호스트의 구동 프로세스 SHA는 접근하지 않아 검증하지 못했으며 운영 브랜치와 같다고 단정하지 않는다. 배포 혼합은 고위험이므로 별도 운영 배포 승인·롤백/복구 검사 없이 일괄 병합·배포하지 않는다. 코드와 V3 핵심 사용자 수용 기준을 대조하여 **새로 확인된 필수 결함**만 수정한다. 운영 호스트 배포가 사용자의 명시 승인 범위인지 먼저 구분한다. Git main SHA만으로 운영 반영 완료라고 주장하지 않는다.
 
 **보호할 실제 사용자 수용 기준:** 유효한 카드의 OTA 날짜/매칭 미확정→존재하는 실제 여행으로 추론 귀속→COST 내부 비용 준비→Google B:H 수동 복사 F 예약번호 공란; 중복·환불·원본 충돌은 비용 생성 금지; 2:2 그룹은 개별 예약 결제 동일시 금지/2:3 보류; 수동 여행 A→B 영구 우선; 승인 없는 AI 규칙 미적용; 참가자 한/영 후보는 사용자가 확인해야만 COST 연결, 원본 갱신 stale; 운영 Google 자동 쓰기 0. 필요한 실제 운영 시연에는 계정/운영 데이터 권한과 비파괴 범위를 먼저 확인한다.
 
