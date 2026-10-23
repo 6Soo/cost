@@ -22,6 +22,48 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_partial_nm_group_shows_each_card_evidence_and_keeps_individual_links_blocked(self):
+        cards = [{"transaction_id": f"synthetic-card-{index}", "issuer": "Synthetic Bank",
+                  "merchant": f"Synthetic merchant {index}", "amount_krw": 30000,
+                  "approval_date": "2026-09-23", "transaction_direction": "purchase",
+                  "selection_disabled": True,
+                  "selection_disabled_reason": "partial group; individual assignment blocked"}
+                 for index in range(1, 4)]
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "synthetic-event-a", "provider": "Synthetic OTA",
+                        "booking_ref": "SYNTHETIC-BOOKING-A", "event_type": "charge",
+                        "amount": 30000, "amount_krw": 30000, "currency": "KRW",
+                        "status": "HOLD_PARTIAL_GROUP", "reason": "partial_nm_group",
+                        "group_count": {"ota": 2, "cards": 3}, "matched_count": 2,
+                        "allocation_basis": "user_confirmed_group_required",
+                        "individual_payment_evidence": False,
+                        "ota_group_ids": ["synthetic-event-a", "synthetic-event-b"],
+                        "card_group_ids": [card["transaction_id"] for card in cards]}],
+            "cards_by_event": {"synthetic-event-a": cards}, "proposals": []})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(snapshot, ensure_ascii=False)))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                page.get_by_text("SYNTHETIC-BOOKING-A", exact=False).first.wait_for()
+                event = page.locator('[data-event="synthetic-event-a"]')
+                self.assertEqual(event.locator(".ota-card-row").count(), 3)
+                self.assertIn("2건 ↔ 3건", event.inner_text())
+                self.assertIn("부분 묶음", event.inner_text())
+                ids = event.locator(".ota-ids")
+                ids.locator("summary").click()
+                self.assertIn("synthetic-card-3", ids.inner_text())
+                self.assertTrue(event.locator("input[type=radio]").nth(0).is_disabled())
+                self.assertEqual(event.locator("button[data-preview]").count(), 1)
+                self.assertTrue(event.locator("button[data-preview]").is_disabled())
+            finally:
+                browser.close()
+
     def test_no_match_hold_shows_plain_reason_sorts_by_amount_and_can_stay_on_hold(self):
         def snapshot(amounts):
             rows = [{"transaction_id": f"card-{amount}", "issuer": "Synthetic Bank", "merchant": f"Merchant {amount}",
