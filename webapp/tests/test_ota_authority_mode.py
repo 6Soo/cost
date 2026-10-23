@@ -79,6 +79,13 @@ def test_isolated_mode_only_holds_contested_groups():
     assert set(holds) == {"grouped"}
 
 
+def test_partial_quantity_group_does_not_block_individually_eligible_card_expense():
+    partial = [{"ota_event_id": "e-partial", "status": "HOLD_PARTIAL_GROUP",
+                "reserved_card_ids": ["grouped"]}]
+    holds = holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(snapshot(partial)))
+    assert holds == {}
+
+
 def test_authority_mode_does_not_block_unlinked_ota_card_expense_readiness():
     holds = holds_with(AUTHORITY, FakeBackend(CARDS), FakeService(snapshot(RESULTS)))
     assert set(holds) == {"grouped"}

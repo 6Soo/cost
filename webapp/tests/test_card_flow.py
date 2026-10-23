@@ -564,6 +564,40 @@ class CardFlowTests(unittest.TestCase):
             self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
             self.assertEqual(card['ota_snapshot_generation'], 12)
 
+    def test_partial_ota_group_keeps_link_unresolved_but_prepares_one_valid_card_expense(self):
+        from types import SimpleNamespace
+        from app.ledger import recordable_rows
+        from webapp import ota_payment_review
+        trip, batch, row = self.pending_fixture()
+        result = {'ota_event_id':'partial-ota-synthetic', 'status':'HOLD_PARTIAL_GROUP',
+                  'transaction_id':None, 'reserved_card_ids':[row['transaction_id']],
+                  'group_count':{'ota':2, 'cards':3}}
+        current = {'generation':104, 'results':[result], 'data':{'results':[result]}}
+        service = SimpleNamespace(held=lambda: (current, True))
+        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        with patch.dict(os.environ, {'WEBLEDGER_OTA_REVIEW_MODE':'isolated',
+                                     'WEBLEDGER_OTA_REVIEW_DB':str(Path(self.tmp.name)/'partial.sqlite')}), \
+                patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                patch.object(self.flow, 'preview_metadata', return_value=lambda _entry: {}), \
+                patch.object(self.flow, 'ota_group_holds', wraps=self.flow.ota_group_holds), \
+                patch.object(self.flow, 'trip_valid', return_value=True):
+            state = self.flow.state(batch)
+            prepared = recordable_rows(state['preview']['rows'])
+            self.assertEqual(len(prepared), 1)
+            self.assertEqual(prepared[0]['transaction_id'], row['transaction_id'])
+            self.assertFalse(prepared[0].get('blocked'))
+            self.assertEqual(state['preview']['rows'][0]['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
+            self.assertEqual(state['preview']['rows'][0]['ota_snapshot_generation'], 104)
+            self.assertEqual(self.flow.ota_group_holds(), {})
+            self.flow.pipeline.commit(batch, state['preview']['digest'], 'partial-group-expense-once',
+                                      projection=self.flow.project,
+                                      trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        saved = self.board.get_row('card-' + row['transaction_id'])
+        self.assertEqual(saved['display_tab_id'], trip)
+        self.assertEqual(saved['reservation_no'], '')
+        self.assertEqual(self.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0], 1)
+
     def test_unlinked_card_shows_canonical_ota_candidate_reason_without_confirming_ref(self):
         from types import SimpleNamespace
         from webapp import ota_payment_review

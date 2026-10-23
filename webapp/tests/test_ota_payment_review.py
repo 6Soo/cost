@@ -408,9 +408,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
              mock.patch.object(CoreOtaPaymentBackend, "from_host", return_value=ReadBackend()), \
              mock.patch.object(ota_payment_review, "snapshot_service", return_value=Reconciled()):
             holds = flow.ota_group_holds()
-        self.assertEqual(set(holds), {"card-syn-1", "card-syn-2", "frozen-card-a", "frozen-card-b"})
-        self.assertEqual(holds["card-syn-1"]["kind"], "ota_group_review")
-        self.assertEqual(holds["card-syn-1"]["ota_event_ids"], ["ota-syn-1"])
+        self.assertEqual(set(holds), {"frozen-card-a", "frozen-card-b"})
         self.assertEqual(holds["frozen-card-a"]["ota_event_ids"], ["missing-ota-a", "missing-ota-b"])
 
     def test_preview_then_confirm_requires_current_digest_and_records_separate_manual_link(self):

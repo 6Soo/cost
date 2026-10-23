@@ -1844,6 +1844,12 @@ class CardFlow:
             results = current["results"] if current is not None else []
             holds = {}
             for result in results:
+                # A quantity-mismatched OTA group is unresolved reservation evidence,
+                # not a financial hold on each independently imported card row.
+                # The card pipeline still enforces duplicate, refund, source-conflict,
+                # and already-booked guards before an expense can be prepared.
+                if result.get("status") == "HOLD_PARTIAL_GROUP":
+                    continue
                 for transaction_id in result.get("reserved_card_ids") or ():
                     hold = holds.setdefault(str(transaction_id), {
                         "kind":"ota_group_review",
