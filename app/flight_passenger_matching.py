@@ -58,7 +58,8 @@ def match_booking_passengers(evidence, authority):
         key = _name_key(' '.join((str(passenger.get('surname') or ''),
                                   str(passenger.get('given_name') or ''))))
         proposal_id = 'fp-' + hashlib.sha256(json.dumps(
-            [booking_ref, source_digests, tour_id, key], separators=(',', ':')).encode('utf-8')).hexdigest()[:24]
+            [booking_ref, source_digests, tour_id, revision, key],
+            separators=(',', ':')).encode('utf-8')).hexdigest()[:24]
         result = candidate_matches(passenger, authority.get('candidates') or [])
         matches.append({
             'proposal_id': proposal_id,

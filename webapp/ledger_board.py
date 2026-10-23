@@ -3986,6 +3986,10 @@ class Handler(BaseHTTPRequestHandler):
         if receipt_review.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
                                    is_owner=_receipts_owner_request(), query=query):
             return
+        from . import flight_passenger_page
+        if flight_passenger_page.dispatch(self, parsed, csrf=CSRF_TOKEN, board=_active_store(),
+                                          is_owner=_participant_owner_request(), query=query):
+            return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
             # The owner gate was already decided above for an enforced server.
@@ -4285,6 +4289,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
         from . import google_demo_page
         if google_demo_page.dispatch(self, parsed, raw=raw):
+            return
+        from . import flight_passenger_page
+        if flight_passenger_page.dispatch(self, parsed, raw=raw, csrf=CSRF_TOKEN,
+                                          board=_active_store(),
+                                          is_owner=_participant_owner_request()):
             return
         from . import participant_income_page as _participant_page
         if _participant_page.owns_route(parsed.path):
