@@ -12,6 +12,57 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_browser_duplicate_card_never_reaches_expense_copy(self):
+        from webapp.card_flow import CardFlow
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                trip = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                    destination='Synthetic duplicate trip', client_request_id='duplicate-trip')['tab_id']
+                batch = flow.pipeline.receive(CARD, 'duplicate-browser.csv')['batch_id']
+                row = flow.pipeline.get_batch(batch)['rows'][0]
+                server.card_store.conn.execute(
+                    "UPDATE transactions SET duplicate_of='synthetic-original' WHERE transaction_id=?",
+                    (row['transaction_id'],))
+                server.card_store.conn.commit()
+                with patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
+                    flow.classify(batch)
+                    server.card_store.conn.execute(
+                        "UPDATE transactions SET classification_state='classified', item=?, trip_id=?, "
+                        "display_tab_id=? WHERE transaction_id=?",
+                        ('숙박비', trip, trip, row['transaction_id']))
+                    server.card_store.conn.commit()
+                    with sync_playwright() as api:
+                        browser = api.chromium.launch(headless=True)
+                        page = browser.new_page(viewport={'width':390,'height':844})
+                        base_url = f'http://127.0.0.1:{server.server_address[1]}'
+                        page.goto(base_url + '/import?batch=' + batch + '&transaction=' +
+                                  row['transaction_id'] + '#preview')
+                        page.locator('#preview tbody tr').first.wait_for()
+                        state = page.request.get(base_url + '/api/imports/' + batch).json()
+                        reviewed = state['preview']['rows'][0]
+                        self.assertTrue(reviewed['blocked'])
+                        self.assertEqual(reviewed['internal_expense_status'], 'HELD')
+                        self.assertEqual(state['preview']['ready'], 0)
+                        self.assertEqual(page.request.get(base_url + '/api/imports/' + batch +
+                                          '/google-tsv?tab=' + trip).json()['row_count'], 0)
+                        self.assertEqual(server.card_store.conn.execute(
+                            "SELECT COUNT(*) FROM board_rows WHERE row_id=?",
+                            ('card-' + row['transaction_id'],)).fetchone()[0], 0)
+                        page.locator('#preview').get_by_text('중복', exact=False).first.wait_for()
+                        browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_browser_unlinked_candidate_reason_and_expense_preview_keep_booking_unconfirmed(self):
         from types import SimpleNamespace
         from webapp.card_flow import CardFlow
