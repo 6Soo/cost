@@ -234,6 +234,35 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(statuses, {'exact': 'EXACT', 'inferred': 'INFERRED',
                                     'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED'})
 
+    def test_api_readiness_is_independent_of_exact_inferred_or_missing_ota_dates(self):
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+        from webapp.ota_snapshot import OtaSnapshotService
+        trip, batch, row = self.pending_fixture()
+        cases = [
+            ('EXACT', {'ota_event_id':'exact', 'transaction_id':row['transaction_id'],
+                       'status':'MATCHED_AUTO'}),
+            ('INFERRED', {'ota_event_id':'inferred', 'transaction_id':row['transaction_id'],
+                          'status':'MATCHED_AUTO', 'inferred_link':True}),
+            ('UNLINKED', None),
+        ]
+        env = {'WEBLEDGER_OTA_REVIEW_MODE':'isolated',
+               'WEBLEDGER_OTA_REVIEW_DB':str(Path(self.tmp.name) / 'ota-review.sqlite')}
+        for expected, result in cases:
+            current = {'generation': 12, 'results': [result] if result else [], 'data': {}}
+            service = SimpleNamespace(held=lambda: (current, True))
+            backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+            with patch.dict(os.environ, env), \
+                    patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                    patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                    patch.object(CardFlow, 'trip_valid', return_value=True):
+                state = self.flow.state(batch)
+            card = next(item for item in state['preview']['rows']
+                        if item['transaction_id'] == row['transaction_id'])
+            self.assertEqual(card['ota_link_status'], expected)
+            self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
+            self.assertEqual(card['ota_snapshot_generation'], 12)
+
     def test_stale_ota_report_extension_uses_the_snapshot_freshness_value(self):
         current = {'data': {'synthetic': 'shared-result'}}
         service = type('Service', (), {'held': lambda _self: (current, True)})()
