@@ -564,6 +564,35 @@ class CardFlowTests(unittest.TestCase):
             self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
             self.assertEqual(card['ota_snapshot_generation'], 12)
 
+    def test_unlinked_card_shows_canonical_ota_candidate_reason_without_confirming_ref(self):
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+        trip, batch, row = self.pending_fixture()
+        event = {'ota_event_id': 'candidate-event', 'provider': 'Agoda',
+                 'booking_ref': 'SYNTHETIC-REF', 'paid_on': row['approval_date'],
+                 'amount_krw': 39000, 'event_type': 'charge'}
+        result = {'ota_event_id': 'candidate-event', 'status': 'HOLD_AMOUNT_MISMATCH',
+                  'transaction_id': None, 'candidates': [row['transaction_id']],
+                  'reason': 'amount_differs'}
+        current = {'generation': 18, 'results': [result], 'data': {
+            'events': [event], 'transactions': [row], 'links': {}, 'results': [result]}}
+        service = SimpleNamespace(held=lambda: (current, True))
+        backend = SimpleNamespace(store=SimpleNamespace(group_pins=lambda: []), close=lambda: None)
+        with patch.dict(os.environ, {'WEBLEDGER_OTA_REVIEW_MODE': 'isolated',
+                                     'WEBLEDGER_OTA_REVIEW_DB': str(Path(self.tmp.name) / 'candidate.sqlite')}), \
+                patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
+                patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
+                patch.object(CardFlow, 'trip_valid', return_value=True):
+            state = self.flow.state(batch)
+        card = state['preview']['rows'][0]
+        self.assertEqual(card['display_tab_id'], trip)
+        self.assertEqual(card['ota_link_status'], 'UNLINKED')
+        self.assertEqual(card['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
+        self.assertEqual(card.get('booking_ref') or '', '')
+        self.assertTrue(any('OTA 후보(미확정): Agoda SYNTHETIC-REF' in note
+                            and 'amount_differs' not in note
+                            for note in card['ota_candidate_notes']))
+
     def test_reconciliation_snapshot_drives_ota_card_status_and_preserves_trip_expense(self):
         from types import SimpleNamespace
         from app.ledger import recordable_rows
