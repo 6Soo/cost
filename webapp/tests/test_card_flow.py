@@ -469,11 +469,44 @@ class CardFlowTests(unittest.TestCase):
         service = type('Service', (), {'held': lambda _self: (current, True)})()
         with patch('webapp.ota_payment_review.enabled', return_value=True), \
                 patch('webapp.ota_payment_review.snapshot_service', return_value=service):
-            statuses, generation = self.flow._ota_card_statuses([])
+            statuses, generation, reconciliation = self.flow._ota_card_statuses([])
         self.assertEqual(generation, 9)
+        self.assertEqual(reconciliation, {'enabled': True, 'fresh': True,
+                                          'status': 'ready', 'generation': 9})
         self.assertEqual(statuses, {'exact': 'EXACT', 'inferred': 'INFERRED',
                                     'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED',
                                     'grouped':'GROUP_RECONCILED'})
+
+    def test_stale_ota_snapshot_is_reported_without_using_old_link_status(self):
+        current = {'generation': 8, 'results': [{'transaction_id': 'old-card', 'status': 'MATCHED_AUTO'}]}
+        service = type('Service', (), {'held': lambda _self: (current, False)})()
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch('webapp.ota_payment_review.snapshot_service', return_value=service):
+            statuses, generation, reconciliation = self.flow._ota_card_statuses([])
+        self.assertEqual(statuses, {})
+        self.assertIsNone(generation)
+        self.assertEqual(reconciliation, {'enabled': True, 'fresh': False,
+                                          'status': 'stale', 'generation': 8})
+
+    def test_card_state_explains_stale_ota_status_while_expense_readiness_stays_independent(self):
+        trip, batch, row = self.pending_fixture()
+        current = {'generation': 8, 'results': [{'transaction_id': row['transaction_id'],
+                                                  'status': 'MATCHED_AUTO'}],
+                   'data': {'events': [], 'transactions': [], 'links': {},
+                            'results': [{'transaction_id': row['transaction_id'],
+                                         'status': 'MATCHED_AUTO'}]}}
+        service = type('Service', (), {'held': lambda _self: (current, False)})()
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+                patch.object(self.flow, 'preview_metadata', return_value=lambda _entry: {}), \
+                patch.object(self.flow, 'ota_group_holds', return_value={}), \
+                patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
+            state = self.flow.state(batch)
+        reviewed = state['preview']['rows'][0]
+        self.assertEqual(state['ota_reconciliation']['status'], 'stale')
+        self.assertEqual(reviewed['ota_link_status'], 'UNKNOWN')
+        self.assertEqual(reviewed['ota_snapshot_generation'], None)
+        self.assertEqual(reviewed['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE')
 
     def test_card_request_reuses_one_ota_snapshot_generation(self):
         from types import SimpleNamespace
