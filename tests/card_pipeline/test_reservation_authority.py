@@ -155,6 +155,26 @@ def test_passenger_candidates_require_exact_unique_english_identity_only():
     assert hangul_only['status'] == 'UNMATCHED'
 
 
+def test_passenger_name_normalization_handles_compact_and_limited_reversal():
+    candidates = [{'kind': 'lead', 'reference_id': 'opaque-name', 'name_kr': '김지원',
+                   'name_en': 'JI WON KIM', 'status': 'confirmed'}]
+    result = candidate_matches({'surname': 'KIM', 'given_name': 'JI WON'}, candidates)
+    assert result['status'] == 'EXACT_CANDIDATE'
+    assert result['candidates'][0]['reference_id'] == 'opaque-name'
+
+
+def test_evidence_content_change_changes_proposal_even_when_source_id_is_stable():
+    authority = {'tour_id': 'tour-digest', 'source_revision': 'roster-1', 'candidates': []}
+    first = {'booking_ref': 'SYNTH-DIGEST', 'source_digests': ['same-source'],
+             'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+             'legs': [{'departure_on': '2026-06-01'}]}
+    changed = {**first, 'passengers': [{'surname': 'LEE', 'given_name': 'BETA'}]}
+    one = match_booking_passengers(first, authority)['passengers'][0]
+    two = match_booking_passengers(changed, authority)['passengers'][0]
+    assert one['evidence_digest'] != two['evidence_digest']
+    assert one['proposal_id'] != two['proposal_id']
+
+
 def test_booking_passengers_remain_unconfirmed_candidates_and_are_source_scoped():
     evidence = {'booking_ref': 'SYNTH-100', 'source_digests': ['sha-mail-a'],
                 'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}]}

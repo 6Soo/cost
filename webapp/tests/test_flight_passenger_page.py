@@ -177,7 +177,8 @@ def test_post_persists_only_explicit_cost_assignment_idempotently(tmp_path):
         page.dispatch(changed, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
                       board=object(), query={'booking_ref': ['SYNTH-500'], 'tour_id': ['tour-synth']},
                       candidate_fetch=lambda _tour: {**AUTHORITY, 'source_revision': 'roster-synth-v2'})
-        assert changed.response[1]['passengers'][0]['assignment']['stale'] is True
+        assert changed.response[1]['passengers'][0]['assignment'] is None
+        assert changed.response[1]['passengers'][0]['stale_assignments'][0]['stale'] is True
 
 
 def test_assignment_refuses_non_owner_missing_csrf_and_stale_proposal(tmp_path):
@@ -203,3 +204,35 @@ def test_assignment_refuses_non_owner_missing_csrf_and_stale_proposal(tmp_path):
         assert stale.response[0] == 409
         assert stale.response[1]['code'] == 'PASSENGER_CANDIDATE_REQUIRED'
         assert not (tmp_path / 'flight.sqlite').exists()
+
+
+def test_changed_evidence_keeps_old_assignment_stale_and_rejects_old_proposal(tmp_path):
+    db_path = tmp_path / 'flight.sqlite'
+    old = {**EVIDENCE, 'digest': 'digest-old'}
+    changed = {**EVIDENCE, 'digest': 'digest-new',
+               'passengers': [{'surname': 'KIM', 'given_name': 'BETA'}]}
+    old_proposal = match_booking_passengers(old, AUTHORITY)['passengers'][0]
+    payload = json.dumps({'booking_ref': 'SYNTH-500', 'tour_id': 'tour-synth',
+                          'proposal_id': old_proposal['proposal_id'],
+                          'candidate_reference_id': 'opaque-synth'}).encode()
+    with patch.dict(os.environ, {page.FEATURE_FLAG: '1', page.DB_ENV: str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500': old}):
+        saved = Handler()
+        page.dispatch(saved, urlsplit('/api/flight-passengers/assign'), is_owner=True,
+                      board=object(), raw=payload, csrf='csrf-synth', candidate_fetch=lambda _tour: AUTHORITY)
+        assert saved.response[0] == 200
+    with patch.dict(os.environ, {page.FEATURE_FLAG: '1', page.DB_ENV: str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500': changed}):
+        current = Handler()
+        page.dispatch(current, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
+                      board=object(), query={'booking_ref': ['SYNTH-500'], 'tour_id': ['tour-synth']},
+                      candidate_fetch=lambda _tour: AUTHORITY)
+        passenger = current.response[1]['passengers'][0]
+        assert passenger['assignment'] is None
+        assert len(passenger['stale_assignments']) == 1
+        assert passenger['stale_assignments'][0]['evidence_digest'] == 'digest-old'
+        assert passenger['confirmed'] is False
+        rejected = Handler()
+        page.dispatch(rejected, urlsplit('/api/flight-passengers/assign'), is_owner=True,
+                      board=object(), raw=payload, csrf='csrf-synth', candidate_fetch=lambda _tour: AUTHORITY)
+        assert rejected.response[0] == 409
