@@ -1,6 +1,6 @@
 # COST V3 — 단일 개발 진입점 및 통합 계약
 
-> **현재 진행·재개 증거:** [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md) — 2026-10-23 두 저장소 SHA, Reservation Production READY, CI unit 실패, 실운영 인증 미검증 및 다음 작업 큐를 기록한 **현행 재개 문서**. 새 세션은 이 문서와 인계 문서만으로 시작한다.
+> **현재 진행·재개 증거:** [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md) — 2026-10-23 두 저장소 SHA, Reservation CI unit/smoke 복구 성공(PR #23), Production READY, 읽기 전용 DB 토큰 미설정 및 다음 작업 큐를 기록한 **현행 재개 문서**. 새 세션은 이 문서와 인계 문서만으로 시작한다.
 >
 > **상태:** 사용자 확정 *기능·금융 정책 계약*. COST V3 주요 경로는 Git main과 합성 검증에 반영됐으나 COST 운영 호스트/실서비스 완전 검증은 별개다. 과거 R0부터 구현하라는 지시는 새 세션의 재구현 명령이 아니다.  
 > **목적:** 이 문서만으로 작업 우선순위·현재 vs 미래·위험 경계·권위·진입 파일을 결정한다. 세부 구현은 **두 개의 부속 명세**를 참조하되 과거 문서의 목표·TODO를 구현 지시로 혼용하지 않는다.
@@ -78,7 +78,7 @@
 | R3 | 중앙 snapshot을 OTA·카드·분류·지출 준비가 공유하며 stale fallback이 fresh canonical 결과를 덮지 않는다. 대량 재분류도 중앙 `_ota_report`를 사용한다. | 오래된 snapshot 복구 fallback은 보존한다. 운영 전환은 별도 승인 범위다. |
 | R4 | 유효 카드와 미확정 OTA 연결을 분리하고 비용 준비 UI/API를 제공한다. 미확정 예약번호는 장부·Google 복사값에 넣지 않는다. | Google 직접 쓰기는 없다. |
 | R5 | 사용자 여행 이동, AI 답변·추가 질문·규칙 미리보기/승인 흐름과 브라우저 검증을 반영했다. | 무료 모델 실패 시 수동 답변 경로를 쓰며 고객 원문을 외부 AI에 보내지 않는다. |
-| R5-B | 예약 후보 읽기 전용 API PR [#22](https://github.com/6Soo/reservation/pull/22)가 2026-10-23 `cc4e325`로 Reservation `main`에 병합됐다. COST adapter·owner UI·SQLite 저장/stale 재확정 합성 종단 검증 완료. | **Reservation Vercel Production `cc4e325` READY 확인** ([배포](https://vercel.com/6soos-projects/reservation/2codsKnAfoYRM4cnLYquvkHnggDV)). 운영 내부 API/DB 읽기 자격증명 설정·실서비스 조회는 미검증. GitHub Actions `smoke` 성공, `unit` 실패 ([실행](https://github.com/6Soo/reservation/actions/runs/39936103139)). |
+| R5-B | 예약 후보 읽기 전용 API PR [#22](https://github.com/6Soo/reservation/pull/22)가 2026-10-23 `cc4e325`로 Reservation `main`에 병합됐다. COST adapter·owner UI·SQLite 저장/stale 재확정 합성 종단 검증 완료. | **Reservation 최신 Production `70b00859` READY 확인** ([배포](https://vercel.com/6soos-projects/reservation/FGCSnVdbo39mriFVZXwaAbjDewHZ)). [PR #23](https://github.com/6Soo/reservation/pull/23)은 테스트 날짜만 고쳤으며 [Actions unit/smoke 성공](https://github.com/6Soo/reservation/actions/runs/39939654895). 운영 필수 `TURSO_READONLY_AUTH_TOKEN` 미설정으로 실제 내부 API/DB 읽기 인증은 **BLOCKED**. |
 | R6 | legacy 직접 소비 경로를 중앙 report로 정렬하고 fresh snapshot 권한 보호, stale fallback과 진단 전용 경로의 역할을 분리했다. COST `268f7d8`, `f52533e`. | 운영 DB 전환·배포는 하지 않았다. |
 | N:M·금융 안전 | 반복 결제 그룹은 개별 결제 근거 없이 개별 예약 확정으로 승격하지 않는다. 중복·환불·원본 충돌·수동 결정 보호를 유지한다. | 실제 운영 원장 변경은 하지 않았다. |
 
@@ -123,8 +123,8 @@
 
 - **코드 반영:** R0~R6 핵심 경로와 R5 참가자 COST 흐름이 COST `main`에 반영됐다. Reservation 후보 API는 PR #22 병합 커밋 `cc4e325`로 Reservation `main`에 반영됐다.
 - **실행하지 않은 검증:** 운영 DB 전수 진단, 예약 운영 토큰 인증, COST V3 운영 호스트의 실제 동작 검증. **Reservation은 Production `cc4e325` READY**이나 운영 인증 성공은 미확인이다. 예약 DB의 읽기 전용 자격증명과 승인된 내부 토큰이 필요하다.
-- **과거 구현률 추정:** 당시 에이전트가 정의한 17개 체크 중 16개로 **약 94%**를 보고했으나 명세 전체·실서비스 운영률을 독립 측정한 값은 아니다. 실제 남은 작업에는 **Reservation Actions unit 실패 원인 확인/필요한 수정**, 운영 인증정보·권한과 실제 읽기 연동, COST V3 운영 SHA 확인이 있다. [현행 작업 큐](COST_V3_CURRENT_HANDOFF.md#3-미완료미검증-작업-큐-재개-우선순위)를 따른다.
-- **다음 개발 착수:** [현행 인계](COST_V3_CURRENT_HANDOFF.md)의 P0 CI 실패, P1 운영 읽기 인증, P2 새로 확인된 필수 갭 순으로 수행한다. 합성으로 완료된 기능을 재작성하지 않는다. 실제 DB와 Google 원본을 외부 서비스에 올리지 않는다.
+- **과거 구현률 추정:** 당시 에이전트가 정의한 17개 체크 중 16개로 **약 94%**를 보고했으나 명세 전체·실서비스 운영률을 독립 측정한 값은 아니다. 실제 남은 작업에는 **Reservation Actions unit 실패는 PR #23에서 복구 완료**, 남은 과제는 읽기 전용 운영 인증정보·권한과 실제 읽기 연동, COST V3 운영 SHA 확인이 있다. [현행 작업 큐](COST_V3_CURRENT_HANDOFF.md#3-미완료미검증-작업-큐-재개-우선순위)를 따른다.
+- **다음 개발 착수:** [현행 인계](COST_V3_CURRENT_HANDOFF.md)의 P0 CI 복구 완료(재구현 금지), P1 운영 읽기 인증 차단 조건 및 P2 새로 확인된 필수 갭 순으로 수행한다. 합성으로 완료된 기능을 재작성하지 않는다. 실제 DB와 Google 원본을 외부 서비스에 올리지 않는다.
 
 ## 8. 문서 자체 검증 및 유지 규칙 (2026-10-23)
 
