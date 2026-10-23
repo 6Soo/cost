@@ -25,6 +25,17 @@ python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environmen
 
 운영 정본은 `D:/WebLedgerHost/data/board.sqlite`이고 별도 실행기는 `D:/WebLedgerHost/bin/launch_web_ledger.py`다. 설정과 비밀값은 저장소 밖에 둔다. Google 로그인과 소유자·조회 권한, CSRF 및 revision 검사를 유지한다. 비로그인 카드 검토와 API 요청은 401로 거절한다. 합성 세션을 운영 인증으로 사용하지 않는다.
 
+## 예약 참가자 후보 연결 (선택 기능)
+
+기능은 기본 비활성 상태다. 합성 환경에서 연결을 시험할 때만 아래 변수를 설정한다. 예시 파일은 `webapp/reservation-passenger.env.example`이며, 실제 값과 토큰 파일은 저장소 밖에 둔다.
+
+- `WEBLEDGER_FLIGHT_PASSENGER_MATCHING=1`은 owner 화면과 API를 켠다.
+- `WEBLEDGER_FLIGHT_PASSENGER_DB`는 COST가 사용자 확인 연결을 보관할 별도 SQLite 파일 경로다.
+- `RESERVATION_INTERNAL_BASE_URL`은 예약 서비스 주소이며 생략하면 `https://reserve.foresttour.kr`을 사용한다.
+- `RESERVATION_INTERNAL_API_TOKEN_FILE`은 예약 서비스의 내부 읽기 전용 API 토큰 파일 경로다. 또는 보호된 서비스 환경변수 `RESERVATION_INTERNAL_API_TOKEN`을 사용할 수 있다.
+
+예약 서비스의 `INTERNAL_API_TOKEN`과 COST의 토큰은 권한 있는 운영자가 승인된 비밀 관리 경로에서 같은 값으로 설정해야 한다. 이 저장소는 토큰을 만들거나 포함하지 않는다. 로컬 실행에서는 `.env` 내용을 Git에 넣지 말고, 비밀 파일은 COST 실행 계정만 읽도록 제한한다. 토큰이나 예약 원문은 로그·화면 오류·AI 요청에 넣지 않는다. 예약 자료 조회가 실패하면 참가자 연결만 사용할 수 없으며 카드 대사·지출 검토는 계속 동작한다. 후보 선택은 COST 내부 연결만 확정하고 실제 탑승이나 예약 원본은 바꾸지 않는다.
+
 ## 자료와 출력
 
 최신 main의 카드 파서(`app/import_card.py`)는 CSV·XLSX·바이너리 XLS 형식을 지원하며 바이너리 XLS에는 `xlrd` 모듈이 필요하다. 웹 업로드 UI에도 `.xls` 확장자가 허용된다. 다만 운영 서버의 의존성·배포 상태는 실제 환경에서 확인해야 한다. 보존 OTA 메일과 Agoda 포털 근거는 읽기 전용으로 대조한다. 웹 요청에서 메일을 보내거나 예약을 만들지 않는다. 카드사 직접 API와 무인 인증서 로그인 성공은 확인되지 않았다.

@@ -49,6 +49,21 @@ def test_brand_link_keeps_hover_and_focus_styles():
     assert '#nav a.brand{min-height:44px' in site_shell.STYLE
 
 
+def test_flight_passenger_link_is_owner_only_and_feature_gated():
+    with patch.object(ledger_board, 'current_role', return_value='owner'), \
+            patch('webapp.flight_passenger_page.enabled', return_value=True):
+        owner = ledger_design._nav_html('', '')
+    with patch.object(ledger_board, 'current_role', return_value='viewer'), \
+            patch('webapp.flight_passenger_page.enabled', return_value=True):
+        viewer = ledger_design._nav_html('', '')
+    with patch.object(ledger_board, 'current_role', return_value='owner'), \
+            patch('webapp.flight_passenger_page.enabled', return_value=False):
+        disabled = ledger_design._nav_html('', '')
+    assert "href='/flight-passengers'" in owner
+    assert "href='/flight-passengers'" not in viewer
+    assert "href='/flight-passengers'" not in disabled
+
+
 def test_cleanup_preserves_errors_confirmation_and_scripts():
     original = ("<p>자동 추출은 연결되지 않았습니다. 사진을 보고 입력하세요.</p>"
                 "<p role='alert'>자동 추출은 연결되지 않았습니다. 설정을 확인하세요.</p>"

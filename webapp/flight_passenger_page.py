@@ -50,8 +50,10 @@ for(const passenger of data.passengers||[]){const article=document.createElement
 if(passenger.assignment){const saved=document.createElement('p');saved.textContent=passenger.assignment.stale?'저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.':'저장된 COST 연결: '+(passenger.assignment.candidate?.name_kr||'참가자')+' · 사용자가 확인했습니다.';article.append(saved)}
 title.textContent=passenger.passenger_name_en+' · '+passenger.status;article.append(title);
 if(!passenger.candidates.length){const empty=document.createElement('p');empty.textContent='일치 후보가 없습니다. 이름만으로 새 고객을 만들지 않습니다.';article.append(empty)}
-for(const candidate of passenger.candidates){const label=document.createElement('label'), radio=document.createElement('input');radio.type='radio';radio.name=passenger.proposal_id;radio.value=candidate.reference_id;
-label.append(radio,document.createTextNode(' '+candidate.name_kr+' · '+candidate.kind));article.append(label,document.createElement('br'))}
+if(passenger.candidates.length>1){const warning=document.createElement('p');warning.textContent='같은 영문 이름의 예약 참가자가 '+passenger.candidates.length+'명 있습니다. 자료를 확인해 직접 선택해 주세요.';article.append(warning)}
+for(const [index,candidate] of passenger.candidates.entries()){const label=document.createElement('label'), radio=document.createElement('input');radio.type='radio';radio.name=passenger.proposal_id;radio.value=candidate.reference_id;
+const kind=candidate.kind==='lead'?'예약자':candidate.kind==='companion'?'동행인':'안내자';
+label.append(radio,document.createTextNode(' '+(passenger.candidates.length>1?kind+' 후보 '+(index+1):kind)+' · '+candidate.name_kr));article.append(label,document.createElement('br'))}
 if(passenger.candidates.length){const button=document.createElement('button');button.type='button';button.textContent='선택한 COST 연결 저장';button.addEventListener('click',async()=>{const selected=article.querySelector('input:checked');if(!selected){status.textContent='후보를 선택해 주세요.';return}button.disabled=true;
 try{const saved=await fetch('/api/flight-passengers/assign',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({booking_ref,tour_id,proposal_id:passenger.proposal_id,candidate_reference_id:selected.value})});const result=await saved.json();if(!saved.ok)throw Error(result.code||'저장하지 못했습니다.');status.textContent='COST 연결을 저장했습니다. 실제 탑승 여부는 확인되지 않았습니다.'}
 catch(error){status.textContent=error.message;button.disabled=false}});article.append(button)}root.append(article)}status.textContent=(data.passengers||[]).length?'후보 목록입니다. 사용자 확인 전에는 연결을 저장하지 않았습니다.':'항공권 탑승자 자료가 없습니다.'}
@@ -102,7 +104,7 @@ def _assignments_for(booking_ref, tour_id, source_revision):
             return []
         rows = conn.execute(
             'SELECT assignment_json FROM flight_passenger_assignments '
-            'WHERE booking_ref=? AND tour_id=? ORDER BY created_at',
+            'WHERE booking_ref=? AND tour_id=? ORDER BY created_at,rowid',
             (booking_ref, tour_id)).fetchall()
     finally:
         conn.close()

@@ -108,6 +108,39 @@ def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
             browser.close()
 
 
+def test_browser_displays_duplicate_passenger_candidates_without_choosing_for_owner():
+    from playwright.sync_api import sync_playwright
+
+    ambiguous_authority = {**AUTHORITY, 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-lead-a', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'confirmed'},
+        {'kind': 'lead', 'reference_id': 'opaque-lead-b', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'confirmed'},
+    ]}
+    proposal = match_booking_passengers(EVIDENCE, ambiguous_authority)['passengers'][0]
+    document = page._page('csrf-synth')
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            browser_page = browser.new_page()
+            browser_page.route('http://cost.test/flight-passengers', lambda route: route.fulfill(
+                status=200, content_type='text/html; charset=utf-8', body=document))
+            browser_page.route('**/api/flight-passengers/candidates*', lambda route: route.fulfill(
+                status=200, content_type='application/json', body=json.dumps(
+                    {'passengers': [proposal]})))
+            browser_page.goto('http://cost.test/flight-passengers')
+            browser_page.locator('input[name=booking_ref]').fill('SYNTH-500')
+            browser_page.locator('input[name=tour_id]').fill('tour-synth')
+            browser_page.get_by_role('button', name='후보 조회').click()
+            browser_page.get_by_text('같은 영문 이름의 예약 참가자가 2명 있습니다.', exact=False).wait_for()
+            labels = browser_page.locator('label').all_text_contents()
+            assert any('예약자 후보 1 · 김알파' in label for label in labels)
+            assert any('예약자 후보 2 · 김알파' in label for label in labels)
+            assert browser_page.locator('input[type=radio]:checked').count() == 0
+        finally:
+            browser.close()
+
+
 def test_post_persists_only_explicit_cost_assignment_idempotently(tmp_path):
     db_path = tmp_path / 'flight.sqlite'
     handler = Handler()

@@ -986,7 +986,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
     """
     from . import ui_icons as _icons
     if board.current_role() == 'owner':
-        from . import receipt_review
+        from . import flight_passenger_page, receipt_review
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
@@ -994,12 +994,16 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
                         "<span class='nm'>영수증 처리</span></a>")
-        primary += ("</nav><h2 class='nav-sec'>관리</h2>"
-                    "<nav class='site-links' aria-label='관리 메뉴'>"
-                    f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
-                    f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>"
-                    f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
-                    "</nav>")
+        management = ("</nav><h2 class='nav-sec'>관리</h2>"
+                      "<nav class='site-links' aria-label='관리 메뉴'>"
+                      f"<a href='/trips'>{_icons.icon('map', 18)}<span class='nm'>여행 관리</span></a>"
+                      f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>")
+        if flight_passenger_page.enabled():
+            management += (f"<a href='/flight-passengers'>{_icons.icon('users', 18)}"
+                           "<span class='nm'>항공권 참가자 연결</span></a>")
+        primary += (management
+                    + f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
+                    + "</nav>")
     else:
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>")
