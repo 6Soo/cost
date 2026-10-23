@@ -33,6 +33,10 @@ def candidate_matches(passenger, candidates):
         identity = (candidate.get('kind'), candidate.get('reference_id'))
         if not all(isinstance(part, str) and part for part in identity) or identity in seen:
             continue
+        state = str(candidate.get('status') or '').strip().casefold()
+        if ((identity[0] == 'guide' and state != 'active') or
+                state in {'cancelled', 'canceled', 'inactive', 'deleted', 'revoked'}):
+            continue
         if _name_key(candidate.get('name_en')) != target:
             continue
         seen.add(identity)

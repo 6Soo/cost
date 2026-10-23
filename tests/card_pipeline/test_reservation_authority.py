@@ -117,6 +117,10 @@ def test_passenger_candidates_require_exact_unique_english_identity_only():
     result = candidate_matches(passenger, candidates)
     assert result['status'] == 'AMBIGUOUS'
     assert [item['reference_id'] for item in result['candidates']] == ['opaque-b', 'opaque-a']
+    cancelled = candidate_matches(passenger, [
+        {'kind': 'lead', 'reference_id': 'opaque-cancelled', 'name_kr': '김지원',
+         'name_en': 'KIM/JI WON', 'status': 'cancelled'}])
+    assert cancelled['status'] == 'UNMATCHED'
     hangul_only = candidate_matches(passenger, [{'kind': 'lead', 'reference_id': 'opaque-d',
                                                   'name_kr': '김지원', 'name_en': None}])
     assert hangul_only['status'] == 'UNMATCHED'
