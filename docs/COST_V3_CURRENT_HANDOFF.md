@@ -30,9 +30,9 @@
 ### 실제 배포와 기능 동작의 구분
 
 - Reservation **최신 Production 배포(70b00859)는 READY**, [GitHub Actions unit/smoke](https://github.com/6Soo/reservation/actions/runs/39939654895)는 모두 PASS다. PR #22 및 dd734e0 배포 기록은 과거 관측으로 보존한다.
-- Vercel Reservation 환경변수 메타데이터에서 **INTERNAL_API_TOKEN(Production/Preview) 존재**, **TURSO_READONLY_AUTH_TOKEN 미설정**, 선택 항목 `TURSO_READONLY_DATABASE_URL` 미설정을 확인했다(값 미조회). 예약 DB 전용 읽기 토큰이 없으면 코드에서 503으로 실패 폐쇄된다. COST 쪽 BASE_URL/내부 토큰, 토큰 일치·권한 scope는 미검증이며 이 운영 단계만 **BLOCKED**.
+- 사용자 승인에 따라 Aside에서 Turso `6soo/reservation` 전용 읽기 토큰을 발급하고 Vercel Reservation의 **Production Secret**으로 `TURSO_READONLY_AUTH_TOKEN`과 `TURSO_READONLY_DATABASE_URL`을 저장했다. 제공자가 발급한 토큰의 권한 claim `a=ro`, 만료 `2026-12-22T11:01:37Z`를 확인했다. 기존 `INTERNAL_API_TOKEN`(Production/Preview)은 변경하지 않았다. 설정은 저장됐지만 새 배포가 필요하며 이번 설정 후 재배포는 실행하지 않았다. COST 쪽 BASE_URL/내부 토큰 일치와 실제 API 인증은 미검증이다.
 - 과거 unit 실패는 로그에서 정확히 `tests/masterDataQueue.test.ts`의 기대 3/실제 2로 확인됐고, [PR #22 이전 기준선](https://github.com/6Soo/reservation/actions/runs/39639564867)에서도 같았다. GET route만 실제 오늘(KST)을 쓰고 test fixture는 2026-10-10 기준이라 2026-09-20 종료 여행이 실행일에 따라 30일 범위를 벗어난 것이 원인. [PR #23](https://github.com/6Soo/reservation/pull/23)에서 해당 테스트에만 Node 22 `t.mock.method(Date,'now',...)` 적용 후 CI 녹색.
-- 실제 예약 참가자의 이름·신원·여행 데이터를 운영 조회하거나 외부 AI에 제공하지 않았다. 사용자 선택은 COST 내부 연결이며 **실제 탑승 확정/보험 명단 변경**이 아니다.
+- 실제 운영 API를 통한 참가자 검증은 미수행이다. 이전 Aside 시도에서 데이터 표가 잠시 열렸고 Block Reads가 잘못 켜졌으나 꺼짐으로 복원했다. 이번 설정 재시도에서는 데이터 표를 열지 않고 읽기·쓰기 차단 모두 꺼짐을 확인했으며 DB 행·스키마 수정이나 데이터 내보내기는 하지 않았다. 예약 원문을 문서에 복사하지 않는다. 사용자 선택은 COST 내부 연결이며 **실제 탑승 확정/보험 명단 변경**이 아니다.
 
 ## 2. 구현된 범위 — 우선 재사용할 근거
 
@@ -67,7 +67,7 @@
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE / 운영 필수 읽기 토큰 미설정으로 실조회 BLOCKED (2026-10-23 확인).** Reservation Vercel 환경변수 **이름·target 메타데이터만** 확인: `INTERNAL_API_TOKEN` 존재(Production/Preview), `TURSO_READONLY_AUTH_TOKEN` 없음, 선택 `TURSO_READONLY_DATABASE_URL` 없음. 내부 토큰 값·DB 토큰 값·운영 고객 자료는 열람/출력하지 않았다. COST 서비스 환경변수 존재 여부는 미검증. 이외 안전한 코드 작업은 계속 가능.
+**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / 새 배포 및 실제 API 인증 미검증 (2026-10-23 후속).** 사용자의 직접 설정·재시도 지시에 따라 Aside의 기존 GitHub 로그인으로 `6soo/reservation` 전용 토큰을 발급했다. 발급 화면의 Read Only 선택과 토큰 claim `a=ro`를 확인했으며 만료는 **2026-12-22 20:01:37 한국 시간**이다. Vercel `reservation`에 `TURSO_READONLY_AUTH_TOKEN`, `TURSO_READONLY_DATABASE_URL`을 **Production에만 Secret으로 저장**했고 저장 성공 및 새 배포 필요 메시지를 확인했다. Preview에는 운영 읽기 권한을 추가하지 않았다. 기존 `INTERNAL_API_TOKEN`은 설정 목록에 존재하며 변경하지 않았다. Turso DB의 Block Reads/Block Writes는 모두 꺼짐을 확인했다. DB 행·스키마 변경이나 운영 쓰기 거부 시험은 실행하지 않았다. 토큰 원문은 Git이나 비밀 파일에 저장하지 않고 브라우저 메모리에서 Vercel로 전달했다. COST 서비스 설정과 양쪽 내부 API 토큰 일치는 미검증이다.
 
 1. Vercel reservation의 Production cc4e325 READY 여부와 대상 도메인/환경을 재확인. 운영 환경변수의 **존재 여부만** 권한이 허용하면 점검하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
@@ -118,7 +118,7 @@
 시작 단계:
 - COST와 reservation 각각의 원격 main, 작업트리, 배포된 Vercel Production commit, GitHub Actions 병합 커밋 결과 조회.
 - **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
-- **P1 BLOCKED:** Reservation Production에 `TURSO_READONLY_AUTH_TOKEN`이 없다. 기존 합성 E2E/표적 검사 근거는 보존하고, 읽기 전용 scope가 검증된 전용 토큰을 사용자가 비밀 저장소에 설정한 뒤에만 최소 운영 읽기 검증을 재개한다. 인증 없이 운영 API 401은 이번 세션의 외부 접근 도구 제약으로 독립 실측하지 못했으며, 실제 DB 503 동작도 코드 계약·합성 테스트로만 확인했다.
+- **P1 설정 저장 완료 / 적용 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret은 저장됐다. 토큰 권한 `a=ro`, 만료 `2026-12-22T11:01:37Z`를 확인했다. 다음 단계는 승인된 새 배포로 설정을 적용하고 COST의 별도 내부 API 인증 설정을 확인한 뒤 최소 읽기 검증을 수행하는 것이다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB에 쓰기 거부 시험을 하지 않는다. 실제 API 인증 성공은 아직 주장하지 않는다.
 - 사용자 인증이 필요한 마지막 P1 단계만 차단하고 그 외 승인 구현을 수행. 결과를 이 인계 문서의 날짜·HEAD·테스트·실행 증거로 갱신.
 
 표적 검사 예시 (로컬 의존성 설치와 실제 환경을 확인한 후):
