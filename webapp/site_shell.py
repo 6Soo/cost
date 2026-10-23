@@ -101,7 +101,7 @@ body.site-standalone{margin:0!important;padding:0!important}
  #nav{width:min(300px,85vw);flex-basis:auto}
   #nav .nv{min-height:44px}#nav .nav-q input{font-size:16px}
   #nav a.brand{min-height:44px;display:flex;align-items:center}
- .site-topbar{display:flex;align-items:center;gap:12px;min-height:56px;box-sizing:border-box;padding:8px 16px;background:#fff;border-bottom:1px solid #E4E7EC;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+ .site-topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;min-height:56px;box-sizing:border-box;padding:8px 16px;background:#fff;border-bottom:1px solid #E4E7EC;box-shadow:0 1px 2px rgba(16,24,40,.04)}
  .site-topbar button{width:auto!important;flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;color:#182230;background:#fff;border:1px solid #D0D5DD;border-radius:10px;font-size:14px;font-weight:600}
  .site-topbar>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:700;letter-spacing:-.01em;color:#182230}
  .site-app>#nav{width:min(300px,85vw);transform:translateX(-100%);transition:transform .18s ease}
