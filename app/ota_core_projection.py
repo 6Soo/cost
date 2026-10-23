@@ -1,5 +1,120 @@
 """검증된 코어 연결을 카드 검토와 장부에 같은 근거로 전달한다."""
 from collections import Counter, defaultdict
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+
+# OTA 상태/사유 라벨은 ota_payment_review와 동일하게 유지한다.
+from app.ota_labels import OTA_STATUS as _OTA_STATUS
+from app.ota_labels import OTA_REASON as _OTA_REASON
+
+
+def project_card_ota_statuses(current: Optional[Dict[str, Any]]) -> Tuple[Dict[str, str], Optional[int], Dict[str, Any]]:
+    """Pure helper: extract OTA link statuses from a fresh canonical snapshot.
+
+    Args:
+        current: The canonical snapshot dict with keys 'generation', 'results', 'data'.
+                 If None or not fresh, returns empty statuses.
+
+    Returns:
+        Tuple of (statuses_by_transaction_id, generation, reconciliation_dict).
+        reconciliation_dict contains: enabled, fresh, status, generation.
+    """
+    if current is None:
+        return {}, None, {'enabled': True, 'fresh': False, 'status': 'stale', 'generation': None}
+
+    generation = current.get('generation')
+    results = current.get('results') or ()
+
+    states: Dict[str, str] = {}
+    for result in results:
+        transaction_id = str(result.get('transaction_id') or '')
+        group_only = (result.get('allocation_basis') in
+                      ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                      and result.get('individual_payment_evidence') is False)
+        state = ('GROUP_RECONCILED' if group_only else
+                 'USER_CONFIRMED' if result.get('status') == 'MATCHED_USER' else
+                 'INFERRED' if result.get('inferred_link') else
+                 'EXACT' if result.get('status') == 'MATCHED_AUTO' else None)
+        if transaction_id and state:
+            states[transaction_id] = state
+        for reserved in result.get('reserved_card_ids') or ():
+            states[str(reserved)] = 'REVIEW_REQUIRED'
+
+    reconciliation = {
+        'enabled': True,
+        'fresh': True,
+        'status': 'ready',
+        'generation': generation,
+    }
+    return states, generation, reconciliation
+
+
+def project_card_ota_candidate_notes(
+    current: Optional[Dict[str, Any]],
+    wanted_transaction_ids: Set[str]
+) -> Dict[str, List[str]]:
+    """Pure helper: extract unresolved canonical OTA candidate notes for given transactions.
+
+    Args:
+        current: The canonical snapshot dict with keys 'generation', 'results', 'data'.
+        wanted_transaction_ids: Set of transaction_ids we want notes for.
+
+    Returns:
+        Dict mapping transaction_id -> sorted list of notes (max 2 per transaction).
+        Input `current` is not mutated.
+    """
+    if current is None:
+        return {}
+
+    data = current.get('data') or {}
+    events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
+    notes: Dict[str, Set[str]] = {}
+
+    for result in data.get('results', []):
+        group_only = (result.get('allocation_basis') in
+                      ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
+                      and result.get('individual_payment_evidence') is False)
+        if group_only:
+            event = events.get(str(result.get('ota_event_id') or ''), {})
+            note = ('OTA 반복 결제 그룹은 대응됐지만 이 카드와 예약의 개별 연결 근거는 확인되지 않았습니다.'
+                    if event else 'OTA 반복 결제 그룹 대응이며 개별 예약 연결은 미확정입니다.')
+            identity = str(result.get('transaction_id') or '')
+            if identity in wanted_transaction_ids:
+                notes.setdefault(identity, set()).add(note)
+            continue
+
+        if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER'):
+            continue
+
+        event = events.get(str(result.get('ota_event_id') or ''), {})
+        provider = str(event.get('provider') or 'OTA')
+        booking_ref = str(event.get('booking_ref') or '')
+        status = _OTA_STATUS.get(str(result.get('status') or ''), str(result.get('status') or '확인 필요'))
+        reason = _OTA_REASON.get(str(result.get('reason') or ''),
+                                 str(result.get('reason') or '추가 근거 확인 필요').replace('_', ' '))
+        note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
+
+        search_candidates = [candidate.get('transaction_id')
+                             for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
+        search_rejections = (result.get('candidate_search') or {}).get('rejected') or ()
+        rejected_ids = [candidate.get('transaction_id') for candidate in search_rejections]
+
+        for transaction_id in [*(result.get('candidates') or ()), *search_candidates, *rejected_ids]:
+            identity = str(transaction_id or '')
+            if identity and identity in wanted_transaction_ids:
+                notes.setdefault(identity, set()).add(note)
+
+        for rejected in search_rejections:
+            identity = str(rejected.get('transaction_id') or '')
+            if identity not in wanted_transaction_ids:
+                continue
+            rejected_reason = _OTA_REASON.get(
+                str(rejected.get('reason') or ''), '같은 카드 조건에서 금액 또는 통화가 다릅니다.')
+            notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
+
+    # Deduplicate and limit to top 2 per transaction, sorted for determinism
+    return {identity: sorted(values)[:2] for identity, values in notes.items()}
+
 
 def card_matches(facts, data):
     """검증된 코어 연결을 화면에 보완하며 기존 연결과 카드 점유는 유지한다."""
