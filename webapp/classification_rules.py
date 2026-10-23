@@ -567,6 +567,7 @@ QUESTION_SPECS = (
 
 # Stored values stay as internal enums. The screen shows these labels.
 OPTION_LABELS = {
+    "__direct__": "\uc9c1\uc811 \uc785\ub825",
     "this_only": "이번 거래에만",
     "repeatable": "비슷한 거래에도",
     "schedule_or_booking": "일정·예약 근거",

@@ -232,9 +232,33 @@ class CardFlowTests(unittest.TestCase):
         finally:
             ledger_board.bind_store(previous_store)
         self.assertEqual(learning['status'], 'opened')
+        from webapp.dialog_turn import SyntheticAdapter
+        reason_adapter = SyntheticAdapter(
+            'muse', 'opencode/muse-spark-1.3-contributor-free',
+            summary=json.dumps({'options': ['여행 일정에 맞는 비용이라서',
+                                            '이 여행을 준비하며 쓴 거래라서']},
+                               ensure_ascii=False))
+        reasons = self.board.suggest_trip_move_reasons(
+            learning_case_id=learning['case_id'], client_request_id='e2e-reasons',
+            muse=reason_adapter)
+        self.assertEqual(reasons['status'], 'suggested')
+        self.assertFalse(reasons['is_real_call'])
+        reason_question = reasons['question']
+        self.assertEqual(len(reason_question['options']), 3)
+        from webapp import ledger_board
+        previous_store = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            dialog_html = ledger_board.rule_dialog_page(learning['case_id'], {})
+        finally:
+            ledger_board.bind_store(previous_store)
+        self.assertIn('trip_move_reason', dialog_html)
+        self.assertIn('direct_answer', dialog_html)
+        self.assertIn('여행 일정에 맞는 비용이라서', dialog_html)
         dialog = self.board.rule_dialog_state(learning['case_id'])
         choices = {'rule_kind': 'repeatable', 'evidence_basis': 'schedule_or_booking',
-                   'event_year': 'this_year', 'period': 'no_period_limit'}
+                   'event_year': 'this_year', 'period': 'no_period_limit',
+                   'trip_move_reason': reason_question['options'][0]}
         for question in dialog['open_questions']:
             answer = choices.get(question['question_key'], question['options'][0])
             self.board.answer_rule_question(
@@ -262,6 +286,41 @@ class CardFlowTests(unittest.TestCase):
             client_request_id='e2e-approve-future-rule')
         self.assertGreaterEqual(applied['applied_count'], 0)
         self.assertEqual(self.board.get_row('card-' + current['transaction_id'])['display_tab_id'], trip_b)
+
+    def test_trip_move_dialog_accepts_a_direct_reason_when_free_ai_is_unavailable(self):
+        trip_a = self.board.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                                        destination='direct-a', client_request_id='direct-trip-a')['tab_id']
+        trip_b = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                        destination='direct-b', client_request_id='direct-trip-b')['tab_id']
+        self.flow.trip_valid = lambda value: value in {trip_a, trip_b}
+        batch = self.flow.pipeline.receive(CARD, 'direct-reason.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id=trip_b, trip_id=trip_b, request_id='direct-move',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.flow.record_decision(batch, row['transaction_id'])
+        from webapp import ledger_board
+        previous_store = ledger_board._STORE
+        try:
+            ledger_board.bind_store(self.board)
+            learning = self.flow.open_trip_move_learning(
+                row['transaction_id'], trip_a, trip_b, request_id='direct-move')
+            question = self.board.ensure_trip_move_reason_question(learning['case_id'])
+            self.assertEqual(question['options'], [])
+            unavailable = self.board.suggest_trip_move_reasons(
+                learning_case_id=learning['case_id'],
+                client_request_id='direct-reason-no-muse', muse=None)
+            self.assertEqual(unavailable['status'], 'unavailable')
+            page_html = ledger_board.rule_dialog_page(learning['case_id'], {})
+            self.assertIn('direct_answer', page_html)
+            answer = self.board.answer_rule_question(
+                question_id=question['question_id'], answer='직접 입력한 합성 이유',
+                expected_row_revision=self.board.get_row(
+                    'card-' + row['transaction_id'])['revision'],
+                client_request_id='direct-reason-answer')
+        finally:
+            ledger_board.bind_store(previous_store)
+        self.assertEqual(answer['answers']['trip_move_reason'], '직접 입력한 합성 이유')
 
     def test_review_evidence_labels_distinguish_existing_mail_evidence(self):
         row = {

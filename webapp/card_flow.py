@@ -1375,6 +1375,7 @@ class CardFlow:
                                     client_request_id=case_request_id + ':dialog')
         self.board.open_conversation(learning_case_id=case_id,
                                      client_request_id=case_request_id + ':conversation')
+        self.board.ensure_trip_move_reason_question(case_id)
         return {"status": "opened", "case_id": case_id,
                 "conversation_id": 'conv-' + case_id,
                 "url": '/rules?case=' + case_id}

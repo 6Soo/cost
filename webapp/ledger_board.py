@@ -1676,6 +1676,20 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
     for question in state["questions"]:
         answered = question["answer"] is not None
         view = question_view(question)
+        if question["question_key"] == "trip_move_reason" and not answered and not question["options"]:
+            parts.append(
+                "<section class='qgroup'><p>" + esc(view["prompt"]) + "</p>"
+                "<form method='post' action='/api/classification/conversation/reasons'>"
+                + _rule_hidden(case_id, f"ui-reasons-{case_id}")
+                + "<button class='btn' type='submit'>AI \uc608\uc0c1 \uc774\uc720 2\uac1c \uc81c\uc548</button></form>"
+                "<form method='post' action='/api/classification/dialog/answer'>"
+                + _rule_hidden(case_id, f"ui-direct-reason-{case_id}",
+                               f"<input type='hidden' name='question_id' value='{esc(question['question_id'])}'>"
+                               f"<input type='hidden' name='expected_row_revision' value='{row.get('revision', 1)}'>"
+                               "<input type='hidden' name='answer' value='__direct__'>")
+                + "<label>\uc9c1\uc811 \uc785\ub825<textarea name='direct_answer' required maxlength='500'></textarea></label>"
+                + "<button class='btn' type='submit'>\uc774\uc720 \uc800\uc7a5</button></form></section>")
+            continue
         options = "".join(
             f"<label class='opt'>"
             f"<input type='radio' name='answer' value='{esc(option['value'])}'"
@@ -1692,6 +1706,8 @@ def rule_dialog_page(case_id: str, query: dict) -> str:
                                f"<input type='hidden' name='expected_row_revision' value='{row.get('revision', 1)}'>")
                 + "<div class='qgroup'>"
                 + f"<p>{esc(view['prompt'])}</p><p>{options}</p>"
+                + ("<label>\uc9c1\uc811 \uc785\ub825<textarea name='direct_answer' maxlength='500'></textarea></label>"
+                   if question["question_key"] == "trip_move_reason" else "")
                 + "<button class='btn' type='submit'>답변 저장</button></div></form>")
     if not state["open_questions"]:
         parts.append("<p class='muted'>더 물을 질문이 없어요.</p>")
@@ -4332,6 +4348,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/api/classification/dialog/close",
                            "/api/classification/dialog/resume",
                            "/api/classification/conversation/advance",
+                           "/api/classification/conversation/reasons",
                            "/api/classification/conversation/confirm-draft",
                            "/api/classification/conversation/owner-draft",
                            "/api/classification/rules/preview",
@@ -4354,6 +4371,7 @@ class Handler(BaseHTTPRequestHandler):
                            "/api/classification/conversation/late",
                            "/api/classification/dialog/note",
                            "/api/classification/conversation/advance",
+                           "/api/classification/conversation/reasons",
                            "/api/classification/conversation/confirm-draft"):
             self._handle_classification_rules(parsed.path, read_payload, check_csrf)
             return
@@ -4710,9 +4728,14 @@ class Handler(BaseHTTPRequestHandler):
                     client_request_id=request_id, actor="owner")
                 message = "근거 설명을 저장했습니다"
             elif path.endswith("/dialog/answer"):
+                answer = str(form.get("answer") or "")
+                if answer == "__direct__":
+                    answer = str(form.get("direct_answer") or "").strip()
+                    if not answer:
+                        raise SaveError("INVALID_VALUE", "direct answer is required")
                 _active_store().answer_rule_question(
                     question_id=str(form.get("question_id") or ""),
-                    answer=str(form.get("answer") or ""),
+                    answer=answer,
                     expected_row_revision=int(form.get("expected_row_revision") or 0),
                     client_request_id=request_id, actor="owner")
                 message = "답변을 저장했습니다"
@@ -4736,6 +4759,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     message = (f"AI 초안 대기 중입니다 · 사유 {turn.get('reason_code') or '-'}"
                                " · 행 저장과 규칙 실행은 계속됩니다")
+            elif path.endswith("/conversation/reasons"):
+                result = _active_store().suggest_trip_move_reasons(
+                    learning_case_id=case_id, client_request_id=request_id, muse=_MUSE)
+                message = ("\uc774\ub3d9 \uc774\uc720 \uc120\ud0dd\uc9c0\ub97c \uc900\ube44\ud588\uc2b5\ub2c8\ub2e4."
+                           if result.get("status") == "suggested"
+                           else "\ubb34\ub8cc AI \uc81c\uc548\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. \uc9c1\uc811 \uc785\ub825\ud574\uc8fc\uc138\uc694.")
             elif path.endswith("/conversation/owner-draft"):
                 _active_store().owner_correction_draft(learning_case_id=case_id,
                                                        client_request_id=request_id, actor="owner")
@@ -4864,9 +4893,15 @@ class Handler(BaseHTTPRequestHandler):
                                          or payload.get("learning_case_id") or ""),
                     client_request_id=str(payload.get("client_request_id") or ""),
                     muse=_MUSE, gemini=_GEMINI, actor="owner",
-                    operator=_operator_choice(
-                        str(payload.get("case")
-                            or payload.get("learning_case_id") or ""), payload))
+                        operator=_operator_choice(
+                            str(payload.get("case")
+                                or payload.get("learning_case_id") or ""), payload))
+            elif path.endswith("/conversation/reasons"):
+                result = _active_store().suggest_trip_move_reasons(
+                    learning_case_id=str(payload.get("case")
+                                         or payload.get("learning_case_id") or ""),
+                    client_request_id=str(payload.get("client_request_id") or ""),
+                    muse=_MUSE)
             elif path.endswith("/conversation/confirm-draft"):
                 result = _active_store().confirm_dialog_draft(
                     learning_case_id=str(payload.get("case")

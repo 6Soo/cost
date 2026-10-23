@@ -2300,7 +2300,8 @@ class LedgerStore:
 
     # Question order follows the contract: this-row-only first, then the basis,
     # then the scope. It is not alphabetical.
-    QUESTION_ORDER = ("rule_kind", "evidence_basis", "trip_scope", "event_year", "period")
+    QUESTION_ORDER = ("trip_move_reason", "rule_kind", "evidence_basis",
+                      "trip_scope", "event_year", "period")
 
     def _question_rows(self, case_id: str):
         rows = self.conn.execute(
@@ -2512,6 +2513,91 @@ class LedgerStore:
                                         "apply_future": bool(apply_future)}
             state["provider"] = PROVIDER_INFO
             return state
+
+    def ensure_trip_move_reason_question(self, learning_case_id: str) -> dict:
+        """Add the owner-facing reason question to the existing dialog record."""
+        dialog = self._dialog_row(learning_case_id)
+        case = self.conn.execute(
+            "SELECT row_id FROM board_learning_cases WHERE case_id=?",
+            (learning_case_id,)).fetchone()
+        if dialog is None or case is None:
+            raise SaveError("INVALID_VALUE", "trip move learning case is missing")
+        question_id = f"q-{learning_case_id}-trip_move_reason"
+        created_at = _utc_now()
+        with self._lock:
+            self._begin_write()
+            try:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO rule_questions(question_id,case_id,question_key,prompt,"
+                    "options_json,answer,answered_at,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (question_id, learning_case_id, "trip_move_reason",
+                     "이 거래를 이 여행으로 옮긴 이유를 알려주세요.",
+                     "[]", None, "", created_at))
+                self._commit_write()
+            except Exception:
+                self._rollback_write()
+                raise
+        return next(item for item in self.rule_dialog_state(learning_case_id)["questions"]
+                    if item["question_key"] == "trip_move_reason")
+
+    def suggest_trip_move_reasons(self, *, learning_case_id: str,
+                                  client_request_id: str, muse=None) -> dict:
+        """Ask only the configured free Muse adapter for two reason choices; no paid fallback."""
+        from .dialog_turn import build_context, run_turn
+        question = self.ensure_trip_move_reason_question(learning_case_id)
+        if question["options"]:
+            return {"status": "suggested", "question": question, "is_real_call": False}
+        if not muse:
+            return {"status": "unavailable", "question": question,
+                    "reason_code": "not_configured", "is_real_call": False}
+        case = self.conn.execute(
+            "SELECT row_id FROM board_learning_cases WHERE case_id=?",
+            (learning_case_id,)).fetchone()
+        row = self.get_row(case[0]) if case else None
+        if row is None or not client_request_id:
+            raise SaveError("INVALID_VALUE", "trip move reason request is incomplete")
+        row = dict(row)
+        row.update(self.card_source_keys(row))
+        conversation_id = f"conv-{learning_case_id}"
+        context = build_context(
+            conversation_id=conversation_id,
+            turn_id="reasons-" + hashlib.sha256(client_request_id.encode("utf-8")).hexdigest()[:20],
+            row=row, answers=self._dialog_answers(learning_case_id),
+            qa=[{"question_key": q[1], "options": json.loads(q[3]), "answer": q[4]}
+                for q in self._question_rows(learning_case_id)])
+        context["task"] = "trip_move_reason_options"
+        outcome = run_turn(turn_id=context["turn_id"], context=context, muse=muse, gemini=None)
+        if not outcome.adopted or not outcome.summary:
+            return {"status": "unavailable", "question": question,
+                    "reason_code": outcome.reason_code or outcome.state,
+                    "is_real_call": bool(outcome.is_real_call)}
+        try:
+            payload = json.loads(outcome.summary)
+            values = payload.get("options") if isinstance(payload, dict) else None
+            options = [str(value).strip() for value in values]
+            if (len(options) != 2 or any(not value or len(value) > 120 for value in options)
+                    or len({value.casefold() for value in options}) != 2):
+                raise ValueError
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {"status": "unavailable", "question": question,
+                    "reason_code": "invalid_suggestions",
+                    "is_real_call": bool(outcome.is_real_call)}
+        question_id = f"q-{learning_case_id}-trip_move_reason"
+        encoded = _canonical(options + ["__direct__"])
+        with self._lock:
+            self._begin_write()
+            try:
+                self.conn.execute(
+                    "UPDATE rule_questions SET options_json=? WHERE question_id=? AND answer IS NULL",
+                    (encoded, question_id))
+                self._commit_write()
+            except Exception:
+                self._rollback_write()
+                raise
+        updated = next(item for item in self.rule_dialog_state(learning_case_id)["questions"]
+                       if item["question_key"] == "trip_move_reason")
+        return {"status": "suggested", "question": updated,
+                "is_real_call": bool(outcome.is_real_call)}
 
     def answer_rule_question(self, *, question_id: str, answer: str,
                              expected_row_revision: int, client_request_id: str,

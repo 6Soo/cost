@@ -284,7 +284,7 @@ class BaseProviderAdapter:
         """Provider-shaped request. The key is never part of the payload."""
         return {
             "model": self.model_id,
-            "system": _system_instruction(),
+            "system": _system_instruction(context),
             "context": context,
         }
 
@@ -369,8 +369,15 @@ class BaseProviderAdapter:
             self, request, max_attempts=max_attempts, backoff=backoff)
 
 
-def _system_instruction():
+def _system_instruction(context=None):
     """The instruction text. It describes the contract, not a secret."""
+    if (context or {}).get("task") == "trip_move_reason_options":
+        return (
+            "당신은 COST의 이동 기록 학습을 돕습니다. 제공된 거래와 여행 정보만 사용해 "
+            "사용자가 이 거래를 선택한 여행으로 옮긴 이유일 수 있는 짧은 한국어 선택지 두 개를 만드세요. "
+            "고객 신원, 예약 번호, 실제 탑승, 날짜나 금액을 만들어내지 마세요. "
+            '출력은 다른 문장 없이 JSON 객체 {"options":["이유 1","이유 2"]} 하나만 반환하세요.'
+        )
     return (
         "You classify card and bank rows for a Korean travel agency ledger. "
         "Answer with a short Korean sentence naming what to change and why. "
@@ -439,7 +446,7 @@ class GeminiAdapter(BaseProviderAdapter):
         body.pop("system", None)
         body["contents"] = [{
             "role": "user",
-            "parts": [{"text": _system_instruction() + "\n\n" +
+            "parts": [{"text": _system_instruction(context) + "\n\n" +
                        _context_to_text(context)}],
         }]
         # A generation config, not a credential.
