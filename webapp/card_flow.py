@@ -1271,25 +1271,7 @@ class CardFlow:
         if ota_payment_review.enabled():
             current, fresh = self._held_ota_snapshot()
             if current is not None and fresh:
-                from app.ota_core_projection import extend_report
-                data = current.get('data') or {}
-                events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
-                cards = {str(card.get('transaction_id')): card for card in data.get('transactions', [])}
-                blocked = set()
-                for result in data.get('results', []):
-                    event = events.get(str(result.get('ota_event_id')))
-                    if not event or not (event.get('service_period_conflict') or event.get('period_conflict')
-                                         or result.get('service_period_conflict') or result.get('period_conflict')):
-                        continue
-                    identities = [result.get('transaction_id'), *(result.get('reserved_card_ids') or [])]
-                    blocked.update(str(cards[str(identity)].get('source_hash')) for identity in identities
-                                   if identity and str(identity) in cards and cards[str(identity)].get('source_hash'))
-                canonical = {
-                    'matches': [], 'type_only_candidates': [], 'rules': [],
-                    'ota_source_errors': [], 'ota_source_inventory': {'missing': []},
-                    'evidence_gate': {'blocked_inference_sources': sorted(blocked)},
-                }
-                return extend_report(canonical, data)
+                return self._canonical_snapshot_report(current)
 
         memo = getattr(self, '_request_report', None)
         if memo is None:
@@ -1301,8 +1283,39 @@ class CardFlow:
         if report is not None and ota_payment_review.enabled():
             current, fresh = self._held_ota_snapshot()
             if current is not None and fresh:
-                from app.ota_core_projection import extend_report
-                report = extend_report(report, current.get('data') or {})
+                # A snapshot can become fresh while the legacy recovery report is
+                # being calculated. Discard that report so it cannot reserve a
+                # card or outrank the newly available canonical decision.
+                return self._canonical_snapshot_report(current)
+        if report is not None:
+            report = dict(report)
+            report['_reconciliation_authority'] = (
+                'legacy_fallback_stale_snapshot' if ota_payment_review.enabled()
+                else 'legacy_fallback_feature_disabled')
+        return report
+
+    def _canonical_snapshot_report(self, current):
+        """Project only a fresh central snapshot; never merge stale legacy decisions into it."""
+        from app.ota_core_projection import extend_report
+        data = current.get('data') or {}
+        events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
+        cards = {str(card.get('transaction_id')): card for card in data.get('transactions', [])}
+        blocked = set()
+        for result in data.get('results', []):
+            event = events.get(str(result.get('ota_event_id')))
+            if not event or not (event.get('service_period_conflict') or event.get('period_conflict')
+                                 or result.get('service_period_conflict') or result.get('period_conflict')):
+                continue
+            identities = [result.get('transaction_id'), *(result.get('reserved_card_ids') or [])]
+            blocked.update(str(cards[str(identity)].get('source_hash')) for identity in identities
+                           if identity and str(identity) in cards and cards[str(identity)].get('source_hash'))
+        canonical = {
+            'matches': [], 'type_only_candidates': [], 'rules': [],
+            'ota_source_errors': [], 'ota_source_inventory': {'missing': []},
+            'evidence_gate': {'blocked_inference_sources': sorted(blocked)},
+        }
+        report = dict(extend_report(canonical, data))
+        report['_reconciliation_authority'] = 'canonical_snapshot'
         return report
 
     def _compute_ota_report(self):

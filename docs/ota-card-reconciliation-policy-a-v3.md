@@ -274,6 +274,12 @@ UI는 **카드 비용 상태 / OTA 연결 상태 / 여행 배정 상태**를 별
 
 전환 전: 현재 운영 manifest/카드 원본/미완료 환불/수동 link·frozen group/이미 기록된 `board_rows`·`ledger_entries` snapshot/해시, migration crosswalk, 복원 근거를 확보. cutoff 전후 카드 금액·원본 해시·사용자 변경 0, 허위 OTA 실제 결제 신설 0, 카드 중복 비용 0. rollback은 플래그와 이전 호환 저장 구조로 하며 기존 확정·대화 기록 삭제 금지.
 
+### 현재 COST 코드의 중앙 결과와 복구 경로
+
+`CardFlow._ota_report()`는 fresh OTA snapshot이 있으면 중앙 `app.ota_payments` 결과만 기존 카드 화면 계약으로 투영한다. legacy 메일·포털 matcher는 이 경로에서 실행하지 않는다. 계산 중 snapshot이 fresh로 바뀌면 앞서 만든 legacy 결과를 버리고 새 중앙 결과만 반환한다. 중앙 snapshot이 없거나 stale이면 기존 사용자의 결정과 복구 기능을 보존하기 위해 `_compute_ota_report()`를 안전한 복구 fallback으로 쓰며 응답의 `_reconciliation_authority`에 fallback 이유를 표시한다. `reclassify_cleanup()`의 직접 호출은 fallback 자료를 준비한 뒤 새 snapshot 계산을 요청하는 경로다.
+
+이 fallback은 신규 중앙 snapshot의 결정을 덮지 않으며 진단 전용도 아니다. stale 상태에서의 제한된 복구 결정 경로다. 중앙 snapshot 생성·freshness 복구가 모든 지원 자료와 기존 수동 연결을 처리하고 stale 복구 검사가 통과하기 전에는 제거하지 않는다. `legacy_exact_bindings()`는 별도 감사 도구의 비교 진단 전용이며 웹 요청의 정본 결과에 연결하지 않는다.
+
 **절대 금지:** Google 직접 쓰기, 실예약번호·카드 원문을 공개 무료 모델에 전송, paid_on/예약번호/한글이름 창작으로 금전 이벤트 확정, 원카드 비용 합산/분할 추정, 기존 수동 여행 B 덮어쓰기, 위임 모델에 운영 원본 제공, 무관한 전체 회귀 무한 반복.
 
 ## 11. 무료 코딩 모델 인수 지시

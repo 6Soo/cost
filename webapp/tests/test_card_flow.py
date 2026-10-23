@@ -798,7 +798,8 @@ class CardFlowTests(unittest.TestCase):
              patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
              patch.object(self.flow, '_compute_ota_report', side_effect=AssertionError('legacy matcher called')), \
              patch('app.ota_core_projection.extend_report', return_value={'extended': True}) as extend:
-            self.assertEqual(self.flow._ota_report(), {'extended': True})
+            report = self.flow._ota_report()
+        self.assertEqual(report, {'extended': True, '_reconciliation_authority': 'canonical_snapshot'})
         canonical = extend.call_args.args[0]
         self.assertEqual(canonical['matches'], [])
         self.assertEqual(canonical['rules'], [])
@@ -812,9 +813,25 @@ class CardFlowTests(unittest.TestCase):
              patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
              patch.object(self.flow, '_compute_ota_report', return_value=fallback) as legacy, \
              patch('app.ota_core_projection.extend_report') as extend:
-            self.assertEqual(self.flow._ota_report(), fallback)
+            report = self.flow._ota_report()
+        self.assertEqual(report['_reconciliation_authority'], 'legacy_fallback_stale_snapshot')
+        self.assertTrue(report['fallback'])
         legacy.assert_called_once_with()
         extend.assert_not_called()
+
+    def test_snapshot_that_freshens_during_fallback_discards_legacy_decisions(self):
+        current = {'data': {'events': [], 'transactions': [], 'results': []}}
+        service = type('Service', (), {'held': lambda _self: (None, False)})()
+        held = [(None, False), (current, True)]
+        service.held = lambda: held.pop(0)
+        fallback = {'matches': [{'transaction_id': 'legacy-card'}], 'rules': [], 'fallback': True}
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+             patch('webapp.ota_payment_review.snapshot_service', return_value=service), \
+             patch.object(self.flow, '_compute_ota_report', return_value=fallback), \
+             patch('app.ota_core_projection.extend_report', side_effect=lambda report, _data: report):
+            report = self.flow._ota_report()
+        self.assertEqual(report['matches'], [])
+        self.assertEqual(report['_reconciliation_authority'], 'canonical_snapshot')
 
     def test_canonical_period_conflict_blocks_only_travel_inference(self):
         data = {
