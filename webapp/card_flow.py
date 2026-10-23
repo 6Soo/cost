@@ -2234,7 +2234,10 @@ def reclassify_cleanup(board):
         merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
     if any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
         try:
-            flow._compute_ota_report()
+            # Use the same central snapshot/freshness contract as card review.
+            # This call is a warm-up only; the worker check below can publish a
+            # newer canonical generation while a stale fallback is prepared.
+            flow._ota_report()
         except (StoreError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
             pass  # 해당 OTA 묶음에서 기존 오류 처리로 보고하고 현지 지출은 계속한다.
         from . import ota_payment_review

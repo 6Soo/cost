@@ -29,7 +29,9 @@ def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeyp
             worker.start()
             assert checked.wait(1), '예약 해석 중 입력 확인 워커가 막혔습니다'
             calls.append('warm')
-        monkeypatch.setattr(card_flow.CardFlow, '_compute_ota_report', warm)
+        monkeypatch.setattr(card_flow.CardFlow, '_ota_report', warm)
+        monkeypatch.setattr(card_flow.CardFlow, '_compute_ota_report',
+                            lambda _: (_ for _ in ()).throw(AssertionError('bypassed central OTA report')))
         monkeypatch.setattr(card_flow.CardFlow, '_classify', lambda *args, **kwargs: calls.append('classify'))
         monkeypatch.setattr(card_flow.CardFlow, '_auto_record_locked', lambda *args, **kwargs: {'auto_recorded': 0})
         monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
