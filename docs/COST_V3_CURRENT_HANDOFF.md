@@ -49,6 +49,14 @@
 - **남은 P1:** 운영 실제 여행 후보 payload, 실제 `source_revision`, 실데이터 원본 변경에 따른 stale 재확정은 개인정보 접근이 수반되므로 별도 승인 전 **UNVERIFIED/BLOCKED**. 운영 DB/Google 쓰기, 실제 고객자료 조회, 추가 합성 인증 요청, 작업 공간 변경 없음.
 
 
+## 0.6 2026-10-23 최신 상태 — 실행 토큰 출처와 전용 토큰 비교
+
+- COST 원격 `main`은 `d3b106c4654ed96b04db4bd47903488508e228e8`였고 로컬은 문서 변경을 fast-forward해 같은 기준에 맞췄다. 변경 전 COST 작업 공간의 기존 미추적 `.claude/stop-gate/`는 보존했다. Reservation 원격 `main`은 `3296255e07e0c654c41b48e347095c2aedd8443e`이며 기존 로컬 사용자 수정은 그대로 두었다.
+- Vercel Reservation Production은 `dpl_DQGvxo765hwryWWURP2XFVDdXkkm`, `READY`, SHA `3296255e`로 재확인했다. 환경변수 메타데이터는 값 복호화 없이 조회했다. 전용 `COST_INTERNAL_API_TOKEN`은 Production 대상, 기존 `INTERNAL_API_TOKEN`은 Preview와 Production 대상이다. GitHub CI, 이전 합성 404, 브라우저 E2E는 요청대로 재실행하지 않았다.
+- 실제 COST 작업 `WebLedger-Board`는 `Running`, 사용자 `kkokk`의 대화형 최고 권한으로 `C:\AX\cost\tools\start_web_ledger_host.ps1`를 실행한다. 작업 인자와 시작 스크립트에는 `RESERVATION_INTERNAL_API_TOKEN` 또는 `RESERVATION_INTERNAL_API_TOKEN_FILE` 지정이 없고, 두 변수 모두 현재 Process/User/Machine 환경에서 설정되지 않았다. `app/reservation_authority.py` 우선순위와 보호 파일 경로를 함께 대조하면 현재 구성은 `D:\WebLedgerHost\secrets\reservation-internal-token.txt` 기본 파일을 사용한다. 보호 파일 존재만 확인했으며 내용을 읽거나 복사하지 않았다. 별도 프로세스 환경 메모리를 덤프하지는 않았다.
+- **전용 토큰 비교 결과: `UNKNOWN` (2026-10-23).** Vercel 연결에서 secret 복호화를 사용하지 않았고, COST 보호 파일 값과 Reservation `COST_INTERNAL_API_TOKEN`을 비교하는 승인된 양쪽 비밀 저장소의 메모리 비교 수단도 현재 제공되지 않는다. 이전 합성 404는 이 파일의 자격증명이 Reservation이 허용하는 두 변수 중 하나와 맞는다는 증거지만 전용 변수와의 일치 여부는 밝히지 않는다. 인증 장애나 `MISMATCH`로 판정하지 않는다.
+- **운영자용 안전 절차:** 권한 있는 관리자가 승인된 비밀 관리 도구에서 두 값을 파일·클립보드·콘솔·로그·Git에 내보내지 않고 메모리에서만 비교한다. 관리 도구가 이 비교를 지원하지 않으면 `UNKNOWN`을 유지한다. 기록할 값은 `MATCH`, `MISMATCH`, `UNKNOWN` 중 하나와 점검 시각뿐이며 토큰·부분 문자열·길이·해시를 기록하지 않는다. `MISMATCH`가 실제 확인돼도 현재 서비스는 인증되므로 무조건 변경하지 않는다. 전용 토큰화가 별도 승인된 경우에만 기존 `INTERNAL_API_TOKEN` 소비자 영향을 검토하고 COST 전용 범위만 최소 변경한다.
+- 이번 실행에서는 합성 요청, 운영 참가자 조회, 비밀값 변경, 서비스 재시작, 배포, CI/브라우저 검사를 수행하지 않았다. 이전의 합성 404 및 격리 합성 브라우저 1 passed가 현재 증거로 유지된다.
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
