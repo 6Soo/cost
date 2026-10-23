@@ -490,6 +490,26 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(first[0]['generation'], 1)
         self.assertEqual(calls, [1])
 
+    def test_classification_and_auto_record_share_one_ota_generation(self):
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+        calls = []
+        def held():
+            calls.append(len(calls) + 1)
+            return {'generation': calls[-1]}, True
+        def classify(_batch_id, **_kwargs):
+            return self.flow._held_ota_snapshot()
+        def auto_record(_batch_id):
+            return self.flow._held_ota_snapshot()
+        with patch.object(ota_payment_review, 'snapshot_service',
+                          return_value=SimpleNamespace(held=held)), \
+             patch.object(self.flow, '_classify', side_effect=classify), \
+             patch.object(self.flow, '_auto_record_locked', side_effect=auto_record), \
+             patch.object(self.flow, 'sync_ledger_rows', return_value=0):
+            classified = self.flow.classify('synthetic-batch')
+        self.assertEqual(classified[0]['generation'], 1)
+        self.assertEqual(calls, [1])
+
     def test_api_readiness_is_independent_of_exact_inferred_or_missing_ota_dates(self):
         from types import SimpleNamespace
         from webapp import ota_payment_review

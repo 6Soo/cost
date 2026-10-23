@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -435,6 +436,8 @@ class CardFlow:
         from app import Pipeline
         self.board = board
         self._ota_group_holds_cache = None
+        self._ota_request_depth = 0
+        self._request_ota_snapshot = None
         with board._lock:
             pipeline=getattr(board,'_card_pipeline',None)
             if pipeline is None or pipeline.store.conn is not board.conn:
@@ -585,12 +588,12 @@ class CardFlow:
         return chosen['tab_id'] if chosen else ''
 
     def classify(self, batch_id, *, transaction_ids=None):
-        with self.board._lock:
-            result = self._classify(batch_id,transaction_ids=transaction_ids)
-            # 분류와 기록은 한 동작이다. 분류 가능한 거래는 같은 자리에서 장부에 기록한다.
-            self._auto_record_locked(batch_id)
-            self.sync_ledger_rows()
-            return result
+        with self._ota_request_scope():
+            with self.board._lock:
+                result = self._classify(batch_id, transaction_ids=transaction_ids)
+                self._auto_record_locked(batch_id)
+                self.sync_ledger_rows()
+                return result
 
     def sync_ledger_rows(self):
         """규칙 결과를 장부 행에 반영한다. 사용자가 고친 필드(`board_manual_overrides`)는 건드리지 않고, 배정이 있던 자리를 비우지 않는다."""
@@ -1382,13 +1385,14 @@ class CardFlow:
 
     def saved_state(self, batch_id, *, classify=False):
         """Only call after the write committed; refresh failure cannot undo that write."""
-        try:
-            if classify:
-                self.classify(batch_id)
-                return self.auto_record(batch_id)
-            return self.state(batch_id)
-        except Exception:
-            return {'saved': True, 'refresh_required': True}
+        with self._ota_request_scope():
+            try:
+                if classify:
+                    self.classify(batch_id)
+                    return self.auto_record(batch_id)
+                return self.state(batch_id)
+            except Exception:
+                return {'saved': True, 'refresh_required': True}
 
     def automatic_holds(self, batch_id):
         from app import quarter_costs
@@ -1470,14 +1474,26 @@ class CardFlow:
         return state
 
     def state(self, batch_id):
-        self._request_report = []
-        self._request_ota_snapshot = False
-        self._ota_group_holds_cache = None
-        try:
+        with self._ota_request_scope():
             return self._state(batch_id)
+
+    @contextmanager
+    def _ota_request_scope(self):
+        """Reuse one published OTA generation across nested work for a card request."""
+        outermost = self._ota_request_depth == 0
+        if outermost:
+            self._request_report = []
+            self._request_ota_snapshot = False
+            self._ota_group_holds_cache = None
+        self._ota_request_depth += 1
+        try:
+            yield
         finally:
-            self._request_report = None
-            self._request_ota_snapshot = None
+            self._ota_request_depth -= 1
+            if outermost:
+                self._request_report = None
+                self._request_ota_snapshot = None
+                self._ota_group_holds_cache = None
 
     def _held_ota_snapshot(self):
         """Share one published matcher generation across a single card request."""
