@@ -80,3 +80,21 @@ def test_description_keeps_only_the_decision_lines():
     assert '예약번호 1400829364445735' in lines
     assert '이용 2026-11-05 ~ 2026-11-06' in lines
     assert not any('원화 금액' in line for line in lines)
+
+
+def test_toyoko_seven_digit_reservation_and_nights_remain_unpaid_evidence():
+    text = '예약번호: 1234567\n숙박일:2026년 10월 24일 (토) 부터 2 박\n합계금액: 140,000원'
+    entry = be.summarize('토요코인 대구 동성로 예약 확인', date(2026, 10, 1), text)
+    assert entry['refs'] == ['1234567']
+    assert (entry['starts_on'], entry['ends_on']) == ('2026-10-24', '2026-10-26')
+    assert entry['paid_amounts'] == []
+    assert not be.matches_direct_hotel(entry, '토요코인 대구 동성로', amount=140000)
+    assert '예약 확인' in be.describe(entry)[0]
+    conflicting = be.summarize('토요코인 예약 확인', None,
+                              text + '\n숙박일:2026년 10월 25일 (일) 부터 2 박')
+    assert conflicting['starts_on'] == ''
+    assert be.summarize('다른 업체 예약 확인', None, text)['refs'] == []
+    corporate = be.summarize('토요코인 코퍼레이트 예약 확인', None,
+                             text + '\n토요코인 부산해운대2\n합계금액: 12,000엔')
+    assert corporate['currency_totals'] == {'KRW': [140000], 'JPY': [12000]}
+    assert be.direct_hotel_branch_matches(corporate, '토요코인 부산해운대II')
