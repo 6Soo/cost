@@ -69,6 +69,45 @@ def test_manual_event_id_crosswalk_is_persisted_with_the_user_confirmation(tmp_p
         reopened.close()
 
 
+def test_manual_link_survives_portal_reingestion_with_new_local_record_id(tmp_path):
+    import sqlite3
+    from app.ota_payments import build_ota_payment_events
+    from webapp.ota_payment_review import _manual_link_crosswalk
+    from tests.card_pipeline.test_ota_portal import portal_database
+
+    source_a = portal_database(tmp_path / 'source-a.sqlite')
+    source_b = portal_database(tmp_path / 'source-b.sqlite')
+    with sqlite3.connect(source_b) as conn:
+        conn.execute("UPDATE bookings SET id='restored-17'")
+        conn.execute("UPDATE direct_source_records SET id='restored-17'")
+        conn.execute("UPDATE booking_source_evidence SET booking_id='restored-17', direct_source_record_id='restored-17'")
+    first = build_ota_payment_events({'portal_databases':[source_a]})[0]
+    recovered = build_ota_payment_events({'portal_databases':[source_b]})[0]
+    assert first['ota_event_id'] != recovered['ota_event_id']
+    assert first['source_digest'] == recovered['source_digest']
+
+    path = tmp_path / 'manual-reingest.sqlite'
+    store = OtaReviewStore(path)
+    preview = store.preview(first, card())
+    store.confirm(first, card(), preview['preview_digest'], request_id='pin-before-reingest',
+                  user='owner', allocations={})
+    store.close()
+
+    reopened = OtaReviewStore(path)
+    try:
+        links, crosswalk = _manual_link_crosswalk(
+            [recovered], reopened.links(), reopened.event_snapshots(), reopened.event_crosswalks())
+        assert links[recovered['ota_event_id']]['transaction_id'] == 'card-a'
+        assert links[recovered['ota_event_id']]['status'] == 'MATCHED_USER'
+        assert crosswalk == {first['ota_event_id']:recovered['ota_event_id']}
+        results = match_ota_payment_events([recovered], [card()], existing_links=links)
+        assert len(results) == 1
+        assert results[0]['status'] == 'MATCHED_USER'
+        assert results[0]['transaction_id'] == 'card-a'
+    finally:
+        reopened.close()
+
+
 @pytest.mark.parametrize('allocations', [pytest.param('omitted', id='omitted'),
                                          pytest.param(None, id='none')])
 def test_confirm_requires_an_explicit_global_allocation_snapshot(tmp_path, allocations):
