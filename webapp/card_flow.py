@@ -1013,7 +1013,7 @@ class CardFlow:
         from . import guide_airfare_review
         if not guide_airfare_review.write_authorization(self.board)[0]:
             return []
-        current, fresh = ota_payment_review.snapshot_service(self.board).held()
+        current, fresh = self._held_ota_snapshot()
         if current is None or not fresh:
             return []
         attributed = {}
@@ -1189,7 +1189,7 @@ class CardFlow:
             report = memo[0]
         from . import ota_payment_review
         if report is not None and ota_payment_review.enabled():
-            current, fresh = ota_payment_review.snapshot_service(self.board).held()
+            current, fresh = self._held_ota_snapshot()
             if current is not None and fresh:
                 from app.ota_core_projection import extend_report
                 report = extend_report(report, current.get('data') or {})
@@ -1471,10 +1471,25 @@ class CardFlow:
 
     def state(self, batch_id):
         self._request_report = []
+        self._request_ota_snapshot = False
+        self._ota_group_holds_cache = None
         try:
             return self._state(batch_id)
         finally:
             self._request_report = None
+            self._request_ota_snapshot = None
+
+    def _held_ota_snapshot(self):
+        """Share one published matcher generation across a single card request."""
+        memo = getattr(self, "_request_ota_snapshot", None)
+        if memo is False:
+            from . import ota_payment_review
+            memo = ota_payment_review.snapshot_service(self.board).held()
+            self._request_ota_snapshot = memo
+        elif memo is None:
+            from . import ota_payment_review
+            return ota_payment_review.snapshot_service(self.board).held()
+        return memo
 
     def _state(self, batch_id):
         result = self.pipeline.get_batch(batch_id)
@@ -1559,7 +1574,7 @@ class CardFlow:
         from . import ota_payment_review
         if not ota_payment_review.enabled():
             return {}, None
-        current, fresh = ota_payment_review.snapshot_service(self.board).held()
+        current, fresh = self._held_ota_snapshot()
         if current is None or not fresh:
             return {}, None
         states = {}
@@ -1628,7 +1643,7 @@ class CardFlow:
         allowed, code = guide_airfare_review.write_authorization(self.board)
         supported = {}
         if allowed:
-            current, fresh = (ota_payment_review.snapshot_service(self.board).held()
+            current, fresh = (self._held_ota_snapshot()
                               if ota_payment_review.enabled() else (None, False))
             if current is None or not fresh:
                 allowed, code = False, "GUIDE_SNAPSHOT_STALE"
@@ -1659,7 +1674,7 @@ class CardFlow:
         backend = ota_payment_review.CoreOtaPaymentBackend.from_host(self.board, read_only=True)
         try:
             # Read the reconciled snapshot only; a full reconciliation never runs on a preview.
-            current, fresh = ota_payment_review.snapshot_service(self.board).held()
+            current, fresh = self._held_ota_snapshot()
             results = current["results"] if current is not None else []
             holds = {}
             for result in results:

@@ -470,6 +470,24 @@ class CardFlowTests(unittest.TestCase):
         self.assertEqual(statuses, {'exact': 'EXACT', 'inferred': 'INFERRED',
                                     'manual': 'USER_CONFIRMED', 'contested': 'REVIEW_REQUIRED'})
 
+    def test_card_request_reuses_one_ota_snapshot_generation(self):
+        from types import SimpleNamespace
+        from webapp import ota_payment_review
+        calls = []
+        def held():
+            generation = len(calls) + 1
+            calls.append(generation)
+            return {'generation': generation}, True
+        self.flow._request_ota_snapshot = False
+        with patch('webapp.ota_payment_review.enabled', return_value=True), \
+                patch.object(ota_payment_review, 'snapshot_service',
+                             return_value=SimpleNamespace(held=held)):
+            first = self.flow._held_ota_snapshot()
+            second = self.flow._held_ota_snapshot()
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]['generation'], 1)
+        self.assertEqual(calls, [1])
+
     def test_api_readiness_is_independent_of_exact_inferred_or_missing_ota_dates(self):
         from types import SimpleNamespace
         from webapp import ota_payment_review
