@@ -178,7 +178,7 @@ def test_post_persists_only_explicit_cost_assignment_idempotently(tmp_path):
                       board=object(), query={'booking_ref': ['SYNTH-500'], 'tour_id': ['tour-synth']},
                       candidate_fetch=lambda _tour: {**AUTHORITY, 'source_revision': 'roster-synth-v2'})
         assert changed.response[1]['passengers'][0]['assignment'] is None
-        assert changed.response[1]['passengers'][0]['stale_assignments'][0]['stale'] is True
+        assert changed.response[1]['stale_assignments'][0]['stale'] is True
 
 
 def test_assignment_refuses_non_owner_missing_csrf_and_stale_proposal(tmp_path):
@@ -229,10 +229,77 @@ def test_changed_evidence_keeps_old_assignment_stale_and_rejects_old_proposal(tm
                       candidate_fetch=lambda _tour: AUTHORITY)
         passenger = current.response[1]['passengers'][0]
         assert passenger['assignment'] is None
-        assert len(passenger['stale_assignments']) == 1
-        assert passenger['stale_assignments'][0]['evidence_digest'] == 'digest-old'
+        assert len(current.response[1]['stale_assignments']) == 1
+        assert current.response[1]['stale_assignments'][0]['evidence_digest'] == 'digest-old'
         assert passenger['confirmed'] is False
         rejected = Handler()
         page.dispatch(rejected, urlsplit('/api/flight-passengers/assign'), is_owner=True,
                       board=object(), raw=payload, csrf='csrf-synth', candidate_fetch=lambda _tour: AUTHORITY)
         assert rejected.response[0] == 409
+
+
+def test_cancelled_post_is_rejected_without_database_row_and_stale_history_is_booking_level(tmp_path):
+    db_path = tmp_path / 'flight.sqlite'
+    cancelled = {**EVIDENCE, 'digest': 'cancel-digest', 'cancellation_status': 'CANCELLED'}
+    repeated = {**EVIDENCE, 'passengers': [dict(EVIDENCE['passengers'][0]), dict(EVIDENCE['passengers'][0])]}
+    proposals = match_booking_passengers(repeated, AUTHORITY)['passengers']
+    old = match_booking_passengers(EVIDENCE, AUTHORITY)['passengers'][0]
+    payload = json.dumps({'booking_ref':'SYNTH-500', 'tour_id':'tour-synth',
+                          'proposal_id':old['proposal_id'], 'candidate_reference_id':'opaque-synth'}).encode()
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':cancelled}):
+        rejected = Handler()
+        page.dispatch(rejected, urlsplit('/api/flight-passengers/assign'), is_owner=True,
+                      board=object(), raw=payload, csrf='csrf-synth', candidate_fetch=lambda _tour:AUTHORITY)
+        assert rejected.response[0] == 409
+        assert rejected.response[1]['code'] == 'PASSENGER_CANDIDATE_REQUIRED'
+    conn = sqlite3.connect(db_path)
+    try:
+        table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='flight_passenger_assignments'").fetchone()
+        assert table is None or conn.execute('SELECT COUNT(*) FROM flight_passenger_assignments').fetchone()[0] == 0
+    finally:
+        conn.close()
+    # Persist an old association, then expose a passenger-less current proposal set.
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':EVIDENCE}):
+        page.dispatch(Handler(), urlsplit('/api/flight-passengers/assign'), is_owner=True,
+                      board=object(), raw=json.dumps({'booking_ref':'SYNTH-500','tour_id':'tour-synth',
+                      'proposal_id':old['proposal_id'],'candidate_reference_id':'opaque-synth'}).encode(),
+                      csrf='csrf-synth', candidate_fetch=lambda _tour:AUTHORITY)
+    empty = {**repeated, 'digest':'now-empty', 'passengers':[]}
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(db_path)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':empty}):
+        current=Handler()
+        page.dispatch(current,urlsplit('/api/flight-passengers/candidates'),is_owner=True,board=object(),
+                      query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']},candidate_fetch=lambda _tour:AUTHORITY)
+        assert len(current.response[1]['stale_assignments']) == 1
+        assert current.response[1]['passengers'] == []
+    assert proposals[0]['proposal_id'] != proposals[1]['proposal_id']
+    duplicate_db = tmp_path / 'duplicate.sqlite'
+    paired = {**EVIDENCE, 'passengers': [dict(EVIDENCE['passengers'][0]), dict(EVIDENCE['passengers'][0])]}
+    first_proposal = match_booking_passengers(paired, AUTHORITY)['passengers'][0]
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(duplicate_db)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':paired}):
+        saved = Handler()
+        page.dispatch(saved, urlsplit('/api/flight-passengers/assign'), is_owner=True, board=object(),
+                      raw=json.dumps({'booking_ref':'SYNTH-500','tour_id':'tour-synth',
+                      'proposal_id':first_proposal['proposal_id'],'candidate_reference_id':'opaque-synth'}).encode(),
+                      csrf='csrf-synth', candidate_fetch=lambda _tour:AUTHORITY)
+        assert saved.response[0] == 200
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1', page.DB_ENV:str(duplicate_db)}), \
+            patch('webapp.ota_payment_review.passenger_index_for', return_value={'SYNTH-500':paired}):
+        fetched = Handler()
+        page.dispatch(fetched, urlsplit('/api/flight-passengers/candidates'), is_owner=True, board=object(),
+                      query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']}, candidate_fetch=lambda _tour:AUTHORITY)
+        assert fetched.response[1]['passengers'][0]['assignment'] is not None
+        assert fetched.response[1]['passengers'][1]['assignment'] is None
+    conn=sqlite3.connect(duplicate_db)
+    try:
+        assert conn.execute('SELECT COUNT(*) FROM flight_passenger_assignments').fetchone()[0] == 1
+    finally:
+        conn.close()
+    conn=sqlite3.connect(db_path)
+    try:
+        assert conn.execute('SELECT COUNT(*) FROM flight_passenger_assignments').fetchone()[0] == 1
+    finally:
+        conn.close()

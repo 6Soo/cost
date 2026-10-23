@@ -1,4 +1,4 @@
-﻿"""Conservative English ticket-name lookup against one tour's read-only candidates."""
+"""Conservative English ticket-name lookup against one tour's read-only candidates."""
 
 import hashlib
 import json
@@ -111,7 +111,7 @@ def match_booking_passengers(evidence, authority):
     evidence_digest = str(evidence.get('digest') or '').strip()
     if not evidence_digest:
         digest_basis = {key: evidence.get(key) for key in
-                        ('booking_ref', 'passengers', 'legs', 'source_digests')}
+                        ('booking_ref', 'passengers', 'legs', 'source_digests', 'conflict', 'cancellation_status')}
         evidence_digest = hashlib.sha256(json.dumps(
             digest_basis, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
     if not tour_id or not revision or not booking_ref or not source_digests:
@@ -137,9 +137,10 @@ def match_booking_passengers(evidence, authority):
             'source_digests': source_digests,
             'evidence_digest': evidence_digest,
             'cancellation_status': evidence.get('cancellation_status', 'NONE'),
+            'evidence_conflict': bool(evidence.get('conflict')),
             'passenger_name_en': ' '.join((str(passenger.get('surname') or '').strip(),
                                            str(passenger.get('given_name') or '').strip())).strip(),
-            'status': (result['status'] if evidence.get('cancellation_status', 'NONE') == 'NONE'
+            'status': (result['status'] if evidence.get('cancellation_status', 'NONE') == 'NONE' and not evidence.get('conflict')
                        else 'CANCELLED_EVIDENCE' if evidence.get('cancellation_status') == 'CANCELLED'
                        else 'CONFLICTING_EVIDENCE'),
             'assignment_status': 'PENDING_USER_CONFIRMATION',
@@ -165,6 +166,8 @@ def build_user_assignment(proposal, *, candidate_reference_id, actor, current_so
     if (current_evidence_digest is not None and
             str(proposal.get('evidence_digest') or '') != str(current_evidence_digest or '')):
         raise ValueError('PASSENGER_CANDIDATES_STALE')
+    if proposal.get('evidence_conflict') or proposal.get('cancellation_status', 'NONE') != 'NONE':
+        raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
     if proposal.get('status') not in ('EXACT_CANDIDATE', 'AMBIGUOUS'):
         raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
     matches = [candidate for candidate in proposal.get('candidates') or ()

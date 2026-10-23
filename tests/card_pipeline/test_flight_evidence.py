@@ -44,11 +44,22 @@ def test_round_trip_one_passenger_with_segments():
 
 
 def test_explicit_cancellation_subject_is_preserved_but_policy_text_is_not_cancellation():
-    cancelled = parse_flight_text("Subject: Booking cancellation confirmed\n예약번호: 1400826934962683\n" +
+    cancelled = parse_flight_text("Subject: Booking cancellation confirmed\n예약번호\n1400826934962683\n" +
                                   _confirmation(people=(("KIM", "ALPHA"),)))
     policy = parse_flight_text("예약 취소 규정 조회 안내\n" + _confirmation(people=(("KIM", "ALPHA"),)))
     assert cancelled["cancellation_status"] == "CANCELLED"
     assert policy["cancellation_status"] == "NONE"
+
+
+def test_cancellation_only_notice_needs_booking_reference_and_policy_phrases_are_not_cancellation():
+    notice = parse_flight_text("Subject: Booking cancellation confirmed\n" + _confirmation(people=(), legs=()))
+    assert notice["booking_ref"] == "1400826934962683"
+    assert notice["cancellation_status"] == "CANCELLED"
+    assert parse_flight_text("Subject: Booking cancellation confirmed") is None
+    policy_body = parse_flight_text(_confirmation().replace("?? ?? ? ????? ??", "?? ?? ? ???? ????"))
+    policy_subject = parse_flight_text("Subject: ?? ?? ??\n" + _confirmation())
+    assert policy_body["cancellation_status"] == "NONE"
+    assert policy_subject["cancellation_status"] == "NONE"
 
 
 def test_two_passengers_keep_inner_space_and_hangul_names():
@@ -150,6 +161,9 @@ def test_merge_conflicting_departure_dates_sets_conflict():
     first = parse_flight_text(_confirmation())
     second = parse_flight_text(_confirmation(legs=(["가는편: 서울 - 삿포로", "2026년 6월 17일"] + OUTBOUND[2:], RETURN)))
     assert merge_booking_evidence([first, second])["conflict"] is True
+    clean = merge_booking_evidence([first])
+    disputed = merge_booking_evidence([first, second])
+    assert clean['digest'] != disputed['digest']
 
 
 def test_merge_digest_is_stable_across_part_order():
@@ -208,6 +222,19 @@ def test_collect_marks_authenticated_cancellation_subject_and_keeps_policy_text_
         result = collect_flight_evidence([tmp_path])
     evidence = result[("trip", "1400826934962683")]
     assert evidence["cancellation_status"] == "CONFLICT"
+
+
+def test_collect_preserves_cancellation_only_notice_with_reference(tmp_path):
+    flight_evidence._MEMO.clear()
+    messages = {"cancel": _trip_message("cancel", "예약번호\n1400826934962683")}
+    messages["cancel"]["subject"] = "Booking cancellation confirmed"
+    with patch("app.ota_mail.load_messages_from", return_value=(messages, [])), \
+            patch("app.ota_mail.authenticated_headers",
+                  side_effect=lambda message, domains: ({"subject": message["subject"]}, "trip.com")), \
+            patch("app.ota_mail.body_text", side_effect=_fake_body_text):
+        result = collect_flight_evidence([tmp_path])
+    assert result[("trip", "1400826934962683")]["cancellation_status"] == "CANCELLED"
+    assert result[("trip", "1400826934962683")]["passengers"] == []
 
 
 def test_collect_reuses_memo_for_identical_stamps(tmp_path):

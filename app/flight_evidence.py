@@ -32,7 +32,8 @@ def parse_flight_text(text: str) -> dict | None:
     passengers = _passengers(tokens)
     headers = [i for i, token in enumerate(tokens) if _HEADER.fullmatch(token)]
     cancellation_status = _cancellation_status(tokens)
-    if not passengers and not headers and cancellation_status == "NONE":
+    booking_ref = _booking_ref(tokens)
+    if not passengers and not headers and (cancellation_status == "NONE" or not booking_ref):
         return None
     stops = headers + [i for i, token in enumerate(tokens) if "규정 조회" in token]
     stops += [i - 1 for i, token in enumerate(tokens) if token == "(성)" and i > 0]
@@ -45,7 +46,7 @@ def parse_flight_text(text: str) -> dict | None:
         end = min([s for s in stops if s > h] + [len(tokens)])
         legs.append({"label": label, "origin_city": origin, "destination_city": destination,
                      "departure_on": _date_on(date_text), "segments": _segments(tokens[h + 1:end])})
-    return {"booking_ref": _booking_ref(tokens), "passengers": passengers, "legs": legs,
+    return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
             "cancellation_status": cancellation_status,
             "legs_complete": bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)}
 
@@ -83,7 +84,7 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
     digest_body = {"v": PARSER_VERSION,
                    "passengers": sorted([p["surname"].casefold(), p["given_name"].casefold()] for p in passengers),
                    "legs": legs, "source_digests": source_digests,
-                   "cancellation_status": cancellation_status}
+                   "cancellation_status": cancellation_status, "conflict": conflict}
     return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
             "legs_complete": legs_complete, "conflict": conflict, "source_digests": source_digests,
             "cancellation_status": cancellation_status,
@@ -93,9 +94,11 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
 def _cancellation_status(tokens):
     subject = " ".join(tokens[:5]).casefold()
     body = " ".join(tokens).casefold()
-    if "booking cancellation confirmed" in subject or "예약 취소가 완료" in body or "예약이 취소되었습니다" in body:
+    if ("booking cancellation confirmed" in subject or "예약 취소가 완료" in body
+            or "예약 취소 완료" in body or "예약이 취소되었습니다" in body):
         return "CANCELLED"
-    if "booking cancellation" in subject or "취소 요청" in body:
+    if (re.search(r"booking\s+cancellation\s+(?:requested|request received)", subject)
+            or re.search(r"취소\s*(?:요청이\s*)?(?:접수|완료|되었습니다|됐습니다)", body)):
         return "CONFLICT"
     return "NONE"
 
@@ -118,12 +121,13 @@ def collect_flight_evidence(mail_directories) -> dict:
         if not authenticated:
             continue
         provider = next(name for name, bases in PROVIDER_DOMAINS.items() if authenticated[1] in bases)
-        parsed = parse_flight_text(ota_mail.message_text(message))
+        subject = str((authenticated[0] or {}).get("subject") or "")
+        body_text = ota_mail.message_text(message)
+        parsed = parse_flight_text("Subject: " + subject + "\n" + body_text)
         if parsed:
-            subject = str((authenticated[0] or {}).get("subject") or "")
             if re.search(r"booking\s+cancellation\s+confirmed|취소(?:가|이)?\s*(?:완료|되었|됐|됨)", subject, re.I):
                 parsed["cancellation_status"] = "CANCELLED"
-            elif re.search(r"booking\s+cancellation|취소", subject, re.I):
+            elif re.search(r"booking\s+cancellation\s+(?:requested|request received)|취소\s*(?:요청|접수)", subject, re.I):
                 parsed["cancellation_status"] = "CONFLICT"
         if not parsed or not parsed["booking_ref"]:
             continue

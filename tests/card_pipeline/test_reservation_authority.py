@@ -224,6 +224,22 @@ def test_manual_passenger_assignment_requires_current_explicit_candidate_and_nev
         current_source_revision='roster-v8')['assignment_id']
 
 
+def test_manual_assignment_rejects_cancellation_and_itinerary_conflict():
+    authority = {'tour_id': 'tour-x', 'source_revision': 'roster-x', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-x', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'confirmed'}]}
+    for evidence in ({'booking_ref': 'REF-X', 'source_digests': ['src-x'],
+                      'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+                      'cancellation_status': 'CANCELLED'},
+                     {'booking_ref': 'REF-X', 'source_digests': ['src-x'],
+                      'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+                      'conflict': True}):
+        proposal = match_booking_passengers(evidence, authority)['passengers'][0]
+        with pytest.raises(ValueError, match='PASSENGER_CANDIDATE_REQUIRED'):
+            build_user_assignment(proposal, candidate_reference_id='opaque-x', actor='owner',
+                                  current_source_revision='roster-x')
+
+
 def test_digest_stable_across_fetches_and_reordered_source(server):
     state, base = server
     first = fetch_authority(base, 'tok')
