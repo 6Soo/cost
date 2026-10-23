@@ -155,6 +155,26 @@ def test_passenger_candidates_require_exact_unique_english_identity_only():
     assert hangul_only['status'] == 'UNMATCHED'
 
 
+def test_passenger_name_normalization_handles_compact_and_limited_reversal():
+    candidates = [{'kind': 'lead', 'reference_id': 'opaque-name', 'name_kr': '김지원',
+                   'name_en': 'JI WON KIM', 'status': 'confirmed'}]
+    result = candidate_matches({'surname': 'KIM', 'given_name': 'JI WON'}, candidates)
+    assert result['status'] == 'EXACT_CANDIDATE'
+    assert result['candidates'][0]['reference_id'] == 'opaque-name'
+
+
+def test_evidence_content_change_changes_proposal_even_when_source_id_is_stable():
+    authority = {'tour_id': 'tour-digest', 'source_revision': 'roster-1', 'candidates': []}
+    first = {'booking_ref': 'SYNTH-DIGEST', 'source_digests': ['same-source'],
+             'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+             'legs': [{'departure_on': '2026-06-01'}]}
+    changed = {**first, 'passengers': [{'surname': 'LEE', 'given_name': 'BETA'}]}
+    one = match_booking_passengers(first, authority)['passengers'][0]
+    two = match_booking_passengers(changed, authority)['passengers'][0]
+    assert one['evidence_digest'] != two['evidence_digest']
+    assert one['proposal_id'] != two['proposal_id']
+
+
 def test_booking_passengers_remain_unconfirmed_candidates_and_are_source_scoped():
     evidence = {'booking_ref': 'SYNTH-100', 'source_digests': ['sha-mail-a'],
                 'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}]}
@@ -202,6 +222,22 @@ def test_manual_passenger_assignment_requires_current_explicit_candidate_and_nev
     assert assignment['assignment_id'] == build_user_assignment(
         proposal, candidate_reference_id='opaque-lead', actor='owner',
         current_source_revision='roster-v8')['assignment_id']
+
+
+def test_manual_assignment_rejects_cancellation_and_itinerary_conflict():
+    authority = {'tour_id': 'tour-x', 'source_revision': 'roster-x', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-x', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'confirmed'}]}
+    for evidence in ({'booking_ref': 'REF-X', 'source_digests': ['src-x'],
+                      'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+                      'cancellation_status': 'CANCELLED'},
+                     {'booking_ref': 'REF-X', 'source_digests': ['src-x'],
+                      'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}],
+                      'conflict': True}):
+        proposal = match_booking_passengers(evidence, authority)['passengers'][0]
+        with pytest.raises(ValueError, match='PASSENGER_CANDIDATE_REQUIRED'):
+            build_user_assignment(proposal, candidate_reference_id='opaque-x', actor='owner',
+                                  current_source_revision='roster-x')
 
 
 def test_digest_stable_across_fetches_and_reordered_source(server):

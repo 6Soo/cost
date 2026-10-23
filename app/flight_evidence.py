@@ -9,7 +9,7 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v1"
+PARSER_VERSION = "flight-evidence-v2"
 PROVIDER_DOMAINS = {"trip": ("trip.com", "trip.co.kr")}
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
@@ -31,7 +31,9 @@ def parse_flight_text(text: str) -> dict | None:
     tokens = [token for token in tokens if token]
     passengers = _passengers(tokens)
     headers = [i for i, token in enumerate(tokens) if _HEADER.fullmatch(token)]
-    if not passengers and not headers:
+    cancellation_status = _cancellation_status(tokens)
+    booking_ref = _booking_ref(tokens)
+    if not passengers and not headers and (cancellation_status == "NONE" or not booking_ref):
         return None
     stops = headers + [i for i, token in enumerate(tokens) if "규정 조회" in token]
     stops += [i - 1 for i, token in enumerate(tokens) if token == "(성)" and i > 0]
@@ -44,7 +46,8 @@ def parse_flight_text(text: str) -> dict | None:
         end = min([s for s in stops if s > h] + [len(tokens)])
         legs.append({"label": label, "origin_city": origin, "destination_city": destination,
                      "departure_on": _date_on(date_text), "segments": _segments(tokens[h + 1:end])})
-    return {"booking_ref": _booking_ref(tokens), "passengers": passengers, "legs": legs,
+    return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
+            "cancellation_status": cancellation_status,
             "legs_complete": bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)}
 
 
@@ -74,12 +77,34 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
     legs.sort(key=_leg_order)
     legs_complete = bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)
     source_digests = sorted({part["source_digest"] for part in parts if part.get("source_digest")})
+    cancellation_states = {part.get("cancellation_status", "NONE") for part in parts}
+    cancellation_status = ("CONFLICT" if "CANCELLED" in cancellation_states and "NONE" in cancellation_states
+                           or "CONFLICT" in cancellation_states else
+                           "CANCELLED" if "CANCELLED" in cancellation_states else "NONE")
     digest_body = {"v": PARSER_VERSION,
                    "passengers": sorted([p["surname"].casefold(), p["given_name"].casefold()] for p in passengers),
-                   "legs": legs, "source_digests": source_digests}
+                   "legs": legs, "source_digests": source_digests,
+                   "cancellation_status": cancellation_status, "conflict": conflict}
     return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
             "legs_complete": legs_complete, "conflict": conflict, "source_digests": source_digests,
+            "cancellation_status": cancellation_status,
             "digest": hashlib.sha256(_canonical(digest_body).encode("utf-8")).hexdigest()}
+
+
+def _cancellation_status(tokens):
+    subject = " ".join(tokens[:5]).casefold()
+    lines = [line.casefold() for line in tokens]
+    policy = re.compile(r"(?:완료|요청)\s*(?:되면|될\s*경우|시|할\s*경우)|요청\s*시")
+    lines = [line for line in lines if not policy.search(line)]
+    body = " ".join(lines)
+    if (re.search(r"booking\s+cancellation\s+confirmed", subject)
+            or re.search(r"예약\s*취소(?:가)?\s*(?:완료(?:되었습니다|됐습니다)|되었습니다|됐습니다)", body)
+            or "예약 취소 완료" in body or "예약이 취소되었습니다" in body):
+        return "CANCELLED"
+    if (re.search(r"booking\s+cancellation\s+(?:requested|request received)", subject)
+            or re.search(r"취소\s*(?:요청이\s*)?(?:접수|완료|되었습니다|됐습니다)", body)):
+        return "CONFLICT"
+    return "NONE"
 
 
 def collect_flight_evidence(mail_directories) -> dict:
@@ -100,7 +125,13 @@ def collect_flight_evidence(mail_directories) -> dict:
         if not authenticated:
             continue
         provider = next(name for name, bases in PROVIDER_DOMAINS.items() if authenticated[1] in bases)
-        parsed = parse_flight_text(ota_mail.message_text(message))
+        subject = str((authenticated[0] or {}).get("subject") or "")
+        body_text = ota_mail.message_text(message)
+        parsed = parse_flight_text("Subject: " + subject + "\n" + body_text)
+        if parsed:
+            subject_status = _cancellation_status(["Subject: " + subject])
+            if subject_status != "NONE":
+                parsed["cancellation_status"] = subject_status
         if not parsed or not parsed["booking_ref"]:
             continue
         parsed["source_digest"] = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
