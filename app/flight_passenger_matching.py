@@ -58,11 +58,11 @@ def match_booking_passengers(evidence, authority):
     if not tour_id or not revision or not booking_ref or not source_digests:
         raise ValueError('verified flight evidence and a tour authority snapshot are required')
     matches = []
-    for passenger in evidence.get('passengers') or ():
+    for passenger_index, passenger in enumerate(evidence.get('passengers') or ()):
         key = _name_key(' '.join((str(passenger.get('surname') or ''),
                                   str(passenger.get('given_name') or ''))))
         proposal_id = 'fp-' + hashlib.sha256(json.dumps(
-            [booking_ref, source_digests, tour_id, revision, key],
+            [booking_ref, source_digests, tour_id, revision, passenger_index, key],
             separators=(',', ':')).encode('utf-8')).hexdigest()[:24]
         result = candidate_matches(passenger, authority.get('candidates') or [])
         matches.append({

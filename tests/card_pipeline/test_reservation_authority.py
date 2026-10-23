@@ -107,6 +107,35 @@ def test_read_only_passenger_candidates_are_minimized_and_bound_to_requested_tou
     assert 'phone' not in json.dumps(result)
 
 
+def test_passenger_candidate_fetch_retries_one_transient_read_failure():
+    seen = []
+    responses = [503, 200]
+    payload = {'tour_id': 't1', 'source_revision': 'roster-v7', 'candidates': []}
+
+    class Response:
+        def __init__(self, status):
+            self.status = status
+
+        def read(self, size=-1):
+            body = b'{}' if self.status == 503 else json.dumps(payload).encode('utf-8')
+            return body[:size]
+
+        def close(self):
+            pass
+
+    def opener(request, timeout):
+        seen.append((request.full_url, request.get_header('Authorization'), timeout))
+        return Response(responses.pop(0))
+
+    result = fetch_passenger_candidates('t1', 'https://reserve.example.test', 'tok-passenger',
+                                        timeout=2, opener=opener)
+    assert result == payload
+    assert len(seen) == 2
+    assert seen[0] == seen[1] == (
+        'https://reserve.example.test/api/internal/passenger-candidates?tourFldid=t1',
+        'Bearer tok-passenger', 2)
+
+
 def test_passenger_candidates_require_exact_unique_english_identity_only():
     passenger = {'surname': 'KIM', 'given_name': 'JI-WON'}
     candidates = [
@@ -140,6 +169,19 @@ def test_booking_passengers_remain_unconfirmed_candidates_and_are_source_scoped(
     assert passenger['actual_boarding_confirmed'] is False
     assert passenger['source_digests'] == ['sha-mail-a']
     assert match_booking_passengers(evidence, authority)['passengers'][0]['proposal_id'] == passenger['proposal_id']
+
+
+def test_repeated_ticket_names_get_distinct_confirmation_proposals():
+    evidence = {'booking_ref': 'SYNTH-REPEAT', 'source_digests': ['sha-mail-repeat'],
+                'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'},
+                               {'surname': 'KIM', 'given_name': 'ALPHA'}]}
+    authority = {'tour_id': 'tour-repeat', 'source_revision': 'roster-repeat', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-a', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'active'}]}
+    proposals = match_booking_passengers(evidence, authority)['passengers']
+    assert len(proposals) == 2
+    assert proposals[0]['proposal_id'] != proposals[1]['proposal_id']
+    assert all(item['confirmed'] is False for item in proposals)
 
 
 def test_manual_passenger_assignment_requires_current_explicit_candidate_and_never_confirms_boarding():

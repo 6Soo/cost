@@ -213,7 +213,15 @@ def fetch_passenger_candidates(tour_fldid, base_url=None, token=None, *, timeout
     if not token:
         raise AuthorityUnavailable('not_configured')
     query = urllib.parse.urlencode({'tourFldid': tour_id})
-    payload = _get(base + '/api/internal/passenger-candidates?' + query, token, timeout, opener)
+    url = base + '/api/internal/passenger-candidates?' + query
+    for attempt in range(2):
+        try:
+            payload = _get(url, token, timeout, opener)
+            break
+        except AuthorityUnavailable as exc:
+            if attempt == 0 and exc.code in {'timeout', 'unavailable'}:
+                continue
+            raise
     if (payload.get('tour_id') != tour_id or not _text(payload.get('source_revision')) or
             not isinstance(payload.get('candidates'), list)):
         raise AuthorityUnavailable('malformed')
