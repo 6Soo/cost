@@ -12,8 +12,8 @@
 
 ## 현재 작업 상태 (2026-10-23 갱신)
 
-- **COST main:** `f52533e`이며 `origin/main`에 반영됐다. 최근 변경은 R3 snapshot 소비 경로 정렬, R4 지출 준비 흐름, R5-B 참가자 owner UI·adapter, R6 대량 재분류의 중앙 OTA 조회 연결이다.
-- **Reservation [초안 PR #22](https://github.com/6Soo/reservation/pull/22):** 읽기 전용 후보 API와 별도 `TURSO_READONLY_AUTH_TOKEN` 연결. 합성 HTTP→COST 브라우저→SQLite 저장/stale 재확정과 Vercel Preview를 확인했다. `main`은 자동 배포 대상이라 병합하지 않았다.
+- **COST main:** `305fc6b`이며 `origin/main`과 일치한다. 최근 변경은 R3 snapshot 소비 경로 정렬, R4 지출 준비 흐름, R5-B 참가자 owner UI·adapter, R6 대량 재분류의 중앙 OTA 조회 연결이다.
+- **Reservation PR #22:** `cc4e325`로 2026-10-23 `main`에 병합됐다. 읽기 전용 후보 API, SQL 읽기 허용 검사, 합성 HTTP→COST 브라우저→SQLite 저장/stale 재확정이 반영됐다. Vercel 미리보기 검사는 통과했으며 GitHub 배포 화면의 Production 최신 배포는 2026-10-21이다. 이번 병합에 따른 운영 배포는 확인되지 않았다.
 - **실서비스 차단:** 운영 내부 API 토큰 및 별도 읽기 전용 DB 자격증명이 없어 운영 인증 요청과 실제 자료 검증은 하지 않았다. 예약 서비스 설정·배포 승인은 운영 권한자가 수행해야 한다.
 - **R1~R6/N:M 코드 작업:** 승인 명세 기준 표적·합성 검증과 Git 반영을 완료했다. R6는 오래된 snapshot 복구 fallback을 남기되 fresh canonical 결과를 덮지 못하게 했고, 대량 재분류도 중앙 `_ota_report`를 사용한다.
 - **다음 실행:** 기존 R0/R1~R6 작업을 반복하지 않는다. 이 문서와 작업 큐의 증거를 재사용하고, 새 필수 결함이 확인되면 해당 소비 경로부터 표적 수정한다.
