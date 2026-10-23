@@ -299,7 +299,7 @@ def _extract_signed_payment_message(message):
             "source_binding_ids": []}
 
 
-def _portal_events(databases, *, source_lineage_ids=None):
+def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=None):
     grouped = defaultdict(list)
     database_paths = [Path(item).resolve() for item in ota_portal.as_databases(databases)]
     missing = [{"kind":"portal_database", "path":str(path)} for path in database_paths
@@ -316,6 +316,11 @@ def _portal_events(databases, *, source_lineage_ids=None):
         grouped[(row["database"], row["booking_number"], row["id"])].append(row)
     events = []
     for (database_index, booking, record_id), evidence in sorted(grouped.items()):
+        outcome_source = f"portal:{database_index}:{record_id}"
+        def outcome(reason):
+            if extraction_outcomes is not None:
+                extraction_outcomes.append({"source": outcome_source, "reason": reason})
+
         try:
             database_number = int(str(database_index).split(":", 1)[0])
         except (TypeError, ValueError):
@@ -328,6 +333,11 @@ def _portal_events(databases, *, source_lineage_ids=None):
         roles = {row["evidence_role"] for row in evidence}
         if (not ota_portal.REQUIRED_EVIDENCE_ROLES <= roles or
                 any(row["conflict_count"] or row["evidence_status"] != "observed" for row in evidence)):
+            missing_roles = ota_portal.REQUIRED_EVIDENCE_ROLES - roles
+            if missing_roles:
+                outcome("EVIDENCE_ROLE_MISSING")
+            if any(row["conflict_count"] or row["evidence_status"] != "observed" for row in evidence):
+                outcome("SOURCE_EVIDENCE_CONFLICT")
             continue
         first = evidence[0]
         raw = first["payload_json"]
@@ -336,9 +346,13 @@ def _portal_events(databases, *, source_lineage_ids=None):
             raise ValueError("OTA_PORTAL_PAYLOAD_HASH_MISMATCH")
         fact = json.loads(raw)
         if fact.get("provider") != "agoda" or fact.get("booking_number") != booking:
+            outcome("BOOKING_IDENTITY_MISMATCH")
             continue
+        components = [component for component in fact.get("price_components", []) or []
+                      if component.get("kind") == "paid_today"]
         amounts = ota_portal.price_amounts(fact)
         if not amounts:
+            outcome("BOOKING_AMOUNT_INVALID" if components else "PAID_TODAY_COMPONENT_MISSING")
             continue
         verdict = ota_portal.payment_verdict(fact, first["status"])
         # 취소된 예약도 이미 결제된 원본 요금이면 그 charge를 보존한다.
@@ -346,20 +360,25 @@ def _portal_events(databases, *, source_lineage_ids=None):
                           fact.get("collection_model") == "agoda_collect")
         legacy_paid = verdict == "paid"
         if not (canonical_paid or legacy_paid):
+            outcome("PAYMENT_NOT_VERIFIED_" + str(verdict or "UNKNOWN").upper())
             continue
         if fact.get("refund_status") in ("refund_pending", "refund_requested", "unknown"):
+            outcome("REFUND_STATUS_UNRESOLVED")
             continue
         card_last4 = str(fact.get("card_last4") or "")
         if not re.fullmatch(r"\d{4}", card_last4):
+            outcome("CARD_HINT_MISSING_OR_INVALID")
             continue
         start, end = fact.get("service_start_on"), fact.get("service_end_on")
         period = None
         if start and end:
             try:
                 if date.fromisoformat(start) > date.fromisoformat(end):
+                    outcome("SERVICE_PERIOD_INVALID")
                     continue
                 period = {"starts_on": start, "ends_on": end}
             except (TypeError, ValueError):
+                outcome("SERVICE_PERIOD_INVALID")
                 continue
         # 명시된 숙박 상품과 Aside v1의 '투숙 완료'를 비용 항목에 전달한다.
         # 이전 수집 원문의 item 누락 때문에 확인된 상품 종류를 버리지 않는다.
@@ -369,15 +388,16 @@ def _portal_events(databases, *, source_lineage_ids=None):
                 or (fact.get("evidence_format") == "agoda-aside-v1"
                     and fact.get("reservation_status") == "completed"))):
             item = "숙박비"
-        components = [component for component in fact.get("price_components", []) or []
-                      if component.get("kind") == "paid_today"]
+        emitted_charges = 0
         for component_index, component in enumerate(components):
             currency = str(component.get("currency") or "").upper()
             try:
                 amount = Decimal(str(component["decimal_text"]).replace(",", ""))
                 if not amount.is_finite() or amount <= 0:
+                    outcome("PAYMENT_COMPONENT_AMOUNT_INVALID")
                     continue
             except (InvalidOperation, KeyError, TypeError, ValueError):
+                outcome("PAYMENT_COMPONENT_AMOUNT_INVALID")
                 continue
             payment_id = component.get("payment_id") or fact.get("payment_id")
             payment_identity = str(payment_id) if payment_id else f"row-{record_id}-part-{component_index}"
@@ -408,6 +428,11 @@ def _portal_events(databases, *, source_lineage_ids=None):
             }
             event["ota_event_id"] = _event_id(event["identity_source_ids"])
             events.append(event)
+            emitted_charges += 1
+        if emitted_charges:
+            outcome("PAYMENT_EVENT_CREATED")
+        else:
+            outcome("PAID_TODAY_COMPONENT_MISSING")
         if fact.get("refund_status") in ("refunded", "refund_completed"):
             for component_index, component in enumerate(fact.get("price_components", []) or []):
                 if component.get("kind") not in ("refund_completed", "refunded", "refund"):
@@ -498,7 +523,7 @@ def _collapse_portal_source_copies(events):
     return collapsed
 
 
-def build_ota_payment_events(sources):
+def build_ota_payment_events(sources, *, extraction_outcomes=None):
     """메일·포털의 검증된 금전 근거만 카드와 독립적으로 이벤트로 만든다."""
     sources = sources or {}
     failures = []
@@ -529,7 +554,8 @@ def build_ota_payment_events(sources):
             raise OtaSourcesError(reference_report["errors"])
     events = _mail_events(sources.get("mail_directories"))
     events.extend(_portal_events(sources.get("portal_databases"),
-                                 source_lineage_ids=sources.get("source_lineage_ids")))
+                                 source_lineage_ids=sources.get("source_lineage_ids"),
+                                 extraction_outcomes=extraction_outcomes))
     events = _merge_proven_duplicate_payments(events)
     # 참고 문서는 진단에만 쓰며 금전 이벤트를 공급하지 않는다.
     events.sort(key=lambda event: event["ota_event_id"])

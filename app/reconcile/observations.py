@@ -8,7 +8,7 @@ from pathlib import Path
 from app import ota_mail, ota_portal
 
 
-def inspect_observations(sources, events):
+def inspect_observations(sources, events, extraction_outcomes=None):
     """Return privacy-neutral counts and skipped raw observation descriptors.
 
     The returned descriptors contain only a local source coordinate and reason;
@@ -41,6 +41,9 @@ def inspect_observations(sources, events):
                                 "error_type": "SOURCE_READ_ERROR"})
 
     portal_count = 0
+    outcomes_by_source = defaultdict(list)
+    for item in extraction_outcomes or ():
+        outcomes_by_source[str(item.get("source") or "")].append(item.get("reason"))
     portal_databases_by_id = defaultdict(set)
     portal_payloads_by_hash = defaultdict(set)
     for database_index, database in enumerate(ota_portal.as_databases(sources.get("portal_databases"))):
@@ -69,6 +72,9 @@ def inspect_observations(sources, events):
                     reasons.append("SOURCE_CONFLICT")
                 if not str(row.get("payload_json") or ""):
                     reasons.append("RAW_PAYLOAD_MISSING")
+                if not reasons:
+                    detailed = outcomes_by_source.get(f"portal:{database_index}:{local_id}", ())
+                    reasons.extend(value for value in detailed if value != "PAYMENT_EVENT_CREATED")
                 if not reasons:
                     reasons.append("PAYMENT_COMPONENT_MISSING_OR_UNVERIFIED")
                 skipped.append({"source": f"portal:{database_index}:{local_id}",

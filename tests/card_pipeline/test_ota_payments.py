@@ -473,6 +473,30 @@ def test_completed_aside_stay_supplies_missing_item_without_changing_payment(tmp
     assert path.read_bytes() == original
 
 
+def test_portal_observation_keeps_reason_when_paid_event_is_not_created(tmp_path):
+    import json
+    import sqlite3
+    from app.reconcile.observations import inspect_observations
+    from tests.card_pipeline.test_ota_portal import portal_database
+
+    path = portal_database(tmp_path / 'missing-paid-component.sqlite')
+    with sqlite3.connect(path) as conn:
+        record = conn.execute('SELECT id,payload_json FROM direct_source_records').fetchone()
+        fact = json.loads(record[1])
+        fact['price_components'] = [{**item, 'kind': 'gross_total'}
+                                    for item in fact['price_components']]
+        raw = json.dumps(fact, ensure_ascii=False, sort_keys=True)
+        conn.execute('UPDATE direct_source_records SET payload_json=?,source_sha256=? WHERE id=?',
+                     (raw, hashlib.sha256(raw.encode()).hexdigest(), record[0]))
+
+    sources = {'portal_databases': [path]}
+    outcomes = []
+    events = build_ota_payment_events(sources, extraction_outcomes=outcomes)
+    report = inspect_observations(sources, events, outcomes)
+    assert events == []
+    assert report['skipped_reason_counts']['PAID_TODAY_COMPONENT_MISSING'] == 5
+
+
 def test_missing_item_is_not_inferred_from_agoda_name_or_unverified_stay(tmp_path):
     from tests.card_pipeline.test_ota_portal import portal_database
     cases = [

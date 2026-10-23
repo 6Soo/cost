@@ -92,17 +92,19 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
 
     cards = _read_rows(board_path, "transactions")
     events = []
+    extraction_outcomes = []
     observations = {"raw_observations": 0, "skipped_observation_count": 0,
                     "skipped_reason_counts": {}, "skipped": []}
     try:
-        events = ota_payments.build_ota_payment_events(sources)
-        observations = inspect_observations(sources, events)
+        events = ota_payments.build_ota_payment_events(
+            sources, extraction_outcomes=extraction_outcomes)
+        observations = inspect_observations(sources, events, extraction_outcomes)
         if observations["skipped_reason_counts"].get("SOURCE_UNREADABLE"):
             failures.append("SOURCE_UNREADABLE")
     except Exception as exc:
         failures.append(type(exc).__name__)
         try:
-            observations = inspect_observations(sources, events)
+            observations = inspect_observations(sources, events, extraction_outcomes)
         except Exception:
             pass
 
