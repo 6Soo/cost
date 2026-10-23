@@ -1280,7 +1280,9 @@ def render_import_section(csrf: str) -> str:
     root.querySelector('#ota-events').innerHTML=events.length?events.map(event=>{{
       const eventId=esc(event.ota_event_id),allRows=cards[event.ota_event_id]||[],amountKrw=Number(event.amount_krw??event.amount);
       const gap=card=>Number.isFinite(Number(card.amount_krw))&&Number.isFinite(amountKrw)?Math.abs(Number(card.amount_krw)-amountKrw):Infinity;
-      const rows=[...allRows].sort((a,b)=>gap(a)===gap(b)?0:gap(a)<gap(b)?-1:1);
+      const financialHoldReasons=['중복 거래라 선택할 수 없습니다.','거래 파싱 오류가 있어 선택할 수 없습니다.','거래 충돌이 있어 선택할 수 없습니다.'];
+      const rows=[...allRows].filter(card=>!financialHoldReasons.includes(card.selection_disabled_reason))
+        .sort((a,b)=>gap(a)===gap(b)?0:gap(a)<gap(b)?-1:1);
       const candidateRows=rows.filter(card=>!card.selection_disabled&&!card.already_linked_event_id);
       const reviewOnlyRows=rows.filter(card=>card.selection_disabled&&!card.already_linked_event_id);
       const linkedCards=rows.filter(card=>card.already_linked_event_id);

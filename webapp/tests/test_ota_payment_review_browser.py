@@ -22,6 +22,39 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_event_diagnostics_load_only_when_opened(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id":"synthetic-diagnostic-event", "provider":"Synthetic OTA",
+                        "booking_ref":"SYNTHETIC-DIAGNOSTIC-BOOKING", "event_type":"charge",
+                        "paid_on":None, "amount_krw":120000, "status":"HOLD_DATE_UNKNOWN",
+                        "reason":"payment_date_not_in_source"}],
+            "cards_by_event": {"synthetic-diagnostic-event": []}, "proposals": []})
+        diagnostic = {"event_id":"synthetic-diagnostic-event", "source":{"present":True},
+                      "reconciliation":{"status":"HOLD_DATE_UNKNOWN", "reason":"payment_date_not_in_source"},
+                      "financial":[], "existing_link":{"status":"none"},
+                      "snapshot":{"status":"ready", "generation":7, "stale":False}}
+        requested = []
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width":390, "height":844})
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(snapshot, ensure_ascii=False)))
+                page.route("**/api/imports/ota/diagnostics/**", lambda route: (
+                    requested.append(route.request.url), route.fulfill(
+                        status=200, content_type="application/json",
+                        body=json.dumps(diagnostic, ensure_ascii=False))))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                details = page.locator('[data-diagnostic="synthetic-diagnostic-event"]')
+                details.locator("summary").click()
+                details.locator("pre").get_by_text('"HOLD_DATE_UNKNOWN"').wait_for()
+                self.assertEqual(len(requested), 1)
+                self.assertIn("/diagnostics/synthetic-diagnostic-event", requested[0])
+            finally:
+                browser.close()
+
     def test_amount_mismatch_candidate_is_explained_but_cannot_be_confirmed(self):
         snapshot = ota_payment_review.public_snapshot({
             "events": [{"ota_event_id": "synthetic-amount-event", "provider": "Synthetic OTA",
