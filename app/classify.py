@@ -176,6 +176,12 @@ def classify_transaction(transaction: dict, *, rules: list,
                     classification_basis='예약 배정 · '+inference['basis'],
                     item=rule['effects']['item'],description=rule['effects'].get('description',''),
                     display_tab_id=target,trip_id=target,rule_id=rule.get('rule_id',''))
+    if rule.get('origin') == 'automatic-trip-priority':
+        # 여행 후보만 보완한다. 현재 적용되는 업종/사용자 규칙의 항목과 설명은 유지한다.
+        return dict(verdict, classification_state=STATE_CLASSIFIED, classification_source='inference',
+                    classification_basis='추론 배정 · 낮음 · ' + inference['basis'],
+                    item=verdict.get('item') or rule['effects']['item'],
+                    display_tab_id=target, trip_id=target, rule_id=rule.get('rule_id', ''))
     return dict(classification_state=STATE_CLASSIFIED,classification_source='user_exception' if exception else 'inference',
                 classification_basis=('사용자 예외 · ' if exception else '추론 배정 · '+inference['confidence']+' · ')+inference['basis'],
                 item=rule['effects']['item'],description=rule['effects'].get('description',''),
