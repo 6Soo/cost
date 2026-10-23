@@ -36,6 +36,7 @@ _EVENT_FIELDS = (
     "rule_delta_krw", "discount_cause_confirmed", "group_order_frozen",
     "frozen_mapping", "proposed_mapping",
     "group_order_snapshot", "candidate_search_status", "candidate_date_status", "candidate_count",
+    "candidate_rejected_count",
 )
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
@@ -44,6 +45,7 @@ _CARD_FIELDS = (
     "already_linked_event_id", "already_linked_label", "already_linked_reason", "selection_disabled",
     "selection_disabled_reason", "authorization_number", "authorization_scheme",
     "candidate_date_status", "candidate_resolution_allowed",
+    "candidate_rejection_reason",
 )
 _CONDITION_FIELDS = (
     "provider", "item", "merchant_normalized", "issuer", "card_last4",
@@ -143,6 +145,9 @@ def public_snapshot(snapshot):
                             "거래 충돌이 있어 선택할 수 없습니다."}
             if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
                 block_reason = source["selection_disabled_reason"]
+            if (not block_reason and source.get("candidate_rejection_reason") in
+                    ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")):
+                block_reason = _OTA_REASON[source["candidate_rejection_reason"]]
             row["selection_disabled"] = bool(source.get("selection_disabled") or block_reason)
             row["selection_disabled_reason"] = block_reason
             if not block_reason and source.get("candidate_date_status") in ("UNKNOWN", "MISMATCH"):
@@ -479,12 +484,15 @@ class CoreOtaPaymentBackend:
             for result in results:
                 event_id = str(result.get("ota_event_id") or "")
                 event = canonical_by_id.get(event_id)
-                if (not event or result.get("status") != "HOLD_DATE_UNKNOWN" or
+                if (not event or result.get("status") not in
+                        ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH") or
                         result.get("evidence_missing") or result.get("evidence_changed")):
                     continue
                 trace = candidate_search(event, transactions, existing_links=links, rules=rules)
                 trace["candidates"] = [candidate for candidate in trace.get("candidates") or ()
                                        if str(candidate.get("transaction_id") or "") not in occupied_cards]
+                trace["rejected"] = [candidate for candidate in trace.get("rejected") or ()
+                                     if str(candidate.get("transaction_id") or "") not in occupied_cards]
                 if not trace["candidates"] and trace.get("status") == "CANDIDATES_FOUND":
                     trace["status"] = "NO_CANDIDATE"
                 result["candidate_search"] = trace
@@ -614,6 +622,7 @@ class CoreOtaPaymentBackend:
             event["candidate_search_status"] = search.get("status")
             event["candidate_date_status"] = search.get("date_status")
             event["candidate_count"] = len(search.get("candidates") or [])
+            event["candidate_rejected_count"] = len(search.get("rejected") or [])
             if source_changed:
                 event["evidence_changed"] = True
                 event["review_warning"] = "source_changed_after_exact_link"
@@ -643,6 +652,20 @@ class CoreOtaPaymentBackend:
                                      "결제일이 확인되지 않아 OTA 예약 연결은 확정할 수 없습니다."
                                      if date_status == "UNKNOWN" else
                                      "결제일이 맞지 않아 OTA 예약 연결은 확정할 수 없습니다.")))
+                visible_ids.add(transaction_id)
+            for rejected in search.get("rejected") or ():
+                transaction_id = str(rejected.get("transaction_id") or "")
+                card = transaction_by_id.get(transaction_id)
+                if not card or transaction_id in visible_ids:
+                    continue
+                reason = str(rejected.get("reason") or "NO_CARD_CANDIDATE")
+                rows.append(dict(card, candidate_date_status="MISMATCH",
+                                 candidate_resolution_allowed=False,
+                                 candidate_rejection_reason=reason,
+                                 selection_disabled=True,
+                                 selection_disabled_reason="카드 정보는 일부 맞지만 " +
+                                 ("결제 금액이 다릅니다." if reason in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")
+                                  else "필수 연결 근거가 부족합니다.")))
                 visible_ids.add(transaction_id)
             for row in rows:
                 if result.get("status") in ("HOLD_PARTIAL_GROUP", "HOLD_GROUP_CONFIRMATION_REQUIRED") or is_ordered_group:
@@ -1146,6 +1169,8 @@ _OTA_STATUS = {
 }
 _OTA_REASON = {
     'payment_date_not_in_source': 'OTA 결제일이 원본에 없어 결제 연결을 확정하지 않았습니다.',
+    'AMOUNT_MISMATCH': '카드 정보는 일부 맞지만 결제 금액이 다릅니다.',
+    'CURRENCY_MISMATCH': '카드 정보는 일부 맞지만 결제 통화가 다릅니다.',
     'no_exact_amount_date_direction_card': '결제 금액·날짜·방향이 모두 맞는 카드 거래가 없습니다',
     'amount_differs': '같은 날짜의 카드 거래는 있지만 금액이 다릅니다',
     'exact_card_needs_descriptor_approval': '금액·날짜가 같은 카드 거래는 있으나 가맹점 별칭이 승인되지 않아 연결하지 않았습니다',
@@ -1273,6 +1298,7 @@ def render_import_section(csrf: str) -> str:
       const changedTotals=[...new Set((event.booking_changes||[]).flatMap(change=>change.booking_totals_krw||[]))];
       if(changedTotals.length)facts.push(['변경 안내의 예약 총액',changedTotals.map(money).join(', ')+' · 추가 결제 완료 여부는 별도 확인']);
       if(event.candidate_count)facts.push(['\uC5F0\uACB0 \uBBF8\uD655\uC815 \uCE74\uB4DC \uD6C4\uBCF4',String(event.candidate_count)+'\uAC74 \u00b7 \uC608\uC57D \uBC88\uD638 \uBBF8\uD655\uC815']);
+      if(event.candidate_rejected_count)facts.push(['\uC81C\uC678\uD55C \uCE74\uB4DC \uD6C4\uBCF4',String(event.candidate_rejected_count)+'\uAC74 \u00b7 \uAE08\uC561/\uD1B5\uD654 \uCC28\uC774']);
       if(group)facts.push(['묶음 건수',group]);
       if(basis)facts.push(['배정 근거',basis]);
       const verdict=sameAmount?`결제 금액과 같은 카드 거래가 ${{sameAmount}}건 있습니다.`:'결제 금액과 같은 카드 거래가 없습니다.';

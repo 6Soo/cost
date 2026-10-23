@@ -1740,10 +1740,19 @@ class CardFlow:
             note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
             search_candidates = [candidate.get('transaction_id')
                                  for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
-            for transaction_id in [*(result.get('candidates') or ()), *search_candidates]:
+            search_rejections = (result.get('candidate_search') or {}).get('rejected') or ()
+            rejected_ids = [candidate.get('transaction_id') for candidate in search_rejections]
+            for transaction_id in [*(result.get('candidates') or ()), *search_candidates, *rejected_ids]:
                 identity = str(transaction_id or '')
                 if identity and identity in wanted:
                     notes.setdefault(identity, set()).add(note)
+            for rejected in search_rejections:
+                identity = str(rejected.get('transaction_id') or '')
+                if identity not in wanted:
+                    continue
+                rejected_reason = ota_payment_review._OTA_REASON.get(
+                    str(rejected.get('reason') or ''), '같은 카드 조건에서 금액 또는 통화가 다릅니다.')
+                notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
         return {identity: sorted(values)[:2] for identity, values in notes.items()}
 
     def refund_group_views(self, preview, trips):

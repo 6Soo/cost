@@ -775,6 +775,69 @@ class OtaPaymentReviewTests(unittest.TestCase):
                 backend.close()
                 board_conn.close()
 
+    def test_core_snapshot_exposes_amount_mismatch_as_disabled_diagnostic_candidate(self):
+        from app import ota_payments
+        from app.ota_review import OtaReviewStore
+        from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+
+        event = ota_event("ota-amount-diagnostic", paid_on="2026-10-01", amount=31000,
+            amount_krw=31000, verified_portal_snapshot=True, reservation_status="completed")
+        candidate_card = ota_card("synthetic-amount-diagnostic-card", source_hash="d" * 64,
+            merchant="AGODA.COM", merchant_normalized="agoda.com", approval_date="2026-10-01",
+            amount_krw=30000, card_tail="1234", ota_inference_eligible=True)
+
+        class Payments:
+            def build_ota_payment_events(self, _sources):
+                return [event]
+
+            def match_ota_payment_events(self, events, _transactions, **_kwargs):
+                return [{"ota_event_id": events[0]["ota_event_id"], "status": "HOLD_AMOUNT_MISMATCH",
+                         "transaction_id": None, "candidates": [], "reason": "amount_differs"}]
+
+            search_card_candidates = staticmethod(ota_payments.search_card_candidates)
+            _event_is_paid = staticmethod(ota_payments._event_is_paid)
+
+            def same_date_cards(self, _event, _transactions, **_kwargs):
+                return []
+
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.executescript("""
+                CREATE TABLE transactions (
+                    transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,
+                    issuer TEXT, card_tail TEXT, transaction_direction TEXT, approval_date TEXT,
+                    posting_date TEXT, amount_krw INTEGER, classification_state TEXT,
+                    classification_source TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT);
+                CREATE TABLE board_rows (row_id TEXT, row_kind TEXT);
+            """)
+            board_conn.execute("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                candidate_card["transaction_id"], candidate_card["source_hash"], candidate_card["merchant"],
+                candidate_card["merchant_normalized"], "Synthetic Bank", candidate_card["card_tail"],
+                "purchase", candidate_card["approval_date"], "2026-10-02", candidate_card["amount_krw"],
+                "classified", "automatic", "", "", ""))
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            review_path = Path(directory) / "review.sqlite"
+            review_path.touch()
+            backend = CoreOtaPaymentBackend(board, str(review_path), read_only=True,
+                payments=Payments(), store_type=OtaReviewStore, sources={})
+            try:
+                data = backend._data()
+                result = data[3][0]
+                self.assertEqual(result["status"], "HOLD_AMOUNT_MISMATCH")
+                self.assertEqual(result["candidate_search"]["rejected"][0]["reason"], "AMOUNT_MISMATCH")
+                snapshot = backend.snapshot_from(data)
+                row = snapshot["cards_by_event"][event["ota_event_id"]][0]
+                self.assertEqual(row["candidate_rejection_reason"], "AMOUNT_MISMATCH")
+                self.assertTrue(row["selection_disabled"])
+                self.assertIn("결제 금액이 다릅니다", row["selection_disabled_reason"])
+            finally:
+                backend.close()
+                board_conn.close()
+
     def test_manual_link_crosswalk_is_reconstructed_after_store_reopen_and_recollection(self):
         from app.ota_review import OtaReviewStore
 

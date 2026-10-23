@@ -22,6 +22,40 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_amount_mismatch_candidate_is_explained_but_cannot_be_confirmed(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "synthetic-amount-event", "provider": "Synthetic OTA",
+                        "booking_ref": "SYNTHETIC-AMOUNT-BOOKING", "event_type": "charge",
+                        "paid_on": "2026-10-01", "amount": 31000, "amount_krw": 31000,
+                        "status": "HOLD_AMOUNT_MISMATCH", "reason": "amount_differs",
+                        "candidate_search_status": "NO_CANDIDATE", "candidate_rejected_count": 1}],
+            "cards_by_event": {"synthetic-amount-event": [{
+                "transaction_id": "synthetic-amount-card", "issuer": "Synthetic Bank",
+                "merchant": "AGODA.COM", "amount_krw": 30000, "approval_date": "2026-10-01",
+                "transaction_direction": "purchase", "candidate_date_status": "MISMATCH",
+                "candidate_resolution_allowed": False, "candidate_rejection_reason": "AMOUNT_MISMATCH",
+                "selection_disabled": True, "selection_disabled_reason": "카드 정보는 일부 맞지만 결제 금액이 다릅니다."}]},
+            "proposals": []})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(snapshot, ensure_ascii=False)))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                event = page.locator('[data-event="synthetic-amount-event"]')
+                event.get_by_text("SYNTHETIC-AMOUNT-BOOKING", exact=False).first.wait_for()
+                self.assertIn("\uC81C\uC678\uD55C \uCE74\uB4DC \uD6C4\uBCF4: 1\uAC74", event.inner_text())
+                card = event.locator(".ota-card-row")
+                self.assertIn("결제 금액이 다릅니다", card.inner_text())
+                self.assertTrue(card.locator("input[type=radio]").is_disabled())
+                self.assertTrue(event.locator("button[data-preview]").is_disabled())
+            finally:
+                browser.close()
+
     def test_undated_payment_candidate_is_visible_but_cannot_be_confirmed(self):
         snapshot = ota_payment_review.public_snapshot({
             "events": [{"ota_event_id": "synthetic-undated-event", "provider": "Synthetic OTA",
