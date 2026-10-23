@@ -76,3 +76,37 @@ def match_booking_passengers(evidence, authority):
         })
     return {'tour_id': tour_id, 'booking_ref': booking_ref, 'source_revision': revision,
             'passengers': matches}
+
+
+def build_user_assignment(proposal, *, candidate_reference_id, actor, current_source_revision):
+    """Build an explicit COST-side confirmation payload; never creates a customer or confirms boarding."""
+    if not isinstance(proposal, dict) or not actor:
+        raise ValueError('a candidate proposal and owner identity are required')
+    if str(proposal.get('source_revision') or '') != str(current_source_revision or ''):
+        raise ValueError('PASSENGER_CANDIDATES_STALE')
+    if proposal.get('status') not in ('EXACT_CANDIDATE', 'AMBIGUOUS'):
+        raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
+    matches = [candidate for candidate in proposal.get('candidates') or ()
+               if candidate.get('reference_id') == candidate_reference_id]
+    if len(matches) != 1:
+        raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
+    candidate = matches[0]
+    identity = [proposal.get('booking_ref'), proposal.get('tour_id'),
+                proposal.get('source_digests'), proposal.get('proposal_id'),
+                candidate.get('kind'), candidate.get('reference_id')]
+    key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(',', ':')).encode('utf-8'))
+    return {
+        'assignment_id': 'fpa-' + key.hexdigest()[:24],
+        'proposal_id': proposal['proposal_id'],
+        'booking_ref': proposal['booking_ref'],
+        'tour_id': proposal['tour_id'],
+        'source_revision': proposal['source_revision'],
+        'source_digests': list(proposal['source_digests']),
+        'passenger_name_en': proposal['passenger_name_en'],
+        'candidate_kind': candidate['kind'],
+        'candidate_reference_id': candidate['reference_id'],
+        'assignment_status': 'USER_ASSIGNED',
+        'confirmed_by': str(actor),
+        'confirmed': True,
+        'actual_boarding_confirmed': False,
+    }

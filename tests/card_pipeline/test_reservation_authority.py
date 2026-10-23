@@ -9,7 +9,8 @@ import pytest
 from app.reservation_authority import (SCHEMA, TOKEN_ENV, TOKEN_FILE_ENV, AuthorityUnavailable,
                                        authority_digest, configured_token, fetch_authority,
                                        fetch_passenger_candidates)
-from app.flight_passenger_matching import candidate_matches, match_booking_passengers
+from app.flight_passenger_matching import (build_user_assignment, candidate_matches,
+                                           match_booking_passengers)
 
 GUIDES_PATH = '/api/internal/guides'
 TOURS_PATH = '/api/internal/tours?include_past=1'
@@ -135,6 +136,26 @@ def test_booking_passengers_remain_unconfirmed_candidates_and_are_source_scoped(
     assert passenger['actual_boarding_confirmed'] is False
     assert passenger['source_digests'] == ['sha-mail-a']
     assert match_booking_passengers(evidence, authority)['passengers'][0]['proposal_id'] == passenger['proposal_id']
+
+
+def test_manual_passenger_assignment_requires_current_explicit_candidate_and_never_confirms_boarding():
+    evidence = {'booking_ref': 'SYNTH-101', 'source_digests': ['sha-mail-b'],
+                'passengers': [{'surname': 'KIM', 'given_name': 'ALPHA'}]}
+    authority = {'tour_id': 'tour-b', 'source_revision': 'roster-v8', 'candidates': [
+        {'kind': 'lead', 'reference_id': 'opaque-lead', 'name_kr': '김알파',
+         'name_en': 'KIM/ALPHA', 'status': 'active'}]}
+    proposal = match_booking_passengers(evidence, authority)['passengers'][0]
+    with pytest.raises(ValueError, match='PASSENGER_CANDIDATES_STALE'):
+        build_user_assignment(proposal, candidate_reference_id='opaque-lead', actor='owner',
+                              current_source_revision='roster-v9')
+    assignment = build_user_assignment(proposal, candidate_reference_id='opaque-lead', actor='owner',
+                                       current_source_revision='roster-v8')
+    assert assignment['assignment_status'] == 'USER_ASSIGNED'
+    assert assignment['confirmed'] is True
+    assert assignment['actual_boarding_confirmed'] is False
+    assert assignment['assignment_id'] == build_user_assignment(
+        proposal, candidate_reference_id='opaque-lead', actor='owner',
+        current_source_revision='roster-v8')['assignment_id']
 
 
 def test_digest_stable_across_fetches_and_reordered_source(server):
