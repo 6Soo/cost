@@ -18,9 +18,9 @@
 
 | 표면 | GitHub/플랫폼에서 확인한 사실 | 구분 |
 | --- | --- | --- |
-| COST 정본 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **0bd6e933ab** (2026-10-23 19:03 KST 전후 커밋) | Git 코드·문서 기준. COST V3 전체가 운영 호스트에 배포됐다는 뜻이 아니다 |
-| Reservation 정본 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **cc4e325b9a** | [PR #22](https://github.com/6Soo/reservation/pull/22) 2026-10-23 병합 완료 |
-| Reservation Vercel | [배포 dpl_2codsKnAfoYRM4cnLYquvkHnggDV](https://vercel.com/6soos-projects/reservation/2codsKnAfoYRM4cnLYquvkHnggDV) — target=production, state=READY, githubCommitSha=cc4e325b9a | **사용자가 병합·배포를 지시했다.** 실제 Production 빌드 반영 확인. API 인증·운영 DB 연결 성공은 미검증 |
+| COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main) **0bd6e933ab** 이후 2026-10-23 인계용 문서 커밋 789ada8, 8cf8c4f, 895280d, ceba4f0 추가 | 앱 기능 변경 기준 SHA와 문서 최신 HEAD를 구분한다. **최신 HEAD는 시작 시 git fetch로 확인.** COST V3 전체가 운영 호스트에 배포됐다는 뜻이 아니다 |
+| Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **cc4e325b9a**; 현 인계 연결만 추가한 문서 커밋 **dd734e0** 후속 | [PR #22](https://github.com/6Soo/reservation/pull/22) 2026-10-23 병합 완료. 새 문서 커밋은 별도 Vercel 빌드를 일으키므로 현재 상태를 다시 확인 |
+| Reservation Vercel | [앱 코드 배포 dpl_2codsKnAfoYRM4cnLYquvkHnggDV](https://vercel.com/6soos-projects/reservation/2codsKnAfoYRM4cnLYquvkHnggDV) — target=production, state=READY, sha=cc4e325b9a. **문서-only dd734e0은 별도 production 자동 빌드가 시작돼 확인 당시 BUILDING** ([후속 배포](https://vercel.com/6soos-projects/reservation/Fovk7TKMasxHte5iQaAFGXKDMmah)) | 사용자가 기존 병합·배포를 지시했다. 인계 링크만 포함된 문서 수정도 자동 배포를 트리거했다. 다음 세션에서 최신 배포 결과 확인. API 인증·운영 DB 연결 성공은 미검증 |
 | Reservation Actions | [main 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39936103139): **smoke success / unit failure** | CI 전체 녹색 아님. unit의 정확한 실패 원인은 이 문서 작성 시 로그 전문으로 독립 확정하지 않음 |
 | COST 배포 | [기존 운영 이력](operations.md)에 관리 호스트 배포·기장 기록 존재 | 운영 릴리스 SHA는 V3 Git main과 별개. V3 전체의 실제 운영 프로세스 SHA·기능 상태는 미검증 |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
@@ -127,6 +127,8 @@
 ### 보고 계약
 
 **구현 상태 / Git 반영 / CI / Preview / Production 배포 / 실제 운영 API 인증 / 실제 PII 보호 검증**을 분리해 보고한다. COMPLETE/FAILED/BLOCKED의 근거 URL·커밋·테스트를 남기고, 미완료를 성공으로 바꾸지 않는다. 한 단위 구현 후 다음 승인 항목으로 이동하되 실제 외부 자격증명이 필요한 단계에서는 사용자가 비밀 저장소에 입력할 정확한 항목만 요청한다.
+
+> **인계 게시 변경 범위:** 이 문서 신설, COST docs/COST_V3_START_HERE.md · docs/session_handoff.md · AGENTS.md 진입점 교정, Reservation AGENTS.md에 COST 조건부 참조. **앱 소스/DB/비밀키/운영 토큰 내용은 수정하지 않음.** Reservation 문서 커밋 dd734e0이 Vercel 자동 Production 빌드를 시작했으므로 최신 배포 성공 여부를 재확인해야 한다.
 
 ## 7. 이 문서의 생명주기
 
