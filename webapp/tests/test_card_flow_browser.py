@@ -223,9 +223,14 @@ class CardFlowBrowserTests(unittest.TestCase):
                 flow.record_decision(batch, row['transaction_id'])
                 learning = flow.open_trip_move_learning(row['transaction_id'], trip_a, trip_b,
                                                         request_id='browser-reason-assign-b')
+                row_view = server.card_store.get_row('card-' + row['transaction_id'])
                 adapter = SyntheticAdapter('muse', 'free-synthetic', summary=json.dumps(
                     {'options':['여행 일정에 맞는 비용이라서','이 여행을 준비하며 쓴 거래라서']},
-                    ensure_ascii=False))
+                    ensure_ascii=False), draft={
+                        'conditions': {'merchant_normalized': row_view['source_merchant']},
+                        'effects': {'item':'숙박비', 'display_tab_id':trip_b},
+                        'scope': {'trip_id':trip_b, 'event_year':2026, 'applicability':'future'},
+                    })
                 base_url = f'http://127.0.0.1:{server.server_address[1]}'
                 with patch.object(ledger_board, '_MUSE', adapter), patch.object(CardFlow, 'trip_valid', return_value=True):
                     with sync_playwright() as api:
@@ -242,10 +247,49 @@ class CardFlowBrowserTests(unittest.TestCase):
                             answer_form.locator('button').click()
                             page.wait_for_load_state('domcontentloaded')
                             case_id = learning['case_id']
-                            dialog = server.card_store.rule_dialog_state(case_id)
-                            self.assertIn(dialog['answers']['trip_move_reason'],
-                                          ('여행 일정에 맞는 비용이라서','이 여행을 준비하며 쓴 거래라서'))
-                            self.assertNotIn('reservation_no', json.dumps(adapter.calls[-1]))
+                            for _ in range(8):
+                                answers = page.locator('form[action="/api/classification/dialog/answer"]')
+                                if not answers.count():
+                                    break
+                                form = answers.first
+                                radios = form.locator('input[type=radio]')
+                                if radios.count():
+                                    state = server.card_store.rule_dialog_state(case_id)
+                                    question_id = form.locator('input[name=question_id]').get_attribute('value')
+                                    question = next(q for q in state['open_questions']
+                                                    if q['question_id'] == question_id)
+                                    repeatable = form.locator('input[type=radio][value="repeatable"]')
+                                    (repeatable if question['question_key'] == 'rule_kind' and
+                                     repeatable.count() else radios.first).check()
+                                else:
+                                    form.locator('textarea[name=direct_answer]').fill('합성 답변입니다.')
+                                form.locator('button').click()
+                                page.wait_for_load_state('domcontentloaded')
+                            self.assertFalse(page.locator(
+                                'form[action="/api/classification/dialog/answer"]').count())
+                            page.locator('form[action="/api/classification/conversation/advance"] button').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            page.locator('form[action="/api/classification/conversation/confirm-draft"] button').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            page.locator('input[name=apply_existing]').uncheck()
+                            page.locator('input[name=apply_future]').check()
+                            page.locator('form[action="/api/classification/rules/preview"] button').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            self.assertIn('미래 입력', page.locator('body').inner_text())
+                            page.locator('form[action="/api/classification/rules/apply"] button').click()
+                            page.wait_for_load_state('domcontentloaded')
+                            dialog = server.card_store.dialog_page_state(case_id)
+                            self.assertTrue(dialog['rule'])
+                            self.assertEqual(server.card_store.get_row(
+                                'card-' + row['transaction_id'])['display_tab_id'], trip_b)
+                            future_bytes = CARD.replace(b'A123', b'FUTURE-987')
+                            future_batch = flow.pipeline.receive(
+                                future_bytes, 'browser-future-rule.csv')['batch_id']
+                            with patch.object(CardFlow, 'trip_valid', return_value=True):
+                                flow.classify(future_batch)
+                            future_row = flow.pipeline.get_batch(future_batch)['rows'][0]
+                            self.assertEqual(future_row['display_tab_id'], trip_b)
+                            self.assertNotIn('reservation_no', json.dumps(adapter.calls))
                         finally:
                             browser.close()
             finally:
