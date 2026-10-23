@@ -706,6 +706,9 @@ class CardFlow:
                       and not str(rule.get('origin') or '').startswith('history-recovery')}
             ota_rules += self._booking_period_assignments(report, sources, taken)
         taken = {rule['optional'].get('source_hash') for rule in ota_rules}
+        ota_rules += self._canonical_candidate_period_assignments(
+            sources, taken, selected, blocked_inference_sources)
+        taken = {rule['optional'].get('source_hash') for rule in ota_rules}
         ota_rules += self._evidence_period_assignments(batch_id, sources, taken, selected)
         ota_rules += self._guide_airfare_rules(batch_id, selected)
         board_rules = self._board_future_rules()
@@ -931,6 +934,87 @@ class CardFlow:
                 'rule_id': f"auto-ota-period-{fact.get('booking_ref')}-{source[:12]}",
             }
         return list(rules.values())
+
+    def _canonical_candidate_period_assignments(self, sources, taken, selected, blocked_sources):
+        """Infer a trip from verified OTA service dates without confirming its payment link."""
+        from collections import defaultdict
+        from app import ota_payments
+        from app.classify import PERIOD_OTA_ORIGIN
+        from app.normalize import normalize_merchant
+
+        current, fresh = self._held_ota_snapshot()
+        if not current or not fresh:
+            return []
+        data = current.get('data') or {}
+        events = {str(event.get('ota_event_id') or ''): event for event in data.get('events', [])}
+        cards = {str(card.get('transaction_id') or ''): card for card in data.get('transactions', [])}
+        reserved = {str(identity) for result in data.get('results', [])
+                    for identity in result.get('reserved_card_ids') or ()}
+        reserved.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
+                        if isinstance(link, dict) and link.get('transaction_id'))
+        reserved.update(str(result.get('transaction_id')) for result in data.get('results', [])
+                        if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and
+                        result.get('transaction_id'))
+        verified_trips = [trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
+        choices = defaultdict(set)
+        for result in data.get('results', []):
+            if result.get('status') != 'HOLD_DATE_UNKNOWN':
+                continue
+            event = events.get(str(result.get('ota_event_id') or ''), {})
+            period = event.get('service_period') or {}
+            if (event.get('event_type') != 'charge' or not ota_payments._event_is_paid(event) or
+                    event.get('reservation_status') in ('cancelled', 'refunded') or
+                    event.get('service_period_conflict') or event.get('period_conflict') or
+                    not period.get('starts_on') or not period.get('ends_on') or
+                    result.get('evidence_missing') or result.get('evidence_changed') or
+                    result.get('group_count') or event.get('group_count')):
+                continue
+            search = result.get('candidate_search') or {}
+            if search.get('status') != 'CANDIDATES_FOUND':
+                continue
+            item = str(event.get('item') or '').strip()
+            if not item:
+                continue
+            is_stay = item in ('숙박비', '숙박료')
+            trip = stay_trip(verified_trips, period['starts_on'], period['ends_on'],
+                             service=is_stay, nets=_google_nets())
+            if not trip:
+                continue
+            for candidate in search.get('candidates') or ():
+                transaction_id = str(candidate.get('transaction_id') or '')
+                card = cards.get(transaction_id)
+                source = str((card or {}).get('source_hash') or '')
+                if (not card or not source or source not in sources or source in taken or
+                        source in blocked_sources or transaction_id in reserved or
+                        (selected is not None and transaction_id not in selected) or
+                        card.get('ota_inference_eligible') is not True or
+                        card.get('transaction_direction') != 'purchase' or card.get('duplicate_of') or
+                        card.get('parse_error') or card.get('conflict_reason') or
+                        candidate.get('resolution_allowed')):
+                    continue
+                choices[source].add((str(trip['tab_id']), item,
+                                     str(period['starts_on']), str(period['ends_on'])))
+
+        rules = []
+        for source, options in choices.items():
+            if len(options) != 1:
+                continue
+            trip_id, item, starts_on, ends_on = next(iter(options))
+            card = next((card for card in cards.values() if str(card.get('source_hash') or '') == source), None)
+            if not card or not self.trip_valid(trip_id):
+                continue
+            basis = (f"결제일 미상 OTA 후보의 검증된 이용기간 {starts_on}~{ends_on}이 "
+                     "기존 여행과 겹칩니다. 예약 연결과 예약번호는 확정하지 않았습니다.")
+            rules.append({
+                'conditions': {'merchant_normalized': normalize_merchant(
+                    card.get('merchant_normalized') or card.get('merchant') or ''),
+                    'transaction_direction': 'purchase'},
+                'optional': {'source_hash': source, 'inferred_assignment': {
+                    'trip_id': trip_id, 'confidence': '낮음', 'basis': basis}},
+                'effects': {'item': item}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
+                'rule_id': f"auto-ota-undated-candidate-{source[:16]}",
+            })
+        return rules
 
     def _board_future_rules(self):
         """장부에서 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.
@@ -1654,7 +1738,9 @@ class CardFlow:
             reason = ota_payment_review._OTA_REASON.get(str(result.get('reason') or ''),
                                                         str(result.get('reason') or '추가 근거 확인 필요').replace('_', ' '))
             note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
-            for transaction_id in result.get('candidates') or ():
+            search_candidates = [candidate.get('transaction_id')
+                                 for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
+            for transaction_id in [*(result.get('candidates') or ()), *search_candidates]:
                 identity = str(transaction_id or '')
                 if identity and identity in wanted:
                     notes.setdefault(identity, set()).add(note)

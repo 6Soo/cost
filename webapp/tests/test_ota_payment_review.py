@@ -711,6 +711,70 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertFalse(review_path.parent.exists())
             board_conn.close()
 
+    def test_core_snapshot_attaches_undated_candidate_without_allowing_link(self):
+        from app import ota_payments
+        from app.ota_review import OtaReviewStore
+        from tests.card_pipeline.test_ota_payments import card as ota_card, event as ota_event
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+
+        class Payments:
+            def build_ota_payment_events(self, _sources):
+                return [candidate_event]
+
+            def match_ota_payment_events(self, events, _transactions, **_kwargs):
+                return [{"ota_event_id": events[0]["ota_event_id"], "status": "HOLD_DATE_UNKNOWN",
+                         "transaction_id": None, "candidates": [], "reason": "payment_date_not_in_source"}]
+
+            search_card_candidates = staticmethod(ota_payments.search_card_candidates)
+            _event_is_paid = staticmethod(ota_payments._event_is_paid)
+
+            def same_date_cards(self, _event, _transactions, **_kwargs):
+                return []
+
+        candidate_event = ota_event("ota-undated-candidate", paid_on=None, amount=30000,
+            amount_krw=30000, verified_portal_snapshot=True, reservation_status="completed",
+            service_period={"starts_on": "2026-10-01", "ends_on": "2026-10-03"})
+        candidate_card = ota_card("synthetic-undated-card", source_hash="c" * 64,
+            merchant="AGODA.COM", merchant_normalized="agoda.com", approval_date="2026-10-01",
+            amount_krw=30000, card_tail="1234", ota_inference_eligible=True)
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            board_path = Path(directory) / "board.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.executescript("""
+                CREATE TABLE transactions (
+                    transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,
+                    issuer TEXT, card_tail TEXT, transaction_direction TEXT, approval_date TEXT,
+                    posting_date TEXT, amount_krw INTEGER, classification_state TEXT,
+                    classification_source TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT);
+                CREATE TABLE board_rows (row_id TEXT, row_kind TEXT);
+            """)
+            board_conn.execute("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+                candidate_card["transaction_id"], candidate_card["source_hash"], candidate_card["merchant"],
+                candidate_card["merchant_normalized"], "Synthetic Bank", candidate_card["card_tail"],
+                "purchase", candidate_card["approval_date"], "2026-10-02", candidate_card["amount_krw"],
+                "classified", "automatic", "", "", ""))
+            board_conn.commit()
+            board = SimpleNamespace(conn=board_conn, _lock=threading.RLock())
+            review_path = Path(directory) / "review.sqlite"
+            review_path.touch()
+            backend = CoreOtaPaymentBackend(board, str(review_path), read_only=True,
+                payments=Payments(), store_type=OtaReviewStore, sources={})
+            try:
+                data = backend._data()
+                result = data[3][0]
+                self.assertEqual(result["status"], "HOLD_DATE_UNKNOWN")
+                self.assertEqual(result["candidate_search"]["status"], "CANDIDATES_FOUND")
+                self.assertFalse(result["candidate_search"]["candidates"][0]["resolution_allowed"])
+                snapshot = backend.snapshot_from(data)
+                candidate = snapshot["cards_by_event"][candidate_event["ota_event_id"]][0]
+                self.assertEqual(candidate["transaction_id"], candidate_card["transaction_id"])
+                self.assertTrue(candidate["selection_disabled"])
+                self.assertEqual(candidate["candidate_date_status"], "UNKNOWN")
+            finally:
+                backend.close()
+                board_conn.close()
+
     def test_default_source_resolution_uses_registered_manifest_and_legacy_environment_defaults(self):
         from app import ota_sources
         from webapp.ota_payment_review import CoreOtaPaymentBackend

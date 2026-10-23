@@ -81,7 +81,7 @@ class CardFlowBrowserTests(unittest.TestCase):
             thread.start()
             try:
                 flow = CardFlow(server.card_store)
-                trip = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                trip = server.card_store.create_trip(starts_on='2026-09-30', ends_on='2026-10-03',
                     destination='Synthetic candidate trip', client_request_id='candidate-trip')['tab_id']
                 header, source_line = CARD.splitlines(keepends=True)
                 fields = source_line.decode('utf-8').rstrip('\r\n').split(',')
@@ -90,15 +90,17 @@ class CardFlowBrowserTests(unittest.TestCase):
                                               'ota-unlinked-browser.csv')['batch_id']
                 row = flow.pipeline.get_batch(batch)['rows'][0]
                 candidate_card = ota_card(row['transaction_id'], source_hash=row['source_hash'],
-                    merchant='AGODA.COM', merchant_normalized='agoda.com', approval_date='2026-08-01',
+                    merchant='AGODA.COM', merchant_normalized='agoda.com', approval_date='2026-10-01',
                     amount_krw=30000, card_tail='1234', ota_inference_eligible=True)
                 event = ota_event('ota-unlinked-browser', booking_ref='SYNTHETIC-UNCONFIRMED-REF',
-                    paid_on=None, amount=39000, amount_krw=39000, verified_portal_snapshot=True,
+                    paid_on=None, amount=30000, amount_krw=30000, verified_portal_snapshot=True,
                     reservation_status='completed',
-                    service_period={'starts_on':'2026-08-01','ends_on':'2026-08-03'})
+                    service_period={'starts_on':'2026-10-01','ends_on':'2026-10-03'})
+                from app import ota_payments
                 result = {'ota_event_id':event['ota_event_id'], 'transaction_id':None,
-                          'status':'HOLD_AMOUNT_MISMATCH', 'reason':'amount_differs',
-                          'candidates':[row['transaction_id']]}
+                          'status':'HOLD_DATE_UNKNOWN', 'reason':'payment_date_not_in_source',
+                          'candidates':[], 'candidate_search':ota_payments.search_card_candidates(
+                              event, [candidate_card])}
                 current = {'generation':28, 'data':{'events':[event], 'transactions':[candidate_card],
                     'links':{}, 'results':[result]}, 'results':[result]}
                 service = SimpleNamespace(held=lambda: (current, True))
@@ -109,13 +111,12 @@ class CardFlowBrowserTests(unittest.TestCase):
                      patch.object(ota_payment_review, 'snapshot_service', return_value=service), \
                      patch.object(ota_payment_review.CoreOtaPaymentBackend, 'from_host', return_value=backend), \
                      patch.object(flow, '_compute_ota_report', return_value=base), \
-                     patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
+                    patch.object(CardFlow, 'trip_valid', side_effect=lambda identity: identity == trip):
                     flow.classify(batch)
-                    server.card_store.conn.execute(
-                        "UPDATE transactions SET classification_state='classified', item=?, trip_id=?, "
-                        "display_tab_id=? WHERE transaction_id=?",
-                        ('숙박비', trip, trip, row['transaction_id']))
-                    server.card_store.conn.commit()
+                    assigned = server.card_store.conn.execute(
+                        'SELECT display_tab_id FROM transactions WHERE transaction_id=?',
+                        (row['transaction_id'],)).fetchone()[0]
+                    self.assertEqual(assigned, trip)
                     with sync_playwright() as api:
                         browser = api.chromium.launch(headless=True)
                         page = browser.new_page(viewport={'width':390,'height':844})
@@ -126,7 +127,8 @@ class CardFlowBrowserTests(unittest.TestCase):
                         state = page.request.get(base_url + '/api/imports/' + batch).json()
                         reviewed = state['preview']['rows'][0]
                         self.assertEqual(reviewed['ota_link_status'], 'UNLINKED')
-                        self.assertEqual(reviewed['internal_expense_status'], 'READY_FOR_INTERNAL_SAVE', reviewed)
+                        self.assertIn(reviewed['internal_expense_status'],
+                                      ('READY_FOR_INTERNAL_SAVE', 'SAVED'), reviewed)
                         self.assertEqual(reviewed['display_tab_id'], trip)
                         self.assertEqual(reviewed.get('booking_ref') or '', '')
                         visible = page.locator('#preview').inner_text()

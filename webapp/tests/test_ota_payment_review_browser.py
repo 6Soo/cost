@@ -22,6 +22,40 @@ from webapp.tests.test_ota_payment_review import FakeBackend
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
+    def test_undated_payment_candidate_is_visible_but_cannot_be_confirmed(self):
+        snapshot = ota_payment_review.public_snapshot({
+            "events": [{"ota_event_id": "synthetic-undated-event", "provider": "Synthetic OTA",
+                        "booking_ref": "SYNTHETIC-UNCONFIRMED-BOOKING", "event_type": "charge",
+                        "paid_on": "미확정", "amount": 30000, "amount_krw": 30000,
+                        "status": "HOLD_DATE_UNKNOWN", "reason": "payment_date_not_in_source",
+                        "candidate_search_status": "CANDIDATES_FOUND", "candidate_date_status": "UNKNOWN",
+                        "candidate_count": 1}],
+            "cards_by_event": {"synthetic-undated-event": [{
+                "transaction_id": "synthetic-undated-card", "issuer": "Synthetic Bank",
+                "merchant": "AGODA.COM", "amount_krw": 30000, "approval_date": "2026-10-01",
+                "transaction_direction": "purchase", "candidate_date_status": "UNKNOWN",
+                "candidate_resolution_allowed": False, "selection_disabled": True}]},
+            "proposals": []})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 390, "height": 844})
+                page.route("**/api/imports/ota", lambda route: route.fulfill(
+                    status=200, content_type="application/json",
+                    body=json.dumps(snapshot, ensure_ascii=False)))
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("token-synth"))
+                event = page.locator('[data-event="synthetic-undated-event"]')
+                event.get_by_text("SYNTHETIC-UNCONFIRMED-BOOKING", exact=False).first.wait_for()
+                card = event.locator(".ota-card-row")
+                self.assertEqual(card.count(), 1)
+                self.assertIn("결제일이 확인되지 않아 OTA 연결을 확정할 수 없습니다.", card.inner_text())
+                self.assertTrue(card.locator("input[type=radio]").is_disabled())
+                self.assertTrue(event.locator("button[data-preview]").is_disabled())
+            finally:
+                browser.close()
+
     def test_nm_order_proposal_shows_booking_to_card_pairs_as_unverified(self):
         event_ids = ["synthetic-event-a", "synthetic-event-b"]
         card_ids = ["synthetic-card-a", "synthetic-card-b"]
