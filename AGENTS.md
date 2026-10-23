@@ -1,5 +1,7 @@
 # cost 작업 지침
 
+> **현재 COST V3 개발 재개·미완료 큐:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md). 2026-10-23 Reservation PR #22 병합과 Production READY, CI unit 실패, 읽기 전용 운영 인증 미검증 등 최신 실제 상태를 담았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고, 완료된 R0~R6를 처음부터 다시 구현하지 않는다. GitHub 정본만으로 재개할 수 있도록 로컬 TASK_QUEUE.json/과거 채팅을 필수 전제조건으로 삼지 않는다.
+
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
 ## 단일 V3 구현 진입점
@@ -10,7 +12,7 @@
 
 **OTA 예약 매칭 여부와 카드의 금융적 유효성을 분리한다.** 실제 카드 매입 원본이 정상이고 중복·원본 충돌·미해결 환불/취소 문제가 없으면, 정확한 OTA 예약번호를 찾지 못했거나 OTA 결제일이 없어도 **가장 개연성 있는 authoritative 여행에 우선 배정하고 내부 경비 기록 준비를 허용**한다. 낮은 추론의 예약 후보/여행은 근거와 불확실성 표시. 미확정 OTA 예약번호를 확정인 것처럼 기록하거나 Google 복사 F열에 입력하지 않는다. 기존 owner의 A→B 이동은 AI 재대사로 뒤집지 않는다. Google 직접 쓰기 금지. 카드 중복·금액·취소/환불·기존 전기·수동 links/frozen groups 보호는 그대로.
 
-**최신 구현 계약:** [OTA–카드 진단/대사 통합/A 정책/테스트 단계 명세](docs/ota-card-reconciliation-policy-a-v3.md). 옛 `ota_authority_unresolved`처럼 OTA 연결 미확정만으로 정상 카드 비용 준비를 막는 로직은 추후 R4에서 변경 대상이다. **현재 운영 구현 변경 사실이 아니라 설계 우선순위다.** 무료 구현 에이전트 첫 과제는 R0 읽기 전용 전수 진단/합성 테스트이며 실DB 변경, 직접 Google 쓰기, 무단 전체 회귀 금지.
+**최신 구현 계약:** [OTA–카드 진단/대사 통합/A 정책/테스트 단계 명세](docs/ota-card-reconciliation-policy-a-v3.md). 옛 `ota_authority_unresolved`처럼 OTA 연결 미확정만으로 정상 카드 비용 준비를 막는 판단은 최신 A 정책에 의해 대체됐다. **R0~R6 코드·합성 검사 수행 이력은 [현재 인계](docs/COST_V3_CURRENT_HANDOFF.md)를 따른다.** 새로운 에이전트가 R0부터 재구현하지 않는다. 개발과 실제 운영 인증·배포는 구별하며 실DB 변경, 직접 Google 쓰기, 무단 전체 회귀 금지.
 
 ## 2026-10-23 최신 사용자 승인: 추론 우선배정 및 COST 웹 내 대화학습
 
