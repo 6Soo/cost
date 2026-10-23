@@ -40,6 +40,16 @@ def project_card_ota_statuses(current: Optional[Dict[str, Any]]) -> Tuple[Dict[s
         for reserved in result.get('reserved_card_ids') or ():
             states[str(reserved)] = 'REVIEW_REQUIRED'
 
+    # Reservation-only candidates from data.results
+    for result in (current.get('data') or {}).get('results') or ():
+        trace = result.get('candidate_search') or {}
+        if not trace.get('reservation_only'):
+            continue
+        for candidate in trace.get('candidates') or ():
+            identity = str(candidate.get('transaction_id') or '')
+            if identity:
+                states.setdefault(identity, 'CANDIDATE')
+
     reconciliation = {
         'enabled': True,
         'fresh': True,
@@ -51,18 +61,22 @@ def project_card_ota_statuses(current: Optional[Dict[str, Any]]) -> Tuple[Dict[s
 
 def project_card_ota_candidate_notes(
     current: Optional[Dict[str, Any]],
-    wanted_transaction_ids: Set[str]
+    wanted_transaction_ids: Set[str],
+    rows: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, List[str]]:
     """Pure helper: extract unresolved canonical OTA candidate notes for given transactions.
 
     Args:
         current: The canonical snapshot dict with keys 'generation', 'results', 'data'.
         wanted_transaction_ids: Set of transaction_ids we want notes for.
+        rows: Optional list of row dicts with 'transaction_id', 'merchant', 'foreign_currency',
+              'foreign_amount' for Toyoko fallback note.
 
     Returns:
         Dict mapping transaction_id -> sorted list of notes (max 2 per transaction).
         Input `current` is not mutated.
     """
+    import re
     if current is None:
         return {}
 
@@ -93,6 +107,12 @@ def project_card_ota_candidate_notes(
         reason = _OTA_REASON.get(str(result.get('reason') or ''),
                                  str(result.get('reason') or '추가 근거 확인 필요').replace('_', ' '))
         note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
+        if provider == 'toyoko':
+            period = event.get('service_period') or {}
+            basis = ('묶음 합계 · 객실별 결제 미확정' if event.get('reservation_group_only')
+                     else '객실 소계 · 결제 완료 근거 미확인')
+            note = (f"호텔 예약 후보(미확정): {booking_ref} · "
+                    f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · {basis}")
 
         search_candidates = [candidate.get('transaction_id')
                              for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
@@ -101,8 +121,18 @@ def project_card_ota_candidate_notes(
 
         for transaction_id in [*(result.get('candidates') or ()), *search_candidates, *rejected_ids]:
             identity = str(transaction_id or '')
+            if provider == 'toyoko' and identity in rejected_ids and identity not in search_candidates:
+                continue
             if identity and identity in wanted_transaction_ids:
-                notes.setdefault(identity, set()).add(note)
+                candidate_note = note
+                if provider == 'toyoko' and any(
+                        str(candidate.get('transaction_id')) == identity
+                        and candidate.get('basis') == 'HOTEL_BRANCH_AND_STAY_ONLY'
+                        for candidate in (result.get('candidate_search') or {}).get('candidates') or ()):
+                    candidate_note = (f"호텔 일정 후보(금액 불일치): {booking_ref} · "
+                                      f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · "
+                                      "같은 지점·숙박기간만 확인 · 결제 미확정")
+                notes.setdefault(identity, set()).add(candidate_note)
 
         for rejected in search_rejections:
             identity = str(rejected.get('transaction_id') or '')
@@ -110,10 +140,24 @@ def project_card_ota_candidate_notes(
                 continue
             rejected_reason = _OTA_REASON.get(
                 str(rejected.get('reason') or ''), '같은 카드 조건에서 금액 또는 통화가 다릅니다.')
-            notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
+            if provider == 'toyoko':
+                notes.setdefault(identity, set()).add(f'호텔 후보 제외: {booking_ref} · {rejected_reason}')
+            else:
+                notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
+
+    # Toyoko fallback: cards with toyokoinn merchant but no foreign currency/amount
+    if rows:
+        for row in rows:
+            identity = str(row.get('transaction_id') or '')
+            merchant = re.sub(r'[^a-z0-9]', '', str(row.get('merchant') or '').casefold())
+            if (identity and identity not in notes and merchant.startswith('toyokoinn')
+                    and (not row.get('foreign_currency') or not row.get('foreign_amount'))):
+                notes[identity] = {'호텔 예약 연결 보류: 카드 원본의 현지 금액·통화 확인이 필요합니다.'}
 
     # Deduplicate and limit to top 2 per transaction, sorted for determinism
-    return {identity: sorted(values)[:2] for identity, values in notes.items()}
+    return {identity: sorted(values, key=lambda note: (
+                note.startswith('호텔 후보 제외:'), note.startswith('호텔 일정 후보'), note))[:2]
+            for identity, values in notes.items()}
 
 
 def card_matches(facts, data):
