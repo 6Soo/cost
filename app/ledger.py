@@ -39,7 +39,7 @@ def _ready_rows(store, batch_id: str, review_from=None):
         "SELECT transaction_id, source_hash, merchant, amount_krw,"
         " COALESCE(NULLIF(approval_date,''),posting_date), transaction_direction, item, description,"
         " display_tab_id, trip_id, revision, " + decided_sql() + ", classification_state,"
-        " conflict_reason, parse_error FROM transactions WHERE classification_state!='preserved' AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
+        " conflict_reason, parse_error, duplicate_of FROM transactions WHERE classification_state!='preserved' AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
         " AND (? IS NULL OR COALESCE(NULLIF(approval_date,''),posting_date)=''"
         " OR COALESCE(NULLIF(approval_date,''),posting_date)>=?)"
         " ORDER BY transaction_id", (batch_id,review_from,review_from)).fetchall()
@@ -59,7 +59,8 @@ def _decision_rows(store, batch_id: str):
                    "display_tab_id": r[4], "note": r[5]} for r in rows}
 
 
-def _recording_guard(*, source_hash, state, conflict_reason, parse_error, exclusion=None, hold=None):
+def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
+                     duplicate_of=None, exclusion=None, hold=None):
     """Common source/review guards that must block every path into ledger_entries."""
     if exclusion and exclusion['source_hash'] != source_hash:
         return 'exclusion_source_changed', '회사 경비 제외를 확인한 원본이 달라 다시 검토해야 합니다'
@@ -69,6 +70,8 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error, exclus
         return 'review_hold', hold['reason']
     if conflict_reason:
         return 'source_conflict', conflict_reason
+    if duplicate_of:
+        return 'duplicate_card_source', 'duplicate card source requires review'
     if parse_error:
         return 'amount_unreadable', parse_error
     if state != 'classified':
@@ -120,7 +123,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
     for row in _ready_rows(store, batch_id, review_from):
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
          direction, item, description, tab, trip_id, revision, decided,
-         state, conflict_reason, parse_error) = row
+         state, conflict_reason, parse_error, duplicate_of) = row
         decision = decisions.get(transaction_id)
         entry = {
             "transaction_id": transaction_id, "source_hash": source_hash,
@@ -132,6 +135,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "trip_id": trip_id, "revision": revision,
             "decided": bool(decided), "classification_state": state,
             "already_booked": transaction_id in booked_ids,
+            "duplicate_of": duplicate_of or "",
         }
         exclusion = exclusions.get(transaction_id)
         entry['exclusion_revision'] = exclusion['revision'] if exclusion else 0
@@ -139,6 +143,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
         hold = holds.get(transaction_id)
         blocked = _recording_guard(source_hash=source_hash, state=state,
                                    conflict_reason=conflict_reason, parse_error=parse_error,
+                                   duplicate_of=duplicate_of,
                                    exclusion=exclusion, hold=hold)
         if blocked:
             entry['blocked'], entry['reason'] = blocked

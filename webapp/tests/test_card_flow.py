@@ -1086,6 +1086,21 @@ class CardFlowTests(unittest.TestCase):
             self.assertTrue(after['rows'][0]['already_booked'])
             self.assertEqual(after['rows'][0]['internal_expense_status'], 'SAVED')
 
+    def test_duplicate_card_source_is_held_from_internal_expense_readiness(self):
+        from app.ledger import recordable_rows
+        _trip, batch, row = self.pending_fixture()
+        self.board.conn.execute(
+            "UPDATE transactions SET duplicate_of='synthetic-original' WHERE transaction_id=?",
+            (row['transaction_id'],))
+        self.board.conn.commit()
+        with patch.object(CardFlow, 'trip_valid', return_value=True):
+            preview = self.flow.state(batch)['preview']
+        candidate = next(item for item in preview['rows']
+                         if item['transaction_id'] == row['transaction_id'])
+        self.assertTrue(candidate['blocked'])
+        self.assertEqual(preview['ready'], 0)
+        self.assertFalse(recordable_rows(preview['rows']))
+
     def test_ready_counts_shared_source_transaction_once_and_excludes_blockers(self):
         from app.ledger import recordable_rows
         trip, batch, row = self.pending_fixture()
