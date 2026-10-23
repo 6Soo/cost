@@ -42,7 +42,8 @@ def _candidate_reasons(event, card, rules):
 
 def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                           frozen_groups=None, source_diagnostics=None,
-                          observation_report=None, run_secret=None):
+                          observation_report=None, run_secret=None,
+                          reconciliation_results=None):
     """Build redacted case rows and counts; never mutates inputs or approves links."""
     secret = run_secret or __import__("secrets").token_bytes(32)
     events, cards = list(events or ()), list(cards or ())
@@ -143,6 +144,27 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
 
     reason_counts = Counter(reason for case in cases for reason in case["reasons"])
     providers = Counter(str(event.get("provider") or "unknown") for event in events)
+    result_by_event = {str(row.get("ota_event_id")): row
+                       for row in (reconciliation_results or ())
+                       if row.get("ota_event_id") is not None}
+    result_statuses = Counter(str(row.get("status") or "UNKNOWN")
+                              for row in result_by_event.values())
+    reconciliation_divergences = []
+    for event in events:
+        event_id = _event_id(event)
+        result = result_by_event.get(event_id)
+        legacy = legacy_links.get(event_id)
+        legacy_card = (str(legacy.get("transaction_id") or "")
+                       if isinstance(legacy, dict) else str(legacy or ""))
+        result_card = str((result or {}).get("transaction_id") or "")
+        if result is None or result_card != legacy_card:
+            reconciliation_divergences.append({
+                "id": pseudonym(secret, "ota", event_id),
+                "legacy_link_present": bool(legacy_card),
+                "engine_link_present": bool(result_card),
+                "engine_status": str((result or {}).get("status") or "NO_RESULT"),
+                "user_pinned": event_id in user_links,
+            })
     collisions = defaultdict(set)
     for event in events:
         for source in event.get("source_ids", ()):
@@ -167,10 +189,13 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
             cid == (legacy_links[_event_id(e)].get("transaction_id") if isinstance(legacy_links[_event_id(e)], dict)
                    else legacy_links[_event_id(e)]) for cid, _ in event_candidates.get(_event_id(e), [])))
             for e in events),
+        "reconciliation_engine_status_counts": dict(sorted(result_statuses.items())),
+        "legacy_engine_divergence_count": len(reconciliation_divergences),
         "user_link_count": len(user_links), "frozen_group_count": len(frozen_groups),
         "source_id_collision_count": sum(len(ids) > 1 for ids in collisions.values()),
         "case_count": len(cases), "reason_counts": dict(sorted(reason_counts.items())),
         "automatic_link_approvals": 0, "duplicate_expense_delta": 0,
         "existing_owner_decisions_changed": 0,
     }
+    summary["reconciliation_divergences"] = reconciliation_divergences
     return summary, cases

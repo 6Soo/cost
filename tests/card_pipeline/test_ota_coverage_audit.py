@@ -52,4 +52,18 @@ def test_audit_reads_synthetic_board_and_writes_redacted_reports(tmp_path):
     assert "private-transaction-id" not in report_text
     assert "Private merchant" not in report_text
     assert {path.name for path in output.iterdir()} == {
-        "coverage-summary.json", "unmatched-cases.jsonl", "legacy-diff.jsonl"}
+        "coverage-summary.json", "unmatched-cases.jsonl", "legacy-diff.jsonl",
+        "reconciliation-diff.jsonl"}
+
+
+def test_global_matcher_divergence_is_redacted_and_counted():
+    event = {"ota_event_id": "private-event", "evidence_status": "paid_verified"}
+    card = {"transaction_id": "private-card"}
+    summary, _ = trace.build_coverage_report(
+        events=[event], cards=[card], legacy_links={"private-event": "private-card"},
+        reconciliation_results=[{"ota_event_id": "private-event", "status": "HOLD_AMBIGUOUS"}],
+        run_secret=b"y" * 32)
+    assert summary["legacy_engine_divergence_count"] == 1
+    assert summary["reconciliation_engine_status_counts"] == {"HOLD_AMBIGUOUS": 1}
+    assert "private-event" not in json.dumps(summary)
+    assert "private-card" not in json.dumps(summary)

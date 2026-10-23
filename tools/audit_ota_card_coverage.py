@@ -130,10 +130,19 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
         failures.append("LEGACY_MATCHER_" + type(exc).__name__)
 
     run_secret = secrets.token_bytes(32)
+    reconciliation_results = []
+    try:
+        if events and cards:
+            reconciliation_results = ota_payments.match_ota_payment_events(
+                events, cards, existing_links=legacy_links | user_links,
+                frozen_groups=frozen_groups)
+    except Exception as exc:
+        failures.append("RECONCILIATION_ENGINE_" + type(exc).__name__)
     summary, cases = build_coverage_report(
         events=events, cards=cards, legacy_links=legacy_links, user_links=user_links,
         frozen_groups=frozen_groups, source_diagnostics=sorted(set(failures)),
-        observation_report=observations, run_secret=run_secret)
+        observation_report=observations, run_secret=run_secret,
+        reconciliation_results=reconciliation_results)
     version, stamp_count = _source_digest(sources)
     summary["snapshot"] = {
         "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -152,7 +161,6 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
 
     destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    _write_json(destination / "coverage-summary.json", summary)
     _write_jsonl(destination / "unmatched-cases.jsonl", cases)
     diff = []
     for event_id, legacy in legacy_links.items():
@@ -172,6 +180,9 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
         diff.append({"id": pseudonym(run_secret, "legacy", event_id), "difference": difference,
                      "user_pinned": str(event_id) in user_links})
     _write_jsonl(destination / "legacy-diff.jsonl", diff)
+    _write_jsonl(destination / "reconciliation-diff.jsonl",
+                 summary.pop("reconciliation_divergences", []))
+    _write_json(destination / "coverage-summary.json", summary)
     return summary
 
 
