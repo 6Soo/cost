@@ -12,6 +12,56 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_browser_trip_move_saves_before_opening_existing_learning_dialog(self):
+        from webapp.card_flow import CardFlow
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'board.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                flow = CardFlow(server.card_store)
+                trip_a = server.card_store.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                    destination='Synthetic A', client_request_id='browser-move-a')['tab_id']
+                trip_b = server.card_store.create_trip(starts_on='2026-08-10', ends_on='2026-08-12',
+                    destination='Synthetic B', client_request_id='browser-move-b')['tab_id']
+                batch = flow.pipeline.receive(CARD, 'browser-trip-move.csv')['batch_id']
+                row = flow.pipeline.get_batch(batch)['rows'][0]
+                flow.pipeline.save_decision(row['transaction_id'], row['revision'], item='숙박비',
+                    display_tab_id=trip_a, trip_id=trip_a, request_id='browser-assign-a',
+                    trip_validator=lambda _value: True, tab_validator=lambda _value: True)
+                base_url = f'http://127.0.0.1:{server.server_address[1]}'
+                with patch.object(CardFlow, 'trip_valid', return_value=True):
+                    with sync_playwright() as api:
+                        browser = api.chromium.launch(headless=True)
+                        page = browser.new_page(viewport={'width':390,'height':844})
+                        page.goto(base_url + '/import?batch=' + batch + '&transaction=' + row['transaction_id'])
+                        form = page.locator('form[data-index]').first
+                        form.locator('select[name=display_tab_id]').select_option(trip_b)
+                        form.locator('button').click()
+                        page.wait_for_url('**/rules?case=*')
+                        self.assertIn('이 거래를 이 여행으로 옮긴 이유를 알려주세요.',
+                                      page.locator('body').inner_text())
+                        saved = server.card_store.get_row('card-' + row['transaction_id'])
+                        self.assertEqual(saved['display_tab_id'], trip_b)
+                        self.assertTrue(page.locator('textarea[name=direct_answer]').count())
+                        direct = page.locator('form').filter(
+                            has=page.locator('textarea[name=direct_answer]'))
+                        direct.locator('textarea[name=direct_answer]').fill('합성 일정 근거로 여행 B에 옮겼습니다.')
+                        direct.locator('button').click()
+                        page.wait_for_load_state('domcontentloaded')
+                        case_id = page.url.split('case=', 1)[1].split('&', 1)[0]
+                        dialog = server.card_store.rule_dialog_state(case_id)
+                        self.assertEqual(dialog['answers']['trip_move_reason'],
+                                         '합성 일정 근거로 여행 B에 옮겼습니다.')
+                        browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_browser_shows_inferred_undated_ota_without_confirming_booking_number(self):
         from types import SimpleNamespace
         from app import ota_payments
