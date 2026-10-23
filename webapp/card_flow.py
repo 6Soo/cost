@@ -1517,54 +1517,95 @@ class CardFlow:
                 projection=lambda entry: self.project(entry), additional_holds=holds, **options)
             return result['applied']
 
-    def persist_card_trip_move(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+    def _trip_move_origin_revision(self, transaction_id, request_id, originating_revision=None):
+        row = self.board.conn.execute(
+            "SELECT response_json FROM requests WHERE request_id=? AND scope='save_decision'",
+            (str(request_id),)).fetchone()
+        if row is None:
+            return None
+        try:
+            saved = json.loads(row[0])
+            revision = int(saved['revision'])
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+            return None
+        try:
+            supplied_revision = (None if originating_revision is None
+                                 else int(originating_revision))
+        except (TypeError, ValueError):
+            return None
+        if (saved.get('transaction_id') != str(transaction_id)
+                or (supplied_revision is not None and supplied_revision != revision)):
+            return None
+        return revision
+
+    def _trip_move_is_current(self, transaction_id, to_trip_id, request_id, originating_revision=None):
+        revision = self._trip_move_origin_revision(
+            transaction_id, request_id, originating_revision)
+        if revision is None:
+            return False
+        row = self.board.conn.execute(
+            "SELECT revision, classification_source, display_tab_id, trip_id"
+            " FROM transactions WHERE transaction_id=?", (str(transaction_id),)).fetchone()
+        return bool(row and int(row[0]) == revision and row[1] == 'user_decision'
+                    and str(row[2] or '') == str(to_trip_id or '')
+                    and str(row[3] or '') == str(to_trip_id or ''))
+
+    def persist_card_trip_move(self, transaction_id, from_trip_id, to_trip_id, *, request_id,
+                               originating_revision=None):
         """Save the owner's trip move to the COST row before any optional AI work."""
         source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
         if not source_trip or not target_trip or source_trip == target_trip:
             return {"status": "not_needed"}
-        row_id = 'card-' + str(transaction_id)
-        row = self.board.get_row(row_id)
-        if row is None:
-            return {"status": "not_recorded"}
-        case_request_id = 'card-trip-move-' + hashlib.sha256(
-            f"{transaction_id}\0{request_id}".encode('utf-8')).hexdigest()[:32]
-        case_id = 'case-' + case_request_id
-        if row.get('display_tab_id') != target_trip:
-            saved = self.board.save(row_id=row_id, expected_revision=int(row['revision']),
-                                    client_request_id=case_request_id, change_mode='rule_change',
-                                    changes={'display_tab_id': target_trip}, actor='owner')
-            case_id = saved.get('learning_case_id') or case_id
-        self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
-        return {"status": "saved", "case_id": case_id, "row_id": row_id,
-                "request_id": case_request_id}
+        with self.board._lock:
+            row_id = 'card-' + str(transaction_id)
+            row = self.board.get_row(row_id)
+            if row is None:
+                return {"status": "not_recorded"}
+            if not self._trip_move_is_current(
+                    transaction_id, target_trip, request_id, originating_revision):
+                return {"status": "superseded"}
+            case_request_id = 'card-trip-move-' + hashlib.sha256(
+                f"{transaction_id}\0{request_id}".encode('utf-8')).hexdigest()[:32]
+            case_id = 'case-' + case_request_id
+            if row.get('display_tab_id') != target_trip:
+                saved = self.board.save(row_id=row_id, expected_revision=int(row['revision']),
+                                        client_request_id=case_request_id, change_mode='rule_change',
+                                        changes={'display_tab_id': target_trip}, actor='owner')
+                case_id = saved.get('learning_case_id') or case_id
+            self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
+            return {"status": "saved", "case_id": case_id, "row_id": row_id,
+                    "request_id": case_request_id}
 
-    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id,
+                                originating_revision=None):
         """Open the existing rule dialogue after the owner move has been persisted."""
         source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
-        persisted = self.persist_card_trip_move(transaction_id, source_trip, target_trip,
-                                                request_id=request_id)
-        if persisted['status'] != 'saved':
-            return persisted
-        case_id = persisted['case_id']
-        case_request_id = persisted['request_id']
-        row_id = persisted['row_id']
-        current = self.board.get_row(row_id)
-        draft = {
-            'learning_case_id': case_id,
-            'rule_kind': '', 'evidence_basis': '',
-            'conditions': {},
-            'scope': {'trip_id': target_trip},
-            'effects': {'item': current.get('item') or '',
-                        'display_tab_id': target_trip},
-        }
-        self.board.open_rule_dialog(learning_case_id=case_id, draft=draft,
-                                    client_request_id=case_request_id + ':dialog')
-        self.board.open_conversation(learning_case_id=case_id,
-                                     client_request_id=case_request_id + ':conversation')
-        self.board.ensure_trip_move_reason_question(case_id)
-        return {"status": "opened", "case_id": case_id,
-                "conversation_id": 'conv-' + case_id,
-                "url": '/rules?case=' + case_id}
+        with self.board._lock:
+            persisted = self.persist_card_trip_move(
+                transaction_id, source_trip, target_trip, request_id=request_id,
+                originating_revision=originating_revision)
+            if persisted['status'] != 'saved':
+                return persisted
+            case_id = persisted['case_id']
+            case_request_id = persisted['request_id']
+            row_id = persisted['row_id']
+            current = self.board.get_row(row_id)
+            draft = {
+                'learning_case_id': case_id,
+                'rule_kind': '', 'evidence_basis': '',
+                'conditions': {},
+                'scope': {'trip_id': target_trip},
+                'effects': {'item': current.get('item') or '',
+                            'display_tab_id': target_trip},
+            }
+            self.board.open_rule_dialog(learning_case_id=case_id, draft=draft,
+                                        client_request_id=case_request_id + ':dialog')
+            self.board.open_conversation(learning_case_id=case_id,
+                                         client_request_id=case_request_id + ':conversation')
+            self.board.ensure_trip_move_reason_question(case_id)
+            return {"status": "opened", "case_id": case_id,
+                    "conversation_id": 'conv-' + case_id,
+                    "url": '/rules?case=' + case_id}
 
     def saved_state(self, batch_id, *, classify=False):
         """Only call after the write committed; refresh failure cannot undo that write."""
@@ -2104,7 +2145,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             tab = str(payload.get('display_tab_id') or '')
             if not flow.tab_valid(tab):
                 raise StoreError('TRIP_AUTHORITY_REQUIRED', '원본 일정이 확인된 여행을 선택해 주세요')
-            flow.pipeline.save_decision(payload['transaction_id'], payload['revision'],
+            saved_decision = flow.pipeline.save_decision(payload['transaction_id'], payload['revision'],
                 item=payload['item'], description=payload.get('description',''), display_tab_id=tab,
                 trip_id=tab if tab not in ('','unclassified') else '', trip_validator=flow.trip_valid,
                 tab_validator=flow.tab_valid,
@@ -2117,14 +2158,16 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 try:
                     response['trip_move_persisted'] = flow.persist_card_trip_move(
                         payload['transaction_id'], previous_trip, tab,
-                        request_id=str(payload['request_id']))
+                        request_id=str(payload['request_id']),
+                        originating_revision=saved_decision['revision'])
                 except Exception:
                     # The card decision is already saved; do not let optional learning undo it.
                     response['trip_move_persisted'] = {'status': 'unavailable'}
                 try:
                     response['trip_move_learning'] = flow.open_trip_move_learning(
                         payload['transaction_id'], previous_trip, tab,
-                        request_id=str(payload['request_id']))
+                        request_id=str(payload['request_id']),
+                        originating_revision=saved_decision['revision'])
                 except Exception:
                     # The owner decision and row move already committed; learning is optional.
                     response['trip_move_learning'] = {'status': 'unavailable'}
