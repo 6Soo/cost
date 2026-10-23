@@ -160,6 +160,9 @@ class OtaReviewStore:
                 source_digest TEXT, evidence_changed INTEGER NOT NULL DEFAULT 0,
                 evidence_missing INTEGER NOT NULL DEFAULT 0,
                 user TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS ota_review_event_crosswalk(
+                old_event_id TEXT PRIMARY KEY, current_event_id TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS ota_review_proposals(
                 proposal_id TEXT PRIMARY KEY, event_id TEXT NOT NULL, transaction_id TEXT NOT NULL,
                 conditions_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
@@ -234,6 +237,17 @@ class OtaReviewStore:
             snapshot["_evidence_missing"] = bool(row["evidence_missing"])
             snapshots[row["event_id"]] = snapshot
         return snapshots
+
+    def event_crosswalks(self):
+        """Persisted legacy-to-current IDs for user-pinned payment events."""
+        if not self._has_table("ota_review_event_crosswalk"):
+            return {}
+        return {row["old_event_id"]: {
+            "current_event_id": row["current_event_id"],
+            "evidence_digest": row["evidence_digest"],
+        } for row in self.conn.execute(
+            "SELECT old_event_id,current_event_id,evidence_digest "
+            "FROM ota_review_event_crosswalk ORDER BY old_event_id")}
 
     def active_rules(self):
         if not self._has_table("ota_review_rules"):
@@ -437,7 +451,7 @@ class OtaReviewStore:
         return self._preview_value(event, transaction)
 
     def confirm(self, event, transaction, preview_digest, *, request_id, user,
-                allocations=_NO_ALLOCATION_SNAPSHOT):
+                allocations=_NO_ALLOCATION_SNAPSHOT, id_crosswalk=None):
         if allocations is _NO_ALLOCATION_SNAPSHOT or allocations is None:
             raise ValueError("GLOBAL_ALLOCATIONS_REQUIRED")
         if not isinstance(allocations, (dict, list, tuple)):
@@ -483,6 +497,14 @@ class OtaReviewStore:
                   "proposal_id": proposal_id, "differences": current["differences"],
                   "proposal_conditions": conditions, "proposal_review_warnings": review_warnings}
         with self.conn:
+            for old_event_id, current_event_id in (id_crosswalk or {}).items():
+                if str(current_event_id) != str(event_id) or not str(old_event_id):
+                    continue
+                self.conn.execute(
+                    "INSERT INTO ota_review_event_crosswalk(old_event_id,current_event_id,evidence_digest) "
+                    "VALUES(?,?,?) ON CONFLICT(old_event_id) DO UPDATE SET "
+                    "current_event_id=excluded.current_event_id,evidence_digest=excluded.evidence_digest",
+                    (str(old_event_id), str(current_event_id), str(event.get("source_digest") or "")))
             self.conn.execute("""INSERT INTO ota_review_links
                 (event_id,transaction_id,event_json,transaction_json,source_digest,user)
                 VALUES(?,?,?,?,?,?)""", (event_id, transaction_id, _dump(event), _dump(transaction),

@@ -43,6 +43,21 @@ def test_j_manual_link_is_persisted_in_explicit_review_database(tmp_path):
         store.close()
 
 
+def test_manual_event_id_crosswalk_is_persisted_with_the_user_confirmation(tmp_path):
+    store = OtaReviewStore(tmp_path / 'crosswalk.sqlite')
+    try:
+        current = event('pay-current')
+        current['source_digest'] = 'same-source-proof'
+        preview = store.preview(current, card())
+        store.confirm(current, card(), preview['preview_digest'], request_id='crosswalk-confirm',
+                      user='owner', allocations={}, id_crosswalk={'legacy-event': 'pay-current'})
+        assert store.event_crosswalks() == {
+            'legacy-event': {'current_event_id': 'pay-current', 'evidence_digest': 'same-source-proof'}
+        }
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('allocations', [pytest.param('omitted', id='omitted'),
                                          pytest.param(None, id='none')])
 def test_confirm_requires_an_explicit_global_allocation_snapshot(tmp_path, allocations):

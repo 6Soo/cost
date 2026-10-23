@@ -232,7 +232,7 @@ def _link_transaction_id(link):
     return str(link or "")
 
 
-def _manual_link_crosswalk(events, links, stored_events):
+def _manual_link_crosswalk(events, links, stored_events, persisted_crosswalk=None):
     """Map a legacy pinned ID only when its saved payment evidence identifies one new event."""
     current_ids = {str(event.get("ota_event_id") or "") for event in events}
     resolved = {}
@@ -247,6 +247,7 @@ def _manual_link_crosswalk(events, links, stored_events):
             resolved[old_id] = link
             continue
         digest = saved.get("source_digest")
+        prior = (persisted_crosswalk or {}).get(old_id) or {}
         matches = [event for event in events
                    if digest and event.get("source_digest") == digest
                    and event.get("provider") == saved.get("provider")
@@ -254,6 +255,12 @@ def _manual_link_crosswalk(events, links, stored_events):
                    and event.get("event_type") == saved.get("event_type")
                    and str(event.get("amount_krw") or "") == str(saved.get("amount_krw") or "")
                    and str(event.get("card_last4") or "") == str(saved.get("card_last4") or "")]
+        if (prior.get("current_event_id") in current_ids and digest and
+                prior.get("evidence_digest") == digest):
+            pinned = [event for event in matches
+                      if str(event.get("ota_event_id") or "") == prior["current_event_id"]]
+            if len(pinned) == 1:
+                matches = pinned
         if len(matches) == 1:
             new_id = str(matches[0].get("ota_event_id") or "")
             resolved[new_id] = link
@@ -409,7 +416,8 @@ class CoreOtaPaymentBackend:
         transactions = self._transactions()
         stored_events = self._stored_manual_events()
         manual_links, id_crosswalk = _manual_link_crosswalk(
-            events, self.store.links(), stored_events)
+            events, self.store.links(), stored_events,
+            getattr(self.store, "event_crosswalks", lambda: {})())
         canonical_by_id = {str(event.get("ota_event_id")): event for event in events}
         legacy_links = self._legacy_exact_snapshot(events, transactions)
         manually_claimed = {_link_transaction_id(link): event_id
@@ -719,8 +727,15 @@ class CoreOtaPaymentBackend:
             snapshot_service(self.board).request_check()
             raise StalePreviewError
         try:
+            _manual, id_crosswalk = _manual_link_crosswalk(
+                data["events"], self.store.links(), self._stored_manual_events(),
+                getattr(self.store, "event_crosswalks", lambda: {})())
+            confirm_options = {"request_id": request_id, "user": user,
+                               "allocations": allocations}
+            if id_crosswalk:
+                confirm_options["id_crosswalk"] = id_crosswalk
             return self.store.confirm(event, transaction, core_digest,
-                                      request_id=request_id, user=user, allocations=allocations)
+                                      **confirm_options)
         except Exception as exc:
             if (getattr(exc, "code", "") == "STALE_PREVIEW" or
                     "STALE_PREVIEW" in str(exc) or "stale" in type(exc).__name__.lower()):
