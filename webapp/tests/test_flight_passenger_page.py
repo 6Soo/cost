@@ -70,6 +70,8 @@ def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
     from playwright.sync_api import sync_playwright
 
     proposal = match_booking_passengers(EVIDENCE, AUTHORITY)['passengers'][0]
+    proposal['assignment'] = {'stale': True, 'candidate_reference_id': 'opaque-synth',
+                              'candidate': {'name_kr': '김알파'}}
     requests = []
     document = page._page('csrf-synth')
     with sync_playwright() as api:
@@ -94,6 +96,8 @@ def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
             browser_page.locator('input[name=tour_id]').fill('tour-synth')
             browser_page.get_by_role('button', name='후보 조회').click()
             browser_page.get_by_text('김알파').wait_for()
+            browser_page.get_by_text(
+                '저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.').wait_for()
             browser_page.locator('input[type=radio]').check()
             browser_page.get_by_role('button', name='선택한 COST 연결 저장').click()
             browser_page.get_by_text('실제 탑승 여부는 확인되지 않았습니다.').wait_for()
