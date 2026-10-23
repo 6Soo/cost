@@ -44,7 +44,8 @@ def test_j_manual_link_is_persisted_in_explicit_review_database(tmp_path):
 
 
 def test_manual_event_id_crosswalk_is_persisted_with_the_user_confirmation(tmp_path):
-    store = OtaReviewStore(tmp_path / 'crosswalk.sqlite')
+    path = tmp_path / 'crosswalk.sqlite'
+    store = OtaReviewStore(path)
     try:
         current = event('pay-current')
         current['source_digest'] = 'same-source-proof'
@@ -56,6 +57,16 @@ def test_manual_event_id_crosswalk_is_persisted_with_the_user_confirmation(tmp_p
         }
     finally:
         store.close()
+    # Reopening simulates a later source collection/request: the pin and its
+    # evidence-bound ID mapping must survive independently of the process.
+    reopened = OtaReviewStore(path)
+    try:
+        assert reopened.links()['pay-current']['transaction_id'] == 'card-a'
+        assert reopened.event_crosswalks() == {
+            'legacy-event': {'current_event_id': 'pay-current', 'evidence_digest': 'same-source-proof'}
+        }
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize('allocations', [pytest.param('omitted', id='omitted'),
