@@ -645,12 +645,12 @@ class OtaPaymentReviewTests(unittest.TestCase):
                                             payments=payments, store_type=FakeCoreStore,
                                             sources={"mail_directories": [], "portal_databases": [],
                                                      "reference_documents": []})
-            with mock.patch.object(backend, "_legacy_exact_snapshot",
-                                   side_effect=AssertionError("legacy matcher must remain shadow-only")):
+            with mock.patch.object(ota_payment_review, "legacy_exact_bindings",
+                                   side_effect=AssertionError("review snapshot must not run legacy matching")):
                 primed(board, backend)
             before = Path(review_path).stat().st_mtime_ns
-            with mock.patch.object(backend, "_legacy_exact_snapshot",
-                                   side_effect=AssertionError("legacy matcher must remain shadow-only")):
+            with mock.patch.object(ota_payment_review, "legacy_exact_bindings",
+                                   side_effect=AssertionError("review snapshot must not run legacy matching")):
                 snapshot = backend.snapshot()
             self.assertEqual(len(snapshot["cards_by_event"]["evt-synth-001"]), 12)
             self.assertEqual(snapshot["cards_by_event"]["evt-synth-001"][0]["already_linked_event_id"], "evt-auto")
@@ -960,32 +960,6 @@ class OtaPaymentReviewTests(unittest.TestCase):
                                                {"matches": [fact]}), {})
         self.assertEqual(legacy_exact_bindings([event], [{**row, "card_tail": "9999"}],
                                                {"matches": [fact]}), {})
-
-    def test_legacy_comparison_cache_invalidates_when_event_evidence_changes(self):
-        from webapp.ota_payment_review import CoreOtaPaymentBackend
-        event = {**EVENT, "provider": "trip", "source_digest": "digest-a",
-                 "source_digests": ["digest-a"], "card_last4": "2042"}
-        row = {"transaction_id": "card-legacy", "source_hash": "card-hash",
-               "merchant": "Synthetic Stay", "merchant_normalized": "synthetic stay",
-               "card_kind": "credit", "card_tail": "2042", "issuer": "Synthetic Bank",
-               "approval_date": "2026-09-04", "amount_krw": 12500,
-               "transaction_direction": "purchase"}
-        fact = {"transaction_id": "card-legacy", "source_hash": "card-hash",
-                "provider": "trip", "booking_ref": event["booking_ref"],
-                "source_sha256": "digest-a", "direction": "purchase",
-                "item": "Synthetic room", "period": None, "evidence_kind": "authenticated_mail"}
-        backend = object.__new__(CoreOtaPaymentBackend)
-        backend.board = SimpleNamespace()
-        backend.sources = {"mail_directories": [], "portal_databases": []}
-        mail = SimpleNamespace(match_mail=lambda *_args, **_kwargs: {"matches": [fact]})
-        portal = SimpleNamespace(extend_report=lambda report, *_args: report)
-        original_import = ota_payment_review.importlib.import_module
-        with mock.patch.object(ota_payment_review.importlib, "import_module",
-                              side_effect=lambda name: mail if name == "app.ota_mail" else
-                              portal if name == "app.ota_portal" else original_import(name)):
-            self.assertIn("evt-synth-001", backend._legacy_exact_snapshot([event], [row]))
-            changed = {**event, "source_digest": "digest-b", "source_digests": ["digest-b"]}
-            self.assertEqual(backend._legacy_exact_snapshot([changed], [row]), {})
 
     def test_proposal_question_states_signed_difference_and_conditions_without_discount_claim(self):
         snapshot = ota_payment_review.public_snapshot({
