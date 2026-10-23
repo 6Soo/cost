@@ -49,6 +49,43 @@ class CardFlowTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
+    def test_owner_trip_move_is_revisioned_idempotent_and_survives_reclassification(self):
+        batch = self.flow.pipeline.receive(CARD, 'trip-move.csv')['batch_id']
+        row = self.flow.pipeline.get_batch(batch)['rows'][0]
+        self.flow.trip_valid = lambda value: value in {'trip-a', 'trip-b'}
+
+        first = self.flow.pipeline.save_decision(
+            row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id='trip-a', trip_id='trip-a', request_id='move-to-a',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        replay = self.flow.pipeline.save_decision(
+            row['transaction_id'], row['revision'], item='숙박비',
+            display_tab_id='trip-a', trip_id='trip-a', request_id='move-to-a',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.assertEqual(first, replay)
+
+        moved = self.flow.pipeline.save_decision(
+            row['transaction_id'], first['revision'], item='숙박비',
+            display_tab_id='trip-b', trip_id='trip-b', request_id='move-to-b',
+            trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+        self.assertEqual(moved['revision'], first['revision'] + 1)
+        self.flow.classify(batch)
+        self.flow.pipeline.receive(CARD, 'trip-move-again.csv')
+
+        current = self.board.conn.execute(
+            'SELECT trip_id, display_tab_id, classification_source, revision '
+            'FROM transactions WHERE transaction_id=?', (row['transaction_id'],)).fetchone()
+        self.assertEqual(tuple(current), ('trip-b', 'trip-b', 'user_decision', moved['revision']))
+        history = self.board.conn.execute(
+            'SELECT revision, display_tab_id FROM review_decisions '
+            'WHERE transaction_id=? ORDER BY revision', (row['transaction_id'],)).fetchall()
+        self.assertEqual([tuple(item) for item in history],
+                         [(first['revision'], 'trip-a'), (moved['revision'], 'trip-b')])
+        audit = self.board.conn.execute(
+            "SELECT COUNT(*) FROM change_log WHERE kind='transaction.decided' "
+            'AND subject=?', (row['transaction_id'],)).fetchone()[0]
+        self.assertEqual(audit, 2)
+
     def test_review_evidence_labels_distinguish_existing_mail_evidence(self):
         row = {
             'merchant':'AGODA', 'classification_source':'inference',
