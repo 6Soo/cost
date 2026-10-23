@@ -623,9 +623,13 @@ class OtaPaymentReviewTests(unittest.TestCase):
                                             payments=payments, store_type=FakeCoreStore,
                                             sources={"mail_directories": [], "portal_databases": [],
                                                      "reference_documents": []})
-            primed(board, backend)
+            with mock.patch.object(backend, "_legacy_exact_snapshot",
+                                   side_effect=AssertionError("legacy matcher must remain shadow-only")):
+                primed(board, backend)
             before = Path(review_path).stat().st_mtime_ns
-            snapshot = backend.snapshot()
+            with mock.patch.object(backend, "_legacy_exact_snapshot",
+                                   side_effect=AssertionError("legacy matcher must remain shadow-only")):
+                snapshot = backend.snapshot()
             self.assertEqual(len(snapshot["cards_by_event"]["evt-synth-001"]), 12)
             self.assertEqual(snapshot["cards_by_event"]["evt-synth-001"][0]["already_linked_event_id"], "evt-auto")
             self.assertEqual(Path(review_path).stat().st_mtime_ns, before)
