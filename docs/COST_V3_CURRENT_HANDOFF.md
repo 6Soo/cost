@@ -14,6 +14,14 @@
 - 오래된 `deploy/ota-unified-20261021`은 최신 `main`과 통합하면 V3 코드·검사를 포함한 107개 경로에서 약 11,700줄을 삭제한다. 이 브랜치 병합은 중단했고 `main`에는 해당 삭제를 반영하지 않았다.
 - **다음 작업:** 권한 있는 운영자가 COST의 `D:\WebLedgerHost\secrets\reservation-internal-token.txt`를 Reservation의 기존 내부 API 토큰과 안전한 비밀 채널로 맞춘 뒤, 값이 노출되지 않는 상태 코드만으로 인증된 읽기를 재검증한다. 토큰을 채팅·Git·로그에 붙이지 않는다.
 
+## 0.2 2026-10-23 추가 확인 — 참가자 전용 내부 토큰 인증 불일치 수정
+
+- 기존 Reservation `src/lib/internalAuth.ts`는 `INTERNAL_API_TOKEN` 및 `COST_INTERNAL_API_TOKEN`을 모두 허용했으나 참가자 후보 라우트만 `INTERNAL_API_TOKEN`을 단독 비교하고 있었다. 이 불일치는 COST 호스트 파일에 정당한 COST 전용 토큰이 있어도 401을 만드는 **가능한 원인**이다. 호스트 실제 토큰 내용을 보지 않았으므로 유일한 실제 원인으로 확정하지 않는다.
+- [Reservation PR #25](https://github.com/6Soo/reservation/pull/25) → `main` **3296255e07e0c654c41b48e347095c2aedd8443e**: 참가자 라우트가 공용 상수시간 내부 토큰 검증을 사용하도록 정렬. 무인증·미설정 fail-closed, DB 조회 전 401, `no-store, private`, auth 토큰 종류와 관계없이 동일한 후보 HMAC revision 유지. 바뀐 파일은 `src/lib/internalAuth.ts`, `src/lib/passengerCandidateRoute.ts`, `tests/passengerCandidateRoute.test.ts` 3개만.
+- [Preview dpl_GVUxx8AKW5xoxxeK6nJsn6wydn2K](https://vercel.com/6soos-projects/reservation/GVUxx8AKW5xoxxeK6nJsn6wydn2K) READY, [main Actions run 39953733785](https://github.com/6Soo/reservation/actions/runs/39953733785) **unit 270/270 PASS, smoke PASS**, [Production dpl_DQGvxo765hwryWWURP2XFVDdXkkm](https://vercel.com/6soos-projects/reservation/DQGvxo765hwryWWURP2XFVDdXkkm) **READY**. 이 결과는 인증 로직/배포 검증이며 실제 운영 호스트의 인증 성공·실고객 읽기 성공 증거는 아니다.
+- COST `webapp/reservation-passenger.env.example`을 `13705183` 문서 커밋으로 갱신: 호스트의 `RESERVATION_INTERNAL_API_TOKEN` 또는 보호된 파일은 **Reservation의 `COST_INTERNAL_API_TOKEN`(권장 COST 전용) 또는 기존 `INTERNAL_API_TOKEN`과 동일해야 한다**. `TURSO_READONLY_AUTH_TOKEN`은 Reservation DB에만 사용하며 호스트 내부 HTTP 토큰으로 사용 금지.
+- **남은 P1 차단:** 보안 운영자가 호스트 서비스의 실제 활성 토큰 소스 우선순위(환경변수 `RESERVATION_INTERNAL_API_TOKEN` → `RESERVATION_INTERNAL_API_TOKEN_FILE` → 제공 기본 파일 경로), 해당 비밀파일 값이 Reservation **COST_INTERNAL_API_TOKEN**에 맞는지 비밀 저장소에서 확인. 서로 맞지 않으면 전용 토큰을 안전하게 회전/동기화하고 Vercel 새 Production 배포 및 호스트 프로세스 설정 반영 여부를 확인. 채팅·CI·Git에 값을 남기지 않는다. 이후 **합성 tour ID**로 상태코드만 검사: `401`이면 인증 불일치, `404`이면 인증 통과+미존재 여행, `503`이면 인증 통과 뒤 소스/DB 불가. 올바른 권위 여행에 대한 개인정보 최소화/원본 변경 stale 검사는 별도 승인된 비파괴 운영 시연으로만. **이 세션에서 호스트 비밀 파일 접근·새 실서비스 인증 호출은 하지 않았다.**
+
 ## 0. 새 에이전트용 즉시 실행 계약
 
 **목표:** OTA↔실제 카드 대사, 여행 우선 배정, 사용자 이동·AI 규칙 승인, 한/영 참가자 연결, N:M 그룹, 금융 중복·환불 보호, Google 수동 붙여넣기까지 **승인된 COST V3를 실사용 가능하게 마무리**한다. 코드가 이미 있는 기능을 재작성하지 않고 **남은 미검증 경계와 실제 결함**부터 해결한다. 조사만 하고 끝내지 않는다.
@@ -29,9 +37,9 @@
 | 표면 | GitHub/플랫폼에서 확인한 사실 | 구분 |
 | --- | --- | --- |
 | COST 앱 코드 기준 | [6Soo/cost main](https://github.com/6Soo/cost/commits/main); V3 앱 코드 기준 **0bd6e933ab** | V3 앱 기준 뒤의 main 추가 커밋은 문서-only다. 운영 호스트 릴리스는 별개이며 main 전체 배포가 아니다. |
-| Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **c315c17a0f** (2026-10-23 확인) | [PR #22](https://github.com/6Soo/reservation/pull/22) 참가자 API, [PR #23](https://github.com/6Soo/reservation/pull/23) KST 테스트 날짜 고정, [PR #24](https://github.com/6Soo/reservation/pull/24) 참가자 API 모든 응답의 비저장 캐시 정책 적용 |
-| Reservation Vercel | [Production 배포 dpl_7dNPpkvC5sWHtkPGn8gWfAns6GU1](https://vercel.com/6soos-projects/reservation/7dNPpkvC5sWHtkPGn8gWfAns6GU1) — target=production, state=READY, sha=**c315c17a0f** | Turso Production Secret 반영을 위한 재배포와 PR #24 병합 자동 배포가 모두 READY. 최종 배포의 무인증 API 응답은 401, `no-store, private`, `Vary: Authorization` |
-| Reservation Actions | [PR #23 workflow](https://github.com/6Soo/reservation/actions/runs/39939654895) 및 [PR #24 병합 커밋 workflow](https://github.com/6Soo/reservation/actions/runs/39945322228): **unit SUCCESS / smoke SUCCESS** | **P0 완료.** 이전 날짜 테스트 실패는 10/21 기준선(39639564867)에서도 발생한 테스트 날짜 고정 부재였다. PR #24의 캐시 오류 응답 수정 표적 검사와 전체 CI가 통과했다 |
+| Reservation 앱 코드 기준 | [6Soo/reservation main](https://github.com/6Soo/reservation/commits/main) **3296255e07** (2026-10-23 확인) | PR #22 참가자 API, PR #23 KST 테스트 날짜 고정, PR #24 오류 응답 캐시 방지, [PR #25](https://github.com/6Soo/reservation/pull/25) COST 전용 토큰 공통 인증 정합화 |
+| Reservation Vercel | [Production dpl_DQGvxo765hwryWWURP2XFVDdXkkm](https://vercel.com/6soos-projects/reservation/DQGvxo765hwryWWURP2XFVDdXkkm) — target=production, state=READY, sha=**3296255e07** | PR #25 인증 정합화 배포 READY. c315c17 때의 무인증 401/no-store 검증은 이력이며, 새 호스트 인증 성공은 아직 미검증 |
+| Reservation Actions | [PR #25 main workflow](https://github.com/6Soo/reservation/actions/runs/39953733785): **unit 270/270 SUCCESS, smoke SUCCESS** | **P0 완료 유지.** COST 전용 토큰 인증/기존 토큰 동등 응답/인가 실패 시 DB 미조회 회귀를 추가했으며 새 커밋 CI 통과 |
 | COST 배포 | [운영 이력](operations.md)의 마지막 기록 릴리스 **6bda111bdc**; GitHub `deploy/ota-unified-20261021` HEAD도 **6bda111bdc**로 확인 | 2026-10-23 비교 시 main 쪽 179커밋, 운영 쪽 25커밋 차이. 그 뒤 main 문서-only 커밋이 추가돼 앱 코드 차이는 그대로다. 현재 구동 중인 운영 프로세스 SHA·V3 실기능은 현 세션에서 미검증. **원격 단순 병합/일괄 배포 금지** |
 | 로컬 작업 공간 | 에이전트 보고상 COST 미추적 .claude/stop-gate/, reservation 사용자 미커밋 변경 보존 | GitHub에서 로컬 상태를 확인할 수 없음. 새 실행 시 로컬에서 재확인 필수 |
 
@@ -80,7 +88,7 @@
 
 ### P1 — R5-B 실서비스 읽기 연동 안전성 검증 (실제 운영 설정 권한은 별도)
 
-**상태: 코드 구현 COMPLETE / Turso 설정 저장 COMPLETE / Production 배포 COMPLETE / 무인증 경계 검사 COMPLETE / 인증 읽기 FAILED(401) / 실제 후보 데이터 미검증.** 기존 기록에 따라 Turso 읽기 전용 권한과 Reservation 배포는 완료됐다. 2026-10-23 COST 호스트의 보호된 토큰 파일로 합성 식별자 한 건을 요청했지만 `401 Unauthorized`를 받았다. 후보 자료는 반환되지 않았고 토큰 원문은 출력하지 않았다. COST 측 기존 토큰이 Reservation의 현재 `INTERNAL_API_TOKEN`과 일치하는지 운영자가 비밀 저장소에서 확인해야 한다. 값이 다르거나 만료됐다면 두 서비스의 기존 승인 경계 안에서 안전하게 맞춘다. 인증된 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
+**상태: 코드 구현 COMPLETE(전용 토큰 검증 PR #25 포함) / Turso 설정 저장 COMPLETE / Production 배포 READY / 이전 무인증 경계 검사 COMPLETE / 새 코드에서 운영 호스트 인증 읽기 UNVERIFIED / 실제 후보 데이터 미검증.** 기존 기록에 따라 Turso 읽기 전용 권한과 Reservation 배포는 완료됐다. 2026-10-23 **PR #25 이전** COST 호스트의 보호된 토큰 파일로 합성 식별자 한 건을 요청했지만 `401 Unauthorized`를 받았다. 후보 자료는 반환되지 않았고 토큰 원문은 출력하지 않았다. PR #25 이후에는 COST 측 기존 토큰이 Reservation의 `COST_INTERNAL_API_TOKEN`(전용) 또는 `INTERNAL_API_TOKEN`(기존)과 일치하는지 운영자가 비밀 저장소에서 확인해야 한다. 값이 다르거나 만료됐다면 두 서비스의 기존 승인 경계 안에서 안전하게 맞춘다. 인증된 실제 참가자 읽기·source revision·stale 재확정 흐름은 미검증이다.
 
 1. Vercel reservation의 Production `c315c17` READY와 도메인/환경을 재확인했다. 운영 환경변수는 **이름·환경만** 확인하고 값은 출력·복사·로그하지 않는다.
 2. Reservation의 내부 API: /api/internal/passenger-candidates?tourFldid=... ; 보호 Bearer 인증. 서버측 읽기 전용 전용 DB 클라이언트가 기존 getDb() schema 초기화·PII 마이그레이션을 사용하지 않는 구조임을 유지.
@@ -131,7 +139,7 @@
 시작 단계:
 - COST와 reservation 각각의 원격 main, 작업트리, 배포된 Vercel Production commit, GitHub Actions 병합 커밋 결과 조회.
 - **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
-- **P1 설정·배포·무인증 경계 확인 완료 / 실연동 확인 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret 저장, `70b00859` 설정 적용 재배포, PR #24 수정이 포함된 `c315c17` 배포가 완료됐다. `a=ro`와 만료 `2026-12-22T11:01:37Z`를 확인했다. 무인증 API 요청은 401이고 오류 응답도 `no-store, private`다. COST의 별도 내부 API 주소·토큰이 Reservation의 `INTERNAL_API_TOKEN`과 맞는지, 인증 읽기·source revision·stale 재확정은 검증하지 않았다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB 쓰기 시험은 하지 않는다.
+- **P1 설정·배포·무인증 경계 확인 완료 / 실연동 확인 대기:** Reservation Production의 두 `TURSO_READONLY_*` Secret 저장, `70b00859` 설정 적용 재배포, PR #24 `c315c17`, PR #25 공통 내부 토큰 인증 정합화 `3296255e` 배포가 완료됐다. `a=ro`와 만료 `2026-12-22T11:01:37Z`를 확인했다. 무인증 API 요청은 401이고 오류 응답도 `no-store, private`다. COST의 별도 내부 API 주소·토큰이 Reservation의 `INTERNAL_API_TOKEN`과 맞는지, 인증 읽기·source revision·stale 재확정은 검증하지 않았다. 기존 DB 토큰과 COST의 `RESERVATION_INTERNAL_API_TOKEN`은 서로 다른 자격증명이다. 운영 DB 쓰기 시험은 하지 않는다.
 - 사용자 인증이 필요한 마지막 P1 단계만 차단하고 그 외 승인 구현을 수행. 결과를 이 인계 문서의 날짜·HEAD·테스트·실행 증거로 갱신.
 
 표적 검사 예시 (로컬 의존성 설치와 실제 환경을 확인한 후):
