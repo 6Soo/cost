@@ -351,6 +351,7 @@ def test_missing_manual_event_link_still_reserves_its_card():
 def test_portal_source_extract_keeps_two_same_amount_payment_ids(tmp_path):
     import hashlib
     import json
+    import shutil
     import sqlite3
     from tests.card_pipeline.test_ota_portal import portal_database
     path = portal_database(tmp_path / 'portal.sqlite')
@@ -676,6 +677,34 @@ def test_portal_source_lineage_can_use_registered_stable_id(tmp_path):
     })
     assert events[0]['source_lineage_ids'] == ['agoda-primary-source']
     assert len(events[0]['observation_ids']) == 1
+
+
+def test_portal_local_record_id_collision_does_not_merge_distinct_bookings(tmp_path):
+    import hashlib
+    import shutil
+    import sqlite3
+    from tests.card_pipeline.test_ota_portal import portal_database
+    first = portal_database(tmp_path / 'portal-a.sqlite')
+    second = portal_database(tmp_path / 'portal-b.sqlite')
+    with sqlite3.connect(first) as conn:
+        conn.execute("UPDATE direct_source_records SET payload_json=replace(payload_json,'synthetic-booking','booking-a')")
+        raw = conn.execute('SELECT payload_json FROM direct_source_records').fetchone()[0]
+        conn.execute('UPDATE direct_source_records SET source_sha256=?', (hashlib.sha256(raw.encode()).hexdigest(),))
+        conn.execute("UPDATE bookings SET booking_number='booking-a'")
+    first_copy = tmp_path / 'portal-a-copy.sqlite'
+    shutil.copyfile(first, first_copy)
+    with sqlite3.connect(second) as conn:
+        conn.execute("UPDATE direct_source_records SET payload_json=replace(replace(payload_json,'synthetic-booking','booking-b'),'30000','70000')")
+        raw = conn.execute('SELECT payload_json FROM direct_source_records').fetchone()[0]
+        conn.execute('UPDATE direct_source_records SET source_sha256=?', (hashlib.sha256(raw.encode()).hexdigest(),))
+        conn.execute("UPDATE bookings SET booking_number='booking-b'")
+    events = build_ota_payment_events({'portal_databases':[first, first_copy, second]})
+    assert len(events) == 2
+    assert {(item['booking_ref'], item['amount_krw']) for item in events} == {
+        ('booking-a', 30000), ('booking-b', 70000)}
+    assert len({item['ota_event_id'] for item in events}) == 2
+    copied = next(item for item in events if item['booking_ref'] == 'booking-a')
+    assert len(copied['source_lineage_ids']) == 2
 
 
 def test_undated_payment_candidate_search_is_separate_from_exact_matching():

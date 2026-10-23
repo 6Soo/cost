@@ -280,6 +280,26 @@ class OtaPaymentReviewTests(unittest.TestCase):
         }, clear=True):
             self.assertTrue(ota_payment_review.enabled())
 
+    def test_old_manual_link_id_crosswalk_requires_one_matching_saved_payment(self):
+        saved = {"legacy-event": {"source_digest":"same-proof", "provider":"agoda",
+                                  "booking_ref":"BOOK-A", "event_type":"charge",
+                                  "amount_krw":50000, "card_last4":"1234"}}
+        events = [
+            {"ota_event_id":"new-a", "source_digest":"same-proof", "provider":"agoda",
+             "booking_ref":"BOOK-A", "event_type":"charge", "amount_krw":50000, "card_last4":"1234"},
+            {"ota_event_id":"new-b", "source_digest":"same-proof", "provider":"agoda",
+             "booking_ref":"BOOK-B", "event_type":"charge", "amount_krw":70000, "card_last4":"5678"},
+        ]
+        links, crosswalk = ota_payment_review._manual_link_crosswalk(
+            events, {"legacy-event":{"transaction_id":"card-pinned", "status":"MATCHED_USER"}}, saved)
+        self.assertEqual(links, {"new-a":{"transaction_id":"card-pinned", "status":"MATCHED_USER"}})
+        self.assertEqual(crosswalk, {"legacy-event":"new-a"})
+        ambiguous, no_crosswalk = ota_payment_review._manual_link_crosswalk(
+            [events[0], {**events[0], "ota_event_id":"new-a-copy"}],
+            {"legacy-event":{"transaction_id":"card-pinned"}}, saved)
+        self.assertIn("legacy-event", ambiguous)
+        self.assertEqual(no_crosswalk, {})
+
     def test_get_renders_every_card_and_proposal_without_calling_a_write_method(self):
         backend = FakeBackend()
         handler = FakeHandler(backend, "/api/imports/ota")

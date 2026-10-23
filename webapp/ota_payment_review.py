@@ -232,6 +232,37 @@ def _link_transaction_id(link):
     return str(link or "")
 
 
+def _manual_link_crosswalk(events, links, stored_events):
+    """Map a legacy pinned ID only when its saved payment evidence identifies one new event."""
+    current_ids = {str(event.get("ota_event_id") or "") for event in events}
+    resolved = {}
+    crosswalk = {}
+    for old_id, link in (links or {}).items():
+        old_id = str(old_id)
+        if old_id in current_ids:
+            resolved[old_id] = link
+            continue
+        saved = (stored_events or {}).get(old_id)
+        if not isinstance(saved, dict):
+            resolved[old_id] = link
+            continue
+        digest = saved.get("source_digest")
+        matches = [event for event in events
+                   if digest and event.get("source_digest") == digest
+                   and event.get("provider") == saved.get("provider")
+                   and event.get("booking_ref") == saved.get("booking_ref")
+                   and event.get("event_type") == saved.get("event_type")
+                   and str(event.get("amount_krw") or "") == str(saved.get("amount_krw") or "")
+                   and str(event.get("card_last4") or "") == str(saved.get("card_last4") or "")]
+        if len(matches) == 1:
+            new_id = str(matches[0].get("ota_event_id") or "")
+            resolved[new_id] = link
+            crosswalk[old_id] = new_id
+        else:
+            resolved[old_id] = link
+    return resolved, crosswalk
+
+
 def _evidence_digests(record):
     values = record.get("source_digests") or record.get("evidence_digests") or []
     if isinstance(values, str):
@@ -376,7 +407,9 @@ class CoreOtaPaymentBackend:
     def _data(self):
         events = self.payments.build_ota_payment_events(self.sources)
         transactions = self._transactions()
-        manual_links = self.store.links()
+        stored_events = self._stored_manual_events()
+        manual_links, id_crosswalk = _manual_link_crosswalk(
+            events, self.store.links(), stored_events)
         canonical_by_id = {str(event.get("ota_event_id")): event for event in events}
         legacy_links = self._legacy_exact_snapshot(events, transactions)
         manually_claimed = {_link_transaction_id(link): event_id
@@ -384,16 +417,18 @@ class CoreOtaPaymentBackend:
         links = {event_id: link for event_id, link in legacy_links.items()
                  if manually_claimed.get(_link_transaction_id(link), event_id) == event_id}
         links.update(manual_links)
-        stored_events = self._stored_manual_events()
         stale_manual_ids = set()
+        old_ids_by_current = {new: old for old, new in id_crosswalk.items()}
         for event_id, link in manual_links.items():
+            old_id = old_ids_by_current.get(str(event_id), str(event_id))
             current = canonical_by_id.get(str(event_id))
-            stored = stored_events.get(str(event_id))
+            stored = stored_events.get(old_id)
             proof_missing = current is None or not self._has_payment_proof(current)
             if not proof_missing or not stored:
                 continue
             stale_manual_ids.add(str(event_id))
             display_event = dict(stored)
+            display_event["ota_event_id"] = str(event_id)
             display_event.update(evidence_missing=True, evidence_changed=True,
                                 review_warning="manual_link_evidence_missing")
             if current is None:

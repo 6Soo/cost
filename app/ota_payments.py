@@ -511,6 +511,22 @@ def _combine_evidence(group, *, conflict=False):
 
 def _collapse_portal_source_copies(events):
     """같은 원본 행 ID의 동일 결제 근거만 복사본으로 합친다."""
+    # Portal record IDs are local to a database. Keep the historic event ID when
+    # copies agree, but namespace conflicting observations before grouping them.
+    by_local_identity = defaultdict(list)
+    for event in events:
+        identity = tuple(event.get("identity_source_ids") or event.get("source_ids") or [])
+        by_local_identity[(identity, event.get("event_type"))].append(event)
+    for group in by_local_identity.values():
+        if len(group) < 2 or not any(_event_semantic_conflict(group[0], other) for other in group[1:]):
+            continue
+        for event in group:
+            digest = _digest([event.get("source_digest"),
+                              event.get("identity_source_ids") or event.get("source_ids")])
+            namespaced = [f"portal_observation:{digest}"]
+            event["source_ids"] = namespaced
+            event["identity_source_ids"] = namespaced
+            event["ota_event_id"] = _event_id(namespaced)
     groups = defaultdict(list)
     for event in events:
         key = (tuple(event.get("identity_source_ids") or event.get("source_ids") or []),
