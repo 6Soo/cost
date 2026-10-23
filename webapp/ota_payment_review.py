@@ -1313,7 +1313,7 @@ def render_import_section(csrf: str) -> str:
       }};
       const openRows=[...candidateRows,...reviewOnlyRows].map(renderCard).join('');
       const linkedRows=linkedCards.map(renderCard).join('');
-      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-verdict">${{esc(verdict)}}</p><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}${{groupPairs.length?`<details class="ota-group-proposal"><summary>순서 대응 제안 ${{groupPairs.length}}건 보기</summary><p>이 대응은 개별 결제 근거가 아닌 정렬 순서 제안입니다. 예약별 연결을 확인한 뒤 묶음을 고정하세요.</p>${{groupPairs.join('')}}</details>`:''}}<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 거래 ${{candidateRows.length+reviewOnlyRows.length}}건 · 결제 금액과 가까운 순</h4><div class="ota-cards">${{openRows}}</div>${{linkedRows?`<details class="ota-linked-cards"><summary>다른 예약에 연결된 거래 ${{linkedCards.length}}건</summary><div class="ota-cards">${{linkedRows}}</div></details>`:''}}<div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
+      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-verdict">${{esc(verdict)}}</p><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div><details data-diagnostic="${{eventId}}"><summary>연결 근거와 금융 상태 보기</summary><pre>열면 현재 스냅샷에서 읽습니다.</pre></details>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}${{groupPairs.length?`<details class="ota-group-proposal"><summary>순서 대응 제안 ${{groupPairs.length}}건 보기</summary><p>이 대응은 개별 결제 근거가 아닌 정렬 순서 제안입니다. 예약별 연결을 확인한 뒤 묶음을 고정하세요.</p>${{groupPairs.join('')}}</details>`:''}}<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 거래 ${{candidateRows.length+reviewOnlyRows.length}}건 · 결제 금액과 가까운 순</h4><div class="ota-cards">${{openRows}}</div>${{linkedRows?`<details class="ota-linked-cards"><summary>다른 예약에 연결된 거래 ${{linkedCards.length}}건</summary><div class="ota-cards">${{linkedRows}}</div></details>`:''}}<div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div></article>`;
     }}).join(''):'<p>검토할 OTA 결제 보류가 없습니다.</p>';
     const orderGroups=new Map();
     events.filter(event=>((event.allocation_basis==='user_approved_stable_order'||event.allocation_basis==='user_confirmed_group_required')&&!event.group_order_frozen)||event.review_warning==='confirm_group_reallocation')
@@ -1336,6 +1336,12 @@ def render_import_section(csrf: str) -> str:
     }}));
   }}
   function bindEvents(snapshot){{
+    root.querySelectorAll('[data-diagnostic]').forEach(details=>details.addEventListener('toggle',async()=>{{
+      if(!details.open||details.dataset.loaded)return;
+      const output=details.querySelector('pre');output.textContent='불러오는 중입니다.';
+      try{{const result=await call(`/api/imports/ota/diagnostics/${{encodeURIComponent(details.dataset.diagnostic)}}`);output.textContent=JSON.stringify(result,null,2);details.dataset.loaded='true';}}
+      catch(error){{output.textContent=error.message;}}
+    }}));
     root.querySelectorAll('[data-freeze-group]').forEach(button=>button.addEventListener('click',async()=>{{
       const payload=JSON.parse(decodeURIComponent(button.dataset.freezeGroup));
       if(!window.confirm(payload.replace?'바뀐 예약과 카드의 새 순서 배정을 확인하고 고정할까요?':'표시된 순서 배정을 확인하고 고정할까요? 이후 구성이나 순서가 달라지면 다시 확인이 필요합니다.'))return;
@@ -1520,6 +1526,53 @@ def _request_user(handler) -> str:
     return str(getattr(session, "user_id", "") or "")
 
 
+def _diagnostic_snapshot(backend):
+    """Read the current projection only; diagnostics never start reconciliation."""
+    view_of = getattr(backend, "snapshot_view", None)
+    if callable(view_of):
+        view = view_of()
+        public = view.get("current", {}).get("public") if view.get("current") else None
+        return public or {"events": [], "cards_by_event": {}}, {
+            key: view.get(key) for key in ("status", "stale", "generation", "generated_at")
+        }
+    return public_snapshot(backend.snapshot()), {"status": "ready", "stale": False}
+
+
+def _event_diagnostic(snapshot, event_id, freshness):
+    event = next((row for row in snapshot.get("events", [])
+                  if str(row.get("ota_event_id") or "") == event_id), None)
+    if event is None:
+        return None
+    cards = snapshot.get("cards_by_event", {}).get(event_id, [])
+    return {
+        "event_id": event_id,
+        "snapshot": freshness,
+        "source": {
+            "present": not bool(event.get("evidence_missing")),
+            "changed": bool(event.get("evidence_changed")),
+            "status": event.get("evidence_status") or event.get("payment_status") or "unknown",
+            "reservation_status": event.get("reservation_status") or "unknown",
+        },
+        "reconciliation": {
+            "status": event.get("status"), "reason": event.get("reason"),
+            "candidate_basis": event.get("inference_basis") or event.get("allocation_basis"),
+            "candidate_search_status": event.get("candidate_search_status"),
+            "candidate_count": event.get("candidate_count", 0),
+            "rejected_candidate_count": event.get("candidate_rejected_count", 0),
+        },
+        "financial": [{key: card.get(key) for key in (
+            "transaction_id", "amount_krw", "direction", "refund_status", "cancellation_status",
+            "selection_disabled", "selection_disabled_reason") if key in card}
+            for card in cards],
+        "existing_link": {
+            "status": "MATCHED_USER" if event.get("status") == "MATCHED_USER" else
+                      "MATCHED_AUTO" if event.get("status") == "MATCHED_AUTO" else "none",
+            "transaction_id": event.get("transaction_id"),
+            "warning": event.get("review_warning"),
+        },
+    }
+
+
 def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
     """Handle OTA routes after the host's normal access decision."""
     path = parsed.path
@@ -1527,6 +1580,19 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
         return False
     if not enabled():
         return _reply_error(handler, "OTA_REVIEW_DISABLED", "격리 검토 모드가 설정되지 않았습니다.", 404)
+    diagnostic_match = re.fullmatch(re.escape(ROUTE_PREFIX) + r"/diagnostics/([^/]+)", path)
+    if raw is None and diagnostic_match:
+        if not _request_user(handler):
+            return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+        try:
+            snapshot, freshness = _diagnostic_snapshot(backend)
+            result = _event_diagnostic(snapshot, diagnostic_match.group(1), freshness)
+            if result is None:
+                return _reply_error(handler, "NOT_FOUND", "검토 거래를 찾을 수 없습니다.", 404)
+            handler._send_json(result)
+        except Exception:
+            return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "진단 자료를 읽을 수 없습니다.", 503)
+        return True
     if raw is None:
         if path != ROUTE_PREFIX:
             return _reply_error(handler, "NOT_FOUND", "요청 경로를 찾을 수 없습니다.", 404)

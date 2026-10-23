@@ -331,6 +331,30 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertNotIn(forbidden, serialized)
         self.assertEqual([call[0] for call in backend.calls], ["snapshot"])
 
+    def test_owner_diagnostic_reads_public_snapshot_without_reconciliation_or_private_source_data(self):
+        backend = FakeBackend()
+        handler = FakeHandler(backend, "/api/imports/ota/diagnostics/evt-synth-001")
+        handled = ota_payment_review.dispatch(handler, urlsplit(handler.path), backend=backend)
+        self.assertTrue(handled)
+        self.assertEqual(handler.response[0], 200)
+        result = handler.response[2]
+        self.assertEqual(result["event_id"], "evt-synth-001")
+        self.assertTrue(result["source"]["present"])
+        self.assertEqual(result["reconciliation"]["status"], "HOLD_AMBIGUOUS")
+        self.assertEqual(len(result["financial"]), 12)
+        encoded = json.dumps(result)
+        for forbidden in ("private-fixture-path", "secret-event", "secret-digest", "source_digest"):
+            self.assertNotIn(forbidden, encoded)
+        self.assertEqual([call[0] for call in backend.calls], ["snapshot"])
+
+    def test_owner_diagnostic_requires_a_session(self):
+        backend = FakeBackend()
+        handler = FakeHandler(backend, "/api/imports/ota/diagnostics/evt-synth-001")
+        handler.current_user_id = lambda: ""
+        ota_payment_review.dispatch(handler, urlsplit(handler.path), backend=backend)
+        self.assertEqual(handler.response[0], 403)
+        self.assertEqual(backend.calls, [])
+
     def test_a_linked_card_names_the_owning_booking_not_the_internal_id(self):
         events = {"evt-a": {"ota_event_id": "evt-a", "provider": "Synthetic Stay", "booking_ref": "BOOK-1"}}
         self.assertEqual(ota_payment_review._event_label(events, "evt-a"), "Synthetic Stay · BOOK-1")
