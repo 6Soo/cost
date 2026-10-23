@@ -64,7 +64,19 @@
 | 기존 기록 게이트 | `app/ota_exact.py`, `webapp/card_flow.py::_ota_group_holds_base` | 일부 OTA 미확정 자체가 장부 기록을 막는 운영 구현이 있음 |
 | 기존 검토 | `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, `webapp/ledger_store.py` | 수동 pin·안전/비동기/기록 보호. 보존하고 진단 연결 |
 | **PR #87 (병합 완료)** | [PR #87](https://github.com/6Soo/cost/pull/87) | **2026-10-23 main `f8ccd13`에 squash 병합**. Decimal N:M 숫자 형식 수정 및 합성 테스트 3개가 코드에 포함됐으나 pytest **실행·통과 증거 없음**, 운영 서버 배포 검증 없음 |
-| R0~R6 | 상세 명세에 계획 | **아직 신규 통합 엔진/정책 A 런타임 구현 아님** |
+| R0~R6 코드 상태 | 2026-10-23 Git main과 표적 검증 이력 | **아래 상태표가 초기 계획 표기를 대체한다. 운영 배포는 별도 사실로 확인한다.** |
+
+### 2026-10-23 코드 상태와 운영 경계
+
+| 영역 | 현재 코드 근거 | 제한 및 남은 외부 단계 |
+| --- | --- | --- |
+| R0~R2 | 읽기 전용 대사 진단, source lineage·관측/결제 ID 구분·legacy crosswalk, 날짜 미상 진단 후보와 승인 alias | 운영 원본 전수 진단을 실행하지 않았으므로 실제 매칭 개선 수치는 주장하지 않는다. |
+| R3 | 중앙 snapshot을 OTA·카드·분류·지출 준비가 공유하며 stale fallback이 fresh canonical 결과를 덮지 않는다. 대량 재분류도 중앙 `_ota_report`를 사용한다. | 오래된 snapshot 복구 fallback은 보존한다. 운영 전환은 별도 승인 범위다. |
+| R4 | 유효 카드와 미확정 OTA 연결을 분리하고 비용 준비 UI/API를 제공한다. 미확정 예약번호는 장부·Google 복사값에 넣지 않는다. | Google 직접 쓰기는 없다. |
+| R5 | 사용자 여행 이동, AI 답변·추가 질문·규칙 미리보기/승인 흐름과 브라우저 검증을 반영했다. | 무료 모델 실패 시 수동 답변 경로를 쓰며 고객 원문을 외부 AI에 보내지 않는다. |
+| R5-B | 예약 후보 읽기 전용 API 초안 PR [#22](https://github.com/6Soo/reservation/pull/22), COST adapter·owner UI·SQLite 저장/stale 재확정 합성 종단 검증 완료. COST `58f569d`, 설정 안내 `225fa2c`; 예약 검토 브랜치 `f1725a5`. | Reservation `main`은 자동 배포 대상이라 PR은 draft다. 실제 인증은 승인된 읽기 전용 DB 자격증명과 내부 토큰이 없어 실행하지 않았다. |
+| R6 | legacy 직접 소비 경로를 중앙 report로 정렬하고 fresh snapshot 권한 보호, stale fallback과 진단 전용 경로의 역할을 분리했다. COST `268f7d8`, `f52533e`. | 운영 DB 전환·배포는 하지 않았다. |
+| N:M·금융 안전 | 반복 결제 그룹은 개별 결제 근거 없이 개별 예약 확정으로 승격하지 않는다. 중복·환불·원본 충돌·수동 결정 보호를 유지한다. | 실제 운영 원장 변경은 하지 않았다. |
 
 이것은 소스 코드 자체를 변경하는 지침이 아니다. 코드의 실제 보호 체크와 위 목표가 충돌하면 **금융 데이터 보존·사용자 결정 우선의 구현**을 설계하고 합성 테스트로 새 변경을 점진 적용한다.
 
@@ -94,7 +106,7 @@
 | 분류 | 문서 | 취급 |
 | --- | --- | --- |
 | **활성 최상위** | [README](../README.md), [AGENTS](../AGENTS.md), 이 문서, [인계](session_handoff.md), [구조](architecture.md) | 개발 착수/권위 판단용 |
-| **활성 미래 기능 명세** | [OTA 대사 A 정책](ota-card-reconciliation-policy-a-v3.md), [여행·AI·참가자](cost-v3-inference-ai-passenger-nm-test-architecture.md), [Google 정본 목표](target-workflow-google-authority.md) | **미구현 기능의 목표 계약** |
+| **활성 기능 계약** | [OTA 대사 A 정책](ota-card-reconciliation-policy-a-v3.md), [여행·AI·참가자](cost-v3-inference-ai-passenger-nm-test-architecture.md), [Google 정본 목표](target-workflow-google-authority.md) | 목표와 보호 계약이다. 구현 여부와 운영 상태는 위 코드 상태 및 실제 배포 증거로 구분한다. |
 | **활성 금융·도메인 불변조건** | [여행·대사](reconciliation-rules.md), [비용 규칙](business_rules.md), [카드 파이프라인](card_pipeline.md), [회사 비용 제외](company-expense-exclusion.md), [카드 다운로드](card_downloads.md), [Google 양식 실측](google-workbook-layout.md), [열람 권한/데모](access-and-top3-demo.md) | 보호 규칙/확정 요구는 유지하되 본 문서의 최신 A 정책 충돌만 대체 |
 | **실행/통합 점검 자료** | [SQLite 리허설](schema-rehearsal.md), [Google 동기화 사전 점검](google-authority-sync-readiness.md) | 환경/권한별 사전 검토; 읽기만 해도 작업을 자동 시작하면 안 됨 |
 | **별도 기능 제안/제한적 이력** | [영수증 Muse/OpenCode](receipt-muse-opencode.md), [UI 디자인](design/cost-saas-ui-refresh.md), [아이콘 라이선스](design/icon-license.md), [OTA 아이콘](design/ota-icons.md) | 별도 기능 요청 시 참고; 과거 모델 ID·브랜치·가격을 현재 사실로 단정 금지 |
@@ -105,10 +117,9 @@
 
 ### 배포·개발 관련 최종 구분
 
-- **main에 병합된 것:** 기존 PR #87의 문서 통합과 Decimal N:M 숫자 표시 정규화 코드/신규 테스트 파일.
-- **main에 아직 구현되지 않은 목표:** R0~R6 통합 대사/진단, 새로운 A 정책 readiness, 사용자 A→B 사후 AI 1·2·3 대화학습, 항공권 영문명 참가자 자동 등록.
-- **실행하지 않은 검증:** PR #87 신규 표적 pytest, 운영 DB 전수 진단, 운영 서버 실배포.
-- **첫 실행:** R0 읽기 전용 미매칭 진단기와 합성 테스트. 실제 DB와 Google 원본을 GitHub/무료 모델에 업로드하지 않는다.
+- **코드 반영:** R0~R6 핵심 경로와 R5 참가자 COST 흐름이 main에 반영됐다. Reservation 후보 API는 초안 PR #22에서 검토 중이며 아직 main/운영에는 반영되지 않았다.
+- **실행하지 않은 검증:** 운영 DB 전수 진단, 예약 운영 토큰 인증, 운영 서버 배포. 실제 서비스 연결에는 예약 쪽 읽기 전용 DB 자격증명과 승인된 내부 토큰이 필요하다.
+- **다음 개발 착수:** 합성으로 완료된 기능을 재작성하지 말고, 새 필수 코드 결함이 확인될 때만 해당 경로를 표적 수정한다. 실제 DB와 Google 원본을 외부 서비스에 올리지 않는다.
 
 ## 8. 문서 자체 검증 및 유지 규칙 (2026-10-23)
 
