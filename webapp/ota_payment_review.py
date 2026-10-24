@@ -82,8 +82,19 @@ def _public_reservation_link(value):
         return None
     if amount_status not in {None, "MATCH", "UNKNOWN", "MISMATCH"}:
         return None
-    return {"status": status, "transaction_id": transaction_id, "basis": basis,
-            "amount_status": amount_status, "payment_verified": False}
+    result = {"status": status, "transaction_id": transaction_id, "basis": basis,
+              "amount_status": amount_status, "payment_verified": False}
+    for key in ("merchant", "approval_date", "amount_krw", "historical_card_missing", "revision"):
+        item = value.get(key)
+        if key == "amount_krw" and isinstance(item, (int, float)) and not isinstance(item, bool):
+            result[key] = item
+        elif key == "revision" and isinstance(item, int) and not isinstance(item, bool):
+            result[key] = item
+        elif key in ("merchant", "approval_date") and isinstance(item, str):
+            result[key] = item
+        elif key == "historical_card_missing" and isinstance(item, bool):
+            result[key] = item
+    return result
 
 
 def _transaction_selection_block_reason(transaction):
@@ -566,6 +577,10 @@ class CoreOtaPaymentBackend:
                 or result.get("status") == "HOLD_EVIDENCE_CONFLICT"):
             raise InvalidReviewInput("reservation relation is not selectable")
         occupied = self._occupied_cards(links, results)
+        for relation_event, relation in confirmed.items():
+            transaction_id = str(relation.get("transaction_id") or "")
+            if transaction_id:
+                occupied.setdefault(transaction_id, (str(relation_event), "다른 예약에서 관계 확인"))
         for linked_event, relation in _store_value(self.store, "reservation_links", {}).items():
             if str(linked_event) == str(event_id):
                 continue
@@ -693,8 +708,14 @@ class CoreOtaPaymentBackend:
     def snapshot_from(self, data):
         events, transactions, links, results = data
         rules = self.store.active_rules()
+        confirmed = _store_value(self.store, "reservation_links", {})
         event_by_id = {str(event.get("ota_event_id")): event for event in events}
+        card_by_id = {str(card.get("transaction_id") or ""): card for card in transactions}
         occupied = self._occupied_cards(links, results)
+        for relation_event, relation in confirmed.items():
+            transaction_id = str(relation.get("transaction_id") or "")
+            if transaction_id:
+                occupied.setdefault(transaction_id, (str(relation_event), "다른 예약에서 관계 확인"))
         holds, cards_by_event = [], {}
         for result in results:
             event_id = str(result.get("ota_event_id") or "")
@@ -715,6 +736,15 @@ class CoreOtaPaymentBackend:
             is_reservation_candidate = (result.get('status') == 'RESERVATION_ONLY'
                                         and bool(trace.get('candidates') or trace.get('rejected')))
             relation = result.get("reservation_link") or {}
+            saved_relation = confirmed.get(event_id) or {}
+            saved_card = card_by_id.get(str(relation.get("transaction_id") or ""))
+            if saved_card:
+                relation["merchant"] = saved_card.get("merchant")
+                relation["approval_date"] = saved_card.get("approval_date") or saved_card.get("posting_date")
+                relation["amount_krw"] = saved_card.get("amount_krw")
+            elif saved_relation:
+                relation["historical_card_missing"] = True
+            relation["revision"] = saved_relation.get("revision")
             has_reservation_relation = relation.get("status") in ("INFERRED", "USER_CONFIRMED", "NEEDS_REVIEW", "STALE")
             if (not is_hold and not is_changed_manual and not is_ordered_group
                     and not is_reservation_candidate and not has_reservation_relation):
@@ -800,7 +830,7 @@ class CoreOtaPaymentBackend:
                         if result.get("status") == "HOLD_PARTIAL_GROUP" else
                         "사용자 승인 순서로 반복 거래를 배정했습니다. 개별 결제 근거가 확인된 연결은 아닙니다.")
                 owner = occupied.get(str(row.get("transaction_id") or ""))
-                if owner:
+                if owner and str(owner[0]) != event_id:
                     row["already_linked_event_id"] = owner[0]
                     row["already_linked_reason"] = owner[1]
                     row["already_linked_label"] = _event_label(event_by_id, owner[0])
@@ -810,6 +840,9 @@ class CoreOtaPaymentBackend:
                             "\ubd80\ubd84 \ubc18\ubcf5 \uadf8\ub8f9\uc758 \uce74\ub4dc \ud6c4\ubcf4\ub85c \uc608\uc57d\ub418\uc5b4 \uc788\uc5b4 \uac1c\ubcc4 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4."
                             if owner[1] == "partial_group_reservation" else
                             "\uc0ac\uc6a9\uc790\uac00 \ud655\uc815\ud55c \ubc18\ubcf5 \uadf8\ub8f9\uc758 \uce74\ub4dc\ub85c \uac1c\ubcc4 \uc5f0\uacb0\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.")
+                    elif owner[1] == "다른 예약에서 관계 확인":
+                        row["selection_disabled"] = True
+                        row["selection_disabled_reason"] = "다른 예약에 이미 관계 확인된 카드입니다."
             cards_by_event[event_id] = rows
         proposals = [proposal for proposal in self.store.proposals()
                      if proposal.get("status") == "pending"]
@@ -1444,7 +1477,8 @@ def render_import_section(csrf: str) -> str:
       const candidates=rows.filter(card=>card.reservation_candidate&&!card.already_linked_event_id);
       const state=relation.status==='INFERRED'?'자동 추론 관계 · 결제 미검증':relation.status==='USER_CONFIRMED'?'사용자 확인 관계 · 결제 미검증':relation.status==='STALE'?'저장한 관계의 근거 변경 · 기존 선택 이력 유지, 재확인 필요':relation.status==='NEEDS_REVIEW'?'여러 후보 또는 근거 차이 · 사용자가 확인해야 합니다.':'예약 관계 미확인';
       const options=candidates.map(card=>`<option value="${{esc(card.transaction_id)}}" ${{relation.transaction_id===card.transaction_id?'selected':''}}>${{esc(card.merchant||card.issuer||'카드')}} · ${{card.foreign_amount==null||card.foreign_amount===''?'원문 외화 금액 미확인':`원문 외화 ${{esc(card.foreign_amount)}} ${{esc(card.foreign_currency||card.currency||'')}}`}} · 원화 ${{money(card.amount_krw)}} · ${{card.reservation_amount_status==='MATCH'?'금액 일치':card.reservation_amount_status==='UNKNOWN'?'금액 미확인':card.reservation_amount_status==='MISMATCH'?'금액 차이':'확인 필요'}}</option>`).join('');
-      const savedText=relation.transaction_id?'<p>저장한 선택: '+esc(relation.transaction_id)+' · '+esc(relation.basis||'')+' · 원문 금액 '+esc(relation.amount_status||'미확인')+'</p>':'';
+      const savedAmount=relation.amount_status==='MATCH'?'금액 일치':relation.amount_status==='MISMATCH'?'금액 차이':'금액 미확인';
+      const savedText=relation.transaction_id?'<p>저장한 선택: '+(relation.historical_card_missing?'이전 선택 원문을 현재 확인할 수 없음':esc(relation.merchant||'가맹점 미확인')+' · '+esc(relation.approval_date||'날짜 미확인')+' · 원화 '+esc(money(relation.amount_krw)))+' · '+(relation.status==='STALE'?'재확인 필요 · ':'사용자 예약 관계 확인 · 결제 미검증 · ')+savedAmount+'</p>':'';
       const optionBlock=options?'<label>카드 후보<select data-reservation-select="'+esc(event.ota_event_id)+'"><option value="">선택하세요</option>'+options+'</select></label><button type="button" data-reservation-preview="'+esc(event.ota_event_id)+'">예약 관계 미리보기</button>':'<p>후보 없음 · '+esc(event.candidate_search_status||'근거 부족')+'</p>';
       article.insertAdjacentHTML('afterbegin','<section class="ota-reservation-link"><h4>예약 관계 확인 · 실제 결제 확정과 별도</h4><p>'+esc(state)+(event.reservation_group_only?' · 묶음 합계이며 개별 객실 확정은 아닙니다.':'')+'</p>'+savedText+optionBlock+'<div data-reservation-preview-for="'+esc(event.ota_event_id)+'"></div></section>');
     }}
