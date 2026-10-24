@@ -11,6 +11,13 @@ def save(tmp_path, mails):
     (tmp_path/'gmail-test.json').write_text(json.dumps({'responses':mails}),encoding='utf-8')
 
 
+def register_local_mail(tmp_path):
+    """합성 메일만 등록하고 개발 PC의 기본 OTA DB에는 의존하지 않는다."""
+    (tmp_path/'ota-sources.json').write_text(json.dumps({
+        'schema_version':'ota-sources-v1', 'mail_directories':[str(tmp_path)],
+        'portal_databases':[]}), encoding='utf-8')
+
+
 def row(**changes):
     return dict(transaction_id='card',source_hash='a'*64,merchant='AGODA',
                 merchant_normalized='agoda',card_kind='해외',approval_date='2026-05-01',
@@ -89,6 +96,7 @@ def test_actual_weekday_date_formats_keep_checkout_date():
 
 
 def test_upload_classification_uses_local_mail_and_preserves_owner_answer(tmp_path,monkeypatch):
+    register_local_mail(tmp_path)
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
@@ -110,6 +118,7 @@ def test_upload_classification_uses_local_mail_and_preserves_owner_answer(tmp_pa
 
 
 def test_cancelled_booking_blocks_stale_trip_inference(tmp_path,monkeypatch):
+    register_local_mail(tmp_path)
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB','1')
@@ -242,6 +251,7 @@ def test_payment_without_period_still_rejects_unverified_or_duplicate_cards(tmp_
 
 
 def test_old_reservation_and_new_receipt_remove_stale_trip_inference(tmp_path,monkeypatch):
+    register_local_mail(tmp_path)
     from webapp.ledger_store import LedgerStore
     from webapp.card_flow import CardFlow
     from tests.card_pipeline.fixtures import make_csv,domestic_row

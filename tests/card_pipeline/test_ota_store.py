@@ -15,15 +15,20 @@ from tests.card_pipeline.test_ota_sources_registry import portal_database, write
 from tests.card_pipeline.test_agoda_capture import capture
 
 
-def test_consolidation_keeps_mail_payment_ids_references_and_survives_original_removal(tmp_path):
+@pytest.mark.parametrize('registered_lineage', [False, True])
+def test_consolidation_keeps_mail_payment_ids_references_and_survives_original_removal(tmp_path, registered_lineage):
     mail = write_mail(tmp_path / 'mail', [message('예약번호: BOOK12345\n총 금액 30,000원',
         subject='[Trip.com] 결제 완료 안내', identity='stable-message')])
     portals = [portal_database(tmp_path / 'one.sqlite'), portal_database(tmp_path / 'two.sqlite')]
     reference = tmp_path / 'reference.json'
     reference.write_text(json.dumps({'BOOK12345': {'amount':30000}}), encoding='utf-8')
     manifest = tmp_path / 'ota-sources.json'
-    manifest.write_text(json.dumps({'schema_version':'ota-sources-v1', 'mail_directories':[str(mail)],
-        'portal_databases':[str(p) for p in portals], 'reference_documents':[str(reference)]}), encoding='utf-8')
+    configuration = {'schema_version':'ota-sources-v1', 'mail_directories':[str(mail)],
+        'portal_databases':[str(p) for p in portals], 'reference_documents':[str(reference)]}
+    if registered_lineage:
+        configuration['source_lineage_ids'] = {str(p.resolve()): 'portal-source-' + str(index)
+                                               for index,p in enumerate(portals)}
+    manifest.write_text(json.dumps(configuration), encoding='utf-8')
     before = ota_payments.build_ota_payment_events(ota_sources.resolve_sources(tmp_path))
     destination = tmp_path / 'unified.sqlite'
     report = consolidate(manifest, destination)

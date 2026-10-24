@@ -134,6 +134,8 @@ class Cp949LiveServerSmokeTest(unittest.TestCase):
                 "import sys, threading, _thread",
                 f"sys.path.insert(0, {str(ROOT)!r})",
                 "import run_candidate",
+                # Windows 확장 모듈 초기화가 stdin 대기 스레드와 경합하지 않게 한다.
+                "import app",
                 "def _wait_shutdown():",
                 "    try:",
                 "        sys.stdin.buffer.readline()",
