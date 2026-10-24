@@ -1,10 +1,23 @@
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
-> **개발 상태 갱신:** 2026-10-24 KST, 아래 0.8절. 운영 기록은 각 검증 당시의 증거이며 이번 개발 후보가 운영에 적용됐다는 뜻이 아니다. **이 문서는 COST V3 현행 작업 상태 및 다음 실행 큐의 단일 스냅샷이다.**
+> **최신 상태:** 2026-10-24 KST, 아래 0.9절의 병합·운영 배포 결과가 우선한다. 0.8절은 병합 전 개발 기록이다. **이 문서는 COST V3 현행 작업 상태 및 다음 실행 큐의 단일 스냅샷이다.**
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
-## 0.8 2026-10-24 개발 후보 인수와 후속 구현
+## 0.9 2026-10-24 사용자 승인 병합과 운영 배포 완료
+
+사용자가 개발 완료 후 main 병합과 운영 배포를 명시 승인했다. [PR #91](https://github.com/6Soo/cost/pull/91)은 `a3474a8f481590ed2189449c5d2113c7a2e933ff`에 merge됐고, 포함된 PR #88·#89·#90도 MERGED 상태다. 별도 저장소 Travel INS PR #5는 이번 COST 배포 대상이 아니다.
+
+- **실제 운영 코드:** `a3474a8f481590ed2189449c5d2113c7a2e933ff`, `D:/WebLedgerHost/releases/a3474a8f481590ed2189449c5d2113c7a2e933ff`. Git archive의 파일 918개를 추출 사본과 대조했다. merge tree는 검토 후보 `329b2ec`와 같고, 329b2ec의 추가 변경은 테스트 teardown 한 줄뿐이다. 이후 인계 문서 전용 main 커밋은 운영 코드 변경이 아니다.
+- **보호 게이트:** 관리 작성자를 잠시 중지하고 기존 도구로 DB 5개·파일 59개의 백업과 별도 복원을 검증했다. 복구 binding과 원본 불변 검사는 통과했다. 근거는 `D:/WebLedgerHost/data/backups/spec-integration-20261024T095950/`의 restore-evidence.json, protection-result.json, deployment.json이다. 고객 원문·비밀값은 Git에 넣지 않는다.
+- **전환:** 사용자 main의 미커밋 두 파일과 stash를 그대로 보존하고 Board 관리 작업의 실행 checkout만 위 release로 바꿨다. MailCollect의 인증·인자·주기는 유지하고 working directory만 같은 release로 바꿨으며 추가 수집을 즉시 실행하지 않았다. SourceRefresh와 GoogleAuthority의 기존 action은 유지했다.
+- **배포 후 보호:** 프로세스 생존 정보 rule_process_leases만 제외하고 DB 표·schema가 기존 상태와 같았다. 원본·영수증·Google 읽기 자료·host config 파일도 같았다. 운영 마이그레이션·재기장·Google 직접 쓰기는 수행하지 않았다.
+- **실행 확인:** Board와 SourceRefresh는 Running, GoogleAuthority와 MailCollect는 Ready이며 모두 Enabled로 복구됐다. 8751 listener는 1개이고 실제 launcher command line과 Board action이 새 release를 가리킨다. 외부 `/healthz`·`/readyz`는 200, 비인증 `/import`·`/ota`·`/flight-passengers`는 401로 한 번 확인했다. 실제 고객 후보 payload나 로그인된 운영 화면을 검증한 결과는 아니다.
+- **병합 검사 한계:** 37ee832의 비브라우저 전체 회귀는 테스트가 직접 connection을 닫아 Windows 접근 위반으로 중단됐다. 329b2ec에서 기존 board.close 경계를 사용하도록 고쳐 해당 nodeid 1 passed를 확인했다. 비브라우저 실패 7개는 fe34048 기준에서도 같은 실패였다. 제외 조건이 놓친 기존 브라우저 검사 1개는 접힌 상세 영역을 열지 않고 내부 링크를 기다렸다. page·렌더 분기·검사 파일은 기준과 같았고 Aside에서 펼치기→전체 카드 검색→합성 3건 표시를 확인했다. 전체 회귀는 재실행하지 않았으며 전체 통과라고 주장하지 않는다.
+
+**현재 승인 큐:** 개발·병합·운영 배포·최소 스모크는 완료했다. 기존 기준선 실패 7개는 이번 변경으로 생긴 실패가 아니며 별도 요청 없이 재구현·반복 검사하지 않는다. 실고객 참가자 조회·정본 신원 쓰기·L4 solver 추가 개편은 이번 배포로 승인·검증됐다고 보지 않는다. 새 요청이나 새로운 장애 근거가 있을 때만 해당 범위를 이어간다. 재개 시 최신 main 문서 커밋과 실제 runtime SHA를 구분하고 사용자 로컬 main을 강제 동기화하지 않는다.
+
+## 0.8 2026-10-24 개발 후보 인수와 후속 구현 (병합 전 기록)
 
 현재 개발 후보는 [COST 초안 PR #91](https://github.com/6Soo/cost/pull/91)의 `integration/cost-v3-spec-completion` 브랜치다. 원격 main 기준은 `fe340481ed5783d23f678d6a3df542ae8e6ce437`이며 main 병합과 운영 배포는 이번 범위에 포함하지 않는다. 구현자는 사용자 최신 지시에 따라 GPT-6 Luna low로 전환했다. 이전 ANUS 무료 제공자는 실제 일일 한도 429로 중단됐으며 재시도하지 않았다.
 
@@ -93,7 +106,7 @@
 2. **읽기 순서:** 이 문서 → [COST V3 진입점](COST_V3_START_HERE.md) → [OTA A 정책](ota-card-reconciliation-policy-a-v3.md) → [추론/AI/참가자/N:M 명세](cost-v3-inference-ai-passenger-nm-test-architecture.md) → 해당 기능의 실제 소스와 검증. 필요할 때만 [Google 정본 계약](target-workflow-google-authority.md), [정본 회계 규칙](reconciliation-rules.md), [운영 이력](operations.md)을 읽는다.
 3. **실행 흐름:** 승인 명세 기준 갭 확인 → 안전한 코드 구현 → 직접 영향 테스트 및 종단 검사 → diff/개인정보 확인 → 허용된 Git 반영 → 다음 실행 가능 항목. 작은 단위 완료나 최종 보고가 전체 종료 조건이 아니다.
 4. **BLOCKED 판정:** 실제로 필요한 비밀정보/운영 권한만 차단한다. 그러한 권한 없이도 가능한 CI 원인 분석, 코드·계약 수정, 합성/Preview 검증, 문서 정리는 계속한다. 과금·운영 DB 변경·고객자료 전송을 자동 승인받은 것으로 간주하지 않는다.
-5. **작업 큐와 종료:** 아래 우선순위 표는 이 문서의 과거 상태 기록이다. 최신 개발 상태와 재개 기준은 0.8절을 따른다. 로컬 작업 큐는 필수 전제조건이 아니다. 완료 항목을 다시 선택하지 않고, DEFERRED 점검을 실행 큐에 올리지 않는다. 실행 가능한 승인 작업이 없으면 COMPLETE/BLOCKED/DEFERRED 상태를 기록하고 종료한다. 후속 프롬프트는 명시적 인계나 새 사용자 요청에만 작성한다.
+5. **작업 큐와 종료:** 아래 우선순위 표는 이 문서의 과거 상태 기록이다. 최신 상태와 재개 기준은 0.9절을 따른다. 로컬 작업 큐는 필수 전제조건이 아니다. 완료 항목을 다시 선택하지 않고, DEFERRED 점검을 실행 큐에 올리지 않는다. 실행 가능한 승인 작업이 없으면 COMPLETE/BLOCKED/DEFERRED 상태를 기록하고 종료한다. 후속 프롬프트는 명시적 인계나 새 사용자 요청에만 작성한다.
 
 ## 1. 마지막 검증된 Git 및 배포 기준점
 
@@ -191,16 +204,16 @@
 
 ## 5. 세션/로컬 도구 인계 (GitHub에 없는 상태를 허위 재생하지 말 것)
 
-과거 개발 PC에 Paseo + Codex Stop hook이 연결됐다. hook은 로컬 TASK_QUEUE.json이 승인한 미완료 항목이 있을 때 한 턴 안에서 다음 작업을 선택하도록 시험됐고, 관련 합성 A→B→C 및 31개 검사가 통과했다고 보고됐다. **이 설정·큐·로그는 GitHub 정본이 아니다.** 새 PC/새 에이전트에서 자동으로 존재한다고 가정하거나 필수 자료로 요구하지 않는다. 현재 승인 작업은 0.8절과 최신 사용자 요청을 기준으로 판단하며, 과거 P0~P3를 새 실행 큐로 복원하지 않는다.
+과거 개발 PC에 Paseo + Codex Stop hook이 연결됐다. hook은 로컬 TASK_QUEUE.json이 승인한 미완료 항목이 있을 때 한 턴 안에서 다음 작업을 선택하도록 시험됐고, 관련 합성 A→B→C 및 31개 검사가 통과했다고 보고됐다. **이 설정·큐·로그는 GitHub 정본이 아니다.** 새 PC/새 에이전트에서 자동으로 존재한다고 가정하거나 필수 자료로 요구하지 않는다. 현재 승인 작업은 0.9절과 최신 사용자 요청을 기준으로 판단하며, 과거 P0~P3를 새 실행 큐로 복원하지 않는다.
 
 - 로컬 설정 참고 경로(해당 PC에 존재할 때만): C:\AX\agent-policy\local-backups\cost-continuation-20261023, COST 로컬 stop-gate.json/TASK_QUEUE.json, 미추적 .claude/stop-gate/.
 - 이전 10분 반복 태스크 ID 5e75876d는 종료 단계에서 삭제 성공을 보고했다. schedule 조회는 'Schedule not found'를 반환했으므로 삭제 전후의 실행 로그와 상태를 새 환경에서 재확인한다. **재등록 금지**, 업무가 완료됐는데 스케줄이 다시 실행되면 공식 인터페이스에서 소유 관계를 확인하고 중지. Codex hook과 이벤트 기반 재개/Heartbeat를 중복 설치하지 않는다.
-- GitHub 문서가 현재 작업의 재개 근거이므로 **이 채팅·로컬 파일·별도 기억 없이** 다음 에이전트가 0.8절에서 현재 상태와 남은 승인 범위를 판단할 수 있어야 한다. 완료된 P0/P1을 다시 시작하지 않는다. 비밀 토큰, 인증코드, 사용자 DB, 실제 개인정보는 GitHub에 기록하지 않는다.
+- GitHub 문서가 현재 작업의 재개 근거이므로 **이 채팅·로컬 파일·별도 기억 없이** 다음 에이전트가 0.9절에서 현재 상태와 남은 승인 범위를 판단할 수 있어야 한다. 완료된 P0/P1을 다시 시작하지 않는다. 비밀 토큰, 인증코드, 사용자 DB, 실제 개인정보는 GitHub에 기록하지 않는다.
 
 ## 6. 새 세션에서 바로 수행할 검증·작업 예시
 
 시작 단계:
-- 0.8절의 개발 브랜치·PR 실제 HEAD와 해당 작업트리부터 확인한다. 기존 CI·배포·운영 인증은 변경이나 실패 근거가 있을 때만 다시 확인하며 과거 시작 절차를 자동 실행하지 않는다.
+- 0.9절의 병합 main과 실제 runtime SHA, 해당 작업트리부터 확인한다. 기존 CI·배포·운영 인증은 변경이나 실패 근거가 있을 때만 다시 확인하며 과거 시작 절차를 자동 실행하지 않는다.
 - **P0 완료:** Actions 39939654895 unit/smoke 모두 SUCCESS, PR #23 main 70b00859, Production READY. 새 실패 근거 없으면 재실행하지 않는다.
 - **P1 설정·배포·무인증 경계·합성 404 인증·원격 main 합성 브라우저 확인 완료 / 실자료 검증 별도 승인 대기:** Reservation Production의 `TURSO_READONLY_*` Secret 적용 및 PR #25 `3296255e` Production READY. 합성 API 요청 404로 인증 성공, 교차 저장소 원격 main fixture 브라우저 1 passed. 정확히 전용 `COST_INTERNAL_API_TOKEN`인지 범용 `INTERNAL_API_TOKEN`인지 미확인. 실운영 후보·revision·stale는 미검증이며 운영 DB 쓰기 금지.
 - 실운영 개인정보 접근이 필요한 P1 검증만 별도 승인 대기 상태로 유지하고 나머지 승인 작업은 계속한다. 운영 토큰 변경/회전은 일치 불일치가 실제 확인되고 별도 승인된 경우에만 한다.

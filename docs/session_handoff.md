@@ -4,18 +4,19 @@
 
 ## 지금 반드시 읽을 문서
 
-1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 0.8절의 개발 후보·PR·표적 검증·남은 작업과, 이전 운영 검증을 구분한다. 과거 CI 실패는 후속 복구 기록을 따른다.
+1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 0.9절의 main 병합·실제 운영 SHA·백업·스모크와 검사 한계를 따른다. 0.8절과 과거 CI 실패는 이전 단계 기록이다.
 2. [COST V3 단일 구현 진입점](COST_V3_START_HERE.md) — 가장 높은 목표 정책 권위, 단계별 작업 범위, 현재 코드와 운영 상태 구분.
 3. [OTA–카드 정책 A 통합 구현](ota-card-reconciliation-policy-a-v3.md) — R0 진단부터 R6 전환까지.
 4. [V3 사용자 수정·AI 대화·탑승자 명세](cost-v3-inference-ai-passenger-nm-test-architecture.md) — OTA 링크와 여행 A→B·학습은 독립.
 5. [운영 상태 증거](operations.md) — 당시 실제 릴리스·검증, 최신 라이브 상태는 다시 확인.
 6. [사용자 확정 회계 규칙](reconciliation-rules.md) 및 [Google 최종 정본 계약](target-workflow-google-authority.md).
 
-## 현재 개발 상태 (2026-10-24)
+## 현재 병합·운영 상태 (2026-10-24)
 
-- [초안 PR #91](https://github.com/6Soo/cost/pull/91)의 `integration/cost-v3-spec-completion`에서 기존 PR #88·#89·#90 통합과 L2·L3 후속 개발을 진행했다. 항공권 후보·취소·원본 변경 보호는 별도 브랜치에서 검토했고, 지연 여행 이동 경합의 수정·최종 통합 상태는 [CURRENT HANDOFF 0.8절](COST_V3_CURRENT_HANDOFF.md#08-2026-10-24-개발-후보-인수와-후속-구현)을 따른다.
+- 사용자 승인으로 [PR #91](https://github.com/6Soo/cost/pull/91)을 main `a3474a8`에 병합하고 같은 커밋의 별도 릴리스를 운영에 배포했다. PR #88·#89·#90도 MERGED다. 개발·운영 근거는 [CURRENT HANDOFF 0.9절](COST_V3_CURRENT_HANDOFF.md#09-2026-10-24-사용자-승인-병합과-운영-배포-완료)을 따른다.
 - 사용자가 구현자를 GPT-6 Luna low로 전환했다. 완료된 기존 기능을 재구현하거나 유효한 전체 검사를 반복하지 않는다.
-- 이번 개발 후보의 main 병합·운영 배포·실고객 조회·Google 쓰기는 수행하지 않았다. 아래 기록은 당시 운영 상태이며 최신 개발 후보의 배포 증거가 아니다.
+- DB 5개·파일 59개의 백업·복원과 배포 후 보존을 확인했다. health/ready는 200, 비인증 import·OTA·항공권 경로는 401이다. 사용자 main의 미커밋 파일과 stash는 보존했고 Google 쓰기·실고객 후보 조회는 하지 않았다.
+- 전체 회귀는 테스트의 직접 DB close 경합으로 중단돼 전체 통과가 아니다. teardown 수정의 표적 검사 1 passed와 기준선 동일 실패 7건, Aside의 실제 카드 검색 경로 확인을 구분해 기록했다. 완료된 작업이나 기존 운영 점검을 자동 재실행하지 않는다.
 
 ## 이전 세션 기록 (2026-10-23 당시 상태)
 

@@ -1,6 +1,20 @@
 # 현재 운영 상태
 
 
+## 2026-10-24 COST V3 통합 병합·운영 배포 완료
+
+사용자 승인으로 [PR #91](https://github.com/6Soo/cost/pull/91)을 main `a3474a8f481590ed2189449c5d2113c7a2e933ff`에 병합하고 같은 커밋을 운영에 배포했다. PR #88·#89·#90도 MERGED 상태다. 기존 여행 우선배정·메뉴·Toyoko 후보·L1/L2 투영과 항공권 원본 변경/취소 보호, 지연 여행 이동의 최신 결정 보호를 포함한다.
+
+운영 코드는 `D:/WebLedgerHost/releases/a3474a8f481590ed2189449c5d2113c7a2e933ff`다. archive의 파일 918개를 대조했으며, 사용자 `C:/AX/cost`의 미커밋 변경과 stash는 그대로 보존했다. Board 관리 작업과 실제 launcher가 새 release를 사용하는 것을 확인했다. MailCollect는 인증·인자·주기 그대로 working directory만 전환했고 실제 수집을 즉시 실행하지 않았다. SourceRefresh와 GoogleAuthority action은 바꾸지 않았다.
+
+전환 전에 작성자를 잠시 멈추고 DB 5개·파일 59개의 백업과 별도 복원을 검증했다. 복구 binding과 원본 불변 검사는 통과했다. 배포 후 모든 DB 표·schema는 프로세스 생존 정보 `rule_process_leases`를 제외하고 같았고 원본·영수증·Google 읽기 자료·host config 해시도 같았다. 원장 재기장·운영 마이그레이션·Google 직접 쓰기는 수행하지 않았다. 근거는 `D:/WebLedgerHost/data/backups/spec-integration-20261024T095950/`의 restore-evidence.json, protection-result.json, deployment.json에 보존한다.
+
+Board·SourceRefresh는 Running, MailCollect·GoogleAuthority는 Ready이며 모두 Enabled로 복구됐다. 8751 listener는 1개다. 외부 `/healthz`와 `/readyz`는 200, 비인증 `/import`·`/ota`·`/flight-passengers`는 401로 최소 스모크를 한 번 수행했다. 실제 고객 후보 payload·로그인된 운영 화면은 조회하지 않았다. 이후 문서 전용 main 커밋은 운영 코드 SHA와 구분한다.
+
+병합 전 비브라우저 전체 회귀는 테스트가 공유 잠금을 우회해 DB connection을 직접 닫으면서 Windows 접근 위반으로 중단됐다. 테스트를 기존 `board.close()` 경계로 바꾼 `329b2ec`에서 해당 nodeid 1 passed를 확인했다. 비브라우저 실패 7개는 기준 `fe34048`에서도 동일하게 재현됐고 수정하지 않았다. 제외 설정이 놓친 기존 브라우저 검사 1개는 접힌 상세 영역을 열지 않은 채 링크를 기다렸다. 해당 렌더 분기·page·검사 파일은 기준과 같았고, Aside에서 실제 펼치기→전체 카드 검색→합성 3건 표시를 확인했다. 전체 회귀는 반복하지 않았으며 전체 통과로 보고하지 않는다. 기존 변경 기능별 표적 검사와 검토의 유효 근거를 재사용했다.
+
+최신 실행·재개 기준은 [현행 인계 0.9절](COST_V3_CURRENT_HANDOFF.md#09-2026-10-24-사용자-승인-병합과-운영-배포-완료)이다. 아래 거래 건수와 과거 릴리스는 그 당시 기록이며 이번 배포로 재기장한 결과가 아니다.
+
 ## 2026-10-23 지출 정리 자동 처리 결과와 남은 근거 확인
 
 운영 장부에 아고다 4건과 부킹닷컴 1건, 총 2,673,921원을 추가 기장했다. 5건 모두 원문 예약번호·카드 금액·검증된 여행과 일치하며 장부 날짜는 숙박 시작일이다. 원문, 기존 장부, 사용자 확정, 환불, 수동 고정과 학습 자료를 보존했다. Google 최종 장부 쓰기는 0건이다. 결과는 `.local-archive/targeted-checks/20261023-completed-stays-live-result.json`의 `PASS`로 확인했다.
