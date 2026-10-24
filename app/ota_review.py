@@ -217,6 +217,121 @@ class OtaReviewStore:
                                   "evidence_missing": bool(row["evidence_missing"])}
                 for row in self.conn.execute("SELECT * FROM ota_review_links ORDER BY event_id")}
 
+    def reservation_links(self):
+        """예약 관계만 읽는다. 없는 DB/테이블은 읽기 경로에서 만들지 않는다."""
+        if not self._has_table("ota_review_reservation_links"):
+            return {}
+        return {row["event_id"]: {"status": "USER_CONFIRMED",
+                "transaction_id": row["transaction_id"], "basis": row["basis"],
+                "amount_status": row["amount_status"], "payment_verified": False,
+                "revision": row["revision"], "event": json.loads(row["event_json"]),
+                "transaction": json.loads(row["transaction_json"])}
+                for row in self.conn.execute("SELECT * FROM ota_review_reservation_links ORDER BY event_id")}
+
+    def reservation_preview(self, event, transaction):
+        from app.toyoko_reservation_links import relation_digest
+        digest = relation_digest(event, transaction)
+        return {"preview_digest": digest, "event_id": str(event.get("ota_event_id") or ""),
+                "transaction_id": str(transaction.get("transaction_id") or "")}
+
+    def confirm_reservation(self, event, transaction, preview_digest, *, expected_revision, request_id,
+                            user, basis="USER_CONFIRMED", amount_status="UNKNOWN"):
+        from app.toyoko_reservation_links import relation_digest
+        request_id = str(request_id).strip()
+        event_id = str(event.get("ota_event_id") or "")
+        transaction_id = str(transaction.get("transaction_id") or "")
+        request_digest = self.reservation_request_digest(event_id, transaction_id, preview_digest,
+                                                         expected_revision, user)
+        if not request_id or not event_id or not transaction_id:
+            raise ValueError("STABLE_IDENTITIES_REQUIRED")
+        if amount_status not in ("MATCH", "UNKNOWN", "MISMATCH"):
+            raise ValueError("INVALID_RESERVATION_AMOUNT_STATUS")
+        if self._has_table("ota_review_reservation_requests"):
+            prior = self.conn.execute("SELECT request_digest,result_json FROM ota_review_reservation_requests WHERE request_id=?",
+                                      (request_id,)).fetchone()
+            if prior:
+                if prior[0] != request_digest:
+                    raise ValueError("REQUEST_ID_REUSED")
+                return json.loads(prior[1])
+        if preview_digest != relation_digest(event, transaction):
+            raise ValueError("STALE_RESERVATION_PREVIEW")
+        self._ensure_initialized()
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_links(
+                event_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL,
+                event_json TEXT NOT NULL, transaction_json TEXT NOT NULL,
+                basis TEXT NOT NULL, amount_status TEXT NOT NULL,
+                revision INTEGER NOT NULL, user TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_requests(
+                request_id TEXT PRIMARY KEY, request_digest TEXT NOT NULL,
+                result_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_history(
+                event_id TEXT NOT NULL, revision INTEGER NOT NULL, transaction_id TEXT NOT NULL,
+                result_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(event_id,revision));
+        """)
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.conn.execute("SELECT request_digest,result_json FROM ota_review_reservation_requests WHERE request_id=?",
+                                      (request_id,)).fetchone()
+            if prior:
+                if prior[0] != request_digest:
+                    raise ValueError("REQUEST_ID_REUSED")
+                result = json.loads(prior[1])
+                self.conn.commit()
+                return result
+            paid_owner = self.conn.execute("SELECT event_id FROM ota_review_links WHERE transaction_id=?",
+                                           (transaction_id,)).fetchone()
+            if paid_owner:
+                raise ValueError("RESERVATION_CARD_OCCUPIED")
+            if self._has_table("ota_review_group_pins"):
+                for row in self.conn.execute("SELECT event_ids_json,card_ids_json FROM ota_review_group_pins"):
+                    if transaction_id in set(map(str, json.loads(row["card_ids_json"]))):
+                        raise ValueError("RESERVATION_CARD_OCCUPIED")
+            occupied = self.conn.execute("SELECT event_id FROM ota_review_reservation_links WHERE transaction_id=? AND event_id<>?",
+                                         (transaction_id, event_id)).fetchone()
+            if occupied:
+                raise ValueError("RESERVATION_CARD_OCCUPIED")
+            current = self.conn.execute("SELECT revision FROM ota_review_reservation_links WHERE event_id=?",
+                                        (event_id,)).fetchone()
+            have_revision = int(current[0]) if current else 0
+            if int(expected_revision) != have_revision:
+                raise ValueError("STALE_RESERVATION_REVISION")
+            revision = have_revision + 1
+            result = {"status": "USER_CONFIRMED", "transaction_id": transaction_id,
+                      "basis": str(basis), "amount_status": amount_status,
+                      "payment_verified": False, "revision": revision}
+            params = (event_id, transaction_id, _dump(event), _dump(transaction),
+                      str(basis), amount_status, revision, str(user))
+            self.conn.execute("INSERT INTO ota_review_reservation_links(event_id,transaction_id,event_json,transaction_json,basis,amount_status,revision,user) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET transaction_id=excluded.transaction_id,event_json=excluded.event_json,transaction_json=excluded.transaction_json,basis=excluded.basis,amount_status=excluded.amount_status,revision=excluded.revision,user=excluded.user,updated_at=CURRENT_TIMESTAMP", params)
+            self.conn.execute("INSERT INTO ota_review_reservation_history(event_id,revision,transaction_id,result_json) VALUES(?,?,?,?)",
+                              (event_id, revision, transaction_id, _dump(result)))
+            self.conn.execute("INSERT INTO ota_review_reservation_requests(request_id,request_digest,result_json) VALUES(?,?,?)",
+                              (request_id, request_digest, _dump(result)))
+            self.conn.commit()
+            return result
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def reservation_request_digest(self, event_id, transaction_id, preview_digest, expected_revision, user):
+        return _digest({"event_id": str(event_id), "transaction_id": str(transaction_id),
+                        "preview_digest": str(preview_digest), "expected_revision": int(expected_revision),
+                        "user": str(user)})
+
+    def prior_reservation_confirmation(self, request_id, event_id, transaction_id, preview_digest,
+                                       expected_revision, user):
+        if not self._has_table("ota_review_reservation_requests"):
+            return None
+        digest = self.reservation_request_digest(event_id, transaction_id, preview_digest,
+                                                expected_revision, user)
+        row = self.conn.execute("SELECT request_digest,result_json FROM ota_review_reservation_requests WHERE request_id=?",
+                                (str(request_id),)).fetchone()
+        if row and row[0] != digest:
+            raise ValueError("REQUEST_ID_REUSED")
+        return json.loads(row[1]) if row else None
+
     def prior_confirmation(self, request_id):
         """The result an earlier confirm with this request id recorded, or None. Read only."""
         if not self._has_table("ota_review_requests"):
@@ -413,6 +528,25 @@ class OtaReviewStore:
                                         (group_id,)).fetchone()
             if current and not replace:
                 raise ValueError("GROUP_ORDER_ALREADY_FROZEN")
+            placeholders = ",".join("?" for _ in card_ids)
+            if self._has_table("ota_review_links"):
+                paid_rows = self.conn.execute(
+                    f"SELECT event_id,transaction_id FROM ota_review_links WHERE transaction_id IN ({placeholders})",
+                    tuple(card_ids)).fetchall()
+                if any(mapping.get(str(row["event_id"])) != str(row["transaction_id"]) for row in paid_rows):
+                    raise ValueError("GROUP_CARD_PAID_LINK_CONFLICT")
+            other_pin = self.conn.execute(
+                f"SELECT group_id FROM ota_review_group_pins WHERE group_id<>? "
+                f"AND EXISTS (SELECT 1 FROM json_each(card_ids_json) WHERE value IN ({placeholders})) LIMIT 1",
+                (group_id, *card_ids)).fetchone()
+            if other_pin:
+                raise ValueError("GROUP_CARD_RESERVED_BY_OTHER_GROUP")
+            if self._has_table("ota_review_reservation_links"):
+                reservation_owner = self.conn.execute(
+                    f"SELECT transaction_id FROM ota_review_reservation_links WHERE transaction_id IN ({placeholders}) LIMIT 1",
+                    tuple(card_ids)).fetchone()
+                if reservation_owner:
+                    raise ValueError("GROUP_CARD_RESERVED_BY_RESERVATION_LINK")
             result = {"status":"frozen", "group_id":group_id, "event_ids":event_ids,
                       "card_ids":card_ids, "mapping":mapping, "order_snapshot":order_snapshot or {},
                       "version":int(current[0])+1 if current else 1}
@@ -486,17 +620,28 @@ class OtaReviewStore:
                                       for item in allocations if isinstance(item, dict))
         if allocation_conflict:
             raise ValueError("CARD_ALREADY_LINKED")
-        occupied = self.conn.execute(
-            "SELECT event_id FROM ota_review_links WHERE transaction_id=?", (transaction_id,)).fetchone()
-        if occupied:
-            raise ValueError("CARD_ALREADY_LINKED")
         conditions, review_warnings = _proposal_conditions(event, transaction)
         proposal_id = "proposal_" + _digest([event_id, transaction_id])
         result = {"status": "MATCHED_USER", "ota_event_id": event_id,
                   "transaction_id": transaction_id, "evidence_changed": False,
                   "proposal_id": proposal_id, "differences": current["differences"],
                   "proposal_conditions": conditions, "proposal_review_warnings": review_warnings}
-        with self.conn:
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            occupied = self.conn.execute(
+                "SELECT event_id FROM ota_review_links WHERE transaction_id=?", (transaction_id,)).fetchone()
+            if occupied:
+                raise ValueError("CARD_ALREADY_LINKED")
+            if self._has_table("ota_review_reservation_links"):
+                reservation_owner = self.conn.execute(
+                    "SELECT event_id FROM ota_review_reservation_links WHERE transaction_id=?",
+                    (transaction_id,)).fetchone()
+                if reservation_owner:
+                    raise ValueError("RESERVATION_CARD_OCCUPIED")
+            if self._has_table("ota_review_group_pins"):
+                for pin in self.conn.execute("SELECT card_ids_json FROM ota_review_group_pins"):
+                    if transaction_id in set(map(str, json.loads(pin[0]))):
+                        raise ValueError("CARD_RESERVED_BY_GROUP")
             for old_event_id, current_event_id in (id_crosswalk or {}).items():
                 if str(current_event_id) != str(event_id) or not str(old_event_id):
                     continue
@@ -516,7 +661,11 @@ class OtaReviewStore:
                                _dump(review_warnings)))
             self.conn.execute("INSERT INTO ota_review_requests(request_id,result_json) VALUES(?,?)",
                               (request_id, _dump(result)))
-        return result
+            self.conn.commit()
+            return result
+        except BaseException:
+            self.conn.rollback()
+            raise
 
     def answer_proposal(self, proposal_id, action, *, user, conditions=None):
         self._ensure_initialized()

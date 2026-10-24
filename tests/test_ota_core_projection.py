@@ -34,6 +34,22 @@ class OtaCoreProjectionTests(unittest.TestCase):
         project_card_ota_statuses(current)
         self.assertEqual(current, original)
 
+    def test_toyoko_reservation_axis_is_separate_and_notes_payment_is_unverified(self):
+        current = {'generation': 3, 'results': [
+            {'status': 'RESERVATION_ONLY', 'reservation_link': {
+                'status': 'INFERRED', 'transaction_id': 'toyoko-card', 'amount_status': 'UNKNOWN',
+                'payment_verified': False}}],
+            'data': {'events': [{'ota_event_id': 'toyoko-event', 'provider': 'toyoko',
+                                 'booking_ref': 'SYNTHETIC-1234567'}],
+                     'results': [{'ota_event_id': 'toyoko-event', 'status': 'RESERVATION_ONLY',
+                         'reservation_link': {'status': 'INFERRED', 'transaction_id': 'toyoko-card',
+                                              'amount_status': 'UNKNOWN', 'payment_verified': False}}]}}
+        statuses, _, _ = project_card_ota_statuses(current)
+        notes = project_card_ota_candidate_notes(current, {'toyoko-card'})
+        self.assertEqual(statuses['toyoko-card'], 'RESERVATION_INFERRED')
+        self.assertTrue(any('예약 추론' in note and '원문 금액' in note and 'SYNTHETIC-1234567' in note
+                            for note in notes['toyoko-card']))
+
     def test_project_card_ota_candidate_notes_none_returns_empty(self):
         notes = project_card_ota_candidate_notes(None, {'txn1'})
         self.assertEqual(notes, {})
