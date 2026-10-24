@@ -77,12 +77,12 @@ def _candidate_result(board, booking_ref, tour_id, *, candidate_fetch=None):
     fetch = candidate_fetch or reservation_authority.fetch_passenger_candidates
     snapshot = fetch(tour_id)
     result = flight_passenger_matching.match_booking_passengers(evidence, snapshot)
-    result['assignments'] = _assignments_for(booking_ref, tour_id, result['source_revision'])
-    by_source = {(item.get('passenger_name_en'), tuple(item.get('source_digests') or ())): item
-                 for item in result['assignments']}
+    evidence_digest = result.get('evidence_digest')
+    result['assignments'] = _assignments_for(booking_ref, tour_id, result['source_revision'], evidence_digest)
+    # Link assignments by proposal_id for accurate matching
+    by_proposal = {item.get('proposal_id'): item for item in result['assignments']}
     for passenger in result['passengers']:
-        key = (passenger.get('passenger_name_en'), tuple(passenger.get('source_digests') or ()))
-        assignment = by_source.get(key)
+        assignment = by_proposal.get(passenger.get('proposal_id'))
         if assignment:
             assignment = dict(assignment)
             assignment['candidate'] = next((candidate for candidate in passenger['candidates']
@@ -91,7 +91,7 @@ def _candidate_result(board, booking_ref, tour_id, *, candidate_fetch=None):
     return result
 
 
-def _assignments_for(booking_ref, tour_id, source_revision):
+def _assignments_for(booking_ref, tour_id, source_revision, evidence_digest=None):
     """Read COST confirmations and mark them stale when reservation evidence changes."""
     path = _db_path()
     if path is None or not path.is_file():
@@ -114,8 +114,13 @@ def _assignments_for(booking_ref, tour_id, source_revision):
             assignment = json.loads(encoded)
         except (TypeError, json.JSONDecodeError):
             continue
-        assignment['stale'] = (str(assignment.get('source_revision') or '') != str(source_revision or '')
-                               or not assignment.get('candidate_reference_id'))
+        stale = (str(assignment.get('source_revision') or '') != str(source_revision or '')
+                 or not assignment.get('candidate_reference_id'))
+        # Also mark stale if evidence_digest changed
+        if evidence_digest and assignment.get('evidence_digest'):
+            if str(assignment.get('evidence_digest') or '') != str(evidence_digest or ''):
+                stale = True
+        assignment['stale'] = stale
         values.append(assignment)
     return values
 
