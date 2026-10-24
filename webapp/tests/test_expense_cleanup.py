@@ -73,7 +73,7 @@ def test_unassigned_expense_is_listed_and_leaves_the_list_once_assigned(tmp_path
         assert "data-row-id='expense-cleanup-1'" not in render_expense_cleanup(board, 'token')
     finally:
         ledger_board.bind_store(None)
-        board.conn.close()
+        board.close()
 
 
 def test_manual_trip_override_is_not_counted_as_expense_cleanup_review(tmp_path):

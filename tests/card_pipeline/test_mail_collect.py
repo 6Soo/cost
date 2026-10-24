@@ -21,8 +21,26 @@ def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     query = mail_collect.build_query('2026-10-02')
     assert query.startswith('after:2026/10/02 (')
     assert 'to:kew2000@hanmail.net' in query
+    assert 'from:toyoko-inn.com' in query
+    assert 'from:toyoko-inn.co.jp' in query
     for domain in mail_collect.SUPPLIER_DOMAINS:
         assert f'from:{domain}' in query
+
+
+def test_owner_raw_mail_decodes_declared_charset_and_keeps_original():
+    from base64 import urlsafe_b64encode
+    from email.message import EmailMessage
+    message = EmailMessage()
+    message['From'] = 'noreply@wm.toyoko-inn.com'
+    message['Subject'] = '토요코인 대구 동성로 예약 확인'
+    message.set_content('예약번호: 1234567\n숙박일:2026년 10월 24일 (토) 부터 2 박', charset='euc-kr')
+    raw = urlsafe_b64encode(message.as_bytes()).decode('ascii')
+    record = mail_collect.owner_raw_record('synthetic-toyoko', raw, internal_date='1792800000000')
+    assert record['raw'] == raw
+    assert record['owner_collected'] is True
+    assert record['internal_date'] == '1792800000000'
+    assert '예약번호: 1234567' in ota_mail.body_text(record['payload'])
+    assert ota_mail.authenticated_headers(record, ('toyoko-inn.com',)) is not None
 
 
 def test_collect_writes_new_messages_once_and_records_state(tmp_path):

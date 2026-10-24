@@ -1,17 +1,23 @@
-# COST — 현재 세션 인수 (2026-10-23)
+# COST — 현재 세션 인수 (2026-10-24)
 
 > **최신 재개 상태는 [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md)가 우선합니다.** 이 파일은 짧은 세션 안내이며 이전 장문의 세션/운영 기록은 [2026-10-23 보관 전문](archive/ota-legacy-20261023/session_handoff.md)에 보존했습니다. 이전 TODO를 자동 재실행하지 마세요.
 
 ## 지금 반드시 읽을 문서
 
-1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 두 저장소 현재 SHA, CI 실패, Reservation Production READY, 운영 미검증과 다음 작업 큐.
+1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 0.8절의 개발 후보·PR·표적 검증·남은 작업과, 이전 운영 검증을 구분한다. 과거 CI 실패는 후속 복구 기록을 따른다.
 2. [COST V3 단일 구현 진입점](COST_V3_START_HERE.md) — 가장 높은 목표 정책 권위, 단계별 작업 범위, 현재 코드와 운영 상태 구분.
 3. [OTA–카드 정책 A 통합 구현](ota-card-reconciliation-policy-a-v3.md) — R0 진단부터 R6 전환까지.
 4. [V3 사용자 수정·AI 대화·탑승자 명세](cost-v3-inference-ai-passenger-nm-test-architecture.md) — OTA 링크와 여행 A→B·학습은 독립.
 5. [운영 상태 증거](operations.md) — 당시 실제 릴리스·검증, 최신 라이브 상태는 다시 확인.
 6. [사용자 확정 회계 규칙](reconciliation-rules.md) 및 [Google 최종 정본 계약](target-workflow-google-authority.md).
 
-## 현재 작업 상태 (2026-10-23 후속 갱신)
+## 현재 개발 상태 (2026-10-24)
+
+- [초안 PR #91](https://github.com/6Soo/cost/pull/91)의 `integration/cost-v3-spec-completion`에서 기존 PR #88·#89·#90 통합과 L2·L3 후속 개발을 진행했다. 항공권 후보·취소·원본 변경 보호는 별도 브랜치에서 검토했고, 지연 여행 이동 경합의 수정·최종 통합 상태는 [CURRENT HANDOFF 0.8절](COST_V3_CURRENT_HANDOFF.md#08-2026-10-24-개발-후보-인수와-후속-구현)을 따른다.
+- 사용자가 구현자를 GPT-6 Luna low로 전환했다. 완료된 기존 기능을 재구현하거나 유효한 전체 검사를 반복하지 않는다.
+- 이번 개발 후보의 main 병합·운영 배포·실고객 조회·Google 쓰기는 수행하지 않았다. 아래 기록은 당시 운영 상태이며 최신 개발 후보의 배포 증거가 아니다.
+
+## 이전 세션 기록 (2026-10-23 당시 상태)
 
 - **단일 정확한 재개 큐:** [CURRENT HANDOFF §3](COST_V3_CURRENT_HANDOFF.md#3-미완료미검증-작업-큐-재개-우선순위). 아래 문장 대신 최신 Git/CI/배포와 동 문서의 우선순위를 따른다.
 - **COST 주요 코드 기준 커밋:** 0bd6e93 (이후 문서 전용 커밋 추가). R0~R6·N:M·R5-B COST 어댑터 및 합성 종단 테스트까지 개발 반영됐다고 보고됐다. COST 운영 호스트에 V3 전체 배포됐는지는 확인되지 않았다.

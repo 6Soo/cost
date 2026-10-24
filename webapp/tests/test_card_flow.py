@@ -49,6 +49,173 @@ class CardFlowTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
+    def test_superseded_trip_move_persist_cannot_overwrite_a_newer_decision(self):
+        from webapp import ledger_board
+        previous_store = ledger_board._STORE
+        ledger_board.bind_store(self.board)
+        self.addCleanup(ledger_board.bind_store, previous_store)
+        trip_a = self.board.create_trip(starts_on='2026-10-01', ends_on='2026-10-03',
+                                        destination='race-a', client_request_id='race-trip-a')['tab_id']
+        trip_b = self.board.create_trip(starts_on='2026-10-10', ends_on='2026-10-13',
+                                        destination='race-b', client_request_id='race-trip-b')['tab_id']
+        trip_c = self.board.create_trip(starts_on='2026-10-20', ends_on='2026-10-23',
+                                        destination='race-c', client_request_id='race-trip-c')['tab_id']
+        self.flow.trip_valid = lambda value: value in {trip_a, trip_b, trip_c}
+        content = CARD + CARD.splitlines(keepends=True)[1].replace(b'A123', b'A124')
+        batch = self.flow.pipeline.receive(content, 'move-race.csv')['batch_id']
+        rows = self.flow.pipeline.get_batch(batch)['rows']
+        transaction_ids = [row['transaction_id'] for row in rows]
+
+        def decide(transaction_id, expected_revision, target, request_id):
+            return self.flow.pipeline.save_decision(
+                transaction_id, expected_revision, item='\uC219\uBC15\uBE44', display_tab_id=target,
+                trip_id=target, request_id=request_id,
+                trip_validator=self.flow.trip_valid, tab_validator=self.flow.tab_valid)
+
+        def current_revision(transaction_id):
+            return self.flow.pipeline.get_batch(batch)['rows'][
+                next(index for index, row in enumerate(rows) if row['transaction_id'] == transaction_id)
+            ]['revision']
+
+        initial = {}
+        for transaction_id in transaction_ids:
+            initial[transaction_id] = decide(transaction_id, current_revision(transaction_id),
+                                              trip_a, 'race-a-' + transaction_id[-8:])
+            self.assertEqual(self.flow.record_decision(batch, transaction_id), 1)
+            self.assertEqual(self.flow.persist_card_trip_move(
+                transaction_id, '', trip_a,
+                request_id='race-a-' + transaction_id[-8:])['status'], 'not_needed')
+
+        delayed_b = {}
+        for transaction_id in transaction_ids:
+            delayed_b[transaction_id] = decide(
+                transaction_id, initial[transaction_id]['revision'], trip_b,
+                'race-b-old-' + transaction_id[-8:])
+
+        # First row: B is saved, then C is saved and fully persisted before B arrives.
+        first_id = transaction_ids[0]
+        first_c = decide(first_id, delayed_b[first_id]['revision'], trip_c,
+                         'race-c-first-' + first_id[-8:])
+        self.flow.record_decision(batch, first_id)
+        self.assertEqual(self.flow.persist_card_trip_move(
+            first_id, trip_b, trip_c, request_id='race-c-first-' + first_id[-8:],
+            originating_revision=first_c['revision'])['status'], 'saved')
+        cases_before = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0]
+        revisions_before = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0]
+        audit_before = self.board.conn.execute(
+            "SELECT COUNT(*) FROM change_log WHERE kind='transaction.decided'").fetchone()[0]
+        ledger_before = self.board.conn.execute(
+            'SELECT transaction_id, amount_krw FROM ledger_entries ORDER BY transaction_id').fetchall()
+        transaction_before = self.board.conn.execute(
+            'SELECT transaction_id, source_hash, amount_krw, approval_date, transaction_direction, '
+            'original_approval_number, revision, display_tab_id, trip_id FROM transactions '
+            'WHERE transaction_id=?', (first_id,)).fetchone()
+        overrides_before = self.board.conn.execute(
+            'SELECT row_id, field, event_id FROM board_manual_overrides ORDER BY row_id, field').fetchall()
+        learning_state_before = tuple(self.board.conn.execute(
+            'SELECT (SELECT COUNT(*) FROM rule_dialogs), '
+            '(SELECT COUNT(*) FROM rule_questions), '
+            '(SELECT COUNT(*) FROM rule_conversations), '
+            '(SELECT COUNT(*) FROM rule_turns)').fetchone())
+        raw_before = self.board.conn.execute(
+            'SELECT content_bytes FROM import_batches WHERE batch_id=?', (batch,)).fetchone()[0]
+        stale_first = self.flow.persist_card_trip_move(
+            first_id, trip_a, trip_b, request_id='race-b-old-' + first_id[-8:],
+            originating_revision=delayed_b[first_id]['revision'])
+        self.assertEqual(stale_first['status'], 'superseded')
+        stale_open = self.flow.open_trip_move_learning(
+            first_id, trip_a, trip_b, request_id='race-b-old-' + first_id[-8:],
+            originating_revision=delayed_b[first_id]['revision'])
+        self.assertEqual(stale_open['status'], 'superseded')
+        self.assertEqual(self.board.get_row('card-' + first_id)['display_tab_id'], trip_c)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0], cases_before)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0], revisions_before)
+        self.assertEqual(self.board.conn.execute(
+            "SELECT COUNT(*) FROM change_log WHERE kind='transaction.decided'").fetchone()[0], audit_before)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT transaction_id, amount_krw FROM ledger_entries ORDER BY transaction_id').fetchall(), ledger_before)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT transaction_id, source_hash, amount_krw, approval_date, transaction_direction, '
+            'original_approval_number, revision, display_tab_id, trip_id FROM transactions '
+            'WHERE transaction_id=?', (first_id,)).fetchone(), transaction_before)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT row_id, field, event_id FROM board_manual_overrides ORDER BY row_id, field').fetchall(),
+            overrides_before)
+        self.assertEqual(tuple(self.board.conn.execute(
+            'SELECT (SELECT COUNT(*) FROM rule_dialogs), '
+            '(SELECT COUNT(*) FROM rule_questions), '
+            '(SELECT COUNT(*) FROM rule_conversations), '
+            '(SELECT COUNT(*) FROM rule_turns)').fetchone()), learning_state_before)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT content_bytes FROM import_batches WHERE batch_id=?', (batch,)).fetchone()[0], raw_before)
+
+        # Second row: B(old) -> C -> B(new); the old B request must still be stale when its target matches.
+        second_id = transaction_ids[1]
+        second_c = decide(second_id, delayed_b[second_id]['revision'], trip_c,
+                          'race-c-second-' + second_id[-8:])
+        self.flow.record_decision(batch, second_id)
+        self.flow.persist_card_trip_move(second_id, trip_b, trip_c,
+                                         request_id='race-c-second-' + second_id[-8:],
+                                         originating_revision=second_c['revision'])
+        latest_b = decide(second_id, second_c['revision'], trip_b,
+                          'race-b-new-' + second_id[-8:])
+        self.flow.record_decision(batch, second_id)
+        latest_move = self.flow.persist_card_trip_move(
+            second_id, trip_c, trip_b, request_id='race-b-new-' + second_id[-8:],
+            originating_revision=latest_b['revision'])
+        self.assertEqual(latest_move['status'], 'saved')
+        current_b = self.board.get_row('card-' + second_id)
+        cases_before_stale_retry = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0]
+        revisions_before_stale_retry = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0]
+        ledger_before_stale_retry = self.board.conn.execute(
+            'SELECT transaction_id, amount_krw FROM ledger_entries ORDER BY transaction_id').fetchall()
+        transaction_before_stale_retry = self.board.conn.execute(
+            'SELECT transaction_id, source_hash, amount_krw, approval_date, transaction_direction, '
+            'original_approval_number, revision, display_tab_id, trip_id FROM transactions '
+            'WHERE transaction_id=?', (second_id,)).fetchone()
+        overrides_before_stale_retry = self.board.conn.execute(
+            'SELECT row_id, field, event_id FROM board_manual_overrides ORDER BY row_id, field').fetchall()
+        stale_same_target = self.flow.persist_card_trip_move(
+            second_id, trip_a, trip_b, request_id='race-b-old-' + second_id[-8:],
+            originating_revision=delayed_b[second_id]['revision'])
+        self.assertEqual(stale_same_target['status'], 'superseded')
+        self.assertEqual(self.board.get_row('card-' + second_id), current_b)
+        self.assertEqual(self.board.get_row('card-' + second_id)['display_tab_id'], trip_b)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0], cases_before_stale_retry)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0], revisions_before_stale_retry)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT transaction_id, amount_krw FROM ledger_entries ORDER BY transaction_id').fetchall(),
+            ledger_before_stale_retry)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT transaction_id, source_hash, amount_krw, approval_date, transaction_direction, '
+            'original_approval_number, revision, display_tab_id, trip_id FROM transactions '
+            'WHERE transaction_id=?', (second_id,)).fetchone(), transaction_before_stale_retry)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT row_id, field, event_id FROM board_manual_overrides ORDER BY row_id, field').fetchall(),
+            overrides_before_stale_retry)
+        cases_before_retry = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0]
+        revisions_before_retry = self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0]
+        retry = self.flow.persist_card_trip_move(
+            second_id, trip_c, trip_b, request_id='race-b-new-' + second_id[-8:],
+            originating_revision=latest_b['revision'])
+        self.assertEqual(retry, latest_move)
+        self.assertEqual(self.board.get_row('card-' + second_id), current_b)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_learning_cases').fetchone()[0], cases_before_retry)
+        self.assertEqual(self.board.conn.execute(
+            'SELECT COUNT(*) FROM board_revisions').fetchone()[0], revisions_before_retry)
+        self.assertEqual(latest_b['revision'], second_c['revision'] + 1)
+
     def test_owner_trip_move_is_revisioned_idempotent_and_survives_reclassification(self):
         batch = self.flow.pipeline.receive(CARD, 'trip-move.csv')['batch_id']
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
