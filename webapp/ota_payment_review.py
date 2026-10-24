@@ -581,10 +581,19 @@ class CoreOtaPaymentBackend:
         existing = _store_value(self.store, "reservation_links", {}).get(str(event_id), {})
         event_amount = event.get("amount")
         card_amount = transaction.get("foreign_amount")
-        comparable = (event.get("currency") and event.get("currency") ==
-                      (transaction.get("foreign_currency") or transaction.get("currency")))
+        event_currency = str(event.get("currency") or "").upper()
+        card_currency = str(transaction.get("foreign_currency") or transaction.get("currency") or "").upper()
+        if event_currency == "KRW":
+            comparable = True
+            event_amount_for_diff = event.get("amount_krw", event_amount)
+            card_amount_for_diff = transaction.get("amount_krw")
+        else:
+            comparable = bool(event_currency and card_currency == event_currency and
+                              transaction.get("foreign_amount") not in (None, ""))
+            event_amount_for_diff = event_amount
+            card_amount_for_diff = card_amount
         try:
-            difference = (float(card_amount) - float(event_amount)) if comparable and event_amount is not None and card_amount is not None else None
+            difference = (float(card_amount_for_diff) - float(event_amount_for_diff)) if comparable and event_amount_for_diff is not None and card_amount_for_diff is not None else None
         except (TypeError, ValueError):
             difference = None
         return dict(preview, expected_revision=int(existing.get("revision", 0)),
@@ -1434,7 +1443,7 @@ def render_import_section(csrf: str) -> str:
       const relation=event.reservation_link||{{}},rows=cards[event.ota_event_id]||[];
       const candidates=rows.filter(card=>card.reservation_candidate&&!card.already_linked_event_id);
       const state=relation.status==='INFERRED'?'자동 추론 관계 · 결제 미검증':relation.status==='USER_CONFIRMED'?'사용자 확인 관계 · 결제 미검증':relation.status==='STALE'?'저장한 관계의 근거 변경 · 기존 선택 이력 유지, 재확인 필요':relation.status==='NEEDS_REVIEW'?'여러 후보 또는 근거 차이 · 사용자가 확인해야 합니다.':'예약 관계 미확인';
-      const options=candidates.map(card=>`<option value="${{esc(card.transaction_id)}}" ${{relation.transaction_id===card.transaction_id?'selected':''}}>${{esc(card.merchant||card.issuer||'카드')}} · 외화 ${{esc(card.foreign_amount??'미확인')}} ${{esc(card.currency||'')}} · 원화 ${{money(card.amount_krw)}} · ${{esc(card.reservation_amount_status||'확인 필요')}}</option>`).join('');
+      const options=candidates.map(card=>`<option value="${{esc(card.transaction_id)}}" ${{relation.transaction_id===card.transaction_id?'selected':''}}>${{esc(card.merchant||card.issuer||'카드')}} · ${{card.foreign_amount==null||card.foreign_amount===''?'원문 외화 금액 미확인':`원문 외화 ${{esc(card.foreign_amount)}} ${{esc(card.foreign_currency||card.currency||'')}}`}} · 원화 ${{money(card.amount_krw)}} · ${{card.reservation_amount_status==='MATCH'?'금액 일치':card.reservation_amount_status==='UNKNOWN'?'금액 미확인':card.reservation_amount_status==='MISMATCH'?'금액 차이':'확인 필요'}}</option>`).join('');
       const savedText=relation.transaction_id?'<p>저장한 선택: '+esc(relation.transaction_id)+' · '+esc(relation.basis||'')+' · 원문 금액 '+esc(relation.amount_status||'미확인')+'</p>':'';
       const optionBlock=options?'<label>카드 후보<select data-reservation-select="'+esc(event.ota_event_id)+'"><option value="">선택하세요</option>'+options+'</select></label><button type="button" data-reservation-preview="'+esc(event.ota_event_id)+'">예약 관계 미리보기</button>':'<p>후보 없음 · '+esc(event.candidate_search_status||'근거 부족')+'</p>';
       article.insertAdjacentHTML('afterbegin','<section class="ota-reservation-link"><h4>예약 관계 확인 · 실제 결제 확정과 별도</h4><p>'+esc(state)+(event.reservation_group_only?' · 묶음 합계이며 개별 객실 확정은 아닙니다.':'')+'</p>'+savedText+optionBlock+'<div data-reservation-preview-for="'+esc(event.ota_event_id)+'"></div></section>');
@@ -1479,7 +1488,11 @@ def render_import_section(csrf: str) -> str:
         try{{
           const preview=await call('/api/imports/ota/reservation/preview',{{event_id:eventCard.dataset.event,transaction_id:select.value}});
           const period=preview.service_period?`${{preview.service_period.starts_on||'미확인'}} ~ ${{preview.service_period.ends_on||'미확인'}}`:'미확인';
-          target.innerHTML=`<div class="ota-preview"><strong>예약 관계 미리보기</strong><p>지점: ${{esc(preview.hotel_name||'미확인')}} · 기간: ${{esc(period)}}</p><p>예약 원문 금액: ${{esc(preview.reservation_amount??'미확인')}} ${{esc(preview.reservation_currency||'')}}</p><p>카드 원문 금액: ${{esc(preview.card_foreign_amount??'미확인')}} ${{esc(preview.card_currency||'')}} · 원화 ${{money(preview.card_amount_krw)}}</p><p>${{preview.amount_difference===null?'원문 금액 차이를 계산할 수 없습니다.':'원문 금액 차이: '+esc(preview.amount_difference)+' '+esc(preview.reservation_currency||'')}}</p><p>이 동작은 예약 관계만 저장하며 실제 결제 완료를 확인하지 않습니다.</p><button type="button" class="ota-primary" data-reservation-confirm>예약 관계만 확인</button></div>`;
+            const localKrw=String(preview.reservation_currency||'').toUpperCase()==='KRW';
+            const cardNative=preview.card_foreign_amount==null||preview.card_foreign_amount==='';
+            const cardNativeText=localKrw?'원화 매입 금액 '+money(preview.card_amount_krw)+' KRW':cardNative?'원문 외화 금액 미확인':String(preview.card_foreign_amount)+' '+String(preview.card_currency||'');
+            const diffUnit=localKrw?'KRW':String(preview.reservation_currency||'');
+            target.innerHTML=`<div class="ota-preview"><strong>예약 관계 미리보기</strong><p>지점: ${{esc(preview.hotel_name||'미확인')}} · 기간: ${{esc(period)}}</p><p>예약 원문 금액: ${{esc(preview.reservation_amount??'미확인')}} ${{esc(preview.reservation_currency||'')}}</p><p>카드 원문 금액: ${{esc(cardNativeText)}} · 원화 ${{money(preview.card_amount_krw)}}</p><p>${{preview.amount_difference===null?'원문 통화나 금액이 없어 차이를 확인할 수 없습니다.':'원문 금액 차이: '+esc(preview.amount_difference)+' '+diffUnit}}</p><p>이 동작은 예약 관계만 저장하며 실제 결제 완료를 확인하지 않습니다.</p><button type="button" class="ota-primary" data-reservation-confirm>예약 관계만 확인</button></div>`;
           target.querySelector('[data-reservation-confirm]').addEventListener('click',async confirmEvent=>{{
             const confirmButton=confirmEvent.currentTarget;confirmButton.disabled=true;
             try{{
