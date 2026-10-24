@@ -38,6 +38,21 @@
 | 실제 owner 메뉴 목록 (확인 가능) | /cards, /import (card_flow); work_menu_html (ledger_design 참조); 권한: access_control ROLE_OWNER | - | - | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 권한/CSRF/금융write | P0~P1 | SOURCE-VERIFIED(메뉴/권한) / BROWSER-NOT_TESTED |
 | 하위 페이지 전체 / PR0 전수 메뉴 누락 | 불명/미검증 | 불명 | 불명 | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 금융write/CSRF/외부호출 | P1~P2 | NOT_VERIFIED / NOT_TESTED / REFERENCE_ONLY |
 
+## 4.1 실제 owner 메뉴 항목 (work_menu_html 기반, 최종 추가 8행)
+| URL (메뉴 href 원문) | 핸들러/렌더 파일·함수 (line) | 공통/전용 CSS·JS | 읽기/쓰기/권한 경계 | source 검증 | 브라우저 | 다음 조치 |
+|---|---|---|---|---|---|---|
+| /board (work_menu_html line 1003, ledger_board allowed 1070, card_flow 421) | webapp/ledger_board.py (route /board, 렌더 HTML 67/797/1070/1407/1482 등) | ledger_design.py .work-menu / site-links (125/135/191/980~1021); 카드 인라인 CSS card_flow 3001 별도 | 읽기(주요) + 쓰기(탭/검색/수정 via /row 등); 권한: access_control ROLE_OWNER + allowed paths | SOURCE VERIFIED (함수/경로 1회 확인) | NOT_TESTED | P0: 공통 레이아웃/메뉴 일관성 + 표적 검증 |
+| /import (work_menu_html 1004) | webapp/card_flow.py (path /import 1996), webapp/card_actions.py (next_action) | ledger_design site-links 공통; card_flow 인라인 JS/CSS 별도 | 쓰기(업로드/분류/규칙 제안); CSRF/revision 보호; 권한 owner | SOURCE VERIFIED | NOT_TESTED | P0: 권한/CSRF/금융 write 경로 재검증 |
+| /ota (work_menu_html 1005) | webapp/card_flow.py / ota_payment_review / ota_reconcile_child 참고; ledger_board 1070 allowed | 공통 site-links | 읽기/쓰기(OTA 결제 검토/재대사); 외부 호출 금지 | SOURCE VERIFIED (경로 존재) | NOT_TESTED | P1: OTA 정확 연결/환불/중복 보호 확인 |
+| /receipts (work_menu_html 1007) | webapp/ledger_board.py / receipt 관련(참조 확인) | 공통 site-links | 읽기(영수증 조회); 쓰기 제한 | SOURCE VERIFIED (메뉴 href 존재; 상세 렌더 미완료) | NOT_TESTED | P1: 상세 렌더/표면 확인 필요 |
+| /trips (work_menu_html 1011) | webapp/card_flow.py (line 427; /trips 링크); ledger_board 1070 allowed | 공통 site-links | 읽기(여행 목록); 쓰기(이동/배정 via 사용자 확정) | SOURCE VERIFIED | NOT_TESTED | P1: 여행 배정/이동 경로 안정성 |
+| /reserve-links (work_menu_html 1012) | webapp/ledger_board.py / reserve-links 참고 | 공통 site-links | 읽기/쓰기(링크 관리) | SOURCE VERIFIED (메뉴 존재; 상세 미검증) | NOT_TESTED | P2: 저빈도; 상세 렌더 확인 후 순차 |
+| /flight-passengers (work_menu_html 1014) | webapp/flight_passenger_page.py | 공통 site-links | 읽기/쓰기(탑승자) | SOURCE VERIFIED (파일 존재) | NOT_TESTED | P1: 개인정보/권한 경계 확인 |
+| /access/admin (work_menu_html 1017, ledger_board 458) | webapp/access_control.py (ROLE_OWNER 56, 97); ledger_board /access/admin 경로 | 공통 site-links | 관리자 쓰기/권한 변경; 인증/로그/캐시 | SOURCE VERIFIED | NOT_TESTED | P0: 권한/접근 제어 재검증 |
+| /rules (work_menu_html 780 reference; ledger_board 1070 allowed) | webapp/card_flow.py (rule-propose/approve 3054), ledger_design 780 | 인라인(JS) + 공통 | 쓰기(규칙 제안/승인); AI/재분류 경로; CSRF | SOURCE VERIFIED | NOT_TESTED | P1: AI 제안/승인 안전성 |
+
+> 추가 행 수: 9개 메뉴 항목 (/board, /import, /ota, /receipts, /trips, /reserve-links, /flight-passengers, /access/admin, /rules). /cards는 기존 §4 표에 별도 행 있음(중복 제외하여 실제 menu 항목 9개 추가). bank_batch_id는 카드 원행 DB 스키마 증거로만 사용; 거래 ID 증거는 card_flow transaction_id / ledger_store row_id 사용. 없음: /cards/all 별도 라우트 확인 미완료(§2.1 권장 경로는 실제 코드에서 /cards로 처리됨).
+
 ## 5. 후속 큐 (READY 최대 5, 기준선 기록)
 READY (최대 3 새 후속 구현 티켓; 기존 완료/검증 HOLL 유지, 재시작 구분):
 1. 공통 테마 토큰 최소 구축(PR-1 방향, 시스템 prefers-color-scheme) — 안전 의존성(기존 기능 깨지지 않음) 필수; NOT_TESTED 유지
