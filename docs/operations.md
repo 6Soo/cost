@@ -1,5 +1,23 @@
 # 현재 운영 상태
 
+## 2026-10-24 항공권 운영 연결 보완
+
+**최종 runtime은 `d9c5adcbd6d5bce52229a218535283e841567e5a`다.** [PR #96](https://github.com/6Soo/cost/pull/96)은 launcher의 명시 활성화·영구 DB, 화면 API의 기존 보호 토큰 기본값, 원본 식별자와 내용 지문이 포함된 최소 승객 색인을 연결했다. 후보 조회는 신선한 결과만 사용하고 기능을 꺼도 기존 연결 DB를 백업한다. 실제 참가자 선택·예약 정본·금융·Google 쓰기는 수행하지 않았다.
+
+파일 921개 대조와 launcher 일치, DB 5개·보호 파일 59개 백업·별도 복원을 확인했다. `flight_passengers.enabled=true`만 허용한 설정 변경이며 다른 보호 상태는 같았다. 복구 경로 `D:/WebLedgerHost/data/backups/flight-host-20261024T165551/`에 기존 launcher/설정을 보존했다. health/ready 200·비인증 화면/후보/저장 경로 401이었으며 generation 253의 색인 v2와 snapshot key 및 항공 예약 근거 177건·승객 표기 67개의 최소 검증 필드를 확인했다. 실제 고객 연결 수나 로그인 화면 검증 결과로 해석하지 않는다.
+
+미결 지출 53건은 복사본에서 23건 재분류·기록 0이었다. 원문과 기존 회계는 보존됐지만 항목 공란이 늘어 운영에는 적용하지 않았다. [현행 인계 0.11절](COST_V3_CURRENT_HANDOFF.md#011-2026-10-24-미결-사항-처리)에 정확한 보호 사유와 사용자 인증/추가 근거 경계를 기록했다.
+
+## 2026-10-24 미결 검사 수정과 OTA 통합 출처 보존
+
+[PR #95](https://github.com/6Soo/cost/pull/95)를 main `56f1a976148df89fa25233af3fff55e27e643e49`로 병합하고 같은 SHA의 release에 배포했다. 통합 OTA 읽기에서 원래 포털 locator를 사용해 출처·관측 ID를 보존하며 파서 버전은 7이다. 명시 lineage 설정도 통합 후보 manifest에 유지한다. 카드 금액·사용자 확정·장부 쓰기·스키마는 변경하지 않았다.
+
+archive와 release 파일 921개를 대조했다. 복구 근거 `D:/WebLedgerHost/data/backups/toyoko-reservation-20261024T164250/`에서 DB 5개·보호 파일 59개의 백업·별도 복원과 배포 후 보존을 확인했다. 새 실행 경로를 검증했고 외부 healthz/readyz 200·비인증 OTA/예약 관계 preview 401을 한 번 확인했다. Board·SourceRefresh는 Running, GoogleAuthority·MailCollect는 Ready이고 모두 Enabled다. 이후 문서만 변경하면 재배포하지 않는다.
+
+기존 비브라우저 실패 7건을 원인별 수정해 표적 통과했다. 원문 충돌·동일 record ID의 다른 포털 분리 및 명시 lineage를 포함한 인접 검사도 통과했다. 카드 검색 브라우저 검사는 접힌 영역을 먼저 열도록 고쳤고 구문 검사와 이전 Aside 근거를 재사용했다. 전체 pytest와 Playwright는 실행하지 않았다.
+
+실제 등록 여행 두 건의 참가자 API 응답은 각각 후보 0명·1명이며 HTTP 200과 최소 필드·revision·비공개 비캐시 응답을 확인했다. 실명·예약 식별자·토큰을 출력하거나 Git에 저장하지 않았고 실제 참가자 연결과 예약 정본 쓰기는 수행하지 않았다. 미결 거래의 후속 처리는 [현행 인계 0.11절](COST_V3_CURRENT_HANDOFF.md#011-2026-10-24-미결-사항-처리)을 따른다.
+
 ## 2026-10-24 토요코인 예약 관계 분리 운영 배포
 
 **최종 운영 SHA는 `3a94dbe589b9f9fbb9cb2b36774c08b9bbb1cf24`다.** [PR #93](https://github.com/6Soo/cost/pull/93)은 아래 첫 배포에서 발견한 기본 검토의 무관한 과거 예약 노출을 한 조건으로 줄였다. 관계·후보가 없는 예약만 기본 검토에서 제외하며 중앙 결과·전체 예약 목록·확인된 관계와 취소·충돌 보류는 보존한다. 최종 release의 파일 921개를 archive와 대조했고 DB 5개·파일 59개의 백업·별도 복원 및 배포 후 상태 보존을 다시 검증했다. 최종 복구 근거는 `D:/WebLedgerHost/data/backups/toyoko-reservation-20261024T121451/`이며 최소 외부 health/ready 및 접근 보호 스모크가 통과했다. 이후 문서 전용 커밋은 이 운영 코드를 바꾸지 않는다.
