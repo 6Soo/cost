@@ -94,15 +94,17 @@ def test_financial_guards_and_pins_cannot_be_bypassed(guard):
 def test_foreign_original_amount_required_without_exchange_rate_guess():
     mail = message(currency='엔', amount=12000)
     event = toyoko_mail.collect({mail['id']: mail})[0]
-    assert not toyoko_mail.search_candidates(event, [card(amount_krw=12000)])['candidates']
+    unknown_native = toyoko_mail.search_candidates(event, [card(amount_krw=12000)])['candidates'][0]
+    assert unknown_native['amount_status'] == 'UNKNOWN'
+    assert unknown_native['resolution_allowed'] is False
     assert not toyoko_mail.search_candidates(event,
         [card(foreign_currency='USD', foreign_amount=12000)])['candidates']
     domestic = message('domestic')
     won_event = toyoko_mail.collect({domestic['id']: domestic})[0]
-    assert not toyoko_mail.search_candidates(won_event,
-        [card(merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount=12000)])['candidates']
-    assert not toyoko_mail.search_candidates(won_event,
-        [card(merchant='TOYOKO INN Tokyo JP')])['candidates']
+    assert toyoko_mail.search_candidates(won_event,
+        [card(merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount=12000)])['candidates'][0]['branch_status'] == 'UNKNOWN'
+    assert toyoko_mail.search_candidates(won_event,
+        [card(merchant='TOYOKO INN Tokyo JP')])['candidates'][0]['branch_status'] == 'UNKNOWN'
 
 
 def test_branch_and_stay_can_explain_amount_difference_but_never_confirm_payment():
@@ -112,8 +114,8 @@ def test_branch_and_stay_can_explain_amount_difference_but_never_confirm_payment
     assert trace['candidates'][0]['basis'] == 'HOTEL_BRANCH_AND_STAY_ONLY'
     assert trace['candidates'][0]['amount_status'] == 'MISMATCH'
     assert trace['candidates'][0]['resolution_allowed'] is False
-    assert not toyoko_mail.search_candidates(event,
-        [card(amount_krw=185000, merchant='TOYOKO INN')])['candidates']
+    assert toyoko_mail.search_candidates(event,
+        [card(amount_krw=185000, merchant='TOYOKO INN')])['candidates'][0]['basis'] == 'PROVIDER_AND_STAY_ONLY'
     assert not toyoko_mail.search_candidates(event,
         [card(amount_krw=185000, merchant='토요코인 창원')])['candidates']
 
@@ -127,3 +129,33 @@ def test_missing_native_amount_is_low_confidence_relation_candidate_only():
     assert trace['candidates'][0]['confidence'] == 'LOW'
     assert trace['candidates'][0]['resolution_allowed'] is False
     assert not ota_payments._event_is_paid(event)
+
+
+def test_inferred_link_requires_confirmed_branch_stay_and_valid_krw_financial_facts():
+    mail = message(currency='엔', amount=12000)
+    event = toyoko_mail.collect({mail['id']: mail})[0]
+    branchless = card('branchless', merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount='12000')
+    branchless['approval_date'] = '2026-10-02'
+    trace = toyoko_mail.search_candidates(event, [branchless])
+    assert trace['candidates'][0]['branch_status'] == 'UNKNOWN'
+    assert trace['candidates'][0]['stay_date_status'] == 'MATCH'
+    assert trace['candidates'][0]['amount_status'] == 'MATCH'
+    from app.toyoko_reservation_links import infer_links
+    assert infer_links([event], {event['ota_event_id']: trace})[event['ota_event_id']]['status'] == 'NEEDS_REVIEW'
+    zero = card('zero', amount_krw=0, foreign_currency='JPY', foreign_amount='')
+    assert not toyoko_mail.search_candidates(event, [zero])['candidates']
+    late = card('late', merchant='토요코인 울산삼산동', foreign_currency='JPY', foreign_amount='12000')
+    late['approval_date'] = '2026-10-07'
+    late_trace = toyoko_mail.search_candidates(event, [late])
+    assert late_trace['candidates'][0]['stay_date_status'] == 'UNKNOWN'
+    assert infer_links([event], {event['ota_event_id']: late_trace})[event['ota_event_id']]['status'] == 'NEEDS_REVIEW'
+
+
+def test_known_reservation_amount_can_be_manual_unknown_when_card_native_currency_is_missing():
+    mail = message(currency='엔', amount=12000)
+    event = toyoko_mail.collect({mail['id']: mail})[0]
+    row = card('native-missing', merchant='토요코인 울산삼산동', foreign_currency='', foreign_amount='')
+    trace = toyoko_mail.search_candidates(event, [row])
+    assert trace['candidates'][0]['amount_status'] == 'UNKNOWN'
+    assert trace['candidates'][0]['branch_status'] == 'MATCH'
+    assert trace['candidates'][0]['resolution_allowed'] is False
