@@ -154,6 +154,8 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         if comparisons > max_comparisons:
             return {'status': 'SEARCH_LIMIT_EXCEEDED', 'candidates': [], 'comparisons': comparisons}
         card_currency = str(row.get('foreign_currency') or '').upper()
+        has_foreign_amount = row.get('foreign_amount') not in (None, '')
+        native_currency_incomplete = has_foreign_amount and not card_currency
         declared_currency = card_currency or str(row.get('currency') or '').upper()
         if declared_currency == 'KRW' and currency != 'KRW':
             declared_currency = ''
@@ -166,7 +168,8 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
             same_currency = ((branch_known and declared_currency in ('', 'KRW')) if currency == 'KRW'
                              else not currency_known or declared_currency == currency)
             valid_actual = actual is not None and actual.is_finite() and actual > 0
-            matches = amount_known and same_currency and valid_actual and actual == expected
+            matches = (amount_known and same_currency and valid_actual and actual == expected
+                       and not native_currency_incomplete)
         except InvalidOperation:
             same_currency = False
             valid_actual = False
@@ -174,8 +177,7 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         comparable_currency = ((currency == 'KRW' and branch_known and declared_currency in ('', 'KRW'))
                                or (currency != 'KRW' and currency is not None
                                    and declared_currency == currency))
-        explicit_currency_conflict = bool(currency and currency != 'KRW' and declared_currency
-                                          and declared_currency != currency)
+        explicit_currency_conflict = bool(currency and card_currency and card_currency != currency)
         if explicit_currency_conflict:
             counts['NATIVE_CURRENCY_MISMATCH'] += 1
             continue
@@ -195,6 +197,7 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
                       'PROVIDER_AND_STAY_ONLY' if not branch_known else
                       'HOTEL_BRANCH_AND_STAY_ONLY' if period_only else 'RESERVATION_NATIVE_AMOUNT'),
             'amount_status': ('UNKNOWN' if not amount_known or not valid_actual or not comparable_currency
+                              or native_currency_incomplete
                               else 'MISMATCH' if period_only else 'MATCH'),
             'branch_status': 'MATCH' if branch_known else 'UNKNOWN',
             'confidence': 'LOW' if period_only or not branch_known or not stay_match else 'HIGH',

@@ -563,6 +563,20 @@ class CoreOtaPaymentBackend:
                     relation = dict(relation, status="STALE", payment_verified=False)
                 result["reservation_link"] = {key: relation.get(key) for key in
                     ("status", "transaction_id", "basis", "amount_status", "payment_verified")}
+        for event_id, saved in confirmed.items():
+            if str(event_id) in canonical_by_id:
+                continue
+            historical_event = dict(saved.get("event") or {})
+            historical_event.update(ota_event_id=str(event_id), evidence_missing=True,
+                                   evidence_changed=True, review_warning="reservation_event_missing")
+            events.append(historical_event)
+            results.append({"ota_event_id": str(event_id), "status": "RESERVATION_ONLY",
+                            "evidence_missing": True, "evidence_changed": True,
+                            "candidate_search": {"status": "NO_CANDIDATE", "candidates": [], "rejected": []},
+                            "reservation_link": {"status": "STALE",
+                                "transaction_id": str(saved.get("transaction_id") or ""),
+                                "basis": saved.get("basis"), "amount_status": saved.get("amount_status"),
+                                "payment_verified": False}})
         return events, transactions, links, results
 
     def reservation_preview(self, event_id, transaction_id):

@@ -101,8 +101,13 @@ def test_foreign_original_amount_required_without_exchange_rate_guess():
         [card(foreign_currency='USD', foreign_amount=12000)])['candidates']
     domestic = message('domestic')
     won_event = toyoko_mail.collect({domestic['id']: domestic})[0]
-    assert toyoko_mail.search_candidates(won_event,
-        [card(merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount=12000)])['candidates'][0]['branch_status'] == 'UNKNOWN'
+    assert not toyoko_mail.search_candidates(won_event,
+        [card(merchant='TOYOKO INN', foreign_currency='JPY', foreign_amount=12000)])['candidates']
+    unknown_currency = card('unknown-currency', merchant='토요코인 울산삼산동', foreign_amount=37000)
+    unknown_currency.pop('currency', None)
+    unknown_currency.pop('foreign_currency', None)
+    unknown_trace = toyoko_mail.search_candidates(won_event, [unknown_currency])
+    assert unknown_trace['candidates'][0]['amount_status'] == 'UNKNOWN'
     assert toyoko_mail.search_candidates(won_event,
         [card(merchant='TOYOKO INN Tokyo JP')])['candidates'][0]['branch_status'] == 'UNKNOWN'
 

@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import time
 
 import pytest
 
@@ -93,7 +94,7 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         backend = writer
         # Keep the synthetic authority input stable across snapshot priming; no authority fetch is used.
         board._reservation_authority = {'authority': None, 'error': 'synthetic_unavailable',
-            'fresh': False, 'degraded': False, 'checked_at': 1, 'last_success_at': None,
+            'fresh': False, 'degraded': False, 'checked_at': time.monotonic(), 'last_success_at': None,
             'digest': 'synthetic-authority-unavailable'}
         key_before = ota_payment_review.input_key_for(writer)
         primed(board, writer)
@@ -108,6 +109,20 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         assert updated[3][0]['status'] == 'RESERVATION_ONLY'
         assert updated[3][0]['reservation_link']['status'] == 'USER_CONFIRMED'
         assert writer.snapshot_from(updated)['events'][0]['reservation_link']['status'] == 'USER_CONFIRMED'
+        (maildir / 'gmail-synthetic.json').write_text(json.dumps({'responses': []}), encoding='utf-8')
+        missing_mail = writer._data()
+        missing_result = next(row for row in missing_mail[3] if row['ota_event_id'] == event['ota_event_id'])
+        missing_event = next(row for row in missing_mail[0] if row['ota_event_id'] == event['ota_event_id'])
+        assert missing_event['evidence_missing'] is True
+        assert missing_result['status'] == 'RESERVATION_ONLY'
+        assert missing_result['reservation_link']['status'] == 'STALE'
+        assert missing_result['candidate_search']['candidates'] == []
+        writer._transactions = lambda: []
+        missing_card = writer._data()
+        missing_relation = next(row['reservation_link'] for row in missing_card[3]
+                                if row['ota_event_id'] == event['ota_event_id'])
+        assert missing_relation['status'] == 'STALE'
+        assert writer.snapshot_from(missing_card)['events'][0]['reservation_link']['status'] == 'STALE'
         with pytest.raises((ota_payment_review.InvalidReviewInput, ota_payment_review.StalePreviewError)):
             writer.preview(event['ota_event_id'], tid)
         assert board.conn.total_changes == before
