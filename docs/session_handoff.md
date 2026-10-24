@@ -13,7 +13,7 @@
 
 ## 현재 병합·운영 상태 (2026-10-24)
 
-- 최신 승인 작업인 토요코인 예약 관계·결제 검증 분리는 [PR #92](https://github.com/6Soo/cost/pull/92)로 병합·배포했다. 실제 운영 SHA는 `587db6316444f843b971a189e7523a5529f424b8`이다. 최신 재개·검증 근거는 [CURRENT HANDOFF 0.10절](COST_V3_CURRENT_HANDOFF.md#010-2026-10-24-토요코인-예약-관계와-결제-검증-분리)을 우선한다. 아래 PR #91 내용은 이전 배포 이력이다.
+- 최신 승인 작업인 토요코인 예약 관계·결제 검증 분리는 [PR #92](https://github.com/6Soo/cost/pull/92)와 기본 검토 표시 보완 [PR #93](https://github.com/6Soo/cost/pull/93)으로 병합·배포했다. 최종 운영 SHA는 `3a94dbe589b9f9fbb9cb2b36774c08b9bbb1cf24`다. 최신 재개·검증 근거는 [CURRENT HANDOFF 0.10절](COST_V3_CURRENT_HANDOFF.md#010-2026-10-24-토요코인-예약-관계와-결제-검증-분리)을 우선한다. 아래 PR #91 내용은 이전 배포 이력이다.
 
 - 사용자 승인으로 [PR #91](https://github.com/6Soo/cost/pull/91)을 main `a3474a8`에 병합하고 같은 커밋의 별도 릴리스를 운영에 배포했다. PR #88·#89·#90도 MERGED다. 개발·운영 근거는 [CURRENT HANDOFF 0.9절](COST_V3_CURRENT_HANDOFF.md#09-2026-10-24-사용자-승인-병합과-운영-배포-완료)을 따른다.
 - 사용자가 구현자를 GPT-6 Luna low로 전환했다. 완료된 기존 기능을 재구현하거나 유효한 전체 검사를 반복하지 않는다.
