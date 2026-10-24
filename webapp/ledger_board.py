@@ -16,6 +16,7 @@ import http.cookies
 import datetime as dt
 import json
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -4135,8 +4136,8 @@ class Handler(BaseHTTPRequestHandler):
         elif parsed.path == "/import":
             self._send(import_page())
         elif parsed.path == "/cards/all":
-            from . import card_catalog
-            self._send(card_catalog.render_html(card_catalog.catalog(_active_store(), query), query, csrf=CSRF_TOKEN))
+            from . import cards_all
+            self._send(cards_all.cards_all_page(_active_store(), query, csrf=CSRF_TOKEN))
         elif parsed.path == "/income/new":
             self._send(income_new_page())
         elif parsed.path == "/expense/new":
@@ -4157,6 +4158,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이에요"}, code=404)
                 return
             self._send_json(job, code=200)
+        elif parsed.path == "/api/cards/transactions":
+            from . import cards_all
+            board = _active_store()
+            year = str(query.get('year', ['2026'])[0]).strip()
+            month = str(query.get('month', [''])[0]).strip()
+            if not re.fullmatch(r'[0-9]{4}', year):
+                year = '2026'
+            if not re.fullmatch(r'[0-9]{2}', month):
+                self._send_json({'rows': [], 'dates': {}, 'total': 0, 'month': ''}, code=400)
+                return
+            data = cards_all.get_month_transactions(board, int(year), int(month))
+            self._send_json(data, code=200)
         elif parsed.path.startswith("/income/") and parsed.path.endswith("/split"):
             parts = parsed.path.strip("/").split("/")
             self._send(split_page(parts[1] if len(parts) == 3 else ""))

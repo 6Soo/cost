@@ -1,0 +1,7 @@
+{
+  "schema_version": "refund-pairing-v1",
+  "foreign_amount_pairing": {
+    "enabled": true,
+    "max_days_after_purchase": 7
+  }
+}
