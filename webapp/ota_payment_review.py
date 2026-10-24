@@ -766,7 +766,7 @@ class CoreOtaPaymentBackend:
             elif saved_relation:
                 relation["historical_card_missing"] = True
             relation["revision"] = saved_relation.get("revision")
-            has_reservation_relation = relation.get("status") in ("INFERRED", "USER_CONFIRMED", "NEEDS_REVIEW", "STALE")
+            has_reservation_relation = relation.get("status") in ("INFERRED", "USER_CONFIRMED", "STALE")
             if (not is_hold and not is_changed_manual and not is_ordered_group
                     and not is_reservation_candidate and not has_reservation_relation):
                 continue

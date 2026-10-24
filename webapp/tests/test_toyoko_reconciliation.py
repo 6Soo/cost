@@ -51,6 +51,22 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         candidate = snapshot['cards_by_event'][event['ota_event_id']][0]
         assert candidate['selection_disabled'] is True
         assert snapshot['events'][0]['reservation_link']['status'] == 'INFERRED'
+        old_event = {'ota_event_id': 'synthetic-unrelated-old-toyoko', 'provider': 'toyoko',
+            'event_type': 'reservation', 'booking_ref': 'old-booking', 'reservation_status': 'confirmed'}
+        old_result = {'ota_event_id': old_event['ota_event_id'], 'status': 'RESERVATION_ONLY',
+            'candidate_search': {'status': 'NO_CANDIDATE', 'candidates': [], 'rejected': []},
+            'reservation_link': {'status': 'NEEDS_REVIEW', 'transaction_id': None,
+                'basis': 'NO_CANDIDATE', 'amount_status': None, 'payment_verified': False}}
+        data[0].append(old_event); data[3].append(old_result)
+        without_old_candidate = backend.snapshot_from(data)
+        assert old_event in data[0]
+        assert all(row['ota_event_id'] != old_event['ota_event_id'] for row in without_old_candidate['events'])
+        old_result['reservation_link'] = {'status': 'STALE', 'transaction_id': 'missing-card',
+            'basis': 'USER_CONFIRMED', 'amount_status': 'UNKNOWN', 'payment_verified': False}
+        with_stale_history = backend.snapshot_from(data)
+        assert any(row['ota_event_id'] == old_event['ota_event_id'] and
+                   row['reservation_link']['status'] == 'STALE' for row in with_stale_history['events'])
+        data[0].pop(); data[3].pop()
         canonical = {'events': data[0], 'transactions': data[1], 'links': data[2], 'results': data[3]}
         current = {'generation': 7, 'results': [{'ota_event_id': event['ota_event_id'], 'status': 'RESERVATION_ONLY',
             'reservation_link': result['reservation_link'], 'candidate_search': result['candidate_search']}],
