@@ -1,6 +1,6 @@
 # cost 작업 지침
 
-> **현재 COST V3 개발 재개·미완료 큐:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md). 2026-10-23 Reservation PR #22 병합과 Production READY, CI unit 실패, 읽기 전용 운영 인증 미검증 등 최신 실제 상태를 담았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고, 완료된 R0~R6를 처음부터 다시 구현하지 않는다. GitHub 정본만으로 재개할 수 있도록 로컬 TASK_QUEUE.json/과거 채팅을 필수 전제조건으로 삼지 않는다.
+> **현재 COST V3 실행 기준과 큐:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md)의 2026-10-24 최신 0.10절을 따른다. 토요코인 예약 관계 분리 PR #92의 병합·운영 SHA와 검증 근거를 담았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고, 완료된 R0~R6를 처음부터 다시 구현하지 않는다. GitHub 정본만으로 재개할 수 있도록 로컬 TASK_QUEUE.json/과거 채팅을 필수 전제조건으로 삼지 않는다.
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
