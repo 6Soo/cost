@@ -16,7 +16,7 @@ from app.ota_matching_defaults import load_defaults
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 6
+PARSER_VERSION = 7
 
 
 class OtaSourcesError(ValueError):
@@ -327,6 +327,8 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
         except (TypeError, ValueError):
             database_number = 0
         source_path = database_paths[database_number] if database_paths and database_number < len(database_paths) else None
+        # 통합 저장소의 위치가 바뀌어도 원래 포털 출처와 관측 ID는 유지한다.
+        source_path = evidence[0].get('_source_locator') or source_path
         from app import ota_sources
         lineage_basis = (ota_sources.source_lineage_id(source_lineage_ids or {}, source_path)
                          if source_path else str(database_index))

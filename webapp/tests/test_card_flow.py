@@ -602,6 +602,9 @@ class CardFlowTests(unittest.TestCase):
         row = self.flow.pipeline.get_batch(batch)['rows'][0]
         mail_dir = Path(self.tmp.name)/'ota-mail'
         mail_dir.mkdir()
+        (Path(self.tmp.name)/'ota-sources.json').write_text(json.dumps({
+            'schema_version':'ota-sources-v1', 'mail_directories':[str(mail_dir)],
+            'portal_databases':[]}), encoding='utf-8')
         report = {
             'matches':[{'transaction_id':row['transaction_id'], 'source_hash':row['source_hash'],
                         'reservation_status':'confirmed'}],
