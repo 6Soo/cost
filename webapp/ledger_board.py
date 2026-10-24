@@ -4233,7 +4233,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이어요"}, code=404)
                 return
             self._send_json(rule, code=200)
+        elif parsed.path.startswith("/api/cards/transactions"):
+            from . import card_transactions as _ct
+            try:
+                q = parse_qs(parsed.query)
+                year = int(q.get("year", ["2026"])[0])
+                month = q.get("month", [None])[0]
+                cursor = q.get("cursor", [None])[0]
+                if month is not None:
+                    month = int(month)
+                if parsed.path == "/api/cards/transactions/years":
+                    self._send_json({"years": [2026], "default": 2026}, code=200)
+                    return
+                if parsed.path == "/api/cards/transactions/summary":
+                    summary = _ct.year_summary(year=year)
+                    self._send_json({"year": year, "months": summary.get("months"), "undated_count": summary.get("undated_count")}, code=200)
+                    return
+                if parsed.path.startswith("/api/cards/transactions/undated"):
+                    res = _ct.undated_list(year=year, cursor=cursor or None, per_page=100)
+                    self._send_json(res, code=200)
+                    return
+                if month is None:
+                    self._send_json({"code":"BAD_REQUEST","message":"month required"}, code=400)
+                    return
+                res = _ct.list_for_month(year=year, month=month, cursor=cursor or None, per_page=100)
+                self._send_json(res, code=200)
+            except Exception as exc:
+                self._send_json({"code":"ERROR","message":str(exc)}, code=500)
         else:
+
             self._send(layout("없음", "<p>없는 주소예요.</p>"), code=404)
 
     @_store_request_locked
