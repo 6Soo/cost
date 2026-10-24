@@ -4134,6 +4134,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(detail_page(row_id, edit=query.get("edit", [""])[0] == "1"))
         elif parsed.path == "/import":
             self._send(import_page())
+        elif parsed.path == "/cards/all":
+            from . import card_catalog
+            self._send(card_catalog.render_html(card_catalog.catalog(_active_store(), query), query, csrf=CSRF_TOKEN))
         elif parsed.path == "/income/new":
             self._send(income_new_page())
         elif parsed.path == "/expense/new":

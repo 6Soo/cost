@@ -992,6 +992,7 @@ def work_menu_html() -> str:
                 f"</span></{tag}>")
 
     actions = action('upload', '지출 정리', '카드 파일 추가 · 미배정 지출 정리 · 오분류 수정 · 전체 카드 검색', '/import')
+    actions += action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
@@ -1014,6 +1015,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
+                   f"<a href='/cards/all'>{_icons.icon('calendar', 18)}<span class='nm'>카드 전체 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"
