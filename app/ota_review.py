@@ -528,8 +528,20 @@ class OtaReviewStore:
                                         (group_id,)).fetchone()
             if current and not replace:
                 raise ValueError("GROUP_ORDER_ALREADY_FROZEN")
+            placeholders = ",".join("?" for _ in card_ids)
+            if self._has_table("ota_review_links"):
+                paid_rows = self.conn.execute(
+                    f"SELECT event_id,transaction_id FROM ota_review_links WHERE transaction_id IN ({placeholders})",
+                    tuple(card_ids)).fetchall()
+                if any(mapping.get(str(row["event_id"])) != str(row["transaction_id"]) for row in paid_rows):
+                    raise ValueError("GROUP_CARD_PAID_LINK_CONFLICT")
+            other_pin = self.conn.execute(
+                f"SELECT group_id FROM ota_review_group_pins WHERE group_id<>? "
+                f"AND EXISTS (SELECT 1 FROM json_each(card_ids_json) WHERE value IN ({placeholders})) LIMIT 1",
+                (group_id, *card_ids)).fetchone()
+            if other_pin:
+                raise ValueError("GROUP_CARD_RESERVED_BY_OTHER_GROUP")
             if self._has_table("ota_review_reservation_links"):
-                placeholders = ",".join("?" for _ in card_ids)
                 reservation_owner = self.conn.execute(
                     f"SELECT transaction_id FROM ota_review_reservation_links WHERE transaction_id IN ({placeholders}) LIMIT 1",
                     tuple(card_ids)).fetchone()

@@ -77,7 +77,9 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         ota_entry = next(item for item in ota_listing['rows'] if item['booking_ref'] == event['booking_ref'])
         assert ota_entry['card_candidates'] == [tid]
         assert ota_entry['reservation_links'][0]['status'] == 'INFERRED'
-        assert '예약 관계: INFERRED' in ota_catalog.render_html(ota_listing, {})
+        ota_html = ota_catalog.render_html(ota_listing, {})
+        assert '예약 추론 연결 · 결제 미검증' in ota_html
+        assert tid not in ota_html
         # 예약 후보를 장부 예약번호나 확정 비용 근거로 승격하지 않는다.
         assert ota_core_projection.card_matches([], canonical) == []
         with pytest.raises(ota_payment_review.InvalidReviewInput):
@@ -89,6 +91,10 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         writer = ota_payment_review.CoreOtaPaymentBackend(board, str(review_path), read_only=False,
             payments=ota_payments, store_type=OtaReviewStore, sources=sources)
         backend = writer
+        # Keep the synthetic authority input stable across snapshot priming; no authority fetch is used.
+        board._reservation_authority = {'authority': None, 'error': 'synthetic_unavailable',
+            'fresh': False, 'degraded': False, 'checked_at': 1, 'last_success_at': None,
+            'digest': 'synthetic-authority-unavailable'}
         key_before = ota_payment_review.input_key_for(writer)
         primed(board, writer)
         assert ota_payment_review.input_key_for(writer) == key_before

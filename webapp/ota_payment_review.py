@@ -577,11 +577,8 @@ class CoreOtaPaymentBackend:
                 or result.get("status") == "HOLD_EVIDENCE_CONFLICT"):
             raise InvalidReviewInput("reservation relation is not selectable")
         occupied = self._occupied_cards(links, results)
-        for relation_event, relation in confirmed.items():
-            transaction_id = str(relation.get("transaction_id") or "")
-            if transaction_id:
-                occupied.setdefault(transaction_id, (str(relation_event), "다른 예약에서 관계 확인"))
-        for linked_event, relation in _store_value(self.store, "reservation_links", {}).items():
+        confirmed = _store_value(self.store, "reservation_links", {})
+        for linked_event, relation in confirmed.items():
             if str(linked_event) == str(event_id):
                 continue
             linked_card = str(relation.get("transaction_id") or "")
