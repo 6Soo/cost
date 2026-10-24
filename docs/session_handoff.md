@@ -4,7 +4,7 @@
 
 ## 지금 반드시 읽을 문서
 
-1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 0.10절의 토요코인 예약 관계 분리와 main 병합·실제 운영 SHA·백업·스모크 및 검사 한계를 따른다. 0.9절 이전 내용은 이전 단계 기록이다.
+1. [**COST V3 최신 단일 재개 문서**](COST_V3_CURRENT_HANDOFF.md) — 0.11절의 미결 처리 상태와 실제 운영 SHA·복구·검사 근거를 따른다. 0.10절 이전은 이전 단계 기록이다.
 2. [COST V3 단일 구현 진입점](COST_V3_START_HERE.md) — 가장 높은 목표 정책 권위, 단계별 작업 범위, 현재 코드와 운영 상태 구분.
 3. [OTA–카드 정책 A 통합 구현](ota-card-reconciliation-policy-a-v3.md) — R0 진단부터 R6 전환까지.
 4. [V3 사용자 수정·AI 대화·탑승자 명세](cost-v3-inference-ai-passenger-nm-test-architecture.md) — OTA 링크와 여행 A→B·학습은 독립.
@@ -12,6 +12,8 @@
 6. [사용자 확정 회계 규칙](reconciliation-rules.md) 및 [Google 최종 정본 계약](target-workflow-google-authority.md).
 
 ## 현재 병합·운영 상태 (2026-10-24)
+
+- 최신 운영은 [PR #96](https://github.com/6Soo/cost/pull/96)의 `d9c5adcbd6d5bce52229a218535283e841567e5a`다. PR #95의 출처 보존·기존 실패 7건 수정에 더해 항공권 host 설정·보호 토큰·신선한 최소 원본 색인을 연결했다. 실제 참가자 최소 읽기와 생성된 색인을 확인했다. 지출 복사본은 23건 처리·기록 0으로 실제 장부 변경 없이 53건을 보존했다. 사용자 인증과 개별 근거가 필요한 재개 위치는 현행 인계 0.11절을 따른다. 아래 토요코인·PR #91은 이전 배포 이력이다.
 
 - 최신 승인 작업인 토요코인 예약 관계·결제 검증 분리는 [PR #92](https://github.com/6Soo/cost/pull/92)와 기본 검토 표시 보완 [PR #93](https://github.com/6Soo/cost/pull/93)으로 병합·배포했다. 최종 운영 SHA는 `3a94dbe589b9f9fbb9cb2b36774c08b9bbb1cf24`다. 최신 재개·검증 근거는 [CURRENT HANDOFF 0.10절](COST_V3_CURRENT_HANDOFF.md#010-2026-10-24-토요코인-예약-관계와-결제-검증-분리)을 우선한다. 아래 PR #91 내용은 이전 배포 이력이다.
 
