@@ -53,6 +53,51 @@ def test_get_is_owner_only_read_only_and_returns_unconfirmed_candidates(tmp_path
     assert not (tmp_path / 'flight.sqlite').exists()
 
 
+def test_candidate_lookup_uses_existing_host_token_without_exposing_it(tmp_path):
+    from types import SimpleNamespace
+    board = SimpleNamespace(path=tmp_path/'data'/'board.sqlite')
+    secrets = tmp_path/'secrets'
+    secrets.mkdir()
+    (secrets/'reservation-internal-token.txt').write_text('synthetic-private-token', encoding='utf-8')
+    with patch.dict(os.environ, clear=True), \
+            patch.object(page, '_passenger_evidence', return_value=EVIDENCE), \
+            patch.object(page.reservation_authority, 'fetch_passenger_candidates', return_value=AUTHORITY) as fetch:
+        result = page._candidate_result(board, 'SYNTH-500', 'tour-synth')
+    fetch.assert_called_once_with('tour-synth', token='synthetic-private-token')
+    assert result['passengers'][0]['status'] == 'EXACT_CANDIDATE'
+    assert 'synthetic-private-token' not in json.dumps(result)
+    assert not (tmp_path/'data'/'flight-passenger.sqlite').exists()
+
+
+def test_published_index_keeps_verified_evidence_for_lookup_and_rejects_stale_snapshot(tmp_path):
+    from types import SimpleNamespace
+    from webapp import ota_payment_review
+    evidence = dict(EVIDENCE, digest='content-synth', legs=[], cancellation_status='NONE',
+                    raw_message='must-not-be-exposed')
+    with patch('app.flight_evidence.collect_flight_evidence', return_value={('trip','SYNTH-500'):evidence}):
+        index = ota_payment_review._passenger_index([])
+    assert index['SYNTH-500']['source_digests'] == EVIDENCE['source_digests']
+    assert index['SYNTH-500']['names'] == ['KIM ALPHA']
+    assert 'raw_message' not in index['SYNTH-500']
+    current = {'data':{'passengers':index}}
+    handler = Handler()
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1',page.DB_ENV:str(tmp_path/'flight.sqlite')}), \
+            patch.object(ota_payment_review, 'snapshot_service', return_value=SimpleNamespace(held=lambda:(current,True))):
+        page.dispatch(handler, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
+                      board=object(), query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']},
+                      candidate_fetch=lambda tour:AUTHORITY)
+        assert handler.response[0] == 200
+        assert handler.response[1]['passengers'][0]['status'] == 'EXACT_CANDIDATE'
+    with patch.dict(os.environ, {page.FEATURE_FLAG:'1',page.DB_ENV:str(tmp_path/'flight.sqlite')}), \
+            patch.object(ota_payment_review, 'snapshot_service', return_value=SimpleNamespace(held=lambda:(current,False))), \
+            patch.object(page.reservation_authority, 'fetch_passenger_candidates') as fetch:
+        page.dispatch(handler, urlsplit('/api/flight-passengers/candidates'), is_owner=True,
+                      board=object(), query={'booking_ref':['SYNTH-500'],'tour_id':['tour-synth']})
+        assert handler.response[0] == 404
+        fetch.assert_not_called()
+    assert not (tmp_path/'flight.sqlite').exists()
+
+
 def test_owner_page_exposes_candidate_search_and_explicit_cost_confirmation_only(tmp_path):
     handler = Handler()
     with patch.dict(os.environ, {page.FEATURE_FLAG: '1', page.DB_ENV: str(tmp_path / 'flight.sqlite')}):
