@@ -116,3 +116,14 @@ def test_branch_and_stay_can_explain_amount_difference_but_never_confirm_payment
         [card(amount_krw=185000, merchant='TOYOKO INN')])['candidates']
     assert not toyoko_mail.search_candidates(event,
         [card(amount_krw=185000, merchant='토요코인 창원')])['candidates']
+
+
+def test_missing_native_amount_is_low_confidence_relation_candidate_only():
+    mail = message(subtotal=False, refs=('1234567', '2345678'))
+    event = next(e for e in toyoko_mail.collect({mail['id']: mail})
+                 if not e['reservation_group_only'] and e['booking_numbers'] == ['1234567'])
+    trace = toyoko_mail.search_candidates(event, [card()])
+    assert trace['candidates'][0]['amount_status'] == 'UNKNOWN'
+    assert trace['candidates'][0]['confidence'] == 'LOW'
+    assert trace['candidates'][0]['resolution_allowed'] is False
+    assert not ota_payments._event_is_paid(event)

@@ -498,7 +498,73 @@ class CoreOtaPaymentBackend:
                 if not trace["candidates"] and trace.get("status") == "CANDIDATES_FOUND":
                     trace["status"] = "NO_CANDIDATE"
                 result["candidate_search"] = trace
+        from app.toyoko_reservation_links import infer_links
+        toyoko_events = [event for event in events if event.get("provider") == "toyoko"
+                         and event.get("event_type") == "reservation"]
+        confirmed = _store_value(self.store, "reservation_links", {})
+        current_ids = {str(event.get("ota_event_id")) for event in toyoko_events}
+        relations = infer_links(toyoko_events,
+            {str(row.get("ota_event_id")): row.get("candidate_search", {}) for row in results}, confirmed)
+        for result in results:
+            event_id = str(result.get("ota_event_id") or "")
+            if event_id in relations:
+                relation = relations[event_id]
+                saved = confirmed.get(event_id)
+                if saved and saved.get("event") != canonical_by_id.get(event_id):
+                    relation = dict(relation, status="STALE", payment_verified=False)
+                result["reservation_link"] = {key: relation.get(key) for key in
+                    ("status", "transaction_id", "basis", "amount_status", "payment_verified")}
         return events, transactions, links, results
+
+    def reservation_preview(self, event_id, transaction_id):
+        if self.read_only:
+            raise RuntimeError("read-only OTA backend cannot preview a reservation write")
+        data, _snapshot = self._action_data()
+        events, transactions, links, results = data["events"], data["transactions"], data["links"], data["results"]
+        event = next((row for row in events if str(row.get("ota_event_id")) == str(event_id)), None)
+        transaction = next((row for row in transactions if str(row.get("transaction_id")) == str(transaction_id)), None)
+        result = next((row for row in results if str(row.get("ota_event_id")) == str(event_id)), None)
+        if (not event or event.get("provider") != "toyoko" or not transaction or not result
+                or result.get("status") == "HOLD_EVIDENCE_CONFLICT"):
+            raise InvalidReviewInput("reservation relation is not selectable")
+        occupied = self._occupied_cards(links, results)
+        for linked_event, relation in _store_value(self.store, "reservation_links", {}).items():
+            if str(linked_event) == str(event_id):
+                continue
+            linked_card = str(relation.get("transaction_id") or "")
+            if linked_card:
+                occupied.setdefault(linked_card, (str(linked_event), "예약 관계 확인"))
+        if str(transaction_id) in occupied:
+            raise InvalidReviewInput("card transaction is already linked")
+        trace = result.get("candidate_search") or {}
+        if str(transaction_id) not in {str(row.get("transaction_id")) for row in trace.get("candidates") or ()}:
+            raise InvalidReviewInput("card is not a current reservation candidate")
+        preview = self.store.reservation_preview(event, transaction, allocations=occupied)
+        existing = _store_value(self.store, "reservation_links", {}).get(str(event_id), {})
+        return dict(preview, expected_revision=int(existing.get("revision", 0)))
+
+    def reservation_confirm(self, event_id, transaction_id, preview_digest, *,
+                            expected_revision, request_id, user):
+        if self.read_only:
+            raise RuntimeError("read-only OTA backend cannot confirm a reservation relation")
+        data, _snapshot = self._action_data()
+        preview = self.reservation_preview(event_id, transaction_id)
+        if preview["preview_digest"] != preview_digest:
+            raise StalePreviewError
+        events, transactions, links, results = data["events"], data["transactions"], data["links"], data["results"]
+        event = next(row for row in events if str(row.get("ota_event_id")) == str(event_id))
+        transaction = next(row for row in transactions if str(row.get("transaction_id")) == str(transaction_id))
+        occupied = self._occupied_cards(links, results)
+        for linked_event, relation in _store_value(self.store, "reservation_links", {}).items():
+            if str(linked_event) == str(event_id):
+                continue
+            linked_card = str(relation.get("transaction_id") or "")
+            if linked_card:
+                occupied.setdefault(linked_card, (str(linked_event), "예약 관계 확인"))
+        request_digest = ota_snapshot.digest([event_id, transaction_id, preview_digest, expected_revision])
+        return self.store.confirm_reservation(event, transaction, preview_digest,
+            expected_revision=expected_revision, request_id=request_id,
+            request_digest=request_digest, user=user, allocations=occupied)
 
     def _has_payment_proof(self, event):
         checker = getattr(self.payments, "_event_is_paid", None)
@@ -872,7 +938,8 @@ def input_key_for(backend) -> str:
                    "rules": _store_value(store, "active_rules", []),
                    "proposals": _store_value(store, "proposals", []),
                    "pins": _store_value(store, "group_pins", []),
-                   "events": _store_value(store, "event_snapshots", {})},
+                   "events": _store_value(store, "event_snapshots", {}),
+                   "reservation_links": _store_value(store, "reservation_links", {})},
         "matching": load_defaults(),
         "payment_parser": getattr(getattr(backend, 'payments', None), 'PARSER_VERSION', 1),
         "guide_airfare": _guide_input_digest(backend.board),
@@ -931,6 +998,8 @@ def reconcile_for(backend) -> dict:
         item = {key: row.get(key) for key in ("ota_event_id", "status", "transaction_id",
                                               "reserved_card_ids", "allocation_basis", "inferred_link",
                                               "inference_basis", "payment_date_verified")}
+        if row.get("reservation_link"):
+            item["reservation_link"] = row["reservation_link"]
         verdict = guide.get(str(row.get("ota_event_id")))
         if verdict is not None:
             item["guide_airfare"] = verdict

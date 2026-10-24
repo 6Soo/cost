@@ -217,6 +217,78 @@ class OtaReviewStore:
                                   "evidence_missing": bool(row["evidence_missing"])}
                 for row in self.conn.execute("SELECT * FROM ota_review_links ORDER BY event_id")}
 
+    def reservation_links(self):
+        """예약 관계만 읽는다. 없는 DB/테이블은 읽기 경로에서 만들지 않는다."""
+        if not self._has_table("ota_review_reservation_links"):
+            return {}
+        return {row["event_id"]: {"status": "USER_CONFIRMED",
+                "transaction_id": row["transaction_id"], "basis": row["basis"],
+                "amount_status": row["amount_status"], "payment_verified": False,
+                "revision": row["revision"], "event": json.loads(row["event_json"]),
+                "transaction": json.loads(row["transaction_json"])}
+                for row in self.conn.execute("SELECT * FROM ota_review_reservation_links ORDER BY event_id")}
+
+    def reservation_preview(self, event, transaction, *, allocations=None):
+        from app.toyoko_reservation_links import relation_digest
+        digest = relation_digest(event, transaction)
+        return {"preview_digest": digest, "event_id": str(event.get("ota_event_id") or ""),
+                "transaction_id": str(transaction.get("transaction_id") or ""),
+                "allocations": sorted((allocations or {}).items())}
+
+    def confirm_reservation(self, event, transaction, preview_digest, *, expected_revision, request_id,
+                            request_digest, user, allocations=None):
+        from app.toyoko_reservation_links import relation_digest
+        request_id, request_digest = str(request_id), str(request_digest)
+        expected = relation_digest(event, transaction)
+        self._ensure_initialized()
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_links(
+                event_id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL,
+                event_json TEXT NOT NULL, transaction_json TEXT NOT NULL,
+                basis TEXT NOT NULL, amount_status TEXT NOT NULL,
+                revision INTEGER NOT NULL, user TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_requests(
+                request_id TEXT PRIMARY KEY, request_digest TEXT NOT NULL,
+                result_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS ota_review_reservation_history(
+                event_id TEXT NOT NULL, revision INTEGER NOT NULL, transaction_id TEXT NOT NULL,
+                result_json TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(event_id,revision));
+        """)
+        prior = self.conn.execute("SELECT request_digest,result_json FROM ota_review_reservation_requests WHERE request_id=?", (request_id,)).fetchone()
+        if prior:
+            if prior[0] != request_digest:
+                raise ValueError("REQUEST_ID_REUSED")
+            return json.loads(prior[1])
+        if preview_digest != expected:
+            raise ValueError("STALE_RESERVATION_PREVIEW")
+        transaction_id = str(transaction.get("transaction_id") or "")
+        if transaction_id in set((allocations or {}).keys()) | set((allocations or {}).values()):
+            raise ValueError("CARD_ALREADY_OCCUPIED")
+        current = self.conn.execute("SELECT revision FROM ota_review_reservation_links WHERE event_id=?",
+                                    (str(event.get("ota_event_id") or ""),)).fetchone()
+        have_revision = int(current[0]) if current else 0
+        if int(expected_revision) != have_revision:
+            raise ValueError("STALE_RESERVATION_REVISION")
+        occupied = self.conn.execute("SELECT event_id FROM ota_review_reservation_links WHERE transaction_id=? AND event_id<>?",
+                                     (transaction_id, str(event.get("ota_event_id") or ""))).fetchone()
+        if occupied:
+            raise ValueError("CARD_ALREADY_OCCUPIED")
+        revision = have_revision + 1
+        result = {"status": "USER_CONFIRMED", "transaction_id": transaction_id,
+                  "basis": "USER_CONFIRMED", "amount_status": "UNKNOWN",
+                  "payment_verified": False, "revision": revision}
+        params = (str(event.get("ota_event_id") or ""), transaction_id, _dump(event),
+                  _dump(transaction), "USER_CONFIRMED", "UNKNOWN", revision, str(user))
+        self.conn.execute("INSERT INTO ota_review_reservation_links(event_id,transaction_id,event_json,transaction_json,basis,amount_status,revision,user) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET transaction_id=excluded.transaction_id,event_json=excluded.event_json,transaction_json=excluded.transaction_json,basis=excluded.basis,amount_status=excluded.amount_status,revision=excluded.revision,user=excluded.user,updated_at=CURRENT_TIMESTAMP", params)
+        self.conn.execute("INSERT INTO ota_review_reservation_history(event_id,revision,transaction_id,result_json) VALUES(?,?,?,?)",
+                          (params[0], revision, transaction_id, _dump(result)))
+        self.conn.execute("INSERT INTO ota_review_reservation_requests(request_id,request_digest,result_json) VALUES(?,?,?)",
+                          (request_id, request_digest, _dump(result)))
+        self.conn.commit()
+        return result
+
     def prior_confirmation(self, request_id):
         """The result an earlier confirm with this request id recorded, or None. Read only."""
         if not self._has_table("ota_review_requests"):

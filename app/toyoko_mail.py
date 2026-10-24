@@ -105,11 +105,12 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
 
     if event.get('evidence_status') == 'evidence_conflict' or not event.get('service_period'):
         return {'status': 'RESERVATION_EVIDENCE_INCOMPLETE', 'candidates': [], 'comparisons': 0}
+    amount_known = event.get('amount') not in (None, '') and bool(event.get('currency'))
     try:
-        expected = Decimal(str(event.get('amount')))
+        expected = Decimal(str(event.get('amount'))) if amount_known else None
         start = date.fromisoformat(event['service_period']['starts_on'])
         end = date.fromisoformat(event['service_period']['ends_on'])
-        if not expected.is_finite() or expected <= 0 or end <= start:
+        if (amount_known and (not expected.is_finite() or expected <= 0)) or end <= start:
             raise ValueError
     except (InvalidOperation, ValueError, KeyError, TypeError):
         return {'status': 'RESERVATION_AMOUNT_OR_PERIOD_UNKNOWN', 'candidates': [], 'comparisons': 0}
@@ -145,18 +146,20 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         if comparisons > max_comparisons:
             return {'status': 'SEARCH_LIMIT_EXCEEDED', 'candidates': [], 'comparisons': comparisons}
         try:
-            actual = Decimal(str(row.get('amount_krw') if currency == 'KRW' else row.get('foreign_amount')))
+            actual_raw = row.get('amount_krw') if currency == 'KRW' else row.get('foreign_amount')
+            actual = Decimal(str(actual_raw)) if actual_raw not in (None, '') else None
             card_currency = str(row.get('foreign_currency') or '').upper()
             # 해외 결제의 원화 환산액을 국내 호텔 예약금액과 비교하지 않는다.
             same_currency = ((branch_known and card_currency in ('', 'KRW')) if currency == 'KRW'
                              else card_currency == currency)
-            valid_actual = actual.is_finite() and actual > 0
-            matches = same_currency and valid_actual and actual == expected
+            valid_actual = actual is not None and actual.is_finite() and actual > 0
+            matches = amount_known and same_currency and valid_actual and actual == expected
         except InvalidOperation:
             same_currency = False
             valid_actual = False
             matches = False
-        period_only = not matches and valid_actual and same_currency and branch_known and in_stay
+        period_only = (not matches and branch_known and in_stay and
+                       (not amount_known or (valid_actual and same_currency)))
         if not matches and not period_only:
             counts['NATIVE_AMOUNT_MISMATCH_OR_MISSING'] += 1
             continue
@@ -167,7 +170,8 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         candidates.append({'transaction_id': identity, 'date_status': 'UNKNOWN', 'resolution_allowed': False,
             'basis': ('HOTEL_BRANCH_AND_STAY_ONLY' if period_only else 'RESERVATION_GROUP_TOTAL_ONLY'
                       if event.get('reservation_group_only') else 'RESERVATION_NATIVE_AMOUNT'),
-            'amount_status': 'MISMATCH' if period_only else 'MATCH',
+            'amount_status': ('UNKNOWN' if not amount_known else 'MISMATCH' if period_only else 'MATCH'),
+            'confidence': 'LOW' if period_only else 'HIGH',
             'stay_date_status': 'MATCH' if in_stay else 'UNKNOWN'})
     return {'status': 'CANDIDATES_FOUND' if candidates else 'NO_CANDIDATE',
             'candidates': candidates, 'rejected': rejected, 'comparisons': comparisons,
