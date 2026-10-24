@@ -2,7 +2,7 @@
 
 > 상태: PR-0 문서 전용 (§6). 구현·브라우저 테스트 미수행. 소스 확인 1회만 수행. 기존 feature branch는 git show 비교 후 미검증 참고.
 > 기준 SHA: b2a470b910d96caea29c255d6b76c619dbdb4a9e (base of docs/cost-ui-audit-v2-20261025)
-> 현재 branch: docs/cost-ui-audit-v2-20261025 (22 behind / 6 unique vs origin/main; 단순 push 금지)
+> 현재 branch: docs/cost-ui-audit-v2-20261025 (base b2a470b; 이전 22 behind/6 unique; 현재 HEAD=69e46e8; 현재 origin/main..HEAD=1 ahead; origin/main..feat/card-all-transactions-ui-audit=13 ahead; 단순 push 금지; supervisor PR 승인, implementer push/PR 금지)
 > 모델: Inkling Small Free (무료 제공)만 사용; 모델 전환/CLI 전환/재귀 위임 금지
 
 ## 1. 감사 기준 및 출처
@@ -18,9 +18,9 @@
 | 렌더/네비 | card_flow.py:419-423, 2945-2963 | inline nav/work_menu_html |
 | 인라인 CSS | card_flow.py:3001 | inline style block 확인 |
 | 인라인 JS | card_flow.py:3038,3055 | el(), innerHTML, rule-propose |
-| 권한/접근 | webapp/access_control.py:56,97 | ROLE_OWNER, partial unique |
-| 카드 원행 DB | webapp/ledger_store.py:273-276,1466,3741,4465 | card_import_rows, import_row |
-| 거래 ID | transaction_id / row_id / batch_id / bank_batch_id | card_flow preview 모델 |
+| 권한/접근 | webapp/access_control.py:56 (ROLE_OWNER 상수), 97 (partial unique index) | 권한 증거; 카드 row ID 아님 (주의: 상수 존재 ≠ 거래 ID) |
+| 카드 원행 DB | webapp/ledger_store.py:273-276 (card_import_rows 테이블: row_id, bank_batch_id, bank_row_index), 1466/1472 (batch_id order), 3741 (import_row), 4465 (link_bank_source) | 실제 DB 스키마/함수 확인; 거래 안정 ID는 row_id + bank_batch_id + bank_row_index |
+| 거래 ID (카드 원행) | card_flow.py: preview.rows.find(r=>r.transaction_id); ledger_store card_import_rows row_id | 거래 ID 증거; ROLE_OWNER는 해당 없음 |
 | 상세/다음 행동 | webapp/card_actions.py | next_action() → href 재사용 (§1.4) |
 | 공통 레이아웃 | ledger_design.py (work_menu_html 참조) | 참조 확인 |
 
@@ -32,18 +32,19 @@
 ## 4. UI 감사표 (§4.3) — 소스 확인 기준 / 브라우저 NOT_TESTED
 | URL/메뉴/렌더 | 운영 | 공통 레이아웃 | 하드코딩 CSS | 일관성 | 표/배지 | 모바일/대비 | 라이트·다크 | 리스크 | 우선 | 상태 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| /cards (card_flow) | 예 | 부분 | 예(inline) | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | CSRF/권한/DOM/금융write | P0 | SOURCE-VERIFIED / BROWSER-NOT_TESTED |
-| /import?batch=... (card_flow/card_actions) | 예 | 부분 | 예 | NOT_TESTED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 금융write/리비전 | P0 | SOURCE-VERIFIED / BROWSER-NOT_TESTED |
-| 카드 원행 조회 (ledger_store) | 예(DB) | N/A | N/A | N/A | N/A | N/A | N/A | 중복/취소/환불 보존 | P1 | SOURCE-VERIFIED |
-| 하위 페이지 전체(리디자인 대상) | 불명 | 불명 | 불명 | 불명 | 불명 | NOT_TESTED | NOT_TESTED | 금융write/CSRF/외부호출 | P1~P2 | NOT_TESTED / REFERENCE_ONLY |
+| /cards (card_flow.py:1996/2007, nav 419, inline CSS 3001, JS 3038/3055) | 예 | 부분 | 예(inline) | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | CSRF/권한/DOM/금융write | P0 | SOURCE-VERIFIED(라우트/렌더) / BROWSER-NOT_TESTED |
+| /import?batch=... (card_flow/card_actions next_action) | 예 | 부분 | 예 | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 금융write/리비전/권한 | P0 | SOURCE-VERIFIED(경로/함수) / BROWSER-NOT_TESTED |
+| 카드 원행 조회 (ledger_store card_import_rows: row_id, bank_batch_id, bank_row_index) | 예(DB) | N/A | N/A | N/A | N/A | N/A | N/A | 중복·취소·환불·충돌 보존 | P1 | SOURCE-VERIFIED(ID 계약) / BROWSER-NA |
+| 실제 owner 메뉴 목록 (확인 가능) | /cards, /import (card_flow); work_menu_html (ledger_design 참조); 권한: access_control ROLE_OWNER | - | - | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 권한/CSRF/금융write | P0~P1 | SOURCE-VERIFIED(메뉴/권한) / BROWSER-NOT_TESTED |
+| 하위 페이지 전체 / PR0 전수 메뉴 누락 | 불명/미검증 | 불명 | 불명 | NOT_VERIFIED | NOT_TESTED | NOT_TESTED | NOT_TESTED | 금융write/CSRF/외부호출 | P1~P2 | NOT_VERIFIED / NOT_TESTED / REFERENCE_ONLY |
 
 ## 5. 후속 큐 (READY 최대 5, 기준선 기록)
-READY (P0, source verified, browser NOT_TESTED — PASS 차단):
-1. /cards 렌더/라우트 + inline CSS/JS → 공통 토큰 분리 (PR-1) — NOT_TESTED
-2. 월 타일 4x3 그리드 → 모바일 적응형 확인 — NOT_TESTED
-3. 거래 4논리열 + 정렬/배지 → 실제 페이지 검증 — NOT_TESTED
-4. 권한/CSRF/next_action 재사용 (card_actions) — SOURCE READ ONLY — P0
-5. 원행 ID 계약(row_id/batch_id/bank_batch_id) + 중복/취소/환불 보존 — DATA CONTRACT P1
+READY (최대 3 새 후속 구현 티켓; 기존 완료/검증 HOLL 유지, 재시작 구분):
+1. 공통 테마 토큰 최소 구축(PR-1 방향, 시스템 prefers-color-scheme) — 안전 의존성(기존 기능 깨지지 않음) 필수; NOT_TESTED 유지
+2. 시스템 테마 영향 표적 검사(공통 CSS 변경 → 기존 핵심 페이지 표적 검증) — UI-VERIFY001 HOLL과 구별; 재시작 아님
+3. 카드 전체 조회 구현(PR-2, 월 그리드/4논리열/정렬/상세 링크) — 기존 검증 HOLL(UI-VERIFY001)의 재시작과 구별; 안전 의존성 필수
+
+(기존 P1~P2 하위 페이지, 데이터 계약, 권한 재사용은 HOLD/미검증 상태 유지; 새로운 일반화 규칙은 사용 승인 전 적용 금지)
 
 HOLD (재시작 금지): UI-VERIFY001 (404 거절); feat/de2beb1 이식/수정.
 
@@ -54,7 +55,16 @@ HOLD (재시작 금지): UI-VERIFY001 (404 거절); feat/de2beb1 이식/수정.
 - loop 원인 로그: 미확인(로그 없음, 재귀 위임 시도 없음).
 - 배포·자동 병합: 금지. HEAD는 커밋 전(b2a470b 기준).
 
-## 7. 증거 경로 (로컬 보존, 감독 출력 제외)
-- outputs/card-ui-audit-v2-evidence-20261025.md (긴 로그/grep 보존)
+## 7. 실제 검사 명령/결과 (1회, 출력을 문서에 기록; 긴 로그는 로컬 보존, 감독 출력 제외)
+- `ls outputs/card-ui-audit-v2-evidence-20261025.md`: exit=1 (존재하지 않음 → 잘못된 인용 삭제함)
+- `git diff --check`: exit=0 → 문서 공백 검사 통과(기능 PASS 아님; 브라우저/구현 검증 아님)
+- `git ls-tree -r --name-only de2beb1 | grep -E 'ui-audit|cost-saas-ui-refresh'`: docs/ui-audit-20261024.md, docs/design/cost-saas-ui-refresh.md 확인 → 정확 경로 사용; 미검증 참고 유지
+- `git rev-parse HEAD`: 69e46e8 (이전 감사 커밋); 현재 HEAD는 이 커밋 참조(자기참조 문제 피함; base b2a470b 별도 기록)
+- `python -c "import os; print('evidence=',os.path.exists('outputs/card-ui-audit-v2-evidence-20261025.md'))"`: evidence=False
+- `git rev-list --count origin/main..HEAD`: 1; `origin/main..feat/card-all-transactions-ui-audit`: 13
+
+## 8. 증거 경로 (로컬 보존, 감독 출력 제외)
+- outputs/ (아래 새 증거 파일 없음; 명령 결과는 본 문서 §7에 기록)
 - .local-archive/ (기존 보호, 변경 없음)
-- git diff --stat HEAD (2 파일 예정: audit + checkpoint)
+- git diff --cached --stat (2개 파일): audit + checkpoint (커밋 69e46e8)
+- 기능 PASS/구현 완료: 없음 (NOT_TESTED 유지)

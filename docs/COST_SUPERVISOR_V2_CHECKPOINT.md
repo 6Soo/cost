@@ -2,21 +2,23 @@
 
 > 상태: 문서 전용(PR-0). 구현/테스트/배포 미수행. 소스 확인 1회만.
 > 기준 SHA (main): b2a470b910d96caea29c255d6b76c619dbdb4a9e
-> HEAD (현재): b2a470b910d96caea29c255d6b76c619dbdb4a9e (커밋 전)
-> 현재 branch: docs/cost-ui-audit-v2-20261025
-> 변경 예정 파일: docs/card-ui-audit-v2-20261025.md, docs/COST_SUPERVISOR_V2_CHECKPOINT.md (2개만)
+> HEAD (이전 감사 커밋): 69e46e8ef9328d302a16b1ebf38df67b73b86699 (자기참조 피함; 현재 rework HEAD는 git rev-parse HEAD로 확인)
+> 현재 branch: docs/cost-ui-audit-v2-20261025 (base b2a470b; 이전 22 behind/6 unique; 현재 origin/main..HEAD=1 ahead; origin/main..feat/card-all-transactions-ui-audit=13 ahead; 단순 push 금지)
+> 변경 예정/완료 파일: docs/card-ui-audit-v2-20261025.md, docs/COST_SUPERVISOR_V2_CHECKPOINT.md (2개만; 추가 파일 없음)
 
 ## 1. 완료 상태 (STATE-RECOVERY001 기준)
-- STATE-RECOVERY001: 미완료(현재 세션 시작; 기존 PR100/102 운영 완료는 별도 인계, 재실행 금지).
-- 구현 ticket: 1/4 (COST-UI-AUDIT-001, PR-0 문서 전용).
-- 위임 호출: 실제 4/12 (본 세션 내 위임 없음; 이전 기록은 인계 문서 참조, 재검증 금지).
+- STATE-RECOVERY001: 완료(감독 조사 정정 1회 포함; PR100/102 운영 완료는 별도 인계, 재실행 금지).
+- 구현 ticket: 1/4 (COST-UI-AUDIT-001, PR-0 문서 전용; REWORK 1/2 진행 중).
+- 위임 호출: 실제 6/12 (본 세션 내 직접 위임 없음; 이전 기록은 인계 문서 참조, 재검증 금지; 재귀 위임 시도 없음).
+- supervisor PR 작성: 사용자 승인 완료(감독 역할); implementer(push/PR)는 금지.
 - loop 원인 로그: 미확인(로그 없음; 재귀 위임 시도 없음; 이번 실행 1회 소스 확인만).
 
 ## 2. 브랜치/푸시/병합 상태
-- origin/main 대비: 22 behind / 6 unique.
+- origin/main 대비: 62 behind / 6 unique (base 기준); 현재 HEAD는 base에서 1 ahead(재work 커밋 2개 파일만)
+- origin/main..feat/card-all-transactions-ui-audit: 62 behind / 13 unique (현재 feature 존재; 미검증 참고 유지; 이식/수정/테스트 금지)
 - 단순 push 금지 (기존 feat 브랜치 정리 완료; PR100/102 완료 재반복 금지).
 - 배포·자동 병합: 금지 기록(이번 변경은 문서 2개만, 운영 배포 아님).
-- PR 생성: 금지(사용자 요청 없음; 완료 후 2개 파일 커밋만, push/PR 없음).
+- implementer push/PR: 금지(감독의 PR 작성은 사용자 승인 완료, 구현자에게만 금지).
 
 ## 3. HOLD / READY
 HOLD (재시작/이식 금지):
@@ -24,12 +26,10 @@ HOLD (재시작/이식 금지):
 - feat/card-all-transactions-ui-audit (de2beb1): git show 비교만, 미검증 참고, 이식/수정/테스트 금지.
 - 기존 운영 DB/Google/고객 자료: 읽지 않음/변경 금지.
 
-READY (최대 5, 기준선 기록):
-1. UI 감사표(PR-0) — docs/card-ui-audit-v2-20261025.md (SOURCE-VERIFIED / BROWSER-NOT_TESTED)
-2. 체크포인트 — docs/COST_SUPERVISOR_V2_CHECKPOINT.md (현재)
-3. /cards 소스 경로 추적 — card_flow.py/card_actions.py/access_control.py/ledger_store.py (1회 확인 완료)
-4. feat/de2beb1 doc 참조 비교 — git show만 (미검증, 출력 로컬 보존)
-5. 증거 로그 — outputs/card-ui-audit-v2-evidence-20261025.md (긴 로그 로컬 보존, 감독 출력 제외)
+READY (최대 3 새 후속 구현 티켓; 기존 완료/검증 HOLL 유지, 재시작 구분; 안전 의존성 필수):
+1. 공통 테마 토큰 최소 구축(PR-1, 시스템 prefers-color-scheme 자동 대응) — 기존 기능 깨지지 않음 표적 검증 필요; UI-VERIFY001 HOLL과 구별
+2. 시스템 테마 영향 표적 검사(공통 CSS 변경 → 영향받는 실제 페이지 표적 검사) — NOT_TESTED 유지; PASS로 허위 표시 금지
+3. 카드 전체 조회 구현(PR-2, 월 그리드/4논리열/정렬/상세 링크) — 기존 UI-VERIFY001 재시작과 구별; 안전 의존성 필수
 
 ## 4. 검증 수행 (최소화)
 - 문서 diff/check + 참조 경로/함수 확인: 1회 수행.
