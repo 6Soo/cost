@@ -1562,11 +1562,14 @@ def render_import_section(csrf: str) -> str:
       }});
       const button=eventCard.querySelector('[data-preview]'),radios=eventCard.querySelectorAll('input[type=radio]');
       let selectionVersion=0;
-      eventCard.querySelector('[data-none]').addEventListener('click',()=>{{
+      const noneButton=eventCard.querySelector('[data-none]');
+      if(noneButton)noneButton.addEventListener('click',()=>{{
         eventCard.querySelectorAll('input[type=radio]').forEach(radio=>{{radio.checked=false;}});
-        selectionVersion++;button.disabled=true;eventCard.querySelector('#ota-difference').replaceChildren();
+        selectionVersion++;if(button)button.disabled=true;
+        const difference=eventCard.querySelector('#ota-difference');if(difference)difference.replaceChildren();
         status.textContent='연결하지 않고 보류로 둡니다.';
       }});
+      if(button){{
       radios.forEach(radio=>radio.addEventListener('change',()=>{{selectionVersion++;button.disabled=false;eventCard.querySelector('#ota-difference').replaceChildren();}}));
       button.addEventListener('click',async()=>{{
         const selected=eventCard.querySelector('input[type=radio]:checked');if(!selected)return;
@@ -1578,6 +1581,7 @@ def render_import_section(csrf: str) -> str:
           target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});applyFresh(await call('/api/imports/ota'));status.textContent='사용자 확인 연결';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
         }}catch(error){{if(version===selectionVersion&&eventCard.isConnected){{status.textContent=error.message;button.disabled=false;}}}}
       }});
+      }}
     }});
   }}
   const freshness=root.querySelector('#ota-freshness');
