@@ -1,5 +1,15 @@
 # 현재 운영 상태
 
+## 2026-10-25 기록: 지출 정리 중앙 상태 표시 배포 완료
+
+사용자의 병합·배포 추가 승인으로 [PR #100](https://github.com/6Soo/cost/pull/100)을 병합했다. **실제 runtime은 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`**이며 `D:/WebLedgerHost/releases/1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`에서 실행한다. 전환 시각은 2026-10-24 22:52 KST다. 이후 문서 전용 main 커밋은 재배포하지 않는다. 아래 이전 배포 절의 runtime은 당시 이력이다.
+
+release 파일 925개를 archive와 대조했으며 launcher와 호스트 설정은 보존했다. 기존 표적 검사 46건의 유효한 근거를 재사용했다. 복구 근거는 `D:/WebLedgerHost/data/backups/expense-cleanup-20261024T225203/`의 `deployment.json`, `restore-evidence.json`, `protection-result.json`이다. DB 5개·보호 파일 59개를 백업하고 별도 복원해 비교했다. 배포 후 프로세스 생존 정보 외 기존 DB 표·schema와 보호 자료 보존 검사가 통과했다. 실제 고객 거래·기장·Google 쓰기는 0건이다.
+
+배포 당시 외부 `/healthz`·`/readyz`는 200, 비인증 `/api/imports/ota`·`/import`는 401이었다. 초기 urllib 요청의 403·시간 초과 뒤 네이티브 curl로 확인한 최종 결과이며 초기 실패를 성공으로 바꾸어 해석하지 않는다. Aside의 기존 소유자 세션에서도 지출 정리 화면과 새 조회 안내, 중앙 근거 갱신 중 안내, 여행 권위 보류, 원결제 연결 안내를 확인했다. 버튼 제출·여행 변경·실제 참가자 저장은 하지 않았다. Board·SourceRefresh는 Running, MailCollect·GoogleAuthority는 Ready이며 모두 Enabled로 복구했다. 이 기록을 위해 검사·재시작을 반복하지 않았다.
+
+표시 복구는 완료됐지만 A/B의 검증 결제 사건과 여행 권위, C 원결제의 여행 보류는 남아 있다. [거래별 진단](expense-cleanup-ota-diagnosis-20261024.md)을 따르며 배포를 미결 거래 처리 완료로 보고하지 않는다.
+
 ## 2026-10-24 보존된 Trip.com 예약 관측 추가
 
 기존 Aside 직접 확인 원문 4건을 운영 OTA 근거 DB에 안전하게 추가했다. 이용 완료 숙박 2건과 취소 숙박 2건이며 카드 결제·환불 연결이나 장부 기장 완료를 뜻하지 않는다. 백업·별도 복원, 사본 시험, 기존 행과 관련 없는 표 보존, 반복 수집 무변경, 적용 직전 기준선 일치와 실제 추가 후 integrity 검사를 통과했다. 복구 경로는 `D:/WebLedgerHost/data/backups/trip-observations-20261024T175631/`, 로컬 결과는 `.local-archive/spec-completion/trip-observations-applied-result.json`이다. 이미 적용했으므로 추가 스크립트를 반복하지 않는다.
