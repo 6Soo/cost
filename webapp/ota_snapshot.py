@@ -251,6 +251,23 @@ class OtaSnapshotService:
                 return None, False
             return current, self._fresh_locked()
 
+    def display_context(self):
+        """한 화면에서 같은 세대의 결과와 신선도·오류 상태를 함께 읽는다.
+
+        대사를 요청하거나 실행하지 않는다. 디스크 복구 결과는 표시할 수 있지만,
+        전체 근거가 메모리에 없는 동안 최신 판단으로 표시하지 않는다.
+        """
+        with self._lock:
+            current = self._current
+            complete = self._has_data_locked()
+            fresh = bool(self._fresh_locked() and complete and not self._refreshing and not self._error)
+            status = ('error' if self._error else 'loading' if current is None else
+                      'ready' if fresh else 'refreshing')
+            state = {'enabled': True, 'status': status, 'fresh': fresh, 'stale': not fresh,
+                     'generation': current.get('generation') if current else None,
+                     'error_code': str(self._error.get('code') or 'INPUT_UNAVAILABLE') if self._error else None}
+            return current, state
+
     def action_context(self):
         """The full in-memory result for a preview or confirm, only while it is fresh and complete.
 
