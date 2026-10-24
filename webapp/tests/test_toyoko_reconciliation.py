@@ -70,6 +70,9 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         assert 'reservation/preview' in page_html and '예약 관계만 확인' in page_html
         assert '이 거래로 결제 연결 확정' in page_html
         assert 'reservation/confirm' in page_html
+        assert 'savedCard=(snapshot.cards_by_event?.[' in page_html
+        assert '후보 카드는 다른 예약 관계에서 이미 확인했습니다.' in page_html
+        assert '예약 기간·지점·금액 근거에 맞는 카드 후보가 없습니다.' in page_html
         assert ota_catalog._reservation_card_candidates(flow)[('toyoko', event['booking_ref'])] == [tid]
         assert ota_catalog._reservation_link_states(flow)[('toyoko', event['booking_ref'])][0]['status'] == 'INFERRED'
         warnings = []

@@ -1496,11 +1496,12 @@ def render_import_section(csrf: str) -> str:
       const article=root.querySelector(`.ota-event[data-event="${{esc(event.ota_event_id)}}"]`);if(!article)continue;
       const relation=event.reservation_link||{{}},rows=cards[event.ota_event_id]||[];
       const candidates=rows.filter(card=>card.reservation_candidate&&!card.already_linked_event_id);
+      const occupiedReservationCandidates=rows.filter(card=>card.reservation_candidate&&card.already_linked_event_id);
       const state=relation.status==='INFERRED'?'자동 추론 관계 · 결제 미검증':relation.status==='USER_CONFIRMED'?'사용자 확인 관계 · 결제 미검증':relation.status==='STALE'?'저장한 관계의 근거 변경 · 기존 선택 이력 유지, 재확인 필요':relation.status==='NEEDS_REVIEW'?'여러 후보 또는 근거 차이 · 사용자가 확인해야 합니다.':'예약 관계 미확인';
       const options=candidates.map(card=>`<option value="${{esc(card.transaction_id)}}" ${{relation.transaction_id===card.transaction_id?'selected':''}}>${{esc(card.merchant||card.issuer||'카드')}} · ${{card.foreign_amount==null||card.foreign_amount===''?'원문 외화 금액 미확인':`원문 외화 ${{esc(card.foreign_amount)}} ${{esc(card.foreign_currency||card.currency||'')}}`}} · 원화 ${{money(card.amount_krw)}} · ${{card.reservation_amount_status==='MATCH'?'금액 일치':card.reservation_amount_status==='UNKNOWN'?'금액 미확인':card.reservation_amount_status==='MISMATCH'?'금액 차이':'확인 필요'}}</option>`).join('');
       const savedAmount=relation.amount_status==='MATCH'?'금액 일치':relation.amount_status==='MISMATCH'?'금액 차이':'금액 미확인';
       const savedText=relation.transaction_id?'<p>저장한 선택: '+(relation.historical_card_missing?'이전 선택 원문을 현재 확인할 수 없음':esc(relation.merchant||'가맹점 미확인')+' · '+esc(relation.approval_date||'날짜 미확인')+' · 원화 '+esc(money(relation.amount_krw)))+' · '+(relation.status==='STALE'?'재확인 필요 · ':'사용자 예약 관계 확인 · 결제 미검증 · ')+savedAmount+'</p>':'';
-      const optionBlock=options?'<label>카드 후보<select data-reservation-select="'+esc(event.ota_event_id)+'"><option value="">선택하세요</option>'+options+'</select></label><button type="button" data-reservation-preview="'+esc(event.ota_event_id)+'">예약 관계 미리보기</button>':'<p>후보 없음 · '+esc(event.candidate_search_status||'근거 부족')+'</p>';
+      const optionBlock=options?'<label>카드 후보<select data-reservation-select="'+esc(event.ota_event_id)+'"><option value="">선택하세요</option>'+options+'</select></label><button type="button" data-reservation-preview="'+esc(event.ota_event_id)+'">예약 관계 미리보기</button>':occupiedReservationCandidates.length?'<p>후보 카드는 다른 예약 관계에서 이미 확인했습니다.</p>':'<p>예약 기간·지점·금액 근거에 맞는 카드 후보가 없습니다.</p>';
       article.insertAdjacentHTML('afterbegin','<section class="ota-reservation-link"><h4>예약 관계 확인 · 실제 결제 확정과 별도</h4><p>'+esc(state)+(event.reservation_group_only?' · 묶음 합계이며 개별 객실 확정은 아닙니다.':'')+'</p>'+savedText+optionBlock+'<div data-reservation-preview-for="'+esc(event.ota_event_id)+'"></div></section>');
     }}
     renderProposals(snapshot.proposals||[]);
@@ -1553,7 +1554,10 @@ def render_import_section(csrf: str) -> str:
             try{{
               const saved=await call('/api/imports/ota/reservation/confirm',{{event_id:eventCard.dataset.event,transaction_id:select.value,preview_digest:preview.preview_digest,expected_revision:preview.expected_revision,request_id:crypto.randomUUID()}});
               const snapshot=await call('/api/imports/ota'),updated=(snapshot.events||[]).find(item=>item.ota_event_id===eventCard.dataset.event);
-              if(updated)updated.reservation_link={{status:saved.status,transaction_id:saved.transaction_id,basis:saved.basis,amount_status:saved.amount_status,payment_verified:false}};
+              if(updated){{
+                const savedCard=(snapshot.cards_by_event?.[eventCard.dataset.event]||[]).find(card=>card.transaction_id===saved.transaction_id)||{{}};
+                updated.reservation_link={{...(updated.reservation_link||{{}}),status:saved.status,transaction_id:saved.transaction_id,basis:saved.basis,amount_status:saved.amount_status,payment_verified:false,merchant:savedCard.merchant||updated.reservation_link?.merchant||'',approval_date:savedCard.approval_date||savedCard.posting_date||updated.reservation_link?.approval_date||'',amount_krw:savedCard.amount_krw??updated.reservation_link?.amount_krw}};
+              }}
               applyFresh(snapshot);status.textContent='예약 관계만 확인했습니다. 결제 여부는 미검증 상태입니다.';
             }}catch(error){{status.textContent=error.message;confirmButton.disabled=false;}}
           }});
