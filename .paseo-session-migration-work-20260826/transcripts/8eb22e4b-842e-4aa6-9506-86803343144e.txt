@@ -1,8 +1,0 @@
-[User] Agoda 예약 페이지의 지정 페이지만 수집하세요. 반드시 Paseo IAB browser_* 도구만 사용하고 Edge/Chrome/CDP/UIA/shell/API는 사용하지 마세요. 이 agent의 한 세션·한 탭만 사용하세요. browser_new_tab timeout이면 즉시 browser_list_tabs 1회만 확인하고 빈 상태면 NAVIGATION_STATE_UNKNOWN으로 종료하세요. 고객센터/도움말/지원/문의 텍스트나 버튼은 절대 클릭·호출하지 마세요. 실제 패널 문구 '요청 사항을 선택하거나 직접 입력해 주세요'가 보이면 즉시 fail-closed하고 중단하세요. 단순히 고객센터 컨트롤이 DOM에 존재하는 것은 패널 표시가 아닙니다. 목록에서 지정 탭과 지정 페이지의 aria-selected/aria-current를 의미적으로 확인하세요. 위치 기반 순번, 전체 DOM 버튼 index, booking-button 범위, generic browser_click은 금지합니다. 예약 상세 진입은 같은 카드의 data-element-name='blp-booking-item-button-edit'이고 aria-label/카드 텍스트의 동일 booking_id가 확인된 경우에만 browser_evaluate로 수행하세요. 클릭 전후 실제 패널 가드를 확인하고 상세의 예약번호가 목표와 일치하지 않으면 해당 예약을 실패로 기록하고 재시도하지 마세요. 각 예약은 최대 1회 진입, 상세 대기 1회입니다. hotel_or_route, dates, status, payment_state, amount, currency, card_last4를 DOM에서 읽어 기록하세요. 새 페이지 이동 금지, 파일/DB/output 쓰기 금지. 완료 시 설명 없이 최종 JSON 하나만 반환하세요.
-지정 범위: lane=C04, tab=완료된 예약, page=4. 페이지 4만 처리하고 최종 JSON schema는 {"lane":"C04","tab":"완료된 예약","page":4,"status":"completed|partial|blocked","list_count":0,"scanned_count":0,"captured_count":0,"duplicate_count":0,"failure_codes":[],"records":[],"customer_center_panel_seen":false} 형식으로 반환하세요.
-Paseo IAB 전용 세션과 단일 탭 규칙을 준수해 지정 범위만 확인하겠습니다.
-[Browser List Tabs] {}
-현재 Paseo 탭이 없어 전용 단일 탭을 Agoda 예약 페이지로 열겠습니다. 새 탭 호출이 timeout이면 지시대로 목록 확인을 한 번만 하고 상태를 종료하겠습니다.
-[Browser New Tab] {"url":"https://www.agoda.com/account/bookings.html"}
-[Browser List Tabs] {}
-{"lane":"C04","tab":"완료된 예약","page":4,"status":"blocked","list_count":0,"scanned_count":0,"captured_count":0,"duplicate_count":0,"failure_codes":["NAVIGATION_STATE_UNKNOWN"],"records":[],"customer_center_panel_seen":false}

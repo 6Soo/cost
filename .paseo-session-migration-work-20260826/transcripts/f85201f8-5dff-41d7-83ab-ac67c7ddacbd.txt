@@ -1,8 +1,0 @@
-[User] Read-only policy review. The user explicitly wants confirmed N:N card/bookings groups to receive a reservation number in the accounting ledger even when no factual 1:1 pairing exists. Review this proposed rule, do not edit files or databases and do not use browsers:
-
-- Only a confirmed group with closed census, exact equal cardinality, positive purchase-only members, no duplicates/competitors, and permutation-invariant canonical accounting projection may use the rule.
-- The ledger gets one deterministic representative reservation number from the group (normalized lexical minimum; versioned as synthetic_assignment_version), so reruns are identical. This is not claimed as the true payment-to-booking pair.
-- Every affected row carries group_id, reservation_assignment_mode=synthetic_group_representative, individual_pair_asserted=false, bijection_asserted=false. Payment rows keep their own actual amounts; no repeated group aggregate; sums are conserved.
-- The representative number may be displayed/searched in the ledger, but any booking-specific external join, classification, allocation, or factual claim must require group_id and the synthetic flag and must not interpret it as a 1:1 fact.
-- trip_schedule authority remains required for trip classification, allocation, journal, and posting; missing/ambiguous schedule blocks release. Refund/cancel/chargeback/split/late lifecycle makes the projection stale.
-Return a concise PASS/FAIL, practical risks, and minimum conditions. Focus on whether this satisfies the user’s requested arbitrary ledger assignment without silently fabricating a factual booking link.
