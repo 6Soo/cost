@@ -27,6 +27,19 @@ def test_product_features_use_explicit_opt_in_and_durable_paths(tmp_path):
         assert not any(os.environ.get(key) for key in ('WEBLEDGER_RECEIPTS_STORE', 'WEBLEDGER_RECEIPT_OCR', 'WEBLEDGER_GOOGLE_LEDGER_ROWS'))
 
 
+def test_passenger_feature_requires_explicit_opt_in_and_uses_durable_database(tmp_path):
+    keys = ('WEBLEDGER_FLIGHT_PASSENGER_MATCHING', 'WEBLEDGER_FLIGHT_PASSENGER_DB')
+    with patch.dict(os.environ, {key:'inherited' for key in keys}):
+        launcher.apply_product_features({}, tmp_path)
+        assert not any(key in os.environ for key in keys)
+        launcher.apply_product_features({'flight_passengers':{'enabled':True}}, tmp_path)
+        assert os.environ[keys[0]] == '1'
+        assert os.environ[keys[1]] == str(tmp_path/'flight-passenger.sqlite')
+        assert not (tmp_path/'flight-passenger.sqlite').exists()
+        launcher.apply_product_features({'flight_passengers':{'enabled':False}}, tmp_path)
+        assert not any(key in os.environ for key in keys)
+
+
 @pytest.mark.parametrize('options,expected', [
     (None, None),
     ({'enabled': True, 'reserve_trip_sync': False}, None),

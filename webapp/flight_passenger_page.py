@@ -66,7 +66,7 @@ catch(error){status.textContent=error.message}});
 
 def _passenger_evidence(board, booking_ref):
     from .ota_payment_review import passenger_index_for
-    index = passenger_index_for(board)
+    index = passenger_index_for(board, require_fresh=True)
     evidence = index.get(booking_ref)
     if not isinstance(evidence, dict) or not evidence.get('source_digests'):
         return None
@@ -77,8 +77,13 @@ def _candidate_result(board, booking_ref, tour_id, *, candidate_fetch=None):
     evidence = _passenger_evidence(board, booking_ref)
     if evidence is None:
         raise LookupError('VERIFIED_FLIGHT_EVIDENCE_NOT_FOUND')
-    fetch = candidate_fetch or reservation_authority.fetch_passenger_candidates
-    snapshot = fetch(tour_id)
+    if candidate_fetch is not None:
+        snapshot = candidate_fetch(tour_id)
+    else:
+        from .guide_airfare_review import _token_file
+        token_file = _token_file(board) if hasattr(board, 'path') else None
+        snapshot = reservation_authority.fetch_passenger_candidates(
+            tour_id, token=reservation_authority.configured_token(token_file))
     result = flight_passenger_matching.match_booking_passengers(evidence, snapshot)
     evidence_digest = result.get('evidence_digest')
     result['assignments'] = _assignments_for(booking_ref, tour_id, result['source_revision'], evidence_digest)

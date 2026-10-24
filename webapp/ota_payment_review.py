@@ -1076,7 +1076,7 @@ def _store_value(store, name, default):
 
 def input_key_for(backend) -> str:
     """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time."""
-    from app import ota_sources
+    from app import ota_sources, flight_evidence
     from app.ota_matching_defaults import load_defaults
     store = backend.store
     return ota_snapshot.digest({
@@ -1091,6 +1091,8 @@ def input_key_for(backend) -> str:
                    "reservation_links": _store_value(store, "reservation_links", {})},
         "matching": load_defaults(),
         "payment_parser": getattr(getattr(backend, 'payments', None), 'PARSER_VERSION', 1),
+        "passenger_index_schema": PASSENGER_SCHEMA,
+        "flight_parser": flight_evidence.PARSER_VERSION,
         "guide_airfare": _guide_input_digest(backend.board),
     })
 
@@ -1188,6 +1190,11 @@ def _passenger_index(mail_directories) -> dict:
             continue
         names = [f"{person['surname']} {person['given_name']}" for person in found.get("passengers", [])]
         index[str(booking_ref)] = {"names": names, "conflict": bool(found.get("conflict"))}
+        if found.get('source_digests'):
+            # 소유자 후보 조회에 필요한 검증 근거만 유지한다. 메일 본문은 담지 않는다.
+            index[str(booking_ref)].update({key: found[key] for key in
+                ('booking_ref', 'passengers', 'legs', 'source_digests', 'digest', 'cancellation_status')
+                if key in found})
     return index
 
 
@@ -1259,7 +1266,7 @@ def reconcile_in_child(board) -> dict:
 
 
 PASSENGER_FILE = "ota-passengers.json"
-PASSENGER_SCHEMA = "ota-passengers-v1"
+PASSENGER_SCHEMA = "ota-passengers-v2"
 _PASSENGER_CACHE = {}
 
 
@@ -1282,7 +1289,7 @@ def _write_passenger_index(path, current) -> None:
     _PASSENGER_CACHE.clear()
 
 
-def passenger_index_for(board) -> dict:
+def passenger_index_for(board, *, require_fresh=False) -> dict:
     """The passenger index for display, read without waiting for any refresh.
 
     The in-memory index of the current refresh wins. Otherwise the saved index is
@@ -1292,6 +1299,8 @@ def passenger_index_for(board) -> dict:
     from app import flight_evidence
     service = snapshot_service(board)
     current, _fresh = service.held()
+    if require_fresh and not _fresh:
+        return {}
     if current is not None:
         return (current.get("data") or {}).get("passengers") or {}
     key = service.checked_key()
