@@ -109,6 +109,24 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         assert updated[3][0]['status'] == 'RESERVATION_ONLY'
         assert updated[3][0]['reservation_link']['status'] == 'USER_CONFIRMED'
         assert writer.snapshot_from(updated)['events'][0]['reservation_link']['status'] == 'USER_CONFIRMED'
+        original_match = ota_payments.match_ota_payment_events
+        solver_inputs = []
+        competing_paid_event = {**event, 'ota_event_id': 'synthetic-other-paid-event',
+            'provider': 'agoda', 'event_type': 'charge', 'payment_status': 'paid',
+            'evidence_status': 'paid_verified', 'paid_on': '2026-10-01',
+            'amount_krw': 37000, 'currency': 'KRW', 'reservation_group_only': False}
+        def observe_solver(events, transactions, **kwargs):
+            solver_inputs.extend(row['transaction_id'] for row in transactions)
+            return original_match([*events, competing_paid_event], transactions, **kwargs)
+        monkeypatch.setattr(ota_payments, 'match_ota_payment_events', observe_solver)
+        competing = writer._data()
+        assert tid in [row['transaction_id'] for row in writer._transactions()]
+        assert tid not in solver_inputs
+        assert next(row for row in competing[3] if row['ota_event_id'] == event['ota_event_id'])[
+            'reservation_link']['status'] == 'USER_CONFIRMED'
+        paid_competitor = next(row for row in competing[3]
+                               if row['ota_event_id'] == 'synthetic-other-paid-event')
+        assert paid_competitor.get('transaction_id') != tid
         (maildir / 'gmail-synthetic.json').write_text(json.dumps({'responses': []}), encoding='utf-8')
         missing_mail = writer._data()
         missing_result = next(row for row in missing_mail[3] if row['ota_event_id'] == event['ota_event_id'])
@@ -122,7 +140,9 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
         missing_relation = next(row['reservation_link'] for row in missing_card[3]
                                 if row['ota_event_id'] == event['ota_event_id'])
         assert missing_relation['status'] == 'STALE'
-        assert writer.snapshot_from(missing_card)['events'][0]['reservation_link']['status'] == 'STALE'
+        stale_snapshot = writer.snapshot_from(missing_card)
+        assert next(row for row in stale_snapshot['events']
+                    if row['ota_event_id'] == event['ota_event_id'])['reservation_link']['status'] == 'STALE'
         with pytest.raises((ota_payment_review.InvalidReviewInput, ota_payment_review.StalePreviewError)):
             writer.preview(event['ota_event_id'], tid)
         assert board.conn.total_changes == before

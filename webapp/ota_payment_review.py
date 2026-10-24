@@ -489,15 +489,25 @@ class CoreOtaPaymentBackend:
                           for event in events]
         rules = self.store.active_rules()
         frozen_groups = self.store.group_pins() if callable(getattr(self.store, "group_pins", None)) else []
+        confirmed_reservation_links = _store_value(self.store, "reservation_links", {})
+        reservation_card_ids = {
+            str(link.get("transaction_id") or "")
+            for link in confirmed_reservation_links.values()
+            if isinstance(link, dict) and link.get("transaction_id")
+        }
+        # Reservation relations occupy a card for solver purposes only. Keep the
+        # complete transaction set for reservation candidate search and display.
+        solver_transactions = [row for row in transactions
+                              if str(row.get("transaction_id") or "") not in reservation_card_ids]
         try:
             results = self.payments.match_ota_payment_events(
-                events, transactions, existing_links=links, rules=rules,
+                events, solver_transactions, existing_links=links, rules=rules,
                 frozen_groups=frozen_groups)
         except TypeError as exc:
             if "unexpected keyword argument 'frozen_groups'" not in str(exc):
                 raise
             results = self.payments.match_ota_payment_events(
-                events, transactions, existing_links=links, rules=rules)
+                events, solver_transactions, existing_links=links, rules=rules)
         result_ids = {str(result.get("ota_event_id")): index for index, result in enumerate(results)}
         for event_id in stale_manual_ids:
             index = result_ids.get(event_id)
