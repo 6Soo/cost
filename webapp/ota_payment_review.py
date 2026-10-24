@@ -520,15 +520,15 @@ class CoreOtaPaymentBackend:
                                   reason="결제 근거가 사라졌습니다. 기존 수동 연결은 유지되며 새 거래로 다시 연결되지 않습니다.")
         candidate_search = getattr(self.payments, "search_card_candidates", None)
         raw_reservation_searches = {}
+        occupied_cards = {
+            transaction_id for transaction_id in
+            (_link_transaction_id(link) for link in links.values()) if transaction_id
+        }
+        for result in results:
+            if result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id"):
+                occupied_cards.add(str(result["transaction_id"]))
+            occupied_cards.update(str(identity) for identity in result.get("reserved_card_ids") or ())
         if callable(candidate_search):
-            occupied_cards = {
-                transaction_id for transaction_id in
-                (_link_transaction_id(link) for link in links.values()) if transaction_id
-            }
-            for result in results:
-                if result.get("status") in ("MATCHED_AUTO", "MATCHED_USER") and result.get("transaction_id"):
-                    occupied_cards.add(str(result["transaction_id"]))
-                occupied_cards.update(str(identity) for identity in result.get("reserved_card_ids") or ())
             for result in results:
                 event_id = str(result.get("ota_event_id") or "")
                 event = canonical_by_id.get(event_id)
