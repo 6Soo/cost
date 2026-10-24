@@ -15,7 +15,7 @@
 | TRACE-ABC | COMPLETE | [세 거래 진단](expense-cleanup-ota-diagnosis-20261024.md)에 단계별 근거를 기록했다. A/B는 등록된 결제 사건 부재·카드 식별/금액 거절과 여행 권위 부족이다. C는 원결제 연결 완료지만 원결제의 여행 확인 자동 보류로 `refund_pair_incomplete`다. |
 | DISPLAY-OTA | 구현·표적 검증 COMPLETE / 운영 미반영 | 한 요청의 중앙 결과·후보·거절 사유·신선도를 투영한다. 복수 후보를 보존하며 stale/error를 정확 연결이나 예약 부재로 승격하지 않는다. 금융·여행 보류는 별도 표시한다. |
 | DISPLAY-REFUND | 구현·표적 검증 COMPLETE / 운영 미반영 | 원결제 부재/모호/연결·기록 대기/완료/충돌·초과 환불을 구분한다. 원결제 연결과 금융 보호를 함께 표시하며 금융 판정은 보존한다. |
-| TEST-PR | 표적 검증 COMPLETE / PR 작성 | 지출 정리 25건, 중앙 표시 계약 11건, 환불 표시 6건, 스냅샷 표시 1건, 기존 인접 계약 3건이 각 변경 영향 범위에서 통과했다. 전체 pytest·운영 재시작은 수행하지 않았다. |
+| TEST-PR | COMPLETE | [PR #100](https://github.com/6Soo/cost/pull/100), 구현 커밋 `98f07cf7aaf98247214b8d673540d452d33baedb`. 지출 정리 25건, 중앙 표시 계약 11건, 환불 표시 6건, 스냅샷 표시 1건, 기존 인접 계약 3건이 각 변경 영향 범위에서 통과했다. 전체 pytest·운영 재시작은 수행하지 않았다. PR은 OPEN이며 병합하지 않는다. |
 
 로컬 진단은 `.local-archive/spec-completion/three-ota-cards/`에 보존한다. `private-*`는 고객 원문을 포함하므로 외부 모델·Git·로그에 전달하지 않는다. 원본 조회 중 SQL 변경은 0건이었다. 실제 runtime은 이전 `d9c5adcbd6d5bce52229a218535283e841567e5a`를 유지한다.
 
