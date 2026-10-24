@@ -1,6 +1,6 @@
 # cost 작업 지침
 
-> **현재 COST V3 실행 기준과 큐:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md)의 2026-10-24 최신 0.12절을 따른다. 실제 OTA 거래 세 건의 읽기 전용 진단과 지출 정리 표시 복구이며 이번 작업은 PR 작성까지다. 병합·배포·실제 고객 자료 수정은 별도 승인 전 금지한다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고 완료된 기능을 재구현하지 않는다. 로컬 TASK_QUEUE.json이나 과거 채팅을 필수 전제조건으로 삼지 않는다.
+> **COST V3 완료 기록과 잔여 경계:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md) 0.12절의 실제 OTA 거래 세 건 진단과 지출 정리 표시 복구는 사용자 추가 승인으로 PR #100 병합·운영 배포까지 완료했다. 실제 고객 거래·장부·Google 자료는 변경하지 않았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고 완료된 기능을 재구현하지 않는다. 로컬 TASK_QUEUE.json이나 과거 채팅을 필수 전제조건으로 삼지 않는다. 별도 UI 신규 개발 계약은 아래 절을 따른다.
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
