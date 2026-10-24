@@ -1,4 +1,4 @@
-"""Opt-in, isolated UI for reviewing OTA payment holds.
+﻿"""Opt-in, isolated UI for reviewing OTA payment holds.
 
 The backend is deliberately injected. Its snapshot operation must be read-only;
 write methods must persist only in the separately configured OTA review store.
@@ -29,14 +29,14 @@ _EVENT_FIELDS = (
     "currency", "amount_krw", "card_last4", "card_issuer", "service_period", "item",
     "service_period_conflict", "service_period_candidates", "booking_changes",
     "inferred_link", "inference_basis", "payment_date_verified",
-    "reservation_status", "payment_status", "evidence_status", "status", "reason",
+    "reservation_status", "reservation_group_only", "payment_status", "evidence_status", "status", "reason",
     "refund_status", "evidence_changed", "evidence_missing", "review_warning",
     "matched_count", "unmatched_ota_count", "unmatched_card_count", "group_count",
     "ota_group_ids", "card_group_ids", "allocation_basis", "individual_payment_evidence",
     "rule_delta_krw", "discount_cause_confirmed", "group_order_frozen",
     "frozen_mapping", "proposed_mapping",
     "group_order_snapshot", "candidate_search_status", "candidate_date_status", "candidate_count",
-    "candidate_rejected_count",
+    "candidate_rejected_count", "reservation_link",
 )
 _CARD_FIELDS = (
     "transaction_id", "issuer", "card_kind", "card_tail", "approval_date",
@@ -45,7 +45,8 @@ _CARD_FIELDS = (
     "already_linked_event_id", "already_linked_label", "already_linked_reason", "selection_disabled",
     "selection_disabled_reason", "authorization_number", "authorization_scheme",
     "candidate_date_status", "candidate_resolution_allowed",
-    "candidate_rejection_reason",
+    "candidate_rejection_reason", "reservation_candidate", "reservation_candidate_basis",
+    "reservation_amount_status", "reservation_stay_date_status", "reservation_history",
 )
 _CONDITION_FIELDS = (
     "provider", "item", "merchant_normalized", "issuer", "card_last4",
@@ -65,6 +66,24 @@ def _public_period(value):
     if isinstance(value, dict):
         return {key: value[key] for key in ("starts_on", "ends_on") if key in value}
     return value if isinstance(value, (str, int, float, type(None))) else None
+
+
+def _public_reservation_link(value):
+    if not isinstance(value, dict):
+        return None
+    status = value.get("status")
+    if status not in {"INFERRED", "USER_CONFIRMED", "NEEDS_REVIEW", "STALE"}:
+        return None
+    transaction_id = value.get("transaction_id")
+    if transaction_id is not None and not isinstance(transaction_id, str):
+        return None
+    basis, amount_status = value.get("basis"), value.get("amount_status")
+    if basis is not None and not isinstance(basis, str):
+        return None
+    if amount_status not in {None, "MATCH", "UNKNOWN", "MISMATCH"}:
+        return None
+    return {"status": status, "transaction_id": transaction_id, "basis": basis,
+            "amount_status": amount_status, "payment_verified": False}
 
 
 def _transaction_selection_block_reason(transaction):
@@ -128,6 +147,11 @@ def public_snapshot(snapshot):
         event = {key: source.get(key) for key in _EVENT_FIELDS if key in source}
         event["paid_on"] = event.get("paid_on") or "미확인"
         event["service_period"] = _public_period(event.get("service_period"))
+        relation = _public_reservation_link(event.get("reservation_link"))
+        if relation:
+            event["reservation_link"] = relation
+        else:
+            event.pop("reservation_link", None)
         events.append(event)
     cards_by_event = {}
     for event_id, source_rows in snapshot.get("cards_by_event", {}).items():
@@ -540,8 +564,23 @@ class CoreOtaPaymentBackend:
         if str(transaction_id) not in {str(row.get("transaction_id")) for row in trace.get("candidates") or ()}:
             raise InvalidReviewInput("card is not a current reservation candidate")
         preview = self.store.reservation_preview(event, transaction, allocations=occupied)
+        preview.pop("allocations", None)
         existing = _store_value(self.store, "reservation_links", {}).get(str(event_id), {})
-        return dict(preview, expected_revision=int(existing.get("revision", 0)))
+        event_amount = event.get("amount")
+        card_amount = transaction.get("foreign_amount")
+        comparable = (event.get("currency") and event.get("currency") ==
+                      (transaction.get("foreign_currency") or transaction.get("currency")))
+        try:
+            difference = (float(card_amount) - float(event_amount)) if comparable and event_amount is not None and card_amount is not None else None
+        except (TypeError, ValueError):
+            difference = None
+        return dict(preview, expected_revision=int(existing.get("revision", 0)),
+                    hotel_name=event.get("hotel_name"), service_period=event.get("service_period"),
+                    reservation_amount=event_amount, reservation_currency=event.get("currency"),
+                    card_merchant=transaction.get("merchant"), card_foreign_amount=card_amount,
+                    card_currency=transaction.get("foreign_currency") or transaction.get("currency"),
+                    card_amount_krw=transaction.get("amount_krw"), amount_difference=difference,
+                    payment_verified=False)
 
     def reservation_confirm(self, event_id, transaction_id, preview_digest, *,
                             expected_revision, request_id, user):
@@ -642,8 +681,10 @@ class CoreOtaPaymentBackend:
             trace = result.get('candidate_search') or {}
             is_reservation_candidate = (result.get('status') == 'RESERVATION_ONLY'
                                         and bool(trace.get('candidates') or trace.get('rejected')))
+            relation = result.get("reservation_link") or {}
+            has_reservation_relation = relation.get("status") in ("INFERRED", "USER_CONFIRMED", "NEEDS_REVIEW", "STALE")
             if (not is_hold and not is_changed_manual and not is_ordered_group
-                    and not is_reservation_candidate):
+                    and not is_reservation_candidate and not has_reservation_relation):
                 continue
             event = {**event_by_id.get(event_id, {}), **result}
             search = result.get("candidate_search") or {}
@@ -667,6 +708,16 @@ class CoreOtaPaymentBackend:
             rows = self._event_rows(event, transactions, links, rules)
             visible_ids = {str(row.get("transaction_id") or "") for row in rows}
             transaction_by_id = {str(row.get("transaction_id") or ""): row for row in transactions}
+            relation = result.get("reservation_link") or {}
+            candidate_by_id = {str(candidate.get("transaction_id") or ""): candidate
+                               for candidate in search.get("candidates") or ()}
+            for row in rows:
+                candidate = candidate_by_id.get(str(row.get("transaction_id") or ""))
+                if candidate:
+                    row.update(reservation_candidate=True,
+                               reservation_candidate_basis=candidate.get("basis"),
+                               reservation_amount_status=candidate.get("amount_status"),
+                               reservation_stay_date_status=candidate.get("stay_date_status"))
             for candidate in search.get("candidates") or ():
                 transaction_id = str(candidate.get("transaction_id") or "")
                 card = transaction_by_id.get(transaction_id)
@@ -675,6 +726,10 @@ class CoreOtaPaymentBackend:
                 date_status = str(candidate.get("date_status") or "UNKNOWN")
                 rows.append(dict(card, candidate_date_status=date_status,
                                  candidate_resolution_allowed=bool(candidate.get("resolution_allowed")),
+                                 reservation_candidate=True,
+                                 reservation_candidate_basis=candidate.get("basis"),
+                                 reservation_amount_status=candidate.get("amount_status"),
+                                 reservation_stay_date_status=candidate.get("stay_date_status"),
                                  selection_disabled=True,
                                  selection_disabled_reason=(
                                      "같은 호텔·숙박기간의 후보지만 원문 금액이 달라 결제 연결은 확정할 수 없습니다."
@@ -683,6 +738,13 @@ class CoreOtaPaymentBackend:
                                      if date_status == "UNKNOWN" else
                                      "결제일이 맞지 않아 OTA 예약 연결은 확정할 수 없습니다.")))
                 visible_ids.add(transaction_id)
+            if relation.get("status") in ("USER_CONFIRMED", "STALE"):
+                historical_id = str(relation.get("transaction_id") or "")
+                historical = transaction_by_id.get(historical_id)
+                if historical and historical_id not in visible_ids:
+                    rows.append(dict(historical, reservation_history=True, selection_disabled=True,
+                                     selection_disabled_reason="저장한 예약 관계의 선택 이력입니다."))
+                    visible_ids.add(historical_id)
             for rejected in search.get("rejected") or ():
                 transaction_id = str(rejected.get("transaction_id") or "")
                 card = transaction_by_id.get(transaction_id)
@@ -1343,6 +1405,16 @@ def render_import_section(csrf: str) -> str:
       .forEach(event=>{{const ids=[...(event.ota_group_ids||[])].sort(),replace=event.review_warning==='confirm_group_reallocation';if(ids.length>1)orderGroups.set(ids.join('|'),{{ids,replace,confirmable:(event.group_count?.ota===event.group_count?.cards)&&(event.matched_count??event.group_count?.ota)===event.group_count?.ota&&(!replace||Object.keys(event.proposed_mapping||{{}}).length===event.group_count?.ota)}});}});
     if(orderGroups.size)root.querySelector('#ota-events').insertAdjacentHTML('beforeend',
       [...orderGroups.values()].map(group=>`<div class="ota-actions"><p>순서 배정은 개별 결제 근거가 아닙니다. ${{group.replace?(group.confirmable?'구성이 달라졌습니다. 새 제안을 확인해야 합니다.':'구성이 달라져 완전한 대응을 만들 수 없습니다. 새 카드나 OTA 거래가 확인될 때까지 보류합니다.'):'확인 뒤 현재 순서 배정을 고정합니다.'}}</p><button type="button" data-freeze-group="${{esc(encodeURIComponent(JSON.stringify(group)))}}" ${{group.confirmable?'':'disabled'}}>${{icon('lock')}}${{group.replace?'새 순서 배정 검토 및 고정':'현재 순서 배정을 확인하고 고정'}}</button></div>`).join(''));
+    for(const event of events.filter(item=>item.provider==='toyoko')){{
+      const article=root.querySelector(`.ota-event[data-event="${{esc(event.ota_event_id)}}"]`);if(!article)continue;
+      const relation=event.reservation_link||{{}},rows=cards[event.ota_event_id]||[];
+      const candidates=rows.filter(card=>card.reservation_candidate&&!card.already_linked_event_id);
+      const state=relation.status==='INFERRED'?'자동 추론 관계 · 결제 미검증':relation.status==='USER_CONFIRMED'?'사용자 확인 관계 · 결제 미검증':relation.status==='STALE'?'저장한 관계의 근거 변경 · 기존 선택 이력 유지, 재확인 필요':relation.status==='NEEDS_REVIEW'?'여러 후보 또는 근거 차이 · 사용자가 확인해야 합니다.':'예약 관계 미확인';
+      const options=candidates.map(card=>`<option value="${{esc(card.transaction_id)}}" ${{relation.transaction_id===card.transaction_id?'selected':''}}>${{esc(card.merchant||card.issuer||'카드')}} · 외화 ${{esc(card.foreign_amount??'미확인')}} ${{esc(card.currency||'')}} · 원화 ${{money(card.amount_krw)}} · ${{esc(card.reservation_amount_status||'확인 필요')}}</option>`).join('');
+      const savedText=relation.transaction_id?'<p>저장한 선택: '+esc(relation.transaction_id)+' · '+esc(relation.basis||'')+' · 원문 금액 '+esc(relation.amount_status||'미확인')+'</p>':'';
+      const optionBlock=options?'<label>카드 후보<select data-reservation-select="'+esc(event.ota_event_id)+'"><option value="">선택하세요</option>'+options+'</select></label><button type="button" data-reservation-preview="'+esc(event.ota_event_id)+'">예약 관계 미리보기</button>':'<p>후보 없음 · '+esc(event.candidate_search_status||'근거 부족')+'</p>';
+      article.insertAdjacentHTML('afterbegin','<section class="ota-reservation-link"><h4>예약 관계 확인 · 실제 결제 확정과 별도</h4><p>'+esc(state)+(event.reservation_group_only?' · 묶음 합계이며 개별 객실 확정은 아닙니다.':'')+'</p>'+savedText+optionBlock+'<div data-reservation-preview-for="'+esc(event.ota_event_id)+'"></div></section>');
+    }}
     renderProposals(snapshot.proposals||[]);
     bindEvents(snapshot);
   }}
@@ -1375,6 +1447,27 @@ def render_import_section(csrf: str) -> str:
       }}catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
     root.querySelectorAll('.ota-event').forEach(eventCard=>{{
+      const reservationButton=eventCard.querySelector('[data-reservation-preview]');
+      if(reservationButton)reservationButton.addEventListener('click',async()=>{{
+        const select=eventCard.querySelector('[data-reservation-select]'),target=eventCard.querySelector('[data-reservation-preview-for]');
+        if(!select||!select.value)return;
+        reservationButton.disabled=true;
+        try{{
+          const preview=await call('/api/imports/ota/reservation/preview',{{event_id:eventCard.dataset.event,transaction_id:select.value}});
+          const period=preview.service_period?`${{preview.service_period.starts_on||'미확인'}} ~ ${{preview.service_period.ends_on||'미확인'}}`:'미확인';
+          target.innerHTML=`<div class="ota-preview"><strong>예약 관계 미리보기</strong><p>지점: ${{esc(preview.hotel_name||'미확인')}} · 기간: ${{esc(period)}}</p><p>예약 원문 금액: ${{esc(preview.reservation_amount??'미확인')}} ${{esc(preview.reservation_currency||'')}}</p><p>카드 원문 금액: ${{esc(preview.card_foreign_amount??'미확인')}} ${{esc(preview.card_currency||'')}} · 원화 ${{money(preview.card_amount_krw)}}</p><p>${{preview.amount_difference===null?'원문 금액 차이를 계산할 수 없습니다.':'원문 금액 차이: '+esc(preview.amount_difference)+' '+esc(preview.reservation_currency||'')}}</p><p>이 동작은 예약 관계만 저장하며 실제 결제 완료를 확인하지 않습니다.</p><button type="button" class="ota-primary" data-reservation-confirm>예약 관계만 확인</button></div>`;
+          target.querySelector('[data-reservation-confirm]').addEventListener('click',async confirmEvent=>{{
+            const confirmButton=confirmEvent.currentTarget;confirmButton.disabled=true;
+            try{{
+              const saved=await call('/api/imports/ota/reservation/confirm',{{event_id:eventCard.dataset.event,transaction_id:select.value,preview_digest:preview.preview_digest,expected_revision:preview.expected_revision,request_id:crypto.randomUUID()}});
+              const snapshot=await call('/api/imports/ota'),updated=(snapshot.events||[]).find(item=>item.ota_event_id===eventCard.dataset.event);
+              if(updated)updated.reservation_link={{status:saved.status,transaction_id:saved.transaction_id,basis:saved.basis,amount_status:saved.amount_status,payment_verified:false}};
+              applyFresh(snapshot);status.textContent='예약 관계만 확인했습니다. 결제 여부는 미검증 상태입니다.';
+            }}catch(error){{status.textContent=error.message;confirmButton.disabled=false;}}
+          }});
+        }}catch(error){{status.textContent=error.message;}}
+        finally{{reservationButton.disabled=false;}}
+      }});
       const button=eventCard.querySelector('[data-preview]'),radios=eventCard.querySelectorAll('input[type=radio]');
       let selectionVersion=0;
       eventCard.querySelector('[data-none]').addEventListener('click',()=>{{
@@ -1643,6 +1736,16 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
             return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
         if path == ROUTE_PREFIX + "/preview":
             result = backend.preview(str(payload["event_id"]), str(payload["transaction_id"]))
+        elif path == ROUTE_PREFIX + "/reservation/preview":
+            result = backend.reservation_preview(str(payload["event_id"]), str(payload["transaction_id"]))
+        elif path == ROUTE_PREFIX + "/reservation/confirm":
+            if (not str(payload.get("request_id") or "").strip() or
+                    isinstance(payload.get("expected_revision"), bool) or
+                    not isinstance(payload.get("expected_revision"), int)):
+                raise InvalidReviewInput
+            result = backend.reservation_confirm(str(payload["event_id"]), str(payload["transaction_id"]),
+                str(payload["preview_digest"]), expected_revision=payload["expected_revision"],
+                request_id=str(payload["request_id"]).strip(), user=user)
         elif path == ROUTE_PREFIX + "/confirm":
             if not str(payload["request_id"]).strip():
                 raise InvalidReviewInput

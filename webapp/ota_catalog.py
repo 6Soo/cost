@@ -297,6 +297,28 @@ def _reservation_card_candidates(flow):
     return {key: sorted(ids) for key, ids in found.items()}
 
 
+def _reservation_link_states(flow):
+    """저장·추론 예약 관계를 결제 대사 결과와 별도 표시한다."""
+    from . import ota_payment_review
+    if not ota_payment_review.enabled():
+        return {}
+    current, fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return {}
+    events = {str(event.get('ota_event_id')): event for event in (current.get('data') or {}).get('events', ())}
+    states = defaultdict(list)
+    for result in (current.get('data') or {}).get('results', ()):
+        relation = result.get('reservation_link') or {}
+        if relation.get('status') not in ('INFERRED', 'USER_CONFIRMED', 'NEEDS_REVIEW', 'STALE'):
+            continue
+        event = events.get(str(result.get('ota_event_id') or ''), {})
+        key = (str(event.get('provider') or ''), str(event.get('booking_ref') or ''))
+        states[key].append({key: relation.get(key) for key in
+                            ('status', 'transaction_id', 'basis', 'amount_status', 'payment_verified')})
+    return {key: sorted(values, key=lambda value: (value.get('status') or '', value.get('transaction_id') or ''))
+            for key, values in states.items()}
+
+
 def _review_store():
     """The OTA review store for reads, or None when isolated review is not configured or has no file yet."""
     from . import ota_payment_review
@@ -517,6 +539,7 @@ def _build_index(board, sources):
     trip_by_id = {trip['tab_id']: trip for trip in trips}
     live, cancelled, card_error = _card_matches(flow)
     reservation_candidates = _reservation_card_candidates(flow)
+    reservation_links = _reservation_link_states(flow)
     if card_error:
         warnings.append('카드 결제와 예약을 대조하지 못했습니다. 지출 정리에서 자료를 확인해 주세요.')
     states = _owner_rule_states()
@@ -575,6 +598,7 @@ def _build_index(board, sources):
             'candidates': candidates,
             'card_matches': live.get(key, []),
             'card_candidates': reservation_candidates.get(key, []),
+            'reservation_links': reservation_links.get(key, []),
             'card_reconciliation_pending': card_error,
             'cancelled_matches': cancelled.get(key, 0),
         })
@@ -742,7 +766,9 @@ def _public_row(entry):
             'rule': None if not entry['rule'] else {'trip_tab_id': entry['rule']['trip_tab_id'],
                                                     'revision': entry['rule']['revision'],
                                                     'trip_valid': entry['rule']['trip_valid']},
-            'card_count': len(entry['card_matches'])}
+            'card_count': len(entry['card_matches']),
+            'card_candidates': list(entry.get('card_candidates') or ()),
+            'reservation_links': list(entry.get('reservation_links') or ())}
 
 
 def catalog(board, query, *, sources=None):
@@ -907,7 +933,11 @@ def render_html(data, query, *, csrf=''):
             ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', status_cell),
             ('카드 결제', esc(f"{row.get('card_count', 0)}건") +
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
-              if row.get('card_candidates') else '')),
+              if row.get('card_candidates') else '') +
+             ("<br><small>예약 관계: " + esc(' / '.join(
+                 f"{link.get('status')} · {link.get('transaction_id') or '카드 미확인'} · 결제 미검증"
+                 for link in row.get('reservation_links') or ())) + "</small>"
+              if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     problems = data.get('trip_problems') or []

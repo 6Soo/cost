@@ -62,6 +62,15 @@ def project_card_ota_statuses(current: Optional[Dict[str, Any]]) -> Tuple[Dict[s
 
     states: Dict[str, str] = {}
     for result in results:
+        reservation = result.get('reservation_link') or {}
+        reservation_id = str(reservation.get('transaction_id') or '')
+        reservation_state = str(reservation.get('status') or '')
+        reservation_projection = {'INFERRED': 'RESERVATION_INFERRED',
+                                  'USER_CONFIRMED': 'RESERVATION_CONFIRMED',
+                                  'NEEDS_REVIEW': 'RESERVATION_NEEDS_REVIEW',
+                                  'STALE': 'RESERVATION_STALE'}.get(reservation_state)
+        if reservation_id and reservation_projection:
+            states[reservation_id] = reservation_projection
         transaction_id = str(result.get('transaction_id') or '')
         group_only = (result.get('allocation_basis') in
                       ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
@@ -132,6 +141,34 @@ def project_card_ota_candidate_notes(
                 notes.setdefault(identity, set()).add(note)
             continue
 
+        reservation = result.get('reservation_link') or {}
+        reservation_id = str(reservation.get('transaction_id') or '')
+        reservation_status = str(reservation.get('status') or '')
+        event = events.get(str(result.get('ota_event_id') or ''), {})
+        period = event.get('service_period') or {}
+        stay = (f" · 숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')}"
+                if isinstance(period, dict) and period else '')
+        booking = str(event.get('booking_ref') or '예약 번호 미확인')
+        if reservation_id in wanted_transaction_ids and reservation_status:
+            amount_status = reservation.get('amount_status')
+            reason = {'INFERRED': '예약 추론 연결 · 결제는 검증되지 않았습니다.' +
+                      (' 원문 금액은 확인되지 않았습니다.' if amount_status == 'UNKNOWN' else
+                       ' 원문 금액이 다릅니다.' if amount_status == 'MISMATCH' else ''),
+                      'USER_CONFIRMED': '사용자가 예약 관계만 확인했습니다 · 결제는 검증되지 않았습니다.',
+                      'NEEDS_REVIEW': '예약 후보가 여러 개이거나 근거가 충돌해 사용자 확인이 필요합니다.',
+                      'STALE': '저장한 예약 관계의 근거가 바뀌었습니다 · 기존 선택 이력은 유지되며 재확인이 필요합니다.'}.get(reservation_status)
+            if reason:
+                notes.setdefault(reservation_id, set()).add(f'{reason} · {booking}{stay}')
+        if reservation_status == 'NEEDS_REVIEW':
+            search = result.get('candidate_search') or {}
+            mismatch = any(candidate.get('amount_status') == 'MISMATCH'
+                           for candidate in search.get('candidates') or ())
+            reason = ('예약 원문 금액 차이 · 예약 관계만 사용자가 확인할 수 있습니다.' if mismatch else
+                      '예약 후보가 경합하거나 묶음 합계라 개별 관계가 미확정입니다.')
+            for candidate in search.get('candidates') or ():
+                identity = str(candidate.get('transaction_id') or '')
+                if identity in wanted_transaction_ids:
+                    notes.setdefault(identity, set()).add(f'{reason} · {booking}{stay}')
         if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER'):
             continue
 
@@ -167,6 +204,12 @@ def project_card_ota_candidate_notes(
                     candidate_note = (f"호텔 일정 후보(금액 불일치): {booking_ref} · "
                                       f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · "
                                       "같은 지점·숙박기간만 확인 · 결제 미확정")
+                if provider == 'toyoko' and any(
+                        str(candidate.get('transaction_id')) == identity
+                        and candidate.get('amount_status') == 'MISMATCH'
+                        for candidate in (result.get('candidate_search') or {}).get('candidates') or ()):
+                    candidate_note = (f"호텔 예약 후보(원문 금액 차이): {booking_ref} · "
+                                      "금액 차이를 확인하고 예약 관계만 검토하세요 · 결제 미확정")
                 notes.setdefault(identity, set()).add(candidate_note)
 
         for rejected in search_rejections:
@@ -191,6 +234,8 @@ def project_card_ota_candidate_notes(
 
     # Deduplicate and limit to top 2 per transaction, sorted for determinism
     return {identity: sorted(values, key=lambda note: (
+                not note.startswith(('예약 추론 연결', '사용자가 예약 관계', '예약 원문 금액 차이',
+                                     '예약 후보가', '저장한 예약 관계')),
                 note.startswith('호텔 후보 제외:'), note.startswith('호텔 일정 후보'), note))[:2]
             for identity, values in notes.items()}
 
