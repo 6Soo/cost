@@ -24,7 +24,7 @@
 
 **EXPENSE-BULK-AUDIT-01 소스 확인:** 일반 `/import`의 `render_expense_cleanup()`이 버튼과 `CLEANUP_SCRIPT`를 렌더한다. owner+CSRF가 있는 `POST /api/imports/reclassify-pending`은 `reclassify_cleanup()`을 직접 실행해 `CardFlow._classify()`, `_auto_record_locked()` 및 `assign_existing_local_expenses()`를 호출할 수 있다. 함수는 거래/장부 분류·기장·기존 행의 여행 귀속을 변경하고, OTA 보고서/스냅샷 의존도 사용한다. 미리보기 전용 엔드포인트, preview digest 검증, 적용 감사 기록은 발견되지 않았다. 그래서 UI 버튼 제거와 기존 POST 차단은 함께 설계되어야 하며, 유지보수 경로의 읽기 전용 미리보기·최신성 검증은 아직 구현하지 않았다.
 
-다음 실행 항목은 `V21-UI-ACCEPTANCE-01`의 브라우저 수락 확인이다. `OZE-INCOME-DIAG-01`은 운영 원본 접근 권한과 실행 범위가 확인되기 전까지 실제 Google 자료를 읽지 않는다. 유지관리 일괄 적용도 운영 자료로 실행하거나 배포하지 않는다.
+다음 실행 항목은 `V21-UI-ACCEPTANCE-01`의 남은 확대 상호작용 검증과 배포 전 보호 확인이다. `OZE-INCOME-DIAG-01`은 아래 0.15절에서 승인된 읽기 전용 진단을 진행했으나 대상 여행 행을 찾지 못해 원인을 확정하지 못했다. 유지관리 일괄 적용은 운영 자료로 실행하지 않았다.
 
 **2026-10-26 후속 구현:** `EXPENSE-BULK-UI-01`에서 일반 지출 화면의 일괄 실행 버튼과 전용 JS를 제거하고, 건별 업무를 유지했다. 기존 `POST /api/imports/reclassify-pending`은 owner·CSRF 검증 뒤에도 `410 MAINTENANCE_FLOW_REQUIRED`를 반환해 호출만으로 재분류·장부 기록·여행 변경을 일으키지 않도록 닫았다. 합성 표적 검사 `test_cleanup_reclassification.py` 4개 통과. 세 테스트 파일 실행은 36개 통과, 2개 실패였으며, 실패는 이번 diff에서 바뀌지 않은 기존 문자열 검증 두 건이다. 기준 HEAD의 해당 코드/기대값은 변경 전부터 존재함을 확인했으며 기준 커밋에서 재실행하지는 않았다.
 
@@ -39,6 +39,16 @@
 `/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 가로 넘침 없음, light/dark 토큰 전환, 200% 확대에서 월 타일 표시와 키보드 초점을 확인했다(`webapp/tests/test_cards_all.py::test_browser_cards_all_fits_required_viewports_with_system_theme`). 기존 해당 테스트 파일 22개 통과 기록에 더해 이 브라우저 검사도 통과했다. 영수증 화면은 합성 자료 기반 Chromium 검사에서 같은 세 폭의 가로 넘침 없음, light/dark 토큰 전환, 200% 확대에서 상호 입력·수정 버튼 표시와 입력 초점을 확인했다(`webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`). 항공권은 실제 공통 wrapper를 적용한 합성 문서에서 375/390/759/760/1280px 가로 넘침 없음, 시스템 light/dark 메뉴 배경 전환, 200% 확대 후 메뉴와 제목 표시, Enter 열기·Escape 닫기·초점 복귀를 확인했다(`webapp/tests/test_flight_passenger_page.py::test_browser_wrapped_flight_page_responsive_theme_and_zoom`). 거래 행 전체, 영수증 수정/복사 흐름의 확대 상태 및 API 오류 상태 전체는 미검증이다.
 
 **2026-10-26 후속 수락 검사 커밋:** `7c4e905` 영수증 Chromium 화면 검사, `eb05f09` 항공권 wrapper 뷰포트/테마/확대 검사, `004b5f5` 일괄 유지관리 owner 화면의 합성 브라우저 미리보기→명시 확인→적용 요청 검사. `004b5f5` 검사에서 CSRF, preview ID, 적용 scope를 확인했고 API 응답은 네트워크 stub으로 대체해 DB/운영 효과를 발생시키지 않았다. 후속 표적 검사에서 항공권 통합 문서의 Enter 메뉴 열기·Escape 닫기·초점 복귀도 통과했다. 검증의 추가 범위는 큐에 기록했으며, 운영 배포와 OZE 실제 자료 원인 진단은 여전히 미완료다.
+
+## 0.15 2026-10-26 후속 브라우저 검사와 승인된 OZE 읽기 전용 진단
+
+`webapp/tests/test_cards_all.py::test_browser_cards_all_fits_required_viewports_with_system_theme`에서 `/cards/all` 합성 페이지를 실제 경로로 라우팅하도록 보강했다. Chromium에서 375/759/1280px 가로 넘침 없음, 시스템 테마 색상, 3월 타일 Enter로 상세 열기·Enter 재입력으로 닫기, 200% 확대에서 세 합성 거래 행과 상세 링크, 월 타일 초점을 확인했다. `webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`는 200% 확대 상태에서 수정 API 응답 반영과 Google 7열 클립보드 복사를 합성 응답으로 확인했고, 수정 전후 입력·버튼 노출도 확인했다. `webapp/tests/test_flight_passenger_page.py::test_browser_wrapped_flight_page_responsive_theme_and_zoom`은 200% 확대에서 예약번호 입력란의 노출·초점을 확인했다. 세 표적 검사 모두 통과했다. API 응답은 테스트 안에서 stub 처리했고 실제 서버 저장은 검증하지 않았다.
+
+추가로 `webapp/tests/test_synthetic_preview.py::test_preview_completes_card_and_manual_receipt_without_operational_files`를 실행했으나, 기존 카드 입력 흐름의 `/import` 화면에서 `form[data-index]` 안 입력란이 보이지 않아 30초 timeout으로 실패했다. 영수증 수정·복사 단계 전 실패했고, 해당 파일의 진단용 수정은 되돌렸다. 동일 실패를 반복하거나 무관 경로를 고치지 않는다.
+
+사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고, 정확한 `display_key` 여행 행은 0건이었다. 런타임 프로세스 설정의 Google 스냅샷과 행 파일을 해당 세대로 함께 읽었으며 로드가 성공했다. 메인·보관 source는 모두 `status=ok`, `stale=false`였지만 스냅샷에도 `0630_오제` 여행 키가 없었다. COST 행이 없어 `tab_id` 기준 매핑을 판정할 수 없고, 선택 사본·행 존재 여부·화면 차단 원인도 확정할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
+
+운영 프로세스 코드 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 확인됐다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. 이 SHA와 현재 작업/배포 기준의 관계는 별도 배포 검증 때 확인해야 한다. 다음 조치는 `0630_오제` 여행 행이 존재하는 승인된 운영 DB/호스트를 사용자에게서 확인하거나 운영 데이터가 복구된 뒤 같은 범위로 다시 판정하는 것이다. 이번 검사에서 임의로 다른 저장소를 찾거나 매핑을 고치지 않는다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 

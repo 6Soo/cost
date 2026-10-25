@@ -138,8 +138,28 @@ def test_browser_receipt_screen_fits_required_viewports():
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)
         try:
-            page = browser.new_page(viewport={'width': 375, 'height': 812})
-            page.set_content(document)
+            context = browser.new_context(viewport={'width': 375, 'height': 812},
+                                          permissions=['clipboard-read', 'clipboard-write'])
+            page = context.new_page()
+
+            def serve_receipt(route):
+                request = route.request
+                if request.url.endswith('/api/receipts/edit'):
+                    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                        'version': 2, 'currency': 'JPY', 'total_original': 2345,
+                        'total_jpy': 2345, 'amount_krw': 23450, 'trip_id': 'trip-syn',
+                        'merchant': '테스트상호', 'date': '2026-10-12', 'payment': 'cash',
+                        'payee': '검증 지급처', 'category': '식비', 'hold': None,
+                    }))
+                elif request.url.endswith('/api/receipts/tsv?trip=trip-syn'):
+                    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                        'row_count': 1, 'held': [], 'tsv': '2026-10-12\t검증 지급처\t\t\t\t\t23450',
+                    }))
+                else:
+                    route.fulfill(status=200, content_type='text/html; charset=utf-8', body=document)
+
+            page.route('https://receipt.test/**', serve_receipt)
+            page.goto('https://receipt.test/receipts')
             for width in (375, 759, 1280):
                 page.set_viewport_size({'width': width, 'height': 812})
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
@@ -161,6 +181,15 @@ def test_browser_receipt_screen_fits_required_viewports():
             assert merchant.is_visible() and edit.is_visible()
             merchant.focus()
             assert merchant.evaluate('(el)=>el===document.activeElement')
+            candidate = page.locator("tr[data-version]").first
+            candidate.locator('[data-payee]').fill('검증 지급처')
+            candidate.locator('[data-edit]').click()
+            page.get_by_text('영수증 변경을 저장했습니다.', exact=False).wait_for()
+            assert candidate.locator('[data-payee]').input_value() == '검증 지급처'
+            page.locator('#copy-trip').select_option('trip-syn')
+            page.locator('#copy-tsv').click()
+            page.wait_for_function("navigator.clipboard.readText().then(text => text.includes('검증 지급처'))")
+            assert '검증 지급처' in page.evaluate('navigator.clipboard.readText()')
         finally:
             browser.close()
 

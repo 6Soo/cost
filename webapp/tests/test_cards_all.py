@@ -367,38 +367,61 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
 
 
 def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_path):
+    from urllib.parse import parse_qs, urlsplit
     from unittest.mock import patch
     from webapp import ledger_board, ledger_design, site_shell
     from playwright.sync_api import sync_playwright
 
-    original = cards_all.cards_all_page({}, db_path=card_db_path)
     with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
             ledger_design, 'nav_region', return_value=''):
-        document = site_shell.wrap_document(original, '/cards/all')
+        def serve_page(route):
+            parsed = urlsplit(route.request.url)
+            query = parse_qs(parsed.query)
+            original = cards_all.cards_all_page(query, db_path=card_db_path)
+            document = site_shell.wrap_document(original, parsed.path)
+            route.fulfill(status=200, content_type='text/html; charset=utf-8', body=document)
 
-    with sync_playwright() as api:
-        browser = api.chromium.launch(headless=True)
-        try:
-            page = browser.new_page(viewport={'width': 375, 'height': 812})
-            page.set_content(document)
-            for width in (375, 759, 1280):
-                page.set_viewport_size({'width': width, 'height': 812})
+        with sync_playwright() as api:
+            browser = api.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={'width': 375, 'height': 812})
+                page.route('http://cost.test/cards/all*', serve_page)
+                page.goto('http://cost.test/cards/all')
+                for width in (375, 759, 1280):
+                    page.set_viewport_size({'width': width, 'height': 812})
+                    assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                page.emulate_media(color_scheme='dark')
+                assert page.locator(':root').evaluate(
+                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
+                page.emulate_media(color_scheme='light')
+                assert page.locator(':root').evaluate(
+                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
+                assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
+
+                march = page.locator("[data-month='3']")
+                march.focus()
+                march.press('Enter')
+                assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
+                assert page.locator("[data-month='3']").get_attribute('aria-pressed') == 'true'
+                page.locator("[data-month='3']").focus()
+                page.locator("[data-month='3']").press('Enter')
+                assert page.locator("[data-month='3']").get_attribute('aria-pressed') == 'false'
+
+                page.set_viewport_size({'width': 640, 'height': 812})
+                page.evaluate('document.documentElement.style.zoom="200%"')
+                page.goto('http://cost.test/cards/all?year=2026&month=3')
+                assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
+                assert page.locator("tr[data-tx-id='TX-A-01']").is_visible()
+                assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
+                assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
+                assert page.get_by_role('link', name='상세 보기').count() == 3
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
-            page.emulate_media(color_scheme='dark')
-            assert page.locator(':root').evaluate(
-                "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
-            page.emulate_media(color_scheme='light')
-            assert page.locator(':root').evaluate(
-                "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
-            assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
-            page.set_viewport_size({'width': 640, 'height': 812})
-            page.evaluate('document.documentElement.style.zoom="200%"')
-            first_month = page.locator("[data-month='1']")
-            assert first_month.is_visible()
-            first_month.focus()
-            assert first_month.evaluate('(el)=>el===document.activeElement')
-        finally:
-            browser.close()
+                first_month = page.locator("[data-month='1']")
+                assert first_month.is_visible()
+                first_month.focus()
+                assert first_month.evaluate('(el)=>el===document.activeElement')
+            finally:
+                browser.close()
 
 
 def test_foreign_currency_display(card_db_path):
