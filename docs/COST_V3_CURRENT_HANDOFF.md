@@ -48,7 +48,7 @@
 
 사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고 정확한 `display_key` 행, Google snapshot key, Google mapping key, 여행 이력의 대상 키 흔적은 모두 없었다. 같은 시작일·연도인 활성 trip 행 1건은 `needs_review`였고 그 행의 `tab_id`는 다른 Google key 1개가 참조하고 있었다. 이를 대상 여행으로 단정하지 않는다. 런타임 스냅샷과 해당 generation의 비공개 행 파일 로드는 성공했고 메인·보관 source는 모두 `status=ok`, `stale=false`였다. 대상 Google 키 자체가 snapshot에 없어 선택 사본·대상 행 개수·표시 차단 원인은 확인할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
 
-운영 프로세스 코드 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 확인됐다. 작업 스케줄러 `WebLedger-Board`의 실행 인자도 같은 checkout SHA를 가리켰다. 반면 `docs/operations.md`에는 runtime SHA `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`가 적혀 있어 현재 현장 관측과 문서 기록이 다르다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. 새 릴리스 전 이 불일치를 배포 이력과 복구 가능한 기준으로 해소해야 한다. `0630_오제` 대상 행은 이번 승인 범위의 현재 운영 자료에서 확인되지 않아, 원인을 확정하거나 다른 저장소를 찾아 추정하지 않는다.
+운영 프로세스, `WebLedger-Board` 작업 인자, 해당 릴리스의 `DEPLOYED_COMMIT` 표식은 모두 SHA `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 일치했다. `docs/operations.md`에는 2026-10-25 배포 기록 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`과 2026-10-26 읽기 전용 현장 확인을 별도 시점으로 기록했다. 이번 재확인은 실행 경로만 확인했으며 health/ready나 DB 내용은 확인하지 않았다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. `0630_오제` 대상 행은 현재 운영 자료에서 확인되지 않아, 원인을 확정하거나 다른 저장소를 찾아 추정하지 않는다.
 
 **독립 읽기 검토:** Paseo 독립 검토는 작업 큐와 인계의 구현/부분 상태, 일괄 유지관리 쓰기 경계, 표적 브라우저 검사 기록 및 PR #108 HOLD가 서로 맞는다고 확인했다. 운영 DB·Google 원본 접근이나 파일 수정은 하지 않았다. 검토도 `OZE-INCOME-DIAG-01`과 `V21-UI-ACCEPTANCE-01`을 PARTIAL로 판정했다. 이는 자체적인 코드 수락이나 운영 배포 검증을 대신하지 않는다.
 
