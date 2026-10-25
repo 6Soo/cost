@@ -178,6 +178,35 @@ def test_undated_pages_over_100_are_complete_and_counted(card_db_path):
     assert len(set(pages) & {row[0] for row in rows}) == 125
     assert ct.year_summary(db_path=card_db_path)["undated_count"] == 126
 
+
+@pytest.mark.parametrize("use_date, expected_valid", [
+    ("2026-03-05T12:30:00Z", True),
+    ("2026-03-05T12:30:00+09:00", True),
+    ("2026-03-05 28:19", False),
+    ("2026-03-05 12:71", False),
+    ("2026-03-05 12:30:77", False),
+    ("2026-03-05T12:30:00+25:00", False),
+    ("2026-02-30T12:30:00Z", False),
+])
+def test_strict_date_parser_is_shared_by_all_queries(card_db_path, use_date, expected_valid):
+    conn = sqlite3.connect(card_db_path)
+    transaction_id = "TX-STRICT-DATE"
+    row = (transaction_id, transaction_id, "b-strict", "CARD", "0000", "credit", "debit", "card",
+           transaction_id, transaction_id, use_date, "", "SYNTHETIC", "synthetic", 1, "", "KRW", "raw",
+           90, "{}", None, "", "", "needs_review", "", "", "", "", "", "", 1, None, "2026-01-01")
+    conn.execute("INSERT INTO transactions VALUES (" + ",".join(["?"] * 33) + ")", row)
+    conn.commit()
+    conn.close()
+
+    years = ct.available_years(db_path=card_db_path)["years"]
+    months = ct.year_summary(db_path=card_db_path, year=2026)["months"]
+    month_ids = {item["transaction_id"] for item in ct.list_for_month(db_path=card_db_path, year=2026, month=3)["items"]}
+    undated_ids = {item["transaction_id"] for item in ct.undated_list(db_path=card_db_path, per_page=100)["items"]}
+    assert (2026 in years) is True  # Fixture already has valid dates for this year.
+    assert (transaction_id in month_ids) is expected_valid
+    assert (transaction_id in undated_ids) is (not expected_valid)
+    assert months[3] == 3 + int(expected_valid)
+
 def test_year_summary_2026(card_db_path):
     # 2026 summary must include months and undated
     s = ct.year_summary(db_path=card_db_path, year=2026)

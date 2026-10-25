@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import re
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -13,30 +13,28 @@ from typing import Dict, Any, Optional, List
 # so their order is transaction_id ASC and the token only carries that position.
 # It is deliberately shaped like YYYY-MM-DD so the shared HTTP cursor check accepts it.
 _UNDATED_CURSOR_DATE = "0000-00-00"
-_DATE_PREFIX = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:$|[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$)")
+_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$")
+
 def _valid_use_date(value: Any) -> bool:
-    if not isinstance(value, str): return False
-    match = _DATE_PREFIX.fullmatch(value)
-    if not match: return False
-    try: date(*(int(part) for part in match.groups()))
-    except ValueError: return False
+    """Accept only calendar-valid ISO dates and ISO local/offset date-times."""
+    if not isinstance(value, str):
+        return False
+    if _DATE_PREFIX.fullmatch(value):
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            return False
+        return True
+    if not _DATE_TIME_PREFIX.fullmatch(value):
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
     return True
-def _date_predicate(column: str = "approval_date") -> str:
-    """SQLite equivalent of the supported ISO date/date-time grammar."""
-    pattern = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'"
-    date_part = f"substr({column}, 1, 10)"
-    time_part = f"substr({column}, 11)"
-    return (
-        f"(length({column}) >= 10 AND {date_part} GLOB {pattern} "
-        f"AND date({date_part}) = {date_part} AND date({date_part}) IS NOT NULL AND "
-        f"({column} = {date_part} OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]' "
-        f"OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]:[0-5][0-9]' "
-        f"OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]:[0-5][0-9].*' "
-        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]' "
-        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]' "
-        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]:[0-5][0-9].*'))"
-    )
-_VALID_DATE_SQL = _date_predicate()
+
+_VALID_DATE_SQL = "COST_VALID_USE_DATE(approval_date) = 1"
 
 def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
     """Resolve the card transactions database path.
@@ -67,7 +65,9 @@ def _connect(db_path: str) -> sqlite3.Connection:
     """
     path = Path(db_path).resolve()
     uri = path.as_uri() + "?mode=ro"
-    return sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+    conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
+    return conn
 
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
     """Get years only from valid card-use dates."""
