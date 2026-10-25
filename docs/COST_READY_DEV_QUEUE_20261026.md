@@ -34,7 +34,7 @@
 | 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | 선택된 최신 Google 사본과 같은 여행의 웹 지출을 정확 비교하는 읽기 전용 후보 계산 | **CODED, synthetic tests PASS** |
 | 10 | `LEDGER-MATCH-UI-01` | 오제 명세 §2.2·§3 | 대응 웹 행 굵게 표시, 접근성 근거, 복수 후보 표시, stale 시 강조 해제 | **CODED, desktop/mobile render tests PASS; 실제 브라우저 미검증** |
 | 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: `/cards/all` Chromium 합성 렌더에서 375/759/1280px 가로 넘침 없음, light/dark 토큰 전환, 200% 확대 후 월 타일 표시·키보드 초점 확인. 영수증 Chromium 합성 렌더에서 같은 세 폭 가로 넘침 없음, light/dark 토큰 전환, 200% 확대 후 상호 입력·수정 버튼 표시 및 입력 초점 확인. 항공권 실제 wrapper 문서에서 375/390/759/760/1280px 가로 넘침 없음, light/dark computed background 전환, 200% 확대 후 메뉴·제목 노출, Enter 열기·Escape 닫기·초점 복귀 확인. 카드 거래 행 전체와 영수증 복사·수정 작업의 확대 상태 상호작용은 NOT_TESTED** |
-| 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **HOLD / 코드 보존** |
+| 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **READ_ONLY REVIEW: 최신 `origin/main` `6f6e4d1`과 PR #108 HEAD `326ea3b` 비교. 차이는 공백/빈 줄뿐이며 `git diff --ignore-all-space --ignore-blank-lines` 기준 실질 코드 차이 없음. 독자 동작 변경이 없으므로 PR은 열어 둔 채 HOLD, 강제 갱신·닫기·브랜치 삭제 안 함** |
 
 ## 3. 중요한 안전·정본 조건
 
