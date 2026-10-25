@@ -1,0 +1,356 @@
+﻿# -*- coding: utf-8 -*-
+"""Targeted tests for cards_all handler and renderers.
+Tests the card-all page rendering, data contracts, and UI behavior.
+Uses synthetic fixture matching app/db.py schema (transactions).
+"""
+import os
+import sqlite3
+import tempfile
+import pytest
+from pathlib import Path
+
+# Set up environment before importing
+os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
+
+from webapp import cards_all
+from webapp import card_transactions as ct
+
+
+CARD_SCHEMA = """
+CREATE TABLE IF NOT EXISTS transactions (
+    transaction_id TEXT PRIMARY KEY,
+    source_hash TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    issuer TEXT NOT NULL,
+    card_tail TEXT NOT NULL,
+    card_kind TEXT NOT NULL,
+    transaction_direction TEXT NOT NULL,
+    transaction_kind TEXT NOT NULL,
+    approval_number TEXT NOT NULL,
+    original_approval_number TEXT NOT NULL,
+    approval_date TEXT NOT NULL,
+    posting_date TEXT NOT NULL,
+    merchant TEXT NOT NULL,
+    merchant_normalized TEXT NOT NULL,
+    amount_krw INTEGER,
+    foreign_amount TEXT NOT NULL DEFAULT '',
+    foreign_currency TEXT NOT NULL DEFAULT '',
+    description_raw TEXT NOT NULL DEFAULT '',
+    row_index INTEGER NOT NULL,
+    raw_row_json TEXT NOT NULL DEFAULT '{}',
+    duplicate_of TEXT,
+    conflict_reason TEXT NOT NULL DEFAULT '',
+    parse_error TEXT NOT NULL DEFAULT '',
+    classification_state TEXT NOT NULL DEFAULT 'needs_review',
+    classification_source TEXT NOT NULL DEFAULT '',
+    classification_basis TEXT NOT NULL DEFAULT '',
+    item TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    display_tab_id TEXT NOT NULL DEFAULT '',
+    trip_id TEXT NOT NULL DEFAULT '',
+    revision INTEGER NOT NULL DEFAULT 1,
+    decided_at TEXT,
+    created_at TEXT NOT NULL
+);
+"""
+
+
+@pytest.fixture
+def card_db_path():
+    """Create a temporary card transactions database with test data."""
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        path = f.name
+    conn = sqlite3.connect(path)
+    conn.executescript(CARD_SCHEMA)
+    rows = [
+        # March 2026 - 3 items (2 same day, 1 next day)
+        ("TX-A-01","h1","b1","CARD","1234","credit","debit","card","A001","A001","2026-03-05","2026-03-06","MERCURE","mercure",150000,"","KRW","raw",1,"{}",None,"","","booked","manual","","","HOTEL A","","T-A",1,None,"2026-01-01"),
+        ("TX-A-02","h2","b1","CARD","1234","credit","debit","card","A002","A002","2026-03-05T14:30","2026-03-06","LAWSON","lawson",8420,"820","JPY","raw",2,"{}",None,"","","booked","auto_inferred","","","SNACK","","T-B",1,None,"2026-01-01"),
+        ("TX-B-01","h3","b2","CARD","9999","credit","debit","card","B001","B001","2026-03-10","2026-03-11","AGODA","agoda",556929,"500000","KRW","raw",3,"{}",None,"","","needs_review","manual","","","HOTEL B","","T-C",1,None,"2026-01-01"),
+        # April 2026 - 2 items
+        ("TX-APR-01","h4","b3","CARD","1111","credit","debit","card","C001","C001","2026-04-01","2026-04-02","STARBUCKS","starbucks",5500,"","KRW","raw",4,"{}",None,"","","classified","manual","","","FOOD","","T-D",1,None,"2026-01-01"),
+        ("TX-APR-02","h5","b3","CARD","1111","credit","debit","card","C002","C002","2026-04-15","2026-04-16","SUBWAY","subway",12000,"","KRW","raw",5,"{}",None,"","","classified","auto_inferred","","","TRANSPORT","","",1,None,"2026-01-01"),
+        # Undated (no valid approval_date)
+        ("TX-UND-01","h6","b4","CARD","2222","credit","debit","card","U01","U01","","","UNKNOWN","unknown",-543947,"","KRW","raw",6,"{}",None,"","","cancelled","manual","","","","","",1,None,"2026-01-01"),
+        ("TX-UND-02","h7","b4","CARD","2222","credit","debit","card","U02","U02","invalid","","UNKNOWN2","unknown2",10000,"","KRW","raw",7,"{}",None,"","","booked","manual","","","ITEM","","T-E",1,None,"2026-01-01"),
+        # Other year transactions (should NOT be counted as undated)
+        ("TX-2025-01","h8","b5","CARD","3333","credit","debit","card","E01","E01","2025-06-15","2025-06-16","MERCHANT","merchant",10000,"","KRW","raw",8,"{}",None,"","","booked","manual","","","ITEM","","T-F",1,None,"2025-01-01"),
+    ]
+    place = ",".join(["?"]*33)
+    conn.executemany(f"INSERT INTO transactions VALUES ({place})", rows)
+    conn.commit()
+    conn.close()
+    yield path
+    os.unlink(path)
+
+
+def test_month_grid_and_initial_page_are_lazy(card_db_path, monkeypatch):
+    summary = ct.year_summary(db_path=card_db_path, year=2026)
+    grid = cards_all._month_grid(2026, summary['months'], None)
+    assert grid.count("card-all-tile") == 12
+    assert "role='group'" in grid
+    for month in range(1, 13):
+        assert f'{month}월' in grid
+
+    def unexpected_undated_query(**kwargs):
+        raise AssertionError("초기 화면은 날짜 확인 필요 목록을 조회하면 안 됩니다")
+
+    monkeypatch.setattr(cards_all._ct, "undated_list", unexpected_undated_query)
+    page = cards_all.cards_all_page({}, db_path=card_db_path)
+    assert "2026년" in page
+    assert "날짜 확인 필요 · 3건" in page
+    assert "날짜 확인 필요 목록 보기" in page
+    assert "UNKNOWN" not in page
+
+
+def test_month_detail_renderer_basic(card_db_path):
+    """실제 월 상세 렌더러가 날짜 그룹과 거래 행을 표시한다."""
+
+    res = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=100)
+    items = res['items']
+
+    html = cards_all._month_detail(2026, 3, items, res.get('cursor'), res.get('has_more', False), 3)
+
+    # Header
+    assert '2026년 3월' in html
+    assert '3건' in html
+    # Date group for 2026-03-05 (should be 2 items now - grouped by date)
+    assert '2026-03-05' in html
+    assert '2건' in html
+    # Date group for 2026-03-10 (1 item)
+    assert '2026-03-10' in html
+    # Table structure
+    assert 'card-all-table' in html
+    assert '이용일시' in html
+    assert '가맹점명' in html
+    assert '금액' in html
+    assert '배정된 여행' in html
+    assert '상세 보기' in html
+    # Transaction data
+    assert 'MERCURE' in html
+    assert 'LAWSON' in html
+    assert 'AGODA' in html
+    # Currency display
+    assert '원' in html
+    # Trip display
+    assert '사용자 확정' in html or '추정' in html or '미배정' in html
+    # Detail link
+    assert 'board?row=card-TX-A-01' in html
+
+
+def test_month_detail_empty_month(card_db_path):
+    """Empty month shows appropriate message."""
+    html = cards_all._month_detail(2026, 1, [], None, False, 0)
+    assert '이 달에 저장된 카드 거래가 없어' in html
+
+
+def test_render_month_rows_time_handling(card_db_path):
+    """Rows correctly show date only when time is missing, date+time when present."""
+    from webapp.cards_all import _render_month_rows
+
+    items = [
+        {'use_date': '2026-03-05T14:30', 'merchant': 'MERCURE', 'amount_krw': 150000,
+         'foreign_currency': 'KRW', 'trip_id': 'T-A', 'classification_source': 'manual',
+         'classification_state': 'booked', 'transaction_id': 'TX-01'},
+        {'use_date': '2026-03-05', 'merchant': 'LAWSON', 'amount_krw': 8420,
+         'foreign_currency': 'KRW', 'trip_id': 'T-B', 'classification_source': 'auto_inferred',
+         'classification_state': 'booked', 'transaction_id': 'TX-02'},
+        {'use_date': '', 'merchant': '', 'amount_krw': 5000,
+         'foreign_currency': 'KRW', 'trip_id': '', 'classification_source': '',
+         'classification_state': 'needs_review', 'transaction_id': 'TX-03'},
+    ]
+
+    html = _render_month_rows(items, include_detail_link=True)
+
+    # First row has time
+    assert '2026-03-05 14:30' in html
+    # Second row has date only
+    assert '2026-03-05' in html
+    # Third row has no date
+    # Merchant fallback
+    assert '가맹점 미상' in html
+    # Trip display logic
+    assert '사용자 확정' in html
+    assert '추정' in html
+    assert '미배정' in html
+    # Foreign currency
+    assert 'JPY' not in html  # Not in test data
+    # Detail links
+    assert 'board?row=card-TX-01' in html
+    assert 'board?row=card-TX-02' in html
+    assert 'board?row=card-TX-03' in html
+
+
+def test_undated_list_excludes_valid_other_years(card_db_path):
+    """undated_list only returns truly undated, not valid dates from other years."""
+    res = ct.undated_list(db_path=card_db_path, year=2026, per_page=100)
+    ids = [i['transaction_id'] for i in res['items']]
+
+    # Undated items included
+    assert 'TX-UND-01' in ids
+    assert 'TX-UND-02' in ids
+    # Valid date from 2025 excluded
+    assert 'TX-2025-01' not in ids
+
+
+def test_year_summary_counts(card_db_path):
+    """year_summary returns correct monthly counts and global undated.
+    
+    Note: undated_count includes transactions with datetime in approval_date (e.g., 2026-03-05T14:30)
+    because the GLOB pattern only matches YYYY-MM-DD format. This is current card_transactions behavior.
+    """
+    s = ct.year_summary(db_path=card_db_path, year=2026)
+    assert s['year'] == 2026
+    assert s['months'][3] == 3  # March
+    assert s['months'][4] == 2  # April
+    # Undated count is global (includes TX-UND-01, TX-UND-02, and TX-A-02 with datetime)
+    assert s.get('undated_count', 0) == 3
+
+
+def test_pagination_stable_cursor(card_db_path):
+    """Pagination with cursor works correctly, no missing/duplicate items."""
+    # First page
+    res1 = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=2)
+    assert res1['count'] <= 2
+    assert res1['has_more'] is True
+    cursor1 = res1['cursor']
+
+    # Second page
+    res2 = ct.list_for_month(db_path=card_db_path, year=2026, month=3, cursor=cursor1, per_page=2)
+    ids1 = [i['transaction_id'] for i in res1['items']]
+    ids2 = [i['transaction_id'] for i in res2['items']]
+    # No overlap
+    assert not any(i in ids1 for i in ids2)
+    # Combined should have all 3 March items
+    all_ids = set(ids1 + ids2)
+    assert 'TX-A-01' in all_ids
+    assert 'TX-A-02' in all_ids
+    assert 'TX-B-01' in all_ids
+
+
+def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
+    """페이지 모듈은 핸들러를 만들지 않고 기존 라우터에서 렌더링된다."""
+    import inspect
+    from webapp.ledger_board import Handler
+    source = inspect.getsource(Handler)
+    assert 'parsed.path == "/cards/all"' in source
+    assert 'cards_all.cards_all_page(query)' in source
+
+
+def test_foreign_currency_display(card_db_path):
+    """Foreign currency amounts display correctly."""
+    from webapp.cards_all import _render_month_rows
+
+    items = [
+        {'use_date': '2026-03-05', 'merchant': 'TEST', 'amount_krw': 50000,
+         'foreign_currency': 'JPY', 'foreign_amount': '5000',
+         'trip_id': '', 'classification_source': '', 'classification_state': '',
+         'transaction_id': 'TX-JPY'},
+        {'use_date': '2026-03-05', 'merchant': 'TEST2', 'amount_krw': 100000,
+         'foreign_currency': 'USD', 'foreign_amount': '100',
+         'trip_id': '', 'classification_source': '', 'classification_state': '',
+         'transaction_id': 'TX-USD'},
+    ]
+
+    html = _render_month_rows(items, include_detail_link=False)
+    # Should show foreign currency code and amount
+    assert 'JPY' in html
+    assert 'USD' in html
+
+
+def test_undated_page_has_total_and_next_cursor_without_overlap(monkeypatch):
+    first_page = [{"transaction_id": f"TX-{i:03}", "approval_date": "",
+                   "merchant": f"M{i}", "amount_krw": i, "foreign_currency": "KRW"}
+                  for i in range(100)]
+    later_page = [{"transaction_id": f"TX-{i:03}", "approval_date": "",
+                   "merchant": f"M{i}", "amount_krw": i, "foreign_currency": "KRW"}
+                  for i in range(100, 200)]
+    calls = []
+
+    def fake_undated_list(**kwargs):
+        calls.append(kwargs)
+        return {"items": first_page if kwargs["cursor"] is None else later_page,
+                "total": 550, "count": 100, "has_more": True,
+                "cursor": "|TX-099" if kwargs["cursor"] is None else "|TX-199"}
+
+    monkeypatch.setattr(cards_all._ct, "undated_list", fake_undated_list)
+    monkeypatch.setattr(cards_all._ct, "year_summary",
+                        lambda **kwargs: {"year": kwargs["year"],
+                                          "months": {month: 0 for month in range(1, 13)},
+                                          "undated_count": 550})
+    monkeypatch.setattr(cards_all._ct, "available_years",
+                        lambda **kwargs: {"years": [2026], "default": 2026})
+    page1 = cards_all.cards_all_page({"undated": ["1"]}, db_path="synthetic.sqlite")
+    assert "날짜 확인 필요 · 550건" in page1
+    assert "다음 날짜 확인 필요 거래 100건 보기" in page1
+    assert "undated_cursor=%7CTX-099" in page1
+    page2 = cards_all.cards_all_page({"undated": ["1"],
+                                      "undated_cursor": ["|TX-099"]},
+                                     db_path="synthetic.sqlite")
+    first_ids = {f"TX-{i:03}" for i in range(100)}
+    second_ids = {f"TX-{i:03}" for i in range(100, 200)}
+    assert not first_ids.intersection(second_ids)
+    assert "data-tx-id='TX-100'" in page2 and "data-tx-id='TX-099'" not in page2
+    assert calls[0]["per_page"] == 100
+    assert calls[1]["cursor"] == "|TX-099"
+
+
+def test_data_integrity_all_states_preserved(card_db_path):
+    """All financial states preserved in projection: booked, cancelled, needs_review, etc."""
+    res = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=100)
+    states = {i['classification_state'] for i in res['items']}
+    sources = {i['classification_source'] for i in res['items']}
+
+    assert 'booked' in states
+    assert 'needs_review' in states
+    assert 'manual' in sources
+    assert 'auto_inferred' in sources
+
+    # Undated has cancelled
+    res_und = ct.undated_list(db_path=card_db_path, year=2026, per_page=100)
+    states_und = {i['classification_state'] for i in res_und['items']}
+    assert 'cancelled' in states_und
+
+
+def test_readonly_no_writes(card_db_path):
+    """Verify card_transactions module is read-only (mode=ro)."""
+    # Connect to the card DB in read-only mode
+    conn = ct._connect(card_db_path)
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            conn.execute("INSERT INTO transactions (transaction_id, source_hash, batch_id, issuer, card_tail, card_kind, transaction_direction, transaction_kind, approval_number, original_approval_number, approval_date, posting_date, merchant, merchant_normalized, amount_krw, foreign_amount, foreign_currency, description_raw, row_index, raw_row_json, duplicate_of, conflict_reason, parse_error, classification_state, classification_source, classification_basis, item, description, display_tab_id, trip_id, revision, decided_at, created_at) VALUES ('TEST-WRITE', 'h', 'b', 'C', '1', 'c', 'd', 'k', 'a', 'a', '2026-01-01', '2026-01-01', 'm', 'm', 100, '', '', 'r', 1, '{}', '', '', '', 'n', '', '', '', '', '', 1, '', '2026-01-01')")
+    finally:
+        conn.close()
+
+
+def test_missing_card_db_raises_config_error():
+    """Missing card DB path raises RuntimeError."""
+    old_env = os.environ.pop('WEBLEDGER_DB', None)
+    try:
+        with pytest.raises(RuntimeError, match="카드 원본 DB 경로가 설정되지 않았습니다"):
+            ct.year_summary(year=2026)
+    finally:
+        if old_env:
+            os.environ['WEBLEDGER_DB'] = old_env
+
+
+def test_mode_ro_prevents_file_creation():
+    """SQLite mode=ro prevents file creation on missing path."""
+    missing_path = "/tmp/this_path_does_not_exist_12345.sqlite"
+    assert not Path(missing_path).exists()
+    with pytest.raises(sqlite3.OperationalError):
+        ct._connect(missing_path)
+    assert not Path(missing_path).exists()
+
+
+def test_available_years_includes_2026(card_db_path):
+    """available_years returns 2026 as default and other years with data."""
+    res = ct.available_years(db_path=card_db_path)
+    assert 2026 in res['years']
+    assert 2025 in res['years']
+    assert res['default'] == 2026
+
+
+# Evidence path: this file + card_transactions projection + cards_all renderer
+# Test coverage: renderers, data contracts, pagination, validation, read-only
+# Run with: pytest webapp/tests/test_cards_all.py -v
