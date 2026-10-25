@@ -58,6 +58,14 @@
 
 **검증 범위:** 위 PR 병합 및 이 문서 상태는 **GitHub 원격 코드/명세 기준**. 신규 브라우저 기능 테스트·원본 실수입 진단·코드 패치·운영 배포를 수행하지 않았다. 최신 배포/검증 증거 없이 `IMPLEMENTED/TESTED/DEPLOYED`로 표시하지 않는다.
 
+## 0.16 2026-10-26 승인된 COST UI 명세 구현 병합 및 운영 배포
+
+구현 PR [#114](https://github.com/6Soo/cost/pull/114)은 squash commit `47264123835d1a576f17fa8d27148bddee69a3f0`으로 `main`에 병합됐다. 그 SHA에서 릴리스 사본을 만들고 추적 파일 942개 및 주요 앱 파일 7개의 blob 해시를 확인한 뒤, `WebLedger-Board` 작업 인자를 새 릴리스로 전환했다. 기존 릴리스 `d4c5934de07543e1c27232dbd53b297f2d8fa387`와 원래 작업 XML을 복구 경로로 보존했다.
+
+배포 전 운영 백업·별도 복원 검증은 `D:/WebLedgerHost/data/backups/operational-20261025T173423505753Z/`에 있다. DB 5개와 파일 59개가 전후 상태 및 복원본과 일치했고, 비밀 파일 복사·실제 요청 재생·가져오기·복원 서버 시작은 없었다. 배포 후 task action, 8751 listener 실행 인자, 릴리스 표식이 모두 `47264123835d1a576f17fa8d27148bddee69a3f0`였으며 `/healthz`·`/readyz`는 200, 비인증 `/api/imports/ota`는 401이었다. `WebLedger-SourceRefresh`는 Running, `WebLedger-GoogleAuthority`와 `WebLedger-MailCollect`는 Ready로 관측했다. Google 쓰기나 기존 운영 거래 변경은 없었다. PowerShell 웹 요청의 NullReferenceException 뒤 `curl.exe`로 상태 코드를 확인했다.
+
+**남은 수락:** 운영 로그인 브라우저의 화면별 UI 확인은 미실행이므로 `V21-UI-ACCEPTANCE-01` PARTIAL이다. `0630_오제`의 정확한 대상 키는 운영 자료에서 확인되지 않아 `OZE-INCOME-DIAG-01`은 `UNKNOWN / ROOT_CAUSE_UNVERIFIED`다. 이 배포는 이 두 수락 항목을 완료 처리하지 않는다.
+
 ## 0.13 2026-10-25 최신 main vs 명세 구현 대조 (소스/PR 읽기 전용 감사)
 
 > **고정 관측 기준:** GitHub `6Soo/cost`의 `main` = `d4c5934de07`(2026-10-25 UTC 11:42경), 이번 감사에서 확인한 브랜치·PR·코드 상태. 이후 새 커밋/PR/운영 배포가 있으면 새 기준으로 확인한다. **이번 절은 소스·PR·기존 기록 대조이지 신규 기능 테스트, 실제 Google/운영 DB·웹 브라우저 실측이 아니다.**
