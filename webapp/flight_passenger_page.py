@@ -34,12 +34,45 @@ def _send(handler, body, status=200):
 
 
 def _page(csrf):
-    token = json.dumps(str(csrf or ''), ensure_ascii=True)
-    return """<!doctype html><html lang='ko'><meta charset='utf-8'><meta name='viewport' content='width=device-width'>
-<title>항공권 참가자 후보</title><main style='max-width:760px;margin:32px auto;font:16px system-ui;color:#243129'>
+    # Keep untrusted token text inside the script string, even when it contains
+    # an HTML script terminator.
+    token = json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
+    return """<!doctype html><html lang='ko'><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>항공권 참가자 후보</title>
+<style>
+:root{--bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;--line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;--sel:#ECF5EF;--grn:#1C7A52;--warn:#B54708;--neg:#B42318;--bad:#B42318}
+@media(prefers-color-scheme:dark){:root{--bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;--line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#2266F5;--sel:#1E3A5F;--grn:#86EFAC;--warn:#FDBA74;--neg:#FCA5A5;--bad:#FCA5A5}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;word-break:keep-all;-webkit-text-size-adjust:100%}
+h1,h2,p{margin:0}
+main{max-width:760px;margin:32px auto;padding:0 16px;color:var(--ink)}
+@media(max-width:390px){main{margin:20px 12px;padding:0}}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+button,input{font:inherit;color:inherit}
+label{display:block;font-size:13px;color:var(--mut);margin:0 0 6px;font-weight:500}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 14px 10px}
+form label{display:inline-flex;align-items:center;gap:6px;margin:0;padding:0;font-size:13px;color:var(--ink);font-weight:500;white-space:nowrap}
+input[name='booking_ref'],input[name='tour_id']{width:100%;min-width:0;height:36px;border:1px solid var(--line-strong);border-radius:7px;padding:0 9px;background:var(--paper);font-weight:500;font-size:14px;color:var(--ink)}
+input:focus{border-color:var(--focus)!important;box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
+button{height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:14px;font-weight:600;cursor:pointer;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;white-space:nowrap}
+button:hover{background:var(--hover)}
+button[type='button'][disabled]{opacity:.45;cursor:default}
+section#results{margin-top:18px}
+article{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:14px;margin:0 0 12px;overflow:hidden}
+article h2{font-size:15px;font-weight:700;margin:0 0 6px;color:var(--ink)}
+article p{font-size:13px;color:var(--mut);margin:4px 0;line-height:1.45}
+article label{display:inline-flex;align-items:center;gap:8px;min-height:36px;margin:0;padding:4px 0;font-size:13.5px;color:var(--ink);cursor:pointer;white-space:normal}
+article input[type='radio']{accent-color:var(--grn);flex:0 0 auto;width:18px;height:18px;margin:0}
+article .empty{color:var(--mut);font-size:13.5px;margin:6px 0}
+article .warning{color:var(--warn);font-size:13px;font-weight:600;margin:4px 0}
+#status[role='status']{min-height:24px;font-size:13px;color:var(--mut);margin:10px 0 6px}
+#status[role='status']:not(:empty){font-weight:500;color:var(--ink)}
+@media(max-width:375px){form{flex-direction:column;align-items:stretch;padding:12px}form label{margin:0 0 4px;font-size:12px}article{padding:12px}main{padding:0 10px}}
+</style>
+<main>
 <h1>항공권 참가자 후보</h1><p>검증된 항공권 영문 이름과 예약 정본의 후보를 비교합니다. 선택을 저장해도 실제 탑승 확인이나 예약 정본 변경은 하지 않습니다.</p>
-<form id='search'><label>예약 번호 <input name='booking_ref' required></label> <label>여행 정본 ID <input name='tour_id' required></label> <button>후보 조회</button></form>
-<p id='status' role='status'></p><section id='results'></section></main><script>
+<form id='search' aria-label='항공권 참가자 후보 검색'><label for='f-booking'>예약 번호 <input id='f-booking' name='booking_ref' required autocomplete='off'></label> <label for='f-tour'>여행 정본 ID <input id='f-tour' name='tour_id' required autocomplete='off'></label> <button type='submit'>후보 조회</button></form>
+<p id='status' role='status' aria-live='polite'></p><section id='results' aria-label='후보 결과'></section>
+</main><script>
 const csrf=""" + token + """;
 const form=document.querySelector('#search'), status=document.querySelector('#status'), root=document.querySelector('#results');
 form.addEventListener('submit',async event=>{event.preventDefault();root.replaceChildren();status.textContent='후보를 확인하고 있습니다.';
