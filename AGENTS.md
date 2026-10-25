@@ -4,7 +4,7 @@
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
-> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§11. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
+> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§12. 지출 정리 일괄 실행 버튼의 일반 UI 제거·관리자 유지보수 분리는 §12에 따르며, 기능/서버 쓰기 변경은 아직 구현되지 않았다. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
 
 > **2026-10-25 현황 갱신(이전 무료 감독·UI '신규 개발' 설명보다 우선):** 최신 개발 `main` `d4c5934de07`에는 PR #103/#104/#109의 감사·테마·카드 전체 내역·UI 통합 코드가 있다. [현황·명세 격차 인계 §0.13](docs/COST_V3_CURRENT_HANDOFF.md)를 먼저 확인하고 이미 main에 반영된 코드를 재구현하지 않는다. **구현 병합 ≠ 운영 배포**이며 사용자 승인 없는 배포·실 DB·Google 쓰기는 금지. 보류 문서 PR [#105](https://github.com/6Soo/cost/pull/105)(일괄 지출 정리), [#110](https://github.com/6Soo/cost/pull/110)(오제 수입·볼드 표시)는 코드 완료가 아니다.
 >
