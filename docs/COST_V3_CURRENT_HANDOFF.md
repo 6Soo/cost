@@ -36,6 +36,8 @@
 
 **2026-10-26 후속 표적 검증:** 로컬 Chromium/Playwright로 공통 셸을 적용한 합성 문서를 실제 렌더링했다. light/dark 시스템 설정의 계산된 배경색, 375/759/1280px 메뉴 버튼 노출, 모바일 Enter 열기·Escape 닫기·포커스 복귀를 `webapp/tests/test_site_shell.py` 브라우저 검사로 확인했고 10개 검사가 통과했다. OTA 스냅샷 경합 방지는 커밋 `6ecde4f`에 반영했으며 관련 유지관리 검사 11개와 구문 검사가 통과했다. 이 증거는 공통 셸 동작만 확인하며 `/cards/all`·영수증·항공권 전체 화면의 200% 확대와 화면별 반응형 수락을 대신하지 않는다.
 
+`/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 모두 문서 가로 넘침이 없고 dark 시스템 설정이 적용됨을 확인했다. `webapp/tests/test_cards_all.py` 전체 22개가 통과했다. 영수증 화면과 항공권 화면의 여러 폭 수락 및 200% 확대는 계속 미검증이다.
+
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 
 **개발 계약:** 먼저 `SIDEBAR-DARK-01` → `FLIGHT-SHELL-01`. 상용 프론티어 감독 에이전트는 티켓 배정·검증 결과·위험 판단만 수행하고 구현/표적 테스트/코드 조사는 저비용 에이전트에 위임한다. Paseo 네이티브 Skill/위임이 진짜 독립 실행 가능한지 확인 전에는 성공으로 보고하지 않으며, CLI 자동 대체는 사용자 승인 필요. 작업별 재작업 2회/세션당 신규 구현 4티켓·하위 호출 12회/무진전 2회 HOLD. 운영 DB·Google 원본·실제 고객 기록·운영 배포는 별도 허가 없이는 금지.
