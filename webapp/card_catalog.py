@@ -34,7 +34,7 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
 .card-catalog #card-count{display:inline-block;margin:0 0 16px;padding:6px 12px;
  border-radius:8px;background:var(--cc-accent-bg);color:var(--cc-accent);font-weight:600;font-size:13px}
 .card-catalog #card-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:16px;
- margin:0 0 20px;background:#fff;border:1px solid #E4E7EC;border-radius:12px}
+ margin:0 0 20px;background:var(--cc-surface);border:1px solid var(--cc-border);border-radius:12px}
 .card-catalog input,.card-catalog select{min-height:44px;max-width:100%;border:1px solid var(--cc-border);
  border-radius:8px;background:var(--cc-surface);padding:8px 10px;color:var(--cc-text);font:inherit}
 .card-catalog #card-filters input{flex:1 1 280px;min-width:0}
@@ -55,12 +55,12 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
 }
 .card-catalog .header-value{font-size:11px;color:#166444;font-weight:400}
 .card-catalog .header-menu{position:fixed;inset:auto;margin:0;width:272px;max-width:calc(100vw - 24px);
- max-height:360px;overflow:auto;padding:8px;border:1px solid #E4E7EC;border-radius:12px;background:#fff;
- box-shadow:0 12px 28px rgba(16,24,40,.16);color:#344054;font:400 14px/1.5 "Pretendard Variable",system-ui,sans-serif}
+ max-height:360px;overflow:auto;padding:8px;border:1px solid var(--cc-border);border-radius:12px;background:var(--cc-surface);
+ box-shadow:0 12px 28px rgba(16,24,40,.16);color:var(--cc-text);font:400 14px/1.5 "Pretendard Variable",system-ui,sans-serif}
 .card-catalog .header-menu h2{font-size:12px;color:#667085;margin:6px 8px}
 .card-catalog .filter-option{display:flex;align-items:center;justify-content:space-between;width:100%;
  min-height:40px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.card-catalog .filter-option:hover{background:#F8FAFC}
+.card-catalog .filter-option:hover{background:var(--cc-soft)}
 .card-catalog .filter-option[aria-pressed=true]{background:var(--cc-accent-bg);color:var(--cc-accent);font-weight:600}
 .card-catalog .filter-option[aria-pressed=true]:after{content:'✓'}
 .card-catalog tbody tr:last-child td{border-bottom:0}
