@@ -50,8 +50,19 @@ def test_income_requires_canonical_copy_and_marks_unverified(income_context, mon
     snapshot['trips'][0]['verified'] = False
     monkeypatch.setattr(page, 'load_choices', lambda *a: {'choices': {}})
     snapshot['trips'][0]['copies']['archive'] = None
+    snapshot['trips'][0]['copies']['main']['income']['verified'] = False
     body = page.trip_income_html('trip-syn')
     assert '수입 확인 필요' in body and '확정 수입 1,000원' not in body
+
+
+def test_verified_income_remains_visible_when_only_expense_block_is_unverified(income_context):
+    snapshot, _ = income_context
+    snapshot['trips'][0]['copies']['main']['expense']['verified'] = False
+    body = page.trip_income_html('trip-syn')
+    assert 'INCOME-NAME' in body
+    assert '수입 1,000원' in body
+    assert '지출 또는 여행 전체 회계 검증은 완료되지 않았습니다' in body
+    assert '순수익' not in body
 
 
 def test_viewer_income_checks_both_grant_and_current_trip_access(income_context, monkeypatch):
