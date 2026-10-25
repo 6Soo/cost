@@ -4,7 +4,7 @@
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
 
-> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§11. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
+> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§12. 지출 정리 일괄 실행 버튼의 일반 UI 제거·관리자 유지보수 분리는 §12에 따르며, 기능/서버 쓰기 변경은 아직 구현되지 않았다. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
 
 ## 단일 V3 구현 진입점
 
