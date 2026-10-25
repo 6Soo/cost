@@ -24,13 +24,15 @@
 
 **EXPENSE-BULK-AUDIT-01 소스 확인:** 일반 `/import`의 `render_expense_cleanup()`이 버튼과 `CLEANUP_SCRIPT`를 렌더한다. owner+CSRF가 있는 `POST /api/imports/reclassify-pending`은 `reclassify_cleanup()`을 직접 실행해 `CardFlow._classify()`, `_auto_record_locked()` 및 `assign_existing_local_expenses()`를 호출할 수 있다. 함수는 거래/장부 분류·기장·기존 행의 여행 귀속을 변경하고, OTA 보고서/스냅샷 의존도 사용한다. 미리보기 전용 엔드포인트, preview digest 검증, 적용 감사 기록은 발견되지 않았다. 그래서 UI 버튼 제거와 기존 POST 차단은 함께 설계되어야 하며, 유지보수 경로의 읽기 전용 미리보기·최신성 검증은 아직 구현하지 않았다.
 
-다음 코드 실행은 `EXPENSE-BULK-MAINT-01`의 owner 전용 읽기 전용 dry-run, 대상 최신성 게이트, 멱등 적용 및 감사 기록 설계다. 이 경로가 합성 자료로 검증되기 전까지 일괄 쓰기는 비활성 상태로 둔다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이다. `V21-UI-ACCEPTANCE-01`의 실제 브라우저 크기·키보드·200% 확대 확인도 남아 있다.
+다음 실행 항목은 `V21-UI-ACCEPTANCE-01`의 브라우저 수락 확인이다. `OZE-INCOME-DIAG-01`은 운영 원본 접근 권한과 실행 범위가 확인되기 전까지 실제 Google 자료를 읽지 않는다. 유지관리 일괄 적용도 운영 자료로 실행하거나 배포하지 않는다.
 
 **2026-10-26 후속 구현:** `EXPENSE-BULK-UI-01`에서 일반 지출 화면의 일괄 실행 버튼과 전용 JS를 제거하고, 건별 업무를 유지했다. 기존 `POST /api/imports/reclassify-pending`은 owner·CSRF 검증 뒤에도 `410 MAINTENANCE_FLOW_REQUIRED`를 반환해 호출만으로 재분류·장부 기록·여행 변경을 일으키지 않도록 닫았다. 합성 표적 검사 `test_cleanup_reclassification.py` 4개 통과. 세 테스트 파일 실행은 36개 통과, 2개 실패였으며, 실패는 이번 diff에서 바뀌지 않은 기존 문자열 검증 두 건이다. 기준 HEAD의 해당 코드/기대값은 변경 전부터 존재함을 확인했으며 기준 커밋에서 재실행하지는 않았다.
 
 **2026-10-26 유지관리 구현:** `/maintenance/expense-bulk` owner 전용 화면과 preview/apply API를 추가했다. 미리보기는 데이터베이스의 일관된 메모리 복제본에서 기존 재분류·기장·기존 지출 여행 배정 흐름을 시뮬레이션하며, 등록 OTA 자료는 읽기 전용으로 확인하고 worker 갱신을 시작하지 않는다. preview 응답에는 예상 대상 ID/종류·건수·보류·실패, OTA refresh 필요 여부가 포함된다. 적용은 5분 유효한 일회용 무작위 preview ID, 전체 DB·등록 자료·일정/Google 입력 지문, owner·CSRF, 명시 확인 및 범위(OTA 갱신이 필요하면 그 범위 포함)를 확인한다. 변경/재전송은 거절하거나 같은 결과를 돌려준다. 작업 시작/완료/실패와 실제 변경 대상 ID는 기존 `change_log`에 비밀값·원문 없이 남긴다. 오래된 `/api/imports/reclassify-pending`은 계속 410으로 닫혀 있다.
 
 표적 검사 `test_expense_bulk_maintenance.py`와 `test_cleanup_reclassification.py`는 11개 통과했다. 이 검사는 메모리 미리보기의 실제 저장소 무변경, preview 뒤 변경 거부, 명시 확인, OTA 갱신 동의 범위, owner/CSRF, 적용 재전송 멱등성을 확인한다. 실제 브라우저·운영 데이터·운영 배포는 검증하지 않았다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이고, `V21-UI-ACCEPTANCE-01`의 실제 브라우저 확인도 남아 있다.
+
+**2026-10-26 브라우저 부분 확인:** Aside Browser의 합성 로컬 앱에서 owner 세션으로 `/flight-passengers`를 열었고, 1440px 기본 창·현재 light 설정의 접근성 트리에 공용 메뉴와 항공권 입력 화면이 표시됐다. 이후 탭 간 synthetic session이 유지되지 않아 나머지 페이지를 확정하지 않았다. Aside CLI의 페이지 객체에는 `setViewportSize`와 `emulateMedia`가 없어 375/759/1280px, dark 전환, 200% 확대, 키보드 전체 흐름은 **NOT_TESTED**다. 이를 브라우저 수락 완료로 해석하지 않는다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 
