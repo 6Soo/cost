@@ -78,6 +78,26 @@ def _active_store():
     return _STORE if local is _NO_REQUEST_STORE else local
 
 
+def _get_card_db_path() -> str | None:
+    """Get the card transactions database path from the active store's connection.
+    Uses PRAGMA database_list to get the actual file path from the SQLite connection.
+    Returns None if no store is bound or the connection has no file path.
+    """
+    store = _active_store()
+    if store is None or store.conn is None:
+        return None
+    try:
+        cursor = store.conn.execute('PRAGMA database_list')
+        for row in cursor:
+            # row = (seq, name, file_path)
+            path = row[2]
+            if path and path != '':
+                return path
+    except Exception:
+        pass
+    return None
+
+
 def _store_request_locked(method):
     """Serialize database work after the HTTP request has been parsed."""
     def wrapped(self, *args, **kwargs):
@@ -4022,6 +4042,11 @@ class Handler(BaseHTTPRequestHandler):
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
+        if parsed.path == "/cards/all":
+            from . import cards_all
+
+            self._send(cards_all.cards_all_page(query, db_path=_get_card_db_path()))
+            return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
             self.send_header('Location', '/import')
@@ -4158,18 +4183,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이에요"}, code=404)
                 return
             self._send_json(job, code=200)
-        elif parsed.path == "/api/cards/transactions":
-            from . import cards_all
-            board = _active_store()
-            year = str(query.get('year', ['2026'])[0]).strip()
-            month = str(query.get('month', [''])[0]).strip()
-            if not re.fullmatch(r'[0-9]{4}', year):
-                year = '2026'
-            if not re.fullmatch(r'[0-9]{2}', month):
-                self._send_json({'rows': [], 'dates': {}, 'total': 0, 'month': ''}, code=400)
-                return
-            data = cards_all.get_month_transactions(board, int(year), int(month))
-            self._send_json(data, code=200)
         elif parsed.path.startswith("/income/") and parsed.path.endswith("/split"):
             parts = parsed.path.strip("/").split("/")
             self._send(split_page(parts[1] if len(parts) == 3 else ""))
@@ -4249,7 +4262,83 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"code": "RESOURCE_NOT_FOUND", "message": "없는 작업이어요"}, code=404)
                 return
             self._send_json(rule, code=200)
+        elif parsed.path.startswith("/api/cards/transactions"):
+            from . import card_transactions as _ct
+            try:
+                q = parse_qs(parsed.query)
+                # Validate year parameter
+                year_str = q.get("year", ["2026"])[0]
+                try:
+                    year = int(year_str)
+                except (TypeError, ValueError):
+                    self._send_json({"code": "INVALID_VALUE", "message": "year must be an integer"}, code=400)
+                    return
+                if year < 2000 or year > 2100:
+                    self._send_json({"code": "INVALID_VALUE", "message": "year out of range"}, code=400)
+                    return
+
+                # Validate month parameter if present
+                month = None
+                month_str = q.get("month", [None])[0]
+                if month_str is not None:
+                    try:
+                        month = int(month_str)
+                    except (TypeError, ValueError):
+                        self._send_json({"code": "INVALID_VALUE", "message": "month must be an integer"}, code=400)
+                        return
+                    if month < 1 or month > 12:
+                        self._send_json({"code": "INVALID_VALUE", "message": "month must be 1-12"}, code=400)
+                        return
+
+                # Validate cursor format if present
+                cursor = q.get("cursor", [None])[0]
+                if cursor is not None:
+                    parts = cursor.split("|", 1)
+                    if len(parts) != 2 or not parts[0] or not parts[1]:
+                        self._send_json({"code": "INVALID_VALUE", "message": "invalid cursor format"}, code=400)
+                        return
+                    c_date, c_id = parts
+                    if not (c_date and c_date[0:4].isdigit() and len(c_date) >= 10):
+                        self._send_json({"code": "INVALID_VALUE", "message": "invalid cursor date"}, code=400)
+                        return
+
+                # Get the card DB path from the active store (request-bound)
+                card_db_path = _get_card_db_path()
+
+                # In the base router's unbound test/development mode, retain
+                # the V21 API's configured card DB fallback. A request-bound
+                # store always takes precedence over this environment path.
+                if card_db_path is None and _REQUEST_STORE.get() is _NO_REQUEST_STORE:
+                    card_db_path = os.environ.get("WEBLEDGER_DB")
+
+                if parsed.path == "/api/cards/transactions/years":
+                    res = _ct.available_years(db_path=card_db_path)
+                    self._send_json(res, code=200)
+                    return
+                if parsed.path == "/api/cards/transactions/summary":
+                    summary = _ct.year_summary(db_path=card_db_path, year=year)
+                    self._send_json({"year": year, "months": summary.get("months"), "undated_count": summary.get("undated_count")}, code=200)
+                    return
+                if parsed.path.startswith("/api/cards/transactions/undated"):
+                    res = _ct.undated_list(db_path=card_db_path, year=year, cursor=cursor, per_page=100)
+                    self._send_json(res, code=200)
+                    return
+                if month is None:
+                    self._send_json({"code": "INVALID_VALUE", "message": "month required"}, code=400)
+                    return
+                res = _ct.list_for_month(db_path=card_db_path, year=year, month=month, cursor=cursor, per_page=100)
+                self._send_json(res, code=200)
+            except ValueError as exc:
+                # Validation errors from card_transactions module
+                self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
+            except RuntimeError as exc:
+                # Configuration errors (e.g., missing DB path)
+                self._send_json({"code": "CONFIG_ERROR", "message": str(exc)}, code=503)
+            except Exception as exc:
+                # Unexpected errors
+                self._send_json({"code": "INTERNAL_ERROR", "message": "요청을 처리하지 못했어요"}, code=500)
         else:
+
             self._send(layout("없음", "<p>없는 주소예요.</p>"), code=404)
 
     @_store_request_locked

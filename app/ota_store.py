@@ -115,11 +115,14 @@ def _entries(conn, revision):
 
 def portal_rows(path, outer_index, *, scheduled=False):
     with closing(connect_read(path)) as conn:
+        source_locators = {row['source_id']: row['locator'] for row in conn.execute(
+            "SELECT source_id,locator FROM ota_sources WHERE kind='portal_database'")}
         # 출처별 원래 ID와 그룹 경계를 유지한다. 파일 하나로 합쳐도 숫자 ID를 섞지 않는다.
         table = 'ota_scheduled_rows' if scheduled else 'ota_portal_rows'
         available = conn.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone()
         if available:
-            rows = [{**unpacked(row['payload_json']), 'database':f'{outer_index}:{row["source_id"]}'}
+            rows = [{**unpacked(row['payload_json']), 'database':f'{outer_index}:{row["source_id"]}',
+                     '_source_locator': source_locators[row['source_id']]}
                     for row in _current_rows(conn, table, 'portal_database')]
             if scheduled:
                 for source in conn.execute("SELECT * FROM ota_sources WHERE kind='portal_database' ORDER BY ordinal"):

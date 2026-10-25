@@ -1012,10 +1012,10 @@ class CardFlow:
 
     def _canonical_candidate_period_assignments(self, sources, taken, selected, blocked_sources):
         """Infer a trip from verified OTA service dates without confirming its payment link."""
-        from collections import defaultdict
         from app import ota_payments
         from app.classify import PERIOD_OTA_ORIGIN
-        from app.normalize import normalize_merchant
+        from app.ota_core_projection import project_canonical_candidate_period_assignments
+        from collections import defaultdict
 
         current, fresh = self._held_ota_snapshot()
         if not current or not fresh:
@@ -1023,16 +1023,17 @@ class CardFlow:
         data = current.get('data') or {}
         events = {str(event.get('ota_event_id') or ''): event for event in data.get('events', [])}
         cards = {str(card.get('transaction_id') or ''): card for card in data.get('transactions', [])}
-        reserved = {str(identity) for result in data.get('results', [])
+        results = data.get('results', [])
+        reserved = {str(identity) for result in results
                     for identity in result.get('reserved_card_ids') or ()}
         reserved.update(str(link.get('transaction_id')) for link in (data.get('links') or {}).values()
                         if isinstance(link, dict) and link.get('transaction_id'))
-        reserved.update(str(result.get('transaction_id')) for result in data.get('results', [])
+        reserved.update(str(result.get('transaction_id')) for result in results
                         if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER') and
                         result.get('transaction_id'))
         verified_trips = [trip for trip in self.board.list_trips() if self.trip_valid(trip['tab_id'])]
         choices = defaultdict(set)
-        for result in data.get('results', []):
+        for result in results:
             reservation_only = result.get('status') == 'RESERVATION_ONLY'
             if result.get('status') not in ('HOLD_DATE_UNKNOWN', 'RESERVATION_ONLY'):
                 continue
@@ -1054,9 +1055,8 @@ class CardFlow:
             item = str(event.get('item') or '').strip()
             if not item:
                 continue
-            is_stay = item in ('숙박비', '숙박료')
             trip = stay_trip(verified_trips, period['starts_on'], period['ends_on'],
-                             service=not is_stay, nets=_google_nets())
+                             service=item not in ('숙박비', '숙박료'), nets=_google_nets())
             if not trip:
                 continue
             for candidate in search.get('candidates') or ():
@@ -1074,26 +1074,10 @@ class CardFlow:
                 choices[source].add((str(trip['tab_id']), item,
                                      str(period['starts_on']), str(period['ends_on'])))
 
-        rules = []
-        for source, options in choices.items():
-            if len(options) != 1:
-                continue
-            trip_id, item, starts_on, ends_on = next(iter(options))
-            card = next((card for card in cards.values() if str(card.get('source_hash') or '') == source), None)
-            if not card or not self.trip_valid(trip_id):
-                continue
-            basis = (f"결제일 미상 OTA 후보의 검증된 이용기간 {starts_on}~{ends_on}이 "
-                     "기존 여행과 겹칩니다. 예약 연결과 예약번호는 확정하지 않았습니다.")
-            rules.append({
-                'conditions': {'merchant_normalized': normalize_merchant(
-                    card.get('merchant_normalized') or card.get('merchant') or ''),
-                    'transaction_direction': 'purchase'},
-                'optional': {'source_hash': source, 'inferred_assignment': {
-                    'trip_id': trip_id, 'confidence': '낮음', 'basis': basis}},
-                'effects': {'item': item}, 'origin': PERIOD_OTA_ORIGIN, 'note': '',
-                'rule_id': f"auto-ota-undated-candidate-{source[:16]}",
-            })
-        return rules
+        flattened = [(source, *option) for source, options in choices.items() for option in options]
+        rules = project_canonical_candidate_period_assignments(
+            cards=cards, choices=flattened)
+        return [rule for rule in rules if self.trip_valid(rule['optional']['inferred_assignment']['trip_id'])]
 
     def _board_future_rules(self):
         """장부에서 '미래 적용'으로 켠 규칙을 카드 분류 규칙으로 옮긴다.
@@ -1533,54 +1517,95 @@ class CardFlow:
                 projection=lambda entry: self.project(entry), additional_holds=holds, **options)
             return result['applied']
 
-    def persist_card_trip_move(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+    def _trip_move_origin_revision(self, transaction_id, request_id, originating_revision=None):
+        row = self.board.conn.execute(
+            "SELECT response_json FROM requests WHERE request_id=? AND scope='save_decision'",
+            (str(request_id),)).fetchone()
+        if row is None:
+            return None
+        try:
+            saved = json.loads(row[0])
+            revision = int(saved['revision'])
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+            return None
+        try:
+            supplied_revision = (None if originating_revision is None
+                                 else int(originating_revision))
+        except (TypeError, ValueError):
+            return None
+        if (saved.get('transaction_id') != str(transaction_id)
+                or (supplied_revision is not None and supplied_revision != revision)):
+            return None
+        return revision
+
+    def _trip_move_is_current(self, transaction_id, to_trip_id, request_id, originating_revision=None):
+        revision = self._trip_move_origin_revision(
+            transaction_id, request_id, originating_revision)
+        if revision is None:
+            return False
+        row = self.board.conn.execute(
+            "SELECT revision, classification_source, display_tab_id, trip_id"
+            " FROM transactions WHERE transaction_id=?", (str(transaction_id),)).fetchone()
+        return bool(row and int(row[0]) == revision and row[1] == 'user_decision'
+                    and str(row[2] or '') == str(to_trip_id or '')
+                    and str(row[3] or '') == str(to_trip_id or ''))
+
+    def persist_card_trip_move(self, transaction_id, from_trip_id, to_trip_id, *, request_id,
+                               originating_revision=None):
         """Save the owner's trip move to the COST row before any optional AI work."""
         source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
         if not source_trip or not target_trip or source_trip == target_trip:
             return {"status": "not_needed"}
-        row_id = 'card-' + str(transaction_id)
-        row = self.board.get_row(row_id)
-        if row is None:
-            return {"status": "not_recorded"}
-        case_request_id = 'card-trip-move-' + hashlib.sha256(
-            f"{transaction_id}\0{request_id}".encode('utf-8')).hexdigest()[:32]
-        case_id = 'case-' + case_request_id
-        if row.get('display_tab_id') != target_trip:
-            saved = self.board.save(row_id=row_id, expected_revision=int(row['revision']),
-                                    client_request_id=case_request_id, change_mode='rule_change',
-                                    changes={'display_tab_id': target_trip}, actor='owner')
-            case_id = saved.get('learning_case_id') or case_id
-        self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
-        return {"status": "saved", "case_id": case_id, "row_id": row_id,
-                "request_id": case_request_id}
+        with self.board._lock:
+            row_id = 'card-' + str(transaction_id)
+            row = self.board.get_row(row_id)
+            if row is None:
+                return {"status": "not_recorded"}
+            if not self._trip_move_is_current(
+                    transaction_id, target_trip, request_id, originating_revision):
+                return {"status": "superseded"}
+            case_request_id = 'card-trip-move-' + hashlib.sha256(
+                f"{transaction_id}\0{request_id}".encode('utf-8')).hexdigest()[:32]
+            case_id = 'case-' + case_request_id
+            if row.get('display_tab_id') != target_trip:
+                saved = self.board.save(row_id=row_id, expected_revision=int(row['revision']),
+                                        client_request_id=case_request_id, change_mode='rule_change',
+                                        changes={'display_tab_id': target_trip}, actor='owner')
+                case_id = saved.get('learning_case_id') or case_id
+            self.board.ensure_learning_case(case_id=case_id, row_id=row_id)
+            return {"status": "saved", "case_id": case_id, "row_id": row_id,
+                    "request_id": case_request_id}
 
-    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id):
+    def open_trip_move_learning(self, transaction_id, from_trip_id, to_trip_id, *, request_id,
+                                originating_revision=None):
         """Open the existing rule dialogue after the owner move has been persisted."""
         source_trip, target_trip = str(from_trip_id or ''), str(to_trip_id or '')
-        persisted = self.persist_card_trip_move(transaction_id, source_trip, target_trip,
-                                                request_id=request_id)
-        if persisted['status'] != 'saved':
-            return persisted
-        case_id = persisted['case_id']
-        case_request_id = persisted['request_id']
-        row_id = persisted['row_id']
-        current = self.board.get_row(row_id)
-        draft = {
-            'learning_case_id': case_id,
-            'rule_kind': '', 'evidence_basis': '',
-            'conditions': {},
-            'scope': {'trip_id': target_trip},
-            'effects': {'item': current.get('item') or '',
-                        'display_tab_id': target_trip},
-        }
-        self.board.open_rule_dialog(learning_case_id=case_id, draft=draft,
-                                    client_request_id=case_request_id + ':dialog')
-        self.board.open_conversation(learning_case_id=case_id,
-                                     client_request_id=case_request_id + ':conversation')
-        self.board.ensure_trip_move_reason_question(case_id)
-        return {"status": "opened", "case_id": case_id,
-                "conversation_id": 'conv-' + case_id,
-                "url": '/rules?case=' + case_id}
+        with self.board._lock:
+            persisted = self.persist_card_trip_move(
+                transaction_id, source_trip, target_trip, request_id=request_id,
+                originating_revision=originating_revision)
+            if persisted['status'] != 'saved':
+                return persisted
+            case_id = persisted['case_id']
+            case_request_id = persisted['request_id']
+            row_id = persisted['row_id']
+            current = self.board.get_row(row_id)
+            draft = {
+                'learning_case_id': case_id,
+                'rule_kind': '', 'evidence_basis': '',
+                'conditions': {},
+                'scope': {'trip_id': target_trip},
+                'effects': {'item': current.get('item') or '',
+                            'display_tab_id': target_trip},
+            }
+            self.board.open_rule_dialog(learning_case_id=case_id, draft=draft,
+                                        client_request_id=case_request_id + ':dialog')
+            self.board.open_conversation(learning_case_id=case_id,
+                                         client_request_id=case_request_id + ':conversation')
+            self.board.ensure_trip_move_reason_question(case_id)
+            return {"status": "opened", "case_id": case_id,
+                    "conversation_id": 'conv-' + case_id,
+                    "url": '/rules?case=' + case_id}
 
     def saved_state(self, batch_id, *, classify=False):
         """Only call after the write committed; refresh failure cannot undo that write."""
@@ -1791,121 +1816,34 @@ class CardFlow:
     def _ota_card_statuses(self, rows):
         """Read OTA resolution labels from the published matcher generation; never run a matcher here."""
         from . import ota_payment_review
+        from app.ota_core_projection import project_card_ota_statuses
         if not ota_payment_review.enabled():
             return {}, None, {'enabled': False, 'fresh': False, 'status': 'disabled',
                               'generation': None}
         current, fresh = self._held_ota_snapshot()
-        reconciliation = {
-            'enabled': True,
-            'fresh': bool(current is not None and fresh),
-            'status': ('ready' if current is not None and fresh else
-                       'stale' if current is not None else 'loading'),
-            'generation': current.get('generation') if current else None,
-        }
         if current is None or not fresh:
+            reconciliation = {
+                'enabled': True,
+                'fresh': bool(current is not None and fresh),
+                'status': ('ready' if current is not None and fresh else
+                           'stale' if current is not None else 'loading'),
+                'generation': current.get('generation') if current else None,
+            }
             return {}, None, reconciliation
-        states = {}
-        for result in current.get('results') or ():
-            transaction_id = str(result.get('transaction_id') or '')
-            group_only = (result.get('allocation_basis') in
-                          ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
-                          and result.get('individual_payment_evidence') is False)
-            state = ('GROUP_RECONCILED' if group_only else
-                     'USER_CONFIRMED' if result.get('status') == 'MATCHED_USER' else
-                     'INFERRED' if result.get('inferred_link') else
-                     'EXACT' if result.get('status') == 'MATCHED_AUTO' else None)
-            if transaction_id and state:
-                states[transaction_id] = state
-            for reserved in result.get('reserved_card_ids') or ():
-                states[str(reserved)] = 'REVIEW_REQUIRED'
-        for result in (current.get('data') or {}).get('results') or ():
-            trace = result.get('candidate_search') or {}
-            if not trace.get('reservation_only'):
-                continue
-            for candidate in trace.get('candidates') or ():
-                identity = str(candidate.get('transaction_id') or '')
-                if identity:
-                    states.setdefault(identity, 'CANDIDATE')
-        return states, current.get('generation'), reconciliation
+        return project_card_ota_statuses(current)
 
     def _ota_candidate_notes(self, rows):
         """Attach unresolved canonical OTA candidates as review-only screen notes."""
         import re
         from . import ota_payment_review
+        from app.ota_core_projection import project_card_ota_candidate_notes
         if not ota_payment_review.enabled():
             return {}
         current, fresh = self._held_ota_snapshot()
         if current is None or not fresh:
             return {}
-        data = current.get('data') or {}
         wanted = {str(row.get('transaction_id')) for row in rows}
-        events = {str(event.get('ota_event_id')): event for event in data.get('events', [])}
-        notes = {}
-        for result in data.get('results', []):
-            group_only = (result.get('allocation_basis') in
-                          ('auto_stable_order', 'user_approved_stable_order', 'frozen_user_confirmed_order')
-                          and result.get('individual_payment_evidence') is False)
-            if group_only:
-                event = events.get(str(result.get('ota_event_id') or ''), {})
-                note = ('OTA 반복 결제 그룹은 대응됐지만 이 카드와 예약의 개별 연결 근거는 확인되지 않았습니다.'
-                        if event else 'OTA 반복 결제 그룹 대응이며 개별 예약 연결은 미확정입니다.')
-                identity = str(result.get('transaction_id') or '')
-                if identity in wanted:
-                    notes.setdefault(identity, set()).add(note)
-                continue
-            if result.get('status') in ('MATCHED_AUTO', 'MATCHED_USER'):
-                continue
-            event = events.get(str(result.get('ota_event_id') or ''), {})
-            provider = str(event.get('provider') or 'OTA')
-            booking_ref = str(event.get('booking_ref') or '')
-            status = ota_payment_review._OTA_STATUS.get(str(result.get('status') or ''),
-                                                       str(result.get('status') or '확인 필요'))
-            reason = ota_payment_review._OTA_REASON.get(str(result.get('reason') or ''),
-                                                        str(result.get('reason') or '추가 근거 확인 필요').replace('_', ' '))
-            note = f"OTA 후보(미확정): {provider} {booking_ref} · {status} · {reason}".strip()
-            if provider == 'toyoko':
-                period = event.get('service_period') or {}
-                basis = ('묶음 합계 · 객실별 결제 미확정' if event.get('reservation_group_only')
-                         else '객실 소계 · 결제 완료 근거 미확인')
-                note = (f"호텔 예약 후보(미확정): {booking_ref} · "
-                        f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · {basis}")
-            search_candidates = [candidate.get('transaction_id')
-                                 for candidate in (result.get('candidate_search') or {}).get('candidates') or ()]
-            search_rejections = (result.get('candidate_search') or {}).get('rejected') or ()
-            rejected_ids = [candidate.get('transaction_id') for candidate in search_rejections]
-            for transaction_id in [*(result.get('candidates') or ()), *search_candidates, *rejected_ids]:
-                identity = str(transaction_id or '')
-                if provider == 'toyoko' and identity in rejected_ids and identity not in search_candidates:
-                    continue
-                if identity and identity in wanted:
-                    candidate_note = note
-                    if provider == 'toyoko' and any(
-                            str(candidate.get('transaction_id')) == identity
-                            and candidate.get('basis') == 'HOTEL_BRANCH_AND_STAY_ONLY'
-                            for candidate in (result.get('candidate_search') or {}).get('candidates') or ()):
-                        candidate_note = (f"호텔 일정 후보(금액 불일치): {booking_ref} · "
-                                          f"숙박 {period.get('starts_on', '?')}~{period.get('ends_on', '?')} · "
-                                          "같은 지점·숙박기간만 확인 · 결제 미확정")
-                    notes.setdefault(identity, set()).add(candidate_note)
-            for rejected in search_rejections:
-                identity = str(rejected.get('transaction_id') or '')
-                if identity not in wanted:
-                    continue
-                rejected_reason = ota_payment_review._OTA_REASON.get(
-                    str(rejected.get('reason') or ''), '같은 카드 조건에서 금액 또는 통화가 다릅니다.')
-                if provider == 'toyoko':
-                    notes.setdefault(identity, set()).add(f'호텔 후보 제외: {booking_ref} · {rejected_reason}')
-                else:
-                    notes.setdefault(identity, set()).add(f'OTA 후보 제외 사유: {rejected_reason}')
-        for row in rows:
-            identity = str(row.get('transaction_id') or '')
-            merchant = re.sub(r'[^a-z0-9]', '', str(row.get('merchant') or '').casefold())
-            if (identity and identity not in notes and merchant.startswith('toyokoinn')
-                    and (not row.get('foreign_currency') or not row.get('foreign_amount'))):
-                notes[identity] = {'호텔 예약 연결 보류: 카드 원본의 현지 금액·통화 확인이 필요합니다.'}
-        return {identity: sorted(values, key=lambda note: (
-                    note.startswith('호텔 후보 제외:'), note.startswith('호텔 일정 후보'), note))[:2]
-                for identity, values in notes.items()}
+        return project_card_ota_candidate_notes(current, wanted, rows)
 
     def refund_group_views(self, preview, trips):
         """Each linked refund pair as its own group, with the digest its own commit button uses."""
@@ -2154,6 +2092,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                     closer = getattr(locals().get('backend'), 'close', None)
                     if closer:
                         closer()
+            # OTA refresh can make a row recordable after classify's first pass.
             recorded = flow.auto_record(received['batch_id'])
             if 'ota_refresh_status' in result:
                 recorded['ota_refresh_status'] = result['ota_refresh_status']
@@ -2207,7 +2146,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             tab = str(payload.get('display_tab_id') or '')
             if not flow.tab_valid(tab):
                 raise StoreError('TRIP_AUTHORITY_REQUIRED', '원본 일정이 확인된 여행을 선택해 주세요')
-            flow.pipeline.save_decision(payload['transaction_id'], payload['revision'],
+            saved_decision = flow.pipeline.save_decision(payload['transaction_id'], payload['revision'],
                 item=payload['item'], description=payload.get('description',''), display_tab_id=tab,
                 trip_id=tab if tab not in ('','unclassified') else '', trip_validator=flow.trip_valid,
                 tab_validator=flow.tab_valid,
@@ -2220,14 +2159,16 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 try:
                     response['trip_move_persisted'] = flow.persist_card_trip_move(
                         payload['transaction_id'], previous_trip, tab,
-                        request_id=str(payload['request_id']))
+                        request_id=str(payload['request_id']),
+                        originating_revision=saved_decision['revision'])
                 except Exception:
                     # The card decision is already saved; do not let optional learning undo it.
                     response['trip_move_persisted'] = {'status': 'unavailable'}
                 try:
                     response['trip_move_learning'] = flow.open_trip_move_learning(
                         payload['transaction_id'], previous_trip, tab,
-                        request_id=str(payload['request_id']))
+                        request_id=str(payload['request_id']),
+                        originating_revision=saved_decision['revision'])
                 except Exception:
                     # The owner decision and row move already committed; learning is optional.
                     response['trip_move_learning'] = {'status': 'unavailable'}
@@ -2522,17 +2463,141 @@ def cleanup_total(board) -> int:
 
 
 def _ota_entries_by_card(board) -> dict:
-    """카드 거래 ID -> 같은 거래와 연결된 OTA 예약 (OTA 내역 화면과 같은 자료)."""
-    from . import ota_catalog
-    try:
-        index = ota_catalog._index(board, ota_catalog.configured_sources(board), allow_stale=True)
-    except (OSError, ValueError, KeyError, TypeError):
+    """카드 거래 ID -> 중앙 OTA 스냅샷에서 투영한 OTA 상태/근거/후보/스냅샷 신선도.
+
+    기존 ota_catalog._index의 단일 card_matches만 소비하던 방식을 대체해,
+    중앙 스냅샷(fresh/stale/error)의 results·candidate_search·reservation_link를
+    순수 투영 헬퍼로 변환하여 후보/사유/복수 후보를 보존합니다.
+    display_context()로 원자적 current+status 획득 후 투영.
+    """
+    from . import ota_payment_review
+    from app.ota_core_projection import project_card_ota_statuses
+
+    # OTA 검토 모드가 비활성화되면 빈 결과 반환 (기존 동작 유지)
+    if not ota_payment_review.enabled():
         return {}
-    return {card['transaction_id']: entry for entry in index.get('entries', [])
-            for card in entry.get('card_matches') or []}
+
+    try:
+        current, status_dict = ota_payment_review.snapshot_service(board).display_context()
+    except Exception:
+        current, status_dict = None, {'status': 'error', 'fresh': False}
+    is_fresh = status_dict.get('fresh', False)
+    snapshot_status = status_dict.get('status', 'unknown')
+
+    if current is None:
+        # 스냅샷이 없는 경우: loading/error 상태를 모든 OTA 대상 카드에 전달
+        return {'__snapshot_status__': {
+            'status': snapshot_status,
+            'fresh': False,
+            'generation': None,
+            'enabled': True,
+            'current': None,
+        }}
+
+    # Stale evidence may explain what was seen before, but cannot establish a current link.
+    statuses, generation, _ = project_card_ota_statuses(current) if is_fresh else ({}, None, {})
+    entries = _index_ota_display_candidates(current)
+    snapshot = {'generation': generation, 'fresh': bool(is_fresh),
+                'status': snapshot_status, 'enabled': True}
+    result = {tid: {'ota_status': statuses.get(tid, 'UNLINKED') if is_fresh else 'UNKNOWN',
+                    'ota_notes': notes, 'snapshot': snapshot}
+              for tid, notes in entries.items()}
+    for tid, status in statuses.items():
+        result.setdefault(tid, {'ota_status': status, 'ota_notes': [], 'snapshot': snapshot})
+    for entry in result.values():
+        if entry['ota_status'] != 'UNLINKED':
+            continue
+        candidates = {note.partition(' · ')[0] for note in entry['ota_notes'] if ' · 후보' in note}
+        if candidates:
+            entry['ota_status'] = 'MULTIPLE_CANDIDATES' if len(candidates) > 1 else 'CANDIDATE'
+    result['__snapshot_status__'] = dict(snapshot, current=current)
+    return result
+
+
+def _index_ota_display_candidates(current: dict) -> dict:
+    """카드 ID별 OTA 후보와 거절 이유를 전부 모으는 화면 전용 역색인."""
+    data = current.get('data') or {}
+    events = {str(row.get('ota_event_id') or ''): row for row in data.get('events') or ()}
+    from app.ota_labels import OTA_REASON
+    indexed = {}
+    seen = set()
+    for result in [*(current.get('results') or ()), *(data.get('results') or ())]:
+        if not isinstance(result, dict):
+            continue
+        event = events.get(str(result.get('ota_event_id') or ''), {})
+        booking = str(event.get('booking_ref') or '예약 번호 미확인')
+        provider = str(event.get('provider') or 'OTA')
+        trace = result.get('candidate_search') or {}
+        for kind, values in (('후보', result.get('candidates') or ()),
+                             ('후보', trace.get('candidates') or ()),
+                             ('제외', trace.get('rejected') or ())):
+            for value in values:
+                if isinstance(value, dict):
+                    identity = str(value.get('transaction_id') or '')
+                    why = value.get('reason') or result.get('reason')
+                    if value.get('date_status') == 'UNKNOWN':
+                        why = 'payment_date_unknown'
+                else:
+                    identity, why = str(value or ''), result.get('reason')
+                if identity:
+                    reason = ('결제일 확인 필요' if why == 'payment_date_unknown' else
+                              OTA_REASON.get(str(why), _link_diagnosis_label(why)) if why else '')
+                    period = event.get('service_period') or {}
+                    date_note = (event.get('paid_on') or
+                                 (f"{period.get('starts_on', '?')}~{period.get('ends_on', '?')}"
+                                  if isinstance(period, dict) and period else ''))
+                    item = (identity, booking, provider, kind, str(reason or ''), str(date_note or ''))
+                    if item not in seen:
+                        seen.add(item)
+                        indexed.setdefault(identity, []).append(
+                            f"{provider} 예약 {booking} · {kind}"
+                            + (f" · 근거 {reason}" if reason else '')
+                            + (f" · 이용/결제일 {date_note}" if date_note else ''))
+        reserved_ids = result.get('reserved_card_ids') or ()
+        reservation = result.get('reservation_link') or {}
+        reserved_ids = [*reserved_ids, reservation.get('transaction_id')]
+        for value in reserved_ids:
+            identity = str(value or '')
+            if identity:
+                indexed.setdefault(identity, [])
+    return indexed
 
 
 def ota_catalog_summary(entry) -> str:
+    """기존 ota_catalog entry가 주어졌을 때 요약 문자열을 반환.
+    새로운 _ota_entries_by_card가 반환하는 dict 형태도 처리.
+    """
+    if not isinstance(entry, dict):
+        return ''
+    # 새 형식: {'ota_status': ..., 'ota_notes': [...], 'snapshot': {...}}
+    if 'ota_status' in entry:
+        status = entry.get('ota_status', '')
+        notes = entry.get('ota_notes', [])
+        snap = entry.get('snapshot', {})
+        fresh = snap.get('fresh', False)
+        parts = []
+        if status:
+            label_map = {
+                'EXACT': 'OTA 결제 확정 연결',
+                'INFERRED': 'OTA 결제 추론 연결',
+                'GROUP_RECONCILED': 'OTA 반복 결제 그룹 대응 (개별 연결 미확정)',
+                'USER_CONFIRMED': '사용자 확정 OTA 연결',
+                'RESERVATION_INFERRED': '예약 추론 관계 · 결제 미검증',
+                'RESERVATION_CONFIRMED': '사용자 확인 예약 관계 · 결제 미검증',
+                'RESERVATION_NEEDS_REVIEW': '예약 후보 경합/충돌 · 사용자 확인 필요',
+                'RESERVATION_STALE': '저장된 예약 관계 근거 변경 · 재확인 필요',
+                'REVIEW_REQUIRED': 'OTA 그룹 부분 대응 · 개별 연결 보류',
+                'CANDIDATE': 'OTA 예약 후보 존재 · 연결 미확정',
+                'MULTIPLE_CANDIDATES': 'OTA 복수 후보 · 개별 연결 미확정',
+                'UNLINKED': 'OTA 연결 미확정', 'UNKNOWN': 'OTA 상태 확인 대기',
+            }
+            parts.append(label_map.get(status, 'OTA 상태 확인 대기'))
+        if notes:
+            parts.extend(notes)
+        if not fresh:
+            parts.append('(예약 근거 갱신 중)')
+        return ' / '.join(parts) if parts else 'OTA 연결 정보 없음'
+    # 기존 ota_catalog entry 형식 호환
     from . import ota_catalog
     return ota_catalog._summary(entry, bool(entry.get('rule')))
 
@@ -2555,6 +2620,111 @@ def _catalog_block(entry) -> str:
     items = ''.join(f"<li>{esc(line)}</li>" for line in lines)
     return (f"<details class='cleanup-evidence' open><summary>{esc(entry.get('provider') or 'OTA')} 예약 자료</summary>"
             f"<ul>{items}</ul></details>")
+
+
+def _render_ota_snapshot_evidence(entry: dict, tid: str) -> str:
+    """중앙 OTA 스냅샷 엔트리에서 근거 HTML을 생성.
+    OTA exact/inferred/multiple/unlinked, snapshot refreshing/input error,
+    여행 없음/무효, 원문충돌/중복/환불미완료/수동보류, 준비/기록완료/금융보호 상태 표시.
+    """
+    from . import ledger_board
+    esc = ledger_board.esc
+
+    status = entry.get('ota_status', '')
+    notes = entry.get('ota_notes', [])
+    snap = entry.get('snapshot', {})
+    fresh = snap.get('fresh', False)
+    snap_status = snap.get('status', 'unknown')
+    # 세대 번호는 내부 진단값이므로 화면 문구에 넣지 않는다.
+
+    lines = []
+
+    # OTA 연결 상태 뱃지
+    status_labels = {
+        'EXACT': ('확정 연결', 'ok'),
+        'INFERRED': ('추론 연결', 'warn'),
+        'GROUP_RECONCILED': ('그룹 대응 (개별 미확정)', 'warn'),
+        'USER_CONFIRMED': ('사용자 확정', 'ok'),
+        'RESERVATION_INFERRED': ('예약 추론 관계', 'idle'),
+        'RESERVATION_CONFIRMED': ('예약 관계 사용자 확인', 'ok'),
+        'RESERVATION_NEEDS_REVIEW': ('예약 후보 경합/충돌', 'warn'),
+        'RESERVATION_STALE': ('예약 관계 근거 변경', 'bad'),
+        'REVIEW_REQUIRED': ('그룹 부분 대응·보류', 'bad'),
+        'CANDIDATE': ('후보 존재·미연결', 'idle'),
+        'MULTIPLE_CANDIDATES': ('복수 후보·개별 미확정', 'warn'),
+        'UNLINKED': ('OTA 결제 연결 없음 · 결제 근거 확인 필요', 'idle'),
+    }
+    label, tone = status_labels.get(status, ('연결 상태 확인 대기', 'idle'))
+    lines.append(f"<span class='cleanup-ota-badge cleanup-ota-badge-{tone}'>{esc(label)}</span>")
+
+    # 스냅샷 신선도
+    if not fresh:
+        if snap_status == 'refreshing':
+            lines.append(f"<span class='cleanup-snapshot-refreshing'>{esc('예약 근거 갱신 중...')}</span>")
+        elif snap_status == 'stale':
+            lines.append(f"<span class='cleanup-snapshot-stale'>{esc('스냅샷 구버전 (갱신 대기)')}</span>")
+        elif snap_status == 'error':
+            lines.append(f"<span class='cleanup-snapshot-error'>{esc('예약 근거 입력 오류')}</span>")
+        elif snap_status == 'loading':
+            lines.append(f"<span class='cleanup-snapshot-loading'>{esc('스냅샷 로딩 중...')}</span>")
+        else:
+            lines.append(f"<span class='cleanup-snapshot-stale'>{esc('현재 예약 연결을 확인할 수 없습니다.')}</span>")
+    else:
+        lines.append(f"<span class='cleanup-snapshot-fresh'>{esc('최신 예약 자료 확인')}</span>")
+
+    # 동일 카드의 후보와 거절 사유를 모두 보존한다.
+    for note in notes:
+        lines.append(f"<span class='cleanup-ota-note'>{esc(note)}</span>")
+
+    # 보호/보류 상태 추가 정보
+    if status in ('GROUP_RECONCILED', 'REVIEW_REQUIRED'):
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('개별 예약↔카드 연결 미확정 · 장부 기록은 금융 검증 후 허용')}</span>")
+    elif status in ('RESERVATION_NEEDS_REVIEW', 'RESERVATION_STALE'):
+        lines.append(f"<span class='cleanup-protected-hint'>{esc('예약 관계만 확인됨 · 결제 검증 별도 · 사용자 재확인 필요')}</span>")
+
+    items = ''.join(f"<li>{line}</li>" for line in lines)
+    return (f"<details class='cleanup-evidence cleanup-ota-snapshot' open><summary>{esc('OTA 연결 근거')}</summary>"
+            f"<ul>{items}</ul></details>")
+
+
+def _render_refund_evidence(board, tid: str, link: dict) -> str:
+    """원결제 연결과 실제 기록 상태를 금융 판정 변경 없이 표시한다."""
+    from .ledger_board import esc
+    if link:
+        recorded = {r[0] for r in board.conn.execute(
+            'SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (?,?)',
+            (tid, link['original_id']))}
+        title = ('환불 기록 완료' if len(recorded) == 2 else
+                 '원결제 연결 완료 · 환불 기록 처리 대기')
+        lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
+                  'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
+                 f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
+        if link['original_id'] in recorded and tid not in recorded:
+            lines.append('원결제는 이미 기록됐으며 환불 기록은 보호 검사 후 처리합니다.')
+    else:
+        from app.partial_refund import count_held_cancellations, _foreign_amount
+        row = board.conn.execute('SELECT issuer,card_tail,original_approval_number FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+        originals = []
+        if row and row[2]:
+            originals = board.conn.execute(
+                "SELECT duplicate_of,conflict_reason,parse_error FROM transactions WHERE transaction_direction='purchase' AND issuer=? AND card_tail=? AND approval_number=? AND amount_krw>0", row).fetchall()
+        elif row:
+            foreign = board.conn.execute('SELECT merchant_normalized,foreign_currency,foreign_amount FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+            if foreign and foreign[1] and _foreign_amount(foreign[2]) is not None:
+                originals = [candidate[:3] for candidate in board.conn.execute(
+                    "SELECT duplicate_of,conflict_reason,parse_error,foreign_amount FROM transactions WHERE transaction_direction='purchase' AND issuer=? AND card_tail=? AND merchant_normalized=? AND foreign_currency=? AND amount_krw>0",
+                    (row[0], row[1], foreign[0], foreign[1]))
+                    if _foreign_amount(candidate[3]) == _foreign_amount(foreign[2])]
+        if any(any(v for v in candidate) for candidate in originals):
+            title, lines = '원결제 원본 충돌 확인 필요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
+        elif len(originals) > 1 or tid in count_held_cancellations(board.conn):
+            title, lines = '원결제 후보를 하나로 정할 수 없습니다', ['승인 정보와 원결제·환불 건수를 함께 확인해 주세요.']
+        elif originals:
+            title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
+        else:
+            title, lines = '원결제 자료 미확인', ['일치하는 원결제 자료와 승인 정보를 확인해 주세요.']
+    return ("<details class='cleanup-evidence cleanup-refund' open><summary>" + esc(title) +
+            '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul></details>')
 
 
 def render_expense_cleanup(board, csrf, *, page=1):
@@ -2583,12 +2753,39 @@ def render_expense_cleanup(board, csrf, *, page=1):
     ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
     ota_by_card = _ota_entries_by_card(board)
+    snapshot_context = ota_by_card.get('__snapshot_status__', {})
+    # Reuse the exact display snapshot for write guards and each read-only preview.
+    # This prevents an extra held-snapshot read or a matcher run on the GET path.
+    flow._request_ota_snapshot = (snapshot_context.get('current'), snapshot_context.get('fresh', False))
+    preview_by_card = {}
+    for batch_id in dict.fromkeys(row[1] for row in rows_card):
+        try:
+            holds = flow.automatic_holds(batch_id)
+            preview = flow.pipeline.preview(batch_id, trip_validator=flow.trip_valid,
+                                            tab_validator=flow.tab_valid,
+                                            additional_holds=holds)
+            preview_by_card.update({str(row['transaction_id']): row for row in preview.get('rows') or ()})
+        except (OSError, ValueError, KeyError, TypeError):
+            for card in rows_card:
+                if card[1] == batch_id:
+                    preview_by_card[str(card[0])] = {'blocked': 'preview_unavailable',
+                        'reason': '금융 보호 검사 결과를 읽지 못했습니다. 카드 자료 전체 검토에서 다시 확인해 주세요.'}
     cancellation_ids = {row[0] for row in board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
-        if entry is not None:
+        if entry is None and snapshot_context and _is_ota_row({'merchant': merchant}):
+            entry = {'ota_status': 'UNLINKED' if snapshot_context.get('fresh') else 'UNKNOWN',
+                     'ota_notes': [], 'snapshot': snapshot_context}
+
+        # OTA 상태/근거/스냅샷 정보 추출
+        if entry is not None and isinstance(entry, dict) and 'ota_status' in entry:
+            # 새 중앙 스냅샷 기반 형식
+            reason = ota_catalog_summary(entry)
+            evidence = _render_ota_snapshot_evidence(entry, tid)
+        elif entry is not None:
+            # 기존 ota_catalog entry 형식 호환
             reason = ota_catalog_summary(entry)
             evidence = _catalog_block(entry)
         else:
@@ -2596,22 +2793,75 @@ def render_expense_cleanup(board, csrf, *, page=1):
                       '여행 배정이 필요합니다' if current_tab in (None, '', 'unclassified') else
                       '배정과 거래의 보호 검사 결과를 확인해 주세요')
             evidence = (
-                "<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
+                ("<p class='cleanup-evidence-none'>이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다. "
                 "예약 확인서에서 예약번호와 이용기간을 확인해 주세요. "
-                "카드 결제일만으로는 여행을 정할 수 없습니다.</p>"
+                "카드 결제일만으로는 여행을 정할 수 없습니다.</p>" if snapshot_context.get('fresh') else
+                 "<p class='cleanup-evidence-none'>현재 예약 자료를 확인할 수 없어 예약 부재 여부를 판단하지 않았습니다.</p>")
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
+        finance_label = ''
+        preview_row = preview_by_card.get(str(tid))
+        if preview_row:
+            blocked = preview_row.get('blocked')
+            blocked_labels = {
+                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+                'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
+                'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
+                'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
+                'review_hold': '기록 보류: ' + str(preview_row.get('reason') or '검토 보류 사유를 확인해 주세요.'),
+                'item_missing': '기록 준비 전: 비용 항목 확인이 필요합니다.',
+                'trip_needed': '기록 준비 전: 유효한 여행 배정이 필요합니다.',
+                'preview_unavailable': '금융 보호 검사 결과를 읽지 못했습니다. 다시 확인해 주세요.',
+                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+            }
+            finance_label = ('이미 내부 장부에 기록됨' if preview_row.get('already_booked') else
+                             blocked_labels.get(blocked, '내부 비용 기록 준비 가능' if not blocked else
+                                                '내부 비용 기록 보류: 금융 검토가 필요합니다.'))
+            evidence += ("<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>")
+            if not blocked and not preview_row.get('already_booked'):
+                reason += ' · 내부 비용 기록 준비 가능'
+            elif blocked:
+                reason = finance_label
+        elif source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}):
+            snapshot_message = {
+                'refreshing': '예약 자료를 갱신하고 있습니다.',
+                'loading': '예약 자료를 불러오고 있습니다.',
+                'error': '예약 자료를 불러오지 못했습니다.',
+            }.get(snapshot_context.get('status'), '예약 자료의 현재 상태를 확인할 수 없습니다.')
+            evidence += "<p class='cleanup-snapshot-state'>" + esc(snapshot_message) + "</p>"
+        if snapshot_context and not snapshot_context.get('fresh'):
+            if entry and isinstance(entry, dict) and entry.get('ota_status') in ('EXACT', 'INFERRED', 'USER_CONFIRMED'):
+                reason = '현재 OTA 연결 상태를 확인할 수 있습니다.'
+        # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
-            reason = '취소·환불과 연결할 원결제 근거가 필요합니다. 새 지출로 분류하지 않습니다.'
-        if conflict_reason or parse_error:
+            from app.partial_refund import refund_links
+            links = refund_links(board.conn, [tid])
+            link = links.get(tid)
+            if link is None:
+                reason = '취소 거래의 원결제 연결을 확인할 수 없습니다. 원결제와 함께 확인하기 전에는 기록하지 않습니다.'
+            else:
+                status = link.get('status')
+                if status == 'full':
+                    reason = '취소·환불 금액이 원결제와 상쇄됩니다. 원결제와 환불을 함께 기록해야 합니다.'
+                elif status == 'partial':
+                    reason = f'일부 환불이 확인됐습니다. 남은 금액 {link.get("net_krw")}원을 함께 확인해야 합니다.'
+                elif status == 'excess':
+                    reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록을 보류합니다.'
+                else:
+                    reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
+            evidence = _render_refund_evidence(board, tid, link)
+            if finance_label:
+                evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
+            if preview_row and preview_row.get('blocked'):
+                reason = ('원결제 연결 완료 · ' if link else '') + finance_label
+            review = (f"<details class='cleanup-review'><summary>원결제·취소 자료</summary>{evidence}"
+                      f"<p class='cleanup-protected'>{esc(reason)}</p>"
+                      f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
+        elif conflict_reason or parse_error:
             review = (f"<details class='cleanup-review'><summary>상세 검토</summary>"
                       f"<p class='cleanup-protected'>{'원본 충돌' if conflict_reason else '파싱 오류'} · "
                       f"{esc(conflict_reason or parse_error)}</p>"
                       f"<p><a href='{esc(detail)}'>카드 자료 전체 검토</a></p></details>")
-        elif tid in cancellation_ids:
-            review = (f"<details class='cleanup-review'><summary>원결제·취소 자료</summary>{evidence}"
-                      f"<p class='cleanup-protected'>{esc(reason)}</p>"
-                      f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
         elif held:
             review = (f"<details class='cleanup-review'><summary>상세 검토</summary>{evidence}"
                       "<p class='cleanup-protected'>보류 중 · 여행 변경과 보류 해제는 카드 자료 전체 검토에서 "
@@ -2689,27 +2939,10 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
              "}"
              "</style>")
-    if ota_catalog.rebuilding():
-        note = ("<p id='ota-refresh-note' class='muted'>예약 근거를 갱신하고 있어요. "
-                "완료되면 화면이 자동으로 새로고침됩니다.</p>"
-                "<script>(()=>{const note=document.getElementById('ota-refresh-note');"
-                "const start=Date.now();async function check(){try{"
-                "const response=await fetch('/api/ota-refresh-state',{credentials:'same-origin',cache:'no-store'});"
-                "if(!response.ok)throw Error('refresh status');"
-                "const state=(await response.json()).state;"
-                "if(state==='ready'){location.reload();return;}"
-                "if(state==='failed'){note.textContent='예약 근거 갱신에 실패했습니다. "
-                "기존 근거가 표시되고 있습니다. 잠시 뒤 새로고침해 주세요.';return;}"
-                "}catch(e){note.textContent='예약 근거 갱신 상태를 확인하지 못했습니다. "
-                "잠시 뒤 새로고침해 주세요.';return;}"
-                "if(Date.now()-start<180000){setTimeout(check,5000);}else{"
-                "note.textContent='예약 근거 갱신이 지연되고 있습니다. 잠시 뒤 새로고침해 주세요.';}}"
-                "setTimeout(check,5000);})();</script>")
-    elif ota_catalog.rebuild_failed():
-        note = ("<p class='cleanup-protected' role='alert'>예약 근거 갱신에 실패했습니다. "
-                "기존 근거가 표시되고 있습니다. 잠시 뒤 새로고침해 주세요.</p>")
-    else:
-        note = ''
+    snapshot_message = {'loading': '예약 근거를 불러오고 있습니다.',
+                        'refreshing': '예약 근거 갱신 중 · 최신 근거 확인이 필요합니다.',
+                        'error': '예약 근거 입력 오류 · 자료를 읽지 못했습니다. 잠시 뒤 다시 확인해 주세요.'}.get(snapshot_context.get('status'), '')
+    note = "<p class='cleanup-protected' role='status'>" + esc(snapshot_message) + '</p>' if snapshot_message else ''
     nav = ''
     if pages > 1:
         previous = (f"<a href='/import?cleanup_page={page - 1}'>이전 20건</a>" if page > 1 else '<span>이전 20건</span>')
@@ -2723,7 +2956,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     )
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
-            "<p class='muted'>자동 처리 가능한 지출은 장부에 반영했습니다. 아래는 예약·원결제 등 연결 근거가 더 필요한 자료이며, 가맹점을 하나씩 입력할 목록이 아닙니다.</p>"
+            "<p class='muted'>아래 거래의 예약 연결, 여행 배정, 금융 보호 사유를 확인해 주세요. 이 화면을 조회하는 동안 장부를 변경하지 않습니다.</p>"
             "<button type='button' id='cleanup-reclassify'>전체 지출 자동 정리</button>"
             "<p id='cleanup-reclassify-status' class='muted' role='status'>"
             "현재 규칙으로 분류하고 항목과 여행이 확인된 거래는 장부에 바로 반영합니다.</p>"
@@ -2788,7 +3021,7 @@ const reviewIcons=__REVIEW_ICONS__;let reviewState='review';
 const reviewDate=r=>r.approval_date||r.posting_date||'';
 const reviewIcon=r=>{const m=String(r.merchant||'').toUpperCase();return /(^|[^A-Z0-9])AGODA([^A-Z0-9]|$)/.test(m)?reviewIcons.agoda:/(^|[^A-Z0-9])TRIP\\.COM([^A-Z0-9.]|$)/.test(m)||m.includes('트립닷컴')?reviewIcons.trip:reviewIcons.merchant};
 const reviewStatus=r=>r.already_booked?'booked':(r.next_action?.group||(r.next_action?.required||r.blocked?'review':''));
-const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
+const otaLabels={CANDIDATE:'호텔 예약 후보 · 결제 미확정',EXACT:'OTA \uc815\ud655 \uc5f0\uacb0',INFERRED:'OTA \ucd94\uc815 \uc5f0\uacb0',UNLINKED:'OTA \ubbf8\uc5f0\uacb0',USER_CONFIRMED:'OTA \uc0ac\uc6a9\uc790 \ud655\uc815',RESERVATION_INFERRED:'예약 추론 관계 · 결제 미검증',RESERVATION_CONFIRMED:'예약 관계 확인 · 결제 미검증',RESERVATION_NEEDS_REVIEW:'예약 관계 확인 필요 · 결제 미검증',RESERVATION_STALE:'저장한 예약 관계 변경 · 재확인 필요',GROUP_RECONCILED:'OTA 그룹 대응 · 예약 개별 연결 미확정',REVIEW_REQUIRED:'OTA \ud655\uc778 \ud544\uc694',UNKNOWN:'OTA \uc0c1\ud0dc \ubbf8\ud655\uc778'};
 const expenseLabels={READY_FOR_INTERNAL_SAVE:'COST \ub0b4\ubd80 \uae30\ub85d \uc900\ube44',SAVED:'COST \ub0b4\ubd80 \uae30\ub85d \uc644\ub8cc',HELD:'COST \ud655\uc778 \ubcf4\ub958'};
 const reviewLabel=r=>[r.next_action?.status||{review:'\ud655\uc778 \ud544\uc694',booked:'\uae30\ub85d \uc644\ub8cc',excluded:'\uae30\ub85d \uc81c\uc678'}[reviewStatus(r)]||'',otaLabels[r.ota_link_status],expenseLabels[r.internal_expense_status],...(r.ota_candidate_notes||[])].filter(Boolean).join(' / ');
 function reviewRows(j){const originals=new Map(j.rows.map(r=>[r.transaction_id,r]));let rows=j.preview.rows.map(r=>({...originals.get(r.transaction_id),...r}));const focus=new URLSearchParams(location.search).get('transaction');if(location.hash==='#preview'&&focus)rows=rows.filter(r=>r.transaction_id===focus||r.refund_link?.counterpart_id===focus);const term=el('review-search').value.trim().toLowerCase(),month=el('review-month').value,category=el('review-category').value;rows=rows.filter(r=>(reviewState==='all'||reviewStatus(r)===reviewState)&&(!month||reviewDate(r).startsWith(month))&&(!category||r.item===category)&&(!term||[r.merchant,r.item,r.description,j.trips.find(t=>t.id===r.display_tab_id)?.name].join(' ').toLowerCase().includes(term)));const sort=el('review-sort').value;return rows.sort((a,b)=>!reviewDate(a)||!reviewDate(b)?Number(!reviewDate(a))-Number(!reviewDate(b)):sort==='amount-desc'?Number(b.amount_krw)-Number(a.amount_krw):sort==='date-asc'?reviewDate(a).localeCompare(reviewDate(b)):reviewDate(b).localeCompare(reviewDate(a)))}

@@ -1,8 +1,10 @@
 # cost 작업 지침
 
-> **현재 COST V3 개발 재개·미완료 큐:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md). 2026-10-23 Reservation PR #22 병합과 Production READY, CI unit 실패, 읽기 전용 운영 인증 미검증 등 최신 실제 상태를 담았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고, 완료된 R0~R6를 처음부터 다시 구현하지 않는다. GitHub 정본만으로 재개할 수 있도록 로컬 TASK_QUEUE.json/과거 채팅을 필수 전제조건으로 삼지 않는다.
+> **COST V3 완료 기록과 잔여 경계:** [COST_V3_CURRENT_HANDOFF.md](docs/COST_V3_CURRENT_HANDOFF.md) 0.12절의 실제 OTA 거래 세 건 진단과 지출 정리 표시 복구는 사용자 추가 승인으로 PR #100 병합·운영 배포까지 완료했다. 실제 고객 거래·장부·Google 자료는 변경하지 않았다. 새 세션은 이 인계와 [V3 정책 진입점](docs/COST_V3_START_HERE.md)을 함께 읽고 완료된 기능을 재구현하지 않는다. 로컬 TASK_QUEUE.json이나 과거 채팅을 필수 전제조건으로 삼지 않는다. 별도 UI 신규 개발 계약은 아래 절을 따른다.
 
 목적은 카드 원본의 금융 안전 대사 → OTA 근거 연결 → 여행 우선배정 → 사용자의 교정/AI 학습 → 내부 지출 준비다. **개발은 [단일 현행 진입점](docs/COST_V3_START_HERE.md)부터 읽고**, 과거 보고서와 운영 구현을 새 목표 정책으로 혼동하지 않는다. 실제 운영 상태는 docs/operations.md와 배포 SHA로 따로 확인한다.
+
+> **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§11. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
 
 ## 단일 V3 구현 진입점
 

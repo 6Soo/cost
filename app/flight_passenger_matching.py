@@ -21,7 +21,7 @@ def _name_key(value):
 
 def _name_key_with_reversal(value):
     """Return a set of normalized name keys including limited surname/given_name reversal.
-    
+
     Handles NFKC, casefold, spaces, hyphens, slashes.
     Does not create new identities from arbitrary transliteration.
     """
@@ -43,15 +43,18 @@ def _name_key_with_reversal(value):
     keys = set()
     if tokens:
         keys.add(tuple(tokens))
+        compact = ''.join(tokens)
+        keys.add((compact,))
         # Limited reversal: if exactly 2 tokens, also add reversed
         if len(tokens) == 2:
             keys.add((tokens[1], tokens[0]))
+            keys.add((''.join((tokens[1], tokens[0])),))
     return keys
 
 
 def candidate_matches(passenger, candidates):
     """Return exact English-name candidates as unconfirmed suggestions only.
-    
+
     Matches against normalized name keys including limited surname/given_name reversal.
     Does not create new identities from arbitrary transliteration.
     """
@@ -59,6 +62,12 @@ def candidate_matches(passenger, candidates):
     given_name = str(passenger.get('given_name') or '')
     full_name = ' '.join((surname, given_name)).strip()
     target_keys = _name_key_with_reversal(full_name)
+    target_keys.add((''.join(_name_key(full_name)),))
+    target_keys.add((''.join(_name_key(surname)) + ''.join(_name_key(given_name)),))
+    surname_key, given_key = _name_key(surname), _name_key(given_name)
+    if surname_key and given_key:
+        target_keys.add(given_key + surname_key)
+        target_keys.add((''.join(given_key + surname_key),))
     if not any(target_keys):
         return {'status': 'UNMATCHED', 'candidates': [], 'confirmed': False}
     matches = []
@@ -89,7 +98,7 @@ def candidate_matches(passenger, candidates):
 
 def match_booking_passengers(evidence, authority):
     """Connect verified booking evidence to one tour's candidates without confirming anyone.
-    
+
     Proposal IDs are bound to the evidence digest (content hash), not just source_digests.
     This ensures proposals change when passenger/itinerary content changes.
     """
@@ -100,6 +109,11 @@ def match_booking_passengers(evidence, authority):
     booking_ref = str(evidence.get('booking_ref') or '').strip()
     source_digests = sorted({str(value) for value in evidence.get('source_digests', []) if value})
     evidence_digest = str(evidence.get('digest') or '').strip()
+    if not evidence_digest:
+        digest_basis = {key: evidence.get(key) for key in
+                        ('booking_ref', 'passengers', 'legs', 'source_digests', 'conflict', 'cancellation_status')}
+        evidence_digest = hashlib.sha256(json.dumps(
+            digest_basis, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode('utf-8')).hexdigest()
     if not tour_id or not revision or not booking_ref or not source_digests:
         raise ValueError('verified flight evidence and a tour authority snapshot are required')
     matches = []
@@ -122,9 +136,13 @@ def match_booking_passengers(evidence, authority):
             'source_revision': revision,
             'source_digests': source_digests,
             'evidence_digest': evidence_digest,
+            'cancellation_status': evidence.get('cancellation_status', 'NONE'),
+            'evidence_conflict': bool(evidence.get('conflict')),
             'passenger_name_en': ' '.join((str(passenger.get('surname') or '').strip(),
                                            str(passenger.get('given_name') or '').strip())).strip(),
-            'status': result['status'],
+            'status': (result['status'] if evidence.get('cancellation_status', 'NONE') == 'NONE' and not evidence.get('conflict')
+                       else 'CANCELLED_EVIDENCE' if evidence.get('cancellation_status') == 'CANCELLED'
+                       else 'CONFLICTING_EVIDENCE'),
             'assignment_status': 'PENDING_USER_CONFIRMATION',
             'candidates': result['candidates'],
             'confirmed': False,
@@ -132,24 +150,26 @@ def match_booking_passengers(evidence, authority):
         })
     return {'tour_id': tour_id, 'booking_ref': booking_ref, 'source_revision': revision,
             'evidence_digest': evidence_digest,
+            'cancellation_status': evidence.get('cancellation_status', 'NONE'),
+            'evidence_conflict': bool(evidence.get('conflict')),
             'passengers': matches}
 
 
-def build_user_assignment(proposal, *, candidate_reference_id, actor, current_source_revision):
+def build_user_assignment(proposal, *, candidate_reference_id, actor, current_source_revision,
+                          current_evidence_digest=None):
     """Build an explicit COST-side confirmation payload; never creates a customer or confirms boarding.
-    
+
     Verifies both source_revision and evidence_digest for staleness.
     """
     if not isinstance(proposal, dict) or not actor:
         raise ValueError('a candidate proposal and owner identity are required')
     if str(proposal.get('source_revision') or '') != str(current_source_revision or ''):
         raise ValueError('PASSENGER_CANDIDATES_STALE')
-    # Also verify evidence_digest if present in proposal
-    if proposal.get('evidence_digest'):
-        current_evidence_digest = str(proposal.get('evidence_digest') or '').strip()
-        if current_evidence_digest:
-            # The caller should pass current evidence digest via proposal
-            pass  # Verified by caller in _candidate_result
+    if (current_evidence_digest is not None and
+            str(proposal.get('evidence_digest') or '') != str(current_evidence_digest or '')):
+        raise ValueError('PASSENGER_CANDIDATES_STALE')
+    if proposal.get('evidence_conflict') or proposal.get('cancellation_status', 'NONE') != 'NONE':
+        raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
     if proposal.get('status') not in ('EXACT_CANDIDATE', 'AMBIGUOUS'):
         raise ValueError('PASSENGER_CANDIDATE_REQUIRED')
     matches = [candidate for candidate in proposal.get('candidates') or ()

@@ -1,6 +1,13 @@
 from tools.verify_operational_backup_restore import product_files, digest_file, database_inputs
 
 
+def test_passenger_confirmations_remain_in_backup_when_feature_is_disabled(tmp_path):
+    passenger = tmp_path/'flight-passenger.sqlite'
+    passenger.write_bytes(b'synthetic-passenger-store')
+    databases, _ = database_inputs(tmp_path, {'decisions_db_path':str(tmp_path/'board.sqlite')}, {})
+    assert databases['flight-passenger.sqlite'] == passenger
+
+
 def test_wal_source_backup_is_self_contained_without_changing_source(tmp_path):
     import sqlite3
     from tools.verify_operational_backup_restore import backup_database, database_state

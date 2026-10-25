@@ -1,9 +1,11 @@
 # COST V3 — 단일 개발 진입점 및 통합 계약
 
-> **현재 진행·재개 증거:** [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md) — 2026-10-23 두 저장소 SHA, Reservation CI unit/smoke 복구·COST 전용 토큰 인증 수정(PR #25), Production READY, 읽기 전용 DB 설정 완료·운영 호스트 인증 미검증 및 다음 작업 큐를 기록한 **현행 재개 문서**. 새 세션은 이 문서와 인계 문서만으로 시작한다.
+> **현재 진행·재개 증거:** [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md) — 최신 OTA 진단·배포 기록은 0.12절이다. 사용자 추가 승인으로 PR #100을 병합하고 지출 정리 표시를 운영에 반영했다. 실제 거래의 추가 결제·여행 근거는 잔여 경계로 유지한다. 0.11절 이하의 완료 기능을 재구현하지 않으며 별도 신규 UI 개발은 아래 명세를 따른다.
 >
 > **상태:** 사용자 확정 *기능·금융 정책 계약*. COST V3 주요 경로는 Git main과 합성 검증에 반영됐으나 COST 운영 호스트/실서비스 완전 검증은 별개다. 과거 R0부터 구현하라는 지시는 새 세션의 재구현 명령이 아니다.  
 > **목적:** 이 문서만으로 작업 우선순위·현재 vs 미래·위험 경계·권위·진입 파일을 결정한다. 세부 구현은 **두 개의 부속 명세**를 참조하되 과거 문서의 목표·TODO를 구현 지시로 혼용하지 않는다.
+
+> **카드 전체 내역·전체 웹 UI 신규 개발:** [통합 UI 구현 명세 v1.1](card-all-transactions-and-ui-design-system-spec-v1.md)를 참조한다. 시스템 라이트 A/다크 B 자동 연동, 수동 테마 선택 없음. Paseo 감독/구현 무료 서브에이전트의 분리 검증은 해당 명세 §10에 정의한다. 이 항목은 기존 금융 정책이나 최신 운영 인계를 대체하지 않으며 구현·배포 완료 상태가 아니다.
 
 ## 1. 문서 권위와 충돌 해결
 
@@ -89,6 +91,7 @@
 | 작업 | **읽을 유일한 세부 명세** | 보조 권위 |
 | --- | --- | --- |
 | R0~R4: OTA↔카드 미매칭, 소스 충돌, N:M, 비용 준비 | [OTA–카드 통합 A 정책](ota-card-reconciliation-policy-a-v3.md) | 실제 `app/ota_payments.py` 등 현재 코드 |
+| **OTA·카드 리팩터링(L0→L3, 사용자 승인 2026-10-24)** | **[A 정책 §16 — 중급 모델 실행 명세](ota-card-reconciliation-policy-a-v3.md#16-2026-10-24-카드ota-대사-구조-경량화-실행-명세-중급-모델용)** | 행동 불변·작은 PR·L0 감사 후 L1 projection부터. 별도 승인 없이 solver/legacy fallback/운영 DB 변경 금지 |
 | R5: 여행 자동 배정, 사용자 A→B, AI 1/2/3 대화 규칙 | [COST V3 구현](cost-v3-inference-ai-passenger-nm-test-architecture.md) | `webapp/ledger_store.py` 사용자 override |
 | 항공권 영어 이름/여행 참가자 | [COST V3 구현 §4](cost-v3-inference-ai-passenger-nm-test-architecture.md) | `6Soo/reservation` 실제 schema/API |
 | Google 수입/지출/B:H/권한 | [Google 정본 목표](target-workflow-google-authority.md) | [실측 B:H 열](google-workbook-layout.md) |

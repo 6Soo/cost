@@ -417,3 +417,143 @@ def reconcile_v2(observations, card_rows, manual_links, group_pins, policy):
 3. 운영에서는 **승인된 읽기 전용 복제 스냅샷**과 안전한 로컬 출력 경로를 사용해 실제 coverage만 산출한다. 실제 운영 원본은 열람 전후 변경 0.
 4. `coverage-summary.json`에서 **어디에서 이벤트를 버렸는지**, `unmatched-cases.jsonl`에서 **카드 존재↔OTA 원본 존재인데 후보 없음 사례**를 각 제공자별로 구분한다.
 5. 상위 원인이 검증되면 R1~R4 순서로 작은 PR을 작성한다. 매칭률 개선 수치는 실제 P0 기준선 이후에만 제시한다.
+
+## 16. 2026-10-24 카드·OTA 대사 구조 경량화 실행 명세 (중급 모델용)
+
+> **목적:** 새로운 대사 기능을 재구현하는 지시가 아니라 **이미 있는 코드를 행동 변화 없이 단계적으로 단순화하는 명세**다. GPT-6 Luna Medium 수준의 단일 구현 에이전트가 작은 PR 단위로 수행하도록 정한다.
+>
+> **정적 감사 기준:** `6Soo/cost` GitHub `main=132301c5406fb93d3abf0313546d087775a5b8a0`. 실행 시 최신 원격 HEAD를 재확인. 당시 소스 조사이지 운영 환경·원본/DB/배포 실측이 아니다. 이번 문서 반영은 실제 리팩터링 완료를 뜻하지 않는다. 이 문서 §§0~15 및 `COST_V3_START_HERE.md` 최신 사용자 승인 정책이 본 섹션보다 우선한다.
+
+### 16.1 범위와 절대 불변조건
+
+**목표:** (1) 중앙/legacy 대사 경로의 결정 권한을 명시, (2) OTA 결과 상태와 화면·여행·비용 준비의 투영 중복 해소, (3) 업로드 경로의 반복 평가를 테스트로 확인, (4) 필수 안전 검사를 최소 변경 파일에 대응시킨다.
+
+**이번 범위 밖:** 카드/OTA 재수집, 중앙 matcher 재작성, 알고리즘·매칭률 변경, legacy fallback 삭제, DB schema 이전, 새 API/플래그/모델 호출, 실고객·운영 원장 조회, 자동 Google 쓰기, 운영 재시작·배포.
+
+다음 10개는 **모든 PR에서 변경 불가**다.
+
+1. 카드 원행의 `transaction_id`, `source_hash`, 거래일, 금액, 통화, 승인번호, 방향, 중복·원본 충돌 및 취소·환불 보호, 이미 기장한 `ledger_entries`는 보존. 재수집 재실행으로 비용 증가 금지.
+2. OTA 예약·메일·포털·참고자료는 카드 실매입과 별개. 예약 확정/예정·결제 미증명은 카드 결제로 승격하지 않음. 결제일 없는 OTA는 진단 후보 생성이 가능하지만 정확 연결 확정은 별개.
+3. OTA 결과 `MATCHED_USER`/`MATCHED_AUTO`/`HOLD_*`/`PENDING_PAYMENT`/`NOT_CARD_CHARGE`와 `allocation_basis`, `inferred_link`, `individual_payment_evidence`, `reserved_card_ids`, `source_digest`, `evidence_changed`의 **기존 공개·저장 표현 불변**.
+4. 사용자 수동 OTA pin, frozen group, 사용자 여행 A→B 이동, 승인된 규칙/장부 수동 override는 추론/재계산이 덮어쓰지 않음. 근거 수정 뒤 기존 연결은 보존하고 stale/재확정 요구.
+5. 2:2 동액 N:M에서는 그룹의 순서 배정이 개별 예약번호↔카드 신원 증명이 아님. 2:3 `HOLD_PARTIAL_GROUP`는 OTA 관계 미확정이지 카드 금융 부적격을 뜻하지 않음. 다만 frozen pin·실제 금융 hold는 보존.
+6. 다섯 상태 축을 구별: 카드 금융 검증, OTA 링크, 여행 귀속, 내부 경비 준비, Google 반영 확인. 금융상 적격 카드가 유효 여행에 배정된 경우 OTA `EXACT`/`INFERRED`/`UNLINKED` 차이만으로 비용 준비 금지하지 않음.
+7. 여행은 실제 권위 있는 일정만 허용. 예약 이용기간은 카드 결제일보다 여행 귀속 우선. 사용자 A→B 이동/개인별 금융 결정 불변.
+8. `app/ledger.py` 미리보기 digest → 저장 시 다시 검증 → `ledger_entries`/`board_rows` 단일 SQL 트랜잭션 → idem request ID/rollback 계약 불변.
+9. 추정 OTA 예약번호는 Google B:H 복사 F열에 확정값으로 기입하지 않음. COST의 Google 최종 장부 자동 쓰기 0.
+10. 누락/읽기 실패 source manifest, stale snapshot을 완전한 근거로 승격하지 않음. fresh canonical을 오래된 legacy 결과로 덮지 않음. 실원본을 무료/외부 AI에 보내지 않음.
+
+### 16.2 지금의 실제 호출 흐름: 발견된 연결(동작 변경 지시 아님)
+
+**카드 원본 → 원장**
+1. `webapp/card_flow.py::dispatch()`의 `POST /api/imports` → `CardFlow.pipeline.receive()`.
+2. `app/__init__.py::Pipeline.receive()` → `app/review.py::receive()` → `app/import_card.py::parse_card_file()`로 XLS/XLSX/CSV 수집. `transaction_identity()`(거래 동일성), `source_hash_of()`(원본 변경), `_keyless_plan()`(승인번호 없는 해외 매입 중복)을 별도 관리. `import_batches`/`transactions`에 원본·배치 정체성 보존.
+3. `CardFlow.classify()` → `CardFlow._classify()` → `app/classify.py::classify_batch()`: OTA 근거·과거 owner 확정·규칙·기존 여행 권위를 결합. `classify()` 안에서 `_auto_record_locked()`와 `sync_ledger_rows()`가 호출됨.
+4. 내부 경비는 `app/ledger.py::preview()` → `commit()` → `CardFlow.project()`가 같은 DB 트랜잭션에 `ledger_entries`와 웹 `board_rows` 게시. `app/google_tsv.py`는 Google 수동 복사용 텍스트만 생성.
+5. **구체적 중복 계산 후보:** 업로드 `dispatch()`는 `flow.classify()` 뒤 `refresh_after_import()`를 시도하고 `flow.auto_record()`를 한 번 더 호출. 2회 진입은 코드상 사실이나, 스냅샷 갱신 이후 새 적격 건 처리 의도일 수 있으므로 **중복 기장 오류라고 단정하거나 바로 삭제하면 안 됨**.
+
+**OTA 원본 → 중앙 매칭**
+1. `app/ota_sources.py::resolve_sources()`는 등록 manifest/통합 `unified_database`/원본 lineage/누락을 판별. `app/ota_store.py`의 통합 원본 읽기와 기존 경로는 중복 결제 생성을 피해야 함.
+2. `app/ota_mail.py`(서명·결제/환불·일정), `app/ota_portal.py`(Agoda 포털·예정/충돌), `app/ota_payments.py::build_ota_payment_events()`가 `ota_event_id`, `payment_event_id`, `source_lineage_ids`, `observation_ids`, `paid_on_semantics`를 포함한 사건 생성. 확정 결제 증거 없이 카드 비용 만들지 않음.
+3. `app/ota_payments.py::match_ota_payment_events()`가 수동 고정 카드 선점 → 후보 → 전역 최적 1:1/N:M 그룹 → ambiguous/partial/dated/undated 결정 반환. `search_card_candidates()`는 결제일 미상의 진단 후보를 허용하되 `pair_check()`와 `_eligible_cards()`는 별도 정확 연결 규칙. `app/ota_inference.py`는 승인된 좁은 무날짜 Agoda 유일 대응 추론.
+4. `webapp/ota_payment_review.py::CoreOtaPaymentBackend._data()`가 카드 행·이벤트·`app/ota_review.py::OtaReviewStore`(독립 검토 DB의 pins, 승인 rules)와 중앙 솔버 결합. `confirm()`는 preview digest, source fingerprint, fresh snapshot, 사용자 ID/요청 ID를 다시 확인.
+5. `reconcile_for()` → `webapp/ota_snapshot.py::OtaSnapshotService`, `reconcile_in_child()`: 입력 fingerprint를 기반으로 비동기 snapshot generation을 생산. `held()`와 `action_context()`가 fresh/stale을 구분한다.
+
+**중앙 snapshot 소비 및 구형 복구 경계**
+1. `CardFlow._ota_report()`는 fresh snapshot이면 `_canonical_snapshot_report()` → `app/ota_core_projection.extend_report()`만 사용; 권위 `canonical_snapshot`.
+2. snapshot 없음/stale 시 `CardFlow._compute_ota_report()`의 **실제 fallback**: `app/ota_mail.match_mail()` → `app/ota_portal.extend_report()` → `app/ota_exact.apply_gate()` → `app/ota_inference`. 결과에 `legacy_fallback_stale_snapshot`/`legacy_fallback_feature_disabled` 표시. 계산 중 fresh 중앙 결과가 도착하면 fallback 결과 폐기. **fallback은 dead code가 아니며 허락 없이 삭제 금지**.
+3. `CardFlow._classify()`, `_ota_card_statuses()`, `_ota_candidate_notes()`, `_canonical_candidate_period_assignments()`, `_ota_group_holds_base()`, `preview_metadata()`가 중앙 결정을 해석해 분류·여행·화면·hold로 보낸다. 이들이 독립 solver를 소유해서는 안 된다.
+4. 격리 모드는 `WEBLEDGER_OTA_REVIEW_MODE=isolated`, 절대 경로 검토 DB `WEBLEDGER_OTA_REVIEW_DB`가 있어야 활성. `WEBLEDGER_OTA_AUTHORITY=authority`일 때 추가 권위 모드. 운영 호스트의 실제 값은 이 코드 감사에서 미확인. **disabled / isolated / authority**를 혼동하지 않음.
+5. `app/ota_exact.py`는 구형 report 검증용 보조 게이트. 중앙 매칭 권위와 같은 것이 아님.
+
+**정적 소스 크기(2026-10-24 기준 SHA 한정, 주석/공백 포함):** `webapp/card_flow.py` 2,711행, `webapp/ota_payment_review.py` 1,625행, `app/ota_payments.py` 1,759행, `webapp/ledger_board.py` 5,605행, `webapp/ledger_store.py` 6,991행. 문제는 파일 크기 자체가 아니라 한 계층에 결정·투영·라우팅·금융 준비 책임이 엉킨 점.
+
+### 16.3 읽기/쓰기 결정 소유권 (변경 후에도 동일)
+
+| 도메인 | authoritative owner | 리팩터링 소비자 제약 |
+| --- | --- | --- |
+| 카드 식별·원본 충돌 | `app/import_card.py`, `app/review.py`, 카드 store | OTA가 원본 거래 ID/금액 수정 금지 |
+| OTA 결제 사건 | `app/ota_sources.py`, `app/ota_payments.py` | 참고 문서/예약만으로 charge 생성 금지 |
+| 전역 OTA 매칭 | `app/ota_payments.py::match_ota_payment_events()` | 화면에서 독립 매칭 새로 하지 않음 |
+| 사용자 OTA link/group pin | `app/ota_review.py::OtaReviewStore` | 새 solver가 수동 결정을 덮지 않음 |
+| 비동기 세대·freshness | `webapp/ota_snapshot.py` | stale로 새로운 확정 만들지 않음 |
+| OTA→카드 상태/설명 투영 | `webapp/card_flow.py`의 현재 소비 함수를 PR-L1에서 순수 함수로 추출 | 출력 JSON/status/문구 그대로 |
+| 여행 일정·자동 귀속 | `CardFlow` + `app/classify.py` | 유효 여행만/사용자 변경 보존 |
+| 금융 준비/지출 commit | `app/ledger.py` 및 refund/hold 판정 | OTA unresolved 자체만으로 차단 금지 |
+| 장부 row/owner 수정 | `CardFlow.project()` + `webapp/ledger_store.py` | 같은 거래 재기장·수동 내용 덮기 금지 |
+| Google 복사 | `app/google_tsv.py`/adapter | 예약번호 미확정 F열 공란, 쓰기 없음 |
+
+### 16.4 에이전트 작업 절차(한 PR 한 책임)
+
+- **DISCOVER:** 실제 `origin/main` SHA와 `git status`, 사용자 dirty/untracked 확인 후 격리 작업 브랜치 생성. 최신 `AGENTS.md`/`COST_V3_START_HERE.md`/본 섹션을 읽고 변경된 함수만 재감사. 사용자의 checkout/reset/stash/stop hook/운영 원본 변경 금지.
+- **CONTRACT:** 먼저 입력·출력·순수성·UI와 DB에 관측되는 상태·필요한 **표적 테스트 1~2개**를 고정. 테스트 없이 변수/상태/라우트 이름 바꾸지 않음.
+- **IMPLEMENT:** 소스 변경이 꼭 필요한 작은 함수만 수정. 금액/원본/사용자 확정/DB schema/legacy fallback은 기본 수정 불허.
+- **TARGETED TEST:** 기존 정확한 테스트 nodeid 또는 변경 경계 신규 fixture만 1회. `0 selected`는 통과 아님. 영향이 실제 회계 쓰기/환불/금융 ID로 확대되면 그 보호 테스트만 추가.
+- **REVIEW:** `git diff --check`, API/HTML/JSON/DB 보이는 효과 전후 비교, 노출되는 원본·보안 정보 없는지 확인.
+- **COMMIT/PR:** 한 기능 한 PR. main 강제 push/자동 병합/운영 배포 없이 변경 파일, 기준 SHA, 검사 명령, pass/fail/skipped, 미검증 운영 범위를 보고. 새 실행 작업이 없으면 COMPLETE 종료, 프롬프트를 자동 생성하지 않음.
+
+### 16.5 PR-L0: 변경 없는 짧은 아키텍처 감사
+
+**출력 위치:** 새 사양서를 만들지 말고 *PR 설명/작업 보고* 안에 ① 파일:함수 호출 그래프, ② disabled/isolated/authority × fresh/stale/none 결정표, ③ read-only writer 책임표, ④ 중복 코드 후보 한 개, ⑤ 위험 및 필요한 테스트를 기록.
+
+**방법:** 이 섹션 `16.2`가 실제 최신 코드와 맞는지만 읽고 확인. 특히 `CardFlow._ota_report()`와 `_compute_ota_report()`의 fallback 권위를 비교. 이때 운영 환경변수를 추정/읽기 위해 서비스를 재시작하거나 실 DB를 열지 않는다. L0는 **새 리팩터링 자체의 성과가 아님**. 확인 후 L1 구현으로 넘어가되 범위를 넓히지 않는다.
+
+### 16.6 PR-L1: OTA 카드 상태·검토 설명 **순수 projection 추출** (첫 구현)
+
+**수정 허용:** `webapp/card_flow.py`의 `_ota_card_statuses()`, `_ota_candidate_notes()`와 안전한 순수 함수 위치 `app/ota_core_projection.py` (기존 파일을 우선 사용) 또는 순수 helper 한 파일, 직접 테스트 파일. `app/ota_payments.py`의 매칭 솔버/`app/ledger.py`/DB/라우트 변경 금지.
+
+**정확한 순서:**
+1. 먼저 합성 `current` snapshot fixture로 현행 두 함수의 반환을 golden baseline으로 캡처. 상태 `MATCHED_USER`/`MATCHED_AUTO`/`inferred_link`/`allocation_basis=auto_stable_order`+`individual_payment_evidence=False`/`HOLD_*`/`reserved_card_ids`/`candidate_search`/`stale`/`disabled`를 포함.
+2. 순수 함수 `project_card_ota_statuses(current) -> dict`와 `project_card_ota_candidate_notes(current, wanted_transaction_ids) -> dict`를 추출(이름은 예시; 현행 호출 형태 보존). 인자 snapshot dict만 읽고 외부 DB/clock/env/file/HTTP 호출 없음. 입력 수정 없음. 반환 status 문자열·후보 설명 한국어·중복 제거·상위 2개 제한·정렬·generation 해석까지 **기존 결과와 정확하게 동등**.
+3. 기존 `CardFlow` 메서드는 feature flag/freshness와 result shape만 책임지고 실제 상태/설명 조합은 helper에 위임. `_ota_group_holds_base()`의 금융 보류는 별도 소유권이므로 혼합하지 않는다.
+4. 직접 출력 비교 assert와 mutation 없음 assert 작성. 코어 대사 알고리즘 변경, 복잡한 새 DTO/dataclass 도입, 응답 필드 변경 금지.
+
+**표적 테스트:** `webapp/tests/test_card_flow.py` 해당 함수 기반 테스트 1~2개(없으면 새 정확한 test nodeid), 필요한 경우 `webapp/tests/test_ota_payment_review.py`의 public snapshot 계약 1개. 예: `python -m pytest webapp/tests/test_card_flow.py::test_new_projection_contract -q`(새 함수는 실제 생성한 이름으로 교체). 기존 mock이 문제라면 합성 snapshot 생성.
+
+**DONE:** fresh 및 stale/disabled에서 카드 status/notes/진단/세대와 JSON output이 변경 전 정확히 동일; 사용자 수동/반복 그룹 해석 불변; 읽기 전용 helper는 부작용 0, 직접 테스트 PASS.
+
+### 16.7 PR-L2: `CardFlow` 여행 귀속 로직 한 군데만 추출
+
+**사전조건:** L1 통과. **수정 허용:** `CardFlow._canonical_candidate_period_assignments()`와 pure helper 하나, 표적 테스트. `trip_valid()`/`booking_trip()`/`retail_trip()`와 모든 여행 정책 재설계 금지.
+
+1. 외부 wrapper가 `_held_ota_snapshot()`, `board.list_trips()`, `trip_valid()`, `_google_nets()` 등을 조회한 뒤 순수 함수에 `current`, `sources`, `taken`, `selected`, `blocked_sources`, `verified_trips`, `nets` 등의 필요한 최소 입력만 전달하도록 분리.
+2. `HOLD_DATE_UNKNOWN`와 검증된 service period → 유효 여행을 **여행 귀속만** 추론. `candidate.resolution_allowed=False`, 이미 pinned/reserved 카드/환불·중복 제외, 같은 카드에 여러 여행 증거 충돌하면 새 추론 생성 금지. 반환은 기존 `list[rule]` shape.
+3. `rule_id`/`origin`/`confidence='낮음'`/`basis`/merchant normalization/기간/정렬을 **바이트 수준에 가깝게 동등**하게 유지. 사용자 A→B의 저장 우선순위를 건드리지 않음.
+4. 테스트: `webapp/tests/test_card_flow.py`의 날짜 미상 후보·owner 이동 중 직접 영향 테스트, 필요한 경우 `tests/card_pipeline/test_ota_refresh.py`의 owner answer 보존 1개. 동일 입력에서 생성 규칙과 분류 결과 동등, 외부 소스 호출 추가 0.
+
+**DONE:** 귀속은 원래와 같고, 네트워크/DB/스냅샷 의존성이 순수 규칙 계산에서만 분리됨.
+
+### 16.8 PR-L3: 카드 업로드 2회 자동 기록의 필요성 검증 후 *조건부* 간소화
+
+**문제의 코드 위치:** `CardFlow.classify()` 내부 `_auto_record_locked()`, `webapp/card_flow.py::dispatch()`의 `POST /api/imports` 말미 `flow.auto_record()`. **실제 이중 기장 결함으로 판정하지 말 것.**
+
+1. 합성 fixture로 신규 카드+신선한 OTA, 스냅샷 갱신 전후, 지연 OTA 증거 도착, 같은 파일 재업로드, owner가 이동한 카드, 취소/부분환불을 만든다.
+2. spy와 분리된 임시 SQLite로 두 호출 각각의 원장 적용 ID, `auto_recorded`, `ota_refresh_status`, `request_id`, 기록 수와 digest 비교. 2차에만 새로 적격해진 카드가 있다면 **두 호출 유지** 및 호출 목적 주석만 개선.
+3. 검증한 모든 지원 상태에서 두 번째 호출이 실제 불필요하다는 증거가 있을 때만 최소 수정. `app/ledger.py::commit()`, DB schema, idempotency, 환불 보호, 원장 write path는 변경하지 않는다.
+4. 테스트: `tests/card_pipeline/test_pipeline.py` 중 동일 파일 재업로드/중복, `tests/card_pipeline/test_partial_refund.py` 중 commit·rollback, `webapp/tests/test_card_flow.py` 중 업로드 경계에 직접 영향된 nodeid만. 실제 부작용 동등하지 않으면 코드 변경 없이 STOP.
+
+**DONE:** 필요성/불필요성이 테스트로 판명되고 전후 원장·웹 row·감사 이력·응답 불변. 불필요성 증명이 안 되면 **유지 결정도 완료**이며 억지로 삭제하지 않음.
+
+### 16.9 PR-L4와 운영 cutover는 별도 승인(이번 자동 실행 대상 아님)
+
+`app/ota_payments.py::match_ota_payment_events()`는 원자적 안전 경계에 해당한다. 굳이 분해하려면 L1~L3 완료 후 운영상 변경 비용이 실제 확인되고 사용자의 별도 승인이 있을 때 **그룹 결과 빌더 같은 순수 함수 1개만** 분리한다. 최대 매칭·선점·2:2 순서·2:3 보류·환불 방향·미상 날짜 추론·`_assign_exact_first()`/`_ambiguous_optimal_singletons()`을 다시 구현하지 않는다. `tests/card_pipeline/test_ota_payments.py`, `test_ota_matching_defaults.py`, `test_ota_inference.py`의 영향받은 nodeid로만 검증.
+
+`CardFlow._compute_ota_report()` legacy fallback 삭제, `WEBLEDGER_RECONCILIATION_V2_MODE=off|shadow|read|enforce` 같은 **미구현 제안 플래그** 적용, `webapp/ledger_store.py` 전체 분해, 여행 국가/특정 카드 예외의 정책 외부화는 이 작업 범위 밖이다. 각각 별도 근거·결정/rollback·권한이 필요하다.
+
+### 16.10 표적 테스트 매트릭스(실재 파일)
+
+| PR | 직접 검증 조건 | 우선 테스트 |
+| --- | --- | --- |
+| L1 | user/auto/inferred/group/hold, fresh/stale/disabled, status/notes 동일 | `webapp/tests/test_card_flow.py`, `webapp/tests/test_ota_payment_review.py` |
+| L2 | 미상 날짜 후보, 원본 service period, reserved card, 다중 여행, owner 이동 | `webapp/tests/test_card_flow.py`, `tests/card_pipeline/test_ota_refresh.py` |
+| L3 | 신규·중복 업로드, snapshot 새로고침, 환불 묶음, 이중 기록 0, replay | `tests/card_pipeline/test_pipeline.py`, `test_partial_refund.py`, `test_review_holds.py` |
+| L4(별도 승인) | 1:1, 2:2, 2:3, stable tie, pinned group, 외화 Decimal, 취소/환불 | `tests/card_pipeline/test_ota_payments.py`, `test_ota_matching_defaults.py`, `test_ota_inference.py` |
+| lineage 실제 변경 시에만 | 다른 DB의 동일 record ID, 원본 사본 중복, 수동 링크 복원 | `tests/card_pipeline/test_ota_sources_registry.py`, `test_ota_store.py` |
+
+`python -m pytest 파일경로::정확한_테스트명 -q`로 선택. 위 표는 파일 경로이고 **전체 파일을 무조건 실행하라는 지시는 아니다**. 기존 테스트가 선택되지 않으면 정확한 신규 테스트를 만든다(`0 selected`는 실패). 금융 금액/원본/환불/원자성에 실제 영향이 있을 때만 해당 보호 테스트 범위를 넓힌다. 이미 유효한 결과·미변경 기능 재실행 금지.
+
+### 16.11 에이전트의 최종 완료 보고와 정지 조건
+
+모든 PR은 (a) `BASE_SHA/HEAD_SHA`, (b) 변경 파일과 호출 경계, (c) 기존 vs 신규 입력·출력의 **정확한 동등성 증거**, (d) 실행한 nodeid + passed/failed/skipped, (e) 미실행한 운영·실자료·배포 범위, (f) `COMPLETE/BLOCKED/DEFERRED` 및 남은 승인 필요 사항을 보고한다.
+
+**첫 실행 지시:** 최신 `origin/main`과 작업 트리 안전 확인 → `16.5` L0의 작은 호출·모드 표 → `16.6` L1의 상태 투영 하나만 실제 코드 구현·표적 테스트·리뷰·커밋/PR. L1 완료 전 L2/L3/L4 착수 금지. main 병합/배포, 운영 DB/고객 원본 확인, Google 쓰기, 기존 stop hook 수정 금지. 독립된 실행 가능 작업이 없으면 정상 종료하고 억지 후속 프롬프트 반복 금지.

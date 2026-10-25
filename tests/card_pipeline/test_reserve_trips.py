@@ -158,14 +158,17 @@ def test_registered_trip_and_imported_card_are_shown_before_cost_commit(setup):
     previous = ledger_board._STORE
     try:
         ledger_board.bind_store(board)
-        with patch.dict(os.environ, {'WEBLEDGER_RESERVE_TRIP_SYNC':'1'}):
+        with patch.dict(os.environ, {'WEBLEDGER_RESERVE_TRIP_SYNC':'1'}), \
+                patch('app.reserve_trips.today', return_value='2026-10-03'):
             html = ledger_board.trips_page(role='owner')
         assert '여행 1개 · 카드 자료 1건 · 장부 기록 0건' in html
         assert '저장된 데이터 없음' not in html
-        assert '한국 시간 매일 0시에 하루 한 번 조회합니다.' in html
-        assert '다음 조회: 2026-10-04 00:00 (한국 시간)' in html
+        from webapp.card_flow import home_page
+        home = home_page(board)
+        assert '여행글은 한국 시간 매일 0시에 조회합니다.' in home
+        assert '다음 조회: 2026-10-04 00:00' in home
         assert '1010_도쿠시마' in html and '출발 예정' in html
-        assert '카드 분류 결과 보기' in html
+        assert "href='/import" in html
     finally:
         ledger_board.bind_store(previous)
     assert board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0] == 0

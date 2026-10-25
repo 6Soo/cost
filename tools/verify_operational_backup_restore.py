@@ -84,6 +84,10 @@ def database_inputs(data, manifest, options):
     for name in ('board.operator.sqlite', 'real-review.sqlite'):
         if (data / name).is_file():
             databases[name] = data / name
+    # 기능을 나중에 꺼도 기존 사용자 연결과 이력은 계속 복구 대상이다.
+    passenger_db = data / 'flight-passenger.sqlite'
+    if passenger_db.is_file():
+        databases['flight-passenger.sqlite'] = passenger_db
     decisions = Path(manifest['decisions_db_path'])
     decision_name = next((name for name, path in databases.items() if path.resolve() == decisions.resolve()), None)
     if decision_name is None:

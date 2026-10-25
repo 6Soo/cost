@@ -1,5 +1,69 @@
 # 현재 운영 상태
 
+## 2026-10-25 기록: 지출 정리 중앙 상태 표시 배포 완료
+
+사용자의 병합·배포 추가 승인으로 [PR #100](https://github.com/6Soo/cost/pull/100)을 병합했다. **실제 runtime은 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`**이며 `D:/WebLedgerHost/releases/1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`에서 실행한다. 전환 시각은 2026-10-24 22:52 KST다. 이후 문서 전용 main 커밋은 재배포하지 않는다. 아래 이전 배포 절의 runtime은 당시 이력이다.
+
+release 파일 925개를 archive와 대조했으며 launcher와 호스트 설정은 보존했다. 기존 표적 검사 46건의 유효한 근거를 재사용했다. 복구 근거는 `D:/WebLedgerHost/data/backups/expense-cleanup-20261024T225203/`의 `deployment.json`, `restore-evidence.json`, `protection-result.json`이다. DB 5개·보호 파일 59개를 백업하고 별도 복원해 비교했다. 배포 후 프로세스 생존 정보 외 기존 DB 표·schema와 보호 자료 보존 검사가 통과했다. 실제 고객 거래·기장·Google 쓰기는 0건이다.
+
+배포 당시 외부 `/healthz`·`/readyz`는 200, 비인증 `/api/imports/ota`·`/import`는 401이었다. 초기 urllib 요청의 403·시간 초과 뒤 네이티브 curl로 확인한 최종 결과이며 초기 실패를 성공으로 바꾸어 해석하지 않는다. Aside의 기존 소유자 세션에서도 지출 정리 화면과 새 조회 안내, 중앙 근거 갱신 중 안내, 여행 권위 보류, 원결제 연결 안내를 확인했다. 버튼 제출·여행 변경·실제 참가자 저장은 하지 않았다. Board·SourceRefresh는 Running, MailCollect·GoogleAuthority는 Ready이며 모두 Enabled로 복구했다. 이 기록을 위해 검사·재시작을 반복하지 않았다.
+
+표시 복구는 완료됐지만 A/B의 검증 결제 사건과 여행 권위, C 원결제의 여행 보류는 남아 있다. [거래별 진단](expense-cleanup-ota-diagnosis-20261024.md)을 따르며 배포를 미결 거래 처리 완료로 보고하지 않는다.
+
+## 2026-10-24 보존된 Trip.com 예약 관측 추가
+
+기존 Aside 직접 확인 원문 4건을 운영 OTA 근거 DB에 안전하게 추가했다. 이용 완료 숙박 2건과 취소 숙박 2건이며 카드 결제·환불 연결이나 장부 기장 완료를 뜻하지 않는다. 백업·별도 복원, 사본 시험, 기존 행과 관련 없는 표 보존, 반복 수집 무변경, 적용 직전 기준선 일치와 실제 추가 후 integrity 검사를 통과했다. 복구 경로는 `D:/WebLedgerHost/data/backups/trip-observations-20261024T175631/`, 로컬 결과는 `.local-archive/spec-completion/trip-observations-applied-result.json`이다. 이미 적용했으므로 추가 스크립트를 반복하지 않는다.
+
+board 전체 상태와 기존 장부는 같고 Google 쓰기도 0건이다. MailCollect를 원래 Enabled/Ready로 복구했으며 코드 배포·서버 재시작은 하지 않았다. 사용자가 직접 로그인한 다음 메일함은 Aside 접근을 확인했다. 85,621원 카드 2건은 개별 결제 연결과 검증 여행 근거가 더 필요하며 환율 추정만으로 확정하지 않았다. 자세한 잔여 상태는 [현행 인계 0.11절](COST_V3_CURRENT_HANDOFF.md#011-2026-10-24-미결-사항-처리)을 따른다.
+
+다음 메일에서 09-25 결제 완료 안내 2건의 예약번호·각 JPY 9,737을 기존 예약 2건과 대조했다. 첨부 영수증의 VISA 카드 끝자리는 미결 카드 2건 모두와 같았다. 개별 대응·원화 청구액·해당 숙박 기간의 검증 여행은 확인되지 않아 결제 확정 링크와 추가 기장을 만들지 않았다. 메일·영수증 원문은 로컬에만 보존하며 Git에는 올리지 않는다.
+
+## 2026-10-24 항공권 운영 연결 보완
+
+**최종 runtime은 `d9c5adcbd6d5bce52229a218535283e841567e5a`다.** [PR #96](https://github.com/6Soo/cost/pull/96)은 launcher의 명시 활성화·영구 DB, 화면 API의 기존 보호 토큰 기본값, 원본 식별자와 내용 지문이 포함된 최소 승객 색인을 연결했다. 후보 조회는 신선한 결과만 사용하고 기능을 꺼도 기존 연결 DB를 백업한다. 실제 참가자 선택·예약 정본·금융·Google 쓰기는 수행하지 않았다.
+
+파일 921개 대조와 launcher 일치, DB 5개·보호 파일 59개 백업·별도 복원을 확인했다. `flight_passengers.enabled=true`만 허용한 설정 변경이며 다른 보호 상태는 같았다. 복구 경로 `D:/WebLedgerHost/data/backups/flight-host-20261024T165551/`에 기존 launcher/설정을 보존했다. health/ready 200·비인증 화면/후보/저장 경로 401이었으며 generation 253의 색인 v2와 snapshot key 및 항공 예약 근거 177건·승객 표기 67개의 최소 검증 필드를 확인했다. 실제 고객 연결 수나 로그인 화면 검증 결과로 해석하지 않는다.
+
+후속 사용자 지시로 Aside의 기존 소유자 세션에서 항공권 후보 페이지의 실제 표시까지 확인했다. 새 비밀번호 조회·실제 참가자 선택·저장은 없었다. 당시 다음 메일 로그인 차단은 이후 사용자의 직접 로그인으로 해결됐다.
+
+미결 지출 53건은 복사본에서 23건 재분류·기록 0이었다. 원문과 기존 회계는 보존됐지만 항목 공란이 늘어 운영에는 적용하지 않았다. [현행 인계 0.11절](COST_V3_CURRENT_HANDOFF.md#011-2026-10-24-미결-사항-처리)에 정확한 보호 사유와 사용자 인증/추가 근거 경계를 기록했다.
+
+## 2026-10-24 미결 검사 수정과 OTA 통합 출처 보존
+
+[PR #95](https://github.com/6Soo/cost/pull/95)를 main `56f1a976148df89fa25233af3fff55e27e643e49`로 병합하고 같은 SHA의 release에 배포했다. 통합 OTA 읽기에서 원래 포털 locator를 사용해 출처·관측 ID를 보존하며 파서 버전은 7이다. 명시 lineage 설정도 통합 후보 manifest에 유지한다. 카드 금액·사용자 확정·장부 쓰기·스키마는 변경하지 않았다.
+
+archive와 release 파일 921개를 대조했다. 복구 근거 `D:/WebLedgerHost/data/backups/toyoko-reservation-20261024T164250/`에서 DB 5개·보호 파일 59개의 백업·별도 복원과 배포 후 보존을 확인했다. 새 실행 경로를 검증했고 외부 healthz/readyz 200·비인증 OTA/예약 관계 preview 401을 한 번 확인했다. Board·SourceRefresh는 Running, GoogleAuthority·MailCollect는 Ready이고 모두 Enabled다. 이후 문서만 변경하면 재배포하지 않는다.
+
+기존 비브라우저 실패 7건을 원인별 수정해 표적 통과했다. 원문 충돌·동일 record ID의 다른 포털 분리 및 명시 lineage를 포함한 인접 검사도 통과했다. 카드 검색 브라우저 검사는 접힌 영역을 먼저 열도록 고쳤고 구문 검사와 이전 Aside 근거를 재사용했다. 전체 pytest와 Playwright는 실행하지 않았다.
+
+실제 등록 여행 두 건의 참가자 API 응답은 각각 후보 0명·1명이며 HTTP 200과 최소 필드·revision·비공개 비캐시 응답을 확인했다. 실명·예약 식별자·토큰을 출력하거나 Git에 저장하지 않았고 실제 참가자 연결과 예약 정본 쓰기는 수행하지 않았다. 미결 거래의 후속 처리는 [현행 인계 0.11절](COST_V3_CURRENT_HANDOFF.md#011-2026-10-24-미결-사항-처리)을 따른다.
+
+## 2026-10-24 토요코인 예약 관계 분리 운영 배포
+
+**최종 운영 SHA는 `3a94dbe589b9f9fbb9cb2b36774c08b9bbb1cf24`다.** [PR #93](https://github.com/6Soo/cost/pull/93)은 아래 첫 배포에서 발견한 기본 검토의 무관한 과거 예약 노출을 한 조건으로 줄였다. 관계·후보가 없는 예약만 기본 검토에서 제외하며 중앙 결과·전체 예약 목록·확인된 관계와 취소·충돌 보류는 보존한다. 최종 release의 파일 921개를 archive와 대조했고 DB 5개·파일 59개의 백업·별도 복원 및 배포 후 상태 보존을 다시 검증했다. 최종 복구 근거는 `D:/WebLedgerHost/data/backups/toyoko-reservation-20261024T121451/`이며 최소 외부 health/ready 및 접근 보호 스모크가 통과했다. 이후 문서 전용 커밋은 이 운영 코드를 바꾸지 않는다.
+
+[PR #92](https://github.com/6Soo/cost/pull/92)를 병합한 첫 배포는 `587db6316444f843b971a189e7523a5529f424b8`이었다. 실행 경로 `D:/WebLedgerHost/releases/587db6316444f843b971a189e7523a5529f424b8`과 Git archive 파일 921개를 대조했다. 아래는 첫 배포의 검증 이력이며 최종 SHA는 위 문단을 따른다.
+
+예약 관계의 자동 추론과 사용자 확인을 결제 검증에서 분리했다. 사용자 확인은 별도 관계와 이력으로 저장하며, 기존 결제·그룹·예약 관계의 점유를 원자적으로 확인하고 자동 paid 대사의 재사용을 막는다. 근거 변경·소실은 기존 선택을 보존하며 재확인이 필요하다고 표시한다. 정상 카드 준비와 수동 여행을 보존하며 추론 예약번호를 Google 복사 F열에 넣지 않는다.
+
+DB 5개와 보호 파일 59개의 백업·별도 복원 및 배포 후 보존 게이트가 통과했다. 근거는 `D:/WebLedgerHost/data/backups/toyoko-reservation-20261024T120518/`에 있다. 기존 DB 표·schema와 보호 파일은 같으며 생존 정보 rule_process_leases만 기존 게이트의 예외다. 운영 원행 재수입, 재기장, 금액 보정 및 Google 쓰기는 하지 않았다. Board와 MailCollect를 같은 release로 전환했고 보조 작업의 기존 실행·활성 상태를 복구했다.
+
+외부 healthz·readyz는 200, 비인증 import·ota와 신규 예약 관계 preview 경로는 401이었다. 합성 Aside 화면에서 예약 관계만 1건 저장되고 결제 links는 0건, 카드 모든 열이 그대로인 것을 확인했다. 표적 105개 범위의 99개 통과와 공통 점유 초기화 오류 6개를 수정한 뒤 해당 6개 통과, 이후 UI 변경의 문법·통합 검사 통과를 재사용했다. 전체 pytest는 반복하지 않았고 전체 회귀 통과로 보고하지 않는다. 최신 재개 기준은 [현행 인계 0.10절](COST_V3_CURRENT_HANDOFF.md#010-2026-10-24-토요코인-예약-관계와-결제-검증-분리)이다.
+
+
+## 2026-10-24 COST V3 통합 병합·운영 배포 완료
+
+사용자 승인으로 [PR #91](https://github.com/6Soo/cost/pull/91)을 main `a3474a8f481590ed2189449c5d2113c7a2e933ff`에 병합하고 같은 커밋을 운영에 배포했다. PR #88·#89·#90도 MERGED 상태다. 기존 여행 우선배정·메뉴·Toyoko 후보·L1/L2 투영과 항공권 원본 변경/취소 보호, 지연 여행 이동의 최신 결정 보호를 포함한다.
+
+운영 코드는 `D:/WebLedgerHost/releases/a3474a8f481590ed2189449c5d2113c7a2e933ff`다. archive의 파일 918개를 대조했으며, 사용자 `C:/AX/cost`의 미커밋 변경과 stash는 그대로 보존했다. Board 관리 작업과 실제 launcher가 새 release를 사용하는 것을 확인했다. MailCollect는 인증·인자·주기 그대로 working directory만 전환했고 실제 수집을 즉시 실행하지 않았다. SourceRefresh와 GoogleAuthority action은 바꾸지 않았다.
+
+전환 전에 작성자를 잠시 멈추고 DB 5개·파일 59개의 백업과 별도 복원을 검증했다. 복구 binding과 원본 불변 검사는 통과했다. 배포 후 모든 DB 표·schema는 프로세스 생존 정보 `rule_process_leases`를 제외하고 같았고 원본·영수증·Google 읽기 자료·host config 해시도 같았다. 원장 재기장·운영 마이그레이션·Google 직접 쓰기는 수행하지 않았다. 근거는 `D:/WebLedgerHost/data/backups/spec-integration-20261024T095950/`의 restore-evidence.json, protection-result.json, deployment.json에 보존한다.
+
+Board·SourceRefresh는 Running, MailCollect·GoogleAuthority는 Ready이며 모두 Enabled로 복구됐다. 8751 listener는 1개다. 외부 `/healthz`와 `/readyz`는 200, 비인증 `/import`·`/ota`·`/flight-passengers`는 401로 최소 스모크를 한 번 수행했다. 실제 고객 후보 payload·로그인된 운영 화면은 조회하지 않았다. 이후 문서 전용 main 커밋은 운영 코드 SHA와 구분한다.
+
+병합 전 비브라우저 전체 회귀는 테스트가 공유 잠금을 우회해 DB connection을 직접 닫으면서 Windows 접근 위반으로 중단됐다. 테스트를 기존 `board.close()` 경계로 바꾼 `329b2ec`에서 해당 nodeid 1 passed를 확인했다. 비브라우저 실패 7개는 기준 `fe34048`에서도 동일하게 재현됐고 수정하지 않았다. 제외 설정이 놓친 기존 브라우저 검사 1개는 접힌 상세 영역을 열지 않은 채 링크를 기다렸다. 해당 렌더 분기·page·검사 파일은 기준과 같았고, Aside에서 실제 펼치기→전체 카드 검색→합성 3건 표시를 확인했다. 전체 회귀는 반복하지 않았으며 전체 통과로 보고하지 않는다. 기존 변경 기능별 표적 검사와 검토의 유효 근거를 재사용했다.
+
+최신 실행·재개 기준은 [현행 인계 0.9절](COST_V3_CURRENT_HANDOFF.md#09-2026-10-24-사용자-승인-병합과-운영-배포-완료)이다. 아래 거래 건수와 과거 릴리스는 그 당시 기록이며 이번 배포로 재기장한 결과가 아니다.
 
 ## 2026-10-23 지출 정리 자동 처리 결과와 남은 근거 확인
 

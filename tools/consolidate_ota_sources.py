@@ -46,7 +46,7 @@ def consolidate(manifest_path, destination, *, extra_portals=(), capture_roots=(
         for path in sources['reference_documents']:
             store.import_reference(path)
         unified = dict(mail_directories=[destination], portal_databases=[destination],
-                       reference_documents=[destination])
+                       reference_documents=[destination], source_lineage_ids=sources.get('source_lineage_ids', {}))
         messages, inventory = ota_mail.load_messages_from([destination])
         events = ota_payments.build_ota_payment_events(unified)
         references = ota_mail.load_reference_documents([destination])
@@ -73,6 +73,8 @@ def consolidate(manifest_path, destination, *, extra_portals=(), capture_roots=(
                     store.import_capture(path)
         checks['integrity'] = store.conn.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
         candidate = {'schema_version':ota_sources.SCHEMA_VERSION, 'unified_database':str(destination)}
+        if sources.get('source_lineage_ids'):
+            candidate['source_lineage_ids'] = sources['source_lineage_ids']
         return {'status':'PASS' if all(checks.values()) else 'HOLD', 'checks':checks,
                 'summary':store.summary(), 'candidate_manifest':candidate,
                 'legacy_event_count':len(baseline_events), 'mail_count':len(messages),

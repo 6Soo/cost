@@ -297,6 +297,34 @@ def _reservation_card_candidates(flow):
     return {key: sorted(ids) for key, ids in found.items()}
 
 
+def _reservation_link_states(flow):
+    """저장·추론 예약 관계를 결제 대사 결과와 별도 표시한다."""
+    from . import ota_payment_review
+    if not ota_payment_review.enabled():
+        return {}
+    current, fresh = flow._held_ota_snapshot()
+    if not current or not fresh:
+        return {}
+    events = {str(event.get('ota_event_id')): event for event in (current.get('data') or {}).get('events', ())}
+    cards = {str(card.get('transaction_id') or ''): card
+             for card in (current.get('data') or {}).get('transactions', ())}
+    states = defaultdict(list)
+    for result in (current.get('data') or {}).get('results', ()):
+        relation = result.get('reservation_link') or {}
+        if relation.get('status') not in ('INFERRED', 'USER_CONFIRMED', 'NEEDS_REVIEW', 'STALE'):
+            continue
+        event = events.get(str(result.get('ota_event_id') or ''), {})
+        key = (str(event.get('provider') or ''), str(event.get('booking_ref') or ''))
+        card = cards.get(str(relation.get('transaction_id') or ''), {})
+        states[key].append({'status': relation.get('status'),
+                            'merchant': card.get('merchant') or card.get('issuer') or '',
+                            'day': card.get('approval_date') or card.get('posting_date') or '',
+                            'amount_krw': card.get('amount_krw'),
+                            'amount_status': relation.get('amount_status')})
+    return {key: sorted(values, key=lambda value: (value.get('status') or '', value.get('merchant') or ''))
+            for key, values in states.items()}
+
+
 def _review_store():
     """The OTA review store for reads, or None when isolated review is not configured or has no file yet."""
     from . import ota_payment_review
@@ -365,7 +393,9 @@ def _code_stamp():
     root = Path(__file__).resolve().parent.parent
     for rel in _LOGIC_FILES:
         digest.update(rel.encode())
-        digest.update((root / rel).read_bytes())
+        path = root / rel
+        if path.is_file():
+            digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -517,6 +547,7 @@ def _build_index(board, sources):
     trip_by_id = {trip['tab_id']: trip for trip in trips}
     live, cancelled, card_error = _card_matches(flow)
     reservation_candidates = _reservation_card_candidates(flow)
+    reservation_links = _reservation_link_states(flow)
     if card_error:
         warnings.append('카드 결제와 예약을 대조하지 못했습니다. 지출 정리에서 자료를 확인해 주세요.')
     states = _owner_rule_states()
@@ -575,6 +606,7 @@ def _build_index(board, sources):
             'candidates': candidates,
             'card_matches': live.get(key, []),
             'card_candidates': reservation_candidates.get(key, []),
+            'reservation_links': reservation_links.get(key, []),
             'card_reconciliation_pending': card_error,
             'cancelled_matches': cancelled.get(key, 0),
         })
@@ -742,7 +774,9 @@ def _public_row(entry):
             'rule': None if not entry['rule'] else {'trip_tab_id': entry['rule']['trip_tab_id'],
                                                     'revision': entry['rule']['revision'],
                                                     'trip_valid': entry['rule']['trip_valid']},
-            'card_count': len(entry['card_matches'])}
+            'card_count': len(entry['card_matches']),
+            'card_candidates': list(entry.get('card_candidates') or ()),
+            'reservation_links': list(entry.get('reservation_links') or ())}
 
 
 def catalog(board, query, *, sources=None):
@@ -907,7 +941,11 @@ def render_html(data, query, *, csrf=''):
             ('예약 내용', esc(row['label'] or '미확인')), ('예약 상태', status_cell),
             ('카드 결제', esc(f"{row.get('card_count', 0)}건") +
              (f"<br><small>예약 후보 {len(row['card_candidates'])}건 · 결제 미확정</small>"
-              if row.get('card_candidates') else '')),
+              if row.get('card_candidates') else '') +
+             ("<br><small>예약 관계: " + esc(' / '.join(
+                 f"{'예약 추론 연결' if link.get('status') == 'INFERRED' else '사용자 예약 관계 확인' if link.get('status') == 'USER_CONFIRMED' else '근거 변경 · 재확인 필요' if link.get('status') == 'STALE' else '예약 관계 확인 필요'} · 결제 미검증 · {link.get('merchant') or '카드 자료에서 찾지 못함'} · {link.get('day') or '날짜 미확인'} · 원화 {link.get('amount_krw') if link.get('amount_krw') is not None else '미확인'} · {'금액 일치' if link.get('amount_status') == 'MATCH' else '금액 차이' if link.get('amount_status') == 'MISMATCH' else '금액 미확인'}"
+                 for link in row.get('reservation_links') or ())) + "</small>"
+              if row.get('reservation_links') else '')),
             ('여행 배정', trip_cell))) + '</tr>')
     hidden = ''.join(f"<input type='hidden' name='{k}' value='{esc(value(k))}'>" for k in ('state', 'provider', 'month', 'sort'))
     problems = data.get('trip_problems') or []
@@ -948,7 +986,9 @@ def render_html(data, query, *, csrf=''):
 
 
 OTA_STYLE = (
+    "@media(prefers-color-scheme:dark){.card-catalog{--cc-bg:#111820;--cc-surface:#1B2632;--cc-text:#E7EDF4;--cc-muted:#A7B4C2;--cc-border:#394858;--cc-soft:#24313E;--cc-accent:#8ED3AD;--cc-accent-bg:#244536;--cc-focus:#86B7FF;color-scheme:dark}}"
     ".card-catalog td:before{display:none}@media(max-width:759px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
+    ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"
     "@media(prefers-reduced-motion:reduce){.card-catalog svg.ic{transition:none}}"
@@ -956,20 +996,23 @@ OTA_STYLE = (
     "font-size:12px;font-weight:600;white-space:nowrap;max-width:100%}"
     ".ota-badge svg.ic{width:14px;height:14px;margin:0;vertical-align:0;flex:0 0 auto}"
     ".ota-badge.trip{white-space:normal;overflow-wrap:anywhere}"
-    ".ota-badge.ok{background:#ECF5EF;color:#166444}"
-    ".ota-badge.idle{background:#F2F4F7;color:#667085}"
+    ".ota-badge.ok{background:var(--cc-accent-bg,#ECF5EF);color:var(--cc-accent,#166444)}"
+    ".ota-badge.idle{background:var(--cc-soft,#F2F4F7);color:var(--cc-muted,#667085)}"
     ".ota-badge.bad{background:#FDECEC;color:#912018}"
+    "@media(prefers-color-scheme:dark){.ota-badge.bad{background:#542B30;color:#FFC3C7}.trip-check{border-color:#655332;background:#332D20;color:#F1E4C5}}"
     ".trip-check{border:1px solid #F3D9A4;background:#FFF9EC;border-radius:12px;padding:12px 16px;margin:12px 0}"
     ".trip-check h2{font-size:15px;margin:0 0 6px}.trip-check ul{margin:8px 0 0;padding-left:18px}"
-    ".ota-detail section{border:1px solid #E4E7EC;border-radius:12px;background:#fff;padding:14px 16px;margin:12px 0}"
+    ".ota-detail section{border:1px solid var(--cc-border,#E4E7EC);border-radius:12px;background:var(--cc-surface,#fff);padding:14px 16px;margin:12px 0}"
     ".ota-detail h2{font-size:15px;margin:0 0 8px}"
     ".ota-detail table{width:100%;border-collapse:collapse}"
-    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid #EEF0F3;text-align:left;vertical-align:top}"
+    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid var(--cc-border,#EEF0F3);text-align:left;vertical-align:top}"
     ".ota-detail .verdict{font-weight:650;font-size:15px;margin:0 0 10px}"
-    ".ota-detail .muted{color:#667085}.ota-detail .warn{color:#912018}"
+    ".ota-detail .muted{color:var(--cc-muted,#667085)}.ota-detail .warn{color:#912018}"
     ".ota-detail label.option{display:flex;gap:10px;align-items:flex-start;margin:6px 0}"
+    ".ota-detail input,.ota-detail select,.ota-detail textarea{max-width:100%;min-height:44px;border:1px solid var(--cc-border,#D0D5DD);border-radius:8px;background:var(--cc-surface,#fff);color:var(--cc-text,#182230);padding:8px 10px;font:inherit}"
+    ".ota-detail :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".ota-detail textarea{width:100%;min-height:72px}"
-    ".ota-detail .notice{border:1px solid #B7DCC7;background:#ECF5EF;border-radius:10px;padding:10px 14px}"
+    ".ota-detail .notice{border:1px solid #B7DCC7;background:var(--cc-accent-bg,#ECF5EF);border-radius:10px;padding:10px 14px}"
     ".ota-detail .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}"
 )
 

@@ -89,6 +89,7 @@ class CardCatalogBrowserTests(LinkBrowserFixture):
         script_errors = []
         page.on('pageerror', lambda error: script_errors.append(str(error)))
         page.goto(f'http://127.0.0.1:{self.port}/import')
+        page.locator('#card-review-detail > summary').click()
         page.get_by_role('link', name='전체 카드 거래 검색', exact=True).click()
         self.assertIn('전체 3건', page.inner_text('#card-count'))
         self.assertEqual(page.locator('tbody tr').count(), 3)

@@ -44,14 +44,13 @@ def test_unlinked_booking_explains_missing_connection_without_requesting_card_ev
         tid = rows[0]['transaction_id']
         board.conn.execute("UPDATE transactions SET merchant='AGODA.COM' WHERE transaction_id=?", (tid,))
         board.conn.commit()
-        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _board: {})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _board: {'__snapshot_status__': {'fresh': True, 'status': 'ready'}})
         before = tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone())
 
         markup = render_expense_cleanup(board, 'token')
 
-        assert '이 결제와 연결된 예약 자료가 현재 검토 목록에 없습니다.' in markup
-        assert '예약 확인서에서 예약번호와 이용기간을 확인해 주세요.' in markup
-        assert '카드 결제일만으로는 여행을 정할 수 없습니다.' in markup
+        assert '연결 상태 확인 대기' in markup
+        assert '예약 자료가 없습니다' not in markup
         assert '예약 근거를 카드 자료에서 확인' not in markup
         assert tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone()) == before
     finally:
@@ -73,7 +72,7 @@ def test_unassigned_expense_is_listed_and_leaves_the_list_once_assigned(tmp_path
         assert "data-row-id='expense-cleanup-1'" not in render_expense_cleanup(board, 'token')
     finally:
         ledger_board.bind_store(None)
-        board.conn.close()
+        board.close()
 
 
 def test_manual_trip_override_is_not_counted_as_expense_cleanup_review(tmp_path):
@@ -275,8 +274,9 @@ def test_failed_booking_refresh_stops_repeating_and_displays_failure(tmp_path, m
         assert 'RuntimeError' in caplog.text
         assert 'private booking content' not in caplog.text
         markup = render_expense_cleanup(board, 'token')
-        assert '예약 근거 갱신에 실패했습니다' in markup
-        assert 'location.reload()' not in markup
+        # 예약 탐색 캐시의 실패를 중앙 대사의 실패로 오인하지 않는다.
+        assert '예약 근거 갱신에 실패했습니다' not in markup
+        assert '/api/ota-catalog/status' not in markup
         assert builds == ['first', 'second']
     finally:
         ota_catalog._INDEX.update(key=None, value=None)
@@ -373,8 +373,8 @@ def test_refresh_status_route_is_owner_only_and_cleanup_polls_it(tmp_path, monke
         with ota_catalog._REBUILD_LOCK:
             ota_catalog._REBUILD.update(running=True, failed_key=None)
         markup = render_expense_cleanup(board, 'token')
-        assert '/api/ota-refresh-state' in markup
-        assert "state==='ready'" in markup and 'location.reload()' in markup
+        assert '/api/ota-refresh-state' not in markup
+        assert "state==='ready'" not in markup
     finally:
         with ota_catalog._REBUILD_LOCK:
             ota_catalog._REBUILD.update(running=False, active_key=None, failed_key=None, failed_at=0.0)
@@ -702,4 +702,66 @@ def test_booked_state_without_a_ledger_entry_is_not_reported_as_recorded(tmp_pat
         card = ota_catalog._card_states(board, [tid])[tid]
         assert card['already_booked']
     finally:
+        board.close()
+
+
+def test_cleanup_refund_pair_full_offset_shows_linked_pending_when_unrecorded(tmp_path, monkeypatch):
+    """같은 승인번호 원결제(+625280)와 취소(-625280)가 1:1 전액 상쇄되고,
+    ledger.preview에 refund_link가 있으나 양쪽 모두 미기록인 경우.
+    기존 cleanup은 '원결제 근거 필요'였으나, 새 표시는 '원결제 연결 완료·환불 기록 처리 대기'여야 함.
+    """
+    from webapp.card_flow import CardFlow
+    from webapp.tests.test_card_flow import CARD
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'cleanup-refund-pair.sqlite', seed_demo=False)
+    try:
+        ledger_board.bind_store(board)
+        flow = CardFlow(board)
+        # 원결제: 승인번호 APPROVAL123, 금액 625280
+        # 취소: 같은 승인번호, 금액 -625280
+        card_data = (
+            'Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,Date,Post Date,Authorization Code,Cancel,Status\n'
+            '국민,1234,domestic,purchase,합성상점,625280,,,625280,2026-10-03,2026-10-04,APPROVAL123,,매입\n'
+            '국민,1234,domestic,cancellation,합성상점,-625280,,,-625280,2026-10-05,2026-10-06,,APPROVAL123,매입취소\n'
+        ).encode('utf-8')
+        batch = flow.pipeline.receive(card_data, 'refund-pair.csv')['batch_id']
+        flow.pipeline.classify_batch(batch)
+        rows = flow.pipeline.get_batch(batch)['rows']
+        purchase_tid = rows[0]['transaction_id']
+        refund_tid = rows[1]['transaction_id']
+        board.conn.execute("UPDATE transactions SET original_approval_number=(SELECT approval_number FROM transactions WHERE transaction_id=?) WHERE transaction_id=?", (purchase_tid, refund_tid))
+        board.conn.commit()
+
+        # 원결제와 취소 모두 미기록 상태 확인
+        assert board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (purchase_tid,)).fetchone() is None
+        assert board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (refund_tid,)).fetchone() is None
+
+        # cleanup 렌더링
+        html = render_expense_cleanup(board, 'token')
+
+        # 취소 거래 행 찾기
+        refund_section = html.split(f"data-transaction='{refund_tid}'", 1)[1]
+        refund_section = refund_section.split("<li class='cleanup-row'", 1)[0]
+
+        # 기존 '원결제 근거 필요' 문구가 없어야 함
+        assert '원결제 근거가 필요합니다' not in refund_section
+        assert '원결제 연결 자료 보기' in refund_section
+
+        # 새 표시: '원결제 연결 완료·환불 기록 처리 대기' 또는 유사 문구
+        assert '원결제' in refund_section and '연결 완료' in refund_section
+        assert '환불' in refund_section and ('기록 처리 대기' in refund_section or '대기' in refund_section)
+
+        # 원결제 ID 표시 확인
+        assert purchase_tid not in refund_section
+
+        # full 상태 표시 확인
+        assert '전액 상쇄' in refund_section
+
+        # 원결제 거래 행도 확인
+        purchase_section = html.split(f"data-transaction='{purchase_tid}'", 1)[1]
+        purchase_section = purchase_section.split('</li>', 1)[0]
+        # 원결제는 환불 탭 이동 안내 등이 있을 수 있음
+
+    finally:
+        ledger_board.bind_store(None)
         board.close()

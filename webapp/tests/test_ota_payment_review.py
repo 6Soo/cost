@@ -260,6 +260,48 @@ def _local_review_request(backend, path, payload=None):
 
 
 class OtaPaymentReviewTests(unittest.TestCase):
+    def test_reservation_routes_are_separate_csrf_protected_and_revision_bound(self):
+        class ReservationBackend(FakeBackend):
+            def reservation_preview(self, event_id, transaction_id):
+                self.calls.append(("reservation_preview", event_id, transaction_id))
+                return {"preview_digest": "reservation-digest", "expected_revision": 4,
+                        "payment_verified": False}
+
+            def reservation_confirm(self, event_id, transaction_id, digest, *, expected_revision,
+                                    request_id, user):
+                self.calls.append(("reservation_confirm", event_id, transaction_id, digest,
+                                   expected_revision, request_id, user))
+                return {"status": "USER_CONFIRMED", "transaction_id": transaction_id,
+                        "payment_verified": False}
+
+        backend = ReservationBackend()
+        preview = FakeHandler(backend, "/api/imports/ota/reservation/preview",
+                              json.dumps({"event_id": "toyoko-syn", "transaction_id": "card-syn"}).encode())
+        ota_payment_review.dispatch(preview, urlsplit(preview.path), raw=preview.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(preview.response[0], 200)
+        self.assertFalse(preview.response[2]["payment_verified"])
+        confirm_body = {"event_id": "toyoko-syn", "transaction_id": "card-syn",
+                        "preview_digest": "reservation-digest", "expected_revision": 4,
+                        "request_id": "reservation-request"}
+        confirm = FakeHandler(backend, "/api/imports/ota/reservation/confirm",
+                              json.dumps(confirm_body).encode())
+        ota_payment_review.dispatch(confirm, urlsplit(confirm.path), raw=confirm.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(confirm.response[0], 200)
+        self.assertEqual(backend.calls[-1], ("reservation_confirm", "toyoko-syn", "card-syn",
+            "reservation-digest", 4, "reservation-request", "synthetic-owner"))
+        bad_body = {**confirm_body, "expected_revision": True}
+        bad = FakeHandler(backend, "/api/imports/ota/reservation/confirm", json.dumps(bad_body).encode())
+        ota_payment_review.dispatch(bad, urlsplit(bad.path), raw=bad.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(bad.response[0], 422)
+        denied = FakeHandler(backend, "/api/imports/ota/reservation/confirm",
+                             json.dumps(confirm_body).encode(), supplied_csrf="wrong")
+        ota_payment_review.dispatch(denied, urlsplit(denied.path), raw=denied.raw,
+                                    csrf="token-synth", backend=backend)
+        self.assertEqual(denied.response[0], 403)
+
     def setUp(self):
         FakeCorePayments.occupied_transaction = "card-00"
         self.environment = mock.patch.dict(os.environ, {

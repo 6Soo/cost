@@ -397,6 +397,38 @@ def test_frozen_group_order_survives_new_card_and_get_does_not_reallocate(tmp_pa
         store.close()
 
 
+def test_group_order_rechecks_paid_and_other_group_occupancy_but_allows_same_mapping(tmp_path):
+    store = OtaReviewStore(tmp_path / 'group-occupancy.sqlite')
+    try:
+        events = ['group-a', 'group-b']
+        cards = ['card-a', 'card-b']
+        mapping = dict(zip(events, cards))
+        store._ensure_initialized()
+        store.conn.execute(
+            "INSERT INTO ota_review_links(event_id,transaction_id,event_json,transaction_json,user) VALUES(?,?,?,?,?)",
+            ('group-a', 'card-a', '{}', '{}', 'synthetic'))
+        store.conn.commit()
+        # An existing paid link is allowed only when this mapping preserves it exactly.
+        frozen = store.confirm_group_order(events, cards, mapping, user='synthetic',
+                                            request_id='group-same-map')
+        assert frozen['mapping'] == mapping
+        with pytest.raises(ValueError, match='GROUP_CARD_PAID_LINK_CONFLICT'):
+            store.confirm_group_order(['other-a', 'other-b'], cards, dict(zip(['other-a', 'other-b'], cards)),
+                                      user='synthetic', request_id='group-paid-conflict')
+        store.conn.execute(
+            "INSERT INTO ota_review_group_pins(group_id,event_ids_json,card_ids_json,mapping_json,confirmed_by,version) "
+            "VALUES(?,?,?,?,?,1)",
+            ('group_other', '["occupied-a","occupied-b"]', '["card-c","card-d"]',
+             '{"occupied-a":"card-c","occupied-b":"card-d"}', 'synthetic'))
+        store.conn.commit()
+        with pytest.raises(ValueError, match='GROUP_CARD_RESERVED_BY_OTHER_GROUP'):
+            store.confirm_group_order(['other-c', 'other-d'], ['card-c', 'card-d'],
+                                      {'other-c': 'card-c', 'other-d': 'card-d'},
+                                      user='synthetic', request_id='group-pin-conflict')
+    finally:
+        store.close()
+
+
 def test_frozen_group_edge_change_warns_and_keeps_all_pinned_cards_reserved():
     store = OtaReviewStore(':memory:')
     try:
