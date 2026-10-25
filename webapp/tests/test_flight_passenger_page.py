@@ -133,6 +133,37 @@ def test_handler_wraps_flight_page_with_shared_navigation():
     assert "id='nav'" in rendered and "class='site-links'" in rendered
 
 
+def test_browser_wrapped_flight_page_responsive_theme_and_zoom():
+    from webapp import site_shell
+    from playwright.sync_api import sync_playwright
+
+    with patch('webapp.ledger_design.nav_region', return_value=''):
+        document = site_shell.wrap_document(page._page('csrf-synth'), '/flight-passengers')
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            browser_page = browser.new_page(viewport={'width': 375, 'height': 812},
+                                            color_scheme='dark')
+            browser_page.set_content(document)
+            for width in (375, 390, 759, 760, 1280):
+                browser_page.set_viewport_size({'width': width, 'height': 812})
+                assert browser_page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                assert browser_page.locator('#nav').count() == 1
+                assert browser_page.get_by_role('heading', name='항공권 참가자 연결').is_visible()
+            dark = browser_page.locator('#nav').evaluate('(el)=>getComputedStyle(el).backgroundColor')
+            browser_page.emulate_media(color_scheme='light')
+            light = browser_page.locator('#nav').evaluate('(el)=>getComputedStyle(el).backgroundColor')
+            assert dark != light
+
+            browser_page.set_viewport_size({'width': 640, 'height': 812})
+            browser_page.evaluate('document.documentElement.style.zoom="200%"')
+            assert browser_page.locator('#nav').count() == 1
+            assert browser_page.get_by_role('heading', name='항공권 참가자 연결').is_visible()
+        finally:
+            browser.close()
+
+
 def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
     from playwright.sync_api import sync_playwright
 
