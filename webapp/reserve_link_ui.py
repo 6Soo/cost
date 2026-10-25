@@ -21,23 +21,35 @@ _DOCUMENT = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>예약 명단·여행 연결</title>
 <style>
-body { font-family: system-ui, sans-serif; margin: 1.5rem; }
+:root { color-scheme: light; --bg:#F7F9FC; --surface:#fff; --text:#182230; --muted:#596579;
+  --border:#D0D5DD; --soft:#F2F4F7; --accent:#1A5C43; --accent-soft:#E5F2EA; --focus:#185ADB; }
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; --bg:#111820; --surface:#1B2632; --text:#E7EDF4; --muted:#B1BECC;
+    --border:#465666; --soft:#293744; --accent:#9AE0B8; --accent-soft:#244536; --focus:#93BEFF; }
+}
+body { font-family: system-ui, sans-serif; margin: 1.5rem; background:var(--bg); color:var(--text); }
 h1 { font-size: 1.25rem; }
-table { border-collapse: collapse; margin: 0.5rem 0; }
-th, td { border: 1px solid #ccc; padding: 0.25rem 0.5rem; text-align: left; }
+table { border-collapse: collapse; margin: 0.5rem 0; background:var(--surface); }
+th, td { border: 1px solid var(--border); padding: 0.5rem 0.65rem; text-align: left; }
+th { background:var(--soft); }
+.linktable select, input, textarea { max-width:100%; min-height:44px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface); color:var(--text); padding:8px 10px; font:inherit; }
+:focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
 .bar { margin: 0.75rem 0; display: flex; gap: 8px; flex-wrap: wrap; }
 .bar button { display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
-  padding: 8px 12px; border: 1px solid #D0D5DD; border-radius: 8px; background: #fff;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color:var(--text);
   font: inherit; font-weight: 600; cursor: pointer; }
+.bar button:not(:disabled):hover { background:var(--accent-soft); border-color:var(--accent); }
+.bar button:disabled { opacity:.62; cursor:not-allowed; }
 .bar button .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
 .backbar a.back { display: inline-flex; align-items: center; gap: 6px; }
 .backbar a.back .ic { width: 16px; height: 16px; flex: 0 0 auto; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .bar button { transition: none; } }
-.note { color: #555; }
-.err { color: #a00; }
-.warntext { color: #a60; }
+.note { color: var(--muted); }
+.err { color: #A1262F; }
+.warntext { color: #8A5100; }
 fieldset { margin: 0.5rem 0; }
-a.back { color: #1a4b8c; text-decoration: none; }
+a.back { color: var(--accent); text-decoration: none; }
 a.back:hover { text-decoration: underline; }
 .backbar { margin: 0.25rem 0 0.75rem; display: flex; gap: 1rem; flex-wrap: wrap; }
 
@@ -60,6 +72,7 @@ a.back:hover { text-decoration: underline; }
    change handler, and nothing is hidden. */
 @media (max-width: 640px) {
   body { margin: 0.75rem; }
+  .bar button { flex:1 1 100%; justify-content:center; }
   .linktable, .linktable thead, .linktable tbody, .linktable tr, .linktable td {
     display: block;
     width: auto;
@@ -81,8 +94,8 @@ a.back:hover { text-decoration: underline; }
     overflow: hidden;
   }
   .linktable tr {
-    border: 1px solid #ccc;
-    border-radius: 4px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
     margin: 0.75rem 0;
     padding: 0.25rem;
   }
@@ -95,6 +108,7 @@ a.back:hover { text-decoration: underline; }
     margin-bottom: 0.15rem;
   }
 }
+@media (max-width:375px) { body { margin:.625rem; } h1 { font-size:1.15rem; } .linktable td { padding:.4rem; } }
 </style>
 </head>
 <body>
