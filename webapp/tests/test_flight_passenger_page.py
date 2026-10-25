@@ -104,11 +104,33 @@ def test_owner_page_exposes_candidate_search_and_explicit_cost_confirmation_only
         handled = page.dispatch(handler, urlsplit('/flight-passengers'), is_owner=True,
                                 board=object(), csrf='csrf-synth')
     assert handled is True
-    assert '후보 조회' in handler.body
+    assert '연결 후보 찾기' in handler.body
     assert '/api/flight-passengers/candidates' in handler.body
     assert '/api/flight-passengers/assign' in handler.body
-    assert '실제 탑승 확인' in handler.body
+    assert '실제 탑승 여부' in handler.body
     assert not (tmp_path / 'flight.sqlite').exists()
+
+
+def test_handler_wraps_flight_page_with_shared_navigation():
+    from io import BytesIO
+    from types import SimpleNamespace
+    from webapp import ledger_board
+
+    response = SimpleNamespace(path='/flight-passengers', headers={}, wfile=BytesIO())
+    response.send_response = lambda code: None
+    response.send_header = lambda name, value: None
+    response.end_headers = lambda: None
+    with patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False):
+        ledger_board.Handler._send(response, page._page('csrf-synth'))
+    rendered = response.wfile.getvalue().decode('utf-8')
+    assert rendered.count("id='nav'") == 1
+    assert rendered.count('id="site-content"') == 1
+    assert rendered.count('class="site-menu-toggle"') == 1
+    assert rendered.count('<main id=\'flight-passenger-page\'>') == 1
+    assert '<head>' in rendered and '<body class="site-standalone">' in rendered
+    assert '</body></html>' in rendered
+    assert '#flight-passenger-page form' in rendered
+    assert "id='nav'" in rendered and "class='site-links'" in rendered
 
 
 def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
@@ -139,12 +161,12 @@ def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
             browser_page.goto('http://cost.test/flight-passengers')
             browser_page.locator('input[name=booking_ref]').fill('SYNTH-500')
             browser_page.locator('input[name=tour_id]').fill('tour-synth')
-            browser_page.get_by_role('button', name='후보 조회').click()
+            browser_page.get_by_role('button', name='연결 후보 찾기').click()
             browser_page.get_by_text('김알파').wait_for()
             browser_page.get_by_text(
-                '저장된 COST 연결이 있지만 예약 참가자 자료가 바뀌어 다시 확인해야 합니다.').wait_for()
+                '이전 연결의 근거가 변경됐습니다. 최신 자료를 확인하고 다시 선택해 주세요.').wait_for()
             browser_page.locator('input[type=radio]').check()
-            browser_page.get_by_role('button', name='선택한 COST 연결 저장').click()
+            browser_page.get_by_role('button', name='선택한 참가자를 COST에 연결').click()
             browser_page.get_by_text('실제 탑승 여부는 확인되지 않았습니다.').wait_for()
             assert requests == [{'booking_ref':'SYNTH-500', 'tour_id':'tour-synth',
                                  'proposal_id':proposal['proposal_id'],
@@ -176,8 +198,8 @@ def test_browser_displays_duplicate_passenger_candidates_without_choosing_for_ow
             browser_page.goto('http://cost.test/flight-passengers')
             browser_page.locator('input[name=booking_ref]').fill('SYNTH-500')
             browser_page.locator('input[name=tour_id]').fill('tour-synth')
-            browser_page.get_by_role('button', name='후보 조회').click()
-            browser_page.get_by_text('같은 영문 이름의 예약 참가자가 2명 있습니다.', exact=False).wait_for()
+            browser_page.get_by_role('button', name='연결 후보 찾기').click()
+            browser_page.get_by_text('같은 영문 이름의 후보가 2명입니다.', exact=False).wait_for()
             labels = browser_page.locator('label').all_text_contents()
             assert any('예약자 후보 1 · 김알파' in label for label in labels)
             assert any('예약자 후보 2 · 김알파' in label for label in labels)

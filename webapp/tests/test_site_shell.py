@@ -22,6 +22,12 @@ def test_native_pages_keep_their_existing_navigation_and_fragments_stay_fragment
     assert site_shell.wrap_document('<section>partial</section>', '/board') == '<section>partial</section>'
 
 
+def test_shell_theme_tokens_cover_native_navigation_documents():
+    assert ':root{--shell-bg:#F8FAFC' in site_shell.STYLE
+    assert '@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A' in site_shell.STYLE
+    assert 'body.site-standalone,body:has(.site-topbar)' not in site_shell.STYLE
+
+
 def test_public_login_and_forbidden_pages_never_gain_private_navigation():
     document = '<html><body>Login</body></html>'
     assert site_shell.wrap_document(document, '/auth/google/start') == document
