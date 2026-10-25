@@ -4,6 +4,8 @@ No write, no OTA re-analysis, no Google call."""
 from __future__ import annotations
 import os
 import sqlite3
+import re
+from datetime import date
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
@@ -11,6 +13,30 @@ from typing import Dict, Any, Optional, List
 # so their order is transaction_id ASC and the token only carries that position.
 # It is deliberately shaped like YYYY-MM-DD so the shared HTTP cursor check accepts it.
 _UNDATED_CURSOR_DATE = "0000-00-00"
+_DATE_PREFIX = re.compile(r"^(\d{4})-(\d{2})-(\d{2})(?:$|[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$)")
+def _valid_use_date(value: Any) -> bool:
+    if not isinstance(value, str): return False
+    match = _DATE_PREFIX.fullmatch(value)
+    if not match: return False
+    try: date(*(int(part) for part in match.groups()))
+    except ValueError: return False
+    return True
+def _date_predicate(column: str = "approval_date") -> str:
+    """SQLite equivalent of the supported ISO date/date-time grammar."""
+    pattern = "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'"
+    date_part = f"substr({column}, 1, 10)"
+    time_part = f"substr({column}, 11)"
+    return (
+        f"(length({column}) >= 10 AND {date_part} GLOB {pattern} "
+        f"AND date({date_part}) = {date_part} AND date({date_part}) IS NOT NULL AND "
+        f"({column} = {date_part} OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]' "
+        f"OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]:[0-5][0-9]' "
+        f"OR {time_part} GLOB ' [0-2][0-9]:[0-5][0-9]:[0-5][0-9].*' "
+        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]' "
+        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]:[0-5][0-9]' "
+        f"OR {time_part} GLOB 'T[0-2][0-9]:[0-5][0-9]:[0-5][0-9].*'))"
+    )
+_VALID_DATE_SQL = _date_predicate()
 
 def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
     """Resolve the card transactions database path.
@@ -44,17 +70,10 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return sqlite3.connect(uri, uri=True, check_same_thread=False)
 
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
-    """Get list of years that have transactions, from approval_date."""
+    """Get years only from valid card-use dates."""
     cur = conn.cursor()
-    cur.execute(
-        "SELECT DISTINCT substr(approval_date, 1, 4) FROM transactions "
-        "WHERE approval_date IS NOT NULL AND approval_date != '' "
-        "AND substr(approval_date, 1, 4) GLOB '[0-9][0-9][0-9][0-9]' "
-        "ORDER BY 1"
-    )
-    years = [int(row[0]) for row in cur.fetchall() if row[0].isdigit()]
-    return years
-
+    cur.execute(f"SELECT DISTINCT substr(approval_date, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
+    return [int(row[0]) for row in cur.fetchall()]
 def year_summary(db_path: Optional[str] = None, year: int = 2026) -> Dict[str, Any]:
     """Get monthly transaction counts and undated count for a year.
 
@@ -69,16 +88,10 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026) -> Dict[str, A
         for m in range(1, 13):
             cur.execute(
                 "SELECT COUNT(DISTINCT transaction_id) FROM transactions "
-                "WHERE substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?",
+                f"WHERE {_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?",
                 (str(year), f"{m:02d}"))
             months[m] = cur.fetchone()[0] or 0
-        # Undated: only truly null/empty/invalid date values
-        # Invalid = not matching YYYY-MM-DD pattern
-        cur.execute(
-            "SELECT COUNT(DISTINCT transaction_id) FROM transactions "
-            "WHERE approval_date IS NULL "
-            "   OR approval_date = '' "
-            "   OR approval_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'")
+        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})")
         undated = cur.fetchone()[0] or 0
         return {"year": year, "months": months, "undated_count": undated}
     finally:
@@ -102,8 +115,8 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
     conn = _connect(resolved_path)
     try:
         cur = conn.cursor()
-        params = [f"{year}-{month:02d}-%"]
-        where = "approval_date LIKE ?"
+        params = [str(year), f"{month:02d}"]
+        where = f"{_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?"
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
@@ -176,11 +189,9 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         params = []
         # Only truly null/empty/invalid dates - NOT "NOT LIKE year-%".
         # The OR group must be parenthesized so a cursor filter cannot reopen it.
-        where = (
-            "(approval_date IS NULL "
-            "OR approval_date = '' "
-            "OR approval_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')"
-        )
+        where = f"NOT ({_VALID_DATE_SQL})"
+        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})")
+        undated_total = cur.fetchone()[0] or 0
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
@@ -227,7 +238,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         next_cursor = f"{_UNDATED_CURSOR_DATE}|{items[-1]['transaction_id']}" if items else None
         return {
             "year": year, "items": items,
-            "count": len(items),
+            "count": len(items), "total_count": undated_total,
             "has_more": has_more,
             "cursor": next_cursor
         }

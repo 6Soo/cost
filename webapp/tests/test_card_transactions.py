@@ -122,6 +122,62 @@ def ledger_db_path():
     os.unlink(path)
 
 
+def test_date_validity_is_consistent_for_year_summary_and_lists(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    values = [
+        ("TX-TIMESTAMP", "2026-03-05 12:30:00"),
+        ("TX-BAD-MONTH", "2026-13-01"),
+        ("TX-BAD-DAY", "2026-02-30"),
+        ("TX-TRUNCATED", "2026-03"),
+        ("TX-BAD-PREFIX", "2026garbage"),
+        ("TX-BAD-TIME", "2026-03-06 25:70:00"),
+    ]
+    for index, (transaction_id, use_date) in enumerate(values, start=20):
+        row = (transaction_id, transaction_id, "b-synthetic", "CARD", "0000", "credit", "debit", "card",
+               transaction_id, transaction_id, use_date, "", "SYNTHETIC", "synthetic", 1, "", "KRW", "raw",
+               index, "{}", None, "", "", "needs_review", "", "", "", "", "", "", 1, None, "2026-01-01")
+        conn.execute("INSERT INTO transactions VALUES (" + ",".join(["?"] * 33) + ")", row)
+    conn.commit()
+    conn.close()
+
+    summary = ct.year_summary(db_path=card_db_path, year=2026)
+    month_ids = {item["transaction_id"] for item in ct.list_for_month(db_path=card_db_path, year=2026, month=3)["items"]}
+    undated_ids = {item["transaction_id"] for item in ct.undated_list(db_path=card_db_path, year=2026, per_page=100)["items"]}
+    assert summary["months"][3] == 4  # Three original March rows plus a valid timestamp.
+    assert summary["undated_count"] == 6  # Existing undated row plus five invalid date strings.
+    assert "TX-TIMESTAMP" in month_ids and "TX-TIMESTAMP" not in undated_ids
+    assert {transaction_id for transaction_id, _ in values[1:]} <= undated_ids
+    assert 2026 in ct.available_years(db_path=card_db_path)["years"]
+
+
+def test_undated_pages_over_100_are_complete_and_counted(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    rows = []
+    for index in range(125):
+        tid = f"TX-INVALID-{index:03d}"
+        rows.append((tid, tid, "b-invalid", "CARD", "0000", "credit", "debit", "card", tid, tid,
+                     "2026-02-30", "", "SYNTHETIC", "synthetic", 1, "", "KRW", "raw", index + 100,
+                     "{}", None, "", "", "needs_review", "", "", "", "", "", "", 1, None, "2026-01-01"))
+    conn.executemany("INSERT INTO transactions VALUES (" + ",".join(["?"] * 33) + ")", rows)
+    conn.commit()
+    conn.close()
+
+    pages = []
+    cursor = None
+    while True:
+        result = ct.undated_list(db_path=card_db_path, cursor=cursor, per_page=100)
+        pages.extend(item["transaction_id"] for item in result["items"])
+        if not result["has_more"]:
+            assert result["count"] == 26  # Last page contains the remaining rows.
+            break
+        cursor = result["cursor"]
+        assert cursor
+    assert len(pages) == 126  # One existing undated row plus 125 invalid dates.
+    assert result["total_count"] == 126
+    assert len(set(pages)) == 126
+    assert len(set(pages) & {row[0] for row in rows}) == 125
+    assert ct.year_summary(db_path=card_db_path)["undated_count"] == 126
+
 def test_year_summary_2026(card_db_path):
     # 2026 summary must include months and undated
     s = ct.year_summary(db_path=card_db_path, year=2026)
