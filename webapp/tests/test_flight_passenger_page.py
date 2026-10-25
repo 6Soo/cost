@@ -160,6 +160,15 @@ def test_browser_wrapped_flight_page_responsive_theme_and_zoom():
             browser_page.evaluate('document.documentElement.style.zoom="200%"')
             assert browser_page.locator('#nav').count() == 1
             assert browser_page.get_by_role('heading', name='항공권 참가자 연결').is_visible()
+
+            browser_page.evaluate('document.documentElement.style.zoom="100%"')
+            menu = browser_page.get_by_role('button', name='전체 메뉴 열기')
+            menu.focus()
+            menu.press('Enter')
+            assert browser_page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
+            browser_page.locator('#nav').press('Escape')
+            assert not browser_page.locator('#nav').evaluate('(el)=>el.classList.contains("open")')
+            assert menu.evaluate('(el)=>el===document.activeElement')
         finally:
             browser.close()
 

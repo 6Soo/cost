@@ -38,7 +38,7 @@
 
 `/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 모두 문서 가로 넘침이 없고 dark 시스템 설정이 적용됨을 확인했다. `webapp/tests/test_cards_all.py` 전체 22개가 통과했다. 영수증 화면은 합성 자료 기반 Chromium 표적 검사에서 375/759/1280px 가로 넘침이 없고 제목·검토 영역이 표시됨을 확인했다(`webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`, 1 passed). 항공권은 실제 공통 wrapper를 적용한 합성 문서에서 375/390/759/760/1280px 가로 넘침 없음, 시스템 light/dark 메뉴 배경 전환, 200% 확대 후 메뉴와 제목 표시를 확인했다(`webapp/tests/test_flight_passenger_page.py::test_browser_wrapped_flight_page_responsive_theme_and_zoom`, 1 passed). 키보드 전체 조작 흐름과 화면 상태 전체는 미검증이다.
 
-**2026-10-26 후속 수락 검사 커밋:** `7c4e905` 영수증 Chromium 화면 검사, `eb05f09` 항공권 wrapper 뷰포트/테마/확대 검사, `004b5f5` 일괄 유지관리 owner 화면의 합성 브라우저 미리보기→명시 확인→적용 요청 검사. `004b5f5` 검사에서 CSRF, preview ID, 적용 scope를 확인했고 API 응답은 네트워크 stub으로 대체해 DB/운영 효과를 발생시키지 않았다. 검증의 추가 범위는 큐에 기록했으며, 운영 배포와 OZE 실제 자료 원인 진단은 여전히 미완료다.
+**2026-10-26 후속 수락 검사 커밋:** `7c4e905` 영수증 Chromium 화면 검사, `eb05f09` 항공권 wrapper 뷰포트/테마/확대 검사, `004b5f5` 일괄 유지관리 owner 화면의 합성 브라우저 미리보기→명시 확인→적용 요청 검사. `004b5f5` 검사에서 CSRF, preview ID, 적용 scope를 확인했고 API 응답은 네트워크 stub으로 대체해 DB/운영 효과를 발생시키지 않았다. 후속 표적 검사에서 항공권 통합 문서의 Enter 메뉴 열기·Escape 닫기·초점 복귀도 통과했다. 검증의 추가 범위는 큐에 기록했으며, 운영 배포와 OZE 실제 자료 원인 진단은 여전히 미완료다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 
