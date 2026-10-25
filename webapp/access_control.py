@@ -137,8 +137,10 @@ VIEWER_DENIED_FIELDS = (
     "learning_case_id",
 )
 
-# Routes only an owner may reach. A viewer gets 404 on each of them.
+# Routes only an owner may reach. A viewer receives the existing owner-action refusal.
 OWNER_ONLY_PATHS = (
+    "/cards/all",
+    "/api/cards/transactions",
     "/ota",
     "/api/ota",
     "/import",

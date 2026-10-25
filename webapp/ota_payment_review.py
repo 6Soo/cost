@@ -1,4 +1,4 @@
-﻿"""Opt-in, isolated UI for reviewing OTA payment holds.
+"""Opt-in, isolated UI for reviewing OTA payment holds.
 
 The backend is deliberately injected. Its snapshot operation must be read-only;
 write methods must persist only in the separately configured OTA review store.

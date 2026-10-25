@@ -14,6 +14,7 @@
 | P2 | 수입 대조·연결·수동 결정 | COMPLETE | `app/participant_income.py`, 커밋 `b2366f2`. 검토 보강과 마지막 이력 경계 검사 결과는 아래 최신 기록을 따른다. |
 | P3 | 관리자 참가자 대조 화면 | COMPLETE | `webapp/participant_income_page.py`, 커밋 `a14a414`. 검토 보강 후 화면·권한·합성 브라우저 흐름 27건 통과. |
 | P4 | 합성 통합 확인 | COMPLETE | `tests/card_pipeline/test_participant_integration.py`, 커밋 `b94204c`. 수신→표시→수동연결→재수신→Google 변경 한 번 확인. |
+| TI-COST-ADAPTER | Travel INS 최종 명단 로컬 변환과 COST 참가자·수입 대조 연결 | COMPLETE | Travel INS `tools/build_cost_roster.py`와 기존 `tools/send_cost_roster.py`를 통해 COST 수신 저장소 및 `app/participant_income.py`에 합성 사진·명단·Google 수입 행을 연결했습니다. Travel INS 표적 검사 6건 통과. 운영 자료·Google 쓰기·배포는 수행하지 않았습니다. |
 
 구현은 승인된 범위 안에서 끝까지 수행했고 운영 배포·실제 명단 등록은 하지 않았다. Google 쓰기·수입 자동 기장·미납·완납 추정은 구현하지 않았다. 2026-10-20 Supervisor 검토로 지적된 명세 누락과 결함도 반영해 표적 검사로 닫았다.
 

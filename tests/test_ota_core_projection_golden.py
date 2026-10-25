@@ -111,15 +111,15 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Create a CardFlow-like object with frozen original methods."""
         # Create a minimal object with the original methods
         obj = _OriginalCardFlowMethods()
-        
+
         def mock_held_ota_snapshot():
             return snapshot, fresh if snapshot is not None else False
         obj._held_ota_snapshot = mock_held_ota_snapshot
-        
+
         # Patch enabled globally for this object
         self._enabled_patch = patch('webapp.ota_payment_review.enabled', return_value=enabled)
         self._enabled_patch.start()
-        
+
         return obj
 
     def _create_current_flow(self, snapshot, fresh=True, enabled=True):
@@ -127,11 +127,11 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         # Create a mock CardFlow with minimal dependencies
         flow = MagicMock(spec=CardFlow)
         flow._held_ota_snapshot = MagicMock(return_value=(snapshot, fresh if snapshot is not None else False))
-        
+
         # Patch enabled globally
         self._enabled_patch2 = patch('webapp.ota_payment_review.enabled', return_value=enabled)
         self._enabled_patch2.start()
-        
+
         return flow
 
     def _cleanup_patches(self):
@@ -187,7 +187,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Fresh snapshot produces identical statuses tuple."""
         orig_statuses, orig_gen, orig_recon = self._run_original_statuses(self.fresh_snapshot, fresh=True, enabled=True)
         curr_statuses, curr_gen, curr_recon = self._run_current_statuses(self.fresh_snapshot, fresh=True, enabled=True)
-        
+
         self.assertEqual(curr_statuses, orig_statuses, 'Status mapping differs from BASE')
         self.assertEqual(curr_gen, orig_gen)
         self.assertEqual(curr_recon, orig_recon)
@@ -196,7 +196,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Stale snapshot produces identical statuses tuple."""
         orig_statuses, orig_gen, orig_recon = self._run_original_statuses(self.stale_snapshot, fresh=False, enabled=True)
         curr_statuses, curr_gen, curr_recon = self._run_current_statuses(self.stale_snapshot, fresh=False, enabled=True)
-        
+
         self.assertEqual(curr_statuses, orig_statuses)
         self.assertEqual(curr_gen, orig_gen)
         self.assertEqual(curr_recon, orig_recon)
@@ -206,7 +206,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Disabled (enabled=False) snapshot produces identical disabled statuses."""
         orig_statuses, orig_gen, orig_recon = self._run_original_statuses(None, fresh=False, enabled=False)
         curr_statuses, curr_gen, curr_recon = self._run_current_statuses(None, fresh=False, enabled=False)
-        
+
         self.assertEqual(curr_statuses, orig_statuses)
         self.assertIsNone(curr_gen)
         self.assertIsNone(orig_gen)
@@ -218,7 +218,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Enabled but no snapshot (current=None) produces loading statuses."""
         orig_statuses, orig_gen, orig_recon = self._run_original_statuses(None, fresh=False, enabled=True)
         curr_statuses, curr_gen, curr_recon = self._run_current_statuses(None, fresh=False, enabled=True)
-        
+
         self.assertEqual(curr_statuses, orig_statuses)
         self.assertEqual(curr_recon, orig_recon)
         self.assertEqual(curr_recon['status'], 'loading')
@@ -230,7 +230,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1'}
         orig_notes = self._run_original_notes(self.candidate_snapshot, wanted, fresh=True, enabled=True)
         curr_notes = self._run_current_notes(self.candidate_snapshot, wanted, fresh=True, enabled=True)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         notes = curr_notes.get('txn1', [])
         self.assertTrue(any('OTA 후보(미확정): Agoda SYNTHETIC-REF' in n for n in notes),
@@ -243,7 +243,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1', 'txn2'}
         orig_notes = self._run_original_notes(self.group_only_snapshot, wanted, fresh=True, enabled=True)
         curr_notes = self._run_current_notes(self.group_only_snapshot, wanted, fresh=True, enabled=True)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         notes = curr_notes.get('txn1', [])
         self.assertTrue(any('OTA 반복 결제 그룹은 대응됐지만' in n for n in notes),
@@ -254,7 +254,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1'}
         orig_notes = self._run_original_notes(self.multiple_candidates_snapshot, wanted, fresh=True, enabled=True)
         curr_notes = self._run_current_notes(self.multiple_candidates_snapshot, wanted, fresh=True, enabled=True)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         notes = curr_notes.get('txn1', [])
         self.assertEqual(len(notes), 2, 'Should be limited to top 2')
@@ -265,7 +265,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1', 'txn2'}
         orig_notes = self._run_original_notes(self.rejected_snapshot, wanted, fresh=True, enabled=True)
         curr_notes = self._run_current_notes(self.rejected_snapshot, wanted, fresh=True, enabled=True)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         notes_t2 = curr_notes.get('txn2', [])
         self.assertTrue(any('OTA 후보 제외 사유:' in n for n in notes_t2),
@@ -276,7 +276,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1'}
         orig_notes = self._run_original_notes(self.fresh_snapshot, wanted, fresh=False, enabled=True)
         curr_notes = self._run_current_notes(self.fresh_snapshot, wanted, fresh=False, enabled=True)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         self.assertEqual(curr_notes, {})
 
@@ -285,7 +285,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         wanted = {'txn1'}
         orig_notes = self._run_original_notes(self.fresh_snapshot, wanted, fresh=True, enabled=False)
         curr_notes = self._run_current_notes(self.fresh_snapshot, wanted, fresh=True, enabled=False)
-        
+
         self.assertEqual(curr_notes, orig_notes)
         self.assertEqual(curr_notes, {})
 
@@ -341,7 +341,7 @@ class OtaCoreProjectionGoldenTests(unittest.TestCase):
         """Verify the frozen fixture itself matches BASE test expectations."""
         # This test confirms the fixture matches BASE test expectations
         orig_statuses, generation, reconciliation = self._run_original_statuses(self.fresh_snapshot, fresh=True, enabled=True)
-        
+
         self.assertEqual(generation, 9)
         self.assertEqual(reconciliation, {'enabled': True, 'fresh': True,
                                           'status': 'ready', 'generation': 9})

@@ -101,10 +101,29 @@ STYLE = """
 }
 *{box-sizing:border-box}
 :root{
- --bg:#F7F9FC;--paper:#FFFFFF;--ink:#182230;--mut:#667085;--line:#E4E7EC;
- --line2:#F2F4F7;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;
+ --bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;
+ --line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;
  --sel:#ECF5EF;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
  --warn:#B54708;--neg:#B42318;--bad:#B42318;
+ --text-muted:#94A3B8;--surface-muted:#F1F5F9;
+}
+/* Dark theme (B안) - system preference only, no manual toggle */
+@media (prefers-color-scheme: dark) {
+ :root{
+  --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
+  --line2:#1E293B;--line-strong:#475569;--hover:#334155;--focus:#3B82F6;
+  --sel:#1C7A52;--grn:#22C55E;--grn-dk:#16A34A;--grn-lt:#14532D;
+  --warn:#F59E0B;--neg:#EF4444;--bad:#EF4444;
+  --text-muted:#64748B;--surface-muted:#334155;
+ }
+}
+@media(prefers-color-scheme:dark){
+:root{
+ --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
+ --line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#93C5FD;
+ --sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#A7F3D0;--grn-hover:#166444;--grn-lt:#14532D;
+ --warn:#FBBF24;--neg:#FDA4AF;--bad:#FDA4AF;
+}
 }
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -472,7 +491,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
-.btn.primary:hover{background:var(--grn-dk)}
+.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}
 .btn[disabled]{opacity:.45;cursor:default}
 .btn[disabled]:hover{background:var(--paper)}
 /* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
@@ -980,6 +999,7 @@ def work_menu_html() -> str:
                 f"</span></{tag}>")
 
     actions = action('upload', '지출 정리', '카드 파일 추가 · 미배정 지출 정리 · 오분류 수정 · 전체 카드 검색', '/import')
+    actions += action('list', '카드 전체 내역', '연도·월별 전체 카드 거래 조회 · 상세 연결', '/cards/all')
     actions += action('list', 'OTA 내역', '예약 조회 · 여행 미배정 확인 · 검색 · 이용월 조회', '/ota')
     if receipt_review.enabled():
         actions += action('receipt', '영수증 처리', '이미지 업로드 · 수동 입력 · 복사', '/receipts')
@@ -1002,6 +1022,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
+                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"

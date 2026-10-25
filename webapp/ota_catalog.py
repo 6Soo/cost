@@ -393,7 +393,9 @@ def _code_stamp():
     root = Path(__file__).resolve().parent.parent
     for rel in _LOGIC_FILES:
         digest.update(rel.encode())
-        digest.update((root / rel).read_bytes())
+        path = root / rel
+        if path.is_file():
+            digest.update(path.read_bytes())
     return digest.hexdigest()
 
 
@@ -984,7 +986,9 @@ def render_html(data, query, *, csrf=''):
 
 
 OTA_STYLE = (
+    "@media(prefers-color-scheme:dark){.card-catalog{--cc-bg:#111820;--cc-surface:#1B2632;--cc-text:#E7EDF4;--cc-muted:#A7B4C2;--cc-border:#394858;--cc-soft:#24313E;--cc-accent:#8ED3AD;--cc-accent-bg:#244536;--cc-focus:#86B7FF;color-scheme:dark}}"
     ".card-catalog td:before{display:none}@media(max-width:759px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
+    ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"
     "@media(prefers-reduced-motion:reduce){.card-catalog svg.ic{transition:none}}"
@@ -992,20 +996,23 @@ OTA_STYLE = (
     "font-size:12px;font-weight:600;white-space:nowrap;max-width:100%}"
     ".ota-badge svg.ic{width:14px;height:14px;margin:0;vertical-align:0;flex:0 0 auto}"
     ".ota-badge.trip{white-space:normal;overflow-wrap:anywhere}"
-    ".ota-badge.ok{background:#ECF5EF;color:#166444}"
-    ".ota-badge.idle{background:#F2F4F7;color:#667085}"
+    ".ota-badge.ok{background:var(--cc-accent-bg,#ECF5EF);color:var(--cc-accent,#166444)}"
+    ".ota-badge.idle{background:var(--cc-soft,#F2F4F7);color:var(--cc-muted,#667085)}"
     ".ota-badge.bad{background:#FDECEC;color:#912018}"
+    "@media(prefers-color-scheme:dark){.ota-badge.bad{background:#542B30;color:#FFC3C7}.trip-check{border-color:#655332;background:#332D20;color:#F1E4C5}}"
     ".trip-check{border:1px solid #F3D9A4;background:#FFF9EC;border-radius:12px;padding:12px 16px;margin:12px 0}"
     ".trip-check h2{font-size:15px;margin:0 0 6px}.trip-check ul{margin:8px 0 0;padding-left:18px}"
-    ".ota-detail section{border:1px solid #E4E7EC;border-radius:12px;background:#fff;padding:14px 16px;margin:12px 0}"
+    ".ota-detail section{border:1px solid var(--cc-border,#E4E7EC);border-radius:12px;background:var(--cc-surface,#fff);padding:14px 16px;margin:12px 0}"
     ".ota-detail h2{font-size:15px;margin:0 0 8px}"
     ".ota-detail table{width:100%;border-collapse:collapse}"
-    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid #EEF0F3;text-align:left;vertical-align:top}"
+    ".ota-detail td,.ota-detail th{padding:6px 8px;border-bottom:1px solid var(--cc-border,#EEF0F3);text-align:left;vertical-align:top}"
     ".ota-detail .verdict{font-weight:650;font-size:15px;margin:0 0 10px}"
-    ".ota-detail .muted{color:#667085}.ota-detail .warn{color:#912018}"
+    ".ota-detail .muted{color:var(--cc-muted,#667085)}.ota-detail .warn{color:#912018}"
     ".ota-detail label.option{display:flex;gap:10px;align-items:flex-start;margin:6px 0}"
+    ".ota-detail input,.ota-detail select,.ota-detail textarea{max-width:100%;min-height:44px;border:1px solid var(--cc-border,#D0D5DD);border-radius:8px;background:var(--cc-surface,#fff);color:var(--cc-text,#182230);padding:8px 10px;font:inherit}"
+    ".ota-detail :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".ota-detail textarea{width:100%;min-height:72px}"
-    ".ota-detail .notice{border:1px solid #B7DCC7;background:#ECF5EF;border-radius:10px;padding:10px 14px}"
+    ".ota-detail .notice{border:1px solid #B7DCC7;background:var(--cc-accent-bg,#ECF5EF);border-radius:10px;padding:10px 14px}"
     ".ota-detail .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}"
 )
 

@@ -27,6 +27,7 @@ def test_mail_core_card_ota_views_share_reservation_candidates_and_preserve_deci
     mail = message()
     (maildir / 'gmail-synthetic.json').write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
     sources = {'mail_directories': [str(maildir)], 'portal_databases': [], 'missing': []}
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
     flow = CardFlow(board)
     flow.pipeline.receive(CARD.replace('합성상점'.encode(), '토요코인 울산삼산동'.encode()), 'synthetic.csv')
     row = board.conn.execute('SELECT transaction_id FROM transactions').fetchone()

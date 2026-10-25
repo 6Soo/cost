@@ -1834,6 +1834,7 @@ class CardFlow:
 
     def _ota_candidate_notes(self, rows):
         """Attach unresolved canonical OTA candidates as review-only screen notes."""
+        import re
         from . import ota_payment_review
         from app.ota_core_projection import project_card_ota_candidate_notes
         if not ota_payment_review.enabled():
