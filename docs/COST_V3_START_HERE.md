@@ -9,7 +9,9 @@
 
 > **2026-10-25 최신 개발 기준(과거 UI '구현 전' 문구보다 우선):** `main` SHA `d4c5934de07`에 **PR #103(감사), #104(시스템 테마), #109(V21 카드 전체 내역·UI 통합)**가 병합됐다. `/cards/all`과 `/api/cards/transactions/*` 코드, 모바일 대응 CSS 후보, 항공권·영수증 변경도 `main`에 존재한다. **이는 소스 반영과 PR이 보고한 표적 테스트의 범위**이며 브라우저 최종 수락·운영 배포 완료를 뜻하지 않는다. 상태표, 남은 검증 및 중복 PR 주의는 [CURRENT HANDOFF §0.13](COST_V3_CURRENT_HANDOFF.md)에 기록한다. 위 2026-10-24 UI 명세의 '신규 개발/미구현' 표기는 *최초 작성 시점의 목표 설명*으로 읽고 구현 완료의 현재 판정은 §0.13을 따를 것.
 >
-> **신규 요구·미병합 명세:** [PR #105](https://github.com/6Soo/cost/pull/105)는 '전체 지출 자동 정리' 일반 UI 제거와 owner 유지보수 미리보기·확인 게이트(통합 UI 명세 v1.2/§12 제안), [PR #110](https://github.com/6Soo/cost/pull/110)은 [`0630_오제` 수입 표시 원인 진단](https://github.com/6Soo/cost/blob/docs/oze-income-visibility-ledger-match-20261025/docs/trip-income-visibility-and-ledger-match-spec-20261025.md) 및 Google↔웹 장부 **금액+날짜/가맹점/분류/예약번호 중 1개 일치 시 시각적 볼드** 규칙이다. **두 PR 모두 현재 열림(미병합)**이며 구현·실제 데이터 복구는 완료되지 않았다. 사용자 확정 회계 분기: **`0625_아키타`는 2분기 마지막, `0630_오제`는 3분기 첫 여행**. 관련 분기 판단은 달력상 시작 월만 사용하지 않는다.
+> **2026-10-25 당시 미병합 명세 이력 (2026-10-26 최신화):** PR #105(지출 자동 정리)와 PR #110(오제 수입·볼드)는 **이미 병합**되었다. [통합 UI 명세 §12](card-all-transactions-and-ui-design-system-spec-v1.md)와 [여행 수입·거래 볼드 명세](trip-income-visibility-and-ledger-match-spec-20261025.md)는 `main` 정본이다. 기능 코드는 아직 미구현이다. **`0625_아키타`=회계 2분기 마지막, `0630_오제`=회계 3분기 첫 여행**으로 유지한다. 상태는 [CURRENT HANDOFF §0.14](COST_V3_CURRENT_HANDOFF.md)에서 관리한다.
+>
+> **2026-10-26 최우선 개발 진입점:** [COST READY DEV QUEUE](COST_READY_DEV_QUEUE_20261026.md) → [CURRENT HANDOFF §0.14](COST_V3_CURRENT_HANDOFF.md) → 아래 금융·도메인 규칙과 각 상세 명세를 참조한다. GitHub `main` 문서 병합: **PR #111(현황), #110(오제 수입·볼드), #105(전체 지출 자동 정리), #112(사이드메뉴·항공 UI)** 전부 **MERGED**. `main` 코드에서 신규 기능이 이미 구현되었다는 뜻은 아니다. 지금 시작할 P0는 `SIDEBAR-DARK-01`, `FLIGHT-SHELL-01`; 기존 V21 카드 전체 내역/항공·영수증 원형은 재구현 금지. 과거 인계 §0.13의 'PR 미병합' 문구와 아래 오래된 작성 시점 설명은 **역사 기록**으로 읽을 것.
 >
 ## 1. 문서 권위와 충돌 해결
 

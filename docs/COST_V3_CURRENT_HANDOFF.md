@@ -1,8 +1,30 @@
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
-> **최신 GitHub 개발 상태(2026-10-25):** 아래 **0.13절**의 `main` SHA `d4c5934de07`과 PR #103/#104/#109 통합, 미병합 PR #105/#106/#107/#108/#110 대조를 우선한다. **최신 확인된 운영 배포 증거는 아래 0.12절의 OTA·지출 정리 표시 복구**이며, V21 코드 병합을 운영 배포로 혼동하지 않는다. 별도 UI 및 수입·대조 명세는 해당 PR 상태를 확인한다. **이 문서는 작업 진행 상태와 다음 실행 큐의 단일 스냅샷**이다.
+> **최신 개발 재개 기준(2026-10-26):** 아래 **0.14절**, [COST READY DEV QUEUE](COST_READY_DEV_QUEUE_20261026.md) 및 실제 최신 `main` SHA를 우선한다. **PR #105/#110/#111/#112는 모두 `main`에 병합됐다.** 이들은 명세 문서 PR이며 해당 신규 기능이 코드로 구현되었다는 뜻이 아니다. 이전 0.13절의 '미병합 문서 PR' 문구는 **2026-10-25 당시 이력**이다. 최신 확인된 운영 배포 증거는 아래 0.12절의 OTA·지출 정리 표시 복구뿐이며, V21 코드 병합을 운영 배포로 혼동하지 않는다.
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
+
+## 0.14 2026-10-26 문서 PR 병합 완료 및 구현 준비 큐 (현재 우선)
+
+> **GitHub 직접 실행 결과:** PR [#111](https://github.com/6Soo/cost/pull/111) merge SHA `5e602419d2356b540a3eb4917bb2a55eea29cace`, [#110](https://github.com/6Soo/cost/pull/110) `fcad2e662a10c732b4b216b14c955f2093f2dee7`, [#105](https://github.com/6Soo/cost/pull/105) `bc466fb541bf2683b25ac35fb1aa79045c4c7778`, [#112](https://github.com/6Soo/cost/pull/112) `9d83430f3cb1a574e3d3ae1078a514deec38029f` **모두 MERGED**. 이 문서 정리 브랜치 생성 직전 최신 `main`은 **`9d83430f3cb1a574e3d3ae1078a514deec38029f`**. 이 문서 자체가 후속 병합되면 SHA가 바뀌므로 실행 시 반드시 재조회한다.
+
+**필독 실행 큐:** [docs/COST_READY_DEV_QUEUE_20261026.md](COST_READY_DEV_QUEUE_20261026.md). 사용자는 **명세 기반으로 실제 개발을 시작할 수 있도록** PR 병합·문서 최신화를 요청했다. 상태 `SPEC_MERGED / IMPLEMENTATION_PENDING`을 유지한다.
+
+| 대상 | 현재 main 상태 | 구현 재개 위치 |
+| --- | --- | --- |
+| 공통 다크모드 사이드메뉴 | `webapp/site_shell.py` CSS 변수 범위 결함 **코드 미수정**. PR #112 §4.5~4.7 명세 **병합** | `SIDEBAR-DARK-01` **P0 READY**, 해당 명세의 SIDE-01~03 |
+| 항공권 참가자 연결 화면 메뉴 소실 | `flight_passenger_page._page()` 문서 구조로 인해 `wrap_document()`가 메뉴를 삽입하지 않는 결함 **미수정** | `FLIGHT-SHELL-01` **P0 READY**, 실제 Handler 통합·브라우저 검사 |
+| 항공권 화면 UI/한국어 문구 | 기존 후보 검색/내부 연결 로직은 존재하지만 제목·폼·상태 안내 개선은 **미수정** | `FLIGHT-UX-COPY-01` **P1**, 선행 P0 뒤 수행 |
+| 일괄 지출 정리 버튼 | `#cleanup-reclassify`·서버 POST/금융 쓰기 로직 **현행 유지**. PR #105 명세 §12 병합 | `EXPENSE-BULK-AUDIT-01` → `EXPENSE-BULK-UI-01` → `EXPENSE-BULK-MAINT-01` |
+| `0630_오제` 수입 표시 | `trip_income_html()`에서 수입/지출 전체 verified 연동 문제는 코드상 확인되나 **실운영 스냅샷 원인 미확정, 수정 미수행** | `OZE-INCOME-DIAG-01`(권한 있는 읽기 전용) / `OZE-INCOME-VIEW-01`(합성 구현) |
+| Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 명세에 **같은 여행, 같은 지출, 동일 금액(부호/통화 포함) + 날짜·가맹점·분류·예약번호 중 하나 이상** 조건 있음. **표시 코드는 아직 미구현** | `LEDGER-MATCH-READ-01` → `LEDGER-MATCH-UI-01` |
+| 카드 전체 내역 · 기본 공통 테마 · 항공권/영수증 기존 기능 | V21 `main` 구현 존재. 별도 브라우저 통합/운영 배포는 미확인 | **재구현 금지**, `V21-UI-ACCEPTANCE-01`만 표적 검증 |
+
+**PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
+
+**개발 계약:** 먼저 `SIDEBAR-DARK-01` → `FLIGHT-SHELL-01`. 상용 프론티어 감독 에이전트는 티켓 배정·검증 결과·위험 판단만 수행하고 구현/표적 테스트/코드 조사는 저비용 에이전트에 위임한다. Paseo 네이티브 Skill/위임이 진짜 독립 실행 가능한지 확인 전에는 성공으로 보고하지 않으며, CLI 자동 대체는 사용자 승인 필요. 작업별 재작업 2회/세션당 신규 구현 4티켓·하위 호출 12회/무진전 2회 HOLD. 운영 DB·Google 원본·실제 고객 기록·운영 배포는 별도 허가 없이는 금지.
+
+**검증 범위:** 위 PR 병합 및 이 문서 상태는 **GitHub 원격 코드/명세 기준**. 신규 브라우저 기능 테스트·원본 실수입 진단·코드 패치·운영 배포를 수행하지 않았다. 최신 배포/검증 증거 없이 `IMPLEMENTED/TESTED/DEPLOYED`로 표시하지 않는다.
 
 ## 0.13 2026-10-25 최신 main vs 명세 구현 대조 (소스/PR 읽기 전용 감사)
 
