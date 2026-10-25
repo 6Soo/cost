@@ -1,8 +1,47 @@
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
-> **최신 상태:** 2026-10-25 KST 기록, 아래 0.12절의 실제 OTA 미결 진단과 지출 정리 표시 복구는 사용자 추가 승인에 따라 병합·운영 배포까지 완료했다. 별도 UI 신규 개발 계약은 AGENTS의 해당 진입점을 따른다. 0.11절 이하의 완료·운영 이력은 보존한다. **이 문서는 COST V3 현행 작업 상태 및 다음 실행 큐의 단일 스냅샷이다.**
+> **최신 GitHub 개발 상태(2026-10-25):** 아래 **0.13절**의 `main` SHA `d4c5934de07`과 PR #103/#104/#109 통합, 미병합 PR #105/#106/#107/#108/#110 대조를 우선한다. **최신 확인된 운영 배포 증거는 아래 0.12절의 OTA·지출 정리 표시 복구**이며, V21 코드 병합을 운영 배포로 혼동하지 않는다. 별도 UI 및 수입·대조 명세는 해당 PR 상태를 확인한다. **이 문서는 작업 진행 상태와 다음 실행 큐의 단일 스냅샷**이다.
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
+
+## 0.13 2026-10-25 최신 main vs 명세 구현 대조 (소스/PR 읽기 전용 감사)
+
+> **고정 관측 기준:** GitHub \`6Soo/cost\`의 \`main\` = \`d4c5934de07\`(2026-10-25 UTC 11:42경), 이번 감사에서 확인한 브랜치·PR·코드 상태. 이후 새 커밋/PR/운영 배포가 있으면 새 기준으로 확인한다. **이번 절은 소스·PR·기존 기록 대조이지 신규 기능 테스트, 실제 Google/운영 DB·웹 브라우저 실측이 아니다.**
+>
+> **상태 용어:** \`MAIN_CODE_PRESENT\`=코드/라우트가 main에 존재, \`TARGETED_TEST_REPORTED\`=해당 PR이 표적 검사 통과를 보고함(이번 재실행 아님), \`BROWSER_NOT_TESTED\`=이번 감사에서 실제 렌더/반응형 측정 없음, \`DEPLOYMENT_UNVERIFIED\`=V21의 운영 SHA/배포 증거 확인 없음, \`SPEC_PR_OPEN\`=명세가 PR에만 존재, \`ROOT_CAUSE_UNVERIFIED\`=현장 스냅샷으로 특정 원인 미확인.
+
+### 0.13.1 최신 통합 사실과 명세 대조
+
+| 대상 / 정본 | 소스·GitHub 검증 사실 | 현재 판정 / 다음 행동 |
+| --- | --- | --- |
+| 기존 UI·라우트 감사 PR [#103](https://github.com/6Soo/cost/pull/103) | **MERGED** 2026-10-25. \`docs/card-ui-audit-v2-20261025.md\`, \`docs/COST_SUPERVISOR_V2_CHECKPOINT.md\`는 당시 기준 SHA/예전 미검증 실행 기록을 담는다. | \`MAIN_CODE_PRESENT\`(감사 문서). 과거 체크포인트의 READY 과제를 현재 실행 명령으로 다시 사용하지 말 것. |
+| 시스템 테마 PR [#104](https://github.com/6Soo/cost/pull/104) | **MERGED**. \`webapp/ledger_design.py\`에 \`prefers-color-scheme: dark\` 공통 변수와 라이트 기본 토큰, \`webapp/flight_passenger_page.py\`·\`receipt_review.py\`에 관련 CSS 확인. 수동 테마 토글은 사용자 계약상 필요 없음. | \`MAIN_CODE_PRESENT / TARGETED_TEST_REPORTED / BROWSER_NOT_TESTED\`. 별도 독립 UI 접근성·실제 브라우저 측정은 **완료로 선언하지 말 것**. 공통 CSS의 중복 dark media 블록은 실제 부작용 여부 표적 조사 후보. |
+| V21 코드 통합 PR [#109](https://github.com/6Soo/cost/pull/109) | **MERGED** 2026-10-25, 27개 파일 변경, 통합 과정에서 원본 main 자산 복구 기록. PR 설명에 표적 합성 검사 **133 passed + 70 passed**(서로 다른 묶음), 전체 회귀/브라우저 검증 **미실행**. | \`MAIN_CODE_PRESENT / TARGETED_TEST_REPORTED / BROWSER_NOT_TESTED / DEPLOYMENT_UNVERIFIED\`. 이미 통합된 카드/테마/영수증/항공/OTA UI를 다시 구현하지 말 것. 실제 운영 배포는 별도 승인이 필요. |
+| 카드 전체 내역(통합 UI 명세 v1.1 §2,5,9) | \`webapp/ledger_design.py\` 메뉴 **'카드 전체 내역'**, \`webapp/ledger_board.py\` GET \`/cards/all\` 및 \`/api/cards/transactions/{years,summary,undated}\`·월 조회, \`webapp/cards_all.py\` 2026 기본/12월 타일/월별 상세/날짜 확인 필요/상세 링크, \`webapp/card_transactions.py\` 저장 카드 원행 읽기 투영, 합성 검사 파일 확인. | \`MAIN_CODE_PRESENT / TARGETED_TEST_REPORTED\`. 명세의 개별 AC 전체를 이번 감사로 확정하지 않는다. 실제 375px/시스템 테마 전환/키보드/운영 저장소 조회는 \`NOT_TESTED\`. 새 기능 구현보다 남은 **검증 격차** 조사 우선. |
+| 카드 원행 API PR [#108](https://github.com/6Soo/cost/pull/108) | **OPEN**, \`main...head\`는 **ahead 1 / behind 48**. 주요 \`card_transactions.py\` API는 **이미 main에 존재**하고, 현재 diff는 \`webapp/ledger_board.py\`, \`webapp/tests/test_card_transactions.py\` 2개 파일에만 차이. main에는 추가 \`/cards/all\` 라우트/최신 검증·날짜 테스트가 있다. | \`RECONCILE_BEFORE_MERGE\`. PR #108 전체를 단순 병합/리베이스하여 최신 라우트·회귀 검사를 되돌리지 말 것. 차이의 유효성만 별도 검토하고 중복 PR 정리 판단. |
+| 항공권 [#106](https://github.com/6Soo/cost/pull/106), 영수증 [#107](https://github.com/6Soo/cost/pull/107) | 두 PR 모두 **OPEN/DRAFT**지만 각각의 브랜치는 현재 \`main\` 대비 **ahead 0 / behind 50**. 즉 PR 브랜치의 커밋은 이미 main 계보에 포함되어 있다. UI 코드도 main에 존재. | \`MAIN_CODE_PRESENT / DUPLICATE_DRAFT_REVIEW\`. 브랜치가 최신 main보다 뒤처져 있으므로 추가 코드 병합이 아니라 PR 중복 정리·실제 UI 검증 근거 확인. PR 자동 종료/삭제는 하지 않는다. |
+| 전체 지출 자동 정리 제거 [#105](https://github.com/6Soo/cost/pull/105) | **OPEN, 문서 전용**. main \`webapp/card_flow.py\`에는 여전히 버튼 \`#cleanup-reclassify\`, POST \`/api/imports/reclassify-pending\`, 내부 재분류·장부 기록/여행 배정 함수가 존재한다. PR #105는 통합 UI 명세를 v1.2/§12로 확장하는 **미병합 제안**. | \`SPEC_PR_OPEN / CODE_NOT_IMPLEMENTED\`. 일반 UI 버튼 제거, 별도 owner 유지보수 화면, 읽기 전용 dry-run/명시 승인/감사·중복 보호는 아직 완료가 아니다. PR #105 검토 후 AUDIT→UI→MAINT 소형 작업으로 나눌 것. |
+| \`0630_오제\` 수입 표시·장부 볼드 대조 [#110](https://github.com/6Soo/cost/pull/110) | **OPEN, 문서 전용**. 해당 명세에는 사용자 확정 **\`0625_아키타\`=2분기 마지막, \`0630_오제\`=3분기 첫 여행** 및 금액+날짜/가맹점/분류/예약번호 중 1개 일치 시 거래 후보 볼드 조건을 포함. main에는 아직 이 매칭 UI가 없다. | \`SPEC_PR_OPEN / CODE_NOT_IMPLEMENTED / ROOT_CAUSE_UNVERIFIED\`. Google 메인에 0630 탭이 있었다는 사실은 **2026-10-11 당시 기록**이며, 2026-10-25 실시간 시트·운영 비공개 스냅샷·매핑은 이 감사에서 읽지 않았다. |
+| \`0630_오제\` 코드상 표시 차단 후보 | \`webapp/google_ledger_page.py:trip_income_html()\`의 \`show_rows = bool(trip.get('verified')) and not numeric_gap\`. \`trip.verified\`는 수입 **및 지출** 검증을 포함하므로 지출 오류만으로 수입표가 숨겨질 수 있음. 매핑 유일성·선택 원본·동기화 stale도 차단 조건. | \`SOURCE_CONFIRMED_POTENTIAL_BUG\`이지만 **오제 실운영 원인 확정 아님**. 수입·지출 검증 분리와 정확한 현장 원인 코드가 필요. 사용자 원본/금액을 외부 모델·Git로 복사 금지. |
+| 분기 표시/회계 경계 | \`webapp/ledger_design.py:previous_trip()\`의 과거 여행 구분은 시작일 \`2026-06-25\` 이하; \`_quarter_of()\`는 시작 **월** 기준 달력 분기 계산. | 6월 30일 오제는 일반 목록에서는 3분기 활성 여행이지만, 다른 분기 그룹 재사용 시 2분기 오인 가능. 수입 조회는 \`_quarter_of()\`가 아니라 Google 매핑·검증 조건을 쓰므로 **원인 혼동 금지**. |
+
+### 0.13.2 Git / CI / 운영 배포의 서로 다른 증거
+
+- 이번 감사 시점 **open PR: #105, #106, #107, #108, #110 (5개)**. #103, #104, #109는 2026-10-25 \`MERGED\`, #101 및 #100/#102는 과거 병합·운영 문서 참조. \`feat/card-all-transactions-ui-audit\`, \`docs/cost-ui-audit-v2-20261025\`, \`feat/cost-system-theme-v2-20261025\`, 항공권·영수증 초안 브랜치는 \`main\`의 조상이므로 고유 코드 없이 뒤처진 상태. \`deploy/ota-unified-20261021\`은 **ahead 25 / behind 306**, 고유 변경 있음: 삭제/자동 병합 금지.
+- GitHub Actions \`main\` 최근 실행 조회 결과는 **workflow runs 0건**, \`d4c5934de07\` 상태는 **pending / status context 0개 / check-run 0개**. 이는 CI 통과도 실패도 증명하지 않는다. PR 설명의 표적 검사 보고와 CI를 별도로 표시한다.
+- **운영:** 과거 0.12절에서 확인한 실제 OTA·지출 정리 표기 배포 \`1fcbc1ee60809fd10c7764cd8f93aeaa3701a608\`은 보존된 운영 이력이다. V21 통합 \`d4c5934de07\`이 운영 호스트에 배포됐다는 증거는 이번 읽기 전용 GitHub 감사에서 **없음**. 운영 PC 작업 스케줄러·host·백업·DB·Google에 접근하거나 변경하지 않았다.
+- 브라우저 375px, 라이트/다크 전환, 접근성 및 기능 전체 수락은 **이번 감사에서 NOT_TESTED**. PR #109의 표적 테스트 수치는 **PR에 보고된 실행 결과**이지 이번 문서 수정 세션이 재실행한 결과가 아니다.
+
+### 0.13.3 명세 우선순위와 실제 다음 작업 (중복 재개 금지)
+
+1. **상태 기준 우선:** \`main\` 실제 코드 및 병합 SHA → 통합 UI 명세 v1.1(현재 \`main\`) → **열린 문서 PR #105(§12, v1.2 제안)** / **#110(오제·거래 볼드 제안)**을 구분한다. 열린 PR 내용을 main에 이미 병합된 규칙이라고 쓰지 않는다.
+2. **PR 중복 정리:** #108과 main 간 정확한 2개 파일 diff를 재검토하고 유효 내용만 별도 반영 여부를 판단한다. #106/#107은 현재 main에 커밋이 포함되었는지 재확인 후 초안 정리. 사용자가 승인하지 않은 강제 삭제·무조건 병합 금지.
+3. **V21 검증 격차:** 이전 표적 합성 테스트를 재활용하되 실제 가능한 브라우저(시스템 dark/light, 375px, 키보드)와 owner 접근을 한 번 표적 검증한다. 새 기능을 다시 만들지 않는다. 운영 배포는 별도 승인.
+4. **PR #105 후속:** 일반 '전체 지출 자동 정리' 버튼만의 노출 제거를 목표로 하기 전에 서버 쓰기 경계·기존 호출자·유지보수 dry-run을 독립 티켓으로 검토한다. 버튼 숨김과 안전 완료를 혼동하지 않는다.
+5. **PR #110 후속:** \`0630_오제\` 실운영 원인 코드 확인은 **승인된 로컬 읽기 전용 운영 진단**에서만 수행; 수입과 지출 검증 분리/읽기 전용 Google↔웹 장부 시각적 볼드(동일 금액+1근거)를 합성 테스트로 구현한다. 출발일이 6월이어도 사용자가 정한 회계 3분기 경계 유지.
+6. **감독 운영 최신 사용자 지시:** 상용 프론티어 모델은 짧은 티켓 배정·위임 결과·증거 심사·HOLD 판정에 집중하고, 실제 코드 조사/구현/표적 검증은 검증된 저비용 하위 에이전트에 분담한다. Paseo 네이티브 Skill/위임을 **우선 검증**하되, Skill 문서 로딩만으로 별도 실행이 됐다고 주장하지 않는다. 과거 Anus CLI 성공은 **Paseo Skill 성공의 증거가 아님**. 사용자 승인 없이 CLI로 자동 폴백하지 않는다. 반복 루프 방지: 작업당 재수정 최대 2회, 한 실행당 구현 티켓 4개/총 하위 호출 12회, 무진전 시 HOLD.
+
+**이 절은 진단/현황 정리로, 문서 작성이나 PR만으로 버튼 제거·오제 수입 복구·볼드 매칭·V21 운영 배포 완료를 선언하지 않는다. 과거 0.12 이하의 운영 사실을 현재 V21 배포 증거로 소급 재해석하지 말 것.**
 
 ## 0.12 2026-10-24 실제 OTA 미결 진단과 지출 정리 표시 복구
 
