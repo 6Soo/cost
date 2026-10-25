@@ -28,7 +28,9 @@
 
 **2026-10-26 후속 구현:** `EXPENSE-BULK-UI-01`에서 일반 지출 화면의 일괄 실행 버튼과 전용 JS를 제거하고, 건별 업무를 유지했다. 기존 `POST /api/imports/reclassify-pending`은 owner·CSRF 검증 뒤에도 `410 MAINTENANCE_FLOW_REQUIRED`를 반환해 호출만으로 재분류·장부 기록·여행 변경을 일으키지 않도록 닫았다. 합성 표적 검사 `test_cleanup_reclassification.py` 4개 통과. 세 테스트 파일 실행은 36개 통과, 2개 실패였으며, 실패는 이번 diff에서 바뀌지 않은 기존 문자열 검증 두 건이다. 기준 HEAD의 해당 코드/기대값은 변경 전부터 존재함을 확인했으며 기준 커밋에서 재실행하지는 않았다.
 
-**남은 지출 관리 구현:** 별도 owner 유지관리 화면, 진짜 읽기 전용 dry-run, preview digest/대상 최신성 검증, 적용 범위 확인, 멱등 실행과 감사 기록은 아직 없다. 따라서 일괄 재처리를 다시 활성화하지 않는다. 기존 `reclassify_cleanup()`은 보존했지만 현재 HTTP 경로로 실행할 수 없다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이고, `V21-UI-ACCEPTANCE-01`의 실제 브라우저 확인도 남아 있다.
+**2026-10-26 유지관리 구현:** `/maintenance/expense-bulk` owner 전용 화면과 preview/apply API를 추가했다. 미리보기는 데이터베이스의 일관된 메모리 복제본에서 기존 재분류·기장·기존 지출 여행 배정 흐름을 시뮬레이션하며, 등록 OTA 자료는 읽기 전용으로 확인하고 worker 갱신을 시작하지 않는다. preview 응답에는 예상 대상 ID/종류·건수·보류·실패, OTA refresh 필요 여부가 포함된다. 적용은 5분 유효한 일회용 무작위 preview ID, 전체 DB·등록 자료·일정/Google 입력 지문, owner·CSRF, 명시 확인 및 범위(OTA 갱신이 필요하면 그 범위 포함)를 확인한다. 변경/재전송은 거절하거나 같은 결과를 돌려준다. 작업 시작/완료/실패와 실제 변경 대상 ID는 기존 `change_log`에 비밀값·원문 없이 남긴다. 오래된 `/api/imports/reclassify-pending`은 계속 410으로 닫혀 있다.
+
+표적 검사 `test_expense_bulk_maintenance.py`와 `test_cleanup_reclassification.py`는 11개 통과했다. 이 검사는 메모리 미리보기의 실제 저장소 무변경, preview 뒤 변경 거부, 명시 확인, OTA 갱신 동의 범위, owner/CSRF, 적용 재전송 멱등성을 확인한다. 실제 브라우저·운영 데이터·운영 배포는 검증하지 않았다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이고, `V21-UI-ACCEPTANCE-01`의 실제 브라우저 확인도 남아 있다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 

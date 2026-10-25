@@ -28,7 +28,7 @@
 | 3 | `FLIGHT-UX-COPY-01` | 통합 UI §4.6/§4.7, FLIGHT-04 | 제목·필드·상태 안내, 복수 후보/stale/취소·충돌/오류·저장 피드백 | **CODED, targeted tests PASS; 전체 상태·반응형 미검증** |
 | 4 | `EXPENSE-BULK-AUDIT-01` | 통합 UI §12 | 버튼·스크립트·POST 호출과 분류·자동 기장·기존 여행 귀속 및 owner/CSRF 경계를 소스에서 추적 | **READ_ONLY AUDIT COMPLETE; 운영 동작 미검증** |
 | 5 | `EXPENSE-BULK-UI-01` | 통합 UI §12 | 일반 지출 정리 화면에서 버튼/전용 JS 제거, 기존 건별 업무 유지. **서버 쓰기 경계 위험**이 존재하므로 유지보수 보호 계획 없이는 '안전한 전체 제거 완료' 주장 금지 | **CODED, targeted tests PASS; legacy POST는 owner+CSRF 이후 410으로 변경 차단** |
-| 6 | `EXPENSE-BULK-MAINT-01` | 통합 UI §12 | owner 전용 유지보수, 진짜 읽기 전용 dry-run, 변경 전 재검증·CSRF·멱등성·감사 기록; 운영 대량 재처리는 별도 승인 | **PARTIAL/HOLD: 유지관리 화면·dry-run·preview digest·감사 적용 흐름 미구현. 기존 쓰기 엔드포인트는 닫음** |
+| 6 | `EXPENSE-BULK-MAINT-01` | 통합 UI §12 | owner 전용 유지보수, 진짜 읽기 전용 dry-run, 변경 전 재검증·CSRF·멱등성·감사 기록; 운영 대량 재처리는 별도 승인 | **CODED, synthetic targeted tests PASS: 별도 owner 화면·메모리 복제 dry-run·5분 일회용 preview·변경 지문 확인·명시적 적용 범위·중복 방지·감사 기록. 실제 브라우저/운영 적용 미검증** |
 | 7 | `OZE-INCOME-DIAG-01` | 오제 명세 §1.2 | `0630_오제` 메인 Google 장부 탭 ↔ COST `tab_id`, 선택 사본/수입행/수입·지출 검증/동기화 상태를 **허용된 운영 현장 읽기 전용**으로 대조, 실제 원인 하나로 단정하지 않음 | **READY_IF_ACCESS / otherwise HOLD** |
 | 8 | `OZE-INCOME-VIEW-01` | 오제 명세 §1.3·§3 | 수입 블록과 지출 검증 분리, 전체 회계 경고 유지, Google 정본 읽기 전용 표기 | **CODED, 17 targeted tests PASS; 운영 자료 미확인** |
 | 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | 선택된 최신 Google 사본과 같은 여행의 웹 지출을 정확 비교하는 읽기 전용 후보 계산 | **CODED, synthetic tests PASS** |

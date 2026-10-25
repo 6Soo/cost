@@ -1994,8 +1994,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             closer = getattr(backend, 'close', None)
             if closer:
                 closer()
+    maintenance_paths = ('/maintenance/expense-bulk',
+                         '/api/maintenance/expense-bulk/preview',
+                         '/api/maintenance/expense-bulk/apply')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
-                            or parsed.path.startswith('/api/imports/')):
+                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2005,6 +2008,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     try:
+        from . import expense_bulk_maintenance
+        if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
+            return True
         if parsed.path == '/cards':
             # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
             if raw is not None:
@@ -2264,7 +2270,8 @@ def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
 
 
-def reclassify_cleanup(board):
+def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
+                       request_snapshot=True):
     """미정리 카드를 분류하고 보호 검사를 통과한 거래는 같은 동작에서 기록한다."""
     from app import StoreError
     from app.classify import _pattern_for
@@ -2272,14 +2279,14 @@ def reclassify_cleanup(board):
     from collections import defaultdict
     import sqlite3
 
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     result = {'processed': 0, 'recorded': 0, 'assigned_existing': 0, 'failures': []}
     # 오래 걸리는 예약 원문 해석 중에도 워커가 입력을 확인할 수 있어야 한다.
     # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
     # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
     with board._lock:
         merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
-    if any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
+    if not _preview and any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
         try:
             # Use the same central snapshot/freshness contract as card review.
             # This call is a warm-up only; the worker check below can publish a
@@ -2288,9 +2295,14 @@ def reclassify_cleanup(board):
         except (StoreError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
             pass  # 해당 OTA 묶음에서 기존 오류 처리로 보고하고 현지 지출은 계속한다.
         from . import ota_payment_review
-        if ota_payment_review.enabled():
+        if request_snapshot and ota_payment_review.enabled():
             ota_payment_review.snapshot_service(board).request_check(wait_seconds=3)
     with board._lock:
+        if expected_fingerprint:
+            from .expense_bulk_maintenance import PreviewError, fingerprint
+            if fingerprint(board) != expected_fingerprint:
+                raise PreviewError('PREVIEW_STALE',
+                                   '미리보기 뒤 자료가 바뀌었습니다. 다시 미리보기를 실행해 주세요.')
         batches = [row[0] for row in board.conn.execute(
             "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
         rows = board.conn.execute(
