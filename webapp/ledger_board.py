@@ -79,7 +79,6 @@ def _active_store():
 
 def _get_card_db_path() -> str | None:
     """Get the card transactions database path from the active store's connection.
-    
     Uses PRAGMA database_list to get the actual file path from the SQLite connection.
     Returns None if no store is bound or the connection has no file path.
     """
@@ -4268,7 +4267,7 @@ class Handler(BaseHTTPRequestHandler):
                 if year < 2000 or year > 2100:
                     self._send_json({"code": "INVALID_VALUE", "message": "year out of range"}, code=400)
                     return
-                
+
                 # Validate month parameter if present
                 month = None
                 month_str = q.get("month", [None])[0]
@@ -4281,7 +4280,7 @@ class Handler(BaseHTTPRequestHandler):
                     if month < 1 or month > 12:
                         self._send_json({"code": "INVALID_VALUE", "message": "month must be 1-12"}, code=400)
                         return
-                
+
                 # Validate cursor format if present
                 cursor = q.get("cursor", [None])[0]
                 if cursor is not None:
@@ -4293,10 +4292,10 @@ class Handler(BaseHTTPRequestHandler):
                     if not (c_date and c_date[0:4].isdigit() and len(c_date) >= 10):
                         self._send_json({"code": "INVALID_VALUE", "message": "invalid cursor date"}, code=400)
                         return
-                
+
                 # Get the card DB path from the active store (request-bound)
                 card_db_path = _get_card_db_path()
-                
+
                 if parsed.path == "/api/cards/transactions/years":
                     res = _ct.available_years(db_path=card_db_path)
                     self._send_json(res, code=200)

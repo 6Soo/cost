@@ -137,7 +137,6 @@ def test_year_summary_2026(card_db_path):
 
 def test_year_summary_other_years_not_undated(card_db_path):
     """2025 and 2024 transactions with valid dates should not be counted as undated.
-    
     Undated count is global (transactions with no valid date don't belong to any year).
     Other years' valid dates should NOT be counted as undated."""
     s2025 = ct.year_summary(db_path=card_db_path, year=2025)
@@ -150,7 +149,6 @@ def test_year_summary_other_years_not_undated(card_db_path):
     assert s2024["year"] == 2024
     assert s2024["months"][12] == 1  # December 2024
     assert s2024.get("undated_count", 0) == 1  # Global undated count
-    
     # Key assertion: 2025/2024 valid dates are NOT counted as undated
     # (the old buggy query would have counted them as undated for 2026)
 
@@ -171,7 +169,6 @@ def test_month_list_sort_stable_cursor(card_db_path):
             ids_second = [i["transaction_id"] for i in res2["items"]]
             # No overlap (strict > cursor)
             assert not any(i in ids_first for i in ids_second)
-
 
 def test_different_ids_same_amount_preserved(card_db_path):
     res = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=100)
@@ -232,7 +229,6 @@ def test_missing_card_db_raises_config_error():
     finally:
         if old_env:
             os.environ['WEBLEDGER_DB'] = old_env
-
 
 def test_mode_ro_prevents_file_creation():
     """SQLite mode=ro should prevent file creation on missing path."""
@@ -405,7 +401,7 @@ def test_card_db_separate_from_ledger_db(card_db_path, ledger_db_path):
     os.environ['WEBLEDGER_DB'] = ledger_db_path
     with pytest.raises(sqlite3.OperationalError):
         ct.year_summary(year=2026)
-    
+
     # Now set to correct card DB
     os.environ['WEBLEDGER_DB'] = card_db_path
     s = ct.year_summary(year=2026)
@@ -437,7 +433,7 @@ def test_no_missing_pages_over_100(card_db_path):
         if not res['has_more']:
             break
         cursor = res['cursor']
-    
+
     # Should have all 150 items
     assert len(all_items) == 150
     ids = [i['transaction_id'] for i in all_items]
@@ -451,17 +447,17 @@ def test_all_financial_states_preserved(card_db_path):
     # March has: booked (TX-A-01, TX-A-02), needs_review (TX-B-01)
     assert 'booked' in states
     assert 'needs_review' in states
-    
+
     # Check classification_source preserved (auto_inferred vs manual)
     sources = {i['classification_source'] for i in res['items']}
     assert 'manual' in sources
     assert 'auto_inferred' in sources
-    
+
     # April has preserved
     res_apr = ct.list_for_month(db_path=card_db_path, year=2026, month=4, per_page=100)
     states_apr = {i['classification_state'] for i in res_apr['items']}
     assert 'preserved' in states_apr
-    
+
     # Undated has cancelled
     res_und = ct.undated_list(db_path=card_db_path, year=2026, per_page=100)
     states_und = {i['classification_state'] for i in res_und['items']}
@@ -482,11 +478,11 @@ def test_owner_route_401_403_preserved():
 
 def test_http_handler_uses_bound_store_not_env(card_db_path):
     """Integration test: HTTP handler uses the bound store's connection, not WEBLEDGER_DB env.
-    
+
     Even if WEBLEDGER_DB points to a different database, the handler should use
     the store bound to the request (server.card_store), not the environment variable.
     This ensures the correct card transactions are queried regardless of env config.
-    
+
     The active store is expected to be the ledger store which shares the same database
     as the card transactions (both tables in the same SQLite file per app/db.py schema).
     """
@@ -494,10 +490,10 @@ def test_http_handler_uses_bound_store_not_env(card_db_path):
     from webapp.ledger_board import Handler, _REQUEST_STORE
     import json
     import sqlite3
-    
+
     # Set WEBLEDGER_DB to a NON-EXISTENT path to prove the handler doesn't use it
     os.environ['WEBLEDGER_DB'] = '/tmp/this_path_should_not_be_used_12345.sqlite'
-    
+
     # Create a mock handler with a store bound to the card_db_path
     class MockHandler(Handler):
         def __init__(self, path, query='', store_conn=None):
@@ -519,7 +515,7 @@ def test_http_handler_uses_bound_store_not_env(card_db_path):
                 def __init__(self, conn):
                     self.conn = conn
             self._store_token = _REQUEST_STORE.set(SimpleStore(store_conn))
-        
+
         def send_response(self, code, msg=None):
             self.responses['code'] = code
 
@@ -536,21 +532,21 @@ def test_http_handler_uses_bound_store_not_env(card_db_path):
                 def write(self, b):
                     handler.responses['body'] = b
             return W()
-        
+
         def finish_test(self):
             _REQUEST_STORE.reset(self._store_token)
-    
+
     # Create a connection to the card database (same as ledger DB in production)
     card_conn = sqlite3.connect(card_db_path, check_same_thread=False)
     card_conn.execute("PRAGMA busy_timeout=10000")
     card_conn.execute("PRAGMA foreign_keys=ON")
-    
+
     try:
         # Make request - handler should use the bound store's connection, not WEBLEDGER_DB
         h = MockHandler('/api/cards/transactions/summary', 'year=2026', store_conn=card_conn)
         h.do_GET()
         h.finish_test()
-        
+
         # Should succeed with data from card_db, not fail because WEBLEDGER_DB points to non-existent path
         assert h.responses.get('code') == 200, f"Expected 200, got {h.responses.get('code')}"
         body = json.loads(h.responses['body'].decode('utf-8'))
