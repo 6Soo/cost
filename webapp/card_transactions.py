@@ -29,6 +29,8 @@ def year_summary(db_path: str = DB_DEFAULT, year: int = 2026) -> Dict[str, Any]:
 
 def list_for_month(db_path: str = DB_DEFAULT, year: int = 2026, month: int = 1,
                     cursor: Optional[str] = None, per_page: int = 100) -> Dict[str, Any]:
+    if month < 1 or month > 12:
+        raise ValueError("invalid month")
     conn = _connect(db_path)
     try:
         cur = conn.cursor()

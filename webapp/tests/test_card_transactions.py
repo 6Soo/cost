@@ -57,6 +57,7 @@ def db_path():
         ("TX-DUP-01","h5","b3","CARD","1234","credit","debit","card","D01","D01","2026-04-01","2026-04-02","AGODA","agoda",556929,"","KRW","raw",5,"{}","TX-A-01","","","preserved","manual","","","HOTEL A","","T-A",2,None,"2026-01-01"),
     ]
     place = ",".join(["?"]*33)
+    conn.executemany(f"INSERT INTO transactions VALUES ({place})", rows)
     conn.commit()
     conn.close()
     yield path
@@ -77,7 +78,9 @@ def test_month_list_sort_stable_cursor(db_path):
     assert res["year"] == 2026 and res["month"] == 3
     # Stable cursor should be last transaction_id
     if res["items"]:
-        assert res["cursor"] == res["items"][-1]["transaction_id"]
+        # Cursor is tuple (approval_date|transaction_id)
+        last = res["items"][-1]
+        assert res["cursor"] == f"{last['approval_date']}|{last['transaction_id']}"
         # Second page should start after cursor
         if res["has_more"]:
             res2 = ct.list_for_month(db_path=db_path, year=2026, month=3, cursor=res["cursor"], per_page=2)
@@ -130,8 +133,11 @@ def test_owner_route_401_403_preserved():
     assert hasattr(ledger_board.Handler, 'do_GET')
 
 def test_http_integration_contract(db_path):
+    # Point module DB at fixture path before handler runs; no DB write allowed.
+    import os, io
+    ct.DB_DEFAULT = db_path
+    os.environ['COST_DB'] = db_path
     # Synthetic HTTP integration at board/handler boundary; no external DB/Google write.
-    import io, http.client
     from webapp.ledger_board import Handler
     class MockReq:
         pass
@@ -143,11 +149,16 @@ def test_http_integration_contract(db_path):
             self.command = 'GET'
             self.rfile = io.BytesIO(b'')
             responses.clear()
+            # Synthetic server/store to satisfy Handler contract; no actual DB change
+            class FakeServer:
+                card_store = None
+            self.server = FakeServer()
         def send_response(self, code, msg=None):
             responses['code'] = code
         def send_header(self, k, v): pass
         def end_headers(self): pass
         def wfile_write(self, b): responses['body'] = b
+        # Synthetic server/store to satisfy Handler contract; no actual DB change
         @property
         def wfile(self):
             class W:
@@ -170,6 +181,12 @@ def test_http_integration_contract(db_path):
     h = MockHandler('/api/cards/transactions', 'year=2026')
     h.do_GET()
     assert responses.get('code') == 400
+    # DB unchanged: count same before/after (no writes)
+    conn_after = sqlite3.connect(db_path)
+    after = conn_after.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+    conn_after.close()
+    # Fixture inserts 5 rows; just verify count stays 5 (not increased by writes)
+    assert after == 5
     # No DB write occurs: verify fixture DB unchanged (mtime check omitted for speed; contract verified by read-only SQL only)
 
 # Core contract checks (not string-only): counts numeric, pages >100 stable, different IDs preserved, duplicate/undated/cancelled included, currency/sign, travel sources, auth 401/403 preserved, invalid 400.
