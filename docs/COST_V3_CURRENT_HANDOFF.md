@@ -46,7 +46,7 @@
 
 추가로 `webapp/tests/test_synthetic_preview.py::test_preview_completes_card_and_manual_receipt_without_operational_files`를 실행했으나, 기존 카드 입력 흐름의 `/import` 화면에서 `form[data-index]` 안 입력란이 보이지 않아 30초 timeout으로 실패했다. 영수증 수정·복사 단계 전 실패했고, 해당 파일의 진단용 수정은 되돌렸다. 동일 실패를 반복하거나 무관 경로를 고치지 않는다.
 
-사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고, 정확한 `display_key` 여행 행은 0건이었다. 런타임 프로세스 설정의 Google 스냅샷과 행 파일을 해당 세대로 함께 읽었으며 로드가 성공했다. 메인·보관 source는 모두 `status=ok`, `stale=false`였지만 스냅샷에도 `0630_오제` 여행 키가 없었다. COST 행이 없어 `tab_id` 기준 매핑을 판정할 수 없고, 선택 사본·행 존재 여부·화면 차단 원인도 확정할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
+사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고 정확한 `display_key` 행, Google snapshot key, Google mapping key, 여행 이력의 대상 키 흔적은 모두 없었다. 같은 시작일·연도인 활성 trip 행 1건은 `needs_review`였고 그 행의 `tab_id`는 다른 Google key 1개가 참조하고 있었다. 이를 대상 여행으로 단정하지 않는다. 런타임 스냅샷과 해당 generation의 비공개 행 파일 로드는 성공했고 메인·보관 source는 모두 `status=ok`, `stale=false`였다. 대상 Google 키 자체가 snapshot에 없어 선택 사본·대상 행 개수·표시 차단 원인은 확인할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
 
 운영 프로세스 코드 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 확인됐다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. 이 SHA와 현재 작업/배포 기준의 관계는 별도 배포 검증 때 확인해야 한다. 다음 조치는 `0630_오제` 여행 행이 존재하는 승인된 운영 DB/호스트를 사용자에게서 확인하거나 운영 데이터가 복구된 뒤 같은 범위로 다시 판정하는 것이다. 이번 검사에서 임의로 다른 저장소를 찾거나 매핑을 고치지 않는다.
 
