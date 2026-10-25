@@ -70,3 +70,21 @@ def test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility():
     assert "e.key==='Tab'" in shell and "e.key==='Escape'" in shell
     assert "close({restoreFocus:true})" in shell
     assert 'aria-controls="nav" aria-expanded="false"' in shell
+    assert "let menuTrigger=null" in shell
+    assert "if(open)menuTrigger=b" in shell
+    assert "menuTrigger&&menuTrigger.getClientRects().length?menuTrigger" in shell
+    assert "[...buttons].find(b=>b.getClientRects().length)" in shell
+    assert "--shell-muted:#94A3B8" in shell and "--shell-warn:#FBBF24" in shell
+    assert "#nav .nav-sec" in shell and "color:var(--shell-muted,#667085)" in shell
+    assert "#nav .ct.warn{color:var(--shell-warn,#B54708)}" in shell
+
+
+def test_synthetic_dark_palette_keeps_focus_and_status_contrast():
+    css = Path(LEDGER).read_text(encoding="utf-8")
+    dark = css.split("@media(prefers-color-scheme:dark)", 1)[1].split("\n}", 1)[0]
+    assert "--focus:#93C5FD" in dark
+    assert "--grn-dk:#A7F3D0" in dark
+    assert "--grn-hover:#166444" in dark
+    assert "--grn-lt:#14532D" in dark
+    assert "--warn:#FBBF24" in dark and "--neg:#FDA4AF" in dark
+    assert ".btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}" in css

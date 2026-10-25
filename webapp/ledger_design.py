@@ -109,9 +109,9 @@ STYLE = """
 @media(prefers-color-scheme:dark){
 :root{
  --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
- --line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#2266F5;
- --sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
- --warn:#B54708;--neg:#B42318;--bad:#B42318;
+ --line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#93C5FD;
+ --sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#A7F3D0;--grn-hover:#166444;--grn-lt:#14532D;
+ --warn:#FBBF24;--neg:#FDA4AF;--bad:#FDA4AF;
 }
 }
 html,body{height:100%}
@@ -480,7 +480,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
  white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .btn:hover{background:var(--hover)}
 .btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
-.btn.primary:hover{background:var(--grn-dk)}
+.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}
 .btn[disabled]{opacity:.45;cursor:default}
 .btn[disabled]:hover{background:var(--paper)}
 /* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
