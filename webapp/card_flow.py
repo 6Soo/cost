@@ -2025,7 +2025,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             elif not csrf or handler.headers.get('X-CSRF-Token') != csrf:
                 handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
             else:
-                handler._send_json(reclassify_cleanup(board))
+                # Keep the legacy route closed until a read-only preview,
+                # freshness check, and audited maintenance apply flow exist.
+                handler._send_json({'code': 'MAINTENANCE_FLOW_REQUIRED',
+                                    'message': '일괄 정리는 안전한 유지관리 미리보기 경로가 준비될 때까지 사용할 수 없습니다.'}, 410)
             return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
@@ -2200,18 +2203,6 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
-const reclassify=document.getElementById('cleanup-reclassify');
-if(reclassify)reclassify.addEventListener('click',async()=>{
-  reclassify.disabled=true;const status=document.getElementById('cleanup-reclassify-status');
-  status.textContent='저장된 카드 자료를 분류하고 확인된 지출을 장부에 반영하고 있습니다.';
-  try{const response=await fetch('/api/imports/reclassify-pending',{method:'POST',
-    headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
-    const result=await response.json();if(!response.ok)throw Error(result.message||'자동분류를 적용하지 못했습니다.');
-    if(result.failures.length){status.textContent='분류 '+result.processed+'건, 장부 반영 '+result.recorded+
-      '건을 처리했습니다. 일부 자료의 보호 검사나 처리를 완료하지 못했습니다. 해당 거래는 보존했으며 새로고침하면 확인할 수 있습니다.';}
-    else{location.reload();}
-  }catch(error){status.textContent=error.message;}finally{reclassify.disabled=false;}
-});
 const tripOptions=document.getElementById('cleanup-trip-options');
 if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>{
   select.replaceChildren(tripOptions.content.cloneNode(true));
@@ -2957,9 +2948,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
             "<p class='muted'>아래 거래의 예약 연결, 여행 배정, 금융 보호 사유를 확인해 주세요. 이 화면을 조회하는 동안 장부를 변경하지 않습니다.</p>"
-            "<button type='button' id='cleanup-reclassify'>전체 지출 자동 정리</button>"
-            "<p id='cleanup-reclassify-status' class='muted' role='status'>"
-            "현재 규칙으로 분류하고 항목과 여행이 확인된 거래는 장부에 바로 반영합니다.</p>"
             f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")
