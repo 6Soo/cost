@@ -195,6 +195,101 @@ def test_undated_separate_list(card_db_path):
     assert "TX-2024-01" not in ids  # Valid date from another year
 
 
+@pytest.fixture
+def undated_mixed_db_path():
+    """Synthetic DB with 120 undated rows: NULL, empty, and invalid approval_date."""
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        path = f.name
+    conn = sqlite3.connect(path)
+    # Production schema declares approval_date NOT NULL, but the read projection
+    # must also stay safe for legacy/NULL rows, so the fixture allows NULL.
+    conn.executescript(CARD_SCHEMA.replace("approval_date TEXT NOT NULL", "approval_date TEXT"))
+    rows = []
+    for i in range(120):
+        if i % 3 == 0:
+            adate = None
+        elif i % 3 == 1:
+            adate = ""
+        else:
+            adate = f"BAD-DATE-{i:03d}"
+        rows.append((
+            f"UND-{i:03d}", f"h{i}", "b1", "CARD", "1234", "credit", "debit", "card",
+            f"A{i:03d}", f"A{i:03d}", adate, "", "M", "m", 1000 + i, "", "KRW", "raw",
+            i, "{}", None, "", "", "needs_review", "manual", "", "", "ITEM", "", "T-X", 1, None, "2026-01-01"
+        ))
+    place = ",".join(["?"] * 33)
+    conn.executemany(f"INSERT INTO transactions VALUES ({place})", rows)
+    conn.commit()
+    conn.close()
+    yield path
+    os.unlink(path)
+
+
+def test_undated_pagination_mixed_dates_all_rows_once(undated_mixed_db_path):
+    """NULL/empty/invalid rows paginate without repeats or loss over 100 rows."""
+    expected = {f"UND-{i:03d}" for i in range(120)}
+    conn = sqlite3.connect(undated_mixed_db_path)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE approval_date IS NULL").fetchone()[0] == 40
+        assert conn.execute("SELECT COUNT(*) FROM transactions WHERE approval_date = ''").fetchone()[0] == 40
+        assert conn.execute(
+            "SELECT COUNT(*) FROM transactions "
+            "WHERE approval_date IS NOT NULL AND approval_date != '' "
+            "AND approval_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'").fetchone()[0] == 40
+    finally:
+        conn.close()
+
+    seen = []
+    cursor = None
+    pages = 0
+    while True:
+        res = ct.undated_list(db_path=undated_mixed_db_path, year=2026, cursor=cursor, per_page=25)
+        pages += 1
+        assert res["count"] <= 25
+        seen.extend(item["transaction_id"] for item in res["items"])
+        if not res["has_more"]:
+            break
+        cursor = res["cursor"]
+        assert cursor is not None
+        c_date, c_id = cursor.split("|", 1)
+        # The shared HTTP cursor validation requires this shape and a non-empty id.
+        assert c_date[0:4].isdigit() and len(c_date) >= 10 and c_id
+        assert pages < 10
+
+    assert pages == 5  # 25 * 4 + 20
+    assert len(seen) == 120
+    assert len(set(seen)) == 120
+    assert set(seen) == expected
+
+
+def test_undated_single_row_cursor_round_trip(undated_mixed_db_path):
+    """The reproduced per_page=1 cursor must be reusable on the next call."""
+    first = ct.undated_list(db_path=undated_mixed_db_path, year=2026, per_page=1)
+    assert first["count"] == 1
+    assert first["has_more"] is True
+    assert first["cursor"] == f"0000-00-00|{first['items'][0]['transaction_id']}"
+
+    second = ct.undated_list(
+        db_path=undated_mixed_db_path, year=2026, cursor=first["cursor"], per_page=1)
+    assert second["count"] == 1
+    assert second["has_more"] is True
+    assert second["items"][0]["transaction_id"] != first["items"][0]["transaction_id"]
+
+
+@pytest.mark.parametrize("bad_cursor", [
+    "badformat",
+    "|UND-000",
+    "0000-00-00|",
+    "2026-01-01|UND-000",
+    "9999-99-99|UND-000",
+])
+def test_undated_cursor_tamper_rejected(undated_mixed_db_path, bad_cursor):
+    """Malformed or out-of-contract undated cursors are rejected."""
+    with pytest.raises(ValueError):
+        ct.undated_list(
+            db_path=undated_mixed_db_path, year=2026, cursor=bad_cursor, per_page=10)
+
+
 def test_currency_and_travel_source(card_db_path):
     res = ct.list_for_month(db_path=card_db_path, year=2026, month=3, per_page=100)
     for i in res["items"]:

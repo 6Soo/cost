@@ -7,6 +7,11 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+# Fixed date-like token for the undated cursor. Undated rows have no real date,
+# so their order is transaction_id ASC and the token only carries that position.
+# It is deliberately shaped like YYYY-MM-DD so the shared HTTP cursor check accepts it.
+_UNDATED_CURSOR_DATE = "0000-00-00"
+
 def _resolve_card_db_path(db_path: Optional[str] = None) -> str:
     """Resolve the card transactions database path.
 
@@ -169,27 +174,31 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
     try:
         cur = conn.cursor()
         params = []
-        # Only truly null/empty/invalid dates - NOT "NOT LIKE year-%"
+        # Only truly null/empty/invalid dates - NOT "NOT LIKE year-%".
+        # The OR group must be parenthesized so a cursor filter cannot reopen it.
         where = (
-            "approval_date IS NULL "
+            "(approval_date IS NULL "
             "OR approval_date = '' "
-            "OR approval_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'"
+            "OR approval_date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')"
         )
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
                 raise ValueError("invalid cursor format")
             c_date, c_id = parts
-            if not (c_date and c_date[0:4].isdigit() and len(c_date) >= 10):
+            # Undated rows have no usable date, so they are ordered by transaction_id
+            # alone. The cursor keeps a fixed date-like token so the HTTP layer's
+            # shared cursor validation accepts it.
+            if c_date != _UNDATED_CURSOR_DATE or not c_id:
                 raise ValueError("invalid cursor date")
-            where += " AND (approval_date > ? OR (approval_date = ? AND transaction_id > ?))"
-            params += [c_date, c_date, c_id]
+            where += " AND transaction_id > ?"
+            params.append(c_id)
         cur.execute(
             f"SELECT transaction_id, approval_date, approval_number, amount_krw, "
             f"foreign_amount, foreign_currency, merchant, description, classification_state, "
             f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision "
             f"FROM transactions WHERE {where} "
-            f"ORDER BY approval_date ASC NULLS LAST, transaction_id ASC LIMIT ?",
+            f"ORDER BY transaction_id ASC LIMIT ?",
             params + [per_page + 1])
         rows = cur.fetchall()
         has_more = len(rows) > per_page
@@ -215,7 +224,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
                 "conflict_reason": conflict,
                 "revision": rev
             })
-        next_cursor = f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if items else None
+        next_cursor = f"{_UNDATED_CURSOR_DATE}|{items[-1]['transaction_id']}" if items else None
         return {
             "year": year, "items": items,
             "count": len(items),
