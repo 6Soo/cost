@@ -107,6 +107,9 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert "var(--neg)" in rendered
     assert "var(--line-strong)" in rendered
     assert "var(--sel)" in rendered
+    assert "button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);" in rendered
+    assert "button.primary{background:var(--grn);color:#fff;" in rendered
+    assert ".work-back{color:var(--grn-dk);" in rendered
 
     # Mobile/responsive contract (§3.2 / §3.3): focus-visible and min-width/overflow rules.
     assert ":focus-visible" in rendered

@@ -1008,7 +1008,7 @@ input,select,button,.work-back{font:inherit;max-width:100%}
 input,select{min-height:44px;padding:8px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper)}
 input[type=checkbox]{width:22px;height:22px;min-height:22px;min-width:22px;padding:0;margin:0;accent-color:var(--grn-dk)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);cursor:pointer;display:inline-flex;align-items:center}
+button,.work-back{min-height:44px;padding:10px 14px;border:1px solid var(--line-strong);border-radius:8px;background:var(--paper);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center}
 button.primary{background:var(--grn);color:#fff;border-color:var(--grn);width:100%;margin-top:10px}
 button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 .work-back{color:var(--grn-dk);text-decoration:none}
