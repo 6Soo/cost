@@ -14,6 +14,12 @@ def test_design_tokens_and_accessibility_markup_present():
     assert '--ink:#0F172A' in document
     assert '--focus:#2266F5' in document
     assert '--paper:#FFFFFF' in document
+    assert '@media(prefers-color-scheme:dark)' in document
+    dark_tokens = document.split('@media(prefers-color-scheme:dark)', 1)[1].split('}', 1)[0]
+    assert '--grn:#86EFAC' in dark_tokens
+    assert '--warn:#FDBA74' in dark_tokens
+    assert '--neg:#FCA5A5' in dark_tokens
+    assert '--bad:#FCA5A5' in dark_tokens
     # Access improvements: label associations via for/id and aria-label on form
     assert "for='f-booking'" in document
     assert "id='f-booking'" in document
