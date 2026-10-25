@@ -12,13 +12,19 @@
 
 | 대상 | 현재 main 상태 | 구현 재개 위치 |
 | --- | --- | --- |
-| 공통 다크모드 사이드메뉴 | `webapp/site_shell.py` CSS 변수 범위 결함 **코드 미수정**. PR #112 §4.5~4.7 명세 **병합** | `SIDEBAR-DARK-01` **P0 READY**, 해당 명세의 SIDE-01~03 |
-| 항공권 참가자 연결 화면 메뉴 소실 | `flight_passenger_page._page()` 문서 구조로 인해 `wrap_document()`가 메뉴를 삽입하지 않는 결함 **미수정** | `FLIGHT-SHELL-01` **P0 READY**, 실제 Handler 통합·브라우저 검사 |
-| 항공권 화면 UI/한국어 문구 | 기존 후보 검색/내부 연결 로직은 존재하지만 제목·폼·상태 안내 개선은 **미수정** | `FLIGHT-UX-COPY-01` **P1**, 선행 P0 뒤 수행 |
+| 공통 다크모드 사이드메뉴 | 구현 커밋 `a8206df`: 공통 root 토큰을 네이티브/standalone 문서에 적용. 표적 검사 통과 | **CODED / TESTED**. 실제 computed style의 시스템 전환·대비 브라우저 확인은 미완료 |
+| 항공권 참가자 연결 화면 메뉴 소실 | 구현 커밋 `a8206df`: 명시적 head/body와 wrapper 통합; 메뉴·본문·모바일 메뉴 중복 없음 표적 검사 | **CODED / TESTED**. 375~1280px·200% 확대 브라우저 확인은 미완료 |
+| 항공권 화면 UI/한국어 문구 | 구현 커밋 `a8206df`: 제목·필드·상태별 문구, stale/취소/충돌/저장 오류 처리 | **CODED / TESTED**. 전체 상태·반응형/키보드 브라우저 수락은 미완료 |
 | 일괄 지출 정리 버튼 | `#cleanup-reclassify`·서버 POST/금융 쓰기 로직 **현행 유지**. PR #105 명세 §12 병합 | `EXPENSE-BULK-AUDIT-01` → `EXPENSE-BULK-UI-01` → `EXPENSE-BULK-MAINT-01` |
-| `0630_오제` 수입 표시 | `trip_income_html()`에서 수입/지출 전체 verified 연동 문제는 코드상 확인되나 **실운영 스냅샷 원인 미확정, 수정 미수행** | `OZE-INCOME-DIAG-01`(권한 있는 읽기 전용) / `OZE-INCOME-VIEW-01`(합성 구현) |
-| Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 명세에 **같은 여행, 같은 지출, 동일 금액(부호/통화 포함) + 날짜·가맹점·분류·예약번호 중 하나 이상** 조건 있음. **표시 코드는 아직 미구현** | `LEDGER-MATCH-READ-01` → `LEDGER-MATCH-UI-01` |
+| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | `OZE-INCOME-DIAG-01`은 운영 자료 권한·실행을 확인하지 않아 **UNVERIFIED** |
+| Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 커밋 `396c30f`: owner의 동일 여행·선택된 fresh source만 읽고 금액 및 날짜/가맹점/분류/예약번호 대조, 복수 후보·접근성 안내. 4개 합성 표적 테스트 통과 | 실제 운영 데이터·브라우저 표시 미검증; Google 쓰기 없음 |
 | 카드 전체 내역 · 기본 공통 테마 · 항공권/영수증 기존 기능 | V21 `main` 구현 존재. 별도 브라우저 통합/운영 배포는 미확인 | **재구현 금지**, `V21-UI-ACCEPTANCE-01`만 표적 검증 |
+
+**2026-10-26 구현 재개 기록:** 작업 브랜치 `feat/cost-spec-implementation-20261026`은 기준 `6f6e4d1`에서 시작했고 최신 구현 커밋은 `396c30f`. `a8206df`는 SIDEBAR-DARK-01, FLIGHT-SHELL-01, FLIGHT-UX-COPY-01을 포함하며 관련 표적 검사 23개가 통과했다. `396c30f`는 INCOME-VIEW-01과 LEDGER-MATCH-READ/UI-01을 포함하며 수입·대조 검사 21개가 통과했다. 운영 Google/DB 자료는 읽지 않았고, 실제 브라우저·운영 배포는 하지 않았다.
+
+**EXPENSE-BULK-AUDIT-01 소스 확인:** 일반 `/import`의 `render_expense_cleanup()`이 버튼과 `CLEANUP_SCRIPT`를 렌더한다. owner+CSRF가 있는 `POST /api/imports/reclassify-pending`은 `reclassify_cleanup()`을 직접 실행해 `CardFlow._classify()`, `_auto_record_locked()` 및 `assign_existing_local_expenses()`를 호출할 수 있다. 함수는 거래/장부 분류·기장·기존 행의 여행 귀속을 변경하고, OTA 보고서/스냅샷 의존도 사용한다. 미리보기 전용 엔드포인트, preview digest 검증, 적용 감사 기록은 발견되지 않았다. 그래서 UI 버튼 제거와 기존 POST 차단은 함께 설계되어야 하며, 유지보수 경로의 읽기 전용 미리보기·최신성 검증은 아직 구현하지 않았다.
+
+다음 코드 실행은 `EXPENSE-BULK-UI-01`과 `EXPENSE-BULK-MAINT-01`의 실제 쓰기 범위를 안전하게 연결하는 구현이다. 부작용 없는 dry-run 및 실행 최신성 게이트가 준비되기 전에는 기존 자동 쓰기를 일반 화면에서 감추기만 해도 완료로 보지 않는다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이다. `V21-UI-ACCEPTANCE-01`의 실제 브라우저 크기·키보드·200% 확대 확인도 남아 있다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 
