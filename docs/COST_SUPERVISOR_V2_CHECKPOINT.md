@@ -1,5 +1,8 @@
 # COST_SUPERVISOR_V2_CHECKPOINT — COST-UI-AUDIT-001 (1/4)
 
+> **현재 재개 명령 아님 (2026-10-25):** 이 파일은 PR #103 병합 전 감독 실험의 날짜 있는 증거다. 이후 PR #103/#104/#109가 `main`에 병합되어 기존 `READY/HOLD`, ahead/behind, 기준 SHA와 '테마/카드 전체 미구현' 표시는 **현재 상태가 아니다**. 후속 에이전트는 [CURRENT HANDOFF §0.13](COST_V3_CURRENT_HANDOFF.md)에서 최신 개발 현황과 남은 검증을 먼저 확인한다. 이 파일의 이전 호출·중단 기록을 삭제하거나 현재 호출 수로 재사용하지 않는다.
+
+
 > 상태: 문서 전용(PR-0). 구현/테스트/배포 미수행. 소스 확인 1회만.
 > 기준 SHA (main): b2a470b910d96caea29c255d6b76c619dbdb4a9e
 > HEAD (이전 감사 커밋): 69e46e8ef9328d302a16b1ebf38df67b73b86699 (자기참조 피함; 현재 rework HEAD는 git rev-parse HEAD로 확인)

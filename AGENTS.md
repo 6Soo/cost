@@ -6,6 +6,10 @@
 
 > **UI 신규 개발의 실행 계약:** [카드 전체 내역·웹 디자인 시스템 통합 명세](docs/card-all-transactions-and-ui-design-system-spec-v1.md) §0~§11. Paseo에서 감독 Anus Free Auto → 구현 서브에이전트 Anus Free Auto로 역할 분리하며 감독은 코드 구현 대신 독립 검증을 수행한다. 하위 에이전트 호출 지원이 없으면 성공을 가장하지 말고 중단·보고한다. 일반 금융·운영 안전 규칙은 이 AGENTS와 V3 진입점이 계속 우선한다.
 
+> **2026-10-25 현황 갱신(이전 무료 감독·UI '신규 개발' 설명보다 우선):** 최신 개발 `main` `d4c5934de07`에는 PR #103/#104/#109의 감사·테마·카드 전체 내역·UI 통합 코드가 있다. [현황·명세 격차 인계 §0.13](docs/COST_V3_CURRENT_HANDOFF.md)를 먼저 확인하고 이미 main에 반영된 코드를 재구현하지 않는다. **구현 병합 ≠ 운영 배포**이며 사용자 승인 없는 배포·실 DB·Google 쓰기는 금지. 보류 문서 PR [#105](https://github.com/6Soo/cost/pull/105)(일괄 지출 정리), [#110](https://github.com/6Soo/cost/pull/110)(오제 수입·볼드 표시)는 코드 완료가 아니다.
+>
+> **최신 사용자 에이전트 운영 방식:** 상용 프론티어 모델은 **감독·작업 분해·증거 판정**에만 집중하고, 저비용 하위 에이전트에 구현/검증을 위임한다. **Paseo 네이티브 Skill/위임 기능이 실제 독립 실행 가능한지 먼저 확인**한다. Skill 지침 파일 읽기 또는 별도 `node anus.mjs` CLI 성공을 Paseo 네이티브 위임 증거로 혼동하지 않는다. **사용자 승인 없이 CLI 우회/유료 서브모델 자동 전환 금지**. 재귀 위임 금지, 티켓별 재작업 2회 제한, 세션당 구현 4티켓/하위 호출 12회, 무진전 2회면 HOLD. 변경 없는 테스트·명세 전체 재독을 반복하지 않는다.
+>
 ## 단일 V3 구현 진입점
 
 **[COST V3 START HERE](docs/COST_V3_START_HERE.md)**가 활성 개발·정책 충돌·R0~R6 우선순위의 단일 목록이다. 상세 OTA는 [A 정책](docs/ota-card-reconciliation-policy-a-v3.md), 여행/AI/영문명은 [V3 기능 명세](docs/cost-v3-inference-ai-passenger-nm-test-architecture.md)만 사용한다. `docs/archive/` 구문과 이전 `ota-first-*` HOLD 규칙/과거 플레이북을 다음 작업으로 실행하지 않는다. 현재 배포 증거는 운영 기록과 별개다.

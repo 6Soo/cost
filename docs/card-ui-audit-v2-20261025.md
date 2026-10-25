@@ -1,5 +1,8 @@
 # COST UI 감사표 v2 — COST-UI-AUDIT-001 (티켓 1/4)
 
+> **역사적 UI 감사(2026-10-25 기준 후속 변경 발생):** 이 문서는 PR #103 작업 당시의 단발 소스 감사로, 이후 PR #104(테마)와 PR #109(카드 전체 내역/항공/영수증/OTA UI 통합)이 main에 병합됐다. 하단의 `/cards/all 미구현`, `READY`, 브랜치 ahead/behind는 **이전 기준의 기록**이다. 최신 구현 vs 명세 상태는 [CURRENT HANDOFF §0.13](COST_V3_CURRENT_HANDOFF.md) 참조. 기존 브라우저 미실행 이력은 PASS로 변경하지 않는다.
+
+
 > 상태: PR-0 문서 전용 (§6). 구현·브라우저 테스트 미수행. 소스 확인 1회만 수행. 기존 feature branch는 git show 비교 후 미검증 참고.
 > 기준 SHA: b2a470b910d96caea29c255d6b76c619dbdb4a9e (base of docs/cost-ui-audit-v2-20261025)
 > 현재 branch: docs/cost-ui-audit-v2-20261025 (base b2a470b; 이전 22 behind/6 unique; 현재 HEAD=69e46e8; 현재 origin/main..HEAD=1 ahead; origin/main..feat/card-all-transactions-ui-audit=13 ahead; 단순 push 금지; supervisor PR 승인, implementer push/PR 금지)
