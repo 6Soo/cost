@@ -34,7 +34,9 @@ def _send(handler, body, status=200):
 
 
 def _page(csrf):
-    token = json.dumps(str(csrf or ''), ensure_ascii=True)
+    # Keep untrusted token text inside the script string, even when it contains
+    # an HTML script terminator.
+    token = json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
     return """<!doctype html><html lang='ko'><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>항공권 참가자 후보</title>
 <style>
 :root{--bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;--line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;--sel:#ECF5EF;--grn:#1C7A52;--warn:#B54708;--neg:#B42318;--bad:#B42318}

@@ -36,8 +36,17 @@ def test_design_tokens_and_accessibility_markup_present():
     # Secret token value is quoted (json.dumps output) and does not appear outside the JS variable assignment
     # The actual secret value is embedded; we verify the quote escaping keeps it inside JS, not leaked into HTML text
     assert 'csrf-synth' in document
-    # No new DB or external write endpoints
-    assert 'google' not in document.lower() or 'google' not in document.lower()
+    # The page reads candidate data and saves only through COST's local API.
+    assert "fetch('/api/flight-passengers/candidates?" in document
+    assert "fetch('/api/flight-passengers/assign',{method:'POST'" in document
+    assert 'googleapis.com' not in document.lower()
+    assert 'spreadsheets.values.update' not in document
+
+
+def test_csrf_token_cannot_terminate_script_element():
+    document = page._page('</script><script>alert(1)</script>')
+    assert r'const csrf="\u003c/script>\u003cscript>alert(1)\u003c/script>";' in document
+    assert '</script><script>alert(1)' not in document
 
 
 def test_save_full_fixture_with_css():
