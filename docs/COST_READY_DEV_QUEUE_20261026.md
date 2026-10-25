@@ -23,7 +23,7 @@
 
 | 순번 | 티켓 | 입력 명세 | 실행·수락 핵심 | 상태 |
 | --- | --- | --- | --- | --- |
-| 1 | `SIDEBAR-DARK-01` | 통합 UI §4.5/§4.7, SIDE-01~03 | `site_shell.py` 공통 root 색상 토큰으로 네이티브/standalone 메뉴에 시스템 테마 적용 | **CODED, targeted tests PASS; 실제 computed style/브라우저 전환 미검증** |
+| 1 | `SIDEBAR-DARK-01` | 통합 UI §4.5/§4.7, SIDE-01~03 | `site_shell.py` 공통 root 색상 토큰으로 네이티브/standalone 메뉴에 시스템 테마 적용 | **CODED, PASS. 2026-10-26 Chromium 합성 브라우저에서 시스템 light/dark computed style, 375/759/1280px 메뉴 노출, 모바일 키보드 열기·Escape·포커스 복귀 확인. 실제 운영 페이지 적용은 별도 UI 수락 범위** |
 | 2 | `FLIGHT-SHELL-01` | 통합 UI §4.5/§4.7, FLIGHT-01~03·05~07 | `_page` 문서 구조와 실제 `Handler._send → wrap_document` 통합, 메뉴·본문·모바일 버튼 및 CSS 격리 | **CODED, integration tests PASS; 뷰포트 브라우저 미검증** |
 | 3 | `FLIGHT-UX-COPY-01` | 통합 UI §4.6/§4.7, FLIGHT-04 | 제목·필드·상태 안내, 복수 후보/stale/취소·충돌/오류·저장 피드백 | **CODED, targeted tests PASS; 전체 상태·반응형 미검증** |
 | 4 | `EXPENSE-BULK-AUDIT-01` | 통합 UI §12 | 버튼·스크립트·POST 호출과 분류·자동 기장·기존 여행 귀속 및 owner/CSRF 경계를 소스에서 추적 | **READ_ONLY AUDIT COMPLETE; 운영 동작 미검증** |
@@ -33,7 +33,7 @@
 | 8 | `OZE-INCOME-VIEW-01` | 오제 명세 §1.3·§3 | 수입 블록과 지출 검증 분리, 전체 회계 경고 유지, Google 정본 읽기 전용 표기 | **CODED, 17 targeted tests PASS; 운영 자료 미확인** |
 | 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | 선택된 최신 Google 사본과 같은 여행의 웹 지출을 정확 비교하는 읽기 전용 후보 계산 | **CODED, synthetic tests PASS** |
 | 10 | `LEDGER-MATCH-UI-01` | 오제 명세 §2.2·§3 | 대응 웹 행 굵게 표시, 접근성 근거, 복수 후보 표시, stale 시 강조 해제 | **CODED, desktop/mobile render tests PASS; 실제 브라우저 미검증** |
-| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: synthetic owner `/flight-passengers` 접근성 트리 1440px/light 확인. Aside CLI에 viewport/theme 제어가 없어 필수 폭·다크·200%·키보드 수락은 NOT_TESTED** |
+| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: synthetic owner `/flight-passengers` 접근성 트리 1440px/light와 Chromium 합성 셸의 색상·375/759/1280px 메뉴·Escape 키보드를 확인. `/cards/all`·영수증·항공권 전체 화면 렌더, 200% 확대는 NOT_TESTED** |
 | 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **HOLD / 코드 보존** |
 
 ## 3. 중요한 안전·정본 조건

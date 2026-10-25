@@ -28,6 +28,42 @@ def test_shell_theme_tokens_cover_native_navigation_documents():
     assert 'body.site-standalone,body:has(.site-topbar)' not in site_shell.STYLE
 
 
+def test_browser_shell_tracks_system_theme_and_mobile_menu_keyboard():
+    from playwright.sync_api import sync_playwright
+
+    original = '<!doctype html><html><head><title>Synthetic shell</title></head><body><main>내용</main></body></html>'
+    with patch.object(ledger_board, 'current_role', return_value='owner'):
+        document = site_shell.wrap_document(original, '/cards')
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={'width': 375, 'height': 812})
+            page.set_content(document)
+            page.emulate_media(color_scheme='light')
+            assert page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
+            page.emulate_media(color_scheme='dark')
+            assert page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
+
+            toggle = page.get_by_role('button', name='전체 메뉴 열기')
+            assert toggle.is_visible()
+            toggle.focus()
+            page.keyboard.press('Enter')
+            assert page.locator('#nav').evaluate("element => element.classList.contains('open')")
+            page.keyboard.press('Escape')
+            assert not page.locator('#nav').evaluate("element => element.classList.contains('open')")
+            assert toggle.evaluate('element => document.activeElement === element')
+
+            page.set_viewport_size({'width': 759, 'height': 812})
+            assert toggle.is_visible()
+            page.set_viewport_size({'width': 1280, 'height': 900})
+            assert not toggle.is_visible()
+        finally:
+            browser.close()
+
+
 def test_public_login_and_forbidden_pages_never_gain_private_navigation():
     document = '<html><body>Login</body></html>'
     assert site_shell.wrap_document(document, '/auth/google/start') == document
