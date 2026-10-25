@@ -145,6 +145,22 @@ def test_browser_receipt_screen_fits_required_viewports():
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             assert page.get_by_role('heading', name='영수증 정리').is_visible()
             assert page.locator('#step-review').is_visible()
+
+            page.emulate_media(color_scheme='dark')
+            dark = page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
+            page.emulate_media(color_scheme='light')
+            light = page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
+            assert (dark, light) == ('#0F172A', '#F8FAFC')
+
+            page.set_viewport_size({'width': 640, 'height': 812})
+            page.evaluate('document.documentElement.style.zoom="200%"')
+            merchant = page.locator("[data-merchant='syn-001']")
+            edit = page.get_by_role('button', name='수정')
+            assert merchant.is_visible() and edit.is_visible()
+            merchant.focus()
+            assert merchant.evaluate('(el)=>el===document.activeElement')
         finally:
             browser.close()
 

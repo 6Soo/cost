@@ -387,7 +387,16 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
             page.emulate_media(color_scheme='dark')
             assert page.locator(':root').evaluate(
                 "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
+            page.emulate_media(color_scheme='light')
+            assert page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
             assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
+            page.set_viewport_size({'width': 640, 'height': 812})
+            page.evaluate('document.documentElement.style.zoom="200%"')
+            first_month = page.locator("[data-month='1']")
+            assert first_month.is_visible()
+            first_month.focus()
+            assert first_month.evaluate('(el)=>el===document.activeElement')
         finally:
             browser.close()
 
