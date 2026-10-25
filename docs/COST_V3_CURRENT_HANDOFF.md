@@ -36,7 +36,7 @@
 
 **2026-10-26 후속 표적 검증:** 로컬 Chromium/Playwright로 공통 셸을 적용한 합성 문서를 실제 렌더링했다. light/dark 시스템 설정의 계산된 배경색, 375/759/1280px 메뉴 버튼 노출, 모바일 Enter 열기·Escape 닫기·포커스 복귀를 `webapp/tests/test_site_shell.py` 브라우저 검사로 확인했고 10개 검사가 통과했다. OTA 스냅샷 경합 방지는 커밋 `6ecde4f`에 반영했으며 관련 유지관리 검사 11개와 구문 검사가 통과했다. 이 증거는 공통 셸 동작만 확인하며 `/cards/all`·영수증·항공권 전체 화면의 200% 확대와 화면별 반응형 수락을 대신하지 않는다.
 
-`/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 모두 문서 가로 넘침이 없고 dark 시스템 설정이 적용됨을 확인했다. `webapp/tests/test_cards_all.py` 전체 22개가 통과했다. 영수증 화면과 항공권 화면의 여러 폭 수락 및 200% 확대는 계속 미검증이다.
+`/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 모두 문서 가로 넘침이 없고 dark 시스템 설정이 적용됨을 확인했다. `webapp/tests/test_cards_all.py` 전체 22개가 통과했다. 영수증 화면은 합성 자료 기반 Chromium 표적 검사에서 375/759/1280px 가로 넘침이 없고 제목·검토 영역이 표시됨을 확인했다(`webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`, 1 passed). 항공권 화면의 필수 폭/다크 및 200% 확대는 계속 미검증이다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 

@@ -33,7 +33,7 @@
 | 8 | `OZE-INCOME-VIEW-01` | 오제 명세 §1.3·§3 | 수입 블록과 지출 검증 분리, 전체 회계 경고 유지, Google 정본 읽기 전용 표기 | **CODED, 17 targeted tests PASS; 운영 자료 미확인** |
 | 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | 선택된 최신 Google 사본과 같은 여행의 웹 지출을 정확 비교하는 읽기 전용 후보 계산 | **CODED, synthetic tests PASS** |
 | 10 | `LEDGER-MATCH-UI-01` | 오제 명세 §2.2·§3 | 대응 웹 행 굵게 표시, 접근성 근거, 복수 후보 표시, stale 시 강조 해제 | **CODED, desktop/mobile render tests PASS; 실제 브라우저 미검증** |
-| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: `/cards/all` Chromium 합성 렌더에서 375/759/1280px 가로 넘침 없음과 dark 토큰 확인. `/flight-passengers` 접근성 트리 1440px/light 및 셸 키보드·테마·뷰포트도 확인. 영수증 전체 화면, 항공권의 필수 폭/다크, 200% 확대는 NOT_TESTED** |
+| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: `/cards/all` Chromium 합성 렌더에서 375/759/1280px 가로 넘침 없음과 dark 토큰 확인. 영수증 Chromium 합성 렌더에서 같은 세 폭 가로 넘침 없음 및 화면 제목·검토 영역 표시 확인. `/flight-passengers` 접근성 트리 1440px/light 및 셸 키보드·테마·뷰포트도 확인. 항공권 필수 폭/다크, 200% 확대는 NOT_TESTED** |
 | 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **HOLD / 코드 보존** |
 
 ## 3. 중요한 안전·정본 조건

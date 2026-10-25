@@ -124,6 +124,31 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert "minmax(min(100px,100%),1fr)" in rendered or "minmax(100px,1fr)" in rendered
 
 
+def test_browser_receipt_screen_fits_required_viewports():
+    from unittest.mock import patch
+    from webapp import ledger_board, ledger_design, receipt_review, site_shell
+    from playwright.sync_api import sync_playwright
+
+    data = {"candidates": [SYNTHETIC_CANDIDATE], "holds": [], "images": ["b" * 64]}
+    original = receipt_review.render_html(data, csrf="synthetic-csrf", trips=SYNTHETIC_TRIPS)
+    with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
+            ledger_design, 'nav_region', return_value=''):
+        document = site_shell.wrap_document(original, '/receipts')
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={'width': 375, 'height': 812})
+            page.set_content(document)
+            for width in (375, 759, 1280):
+                page.set_viewport_size({'width': width, 'height': 812})
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            assert page.get_by_role('heading', name='영수증 정리').is_visible()
+            assert page.locator('#step-review').is_visible()
+        finally:
+            browser.close()
+
+
 if __name__ == "__main__":
     test_render_preserves_contract_and_uses_design_tokens()
     print("PASS: contract test covers design tokens, HTML escape, label links, amount/state, 375px guards")
