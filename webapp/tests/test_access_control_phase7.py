@@ -680,6 +680,19 @@ class AccessStoreTests(unittest.TestCase):
         status, _ = self.api("/rules?case=app-x", user=V1)
         self.assertEqual(status, 403)
 
+    def test_card_history_page_and_api_are_owner_only(self):
+        self.seed_accounts()
+        self.store.conn.execute(
+            "CREATE TABLE transactions (transaction_id TEXT PRIMARY KEY, approval_date TEXT)")
+        for path in ("/cards/all", "/api/cards/transactions/years"):
+            status, _ = self.api(path)
+            self.assertEqual(status, 401, path)
+            status, body = self.api_json(path, user=V1)
+            self.assertEqual(status, 403, path)
+            self.assertEqual(body["code"], "ACTION_FORBIDDEN", path)
+            status, _ = self.api(path, user=OWNER)
+            self.assertEqual(status, 200, path)
+
     def test_a_viewer_cannot_create_look_up_or_download_a_workbook(self):
         self.seed_accounts()
         self.link(V1, "rp-1", "xlsx-1")

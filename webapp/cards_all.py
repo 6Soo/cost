@@ -23,7 +23,7 @@ UNDATED_PAGE_SIZE = 100
 
 _DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
 _CURSOR_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}(?:[T ].*)?)?\|.+$")
-_TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})")
+_TIME_RE = re.compile(r"^(\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$")
 
 
 def _esc(value) -> str:
@@ -57,6 +57,9 @@ def _request_params(query_params: dict | None) -> tuple[int, int | None, str | N
     month = None
     if month_raw is not None:
         month = _safe_int(month_raw, None, 1, 12)
+        if month is None:
+            # A malformed month must not fall through into another requested view.
+            return year, None, None, None, False
     cursor = _first(query_params, "cursor")
     undated_cursor = _first(query_params, "undated_cursor")
     if cursor and not _CURSOR_RE.match(cursor):
@@ -64,8 +67,11 @@ def _request_params(query_params: dict | None) -> tuple[int, int | None, str | N
     if undated_cursor and not _CURSOR_RE.match(undated_cursor):
         undated_cursor = None
     show_undated = str(_first(query_params, "undated", "0")).strip() in ("1", "true", "on")
-    # 월 상세와 날짜 미확인 상세는 별도 페이지 상태다.
-    if month is not None and cursor:
+    # 월 상세와 날짜 미확인 상세는 함께 열지 않고, 명시한 날짜 미확인 모드를 우선한다.
+    if show_undated:
+        month = None
+        cursor = None
+    elif month is not None and cursor:
         undated_cursor = None
     elif undated_cursor:
         cursor = None
@@ -91,12 +97,13 @@ def _split_datetime(value) -> tuple[str, str]:
     if not time_match:
         return (date_part, "")
     hour = int(time_match.group(1))
-    minute = time_match.group(2)
-    if hour > 23:
+    minute = int(time_match.group(2))
+    seconds = time_match.group(3)
+    if hour > 23 or minute > 59:
         return (date_part, "")
-    if hour == 0 and minute == "00":
+    if seconds is not None and float(seconds) >= 60:
         return (date_part, "")
-    return (date_part, f"{hour:02d}:{minute}")
+    return (date_part, time_match.group(0))
 
 
 def _format_use_date(value) -> str:

@@ -180,8 +180,10 @@ def test_undated_pages_over_100_are_complete_and_counted(card_db_path):
 
 
 @pytest.mark.parametrize("use_date, expected_valid", [
-    ("2026-03-05T12:30:00Z", True),
-    ("2026-03-05T12:30:00+09:00", True),
+    ("2026-03-05T12:30:00Z", False),
+    ("2026-03-05T12:30:00+09:00", False),
+    ("2026-03-05T12:30:00", True),
+    ("2026-03-05 12:30:00", True),
     ("2026-03-05 28:19", False),
     ("2026-03-05 12:71", False),
     ("2026-03-05 12:30:77", False),
@@ -205,7 +207,31 @@ def test_strict_date_parser_is_shared_by_all_queries(card_db_path, use_date, exp
     assert (2026 in years) is True  # Fixture already has valid dates for this year.
     assert (transaction_id in month_ids) is expected_valid
     assert (transaction_id in undated_ids) is (not expected_valid)
+    if not expected_valid:
+        undated_item = next(item for item in ct.undated_list(
+            db_path=card_db_path, per_page=100)["items"]
+            if item["transaction_id"] == transaction_id)
+        assert undated_item["approval_date"] == use_date
     assert months[3] == 3 + int(expected_valid)
+
+
+def test_month_cursor_orders_timed_rows_before_date_only_rows(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    row = ("TX-TIMED-ROW", "h-timed", "b-timed", "CARD", "0000", "credit",
+           "debit", "card", "TIMED", "TIMED", "2026-03-05T08:15:00", "",
+           "SYNTHETIC", "synthetic", 100, "", "KRW", "raw", 90, "{}", None,
+           "", "", "booked", "manual", "", "", "ITEM", "", "", 1,
+           None, "2026-01-01")
+    conn.execute("INSERT INTO transactions VALUES (" + ",".join(["?"] * 33) + ")", row)
+    conn.commit()
+    conn.close()
+
+    first = ct.list_for_month(db_path=card_db_path, year=2026, month=3,
+                              per_page=1)
+    assert first["items"][0]["transaction_id"] == "TX-TIMED-ROW"
+    second = ct.list_for_month(db_path=card_db_path, year=2026, month=3,
+                               cursor=first["cursor"], per_page=1)
+    assert second["items"][0]["transaction_id"] == "TX-A-01"
 
 def test_year_summary_2026(card_db_path):
     # 2026 summary must include months and undated

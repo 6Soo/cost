@@ -14,10 +14,15 @@ from typing import Dict, Any, Optional, List
 # It is deliberately shaped like YYYY-MM-DD so the shared HTTP cursor check accepts it.
 _UNDATED_CURSOR_DATE = "0000-00-00"
 _DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$")
+_DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$")
 
 def _valid_use_date(value: Any) -> bool:
-    """Accept only calendar-valid ISO dates and ISO local/offset date-times."""
+    """Accept calendar-valid ISO dates and local date-times without zone suffixes.
+
+    Card-use dates have no timezone conversion rule in the card contract. Keeping
+    offset-bearing values undated avoids assigning a potentially different day.
+    The stored value itself is still returned unchanged by the read projection.
+    """
     if not isinstance(value, str):
         return False
     if _DATE_PREFIX.fullmatch(value):
@@ -29,10 +34,10 @@ def _valid_use_date(value: Any) -> bool:
     if not _DATE_TIME_PREFIX.fullmatch(value):
         return False
     try:
-        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return False
-    return True
+    return parsed.tzinfo is None
 
 _VALID_DATE_SQL = "COST_VALID_USE_DATE(approval_date) = 1"
 
@@ -101,7 +106,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
                     cursor: Optional[str] = None, per_page: int = 100) -> Dict[str, Any]:
     """List transactions for a specific month with cursor pagination.
 
-    Stable ordering: approval_date ASC, transaction_id ASC.
+    Stable ordering: date ASC, time-bearing rows first, time ASC, ID ASC.
     Preserves all financial states: different IDs with same amount, duplicates, cancellations, etc.
     """
     if not isinstance(month, int) or month < 1 or month > 12:
@@ -122,17 +127,24 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
             if len(parts) != 2:
                 raise ValueError("invalid cursor format")
             c_date, c_id = parts
-            # Validate cursor date format
-            if not (c_date and c_date[0:4].isdigit() and len(c_date) >= 10):
+            if not _valid_use_date(c_date) or not c_id:
                 raise ValueError("invalid cursor date")
-            where += " AND (approval_date > ? OR (approval_date = ? AND transaction_id > ?))"
-            params += [c_date, c_date, c_id]
+            c_date_only = int(len(c_date) == 10)
+            c_time = c_date[11:] if not c_date_only else ""
+            where += (
+                " AND (substr(approval_date, 1, 10), "
+                "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END, "
+                "substr(approval_date, 12), transaction_id) > (?, ?, ?, ?)"
+            )
+            params += [c_date[:10], c_date_only, c_time, c_id]
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
             "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision "
             "FROM transactions WHERE " + where +
-            " ORDER BY approval_date ASC, transaction_id ASC LIMIT ?"
+            " ORDER BY substr(approval_date, 1, 10) ASC, "
+            "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
+            "substr(approval_date, 12) ASC, transaction_id ASC LIMIT ?"
         )
         cur.execute(sql, params + [per_page + 1])
         rows = cur.fetchall()

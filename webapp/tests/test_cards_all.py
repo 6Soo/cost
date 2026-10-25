@@ -4,10 +4,13 @@ Tests the card-all page rendering, data contracts, and UI behavior.
 Uses synthetic fixture matching app/db.py schema (transactions).
 """
 import os
+import html
+import re
 import sqlite3
 import tempfile
 import pytest
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 # Set up environment before importing
 os.environ['WEBLEDGER_CARD_SCHEMA_POLICY'] = 'require'
@@ -115,6 +118,76 @@ def test_cards_all_page_uses_strict_date_and_undated_api_contract(card_db_path):
     assert "날짜 확인 필요 · 2건" in undated_page
     assert "TX-UND-01" in undated_page
     assert "TX-UND-02" in undated_page
+
+
+def test_request_params_canonicalize_invalid_and_conflicting_modes():
+    assert cards_all._request_params({"month": ["13"], "undated": ["1"]}) == (
+        2026, None, None, None, False)
+    assert cards_all._request_params({"month": ["3"], "cursor": [
+        "2026-03-05|TX-1"], "undated": ["1"]}) == (
+        2026, None, None, None, True)
+
+
+def test_explicit_midnight_is_displayed_as_an_existing_time():
+    assert cards_all._format_use_date("2026-03-05T00:00:00") == "2026-03-05 00:00:00"
+
+
+def test_month_rows_keep_second_precision_order():
+    items = [
+        {"transaction_id": "TX-LATE", "approval_date": "2026-03-05T08:15:30",
+         "amount_krw": 1, "foreign_currency": "KRW"},
+        {"transaction_id": "TX-EARLY", "approval_date": "2026-03-05T08:15:00",
+         "amount_krw": 1, "foreign_currency": "KRW"},
+    ]
+    rendered = cards_all._render_month_rows(items, include_detail_link=False)
+    assert rendered.index("TX-EARLY") < rendered.index("TX-LATE")
+    assert "2026-03-05 08:15:00" in rendered
+    assert "2026-03-05 08:15:30" in rendered
+
+
+def test_undated_ui_cursor_covers_more_than_500_rows_once(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    rows = []
+    for index in range(610):
+        transaction_id = f"TX-UI-UND-{index:03d}"
+        invalid_date = "2026-02-30" if index % 2 == 0 else "2026-03-05 25:00:00"
+        rows.append((transaction_id, f"h-ui-{index}", "b-ui", "CARD", "1234",
+                     "credit", "debit", "card", f"A{index}", f"A{index}",
+                     invalid_date, "", "SYNTHETIC", "synthetic", -12345,
+                     "-67.50" if index % 2 == 0 else "",
+                     "JPY" if index % 2 == 0 else "KRW",
+                     "raw", 100 + index, "{}", None, "", "",
+                     "cancelled", "manual", "", "", "ITEM", "", "", 1,
+                     None, "2026-01-01"))
+    conn.executemany("INSERT INTO transactions VALUES (" + ",".join(["?"] * 33) + ")", rows)
+    conn.commit()
+    conn.close()
+
+    seen = []
+    all_pages = []
+    query = {"year": ["2026"], "undated": ["1"]}
+    for page_number in range(10):
+        page = cards_all.cards_all_page(query, db_path=card_db_path)
+        all_pages.append(page)
+        page_ids = re.findall(r"data-tx-id='([^']*)'", page)
+        seen.extend(page_ids)
+        next_link = re.search(
+            r"href='([^']*undated_cursor=[^']*)'", page)
+        if not next_link:
+            break
+        href = html.unescape(next_link.group(1))
+        query = parse_qs(urlsplit(href).query)
+        assert "undated_cursor" in query
+        assert "cursor" not in query
+        assert page_number < 9
+
+    expected = {f"TX-UI-UND-{index:03d}" for index in range(610)}
+    assert len(seen) == 612  # 610 inserted rows and 2 existing undated rows.
+    assert len(set(seen)) == 612
+    assert expected <= set(seen)
+    rendered = "".join(all_pages)
+    assert "-67.5 JPY" in rendered
+    assert "-12,345원" in rendered
 
 
 def test_month_detail_renderer_basic(card_db_path):
