@@ -1,5 +1,15 @@
 # 현재 운영 상태
 
+## 2026-10-26 COST UI 명세 구현 릴리스
+
+PR [#114](https://github.com/6Soo/cost/pull/114)은 `a39fc1370218080f053657c687103033efbeead7` 기준으로 2026-10-25 UTC 17:33경(2026-10-26 KST 02:33경) 병합됐고, 런타임은 `47264123835d1a576f17fa8d27148bddee69a3f0` 릴리스에서 실행한다. 새 릴리스는 Git 아카이브에서 만들었으며 추적 파일 942개와 대조했고 핵심 애플리케이션 파일 7개의 Git blob 해시가 일치했다. `WebLedger-Board` 작업 정의의 원본 XML과 전환 후 XML을 복구 사본에 보존했다. 기존 릴리스 `d4c5934de07543e1c27232dbd53b297f2d8fa387`도 유지했다.
+
+전환 전 복구 검증은 `D:/WebLedgerHost/data/backups/operational-20261025T173423505753Z/`에 보존하며 요약 결과는 `D:/WebLedgerHost/data/backups/cost-spec-deploy-20261026-evidence.json`에 있다. SQLite DB 5개와 보호 파일 59개를 복사해 별도 복원했고, 원본·복사본 표/열 상태, 파일 해시, 복원 바인딩이 모두 일치했다. 원본 상태는 검사 전후 동일했다. 비밀 파일 복사, 요청 재생, 서버 복원 시작, 실제 가져오기는 없었다. 백업 중 서비스를 중지하지 않았다.
+
+전환 후 `WebLedger-Board` 작업은 Running이며 task action, 127.0.0.1:8751 listener의 프로세스 인자와 `DEPLOYED_COMMIT` 표식이 새 SHA와 일치했다. 로컬 `/healthz`와 `/readyz`는 각각 200, 비인증 `/api/imports/ota`는 401이었다. `WebLedger-SourceRefresh`는 Running, `WebLedger-GoogleAuthority`와 `WebLedger-MailCollect`는 Ready였다. Google 직접 쓰기와 운영 거래·장부 변경은 하지 않았다. PowerShell `Invoke-WebRequest`는 로컬 요청에서 NullReferenceException을 냈고, 같은 경로를 기본 `curl.exe`로 확인해 위 응답을 얻었다. 운영 터널 설정에서 hostname을 찾지 못해 외부 URL 확인은 하지 않았고, 로그인 상태 브라우저의 화면 수락도 확인하지 않았다.
+
+운영 로그인 브라우저의 실제 화면별 UI 수락은 여전히 미검증이고 `0630_오제` 원인도 `ROOT_CAUSE_UNVERIFIED`다. 개발 큐와 현재 인계의 PARTIAL 상태를 완료로 해석하지 않는다.
+
 ## 2026-10-26 읽기 전용 런타임 재확인
 
 운영 호스트의 실행 중인 `WebLedger-Board` 작업 인자와 8751 포트 listener는 모두 `D:/WebLedgerHost/releases/d4c5934de07543e1c27232dbd53b297f2d8fa387`를 가리켰고, 해당 release의 `DEPLOYED_COMMIT`도 같은 SHA였다. 따라서 아래 2026-10-25 기록의 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`은 그 시점의 배포 기록이며, 2026-10-26 현장 runtime은 `d4c5934de07543e1c27232dbd53b297f2d8fa387`이다. 이번 재확인은 실행 경로와 표식만 읽었으며 health/ready, 로그인 브라우저, DB 내용은 확인하지 않았다.
