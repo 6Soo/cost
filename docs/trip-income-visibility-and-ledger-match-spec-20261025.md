@@ -9,13 +9,13 @@
 
 ### 1.1 확인 사실
 
-- [Google 원본 구조 실측](google-workbook-layout.md)의 2026-10-11 기록에 따르면 **\`0630_오제\`는 2분기 여행이지만 보관 장부가 아닌 활성 메인 Google 장부에 존재**했다. '2분기라서 보관 장부에만 있다'고 가정하는 필터는 틀리다. 최신 실원본 존재·값은 아직 재확인되지 않았다.
+- [Google 원본 구조 실측](google-workbook-layout.md)의 2026-10-11 기록에 따르면 **`0630_오제`는 2분기 여행이지만 보관 장부가 아닌 활성 메인 Google 장부에 존재**했다. '2분기라서 보관 장부에만 있다'고 가정하는 필터는 틀리다. 최신 실원본 존재·값은 아직 재확인되지 않았다.
 - 해당 여행의 당시 수입 제목 B6, 헤더 **B7:H7**, 지출 제목 B45, 헤더 B46:H46. 수입 B:H는 거래일자·이름·닉네임·예약금·잔금·추가금·금액(원); H열 수식은 E:G 합계 구조로 관측됐다.
-- \`app/google_authority.py\`의 \`parse_workbook()\`은 이름 규칙에 맞는 여행 탭을 수집하며 \`parse_trip_sheet()\`은 수입/지출 **양쪽** 블록의 숫자·수식·합계·레이아웃을 검증한다. 개별 수입 행은 비공개 rows snapshot에 보존한다. 정확한 헤더와 수식 규칙에 맞지 않으면 비표준 또는 검증 실패가 될 수 있다.
-- 현재 여행 화면은 \`webapp/ledger_design.py:page()\`이 \`google_ledger_page.trip_income_html(tab_id)\`을 별도 호출해 Google 수입 표를 구성한다. 반면 동일 화면의 \`COST 기록\` 수입 행/장부 상단 집계는 \`ledger_board._income_rows()\` / 내부 저장소를 사용한다. **Google에서 조회한 수입은 기존 COST 수입 행으로 자동 복제되는 구조가 아니다.** 두 숫자/영역의 출처를 구별해야 한다.
-- \`trip_income_html()\`은 mapping 파일에서 해당 COST \`tab_id\`에 해당하는 Google key를 **정확히 하나** 찾지 못하면 '수입 장부가 연결되지 않았습니다.'를 보인다. 원본이 있어도 자동 연결이 실패했을 수 있다. \`auto_mapping_candidates()\`는 Google/COST 표시명 고유 일치, 기간/연도 일치 등을 요구하며, \`auto_link_trips()\`는 연결을 파일로 유지한다.
-- 현재 \`trip_income_html()\`은 \`show_rows = bool(trip.get('verified')) and not numeric_gap\` 조건이 참일 때만 수입 표를 출력한다. \`trip['verified']\`는 \`app/google_authority.py:parse_trip_sheet()\`의 **수입·지출 모두 검증된 값**을 반영한다. 따라서 **정상 수입 행을 읽었더라도 별도의 지출 검증 오류만으로 수입 표 전체가 숨겨질 수 있다.** 이는 확인된 코드상 과도한 표시 결합이다.
-- \`snapshot_for_display()\`는 마지막 정상 동기화가 2시간을 넘거나 출처가 실패/오래된 경우 여행 전체를 미검증 처리해 수입 표를 숨길 수 있다. \`trip_income_html()\`은 원본 rows 부재, 합계 차이, 권한/선택 사본 미설정도 별도 상태로 처리한다.
+- `app/google_authority.py`의 `parse_workbook()`은 이름 규칙에 맞는 여행 탭을 수집하며 `parse_trip_sheet()`은 수입/지출 **양쪽** 블록의 숫자·수식·합계·레이아웃을 검증한다. 개별 수입 행은 비공개 rows snapshot에 보존한다. 정확한 헤더와 수식 규칙에 맞지 않으면 비표준 또는 검증 실패가 될 수 있다.
+- 현재 여행 화면은 `webapp/ledger_design.py:page()`이 `google_ledger_page.trip_income_html(tab_id)`을 별도 호출해 Google 수입 표를 구성한다. 반면 동일 화면의 `COST 기록` 수입 행/장부 상단 집계는 `ledger_board._income_rows()` / 내부 저장소를 사용한다. **Google에서 조회한 수입은 기존 COST 수입 행으로 자동 복제되는 구조가 아니다.** 두 숫자/영역의 출처를 구별해야 한다.
+- `trip_income_html()`은 mapping 파일에서 해당 COST `tab_id`에 해당하는 Google key를 **정확히 하나** 찾지 못하면 '수입 장부가 연결되지 않았습니다.'를 보인다. 원본이 있어도 자동 연결이 실패했을 수 있다. `auto_mapping_candidates()`는 Google/COST 표시명 고유 일치, 기간/연도 일치 등을 요구하며, `auto_link_trips()`는 연결을 파일로 유지한다.
+- 현재 `trip_income_html()`은 `show_rows = bool(trip.get('verified')) and not numeric_gap` 조건이 참일 때만 수입 표를 출력한다. `trip['verified']`는 `app/google_authority.py:parse_trip_sheet()`의 **수입·지출 모두 검증된 값**을 반영한다. 따라서 **정상 수입 행을 읽었더라도 별도의 지출 검증 오류만으로 수입 표 전체가 숨겨질 수 있다.** 이는 확인된 코드상 과도한 표시 결합이다.
+- `snapshot_for_display()`는 마지막 정상 동기화가 2시간을 넘거나 출처가 실패/오래된 경우 여행 전체를 미검증 처리해 수입 표를 숨길 수 있다. `trip_income_html()`은 원본 rows 부재, 합계 차이, 권한/선택 사본 미설정도 별도 상태로 처리한다.
 - 이러한 **코드상의 가능한 차단 경로는 확인**했지만, **0630_오제 운영 스냅샷의 현재 mapping/상태/flags/실제 행을 읽은 것은 아니다.** 따라서 특정 한 원인을 확정했다고 주장하지 않는다.
 
 ### 1.2 읽기 전용 운영 진단 티켓: OZE-INCOME-DIAG-01
@@ -24,25 +24,25 @@
 
 **진단 순서 (중복 검사·불필요한 동기화 금지):**
 
-1. 대상 COST 여행의 \`display_key\`가 정확히 \`0630_오제\`인 현재 \`tab_id\`, \`starts_on\`, \`event_year\`, deleted/archived 여부를 식별한다. Google key와 표시명·연도 일치를 확인한다. 기존 수동 매핑을 변경하지 않는다.
-2. \`WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT\`, \`WEBLEDGER_GOOGLE_LEDGER_ROWS\`의 **설정 존재 여부만** 확인. 경로·원문·인증값은 외부 보고하지 않는다. 두 파일의 유효성/동일 generation, 마지막 정상 동기화 시각, \`main/archive\` 각각의 status/stale/error_code를 확인한다.
-3. \`google-tab-mapping.json\`에서 Google \`0630_오제\` key → 현재 COST \`tab_id\`가 유일하게 연결됐는지 판정한다. 충돌·없음·과거 tab_id면 \`TRIP_MAPPING_MISSING/AMBIGUOUS/STALE\` 등으로 이유를 남긴다. 사용자 확인 없이 매핑을 수리하지 않는다.
+1. 대상 COST 여행의 `display_key`가 정확히 `0630_오제`인 현재 `tab_id`, `starts_on`, `event_year`, deleted/archived 여부를 식별한다. Google key와 표시명·연도 일치를 확인한다. 기존 수동 매핑을 변경하지 않는다.
+2. `WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT`, `WEBLEDGER_GOOGLE_LEDGER_ROWS`의 **설정 존재 여부만** 확인. 경로·원문·인증값은 외부 보고하지 않는다. 두 파일의 유효성/동일 generation, 마지막 정상 동기화 시각, `main/archive` 각각의 status/stale/error_code를 확인한다.
+3. `google-tab-mapping.json`에서 Google `0630_오제` key → 현재 COST `tab_id`가 유일하게 연결됐는지 판정한다. 충돌·없음·과거 tab_id면 `TRIP_MAPPING_MISSING/AMBIGUOUS/STALE` 등으로 이유를 남긴다. 사용자 확인 없이 매핑을 수리하지 않는다.
 4. 선택된 Google 원본이 **main**인지, 중복 사본/선택 미설정/사용자 선택으로 차단되는지 확인한다. 단지 6월 여행이라는 이유로 archive를 강제하지 않는다.
-5. 해당 source의 공개 스냅샷에서 \`layout\`, \`review flags\`, \`income.verified\`, \`expense.verified\`, \`trip.verified\`, \`income.total\` 검증 상태와 개인정보 없는 **income row count**를 비교한다. 상세 비공개 rows는 해당 \`source/key\` 존재 여부와 **행 개수**만 확인한다. 숫자 금액/이름/예약번호/계좌 등 원문 출력 금지.
+5. 해당 source의 공개 스냅샷에서 `layout`, `review flags`, `income.verified`, `expense.verified`, `trip.verified`, `income.total` 검증 상태와 개인정보 없는 **income row count**를 비교한다. 상세 비공개 rows는 해당 `source/key` 존재 여부와 **행 개수**만 확인한다. 숫자 금액/이름/예약번호/계좌 등 원문 출력 금지.
 6. 수입만 정상이고 지출만 검증 실패했는지, 수입 행 합계 불일치/금액 캐시 부재인지, sync stale인지, 정본 사본 미선택인지, 권한 차단인지 **원인 코드를 분리**한다.
 7. 화면에서 COST 내부 수입 0건인 상황과 Google 수입 별도 패널 비노출 상황을 각각 판정한다. **서로 다른 증상**이므로 동일한 '수입 미수집'으로 보고하지 않는다.
-8. 출력은 \`trip_key / mapping_status / selected_source / source_freshness / layout / income_verified / expense_verified / rows_present / rows_count / ui_hide_reason / action\` 형태의 비식별 요약만 제출한다. 원본 고객자료·금액은 현장 사용자 화면으로만 확인한다.
+8. 출력은 `trip_key / mapping_status / selected_source / source_freshness / layout / income_verified / expense_verified / rows_present / rows_count / ui_hide_reason / action` 형태의 비식별 요약만 제출한다. 원본 고객자료·금액은 현장 사용자 화면으로만 확인한다.
 
-**진단 결과 상태:** \`MAPPING_UNLINKED\`, \`SOURCE_STALE\`, \`SOURCE_UNAVAILABLE\`, \`COPY_CHOICE_REQUIRED\`, \`LAYOUT_NONSTANDARD\`, \`INCOME_BLOCK_UNVERIFIED\`, \`EXPENSE_ONLY_FAILURE_HIDES_INCOME\`, \`INCOME_TOTAL_MISMATCH\`, \`ROWS_MISSING\`, \`VIEWER_FORBIDDEN\`, \`COST_INCOME_NOT_IMPORTED_BY_DESIGN\`, \`UNKNOWN\` 중 근거와 직접 대응되는 코드를 사용한다. 복수 원인 허용.
+**진단 결과 상태:** `MAPPING_UNLINKED`, `SOURCE_STALE`, `SOURCE_UNAVAILABLE`, `COPY_CHOICE_REQUIRED`, `LAYOUT_NONSTANDARD`, `INCOME_BLOCK_UNVERIFIED`, `EXPENSE_ONLY_FAILURE_HIDES_INCOME`, `INCOME_TOTAL_MISMATCH`, `ROWS_MISSING`, `VIEWER_FORBIDDEN`, `COST_INCOME_NOT_IMPORTED_BY_DESIGN`, `UNKNOWN` 중 근거와 직접 대응되는 코드를 사용한다. 복수 원인 허용.
 
 ### 1.3 수입 표시 개선: OZE-INCOME-VIEW-01
 
-- **읽기와 표시를 분리한다.** 수입 표를 보이는 조건을 여행 전체 \`verified\`와 직접 결합하지 말고 **선택된 원본의 수입 블록 상태**로 평가한다. 지출 검증만 실패했으면 정상 수입 행은 계속 표시하되, 여행 전체 회계/순수익의 검증 실패는 별도 경고로 유지한다.
+- **읽기와 표시를 분리한다.** 수입 표를 보이는 조건을 여행 전체 `verified`와 직접 결합하지 말고 **선택된 원본의 수입 블록 상태**로 평가한다. 지출 검증만 실패했으면 정상 수입 행은 계속 표시하되, 여행 전체 회계/순수익의 검증 실패는 별도 경고로 유지한다.
 - 수입 블록 금액/합계 자체가 검증되지 않으면 확정 수입 합계를 표시하지 않는다. owner에게 조회 가능한 행의 원문 상태를 '수입 금액 검증 필요'로 설명할 수 있으나, 미검증 금액을 확정 매출로 승격하지 않는다. 비공개 rows가 없으면 정상 0건으로 꾸미지 않는다.
 - Google snapshot이 stale이면 승인된 마지막 정상 **읽기 사본**을 '마지막 정상 자료 / 동기화 시각 / 최신 여부 미확인'으로 구별하여 표시할 수 있다. 권한을 확장하지 않고, stale 자료를 현재 확정 수입이나 재대조 정본으로 쓰지 않는다.
 - 연결·사본·파싱·금액·행 부재·열람 권한을 사용자에게 구별 가능한 상태 메시지로 표시한다. 단순히 '내역이 없습니다'로 합치지 않는다.
 - 내부 COST 수입과 Google 수입을 합산·자동 기장·자동 복제하지 않는다. 'COST 내부 기록 수입'과 'Google 정본 수입(읽기 전용)'을 분명히 구분한다.
-- \`0630_오제\` 전용 하드코딩/임의 레거시 양식 호환기를 만들지 않는다. 기존 \`매출자료 양식_rev\` 구조 계약을 지키고, 이 여행의 원인이 어떤 조건인지 확인한 뒤 보편적인 표시 버그만 수정한다.
+- `0630_오제` 전용 하드코딩/임의 레거시 양식 호환기를 만들지 않는다. 기존 `매출자료 양식_rev` 구조 계약을 지키고, 이 여행의 원인이 어떤 조건인지 확인한 뒤 보편적인 표시 버그만 수정한다.
 
 ## 2. 기존 Google 장부와 COST 웹 장부 간 '볼드체 동일 거래 후보' 규칙
 
@@ -60,7 +60,7 @@
 
 **Boolean 계약:**
 
-\`match_candidate = same_trip && same_kind_expense && amount_valid && amount_currency_direction_equal && (date_equal || merchant_equal || category_equal || reservation_equal)\`
+`match_candidate = same_trip && same_kind_expense && amount_valid && amount_currency_direction_equal && (date_equal || merchant_equal || category_equal || reservation_equal)`
 
 예시:
 
@@ -78,7 +78,7 @@
 ### 2.2 UI와 사용자 의미
 
 - 대조는 **선택된 Google 정본 한 사본(main 또는 archive)**과 동일 COST 여행의 웹 장부 지출만 사용한다. 메인+보관을 모두 합쳐 매칭하거나 중복 집계하지 않는다. 동일 여행 연결/정본 선택/동기화가 미확정이면 강조하지 않고 근거 확인 필요를 표시한다.
-- 일치 거래의 **웹 장부 행 텍스트(날짜·가맹점/내용·분류·이용일·금액)를 \`font-weight: 700\` 정도로 볼드체** 표시한다. 사용자 키보드/스크린리더를 위해 \`Google 장부 대조 후보: 금액+날짜\` 같은 화면 낭독 가능한 근거 설명을 제공한다. 선택/호버/기존 상태 색상만으로 매칭을 표현하지 않는다.
+- 일치 거래의 **웹 장부 행 텍스트(날짜·가맹점/내용·분류·이용일·금액)를 `font-weight: 700` 정도로 볼드체** 표시한다. 사용자 키보드/스크린리더를 위해 `Google 장부 대조 후보: 금액+날짜` 같은 화면 낭독 가능한 근거 설명을 제공한다. 선택/호버/기존 상태 색상만으로 매칭을 표현하지 않는다.
 - 현재 화면에 Google 지출 행이 함께 보이는 경우 대응 원본 행도 구별 가능하게 표시해도 된다. 기본 필수는 **웹 장부 거래 강조**다.
 - **'동일 거래 후보'는 시각적 대조 편의 기능**이다. 원본 거래 ID가 Google에 없을 수 있으므로 '장부 반영 확정', '회계 동일성 검증 완료', '중복 거래 확정'처럼 표시해서는 안 된다. 사용자가 말한 '같은 거래로 보고 볼드체'를 화면 판정으로 구현하되 **데이터 정본 합치기/중복 제거/실제 전기는 하지 않는다**.
 - 한 Google 행이 여러 COST 거래와 맞거나, 한 COST 거래가 여러 Google 행과 맞으면 **해당 후보 모두 볼드 + '복수 후보 · 확인 필요'** 표시. 임의로 첫 번째 1:1 쌍을 확정하거나 나머지 행을 숨기지 않는다. 서로 다른 실제 결제 ID는 영구 독립이다.
@@ -86,14 +86,14 @@
 
 ### 2.3 읽기 전용 데이터·성능·권한 경계
 
-- 웹 장부 \`webapp/ledger_design.py\`의 \`_selected_rows()\`, \`_table_html()\`과 Google \`webapp/google_ledger_page.py:owner_rows()\`의 선택 사본 조회는 기존 경로를 우선 재사용한다. 정본 지출 B:H 대응은 **B 날짜 / C 지급처 / D 분류 / E 기간 / F 예약번호 / G 증빙 / H 금액**이다. 웹 거래의 실제 필드 위치는 감사로 확정한다.
+- 웹 장부 `webapp/ledger_design.py`의 `_selected_rows()`, `_table_html()`과 Google `webapp/google_ledger_page.py:owner_rows()`의 선택 사본 조회는 기존 경로를 우선 재사용한다. 정본 지출 B:H 대응은 **B 날짜 / C 지급처 / D 분류 / E 기간 / F 예약번호 / G 증빙 / H 금액**이다. 웹 거래의 실제 필드 위치는 감사로 확정한다.
 - 비교용 Google 원본은 기존의 세대 일관성을 가진 비공개 snapshot에서 서버 내부에서만 조회한다. 고객 이름·예약번호·시트 원본은 권한 없는 viewer/public 응답, JS 전역 객체, 로그·PR로 누출하지 않는다. owner에게만 원본 상세 및 근거를 노출하며 기존 viewer 여행별 열람 권한보다 넓히지 않는다.
-- \`GET /board\` 및 대조 API는 DB/Google에 쓰기를 하지 않으며 Google API 호출이나 주기 동기화를 화면 요청에 새로 추가하지 않는다. 선택된 정상 snapshot이 없으면 '대조 불가'로 표시하며 금액만 보고 억지 매칭하지 않는다.
+- `GET /board` 및 대조 API는 DB/Google에 쓰기를 하지 않으며 Google API 호출이나 주기 동기화를 화면 요청에 새로 추가하지 않는다. 선택된 정상 snapshot이 없으면 '대조 불가'로 표시하며 금액만 보고 억지 매칭하지 않는다.
 - 현재 여행/선택 원본/원본 generation/페이지 필터 변경 시 일치 후보만 재산정한다. 월별·여행별 거래 수가 커도 지출 금액별 인덱스(hash map 등)로 N×M 전수 비교를 피한다. 원본 텍스트 이스케이프와 시스템 라이트/다크 스타일·모바일 표를 보호한다.
 
 ## 3. 개발 티켓과 수락 기준
 
-**INCOME-ROOT-01:** §1.2 읽기 전용 진단으로 \`0630_오제\`의 운영/스냅샷 실제 차단 원인 코드를 판정한다. 원본 권한 없으면 \`UNVERIFIED / ACCESS_BLOCKED\`로 종료하고 근거 없는 수정에 착수하지 않는다.
+**INCOME-ROOT-01:** §1.2 읽기 전용 진단으로 `0630_오제`의 운영/스냅샷 실제 차단 원인 코드를 판정한다. 원본 권한 없으면 `UNVERIFIED / ACCESS_BLOCKED`로 종료하고 근거 없는 수정에 착수하지 않는다.
 
 **INCOME-VIEW-01:** §1.3 수입/지출 검증 게이트 분리, 상태 안내, 출처 구분. 수입이 정상이고 지출만 실패하는 합성 사례에서 수입은 보이되 전체 손익은 확정되지 않는지 검증한다.
 
