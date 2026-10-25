@@ -56,7 +56,7 @@ def db_path():
         ("TX-UND-01","h4","b2","CARD","9999","credit","debit","card","U01","U01","","","UNKNOWN","unknown",-543947,"","KRW","raw",4,"{}",None,"","","cancelled","manual","","","","","",1,None,"2026-01-01"),
         ("TX-DUP-01","h5","b3","CARD","1234","credit","debit","card","D01","D01","2026-04-01","2026-04-02","AGODA","agoda",556929,"","KRW","raw",5,"{}","TX-A-01","","","preserved","manual","","","HOTEL A","","T-A",2,None,"2026-01-01"),
     ]
-    conn.executemany("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    place = ",".join(["?"]*33)
     conn.commit()
     conn.close()
     yield path
@@ -121,7 +121,7 @@ def test_invalid_query_returns_400_contract(db_path):
 
 def test_owner_auth_preserved():
     # Existing auth is preserved by ledger_board injection; this test verifies file exists and module loads
-    import webapp.ledger_board as lb
+    import webapp.ledger_board as ledger_board
     assert hasattr(ledger_board.Handler, 'do_GET')
 
 def test_owner_route_401_403_preserved():
