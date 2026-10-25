@@ -99,11 +99,6 @@ def _split_datetime(value) -> tuple[str, str]:
     return (date_part, f"{hour:02d}:{minute}")
 
 
-def _is_truly_undated(value) -> bool:
-    """유효한 YYYY-MM-DD 이용일이 없는 값만 날짜 확인 필요로 본다."""
-    return _DATE_RE.match(str(value or "").strip()) is None
-
-
 def _format_use_date(value) -> str:
     date_part, time_part = _split_datetime(value)
     if not date_part:
@@ -410,8 +405,9 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             undated_result = _ct.undated_list(
                 db_path=card_db_path, year=year, cursor=undated_cursor,
                 per_page=UNDATED_PAGE_SIZE)
-            undated_items = [item for item in (undated_result.get("items") or [])
-                             if _is_truly_undated(item.get("approval_date"))]
+            # 날짜 유효성의 권위는 API에 둔다. 무효한 달력 날짜도 API가
+            # 날짜 확인 필요 목록으로 돌려줬다면 화면에서 제외하지 않는다.
+            undated_items = undated_result.get("items") or []
             # 실제 미확인 건수는 날짜 미확인 API의 total만 신뢰한다.
             # 기존 API는 total을 제공하지 않으므로 페이지 행 수를 전체로 가장하지 않는다.
             if "total" in undated_result:
