@@ -3,6 +3,7 @@
 # No DB/Google/auth/JS/financial changes.
 
 import re
+from pathlib import Path
 
 LEDGER = "webapp/ledger_design.py"
 
@@ -56,3 +57,16 @@ def test_synthetic_light_dark_dynamic_switch_by_media():
     light_bg = css.find("--bg:#F8FAFC")
     dark_bg = css.find("--bg:#0F172A")
     assert light_bg >= 0 and dark_bg > light_bg, "light/dark token ordering wrong for dynamic switch"
+
+
+def test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility():
+    shell = Path("webapp/site_shell.py").read_text(encoding="utf-8")
+    assert "--shell-bg:#F8FAFC" in shell and "--shell-ink:#0F172A" in shell
+    assert "@media(prefers-color-scheme:dark){body.site-standalone,body:has(.site-topbar)" in shell
+    assert "--shell-bg:#0F172A" in shell and "--shell-ink:#F8FAFC" in shell
+    assert "background:var(--shell-paper,#fff)" in shell
+    assert "width:min(300px,85vw,100%)" in shell
+    assert "#nav a:focus-visible,#nav button:focus-visible" in shell
+    assert "e.key==='Tab'" in shell and "e.key==='Escape'" in shell
+    assert "close({restoreFocus:true})" in shell
+    assert 'aria-controls="nav" aria-expanded="false"' in shell
