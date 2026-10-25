@@ -12,13 +12,45 @@
 
 | 대상 | 현재 main 상태 | 구현 재개 위치 |
 | --- | --- | --- |
-| 공통 다크모드 사이드메뉴 | `webapp/site_shell.py` CSS 변수 범위 결함 **코드 미수정**. PR #112 §4.5~4.7 명세 **병합** | `SIDEBAR-DARK-01` **P0 READY**, 해당 명세의 SIDE-01~03 |
-| 항공권 참가자 연결 화면 메뉴 소실 | `flight_passenger_page._page()` 문서 구조로 인해 `wrap_document()`가 메뉴를 삽입하지 않는 결함 **미수정** | `FLIGHT-SHELL-01` **P0 READY**, 실제 Handler 통합·브라우저 검사 |
-| 항공권 화면 UI/한국어 문구 | 기존 후보 검색/내부 연결 로직은 존재하지만 제목·폼·상태 안내 개선은 **미수정** | `FLIGHT-UX-COPY-01` **P1**, 선행 P0 뒤 수행 |
+| 공통 다크모드 사이드메뉴 | 구현 커밋 `a8206df`: 공통 root 토큰을 네이티브/standalone 문서에 적용. 표적 검사 통과 | **CODED / TESTED**. 실제 computed style의 시스템 전환·대비 브라우저 확인은 미완료 |
+| 항공권 참가자 연결 화면 메뉴 소실 | 구현 커밋 `a8206df`: 명시적 head/body와 wrapper 통합; 메뉴·본문·모바일 메뉴 중복 없음 표적 검사 | **CODED / TESTED**. 375~1280px·200% 확대 브라우저 확인은 미완료 |
+| 항공권 화면 UI/한국어 문구 | 구현 커밋 `a8206df`: 제목·필드·상태별 문구, stale/취소/충돌/저장 오류 처리 | **CODED / TESTED**. 전체 상태·반응형/키보드 브라우저 수락은 미완료 |
 | 일괄 지출 정리 버튼 | `#cleanup-reclassify`·서버 POST/금융 쓰기 로직 **현행 유지**. PR #105 명세 §12 병합 | `EXPENSE-BULK-AUDIT-01` → `EXPENSE-BULK-UI-01` → `EXPENSE-BULK-MAINT-01` |
-| `0630_오제` 수입 표시 | `trip_income_html()`에서 수입/지출 전체 verified 연동 문제는 코드상 확인되나 **실운영 스냅샷 원인 미확정, 수정 미수행** | `OZE-INCOME-DIAG-01`(권한 있는 읽기 전용) / `OZE-INCOME-VIEW-01`(합성 구현) |
-| Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 명세에 **같은 여행, 같은 지출, 동일 금액(부호/통화 포함) + 날짜·가맹점·분류·예약번호 중 하나 이상** 조건 있음. **표시 코드는 아직 미구현** | `LEDGER-MATCH-READ-01` → `LEDGER-MATCH-UI-01` |
+| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | `OZE-INCOME-DIAG-01`은 승인된 읽기 전용 운영 확인을 수행했으나 대상 행이 없어 **PARTIAL / ROOT_CAUSE_UNVERIFIED** |
+| Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 커밋 `396c30f`: owner의 동일 여행·선택된 fresh source만 읽고 금액 및 날짜/가맹점/분류/예약번호 대조, 복수 후보·접근성 안내. 4개 합성 표적 테스트 통과 | 실제 운영 데이터·브라우저 표시 미검증; Google 쓰기 없음 |
 | 카드 전체 내역 · 기본 공통 테마 · 항공권/영수증 기존 기능 | V21 `main` 구현 존재. 별도 브라우저 통합/운영 배포는 미확인 | **재구현 금지**, `V21-UI-ACCEPTANCE-01`만 표적 검증 |
+
+**2026-10-26 구현 재개 기록:** 작업 브랜치 `feat/cost-spec-implementation-20261026`은 기준 `6f6e4d1`에서 시작했고 최신 구현 커밋은 `396c30f`. `a8206df`는 SIDEBAR-DARK-01, FLIGHT-SHELL-01, FLIGHT-UX-COPY-01을 포함하며 관련 표적 검사 23개가 통과했다. `396c30f`는 INCOME-VIEW-01과 LEDGER-MATCH-READ/UI-01을 포함하며 수입·대조 검사 21개가 통과했다. 운영 Google/DB 자료는 읽지 않았고, 실제 브라우저·운영 배포는 하지 않았다.
+
+**EXPENSE-BULK-AUDIT-01 소스 확인:** 일반 `/import`의 `render_expense_cleanup()`이 버튼과 `CLEANUP_SCRIPT`를 렌더한다. owner+CSRF가 있는 `POST /api/imports/reclassify-pending`은 `reclassify_cleanup()`을 직접 실행해 `CardFlow._classify()`, `_auto_record_locked()` 및 `assign_existing_local_expenses()`를 호출할 수 있다. 함수는 거래/장부 분류·기장·기존 행의 여행 귀속을 변경하고, OTA 보고서/스냅샷 의존도 사용한다. 미리보기 전용 엔드포인트, preview digest 검증, 적용 감사 기록은 발견되지 않았다. 그래서 UI 버튼 제거와 기존 POST 차단은 함께 설계되어야 하며, 유지보수 경로의 읽기 전용 미리보기·최신성 검증은 아직 구현하지 않았다.
+
+다음 실행 항목은 `V21-UI-ACCEPTANCE-01`의 남은 확대 상호작용 검증과 배포 전 보호 확인이다. `OZE-INCOME-DIAG-01`은 아래 0.15절에서 승인된 읽기 전용 진단을 진행했으나 대상 여행 행을 찾지 못해 원인을 확정하지 못했다. 유지관리 일괄 적용은 운영 자료로 실행하지 않았다.
+
+**2026-10-26 후속 구현:** `EXPENSE-BULK-UI-01`에서 일반 지출 화면의 일괄 실행 버튼과 전용 JS를 제거하고, 건별 업무를 유지했다. 기존 `POST /api/imports/reclassify-pending`은 owner·CSRF 검증 뒤에도 `410 MAINTENANCE_FLOW_REQUIRED`를 반환해 호출만으로 재분류·장부 기록·여행 변경을 일으키지 않도록 닫았다. 합성 표적 검사 `test_cleanup_reclassification.py` 4개 통과. 세 테스트 파일 실행은 36개 통과, 2개 실패였으며, 실패는 이번 diff에서 바뀌지 않은 기존 문자열 검증 두 건이다. 기준 HEAD의 해당 코드/기대값은 변경 전부터 존재함을 확인했으며 기준 커밋에서 재실행하지는 않았다.
+
+**2026-10-26 유지관리 구현:** `/maintenance/expense-bulk` owner 전용 화면과 preview/apply API를 추가했다. 미리보기는 데이터베이스의 일관된 메모리 복제본에서 기존 재분류·기장·기존 지출 여행 배정 흐름을 시뮬레이션하며, 등록 OTA 자료는 읽기 전용으로 확인하고 worker 갱신을 시작하지 않는다. preview 응답에는 예상 대상 ID/종류·건수·보류·실패, OTA refresh 필요 여부가 포함된다. 적용은 5분 유효한 일회용 무작위 preview ID, 전체 DB·등록 자료·일정/Google 입력 지문, owner·CSRF, 명시 확인 및 범위(OTA 갱신이 필요하면 그 범위 포함)를 확인한다. 변경/재전송은 거절하거나 같은 결과를 돌려준다. 작업 시작/완료/실패와 실제 변경 대상 ID는 기존 `change_log`에 비밀값·원문 없이 남긴다. 오래된 `/api/imports/reclassify-pending`은 계속 410으로 닫혀 있다.
+
+표적 검사 `test_expense_bulk_maintenance.py`와 `test_cleanup_reclassification.py`는 11개 통과했다. 이 검사는 메모리 미리보기의 실제 저장소 무변경, preview 뒤 변경 거부, 명시 확인, OTA 갱신 동의 범위, owner/CSRF, 적용 재전송 멱등성을 확인한다. 실제 브라우저·운영 데이터·운영 배포는 검증하지 않았다. 당시 `OZE-INCOME-DIAG-01`과 `V21-UI-ACCEPTANCE-01`의 후속 검증은 남아 있었으며, 최신 부분 결과는 아래 0.15절에 기록한다.
+
+**2026-10-26 브라우저 부분 확인:** Aside Browser의 합성 로컬 앱에서 owner 세션으로 `/flight-passengers`를 열었고, 1440px 기본 창·현재 light 설정의 접근성 트리에 공용 메뉴와 항공권 입력 화면이 표시됐다. 이후 탭 간 synthetic session이 유지되지 않아 나머지 페이지를 확정하지 않았다. Aside CLI의 페이지 객체에는 `setViewportSize`와 `emulateMedia`가 없어 375/759/1280px, dark 전환, 200% 확대, 키보드 전체 흐름은 **NOT_TESTED**다. 이를 브라우저 수락 완료로 해석하지 않는다.
+
+**2026-10-26 후속 표적 검증:** 로컬 Chromium/Playwright로 공통 셸을 적용한 합성 문서를 실제 렌더링했다. light/dark 시스템 설정의 계산된 배경색, 375/759/1280px 메뉴 버튼 노출, 모바일 Enter 열기·Escape 닫기·포커스 복귀를 `webapp/tests/test_site_shell.py` 브라우저 검사로 확인했고 10개 검사가 통과했다. OTA 스냅샷 경합 방지는 커밋 `6ecde4f`에 반영했으며 관련 유지관리 검사 11개와 구문 검사가 통과했다. 이 증거는 공통 셸 동작만 확인하며 `/cards/all`·영수증·항공권 전체 화면의 200% 확대와 화면별 반응형 수락을 대신하지 않는다.
+
+`/cards/all`은 합성 카드 DB로 전체 화면을 렌더링해 Chromium에서 375/759/1280px 가로 넘침 없음, light/dark 토큰 전환, 200% 확대에서 월 타일 표시와 키보드 초점을 확인했다(`webapp/tests/test_cards_all.py::test_browser_cards_all_fits_required_viewports_with_system_theme`). 기존 해당 테스트 파일 22개 통과 기록에 더해 이 브라우저 검사도 통과했다. 영수증 화면은 합성 자료 기반 Chromium 검사에서 같은 세 폭의 가로 넘침 없음, light/dark 토큰 전환, 200% 확대에서 상호 입력·수정 버튼 표시와 입력 초점을 확인했다(`webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`). 항공권은 실제 공통 wrapper를 적용한 합성 문서에서 375/390/759/760/1280px 가로 넘침 없음, 시스템 light/dark 메뉴 배경 전환, 200% 확대 후 메뉴와 제목 표시, Enter 열기·Escape 닫기·초점 복귀를 확인했다(`webapp/tests/test_flight_passenger_page.py::test_browser_wrapped_flight_page_responsive_theme_and_zoom`). 거래 행 전체, 영수증 수정/복사 흐름의 확대 상태 및 API 오류 상태 전체는 미검증이다.
+
+**2026-10-26 후속 수락 검사 커밋:** `7c4e905` 영수증 Chromium 화면 검사, `eb05f09` 항공권 wrapper 뷰포트/테마/확대 검사, `004b5f5` 일괄 유지관리 owner 화면의 합성 브라우저 미리보기→명시 확인→적용 요청 검사. `004b5f5` 검사에서 CSRF, preview ID, 적용 scope를 확인했고 API 응답은 네트워크 stub으로 대체해 DB/운영 효과를 발생시키지 않았다. 후속 표적 검사에서 항공권 통합 문서의 Enter 메뉴 열기·Escape 닫기·초점 복귀도 통과했다. 검증의 추가 범위는 큐에 기록했으며, 운영 배포와 OZE 실제 자료 원인 진단은 여전히 미완료다.
+
+## 0.15 2026-10-26 후속 브라우저 검사와 승인된 OZE 읽기 전용 진단
+
+`webapp/tests/test_cards_all.py::test_browser_cards_all_fits_required_viewports_with_system_theme`에서 `/cards/all` 합성 페이지를 실제 경로로 라우팅하도록 보강했다. Chromium에서 375/759/1280px 가로 넘침 없음, 시스템 테마 색상, 3월 타일 Enter로 상세 열기·Enter 재입력으로 닫기, 200% 확대에서 세 합성 거래 행과 상세 링크, 월 타일 초점을 확인했다. `webapp/tests/test_receipt_design_contract.py::test_browser_receipt_screen_fits_required_viewports`는 200% 확대 상태에서 수정 API 응답 반영과 Google 7열 클립보드 복사를 합성 응답으로 확인했고, 수정 전후 입력·버튼 노출도 확인했다. `webapp/tests/test_flight_passenger_page.py::test_browser_wrapped_flight_page_responsive_theme_and_zoom`은 200% 확대에서 예약번호 입력란의 노출·초점을 확인했다. 세 표적 검사 모두 통과했다. API 응답은 테스트 안에서 stub 처리했고 실제 서버 저장은 검증하지 않았다.
+
+`webapp/tests/test_synthetic_preview.py::test_preview_completes_card_and_manual_receipt_without_operational_files`는 처음에 접힌 `#card-review-detail`과 영수증 `#other-methods`를 열지 않고 입력하려 했고, 삭제된 `/google-ledger` 경로 및 이전 영수증 확인 버튼을 참조해 중단됐다. 테스트를 현재 화면 흐름에 맞춰 수정하고, 선택 사본은 격리된 합성 스냅샷에서만 설정했다. 최종 표적 실행은 **1 passed, 4.26초**였다. 375px Chromium에서 카드 입력/내부 기록·Google 복사, 영수증 사진 업로드/수동 입력/수정/7열 복사, 여행 화면의 Google 수입 표시와 COST 내부 집계 분리를 확인했다. 운영 원본·Google API·운영 DB는 사용하지 않았다. 운영 브라우저 수락은 여전히 미검증이다.
+
+사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고 정확한 `display_key` 행, Google snapshot key, Google mapping key, 여행 이력의 대상 키 흔적은 모두 없었다. 같은 시작일·연도인 활성 trip 행 1건은 `needs_review`였고 그 행의 `tab_id`는 다른 Google key 1개가 참조하고 있었다. 이를 대상 여행으로 단정하지 않는다. 런타임 스냅샷과 해당 generation의 비공개 행 파일 로드는 성공했고 메인·보관 source는 모두 `status=ok`, `stale=false`였다. 대상 Google 키 자체가 snapshot에 없어 선택 사본·대상 행 개수·표시 차단 원인은 확인할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
+
+운영 프로세스, `WebLedger-Board` 작업 인자, 해당 릴리스의 `DEPLOYED_COMMIT` 표식은 모두 SHA `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 일치했다. `docs/operations.md`에는 2026-10-25 배포 기록 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`과 2026-10-26 읽기 전용 현장 확인을 별도 시점으로 기록했다. 이번 재확인은 실행 경로만 확인했으며 health/ready나 DB 내용은 확인하지 않았다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. `0630_오제` 대상 행은 현재 운영 자료에서 확인되지 않아, 원인을 확정하거나 다른 저장소를 찾아 추정하지 않는다.
+
+**독립 읽기 검토:** Paseo 독립 검토는 작업 큐와 인계의 구현/부분 상태, 일괄 유지관리 쓰기 경계, 표적 브라우저 검사 기록 및 PR #108 HOLD가 서로 맞는다고 확인했다. 운영 DB·Google 원본 접근이나 파일 수정은 하지 않았다. 검토도 `OZE-INCOME-DIAG-01`과 `V21-UI-ACCEPTANCE-01`을 PARTIAL로 판정했다. 이는 자체적인 코드 수락이나 운영 배포 검증을 대신하지 않는다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 

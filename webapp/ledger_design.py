@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import urllib.parse
 import uuid
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
+from app.google_authority import SnapshotError
 from . import ledger_board as board
 from . import read_scope, ui_icons
 
@@ -322,6 +324,8 @@ tr[data-id]{cursor:pointer}
 tr[data-id]:hover{background:var(--hover)}
 tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+.google-match-candidate td{font-weight:700}
+.google-match-candidate .m-row,.google-match-candidate .party-line{font-weight:700}
 .num{text-align:right}
 .a-in{color:var(--grn);font-weight:500}
 .a-ex{font-weight:500}
@@ -1760,12 +1764,121 @@ def _move_form(row, move_back: str) -> str:
         f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
 
 
-def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> str:
+def _match_text(value):
+    if value is None:
+        return ''
+    return ' '.join(unicodedata.normalize('NFC', str(value)).split()).casefold()
+
+
+def _match_date(value):
+    text = str(value or '').strip()[:10]
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return ''
+
+
+def _match_amount(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        text = str(value).strip().replace(',', '').replace('원', '').strip()
+        if not re.fullmatch(r'[+-]?\d+', text):
+            return None
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _google_expense_matches(google_rows, web_rows):
+    """Return display-only web row matches using exact financial and identity fields."""
+    edges = {}
+    reverse = {}
+    web_by_amount = {}
+    for web_index, web_row in enumerate(web_rows):
+        amount = _match_amount(web_row.get('amount_krw'))
+        if amount is not None:
+            web_by_amount.setdefault(amount, []).append(web_index)
+    for g_index, google_row in enumerate(google_rows):
+        amount = _match_amount(google_row.get('amount'))
+        if amount is None:
+            continue
+        for web_index in web_by_amount.get(amount, []):
+            web_row = web_rows[web_index]
+            reasons = []
+            g_date, w_date = _match_date(google_row.get('date')), _match_date(
+                web_row.get('occurred_on') or web_row.get('ledger_date'))
+            if g_date and w_date and g_date == w_date:
+                reasons.append('날짜')
+            g_merchant, w_merchant = _match_text(google_row.get('payee')), _match_text(
+                web_row.get('source_merchant') or web_row.get('merchant'))
+            if g_merchant and w_merchant and g_merchant == w_merchant:
+                reasons.append('가맹점')
+            g_category, w_category = _match_text(google_row.get('category')), _match_text(
+                web_row.get('item'))
+            if g_category and w_category and g_category == w_category:
+                reasons.append('분류')
+            g_reservation = _match_text(google_row.get('reservation'))
+            w_reservation = _match_text(web_row.get('reservation_no'))
+            placeholders = {'-', '미확정', '미확인', '없음', 'unknown', 'tbd', 'n/a'}
+            if (g_reservation and w_reservation and g_reservation not in placeholders
+                    and w_reservation not in placeholders and g_reservation == w_reservation):
+                reasons.append('예약번호')
+            if reasons:
+                edges.setdefault(web_index, {})[g_index] = reasons
+                reverse.setdefault(g_index, set()).add(web_index)
+    result = {}
+    for web_index, candidates in edges.items():
+        reasons = sorted({reason for values in candidates.values() for reason in values})
+        multiple = len(candidates) > 1 or any(len(reverse[g_index]) > 1 for g_index in candidates)
+        result[web_index] = {'reasons': reasons, 'multiple': multiple}
+    return result
+
+
+def _google_match_annotations(tab_id, rows):
+    """Read the already selected, fresh Google snapshot for owner-only display hints."""
+    if board.current_role() != 'owner' or not tab_id or tab_id == 'unclassified' or not rows:
+        return {}
+    try:
+        from . import google_ledger_page as google
+        if not google.enabled():
+            return {}
+        path = google.snapshot_path()
+        mapping = google.load_mapping(path)
+        keys = [key for key, linked in mapping.items() if linked == tab_id]
+        if len(keys) != 1:
+            return {}
+        snapshot, private_rows = google.google_authority.load_consistent(path, google.rows_path())
+        payload = google.owner_payload(google.snapshot_for_display(snapshot), google.load_choices(path))
+        trips = [trip for trip in payload.get('trips', []) if trip.get('key') == keys[0]]
+        if len(trips) != 1:
+            return {}
+        trip = trips[0]
+        source = trip.get('chosen_source')
+        source_state = (payload.get('sources') or {}).get(source) or {}
+        copy = (trip.get('copies') or {}).get(source) or {}
+        if (source not in ('main', 'archive') or source_state.get('status') != 'ok'
+                or source_state.get('stale') or copy.get('layout') != 'rev'
+                or not (copy.get('expense') or {}).get('verified')
+                or set(trip.get('review') or []) & google.OWNER_CHOICE_BLOCKERS):
+            return {}
+        detail = google.owner_rows(private_rows, keys[0], source)
+        if detail is None:
+            return {}
+        matches = _google_expense_matches(detail.get('expense') or [], rows)
+        return {rows[index].get('row_id'): value for index, value in matches.items()
+                if rows[index].get('row_id')}
+    except (SnapshotError, AttributeError, KeyError, OSError, TypeError, ValueError):
+        return {}
+
+
+def _table_html(rows, *, kind, selected, unclassified, move_back="/board", match_annotations=None) -> str:
     if not rows:
         return ("<tbody><tr class='empty'><td colspan='5'>"
                 f"{'수입 내역이 없어요' if kind == 'income' else '지출 내역이 없어요'}"
                 "</td></tr></tbody>")
     body = []
+    match_annotations = match_annotations or {}
     for row in rows:
         rid = row["row_id"]
         amount = board._shown_amount(row)
@@ -1775,10 +1888,23 @@ def _table_html(rows, *, kind, selected, unclassified, move_back="/board") -> st
         # makes that possible; the click path is unchanged underneath.
         # Five columns: the memo column is gone from the table. The operator note
         # stays in storage, search and the edit panel; only its table cell is gone.
+        match = match_annotations.get(rid) if kind == 'expense' else None
+        match_attributes = ''
+        match_description = ''
+        match_class = ''
+        if match:
+            label = ('복수 후보 확인 필요' if match['multiple'] else
+                     '금액+' + '+'.join(match['reasons']))
+            hint_id = 'google-match-' + str(rid)
+            match_class = ' class="google-match-candidate"'
+            match_attributes = f" aria-describedby='{board.esc(hint_id)}'"
+            match_description = (f"<span class='sr' id='{board.esc(hint_id)}'>Google 장부 대조 후보: "
+                                 f"{board.esc(label)}</span>")
         body.append(
-            f"<tr data-id='{board.esc(rid)}' tabindex='0'"
+            f"<tr{match_class} data-id='{board.esc(rid)}' tabindex='0'"
+            f"{match_attributes}"
             f"{' aria-selected="true"' if rid == selected else ''}>"
-            f"<td class='c-date tnum'>{board.esc(board._shown_date(row))}</td>"
+            f"<td class='c-date tnum'>{match_description}{board.esc(board._shown_date(row))}</td>"
             f"{_party_cell(row)}"
             f"<td class='c-item'><span class='category-line'>{_category_icon(row)}{board.esc(_row_item(row))}</span></td>"
             f"<td class='c-stay'>{board.esc(_stay_text(row)) if item == '숙박비' else ''}</td>"
@@ -1800,7 +1926,7 @@ def _column_head_row() -> str:
             "<th scope='col' class='num'>금액</th></tr>")
 
 
-def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board") -> str:
+def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board", match_annotations=None) -> str:
     head = (
         "<div class='tw'><table id='tbl'>"
         "<caption class='sr'>거래 내역. 수입은 위, 지출은 아래에 있습니다.</caption>"
@@ -1829,14 +1955,16 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         f"<th class='num'>{_money(expense_total)}</th></tr></tbody>"
         + "<tbody class='colhead'>" + _column_head_row() + "</tbody>"
         + _table_html(expenses, kind="expense", selected=selected,
-                      unclassified=unclassified, move_back=move_back)
+                      unclassified=unclassified, move_back=move_back,
+                      match_annotations=match_annotations)
         + "</table></div>")
     return head + groups
 
 
 def _mobile_html(incomes, expenses, *, selected, unclassified,
-                  move_back="/board") -> str:
-    def item(row):
+                  move_back="/board", match_annotations=None) -> str:
+    match_annotations = match_annotations or {}
+    def item(row, is_expense=False):
         rid = row["row_id"]
         move = ""
         if unclassified:
@@ -1853,11 +1981,20 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
                 f"<select class='psel' id='mobile-move-{board.esc(rid)}' name='display_tab_id'>"
                 f"{_trip_options('', '분류대기(여행 미정)')}</select>"
                 f"<button class='btn' type='submit'>{ui_icons.icon('check')}이동</button></form>")
+        kind = _row_kind_meter(row)
         cls = "li pend" if unclassified else "li"
+        match = match_annotations.get(rid) if is_expense else None
+        if match:
+            cls += ' google-match-candidate'
+        match_hint = ''
+        if match:
+            reason = ('복수 후보 확인 필요' if match['multiple'] else
+                      '금액+' + '+'.join(match['reasons']))
+            match_hint = (f"<span class='sr'>Google 장부 대조 후보: "
+                          f"{board.esc(reason)}</span>")
         # Two-line business summary only: date, kind tag, category, vendor,
         # purpose, amount. The origin detail lives in the edit panel, so no
         # per-row details element here (density first).
-        kind = _row_kind_meter(row)
         cat = row.get("item") or _income_kind_label(row) or "-"
         main_text = _row_party_main(row)
         sub_text = _row_party_sub(row)
@@ -1871,7 +2008,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
             f"<span class='{tag_cls}'>{board.esc(kind)}</span>"
             f"<span class='m-cat category-line'>{_category_icon(row)}{board.esc(cat)}</span>"
             f"<span class='a tnum {_row_amount_class(row)}'>"
-            f"{_money(board._shown_amount(row))}</span></span>"
+            f"{_money(board._shown_amount(row))}</span>{match_hint}</span>"
             f"<span class='party-line mobile-party'>{_merchant_icon(row)}<span class='t'>{board.esc(headline)}</span></span></button>{move}")
 
     income_total = sum(board._shown_amount(r) for r in incomes)
@@ -1886,7 +2023,7 @@ def _mobile_html(incomes, expenses, *, selected, unclassified,
         f"<p class='lg'><span>지출</span><span class='tnum'>{_money(expense_total)}</span>"
         "<a class='btn' id='add-manual-expense-mobile' href='/expense/new'>"
         f"{ui_icons.icon('pencil')}수기 지출 추가</a></p>"
-        f"{''.join(item(r) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
+        f"{''.join(item(r, True) for r in expenses) or '<p class=\"muted\" style=\"padding:12px 16px\">지출 내역이 없어요</p>'}"
         "</div>")
 
 
@@ -2345,9 +2482,12 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
+    matches = _google_match_annotations(tab_id, expenses)
     return (f"<div id='live-rows'>"
-            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
-            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
+            f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
+                            move_back=back, match_annotations=matches)}"
+            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
+                            move_back=back, match_annotations=matches)}"
             f"</div>")
 
 
@@ -2372,8 +2512,11 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         tab_id, query, kind)
     unclassified = tab_id == "unclassified"
     back = "/board?" + state_query(tab_id, query, kind, archived)
-    return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}"
-            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified, move_back=back)}")
+    matches = _google_match_annotations(tab_id, expenses)
+    return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
+                            move_back=back, match_annotations=matches)}"
+            f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
+                            move_back=back, match_annotations=matches)}")
 
 
 def viewer_trips_html(trips) -> str:

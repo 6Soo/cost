@@ -23,18 +23,18 @@
 
 | 순번 | 티켓 | 입력 명세 | 실행·수락 핵심 | 상태 |
 | --- | --- | --- | --- | --- |
-| 1 | `SIDEBAR-DARK-01` | 통합 UI §4.5/§4.7, SIDE-01~03 | `site_shell.py`의 네이티브/standalone `--shell-*` 색 범위 수정; 컴퓨티드 스타일로 다크 배경/글씨, 시스템 설정 전환·검색/선택/모바일 메뉴 회귀 | **READY, CODE_NOT_IMPLEMENTED** |
-| 2 | `FLIGHT-SHELL-01` | 통합 UI §4.5/§4.7, FLIGHT-01~03·05~07 | `flight_passenger_page.py:_page` 정상 `<head>/<body>`와 `Handler._send → wrap_document` 통합 테스트. `#nav` 1개, `#site-content` 1개, 공통 모바일 메뉴; CSS 전역 충돌 방지 | **READY, CODE_NOT_IMPLEMENTED** |
-| 3 | `FLIGHT-UX-COPY-01` | 통합 UI §4.6/§4.7, FLIGHT-04 | 제목 **항공권 참가자 연결**, '항공권 예약번호', '예약 시스템 여행 ID', '연결 후보 찾기', '선택한 참가자를 COST에 연결'; 빈 결과/복수 후보/취소·충돌/stale/오류/저장 피드백·반응형 재정돈 | **READY, 1·2 이후** |
-| 4 | `EXPENSE-BULK-AUDIT-01` | 통합 UI §12 | 현재 `#cleanup-reclassify`와 서버 `POST /api/imports/reclassify-pending` 호출처, 재분류·기장·여행 재배정/중복·CSRF 보호를 읽기 전용으로 지도화 | **READY (READ_ONLY)** |
-| 5 | `EXPENSE-BULK-UI-01` | 통합 UI §12 | 일반 지출 정리 화면에서 버튼/전용 JS 제거, 기존 건별 업무 유지. **서버 쓰기 경계 위험**이 존재하므로 유지보수 보호 계획 없이는 '안전한 전체 제거 완료' 주장 금지 | **AUDIT 후 READY** |
-| 6 | `EXPENSE-BULK-MAINT-01` | 통합 UI §12 | owner 전용 유지보수, 진짜 읽기 전용 dry-run, 변경 전 재검증·CSRF·멱등성·감사 기록; 운영 대량 재처리는 별도 승인 | **AUDIT 후, 금융 보안 게이트 필요** |
-| 7 | `OZE-INCOME-DIAG-01` | 오제 명세 §1.2 | `0630_오제` 메인 Google 장부 탭 ↔ COST `tab_id`, 선택 사본/수입행/수입·지출 검증/동기화 상태를 **허용된 운영 현장 읽기 전용**으로 대조, 실제 원인 하나로 단정하지 않음 | **READY_IF_ACCESS / otherwise HOLD** |
-| 8 | `OZE-INCOME-VIEW-01` | 오제 명세 §1.3·§3 | 수입 표시와 지출 검증을 분리. 정상 수입이 지출 오류만으로 숨지 않되, 회계 전체 미검증 경고 유지. `0625_아키타`=2Q 마지막, `0630_오제`=3Q 첫 여행 | **합성 구현 READY, 운영 원인 별도** |
-| 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | **같은 여행·같은 지출 종류·통화/부호 포함 금액 동일 + 날짜/가맹점/분류/예약번호 하나 이상 동일**이면 시각적 일치 후보. 선택된 Google 정본과 웹 장부 읽기만; 복수 후보 표시, 저장/병합 안 함 | **READY (READ_ONLY CODE)** |
-| 10 | `LEDGER-MATCH-UI-01` | 오제 명세 §2.2·§3 | 대응 웹 장부 거래 행 **볼드**, 매칭 이유 접근 가능한 안내, 금액만 같을 때 비강조, 다대일/일대다 '복수 후보 확인 필요', stale면 강조 해제 | **9 이후 READY** |
-| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **READY, 검증이지 재구현 아님** |
-| 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **HOLD / 코드 보존** |
+| 1 | `SIDEBAR-DARK-01` | 통합 UI §4.5/§4.7, SIDE-01~03 | `site_shell.py` 공통 root 색상 토큰으로 네이티브/standalone 메뉴에 시스템 테마 적용 | **CODED, PASS. 2026-10-26 Chromium 합성 브라우저에서 시스템 light/dark computed style, 375/759/1280px 메뉴 노출, 모바일 키보드 열기·Escape·포커스 복귀 확인. 실제 운영 페이지 적용은 별도 UI 수락 범위** |
+| 2 | `FLIGHT-SHELL-01` | 통합 UI §4.5/§4.7, FLIGHT-01~03·05~07 | `_page` 문서 구조와 실제 `Handler._send → wrap_document` 통합, 메뉴·본문·모바일 버튼 및 CSS 격리 | **CODED, integration tests PASS; 뷰포트 브라우저 미검증** |
+| 3 | `FLIGHT-UX-COPY-01` | 통합 UI §4.6/§4.7, FLIGHT-04 | 제목·필드·상태 안내, 복수 후보/stale/취소·충돌/오류·저장 피드백 | **CODED, targeted tests PASS; 전체 상태·반응형 미검증** |
+| 4 | `EXPENSE-BULK-AUDIT-01` | 통합 UI §12 | 버튼·스크립트·POST 호출과 분류·자동 기장·기존 여행 귀속 및 owner/CSRF 경계를 소스에서 추적 | **READ_ONLY AUDIT COMPLETE; 운영 동작 미검증** |
+| 5 | `EXPENSE-BULK-UI-01` | 통합 UI §12 | 일반 지출 정리 화면에서 버튼/전용 JS 제거, 기존 건별 업무 유지. **서버 쓰기 경계 위험**이 존재하므로 유지보수 보호 계획 없이는 '안전한 전체 제거 완료' 주장 금지 | **CODED, targeted tests PASS; legacy POST는 owner+CSRF 이후 410으로 변경 차단** |
+| 6 | `EXPENSE-BULK-MAINT-01` | 통합 UI §12 | owner 전용 유지보수, 진짜 읽기 전용 dry-run, 변경 전 재검증·CSRF·멱등성·감사 기록; 운영 대량 재처리는 별도 승인 | **CODED, synthetic targeted tests PASS: 별도 owner 화면·메모리 복제 dry-run·5분 일회용 preview·변경 지문 확인·명시적 적용 범위·중복 방지·감사 기록. Chromium 합성 UI 흐름에서 preview→확인 체크→apply, CSRF와 요청 범위 확인. 운영 데이터 미검증** |
+| 7 | `OZE-INCOME-DIAG-01` | 오제 명세 §1.2 | `0630_오제` 메인 Google 장부 탭 ↔ COST `tab_id`, 선택 사본/수입행/수입·지출 검증/동기화 상태를 **허용된 운영 현장 읽기 전용**으로 대조, 실제 원인 하나로 단정하지 않음 | **PARTIAL / `UNKNOWN`: 2026-10-26 읽기 전용으로 운영 DB와 현재 세대 스냅샷 확인. 정확 display_key·Google snapshot key·이력·mapping key는 없음. 같은 시작일/연도인 활성 trip 행 1건은 `needs_review`이며 그 tab_id는 다른 Google key 1개가 이미 참조. 대상 행 동일성은 미확정이므로 원인 확정 불가. 메인·보관 source status=ok, stale=false, 세대 일치 로드 성공. 운영 설정 변경·동기화·Google API 호출 없음. 프로세스, `WebLedger-Board` 작업 인자, 릴리스 표식 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 일치하며 현장 관측은 `operations.md`에 기록** |
+| 8 | `OZE-INCOME-VIEW-01` | 오제 명세 §1.3·§3 | 수입 블록과 지출 검증 분리, 전체 회계 경고 유지, Google 정본 읽기 전용 표기 | **CODED, 17 targeted tests PASS; 운영 자료 미확인** |
+| 9 | `LEDGER-MATCH-READ-01` | 오제 명세 §2.1·§2.3 | 선택된 최신 Google 사본과 같은 여행의 웹 지출을 정확 비교하는 읽기 전용 후보 계산 | **CODED, synthetic tests PASS** |
+| 10 | `LEDGER-MATCH-UI-01` | 오제 명세 §2.2·§3 | 대응 웹 행 굵게 표시, 접근성 근거, 복수 후보 표시, stale 시 강조 해제 | **CODED, desktop/mobile render tests PASS; 실제 브라우저 미검증** |
+| 11 | `V21-UI-ACCEPTANCE-01` | 통합 UI §2~5·§9 | 이미 구현된 `/cards/all`, light/dark, 항공권·영수증에 대해 실제 브라우저 **375/759/1280px, 키보드, 200% 확대**와 변경 영향 구간만 표적 테스트 | **PARTIAL: `/cards/all` 실제 경로를 모사한 Chromium 합성 렌더에서 375/759/1280px 넘침 없음, light/dark 전환, 타일 Enter 열기·재입력 닫기, 200% 확대 후 세 거래 행/상세 링크 노출과 월 타일 초점 확인. 영수증은 375/759/1280px 넘침 없음, 테마 전환, 200% 확대에서 수정 저장 후 응답값 반영과 구글 7열 복사·클립보드 결과를 API stub으로 확인. 항공권은 375/390/759/760/1280px 넘침 없음, 테마 전환, 200% 확대에서 메뉴·제목·예약번호 입력란 초점, Enter 열기·Escape 닫기·초점 복귀 확인. 화면별 표적 검사 통과. `test_synthetic_preview` 통합 합성 흐름도 375px에서 카드 입력·장부 복사·영수증 수동 입력/수정/복사와 Google 수입의 COST 내부 기록 분리 표시까지 통과. 운영 브라우저 수락은 NOT_TESTED** |
+| 12 | `CARD-PR108-RECONCILE` | 인계 §0.14 | 독자 커밋 및 `ledger_board.py`·날짜 테스트 확인. 최신 main 유지가 우선; 별도 가치 없으면 중복 상태 정리 | **READ_ONLY REVIEW: 최신 `origin/main` `6f6e4d1`과 PR #108 HEAD `326ea3b` 비교. 차이는 공백/빈 줄뿐이며 `git diff --ignore-all-space --ignore-blank-lines` 기준 실질 코드 차이 없음. 독자 동작 변경이 없으므로 PR은 열어 둔 채 HOLD, 강제 갱신·닫기·브랜치 삭제 안 함** |
 
 ## 3. 중요한 안전·정본 조건
 

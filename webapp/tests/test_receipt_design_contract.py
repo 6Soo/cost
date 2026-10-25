@@ -124,6 +124,76 @@ def test_render_preserves_contract_and_uses_design_tokens():
     assert "minmax(min(100px,100%),1fr)" in rendered or "minmax(100px,1fr)" in rendered
 
 
+def test_browser_receipt_screen_fits_required_viewports():
+    from unittest.mock import patch
+    from webapp import ledger_board, ledger_design, receipt_review, site_shell
+    from playwright.sync_api import sync_playwright
+
+    data = {"candidates": [SYNTHETIC_CANDIDATE], "holds": [], "images": ["b" * 64]}
+    original = receipt_review.render_html(data, csrf="synthetic-csrf", trips=SYNTHETIC_TRIPS)
+    with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
+            ledger_design, 'nav_region', return_value=''):
+        document = site_shell.wrap_document(original, '/receipts')
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            context = browser.new_context(viewport={'width': 375, 'height': 812},
+                                          permissions=['clipboard-read', 'clipboard-write'])
+            page = context.new_page()
+
+            def serve_receipt(route):
+                request = route.request
+                if request.url.endswith('/api/receipts/edit'):
+                    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                        'version': 2, 'currency': 'JPY', 'total_original': 2345,
+                        'total_jpy': 2345, 'amount_krw': 23450, 'trip_id': 'trip-syn',
+                        'merchant': '테스트상호', 'date': '2026-10-12', 'payment': 'cash',
+                        'payee': '검증 지급처', 'category': '식비', 'hold': None,
+                    }))
+                elif request.url.endswith('/api/receipts/tsv?trip=trip-syn'):
+                    route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                        'row_count': 1, 'held': [], 'tsv': '2026-10-12\t검증 지급처\t\t\t\t\t23450',
+                    }))
+                else:
+                    route.fulfill(status=200, content_type='text/html; charset=utf-8', body=document)
+
+            page.route('https://receipt.test/**', serve_receipt)
+            page.goto('https://receipt.test/receipts')
+            for width in (375, 759, 1280):
+                page.set_viewport_size({'width': width, 'height': 812})
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            assert page.get_by_role('heading', name='영수증 정리').is_visible()
+            assert page.locator('#step-review').is_visible()
+
+            page.emulate_media(color_scheme='dark')
+            dark = page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
+            page.emulate_media(color_scheme='light')
+            light = page.locator(':root').evaluate(
+                "element => getComputedStyle(element).getPropertyValue('--bg').trim()")
+            assert (dark, light) == ('#0F172A', '#F8FAFC')
+
+            page.set_viewport_size({'width': 640, 'height': 812})
+            page.evaluate('document.documentElement.style.zoom="200%"')
+            merchant = page.locator("[data-merchant='syn-001']")
+            edit = page.get_by_role('button', name='수정')
+            assert merchant.is_visible() and edit.is_visible()
+            merchant.focus()
+            assert merchant.evaluate('(el)=>el===document.activeElement')
+            candidate = page.locator("tr[data-version]").first
+            candidate.locator('[data-payee]').fill('검증 지급처')
+            candidate.locator('[data-edit]').click()
+            page.get_by_text('영수증 변경을 저장했습니다.', exact=False).wait_for()
+            assert candidate.locator('[data-payee]').input_value() == '검증 지급처'
+            page.locator('#copy-trip').select_option('trip-syn')
+            page.locator('#copy-tsv').click()
+            page.wait_for_function("navigator.clipboard.readText().then(text => text.includes('검증 지급처'))")
+            assert '검증 지급처' in page.evaluate('navigator.clipboard.readText()')
+        finally:
+            browser.close()
+
+
 if __name__ == "__main__":
     test_render_preserves_contract_and_uses_design_tokens()
     print("PASS: contract test covers design tokens, HTML escape, label links, amount/state, 375px guards")

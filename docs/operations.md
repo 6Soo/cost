@@ -1,5 +1,9 @@
 # 현재 운영 상태
 
+## 2026-10-26 읽기 전용 런타임 재확인
+
+운영 호스트의 실행 중인 `WebLedger-Board` 작업 인자와 8751 포트 listener는 모두 `D:/WebLedgerHost/releases/d4c5934de07543e1c27232dbd53b297f2d8fa387`를 가리켰고, 해당 release의 `DEPLOYED_COMMIT`도 같은 SHA였다. 따라서 아래 2026-10-25 기록의 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`은 그 시점의 배포 기록이며, 2026-10-26 현장 runtime은 `d4c5934de07543e1c27232dbd53b297f2d8fa387`이다. 이번 재확인은 실행 경로와 표식만 읽었으며 health/ready, 로그인 브라우저, DB 내용은 확인하지 않았다.
+
 ## 2026-10-25 기록: 지출 정리 중앙 상태 표시 배포 완료
 
 사용자의 병합·배포 추가 승인으로 [PR #100](https://github.com/6Soo/cost/pull/100)을 병합했다. **실제 runtime은 `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`**이며 `D:/WebLedgerHost/releases/1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`에서 실행한다. 전환 시각은 2026-10-24 22:52 KST다. 이후 문서 전용 main 커밋은 재배포하지 않는다. 아래 이전 배포 절의 runtime은 당시 이력이다.

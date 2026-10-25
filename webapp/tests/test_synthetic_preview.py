@@ -7,7 +7,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 from tools.run_synthetic_preview import preview_server
-from webapp import ledger_board
+from webapp import google_ledger_page, ledger_board
 from webapp.tests.test_receipt_review import PNG
 
 
@@ -40,6 +40,7 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         pg.wait_for_url('**/board?**tab=**')
                         pg.get_by_role('button', name='전체 메뉴 열기').click()
                         pg.locator('#nav a[href="/import"]').click()
+                        pg.locator('#card-review-detail > summary').click()
                         form = pg.locator('form[data-index]').first
                         form.locator('input[name=item]').fill('소모품비')
                         trip = server.card_store.list_trips()[0]['tab_id']
@@ -63,6 +64,7 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         assert uploaded.value.status == 200
                         pg.locator("img[src*='/api/receipts/image/']").first.wait_for()
                         pg.wait_for_load_state()
+                        pg.locator('#other-methods > summary').click()
                         pg.locator('#r-merchant').fill('합성 현금 상점')
                         pg.locator('#r-date').fill('2027-08-03')
                         pg.locator('#r-total').fill('1200')
@@ -73,18 +75,20 @@ def test_preview_completes_card_and_manual_receipt_without_operational_files():
                         pg.get_by_text('영수증 변경을 저장했습니다.', exact=False).wait_for()
                         candidate.locator('[data-payee]').fill('합성 지급처')
                         candidate.locator('[data-category]').fill('식비')
-                        candidate.locator('[data-confirm]').click()
+                        candidate.locator('[data-edit]').click()
                         pg.get_by_text('영수증 변경을 저장했습니다.', exact=False).wait_for()
                         pg.locator('#copy-trip').select_option(trip)
                         pg.locator('#copy-tsv').click()
                         pg.wait_for_function('navigator.clipboard.readText().then(s=>s.includes("12000"))')
                         assert any('중복' in warning for warning in copy_warnings)
-                        pg.goto(base + '/')
-                        pg.locator('#work-menu a[href="/google-ledger"]').click()
-                        assert pg.locator('td[data-label="수입"]').count() == 1
-                        pg.get_by_role('button', name='main 최종 장부로 선택').click()
-                        pg.wait_for_function('document.querySelector("td[data-label=수입]").textContent.includes("900,000")')
-                        assert '780,000' in pg.locator('td[data-label="순수익"]').inner_text()
+                        google_ledger_page.record_choice(
+                            Path(os.environ['WEBLEDGER_GOOGLE_LEDGER_SNAPSHOT']),
+                            key='0803_합성여행', source='main', at='2026-10-26T00:00:00+09:00')
+                        pg.goto(base + '/board?tab=' + trip)
+                        income_amount = pg.locator('#google-trip-income td.income-total').first
+                        income_amount.wait_for()
+                        assert income_amount.inner_text() == '900,000원'
+                        assert '900,000' not in pg.locator('#live-sum').inner_text()
                         assert pg.evaluate('document.documentElement.scrollWidth-innerWidth') == 0
                         browser.close()
                 finally:

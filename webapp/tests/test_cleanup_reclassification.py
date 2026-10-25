@@ -96,9 +96,11 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
         monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _: {})
         html = card_flow.render_expense_cleanup(board, 'token')
-        assert "id='cleanup-reclassify'" in html
-        assert '/api/imports/reclassify-pending' in html
-        assert 'location.reload()' in html
+        assert "id='cleanup-reclassify'" not in html
+        assert '/api/imports/reclassify-pending' not in html
+        assert '전체 지출 자동 정리' not in html
+        assert 'location.reload()' not in html
+        assert 'cleanup-form' in html
         assert '기록 대기' not in html
     finally:
         board.close()
@@ -156,10 +158,11 @@ def test_bulk_route_requires_owner_post_and_csrf(tmp_path, monkeypatch):
                                           ('owner', None, 'token', 405),
                                           ('owner', b'{}', '', 403),
                                           ('owner', b'{}', 'wrong', 403),
-                                          ('owner', b'{}', 'token', 200)]:
+                                          ('owner', b'{}', 'token', 410)]:
             monkeypatch.setattr(ledger_board, 'current_role', lambda: role)
             assert card_flow.dispatch(handler, route, raw=raw, csrf=csrf)
             assert handler.response[1] == expected
-        assert len(calls) == 1
+        assert handler.response[0]['code'] == 'MAINTENANCE_FLOW_REQUIRED'
+        assert calls == []
     finally:
         board.close()

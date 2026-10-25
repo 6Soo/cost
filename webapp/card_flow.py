@@ -1994,8 +1994,11 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             closer = getattr(backend, 'close', None)
             if closer:
                 closer()
+    maintenance_paths = ('/maintenance/expense-bulk',
+                         '/api/maintenance/expense-bulk/preview',
+                         '/api/maintenance/expense-bulk/apply')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
-                            or parsed.path.startswith('/api/imports/')):
+                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2005,6 +2008,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     try:
+        from . import expense_bulk_maintenance
+        if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
+            return True
         if parsed.path == '/cards':
             # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
             if raw is not None:
@@ -2025,7 +2031,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
             elif not csrf or handler.headers.get('X-CSRF-Token') != csrf:
                 handler._send_json({'code': 'CSRF_REQUIRED'}, 403)
             else:
-                handler._send_json(reclassify_cleanup(board))
+                # Keep the legacy route closed until a read-only preview,
+                # freshness check, and audited maintenance apply flow exist.
+                handler._send_json({'code': 'MAINTENANCE_FLOW_REQUIRED',
+                                    'message': '일괄 정리는 안전한 유지관리 미리보기 경로가 준비될 때까지 사용할 수 없습니다.'}, 410)
             return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
@@ -2200,18 +2209,6 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
 
 
 CLEANUP_SCRIPT = """(()=>{const csrf=__CSRF__;
-const reclassify=document.getElementById('cleanup-reclassify');
-if(reclassify)reclassify.addEventListener('click',async()=>{
-  reclassify.disabled=true;const status=document.getElementById('cleanup-reclassify-status');
-  status.textContent='저장된 카드 자료를 분류하고 확인된 지출을 장부에 반영하고 있습니다.';
-  try{const response=await fetch('/api/imports/reclassify-pending',{method:'POST',
-    headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:'{}'});
-    const result=await response.json();if(!response.ok)throw Error(result.message||'자동분류를 적용하지 못했습니다.');
-    if(result.failures.length){status.textContent='분류 '+result.processed+'건, 장부 반영 '+result.recorded+
-      '건을 처리했습니다. 일부 자료의 보호 검사나 처리를 완료하지 못했습니다. 해당 거래는 보존했으며 새로고침하면 확인할 수 있습니다.';}
-    else{location.reload();}
-  }catch(error){status.textContent=error.message;}finally{reclassify.disabled=false;}
-});
 const tripOptions=document.getElementById('cleanup-trip-options');
 if(tripOptions)document.querySelectorAll('#expense-cleanup select[name=display_tab_id]').forEach(select=>{
   select.replaceChildren(tripOptions.content.cloneNode(true));
@@ -2273,7 +2270,8 @@ def _cleanup_card_count(board):
     return board.conn.execute("SELECT COUNT(DISTINCT t.transaction_id)" + _cleanup_card_where()).fetchone()[0]
 
 
-def reclassify_cleanup(board):
+def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow=None,
+                       request_snapshot=True):
     """미정리 카드를 분류하고 보호 검사를 통과한 거래는 같은 동작에서 기록한다."""
     from app import StoreError
     from app.classify import _pattern_for
@@ -2281,14 +2279,14 @@ def reclassify_cleanup(board):
     from collections import defaultdict
     import sqlite3
 
-    flow = CardFlow(board)
+    flow = flow or CardFlow(board)
     result = {'processed': 0, 'recorded': 0, 'assigned_existing': 0, 'failures': []}
     # 오래 걸리는 예약 원문 해석 중에도 워커가 입력을 확인할 수 있어야 한다.
     # 전체 정리 잠금 안에서 처음 해석하면 최신 연결의 유효 시간이 지나고,
     # 워커는 같은 잠금을 기다려 그 연결을 분류에 전달하지 못한다.
     with board._lock:
         merchants = board.conn.execute("SELECT DISTINCT t.merchant" + _cleanup_card_where()).fetchall()
-    if any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
+    if not _preview and any(_is_ota_row({'merchant': merchant}) for (merchant,) in merchants):
         try:
             # Use the same central snapshot/freshness contract as card review.
             # This call is a warm-up only; the worker check below can publish a
@@ -2297,9 +2295,22 @@ def reclassify_cleanup(board):
         except (StoreError, OSError, ValueError, KeyError, TypeError, sqlite3.Error):
             pass  # 해당 OTA 묶음에서 기존 오류 처리로 보고하고 현지 지출은 계속한다.
         from . import ota_payment_review
-        if ota_payment_review.enabled():
+        if request_snapshot and ota_payment_review.enabled():
             ota_payment_review.snapshot_service(board).request_check(wait_seconds=3)
     with board._lock:
+        if expected_fingerprint:
+            from .expense_bulk_maintenance import PreviewError, fingerprint
+            service = getattr(board, '_ota_snapshot_service', None)
+            if service is not None:
+                current_snapshot, snapshot_state = service.display_context()
+                pinned_snapshot = (current_snapshot, bool(snapshot_state.get('fresh')))
+                # A worker may publish a newer generation immediately after
+                # preview verification. Use the generation verified here for
+                # every classification decision in this operation.
+                flow._held_ota_snapshot = lambda: pinned_snapshot
+            if fingerprint(board) != expected_fingerprint:
+                raise PreviewError('PREVIEW_STALE',
+                                   '미리보기 뒤 자료가 바뀌었습니다. 다시 미리보기를 실행해 주세요.')
         batches = [row[0] for row in board.conn.execute(
             "SELECT DISTINCT r.batch_id" + _cleanup_card_where())]
         rows = board.conn.execute(
@@ -2957,9 +2968,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
     return (style + "<section id='expense-cleanup' aria-label='정리할 지출'>"
             f"<h2>근거 확인이 필요한 거래 <span id='cleanup-count' data-total='{total}'>{total}건</span></h2>{breakdown}{note}"
             "<p class='muted'>아래 거래의 예약 연결, 여행 배정, 금융 보호 사유를 확인해 주세요. 이 화면을 조회하는 동안 장부를 변경하지 않습니다.</p>"
-            "<button type='button' id='cleanup-reclassify'>전체 지출 자동 정리</button>"
-            "<p id='cleanup-reclassify-status' class='muted' role='status'>"
-            "현재 규칙으로 분류하고 항목과 여행이 확인된 거래는 장부에 바로 반영합니다.</p>"
             f"<template id='cleanup-trip-options'>{options}</template>"
             f"<ul class='cleanup-list'>{body}</ul>{nav}"
             f"<script>{CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))}</script></section>")

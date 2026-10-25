@@ -23,7 +23,7 @@ def test_design_tokens_and_accessibility_markup_present():
     # Access improvements: label associations via for/id and aria-label on form
     assert "for='f-booking'" in document
     assert "id='f-booking'" in document
-    assert "aria-label='항공권 참가자 후보 검색'" in document
+    assert "aria-label='항공권 참가자 연결 검색'" in document
     assert "aria-live='polite'" in document
     assert "aria-label='후보 결과'" in document
     # Focus-visible contract
@@ -47,6 +47,11 @@ def test_design_tokens_and_accessibility_markup_present():
     assert "fetch('/api/flight-passengers/assign',{method:'POST'" in document
     assert 'googleapis.com' not in document.lower()
     assert 'spreadsheets.values.update' not in document
+    assert '항공권 참가자 연결' in document
+    assert '예약 시스템 여행 ID' in document
+    assert '연결 후보 찾기' in document
+    assert "title.textContent=passenger.passenger_name_en+' · '+passenger.status" not in document
+    assert 'data.code||' not in document
 
 
 def test_csrf_token_cannot_terminate_script_element():

@@ -233,7 +233,7 @@ def trip_income_html(tab_id: str) -> str:
     def panel(message, body=''):
         return ("<details id='google-trip-income' class='income-note' aria-label='수입내역'"
                 + (' open' if enabled() else '') + ">"
-                f"<summary>{ui_icons.icon('list')}수입</summary>"
+                f"<summary>{ui_icons.icon('list')}Google 정본 수입 · 읽기 전용</summary>"
                 f"<p class='income-status'>{ui_icons.icon('book-open')}{message}</p>{body}{settings}</details>")
 
     if not enabled():
@@ -264,9 +264,18 @@ def trip_income_html(tab_id: str) -> str:
             return panel('수입 내역을 불러오지 못했습니다.')
         # The ledger rows are the figure shown. The sheet's own total is only compared with it.
         rows_total = sum(int(row.get('amount') or 0) for row in detail['income'])
+        selected_copy = (trip.get('copies') or {}).get(source) or {}
+        income_block = selected_copy.get('income') or {}
         sheet_total = trip.get('income_total')
+        if sheet_total is None and income_block.get('verified'):
+            sheet_total = income_block.get('total')
         numeric_gap = sheet_total is not None and int(sheet_total) != rows_total
-        unverified = not trip.get('verified') or sheet_total is None
+        source_state = (payload.get('sources') or {}).get(source) or {}
+        source_current = source_state.get('status') == 'ok' and not source_state.get('stale')
+        identity_blocked = bool(set(trip.get('review') or []) & OWNER_CHOICE_BLOCKERS)
+        income_verified = (selected_copy.get('layout') == 'rev' and bool(income_block.get('verified'))
+                           and source_current and not identity_blocked)
+        unverified = not income_verified or sheet_total is None
         reasons = ' / '.join(REVIEW_LABELS.get(code, code) for code in (trip.get('review') or []))
         synced_raw = html.escape(str(payload.get('synced_at') or ''))
         info_time = format_display_time(payload.get('synced_at'))
@@ -284,7 +293,7 @@ def trip_income_html(tab_id: str) -> str:
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
             for row in sorted(detail['income'], key=transaction_date_sort_key))
-        show_rows = bool(trip.get('verified')) and not numeric_gap
+        show_rows = income_verified and not numeric_gap
         table = ("<div class='google-income-scroll'><table><caption>수입 내역</caption>"
                  f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
                  f"<th class='income-person'>{ui_icons.icon('users', 14)}이름/닉네임</th>"
@@ -301,7 +310,9 @@ def trip_income_html(tab_id: str) -> str:
         if owner:
             participant_link = (f"<a class='btn' href='/participants?trip={html.escape(quote(tab_id, safe=''), quote=True)}'>"
                                 f"{ui_icons.icon('users')}참가자 대조</a>")
-        details = ((f"<p class='small'>{html.escape(reasons)}</p>" if reasons else '') + figures + time_row
+        overall_notice = ("<p class='small income-warning' role='status'>수입 자료는 표시하지만 지출 또는 여행 전체 회계 검증은 완료되지 않았습니다.</p>"
+                          if income_verified and not trip.get('verified') else '')
+        details = (overall_notice + (f"<p class='small'>{html.escape(reasons)}</p>" if reasons else '') + figures + time_row
                    + source_link + participant_link)
         summary = '상세 보기' if (numeric_gap or unverified) else '상세'
         notice = f"<details class='income-detail'><summary>{summary}</summary>{details}</details>"
