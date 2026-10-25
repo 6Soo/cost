@@ -9,10 +9,11 @@
 
 ### 1.1 확인 사실
 
-- [Google 원본 구조 실측](google-workbook-layout.md)의 2026-10-11 기록에 따르면 **`0630_오제`는 2분기 여행이지만 보관 장부가 아닌 활성 메인 Google 장부에 존재**했다. '2분기라서 보관 장부에만 있다'고 가정하는 필터는 틀리다. 최신 실원본 존재·값은 아직 재확인되지 않았다.
+- [Google 원본 구조 실측](google-workbook-layout.md)의 2026-10-11 기록에 따르면 **`0630_오제`는 활성 메인 Google 장부에 존재**했다. **2026-10-25 사용자 확정: `0625_아키타`가 회계상 2분기 마지막 여행, `0630_오제`는 여행이 7월까지 이어져 회계상 3분기 첫 여행이다.** 출발일이 6월 30일이라는 이유로 2분기/보관 장부로 취급하면 안 된다. 최신 실원본 존재·값은 아직 재확인되지 않았다.
 - 해당 여행의 당시 수입 제목 B6, 헤더 **B7:H7**, 지출 제목 B45, 헤더 B46:H46. 수입 B:H는 거래일자·이름·닉네임·예약금·잔금·추가금·금액(원); H열 수식은 E:G 합계 구조로 관측됐다.
 - `app/google_authority.py`의 `parse_workbook()`은 이름 규칙에 맞는 여행 탭을 수집하며 `parse_trip_sheet()`은 수입/지출 **양쪽** 블록의 숫자·수식·합계·레이아웃을 검증한다. 개별 수입 행은 비공개 rows snapshot에 보존한다. 정확한 헤더와 수식 규칙에 맞지 않으면 비표준 또는 검증 실패가 될 수 있다.
 - 현재 여행 화면은 `webapp/ledger_design.py:page()`이 `google_ledger_page.trip_income_html(tab_id)`을 별도 호출해 Google 수입 표를 구성한다. 반면 동일 화면의 `COST 기록` 수입 행/장부 상단 집계는 `ledger_board._income_rows()` / 내부 저장소를 사용한다. **Google에서 조회한 수입은 기존 COST 수입 행으로 자동 복제되는 구조가 아니다.** 두 숫자/영역의 출처를 구별해야 한다.
+- `webapp/ledger_design.py`의 `previous_trip()`은 시작일이 **2026-06-25 이하인 여행만** 과거 분기 목록으로 보내므로 `0630_오제`의 여행 목록 위치 자체는 사용자 회계 분기 경계와 대체로 일치한다. 반면 `_quarter_of()`는 **시작 월 기준 달력 분기**를 계산해 6월 30일을 2분기로 반환한다. 따라서 이 함수가 추후 회계 분기 집계에 사용되는 경로는 사용자 지정 회계 분기와 분리해야 한다. **현재 수입 패널은 `_quarter_of()`가 아니라 Google key ↔ COST tab_id 및 검증 상태로 조회하므로, 이 차이만으로 현재 수입 실패가 증명되지는 않는다.**
 - `trip_income_html()`은 mapping 파일에서 해당 COST `tab_id`에 해당하는 Google key를 **정확히 하나** 찾지 못하면 '수입 장부가 연결되지 않았습니다.'를 보인다. 원본이 있어도 자동 연결이 실패했을 수 있다. `auto_mapping_candidates()`는 Google/COST 표시명 고유 일치, 기간/연도 일치 등을 요구하며, `auto_link_trips()`는 연결을 파일로 유지한다.
 - 현재 `trip_income_html()`은 `show_rows = bool(trip.get('verified')) and not numeric_gap` 조건이 참일 때만 수입 표를 출력한다. `trip['verified']`는 `app/google_authority.py:parse_trip_sheet()`의 **수입·지출 모두 검증된 값**을 반영한다. 따라서 **정상 수입 행을 읽었더라도 별도의 지출 검증 오류만으로 수입 표 전체가 숨겨질 수 있다.** 이는 확인된 코드상 과도한 표시 결합이다.
 - `snapshot_for_display()`는 마지막 정상 동기화가 2시간을 넘거나 출처가 실패/오래된 경우 여행 전체를 미검증 처리해 수입 표를 숨길 수 있다. `trip_income_html()`은 원본 rows 부재, 합계 차이, 권한/선택 사본 미설정도 별도 상태로 처리한다.
@@ -30,8 +31,9 @@
 4. 선택된 Google 원본이 **main**인지, 중복 사본/선택 미설정/사용자 선택으로 차단되는지 확인한다. 단지 6월 여행이라는 이유로 archive를 강제하지 않는다.
 5. 해당 source의 공개 스냅샷에서 `layout`, `review flags`, `income.verified`, `expense.verified`, `trip.verified`, `income.total` 검증 상태와 개인정보 없는 **income row count**를 비교한다. 상세 비공개 rows는 해당 `source/key` 존재 여부와 **행 개수**만 확인한다. 숫자 금액/이름/예약번호/계좌 등 원문 출력 금지.
 6. 수입만 정상이고 지출만 검증 실패했는지, 수입 행 합계 불일치/금액 캐시 부재인지, sync stale인지, 정본 사본 미선택인지, 권한 차단인지 **원인 코드를 분리**한다.
-7. 화면에서 COST 내부 수입 0건인 상황과 Google 수입 별도 패널 비노출 상황을 각각 판정한다. **서로 다른 증상**이므로 동일한 '수입 미수집'으로 보고하지 않는다.
-8. 출력은 `trip_key / mapping_status / selected_source / source_freshness / layout / income_verified / expense_verified / rows_present / rows_count / ui_hide_reason / action` 형태의 비식별 요약만 제출한다. 원본 고객자료·금액은 현장 사용자 화면으로만 확인한다.
+7. **회계 분기 분류를 독립 점검한다.** `0625_아키타`를 2분기 마지막, `0630_오제`를 3분기 첫 여행으로 취급하는지 확인하고, `previous_trip()`의 6월 25일 경계와 `_quarter_of()`의 달력 분기 계산을 구분한다. 이 계산이 실제 수입 조회 차단 조건인지 여부는 호출 경로로 입증한다.
+8. 화면에서 COST 내부 수입 0건인 상황과 Google 수입 별도 패널 비노출 상황을 각각 판정한다. **서로 다른 증상**이므로 동일한 '수입 미수집'으로 보고하지 않는다.
+9. 출력은 `trip_key / mapping_status / selected_source / source_freshness / layout / income_verified / expense_verified / rows_present / rows_count / ui_hide_reason / action` 형태의 비식별 요약만 제출한다. 원본 고객자료·금액은 현장 사용자 화면으로만 확인한다.
 
 **진단 결과 상태:** `MAPPING_UNLINKED`, `SOURCE_STALE`, `SOURCE_UNAVAILABLE`, `COPY_CHOICE_REQUIRED`, `LAYOUT_NONSTANDARD`, `INCOME_BLOCK_UNVERIFIED`, `EXPENSE_ONLY_FAILURE_HIDES_INCOME`, `INCOME_TOTAL_MISMATCH`, `ROWS_MISSING`, `VIEWER_FORBIDDEN`, `COST_INCOME_NOT_IMPORTED_BY_DESIGN`, `UNKNOWN` 중 근거와 직접 대응되는 코드를 사용한다. 복수 원인 허용.
 
@@ -104,7 +106,7 @@
 | AC | 테스트 가능한 완료 조건 |
 | --- | --- |
 | INCOME-AC-01 | 0630_오제 정확한 Google 키·COST tab_id·선택 source·수입 행 존재·실패 코드가 실제 읽기 근거로 확인되거나 미검증으로 명확히 보고된다. 실원문 Git/외부 모델 미반출. |
-| INCOME-AC-02 | 메인에만 있는 2분기 여행도 archive로 필터링되지 않고, 기존 자동/수동 mapping 및 정본 선택이 보호된다. |
+| INCOME-AC-02 | `0625_아키타`는 2분기 마지막, `0630_오제`는 3분기 첫 여행이라는 사용자 지정 회계 분기 경계를 따른다. `0630_오제`가 출발일 6월 30일만으로 2분기 보관 장부에 잘못 라우팅되지 않고 기존 자동/수동 mapping 및 정본 선택이 보호된다. |
 | INCOME-AC-03 | 수입 행과 합계가 독립 검증됐으면 지출 불일치만으로 수입 행이 숨지 않는다. 다만 전체 회계/회사수익은 미검증으로 유지된다. |
 | INCOME-AC-04 | 연결 없음/사본 미선택/동기화 지연/수입 검증 실패/행 부재/권한 차단이 구별되며, Google 수입을 내부 COST 수입으로 자동 추가하지 않는다. |
 | MATCH-AC-01 | 같은 여행의 **부호·통화·금액 동일 + 날짜/가맹점/분류/예약번호 중 정확히 하나 동일**인 네 독립 fixture가 모두 볼드체로 표시된다. |
