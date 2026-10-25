@@ -16,7 +16,7 @@
 | 항공권 참가자 연결 화면 메뉴 소실 | 구현 커밋 `a8206df`: 명시적 head/body와 wrapper 통합; 메뉴·본문·모바일 메뉴 중복 없음 표적 검사 | **CODED / TESTED**. 375~1280px·200% 확대 브라우저 확인은 미완료 |
 | 항공권 화면 UI/한국어 문구 | 구현 커밋 `a8206df`: 제목·필드·상태별 문구, stale/취소/충돌/저장 오류 처리 | **CODED / TESTED**. 전체 상태·반응형/키보드 브라우저 수락은 미완료 |
 | 일괄 지출 정리 버튼 | `#cleanup-reclassify`·서버 POST/금융 쓰기 로직 **현행 유지**. PR #105 명세 §12 병합 | `EXPENSE-BULK-AUDIT-01` → `EXPENSE-BULK-UI-01` → `EXPENSE-BULK-MAINT-01` |
-| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | `OZE-INCOME-DIAG-01`은 운영 자료 권한·실행을 확인하지 않아 **UNVERIFIED** |
+| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | `OZE-INCOME-DIAG-01`은 승인된 읽기 전용 운영 확인을 수행했으나 대상 행이 없어 **PARTIAL / ROOT_CAUSE_UNVERIFIED** |
 | Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 커밋 `396c30f`: owner의 동일 여행·선택된 fresh source만 읽고 금액 및 날짜/가맹점/분류/예약번호 대조, 복수 후보·접근성 안내. 4개 합성 표적 테스트 통과 | 실제 운영 데이터·브라우저 표시 미검증; Google 쓰기 없음 |
 | 카드 전체 내역 · 기본 공통 테마 · 항공권/영수증 기존 기능 | V21 `main` 구현 존재. 별도 브라우저 통합/운영 배포는 미확인 | **재구현 금지**, `V21-UI-ACCEPTANCE-01`만 표적 검증 |
 
@@ -30,7 +30,7 @@
 
 **2026-10-26 유지관리 구현:** `/maintenance/expense-bulk` owner 전용 화면과 preview/apply API를 추가했다. 미리보기는 데이터베이스의 일관된 메모리 복제본에서 기존 재분류·기장·기존 지출 여행 배정 흐름을 시뮬레이션하며, 등록 OTA 자료는 읽기 전용으로 확인하고 worker 갱신을 시작하지 않는다. preview 응답에는 예상 대상 ID/종류·건수·보류·실패, OTA refresh 필요 여부가 포함된다. 적용은 5분 유효한 일회용 무작위 preview ID, 전체 DB·등록 자료·일정/Google 입력 지문, owner·CSRF, 명시 확인 및 범위(OTA 갱신이 필요하면 그 범위 포함)를 확인한다. 변경/재전송은 거절하거나 같은 결과를 돌려준다. 작업 시작/완료/실패와 실제 변경 대상 ID는 기존 `change_log`에 비밀값·원문 없이 남긴다. 오래된 `/api/imports/reclassify-pending`은 계속 410으로 닫혀 있다.
 
-표적 검사 `test_expense_bulk_maintenance.py`와 `test_cleanup_reclassification.py`는 11개 통과했다. 이 검사는 메모리 미리보기의 실제 저장소 무변경, preview 뒤 변경 거부, 명시 확인, OTA 갱신 동의 범위, owner/CSRF, 적용 재전송 멱등성을 확인한다. 실제 브라우저·운영 데이터·운영 배포는 검증하지 않았다. `OZE-INCOME-DIAG-01`은 운영 원본 접근·실행을 하지 않아 미검증이고, `V21-UI-ACCEPTANCE-01`의 실제 브라우저 확인도 남아 있다.
+표적 검사 `test_expense_bulk_maintenance.py`와 `test_cleanup_reclassification.py`는 11개 통과했다. 이 검사는 메모리 미리보기의 실제 저장소 무변경, preview 뒤 변경 거부, 명시 확인, OTA 갱신 동의 범위, owner/CSRF, 적용 재전송 멱등성을 확인한다. 실제 브라우저·운영 데이터·운영 배포는 검증하지 않았다. 당시 `OZE-INCOME-DIAG-01`과 `V21-UI-ACCEPTANCE-01`의 후속 검증은 남아 있었으며, 최신 부분 결과는 아래 0.15절에 기록한다.
 
 **2026-10-26 브라우저 부분 확인:** Aside Browser의 합성 로컬 앱에서 owner 세션으로 `/flight-passengers`를 열었고, 1440px 기본 창·현재 light 설정의 접근성 트리에 공용 메뉴와 항공권 입력 화면이 표시됐다. 이후 탭 간 synthetic session이 유지되지 않아 나머지 페이지를 확정하지 않았다. Aside CLI의 페이지 객체에는 `setViewportSize`와 `emulateMedia`가 없어 375/759/1280px, dark 전환, 200% 확대, 키보드 전체 흐름은 **NOT_TESTED**다. 이를 브라우저 수락 완료로 해석하지 않는다.
 
@@ -48,7 +48,9 @@
 
 사용자가 `0630_오제` 진단을 운영 호스트에서 읽기 전용으로 승인했다. 운영 DB는 읽기 전용 연결로 확인했고 정확한 `display_key` 행, Google snapshot key, Google mapping key, 여행 이력의 대상 키 흔적은 모두 없었다. 같은 시작일·연도인 활성 trip 행 1건은 `needs_review`였고 그 행의 `tab_id`는 다른 Google key 1개가 참조하고 있었다. 이를 대상 여행으로 단정하지 않는다. 런타임 스냅샷과 해당 generation의 비공개 행 파일 로드는 성공했고 메인·보관 source는 모두 `status=ok`, `stale=false`였다. 대상 Google 키 자체가 snapshot에 없어 선택 사본·대상 행 개수·표시 차단 원인은 확인할 수 없다. `ROOT_CAUSE_UNVERIFIED` 유지.
 
-운영 프로세스 코드 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 확인됐다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. 이 SHA와 현재 작업/배포 기준의 관계는 별도 배포 검증 때 확인해야 한다. 다음 조치는 `0630_오제` 여행 행이 존재하는 승인된 운영 DB/호스트를 사용자에게서 확인하거나 운영 데이터가 복구된 뒤 같은 범위로 다시 판정하는 것이다. 이번 검사에서 임의로 다른 저장소를 찾거나 매핑을 고치지 않는다.
+운영 프로세스 코드 SHA는 `d4c5934de07543e1c27232dbd53b297f2d8fa387`로 확인됐다. 작업 스케줄러 `WebLedger-Board`의 실행 인자도 같은 checkout SHA를 가리켰다. 반면 `docs/operations.md`에는 runtime SHA `1fcbc1ee60809fd10c7764cd8f93aeaa3701a608`가 적혀 있어 현재 현장 관측과 문서 기록이 다르다. 설정·스냅샷·Google 원본·운영 DB를 변경하거나 동기화/API 호출을 하지 않았다. 새 릴리스 전 이 불일치를 배포 이력과 복구 가능한 기준으로 해소해야 한다. `0630_오제` 대상 행은 이번 승인 범위의 현재 운영 자료에서 확인되지 않아, 원인을 확정하거나 다른 저장소를 찾아 추정하지 않는다.
+
+**독립 읽기 검토:** Paseo 독립 검토는 작업 큐와 인계의 구현/부분 상태, 일괄 유지관리 쓰기 경계, 표적 브라우저 검사 기록 및 PR #108 HOLD가 서로 맞는다고 확인했다. 운영 DB·Google 원본 접근이나 파일 수정은 하지 않았다. 검토도 `OZE-INCOME-DIAG-01`과 `V21-UI-ACCEPTANCE-01`을 PARTIAL로 판정했다. 이는 자체적인 코드 수락이나 운영 배포 검증을 대신하지 않는다.
 
 **PR 관리:** [#106](https://github.com/6Soo/cost/pull/106), [#107](https://github.com/6Soo/cost/pull/107)은 최신 `main` 대비 **ahead 0**의 중복 초안이므로 **CLOSED, NOT_MERGED** 처리(작업 코드는 기존 V21 통합 main에 보존, 브랜치 삭제하지 않음). [#108](https://github.com/6Soo/cost/pull/108)은 **OPEN / divergent / 독자 변경 존재**이므로 충돌 해결 없이 병합하지 않고 `CARD-PR108-RECONCILE`로 HOLD, 기존 차이 보존.
 
