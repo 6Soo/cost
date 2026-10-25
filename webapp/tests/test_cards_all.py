@@ -195,7 +195,7 @@ def test_undated_list_excludes_valid_other_years(card_db_path):
 
 def test_year_summary_counts(card_db_path):
     """year_summary returns correct monthly counts and global undated.
-    
+
     Note: undated_count includes transactions with datetime in approval_date (e.g., 2026-03-05T14:30)
     because the GLOB pattern only matches YYYY-MM-DD format. This is current card_transactions behavior.
     """
