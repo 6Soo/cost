@@ -27,6 +27,7 @@ def test_card_catalog_filters_and_popover_use_theme_tokens_without_fixed_light_c
     assert ".card-catalog .header-menu" in CATALOG_STYLE
     assert "border:1px solid var(--cc-border);border-radius:12px;background:var(--cc-surface)" in CATALOG_STYLE
     assert "color:var(--cc-text)" in CATALOG_STYLE
+    assert ".header-menu h2{font-size:12px;color:var(--cc-muted);" in CATALOG_STYLE
     assert ".card-catalog .filter-option:hover{background:var(--cc-soft)}" in CATALOG_STYLE
     filters_rule = CATALOG_STYLE.split("#card-filters{", 1)[1].split("}", 1)[0]
     popup_rule = CATALOG_STYLE.split(".header-menu{", 1)[1].split("}", 1)[0]

@@ -57,7 +57,7 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
 .card-catalog .header-menu{position:fixed;inset:auto;margin:0;width:272px;max-width:calc(100vw - 24px);
  max-height:360px;overflow:auto;padding:8px;border:1px solid var(--cc-border);border-radius:12px;background:var(--cc-surface);
  box-shadow:0 12px 28px rgba(16,24,40,.16);color:var(--cc-text);font:400 14px/1.5 "Pretendard Variable",system-ui,sans-serif}
-.card-catalog .header-menu h2{font-size:12px;color:#667085;margin:6px 8px}
+.card-catalog .header-menu h2{font-size:12px;color:var(--cc-muted);margin:6px 8px}
 .card-catalog .filter-option{display:flex;align-items:center;justify-content:space-between;width:100%;
  min-height:40px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .card-catalog .filter-option:hover{background:var(--cc-soft)}
