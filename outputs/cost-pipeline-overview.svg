@@ -1,0 +1,216 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">숲길여행 법인카드 비용 처리 파이프라인</title>
+  <desc id="desc">카드 원천과 OTA·메일·수기 증거를 수집하고, provenance와 해시를 보존한 뒤, 정규화·투영·분류·대사·안전 게이트를 거쳐 검토 보고서 또는 조건부 원장 반영으로 이어지는 전체 흐름.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#172842"/>
+    </linearGradient>
+    <linearGradient id="header" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6da3ff"/>
+      <stop offset="100%" stop-color="#b69cff"/>
+    </linearGradient>
+    <linearGradient id="status" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4a3321"/>
+      <stop offset="100%" stop-color="#34271e"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#000000" flood-opacity=".26"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#7fb0ff"/>
+    </marker>
+    <marker id="arrowPurple" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#c0aaff"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#6fe1b1"/>
+    </marker>
+    <style>
+      .kr { font-family: "Malgun Gothic", "Segoe UI", "Noto Sans KR", sans-serif; }
+      .eyebrow { fill:#9fb9df; font-size:13px; font-weight:600; letter-spacing:1.4px; }
+      .title { fill:#f5f8ff; font-size:34px; font-weight:600; }
+      .subtitle { fill:#b9c9e2; font-size:16px; }
+      .statusLabel { fill:#f3c77b; font-size:12px; font-weight:600; letter-spacing:1px; }
+      .statusText { fill:#ffe5b5; font-size:14px; font-weight:500; }
+      .stage { fill:#172943; stroke:#355176; stroke-width:1.3; rx:16; }
+      .stageGate { fill:#382b20; stroke:#b88747; stroke-width:1.4; rx:16; }
+      .stageOutput { fill:#173329; stroke:#3c8469; stroke-width:1.3; rx:16; }
+      .topBlue { fill:#6da3ff; }
+      .topPurple { fill:#b69cff; }
+      .topAmber { fill:#f0b55b; }
+      .topGreen { fill:#55d6a1; }
+      .numBlue { fill:#6da3ff; }
+      .numPurple { fill:#b69cff; }
+      .numAmber { fill:#f0b55b; }
+      .numGreen { fill:#55d6a1; }
+      .numText { fill:#0b1220; font-size:16px; font-weight:700; }
+      .stageTitle { fill:#f5f8ff; font-size:19px; font-weight:600; }
+      .body { fill:#dce8f8; font-size:14px; }
+      .small { fill:#a9bad6; font-size:12px; }
+      .gateText { fill:#ffe0ab; font-size:13px; font-weight:500; }
+      .lane { fill:#111f35; stroke:#304b73; stroke-width:1.2; rx:14; }
+      .laneTitle { fill:#f5f8ff; font-size:17px; font-weight:600; }
+      .laneText { fill:#dce8f8; font-size:13px; }
+      .laneMeta { fill:#a9bad6; font-size:12px; }
+      .footer { fill:#9eb2d1; font-size:12px; }
+      .pillBlue { fill:#203b66; stroke:#4e7fbe; stroke-width:1; rx:10; }
+      .pillPurple { fill:#332c5c; stroke:#7569bb; stroke-width:1; rx:10; }
+      .pillAmber { fill:#4a3523; stroke:#ad7c40; stroke-width:1; rx:10; }
+      .pillGreen { fill:#204b3c; stroke:#4d9b7c; stroke-width:1; rx:10; }
+      .pillText { fill:#e7f0ff; font-size:11px; font-weight:500; }
+      .pillTextAmber { fill:#ffe4b4; font-size:11px; font-weight:500; }
+      .pillTextGreen { fill:#c9f7e1; font-size:11px; font-weight:500; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <path d="M55 123 H1545" stroke="#2c456b" stroke-width="1"/>
+  <path d="M55 103 H430" stroke="url(#header)" stroke-width="4" stroke-linecap="round"/>
+
+  <g class="kr">
+    <text x="55" y="39" class="eyebrow">SOOPGIL TRAVEL  ·  CORPORATE CARD COST PIPELINE</text>
+    <text x="55" y="82" class="title">법인카드 비용 처리 파이프라인</text>
+    <text x="55" y="108" class="subtitle">원천 수집부터 증거 보존, 분류·대사, 안전 게이트, 원장 반영까지의 전체 흐름</text>
+
+    <rect x="1120" y="29" width="425" height="72" fill="url(#status)" stroke="#a87942" stroke-width="1.2" rx="13"/>
+    <text x="1140" y="52" class="statusLabel">CURRENT SAFETY BOUNDARY</text>
+    <text x="1140" y="77" class="statusText">FAIL-CLOSED  ·  promotion / posting 차단</text>
+    <text x="1140" y="94" class="small">권위·실제 청구액·범위가 모두 닫힐 때만 다음 단계로 이동</text>
+
+    <!-- Main flow -->
+    <g filter="url(#shadow)">
+      <rect x="55" y="150" width="224" height="224" class="stage"/>
+      <rect x="55" y="150" width="224" height="6" class="topBlue" rx="3"/>
+      <circle cx="83" cy="190" r="16" class="numBlue"/><text x="83" y="196" text-anchor="middle" class="numText">1</text>
+      <text x="109" y="196" class="stageTitle">원천 수집</text>
+      <text x="75" y="232" class="body">법인카드 RAW 4개 원천</text>
+      <text x="75" y="256" class="body">Agoda·OTA 예약/결제</text>
+      <text x="75" y="280" class="body">메일·Drive·수기 장부</text>
+      <rect x="75" y="310" width="84" height="23" class="pillBlue"/>
+      <text x="117" y="326" text-anchor="middle" class="pillText">raw input</text>
+      <rect x="166" y="310" width="89" height="23" class="pillBlue"/>
+      <text x="210" y="326" text-anchor="middle" class="pillText">capture</text>
+      <text x="75" y="355" class="small">읽기 전용 수집 · 고객센터 경로 금지</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="311" y="150" width="224" height="224" class="stage"/>
+      <rect x="311" y="150" width="224" height="6" class="topBlue" rx="3"/>
+      <circle cx="339" cy="190" r="16" class="numBlue"/><text x="339" y="196" text-anchor="middle" class="numText">2</text>
+      <text x="365" y="196" class="stageTitle">증거·provenance</text>
+      <text x="331" y="232" class="body">원문 payload 보존</text>
+      <text x="331" y="256" class="body">source hash·manifest</text>
+      <text x="331" y="280" class="body">booking ↔ evidence 연결</text>
+      <rect x="331" y="310" width="89" height="23" class="pillBlue"/>
+      <text x="375" y="326" text-anchor="middle" class="pillText">immutable</text>
+      <rect x="427" y="310" width="86" height="23" class="pillBlue"/>
+      <text x="470" y="326" text-anchor="middle" class="pillText">audit trail</text>
+      <text x="331" y="355" class="small">원문 변경·누락·해시 불일치 감지</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="567" y="150" width="224" height="224" class="stage"/>
+      <rect x="567" y="150" width="224" height="6" class="topBlue" rx="3"/>
+      <circle cx="595" cy="190" r="16" class="numBlue"/><text x="595" y="196" text-anchor="middle" class="numText">3</text>
+      <text x="621" y="196" class="stageTitle">정규화·투영</text>
+      <text x="587" y="232" class="body">source adapter / schema</text>
+      <text x="587" y="256" class="body">direct normalized payment</text>
+      <text x="587" y="280" class="body">transaction·card event</text>
+      <rect x="587" y="310" width="84" height="23" class="pillBlue"/>
+      <text x="629" y="326" text-anchor="middle" class="pillText">SQLite</text>
+      <rect x="678" y="310" width="92" height="23" class="pillBlue"/>
+      <text x="724" y="326" text-anchor="middle" class="pillText">run passed</text>
+      <text x="587" y="355" class="small">projection run·code·input manifest 고정</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="823" y="150" width="224" height="224" class="stage"/>
+      <rect x="823" y="150" width="224" height="6" class="topPurple" rx="3"/>
+      <circle cx="851" cy="190" r="16" class="numPurple"/><text x="851" y="196" text-anchor="middle" class="numText">4</text>
+      <text x="877" y="196" class="stageTitle">분류·대사 graph</text>
+      <text x="843" y="232" class="body">정책 P8–P15·계정 bucket</text>
+      <text x="843" y="256" class="body">금액·통화·일자·가맹점</text>
+      <text x="843" y="280" class="body">card4·예약·merchant 결속</text>
+      <rect x="843" y="310" width="70" height="23" class="pillPurple"/>
+      <text x="878" y="326" text-anchor="middle" class="pillText">1:1</text>
+      <rect x="920" y="310" width="70" height="23" class="pillPurple"/>
+      <text x="955" y="326" text-anchor="middle" class="pillText">N:N</text>
+      <rect x="997" y="310" width="30" height="23" class="pillPurple"/>
+      <text x="1012" y="326" text-anchor="middle" class="pillText">H</text>
+      <text x="843" y="355" class="small">candidate·review·hold를 분리</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="1079" y="150" width="224" height="224" class="stageGate"/>
+      <rect x="1079" y="150" width="224" height="6" class="topAmber" rx="3"/>
+      <circle cx="1107" cy="190" r="16" class="numAmber"/><text x="1107" y="196" text-anchor="middle" class="numText">5</text>
+      <text x="1133" y="196" class="stageTitle">안전 게이트</text>
+      <text x="1099" y="232" class="gateText">권위·coverage sealed?</text>
+      <text x="1099" y="256" class="gateText">identity collision = 0?</text>
+      <text x="1099" y="280" class="gateText">실제 청구액·통화 확인?</text>
+      <rect x="1099" y="310" width="90" height="23" class="pillAmber"/>
+      <text x="1144" y="326" text-anchor="middle" class="pillTextAmber">PASS → next</text>
+      <rect x="1196" y="310" width="87" height="23" class="pillAmber"/>
+      <text x="1239" y="326" text-anchor="middle" class="pillTextAmber">FAIL → hold</text>
+      <text x="1099" y="355" class="small">누락이면 자동 전기하지 않음</text>
+    </g>
+
+    <g filter="url(#shadow)">
+      <rect x="1335" y="150" width="210" height="224" class="stageOutput"/>
+      <rect x="1335" y="150" width="210" height="6" class="topGreen" rx="3"/>
+      <circle cx="1363" cy="190" r="16" class="numGreen"/><text x="1363" y="196" text-anchor="middle" class="numText">6</text>
+      <text x="1389" y="196" class="stageTitle">결과·반영</text>
+      <text x="1355" y="232" class="body">review report</text>
+      <text x="1355" y="256" class="body">staging / workbook</text>
+      <text x="1355" y="280" class="body">조건부 ledger posting</text>
+      <rect x="1355" y="310" width="82" height="23" class="pillGreen"/>
+      <text x="1396" y="326" text-anchor="middle" class="pillTextGreen">audit</text>
+      <rect x="1444" y="310" width="80" height="23" class="pillGreen"/>
+      <text x="1484" y="326" text-anchor="middle" class="pillTextGreen">post</text>
+      <text x="1355" y="355" class="small">PASS 때만 side effect 허용</text>
+    </g>
+
+    <path d="M279 263 H301" stroke="#7fb0ff" stroke-width="3" marker-end="url(#arrowBlue)"/>
+    <path d="M535 263 H557" stroke="#7fb0ff" stroke-width="3" marker-end="url(#arrowBlue)"/>
+    <path d="M791 263 H813" stroke="#7fb0ff" stroke-width="3" marker-end="url(#arrowBlue)"/>
+    <path d="M1047 263 H1069" stroke="#c0aaff" stroke-width="3" marker-end="url(#arrowPurple)"/>
+    <path d="M1303 263 H1325" stroke="#6fe1b1" stroke-width="3" marker-end="url(#arrowGreen)"/>
+
+    <!-- Two lanes -->
+    <text x="55" y="415" class="eyebrow">TWO EXECUTION LANES · SAME SAFETY BOUNDARY</text>
+
+    <g>
+      <rect x="55" y="435" width="1490" height="116" class="lane"/>
+      <circle cx="87" cy="469" r="15" class="numGreen"/><text x="87" y="475" text-anchor="middle" class="numText">A</text>
+      <text x="116" y="475" class="laneTitle">운영 경로 · Apps Script</text>
+      <text x="116" y="502" class="laneText">카드 다운로드 → RAW 시트 보존 → 분류·대사 → 안전 게이트 → 허용된 건만 자동 전기</text>
+      <text x="116" y="527" class="laneMeta">운영 자동화: 반복 실행과 결과 반영을 담당하되, HOLD/FAIL은 원장에 쓰지 않고 검토 큐로 보냄</text>
+      <rect x="1244" y="461" width="126" height="24" class="pillGreen"/><text x="1307" y="477" text-anchor="middle" class="pillTextGreen">runReconciliation()</text>
+      <rect x="1380" y="461" width="126" height="24" class="pillGreen"/><text x="1443" y="477" text-anchor="middle" class="pillTextGreen">auditCoverage()</text>
+    </g>
+
+    <g>
+      <rect x="55" y="565" width="1490" height="116" class="lane"/>
+      <circle cx="87" cy="599" r="15" class="numPurple"/><text x="87" y="605" text-anchor="middle" class="numText">B</text>
+      <text x="116" y="605" class="laneTitle">검증 경로 · Python / SQLite</text>
+      <text x="116" y="632" class="laneText">source adapter → immutable snapshot → direct projection → candidate graph → transition gate</text>
+      <text x="116" y="657" class="laneMeta">검증 자동화: hash·identity·coverage·durability를 확인하고, read-only report로 운영 경로를 승인/보류</text>
+      <rect x="1244" y="591" width="126" height="24" class="pillPurple"/><text x="1307" y="607" text-anchor="middle" class="pillText">projection run</text>
+      <rect x="1380" y="591" width="126" height="24" class="pillPurple"/><text x="1443" y="607" text-anchor="middle" class="pillText">candidate graph</text>
+    </g>
+
+    <!-- Current boundary and loop -->
+    <rect x="55" y="706" width="1490" height="112" fill="url(#status)" stroke="#956a38" stroke-width="1.2" rx="14"/>
+    <circle cx="88" cy="742" r="15" class="numAmber"/><text x="88" y="748" text-anchor="middle" class="numText">!</text>
+    <text x="117" y="748" class="laneTitle">현재 안전 경계 · Agoda 재검증</text>
+    <text x="117" y="775" class="laneText">Upcoming 상세 116건/card4 116건, 카드 RAW 5,237건은 확인했지만 portal ↔ card 권위·실제 청구액/통화·전체 범위가 아직 닫히지 않음</text>
+    <text x="117" y="799" class="gateText">따라서 현재 결과는 FAIL-CLOSED · promotion 0 · posting 0 · 원장 side effect 0</text>
+    <path d="M1055 762 C1100 762 1100 714 1055 714" fill="none" stroke="#f0b55b" stroke-width="2.2" marker-end="url(#arrowBlue)"/>
+    <text x="1090" y="740" class="small">누락·충돌</text>
+    <text x="1090" y="758" class="small">→ review / HOLD</text>
+
+    <text x="55" y="855" class="footer">주요 구성: 카드 RAW · OTA/IAB 예약 증거 · 메일/Drive · ledger/domain · apps-script · ledger/tests</text>
+    <text x="1545" y="855" text-anchor="end" class="footer">원칙: 증거가 닫히기 전에는 자동 전기하지 않음</text>
+  </g>
+</svg>

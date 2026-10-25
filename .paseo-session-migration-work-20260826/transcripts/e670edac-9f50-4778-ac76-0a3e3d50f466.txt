@@ -1,0 +1,42 @@
+[User] 당신은 독립 검토 모델이다. 아래 현재 파이프라인 구조를 읽고, "구글 스프레드시트 기반 비용 파이프라인을 DB+웹앱으로 전환"하는 제안에 대해 냉정하게 반박·검토하라.
+
+## 현재 파이프라인 구조
+
+### 핵심两 축
+1. **비용분류 파이프라인** (`ledger/`, Python): 카드 4장(국민해외E, 국민8835, 하나, 신한) + 수기장부 → SQLite 기반 분류·대사 → 2분기 매출확인자료 산출
+2. **Apps Script 엔진** (`apps-script/`, GAS): 카드 RAW → 장부 자동전기 (Google Sheets 원장에 기록)
+
+### 현재 기술 스택
+- **입력 소스**: 카드사 RAW CSV(4곳), 수기장부(CSV), OTA 예약데이터(Agoda 등), Gmail 영수증
+- **처리**: Python 스크립트 체인 (build_v13 → fix_v14 → patch_v14 → build_workbook → gen_rev → consolidate)
+- **저장소**: SQLite (`ledger/data/ledger_v2.db`) + Google Sheets 원장 (fileId: 1fhqNkhfiWTYr_U8QnFxlunijAIFPH3r8rPRR0DTPlKU)
+- **출력**: Excel 워크북(36시트, 1,833행, 320M원 규모), 매출확인자료 엑셀
+- **자동전기**: Apps Script가 Google Sheets에 직접 기록
+
+### 현재 SQLite 스키마 (도메인 분리 모델 v2)
+- source_documents, source_records (원천)
+- payment_methods (결제수단)
+- payment_transactions (결제 - 여행·계정 분리)
+- allocation_plans, allocations (배분)
+- reservations, trips (예약, 여행)
+- decisions, evidence (판정, 근거)
+- 장부전기 관련 테이블
+
+### 현재 문제점 (사용자 관점)
+- 파이프라인이 구글 스프레드시트를 참조 (다운로드 → 오프라인 처리 → 엑셀 출력)
+- 스프레드시트가 "비용있고, 지출있고" 단순 구조
+- 수기+자동화가 분리되어 있음
+- Python 스크립트 체인이 복잡 (8단계 순차 실행)
+
+## 검토 대상 제안
+"비용 파이프라인을 수기+자동화 통합 관리하는 웹앱으로 전환"
+
+## 검토 포인트
+1. **타당성**: 현재 SQLite 도메인 모델이 이미 상당히 정교한데, 웹앱이 추가하는 가치는?
+2. **리스크**: 전환 비용 vs 기대 효과. 기존 파이프라인이 이미 작동 중인데 전환할 이유?
+3. **대안**: 웹앱 대신 기존 Python CLI + SQLite를 개선하는 방향은?
+4. **실용성**: 1인 운영 법인(㈜숲길여행)에 웹앱은 과도하지 않은가?
+5. **기술적 위험**: Google Sheets 의존성 제거 시 Apps Script 자동전기와의 관계?
+
+독립적으로 반박하고, 장단점을 균형있게 분석하라. 핵심 결론을 먼저 제시하라.
+현재 설명만 재진술하지 않고, 저장소의 최신 인계·실제 스키마·실행 체인을 읽어 “웹앱이 해결하는 문제”와 “단순한 인터페이스 교체”를 구분해 검토하겠습니다. 이번 작업은 로컬 읽기 전용 분석이며 외부 서비스나 원장에는 손대지 않습니다.

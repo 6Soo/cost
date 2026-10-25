@@ -1,0 +1,170 @@
+{
+  "artifact_kind": "agoda_card_link_candidate_audit",
+  "artifact_version": "v4",
+  "authority": {
+    "candidate_only": true,
+    "canonical_payment_booking_links_written": false,
+    "classification_written": false,
+    "confirmed_authority_written": false,
+    "posting_written": false
+  },
+  "checks": {
+    "authority_table_counts_after": {
+      "allocation_plans": 0,
+      "allocation_review_cases": 0,
+      "allocation_targets": 0,
+      "classification_decisions": 0,
+      "cost_allocations": 0,
+      "journal_entries": 0,
+      "payment_booking_links": 0
+    },
+    "authority_table_counts_before": {
+      "allocation_plans": 0,
+      "allocation_review_cases": 0,
+      "allocation_targets": 0,
+      "classification_decisions": 0,
+      "cost_allocations": 0,
+      "journal_entries": 0,
+      "payment_booking_links": 0
+    },
+    "authority_tables_unchanged": true,
+    "candidate_read_only": true,
+    "candidate_repeat_deterministic": true,
+    "card_inputs_unchanged": true,
+    "first_import": {
+      "identity_collisions": 0,
+      "inserted": 5237,
+      "normalized_payments": 5328,
+      "records": 5237
+    },
+    "foreign_key_violations": [],
+    "import_semantic_idempotent": true,
+    "independent_rebuild_matches": true,
+    "independent_rebuild_report_sha256": "462ddbfe6a04393104183d1049059654a1a32c7cdf52dd84901d2552f0f491d5",
+    "integrity_check": "ok",
+    "non_agoda_proposed": [],
+    "projected": 5328,
+    "proposal_merchant_counts": {
+      "AGODA.COM": 9,
+      "AGODA.COM ASTANA INT": 1,
+      "AGODA.COM BUSINESS H": 3,
+      "AGODA.COM HI DESIGN": 1,
+      "AGODA.COM HOTEL BEST": 1,
+      "AGODA.COM HOTEL PATI": 2,
+      "AGODA.COM HOTEL PEAR": 4,
+      "AGODA.COM JEJU MOSEU": 1,
+      "AGODA.COM KYOTO UNIV": 2,
+      "AGODA.COM LIVEMAX RE": 1,
+      "AGODA.COM OHITO HOTE": 1,
+      "AGODA.COM PLAZA HOTE": 13,
+      "AGODA.COM SMILE HOTE": 2,
+      "AGODA.COM YUTTARINO-": 3,
+      "AGODA_NICE-Agoda": 28,
+      "아고다_나이스": 4,
+      "아고다페이먼츠코리아": 1
+    },
+    "proposed_booking_unique": true,
+    "proposed_payment_unique": true,
+    "second_import": {
+      "identity_collisions": 0,
+      "inserted": 0,
+      "normalized_payments": 5328,
+      "records": 5237
+    },
+    "source_input_unchanged": true,
+    "source_payload_digest_mismatches": []
+  },
+  "code_bundle_sha256": "67b2024898936b83c119e45e93002748c483bfbf38711d73662c7ecf22efedc0",
+  "code_files": {
+    "ledger/cardindex.py": "454804ff3051893f2c21f320ce16baf36511bc90a0348f3a2a1fe284fda946e1",
+    "ledger/domain/agoda_booking_evidence.py": "d4d8cb50cbcd405cec3d3bcaa81b444ba19d077d33dca662c094e87536307398",
+    "ledger/domain/agoda_card_reconciliation.py": "67b4541e599fcf7db8d5063c9f19b0fcfc648c41318f3fb1020c26fcbaf45b8a",
+    "ledger/domain/direct_projection.py": "9d91d0d0090b60bc57a8f82639dbf02727c5057250eb497d769b16ba029bfccb",
+    "ledger/domain/direct_projection_schema.sql": "8666c4f40954c8dbd01e3664092879420fdf32b13dff43e9ae807a3a6638872b",
+    "ledger/domain/direct_sources.py": "d2c156c7d48a4815d03efd848404f2425127c5fd8c05e4e4f7857b54455573e4",
+    "ledger/domain/schema.sql": "147b73d50fe55c4008372392455e6c372dd5717d629a77ed4015d64e633e94fd",
+    "tools/agoda_amount_candidate_graph.py": "a45a0cdcf5d1f68487bbec7bcc3e10a8d7a35574496f081466ffda551f07ea16",
+    "tools/build_agoda_card_link_candidate.py": "146f791c2b5709df95587b57b5fa775650375bd20046e1bc2d5455f7632fc07f"
+  },
+  "counts": {
+    "booking_source_evidence": 4116,
+    "bookings": 591,
+    "classification_decisions": 0,
+    "direct_card_events": 5237,
+    "direct_normalized_payments": 5328,
+    "direct_payment_projection_links": 5328,
+    "direct_source_records": 6121,
+    "journal_entries": 0,
+    "payment_booking_links": 0,
+    "payment_transactions": 5328
+  },
+  "created_on": "2026-08-23",
+  "elapsed_seconds": 9.582,
+  "hold_reason_counts": {
+    "booking_status_unverified": 4,
+    "booking_upcoming_payment_lifecycle_review": 112,
+    "card_amount_canonical_conflict": 63,
+    "card_merchant_not_agoda": 4825,
+    "issuer_lifecycle_event_requires_review": 10,
+    "no_actual_charge_claim": 209,
+    "portal_lifecycle_requires_review": 377,
+    "unbalanced_amount_candidate_cluster": 299
+  },
+  "input_manifest_sha256": "38f26122dcc812e8f86b5cde3cb268d7c1f6a6a007f63564342ada29d4372d16",
+  "inputs": {
+    "agoda_staging": {
+      "raw_sha256": "39f8750897d98ee131dac6693ad0f1ca16e3e177f013dda6a9f70c1e79ac45b3",
+      "relative_path": "outputs/agoda-paseo-staging-20260822.sqlite"
+    },
+    "card_sources": [
+      {
+        "raw_sha256": "45d29d086de7b01f9e4c0f55452f2ef8acc12baa44a5a9fe77f046a4f8a7dd56",
+        "relative_path": "ledger/newcard/conv/A_20260720.xlsx"
+      },
+      {
+        "raw_sha256": "7db0f68cb4d01fb33f50694b04e4a28796079f67db09e35e6e4b75372cb3c16c",
+        "relative_path": "ledger/newcard/conv/E.xlsx"
+      },
+      {
+        "raw_sha256": "e9f1656a297b76e6834ae5785755cfbffbf9c7ec64d7400db41f5e26440cf4a5",
+        "relative_path": "ledger/newcard/conv/F.xlsx"
+      },
+      {
+        "raw_sha256": "f90ae46f217b2694c3d2fb012bf9550f0b7e395a785f7d19b8e83d5ca9060bb0",
+        "relative_path": "ledger/newcard/conv/G.xlsx"
+      },
+      {
+        "raw_sha256": "e719a4b5468ae529663118cc2ac3dffc80094d75687d6e868655a7de4f82b9b0",
+        "relative_path": "ledger/newcard/conv/H.xlsx"
+      }
+    ]
+  },
+  "outputs": {
+    "database": "outputs/agoda-card-link-candidate-v4-20260823.sqlite",
+    "database_sha256": "be4696799469e94279b152fb09c13141d61220e8569c151f3bf558ace58e0cc6",
+    "detail": "outputs/agoda-card-link-candidate-detail-v4-20260823.json",
+    "detail_file_sha256": "ec14e1efdb8306f4eef476bf40a394b79f00a605ff5ff0485206f9264d95b6af",
+    "report": "outputs/agoda-card-link-candidate-v4-20260823.json",
+    "report_content_sha256": "462ddbfe6a04393104183d1049059654a1a32c7cdf52dd84901d2552f0f491d5",
+    "report_file_sha256": "e071c3f8a982d89bc13bef26dc1c334b51593993ff9307653d2dd2690b1293d5"
+  },
+  "report_counts": {
+    "amount_candidates": 152,
+    "held": 5899,
+    "proposed_individuals": 77,
+    "review_groups": 9,
+    "review_individuals": 0
+  },
+  "run_id": "agoda-card-link-v4-20260823-38f26122dcc8-67b202489893",
+  "supersedes": [
+    "outputs/agoda-card-link-candidate-v3-20260823.sqlite",
+    "outputs/agoda-card-link-candidate-v3-20260823.json",
+    "outputs/agoda-card-link-candidate-detail-v3-20260823.json",
+    "outputs/agoda-card-link-candidate-audit-v3-20260823.json"
+  ],
+  "universe": {
+    "attestation_verified": true,
+    "portal_census_linkage_verified": true,
+    "sealed": true
+  }
+}

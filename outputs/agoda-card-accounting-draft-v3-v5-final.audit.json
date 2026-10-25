@@ -1,0 +1,30 @@
+{
+  "artifact_kind": "agoda_accounting_draft_v3",
+  "authority_ambiguous_count": 0,
+  "authority_document_sha256": "23d1f765630d3f0b9296be4bc51b6daf638d35de30edd75eb38528b0b100fa3f",
+  "authority_missing_count": 0,
+  "authority_records": 47,
+  "bound_unique_count": 73,
+  "database_sha256": "24ad97bd0aa5d853eace196e1b09a2d501258b6efb123a36c9e47cd74c466827",
+  "foreign_key_check": [],
+  "input_audit_sha256": "547980746c5590728e4e3e3496d93f11f6698c63ea747515aa8a569bed4572d1",
+  "input_database_sha256": "3d6eaeae8da4a8e1f7c458c1adcb9b8e65a545bb13f621a6d96917606ac605a0",
+  "integrity_check": [
+    "ok"
+  ],
+  "manifest_id": "2b529b9e6274f57136d7da657525727eb5e9f042b96bf450c467df4bae01f341",
+  "overlap_resolution_document_sha256": "e9c21925cfc0780c5aeb36c1173febd6b292a48b2d5526c607303cfba2f958a1",
+  "payment_2025_count": 6,
+  "payment_2025_terminal_count": 4,
+  "payment_2026_count": 71,
+  "posting_eligible": false,
+  "posting_tables_present": {
+    "direct_accounting_posting_batches": 0,
+    "direct_accounting_posting_lines": 0,
+    "journal_entries": 0
+  },
+  "row_count": 77,
+  "rule_id": "agoda-linked-lodging-accounting-draft-v3",
+  "source_scope": 77,
+  "total_amount_krw": 20546481
+}

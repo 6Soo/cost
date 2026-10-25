@@ -1,0 +1,256 @@
+﻿{
+    "generated_at":  "2026-08-25T16:13:35.5654517Z",
+    "candidate_count":  89,
+    "assignments":  [
+                        {
+                            "name":  "agoda-c-matrix-a",
+                            "count":  13,
+                            "bytes":  136983,
+                            "ids":  [
+                                        "d2899ae4-c1a8-44a6-ac60-ee9a0f84cf82",
+                                        "f01ee459-69eb-478a-ace1-759e394b24bc",
+                                        "4d34513a-7d1e-4938-be35-1880bc3bcc27",
+                                        "6fab7d34-167f-417b-a06e-395dbb64e3c0",
+                                        "3e9b6c4f-31ef-4b96-b7a4-ed5fd9e32a8a",
+                                        "5fc48132-d8f4-4ed9-afcf-83fa8ce2b95b",
+                                        "3782d6d9-28ca-4f58-b869-393674257f5c",
+                                        "49546adf-d841-4c92-a68b-26d40c3351c6",
+                                        "7b91f651-ea91-49db-b2d1-6a14994e8a90",
+                                        "549a586f-fd0d-4c56-88f2-3581ac414bfc",
+                                        "6cddbc1c-73a0-45e3-bdae-098be7f94b35",
+                                        "c7b8e741-61fa-4fda-9119-47290dc53418",
+                                        "2e43c726-5df5-4dc2-aa09-0efa9e0a3fa1"
+                                    ],
+                            "titles":  [
+                                           "Agoda C05 S1",
+                                           "Agoda C04 S3",
+                                           "Agoda C06 S2",
+                                           "Agoda C09 S2",
+                                           "Agoda C01 S3",
+                                           "Agoda C03 S3",
+                                           "Agoda C09 S1",
+                                           "Agoda C02 S3",
+                                           "Agoda C05 S2",
+                                           "Agoda C04 S1",
+                                           "Agoda C08 S1",
+                                           "Agoda C07 S2",
+                                           "Agoda C01 S2"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-c-matrix-b",
+                            "count":  14,
+                            "bytes":  137336,
+                            "ids":  [
+                                        "0364c711-d168-49da-bbce-efb29e514d74",
+                                        "f24f76f1-dc5b-425e-849a-71ae6ec7eb7b",
+                                        "b3c55755-c44a-4456-bd5a-3c2439b4dd8c",
+                                        "9bc58180-2262-4ca0-9732-1e5825f88ef4",
+                                        "f1336270-1860-4cba-9739-6f9893127486",
+                                        "dd135f69-179c-48a2-beda-4b27848704d8",
+                                        "20c77f8d-c988-43ed-af9e-21c1d02e6343",
+                                        "5726a56e-4861-41ec-8851-7ef40907da2a",
+                                        "a6bec370-ddff-4ab1-ad36-5dacc079d4f9",
+                                        "eb1b5bf4-451f-4ebb-a038-e7ccd0a21c3a",
+                                        "cd597e36-ce43-4c85-a17b-1c3b37d64b8d",
+                                        "0fab6b1a-4275-40a0-8b49-746218f9e133",
+                                        "9e8ae282-62a0-4f7a-9f28-5c2c277ca2d9",
+                                        "888c1547-bc05-4c8a-9220-6dde6f423f22"
+                                    ],
+                            "titles":  [
+                                           "Agoda C03 S1",
+                                           "Agoda C07 S1",
+                                           "Agoda C02 S2",
+                                           "Agoda C07 S3",
+                                           "Agoda C02 S1",
+                                           "Agoda C01 S1",
+                                           "Agoda C09 S3",
+                                           "Agoda C04 S2",
+                                           "Agoda C08 S2",
+                                           "Agoda C06 S3",
+                                           "Agoda C08 S3",
+                                           "Agoda C05 S3",
+                                           "Agoda C06 S1",
+                                           "Agoda C03 S2"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-dom-canary",
+                            "count":  25,
+                            "bytes":  154500,
+                            "ids":  [
+                                        "131cf465-67b4-4d94-8f2d-063f82f3c464",
+                                        "9bc4e1ef-113a-40db-8eca-c4cd3f6576d1",
+                                        "66312db8-997b-4829-b1eb-3a4920b2eff2",
+                                        "86bd86f8-cc90-4430-bcb1-eeec16972f57",
+                                        "e61baab8-c20b-4f7e-afb4-835eefce137b",
+                                        "922a57b2-50a1-474e-9099-25d42db75343",
+                                        "753fce7d-ec7c-4270-a6d2-3f6eaa83b38c",
+                                        "776c1fbe-7d8b-4238-95ec-3436c2e31a9e",
+                                        "3a05d567-eedd-407b-aeba-8887d320e8ee",
+                                        "4f740433-325c-4ccf-9ba8-fff19853f194",
+                                        "3f0c19ff-9cbc-4b7f-bb25-dae25cf8ce7e",
+                                        "2a248873-f2c4-4e0c-aa10-acbad60a2ea8",
+                                        "59e3fd9d-8e9f-4aae-b7fe-95e7b4e7e935",
+                                        "146f4539-aa2e-47f3-92a2-6e0c990405d2",
+                                        "d1e8eafc-831a-48b3-8ec9-8784cb4066d6",
+                                        "ab4c0762-7e21-496c-b67b-b6191883f241",
+                                        "f0c8a286-43fb-43d7-93c6-43d0ec0adc5f",
+                                        "b6f27ea4-3acf-4e56-a161-764f74c012e3",
+                                        "9c7a3ba1-b201-4200-a6fe-0f2fef04a6dd",
+                                        "bfa14852-e869-4f14-8a92-3b8fcaddaa8c",
+                                        "8bdd3c8b-27ea-4fee-aeb0-22d28982feec",
+                                        "1fd1dc45-565d-47fe-87f8-4a895786daa0",
+                                        "697d635b-2004-407f-838a-8a8d3ff287db",
+                                        "6e2966b1-70ad-4d66-91be-9dbf5007820d",
+                                        "19e39e6d-0123-4990-b2f5-bcbde5b5b4f1"
+                                    ],
+                            "titles":  [
+                                           "Agoda DOM U01 S1",
+                                           "Agoda DOM C03 S1",
+                                           "Agoda DOM C03 S2",
+                                           "Agoda DOM C08 S1",
+                                           "Agoda DOM C08 S2",
+                                           "Agoda DOM C09 S0",
+                                           "Agoda DOM C09 S2",
+                                           "Agoda DOM I2 U01 S0",
+                                           "Agoda DOM I2 U01 S1",
+                                           "Agoda DOM I2 U01 S2",
+                                           "Agoda DOM I2 C01 S0",
+                                           "Agoda DOM I2 C01 S1",
+                                           "Agoda DOM I2 C01 S2",
+                                           "Agoda DOM I2 C02 S0",
+                                           "Agoda DOM I2 C02 S1",
+                                           "Agoda DOM I2 C02 S2",
+                                           "Agoda DOM I2 C03 S0",
+                                           "Agoda DOM I2 C03 S1",
+                                           "Agoda panel-gate canary",
+                                           "Agoda click-boundary canary",
+                                           "Agoda U01 S1",
+                                           "Agoda U01 S2",
+                                           "Agoda U01 S3",
+                                           "Agoda parallel B",
+                                           "Agoda parallel C"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-retry-p1-p2",
+                            "count":  3,
+                            "bytes":  278005,
+                            "ids":  [
+                                        "8947ce15-09af-4345-92ee-6e6f9147be95",
+                                        "93a0518b-48cc-4f29-9618-30effd2eb165",
+                                        "3bc8f871-8827-4cff-a23a-1ecf8ad4ad03"
+                                    ],
+                            "titles":  [
+                                           "Agoda retry Upcoming p1",
+                                           "Agoda retry Completed p1",
+                                           "Agoda retry Completed p2"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-retry-p3-p6",
+                            "count":  6,
+                            "bytes":  222574,
+                            "ids":  [
+                                        "5b8e5f59-5d23-46e3-947f-7b3ed278f754",
+                                        "8eb22e4b-842e-4aa6-9506-86803343144e",
+                                        "ca3a5353-225e-46f0-b111-9d0cd6e4bd65",
+                                        "7fdb921c-df62-48d4-81c4-0507adf4ead0",
+                                        "d2537f8a-3827-47de-b06c-25f8d5b4eac6",
+                                        "a4d58ba9-9754-49cb-84b7-580d235ad911"
+                                    ],
+                            "titles":  [
+                                           "Agoda retry 완료된 예약 p3",
+                                           "Agoda retry 완료된 예약 p4",
+                                           "Agoda retry 완료된 예약 p4 r2",
+                                           "Agoda 완료 p5 수집",
+                                           "Agoda 완료 p6 수집",
+                                           "Agoda completed page 5"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-detail-recovery",
+                            "count":  17,
+                            "bytes":  267315,
+                            "ids":  [
+                                        "2264a936-d641-4861-8cd9-9ff21da16fcb",
+                                        "e4d827af-4921-409d-ae2a-1e38f05d58d6",
+                                        "ad11697e-cb03-4e9d-9974-fd549886aa02",
+                                        "df2e7e7e-6397-45cd-88e8-4a7035b715b2",
+                                        "9ecc6e0f-aec5-4192-a1c8-ecb357097b4f",
+                                        "136fc4b8-d53a-4899-9e24-8e8d19810796",
+                                        "1e13fe6b-75f9-467c-bd95-d61543bea451",
+                                        "39cbfb8d-f3d1-46f8-9f1e-dc825fe2fe68",
+                                        "b6f9cc9d-f403-451e-a076-dc98d415f859",
+                                        "90b21be3-b7f7-4569-8bb4-c08822cdb0ce",
+                                        "c6738c3a-6e11-4c89-a75f-56d9b90e5743",
+                                        "83d97431-7cc6-41f3-b044-124315cb2bb5",
+                                        "d1297346-e030-47d4-adee-6c6b40016221",
+                                        "35dfca44-e3bc-40d6-9d80-de8b7fa94119",
+                                        "b303eb32-6b6f-4233-b359-65fd8129622b",
+                                        "2aefa53c-f91d-442e-84e3-89cca67d7957",
+                                        "168cabcd-b101-465a-85a0-77b131e27c3d"
+                                    ],
+                            "titles":  [
+                                           "Agoda Paseo continuation",
+                                           "Agoda Paseo recovery",
+                                           "Agoda detail 1683778910",
+                                           "Agoda detail 1687621609",
+                                           "Agoda detail 1681854306",
+                                           "Agoda detail 1685346271",
+                                           "Agoda detail 1685346874",
+                                           "Agoda detail 1968385259",
+                                           "Agoda detail 1678503785",
+                                           "Agoda detail 1681853186",
+                                           "Agoda live list census",
+                                           "Agoda detail batch 1",
+                                           "Agoda detail batch 2",
+                                           "Agoda detail batch 3",
+                                           "Agoda detail batch 4",
+                                           "Agoda detail batch 5",
+                                           "Agoda detail batch 6"
+                                       ]
+                        },
+                        {
+                            "name":  "agoda-accounting-policy",
+                            "count":  3,
+                            "bytes":  94241,
+                            "ids":  [
+                                        "5a57fd5d-971c-4934-b3b9-2b0f171ad441",
+                                        "8beba886-9ce3-4d3b-83a4-75d1afe6929c",
+                                        "d2c17baf-a05d-4320-9b3c-dbe82d29d324"
+                                    ],
+                            "titles":  [
+                                           "Agoda Luna F3 remaining",
+                                           "Agoda Luna F2 final two",
+                                           "Agoda Luna final D"
+                                       ]
+                        },
+                        {
+                            "name":  "pipeline-webapp",
+                            "count":  8,
+                            "bytes":  82204,
+                            "ids":  [
+                                        "438847a1-6940-42f2-99f5-4ba7d6dab9a7",
+                                        "80a56033-d87a-4d69-8381-36cf38bb48f2",
+                                        "999953aa-af7a-4af3-9014-fed61875be33",
+                                        "f85201f8-5dff-41d7-83ab-ac67c7ddacbd",
+                                        "e670edac-9f50-4778-ac76-0a3e3d50f466",
+                                        "4424bb3c-f3a2-40a0-824d-78304015f93b",
+                                        "b5787122-a39f-41f0-8af9-cc4eca29cf6b",
+                                        "62d5a41b-94e7-4ec2-81e6-b7acddbce791"
+                                    ],
+                            "titles":  [
+                                           "Pipeline lightweighting · Luna Max",
+                                           "Pipeline lightweighting · Sol High",
+                                           "Pipeline lightweighting · Terra Max",
+                                           "Sol high review synthetic N:N assignment",
+                                           "Sol high - 웹앱 전환 타당성 검토",
+                                           "Terra max - 아키텍처·인프라 검토",
+                                           "Sol high - 웹앱 전환 반박 검토",
+                                           "Terra max - 아키텍처 검토"
+                                       ]
+                        }
+                    ]
+}

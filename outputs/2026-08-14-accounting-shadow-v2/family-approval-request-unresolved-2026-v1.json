@@ -1,0 +1,43 @@
+{
+  "allowed_effect_if_approved": [
+    "local_accounting_candidate_only",
+    "pending_cost_clearing_account"
+  ],
+  "decision_status": "pending_user_decision",
+  "document_type": "family_approval_request",
+  "document_version": "unresolved-2026-purchase-clearing-v1",
+  "evidence_binding": {
+    "family_set_sha256": "9ea6e6e388f44f974b6c5f405f051ac94697c719ce203ddc3c1f86677e8f47bb",
+    "ledger_mapping_sha256": "0993634cf62d3a1ae04ebcf4c87d156c1403e57897ce2734b8fccafdb4fa4334",
+    "membership_sha256": "16476d1fd71d5e80d5b05cba8d21f188173653448d5167a65b86933b7d51a140",
+    "policy_sha256": "81aa8823241a036c8d657fcee9bebe451a58148f2fd8939d67c129813fc1bfa0"
+  },
+  "forbidden_effects": [
+    "travel_finality",
+    "service_period_inference",
+    "trip_code_assignment",
+    "reservation_number_assignment",
+    "legacy_journal_write",
+    "external_posting_without_gate6_han_release"
+  ],
+  "mode": "with_2026_clearing",
+  "not_an_approval": true,
+  "required_after_user_approval": [
+    "content_addressed_family_approval_attestation",
+    "authoritative_production_account_mapping",
+    "authorized_gate6_baseline",
+    "han_equality_release_attestation"
+  ],
+  "run_id": "81ef975e382040d080087bcdd719993c",
+  "scope": {
+    "accounting_period_range": [
+      "2026",
+      "2026"
+    ],
+    "family_id": "unresolved_2026_purchase_clearing",
+    "payment_count": 1253,
+    "purpose": "accounting_only_pending_cost",
+    "rule_id": "unresolved-2026-purchase-clearing-shadow-v1",
+    "signed_amount_krw": 189627699
+  }
+}

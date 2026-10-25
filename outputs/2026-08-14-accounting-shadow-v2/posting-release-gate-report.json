@@ -1,0 +1,18 @@
+{
+  "legacy_journal_count": 0,
+  "posting_rows": 0,
+  "result": {
+    "approval_sha256": "8c4f129510e1223e1b1107dc39e25df397e11dadbdb0f8b64caa43799f3cacaf",
+    "blocked_reasons": [
+      "family_approval_attestation_missing_or_invalid",
+      "release_attestation_missing_or_invalid"
+    ],
+    "external_posting": false,
+    "mapping_sha256": "6ccdeaddd0d7173744324c14343174d8b956570ce1e97675b3001b60e5e1f200",
+    "passed": false,
+    "posted_payment_count": 0,
+    "reason": "family_approval_attestation_missing_or_invalid",
+    "selected_payment_count": 5167,
+    "status": "blocked"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "amounts": {
+    "credit_total_krw": 10018782,
+    "debit_total_krw": 10018782,
+    "expected_total_krw": 10018782
+  },
+  "artifact_kind": "agoda_card_journal_draft_audit",
+  "artifact_version": "v1",
+  "authority": {
+    "authoritative_posting_written": false,
+    "historical_evidence_status": "candidate_only",
+    "journal_status": "draft_balanced",
+    "legacy_journal_entries_written": 0,
+    "unresolved_posting_status": "blocked"
+  },
+  "builder": {
+    "path": "tools/build_agoda_journal_draft.py",
+    "sha256": "544a47104af04b8a9e80b7b04cfc4d85617fa6f586cc437d411551750431b722"
+  },
+  "checks": {
+    "first_materialization_changes": 198,
+    "foreign_key_violations": [],
+    "independent_rebuild_matches": true,
+    "independent_rebuild_semantic_sha256": "3121715b61318c275136e2f67db03301c8c46b8e0582ad61da1ac69b67a26e62",
+    "input_database_unchanged": true,
+    "line_pair_issues": 0,
+    "posting_table_rows": 0,
+    "second_materialization_changes": 0,
+    "second_total_changes": 0,
+    "semantic_idempotent": true,
+    "unauthorized_rows": 0,
+    "unresolved_in_journal": 0,
+    "validation_issues": [],
+    "validation_passed": true
+  },
+  "counts": {
+    "journal_draft_batches": 41,
+    "journal_draft_lines": 82,
+    "journal_draft_manifests": 1,
+    "legacy_journal_entries": 0,
+    "resolution_candidates": 36,
+    "resolution_evidence": 38,
+    "source_scope": 77
+  },
+  "inputs": {
+    "audit": "outputs/agoda-card-accounting-draft-audit-v1-20260824.json",
+    "audit_sha256": "e6326c8d5204d8df4e03d416d26b43526b73ef8c69f4187e1d0a1d8d7868e5ad",
+    "database": "outputs/agoda-card-accounting-draft-v1-20260824.sqlite",
+    "database_sha256": "a0bf9ff2ccd0d15a16883a64c1e78e6cc1840c491f1b356fc911281a0e18b889",
+    "historical_candidate_source": "ledger/data/classified_v14.csv",
+    "historical_candidate_source_sha256": "8424884622705bb8ebec2efb4ca2d995247993767eac039e5bb2b2959ee3b989",
+    "property_evidence_source": "outputs/agoda-paseo-staging.json",
+    "property_evidence_source_sha256": "04b1e1e2be5fa38d53a7f50c899e27a7fb2564759b919891132ece13acb8a8a0"
+  },
+  "outputs": {
+    "database": "outputs/agoda-card-journal-draft-v1-20260824.sqlite",
+    "database_sha256": "1ca7a1b3190861a0022b01eff5f8a6e8ac14149d035fc070262d11689af8a0fc",
+    "detail": "outputs/agoda-card-journal-draft-detail-v1-20260824.json",
+    "detail_sha256": "02b995677d2956cd94d97a441e5818146680c19cb6ee25f93e71cc8b83e38dad",
+    "semantic_sha256": "3121715b61318c275136e2f67db03301c8c46b8e0582ad61da1ac69b67a26e62"
+  },
+  "resolution_status_counts": {
+    "historical_exact_booking_candidate": 22,
+    "no_additional_evidence": 2,
+    "property_evidence_only": 12
+  },
+  "rule_id": "agoda-linked-lodging-journal-draft-v1"
+}

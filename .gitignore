@@ -1,20 +1,29 @@
-# ignore temporary files and directories
+.env
 __pycache__/
 *.pyc
-*.swp
-*.swo
-*.sqlite-shm
-*.sqlite-wal
-*.backup
-*.backup.*
-*.tmp
-*.log
-*.tmp
-*.log
-cost-reconciliation*
-agoda*
-outputs/*
-tests/tmp*
-webapp/tests/tmp*
-webledger*
+.pytest_cache/
+/.local-archive/
+/docs/handoff/**
+!/docs/handoff/2026-10-01/
+!/docs/handoff/2026-10-01/.gitkeep
 *.sqlite
+*.sqlite-*
+/runtime/
+/webledger-exports/
+# Local accounting outputs are preserved, but new files are not published.
+/outputs/
+ledger/data/*.db
+ledger/data/*.db-shm
+ledger/data/*.db-wal
+ledger/data/review-snapshots/
+outputs/*.sqlite
+outputs/*.sqlite-*
+outputs/agoda-benchmark-*.json
+
+# OAuth tokens (sensitive — do not commit)
+**/tokens.json
+**/oauth_client.json
+**/drive_tokens.json
+
+# Cost reconciliation visual outputs (generated artifacts)
+cost-reconciliation.*
