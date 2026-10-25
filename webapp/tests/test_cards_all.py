@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import pytest
 from pathlib import Path
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, urlsplit
 
 # Set up environment before importing
@@ -143,6 +144,48 @@ def test_month_rows_keep_second_precision_order():
     assert rendered.index("TX-EARLY") < rendered.index("TX-LATE")
     assert "2026-03-05 08:15:00" in rendered
     assert "2026-03-05 08:15:30" in rendered
+
+
+def test_merchant_markup_is_escaped_and_original_text_is_preserved():
+    merchant = '<script>alert("x")</script><img src=x onerror="alert(1)"> "Cafe" & Market'
+    rendered = cards_all._render_month_rows([{
+        "transaction_id": "TX-XSS-SYNTHETIC",
+        "approval_date": "2026-03-05",
+        "merchant": merchant,
+        "amount_krw": -123,
+        "foreign_currency": "KRW",
+    }], include_detail_link=False)
+
+    class MerchantMarkupParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.in_merchant = False
+            self.merchant_text = []
+            self.active_markup = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "td" and attrs.get("class") == "merchant":
+                self.in_merchant = True
+            if tag in ("script", "img") or any(name.lower().startswith("on") for name, _ in attrs.items()):
+                self.active_markup.append((tag, attrs))
+
+        def handle_endtag(self, tag):
+            if tag == "td" and self.in_merchant:
+                self.in_merchant = False
+
+        def handle_data(self, data):
+            if self.in_merchant:
+                self.merchant_text.append(data)
+
+    parser = MerchantMarkupParser()
+    parser.feed(rendered)
+    assert parser.active_markup == []
+    assert "".join(parser.merchant_text) == merchant
+    assert "&lt;script&gt;" in rendered
+    assert "&lt;img" in rendered
+    assert "onerror=&quot;alert(1)&quot;" in rendered
+    assert "&quot;Cafe&quot; &amp; Market" in rendered
 
 
 def test_undated_ui_cursor_covers_more_than_500_rows_once(card_db_path):
