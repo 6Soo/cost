@@ -4041,6 +4041,11 @@ class Handler(BaseHTTPRequestHandler):
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
+        if parsed.path == "/cards/all":
+            from . import cards_all
+
+            self._send(cards_all.cards_all_page(query, db_path=_get_card_db_path()))
+            return
         if card_flow.enabled() and parsed.path == '/review':
             self.send_response(303)
             self.send_header('Location', '/import')

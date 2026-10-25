@@ -1010,6 +1010,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         primary = ("<nav class='site-links' aria-label='주요 메뉴'>"
                    f"<a href='/board'>{_icons.icon('book-open', 18)}<span class='nm'>여행 장부</span></a>"
                    f"<a href='/import'>{_icons.icon('upload', 18)}<span class='nm'>지출 정리</span></a>"
+                   f"<a href='/cards/all'>{_icons.icon('credit-card', 18)}<span class='nm'>카드 전체 내역</span></a>"
                    f"<a href='/ota'>{_icons.icon('list', 18)}<span class='nm'>OTA 내역</span></a>")
         if receipt_review.enabled():
             primary += (f"<a href='/receipts'>{_icons.icon('receipt', 18)}"

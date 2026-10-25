@@ -410,8 +410,8 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
             undated_items = undated_result.get("items") or []
             # 실제 미확인 건수는 날짜 미확인 API의 total만 신뢰한다.
             # 기존 API는 total을 제공하지 않으므로 페이지 행 수를 전체로 가장하지 않는다.
-            if "total" in undated_result:
-                undated_count = int(undated_result.get("total") or 0)
+            if "total_count" in undated_result or "total" in undated_result:
+                undated_count = int(undated_result.get("total_count", undated_result.get("total", 0)) or 0)
             undated_has_more = bool(undated_result.get("has_more"))
             undated_next_cursor = undated_result.get("cursor")
     except RuntimeError:

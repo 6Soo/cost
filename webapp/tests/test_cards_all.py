@@ -98,9 +98,23 @@ def test_month_grid_and_initial_page_are_lazy(card_db_path, monkeypatch):
     monkeypatch.setattr(cards_all._ct, "undated_list", unexpected_undated_query)
     page = cards_all.cards_all_page({}, db_path=card_db_path)
     assert "2026년" in page
-    assert "날짜 확인 필요 · 3건" in page
+    assert "날짜 확인 필요 · 2건" in page
     assert "날짜 확인 필요 목록 보기" in page
     assert "UNKNOWN" not in page
+
+
+def test_cards_all_page_uses_strict_date_and_undated_api_contract(card_db_path):
+    """화면과 조회 API가 날짜시각과 날짜 미상 집계를 같은 기준으로 나눈다."""
+    month_page = cards_all.cards_all_page(
+        {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
+    assert "TX-A-02" in month_page
+    assert "날짜 확인 필요 · 2건" in month_page
+
+    undated_page = cards_all.cards_all_page(
+        {"year": ["2026"], "undated": ["1"]}, db_path=card_db_path)
+    assert "날짜 확인 필요 · 2건" in undated_page
+    assert "TX-UND-01" in undated_page
+    assert "TX-UND-02" in undated_page
 
 
 def test_month_detail_renderer_basic(card_db_path):
@@ -196,15 +210,14 @@ def test_undated_list_excludes_valid_other_years(card_db_path):
 def test_year_summary_counts(card_db_path):
     """year_summary returns correct monthly counts and global undated.
 
-    Note: undated_count includes transactions with datetime in approval_date (e.g., 2026-03-05T14:30)
-    because the GLOB pattern only matches YYYY-MM-DD format. This is current card_transactions behavior.
+    ISO date-time rows with valid calendar/time values belong to their calendar month.
     """
     s = ct.year_summary(db_path=card_db_path, year=2026)
     assert s['year'] == 2026
     assert s['months'][3] == 3  # March
     assert s['months'][4] == 2  # April
-    # Undated count is global (includes TX-UND-01, TX-UND-02, and TX-A-02 with datetime)
-    assert s.get('undated_count', 0) == 3
+    # Only the two genuinely undated rows remain outside the month buckets.
+    assert s.get('undated_count', 0) == 2
 
 
 def test_pagination_stable_cursor(card_db_path):
@@ -234,7 +247,7 @@ def test_cards_all_route_is_rendered_by_existing_router(card_db_path):
     from webapp.ledger_board import Handler
     source = inspect.getsource(Handler)
     assert 'parsed.path == "/cards/all"' in source
-    assert 'cards_all.cards_all_page(query)' in source
+    assert 'cards_all.cards_all_page(query, db_path=_get_card_db_path())' in source
 
 
 def test_foreign_currency_display(card_db_path):
@@ -270,8 +283,8 @@ def test_undated_page_has_total_and_next_cursor_without_overlap(monkeypatch):
     def fake_undated_list(**kwargs):
         calls.append(kwargs)
         return {"items": first_page if kwargs["cursor"] is None else later_page,
-                "total": 550, "count": 100, "has_more": True,
-                "cursor": "|TX-099" if kwargs["cursor"] is None else "|TX-199"}
+                "total_count": 550, "count": 100, "has_more": True,
+                "cursor": "0000-00-00|TX-099" if kwargs["cursor"] is None else "0000-00-00|TX-199"}
 
     monkeypatch.setattr(cards_all._ct, "undated_list", fake_undated_list)
     monkeypatch.setattr(cards_all._ct, "year_summary",
@@ -283,16 +296,16 @@ def test_undated_page_has_total_and_next_cursor_without_overlap(monkeypatch):
     page1 = cards_all.cards_all_page({"undated": ["1"]}, db_path="synthetic.sqlite")
     assert "날짜 확인 필요 · 550건" in page1
     assert "다음 날짜 확인 필요 거래 100건 보기" in page1
-    assert "undated_cursor=%7CTX-099" in page1
+    assert "undated_cursor=0000-00-00%7CTX-099" in page1
     page2 = cards_all.cards_all_page({"undated": ["1"],
-                                      "undated_cursor": ["|TX-099"]},
+                                      "undated_cursor": ["0000-00-00|TX-099"]},
                                      db_path="synthetic.sqlite")
     first_ids = {f"TX-{i:03}" for i in range(100)}
     second_ids = {f"TX-{i:03}" for i in range(100, 200)}
     assert not first_ids.intersection(second_ids)
     assert "data-tx-id='TX-100'" in page2 and "data-tx-id='TX-099'" not in page2
     assert calls[0]["per_page"] == 100
-    assert calls[1]["cursor"] == "|TX-099"
+    assert calls[1]["cursor"] == "0000-00-00|TX-099"
 
 
 def test_data_integrity_all_states_preserved(card_db_path):
