@@ -2300,6 +2300,14 @@ def reclassify_cleanup(board, *, _preview=False, expected_fingerprint=None, flow
     with board._lock:
         if expected_fingerprint:
             from .expense_bulk_maintenance import PreviewError, fingerprint
+            service = getattr(board, '_ota_snapshot_service', None)
+            if service is not None:
+                current_snapshot, snapshot_state = service.display_context()
+                pinned_snapshot = (current_snapshot, bool(snapshot_state.get('fresh')))
+                # A worker may publish a newer generation immediately after
+                # preview verification. Use the generation verified here for
+                # every classification decision in this operation.
+                flow._held_ota_snapshot = lambda: pinned_snapshot
             if fingerprint(board) != expected_fingerprint:
                 raise PreviewError('PREVIEW_STALE',
                                    '미리보기 뒤 자료가 바뀌었습니다. 다시 미리보기를 실행해 주세요.')
