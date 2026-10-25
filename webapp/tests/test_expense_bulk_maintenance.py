@@ -179,3 +179,54 @@ def test_registered_preview_route_uses_read_only_simulation(tmp_path, monkeypatc
         assert _dump(board.conn) == before
     finally:
         board.close()
+
+
+def test_browser_owner_preview_requires_explicit_confirmation_before_apply():
+    import json
+    from playwright.sync_api import sync_playwright
+    from webapp import site_shell
+
+    requests = []
+    preview = {"preview_id": "synthetic-preview", "summary": {
+        "processed": 1, "requires_ota_snapshot_refresh": False,
+        "target_counts": {"classified": 1}}}
+    document = maintenance._render_page("synthetic-csrf")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr("webapp.ledger_design.nav_region", lambda *_args: "")
+        document = site_shell.wrap_document(document, "/maintenance/expense-bulk")
+
+    with sync_playwright() as api:
+        browser = api.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 375, "height": 812})
+            page.route("http://cost.test/maintenance/expense-bulk", lambda route: route.fulfill(
+                status=200, content_type="text/html; charset=utf-8", body=document))
+
+            def api_route(route):
+                body = route.request.post_data_json
+                requests.append((route.request.url, body,
+                                 route.request.headers.get("x-csrf-token")))
+                response = preview if route.request.url.endswith("/preview") else {
+                    "actual": {"processed": 1}}
+                route.fulfill(status=200, content_type="application/json",
+                              body=json.dumps(response))
+
+            page.route("**/api/maintenance/expense-bulk/**", api_route)
+            page.goto("http://cost.test/maintenance/expense-bulk")
+            apply = page.get_by_role("button", name="확인한 미리보기 적용")
+            assert apply.is_disabled()
+            page.get_by_role("button", name="읽기 전용 미리보기").click()
+            page.get_by_text('"processed": 1').wait_for()
+            assert apply.is_disabled()
+            page.locator("#confirm").check()
+            assert not apply.is_disabled()
+            apply.click()
+            page.get_by_text("예상 결과와 실제 결과를 확인해 주세요.").wait_for()
+            assert apply.is_disabled()
+            assert [item[0].rsplit("/", 1)[-1] for item in requests] == ["preview", "apply"]
+            assert all(item[2] == "synthetic-csrf" for item in requests)
+            assert requests[1][1] == {"preview_id": "synthetic-preview",
+                "scope": "classification+ledger_record+existing_trip_assignment",
+                "confirmed": True}
+        finally:
+            browser.close()
