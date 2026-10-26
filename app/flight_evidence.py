@@ -21,6 +21,35 @@ _IATA = re.compile(r"[A-Z]{3}(?![A-Za-z])")
 _FLIGHT = re.compile(r"[A-Z0-9]{2}\s?\d{1,4}")
 _MEMO = {}
 
+_EXPLICIT_BOOKED = re.compile(
+    r"^(?:예약(?:\s*완료)?\s*(?:일시|일자|날짜|일)|예약\s*생성\s*(?:일시|일)|"
+    r"booking\s*(?:created\s*(?:at|on)|date|time)|booked\s*(?:on|at))"
+    r"\s*[:：]\s*(\d{4})[-./년]\s*(\d{1,2})[-./월]\s*(\d{1,2})(?:일)?"
+    r"(?:\s+(?:\d{1,2}:\d{2}(?::\d{2})?(?:\s*(?:KST|UTC|GMT|[+-]\d{2}:?\d{2}))?))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _explicit_booking_date(tokens):
+    """Extract only unambiguous *labeled* booking dates, never mail/flight/payment dates."""
+    dates = set()
+    for token in tokens:
+        match = _EXPLICIT_BOOKED.fullmatch(token)
+        if not match:
+            continue
+        try:
+            dates.add(datetime.date(*(int(v) for v in match.groups())).isoformat())
+        except ValueError:
+            continue
+    if len(dates) > 1:
+        return "", "CONFLICT"
+    if dates:
+        return next(iter(dates)), "EXPLICIT_LABEL"
+    return "", "UNKNOWN"
+
+
+
+
 
 def strip_invisible(text: str) -> str:
     return text.translate(_INVISIBLE)
@@ -33,6 +62,7 @@ def parse_flight_text(text: str) -> dict | None:
     headers = [i for i, token in enumerate(tokens) if _HEADER.fullmatch(token)]
     cancellation_status = _cancellation_status(tokens)
     booking_ref = _booking_ref(tokens)
+    reserved_on, booking_date_status = _explicit_booking_date(tokens)
     if not passengers and not headers and (cancellation_status == "NONE" or not booking_ref):
         return None
     stops = headers + [i for i, token in enumerate(tokens) if "규정 조회" in token]
@@ -47,6 +77,7 @@ def parse_flight_text(text: str) -> dict | None:
         legs.append({"label": label, "origin_city": origin, "destination_city": destination,
                      "departure_on": _date_on(date_text), "segments": _segments(tokens[h + 1:end])})
     return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
+            "reserved_on": reserved_on, "booking_date_status": booking_date_status,
             "cancellation_status": cancellation_status,
             "legs_complete": bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)}
 
@@ -76,6 +107,13 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
                      "segments": routes[min(routes)] if routes else []})
     legs.sort(key=_leg_order)
     legs_complete = bool(legs) and all(leg["departure_on"] and leg["segments"] for leg in legs)
+    # Conflicting explicit dates, or one ambiguous source, must never auto-select a day.
+    confirmed_days = {part.get("reserved_on") for part in parts if part.get("reserved_on")}
+    booking_date_conflict = (len(confirmed_days) > 1 or any(
+        part.get("booking_date_status") == "CONFLICT" for part in parts))
+    reserved_on = next(iter(confirmed_days)) if len(confirmed_days) == 1 and not booking_date_conflict else ""
+    booking_date_status = ("CONFLICT" if booking_date_conflict else
+                           "EXPLICIT_LABEL" if reserved_on else "UNKNOWN")
     source_digests = sorted({part["source_digest"] for part in parts if part.get("source_digest")})
     cancellation_states = {part.get("cancellation_status", "NONE") for part in parts}
     cancellation_status = ("CONFLICT" if "CANCELLED" in cancellation_states and "NONE" in cancellation_states
@@ -84,10 +122,12 @@ def merge_booking_evidence(parts: list[dict]) -> dict:
     digest_body = {"v": PARSER_VERSION,
                    "passengers": sorted([p["surname"].casefold(), p["given_name"].casefold()] for p in passengers),
                    "legs": legs, "source_digests": source_digests,
-                   "cancellation_status": cancellation_status, "conflict": conflict}
+                   "cancellation_status": cancellation_status, "conflict": conflict,
+                   "reserved_on": reserved_on, "booking_date_status": booking_date_status}
     return {"booking_ref": booking_ref, "passengers": passengers, "legs": legs,
             "legs_complete": legs_complete, "conflict": conflict, "source_digests": source_digests,
             "cancellation_status": cancellation_status,
+            "reserved_on": reserved_on, "booking_date_status": booking_date_status,
             "digest": hashlib.sha256(_canonical(digest_body).encode("utf-8")).hexdigest()}
 
 
