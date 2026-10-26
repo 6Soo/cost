@@ -3,7 +3,7 @@ import re
 import html
 from urllib.parse import parse_qs, urlsplit
 
-from . import ui_icons
+from . import ui_icons, site_theme
 
 
 # 업무 화면의 고정 설명만 제거한다. 오류·보류·원본 값과 동의 문구는 건드리지 않는다.
@@ -177,6 +177,7 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
     content = document[opening.end():end]
     native = bool(re.search(r'\bid=[\"\']nav[\"\']', content))
     if native:
+        content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + site_theme.BUTTON, content, count=1)
         if not re.search(r'\bid=[\"\']btn-menu[\"\']', content):
             content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + BUTTON, content, count=1)
         body = opening[0]
@@ -185,7 +186,8 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
         query = parse_qs(urlsplit(path).query)
         tab = (query.get('tab') or [''])[0]
         nav = _nav_html(tab, '')
-        content = '<div class="site-app">' + nav + '<div id="site-content">' + BUTTON + content + '</div></div>'
+        content = '<div class="site-app">' + nav + '<div id="site-content">' + site_theme.BUTTON + BUTTON + content + '</div></div>'
         body = '<body class="site-standalone">'
-    return (document[:opening.start()] + '<style id="site-shell-style">' + STYLE + '</style>'
+    return (document[:opening.start()] + '<style id="site-shell-style">' + STYLE + site_theme.STYLE + '</style>'
+            + '<script>' + site_theme.BOOTSTRAP + '</script>'
             + body + content + '<script>' + SCRIPT + '</script>' + document[end:])
