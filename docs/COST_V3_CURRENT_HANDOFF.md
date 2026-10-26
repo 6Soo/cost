@@ -1,6 +1,6 @@
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
-> **최신 개발 재개 기준(2026-10-26):** 아래 **0.14절**, [COST READY DEV QUEUE](COST_READY_DEV_QUEUE_20261026.md) 및 실제 최신 `main` SHA를 우선한다. **PR #105/#110/#111/#112는 모두 `main`에 병합됐다.** 이들은 명세 문서 PR이며 해당 신규 기능이 코드로 구현되었다는 뜻이 아니다. 이전 0.13절의 '미병합 문서 PR' 문구는 **2026-10-25 당시 이력**이다. 최신 확인된 운영 배포 증거는 아래 0.12절의 OTA·지출 정리 표시 복구뿐이며, V21 코드 병합을 운영 배포로 혼동하지 않는다.
+> **최신 개발 재개 기준(2026-10-26):** 운영 배포는 **0.16절**, 이후 OZE·OTA 읽기 전용 진단은 **0.17절**을 우선한다. 현재 남은 작업은 [COST READY DEV QUEUE](COST_READY_DEV_QUEUE_20261026.md)와 실제 최신 `main` SHA로 확인한다. **PR #105/#110/#111/#112는 모두 `main`에 명세가 병합**됐고, 이후 UI 구현 PR #114도 병합·운영 배포됐다. 아래 0.12~0.15절의 이전 기준선·당시 미완료 표시는 해당 시점의 이력이다.
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
@@ -16,7 +16,7 @@
 | 항공권 참가자 연결 화면 메뉴 소실 | 구현 커밋 `a8206df`: 명시적 head/body와 wrapper 통합; 메뉴·본문·모바일 메뉴 중복 없음 표적 검사 | **CODED / TESTED**. 375~1280px·200% 확대 브라우저 확인은 미완료 |
 | 항공권 화면 UI/한국어 문구 | 구현 커밋 `a8206df`: 제목·필드·상태별 문구, stale/취소/충돌/저장 오류 처리 | **CODED / TESTED**. 전체 상태·반응형/키보드 브라우저 수락은 미완료 |
 | 일괄 지출 정리 버튼 | `#cleanup-reclassify`·서버 POST/금융 쓰기 로직 **현행 유지**. PR #105 명세 §12 병합 | `EXPENSE-BULK-AUDIT-01` → `EXPENSE-BULK-UI-01` → `EXPENSE-BULK-MAINT-01` |
-| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | `OZE-INCOME-DIAG-01`은 승인된 읽기 전용 운영 확인을 수행했으나 대상 행이 없어 **PARTIAL / ROOT_CAUSE_UNVERIFIED** |
+| `0630_오제` 수입 표시 | 커밋 `396c30f`: 선택 사본의 수입 블록만으로 표시 판단, 지출/전체 미검증 경고 유지. 17개 표적 검사 통과 | **최신 0.17절 우선:** 운영 11:00 세대에서 키·유일 매핑·수입 35행 및 HTML 생성 확인. 로그인 브라우저 수입 표시는 0.17절에서 확인했지만 **PARTIAL / ROOT_CAUSE_UNVERIFIED** |
 | Google 기존 장부 ↔ COST 웹 장부 볼드 거래 대조 | 커밋 `396c30f`: owner의 동일 여행·선택된 fresh source만 읽고 금액 및 날짜/가맹점/분류/예약번호 대조, 복수 후보·접근성 안내. 4개 합성 표적 테스트 통과 | 실제 운영 데이터·브라우저 표시 미검증; Google 쓰기 없음 |
 | 카드 전체 내역 · 기본 공통 테마 · 항공권/영수증 기존 기능 | V21 `main` 구현 존재. 별도 브라우저 통합/운영 배포는 미확인 | **재구현 금지**, `V21-UI-ACCEPTANCE-01`만 표적 검증 |
 
@@ -24,7 +24,7 @@
 
 **EXPENSE-BULK-AUDIT-01 소스 확인:** 일반 `/import`의 `render_expense_cleanup()`이 버튼과 `CLEANUP_SCRIPT`를 렌더한다. owner+CSRF가 있는 `POST /api/imports/reclassify-pending`은 `reclassify_cleanup()`을 직접 실행해 `CardFlow._classify()`, `_auto_record_locked()` 및 `assign_existing_local_expenses()`를 호출할 수 있다. 함수는 거래/장부 분류·기장·기존 행의 여행 귀속을 변경하고, OTA 보고서/스냅샷 의존도 사용한다. 미리보기 전용 엔드포인트, preview digest 검증, 적용 감사 기록은 발견되지 않았다. 그래서 UI 버튼 제거와 기존 POST 차단은 함께 설계되어야 하며, 유지보수 경로의 읽기 전용 미리보기·최신성 검증은 아직 구현하지 않았다.
 
-다음 실행 항목은 `V21-UI-ACCEPTANCE-01`의 남은 확대 상호작용 검증과 배포 전 보호 확인이다. `OZE-INCOME-DIAG-01`은 아래 0.15절에서 승인된 읽기 전용 진단을 진행했으나 대상 여행 행을 찾지 못해 원인을 확정하지 못했다. 유지관리 일괄 적용은 운영 자료로 실행하지 않았다.
+**당시 후속 계획:** `V21-UI-ACCEPTANCE-01`의 확대 상호작용 검증과 배포 전 보호 확인을 예정했다. `OZE-INCOME-DIAG-01`은 당시 0.15절 진단에서 대상 여행 행을 확인하지 못했다. 이후 실제 데이터 재확인은 **0.17절**을 따른다. 유지관리 일괄 적용은 운영 자료로 실행하지 않았다.
 
 **2026-10-26 후속 구현:** `EXPENSE-BULK-UI-01`에서 일반 지출 화면의 일괄 실행 버튼과 전용 JS를 제거하고, 건별 업무를 유지했다. 기존 `POST /api/imports/reclassify-pending`은 owner·CSRF 검증 뒤에도 `410 MAINTENANCE_FLOW_REQUIRED`를 반환해 호출만으로 재분류·장부 기록·여행 변경을 일으키지 않도록 닫았다. 합성 표적 검사 `test_cleanup_reclassification.py` 4개 통과. 세 테스트 파일 실행은 36개 통과, 2개 실패였으며, 실패는 이번 diff에서 바뀌지 않은 기존 문자열 검증 두 건이다. 기준 HEAD의 해당 코드/기대값은 변경 전부터 존재함을 확인했으며 기준 커밋에서 재실행하지는 않았다.
 
@@ -65,6 +65,18 @@
 배포 전 운영 백업·별도 복원 검증은 `D:/WebLedgerHost/data/backups/operational-20261025T173423505753Z/`에 있다. DB 5개와 파일 59개가 전후 상태 및 복원본과 일치했고, 비밀 파일 복사·실제 요청 재생·가져오기·복원 서버 시작은 없었다. 배포 후 task action, 8751 listener 실행 인자, 릴리스 표식이 모두 `47264123835d1a576f17fa8d27148bddee69a3f0`였으며 `/healthz`·`/readyz`는 200, 비인증 `/api/imports/ota`는 401이었다. `WebLedger-SourceRefresh`는 Running, `WebLedger-GoogleAuthority`와 `WebLedger-MailCollect`는 Ready로 관측했다. Google 쓰기나 기존 운영 거래 변경은 없었다. PowerShell 웹 요청의 NullReferenceException 뒤 `curl.exe`로 상태 코드를 확인했다.
 
 **남은 수락:** 운영 로그인 브라우저의 화면별 UI 확인은 미실행이므로 `V21-UI-ACCEPTANCE-01` PARTIAL이다. `0630_오제`의 정확한 대상 키는 운영 자료에서 확인되지 않아 `OZE-INCOME-DIAG-01`은 `UNKNOWN / ROOT_CAUSE_UNVERIFIED`다. 이 배포는 이 두 수락 항목을 완료 처리하지 않는다.
+
+**후속 읽기 전용 확인:** 이전 세션에서 지출 정리 화면의 `#ota-freshness`에 `Invalid string length`가 표시된 관측을 인계받았다. 현재 코드에서 해당 문구는 `/api/imports/ota` 요청의 `catch(error)`가 브라우저 오류를 그대로 표시하는 경로에 있고, API는 공개 snapshot과 freshness metadata를 JSON 응답으로 보낸다. 이는 응답 크기/직렬화 문제의 가능성을 가리키지만 원인을 입증하지 않는다. 인증된 Aside 탭 목록은 확인했으나 페이지 연결·snapshot 읽기가 응답 없이 멈춰 이번 재개에서 상태 코드·응답 크기를 측정하지 못했다. 운영 데이터 변경 요청은 보내지 않았고, 코드·운영 화면 수락 및 `0630_오제` 대상 키 확인은 미완료다.
+
+## 0.17 2026-10-26 11:00 KST 운영 읽기 전용 재확인 (0.15·0.16절 후속)
+
+**`OZE-INCOME-DIAG-01` 최신 데이터 판정:** 이전 세션의 11:00 세대 `google-authority/snapshot.json`과 `load_consistent()`로 검증한 비공개 상세행에 `0630_오제` 키가 존재했다. COST↔Google 매핑은 유일하고 선택 소스는 `main`(수동 선택 없음)이며 `source_current=True`, identity blocker 없음, 메인·보관 소스 상태 `ok`, `stale=False`다. 수입 블록 `verified=True`, 지출 블록 `verified=False`, 전체 여행 `overall_verified=False`다. 수입 상세 **35행**, 지출 상세 **30행**이고 수입 행 합계가 선택된 메인 수입 합계와 일치했다. 운영 금액·개인정보를 출력하거나 Google/운영 자료에 쓰지 않았다. 이전 0.15절의 키 부재 및 0.16절의 키 미확정은 **당시 관측 이력**이고, **현재 판단에서는 이 최신 결과로 대체**한다. 최초 PowerShell 조회에서 한글 키 인코딩 오류로 발생한 거짓 음성은 유니코드 코드포인트 키로 다시 조회해 바로잡았다.
+
+**수입 HTML 경로 (당시 브라우저 검증 전):** 실제 데이터의 `trip_income_html()` 직접 호출로 수입 패널과 수입 테이블 생성이 확인됐다(`DATA_AND_RENDER_PATH_VERIFIED`). 지출 미검증은 전체 여행 검증을 막지만 현재 수입 패널을 숨기는 조건은 아니다. 단, 해당 호출은 검사 프로세스의 owner 역할 설정을 사용했으며 **운영 로그인 브라우저의 세션 권한·CSS·가시성은 미검증**이다(`LIVE_BROWSER_UNVERIFIED`). 따라서 사용자에게 나타난 수입 표시 문제의 최종 원인은 여전히 `ROOT_CAUSE_UNVERIFIED`, 티켓은 `PARTIAL`이다. 다음 조사는 로그인 화면의 실제 표시와 권한만 읽기 전용으로 확인한다.
+
+**OTA 스냅샷 원인 확인:** 운영 `ota-snapshot.json` 약 512.4MB 중 `public.cards_by_event` 약 510.2MB가 포함돼 있었다. 1,050개 OTA 이벤트의 후보 행 약 779,558개에 고유 카드 거래 ID는 5,695개였으며, 이벤트 범위 중복 노출 비율이 약 99.269%다. 이는 브라우저 `Invalid string length`에 직접 연결되는 응답 비대화의 확인된 원인이다(`ROOT_CAUSE_CONFIRMED`). 단, 단순 거래 ID 기준 중복 제거는 이벤트별 선택 가능성·근거를 손상시킬 수 있으므로 허용하지 않는다. 최적화 구현·합성 검사·운영 배포 상태는 별도로 판정한다. 이전 PR #114 배포는 이미 완료됐고 해당 신규 최적화는 포함하지 않는다.
+
+**운영 로그인 브라우저 수입 표시 확인 (2026-10-26):** Aside 기존 인증 탭에서 여행 목록의 0630_오제를 열어 /board의 실제 화면을 읽기 전용으로 확인했다. #trip-income 및 #google-trip-income이 모두 display=block, visibility=visible, hidden=false이며 수입 details는 open=true였다. #google-trip-income .google-income-scroll table은 display=table, visibility=visible이고 화면 크기가 양수이며 tbody 수입 35행이 표시됐다. 관측 뷰포트는 1375×1026이다. 이를 LIVE_BROWSER_VISIBILITY_VERIFIED로 기록한다. 해당 인증 세션에서 수입 표시가 정상이라는 사실만 확정하며, 과거 사용자가 화면을 보지 못한 원인과 다른 계정의 권한, 375/759/1280px 및 200% 확대 수락은 미확정이다. 운영 쓰기·동기화는 없었다.
 
 ## 0.13 2026-10-25 최신 main vs 명세 구현 대조 (소스/PR 읽기 전용 감사)
 
