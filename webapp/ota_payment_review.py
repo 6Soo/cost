@@ -1351,7 +1351,7 @@ def _passenger_index(mail_directories) -> dict:
         if found.get('source_digests'):
             # 소유자 후보 조회에 필요한 검증 근거만 유지한다. 메일 본문은 담지 않는다.
             index[str(booking_ref)].update({key: found[key] for key in
-                ('booking_ref', 'passengers', 'legs', 'source_digests', 'digest', 'cancellation_status')
+                ('booking_ref', 'passengers', 'legs', 'source_digests', 'digest', 'cancellation_status', 'reserved_on', 'booking_date_status')
                 if key in found})
     return index
 
