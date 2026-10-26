@@ -1497,6 +1497,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
             data = backend._data()
             snapshot_full = backend.snapshot_from(data, include_cards=True)
             snapshot_cards = snapshot_full["cards_by_event"]["evt-test"]
+            backend._action_data = lambda: (dict(zip(('events', 'transactions', 'links', 'results'), data)), {})
 
             # Get cards_for_event (per-event build)
             cards_endpoint = [ota_payment_review._sanitize_card_row(card)
@@ -1743,6 +1744,8 @@ class OtaPaymentReviewTests(unittest.TestCase):
 
             # This event is MATCHED_AUTO (not a HOLD) so it won't be in holds
             # But cards_for_event should still work
+            data = backend._data()
+            backend._action_data = lambda: (dict(zip(('events', 'transactions', 'links', 'results'), data)), {})
             cards = backend.cards_for_event("evt-matched")
 
             # Should return the matched card row
