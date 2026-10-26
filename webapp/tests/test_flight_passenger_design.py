@@ -8,7 +8,7 @@ from webapp import flight_passenger_page as page
 
 
 def test_design_tokens_and_accessibility_markup_present():
-    document = page._page('csrf-synth')
+    document = page._legacy_page('csrf-synth')
     # Design token variables must be declared in the style block
     assert '--bg:#F8FAFC' in document
     assert '--ink:#0F172A' in document
@@ -55,13 +55,13 @@ def test_design_tokens_and_accessibility_markup_present():
 
 
 def test_csrf_token_cannot_terminate_script_element():
-    document = page._page('</script><script>alert(1)</script>')
+    document = page._legacy_page('</script><script>alert(1)</script>')
     assert r'const csrf="\u003c/script>\u003cscript>alert(1)\u003c/script>";' in document
     assert '</script><script>alert(1)' not in document
 
 
 def test_save_full_fixture_with_css():
-    document = page._page('csrf-synth')
+    document = page._legacy_page('csrf-synth')
     out_dir = Path('C:/Users/kkokk/AppData/Local/Temp/cost-goal-20261025/flight-ui')
     out_dir.mkdir(parents=True, exist_ok=True)
     fixture_path = out_dir / 'flight-passenger-render.html'

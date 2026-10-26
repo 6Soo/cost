@@ -104,9 +104,9 @@ def test_owner_page_exposes_candidate_search_and_explicit_cost_confirmation_only
         handled = page.dispatch(handler, urlsplit('/flight-passengers'), is_owner=True,
                                 board=object(), csrf='csrf-synth')
     assert handled is True
-    assert '연결 후보 찾기' in handler.body
-    assert '/api/flight-passengers/candidates' in handler.body
-    assert '/api/flight-passengers/assign' in handler.body
+    assert '항공권 예약 확인' in handler.body
+    assert '탑승객 이름' in handler.body
+    assert '/api/flight-passengers/name-search' in handler.body
     assert '실제 탑승 여부' in handler.body
     assert not (tmp_path / 'flight.sqlite').exists()
 
@@ -121,7 +121,7 @@ def test_handler_wraps_flight_page_with_shared_navigation():
     response.send_header = lambda name, value: None
     response.end_headers = lambda: None
     with patch.object(ledger_board, 'ACCESS_ENFORCEMENT', False):
-        ledger_board.Handler._send(response, page._page('csrf-synth'))
+        ledger_board.Handler._send(response, page._legacy_page('csrf-synth'))
     rendered = response.wfile.getvalue().decode('utf-8')
     assert rendered.count("id='nav'") == 1
     assert rendered.count('id="site-content"') == 1
@@ -138,7 +138,7 @@ def test_browser_wrapped_flight_page_responsive_theme_and_zoom():
     from playwright.sync_api import sync_playwright
 
     with patch('webapp.ledger_design.nav_region', return_value=''):
-        document = site_shell.wrap_document(page._page('csrf-synth'), '/flight-passengers')
+        document = site_shell.wrap_document(page._legacy_page('csrf-synth'), '/flight-passengers')
 
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)
@@ -184,7 +184,7 @@ def test_browser_owner_selects_candidate_and_confirms_only_cost_assignment():
     proposal['assignment'] = {'stale': True, 'candidate_reference_id': 'opaque-synth',
                               'candidate': {'name_kr': '김알파'}}
     requests = []
-    document = page._page('csrf-synth')
+    document = page._legacy_page('csrf-synth')
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)
         try:
@@ -229,7 +229,7 @@ def test_browser_displays_duplicate_passenger_candidates_without_choosing_for_ow
          'name_en': 'KIM/ALPHA', 'status': 'confirmed'},
     ]}
     proposal = match_booking_passengers(EVIDENCE, ambiguous_authority)['passengers'][0]
-    document = page._page('csrf-synth')
+    document = page._legacy_page('csrf-synth')
     with sync_playwright() as api:
         browser = api.chromium.launch(headless=True)
         try:
