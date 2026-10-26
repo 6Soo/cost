@@ -7,6 +7,31 @@ from webapp import ota_catalog
 from webapp.ledger_store import LedgerStore
 
 
+def test_catalog_build_computes_unchanged_trip_boundaries_once(data, monkeypatch):
+    board, sources = data
+    calls = []
+    original = ota_catalog.handover_days
+    monkeypatch.setattr(ota_catalog, 'handover_days', lambda trips: (calls.append(1), original(trips))[1])
+    result = ota_catalog._build_index(board, sources)
+    assert len(result['entries']) == 3
+    assert len(calls) == 1
+
+
+def test_stale_catalog_keeps_rows_labeled_while_refresh_is_requested(data, monkeypatch):
+    board, sources = data
+    expected = ota_catalog.catalog(board, {}, sources=sources)
+    changes = board.conn.total_changes
+    monkeypatch.setattr(ota_catalog, '_signature', lambda *_: 'changed-key')
+    monkeypatch.setattr(ota_catalog, '_build_index', lambda *_: pytest.fail('list GET rebuilt inline'))
+    requests = []
+    monkeypatch.setattr(ota_catalog, '_start_rebuild', lambda *args: requests.append(args))
+    current = ota_catalog.catalog(board, {}, sources=sources, allow_stale=True)
+    assert requests and current['refresh_state'] != 'ready'
+    assert current['rows'] == expected['rows']
+    assert '이전 자료를 표시합니다' in ota_catalog.render_html(current, {})
+    assert board.conn.total_changes == changes
+
+
 def source_database(path):
     conn = sqlite3.connect(path)
     conn.executescript('''
@@ -85,7 +110,8 @@ def test_core_ordered_pairs_reach_booking_screen_without_promoting_exact(data, m
     monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
     monkeypatch.setattr(ota_payment_review, 'snapshot_service', lambda _: SimpleNamespace(
         held=lambda: (current, state['fresh'])))
-    flow = SimpleNamespace(board=board, _ota_report=lambda: {'matches': []})
+    flow = SimpleNamespace(board=board, _ota_report=lambda: {'matches': []},
+                           _canonical_snapshot_report=lambda _: {'matches': []})
     before = board.conn.total_changes
     live, _, error = ota_catalog._card_matches(flow)
     assert not error and len(live) == 2

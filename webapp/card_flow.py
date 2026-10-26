@@ -1623,6 +1623,7 @@ class CardFlow:
         from app import quarter_costs
         holds = dict(self.ota_group_holds())
         rows = self.pipeline.get_batch(batch_id)['rows']
+        projection_index = self._projection_index()
         for row in rows:
             tid = row['transaction_id']
             if row.get('classification_state') != 'classified':
@@ -1631,7 +1632,8 @@ class CardFlow:
                 if not quarter_costs.destination(row) and not local_expense_without_trip(row):
                     holds.setdefault(tid, {'kind': 'trip_needed', 'reason': '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.'})
             source = self.board.conn.execute('SELECT issuer,card_tail,approval_number,posting_date,foreign_amount,foreign_currency,transaction_kind,approval_date FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
-            if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date'))):
+            if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
+                                       projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
         from app.partial_refund import refund_links
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
@@ -2794,7 +2796,7 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
     return "<div class='cleanup-refund-candidates'>" + ''.join(lines) + '</div>'
 
 
-def _render_refund_evidence(board, tid: str, link: dict) -> str:
+def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=None) -> str:
     """원결제 연결과 실제 기록 상태를 금융 판정 변경 없이 표시한다."""
     from .ledger_board import esc
     if link:
@@ -2824,7 +2826,8 @@ def _render_refund_evidence(board, tid: str, link: dict) -> str:
                     if _foreign_amount(candidate[3]) == _foreign_amount(foreign[2])]
         if any(any(v for v in candidate) for candidate in originals):
             title, lines = '원결제 원본 충돌 확인 필요', ['원결제 후보의 중복·원본 오류를 먼저 확인해 주세요.']
-        elif len(originals) > 1 or tid in count_held_cancellations(board.conn):
+        elif len(originals) > 1 or tid in (count_held_cancellations(board.conn)
+                                         if held_cancellations is None else held_cancellations):
             title, lines = '원결제 후보를 하나로 정할 수 없습니다', ['승인 정보와 원결제·환불 건수를 함께 확인해 주세요.']
         elif originals:
             title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
@@ -2880,6 +2883,11 @@ def render_expense_cleanup(board, csrf, *, page=1):
                         'reason': '금융 보호 검사 결과를 읽지 못했습니다. 카드 자료 전체 검토에서 다시 확인해 주세요.'}
     cancellation_ids = {row[0] for row in board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
+    from app.partial_refund import refund_links, count_held_cancellations
+    visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
+    refund_by_id = refund_links(board.conn, visible_refunds)
+    held_refunds = (count_held_cancellations(board.conn)
+                    if any(tid not in refund_by_id for tid in visible_refunds) else set())
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -2942,9 +2950,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 reason = '현재 OTA 연결 상태를 확인할 수 있습니다.'
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
-            from app.partial_refund import refund_links
-            links = refund_links(board.conn, [tid])
-            link = links.get(tid)
+            link = refund_by_id.get(tid)
             if link is None:
                 reason = '취소 거래의 원결제 연결을 확인할 수 없습니다. 원결제와 함께 확인하기 전에는 기록하지 않습니다.'
             else:
@@ -2957,7 +2963,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
                     reason = '환불 합계가 원결제를 넘어 금액 충돌이 있습니다. 쌍 전체 기록을 보류합니다.'
                 else:
                     reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
-            evidence = _render_refund_evidence(board, tid, link)
+            evidence = _render_refund_evidence(board, tid, link, held_cancellations=held_refunds)
             # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
             review = (f"<details class='cleanup-review' open><summary>원결제·취소 자료</summary>{evidence}"
                       f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
