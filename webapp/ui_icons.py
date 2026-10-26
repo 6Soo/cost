@@ -20,6 +20,8 @@ _SIZE = {14, 16, 18}
 # 각 값은 <svg> 안쪽 요소 문자열이다. 24x24, 채움 없음, 선 색상은
 # currentColor를 그대로 사용하므로 버튼 글자색을 따라간다.
 ICONS = {
+    "sun": "<circle cx='12' cy='12' r='4'/><path d='M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5'/>",
+    "moon": "<path d='M21 13a9 9 0 0 1-10-10A9 9 0 1 0 21 13z'/>",
     "plane": "<path d='m22 2-7 20-4-9-9-4z'/><path d='m22 2-11 11'/>",
     "bed": "<path d='M3 18V6m18 12V10H3m0 5h18M7 10V7h6v3'/>",
     "bus": "<rect x='5' y='3' width='14' height='17' rx='3'/><path d='M5 11h14M8 20v2m8-2v2M8 15h.01M16 15h.01'/>",
