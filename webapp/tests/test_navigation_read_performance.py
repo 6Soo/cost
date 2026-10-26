@@ -1,6 +1,7 @@
 """Synthetic read performance contracts also preserve financial guard results."""
 import json
 import threading
+import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -36,7 +37,8 @@ def test_catalog_page_without_saved_index_returns_loading_without_rebuilding_inl
     assert '불러오는 중' in html and '조회된 OTA 예약이 없습니다' not in html
 
 
-def test_catalog_display_does_not_wait_for_startup_prewarm_cache_lock(tmp_path, monkeypatch):
+@pytest.mark.parametrize('phase', ['build', 'save'])
+def test_catalog_display_does_not_wait_for_startup_prewarm_cache_lock(tmp_path, monkeypatch, phase):
     from webapp import ota_catalog
     board = SimpleNamespace(path=tmp_path / 'board.sqlite')
     entered, release, returned = threading.Event(), threading.Event(), threading.Event()
@@ -46,18 +48,26 @@ def test_catalog_display_does_not_wait_for_startup_prewarm_cache_lock(tmp_path, 
     monkeypatch.setattr(ota_catalog, '_saved_value_for_stale', lambda _: None)
     monkeypatch.setattr(ota_catalog, '_save_index', lambda *_: True)
     monkeypatch.setattr(ota_catalog, '_start_rebuild', lambda *_: None)
-    def build(*_):
+    def block():
         entered.set()
         release.wait(5)
+    def build(*_):
+        if phase == 'build':
+            block()
         return {'entries': [], 'warnings': [], 'trips': [], 'months': [], 'providers': []}
+    def save(*_):
+        if phase == 'save':
+            block()
+        return True
     monkeypatch.setattr(ota_catalog, '_build_index', build)
+    monkeypatch.setattr(ota_catalog, '_save_index', save)
     prewarm = threading.Thread(target=lambda: ota_catalog._index(board, {}, rebuild=True))
     display = threading.Thread(target=lambda: (ota_catalog._index(board, {}, allow_stale=True), returned.set()))
     prewarm.start()
     try:
         assert entered.wait(2)
         display.start()
-        assert returned.wait(2), 'read-only display queued behind a startup index build'
+        assert returned.wait(2), f'read-only display queued behind startup index {phase}'
     finally:
         release.set()
         prewarm.join(5)

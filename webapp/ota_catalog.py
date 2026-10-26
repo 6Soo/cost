@@ -726,9 +726,9 @@ def _start_rebuild(board, sources, key):
                         with _REBUILD_LOCK:
                             _REBUILD['active_key'] = active_key
                         continue
+                    if not _save_index(board, active_key, value):
+                        raise OSError('OTA_INDEX_SAVE_FAILED')
                     with _INDEX_LOCK:
-                        if not _save_index(board, active_key, value):
-                            raise OSError('OTA_INDEX_SAVE_FAILED')
                         _INDEX['value'] = value
                         _INDEX['key'] = (id(board), active_key)
                     return
@@ -755,9 +755,10 @@ def _index(board, sources, *, rebuild=False, allow_stale=False):
     with _INDEX_LOCK:
         if _INDEX['key'] == (id(board), key):
             return _INDEX['value']
-        stale = (_INDEX['value'] if _INDEX['key'] and _INDEX['key'][0] == id(board)
-                 else _saved_value_for_stale(board)) if allow_stale and not rebuild else None
+        stale = _INDEX['value'] if _INDEX['key'] and _INDEX['key'][0] == id(board) else None
     if allow_stale and not rebuild:
+        if stale is None:
+            stale = _saved_value_for_stale(board)
         _start_rebuild(board, sources, key)
         return stale if stale is not None else {
             'entries': [], 'warnings': [], 'trips': [], 'months': [], 'providers': []}
@@ -770,9 +771,9 @@ def _index(board, sources, *, rebuild=False, allow_stale=False):
         built = value is None
         if value is None:
             value = _build_index(board, sources)
+        if built and not _save_index(board, key, value):
+            raise OSError('OTA_INDEX_SAVE_FAILED')
         with _INDEX_LOCK:
-            if built and not _save_index(board, key, value):
-                raise OSError('OTA_INDEX_SAVE_FAILED')
             _INDEX['value'] = value
             _INDEX['key'] = (id(board), key)
         return value
