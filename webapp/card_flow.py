@@ -218,6 +218,7 @@ def _link_diagnosis_label(reason):
         'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
         'payment_date_unknown': '결제일 근거 없음 · 날짜 확인 필요',
         'card_identity': '카드 끝자리나 카드사가 맞지 않음 · 확인 필요',
+        'provider': '예약 제공자와 카드 가맹점이 맞지 않음 · 연결 불가',
         'corroboration': '업체 근거(승인된 가맹점 별칭) 없음 · 확인 필요',
         'date': '카드 날짜와 결제일이 맞지 않음 · 확인 필요',
         'amount': '카드 금액과 결제 금액이 맞지 않음 · 확인 필요',
@@ -1635,6 +1636,11 @@ class CardFlow:
         from app.partial_refund import refund_links
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         for refund, link in refund_links(self.board.conn, [r['transaction_id'] for r in rows]).items():
+            # A classified full offset belongs in refunds, so an automatic trip
+            # request cannot block it. Persisted/manual/financial holds remain.
+            if (link['status'] == 'full' and link['original_id'] not in booked_now
+                    and holds.get(link['original_id'], {}).get('kind') == 'trip_needed'):
+                holds.pop(link['original_id'])
             if link['original_id'] not in holds and holds.get(refund, {}).get('kind') in ('trip_needed', 'classification_needed'):
                 holds.pop(refund)
             # 전액 상쇄 쌍은 환불이 여행이나 항목을 기다릴 필요가 없다. 원거래가 기록돼 있으면 환불도 환불 탭으로 간다.
@@ -2530,6 +2536,22 @@ def _index_ota_display_candidates(current: dict) -> dict:
     data = current.get('data') or {}
     events = {str(row.get('ota_event_id') or ''): row for row in data.get('events') or ()}
     from app.ota_labels import OTA_REASON
+    from app.ota_payments import provider_compatible
+    from decimal import Decimal, InvalidOperation
+    cards = {str(row.get('transaction_id') or ''): row for row in data.get('transactions') or ()}
+
+    def amount_text(amount, currency):
+        if amount in (None, ''):
+            return '금액 미확인'
+        try:
+            number = Decimal(str(amount))
+            if not number.is_finite():
+                return '금액 미확인'
+            value = f'{number:,f}'
+        except (InvalidOperation, ValueError):
+            return '금액 미확인'
+        return value + ('원' if currency == 'KRW' else ' ' + (currency or '통화 미확인'))
+
     indexed = {}
     seen = set()
     for result in [*(current.get('results') or ()), *(data.get('results') or ())]:
@@ -2539,7 +2561,8 @@ def _index_ota_display_candidates(current: dict) -> dict:
         booking = str(event.get('booking_ref') or '예약 번호 미확인')
         provider = str(event.get('provider') or 'OTA')
         trace = result.get('candidate_search') or {}
-        for kind, values in (('후보', result.get('candidates') or ()),
+        result_kind = '금액 비교' if result.get('status') == 'HOLD_AMOUNT_MISMATCH' else '후보'
+        for kind, values in ((result_kind, result.get('candidates') or ()),
                              ('후보', trace.get('candidates') or ()),
                              ('제외', trace.get('rejected') or ())):
             for value in values:
@@ -2551,6 +2574,10 @@ def _index_ota_display_candidates(current: dict) -> dict:
                 else:
                     identity, why = str(value or ''), result.get('reason')
                 if identity:
+                    card = cards.get(identity)
+                    if (card and result.get('status') not in ('MATCHED_AUTO', 'MATCHED_USER')
+                            and not provider_compatible(event, card, data.get('rules') or ())):
+                        continue
                     reason = ('결제일 확인 필요' if why == 'payment_date_unknown' else
                               OTA_REASON.get(str(why), _link_diagnosis_label(why)) if why else '')
                     period = event.get('service_period') or {}
@@ -2560,8 +2587,19 @@ def _index_ota_display_candidates(current: dict) -> dict:
                     item = (identity, booking, provider, kind, str(reason or ''), str(date_note or ''))
                     if item not in seen:
                         seen.add(item)
+                        currency = str(event.get('currency') or '').upper()
+                        native = event.get('amount')
+                        if native in (None, '') and currency == 'KRW':
+                            native = event.get('amount_krw')
+                        label = '예약 결제액 ' if event.get('event_type') in ('charge', 'refund') else '예약 원문 금액 '
+                        amounts = label + amount_text(native, currency)
+                        if card:
+                            amounts += ' · 카드 청구액 ' + amount_text(card.get('amount_krw'), 'KRW')
+                            if card.get('foreign_amount') not in (None, ''):
+                                amounts += ' · 카드 외화 ' + amount_text(card['foreign_amount'], card.get('foreign_currency'))
                         indexed.setdefault(identity, []).append(
                             f"{provider} 예약 {booking} · {kind}"
+                            + f' · {amounts}'
                             + (f" · 근거 {reason}" if reason else '')
                             + (f" · 이용/결제일 {date_note}" if date_note else ''))
         reserved_ids = result.get('reserved_card_ids') or ()
