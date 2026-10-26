@@ -479,3 +479,26 @@ PR-1과 PR-2의 순서는 기술적 의존성이 확인되면 유지하고, PR-0
 | THEME-AC-07 | 합성 Chromium에서 **시스템 다크 + 수동 라이트**, **시스템 라이트 + 수동 다크**, 새로고침·페이지 간 유지·DOM 중복 없음을 표적 테스트한다. 운영 로그인 브라우저 수락은 별도 기록하며 미확인 시 `NOT_TESTED`. |
 
 **구현 티켓:** `THEME-TOGGLE-01` 단일 소규모 PR, 독립 검증 후 병합. 이미 배포된 시스템 다크모드·사이드메뉴·항공권 UX 전체를 다시 구현하지 않는다. 운영 배포는 기존 운영 승인·검증 절차를 따른다.
+
+## 14. 장부 화면 스크롤 시 전체 화면 이탈·하단 빈 영역 방지 (SCROLL-VIEWPORT-01, 2026-10-26)
+
+> 사용자 제보 화면은 `0630_오제`의 거래 목록과 사이드메뉴가 일정 높이에서 함께 끝나고, 그 아래에 넓은 다크 배경이 보이는 상태다. 이는 **실제 브라우저 증상**이지만 캡처 한 장만으로 body 스크롤, 뷰포트 리사이즈, 확대, 특정 CSS 충돌 중 단일 원인은 확정되지 않는다. 이 PR은 우선 장부의 바깥 body 스크롤 연쇄를 차단하는 최소 코드 조치이며 실사용 브라우저 수락은 별도로 필요하다.
+
+**코드 관측과 최소 변경**
+
+- `webapp/ledger_design.py`: `.app`은 `height:100dvh`, `.nav`와 `.main`은 `overflow:auto`로 독립 스크롤을 선언했지만 바깥 `body` 스크롤은 명시적으로 차단하지 않았다. 브라우저에 따라 바깥 문서가 스크롤되면 메뉴와 콘텐츠가 함께 위로 이동할 수 있다.
+- 장부 루트 `body:has(>.app)`에만 `overflow:hidden`을 적용하고, `.app`은 `100dvh`·`min-height:0`·`overflow:hidden`을 유지한다. 이 CSS는 **별도 standalone 페이지의 body를 일괄 봉쇄하지 않는다**.
+- 세로 이동이 필요한 거래 내역은 `.main`, 긴 여행 목록은 `#nav`에만 스크롤이 생겨야 한다. 모바일 햄버거/내비게이션 drawer와 카드 상세 패널은 독립 스크롤을 유지한다. sticky 헤더·키보드/휠·터치 스크롤의 정상 사용을 보호한다.
+- 만약 실제 사용자 환경에서 하단 빈 영역이 재현된다면 `document.scrollingElement.scrollTop`, `documentElement/body.scrollHeight`, `window.innerHeight`, `.app/#main/#nav`의 `getBoundingClientRect`, `visualViewport.height`를 함께 기록해 CSS 뷰포트 불일치나 상위 container 크기 문제를 분리한다. 고객정보는 수집하지 않는다.
+
+**수락 기준**
+
+| ID | 기대 결과 |
+| --- | --- |
+| SCROLL-AC-01 | `/board?tab=...`에서 문서 body 자체는 스크롤되지 않고 사이드메뉴와 본문은 뷰포트 전체 높이를 차지한다. 표 목록 끝에서 휠을 더 내려도 앱 바깥의 빈 다크 영역이 노출되지 않는다. |
+| SCROLL-AC-02 | 사이드바 스크롤은 본문 스크롤에 영향을 주지 않으며, 본문을 스크롤해도 여행 선택과 메뉴 위치가 사라지지 않는다. |
+| SCROLL-AC-03 | 375/390/759/760/1280px, 200% 확대, 키보드 PageDown/Tab, 마우스 휠, 모바일 터치 스크롤에서 거래 마지막 행까지 도달 가능하며 잠금으로 콘텐츠가 잘리지 않는다. |
+| SCROLL-AC-04 | `/cards/all`, `/flight-passengers`, `/import` 등의 standalone/다른 스크롤 구조에는 부작용이 없고, 모바일 드로어·편집 패널이 계속 스크롤된다. |
+| SCROLL-AC-05 | 실제 운영 로그인 브라우저에서 제보 화면을 같은 조건으로 확인한다. 재현·검증이 없다면 `BROWSER_NOT_TESTED`를 유지하며 완료라고 단정하지 않는다. |
+
+**상태:** `MINIMAL_CSS_PATCH` 제안/소스 적용, `LIVE_BROWSER_NOT_VERIFIED`. 금융·DB·Google 쓰기 변경 없음.

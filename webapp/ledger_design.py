@@ -128,6 +128,8 @@ STYLE = """
 }
 }
 html,body{height:100%}
+/* Keep the ledger shell inside the viewport. Only its nav and main panes scroll. */
+body:has(>.app){overflow:hidden}
 body{margin:0;background:var(--bg);color:var(--ink);
  font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,
    "Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;
@@ -142,7 +144,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
 .synth{display:inline-block;font-size:11.5px;line-height:17px;padding:0 7px;border:1px solid var(--line);
  border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
 
-.app{display:flex;height:100dvh;min-height:0}
+.app{display:flex;height:100dvh;min-height:0;overflow:hidden}
 .work-menu{padding:12px 24px;border-bottom:1px solid var(--line);background:var(--paper)}
 .work-menu h2{font-size:14px;margin:0 0 8px}
 .work-actions{display:flex;flex-wrap:wrap;gap:8px}
