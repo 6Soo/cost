@@ -76,6 +76,51 @@ def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
         board.close()
 
 
+def test_kakao_taxi_aliases_are_diagnostic_only_and_exclude_other_services():
+    from webapp.card_flow import _refund_merchant_key
+    aliases = (
+        '카카오T가승인_유페이', '카카오T일반택시(법인)_0',
+        '카카오택시 선승인', 'Kakao Taxi 일반',
+        '카카오모빌리티 택시요금',
+    )
+    assert {_refund_merchant_key(name) for name in aliases} == {'카카오택시'}
+    for other in ('카카오페이 편의점', '카카오 선물하기', '카카오T 대리',
+                  '카카오T 주차', '유페이', '카카오모빌리티 퀵'):
+        assert _refund_merchant_key(other) != '카카오택시'
+
+
+def test_kakao_alias_review_shows_only_same_card_earlier_taxi_payments(tmp_path):
+    from webapp.card_flow import _refund_merchant_candidates_readonly, _refund_merchant_key
+    store = LedgerStore(tmp_path / 'kakao-evidence.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(store)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,카카오T일반택시(법인)_0,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,9800,,,9800,2026-10-02,2026-10-03,A200,,매입\n' +
+            '국민,1234,domestic,purchase,카카오페이편의점,9800,,,9800,2026-10-02,2026-10-03,A300,,매입\n' +
+            '국민,9999,domestic,purchase,카카오T일반택시,9800,,,9800,2026-10-02,2026-10-03,A400,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T주차,9800,,,9800,2026-10-02,2026-10-03,A500,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T일반택시,9800,,,9800,2026-10-03,2026-10-04,A600,,매입\n'
+        ).encode(), 'kakao-synthetic.csv')['batch_id']
+        records = flow.pipeline.get_batch(batch)['rows']
+        ids = {r['approval_number']: r['transaction_id'] for r in records}
+        refund = ids['200']
+        store.conn.execute('UPDATE transactions SET transaction_direction=?,amount_krw=? WHERE transaction_id=?',
+                           ('cancellation', -9800, refund))
+        store.conn.commit()
+        before = list(store.conn.iterdump())
+        original, matches, total = _refund_merchant_candidates_readonly(store, refund)
+        assert total == 1
+        assert [row[0] for row in matches] == [ids['100']]
+        html = _render_refund_merchant_candidates(store, refund)
+        assert '표기 변형' in html and '16,000원' in html
+        assert '카카오페이' not in html and ids['400'] not in html and ids['600'] not in html
+        assert 'cleanup-merchant-compare' in html and '원결제 연결은 미확정' in html
+        assert list(store.conn.iterdump()) == before
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize('scenario', ['full', 'partial', 'excess', 'manual', 'conflict', 'other_batch'])
 def test_classified_full_refund_without_trip_uses_refund_tab_but_keeps_protection(tmp_path, monkeypatch, scenario):
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
