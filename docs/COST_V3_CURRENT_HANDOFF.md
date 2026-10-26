@@ -421,3 +421,13 @@
 - 사용자 승인 명세의 원칙은 [COST V3 진입점](COST_V3_START_HERE.md)과 두 세부 명세가 권위이며, **이 문서는 작업 진행 상태와 검증·재개 순서의 권위**다.
 - 새 기능이 끝나면 이 문서의 P0~P3와 증거를 업데이트하고 완료 항목을 '재구현 금지'로 표시. 과거 전문과 운영 이력을 삭제하거나 숫자를 현재값처럼 재해석하지 않는다.
 - 새 세션에서 이 문서가 오래됐다는 이유로 무조건 R0부터 다시 구현하지 않는다. 현재 Git 증거/테스트/로그로 먼저 비교한다.
+
+## 0.18 2026-10-26 OTA 카드 후보 응답 최적화 운영 반영
+
+**기준 SHA:** `36f6cb32ac09805079e5ddb5641fe01032088fa7`가 `origin/main`과 운영 런타임에 반영됐다. OTA snapshot 응답은 전체 카드 후보 묶음을 내보내지 않고, 예약별 후보 건수만 공개 snapshot에 담은 뒤 선택한 이벤트의 카드 후보를 `/api/imports/ota/cards/<event_id>`에서 읽도록 변경했다. 거래 ID 중복 제거로 이벤트별 근거를 잃지 않도록 기존 event별 후보 기준은 유지한다. 응답 필드 허용 목록과 저장된 예약 관계·금액/통화 불일치 차단 근거를 보존한다.
+
+**코드 검증:** 구현 에이전트가 `python -m pytest webapp/tests/test_ota_payment_review.py -q` 결과 39 passed를 보고했고 `py_compile`도 오류 없이 끝났다. 직접 통합 후에도 같은 표적 파일의 39개 검사가 통과했다. 전체 회귀는 변경 범위와 지침에 따라 실행하지 않았다.
+
+**운영 반영:** 943개 추적 파일을 릴리스 archive와 대조했고 핵심 파일 7개의 blob 해시가 일치했다. `WebLedger-Board` 작업 정의와 8751 listener가 SHA `36f6cb3`를 가리키며 `/healthz`·`/readyz`는 200, 비인증 OTA API는 401이다. 기존 복원 검증 사본과 직전 릴리스 `4726412`를 복구 경로로 유지했다. 예약 작업 전·후 XML은 `D:/WebLedgerHost/config/board-task-before-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml` 및 `board-task-after-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml`에 있다. DB·Google 원본 쓰기, 가져오기, 동기화는 없었다.
+
+**남은 수락:** 로그인 브라우저에서 OTA 화면 및 후보 선택 UI 스모크는 Aside 탭 연결이 응답하지 않아 `NOT_RUN`이다. 변경된 API의 비인증 권한 경계는 401로 확인했으나 인증된 화면 동작으로 대신하지 않는다. `V21-UI-ACCEPTANCE-01`은 PARTIAL 유지, `OZE-INCOME-DIAG-01`의 과거 표시 실패 원인은 ROOT_CAUSE_UNVERIFIED 유지다. 앞 절의 `4726412` 배포 기록은 당시 이력이며 현행 runtime은 이 절의 SHA다.

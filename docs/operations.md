@@ -1,3 +1,13 @@
+## 2026-10-26 OTA 카드 후보 응답 최적화 배포
+
+통합 커밋 `36f6cb32ac09805079e5ddb5641fe01032088fa7`를 `origin/main`에 일반 push하고 `D:/WebLedgerHost/releases/36f6cb32ac09805079e5ddb5641fe01032088fa7`로 배포했다. Git archive의 추적 파일 943개를 풀어 파일 수를 대조했고, `ota_payment_review.py`, 해당 표적 검사, 호스트 실행기, 런처, 장부 화면, 공통 디자인, 이 문서 등 핵심 파일 7개의 Git blob 해시가 일치했다. `DEPLOYED_COMMIT` 표식도 같은 SHA다. 기존 릴리스 `47264123835d1a576f17fa8d27148bddee69a3f0`는 복구 대상으로 보존했다.
+
+`WebLedger-Board` 작업 XML은 이전·변경 후 파일을 `D:/WebLedgerHost/config/board-task-before-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml` 및 `board-task-after-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml`에 보존했다. 작업 정의와 127.0.0.1:8751 listener는 새 SHA를 가리키며 작업 상태는 Running이다. `/healthz`와 `/readyz`는 200, 비인증 `/api/imports/ota`는 401이다. `WebLedger-SourceRefresh`는 Running, `WebLedger-GoogleAuthority`와 `WebLedger-MailCollect`는 Ready다.
+
+배포 전 복구 가능성은 기존 검증 증거 `D:/WebLedgerHost/data/backups/operational-20261025T173423505753Z/` 및 `cost-spec-deploy-20261026-evidence.json`을 재사용했다(DB 5개·보호 파일 59개, 별도 복원 비교 및 원본 불변 확인). 새 DB 복사·마이그레이션·Google 쓰기·가져오기·동기화는 없었다. OTA 화면의 로그인 브라우저 확인은 Aside의 기존 탭 연결이 응답하지 않고 새 탭이 빈 화면을 반환해 **NOT_RUN**이다. 이를 성공으로 처리하지 않으며 V21 전체 화면 수락은 계속 PARTIAL이다.
+
+`webapp/tests/test_ota_payment_review.py` 표적 검사는 39 passed였고, `ota_payment_review.py` 및 테스트 파일의 `py_compile`은 오류 없이 완료됐다. OTA 응답 최적화 외의 사용자 화면 수락 및 `0630_오제` 과거 표시 실패 원인은 이 배포로 완료 처리하지 않는다.
+
 # 현재 운영 상태
 
 ## 2026-10-26 COST UI 명세 구현 릴리스
