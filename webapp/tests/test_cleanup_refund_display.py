@@ -109,6 +109,10 @@ def test_kakao_alias_review_shows_only_same_card_earlier_taxi_payments(tmp_path)
                            ('cancellation', -9800, refund))
         store.conn.commit()
         before = list(store.conn.iterdump())
+        from webapp.card_flow import _kakao_merchant_inventory_readonly
+        inventory = _kakao_merchant_inventory_readonly(store)
+        assert sum(x['count'] for x in inventory if x['family'] == '카카오택시') == 4
+        assert sum(x['count'] for x in inventory if x['family'] != '카카오택시') == 2
         original, matches, total = _refund_merchant_candidates_readonly(store, refund)
         assert total == 1
         assert [row[0] for row in matches] == [ids['100']]
