@@ -2800,6 +2800,21 @@ def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
     return refund, candidates[:max_rows], len(candidates)
 
 
+def _kakao_merchant_inventory_readonly(board):
+    """All currently stored Kakao-labeled rows, grouped without personal/card IDs.
+
+    This is an owner-facing diagnostic inventory, NOT a matching or rule table.
+    """
+    rows = board.conn.execute(
+        "SELECT merchant,transaction_direction,COUNT(*) FROM transactions "
+        "WHERE merchant LIKE '%카카오%' OR lower(merchant) LIKE '%kakao%' "
+        "GROUP BY merchant,transaction_direction ORDER BY merchant,transaction_direction"
+    ).fetchall()
+    return [{"merchant": name, "direction": direction, "count": int(count),
+             "family": _refund_merchant_key(name)}
+            for name, direction, count in rows]
+
+
 def _render_refund_merchant_candidates(board, tid: str) -> str:
     """Show review candidates only. Nothing is saved or automatically linked."""
     from urllib.parse import urlencode
@@ -2822,6 +2837,24 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
         parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
                      " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
                      " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다.</p>")
+    if key == "카카오택시":
+        inventory = _kakao_merchant_inventory_readonly(board)
+        taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
+        other_count = sum(item["count"] for item in inventory if item["family"] != "카카오택시")
+        parts.append("<details class='cleanup-kakao-inventory'><summary>"
+                     f"전체 카카오 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
+                     "</summary><p class='cleanup-evidence-meta'>현재 저장된 카드 원행의 가맹점 표기를 "
+                     "읽기 전용으로 집계합니다. 카카오페이·기타 서비스는 택시 후보에서 분리하며 "
+                     "원결제 매칭이나 계좌 출금 증거로 사용하지 않습니다.</p>")
+        for item in inventory[:40]:
+            group = "택시 표기" if item["family"] == "카카오택시" else "별도 서비스"
+            parts.append(f"<p class='cleanup-evidence-meta'>{esc(group)} · "
+                         f"{esc(item['merchant'])} · {esc(item['direction'])} "
+                         f"{item['count']}건</p>")
+        if len(inventory) > 40:
+            parts.append(f"<p class='cleanup-evidence-meta'>표기 {len(inventory)}종 중 "
+                         "40종만 펼쳐 보여줍니다. 집계는 전체 원행 기준입니다.</p>")
+        parts.append("</details>")
     if candidates:
         parts.append("<div class='cleanup-compare-list' role='list'>")
         ids = [r[0] for r in candidates]
