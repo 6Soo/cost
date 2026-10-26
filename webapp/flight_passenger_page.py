@@ -1,11 +1,14 @@
 """Owner-only, COST-local flight passenger candidate review; reservation reads only."""
 
 import json
+import hashlib
 import unicodedata
 import os
 import sqlite3
+from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 from app import flight_passenger_matching, reservation_authority
 
@@ -103,9 +106,95 @@ catch(error){status.textContent=error.message}finally{searchButton.disabled=fals
 
 
 def _page(csrf):
-    """Name-first, read-only flight booking verification UI (owner only)."""
     token = json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
-    return "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>항공권 예약 확인</title>\n<style>\n:root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--good:#047857;--warn:#a16207}\n@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--good:#6ee7b7;--warn:#fbbf24}}\n*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 system-ui,\"Malgun Gothic\",sans-serif}\n#flight-booking-page{max-width:1080px;margin:32px auto;padding:0 22px 64px}\n#flight-booking-page h1{font-size:26px;margin:0 0 6px}#flight-booking-page h2{font-size:17px;margin:0 0 12px}\n#flight-booking-page p{margin:0 0 14px}.fb-muted{color:var(--mut)}.fb-panel{border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:20px;margin-top:18px}\n#flight-booking-page form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}#flight-booking-page label{display:grid;gap:6px;flex:1 1 250px;font-weight:650}\n#flight-booking-page input{font:inherit;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);min-width:0;width:100%}\n#flight-booking-page button{font:inherit;min-height:44px;padding:10px 16px;border:1px solid var(--line);border-radius:9px;background:var(--hover);color:var(--ink);font-weight:650;cursor:pointer}\n#flight-booking-page button:disabled{opacity:.55;cursor:wait}#flight-booking-page button:focus-visible,#flight-booking-page input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}\n.fb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.fb-field{min-width:0}.fb-field small{display:block;color:var(--mut)}.fb-field strong{overflow-wrap:anywhere}\n.fb-status{font-size:12px;display:inline-block;border:1px solid var(--line);border-radius:100px;padding:3px 9px;margin:0 0 10px;color:var(--mut)}\n.fb-ticket{border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:14px;background:var(--paper)}\n.fb-ticket h3{font-size:17px;margin:0 0 12px}.fb-section{border-top:1px solid var(--line);margin-top:15px;padding-top:14px}\n.fb-note{border-left:3px solid var(--warn);padding:9px 12px;background:var(--hover);color:var(--ink);font-size:13px}\n#fb-status{min-height:24px;margin-top:12px}#fb-results{margin-top:16px}\n@media(max-width:600px){#flight-booking-page{margin:18px auto;padding:0 12px 36px}.fb-grid{grid-template-columns:minmax(0,1fr)}.fb-panel{padding:14px}#flight-booking-page form{display:grid}#flight-booking-page h1{font-size:22px}}\n</style></head><body><main id=\"flight-booking-page\">\n<h1>항공권 예약 확인</h1><p class=\"fb-muted\">탑승객 이름으로 항공권 예약과 연결된 카드 결제 내역을 확인합니다.</p>\n<section class=\"fb-panel\" aria-label=\"항공권 조회\">\n<form id=\"fb-search\"><label for=\"fb-name\">탑승객 이름<input id=\"fb-name\" name=\"name\" placeholder=\"영문 또는 한글 이름\" autocomplete=\"off\" required maxlength=\"100\"></label><button type=\"submit\" id=\"fb-submit\">예약 조회</button></form>\n<p class=\"fb-muted\" id=\"fb-status\" role=\"status\" aria-live=\"polite\">이름을 입력해 예약 내역을 조회해 주세요.</p></section>\n<section id=\"fb-results\" aria-label=\"예약 조회 결과\"></section></main>\n<script>\nconst CSRF=__CSRF__;\nconst form=document.getElementById('fb-search'),resultRoot=document.getElementById('fb-results'),status=document.getElementById('fb-status'),submit=document.getElementById('fb-submit');\nfunction text(parent,tag,value,klass){const e=document.createElement(tag);if(klass)e.className=klass;e.textContent=String(value??'');parent.append(e);return e}\nfunction field(parent,label,value){const wrap=document.createElement('div');wrap.className='fb-field';text(wrap,'small',label);text(wrap,'strong',value||'확인되지 않음');parent.append(wrap)}\nfunction showBooking(b){\nconst card=document.createElement('article');card.className='fb-ticket';\ntext(card,'span',b.cancelled?'취소·변경 근거 확인 필요':b.conflict?'원본 충돌 · 확인 필요':'예약 근거 확인','fb-status');\ntext(card,'h3',(b.booking_ref||'예약번호 미확인')+' · '+(b.passenger_name||'이름 미확인'));\nconst grid=document.createElement('div');grid.className='fb-grid';\nfield(grid,'항공권 예약번호',b.booking_ref);field(grid,'탑승객',b.passenger_name);\nfield(grid,'예약일','확인되지 않음');field(grid,'원본 근거',b.source_verified?'최신 항공권 자료':'근거 확인 필요');\ncard.append(grid);\nconst segments=document.createElement('div');segments.className='fb-section';text(segments,'h2','탑승권·여정 정보');\nif(Array.isArray(b.legs)&&b.legs.length){for(const leg of b.legs){const line=document.createElement('div');line.className='fb-grid';const entries=Object.entries(leg||{}).filter(([k,v])=>['flight_number','flight_no','origin','destination','departure','arrival','departure_date','arrival_date'].includes(k)&&v);for(const [k,v] of entries)field(line,({flight_number:'편명',flight_no:'편명',origin:'출발',destination:'도착',departure:'출발',arrival:'도착',departure_date:'출발일',arrival_date:'도착일'})[k],v);if(entries.length)segments.append(line)}}\nif(segments.children.length===1)text(segments,'p','확인된 상세 여정 정보가 없습니다.','fb-muted');card.append(segments);\nconst linked=document.createElement('div');linked.className='fb-section';text(linked,'h2','연결된 카드 결제');text(linked,'p','이 조회에서는 확정된 카드 연결 근거를 아직 검증할 수 없습니다. 카드 거래가 없거나 미결제라는 뜻은 아닙니다.','fb-note');card.append(linked);\nconst candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p','원본에 확인된 항공권 예약일이 없어 동일 날짜의 카드 거래를 안전하게 조회할 수 없습니다. 결제일이나 이메일 수신일을 예약일로 추정하지 않습니다.','fb-muted');card.append(candidates);\nreturn card}\nform.addEventListener('submit',async e=>{e.preventDefault();resultRoot.replaceChildren();submit.disabled=true;status.textContent='항공권 예약 내역을 찾고 있습니다.';\ntry{const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:form.elements.name.value.trim()}),cache:'no-store'});const data=await response.json();if(!response.ok)throw new Error(({'INVALID_NAME':'탑승객 이름을 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.'})[data.code]||'항공권 조회에 실패했습니다.');\nfor(const booking of data.reservations||[])resultRoot.append(showBooking(booking));status.textContent=(data.reservations||[]).length?'확인된 예약 '+data.reservations.length+'건. 카드 결제 연결은 별도 검증이 필요합니다.':'일치하는 항공권 예약이 없습니다. 영문 이름 표기와 원본 수집 상태를 확인해 주세요.';}\ncatch(error){status.textContent=error.message}finally{submit.disabled=false}});\n</script></body></html>" .replace('__CSRF__', token)
+    return """<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>항공권 예약 확인</title>
+<style>
+:root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--good:#047857;--warn:#a16207}
+@media(prefers-color-scheme:dark){:root{--bg:#0f172a;--paper:#1e293b;--ink:#f8fafc;--mut:#cbd5e1;--line:#334155;--hover:#334155;--focus:#93c5fd;--good:#6ee7b7;--warn:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 system-ui,"Malgun Gothic",sans-serif}
+#flight-booking-page{max-width:1080px;margin:32px auto;padding:0 22px 64px}
+#flight-booking-page h1{font-size:26px;margin:0 0 6px}#flight-booking-page h2{font-size:17px;margin:0 0 12px}
+#flight-booking-page p{margin:0 0 14px}.fb-muted{color:var(--mut)}.fb-panel{border:1px solid var(--line);border-radius:14px;background:var(--paper);padding:20px;margin-top:18px}
+#flight-booking-page form{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}#flight-booking-page label{display:grid;gap:6px;flex:1 1 250px;font-weight:650}
+#flight-booking-page input{font:inherit;min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);min-width:0;width:100%}
+#flight-booking-page button{font:inherit;min-height:44px;padding:10px 16px;border:1px solid var(--line);border-radius:9px;background:var(--hover);color:var(--ink);font-weight:650;cursor:pointer}
+#flight-booking-page button:disabled{opacity:.55;cursor:wait}#flight-booking-page button:focus-visible,#flight-booking-page input:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.fb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.fb-field{min-width:0}.fb-field small{display:block;color:var(--mut)}.fb-field strong{overflow-wrap:anywhere}
+.fb-status{font-size:12px;display:inline-block;border:1px solid var(--line);border-radius:100px;padding:3px 9px;margin:0 0 10px;color:var(--mut)}
+.fb-ticket{border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:14px;background:var(--paper)}
+.fb-ticket h3{font-size:17px;margin:0 0 12px;overflow-wrap:anywhere}.fb-ticket p{overflow-wrap:anywhere}.fb-ticket summary,.fb-ticket a{display:block;min-height:44px;padding:10px 0}.fb-section{border-top:1px solid var(--line);margin-top:15px;padding-top:14px}
+.fb-note{border-left:3px solid var(--warn);padding:9px 12px;background:var(--hover);color:var(--ink);font-size:13px}
+#fb-status{min-height:24px;margin-top:12px}#fb-results{margin-top:16px}
+@media(max-width:600px){#flight-booking-page{margin:18px auto;padding:0 12px 36px}.fb-grid{grid-template-columns:minmax(0,1fr)}.fb-panel{padding:14px}#flight-booking-page form{display:grid}#flight-booking-page h1{font-size:22px}}
+</style></head><body><main id="flight-booking-page">
+<h1>항공권 예약 확인</h1><p class="fb-muted">탑승객 이름으로 항공권 예약과 연결된 카드 결제 내역을 확인합니다.</p>
+<p class="fb-muted">이 조회는 예약·결제나 실제 탑승 여부를 확정하지 않습니다.</p>
+<section class="fb-panel" aria-label="항공권 조회">
+<form id="fb-search"><label for="fb-name">탑승객 이름<input id="fb-name" name="name" placeholder="영문 또는 한글 이름" autocomplete="off" required maxlength="100"></label><button type="submit" id="fb-submit">예약 조회</button></form>
+<p class="fb-muted" id="fb-status" role="status" aria-live="polite">이름을 입력해 예약 내역을 조회해 주세요.</p></section>
+<section id="fb-results" aria-label="예약 조회 결과"></section><button id="fb-more" type="button" hidden>예약 더 보기</button></main>
+<script>
+const CSRF=__CSRF__;
+const form=document.getElementById('fb-search'),resultRoot=document.getElementById('fb-results'),status=document.getElementById('fb-status'),submit=document.getElementById('fb-submit');
+const more=document.getElementById('fb-more');let nextOffset=null,sourceRevision=null,searchName='';
+function text(parent,tag,value,klass){const e=document.createElement(tag);if(klass)e.className=klass;e.textContent=String(value??'');parent.append(e);return e}
+function field(parent,label,value){const wrap=document.createElement('div');wrap.className='fb-field';text(wrap,'small',label);text(wrap,'strong',value||'확인되지 않음');parent.append(wrap)}
+function showBooking(b){
+const card=document.createElement('article');card.className='fb-ticket';
+text(card,'span',b.cancelled?'취소·변경 근거 확인 필요':b.conflict?'원본 충돌 · 확인 필요':'예약 근거 확인','fb-status');
+text(card,'h3',(b.booking_ref||'예약번호 미확인')+' · '+(b.passenger_name||'이름 미확인'));
+const grid=document.createElement('div');grid.className='fb-grid';
+field(grid,'항공권 예약번호',b.booking_ref);field(grid,'탑승객',b.passenger_name);
+field(grid,'예약일','확인되지 않음');field(grid,'원본 근거',b.source_verified?'최신 항공권 자료':'근거 확인 필요');
+card.append(grid);
+const segments=document.createElement('div');segments.className='fb-section';text(segments,'h2','탑승권·여정 정보');
+for(const leg of Array.isArray(b.legs)?b.legs:[]){
+const line=document.createElement('div');line.className='fb-grid';
+for(const [key,label] of [['label','구간'],['origin_city','출발'],['destination_city','도착'],['departure_on','출발일']]){
+if(leg?.[key])field(line,label,leg[key])}
+if(line.children.length)segments.append(line);
+for(const segment of Array.isArray(leg?.segments)?leg.segments:[]){
+const detail=document.createElement('div');detail.className='fb-grid';
+for(const [key,label] of [['flight_number','편명'],['departure_airport','출발 공항'],['departure_time','출발 시각'],['arrival_airport','도착 공항'],['arrival_time','도착 시각']]){
+if(segment?.[key])field(detail,label,segment[key])}
+if(detail.children.length)segments.append(detail)}
+}
+if(segments.children.length===1)text(segments,'p','확인된 상세 여정 정보가 없습니다.','fb-muted');card.append(segments);
+const linked=document.createElement('div');linked.className='fb-section';text(linked,'h2','연결된 카드 결제');
+if(Array.isArray(b.linked_cards)&&b.linked_cards.length){
+text(linked,'p','사용자가 확인한 거래 연결입니다. 예약 전체의 결제 완료를 뜻하지 않습니다.','fb-note');
+for(const tx of b.linked_cards){const info=document.createElement('div');info.className='fb-grid';
+field(info,'거래일',tx.approval_date);field(info,'가맹점',tx.merchant);
+field(info,'원화 금액',tx.amount_krw==null?null:String(tx.amount_krw)+'원');
+field(info,'외화 금액·통화',[tx.foreign_amount,tx.currency].filter(v=>v!=null&&v!=='').join(' '));
+field(info,'승인번호',tx.approval_number);field(info,'거래 유형',tx.event_type==='refund'?'환불 거래':'원결제 거래');
+field(info,'취소 상태',tx.cancellation_status);field(info,'환불 상태',tx.refund_status);
+field(info,'연결 근거','사용자 확인');linked.append(info);
+if(tx.amount_status!=='MATCH'||tx.currency_status!=='MATCH')text(linked,'p','결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.','fb-note');
+if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){const detail=text(linked,'a','카드 원행 상세 보기');detail.href=tx.detail_href}
+}}else{text(linked,'p','이 조회에서는 확정된 카드 연결 근거를 아직 검증할 수 없습니다. 카드 거래가 없거나 미결제라는 뜻은 아닙니다.','fb-note')}
+card.append(linked);
+const candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p','원본에 확인된 항공권 예약일이 없어 동일 날짜의 카드 거래를 안전하게 조회할 수 없습니다. 결제일이나 이메일 수신일을 예약일로 추정하지 않습니다.','fb-muted');card.append(candidates);
+const manualDate=text(candidates,'a','카드 전체 내역에서 날짜별 원행 확인');manualDate.href='/cards/all';
+const participant=document.createElement('details');participant.className='fb-section';
+text(participant,'summary','참가자 연결 정보');
+text(participant,'p','기존 참가자 연결 기능에서 예약 명단과 비교하고 COST 내부 연결을 확인할 수 있습니다.','fb-muted');
+const link=text(participant,'a','참가자 연결 정보 열기');link.href='/flight-passengers?view=participants';card.append(participant);
+return card}
+async function loadBookings(reset){
+if(reset){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}
+submit.disabled=true;more.disabled=true;status.textContent='항공권 예약 내역을 찾고 있습니다.';
+try{
+const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store'});
+const data=await response.json();if(!response.ok)throw new Error(({'INVALID_NAME':'탑승객 이름을 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 이름을 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다.');
+for(const booking of data.reservations||[])resultRoot.append(showBooking(booking));
+sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
+const count=resultRoot.querySelectorAll('.fb-ticket').length;
+status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다. 같은 이름의 예약은 예약번호와 여정을 각각 확인해 주세요.':'이 이름으로 확인된 항공권 예약이 없습니다. 영문 표기를 확인해 주세요.';
+}catch(error){status.textContent=error.message;more.hidden=true}finally{submit.disabled=false;more.disabled=false}}
+form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;searchName=form.elements.name.value.trim();loadBookings(true)});
+more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBookings(false)});
+</script></body></html>""".replace('__CSRF__', token)
 
 def _name_key(value):
     """Only normalize spelling and token order, never infer Korean transliteration."""
@@ -114,14 +203,90 @@ def _name_key(value):
     return tuple(sorted(token for token in tokens if token))
 
 
-def _name_search(board, name):
+def _confirmed_card_index(board, passenger_index):
+    """Project only current owner-confirmed payment links from the held snapshot.
+
+    No reconciliation, file reads, store creation, or inferred-link promotion here.
+    The passenger and payment evidence must belong to the same fresh generation.
+    """
+    from app.ota_payments import _event_is_paid, _event_amount
+    service = getattr(board, '_ota_snapshot_service', None)
+    if service is None:
+        return {}
+    current, fresh = service.held()
+    if not fresh or not current or not current.get('data'):
+        return {}
+    data = current['data']
+    links = data.get('links') or {}
+    events = {str(e.get('ota_event_id')): e for e in data.get('events') or []}
+    cards = {str(c.get('transaction_id')): c for c in data.get('transactions') or []}
+    owners = defaultdict(set)
+    for event_id, link in links.items():
+        if isinstance(link, dict) and link.get('transaction_id'):
+            owners[str(link['transaction_id'])].add(str(event_id))
+    for result in data.get('results') or []:
+        event_id = str(result.get('ota_event_id') or '')
+        ids = list(result.get('reserved_card_ids') or [])
+        if result.get('status') in ('MATCHED_USER', 'MATCHED_AUTO') and result.get('transaction_id'):
+            ids.append(result['transaction_id'])
+        for transaction_id in ids:
+            owners[str(transaction_id)].add(event_id)
+    found = defaultdict(list)
+    for result in data.get('results') or []:
+        event_id = str(result.get('ota_event_id') or '')
+        tid = str(result.get('transaction_id') or '')
+        event, link, card = events.get(event_id), links.get(event_id), cards.get(tid)
+        if (result.get('status') != 'MATCHED_USER' or not event or not isinstance(link, dict)
+                or link.get('status') != 'MATCHED_USER' or not card
+                or str(link.get('transaction_id') or '') != tid or owners[tid] != {event_id}):
+            continue
+        booking_ref = str(event.get('booking_ref') or '')
+        evidence = passenger_index.get(booking_ref) or {}
+        held_evidence = (data.get('passengers') or {}).get(booking_ref) or {}
+        if (event.get('provider') != 'trip' or not evidence.get('digest')
+                or held_evidence.get('digest') != evidence['digest']
+                or not _event_is_paid(event) or _event_amount(event) is None
+                or not link.get('source_digest')
+                or link['source_digest'] != event.get('source_digest')
+                or any(row.get('evidence_changed') or row.get('evidence_missing')
+                       for row in (event, link, result))):
+            continue
+        currency = str(card.get('foreign_currency') or card.get('currency') or '').upper()
+        event_currency = str(event.get('currency') or '').upper()
+        amount_status = 'UNVERIFIED'
+        left = event.get('amount_krw', event.get('amount')) if event_currency == 'KRW' else event.get('amount')
+        right = card.get('amount_krw') if event_currency == 'KRW' else card.get('foreign_amount')
+        if event_currency == 'KRW' or event_currency and event_currency == currency:
+            try:
+                a, b = Decimal(str(left)), Decimal(str(right))
+                if a.is_finite() and b.is_finite():
+                    amount_status = 'MATCH' if abs(a) == abs(b) else 'MISMATCH'
+            except (InvalidOperation, ValueError):
+                pass
+        row = {key: card.get(key) for key in ('transaction_id', 'approval_date', 'merchant',
+               'amount_krw', 'foreign_amount', 'refund_status', 'cancellation_status')}
+        row.update(currency=currency, approval_number=card.get('approval_number') or card.get('authorization_id'),
+                   direction=card.get('transaction_direction') or card.get('direction'),
+                   event_type=event.get('event_type'), ota_event_id=event_id, link_source='USER_CONFIRMED',
+                   amount_status=amount_status,
+                   currency_status='MATCH' if currency and currency == event_currency else 'UNVERIFIED',
+                   detail_href='/board?' + urlencode({'row': 'card-' + tid}))
+        found[booking_ref].append(row)
+    return found
+
+
+def _name_search(board, name, *, offset=0, revision=None):
     """Read the already-verified fresh passenger index without requiring tour ID."""
     from .ota_payment_review import passenger_index_for
     query = _name_key(name)
     if not query:
-        return {'reservations': []}
+        raise ValueError('INVALID_NAME')
+    if type(offset) is not int or offset < 0 or offset > 1000000 or offset and not revision:
+        raise ValueError('INVALID_CURSOR')
     index = passenger_index_for(board, require_fresh=True)
+    cards = _confirmed_card_index(board, index)
     results = []
+    fingerprints = []
     for booking_ref, evidence in index.items():
         if not isinstance(evidence, dict) or not evidence.get('source_digests'):
             continue
@@ -132,11 +297,30 @@ def _name_search(board, name):
             full_name = ' '.join((str(person.get('surname') or ''), str(person.get('given_name') or ''))).strip()
             if _name_key(full_name) != query:
                 continue
+            legs = []
+            for leg in evidence.get('legs') or []:
+                projected = {key: leg.get(key) for key in ('label', 'origin_city', 'destination_city', 'departure_on')}
+                projected['segments'] = [{key: segment.get(key) for key in
+                    ('flight_number', 'departure_airport', 'departure_time', 'arrival_airport', 'arrival_time')}
+                    for segment in leg.get('segments') or []]
+                legs.append(projected)
             results.append({'booking_ref': str(booking_ref), 'passenger_name': full_name,
-                            'legs': evidence.get('legs') or [], 'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
-                            'conflict': bool(evidence.get('conflict')), 'source_verified': True})
+                            'legs': legs, 'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
+                            'conflict': bool(evidence.get('conflict')), 'source_verified': True,
+                            'linked_cards': cards.get(str(booking_ref), []), 'provider': 'trip'})
+            fingerprints.append((str(booking_ref), evidence.get('digest'), evidence.get('source_digests')))
             break
-    return {'reservations': results[:100], 'truncated': len(results) > 100}
+    results.sort(key=lambda row: row['booking_ref'])
+    results.sort(key=lambda row: max((leg.get('departure_on') or '' for leg in row['legs']), default=''), reverse=True)
+    current_revision = hashlib.sha256(json.dumps([sorted(fingerprints), results],
+        sort_keys=True, ensure_ascii=True, default=str).encode()).hexdigest()
+    if revision is not None and revision != current_revision:
+        raise LookupError('SOURCE_CHANGED')
+    end = offset + 100
+    return {'reservations': results[offset:end], 'truncated': len(results) > end,
+            'next_offset': end if len(results) > end else None, 'total': len(results),
+            'revision': current_revision, 'source_status': 'VERIFIED' if any(
+                isinstance(row, dict) and row.get('source_digests') for row in index.values()) else 'UNAVAILABLE'}
 
 
 def _passenger_evidence(board, booking_ref):
@@ -258,7 +442,7 @@ def dispatch(handler, parsed, *, is_owner, board, raw=None, csrf='', query=None,
         return True
     query = query or parse_qs(getattr(parsed, 'query', '') or '')
     if parsed.path == ROUTES[0] and raw is None:
-        handler._send(_page(csrf))
+        handler._send(_legacy_page(csrf) if query.get('view') == ['participants'] else _page(csrf))
         return True
     if parsed.path == ROUTES[1] and raw is None:
         booking_ref = str((query.get('booking_ref') or [''])[0]).strip()
@@ -286,10 +470,15 @@ def dispatch(handler, parsed, *, is_owner, board, raw=None, csrf='', query=None,
             return True
         try:
             payload = json.loads(raw.decode('utf-8'))
+            if not isinstance(payload, dict):
+                raise ValueError('INVALID_NAME')
             name = payload.get('name')
             if not isinstance(name, str) or not 1 <= len(name.strip()) <= 100:
                 raise ValueError('INVALID_NAME')
-            result = _name_search(board, name.strip())
+            result = _name_search(board, name.strip(), offset=payload.get('offset', 0),
+                                  revision=payload.get('revision'))
+        except LookupError:
+            _send(handler, {'code': 'SOURCE_CHANGED'}, 409)
         except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
             _send(handler, {'code': 'INVALID_NAME'}, 422)
         else:
