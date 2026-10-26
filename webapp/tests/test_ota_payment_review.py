@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from typing import Any
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest import mock
@@ -75,7 +76,8 @@ class FakeBackend:
     def snapshot(self):
         self.calls.append(("snapshot",))
         event = {**EVENT, "source_inventory": {"secret": "private-fixture-path"},
-                 "source_digest": "secret-digest", "raw_row_json": "secret-event"}
+                 "source_digest": "secret-digest", "raw_row_json": "secret-event",
+                 "card_candidate_count": len(cards())}
         rows = [{**row, "raw_row_json": "secret-card", "classification_private": "secret"}
                 for row in cards()]
         return {"events": [event], "cards_by_event": {EVENT["ota_event_id"]: rows},
@@ -107,6 +109,20 @@ class FakeBackend:
 
     def refresh_after_import(self, transaction_ids):
         self.calls.append(("refresh_after_import", list(transaction_ids)))
+
+    def cards_for_event(self, event_id):
+        self.calls.append(("cards_for_event", event_id))
+        # Return processed card data similar to real implementation
+        processed = []
+        for row in cards():
+            r = {**row, "raw_row_json": "secret-card", "classification_private": "secret"}
+            r.setdefault("approval_number", r.get("approval_number") or r.get("authorization_id"))
+            r.setdefault("currency", r.get("foreign_currency") or r.get("currency"))
+            r["direction"] = (r.get("transaction_direction") or r.get("direction") or "미확인")
+            if r.get("already_linked_event_id") and not r.get("already_linked_label"):
+                r["already_linked_label"] = "다른 예약"
+            processed.append(r)
+        return processed
 
 
 class FakeHandler:
@@ -361,17 +377,38 @@ class OtaPaymentReviewTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual(handler.response[0], 200)
         snapshot = handler.response[2]
-        self.assertEqual(len(snapshot["cards_by_event"][EVENT["ota_event_id"]]), 12)
-        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["merchant"], "Merchant 11")
-        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["approval_number"], "AUTH-11")
-        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["already_linked_event_id"], "evt-synth-other")
-        self.assertEqual(snapshot["cards_by_event"][EVENT["ota_event_id"]][11]["already_linked_label"], "다른 예약")
+        # Main snapshot no longer includes cards (lazy-loaded via /cards/<event_id>)
+        self.assertEqual(snapshot["cards_by_event"], {})
         self.assertIn("다음 결제에도 적용할까요?", snapshot["proposals"][0]["question"])
+        # Verify card_candidate_count is present for UI badge
+        self.assertGreaterEqual(snapshot["events"][0]["card_candidate_count"], 12)
         serialized = json.dumps(snapshot)
         for forbidden in ("raw_row_json", "classification_private", "source_inventory",
                           "private-fixture-path", "secret-event", "source_digest"):
             self.assertNotIn(forbidden, serialized)
         self.assertEqual([call[0] for call in backend.calls], ["snapshot"])
+        # Also test the new cards endpoint
+        handler2 = FakeHandler(backend, "/api/imports/ota/cards/" + EVENT["ota_event_id"])
+        handled2 = ota_payment_review.dispatch(handler2, urlsplit(handler2.path), backend=backend)
+        self.assertTrue(handled2)
+        self.assertEqual(handler2.response[0], 200)
+        cards_response = handler2.response[2]
+        self.assertEqual(cards_response["event_id"], EVENT["ota_event_id"])
+        self.assertEqual(len(cards_response["cards"]), 12)
+        self.assertEqual(cards_response["cards"][11]["merchant"], "Merchant 11")
+        self.assertEqual(cards_response["cards"][11]["approval_number"], "AUTH-11")
+        self.assertEqual(cards_response["cards"][11]["already_linked_event_id"], "evt-synth-other")
+        self.assertEqual(cards_response["cards"][11]["already_linked_label"], "다른 예약")
+        # Verify internal/private fields are NOT leaked via cards endpoint
+        serialized_cards = json.dumps(cards_response)
+        for forbidden in ("raw_row_json", "classification_private", "source_inventory",
+                          "private-fixture-path", "secret-event", "source_digest"):
+            self.assertNotIn(forbidden, serialized_cards)
+        # Verify allowed fields are present
+        self.assertIn("transaction_id", serialized_cards)
+        self.assertIn("selection_disabled", serialized_cards)
+        self.assertIn("already_linked_event_id", serialized_cards)
+        self.assertIn("approval_number", serialized_cards)
 
     def test_owner_diagnostic_reads_public_snapshot_without_reconciliation_or_private_source_data(self):
         backend = FakeBackend()
@@ -1170,7 +1207,7 @@ class OtaPaymentReviewTests(unittest.TestCase):
         self.assertEqual([row["transaction_id"] for row in rows], [
             "card-duplicate", "card-parse-error", "card-conflict", "card-normal"])
         twice = ota_payment_review.public_snapshot({
-            "events": [], "cards_by_event": {EVENT["ota_event_id"]: rows}, "proposals": []})
+            "events": [], "cards_by_event": {EVENT["ota_event_id"]: rows}, "proposals": []}, include_cards=True)
         public_rows = twice["cards_by_event"][EVENT["ota_event_id"]]
         expected_reasons = ["중복 거래라 선택할 수 없습니다.",
                             "거래 파싱 오류가 있어 선택할 수 없습니다.",
@@ -1209,9 +1246,9 @@ class OtaPaymentReviewTests(unittest.TestCase):
             {"transaction_id": "fallback", "transaction_direction": "", "direction": "refund"},
             {"transaction_id": "unknown", "transaction_direction": None, "direction": None},
         ]}, "proposals": []}
-        once = ota_payment_review.public_snapshot(raw)["cards_by_event"]["evt-direction"]
+        once = ota_payment_review.public_snapshot(raw, include_cards=True)["cards_by_event"]["evt-direction"]
         twice = ota_payment_review.public_snapshot({"events": [], "cards_by_event": {"evt-direction": once},
-                                                     "proposals": []})["cards_by_event"]["evt-direction"]
+                                                     "proposals": []}, include_cards=True)["cards_by_event"]["evt-direction"]
         self.assertEqual([row["direction"] for row in twice], ["refund", "refund", "미확인"])
 
 
@@ -1314,5 +1351,405 @@ class OtaPaymentReviewTests(unittest.TestCase):
             self.assertEqual(matcher_result["status"], "HOLD_PARTIAL_GROUP")
             self.assertEqual(set(matcher_result["candidates"]),
                              {"range-card--1", "range-card-0", "range-card-1", "range-card-2"})
+            backend.close()
+            board_conn.close()
+
+    def test_cards_for_event_equivalence_with_snapshot_from_financial_logic(self):
+        """Test that cards_for_event returns identical financial post-processing as snapshot_from.
+
+        Verifies risk cases:
+        - Group/partial group holds disable individual selection
+        - Already occupied cards from other events show already_linked_*
+        - Amount/date mismatches produce correct selection_disabled + reason
+        - Reservation history cards are included with selection_disabled
+        - Rejected candidates (AMOUNT_MISMATCH, CURRENCY_MISMATCH) appear with correct reason
+        """
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory, ExitStack() as resources:
+            board_path = Path(directory) / "board.sqlite"
+            review_path = Path(directory) / "review.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            resources.callback(board_conn.close)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.executescript("""
+                CREATE TABLE transactions (
+                    transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,
+                    issuer TEXT, card_tail TEXT, transaction_direction TEXT, approval_date TEXT,
+                    posting_date TEXT, amount_krw INTEGER, classification_state TEXT,
+                    classification_source TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
+                    foreign_amount TEXT, currency TEXT, foreign_currency TEXT,
+                    authorization_id TEXT, cancellation_status TEXT, refund_status TEXT
+                );
+                CREATE TABLE board_rows (row_id TEXT, row_kind TEXT);
+            """)
+            board_conn.executemany("""INSERT INTO transactions VALUES
+                (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [
+                # Base event cards (same date)
+                ("card-base-01", "hash-01", "Hotel A", "hotel-a", "Bank A", "1111", "purchase", "2026-09-04", "2026-09-05", 100000, "classified", "automatic", "", "", "", "100.00", "USD", "USD", "AUTH-01", "not_cancelled", "no_refund"),
+                ("card-base-02", "hash-02", "Hotel A", "hotel-a", "Bank A", "2222", "purchase", "2026-09-04", "2026-09-05", 105000, "classified", "automatic", "", "", "", "105.00", "USD", "USD", "AUTH-02", "not_cancelled", "no_refund"),
+                # Occupied by another event
+                ("card-occupied", "hash-occ", "Hotel B", "hotel-b", "Bank B", "3333", "purchase", "2026-09-04", "2026-09-05", 100000, "classified", "automatic", "", "", "", "100.00", "USD", "USD", "AUTH-OCC", "not_cancelled", "no_refund"),
+                # Amount mismatch
+                ("card-amount-mismatch", "hash-amt", "Hotel A", "hotel-a", "Bank A", "4444", "purchase", "2026-09-04", "2026-09-05", 90000, "classified", "automatic", "", "", "", "90.00", "USD", "USD", "AUTH-AMT", "not_cancelled", "no_refund"),
+                # Currency mismatch
+                ("card-currency-mismatch", "hash-cur", "Hotel A", "hotel-a", "Bank A", "5555", "purchase", "2026-09-04", "2026-09-05", 100000, "classified", "automatic", "", "", "", "90.00", "EUR", "EUR", "AUTH-CUR", "not_cancelled", "no_refund"),
+                # Date unknown
+                ("card-date-unknown", "hash-dat", "Hotel A", "hotel-a", "Bank A", "6666", "purchase", "2026-09-01", "2026-09-02", 100000, "classified", "automatic", "", "", "", "100.00", "USD", "USD", "AUTH-DAT", "not_cancelled", "no_refund"),
+                # History card (already confirmed)
+                ("card-history", "hash-hist", "Hotel A", "hotel-a", "Bank A", "7777", "purchase", "2026-09-04", "2026-09-05", 100000, "classified", "automatic", "", "", "", "100.00", "USD", "USD", "AUTH-HIST", "not_cancelled", "no_refund"),
+            ])
+            board_conn.commit()
+
+            # Create review DB with a confirmed link for card-history
+            review_path.touch()
+            from app.ota_review import OtaReviewStore
+            store = OtaReviewStore(str(review_path))
+            event = {
+                "ota_event_id": "evt-test", "provider": "agoda", "booking_ref": "BOOK-001",
+                "event_type": "charge", "paid_on": "2026-09-04", "amount": 100000,
+                "amount_krw": 100000, "currency": "KRW", "source_digest": "digest-test",
+                "evidence_status": "paid_verified", "payment_status": "paid"
+            }
+            transaction = {
+                "transaction_id": "card-history", "merchant": "Hotel A", "amount_krw": 100000,
+                "approval_date": "2026-09-04", "posting_date": "2026-09-05"
+            }
+            preview = store.preview(event, transaction)
+            store.confirm(event, transaction, preview["preview_digest"],
+                          request_id="req-hist", user="test", allocations={})
+            occupied_event = {
+                "ota_event_id": "evt-other", "provider": "synthetic", "booking_ref": "BOOK-OTHER",
+                "event_type": "charge", "paid_on": "2026-09-04", "amount": 100000,
+                "amount_krw": 100000, "currency": "KRW", "source_digest": "digest-other",
+                "evidence_status": "paid_verified", "payment_status": "paid"
+            }
+            occupied_transaction = {
+                "transaction_id": "card-occupied", "merchant": "Hotel B", "amount_krw": 100000,
+                "approval_date": "2026-09-04", "posting_date": "2026-09-05"
+            }
+            occupied_preview = store.preview(occupied_event, occupied_transaction)
+            store.confirm(occupied_event, occupied_transaction, occupied_preview["preview_digest"],
+                          request_id="req-occupied", user="test", allocations={})
+            store.close()
+            # Ensure store connection is closed before temp dir cleanup
+
+            # Build backend
+            from app import ota_payments
+            payments = ota_payments
+
+            class TestPayments:
+                def build_ota_payment_events(self, _sources):
+                    return [{
+                        "ota_event_id": "evt-test", "provider": "agoda", "booking_ref": "BOOK-001",
+                        "event_type": "charge", "paid_on": "2026-09-04",
+                        "amount": 100000, "amount_krw": 100000, "currency": "KRW",
+                        "service_period": {"starts_on": "2026-10-01", "ends_on": "2026-10-03"},
+                        "item": "Standard Room", "source_digest": "digest-test",
+                        "status": "HOLD_AMBIGUOUS", "reason": "Multiple candidates"
+                    }]
+
+                def match_ota_payment_events(self, events, transactions, *, existing_links=None, rules=None, frozen_groups=None):
+                    return [{
+                        "ota_event_id": "evt-test", "status": "HOLD_AMBIGUOUS",
+                        "reason": "Multiple candidates",
+                        "candidate_search": {
+                            "status": "CANDIDATES_FOUND",
+                            "candidates": [
+                                {"transaction_id": "card-base-01", "basis": "HOTEL_AND_STAY_AND_AMOUNT", "amount_status": "MATCH", "stay_date_status": "MATCH", "resolution_allowed": True, "date_status": "MATCH"},
+                                {"transaction_id": "card-base-02", "basis": "HOTEL_AND_STAY_AND_AMOUNT", "amount_status": "MISMATCH", "stay_date_status": "MATCH", "resolution_allowed": True, "date_status": "MATCH"},
+                                {"transaction_id": "card-occupied", "basis": "HOTEL_AND_STAY_AND_AMOUNT", "amount_status": "MATCH", "stay_date_status": "MATCH", "resolution_allowed": True, "date_status": "MATCH"},
+                                {"transaction_id": "card-amount-mismatch", "basis": "HOTEL_AND_STAY_ONLY", "amount_status": "MISMATCH", "stay_date_status": "MATCH", "resolution_allowed": False, "date_status": "MATCH"},
+                                {"transaction_id": "card-currency-mismatch", "basis": "HOTEL_AND_STAY_ONLY", "amount_status": "CURRENCY_MISMATCH", "stay_date_status": "MATCH", "resolution_allowed": False, "date_status": "MATCH"},
+                                {"transaction_id": "card-date-unknown", "basis": "HOTEL_BRANCH_AND_STAY_ONLY", "amount_status": "MATCH", "stay_date_status": "UNKNOWN", "resolution_allowed": False, "date_status": "UNKNOWN"},
+                            ],
+                            "rejected": [
+                                {"transaction_id": "card-amount-mismatch", "reason": "AMOUNT_MISMATCH"},
+                                {"transaction_id": "card-currency-mismatch", "reason": "CURRENCY_MISMATCH"},
+                            ],
+                            "date_status": "MATCH"
+                        },
+                        "reservation_link": {
+                            "status": "USER_CONFIRMED",
+                            "transaction_id": "card-history",
+                            "basis": "USER",
+                            "amount_status": "MATCH",
+                            "payment_verified": False
+                        }
+                    }]
+
+                def same_date_cards(self, event, transactions, *, links=None, rules=None):
+                    paid_on = event.get("paid_on")
+                    return [t for t in transactions if t.get("approval_date") == paid_on]
+
+                def search_card_candidates(self, event, transactions, *, existing_links=None, rules=None):
+                    return self.match_ota_payment_events([event], transactions, existing_links=existing_links, rules=rules)[0]["candidate_search"]
+
+                def _event_is_paid(self, event):
+                    return True
+
+            test_payments = TestPayments()
+            backend = ota_payment_review.CoreOtaPaymentBackend(
+                SimpleNamespace(conn=board_conn, _lock=threading.RLock()),
+                str(review_path), read_only=True,
+                payments=test_payments, store_type=OtaReviewStore, sources={})
+            resources.callback(backend.close)
+
+            # Get snapshot_from with cards (full build)
+            data = backend._data()
+            snapshot_full = backend.snapshot_from(data, include_cards=True)
+            snapshot_cards = snapshot_full["cards_by_event"]["evt-test"]
+
+            # Get cards_for_event (per-event build)
+            cards_endpoint = [ota_payment_review._sanitize_card_row(card)
+                              for card in backend.cards_for_event("evt-test")]
+
+            # Verify equivalence of key financial fields
+            by_txn_snapshot = {c["transaction_id"]: c for c in snapshot_cards}
+            by_txn_endpoint = {c["transaction_id"]: c for c in cards_endpoint}
+
+            self.assertEqual(set(by_txn_snapshot.keys()), set(by_txn_endpoint.keys()))
+
+            for txn_id in by_txn_snapshot:
+                s = by_txn_snapshot[txn_id]
+                e = by_txn_endpoint[txn_id]
+                # Core financial fields must match
+                self.assertEqual(s.get("reservation_candidate"), e.get("reservation_candidate"), f"reservation_candidate mismatch for {txn_id}")
+                self.assertEqual(s.get("reservation_candidate_basis"), e.get("reservation_candidate_basis"), f"basis mismatch for {txn_id}")
+                self.assertEqual(s.get("reservation_amount_status"), e.get("reservation_amount_status"), f"amount_status mismatch for {txn_id}")
+                self.assertEqual(s.get("reservation_stay_date_status"), e.get("reservation_stay_date_status"), f"stay_date_status mismatch for {txn_id}")
+                self.assertEqual(s.get("selection_disabled"), e.get("selection_disabled"), f"selection_disabled mismatch for {txn_id}")
+                self.assertEqual(s.get("selection_disabled_reason"), e.get("selection_disabled_reason"), f"selection_disabled_reason mismatch for {txn_id}")
+                self.assertEqual(s.get("already_linked_event_id"), e.get("already_linked_event_id"), f"already_linked_event_id mismatch for {txn_id}")
+                self.assertEqual(s.get("already_linked_reason"), e.get("already_linked_reason"), f"already_linked_reason mismatch for {txn_id}")
+                self.assertEqual(s.get("candidate_date_status"), e.get("candidate_date_status"), f"candidate_date_status mismatch for {txn_id}")
+                self.assertEqual(s.get("candidate_rejection_reason"), e.get("candidate_rejection_reason"), f"candidate_rejection_reason mismatch for {txn_id}")
+                self.assertEqual(s.get("reservation_history"), e.get("reservation_history"), f"reservation_history mismatch for {txn_id}")
+
+            # Verify specific risk cases
+            # 1. card-occupied should show already_linked to another event
+            occ = by_txn_endpoint["card-occupied"]
+            self.assertEqual(occ.get("already_linked_event_id"), "evt-other")
+            self.assertEqual(occ.get("already_linked_reason"), "다른 예약에 연결됨")
+
+            # 2. card-amount-mismatch should be disabled with correct reason
+            amt = by_txn_endpoint["card-amount-mismatch"]
+            self.assertTrue(amt.get("selection_disabled"))
+            self.assertEqual(amt.get("candidate_rejection_reason"), "AMOUNT_MISMATCH")
+            self.assertIn("결제 금액이 다릅니다", amt.get("selection_disabled_reason", ""))
+
+            # 3. card-currency-mismatch should be disabled with correct reason
+            cur = by_txn_endpoint["card-currency-mismatch"]
+            self.assertTrue(cur.get("selection_disabled"))
+            self.assertEqual(cur.get("candidate_rejection_reason"), "CURRENCY_MISMATCH")
+            self.assertIn("결제 통화가 다릅니다", cur.get("selection_disabled_reason", ""))
+
+            # 4. card-date-unknown should be disabled with UNKNOWN reason
+            dat = by_txn_endpoint["card-date-unknown"]
+            self.assertTrue(dat.get("selection_disabled"))
+            self.assertEqual(dat.get("candidate_date_status"), "UNKNOWN")
+            self.assertEqual(dat.get("selection_disabled_reason"), "OTA_PAYMENT_DATE_UNKNOWN")
+
+            # 5. card-history should have reservation_history=True and be disabled
+            hist = by_txn_endpoint["card-history"]
+            self.assertTrue(hist.get("reservation_history"))
+            self.assertTrue(hist.get("selection_disabled"))
+            self.assertIn("선택 이력", hist.get("selection_disabled_reason", ""))
+
+            # 6. Valid candidate (card-base-01) should NOT be disabled (no hold/group)
+            valid = by_txn_endpoint["card-base-01"]
+            self.assertFalse(valid.get("selection_disabled"))
+            self.assertTrue(valid.get("reservation_candidate"))
+
+            backend.close()
+            board_conn.close()
+
+    def test_snapshot_excludes_full_cards_but_includes_card_candidate_count(self):
+        """Verify public snapshot (include_cards=False) does NOT build full card rows
+        but still includes accurate card_candidate_count for UI badges.
+        """
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory, ExitStack() as resources:
+            board_path = Path(directory) / "board.sqlite"
+            review_path = Path(directory) / "review.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            resources.callback(board_conn.close)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.executescript("""
+                CREATE TABLE transactions (
+                    transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,
+                    issuer TEXT, card_tail TEXT, transaction_direction TEXT, approval_date TEXT,
+                    posting_date TEXT, amount_krw INTEGER, classification_state TEXT,
+                    classification_source TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
+                    foreign_amount TEXT, currency TEXT, foreign_currency TEXT,
+                    authorization_id TEXT, cancellation_status TEXT, refund_status TEXT
+                );
+                CREATE TABLE board_rows (row_id TEXT, row_kind TEXT);
+            """)
+            # Create 500 candidate cards (simulating large scale)
+            rows = []
+            for i in range(500):
+                rows.append((
+                    f"card-{i:03d}", f"hash-{i:03d}", f"Hotel {i%10}", f"hotel-{i%10}",
+                    "Bank A", f"{i:04d}", "purchase", "2026-09-04", "2026-09-05",
+                    100000 + i, "classified", "automatic", "", "", "",
+                    "100.00", "USD", "USD", f"AUTH-{i:03d}", "not_cancelled", "no_refund"
+                ))
+            board_conn.executemany("""INSERT INTO transactions VALUES
+                (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+            board_conn.commit()
+
+            review_path.touch()
+            from app.ota_review import OtaReviewStore
+            from app import ota_payments
+
+            class ScalePayments:
+                def build_ota_payment_events(self, _sources):
+                    return [{
+                        "ota_event_id": "evt-scale", "provider": "agoda", "booking_ref": "BOOK-SCALE",
+                        "event_type": "charge", "paid_on": "2026-09-04",
+                        "amount": 100000, "amount_krw": 100000, "currency": "KRW",
+                        "service_period": {"starts_on": "2026-10-01", "ends_on": "2026-10-03"},
+                        "item": "Standard Room", "source_digest": "digest-scale",
+                        "status": "HOLD_AMBIGUOUS", "reason": "Many candidates"
+                    }]
+
+                def match_ota_payment_events(self, events, transactions, *, existing_links=None, rules=None, frozen_groups=None):
+                    # All 500 cards are candidates
+                    candidates = [
+                        {"transaction_id": f"card-{i:03d}", "basis": "HOTEL_AND_STAY_AND_AMOUNT",
+                         "amount_status": "MATCH" if i == 0 else "MISMATCH", "stay_date_status": "MATCH",
+                         "resolution_allowed": True, "date_status": "MATCH"}
+                        for i in range(500)
+                    ]
+                    return [{
+                        "ota_event_id": "evt-scale", "status": "HOLD_AMBIGUOUS",
+                        "reason": "Many candidates",
+                        "candidate_search": {
+                            "status": "CANDIDATES_FOUND",
+                            "candidates": candidates,
+                            "rejected": [],
+                            "date_status": "MATCH"
+                        }
+                    }]
+
+                def same_date_cards(self, event, transactions, *, links=None, rules=None):
+                    paid_on = event.get("paid_on")
+                    return [t for t in transactions if t.get("approval_date") == paid_on]
+
+                def search_card_candidates(self, event, transactions, *, existing_links=None, rules=None):
+                    return self.match_ota_payment_events([event], transactions, existing_links=existing_links, rules=rules)[0]["candidate_search"]
+
+                def _event_is_paid(self, event):
+                    return True
+
+            scale_payments = ScalePayments()
+            from webapp.ota_payment_review import public_snapshot
+            backend = CoreOtaPaymentBackend(
+                SimpleNamespace(conn=board_conn, _lock=threading.RLock()),
+                str(review_path), read_only=True,
+                payments=scale_payments, store_type=OtaReviewStore, sources={})
+            resources.callback(backend.close)
+
+            # Call snapshot_from with include_cards=False (public path)
+            data = backend._data()
+            snapshot_no_cards = backend.snapshot_from(data, include_cards=False)
+
+            # Verify cards_by_event is empty (no full rows built)
+            self.assertEqual(snapshot_no_cards["cards_by_event"], {})
+
+            # Verify card_candidate_count is present and correct (500 candidates)
+            self.assertEqual(len(snapshot_no_cards["events"]), 1)
+            event = snapshot_no_cards["events"][0]
+            self.assertIn("card_candidate_count", event)
+            self.assertEqual(event["card_candidate_count"], 500)
+
+            # Verify that _event_rows was NOT called for the 500 cards by checking
+            # that the public snapshot doesn't have the full card data
+            public = public_snapshot(snapshot_no_cards, include_cards=False)
+            self.assertEqual(public["cards_by_event"], {})
+            self.assertEqual(public["events"][0]["card_candidate_count"], 500)
+
+            backend.close()
+            board_conn.close()
+
+    def test_cards_for_event_handles_event_not_in_holds(self):
+        """cards_for_event should return correct rows even for events not in holds list.
+
+        Events with status MATCHED_AUTO (not HOLD) don't appear in holds but
+        cards_for_event should still return their card rows with correct financial logic.
+        """
+        from webapp.ota_payment_review import CoreOtaPaymentBackend
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory, ExitStack() as resources:
+            board_path = Path(directory) / "board.sqlite"
+            review_path = Path(directory) / "review.sqlite"
+            board_conn = sqlite3.connect(board_path, check_same_thread=False)
+            resources.callback(board_conn.close)
+            board_conn.row_factory = sqlite3.Row
+            board_conn.executescript("""
+                CREATE TABLE transactions (
+                    transaction_id TEXT, source_hash TEXT, merchant TEXT, merchant_normalized TEXT,
+                    issuer TEXT, card_tail TEXT, transaction_direction TEXT, approval_date TEXT,
+                    posting_date TEXT, amount_krw INTEGER, classification_state TEXT,
+                    classification_source TEXT, duplicate_of TEXT, parse_error TEXT, conflict_reason TEXT,
+                    foreign_amount TEXT, currency TEXT, foreign_currency TEXT,
+                    authorization_id TEXT, cancellation_status TEXT, refund_status TEXT
+                );
+                CREATE TABLE board_rows (row_id TEXT, row_kind TEXT);
+            """)
+            board_conn.executemany("""INSERT INTO transactions VALUES
+                (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", [
+                ("card-matched", "hash-m", "Hotel M", "hotel-m", "Bank M", "9999", "purchase", "2026-09-04", "2026-09-05", 100000, "classified", "automatic", "", "", "", "100.00", "USD", "USD", "AUTH-M", "not_cancelled", "no_refund"),
+            ])
+            board_conn.commit()
+
+            review_path.touch()
+            from app.ota_review import OtaReviewStore
+
+            class MatchedPayments:
+                def build_ota_payment_events(self, _sources):
+                    return [{
+                        "ota_event_id": "evt-matched", "provider": "agoda", "booking_ref": "BOOK-MATCHED",
+                        "event_type": "charge", "paid_on": "2026-09-04",
+                        "amount": 100000, "amount_krw": 100000, "currency": "KRW",
+                        "service_period": {"starts_on": "2026-10-01", "ends_on": "2026-10-03"},
+                        "item": "Standard Room", "source_digest": "digest-matched",
+                        "status": "MATCHED_AUTO", "transaction_id": "card-matched",
+                        "inferred_link": True, "inference_basis": "EXACT_MATCH"
+                    }]
+
+                def match_ota_payment_events(self, events, transactions, *, existing_links=None, rules=None, frozen_groups=None):
+                    return [{
+                        "ota_event_id": "evt-matched", "status": "MATCHED_AUTO",
+                        "transaction_id": "card-matched",
+                        "inferred_link": True, "inference_basis": "EXACT_MATCH",
+                        "candidate_search": {"status": "NO_CANDIDATE", "candidates": [], "rejected": []}
+                    }]
+
+                def same_date_cards(self, event, transactions, *, links=None, rules=None):
+                    paid_on = event.get("paid_on")
+                    return [t for t in transactions if t.get("approval_date") == paid_on]
+
+                def search_card_candidates(self, event, transactions, *, existing_links=None, rules=None):
+                    return {"status": "NO_CANDIDATE", "candidates": [], "rejected": []}
+
+                def _event_is_paid(self, event):
+                    return True
+
+            matched_payments = MatchedPayments()
+            backend = CoreOtaPaymentBackend(
+                SimpleNamespace(conn=board_conn, _lock=threading.RLock()),
+                str(review_path), read_only=True,
+                payments=matched_payments, store_type=OtaReviewStore, sources={})
+            resources.callback(backend.close)
+
+            # This event is MATCHED_AUTO (not a HOLD) so it won't be in holds
+            # But cards_for_event should still work
+            cards = backend.cards_for_event("evt-matched")
+
+            # Should return the matched card row
+            self.assertEqual(len(cards), 1)
+            self.assertEqual(cards[0]["transaction_id"], "card-matched")
+            # A payment match is distinct from a reservation relation, so it remains selectable here.
+            self.assertFalse(cards[0].get("selection_disabled", False))
+
             backend.close()
             board_conn.close()

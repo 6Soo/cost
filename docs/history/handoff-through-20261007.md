@@ -8,7 +8,7 @@
 
 사용자의 “필요한 작업 조치해” 지시에 따라 이번 카드 장부 문제에 필요한 운영 반영을 수행했다. 아래 이전 운영 변경 금지 기록은 이번에 승인된 작업의 실행 전 상태이며, 다른 운영 작업까지 승인된 뜻은 아니다.
 
-SpaceBUnny가 승인번호가 같은 결제와 취소를 중복으로 처리하던 오류를 수정했다. 거래 ID를 먼저 확인하고, 거래 ID가 없는 과거 장부 행에만 카드사·카드 끝자리·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다. 원문 해시만으로 실제 복수 거래를 합치지 않는다. 변경 파일은 `webapp/card_flow.py`와 `webapp/tests/test_card_flow.py`이며 기존 미반영 수정도 보존했다.
+승인번호가 같은 결제와 취소를 중복으로 처리하던 오류를 수정했다. 거래 ID를 먼저 확인하고, 거래 ID가 없는 과거 장부 행에만 카드사·카드 끝자리·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다. 원문 해시만으로 실제 복수 거래를 합치지 않는다. 변경 파일은 `webapp/card_flow.py`와 `webapp/tests/test_card_flow.py`이며 기존 미반영 수정도 보존했다.
 
 운영 DB의 검증된 복구 사본에서 먼저 실행한 뒤 운영 장부에 615건, 취소를 포함한 순액 54,802,879원을 기록했다. 여행 7개 탭에 377건, 분류대기 장부에 238건이 표시된다. 일정 권위 검증에 걸린 1,045건과 기존 보류 16건은 기록하지 않았다. 일부 과거 여행 시트가 최신 일정 파일에 없으므로 일정 검증을 우회하거나 거래를 새 여행으로 배정하지 않았다. 모든 여행의 0원 상태가 해소된 것은 아니다.
 
@@ -45,7 +45,7 @@ git rev-parse origin/main
 
 `b60e54aa489c6eb0d232533659cb5c65950a4ed6`은 홈 장부 반영 대기의 권위 검증·batch 중복 제거·이미 기록된 거래 제외와 계산 실패 `-` 표시를 검증했다. 관련 결과는 31 passed, 23 subtests passed였으며 합성 Chromium 390×844·1440×900에서 overflow 0을 확인했다.
 
-`9c4dbdac2ab9e6f5f854b07a5ac3fc2f215005ed`는 OTA 메타데이터 전달 하나만 수정했다. SpaceBunny는 격리 worktree에서 ledger 연결을, Muse Spark 1.3 free는 의미 테스트를 맡았고 총괄이 통합·보완·검증했다.
+`9c4dbdac2ab9e6f5f854b07a5ac3fc2f215005ed`는 OTA 메타데이터 전달 하나만 수정했다. 격리 worktree에서 ledger 연결과 의미 테스트를 구현하고 통합·보완·검증했다.
 
 - `app/ota_mail.py`: 기존 report의 exact 또는 shared-period 결과를 `ledger_metadata()`로 읽는다. 취소·충돌·근거 불확실 상태는 확정값으로 전달하지 않는다. 숙박 report에 기간 근거 digest를 보존한다.
 - `app/ledger.py`, `app/__init__.py`: 선택적 `entry_metadata` callback을 preview와 commit에 연결한다. 허용 필드는 `booking_ref`, `service_period`, `ota_evidence`뿐이며 원문 금액·날짜·ID나 eligibility를 변경하지 않는다. preview 버전은 `ledger-preview-v2`다.

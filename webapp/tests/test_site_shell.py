@@ -22,6 +22,17 @@ def test_native_pages_keep_their_existing_navigation_and_fragments_stay_fragment
     assert site_shell.wrap_document('<section>partial</section>', '/board') == '<section>partial</section>'
 
 
+def test_sidebar_scrollbar_brand_and_footer_style_use_shell_tokens():
+    style = site_shell.STYLE
+    assert '#nav::-webkit-scrollbar-thumb' in style
+    assert '#nav{scrollbar-width:thin' in style
+    assert '--shell-line-strong' in style
+    assert '#nav a.brand.brand-link' in style
+    assert '#nav .nav-ft .all-trips-link' in style
+    assert 'var(--shell-selected' in style
+    assert 'var(--shell-paper' in style
+
+
 def test_shell_theme_tokens_cover_native_navigation_documents():
     assert ':root{--shell-bg:#F8FAFC' in site_shell.STYLE
     assert '@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A' in site_shell.STYLE
