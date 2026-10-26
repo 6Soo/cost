@@ -1,3 +1,15 @@
+## 2026-10-27 OTA 제공자 경계·금액 비교·전액 환불 보류 수정
+
+PR [#135](https://github.com/6Soo/cost/pull/135)을 병합하고 **`909e4ad4ffc3ca4786d61a8b01686101406c79c7`**을 운영에 배포했다. 타사 OTA는 금액 비교 전에 제외하며 Trip의 무관 가맹점 허용 예외를 관련 표기/기존 승인 별칭으로 제한했다. 정확 매칭·후보 검색·날짜 없는 추론·예정 결제 검증에 같은 경계를 적용한다. 이미 확정한 수동/고정 관계와 명시 날짜 전체 카드 탐색은 보존한다. 화면은 카드 청구액과 OTA 원문 금액/통화를 함께 표시하고, 금액 불일치 비교를 유효 결제 후보로 집계하지 않는다. matcher 버전은 snapshot input key에 포함한다.
+
+전액 환불 건은 이미 카드 원승인 연결과 순액 0이 확인됐지만 원결제의 자동 `trip_needed`가 묶음 기록을 막았다. 기존 환불 탭 정책에 맞춰 분류된 전액 상쇄 원결제의 자동 여행 보류만 제거했다. 원본/금액·스키마·기장 코드는 바꾸지 않았고 수동 보류·금융 오류·부분/초과 환불·불완전 batch 보호를 유지한다. 실제 운영 기장/배정/보류 해제/Google 쓰기는 실행하지 않았다. 원본 비교 상세는 Git 밖 `.local-archive/ota-provider-refund-20261027/readonly-diagnosis.json`에 있다. 해당 Trip 카드 원본에는 외화 금액/통화가 없어 임의 환산으로 정확 연결하지 않는다.
+
+검증은 변경 범위에 한정했다. 새 provider/cleanup/refund 검사 36 passed; 인접 matching/refund 경계 149 passed와 구 정책의 Agoda→Trip 허용 fixture 1개 수정 후 focused 통과; cleanup/index 20 passed; backend/snapshot action 23 passed; 추가 provider/추론 34 passed; exact/예정 결제 35 passed와 예전 무관 Trip 허용 기대 2개 수정 후 해당 2 passed. 각각의 실행 결과이며 하나의 전체 회귀 통과로 합산하지 않는다. 독립 검토는 추론/예정 검증의 우회 경로를 발견했고 RED→GREEN 수정 후 중요 미해결 사항 없음으로 마쳤다. 전체 회귀·대량 재처리는 생략했다.
+
+릴리스 추적 파일 953개가 Git blob과 모두 일치하고, Board Running·단일 loopback listener·task/process/표식 SHA 일치, health/ready 200·비인증 OTA API 401이었다. 이전 `f5eb44e` 릴리스, 작업 before/after XML과 검증된 복원 근거를 보존했다. 배포 증거는 `D:/WebLedgerHost/releases/deploy-evidence-909e4ad4ffc3ca4786d61a8b01686101406c79c7.json`, `release-audit-909e4ad4ffc3ca4786d61a8b01686101406c79c7.json`이다. 운영 카드·장부·사용자 결정·연결 등 DB 2개의 13개 표 내용/스키마 해시는 배포 전후 동일했다. 집계만 담은 결과는 `.local-archive/ota-provider-refund-20261027/protection-before.json`과 `protection-after.json`에 보존했다.
+
+**화면 수락 PARTIAL:** 배포 전 기존 Aside 탭은 524 페이지였다. 배포 뒤 reload는 navigation timeout, 이어 읽기 전용 OTA GET 시도도 요청 전 `CDP command timeout: Page.enable`로 실패했다. 이를 서버 응답 실패나 화면 검증 성공으로 해석하지 않는다. 기존 로그에는 175~264초의 snapshot 계산 이력이 있었고 새 정책 배포 후 refresh 시작을 확인했다. 최종 로그인 화면/375px 및 새 세대의 실제 후보 표시는 `NOT_TESTED_TOOL_TIMEOUT`이다. 다음에는 Aside 연결이 응답할 때 `/import`의 Trip 타사 후보 제거·두 금액 표시와 전액 환불의 준비 상태만 확인한다. 실제 고객 기장이나 전체 재처리를 재개 명령으로 실행하지 않는다.
+
 ## 2026-10-27 환불 검토의 가맹점 원결제 비교
 
 PR [#132](https://github.com/6Soo/cost/pull/132)을 병합하고 **`f5eb44ecfea39ed143cbbc9cf053ae75f87888c0`**을 운영에 배포했다. 미연결 환불에 같은 카드·가맹점의 선행 결제 후보를 날짜·금액·승인번호·기록 여부와 원문 링크로 표시한다. 금액이 다른 부분 환불 후보도 포함하고 카카오 택시의 가승인/선승인/실요금 표기 차이는 비교 검색에만 사용한다. 확정 연결과 검색 후보는 구별하며, 일반 항목/여행 보류 문구를 환불 설명에 반복하지 않는다. 가맹점 전체 검색 링크와 기본 펼침을 제공한다.
