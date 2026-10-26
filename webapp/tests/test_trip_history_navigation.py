@@ -40,6 +40,21 @@ def test_june_25_inclusive_moves_to_last_previous_trips_without_mutating_records
     assert trips == before
 
 
+def test_previous_trip_and_quarter_groups_are_initially_closed():
+    markup = render([trip("old-1", "2026-05-01")])
+    assert '<details id="previous-trips">' in markup
+    assert '<details id="previous-trips" open' not in markup
+    assert "<details class='prev-q'>" in markup
+    assert "<details class='prev-q' open>" not in markup
+
+
+def test_refund_nav_has_independent_icon_and_legible_label():
+    markup = render([trip("current-1", "2026-10-01")])
+    assert "nv-icon" in markup
+    assert "<span class='nm'>환불</span>" in markup
+    assert "rotate-ccw" not in markup or "<svg" in markup
+
+
 def test_selected_or_searched_previous_trip_stays_collapsed_and_viewer_cannot_see_other_trips():
     trips = [trip("allowed-old", "2026-06-25"), trip("secret-old", "2026-06-24")]
     html = render(trips, selected="allowed-old", role="viewer", allowed=("allowed-old",))

@@ -268,6 +268,39 @@ def test_month_detail_renderer_basic(card_db_path):
     assert 'board?row=card-TX-A-01' in html
 
 
+def test_card_history_visual_contract_and_trip_display_names(card_db_path, monkeypatch):
+    """Owner view shows official trip labels without changing card trip IDs."""
+    from unittest.mock import patch
+    row = {
+        "transaction_id": "TX-LABEL", "use_date": "2026-03-05 08:15",
+        "merchant": "상점", "amount_krw": 12000, "foreign_currency": "KRW",
+        "trip_id": "opaque-tab-1", "classification_source": "manual",
+        "classification_state": "booked",
+    }
+    rendered = cards_all._render_month_rows(
+        [row], trip_names={"opaque-tab-1": "0630_오제"})
+    assert "0630_오제" in rendered
+    assert "title='opaque-tab-1'" in rendered
+    assert "사용자 확정" in rendered
+    assert "<span class='card-all-trip-name'" in rendered
+    assert row["trip_id"] == "opaque-tab-1"
+    fallback = cards_all._render_month_rows([row])
+    assert "opaque-tab-1" in fallback
+
+    with patch("webapp.ledger_board.current_role", return_value="owner"), patch(
+        "webapp.ledger_board.live_trips",
+        return_value=[{"tab_id": "T-A", "display_key": "0630_오제"}],
+    ):
+        result = cards_all.cards_all_page(
+            {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
+    assert "id=\"card-all-design\"" in result
+    assert "조회할 월 선택" in result
+    assert "월별 카드 거래 확인" in result
+    assert "카드 전체 내역" in result
+    assert "0630_오제" in result
+    assert "title='T-A'" in result
+
+
 def test_month_detail_empty_month(card_db_path):
     """Empty month shows appropriate message."""
     html = cards_all._month_detail(2026, 1, [], None, False, 0)
@@ -370,7 +403,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
     from urllib.parse import parse_qs, urlsplit
     from unittest.mock import patch
     from webapp import ledger_board, ledger_design, site_shell
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
 
     with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
             ledger_design, 'nav_region', return_value=''):
@@ -387,15 +420,13 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 page = browser.new_page(viewport={'width': 375, 'height': 812})
                 page.route('http://cost.test/cards/all*', serve_page)
                 page.goto('http://cost.test/cards/all')
-                for width in (375, 759, 1280):
+                for width in (375, 390, 759, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 812})
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 page.emulate_media(color_scheme='dark')
-                assert page.locator(':root').evaluate(
-                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
+                expect(page.locator(':root')).to_have_css('--shell-bg', '#0F172A')
                 page.emulate_media(color_scheme='light')
-                assert page.locator(':root').evaluate(
-                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
+                expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
                 assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
 
                 march = page.locator("[data-month='3']")
