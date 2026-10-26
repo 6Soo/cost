@@ -206,6 +206,10 @@ def test_confirmed_cards_require_fresh_matching_manual_payment_evidence():
         lambda d: d['results'][0].update(status='MATCHED_AUTO'),
         lambda d: d['results'][0].update(evidence_changed=True),
         lambda d: d['transactions'].clear(),
+        lambda d: d['transactions'][0].update(duplicate_of='other-card'),
+        lambda d: d['transactions'][0].update(parse_error='invalid amount'),
+        lambda d: d['transactions'][0].update(conflict_reason='different source'),
+        lambda d: d['passengers']['SYNTH-100'].update(conflict=True),
         lambda d: d['links'].update({'other-event': {'transaction_id': 'card-1'}}),
         lambda d: d['passengers']['SYNTH-100'].update(digest='changed-flight-proof'),
     ):

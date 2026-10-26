@@ -238,12 +238,14 @@ def _confirmed_card_index(board, passenger_index):
         event, link, card = events.get(event_id), links.get(event_id), cards.get(tid)
         if (result.get('status') != 'MATCHED_USER' or not event or not isinstance(link, dict)
                 or link.get('status') != 'MATCHED_USER' or not card
+                or any(card.get(field) for field in ('duplicate_of', 'parse_error', 'conflict_reason'))
                 or str(link.get('transaction_id') or '') != tid or owners[tid] != {event_id}):
             continue
         booking_ref = str(event.get('booking_ref') or '')
         evidence = passenger_index.get(booking_ref) or {}
         held_evidence = (data.get('passengers') or {}).get(booking_ref) or {}
         if (event.get('provider') != 'trip' or not evidence.get('digest')
+                or evidence.get('conflict') or held_evidence.get('conflict')
                 or held_evidence.get('digest') != evidence['digest']
                 or not _event_is_paid(event) or _event_amount(event) is None
                 or not link.get('source_digest')
