@@ -869,10 +869,13 @@ def _persisted_rows(kind: str):
 
 def _load_persisted_rows(kind: str):
     out = []
+    store = _active_store()
     for tab in _all_tab_ids() + [None]:
-        for saved in _active_store().list_tab_rows(tab):
+        saved_rows = read_scope.remember(
+            ('persisted_tab_rows', id(store), tab), lambda: store.list_tab_rows(tab))
+        for saved in saved_rows:
             if saved["row_kind"] == kind:
-                out.append(saved)
+                out.append(dict(saved))
     return _with_display_amount(out)
 
 
