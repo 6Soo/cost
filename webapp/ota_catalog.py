@@ -69,6 +69,7 @@ INDEX_VERSION = 3
 INDEX_FILE = 'ota-catalog-index.json'
 _INDEX = {'key': None, 'value': None}
 _INDEX_LOCK = threading.Lock()
+_INDEX_BUILD_LOCK = threading.Lock()
 _SHEET_CACHE = {}
 
 
@@ -239,19 +240,24 @@ def _trip_context(board, flow):
 
 def _card_matches(flow):
     """Live card payments per booking, from the reconciliation the card review already uses."""
+    from . import ota_payment_review
+    current = None
     try:
-        report = flow._ota_report()
+        if ota_payment_review.enabled():
+            current, fresh = ota_payment_review.snapshot_service(flow.board).held()
+            if current is None or not fresh:
+                # A read must not run the legacy fallback while the worker is
+                # refreshing canonical evidence. Keep the state visibly pending.
+                return {}, {}, True
+            report = flow._canonical_snapshot_report(current)
+        else:
+            report = flow._ota_report()
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
         return {}, {}, True
     facts = list((report or {}).get('matches', []))
-    from . import ota_payment_review
     pending = False
-    if ota_payment_review.enabled():
-        current, fresh = ota_payment_review.snapshot_service(flow.board).held()
-        if current is not None and fresh:
-            facts = _with_core_card_matches(facts, current.get('data') or {})
-        else:
-            pending = True
+    if current is not None:
+        facts = _with_core_card_matches(facts, current.get('data') or {})
     live, cancelled = defaultdict(list), defaultdict(int)
     for fact in facts:
         key = (str(fact.get('provider') or '').lower(), str(fact.get('booking_ref') or ''))
@@ -553,6 +559,7 @@ def _build_index(board, sources):
     states = _owner_rule_states()
     rules = {key: rule for key, rule in states.items() if rule['status'] == 'active'}
     entries = []
+    handover = handover_days(trips)
     for row in merged.values():
         periods = sorted(row['periods'])
         if preserved_periods(periods):
@@ -565,7 +572,6 @@ def _build_index(board, sources):
             nights = None
         candidates = []
         service = any('항공' in label for label in row['labels'])
-        handover = handover_days(trips)
         for trip in trips:
             relation = _relation(stay, trip, service=service, handover=handover)
             if relation != 'none':
@@ -702,25 +708,30 @@ def _start_rebuild(board, sources, key):
     def rebuild_in_background():
         active_key = key
         try:
-            active_sources = sources
-            for attempt in range(2):
-                value = _build_index(board, active_sources)
-                current_sources = configured_sources(board)
-                current_key = _signature(board, current_sources)
-                if current_key != active_key:
-                    if attempt:
-                        active_key = current_key
-                        raise RuntimeError('OTA_REFRESH_INPUTS_CHANGED')
-                    active_key, active_sources = current_key, current_sources
-                    with _REBUILD_LOCK:
-                        _REBUILD['active_key'] = active_key
-                    continue
+            # Computation never holds the publication/read lock.
+            with _INDEX_BUILD_LOCK:
                 with _INDEX_LOCK:
+                    if _INDEX['key'] == (id(board), active_key):
+                        return
+                active_sources = sources
+                for attempt in range(2):
+                    value = _build_index(board, active_sources)
+                    current_sources = configured_sources(board)
+                    current_key = _signature(board, current_sources)
+                    if current_key != active_key:
+                        if attempt:
+                            active_key = current_key
+                            raise RuntimeError('OTA_REFRESH_INPUTS_CHANGED')
+                        active_key, active_sources = current_key, current_sources
+                        with _REBUILD_LOCK:
+                            _REBUILD['active_key'] = active_key
+                        continue
                     if not _save_index(board, active_key, value):
                         raise OSError('OTA_INDEX_SAVE_FAILED')
-                    _INDEX['value'] = value
-                    _INDEX['key'] = (id(board), active_key)
-                return
+                    with _INDEX_LOCK:
+                        _INDEX['value'] = value
+                        _INDEX['key'] = (id(board), active_key)
+                    return
         except Exception as exc:
             # Do not log booking contents, transaction details or source paths.
             logging.getLogger(__name__).error('OTA index refresh failed: %s', type(exc).__name__)
@@ -742,19 +753,30 @@ def _index(board, sources, *, rebuild=False, allow_stale=False):
     so a page that only shows evidence does not wait for the rebuild."""
     key = _signature(board, sources)
     with _INDEX_LOCK:
-        if _INDEX['key'] != (id(board), key):
-            if allow_stale and not rebuild:
-                stale = _INDEX['value'] if _INDEX['key'] and _INDEX['key'][0] == id(board) else _saved_value_for_stale(board)
-                if stale is not None:
-                    _start_rebuild(board, sources, key)
-                    return stale
-            value = None if rebuild else _load_saved_index(board, key)
-            if value is None:
-                value = _build_index(board, sources)
-                _save_index(board, key, value)
+        if _INDEX['key'] == (id(board), key):
+            return _INDEX['value']
+        stale = _INDEX['value'] if _INDEX['key'] and _INDEX['key'][0] == id(board) else None
+    if allow_stale and not rebuild:
+        if stale is None:
+            stale = _saved_value_for_stale(board)
+        _start_rebuild(board, sources, key)
+        return stale if stale is not None else {
+            'entries': [], 'warnings': [], 'trips': [], 'months': [], 'providers': []}
+    with _INDEX_BUILD_LOCK:
+        key = _signature(board, sources)
+        with _INDEX_LOCK:
+            if _INDEX['key'] == (id(board), key):
+                return _INDEX['value']
+        value = None if rebuild else _load_saved_index(board, key)
+        built = value is None
+        if value is None:
+            value = _build_index(board, sources)
+        if built and not _save_index(board, key, value):
+            raise OSError('OTA_INDEX_SAVE_FAILED')
+        with _INDEX_LOCK:
             _INDEX['value'] = value
             _INDEX['key'] = (id(board), key)
-        return _INDEX['value']
+        return value
 
 
 def prewarm(board):
@@ -779,7 +801,7 @@ def _public_row(entry):
             'reservation_links': list(entry.get('reservation_links') or ())}
 
 
-def catalog(board, query, *, sources=None):
+def catalog(board, query, *, sources=None, allow_stale=False):
     value = lambda key: str((query.get(key) or [''])[0]).strip()
     warnings = []
     try:
@@ -787,7 +809,11 @@ def catalog(board, query, *, sources=None):
     except (OSError, ValueError, ota_sources.OtaSourcesError):
         sources = {}
         warnings.append('OTA 자료 설정을 읽지 못했습니다. 관리자 설정을 확인해 주세요.')
-    index = _index(board, sources)
+    index = _index(board, sources, allow_stale=allow_stale)
+    state = refresh_state(board, sources) if allow_stale else 'ready'
+    with _INDEX_LOCK:
+        if state == 'ready' and allow_stale and _INDEX['value'] is not index:
+            state = 'pending'
     entries = index['entries']
     all_count = len(entries)
     unassigned_count = sum(not entry['trips'] for entry in entries)
@@ -818,7 +844,7 @@ def catalog(board, query, *, sources=None):
             'pages': pages, 'months': index['months'], 'providers': index['providers'],
             'warnings': list(dict.fromkeys(warnings + index['warnings'])),
             'trip_problems': [trip for trip in index['trips'] if not trip['valid']],
-            'trip_count': len(index['trips'])}
+            'trip_count': len(index['trips']), 'refresh_state': state}
 
 
 def _entry(board, sources, provider, booking_ref):
@@ -964,25 +990,36 @@ def render_html(data, query, *, csrf=''):
                          "<p class='small'>일정 원본이 확인되지 않은 여행에는 예약을 배정할 수 없습니다. "
                          "원본을 다시 확인해 일정을 맞춘 뒤 배정해 주세요.</p>"
                          f"<ul>{items}</ul></section>")
+    state = data.get('refresh_state', 'ready')
+    loading = state != 'ready' and not data['all_count']
+    refresh_note = '' if state == 'ready' else (
+        "<p id='ota-catalog-refresh' role='status'>" +
+        (('자료 갱신에 실패했습니다. 아직 저장된 자료가 없습니다.' if loading else
+          '자료 갱신에 실패했습니다. 이전 자료를 표시합니다.') if state == 'failed' else
+         'OTA 자료를 불러오는 중입니다.' if loading else
+         'OTA 자료 갱신 중 · 이전 자료를 표시합니다. 갱신이 끝나면 다시 표시합니다.') + '</p>')
+    refresh_script = '' if state in ('ready', 'failed') else """
+<script>(()=>{let wait=1500;async function check(){try{const r=await fetch('/api/ota-refresh-state',{cache:'no-store'});if(!r.ok)throw Error();const j=await r.json();if(j.state==='ready'){location.reload();return}if(j.state==='failed'){document.getElementById('ota-catalog-refresh').textContent='자료 갱신에 실패했습니다. 이전 자료를 표시합니다.';return}}catch{}wait=Math.min(10000,wait*1.5);setTimeout(check,wait)}setTimeout(check,wait)})();</script>"""
     return ("<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
         '<title>OTA 내역</title><style>' + CATALOG_STYLE + OTA_STYLE +
         '</style></head><body><main class="card-catalog"><h1>OTA 내역</h1>'
         f"<nav class='catalog-actions' aria-label='OTA 내역 선택'><a class='catalog-btn{' primary' if value('state') != 'unassigned' else ''}' href='{esc(url(state='', page=1))}'>{ui_icons.icon('list')}전체 예약</a>"
         f"<a class='catalog-btn{' primary' if value('state') == 'unassigned' else ''}' href='{esc(url(state='unassigned', page=1))}'>{ui_icons.icon('map')}여행 미배정</a>"
         f"<a class='catalog-btn' href='/import#ota-review'>{ui_icons.icon('credit-card')}카드 대사·검토</a></nav>"
-        f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>"
+        + refresh_note
+        + ('' if loading else f"<p id='card-count'>{ui_icons.icon('list', 16)}전체 {data['all_count']:,}건 · 여행 미배정 {data['unassigned_count']:,}건 · 검색 결과 {data['total']:,}건</p>")
         + ''.join(f"<p role='alert'>{ui_icons.icon('alert-triangle', 16)}{esc(w)}</p>" for w in data['warnings'])
         + reason_block + problem_block
         + f"<form id='card-filters' action='/ota' method='get'><input name='q' aria-label='OTA 내역 검색' placeholder='예약번호·예약 내용·여행 검색' value='{esc(value('q'))}'>"
         f"<button class='catalog-btn primary' type='submit'>{ui_icons.icon('search')}검색</button><a class='catalog-btn' href='/ota'>초기화</a>{hidden}</form>"
         '<table><thead><tr>' + heading('date', '이용일', date_controls) + heading('provider', 'OTA', provider_controls)
         + '<th>예약번호</th><th>예약 내용</th><th>예약 상태</th><th>카드 결제</th>' + heading('state', '여행 배정', state_controls)
-        + '</tr></thead><tbody>' + (''.join(body) or (f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"
+        + '</tr></thead><tbody>' + (''.join(body) or ("<tr><td colspan='7'>OTA 자료 갱신에 실패했습니다.</td></tr>" if state == 'failed' and loading else "<tr><td colspan='7'>OTA 자료를 불러오는 중입니다.</td></tr>" if loading else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조건에 맞는 OTA 예약이 없습니다.</td></tr>"
             if data['all_count'] else f"<tr><td colspan=\"7\">{ui_icons.icon('search', 16)}조회된 OTA 예약이 없습니다. 수집 자료 연결 상태를 확인해 주세요.</td></tr>"))
         + f"</tbody></table><nav class='catalog-pagination' aria-label='페이지 이동'><span>{data['page']} / {data['pages']} 페이지</span>"
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']-1))}'>이전</a>" if data['page'] > 1 else '')
         + (f"<a class='catalog-btn' href='{esc(url(page=data['page']+1))}'>다음</a>" if data['page'] < data['pages'] else '')
-        + '</nav><script>' + CATALOG_SCRIPT + '</script></main></body></html>')
+        + '</nav><script>' + CATALOG_SCRIPT + '</script>' + refresh_script + '</main></body></html>')
 
 
 OTA_STYLE = (
@@ -1266,7 +1303,7 @@ def dispatch(handler, parsed, *, board, is_owner, query, csrf=''):
                                         notice=str((query.get('notice') or [''])[0]),
                                         error=str((query.get('error') or [''])[0])))
     else:
-        data = catalog(board, query)
+        data = catalog(board, query, allow_stale=True)
         if parsed.path == '/api/ota':
             handler._send_json(data)
         else:

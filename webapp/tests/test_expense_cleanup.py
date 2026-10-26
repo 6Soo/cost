@@ -208,7 +208,7 @@ def test_a_changed_booking_index_is_served_stale_while_it_rebuilds(tmp_path):
     ota_catalog._build_index = fake_build
     ota_catalog._INDEX.update(key=None, value=None)
     try:
-        first = ota_catalog._index(board, {}, allow_stale=True)
+        first = ota_catalog._index(board, {})  # Seed a complete index before testing stale refresh.
         assert first['label'] == 'first' and builds == ['first']
         keys[0] = 'second'
         stale = ota_catalog._index(board, {}, allow_stale=True)
@@ -264,7 +264,7 @@ def test_failed_booking_refresh_stops_repeating_and_displays_failure(tmp_path, m
     monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
     ota_catalog._INDEX.update(key=None, value=None)
     try:
-        ota_catalog._index(board, {}, allow_stale=True)
+        ota_catalog._index(board, {})
         key[0] = 'second'
         ota_catalog._index(board, {}, allow_stale=True)
         deadline = time.monotonic() + 5
@@ -306,7 +306,7 @@ def test_booking_refresh_rebuilds_changed_inputs_before_marking_current(tmp_path
     monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _board: {})
     ota_catalog._INDEX.update(key=None, value=None)
     try:
-        assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
+        assert ota_catalog._index(board, {})['label'] == 'first'
         key[0] = 'second'
         assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
         deadline = time.monotonic() + 5
@@ -334,7 +334,7 @@ def test_failed_booking_index_save_keeps_old_evidence_and_reports_failure(tmp_pa
                         lambda _board, _sources: {'entries': [], 'label': key[0]})
     ota_catalog._INDEX.update(key=None, value=None)
     try:
-        ota_catalog._index(board, {}, allow_stale=True)
+        ota_catalog._index(board, {})
         monkeypatch.setattr(ota_catalog, '_save_index', lambda _board, _key, _value: False)
         key[0] = 'second'
         assert ota_catalog._index(board, {}, allow_stale=True)['label'] == 'first'
