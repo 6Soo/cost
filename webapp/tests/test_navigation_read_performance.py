@@ -10,6 +10,36 @@ from webapp.ledger_store import LedgerStore
 from webapp.tests.test_card_flow import CARD
 
 
+def test_board_income_and_expense_share_tab_reads_only_within_render(tmp_path, monkeypatch):
+    from webapp import ledger_board, read_scope
+    store = LedgerStore(tmp_path / 'board-display.sqlite', seed_demo=True)
+    previous = ledger_board._STORE
+    ledger_board.bind_store(store)
+    try:
+        tabs = ledger_board._all_tab_ids() + [None]
+        expected = ledger_board._with_display_amount([dict(r) for tab in tabs for r in store.list_tab_rows(tab)])
+        original = store.list_tab_rows
+        calls = []
+        monkeypatch.setattr(store, 'list_tab_rows', lambda tab: (calls.append(tab), original(tab))[1])
+        before = list(store.conn.iterdump())
+        @read_scope.scoped
+        def render():
+            return ledger_board._income_rows(), ledger_board._expense_rows()
+        income, expense = render()
+        assert income == [r for r in expected if r['row_kind'] == 'income']
+        assert expense == [r for r in expected if r['row_kind'] == 'expense']
+        assert calls == tabs
+        assert list(store.conn.iterdump()) == before
+        row_id = expense[0]['row_id']
+        store.conn.execute('UPDATE board_rows SET revision=revision+1 WHERE row_id=?', (row_id,))
+        _, fresh = render()
+        assert next(r for r in fresh if r['row_id'] == row_id)['revision'] == expense[0]['revision'] + 1
+        assert calls == tabs + tabs
+    finally:
+        ledger_board.bind_store(previous)
+        store.close()
+
+
 def test_catalog_during_central_refresh_never_runs_legacy_reconciliation(monkeypatch):
     from webapp import ota_catalog, ota_payment_review
     monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
