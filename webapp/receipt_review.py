@@ -1033,7 +1033,7 @@ button .ic{width:16px;height:16px;margin-right:6px;pointer-events:none}
 table{border-collapse:collapse;width:100%;font-size:14px;background:var(--paper)}td,th{border:1px solid var(--line);padding:8px;text-align:left}
 td{vertical-align:top}td label{display:block;font-size:12px;margin:6px 0}
 td input,td select{display:block;width:100%;min-width:0}
-@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}
+@media(max-width:759.98px){table,tbody,tr,td{display:block;width:100%}table{background:transparent}
 thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
 tr{border:1px solid var(--line);border-radius:8px;background:var(--paper);padding:10px;margin:0 0 12px;min-width:0}
 td{border:0;border-bottom:1px solid var(--line2);padding:8px 0;overflow-wrap:break-word}td:last-child{border:0}
