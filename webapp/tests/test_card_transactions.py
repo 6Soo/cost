@@ -298,6 +298,58 @@ def test_duplicate_count_excluded(card_db_path):
     assert isinstance(s["months"][4], int)
 
 
+def test_day_filter_preserves_all_rows_and_refuses_changed_pagination(card_db_path):
+    conn = sqlite3.connect(card_db_path)
+    seed = list(conn.execute('SELECT * FROM transactions LIMIT 1').fetchone())
+    rows = []
+    for index in range(1005):
+        row = seed.copy()
+        row[0] = row[1] = f'DAY-{index:04d}'
+        row[10] = '2026-03-07' if index % 2 else '2026-03-07 09:30:00'
+        row[6] = 'credit' if index % 3 == 0 else 'debit'
+        row[14] = -100 if index % 3 == 0 else 100
+        row[20] = 'DAY-0000' if index % 5 == 0 else None
+        row[21] = 'synthetic conflict' if index % 7 == 0 else ''
+        row[22] = 'synthetic parse error' if index % 11 == 0 else ''
+        rows.append(row)
+    conn.executemany('INSERT INTO transactions VALUES (' + ','.join('?' * 33) + ')', rows)
+    conn.commit()
+    conn.close()
+    before_read = Path(card_db_path).read_bytes()
+    first = ct.list_for_day(db_path=card_db_path, day='2026-03-07')
+    assert first['total_count'] == 1005
+    assert first['filter_semantics'] == 'USER_DATE_FILTER'
+    seen = list(first['items'])
+    batch = first
+    while batch['has_more']:
+        batch = ct.list_for_day(db_path=card_db_path, day='2026-03-07',
+                                cursor=batch['cursor'], revision=batch['revision'])
+        seen.extend(batch['items'])
+    assert len(seen) == len({row['transaction_id'] for row in seen}) == 1005
+    assert any(row['duplicate_of'] for row in seen)
+    assert any(row['conflict_reason'] for row in seen)
+    assert any(row['parse_error'] for row in seen)
+    assert any(row['amount_krw'] < 0 and row['transaction_direction'] == 'credit' for row in seen)
+    assert all('raw_row_json' not in row and 'description_raw' not in row for row in seen)
+    assert Path(card_db_path).read_bytes() == before_read
+    conn = sqlite3.connect(card_db_path)
+    conn.execute("UPDATE transactions SET amount_krw=999 WHERE transaction_id='DAY-1004'")
+    conn.commit()
+    conn.close()
+    with pytest.raises(ct.DaySourceChanged):
+        ct.list_for_day(db_path=card_db_path, day='2026-03-07', cursor=first['cursor'], revision=first['revision'])
+
+
+def test_day_filter_validates_before_opening_missing_database(tmp_path):
+    missing = str(tmp_path / 'must-not-create.sqlite')
+    for day in ('2026-02-30', '2026-3-07', '2026-03-07 09:30:00', '', None):
+        with pytest.raises(ValueError):
+            ct.list_for_day(db_path=missing, day=day)
+    with pytest.raises(ValueError):
+        ct.list_for_day(db_path=missing, day='2026-03-07', cursor='2026-03-08|id', revision='old')
+    assert not Path(missing).exists()
+
+
 def test_undated_separate_list(card_db_path):
     res = ct.undated_list(db_path=card_db_path, year=2026, per_page=100)
     ids = [i["transaction_id"] for i in res["items"]]
@@ -501,6 +553,41 @@ class MockHandler(Handler):
             def write(self, b):
                 handler.responses['body'] = b
         return W()
+
+
+def test_http_day_filter_is_owner_only_no_store_and_reports_changed_source(card_db_path):
+    import json
+    from webapp import ledger_board as board
+
+    class DayHandler(MockHandler):
+        def send_header(self, name, value):
+            self.responses.setdefault('headers', {})[name] = value
+
+    with patch.dict(os.environ, {'WEBLEDGER_DB': card_db_path}), patch.object(board, 'ACCESS_ENFORCEMENT', False):
+        with patch.object(board, 'current_role', return_value='owner'):
+            handler = DayHandler('/api/cards/transactions/day', 'date=2026-03-05')
+            handler.do_GET()
+            assert handler.responses['code'] == 200
+            assert handler.responses['headers']['Cache-Control'] == 'no-store'
+            data = json.loads(handler.responses['body'])
+            assert data['total_count'] == 2
+            assert data['filter_semantics'] == 'USER_DATE_FILTER'
+            changed = DayHandler('/api/cards/transactions/day', 'date=2026-03-05&revision=' + '0' * 64)
+            changed.do_GET()
+            assert changed.responses['code'] == 409
+            assert json.loads(changed.responses['body'])['code'] == 'SOURCE_CHANGED'
+            invalid = DayHandler('/api/cards/transactions/day', 'date=2026-02-30')
+            invalid.do_GET()
+            assert invalid.responses['code'] == 400
+        with patch.object(board, 'current_role', return_value='viewer'):
+            denied = DayHandler('/api/cards/transactions/day', 'date=2026-03-05')
+            denied.do_GET()
+            assert denied.responses['code'] == 403
+    with patch.object(board, 'ACCESS_ENFORCEMENT', True), patch.object(board, 'current_session', return_value=None), patch.object(ct, 'list_for_day') as query:
+        anonymous = DayHandler('/api/cards/transactions/day', 'date=2026-03-05')
+        anonymous.do_GET()
+        assert anonymous.responses['code'] == 401
+        query.assert_not_called()
 
 
 def test_http_years_endpoint(card_db_path):
