@@ -8,6 +8,8 @@ BUTTON = ('<div class="site-theme-bar"><button id="site-theme-toggle" type="butt
           '</button></div>')
 
 STYLE = """
+:root{--shell-warn-bg:#FFF0E7;--shell-danger:#B42318}
+@media(prefers-color-scheme:dark){:root{--shell-warn-bg:#332D20;--shell-danger:#FDA4AF}}
 .site-theme-bar{display:flex;justify-content:flex-end;min-height:52px;padding:4px 12px;box-sizing:border-box;background:var(--shell-paper);flex:none}
 #site-theme-toggle{display:inline-flex;align-items:center;justify-content:center;width:44px;min-width:44px;height:44px;min-height:44px;padding:0;margin:0;border:1px solid var(--shell-line-strong);border-radius:10px;background:var(--shell-paper);color:var(--shell-ink);cursor:pointer}
 #site-theme-toggle:hover{background:var(--shell-hover)}

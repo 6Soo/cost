@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from playwright.sync_api import sync_playwright
 
-from webapp import ledger_design, site_shell, card_catalog, flight_passenger_page, receipt_review
+from webapp import ledger_design, site_shell, card_catalog, flight_passenger_page, receipt_review, card_flow
 
 
 def document(css, native=False):
@@ -76,7 +76,9 @@ def test_system_storage_failures_and_responsive_theme_control():
 
 def test_real_page_palettes_follow_choice_with_invalid_storage_and_cross_tab_updates():
     flight_css = re.search(r'<style>(.*?)</style>', flight_passenger_page._page(''), re.S)[1]
-    palettes = {'ledger': ledger_design.STYLE, 'flight': flight_css, 'receipt': receipt_review.PAGE_CSS}
+    import_css = re.search(r'<style>(.*?)</style>', card_flow.PAGE, re.S)[1]
+    palettes = {'ledger': ledger_design.STYLE, 'flight': flight_css, 'receipt': receipt_review.PAGE_CSS,
+                'import': import_css}
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         context = browser.new_context(color_scheme='light')
