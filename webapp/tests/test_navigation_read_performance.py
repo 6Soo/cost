@@ -86,6 +86,68 @@ def test_catalog_during_central_refresh_never_runs_legacy_reconciliation(monkeyp
         assert ota_catalog._card_matches(flow) == ({}, {}, True)
 
 
+def test_runtime_catalog_build_isolates_source_parsing(monkeypatch):
+    from webapp import ota_catalog
+    board = SimpleNamespace(_catalog_source_process=True)
+    monkeypatch.setattr(ota_catalog, '_rows_from_sources', lambda *_: (_ for _ in ()).throw(
+        AssertionError('runtime must not parse mail in the HTTP process')))
+    monkeypatch.setattr(ota_catalog, '_source_rows_in_child', lambda *_: (_ for _ in ()).throw(
+        RuntimeError('isolated-source-worker')), raising=False)
+    with pytest.raises(RuntimeError, match='isolated-source-worker'):
+        ota_catalog._build_index(board, {})
+
+
+@pytest.mark.parametrize('central', [True, False])
+def test_central_mode_does_not_prewarm_unused_legacy_mail_index(monkeypatch, central):
+    from app import booking_evidence
+    from webapp import card_flow, ota_catalog, ota_payment_review
+    calls = []
+    monkeypatch.setattr(ota_payment_review, 'enabled', lambda: central)
+    monkeypatch.setattr(ota_catalog, 'configured_sources', lambda _: {'mail_directories': []})
+    monkeypatch.setattr(booking_evidence, 'build_index', lambda _: calls.append(1))
+    card_flow.prewarm_booking_evidence(object())
+    assert calls == ([] if central else [1])
+
+
+def test_catalog_source_child_matches_direct_read_and_preserves_databases(tmp_path):
+    import sqlite3
+    from webapp import ota_catalog
+    store = LedgerStore(tmp_path / 'board.sqlite', seed_demo=True)
+    portal = sqlite3.connect(tmp_path / 'portal.sqlite')
+    try:
+        portal.execute('CREATE TABLE bookings(id,provider,booking_number,product_type,label,service_start_on,service_end_on,status)')
+        portal.execute("INSERT INTO bookings VALUES (1,'trip','SYNTHETIC-BOOKING','lodging','synthetic','2026-10-01','2026-10-03','confirmed')")
+        portal.commit()
+        sources = {'portal_databases': [str(tmp_path / 'portal.sqlite')], 'mail_directories': []}
+        expected_warnings, actual_warnings = [], []
+        expected = ota_catalog._rows_from_sources(store, sources, expected_warnings)
+        before_board, before_portal = list(store.conn.iterdump()), list(portal.iterdump())
+        actual = ota_catalog._source_rows_in_child(store, sources, actual_warnings)
+        assert actual == expected and actual
+        assert actual_warnings == expected_warnings
+        assert list(store.conn.iterdump()) == before_board
+        assert list(portal.iterdump()) == before_portal
+        assert list(tmp_path.glob('ota-catalog-worker-*')) == []
+    finally:
+        portal.close()
+        store.close()
+
+
+def test_catalog_source_timeout_stops_its_child_and_cleans_exchange(tmp_path, monkeypatch):
+    import subprocess
+    from webapp import ota_catalog, ota_payment_review
+    stopped = []
+    def communicate(**_):
+        raise subprocess.TimeoutExpired('synthetic-child', 900)
+    process = SimpleNamespace(pid=123456, communicate=communicate, wait=lambda: stopped.append('wait'))
+    monkeypatch.setattr(subprocess, 'Popen', lambda *_, **__: process)
+    monkeypatch.setattr(ota_payment_review, '_stop_process_tree', lambda pid: stopped.append(pid))
+    with pytest.raises(RuntimeError, match='OTA_CATALOG_SOURCE_TIMEOUT'):
+        ota_catalog._source_rows_in_child(SimpleNamespace(path=tmp_path / 'board.sqlite'), {}, [])
+    assert stopped == [123456, 'wait']
+    assert list(tmp_path.glob('ota-catalog-worker-*')) == []
+
+
 def test_catalog_page_without_saved_index_returns_loading_without_rebuilding_inline(tmp_path, monkeypatch):
     from webapp import ota_catalog
     board = SimpleNamespace(path=tmp_path / 'board.sqlite')

@@ -2468,7 +2468,11 @@ def _evidence_block(index, amount, day):
 def prewarm_booking_evidence(board):
     """서버 시작 때 예약 메일 색인을 미리 만들어, 첫 지출 정리 화면이 수 초 기다리지 않게 한다."""
     from app import booking_evidence
-    from . import ota_catalog
+    from . import ota_catalog, ota_payment_review
+    if ota_payment_review.enabled():
+        # Central review reads its published snapshot; legacy inference remains
+        # available on demand without competing with HTTP threads at startup.
+        return
     try:
         booking_evidence.build_index(ota_catalog.configured_sources(board)['mail_directories'])
     except Exception:
