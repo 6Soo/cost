@@ -1060,7 +1060,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
         + ("<footer class='nav-ft' aria-label='여행 메뉴 안내'>"
            "<a class='all-trips-link' href='/trips'>"
            "<span>전체 여행 보기</span>"
-           f"{_icons.icon('arrow-up-right', 16)}</a>"
+           f"{_icons.icon('chevron-right', 16)}</a>"
            "<p class='footer-help'>지난 여행과 진행 중인 여행은 여행 관리에서 확인할 수 있어요.</p>"
            "</footer>")
         + "</aside>"
