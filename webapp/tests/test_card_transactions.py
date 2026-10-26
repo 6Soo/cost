@@ -311,6 +311,7 @@ def test_day_filter_preserves_all_rows_and_refuses_changed_pagination(card_db_pa
         row[20] = 'DAY-0000' if index % 5 == 0 else None
         row[21] = 'synthetic conflict' if index % 7 == 0 else ''
         row[22] = 'synthetic parse error' if index % 11 == 0 else ''
+        row[28] = 'SYNTH-MANUAL-TRIP'
         rows.append(row)
     conn.executemany('INSERT INTO transactions VALUES (' + ','.join('?' * 33) + ')', rows)
     conn.commit()
@@ -329,6 +330,7 @@ def test_day_filter_preserves_all_rows_and_refuses_changed_pagination(card_db_pa
     assert any(row['duplicate_of'] for row in seen)
     assert any(row['conflict_reason'] for row in seen)
     assert any(row['parse_error'] for row in seen)
+    assert all(row['display_tab_id'] == 'SYNTH-MANUAL-TRIP' for row in seen)
     assert any(row['amount_krw'] < 0 and row['transaction_direction'] == 'credit' for row in seen)
     assert all('raw_row_json' not in row and 'description_raw' not in row for row in seen)
     assert Path(card_db_path).read_bytes() == before_read

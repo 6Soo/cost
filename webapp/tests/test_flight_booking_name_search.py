@@ -196,7 +196,8 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
             route.fulfill(json={'filter_semantics': 'USER_DATE_FILTER', 'date': '2026-03-07',
                 'items': [{'transaction_id': 'SYNTH-1' if first else 'SYNTH-2', 'approval_date': '2026-03-07',
                            'merchant': 'Synthetic same-amount merchant', 'amount_krw': -100,
-                           'transaction_direction': 'credit', 'duplicate_of': 'other', 'parse_error': 'synthetic'}],
+                           'transaction_direction': 'credit', 'duplicate_of': 'other', 'parse_error': 'synthetic',
+                           'display_tab_id': 'SYNTH-MANUAL-TRIP'}],
                 'total_count': 3, 'has_more': True, 'cursor': '2026-03-07|SYNTH-' + ('1' if first else '2'),
                 'revision': 'a' * 64})
         screen.route('**/api/cards/transactions/day?*', respond)
@@ -209,6 +210,7 @@ def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisi
         expect(screen.locator('.fb-date-row')).to_have_count(1)
         assert screen.get_by_text('예약일이나 결제 연결이 확정된 것은 아닙니다.', exact=True).is_visible()
         assert screen.locator('.fb-date-row').get_by_text('중복 원행 · 원본 오류', exact=True).is_visible()
+        assert screen.locator('.fb-date-row').get_by_text('SYNTH-MANUAL-TRIP', exact=True).is_visible()
         screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-04-01')
         screen.get_by_role('button', name='카드 원행 더 보기', exact=True).click()
         expect(screen.locator('.fb-date-row')).to_have_count(2)
