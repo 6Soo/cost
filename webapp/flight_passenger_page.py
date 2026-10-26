@@ -140,10 +140,10 @@ const form=document.getElementById('fb-search'),resultRoot=document.getElementBy
 const more=document.getElementById('fb-more');let nextOffset=null,sourceRevision=null,searchName='';
 function text(parent,tag,value,klass){const e=document.createElement(tag);if(klass)e.className=klass;e.textContent=String(value??'');parent.append(e);return e}
 function field(parent,label,value){const wrap=document.createElement('div');wrap.className='fb-field';text(wrap,'small',label);text(wrap,'strong',value||'확인되지 않음');parent.append(wrap)}
-function manualDateFilter(parent,confirmedDay=null){
+function manualDateFilter(parent,confirmedDay=null,basis='EXPLICIT_LABEL'){
 const details=document.createElement('details');details.className='fb-date-filter';parent.append(details);
-text(details,'summary',confirmedDay?'예약 시각의 한국 날짜로 카드 거래 전체 조회':'직접 지정한 날짜로 카드 원행 조회');
-text(details,'p',confirmedDay?'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.':'예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
+text(details,'summary',confirmedDay?(basis==='FIRST_RECEIVED'?'최초 메일 수신일의 카드 거래 전체 조회':'예약 시각의 한국 날짜로 카드 거래 전체 조회'):'직접 지정한 날짜로 카드 원행 조회');
+text(details,'p',confirmedDay?(basis==='FIRST_RECEIVED'?'별도 예약일이 없어 보관된 인증 메일의 최초 수신일을 예약일 기준으로 사용합니다. 결제 연결은 미확정입니다.':'원본 예약 시각과 시간대를 한국 시간으로 환산한 날짜입니다. 결제 연결이 확정된 것은 아닙니다.'):'예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
 text(details,'p','해당 날짜의 모든 카드 원행을 조회합니다. 취소·환불·중복·기존 분류를 제외하지 않으며 이 예약과의 연결 여부는 판정하지 않습니다.','fb-muted');
 const filter=document.createElement('form'),label=text(filter,'label','조회 날짜 (직접 지정 필터)');
 const dateInput=document.createElement('input');dateInput.type='date';dateInput.required=true;dateInput.min='2000-01-01';dateInput.max='2100-12-31';label.append(dateInput);
@@ -173,7 +173,7 @@ async function load(reset){
   if(data.filter_semantics!=='USER_DATE_FILTER'||data.date!==requestedDay)throw Error('지정한 날짜의 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
   for(const tx of data.items||[])render(tx);
   cursor=data.cursor;revision=data.revision;next.hidden=!(data.has_more&&cursor);
-  note.textContent=(confirmedDay&&requestedDay===confirmedDay?'원본 확인 예약일 ':'직접 지정한 날짜 ')+requestedDay+' · '+rows.children.length+' / '+data.total_count+'건. 결제 연결을 확정하지 않습니다.';
+  note.textContent=(confirmedDay&&requestedDay===confirmedDay?(basis==='FIRST_RECEIVED'?'최초 메일 수신일 기준 ':'예약 시각의 한국 날짜 '):'직접 지정한 날짜 ')+requestedDay+' · '+rows.children.length+' / '+data.total_count+'건. 결제 연결을 확정하지 않습니다.';
  }catch(error){note.textContent=error.message}finally{search.disabled=false;next.disabled=false}
 }
 filter.addEventListener('submit',event=>{event.preventDefault();if(dateInput.value&&filter.reportValidity())load(true)});
@@ -186,8 +186,8 @@ text(card,'span',b.cancelled?'취소·변경 근거 확인 필요':b.conflict?'�
 text(card,'h3',(b.booking_ref||'예약번호 미확인')+' · '+(b.passenger_name||'이름 미확인'));
 const grid=document.createElement('div');grid.className='fb-grid';
 field(grid,'항공권 예약번호',b.booking_ref);field(grid,'탑승객',b.passenger_name);
-field(grid,'예약일',b.booking_date_status==='EXPLICIT_LABEL'&&b.reserved_on?b.reserved_on+' (원본 명시 확인)':b.booking_date_status==='CONFLICT'?'근거 날짜 충돌 · 확인 필요':'확인되지 않음');field(grid,'원본 근거',b.source_verified?'최신 항공권 자료':'근거 확인 필요');
-const dateTimes=(b.booking_date_evidence||[]).map(f=>f.timestamp).filter(Boolean);if(dateTimes.length)field(grid,'예약 시각·시간대',[...new Set(dateTimes)].join(' / '));
+field(grid,'예약일',b.booking_date_status==='FIRST_RECEIVED'&&b.reserved_on?b.reserved_on+' (최초 메일 수신일 기준)':b.booking_date_status==='EXPLICIT_LABEL'&&b.reserved_on?b.reserved_on+' (원본 명시 확인)':b.booking_date_status==='CONFLICT'?'근거 날짜 충돌 · 확인 필요':'확인되지 않음');field(grid,'원본 근거',b.source_verified?'최신 항공권 자료':'근거 확인 필요');
+const dateTimes=(b.booking_date_evidence||[]).map(f=>f.timestamp).filter(Boolean);if(dateTimes.length)field(grid,b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신 시각·시간대':'예약 시각·시간대',[...new Set(dateTimes)].join(' / '));
 card.append(grid);
 const segments=document.createElement('div');segments.className='fb-section';text(segments,'h2','탑승권·여정 정보');
 for(const leg of Array.isArray(b.legs)?b.legs:[]){
@@ -216,10 +216,10 @@ if(tx.amount_status!=='MATCH'||tx.currency_status!=='MATCH')text(linked,'p','결
 if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){const detail=text(linked,'a','카드 원행 상세 보기');detail.href=tx.detail_href}
 }}else{text(linked,'p','이 조회에서는 확정된 카드 연결 근거를 아직 검증할 수 없습니다. 카드 거래가 없거나 미결제라는 뜻은 아닙니다.','fb-note')}
 card.append(linked);
-const candidateDay=b.booking_date_status==='EXPLICIT_LABEL'&&b.source_verified&&!b.conflict&&!b.cancelled&&!(b.linked_cards||[]).length?b.booking_card_day:null;
-const candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p',candidateDay?'원본 예약 시각의 한국 날짜로 카드 거래 전체를 후보로 조회합니다. 날짜가 같아도 연결이 확정된 것은 아닙니다.':b.booking_date_status==='CONFLICT'?'예약일 원본끼리 날짜가 충돌해 자동 후보 조회를 보류합니다. 직접 날짜 조회만 가능합니다.':b.reserved_on?'자동 조회 조건을 충족하지 않아 직접 날짜 조회를 제공합니다.':'원본에 확인된 항공권 예약일이 없어 동일 날짜의 카드 거래를 안전하게 조회할 수 없습니다. 결제일이나 이메일 수신일을 예약일로 추정하지 않습니다.','fb-muted');card.append(candidates);
+const candidateDay=['EXPLICIT_LABEL','FIRST_RECEIVED'].includes(b.booking_date_status)&&b.source_verified&&!b.conflict&&!b.cancelled&&!(b.linked_cards||[]).length?b.booking_card_day:null;
+const candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p',candidateDay?(b.booking_date_status==='FIRST_RECEIVED'?'최초 메일 수신일을 예약일 기준으로 카드 거래 전체를 조회합니다. 날짜가 같아도 연결은 미확정입니다.':'원본 예약 시각의 한국 날짜로 카드 거래 전체를 후보로 조회합니다. 날짜가 같아도 연결이 확정된 것은 아닙니다.'):b.booking_date_status==='CONFLICT'?'예약일 원본끼리 날짜가 충돌해 자동 후보 조회를 보류합니다. 직접 날짜 조회만 가능합니다.':b.reserved_on?'자동 조회 조건을 충족하지 않아 직접 날짜 조회를 제공합니다.':'원본 예약일과 같은 예약번호의 최초 메일 수신일을 확인할 수 없어 자동 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');card.append(candidates);
 const manualDate=text(candidates,'a','카드 전체 내역에서 날짜별 원행 확인');manualDate.href='/cards/all';
-manualDateFilter(candidates,candidateDay);
+manualDateFilter(candidates,candidateDay,b.booking_date_status);
 if(b.reserved_on&&!b.booking_card_day)text(candidates,'p','예약일 표기는 있지만 시간대 근거가 없어 자동 날짜 조회를 보류합니다. 날짜를 직접 선택해 주세요.','fb-muted');
 const participant=document.createElement('details');participant.className='fb-section';
 text(participant,'summary','참가자 연결 정보');
@@ -355,8 +355,8 @@ def _name_search(board, name, *, offset=0, revision=None):
                             'legs': legs, 'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
                             'conflict': bool(evidence.get('conflict')), 'source_verified': True,
                             'linked_cards': cards.get(str(booking_ref), []), 'provider': 'trip',
-                            'reserved_on': evidence.get('reserved_on') if evidence.get('booking_date_status') == 'EXPLICIT_LABEL' else '',
-                            'booking_card_day': evidence.get('booking_card_day') if evidence.get('booking_date_status') == 'EXPLICIT_LABEL' else '',
+                            'reserved_on': evidence.get('reserved_on') if evidence.get('booking_date_status') in ('EXPLICIT_LABEL', 'FIRST_RECEIVED') else '',
+                            'booking_card_day': evidence.get('booking_card_day') if evidence.get('booking_date_status') in ('EXPLICIT_LABEL', 'FIRST_RECEIVED') else '',
                             'booking_date_evidence': evidence.get('booking_date_evidence', []),
                             'booking_date_status': evidence.get('booking_date_status', 'UNKNOWN')})
             fingerprints.append((str(booking_ref), evidence.get('digest'), evidence.get('source_digests')))

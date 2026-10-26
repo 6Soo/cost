@@ -2,6 +2,7 @@
 from app import flight_evidence as evidence
 from webapp import flight_passenger_page as page
 from unittest.mock import patch
+import pytest
 
 
 def _part(day, digest, status="EXPLICIT_LABEL"):
@@ -102,12 +103,13 @@ def test_booking_time_preserves_zone_and_uses_exact_korean_day_only():
     assert merged['digest'] != evidence.merge_booking_evidence([altered])['digest']
 
 
-def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence():
+@pytest.mark.parametrize('date_basis', ['EXPLICIT_LABEL', 'FIRST_RECEIVED'])
+def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence(date_basis):
     from copy import deepcopy
     from playwright.sync_api import sync_playwright, expect
     from webapp import site_shell
     base = {'booking_ref': 'SYNTH-OK', 'passenger_name': 'KIM ALPHA', 'legs': [],
-            'source_verified': True, 'booking_date_status': 'EXPLICIT_LABEL',
+            'source_verified': True, 'booking_date_status': date_basis,
             'reserved_on': '2026-10-02', 'booking_card_day': '2026-10-03',
             'booking_date_evidence': [{'timestamp': '2026-10-02T23:30:00+00:00'}],
             'linked_cards': [], 'cancelled': False, 'conflict': False}
@@ -136,6 +138,9 @@ def test_browser_auto_day_requires_unlinked_fresh_uncancelled_zoned_evidence():
             screen.get_by_role('button', name='예약 조회', exact=True).click()
             expect(screen.locator('.fb-ticket')).to_have_count(6)
             expect(screen.locator('.fb-date-status').first).to_contain_text('0 / 0건')
+            if date_basis == 'FIRST_RECEIVED':
+                expect(screen.locator('.fb-ticket').first).to_contain_text('최초 메일 수신일 기준')
+                expect(screen.locator('.fb-date-status').first).to_contain_text('최초 메일 수신일 기준')
             assert len(calls) == 1 and calls[0][0] == 'GET' and 'date=2026-10-03' in calls[0][1]
             assert screen.locator('.fb-date-filter[open]').count() == 1
         finally:
