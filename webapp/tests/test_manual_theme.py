@@ -4,6 +4,7 @@ from unittest.mock import patch
 from playwright.sync_api import sync_playwright
 
 from webapp import ledger_design, site_shell, card_catalog, flight_passenger_page, receipt_review, card_flow
+from webapp import google_ledger_page, expense_bulk_maintenance
 
 
 def document(css, native=False):
@@ -27,14 +28,14 @@ def test_theme_button_overrides_system_and_preserves_only_local_choice():
         assert button.count() == 1
         assert button.inner_text() == ''
         assert button.get_attribute('aria-label') == '라이트모드로 전환'
-        assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(17, 24, 32)'
+        assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(15, 23, 42)'
         page.locator('#draft').fill('keep this text')
         requests = []
         page.on('request', lambda request: requests.append(request.url))
         button.focus()
         page.keyboard.press('Enter')
         assert button.get_attribute('aria-label') == '다크모드로 전환'
-        assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(247, 249, 252)'
+        assert page.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(248, 250, 252)'
         assert page.locator('#draft').input_value() == 'keep this text'
         assert requests == []
         assert page.evaluate('Object.keys(localStorage)') == ['cost-theme']
@@ -78,7 +79,10 @@ def test_real_page_palettes_follow_choice_with_invalid_storage_and_cross_tab_upd
     flight_css = re.search(r'<style>(.*?)</style>', flight_passenger_page._page(''), re.S)[1]
     import_css = re.search(r'<style>(.*?)</style>', card_flow.PAGE, re.S)[1]
     palettes = {'ledger': ledger_design.STYLE, 'flight': flight_css, 'receipt': receipt_review.PAGE_CSS,
-                'import': import_css}
+                'import': import_css,
+                'google': re.search(r'<style>(.*?)</style>', google_ledger_page.render_html(
+                    {'trips': [], 'sources': {}, 'synced_at': '2026-10-26T00:00:00Z'}), re.S)[1],
+                'maintenance': re.search(r'<style>(.*?)</style>', expense_bulk_maintenance._render_page(''), re.S)[1]}
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         context = browser.new_context(color_scheme='light')
@@ -87,7 +91,8 @@ def test_real_page_palettes_follow_choice_with_invalid_storage_and_cross_tab_upd
             if route.request.resource_type != 'document':
                 route.abort()
                 return
-            route.fulfill(body=document(palettes[route.request.url.rsplit('/', 1)[-1]], native=True),
+            name = route.request.url.rsplit('/', 1)[-1]
+            route.fulfill(body=document(palettes[name], native=name == 'ledger'),
                           content_type='text/html')
         context.route('http://theme.test/**', serve_palette)
         page = context.new_page()
@@ -98,6 +103,10 @@ def test_real_page_palettes_follow_choice_with_invalid_storage_and_cross_tab_upd
             assert page.locator('html').get_attribute('data-theme') == 'dark'
             assert page.evaluate('getComputedStyle(document.body).backgroundColor') == 'rgb(15, 23, 42)'
             assert page.evaluate("getComputedStyle(document.querySelector('#nav')).backgroundColor") == 'rgb(15, 23, 42)'
+            if name == 'import':
+                assert page.locator('#card').evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgb(30, 41, 59)'
+                assert page.locator('#draft').evaluate('e=>getComputedStyle(e).backgroundColor') == 'rgb(30, 41, 59)'
+                assert page.locator('#draft').evaluate('e=>getComputedStyle(e).color') == 'rgb(248, 250, 252)'
             page.emulate_media(color_scheme='light')
             assert page.locator('html').get_attribute('data-theme') == 'dark'
             page.locator('#site-theme-toggle').click()
