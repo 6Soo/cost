@@ -2845,8 +2845,13 @@ def render_expense_cleanup(board, csrf, *, page=1):
         return ''
     esc = ledger_board.esc
     flow = CardFlow(board)
+    from functools import cache
+    # Read-only choices and previews share validation for this render only.
+    # The next render and every write still validate their own current inputs.
+    trip_valid = cache(flow.trip_valid)
+    tab_valid = cache(flow.tab_valid)
     trips = sorted((t for t in board.list_trips()
-                    if not t.get('deleted') and not t.get('archived') and flow.trip_valid(t['tab_id'])),
+                    if not t.get('deleted') and not t.get('archived') and trip_valid(t['tab_id'])),
                    key=lambda t: t.get('starts_on') or '', reverse=True)
     options = "<option value=''>여행 선택</option>" + ''.join(
         f"<option value='{esc(t['tab_id'])}'>{esc(t.get('display_key') or t['tab_id'])}</option>" for t in trips)
@@ -2872,8 +2877,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
     for batch_id in dict.fromkeys(row[1] for row in rows_card):
         try:
             holds = flow.automatic_holds(batch_id)
-            preview = flow.pipeline.preview(batch_id, trip_validator=flow.trip_valid,
-                                            tab_validator=flow.tab_valid,
+            preview = flow.pipeline.preview(batch_id, trip_validator=trip_valid,
+                                            tab_validator=tab_valid,
                                             additional_holds=holds)
             preview_by_card.update({str(row['transaction_id']): row for row in preview.get('rows') or ()})
         except (OSError, ValueError, KeyError, TypeError):
