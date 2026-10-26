@@ -9,6 +9,10 @@
 
 **READY / SPEC_ONLY / CODE_NOT_IMPLEMENTED.** [통합 UI 명세 v1.3 §13](card-all-transactions-and-ui-design-system-spec-v1.md)을 따라 모든 로그인 업무 화면 우상단에 **아이콘 하나**로 라이트(해) ↔ 다크(초승달)를 즉시 전환한다. 첫 방문은 시스템 테마, 사용자가 선택한 뒤엔 localStorage 한 키에 `light|dark`를 보존하고 다른 화면에서도 적용. **기존 '수동 테마 금지' 정책은 이 신규 승인으로 폐기**한다. 기본 V21 다크모드·메뉴 코드는 재구현하지 않는다. 합성 Chromium에서 dark 시스템 + light 선택, light 시스템 + dark 선택, 아이콘·접근성·선택 유지·모바일을 검증. 기존 금융/Google/DB 데이터 변경 금지. 우선순위 **P1 (새 승인 기능)**. 운영 배포·운영 브라우저 수락은 별도 게이트.
 
+## 신규 승인: 항공권 예약 확인 (2026-10-26)
+
+사용자가 기존 **'항공권 참가자 연결'**을 **'항공권 예약 확인'** 업무 보조 메뉴로 전환하도록 승인했다. [전용 명세](flight-booking-verification-spec-20261026.md)의 순서는 `FLIGHT-VERIFY-DATA-01` → `FLIGHT-VERIFY-API-01` + `FLIGHT-VERIFY-CARD-01` → `FLIGHT-VERIFY-UI-01`이다. **탑승객 이름 하나**로 검색하고 항공권 근거·검증된 카드 관계를 표시한다. 미연결 카드 후보는 검증된 예약일을 확인했을 때만 모든 당일 카드 원행을 보여준다. 예약일이 확인되지 않으면 임의 날짜 후보를 만들지 않는다. 기존 참가자 연결은 보조 기능으로 보존한다. **SPEC_ONLY / CODE_PENDING**.
+
 ## 1. PR 정리·기준선 (중복 개발 금지)
 
 | 구분 | GitHub 확인 상태 | 실행 원칙 |
