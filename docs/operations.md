@@ -729,3 +729,22 @@ PR #56 (`2807e6a`)를 main에 병합하고 `tools/restart_real_review_host.ps1`�
 재시작 전 복구 사본 `D:/WebLedgerHost/backups/pre-kb-three-channel-20261011/`를 만들었다. 장부 DB 74개 표와 OTA 검토 DB 6개 표의 행 수가 사본과 같고 두 사본의 `quick_check`는 `ok`다.
 
 운영 장부 DB에는 승인 증거용 빈 표 두 개만 생성됐다. 승인 행은 0이며 거래 6,037건, 장부 736행·73,998,707원, 사용자 확정 28건, 환불 보류 15건, 접수 묶음 7건은 유지됐다. OTA 검토 DB의 기존 연결 1건, 제안 1건, 요청 1건도 유지됐다. 실제 KB 3채널 대사는 격리 복사본에서만 했고 운영 DB에는 KB 행을 넣지 않았다.
+## 2026-10-27 페이지 전환 지연 진단·읽기 경로 최적화
+
+PR [#139](https://github.com/6Soo/cost/pull/139)을 병합하고 **`a08cb815aa54be08a8361892a6fec3802aed616b`**을 운영에 배포했다. Aside REPL에서 실제 메뉴 링크를 클릭한 배포 전 측정은 다음과 같다. 각 경로 1회 관찰이며 평균/백분위가 아니다.
+
+| 페이지 | 전환 | 서버 TTFB | DOM 준비 |
+| --- | ---: | ---: | ---: |
+| 카드 전체 내역 | 1.440초 | 0.919초 | 1.071초 |
+| OTA 내역 | 16.795초 | 16.359초 | 16.502초 |
+| 영수증 처리 | 0.791초 | 0.269초 | 0.440초 |
+| 여행 장부 | 2.307초 | 1.855초 | 1.961초 |
+| 지출 정리 | 23.768초 | 23.232초 | 23.486초 |
+
+원인은 거래마다 반복한 장부 projection 집계, 환불 표시마다 반복한 연결/보류 조회, 중앙 snapshot이 없을 때 OTA GET에서 실행한 legacy 전체 대사, 시작 시 index 생성과 JSON 저장까지 유지한 목록 잠금, 예약마다 반복한 동일 여행 경계 계산이었다. 요청 내 projection/환불 근거를 재사용하고 OTA 목록은 갱신 중/이전 자료 표시와 비동기 갱신을 사용한다. detail/write는 최신 검증을 유지하고 중앙 snapshot이 준비되지 않으면 pending으로 표시한다. index 생성·디스크 I/O는 짧은 publication 잠금 밖에서 실행한다. 기존 HTTP DB 잠금과 금융 판정/쓰기 정책은 보존했다.
+
+같은 로컬 원본 사본의 지출 정리 profile은 10.812→2.092초, projection 조회 1,374→2회였고 비동기 OTA foreground는 0.723초였다. 이는 운영 브라우저 전환 수치가 아니다. 표적 RED/GREEN 검사, catalog/booking 31 passed, 최종 performance/catalog 19 passed, 동시 생성/저장·stale·저장 실패 선택 6 passed, 금융 projection/중복/기존 장부 선택 18 passed 및 8 subtests passed를 확인했다. 구 expense 문구 assertion 하나는 기준 `cb7c575`에서도 실패하여 범위 밖으로 보존했다. 실행별 결과를 전체 회귀 통과로 합산하지 않는다. 독립 검토의 디스크 I/O 잠금 지적을 수정한 뒤 후속 검토에서 미해결 사항이 없었다. 전체 pytest/E2E·운영 재대사·기장·배정·Google 쓰기는 수행하지 않았다.
+
+릴리스 956개 추적 파일의 Git blob이 모두 일치했다. 기존 `909e4ad` 릴리스와 검증된 복원 근거를 보존하고 task action SHA만 바꿨다. task/process/표식 SHA 일치, Board Running·단일 loopback listener, health/ready 200·비인증 OTA API 401을 확인했다. 증거는 `D:/WebLedgerHost/releases/deploy-evidence-a08cb815aa54be08a8361892a6fec3802aed616b.json`과 `release-audit-a08cb815aa54be08a8361892a6fec3802aed616b.json`, 같은 SHA의 작업 before/after XML이다. DB 2개의 관련 13개 표 내용/스키마 해시는 배포 전후 동일했다. 고객 원문이 없는 보호 집계와 profiles는 Git 밖 `.local-archive/navigation-20261027/`에 보존했다.
+
+**화면 수락 PARTIAL:** 기존 Aside COST target은 배포 후 사라져 새 탭을 열었다. openTab 직후 빈 주소/본문, 명시 이동의 `Page.navigate` timeout 이후 실제 지출 정리 화면과 메뉴를 snapshot으로 확인했다. 이어 다섯 메뉴 클릭 측정은 첫 동작의 `Runtime.evaluate` timeout으로 중단돼 **배포 후 전환/TTFB 수치는 NOT_MEASURED**다. 도구 timeout을 서버 지연이나 성능 개선 완료로 해석하지 않는다. 별도 공개 health GET은 200이었다. 브라우저/앱 복구·재설치·불필요한 재배포는 하지 않았다. 다음은 Aside가 동작할 때 동일 다섯 메뉴 1회 클릭과 TTFB 비교만 수행한다. 이미 통과한 검사·보호 hash·스모크를 반복하지 않는다.
