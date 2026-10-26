@@ -1548,7 +1548,7 @@ MANUAL_EXPENSE_STYLE = """<style>
 .mx-field{display:flex;flex-direction:column;gap:6px;min-width:0}
 .mx-field.wide{grid-column:1 / -1}
 .mx-field label{font-size:13px;font-weight:600;color:var(--mut)}
-.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:#fff;font:inherit;font-size:14.5px;color:var(--ink)}
+.mx-field input,.mx-field select{height:42px;box-sizing:border-box;width:100%;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--paper);font:inherit;font-size:14.5px;color:var(--ink)}
 .mx-field input:focus,.mx-field select:focus{outline:2px solid #3B82F6;outline-offset:-1px}
 .mx-amount input{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .mx-actions{display:flex;justify-content:flex-end;margin-top:26px;padding-top:20px;border-top:1px solid var(--line)}
