@@ -2808,6 +2808,7 @@ def _kakao_merchant_inventory_readonly(board):
     rows = board.conn.execute(
         "SELECT merchant,transaction_direction,COUNT(*) FROM transactions "
         "WHERE merchant LIKE '%카카오%' OR lower(merchant) LIKE '%kakao%' "
+        "OR merchant LIKE '%유페이%' "
         "GROUP BY merchant,transaction_direction ORDER BY merchant,transaction_direction"
     ).fetchall()
     return [{"merchant": name, "direction": direction, "count": int(count),
@@ -2842,7 +2843,7 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
         taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
         other_count = sum(item["count"] for item in inventory if item["family"] != "카카오택시")
         parts.append("<details class='cleanup-kakao-inventory'><summary>"
-                     f"전체 카카오 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
+                     f"카카오·유페이 표기 점검 · 택시 {taxi_count}건 / 기타 {other_count}건"
                      "</summary><p class='cleanup-evidence-meta'>현재 저장된 카드 원행의 가맹점 표기를 "
                      "읽기 전용으로 집계합니다. 카카오페이·기타 서비스는 택시 후보에서 분리하며 "
                      "원결제 매칭이나 계좌 출금 증거로 사용하지 않습니다.</p>")
