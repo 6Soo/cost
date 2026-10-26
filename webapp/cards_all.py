@@ -26,6 +26,63 @@ _CURSOR_RE = re.compile(r"^(?:\d{4}-\d{2}-\d{2}(?:[T ].*)?)?\|.+$")
 _TIME_RE = re.compile(r"^(\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?$")
 
 
+CARD_ALL_STYLE = """
+<style id="card-all-design">
+/* This visual layer scopes every rule to the read-only card history screen. */
+.card-all-page{--ca-border:var(--line,#e2e8f0);--ca-muted:var(--mut,#64748b);--ca-ink:var(--ink,#0f172a);--ca-paper:var(--paper,#fff);--ca-soft:var(--hover,#f1f5f9);--ca-accent:var(--grn,#1c7a52);color:var(--ca-ink);max-width:1260px;margin:0 auto;padding:24px 24px 64px;font:inherit}
+.card-all-page *{box-sizing:border-box}
+.card-all-page .card-all-hero{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:22px 24px;border:1px solid var(--ca-border);border-radius:16px;background:var(--ca-paper);margin-bottom:18px}
+.card-all-page .card-all-eyebrow{font-size:12px;font-weight:750;letter-spacing:.045em;color:var(--ca-accent);margin:0 0 5px}
+.card-all-page .card-all-lead{font-size:15px;font-weight:700;margin:0}
+.card-all-page .card-all-description{font-size:12px;color:var(--ca-muted);margin:5px 0 0;max-width:52ch;line-height:1.55}
+.card-all-page .card-all-summary{display:grid;grid-template-columns:repeat(2,minmax(110px,1fr));gap:10px}
+.card-all-page .card-all-stat{display:grid;gap:3px;min-width:115px;padding:12px 15px;border:1px solid var(--ca-border);background:var(--ca-soft);border-radius:11px}
+.card-all-page .card-all-stat-label{font-size:11px;color:var(--ca-muted);font-weight:650}
+.card-all-page .card-all-stat-value{font-size:19px;font-variant-numeric:tabular-nums;font-weight:800}
+.card-all-page .card-all-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+.card-all-page .card-all-toolbar-title{font-size:16px;font-weight:750;margin:0}
+.card-all-page .card-all-year{display:flex;align-items:center;gap:9px;margin:0;font-size:13px}
+.card-all-page .card-all-year label{font-size:12px;color:var(--ca-muted)}
+.card-all-page .card-all-year select{color:var(--ca-ink);background:var(--ca-paper);font:inherit;font-weight:700;min-height:42px;padding:8px 32px 8px 12px;border:1px solid var(--ca-border);border-radius:9px}
+.card-all-page .card-all-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.card-all-page .card-month-form{margin:0;min-width:0}
+.card-all-page .card-all-tile{display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:13px;width:100%;min-height:94px;text-align:left;padding:15px 16px;border:1px solid var(--ca-border);border-radius:12px;background:var(--ca-paper);color:var(--ca-ink);font:inherit;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s}
+.card-all-page .card-all-tile .month-name{font-size:16px;font-weight:800}
+.card-all-page .card-all-tile .month-count{font-size:12px;font-weight:650;color:var(--ca-muted);font-variant-numeric:tabular-nums}
+.card-all-page .card-all-tile:hover{background:var(--ca-soft);border-color:var(--ca-accent)}
+.card-all-page .card-all-tile[aria-pressed=true]{background:var(--sel,var(--ca-soft));border:2px solid var(--ca-accent);padding:14px 15px;box-shadow:0 0 0 1px var(--ca-accent)}
+.card-all-page .card-all-tile[aria-pressed=true] .month-count{color:var(--ca-ink)}
+.card-all-page :is(button,a,select):focus-visible{outline:2px solid var(--focus,#2563eb);outline-offset:3px}
+.card-all-page :is(.card-all-detail,.card-all-undated,.card-all-prompt){border:1px solid var(--ca-border);border-radius:14px;background:var(--ca-paper);padding:19px 20px;margin:0 0 16px}
+.card-all-page :is(.card-all-detail,.card-all-undated) h2{margin:0 0 14px;font-size:16px;font-weight:750;line-height:1.5}
+.card-all-page .card-all-prompt{color:var(--ca-muted);font-size:13px}
+.card-all-page .card-all-muted{font-size:12px;line-height:1.6;color:var(--ca-muted)}
+.card-all-page .card-all-table-wrap{width:100%;overflow-x:auto;overscroll-behavior-inline:contain;border-radius:10px;border:1px solid var(--ca-border)}
+.card-all-page .card-all-table{border-collapse:separate;border-spacing:0;width:100%;min-width:650px;background:var(--ca-paper);font-size:13px;line-height:1.5}
+.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:12px 14px;text-align:left;vertical-align:middle;border-bottom:1px solid var(--ca-border)}
+.card-all-page .card-all-table thead th{position:sticky;top:0;background:var(--ca-soft);color:var(--ca-muted);font-size:12px;font-weight:700;z-index:1}
+.card-all-page .card-all-table .date-group th{padding:9px 14px;background:var(--ca-soft);color:var(--ca-ink);font-size:12px;font-weight:750}
+.card-all-page .card-all-table tbody tr:not(.date-group):hover{background:var(--ca-soft)}
+.card-all-page .card-all-table tbody tr:last-child td{border-bottom:0}
+.card-all-page .card-all-table .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+.card-all-page .card-all-table .use-datetime{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ca-muted)}
+.card-all-page .card-all-table .merchant{font-weight:700;overflow-wrap:anywhere}
+.card-all-page .card-all-table .trip{min-width:170px;overflow-wrap:anywhere}
+.card-all-page .card-all-trip-name{display:block;font-weight:700;line-height:1.4}
+.card-all-page .card-all-trip-name.unassigned{color:var(--ca-muted);font-weight:500}
+.card-all-page .card-all-trip-source{display:inline-flex;margin-top:4px;font-size:11px;line-height:1.5;color:var(--ca-muted)}
+.card-all-page .card-all-badge{display:inline-flex;margin:5px 4px 0 0;padding:2px 7px;border-radius:6px;border:1px solid var(--ca-border);background:var(--ca-soft);font-size:11px;color:var(--ca-ink)}
+.card-all-page .card-all-link{color:var(--ca-accent);font-weight:750;font-size:12px;text-decoration:underline;text-underline-offset:3px}
+.card-all-page .card-all-table .card-all-link{display:inline-flex;white-space:nowrap;margin-top:6px}
+.card-all-page .card-all-pagination{margin-top:15px;display:flex;justify-content:center}
+.card-all-page .card-all-pagination a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 16px;border:1px solid var(--ca-border);border-radius:9px;background:var(--ca-soft);text-decoration:none}
+@media(max-width:759px){.card-all-page{padding:14px 12px 42px}.card-all-page .card-all-hero{padding:16px}.card-all-page .card-all-summary{width:100%;grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-stat{min-width:0}.card-all-page .card-all-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.card-all-page .card-all-tile{min-height:78px;padding:11px}.card-all-page .card-all-tile[aria-pressed=true]{padding:10px}.card-all-page :is(.card-all-detail,.card-all-undated){padding:13px}.card-all-page .card-all-table th,.card-all-page .card-all-table td{padding:10px}}
+@media(max-width:390px){.card-all-page .card-all-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card-all-page .card-all-hero{gap:14px}}
+@media(prefers-reduced-motion:reduce){.card-all-page .card-all-tile{transition:none}}
+</style>
+"""
+
+
 def _esc(value) -> str:
     return html.escape("" if value is None else str(value), quote=True)
 
@@ -209,7 +266,8 @@ def _group_by_date(items: list[dict]) -> list[tuple[str, list[tuple[str, str, di
     return ordered
 
 
-def _render_month_rows(items: list[dict], include_detail_link: bool = True) -> str:
+def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
+                       trip_names: dict[str, str] | None = None) -> str:
     rows: list[str] = []
     for date_key, entries in _group_by_date(items):
         rows.append(
@@ -225,8 +283,17 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True) -> s
             amount = _format_amount(item.get("amount_krw"),
                                     item.get("foreign_amount"),
                                     item.get("foreign_currency"))
-            trip = _get_trip_display(item.get("trip_id"),
-                                     item.get("classification_source"))
+            trip_id = str(item.get("trip_id") or "").strip()
+            trip_name = (trip_names or {}).get(trip_id, trip_id)
+            source = str(item.get("classification_source") or "").strip()
+            trip = _get_trip_display(trip_name, source)
+            if not trip_id:
+                trip_markup = "<span class='card-all-trip-name unassigned'>미배정</span>"
+            else:
+                status = " · 사용자 확정" if source == "manual" else (" · 추정" if source == "auto_inferred" else "")
+                trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>{_esc(trip_name)}</span>"
+                               f"<span class='card-all-trip-source'>{_esc(status.lstrip(' ·'))}</span>" if status else
+                               f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>{_esc(trip_name)}</span>")
             link = ""
             href = _detail_href(tid) if include_detail_link else ""
             if href:
@@ -236,12 +303,13 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True) -> s
                 f"<td class='use-datetime'>{_esc(date_text)}</td>"
                 f"<td class='merchant' title='{_esc(merchant)}'>{_esc(merchant)}</td>"
                 f"<td class='amount'>{_esc(amount)}</td>"
-                f"<td class='trip'>{_esc(trip)} {_status_badges(item)} {link}</td>"
+                f"<td class='trip'>{trip_markup} {_status_badges(item)} {link}</td>"
                 f"</tr>")
     return "".join(rows)
 
 
-def _transactions_table(items: list[dict], label: str) -> str:
+def _transactions_table(items: list[dict], label: str, *,
+                        trip_names: dict[str, str] | None = None) -> str:
     return (
         "<div class='card-all-table-wrap'>"
         f"<table class='card-all-table' aria-label='{_esc(label)}'>"
@@ -252,7 +320,7 @@ def _transactions_table(items: list[dict], label: str) -> str:
         "<th scope='col' class='amount'>금액</th>"
         "<th scope='col'>배정된 여행</th>"
         "</tr></thead>"
-        f"<tbody>{_render_month_rows(items)}</tbody>"
+        f"<tbody>{_render_month_rows(items, trip_names=trip_names)}</tbody>"
         "</table></div>")
 
 
@@ -286,7 +354,8 @@ def _month_grid(year: int, months: dict, selected_month: int | None) -> str:
 
 
 def _undated_section(year: int, items: list[dict], count: int, *,
-                     expanded: bool, cursor: str | None, has_more: bool) -> str:
+                     expanded: bool, cursor: str | None, has_more: bool,
+                     trip_names: dict[str, str] | None = None) -> str:
     heading = f"<h2>날짜 확인 필요 · {count:,}건</h2>"
     note = ("<p class='card-all-muted'>유효한 이용일이 없는 저장 원행이에요. "
             "연도 필터와 상관없이 확인할 수 있어요.</p>")
@@ -310,12 +379,12 @@ def _undated_section(year: int, items: list[dict], count: int, *,
                 "</div>")
     return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
             f"<div id='undated-heading'>{heading}</div>{note}"
-            f"{_transactions_table(items, '날짜 확인 필요 거래')}{more}"
+            f"{_transactions_table(items, '날짜 확인 필요 거래', trip_names=trip_names)}{more}"
             "</section>")
 
 
 def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bool,
-                  total: int) -> str:
+                  total: int, *, trip_names: dict[str, str] | None = None) -> str:
     if not items:
         if total:
             start = "/cards/all?" + urlencode({"year": year, "month": month})
@@ -338,7 +407,7 @@ def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bo
                 "</div>")
     return (f"<section class='card-all-detail' aria-labelledby='month-heading'>"
             f"<h2 id='month-heading'>{year}년 {month}월 · 전체 {total:,}건</h2>"
-            f"{_transactions_table(items, f'{year}년 {month}월 거래')}"
+            f"{_transactions_table(items, f'{year}년 {month}월 거래', trip_names=trip_names)}"
             f"{more}</section>")
 
 
@@ -428,20 +497,43 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     except (ValueError, TypeError):
         return _error_page("조회 조건을 확인하지 못했어요.")
 
+    # Only an already-authorized owner page resolves ledger display labels.
+    # This never changes the stored trip_id, the card's classification, or access policy.
+    trip_names: dict[str, str] = {}
+    try:
+        from . import ledger_board as _board
+        if _board.current_role() == "owner":
+            trip_names = {
+                str(t.get("tab_id") or ""): str(t.get("display_key") or t.get("tab_id") or "")
+                for t in _board.live_trips(include_archived=True)
+                if isinstance(t, dict) and t.get("tab_id")
+            }
+    except (RuntimeError, AttributeError, TypeError):
+        trip_names = {}
+
     if selected_month is not None:
         detail = _month_detail(year, selected_month, items, next_cursor,
-                               has_more, month_total)
+                               has_more, month_total, trip_names=trip_names)
     else:
         detail = ("<p class='card-all-prompt' role='status'>확인할 월을 선택해 줘.</p>")
 
     body = (
-        "<div class='card-all-page'>"
-        "<div class='card-all-toolbar'>"
+        CARD_ALL_STYLE
+        + "<div class='card-all-page'>"
+        "<header class='card-all-hero'>"
+        "<div><p class='card-all-eyebrow'>CARD TRANSACTION HISTORY</p>"
+        "<p class='card-all-lead'>월별 카드 거래 확인</p>"
+        "<p class='card-all-description'>저장된 원행을 날짜순으로 확인합니다. 원본 카드사 자료와의 완전성 대조는 별도입니다.</p></div>"
+        "<div class='card-all-summary' aria-label='저장 거래 요약'>"
+        f"<div class='card-all-stat'><span class='card-all-stat-label'>{year}년 날짜 확인 거래</span><strong class='card-all-stat-value'>{sum(int(v or 0) for v in months.values()):,}건</strong></div>"
+        f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
+        "</div></header>"
+        "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회할 월 선택</h2>"
         f"{_year_form(year, years)}"
         "</div>"
         f"{_month_grid(year, months, selected_month)}"
         f"{detail}"
-        f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more)}"
+        f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names)}"
         "</div>")
     fragment = _design.shell(
         "카드 전체 내역", tab_id="", heading="카드 전체 내역",
