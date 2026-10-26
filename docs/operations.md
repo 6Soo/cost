@@ -1,3 +1,23 @@
+## 2026-10-26 PR #120 사이드메뉴 스타일 런타임 확인
+
+PR [#120](https://github.com/6Soo/cost/pull/120) 병합 SHA `78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e`가 현재 운영 런타임에 반영된 상태임을 읽기 전용으로 확인했다. `WebLedger-Board` 작업 정의와 127.0.0.1:8751 listener의 실행 인자는 모두 `D:/WebLedgerHost/releases/78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e` 및 `D:/WebLedgerHost/bin/launch_web_ledger.py`를 가리켰고, 릴리스의 `DEPLOYED_COMMIT`도 같은 SHA다. listener는 1개였으며 `/healthz`와 `/readyz`는 각각 200을 반환했다.
+
+릴리스 파일 944개를 해당 Git SHA의 추적 경로 944개와 대조해 경로 차이가 없음을 확인했다. `webapp/ledger_design.py`, `webapp/site_shell.py`, 두 표적 테스트 파일, `tools/start_web_ledger_host.ps1`, `tools/launch_web_ledger.py`의 Git blob 해시가 모두 일치했다. 이 검증 세션은 예약 작업을 변경하거나 서비스를 재시작하지 않았다. 이 SHA에 해당하는 `board-task-before/after` XML은 호스트 설정에서 찾지 못했으므로 작업 정의 변경 이력은 `NOT_FOUND`로 남긴다.
+
+PR #120의 표적 명령 `python -m pytest webapp/tests/test_site_shell.py webapp/tests/test_ledger_design.py -q`는 앞선 검증에서 34 passed, 2 subtests passed, 1 failed였다. 유일한 실패는 여행 그룹 기대값 4와 실제 2의 차이였고, 기준 `main`에서도 동일하게 재현되어 PR 변경으로 인한 실패가 아님을 확인했다. **운영 로그인 브라우저의 변경 화면 스모크는 `NOT_RUN`**이다. 현재 세션에 Aside 브라우저 연결이 없어 스타일 표시를 실제 로그인 화면에서 확인하지 않았다. health/ready 응답을 화면 수락으로 간주하지 않는다.
+
+이번 확인은 로컬 HTTP GET, 작업 정의·프로세스 인자·릴리스 파일 읽기만 수행했다. 운영 DB, 카드 원본, Google 자료, 스케줄 작업과 보호 설정을 변경하지 않았다. 실제 운영 런타임 SHA는 현재 `78cf8b8`; `36f6cb3`은 이전 릴리스 이력이다.
+
+## 2026-10-26 OTA 카드 후보 응답 최적화 배포
+
+통합 커밋 `36f6cb32ac09805079e5ddb5641fe01032088fa7`를 `origin/main`에 일반 push하고 `D:/WebLedgerHost/releases/36f6cb32ac09805079e5ddb5641fe01032088fa7`로 배포했다. Git archive의 추적 파일 943개를 풀어 파일 수를 대조했고, `ota_payment_review.py`, 해당 표적 검사, 호스트 실행기, 런처, 장부 화면, 공통 디자인, 이 문서 등 핵심 파일 7개의 Git blob 해시가 일치했다. `DEPLOYED_COMMIT` 표식도 같은 SHA다. 기존 릴리스 `47264123835d1a576f17fa8d27148bddee69a3f0`는 복구 대상으로 보존했다.
+
+`WebLedger-Board` 작업 XML은 이전·변경 후 파일을 `D:/WebLedgerHost/config/board-task-before-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml` 및 `board-task-after-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml`에 보존했다. 작업 정의와 127.0.0.1:8751 listener는 새 SHA를 가리키며 작업 상태는 Running이다. `/healthz`와 `/readyz`는 200, 비인증 `/api/imports/ota`는 401이다. `WebLedger-SourceRefresh`는 Running, `WebLedger-GoogleAuthority`와 `WebLedger-MailCollect`는 Ready다.
+
+배포 전 복구 가능성은 기존 검증 증거 `D:/WebLedgerHost/data/backups/operational-20261025T173423505753Z/` 및 `cost-spec-deploy-20261026-evidence.json`을 재사용했다(DB 5개·보호 파일 59개, 별도 복원 비교 및 원본 불변 확인). 새 DB 복사·마이그레이션·Google 쓰기·가져오기·동기화는 없었다. OTA 화면의 로그인 브라우저 확인은 Aside의 기존 탭 연결이 응답하지 않고 새 탭이 빈 화면을 반환해 **NOT_RUN**이다. 이를 성공으로 처리하지 않으며 V21 전체 화면 수락은 계속 PARTIAL이다.
+
+`webapp/tests/test_ota_payment_review.py` 표적 검사는 39 passed였고, `ota_payment_review.py` 및 테스트 파일의 `py_compile`은 오류 없이 완료됐다. OTA 응답 최적화 외의 사용자 화면 수락 및 `0630_오제` 과거 표시 실패 원인은 이 배포로 완료 처리하지 않는다.
+
 # 현재 운영 상태
 
 ## 2026-10-26 COST UI 명세 구현 릴리스
@@ -591,7 +611,7 @@ OTA 자료 통합은 2026-10-08 확인 기준이다. 이 문서는 현재 상태
 
 ## 완료한 수정과 반영
 
-- 승인번호가 같은 결제와 취소를 같은 거래로 판정해 전체 기록을 되돌리던 오류를 SpaceBUnny가 수정했다. 거래 ID를 먼저 확인하고, ID가 없는 과거 장부 행은 카드사·카드·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다.
+- 승인번호가 같은 결제와 취소를 같은 거래로 판정해 전체 기록을 되돌리던 오류를 수정했다. 거래 ID를 먼저 확인하고, ID가 없는 과거 장부 행은 카드사·카드·승인번호·일자·부호 있는 금액·거래 종류를 함께 비교한다.
 - API ready와 홈 집계는 `recordable_rows()`의 고유 거래·blocked·already_booked 제외 기준을 공유한다.
 - 출력 화면과 출력 작업 조회는 기존 importer 생성과 스키마 쓰기 없이 읽는다.
 - 여행 목록은 기존 금액이 수입 합계라는 사실과 미기록 거래가 포함되지 않는다는 안내를 표시한다.

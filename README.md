@@ -36,4 +36,4 @@ python run_candidate.py --data-root C:\AX\cost-dev-data --port 8765 --environmen
 
 ## 작업 절차
 
-`DISCOVER → CONTRACT → IMPLEMENT → TARGETED TEST → REVIEW → COMMIT/PR → NEXT`. 새 대사 개발은 **R0 읽기 전용 원본·미매칭 전수 진단**부터. 운영 원문을 공개 무료 모델에 올리지 않으며, 문서만 바꾼 경우에는 코드 실행이나 재배포를 수행하지 않습니다.
+`DISCOVER → CONTRACT → IMPLEMENT → TARGETED TEST → REVIEW → COMMIT/PR → NEXT`. 새 대사 개발은 **R0 읽기 전용 원본·미매칭 전수 진단**부터. 운영 원문을 외부 모델에 올리지 않으며, 문서만 바꾼 경우에는 코드 실행이나 재배포를 수행하지 않습니다.

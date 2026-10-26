@@ -1,17 +1,16 @@
-# COST UI 감사표 v2 — COST-UI-AUDIT-001 (티켓 1/4)
+# COST UI 감사표 v2 — COST-UI-AUDIT-001
 
 > **역사적 UI 감사(2026-10-25 기준 후속 변경 발생):** 이 문서는 PR #103 작업 당시의 단발 소스 감사로, 이후 PR #104(테마)와 PR #109(카드 전체 내역/항공/영수증/OTA UI 통합)이 main에 병합됐다. 하단의 `/cards/all 미구현`, `READY`, 브랜치 ahead/behind는 **이전 기준의 기록**이다. 최신 구현 vs 명세 상태는 [CURRENT HANDOFF §0.13](COST_V3_CURRENT_HANDOFF.md) 참조. 기존 브라우저 미실행 이력은 PASS로 변경하지 않는다.
 
 
 > 상태: PR-0 문서 전용 (§6). 구현·브라우저 테스트 미수행. 소스 확인 1회만 수행. 기존 feature branch는 git show 비교 후 미검증 참고.
 > 기준 SHA: b2a470b910d96caea29c255d6b76c619dbdb4a9e (base of docs/cost-ui-audit-v2-20261025)
-> 현재 branch: docs/cost-ui-audit-v2-20261025 (base b2a470b; 이전 22 behind/6 unique; 현재 HEAD=69e46e8; 현재 origin/main..HEAD=1 ahead; origin/main..feat/card-all-transactions-ui-audit=13 ahead; 단순 push 금지; supervisor PR 승인, implementer push/PR 금지)
-> 모델: Inkling Small Free (무료 제공)만 사용; 모델 전환/CLI 전환/재귀 위임 금지
+> 현재 branch: docs/cost-ui-audit-v2-20261025 (base b2a470b; 이전 22 behind/6 unique; 현재 HEAD=69e46e8; 현재 origin/main..HEAD=1 ahead; origin/main..feat/card-all-transactions-ui-audit=13 ahead; 단순 push 금지)
 
 ## 1. 감사 기준 및 출처
 - 명세: docs/card-all-transactions-and-ui-design-system-spec-v1.md §1, §4.3, §6
 - 범위: 메뉴/URL/렌더/CSS/JS/권한/카드 원행 데이터 출처/상세 ID 경로 추적. 운영 자료 읽지 않음.
-- 브라우저: NOT_TESTED (UI-VERIFY001 HOLD; 재시작 금지)
+- 브라우저: NOT_TESTED
 - 테스트/빌드/배포: 금지 (§5.3, AGENTS.md)
 
 ## 2. 소스 확인 (1회, 실제 경로)
@@ -56,21 +55,20 @@
 
 > 추가 행 수: 9개 메뉴 항목 (/board, /import, /ota, /receipts, /trips, /reserve-links, /flight-passengers, /access/admin, /rules). /cards는 기존 §4 표에 별도 행 있음(중복 제외하여 실제 menu 항목 9개 추가). bank_batch_id는 카드 원행 DB 스키마 증거로만 사용; 거래 ID 증거는 card_flow transaction_id / ledger_store row_id 사용. 없음: /cards/all 별도 라우트 확인 미완료(§2.1 권장 경로는 실제 코드에서 /cards로 처리됨).
 
-## 5. 후속 큐 (READY 최대 5, 기준선 기록)
-READY (최대 3 새 후속 구현 티켓; 기존 완료/검증 HOLL 유지, 재시작 구분):
+## 5. 후속 큐 (READY, 기준선 기록)
+READY (후속 구현 티켓; 기존 완료/검증 HOLL 유지, 재시작 구분):
 1. 공통 테마 토큰 최소 구축(PR-1 방향, 시스템 prefers-color-scheme) — 안전 의존성(기존 기능 깨지지 않음) 필수; NOT_TESTED 유지
-2. 시스템 테마 영향 표적 검사(공통 CSS 변경 → 기존 핵심 페이지 표적 검증) — UI-VERIFY001 HOLL과 구별; 재시작 아님
-3. 카드 전체 조회 구현(PR-2, 월 그리드/4논리열/정렬/상세 링크) — 기존 검증 HOLL(UI-VERIFY001)의 재시작과 구별; 안전 의존성 필수
+2. 시스템 테마 영향 표적 검사(공통 CSS 변경 → 기존 핵심 페이지 표적 검증)
+3. 카드 전체 조회 구현(PR-2, 월 그리드/4논리열/정렬/상세 링크) — 안전 의존성 필수
 
 (기존 P1~P2 하위 페이지, 데이터 계약, 권한 재사용은 HOLD/미검증 상태 유지; 새로운 일반화 규칙은 사용 승인 전 적용 금지)
 
-HOLD (재시작 금지): UI-VERIFY001 (404 거절); feat/de2beb1 이식/수정.
+HOLD: feat/de2beb1 이식/수정 금지.
 
 ## 6. 미확정/위험 (근거 기반)
 - 브라우저 테스트 미수행 → PASS 금지; NOT_TESTED 유지 (§5.2, §5.3).
 - 운영 DB/Google 쓰기 없음 → 코드/함수 증거만.
 - PR100/102 완료 및 앞선 브랜치 정리 완료(재실행 금지).
-- loop 원인 로그: 미확인(로그 없음, 재귀 위임 시도 없음).
 - 배포·자동 병합: 금지. HEAD는 커밋 전(b2a470b 기준).
 
 ## 7. 실제 검사 명령/결과 (1회, 출력을 문서에 기록; 긴 로그는 로컬 보존, 감독 출력 제외)
