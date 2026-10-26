@@ -3,7 +3,7 @@
 > **문서 탐색·정책 충돌/현재 구현 여부:** 반드시 [COST V3 단일 개발 진입점](COST_V3_START_HERE.md)을 먼저 참조. 이 문서는 해당 기능의 세부 계약이며 과거 ETA/HOLD·운영 실측·아카이브 문서의 지시보다 2026-10-23 사용자 확정 정책을 우선한다.
 
 > 2026-10-23 설계 확정. **현재 상태: 핵심 코드와 합성·표적 검증은 COST main에 반영됐다. 운영 원본 전수 진단과 운영 전환·배포는 실행하지 않았다.** 현재 코드 근거는 [COST V3 단일 진입점](COST_V3_START_HERE.md#2026-10-23-코드-상태와-운영-경계)을 확인한다. 기존 [COST V3](cost-v3-inference-ai-passenger-nm-test-architecture.md) 정책을 보충한다. 변경 목표는 '양쪽 원본이 실제로 있으나 연결되지 않는' 사고를 줄이고 이유를 추적하는 것이다.
-> 이 명세는 무료 코딩 모델을 위한 구현 계약이다. 운영 데이터·사용자 확정·Google을 임의 수정하지 않는다. **Google 최종 장부 자동 쓰기는 금지**한다.
+> 이 명세는 구현 계약이다. 운영 데이터·사용자 확정·Google을 임의 수정하지 않는다. **Google 최종 장부 자동 쓰기는 금지**한다.
 
 ## 0. 사용자 확정 정책: OTA 링크와 카드 경비 기록 준비를 분리
 
@@ -195,7 +195,7 @@ PROVIDER_ALIAS_MISSING / CANDIDATE_OCCUPIED / N_M_PARTIAL
 LEGACY_NEW_CORE_DISAGREEMENT / SNAPSHOT_STALE / EXPENSE_READY
 ```
 
-출력 로컬 전용 `coverage-summary.json`(provider별·단계별 집계), `unmatched-cases.jsonl`(카드/OTA 후보 근거·사유), `legacy-diff.jsonl`(구/신엔진 차이, 사용자 확정 충돌). 카드/고객 실명·실예약번호·원문 메일·카드번호 원문을 보고서·Git·무료 모델에 보내지 않는다. 외부에 공유할 비식별 식별자는 서버 비밀키로 pseudonymize(단순 짧은 예약번호 SHA 해시 금지). 단계별 실패 이유는 복수 저장하며 실제 금전 증거가 없는 예약도 원본 존재 상태는 집계. 전수 진단 실패/등록 소스 누락은 `INCOMPLETE_SOURCE_SET`으로 명시하고 새 매칭 승인 0.
+출력 로컬 전용 `coverage-summary.json`(provider별·단계별 집계), `unmatched-cases.jsonl`(카드/OTA 후보 근거·사유), `legacy-diff.jsonl`(구/신엔진 차이, 사용자 확정 충돌). 카드/고객 실명·실예약번호·원문 메일·카드번호 원문을 보고서·Git·외부 모델에 보내지 않는다. 외부에 공유할 비식별 식별자는 서버 비밀키로 pseudonymize(단순 짧은 예약번호 SHA 해시 금지). 단계별 실패 이유는 복수 저장하며 실제 금전 증거가 없는 예약도 원본 존재 상태는 집계. 전수 진단 실패/등록 소스 누락은 `INCOMPLETE_SOURCE_SET`으로 명시하고 새 매칭 승인 0.
 
 최종 지표:
 - `extraction_gap`: 원본 관측은 있는데 금전 이벤트가 생성되지 않은 수 + 이유.
@@ -280,9 +280,9 @@ UI는 **카드 비용 상태 / OTA 연결 상태 / 여행 배정 상태**를 별
 
 이 fallback은 신규 중앙 snapshot의 결정을 덮지 않으며 진단 전용도 아니다. stale 상태에서의 제한된 복구 결정 경로다. 중앙 snapshot 생성·freshness 복구가 모든 지원 자료와 기존 수동 연결을 처리하고 stale 복구 검사가 통과하기 전에는 제거하지 않는다. `legacy_exact_bindings()`는 별도 감사 도구의 비교 진단 전용이며 웹 요청의 정본 결과에 연결하지 않는다.
 
-**절대 금지:** Google 직접 쓰기, 실예약번호·카드 원문을 공개 무료 모델에 전송, paid_on/예약번호/한글이름 창작으로 금전 이벤트 확정, 원카드 비용 합산/분할 추정, 기존 수동 여행 B 덮어쓰기, 위임 모델에 운영 원본 제공, 무관한 전체 회귀 무한 반복.
+**절대 금지:** Google 직접 쓰기, 실예약번호·카드 원문을 외부 모델에 전송, paid_on/예약번호/한글이름 창작으로 금전 이벤트 확정, 원카드 비용 합산/분할 추정, 기존 수동 여행 B 덮어쓰기, 위임 모델에 운영 원본 제공, 무관한 전체 회귀 무한 반복.
 
-## 11. 무료 코딩 모델 인수 지시
+## 11. 구현 인수 지시
 
 R0~R6 코드 구현은 [단일 진입점의 현재 상태표](COST_V3_START_HERE.md#2026-10-23-코드-상태와-운영-경계)와 Git 이력에서 확인한다. 완료한 경로를 다시 만들지 않는다. 새 필수 결함이 실제 소비 경로에서 확인되면 작은 수정과 표적 검사로 진행한다. 운영 전수 진단·DB 전환·배포는 별도 권한 없이 수행하지 않는다.
  
@@ -441,7 +441,7 @@ def reconcile_v2(observations, card_rows, manual_links, group_pins, policy):
 7. 여행은 실제 권위 있는 일정만 허용. 예약 이용기간은 카드 결제일보다 여행 귀속 우선. 사용자 A→B 이동/개인별 금융 결정 불변.
 8. `app/ledger.py` 미리보기 digest → 저장 시 다시 검증 → `ledger_entries`/`board_rows` 단일 SQL 트랜잭션 → idem request ID/rollback 계약 불변.
 9. 추정 OTA 예약번호는 Google B:H 복사 F열에 확정값으로 기입하지 않음. COST의 Google 최종 장부 자동 쓰기 0.
-10. 누락/읽기 실패 source manifest, stale snapshot을 완전한 근거로 승격하지 않음. fresh canonical을 오래된 legacy 결과로 덮지 않음. 실원본을 무료/외부 AI에 보내지 않음.
+10. 누락/읽기 실패 source manifest, stale snapshot을 완전한 근거로 승격하지 않음. fresh canonical을 오래된 legacy 결과로 덮지 않음. 실원본을 외부 AI에 보내지 않음.
 
 ### 16.2 지금의 실제 호출 흐름: 발견된 연결(동작 변경 지시 아님)
 
