@@ -40,6 +40,42 @@ def test_board_income_and_expense_share_tab_reads_only_within_render(tmp_path, m
         store.close()
 
 
+def test_cleanup_reuses_trip_validation_and_revalidates_next_render(tmp_path, monkeypatch):
+    from webapp import card_flow, ledger_board
+    from app import Pipeline
+    store = LedgerStore(tmp_path / 'cleanup-validation.sqlite', seed_demo=False)
+    previous = ledger_board._STORE
+    ledger_board.bind_store(store)
+    try:
+        flow = CardFlow(store)
+        flow.pipeline.receive(CARD, 'synthetic.csv')
+        valid = [True]
+        checks, observed = [], []
+        def trip_valid(self, trip):
+            checks.append(trip)
+            return valid[0]
+        def preview(self, batch_id, **options):
+            observed.append([options['trip_validator']('synthetic-trip') for _ in range(8)])
+            observed.append([options['tab_validator']('synthetic-trip') for _ in range(8)])
+            return {'rows': []}
+        monkeypatch.setattr(CardFlow, 'trip_valid', trip_valid)
+        monkeypatch.setattr(Pipeline, 'preview', preview)
+        monkeypatch.setattr(CardFlow, 'ota_group_holds', lambda _: {})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _: {})
+        before = list(store.conn.iterdump())
+        card_flow.render_expense_cleanup(store, 'synthetic')
+        assert observed == [[True] * 8, [True] * 8]
+        assert checks == ['synthetic-trip'] * 2
+        valid[0] = False
+        card_flow.render_expense_cleanup(store, 'synthetic')
+        assert observed[2:] == [[False] * 8, [False] * 8]
+        assert checks == ['synthetic-trip'] * 4
+        assert list(store.conn.iterdump()) == before
+    finally:
+        ledger_board.bind_store(previous)
+        store.close()
+
+
 def test_catalog_during_central_refresh_never_runs_legacy_reconciliation(monkeypatch):
     from webapp import ota_catalog, ota_payment_review
     monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
