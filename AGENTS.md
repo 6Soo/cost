@@ -12,6 +12,8 @@
 >
 > **2026-10-26 최우선 개발 큐:** [COST_READY_DEV_QUEUE_20261026.md](docs/COST_READY_DEV_QUEUE_20261026.md)와 [COST_V3_CURRENT_HANDOFF.md §0.14](docs/COST_V3_CURRENT_HANDOFF.md)를 따라라. **PR #111/#110/#105/#112는 모두 MERGED(명세 통합)**. 기존 `main`의 카드 전체 내역·공통 테마·항공권·영수증 코드를 다시 만들지 않는다. 우선 작업은 `SIDEBAR-DARK-01` → `FLIGHT-SHELL-01` → `FLIGHT-UX-COPY-01`; 지출 일괄 정리(§12), 오제 수입·볼드 대조 명세도 큐에 포함. **코드·운영 배포는 아직 미완료**. 앞 절의 과거 PR 미병합/무료 감독 문구보다 최신 사용자 지시(상용 프론티어 감독 + 저비용 구현/검증, Paseo Skill 우선, 재귀 호출 금지)가 우선한다.
 >
+> **2026-10-26 우선 적용 UI 요구:** [통합 UI 명세 v1.3 §13](docs/card-all-transactions-and-ui-design-system-spec-v1.md)에서 우상단 해/초승달 단일 버튼을 통한 수동 라이트·다크 선택이 확정됐다. 기존 시스템 자동 테마만 허용/수동 금지 문구보다 최신 승인 우선. [개발 큐](docs/COST_READY_DEV_QUEUE_20261026.md)의 `THEME-TOGGLE-01` 작업을 코드 구현·검증 전까지 READY로 취급한다. 금융/Google/DB 쓰기 없음.
+
 ## 단일 V3 구현 진입점
 
 **[COST V3 START HERE](docs/COST_V3_START_HERE.md)**가 활성 개발·정책 충돌·R0~R6 우선순위의 단일 목록이다. 상세 OTA는 [A 정책](docs/ota-card-reconciliation-policy-a-v3.md), 여행/AI/영문명은 [V3 기능 명세](docs/cost-v3-inference-ai-passenger-nm-test-architecture.md)만 사용한다. `docs/archive/` 구문과 이전 `ota-first-*` HOLD 규칙/과거 플레이북을 다음 작업으로 실행하지 않는다. 현재 배포 증거는 운영 기록과 별개다.
