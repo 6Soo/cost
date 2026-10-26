@@ -10,6 +10,53 @@ from webapp.ledger_store import LedgerStore
 from webapp.tests.test_card_flow import CARD
 
 
+@pytest.mark.parametrize('fresh', [False, True])
+def test_display_state_metadata_never_runs_legacy_during_snapshot_refresh(tmp_path, monkeypatch, fresh):
+    from webapp import ota_payment_review
+    board = LedgerStore(tmp_path / 'state-read.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
+        monkeypatch.setattr(flow, '_held_ota_snapshot', lambda: ({'data': {}}, fresh))
+        report = {'matches': [], 'type_only_candidates': []}
+        projections = []
+        monkeypatch.setattr(flow, '_canonical_snapshot_report', lambda value: (projections.append(value), report)[1])
+        legacy = []
+        monkeypatch.setattr(flow, '_ota_report', lambda: (legacy.append(1), report)[1])
+        row = {'merchant': 'AGODA', 'transaction_direction': 'purchase', 'source_hash': 'synthetic',
+               'transaction_id': 'synthetic', 'item': '숙박비'}
+        before = list(board.conn.iterdump())
+        callback = flow.preview_metadata(display_only=True)
+        assert callback(row) == {'booking_ref': '', 'service_period': '', 'ota_evidence': {}}
+        callback(row)
+        assert not legacy and len(projections) == int(fresh)
+        # Real commit/default metadata retains its existing strict validation path.
+        flow.preview_metadata()(row)
+        assert legacy == [1]
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
+def test_batch_state_selects_display_metadata_without_legacy_fallback(tmp_path, monkeypatch):
+    from webapp import ota_payment_review
+    board = LedgerStore(tmp_path / 'state-route.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive(CARD.replace('합성상점'.encode(), b'AGODA'), 'synthetic.csv')['batch_id']
+        monkeypatch.setattr(ota_payment_review, 'enabled', lambda: True)
+        monkeypatch.setattr(flow, '_held_ota_snapshot', lambda: (None, False))
+        monkeypatch.setattr(flow, 'ota_group_holds', lambda: {})
+        monkeypatch.setattr(flow, '_compute_ota_report', lambda: (_ for _ in ()).throw(AssertionError('legacy foreground work')))
+        before = list(board.conn.iterdump())
+        result = flow.state(batch)
+        assert result['ota_reconciliation']['status'] == 'loading'
+        assert result['rows'] and all(row['ota_link_status'] == 'UNKNOWN' for row in result['rows'])
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_board_income_and_expense_share_tab_reads_only_within_render(tmp_path, monkeypatch):
     from webapp import ledger_board, read_scope
     store = LedgerStore(tmp_path / 'board-display.sqlite', seed_demo=True)

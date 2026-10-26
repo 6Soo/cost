@@ -1198,7 +1198,7 @@ class CardFlow:
                 origin=GUIDE_AIRFARE_ORIGIN, rule_id='guide-airfare-' + source_hash))
         return rules
 
-    def preview_metadata(self):
+    def preview_metadata(self, *, display_only=False):
         """한 미리보기 요청에서는 같은 OTA 대조 결과를 재사용한다."""
         from app.ota_mail import ledger_metadata
         from app import ota_sources
@@ -1212,7 +1212,12 @@ class CardFlow:
                 return {}
             if not loaded:
                 try:
-                    report = self._ota_report()
+                    from . import ota_payment_review
+                    if display_only and ota_payment_review.enabled():
+                        current, fresh = self._held_ota_snapshot()
+                        report = self._canonical_snapshot_report(current) if current is not None and fresh else None
+                    else:
+                        report = self._ota_report()
                 except (OSError,ValueError,KeyError,TypeError,sqlite3.Error,ota_sources.OtaSourcesError):
                     report = {'ota_source_errors':[{'error':'source_read_failed'}]}
                 loaded = True
@@ -1780,7 +1785,7 @@ class CardFlow:
         result['preview'] = self.pipeline.preview(batch_id, trip_validator=lambda target:available.get(target,False),
                                                   tab_validator=lambda target:target in ('','unclassified') or available.get(target,False),
                                                   review_from=review_from or None,
-                                                  entry_metadata=self.preview_metadata(),
+                                                  entry_metadata=self.preview_metadata(display_only=True),
                                                   additional_holds=self.ota_group_holds())
         ota_statuses, ota_generation, ota_reconciliation = self._ota_card_statuses(result['rows'])
         result['ota_reconciliation'] = ota_reconciliation
