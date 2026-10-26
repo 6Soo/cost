@@ -119,7 +119,7 @@ body.site-standalone{margin:0!important;padding:0!important}
 .site-app>#nav{position:fixed;inset:0 auto 0 0;z-index:45}
 #site-content{margin-left:232px;width:calc(100% - 232px);min-width:0;padding:16px}
 .site-app>.nav-mask[hidden]{display:none!important}
-@media(max-width:759px){
+@media(width < 760px){
  #nav{width:min(300px,85vw,100%);flex-basis:auto}
   #nav .nv{min-height:44px}#nav .nav-q input{font-size:16px}
   #nav a.brand{min-height:44px;display:flex;align-items:center}

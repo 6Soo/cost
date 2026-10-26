@@ -987,7 +987,7 @@ def render_html(data, query, *, csrf=''):
 
 OTA_STYLE = (
     "@media(prefers-color-scheme:dark){.card-catalog{--cc-bg:#111820;--cc-surface:#1B2632;--cc-text:#E7EDF4;--cc-muted:#A7B4C2;--cc-border:#394858;--cc-soft:#24313E;--cc-accent:#8ED3AD;--cc-accent-bg:#244536;--cc-focus:#86B7FF;color-scheme:dark}}"
-    ".card-catalog td:before{display:none}@media(max-width:759px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
+    ".card-catalog td:before{display:none}@media(width < 760px){.card-catalog td:before{display:block;content:attr(data-label);font-size:12px;color:#667085;margin-bottom:4px}}"
     ".card-catalog :focus-visible{outline:3px solid var(--cc-focus,#2266F5);outline-offset:2px}"
     ".card-catalog svg.ic{width:16px;height:16px;vertical-align:-3px;pointer-events:none}"
     ".card-catalog svg.ic:first-child{margin-right:6px}"

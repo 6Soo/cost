@@ -555,7 +555,7 @@ def render_html(payload: dict, *, is_owner: bool = True, csrf: str = '', setting
         "min-height:44px;font:inherit}#google-settings button{min-height:44px}summary{cursor:pointer;min-height:44px}"
         ".work-back{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;"
         "border:1px solid var(--shell-line-strong);border-radius:8px;text-decoration:none;background:var(--shell-paper)}"
-        "@media(max-width:759px){table,tbody,tr,td{display:block;width:100%}"
+        "@media(width < 760px){table,tbody,tr,td{display:block;width:100%}"
         "table{background:transparent}thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}"
         "tr{margin-bottom:12px;border:1px solid var(--shell-line);border-radius:8px;background:var(--shell-paper);padding:8px}"
         "td{border:0;padding:6px;display:grid;grid-template-columns:64px minmax(0,1fr);gap:6px}"

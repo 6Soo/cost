@@ -175,7 +175,7 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap #tbl td:first-child,.main-wrap #tbl th:first-child{padding-left:0}
 .income-sync{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--mut);font-size:12px;margin:0 0 16px}
 .income-status{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
-@media(max-width:759px){.main-wrap .act{justify-content:flex-start;flex-basis:100%}.main-wrap .lst .li{padding-left:0;padding-right:0}}
+@media(width < 760px){.main-wrap .act{justify-content:flex-start;flex-basis:100%}.main-wrap .lst .li{padding-left:0;padding-right:0}}
 #trip-income{margin:12px 0}
 #trip-income h2{display:flex;align-items:center;gap:8px;font-size:18px;line-height:1.5;margin-bottom:8px}
 #trip-income>.muted{font-size:13px;line-height:1.6;margin-bottom:12px}
@@ -193,7 +193,7 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 #google-trip-income td:nth-child(n+4),#google-trip-income th:nth-child(n+4){text-align:right;font-variant-numeric:tabular-nums}
 #google-trip-income .income-total{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
 #google-trip-income th .ic{width:14px;height:14px;vertical-align:-2px;margin-right:4px}
-@media(max-width:759px){
+@media(width < 760px){
  #google-trip-income .google-income-scroll{overflow:visible}
  #google-trip-income table{min-width:0;width:100%;table-layout:fixed}
  #google-trip-income .income-breakdown{display:none}
@@ -207,10 +207,10 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap .s-main{font-size:14px;line-height:1.5}
 .main-wrap .s-sub{font-size:12.5px;line-height:1.5;margin-top:3px}
 .main-wrap #tbl td:last-child,.main-wrap #tbl th:last-child{padding-right:24px}
-@media(max-width:759px){.main-wrap{padding:16px 16px 20px;max-width:none}}
-@media(max-width:759px){#google-trip-income{padding:10px 12px}.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 16px}}
-@media(max-width:759px){.main-wrap .sum{gap:10px 18px}.main-wrap .sum .scope{margin-bottom:-4px}.main-wrap .page-hd{padding-bottom:14px}}
-@media(max-width:759px){
+@media(width < 760px){.main-wrap{padding:16px 16px 20px;max-width:none}}
+@media(width < 760px){#google-trip-income{padding:10px 12px}.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 16px}}
+@media(width < 760px){.main-wrap .sum{gap:10px 18px}.main-wrap .sum .scope{margin-bottom:-4px}.main-wrap .page-hd{padding-bottom:14px}}
+@media(width < 760px){
  .work-menu{padding:10px 16px}
  .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
  .work-action{padding:9px 10px;font-size:13px}
@@ -401,7 +401,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .src-line b{font-weight:600;min-width:0;overflow-wrap:anywhere}
 .src-line code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
  font-size:12px;overflow-wrap:anywhere}
-@media (max-width:759px){
+@media (width < 760px){
  .src-line{flex-wrap:wrap}
  .src-line span{flex:0 0 100%}
 }
@@ -422,7 +422,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .alloc th{font-size:12px;font-weight:600;color:var(--mut);background:var(--bg)}
 .page-body table.alloc input,.page-body table.alloc select{
  width:100%;min-width:0;max-width:100%;height:32px}
-@media (max-width:759px){
+@media (width < 760px){
  /* one allocation becomes a labelled field instead of a squeezed row */
  .alloc,.alloc tbody,.alloc tr,.alloc td{display:block;width:100%}
  .alloc thead{display:none}
@@ -464,7 +464,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .page-body table{border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .page-body td,.page-body th{border-bottom:1px solid var(--line2);height:auto;padding:7px 10px}
 .page-body a{color:var(--grn-dk)}
-@media (max-width:759px){
+@media (width < 760px){
  .page-body input,.page-body select,.page-body textarea{min-width:0;width:100%;font-size:16px}
  .page-body button,.page-body a.btn{height:44px;width:100%;justify-content:center}
 }
@@ -518,7 +518,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .panel{position:fixed;top:0;right:0;bottom:0;z-index:30;width:min(400px,100%);
   box-shadow:-10px 0 28px rgba(16,24,40,.10)}
 }
-@media (max-width:759px){
+@media (width < 760px){
  #btn-menu{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center}
  /* The bar is inside #main, the page's own scrollport. Keep the menu control
     with that scrollport so long expense lists do not strand navigation. */

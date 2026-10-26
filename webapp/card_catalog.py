@@ -68,7 +68,7 @@ body{margin:0;background:var(--cc-bg);color:var(--cc-text)}
 .card-catalog td a{color:var(--cc-accent);font-weight:600;text-underline-offset:3px}
 .card-catalog .catalog-pagination{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:20px 0}
 .card-catalog .catalog-pagination span{margin-right:auto;color:#667085}
-@media(max-width:759px){
+@media(width < 760px){
  .card-catalog .catalog-actions{margin:8px 0 18px}
  .card-catalog .catalog-actions .catalog-btn{flex:1 1 auto;padding:9px 12px}
  .card-catalog h1{font-size:22px}
