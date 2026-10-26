@@ -403,7 +403,7 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
     from urllib.parse import parse_qs, urlsplit
     from unittest.mock import patch
     from webapp import ledger_board, ledger_design, site_shell
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
 
     with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
             ledger_design, 'nav_region', return_value=''):
@@ -420,15 +420,13 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 page = browser.new_page(viewport={'width': 375, 'height': 812})
                 page.route('http://cost.test/cards/all*', serve_page)
                 page.goto('http://cost.test/cards/all')
-                for width in (375, 759, 1280):
+                for width in (375, 390, 759, 760, 1280):
                     page.set_viewport_size({'width': width, 'height': 812})
                     assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 page.emulate_media(color_scheme='dark')
-                assert page.locator(':root').evaluate(
-                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#0F172A'
+                expect(page.locator(':root')).to_have_css('--shell-bg', '#0F172A')
                 page.emulate_media(color_scheme='light')
-                assert page.locator(':root').evaluate(
-                    "element => getComputedStyle(element).getPropertyValue('--shell-bg').trim()") == '#F8FAFC'
+                expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
                 assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
 
                 march = page.locator("[data-month='3']")

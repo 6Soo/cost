@@ -1351,7 +1351,7 @@ def _passenger_index(mail_directories) -> dict:
         if found.get('source_digests'):
             # 소유자 후보 조회에 필요한 검증 근거만 유지한다. 메일 본문은 담지 않는다.
             index[str(booking_ref)].update({key: found[key] for key in
-                ('booking_ref', 'passengers', 'legs', 'source_digests', 'digest', 'cancellation_status', 'reserved_on', 'booking_date_status')
+                ('booking_ref', 'passengers', 'legs', 'source_digests', 'digest', 'cancellation_status', 'reserved_on', 'booking_date_status', 'booking_date_evidence', 'booking_card_day')
                 if key in found})
     return index
 
@@ -1600,6 +1600,9 @@ def render_import_section(csrf: str) -> str:
 /* 2026-10-27: use the same semantic shell tokens as expense cleanup. */
 #ota-review{{--ota-bg:var(--shell-paper,var(--paper,#fff));--ota-ink:var(--shell-ink,var(--ink,#18212c));--ota-muted:var(--shell-muted,var(--mut,#64748b));--ota-line:var(--shell-line,var(--line,#dce3dd));--ota-hover:var(--shell-hover,var(--hover,#edf2ee));--ota-warn:var(--shell-warn,#e5a146);--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:16px;background:var(--ota-bg);padding:20px;margin:20px 0}}
 #ota-review .ota-title{{font-size:18px;line-height:1.45;font-weight:750;margin-bottom:12px;color:var(--ota-ink)}}
+#ota-review{{min-width:0;overflow-wrap:anywhere}}
+#ota-review .ota-event h3{{flex-wrap:wrap}}
+#ota-review .ota-event h3>span{{min-width:0;max-width:100%;white-space:normal}}
 #ota-review #ota-status{{background:var(--ota-hover);color:var(--ota-ink)}}
 #ota-review #ota-freshness,#ota-review .ota-lead{{color:var(--ota-muted)}}
 #ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{background:var(--ota-bg);border-color:var(--ota-line);border-radius:12px;box-shadow:none;margin:10px 0;padding:16px}}
@@ -1624,6 +1627,8 @@ def render_import_section(csrf: str) -> str:
 #ota-review button.ota-primary{{background:var(--shell-accent,#1c7a52);border-color:var(--shell-accent,#1c7a52);color:#fff}}
 #ota-review button:focus-visible,#ota-review summary:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
 #ota-review .ota-actions{{gap:10px;margin-top:12px}}
+#ota-review h4[role=button]{{min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;cursor:pointer}}
+#ota-review h4[role=button]:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
 @media(width < 760px){{#ota-review{{padding:12px;margin:14px 0}}#ota-review .ota-event,#ota-review .ota-card-row{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:1fr}}#ota-review .ota-actions button{{width:100%}}}}
 </style>
 <script>
@@ -1634,6 +1639,7 @@ def render_import_section(csrf: str) -> str:
   const money=value=>value===null||value===undefined||value===''||!Number.isFinite(Number(value))?'미확인':Number(value).toLocaleString('ko-KR')+'원';
   const ICONS={icons};
   const icon=name=>`<svg class="ota-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${{ICONS[name]||''}}</svg>`;
+  const fact=(name,value)=>value===null||value===undefined||value===''?'':`<span>${{name}}: ${{esc(value)}}</span>`;
   const FACT_ICON={{'예약 제공자':'file','예약 번호':'tag','결제 구분':'layers','결제일':'calendar','결제 금액':'wallet','이용 기간':'calendar','항목':'tag','보류 이유':'alert','원본 근거':'shield','묶음 건수':'layers','배정 근거':'info'}};
   async function call(path,payload){{
     const options=payload===undefined?{{cache:'no-store'}}:{{method:'POST',headers:{{'Content-Type':'application/json','X-CSRF-Token':csrf}},body:JSON.stringify(payload)}};
@@ -1668,7 +1674,6 @@ def render_import_section(csrf: str) -> str:
       const ids=[...(event.ota_group_ids?.length?[['예약 거래 ID',event.ota_group_ids.join(', ')]]:[]),...(event.card_group_ids?.length?[['카드 거래 ID',event.card_group_ids.join(', ')]]:[])];
       const proposedMapping=event.proposed_mapping&&Object.keys(event.proposed_mapping).length?event.proposed_mapping:Object.fromEntries(events.filter(row=>(event.ota_group_ids||[]).includes(row.ota_event_id)&&row.transaction_id).map(row=>[row.ota_event_id,row.transaction_id]));
       const groupPairs=Object.entries(proposedMapping).filter(([eventId,transactionId])=>(event.ota_group_ids||[]).includes(eventId)&&(event.card_group_ids||[]).includes(transactionId)).map(([eventId,transactionId])=>{{const booking=events.find(row=>row.ota_event_id===eventId);const cardEvidence='카드 근거 상세 없음';return `<p data-group-pair="${{esc(eventId)}}:${{esc(transactionId)}}"><strong>${{esc(booking?.booking_ref||eventId)}}</strong> · 결제일 미상 · 금액 미확인 ↔ <strong>${{esc(transactionId)}}</strong> · ${{esc(cardEvidence)}}</p>`;}});
-      const fact=(name,value)=>value===null||value===undefined||value===''?'':`<span>${{name}}: ${{esc(value)}}</span>`;
       const renderCard=card=>{{
         const same=gap(card)===0,linked=card.already_linked_event_id,blocked=card.selection_disabled||linked||event.evidence_missing;
         const reason=card.selection_disabled?(card.selection_disabled_reason==='OTA_PAYMENT_DATE_UNKNOWN'?'\uacb0제일이 확인되지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason==='OTA_PAYMENT_DATE_MISMATCH'?'\uacb0제일이 맞지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason||'선택할 수 없습니다.'):linked?(card.already_linked_reason||'다른 예약에 연결됨'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'';
@@ -1779,9 +1784,10 @@ def render_import_section(csrf: str) -> str:
       if(cardsContainer){{
         const toggle=eventCard.querySelector('h4');
         if(toggle){{
-          toggle.style.cursor='pointer';
+          toggle.setAttribute('role','button');toggle.tabIndex=0;toggle.setAttribute('aria-expanded','false');
+          toggle.addEventListener('keydown',event=>{{if(event.key==='Enter'||event.key===' '){{event.preventDefault();toggle.click();}}}});
           toggle.addEventListener('click',async()=>{{
-            if(cardsContainer.dataset.cardsLoaded==='true'){{cardsContainer.dataset.cardsLoaded='false';cardsContainer.innerHTML='<p class="ota-load-hint">카드를 펼치면 로드됩니다.</p>';return;}}
+            if(cardsContainer.dataset.cardsLoaded==='true'){{cardsContainer.dataset.cardsLoaded='false';toggle.setAttribute('aria-expanded','false');cardsContainer.innerHTML='<p class="ota-load-hint">카드를 펼치면 로드됩니다.</p>';return;}}
             if(cardsContainer.dataset.loading==='true')return;
             cardsContainer.dataset.loading='true';
             cardsContainer.innerHTML='<p class="ota-load-hint">카드 후보를 불러오는 중...</p>';
@@ -1802,6 +1808,7 @@ def render_import_section(csrf: str) -> str:
               const linkedRows=linkedCards.map(renderCard).join('');
               cardsContainer.innerHTML=openRows+(linkedRows?'<details class="ota-linked-cards"><summary>다른 예약에 연결된 거래 '+linkedCards.length+'건</summary><div class="ota-cards">'+linkedRows+'</div></details>':'');
               cardsContainer.dataset.cardsLoaded='true';
+              toggle.setAttribute('aria-expanded','true');
               cardsContainer.dataset.loading='false';
               // Re-bind radio events for new cards
               const newRadios=cardsContainer.querySelectorAll('input[type=radio]');
