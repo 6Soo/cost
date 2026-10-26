@@ -118,7 +118,8 @@ def test_kakao_alias_review_shows_only_same_card_earlier_taxi_payments(tmp_path)
         assert [row[0] for row in matches] == [ids['100']]
         html = _render_refund_merchant_candidates(store, refund)
         assert '표기 변형' in html and '16,000원' in html
-        assert '카카오페이' not in html and ids['400'] not in html and ids['600'] not in html
+        assert '카카오페이' in html  # Full inventory is visible, not a taxi match.
+        assert ids['300'] not in html and ids['400'] not in html and ids['600'] not in html
         assert 'cleanup-merchant-compare' in html and '원결제 연결은 미확정' in html
         assert list(store.conn.iterdump()) == before
     finally:
