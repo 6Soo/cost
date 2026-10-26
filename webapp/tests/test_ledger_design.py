@@ -26,6 +26,41 @@ def overflow(page):
 
 
 class DesignScreenTests(unittest.TestCase):
+    def test_document_stays_in_viewport_while_ledger_and_drawer_scroll_independently(self):
+        for width in (375, 390, 759, 760, 1280):
+            with self.subTest(width=width):
+                page = self._page(width, 600)
+                self._board(page, '?tab=trip-demo-a')
+                page.evaluate("""() => {
+                    for (const selector of ['#main', '#nav']) {
+                        const tail = document.createElement('div');
+                        tail.style.height = '1800px';
+                        tail.textContent = 'Synthetic scroll boundary';
+                        document.querySelector(selector).append(tail);
+                    }
+                }""")
+                if width < 760:
+                    page.click('#btn-menu')
+                    page.wait_for_timeout(300)
+                page.locator('#nav').evaluate('e => e.scrollTop = e.scrollHeight')
+                self.assertGreater(page.locator('#nav').evaluate('e => e.scrollTop'), 0)
+                self.assertEqual(page.locator('#main').evaluate('e => e.scrollTop'), 0)
+                if width < 760:
+                    page.keyboard.press('Escape')
+                    page.wait_for_timeout(300)
+                page.locator('#main').focus()
+                page.keyboard.press('PageDown')
+                page.wait_for_timeout(300)
+                self.assertGreater(page.locator('#main').evaluate('e => e.scrollTop'), 0)
+                page.locator('#main').evaluate('e => e.scrollTop = e.scrollHeight')
+                self.assertLessEqual(page.locator('#main').evaluate(
+                    'e => Math.abs(e.scrollHeight-e.clientHeight-e.scrollTop)'), 1)
+                self.assertEqual(page.evaluate('window.scrollY'), 0)
+                self.assertLessEqual(page.evaluate(
+                    'document.documentElement.scrollHeight-innerHeight'), 1)
+                self.assertEqual(overflow(page), 0)
+                page.close()
+
     def test_sidebar_shows_trip_dates_and_board_carries_the_record_note_at_both_widths(self):
         for width in (390, 1440):
             with self.subTest(width=width):
