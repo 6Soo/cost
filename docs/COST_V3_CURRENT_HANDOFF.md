@@ -4,6 +4,14 @@
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
+## 0.23 2026-10-27 환불 가맹점 후보 비교와 진단
+
+사용자 요청의 환불 2건을 운영 DB 읽기 전용으로 직접 조사했다. 같은 날짜·카드의 동일 금액 원결제 후보 및 가승인 취소와 금액이 다른 실제 택시 결제를 확인했다. 금융 연결·장부·원본·Google 쓰기는 하지 않았다. 상세 근거는 Git 밖 `.local-archive/refund-merchant-20261027/readonly-diagnosis.json`에만 보존한다.
+
+PR #132 / 코드 `61647c3` / 병합·운영 **`f5eb44ecfea39ed143cbbc9cf053ae75f87888c0`**: 미연결 환불에 가맹점 비교 후보, 승인번호/날짜/금액/기록 상태, 원문 링크와 전체 검색을 제공하고 환불에 무관한 일반 보류 문구의 반복을 제거했다. 가승인 해제와 부분 환불을 구분하도록 안내하며 검색 후보를 금융 확정으로 사용하지 않는다. 표적 8 passed, 24 deselected. 릴리스 951개 파일 일치, task/process/표식 SHA 일치, health/ready 200·비인증 OTA 401. 배포/복원 증거는 [operations 최신 절](operations.md)에 기록했다.
+
+**PARTIAL — 화면 수락만 남음:** Aside reload navigation timeout 후 재관찰도 Page.enable timeout이었다. 최종 로그인 화면과 375px 확인은 `NOT_TESTED_TOOL_TIMEOUT`. 다음에는 브라우저가 응답할 때 `/import` 첫 두 환불의 비교 후보/원문/검색 링크와 모바일 넘침만 확인한다. 운영 재처리/재기장/반복 배포는 하지 않는다. 기존 미추적 `docs/superpowers/plans/2026-10-26-cost-open-work-plan.md`는 보존했다.
+
 ## 0.22 2026-10-26 직접 날짜 조회·분수 모바일 경계 배포
 
 **현재 운영 SHA는 `31296e5926e4a762aae29167f28c85d83317218b`다.** PR #129의 직접 지정 날짜 원행 조회와 #130의 정확한 `width < 760px` 반응형 경계가 병합·배포됐다. 파일 951개 전부 Git blob 일치, 작업·프로세스 SHA, health/ready 200, 새 API 비인증 401/로그인 200·no-store를 확인했다. `/import`의 앞선 관찰 timeout은 해소됐고 실제 다크/라이트 본문·카드·입력 색상을 확인했다.
