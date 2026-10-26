@@ -1006,8 +1006,8 @@ class CoreOtaPaymentBackend:
 
     def cards_for_event(self, event_id):
         """Return processed card rows for a single event, using the same logic as snapshot_from."""
-        data = self._data()
-        events, transactions, links, results = data
+        data, _snapshot = self._action_data()
+        events, transactions, links, results = (data[key] for key in ('events', 'transactions', 'links', 'results'))
         event_by_id = {str(event.get("ota_event_id")): event for event in events}
         card_by_id = {str(card.get("transaction_id") or ""): card for card in transactions}
         rules = self.store.active_rules()
@@ -1644,7 +1644,7 @@ def render_import_section(csrf: str) -> str:
   async function call(path,payload){{
     const options=payload===undefined?{{cache:'no-store'}}:{{method:'POST',headers:{{'Content-Type':'application/json','X-CSRF-Token':csrf}},body:JSON.stringify(payload)}};
     const response=await fetch(path,options),data=await response.json();
-    if(!response.ok)throw Error(data.message||data.code||'요청을 처리하지 못했습니다.');
+    if(!response.ok){{const error=Error(data.message||data.code||'요청을 처리하지 못했습니다.');error.code=data.code;throw error;}}
     return data;
   }}
   function render(snapshot){{
@@ -1813,7 +1813,7 @@ def render_import_section(csrf: str) -> str:
               // Re-bind radio events for new cards
               const newRadios=cardsContainer.querySelectorAll('input[type=radio]');
               newRadios.forEach(radio=>radio.addEventListener('change',()=>{{selectionVersion++;if(button)button.disabled=false;eventCard.querySelector('#ota-difference').replaceChildren();}}));
-            }}catch(error){{cardsContainer.innerHTML='<p class="ota-load-hint" style="color:red">로드 실패: '+esc(error.message)+'</p>';cardsContainer.dataset.loading='false';}}
+            }}catch(error){{cardsContainer.innerHTML='<p class="ota-load-hint">'+(error.code==='OTA_SNAPSHOT_NOT_READY'?'예약 근거 갱신 중입니다. 잠시 후 다시 펼쳐 주세요.':'로드 실패: '+esc(error.message))+'</p>';cardsContainer.dataset.loading='false';}}
           }});
         }}
       }}
@@ -2088,6 +2088,9 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 # Apply same field allowlist and post-processing as public_snapshot(include_cards=True)
                 sanitized = [_sanitize_card_row(card) for card in cards]
                 handler._send_json({"event_id": event_id, "cards": sanitized})
+            except (OtaSnapshotNotReady, StalePreviewError):
+                return _reply_error(handler, "OTA_SNAPSHOT_NOT_READY",
+                                    "자료를 새로 확인하고 있습니다. 잠시 후 다시 펼쳐 주세요.", 409)
             except Exception:
                 return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "카드 후보를 읽을 수 없습니다.", 503)
             return True
