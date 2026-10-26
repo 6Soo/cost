@@ -2814,7 +2814,7 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
     parts = [
         f"<details class='cleanup-merchant-compare'><summary>{esc(header)}"
         f" <span class='cleanup-mini-count'>{count}건</span></summary>",
-        "<p class='cleanup-evidence-meta'>원결제 연결 미확정 · 같은 카드의 최근 14일 거래를 비교합니다.</p>",
+        "<p class='cleanup-evidence-meta'>원결제 연결은 미확정 · 같은 카드의 최근 14일 거래를 비교합니다.</p>",
         f"<p class='cleanup-evidence-meta'>환불 카드 {esc(issuer)} · 끝자리 {esc(tail)}"
         f" · 승인번호 {esc(approval or '없음')} · 원승인번호 {esc(original or '없음')}</p>"
     ]
@@ -2855,7 +2855,7 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
                      " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요.</p>")
     query = "카카오" if key == "카카오택시" else merchant
     search = "/import?" + urlencode({"scope": "all", "q": query})
-    parts.append(f"<p><a href='{esc(search)}'>가맹점 전체 카드 거래 검색</a></p></details>")
+    parts.append(f"<p><a href='{esc(search)}'>가맹점명으로 전체 카드 거래 검색</a></p></details>")
     return "<div class='cleanup-refund-candidates'>" + "".join(parts) + "</div>"
 
 def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=None) -> str:
