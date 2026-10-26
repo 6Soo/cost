@@ -5,6 +5,8 @@
 > 상위: `AGENTS.md`, `docs/COST_V3_START_HERE.md`, `docs/COST_V3_CURRENT_HANDOFF.md`, `docs/COST_READY_DEV_QUEUE_20261026.md`, 카드·OTA 금융 보호 및 취소/환불 명세.
 > 금융 보호: 이름/날짜 일치만으로 예약 완료, 실탑승, 결제 확정, 카드 거래 연결, 비용 기장, 여행 배정을 **절대 자동 확정하지 않는다**.
 
+> **2026-10-27 후속 구현/증거:** 본문의 `IMPLEMENTATION_PENDING` 표시는 최초 작성 시점의 이력이다. 이름 단독 검색/여정/검증 카드 연결(#119) 및 **사용자 직접 지정 날짜의 카드 전체 원행 조회**(#129)는 이미 코드 병합·운영 배포 기록이 있다. 단 **정확한 항공권 예약 생성일의 권위 출처는 미확인**이므로 예약일 자동 후보 조회는 미완료다. [미결·예약일 문제 해결 정본](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md) §2를 따른다. 예약원천 created-at을 검증해서만 CONFIRMED로 표시하고 메일 수신/발권/출발/카드 승인일은 예약일 대신 쓰지 않는다.
+
 ## 1. 왜 바꾸는가 (현재 실제 코드/도입 배경)
 
 - `webapp/flight_passenger_page.py`: 기존 GET `/flight-passengers`는 예약번호와 예약 시스템 `tour_id` **두 필드를 필수**로 받는다. GET `/api/flight-passengers/candidates`는 이 둘로 항공권 검증 인덱스와 예약 참가자 후보를 대조하고, POST `/api/flight-passengers/assign`는 **COST 내부 참가자 참조만** 저장한다. 카드 거래를 조회·연결하는 화면이 아니었다.
