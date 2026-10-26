@@ -243,6 +243,10 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .nv:hover{background:var(--hover)}
 .nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
 .nv .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The refund icon is its own aligned element, never fused to label text. */
+.nv .nv-icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;color:var(--mut)}
+.nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
+.nv.sel .nv-icon{color:var(--grn)}
 .nv .ct{flex:0 0 auto;margin-left:8px;font-size:12px;color:var(--mut);white-space:nowrap}
 .nv .ct.warn{color:var(--warn)}
 .nav-arch .nm{color:var(--mut)}
@@ -1099,13 +1103,14 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     state = state_query(tab_id, query, kind, archived)
     drawer_open = archived in ("1", "open", "true")
 
-    def entry(label, href, count, current, warn=False, archived_row=False):
+    def entry(label, href, count, current, warn=False, archived_row=False, icon=""):
         cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
         badge = (f"<span class='ct{' warn' if warn else ''}'>{count}</span>"
                  if count is not None else "")
+        icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
         return (f"<li><a class='{cls}' href='{href}'"
                 f"{' aria-pressed=\"true\"' if current else ''}>"
-                f"<span class='nm'>{label}</span>{badge}</a></li>")
+                f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
 
     sections = []
     trips = board.live_trips(include_archived=True)
@@ -1167,8 +1172,8 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
     arch_head = ""
     if board.current_role() == 'owner':
         sections.append(("<h2 class='nav-sec'>환불</h2>", "<ul class='nav-list'>" + entry(
-            f"{ui_icons.icon('rotate-ccw')}환불", f"/board?{state_query('refunds')}",
-            None, tab_id == 'refunds') + "</ul>"))
+            "환불", f"/board?{state_query('refunds')}",
+            None, tab_id == 'refunds', icon=ui_icons.icon('rotate-ccw', 18)) + "</ul>"))
     if archived_rows:
         toggle_state = state_query(tab_id, query, kind, "" if drawer_open else "1")
         arch_head = (
@@ -1230,7 +1235,7 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
             body = ('<ul class="nav-list">' + rows + '</ul>' if rows
                     else "<p class='nav-sec'>여행 없음</p>")
             groups.append(
-                "<details class='prev-q' open>"
+                "<details class='prev-q'>"
                 f"<summary class='nv' onclick=\"{_FOCUS_ON_OPEN}\"><span aria-hidden='true'>▸</span>"
                 f"<span class='nm'>{label}</span><span class='ct'>{len(members)}개</span></summary>"
                 f"{body}</details>")

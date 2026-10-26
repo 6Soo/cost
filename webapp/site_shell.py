@@ -41,6 +41,9 @@ STYLE = """
 #nav .site-links a{display:flex;align-items:center;gap:8px}
 #nav .site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #nav .nv .ic,#nav .work-action .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
+#nav .nv .nv-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 20px;color:var(--shell-muted,#475569)}
+#nav .nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
+#nav .nv.sel .nv-icon{color:var(--shell-accent,#1C7A52)}
 #nav .work-action{display:flex;align-items:flex-start;gap:8px}
 #nav .work-action>span{flex:1 1 auto;min-width:0}
 #nav .btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
@@ -83,6 +86,9 @@ STYLE = """
 #nav a.brand.brand-link img{width:20px;height:20px;margin:0;flex:0 0 auto}
 #nav .site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
 #nav .site-links a{display:flex;align-items:center;min-height:40px;padding:8px;border-radius:6px}
+#nav .site-links a[href='/cards/all']{min-height:44px;border:1px solid transparent;border-radius:9px}
+#nav .site-links a[href='/cards/all']:hover{border-color:var(--shell-line-strong,#D0D5DD);background:var(--shell-hover,#F8FAFC)}
+#nav .site-links a[href='/cards/all'][aria-current=page]{border-color:var(--shell-accent,#1C7A52);background:var(--shell-selected,#ECF5EF);font-weight:750}
 #nav a[aria-current=page]{background:var(--shell-selected,#ECF5EF);border-left:2px solid var(--shell-accent,#1C7A52);font-weight:600}
 #nav .nav-q{display:block;margin:0 12px 6px;padding:0;border:0;background:transparent}
 #nav .nav-q input{width:100%;height:32px;min-height:32px;max-width:100%;border:1px solid var(--shell-line-strong,#D0D5DD);
