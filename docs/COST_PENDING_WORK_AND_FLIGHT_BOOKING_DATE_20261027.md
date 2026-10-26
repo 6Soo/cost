@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | 기존 #133/#138/#145 코드 통합 | COMPLETE | #146 main 병합. 날짜 시간대·복수 예약번호 보호와 UI 수정 표적 검증은 실행 계획에 보존. |
 | 지출 상태 조회 legacy 대사 제거 | COMPLETE | #147 병합, 최종 운영에도 포함. default 쓰기 검증 유지. |
-| 최초 인증 메일 수신일 fallback | 구현·합성 검사·배포 COMPLETE / 실제 화면 수락 대기 | #148 병합 및 최종 운영에 포함. 200개 예약 중 FIRST_RECEIVED 16개·UNKNOWN 184개. 취소/충돌/기존 연결 등 자동 조회 보호는 별도 유지. 새 색인 게시 후 수신일 예약을 읽기 전용 조회한다. |
+| 최초 인증 메일 수신일 fallback | COMPLETE | #148 병합 및 최종 운영에 포함. 200개 예약 중 FIRST_RECEIVED 16개·UNKNOWN 184개. 정상 대사476.56초 후 generation359/parser v4-first-received 게시. 소유자 이름검색 예약1개·수신일 표시1개·자동 날짜 조회 카드9/9건 실제 확인. 금융 확정/저장 없음. |
 | OTA 카드 후보 요청 중 원본 해석 제거 | COMPLETE | #149, 운영 `4cd12adebad6ebcac110130803d35f589d1f8bb0`; 표적 5 passed, 브라우저 재시도 1 passed, 독립 검토 통과. 실제 요청 665ms/409 및 갱신 안내. |
 | 런타임/금융 원본 보호 | COMPLETE(이번 배포 범위) | 962 blob 일치, task/process SHA, health/ready200·보호 API401, 2DB/13표 최초 기준선 동일. 금융 연결/기장/배정·Google 쓰기 없음. |
 | 실제 터치 / 브라우저 200% 확대 | BLOCKED_EXTERNAL_ACCEPTANCE | 합성 뷰포트/CSS 확대 근거로 실제 기기 수락을 대신하지 않는다. |
