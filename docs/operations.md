@@ -1,3 +1,13 @@
+## 2026-10-26 PR #120 사이드메뉴 스타일 런타임 확인
+
+PR [#120](https://github.com/6Soo/cost/pull/120) 병합 SHA `78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e`가 현재 운영 런타임에 반영된 상태임을 읽기 전용으로 확인했다. `WebLedger-Board` 작업 정의와 127.0.0.1:8751 listener의 실행 인자는 모두 `D:/WebLedgerHost/releases/78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e` 및 `D:/WebLedgerHost/bin/launch_web_ledger.py`를 가리켰고, 릴리스의 `DEPLOYED_COMMIT`도 같은 SHA다. listener는 1개였으며 `/healthz`와 `/readyz`는 각각 200을 반환했다.
+
+릴리스 파일 944개를 해당 Git SHA의 추적 경로 944개와 대조해 경로 차이가 없음을 확인했다. `webapp/ledger_design.py`, `webapp/site_shell.py`, 두 표적 테스트 파일, `tools/start_web_ledger_host.ps1`, `tools/launch_web_ledger.py`의 Git blob 해시가 모두 일치했다. 이 검증 세션은 예약 작업을 변경하거나 서비스를 재시작하지 않았다. 이 SHA에 해당하는 `board-task-before/after` XML은 호스트 설정에서 찾지 못했으므로 작업 정의 변경 이력은 `NOT_FOUND`로 남긴다.
+
+PR #120의 표적 명령 `python -m pytest webapp/tests/test_site_shell.py webapp/tests/test_ledger_design.py -q`는 앞선 검증에서 34 passed, 2 subtests passed, 1 failed였다. 유일한 실패는 여행 그룹 기대값 4와 실제 2의 차이였고, 기준 `main`에서도 동일하게 재현되어 PR 변경으로 인한 실패가 아님을 확인했다. **운영 로그인 브라우저의 변경 화면 스모크는 `NOT_RUN`**이다. 현재 세션에 Aside 브라우저 연결이 없어 스타일 표시를 실제 로그인 화면에서 확인하지 않았다. health/ready 응답을 화면 수락으로 간주하지 않는다.
+
+이번 확인은 로컬 HTTP GET, 작업 정의·프로세스 인자·릴리스 파일 읽기만 수행했다. 운영 DB, 카드 원본, Google 자료, 스케줄 작업과 보호 설정을 변경하지 않았다. 실제 운영 런타임 SHA는 현재 `78cf8b8`; `36f6cb3`은 이전 릴리스 이력이다.
+
 ## 2026-10-26 OTA 카드 후보 응답 최적화 배포
 
 통합 커밋 `36f6cb32ac09805079e5ddb5641fe01032088fa7`를 `origin/main`에 일반 push하고 `D:/WebLedgerHost/releases/36f6cb32ac09805079e5ddb5641fe01032088fa7`로 배포했다. Git archive의 추적 파일 943개를 풀어 파일 수를 대조했고, `ota_payment_review.py`, 해당 표적 검사, 호스트 실행기, 런처, 장부 화면, 공통 디자인, 이 문서 등 핵심 파일 7개의 Git blob 해시가 일치했다. `DEPLOYED_COMMIT` 표식도 같은 SHA다. 기존 릴리스 `47264123835d1a576f17fa8d27148bddee69a3f0`는 복구 대상으로 보존했다.

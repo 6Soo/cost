@@ -433,3 +433,13 @@
 **남은 수락:** 로그인 브라우저에서 OTA 화면 및 후보 선택 UI 스모크는 Aside 탭 연결이 응답하지 않아 `NOT_RUN`이다. 변경된 API의 비인증 권한 경계는 401로 확인했으나 인증된 화면 동작으로 대신하지 않는다. `V21-UI-ACCEPTANCE-01`은 PARTIAL 유지, `OZE-INCOME-DIAG-01`의 과거 표시 실패 원인은 ROOT_CAUSE_UNVERIFIED 유지다. 앞 절의 `4726412` 배포 기록은 당시 이력이며 현행 runtime은 이 절의 SHA다.
 
 **Paseo 임시 작업공간 보관:** `wks_d0ae2eefa2a81f33`을 Paseo 공식 `archive_workspace`로 보관했다. Paseo 응답은 `removedDirectory=false`였고, 남은 로컬 작업트리 경로는 삭제하지 않았다. 그 전에 브랜치 bundle, 추적 파일 변경 patch, 28개 미추적 스크래치 파일을 `.local-archive/paseo-worktree-28lt5mey-ota-review-scale-20261026-parent/`에 보존하고 미추적 파일 28개의 SHA-256을 원본과 대조했다. 스크래치 내용은 개인정보 후보 가능성이 있어 검토·삭제하지 않았다.
+
+## 0.19 2026-10-26 PR #120 런타임 확인 및 미결 PR 재개점
+
+**현재 Git 기준:** `main`과 `origin/main`은 `78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e`다. PR #120 사이드메뉴 스타일·여행 메뉴 안내 변경은 병합됐고, PR #122 문서 통합도 병합됐다.
+
+**현재 운영 런타임:** 운영 작업 정의와 단일 8751 listener가 릴리스 `D:/WebLedgerHost/releases/78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e`를 가리키며 `DEPLOYED_COMMIT` 일치, 추적 파일 944개와 경로 차이 0개, 핵심 애플리케이션·런처 파일 6개의 blob 해시 일치, `/healthz`·`/readyz` 200을 읽기 전용으로 확인했다. 이를 기준으로 현재 런타임 SHA를 `78cf8b8`로 정정한다. `docs/operations.md`의 최신 상단 항목을 참조한다. 이 검증에서 서비스 재시작·작업 정의 변경·운영 데이터 쓰기는 없었다. 해당 SHA의 예약 작업 전후 XML 파일은 찾지 못해 변경 이력 보존은 `NOT_FOUND`다.
+
+**화면 수락:** PR #120 표적 테스트는 이전 실행에서 34 passed, 2 subtests passed, 1건 기준선 실패였다. 기준 `main`에서 같은 실패가 재현됐다. 로그인 브라우저 화면은 이번 세션에 Aside 연결이 없어 `NOT_RUN`이며 실제 화면 수락을 완료로 표시하지 않는다.
+
+**열린 작업:** PR #119 항공권 확인 UI는 itinerary renderer 필드명과 테스트 문구 수정이 필요하다. PR #117 스크롤 변경은 문서 충돌, 지속형 표적 회귀 검사, 운영 브라우저 수락이 남았다. PR #108은 공백 변경 외 실질 diff가 없어 기존 `HOLD`를 유지한다. #119 구현을 위한 Paseo `ANUS Free Auto` 실행은 2026-10-26 08:28 UTC에 무료 모델 일일 한도(잔여 0, 초기화 2026-10-27 00:00 UTC)로 종료됐으며 해당 작업공간은 깨끗하다. 모델·CLI 우회는 하지 않았다. 초기화 뒤 승인된 위임 경로를 재시도한다.
