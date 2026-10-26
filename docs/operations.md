@@ -1,4 +1,25 @@
-## 2026-10-26 미결 UI 구현 및 통합 릴리스
+## 2026-10-26 일별 카드 조회·모바일 경계 후속 배포
+
+**현재 운영 SHA는 `31296e5926e4a762aae29167f28c85d83317218b`다.** PR #129(`ea90b85`)는 항공권 상세의 직접 지정 날짜 필터와 owner 전용 `GET /api/cards/transactions/day`를 구현했다. 지정 날짜는 예약일/연결 근거로 확정하지 않는다. 읽기 전용 SQLite 트랜잭션에서 허용 필드·지문·총건수·커서 페이지를 계산하며, 원행 변경은 409로 거부한다. 취소/환불/중복/오류를 제외하지 않고 원행 여행 ID와 표시 여행 ID를 구분한다. 권위 있는 예약일이 없는 자동 후보 경로를 임의로 만들지 않았다.
+
+PR #130(`31296e5`)은 운영 프레임에서 발견한 760px 직전의 메뉴 공백을 수정했다. 기존 CSS의 `max-width:759px`가 거짓인데 `width < 760px`는 참인 상태에서 메뉴가 숨겨졌다. 759.98px 근사 수정도 잔여 공백이 있다는 독립 검토 P2를 수용해 최종 7개 화면은 정확한 `@media(width < 760px)`를 사용한다. 업무 자바스크립트·쓰기 로직 변경은 없다.
+
+검증 근거:
+
+- 일별 데이터/API 표적 검사: `python -m pytest webapp/tests/test_card_transactions.py -q -k day_filter` 결과 3 passed. 1,005건 전수 페이지, 같은 금액/부호/보호 상태, DB bytes 불변, 날짜/커서, 401/403/no-store/409와 표시 여행 필드를 확인했다.
+- 항공권 신규 UI: `-k manual_date_filter` 1 passed. 명시 날짜·원 날짜 유지·오류/표시 여행·변경 시 목록 제거를 확인했다. 인접 항공권 세 파일은 24 passed와 비동기 count 검사 1 failed였으며, 해당 검사를 실제 결과를 기다리는 expect로 고친 뒤 `-k browser_name_search`가 1 passed였다. 이후 제품 코드 변경은 추가 표시 여행 필드뿐이고 해당 신규 검사 4건은 다시 통과했다. 하나의 최종 전체 실행이 25 passed였다고 보고하지 않는다.
+- 모바일 경계/인접 스크롤: `python -m pytest webapp/tests/test_mobile_breakpoint.py webapp/tests/test_ledger_design.py -q -k 'fractional_mobile or document_stays_in_viewport'` 결과 최종 3 passed, 5 subtests passed. CSSOM 범위 계약과 click/Escape 및 760px 경계를 확인했다. 헤드리스의 iframe 반올림과 운영 Windows의 미디어 쿼리 계산은 달라 실제 운영 재현을 별도 근거로 유지한다.
+- 두 PR 및 후속 수정은 고정 커밋 독립 검토를 통과했다. 원본/Google/운영 DB 쓰기와 전체 회귀는 하지 않았다.
+
+배포는 기존 SHA 고정 절차를 재사용했다. 릴리스 파일 951개 전부의 경로와 Git blob이 일치했고, `WebLedger-Board` Running, loopback listener 1개, task/process/표식 SHA 일치, health/ready 200 및 비인증 OTA API 401을 확인했다. 새 일별 API도 비인증 401이고, 로그인 브라우저의 명시 날짜 `2050-01-01` GET은 200/no-store/USER_DATE_FILTER/0건을 반환했다. 근거 파일은 `D:/WebLedgerHost/releases/deploy-evidence-31296e5926e4a762aae29167f28c85d83317218b.json`, `release-audit-31296e5926e4a762aae29167f28c85d83317218b.json` 및 해당 SHA의 before/after 작업 XML이다. 이전 `85f008b` 릴리스와 검증된 복원 근거는 보존했다.
+
+이전 `/import` 관찰 timeout은 같은 탭 재관찰에서 해소됐다. `85f008b` 운영에서 카드 20개, 다크 body/nav(15,23,42), 카드/입력 배경(30,41,59), 입력 글자(248,250,252), 라이트 전환(248,250,252/흰 카드)을 확인했다. 이 색상 경로는 후속 코드에서 바뀌지 않아 재사용한다. 최종 `31296e5`의 항공권·오제 장부 운영 동일 출처 프레임 759px에서는 모바일 미디어/메뉴 표시, 닫힌 nav 오른쪽=0, 테마 버튼 1개·44×44·뷰포트 안, 가로 넘침=0을 확인했다. 집계만 있는 로컬 근거는 Aside 세션 `2026-10-26_KxP6GaY8qDFDZEPL/artifacts/cost-final-boundary-smoke.json`에 있다. 임시 프레임은 제거했다.
+
+**남은 실제 의존성:** 본창/실기기의 모바일·터치 수락과 실제 브라우저 200% 확대는 미검증이다. Control+=도 전면 탭에서 viewport 1440/DPR 1.25를 바꾸지 못했으며 CSS zoom이나 운영 프레임으로 대체하지 않는다. 실제 예약 결과에서 날짜 필터를 여는 수락은 사용자에게 앱 안에서 조회를 요청했다. Aside가 개인자료 파일 읽기를 `Path escapes Project and session roots`로 차단했으므로 복사·다른 경로·별도 API로 우회하지 않았다. 해당 UI는 합성 검사와 실제 API 검사만 통과한 상태다.
+
+권위 있는 예약일은 현재 파서/인덱스에 없고, 보존된 인증 항공권 메일 280건의 지원 명시 표기 집계에서도 0건이었다. 이는 모든 가능한 다른 표현까지 없다는 증명이 아니다. 원문·고객명·예약번호는 출력/복사하지 않았다. 검증된 예약일 원천이 제공되기 전 자동 동일 날짜 후보는 계속 보류한다. 개인정보·금융 보호를 줄여서 전체 완료로 판정하지 않는다.
+
+## 2026-10-26 미결 UI 구현 및 통합 릴리스 (이전 배포)
 
 **현재 운영 SHA: `85f008baddd9e6a181018b6b7d4bd1ffded9ea82`**. 후속 본문 테마 수정 PR #127도 배포됐다. 파일 949개 전부 Git blob 일치, 작업 Running, loopback listener 1개 및 프로세스 SHA 일치, health/ready 200과 비인증 OTA API 401을 확인했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-85f008baddd9e6a181018b6b7d4bd1ffded9ea82.json`, `release-audit-85f008baddd9e6a181018b6b7d4bd1ffded9ea82.json`, `D:/WebLedgerHost/config/board-task-before/after-85f008baddd9e6a181018b6b7d4bd1ffded9ea82-attempt2.xml`이다.
 
