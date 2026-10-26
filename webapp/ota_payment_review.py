@@ -166,7 +166,8 @@ def _sanitize_card_row(source):
     block_reason = _transaction_selection_block_reason(source)
     safe_reasons = {"중복 거래라 선택할 수 없습니다.",
                     "거래 파싱 오류가 있어 선택할 수 없습니다.",
-                    "거래 충돌이 있어 선택할 수 없습니다."}
+                    "거래 충돌이 있어 선택할 수 없습니다.",
+                    "저장한 예약 관계의 선택 이력입니다."}
     if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
         block_reason = source["selection_disabled_reason"]
     if (not block_reason and source.get("candidate_rejection_reason") in
@@ -215,7 +216,8 @@ def public_snapshot(snapshot, *, include_cards=False):
                 block_reason = _transaction_selection_block_reason(source)
                 safe_reasons = {"중복 거래라 선택할 수 없습니다.",
                                 "거래 파싱 오류가 있어 선택할 수 없습니다.",
-                                "거래 충돌이 있어 선택할 수 없습니다."}
+                                "거래 충돌이 있어 선택할 수 없습니다.",
+                                "저장한 예약 관계의 선택 이력입니다."}
                 if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
                     block_reason = source["selection_disabled_reason"]
                 if (not block_reason and source.get("candidate_rejection_reason") in
@@ -879,23 +881,40 @@ class CoreOtaPaymentBackend:
             if relation.get("status") in ("USER_CONFIRMED", "STALE"):
                 historical_id = str(relation.get("transaction_id") or "")
                 historical = transaction_by_id.get(historical_id)
-                if historical and historical_id not in visible_ids:
-                    rows.append(dict(historical, reservation_history=True, selection_disabled=True,
-                                     selection_disabled_reason="저장한 예약 관계의 선택 이력입니다."))
+                if historical:
+                    existing = next((row for row in rows
+                                     if str(row.get("transaction_id") or "") == historical_id), None)
+                    historical_fields = {
+                        "reservation_history": True,
+                        "selection_disabled": True,
+                        "selection_disabled_reason": "저장한 예약 관계의 선택 이력입니다.",
+                    }
+                    if existing is not None:
+                        existing.update(historical_fields)
+                    elif historical_id not in visible_ids:
+                        rows.append(dict(historical, **historical_fields))
                     visible_ids.add(historical_id)
             for rejected in search.get("rejected") or ():
                 transaction_id = str(rejected.get("transaction_id") or "")
                 card = transaction_by_id.get(transaction_id)
-                if not card or transaction_id in visible_ids:
+                if not card:
                     continue
                 reason = str(rejected.get("reason") or "NO_CARD_CANDIDATE")
-                rows.append(dict(card, candidate_date_status="MISMATCH",
-                                 candidate_resolution_allowed=False,
-                                 candidate_rejection_reason=reason,
-                                 selection_disabled=True,
-                                 selection_disabled_reason="카드 정보는 일부 맞지만 " +
-                                 ("결제 금액이 다릅니다." if reason in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")
-                                  else "필수 연결 근거가 부족합니다.")))
+                rejected_fields = {
+                    "candidate_date_status": "MISMATCH",
+                    "candidate_resolution_allowed": False,
+                    "candidate_rejection_reason": reason,
+                    "selection_disabled": True,
+                    "selection_disabled_reason": "카드 정보는 일부 맞지만 " +
+                    ("결제 금액이 다릅니다." if reason in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")
+                     else "필수 연결 근거가 부족합니다."),
+                }
+                existing = next((row for row in rows
+                                 if str(row.get("transaction_id") or "") == transaction_id), None)
+                if existing is not None:
+                    existing.update(rejected_fields)
+                elif transaction_id not in visible_ids:
+                    rows.append(dict(card, **rejected_fields))
                 visible_ids.add(transaction_id)
 
             # Apply shared post-processing (occupied, group holds, hold states, etc.)

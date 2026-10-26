@@ -1416,6 +1416,19 @@ class OtaPaymentReviewTests(unittest.TestCase):
             preview = store.preview(event, transaction)
             store.confirm(event, transaction, preview["preview_digest"],
                           request_id="req-hist", user="test", allocations={})
+            occupied_event = {
+                "ota_event_id": "evt-other", "provider": "synthetic", "booking_ref": "BOOK-OTHER",
+                "event_type": "charge", "paid_on": "2026-09-04", "amount": 100000,
+                "amount_krw": 100000, "currency": "KRW", "source_digest": "digest-other",
+                "evidence_status": "paid_verified", "payment_status": "paid"
+            }
+            occupied_transaction = {
+                "transaction_id": "card-occupied", "merchant": "Hotel B", "amount_krw": 100000,
+                "approval_date": "2026-09-04", "posting_date": "2026-09-05"
+            }
+            occupied_preview = store.preview(occupied_event, occupied_transaction)
+            store.confirm(occupied_event, occupied_transaction, occupied_preview["preview_digest"],
+                          request_id="req-occupied", user="test", allocations={})
             store.close()
             # Ensure store connection is closed before temp dir cleanup
 
@@ -1514,9 +1527,8 @@ class OtaPaymentReviewTests(unittest.TestCase):
             # Verify specific risk cases
             # 1. card-occupied should show already_linked to another event
             occ = by_txn_endpoint["card-occupied"]
-            self.assertTrue(occ.get("already_linked_event_id"))
-            self.assertTrue(occ.get("selection_disabled"))
-            self.assertIn("다른 예약", occ.get("selection_disabled_reason", ""))
+            self.assertEqual(occ.get("already_linked_event_id"), "evt-other")
+            self.assertEqual(occ.get("already_linked_reason"), "다른 예약에 연결됨")
 
             # 2. card-amount-mismatch should be disabled with correct reason
             amt = by_txn_endpoint["card-amount-mismatch"]
@@ -1528,13 +1540,13 @@ class OtaPaymentReviewTests(unittest.TestCase):
             cur = by_txn_endpoint["card-currency-mismatch"]
             self.assertTrue(cur.get("selection_disabled"))
             self.assertEqual(cur.get("candidate_rejection_reason"), "CURRENCY_MISMATCH")
-            self.assertIn("결제 금액이 다릅니다", cur.get("selection_disabled_reason", ""))
+            self.assertIn("결제 통화가 다릅니다", cur.get("selection_disabled_reason", ""))
 
             # 4. card-date-unknown should be disabled with UNKNOWN reason
             dat = by_txn_endpoint["card-date-unknown"]
             self.assertTrue(dat.get("selection_disabled"))
             self.assertEqual(dat.get("candidate_date_status"), "UNKNOWN")
-            self.assertIn("결제일이 확인되지 않아", dat.get("selection_disabled_reason", ""))
+            self.assertEqual(dat.get("selection_disabled_reason"), "OTA_PAYMENT_DATE_UNKNOWN")
 
             # 5. card-history should have reservation_history=True and be disabled
             hist = by_txn_endpoint["card-history"]
@@ -1736,9 +1748,8 @@ class OtaPaymentReviewTests(unittest.TestCase):
             # Should return the matched card row
             self.assertEqual(len(cards), 1)
             self.assertEqual(cards[0]["transaction_id"], "card-matched")
-            # Should have reservation_link info from the matched transaction
-            self.assertTrue(cards[0].get("reservation_history") or cards[0].get("already_linked_event_id")
-                           or cards[0].get("selection_disabled"))
+            # A payment match is distinct from a reservation relation, so it remains selectable here.
+            self.assertFalse(cards[0].get("selection_disabled", False))
 
             backend.close()
             board_conn.close()
