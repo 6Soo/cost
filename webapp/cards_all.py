@@ -286,14 +286,14 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             trip_id = str(item.get("trip_id") or "").strip()
             trip_name = (trip_names or {}).get(trip_id, trip_id)
             source = str(item.get("classification_source") or "").strip()
-            trip = _get_trip_display(trip_name, source)
             if not trip_id:
                 trip_markup = "<span class='card-all-trip-name unassigned'>미배정</span>"
             else:
-                status = " · 사용자 확정" if source == "manual" else (" · 추정" if source == "auto_inferred" else "")
-                trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>{_esc(trip_name)}</span>"
-                               f"<span class='card-all-trip-source'>{_esc(status.lstrip(' ·'))}</span>" if status else
-                               f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>{_esc(trip_name)}</span>")
+                trip_markup = (f"<span class='card-all-trip-name' title='{_esc(trip_id)}'>"
+                               f"{_esc(trip_name)}</span>")
+                if source in ("manual", "auto_inferred"):
+                    label = "사용자 확정" if source == "manual" else "추정 배정"
+                    trip_markup += f"<span class='card-all-trip-source'>{label}</span>"
             link = ""
             href = _detail_href(tid) if include_detail_link else ""
             if href:
@@ -502,7 +502,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     trip_names: dict[str, str] = {}
     try:
         from . import ledger_board as _board
-        if _board.current_role() == "owner":
+        if (items or undated_items) and _board.current_role() == "owner":
             trip_names = {
                 str(t.get("tab_id") or ""): str(t.get("display_key") or t.get("tab_id") or "")
                 for t in _board.live_trips(include_archived=True)
