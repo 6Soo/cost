@@ -2,7 +2,7 @@
 import pytest
 
 from app.partial_refund import refund_links
-from webapp.card_flow import CardFlow, _render_refund_evidence
+from webapp.card_flow import CardFlow, _render_refund_evidence, _render_refund_merchant_candidates
 from webapp.ledger_store import LedgerStore
 from tests.card_pipeline.test_partial_refund import HEADER
 
@@ -38,8 +38,39 @@ def test_refund_display_separates_source_pair_and_recording(tmp_path, scenario, 
         link = refund_links(board.conn, [refund]).get(refund)
         markup = _render_refund_evidence(board, refund, link)
         assert expected in markup
-        assert original not in markup
+        if not link:
+            assert original in markup  # 비교 후보의 원문 링크
+            assert '원결제 연결은 미확정' in markup
+        else:
+            assert original not in markup
         assert board.conn.total_changes == before
         assert '<li><li>' not in markup
+    finally:
+        board.close()
+
+
+def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
+    board = LedgerStore(tmp_path / 'merchant.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,카카오T일반택시(법인)_0,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,9800,,,9800,2026-10-02,2026-10-03,A200,,매입\n' +
+            '국민,9999,domestic,purchase,카카오T일반택시,9800,,,9800,2026-10-02,2026-10-03,A300,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T일반택시,9800,,,9800,2026-10-03,2026-10-04,A400,,매입\n'
+        ).encode(), 'synthetic.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        ids = {r['approval_number']: r['transaction_id'] for r in rows}
+        refund = ids['200']
+        board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-9800 WHERE transaction_id=?", (refund,))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        assert refund_links(board.conn, [refund]) == {}
+        markup = _render_refund_merchant_candidates(board, refund)
+        assert '16,000원' in markup and ids['100'] in markup
+        assert ids['300'] not in markup and ids['400'] not in markup
+        assert '가승인 해제' in markup and '원결제 연결은 미확정' in markup
+        assert '원승인번호 없음' in markup and '가맹점명으로 전체 카드 거래 검색' in markup
+        assert list(board.conn.iterdump()) == before
     finally:
         board.close()
