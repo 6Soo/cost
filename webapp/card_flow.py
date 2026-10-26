@@ -2896,7 +2896,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
         else:
             title, lines = '확정 원결제 자료 미확인', ['원승인번호 또는 외화 금액 기준으로 자동 연결된 원결제가 없습니다. 아래 가맹점 검색 결과를 비교해 주세요.']
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
-    return ("<details class='cleanup-evidence cleanup-refund' open><summary>" + esc(title) +
+    return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
             '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' + comparison + '</details>')
 
 
@@ -3032,7 +3032,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
                     reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
             evidence = _render_refund_evidence(board, tid, link, held_cancellations=held_refunds)
             # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
-            review = (f"<details class='cleanup-review' open><summary>원결제·취소 자료</summary>{evidence}"
+            review = (f"<details class='cleanup-review'><summary>원결제·취소 근거 자세히 보기</summary>{evidence}"
                       f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
         elif conflict_reason or parse_error:
             review = (f"<details class='cleanup-review'><summary>상세 검토</summary>"
@@ -3059,7 +3059,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
             f" data-current-tab='{esc(current_tab or '')}'>"
-            f"<div class='cleanup-card-head'><h3>거래 검토</h3>"
+            f"<div class='cleanup-card-head'><h3>카드 거래</h3>"
             f"<span class='cleanup-badge{' cleanup-badge-protected' if protected else ''}'>{label}</span></div>"
             f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
             f"<div class='cleanup-title'><strong>{esc(merchant)}</strong><small>{esc(day or '')} · 카드 결제</small></div></div>"
@@ -3111,6 +3111,29 @@ def render_expense_cleanup(board, csrf, *, page=1):
              "#expense-cleanup .cleanup-protected{margin:8px 0 0;color:var(--shell-muted)}"
              "#expense-cleanup .cleanup-evidence{margin-top:6px;font-size:13px}"
              "#expense-cleanup .cleanup-evidence li{margin:6px 0;overflow-wrap:anywhere}"
+             "#expense-cleanup .cleanup-amount{font-size:21px;margin:12px 0 6px;letter-spacing:-.02em}"
+             "#expense-cleanup .cleanup-row{border-radius:12px;padding:16px;box-shadow:none}"
+             "#expense-cleanup .cleanup-card-head{margin-bottom:10px}"
+             "#expense-cleanup .cleanup-card-head h3{font-size:14px;font-weight:700;color:var(--shell-muted)}"
+             "#expense-cleanup .cleanup-title strong{font-size:16px;line-height:1.45}"
+             "#expense-cleanup .cleanup-receipt-icon{width:36px;height:36px;font-size:20px;border-radius:10px}"
+             "#expense-cleanup .cleanup-reason{font-size:12px;line-height:1.6;margin-bottom:6px}"
+             "#expense-cleanup .cleanup-review{margin-top:12px}"
+             "#expense-cleanup .cleanup-review>summary{display:flex;align-items:center;min-height:44px;color:var(--shell-accent);padding:7px 0}"
+             "#expense-cleanup .cleanup-evidence ul{padding-left:16px}"
+             "#expense-cleanup .cleanup-merchant-compare{margin-top:12px;padding:8px 12px;border:1px solid var(--shell-line);border-radius:10px;background:var(--shell-hover)}"
+             "#expense-cleanup .cleanup-merchant-compare>summary{cursor:pointer;min-height:44px;font-size:13px;font-weight:750;display:flex;align-items:center;gap:8px}"
+             "#expense-cleanup .cleanup-mini-count{background:var(--shell-paper);border:1px solid var(--shell-line);border-radius:99px;padding:2px 8px;font-size:12px}"
+             "#expense-cleanup .cleanup-evidence-meta{font-size:12px;line-height:1.55;color:var(--shell-muted);margin:7px 0}"
+             "#expense-cleanup .cleanup-compare-list{display:grid;gap:8px;margin:12px 0}"
+             "#expense-cleanup .cleanup-compare-row{border:1px solid var(--shell-line);background:var(--shell-paper);border-radius:9px;padding:12px;min-width:0}"
+             "#expense-cleanup .cleanup-compare-row p{font-size:12px;margin:6px 0;color:var(--shell-muted)}"
+             "#expense-cleanup .cleanup-compare-row a{display:inline-flex;align-items:center;min-height:38px}"
+             "#expense-cleanup .cleanup-compare-main{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px}"
+             "#expense-cleanup .cleanup-compare-main strong{overflow-wrap:anywhere;min-width:0}"
+             "#expense-cleanup .cleanup-compare-main b{white-space:nowrap;font-variant-numeric:tabular-nums}"
+             "#expense-cleanup .cleanup-pages{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--shell-line);padding:12px 0}"
+             "#expense-cleanup .cleanup-pages a{min-height:44px;display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--shell-line);border-radius:9px}"
              "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:var(--shell-muted);margin:6px 0 0}"
              "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
              "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
