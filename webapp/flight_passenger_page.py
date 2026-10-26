@@ -65,7 +65,7 @@ def _name_search(board, name):
             if _name_key(full_name) != query:
                 continue
             results.append({'booking_ref': str(booking_ref), 'passenger_name': full_name,
-                            'legs': evidence.get('legs') or [], 'cancelled': evidence.get('cancellation_status') != 'NONE',
+                            'legs': evidence.get('legs') or [], 'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
                             'conflict': bool(evidence.get('conflict')), 'source_verified': True})
             break
     return {'reservations': results[:100], 'truncated': len(results) > 100}
