@@ -56,6 +56,25 @@ STYLE = """
 #nav p{margin:0}#nav a{font:inherit;color:inherit;text-decoration:none}
 #nav .nav-hd{padding:18px 16px 14px}
 #nav .brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+/* Quiet, intentional forest-green brand treatment across both themes. */
+#nav a.brand.brand-link{background:var(--shell-selected,#ECF5EF);border:1px solid var(--shell-line,#E2E8F0);color:var(--shell-accent,#1C7A52);min-height:48px;padding:10px 12px;border-radius:11px;font-weight:750;transition:background-color .15s,border-color .15s}
+#nav a.brand.brand-link:hover{background:var(--shell-hover,#F1F5F9);border-color:var(--shell-accent,#1C7A52)}
+#nav a.brand.brand-link:focus-visible{outline:2px solid var(--shell-focus,#2266F5);outline-offset:3px}
+/* Scrollbar belongs to the sidebar, not to every page's tables. */
+#nav{scrollbar-width:thin;scrollbar-color:var(--shell-line-strong,#D0D5DD) transparent;scrollbar-gutter:stable}
+#nav::-webkit-scrollbar{width:8px}
+#nav::-webkit-scrollbar-track{background:transparent}
+#nav::-webkit-scrollbar-thumb{background:var(--shell-line-strong,#D0D5DD);border:2px solid var(--shell-bg,#F8FAFC);border-radius:999px}
+#nav::-webkit-scrollbar-thumb:hover{background:var(--shell-muted,#475569)}
+#nav::-webkit-scrollbar-corner{background:transparent}
+/* Low-noise utility footer pinned after the scrollable trip groups. */
+#nav .nav-ft{display:grid;gap:7px;background:var(--shell-bg,#F8FAFC)}
+#nav .nav-ft .all-trips-link{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:10px 12px;background:var(--shell-paper,#fff);border:1px solid var(--shell-line,#E2E8F0);border-radius:9px;color:var(--shell-ink,#0F172A);font-size:13px;font-weight:650}
+#nav .nav-ft .all-trips-link:hover{border-color:var(--shell-accent,#1C7A52);background:var(--shell-hover,#F1F5F9)}
+#nav .nav-ft .all-trips-link .ic{width:16px;height:16px;flex:0 0 auto;color:var(--shell-accent,#1C7A52)}
+#nav .nav-ft .footer-help{margin:0;color:var(--shell-muted,#475569);font-size:11px;line-height:1.5}
+@media(prefers-reduced-motion:reduce){#nav a.brand.brand-link{transition:none}}
+
 #nav .brand small{display:block;font-size:11.5px;font-weight:400;color:var(--shell-muted,#667085);margin-top:3px}
 #nav a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
 #nav a.brand:hover{background:var(--shell-hover,#F8FAFC)}
