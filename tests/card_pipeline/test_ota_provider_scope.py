@@ -28,3 +28,11 @@ def test_provider_scope_excludes_cross_provider_before_amount_comparison(provide
 def test_trip_related_merchants_still_match(merchant):
     row = card(merchant=merchant, merchant_normalized=merchant.casefold())
     assert match_ota_payment_events([event()], [row])[0]['transaction_id'] == row['transaction_id']
+
+
+def test_scheduled_payment_gate_also_excludes_another_ota_brand():
+    from app import ota_exact
+    from app.ota_portal import SCHEDULED_CARD_DATE_EVIDENCE
+    scheduled = event(provider='agoda', evidence_kind=SCHEDULED_CARD_DATE_EVIDENCE,
+                      scheduled_on='2026-09-04')
+    assert ota_exact._match_reason(scheduled, card(), {}, []) == 'provider'

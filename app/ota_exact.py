@@ -12,7 +12,7 @@ from app.ota_portal import SCHEDULED_CARD_DATE_EVIDENCE
 ENV = 'WEBLEDGER_OTA_EXACT_GATE'
 PROTECTED_SOURCES = ('user_decision', 'user_exception', 'user_completed_period', 'owner_card_residual',
                      'refund_original')
-# 카드 끝자리가 없는 이벤트는 승인된 업체 별칭이 있어야 한다. 트립닷컴은 코어가 날짜·금액·유일 후보로 판단한다.
+# 카드 끝자리가 없는 이벤트는 승인된 업체 별칭이 있어야 한다. 제공자 경계는 코어와 공유한다.
 ALIAS_REQUIRED_PROVIDERS = ('agoda', 'booking', 'klook')
 
 
@@ -60,6 +60,8 @@ def _match_reason(match, row, charges, rules):
         return 'evidence_unavailable'
     if row is None:
         return 'row_missing'
+    if not ota_payments.provider_compatible(match, row, rules):
+        return 'provider'
     if match.get('evidence_kind') == SCHEDULED_CARD_DATE_EVIDENCE:
         return _scheduled_card_reason(match, row)
     candidates =charges.get((str(match.get('provider') or ''), str(match.get('booking_ref') or '')), [])
