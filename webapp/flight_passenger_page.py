@@ -124,6 +124,7 @@ def _page(csrf):
 .fb-ticket{border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:14px;background:var(--paper)}
 .fb-ticket h3{font-size:17px;margin:0 0 12px;overflow-wrap:anywhere}.fb-ticket p{overflow-wrap:anywhere}.fb-ticket summary,.fb-ticket a{display:block;min-height:44px;padding:10px 0}.fb-section{border-top:1px solid var(--line);margin-top:15px;padding-top:14px}
 .fb-note{border-left:3px solid var(--warn);padding:9px 12px;background:var(--hover);color:var(--ink);font-size:13px}
+.fb-date-row{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--paper)}
 #fb-status{min-height:24px;margin-top:12px}#fb-results{margin-top:16px}
 @media(max-width:600px){#flight-booking-page{margin:18px auto;padding:0 12px 36px}.fb-grid{grid-template-columns:minmax(0,1fr)}.fb-panel{padding:14px}#flight-booking-page form{display:grid}#flight-booking-page h1{font-size:22px}}
 </style></head><body><main id="flight-booking-page">
@@ -139,6 +140,45 @@ const form=document.getElementById('fb-search'),resultRoot=document.getElementBy
 const more=document.getElementById('fb-more');let nextOffset=null,sourceRevision=null,searchName='';
 function text(parent,tag,value,klass){const e=document.createElement(tag);if(klass)e.className=klass;e.textContent=String(value??'');parent.append(e);return e}
 function field(parent,label,value){const wrap=document.createElement('div');wrap.className='fb-field';text(wrap,'small',label);text(wrap,'strong',value||'확인되지 않음');parent.append(wrap)}
+function manualDateFilter(parent){
+const details=document.createElement('details');details.className='fb-date-filter';parent.append(details);
+text(details,'summary','직접 지정한 날짜로 카드 원행 조회');
+text(details,'p','예약일이나 결제 연결이 확정된 것은 아닙니다.','fb-note');
+text(details,'p','사용자가 고른 이용일의 모든 카드 원행을 조회합니다. 취소·환불·중복·기존 분류를 제외하지 않으며 이 예약과의 연결 여부는 판정하지 않습니다.','fb-muted');
+const filter=document.createElement('form'),label=text(filter,'label','조회 날짜 (직접 지정 필터)');
+const dateInput=document.createElement('input');dateInput.type='date';dateInput.required=true;dateInput.min='2000-01-01';dateInput.max='2100-12-31';label.append(dateInput);
+const search=text(filter,'button','지정 날짜 원행 조회');search.type='submit';details.append(filter);
+const note=text(details,'p','날짜를 직접 지정해 조회해 주세요.','fb-date-status');note.setAttribute('role','status');note.setAttribute('aria-live','polite');
+const rows=document.createElement('div');details.append(rows);
+const next=text(details,'button','카드 원행 더 보기');next.type='button';next.hidden=true;
+let activeDay='',cursor=null,revision=null;
+const render=tx=>{
+ const row=document.createElement('article');row.className='fb-date-row';text(row,'h3',tx.merchant||'가맹점 미확인');
+ const grid=document.createElement('div');grid.className='fb-grid';row.append(grid);
+ for(const [key,title] of [['approval_date','이용일·원본 시각'],['approval_number','승인번호'],['transaction_direction','원행 거래 구분'],['transaction_kind','원행 거래 유형'],['classification_state','기존 분류 상태'],['trip_id','원행 여행 ID'],['display_tab_id','기존 표시 여행 ID'],['item','비용 항목']])field(grid,title,tx[key]);
+ field(grid,'원화 금액',tx.amount_krw==null?null:String(tx.amount_krw)+'원');
+ field(grid,'외화 금액·통화',[tx.foreign_amount,tx.foreign_currency].filter(v=>v!=null&&v!=='').join(' '));
+ const protections=[];if(tx.duplicate_of)protections.push('중복 원행');if(tx.conflict_reason)protections.push('원본 충돌');if(tx.parse_error)protections.push('원본 오류');
+ if(protections.length)text(row,'p',protections.join(' · '),'fb-note');
+ rows.append(row);
+};
+async function load(reset){
+ if(reset){activeDay=dateInput.value;cursor=null;revision=null;rows.replaceChildren();next.hidden=true}
+ const requestedDay=activeDay;search.disabled=true;next.disabled=true;note.textContent='지정 날짜의 카드 원행을 읽고 있습니다.';
+ try{
+  const query=new URLSearchParams({date:requestedDay});if(cursor){query.set('cursor',cursor);query.set('revision',revision)}
+  const response=await fetch('/api/cards/transactions/day?'+query,{cache:'no-store'});const data=await response.json();
+  if(response.status===409&&data.code==='SOURCE_CHANGED'){rows.replaceChildren();cursor=null;revision=null;next.hidden=true;throw Error('카드 자료가 변경됐습니다. 지정 날짜로 다시 조회해 주세요.')}
+  if(!response.ok)throw Error('카드 원행을 불러오지 못했습니다. 날짜와 접근 권한을 확인해 주세요.');
+  if(data.filter_semantics!=='USER_DATE_FILTER'||data.date!==requestedDay)throw Error('지정한 날짜의 응답을 확인할 수 없습니다. 다시 조회해 주세요.');
+  for(const tx of data.items||[])render(tx);
+  cursor=data.cursor;revision=data.revision;next.hidden=!(data.has_more&&cursor);
+  note.textContent='직접 지정한 '+requestedDay+' · '+rows.children.length+' / '+data.total_count+'건. 예약일이나 결제 연결을 확정하지 않습니다.';
+ }catch(error){note.textContent=error.message}finally{search.disabled=false;next.disabled=false}
+}
+filter.addEventListener('submit',event=>{event.preventDefault();if(dateInput.value&&filter.reportValidity())load(true)});
+next.addEventListener('click',()=>load(false));
+}
 function showBooking(b){
 const card=document.createElement('article');card.className='fb-ticket';
 text(card,'span',b.cancelled?'취소·변경 근거 확인 필요':b.conflict?'원본 충돌 · 확인 필요':'예약 근거 확인','fb-status');
@@ -176,6 +216,7 @@ if(typeof tx.detail_href==='string'&&tx.detail_href.startsWith('/board?row=')){c
 card.append(linked);
 const candidates=document.createElement('div');candidates.className='fb-section';text(candidates,'h2','예약일의 카드 거래 후보');text(candidates,'p','원본에 확인된 항공권 예약일이 없어 동일 날짜의 카드 거래를 안전하게 조회할 수 없습니다. 결제일이나 이메일 수신일을 예약일로 추정하지 않습니다.','fb-muted');card.append(candidates);
 const manualDate=text(candidates,'a','카드 전체 내역에서 날짜별 원행 확인');manualDate.href='/cards/all';
+manualDateFilter(candidates);
 const participant=document.createElement('details');participant.className='fb-section';
 text(participant,'summary','참가자 연결 정보');
 text(participant,'p','기존 참가자 연결 기능에서 예약 명단과 비교하고 COST 내부 연결을 확인할 수 있습니다.','fb-muted');

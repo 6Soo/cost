@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import sqlite3
 import re
+import hashlib
+import json
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -15,6 +17,66 @@ from typing import Dict, Any, Optional, List
 _UNDATED_CURSOR_DATE = "0000-00-00"
 _DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$")
+
+
+class DaySourceChanged(ValueError):
+    """The explicit date filter must restart after its source rows change."""
+
+
+def list_for_day(db_path=None, *, day, cursor=None, revision=None, per_page=100):
+    """All raw rows for a user-selected use date; never a verified booking date.
+
+    The read transaction keeps the fingerprint, count and page on one SQLite
+    snapshot. Fingerprinting streams the allowlisted projection without keeping
+    all rows in memory. No financial state is excluded from the date filter.
+    """
+    if not isinstance(day, str) or not _DATE_PREFIX.fullmatch(day):
+        raise ValueError('invalid day: YYYY-MM-DD required')
+    parsed = date.fromisoformat(day)
+    if not 2000 <= parsed.year <= 2100:
+        raise ValueError('invalid day: year out of range')
+    if type(per_page) is not int or not 1 <= per_page <= 500:
+        raise ValueError('invalid per_page')
+    cursor_values = None
+    if cursor is not None:
+        if not isinstance(cursor, str) or '|' not in cursor:
+            raise ValueError('invalid cursor')
+        stamp, tid = cursor.split('|', 1)
+        if not _valid_use_date(stamp) or stamp[:10] != day or not tid or len(tid) > 256:
+            raise ValueError('invalid cursor date')
+        if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{64}', revision):
+            raise ValueError('cursor revision required')
+        cursor_values = (int(len(stamp) == 10), stamp[11:] if len(stamp) > 10 else '', tid)
+    fields = ('transaction_id', 'approval_date', 'approval_number', 'amount_krw',
+              'foreign_amount', 'foreign_currency', 'merchant', 'transaction_direction',
+              'transaction_kind', 'classification_state', 'trip_id', 'display_tab_id', 'item',
+              'duplicate_of', 'conflict_reason', 'parse_error', 'revision')
+    order = 'CASE WHEN length(approval_date)=10 THEN 1 ELSE 0 END, substr(approval_date,12), transaction_id'
+    where = _VALID_DATE_SQL + ' AND substr(approval_date,1,10)=?'
+    select = 'SELECT ' + ','.join(fields) + ' FROM transactions WHERE '
+    conn = _connect(_resolve_card_db_path(db_path))
+    try:
+        conn.execute('BEGIN')
+        digest = hashlib.sha256(day.encode('ascii'))
+        total = 0
+        for row in conn.execute(select + where + ' ORDER BY ' + order, (day,)):
+            digest.update(json.dumps(row, ensure_ascii=True, separators=(',', ':')).encode('utf-8') + b'\n')
+            total += 1
+        current_revision = digest.hexdigest()
+        if revision is not None and revision != current_revision:
+            raise DaySourceChanged('date filter source changed')
+        params = [day]
+        if cursor_values:
+            where += ' AND (CASE WHEN length(approval_date)=10 THEN 1 ELSE 0 END, substr(approval_date,12), transaction_id) > (?,?,?)'
+            params.extend(cursor_values)
+        rows = conn.execute(select + where + ' ORDER BY ' + order + ' LIMIT ?', params + [per_page + 1]).fetchall()
+        items = [dict(zip(fields, row)) for row in rows[:per_page]]
+        return {'date': day, 'filter_semantics': 'USER_DATE_FILTER', 'items': items,
+                'count': len(items), 'total_count': total, 'has_more': len(rows) > per_page,
+                'cursor': f"{items[-1]['approval_date']}|{items[-1]['transaction_id']}" if len(rows) > per_page else None,
+                'revision': current_revision}
+    finally:
+        conn.close()
 
 def _valid_use_date(value: Any) -> bool:
     """Accept calendar-valid ISO dates and local date-times without zone suffixes.

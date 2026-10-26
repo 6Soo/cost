@@ -4261,6 +4261,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(rule, code=200)
         elif parsed.path.startswith("/api/cards/transactions"):
             from . import card_transactions as _ct
+            if parsed.path == "/api/cards/transactions/day" and current_role() != 'owner':
+                self._send_json({"code": "OWNER_REQUIRED"}, code=403)
+                return
             try:
                 q = parse_qs(parsed.query)
                 # Validate year parameter
@@ -4308,6 +4311,15 @@ class Handler(BaseHTTPRequestHandler):
                 if card_db_path is None and _REQUEST_STORE.get() is _NO_REQUEST_STORE:
                     card_db_path = os.environ.get("WEBLEDGER_DB")
 
+                if parsed.path == "/api/cards/transactions/day":
+                    try:
+                        result = _ct.list_for_day(db_path=card_db_path, day=q.get('date', [None])[0],
+                                                  cursor=cursor, revision=q.get('revision', [None])[0])
+                    except _ct.DaySourceChanged:
+                        self._send_json({"code": "SOURCE_CHANGED"}, code=409)
+                        return
+                    self._send_json(result, code=200)
+                    return
                 if parsed.path == "/api/cards/transactions/years":
                     res = _ct.available_years(db_path=card_db_path)
                     self._send_json(res, code=200)

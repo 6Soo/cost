@@ -116,7 +116,7 @@ def test_search_rejects_non_object_json_without_creating_assignment_store(tmp_pa
 
 
 def test_browser_name_search_renders_verified_itinerary_and_secondary_participant_flow():
-    from playwright.sync_api import sync_playwright
+    from playwright.sync_api import sync_playwright, expect
     from webapp import site_shell
 
     with patch('webapp.ota_payment_review.passenger_index_for', return_value=_index()):
@@ -156,7 +156,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             assert ticket.get_by_role('link', name='참가자 연결 정보 열기').get_attribute('href') == '/flight-passengers?view=participants'
             screen.get_by_label('탑승객 이름').fill('different input not submitted')
             screen.get_by_role('button', name='예약 더 보기').click()
-            assert screen.locator('.fb-ticket').count() == 2
+            expect(screen.locator('.fb-ticket')).to_have_count(2)
             assert requests[-1]['name'] == 'KIM ALPHA'
             assert requests[-1]['revision'] == result['revision']
             for width in (375, 390, 759, 760, 1280):
@@ -171,6 +171,57 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             assert ticket.get_by_role('link', name='참가자 연결 정보 열기').is_visible()
         finally:
             browser.close()
+
+
+def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisions():
+    from playwright.sync_api import sync_playwright, expect
+    from webapp import site_shell
+    with patch('webapp.ota_payment_review.passenger_index_for', return_value=_index()):
+        result = page._name_search(object(), 'KIM ALPHA')
+    result['reservations'] = result['reservations'][:1]
+    with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
+        document = site_shell.wrap_document(page._page('synthetic-csrf'), '/flight-passengers')
+    with sync_playwright() as api:
+        browser = api.chromium.launch()
+        screen = browser.new_page(viewport={'width': 375, 'height': 812})
+        screen.route('http://synthetic.test/flight-passengers', lambda route: route.fulfill(content_type='text/html', body=document))
+        screen.route('**/api/flight-passengers/name-search', lambda route: route.fulfill(json=result))
+        requests = []
+        def respond(route):
+            requests.append((route.request.method, route.request.url))
+            if len(requests) == 3:
+                route.fulfill(status=409, json={'code': 'SOURCE_CHANGED'})
+                return
+            first = len(requests) == 1
+            route.fulfill(json={'filter_semantics': 'USER_DATE_FILTER', 'date': '2026-03-07',
+                'items': [{'transaction_id': 'SYNTH-1' if first else 'SYNTH-2', 'approval_date': '2026-03-07',
+                           'merchant': 'Synthetic same-amount merchant', 'amount_krw': -100,
+                           'transaction_direction': 'credit', 'duplicate_of': 'other', 'parse_error': 'synthetic',
+                           'display_tab_id': 'SYNTH-MANUAL-TRIP'}],
+                'total_count': 3, 'has_more': True, 'cursor': '2026-03-07|SYNTH-' + ('1' if first else '2'),
+                'revision': 'a' * 64})
+        screen.route('**/api/cards/transactions/day?*', respond)
+        screen.goto('http://synthetic.test/flight-passengers')
+        screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
+        screen.get_by_role('button', name='예약 조회', exact=True).click()
+        screen.get_by_text('직접 지정한 날짜로 카드 원행 조회', exact=True).click()
+        screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-03-07')
+        screen.get_by_role('button', name='지정 날짜 원행 조회', exact=True).click()
+        expect(screen.locator('.fb-date-row')).to_have_count(1)
+        assert screen.get_by_text('예약일이나 결제 연결이 확정된 것은 아닙니다.', exact=True).is_visible()
+        assert screen.locator('.fb-date-row').get_by_text('중복 원행 · 원본 오류', exact=True).is_visible()
+        assert screen.locator('.fb-date-row').get_by_text('SYNTH-MANUAL-TRIP', exact=True).is_visible()
+        screen.get_by_label('조회 날짜 (직접 지정 필터)').fill('2026-04-01')
+        screen.get_by_role('button', name='카드 원행 더 보기', exact=True).click()
+        expect(screen.locator('.fb-date-row')).to_have_count(2)
+        assert 'date=2026-03-07' in requests[-1][1]
+        assert 'revision=' + 'a' * 64 in requests[-1][1]
+        assert all(method == 'GET' for method, _ in requests)
+        screen.get_by_role('button', name='카드 원행 더 보기', exact=True).click()
+        expect(screen.locator('.fb-date-row')).to_have_count(0)
+        assert screen.get_by_text('카드 자료가 변경됐습니다. 지정 날짜로 다시 조회해 주세요.', exact=True).is_visible()
+        assert screen.evaluate('document.documentElement.scrollWidth<=innerWidth')
+        browser.close()
 
 
 def test_confirmed_cards_require_fresh_matching_manual_payment_evidence():
