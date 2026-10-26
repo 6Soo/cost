@@ -1,3 +1,21 @@
+## 2026-10-26 미결 UI 구현 및 통합 릴리스
+
+**현재 운영 SHA: `85f008baddd9e6a181018b6b7d4bd1ffded9ea82`**. 후속 본문 테마 수정 PR #127도 배포됐다. 파일 949개 전부 Git blob 일치, 작업 Running, loopback listener 1개 및 프로세스 SHA 일치, health/ready 200과 비인증 OTA API 401을 확인했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-85f008baddd9e6a181018b6b7d4bd1ffded9ea82.json`, `release-audit-85f008baddd9e6a181018b6b7d4bd1ffded9ea82.json`, `D:/WebLedgerHost/config/board-task-before/after-85f008baddd9e6a181018b6b7d4bd1ffded9ea82-attempt2.xml`이다.
+
+후속 배포 뒤 `/import` 브라우저 reload 관찰은 navigation timeout, 같은 탭 재관찰은 `CDP command timeout: Page.enable`로 실패했다. 브라우저 탭 목록에는 같은 target과 지출 정리 제목이 남아 있다. 이 구체적인 이상에 한해서 추가한 loopback health GET은 200이었다. 런타임 장애나 화면 수락 성공 중 어느 쪽으로도 단정하지 않으며 **최종 SHA의 `/import` 실제 색상 스모크는 `NOT_TESTED_TOOL_TIMEOUT`**이다. 이전 검증된 `0a7c7a2` 릴리스와 작업 XML을 보존했고, 브라우저·앱 재시작/복구/재설치는 하지 않았다.
+
+PR #117은 `db2bbdb`(스크롤), #119는 `e3fe461`(항공권 예약 확인), #126은 `0a7c7a2`(수동 테마)로 정상 병합했다. `0a7c7a2724659e5b6732a73b0a959f9773ab699f`를 운영에 배포해 작업·listener·릴리스 표식 SHA 일치, health/ready 200 및 비인증 OTA API 401을 확인했다. Git archive의 추적 파일 949개 전부를 Git blob과 비교해 차이가 없었다.
+
+첫 배포 시도는 예약 작업을 중지해도 이전 Python listener가 남아 `OLD_LISTENER_STILL_RUNNING`으로 중단했고 기존 XML을 복원했다. 두 번째 시도는 그 listener의 포트·명령·생성 시각·이전 SHA를 재검증한 뒤 해당 서비스 프로세스만 종료하고 전환했다. 작업 XML은 릴리스 참조 두 곳만 변경했다. 기존 검증된 백업/복원 근거 `D:/WebLedgerHost/data/backups/cost-spec-deploy-20261026-evidence.json`과 이전 릴리스를 재사용·보존했다. 다른 작업과 브라우저 세션을 중지하거나 DB/Google/원본을 변경하지 않았다.
+
+표적 검사는 스크롤 1 passed와 5 너비 subtests passed, 항공권 세 파일 24 passed, 테마 3건 및 셸 11건이 통과했다. 항공권 독립 리뷰에서 충돌 근거와 중복/파싱 오류/원본 충돌 카드의 연결 표시 누락을 발견해 RED 확인 후 수정·재검토했다. 권위 있는 예약일 필드는 원천에 없으므로 출발일·결제일·메일일을 대용하지 않는다. 테마가 본문에 헤더 행을 추가한 뒤 영향받는 스크롤 검사도 통과했다. 기존 전체 검사에서 기준 main에도 재현된 무관한 분기 그룹 실패는 다시 실행하거나 수정하지 않았다.
+
+로그인된 Aside의 1440×900 CSS 뷰포트에서 항공권 새 화면, 아이콘 버튼 하나, 실제 다크/라이트 body/nav 색상과 페이지 간 유지, 카드 전체 내역과 지출 정리의 새 버튼을 확인했다. 합성 이름 조회는 배포 직후 자료 갱신 중에는 자료 없음, 갱신 완료 뒤에는 예약 없음 안내를 표시했다. 당시 OTA 읽기 전용 상태는 ready, stale=false, refreshing=false, 오류 없음이었다. 오제 본문은 마지막 위치 4304px에 도달했고 추가 휠 뒤에도 root scroll=0이었다. 수입 패널은 열리고 35행이 표시됐다. 볼드 후보는 0건이며 기존 지출 검증 보호를 해제하지 않았다. 고객 이름·예약번호·원문은 검증 결과에 출력하지 않았다.
+
+이 운영 확인에서 지출 정리 본문이 고정 밝은 색인 결함을 발견했다. 후속 PR #127(`85f008baddd9e6a181018b6b7d4bd1ffded9ea82`)은 지출 정리의 본문·카드·입력창, 수입 장부의 표/설정, 수동 지출 입력창, 유지관리 경고의 CSS만 공통 토큰으로 연결한다. 실제 CSS 검사에 지출 정리·수입 장부·유지관리를 추가해 RED 후 GREEN을 확인했고, `python -m pytest webapp/tests/test_manual_theme.py webapp/tests/test_site_shell.py -q`는 14 passed였다. 독립 검토에서 중요 결함은 없었다. 합성 구조에 실제 CSS를 적용한 검사이므로 모든 실제 내부 요소를 검사했다고 확대 해석하지 않는다.
+
+**남은 수락:** 운영 모바일 뷰포트 및 브라우저 200% 확대는 `NOT_TESTED`다. Aside의 `page.setViewportSize`는 지원되지 않았고 Control+Equal 입력 전후 실제 viewport/DPR도 같았다. 합성 다섯 너비/CSS zoom 검사를 실제 브라우저 확대 수락으로 대체하지 않는다. 전체 회귀·대량 재대사·DB/Google/원본 쓰기·불필요한 새 백업/복원·반복 전체 스모크는 하지 않았다.
+
 ## 2026-10-26 PR #120 사이드메뉴 스타일 런타임 확인
 
 PR [#120](https://github.com/6Soo/cost/pull/120) 병합 SHA `78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e`가 현재 운영 런타임에 반영된 상태임을 읽기 전용으로 확인했다. `WebLedger-Board` 작업 정의와 127.0.0.1:8751 listener의 실행 인자는 모두 `D:/WebLedgerHost/releases/78cf8b8ab2cb1078fc2a8f2b64761672efbfa73e` 및 `D:/WebLedgerHost/bin/launch_web_ledger.py`를 가리켰고, 릴리스의 `DEPLOYED_COMMIT`도 같은 SHA다. listener는 1개였으며 `/healthz`와 `/readyz`는 각각 200을 반환했다.
