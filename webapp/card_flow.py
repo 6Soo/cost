@@ -2743,62 +2743,120 @@ def _render_ota_snapshot_evidence(entry: dict, tid: str) -> str:
 
 
 def _refund_merchant_key(value):
-    """검색용 표기 통일. 금융 연결이나 중복 판정에는 사용하지 않는다."""
+    """Diagnostic merchant family only. NEVER use as a financial matching key."""
     import re
-    value = re.sub(r'\s+', '', value or '').casefold()
-    if value.startswith(('카카오t', '카카오_택시')):
-        return '카카오택시'
-    return value
+    compact = re.sub(r"[^0-9a-z가-힣]", "", str(value or "").casefold())
+    # Kakao Pay, gift shops, parking, substitute drivers and other services
+    # cannot be silently grouped with Kakao T taxi authorizations.
+    taxi_prefix = ("카카오t", "카카오택시", "카카오모빌리티택시",
+                   "kakaotaxi", "kakaot")
+    if compact.startswith(taxi_prefix) or (
+        compact.startswith("카카오모빌리티") and
+        any(word in compact for word in ("일반택시", "가승인", "선승인", "택시요금"))
+    ):
+        if any(word in compact for word in ("대리", "주차", "바이크", "퀵")):
+            return compact
+        return "카카오택시"
+    return compact
+
+
+def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
+    """Read-only Kakao taxi alias evidence; same card, bounded time, no auto-link."""
+    from datetime import date, timedelta
+    refund = board.conn.execute(
+        "SELECT issuer,card_tail,merchant,approval_date,amount_krw,approval_number,"
+        "original_approval_number FROM transactions WHERE transaction_id=?", (tid,)
+    ).fetchone()
+    if not refund:
+        return None, [], 0
+    issuer, tail, merchant, approval_day, amount, approval, original = refund
+    key = _refund_merchant_key(merchant)
+    if not (issuer and tail and approval_day and key):
+        return refund, [], 0
+    try:
+        day = date.fromisoformat(str(approval_day)[:10])
+    except ValueError:
+        return refund, [], 0
+    # Up to 14 days of earlier purchases. The window is a diagnostic
+    # restriction, not evidence that a match outside this window is impossible.
+    from_day = (day - timedelta(days=14)).isoformat()
+    rows = board.conn.execute(
+        "SELECT transaction_id,batch_id,merchant,approval_date,amount_krw,"
+        "approval_number,duplicate_of,conflict_reason,parse_error "
+        "FROM transactions WHERE issuer=? AND card_tail=? "
+        "AND transaction_direction='purchase' AND amount_krw>0 "
+        "AND substr(approval_date,1,10)>=? AND substr(approval_date,1,10)<=? "
+        "ORDER BY approval_date DESC,transaction_id",
+        (issuer, tail, from_day, day.isoformat()),
+    )
+    candidates = [row for row in rows if _refund_merchant_key(row[2]) == key]
+    def rank(row):
+        same_approval = bool(original and row[5] and str(original) == str(row[5]))
+        same_amount = row[4] == abs(amount or 0)
+        same_day = str(row[3])[:10] == day.isoformat()
+        healthy = not (row[6] or row[7] or row[8])
+        return (same_approval, healthy, same_day, same_amount, str(row[3]))
+    candidates.sort(key=rank, reverse=True)
+    return refund, candidates[:max_rows], len(candidates)
 
 
 def _render_refund_merchant_candidates(board, tid: str) -> str:
-    """같은 카드·가맹점의 원행 비교만 제공한다. 연결/기장 변경 없음."""
+    """Show review candidates only. Nothing is saved or automatically linked."""
     from urllib.parse import urlencode
     from .ledger_board import esc
-    refund = board.conn.execute(
-        'SELECT issuer,card_tail,merchant,approval_date,amount_krw,approval_number,'
-        'original_approval_number FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+    refund, candidates, count = _refund_merchant_candidates_readonly(board, tid)
     if not refund:
-        return ''
-    issuer, tail, merchant, day, amount, approval, original_approval = refund
+        return ""
+    issuer, tail, merchant, day, amount, approval, original = refund
     key = _refund_merchant_key(merchant)
-    # 카드/날짜가 빠진 원문은 동일 카드·선행 결제라고 주장하지 않는다.
-    candidates = []
-    if issuer and tail and day and key:
-        candidates = [r for r in board.conn.execute(
-            'SELECT transaction_id,batch_id,merchant,approval_date,amount_krw,approval_number,'
-            'duplicate_of,conflict_reason,parse_error FROM transactions '
-            "WHERE issuer=? AND card_tail=? AND transaction_direction='purchase' "
-            "AND amount_krw>0 AND approval_date!='' AND approval_date<=? "
-            'ORDER BY approval_date DESC,transaction_id', (issuer, tail, day))
-            if _refund_merchant_key(r[2]) == key]
-    candidates.sort(key=lambda r: (r[3] == day, r[4] == abs(amount or 0), r[3]), reverse=True)
-    lines = [f"<p>환불 원문 · {esc(issuer)} · 끝자리 {esc(tail)} · 승인번호 {esc(approval or '없음')}"
-             f" · 원승인번호 {esc(original_approval or '없음')}</p>"]
+    header = ("카카오T 택시 가맹점 표기 대조" if key == "카카오택시"
+              else "같은 카드·가맹점 원결제 비교")
+    parts = [
+        f"<details class='cleanup-merchant-compare'><summary>{esc(header)}"
+        f" <span class='cleanup-mini-count'>{count}건</span></summary>",
+        "<p class='cleanup-evidence-meta'>원결제 연결 미확정 · 같은 카드의 최근 14일 거래를 비교합니다.</p>",
+        f"<p class='cleanup-evidence-meta'>환불 카드 {esc(issuer)} · 끝자리 {esc(tail)}"
+        f" · 승인번호 {esc(approval or '없음')} · 원승인번호 {esc(original or '없음')}</p>"
+    ]
+    if key == "카카오택시":
+        parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
+                     " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
+                     " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다.</p>")
     if candidates:
-        lines.append(f'<p>같은 카드·가맹점 결제 후보 {len(candidates)}건 · 최근/동일 금액 우선 최대 10건</p>')
-        lines.append('<p>가맹점 검색 결과이며 원결제 연결은 미확정입니다. 부분 환불은 금액이 달라도 비교합니다.</p>')
-        if '가승인' in merchant or '선승인' in merchant:
-            lines.append('<p>가승인 취소일 수 있습니다. 실제 택시 요금의 부분 환불인지 별도 가승인 해제인지 이용 내역을 확인해 주세요.</p>')
-        for candidate in candidates[:10]:
-            cid, batch, name, date, gross, number, duplicate, conflict, error = candidate
-            notes = ['같은 카드', '같은 가맹점' if name == merchant else '가맹점 표기 유사']
-            notes.append('같은 날' if date == day else '이전 결제')
-            notes.append('환불과 동일 금액' if gross == abs(amount or 0) else '환불과 금액 다름')
+        parts.append("<div class='cleanup-compare-list' role='list'>")
+        ids = [r[0] for r in candidates]
+        existing = set()
+        if ids:
+            marks = ",".join("?" for _ in ids)
+            existing = {row[0] for row in board.conn.execute(
+                "SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (" + marks + ")",
+                ids)}
+        for cid, batch, name, date, gross, number, duplicate, conflict, error in candidates:
+            flags = ["같은 카드", "가맹점명 동일" if name == merchant else "표기 변형",
+                     "금액 일치" if gross == abs(amount or 0) else "금액 차이",
+                     "장부 기록 있음" if cid in existing else "장부 미기록"]
+            if original and number and str(original) == str(number):
+                flags.append("원승인번호 일치")
             if duplicate or conflict or error:
-                notes.append('중복·원본 오류 확인 필요')
-            recorded = board.conn.execute('SELECT 1 FROM ledger_entries WHERE transaction_id=?', (cid,)).fetchone()
-            notes.append('내부 장부 기록 있음' if recorded else '내부 장부 미기록')
-            href = '/import?' + urlencode({'batch': batch, 'transaction': cid})
-            lines.append(f"<p>{esc(date)} · {esc(name)} · {gross:,}원 · 승인번호 {esc(number or '없음')}<br>"
-                         f"{esc(' · '.join(notes))}<br><a href='{esc(href)}'>이 결제 원문 보기</a></p>")
+                flags.append("중복·원본 오류")
+            link = "/import?" + urlencode({"batch": batch, "transaction": cid})
+            parts.append("<article class='cleanup-compare-row' role='listitem'>"
+                         f"<div class='cleanup-compare-main'><strong>{esc(name)}</strong>"
+                         f"<b>{gross:,}원</b></div>"
+                         f"<p>{esc(str(date))} · 승인 {esc(number or '없음')}</p>"
+                         f"<p class='cleanup-evidence-meta'>{esc(' · '.join(flags))}</p>"
+                         f"<a href='{esc(link)}'>원결제 자료 보기</a></article>")
+        parts.append("</div>")
+        if count > len(candidates):
+            parts.append(f"<p class='cleanup-evidence-meta'>총 {count}건 중 최근·근거 우선"
+                         f" {len(candidates)}건 표시. 전체 거래 검색에서 추가 확인해 주세요.</p>")
     else:
-        lines.append('<p>같은 카드·가맹점의 선행 결제 후보가 없습니다. 카드·날짜 누락이나 다른 가맹점 표기를 전체 거래에서 확인해 주세요.</p>')
-    query = '카카오' if key == '카카오택시' else merchant
-    href = '/import?' + urlencode({'scope': 'all', 'q': query})
-    lines.append(f"<p><a href='{esc(href)}'>가맹점명으로 전체 카드 거래 검색</a></p>")
-    return "<div class='cleanup-refund-candidates'>" + ''.join(lines) + '</div>'
-
+        parts.append("<p>최근 14일 내 같은 카드·가맹점 표기 후보가 없습니다."
+                     " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요.</p>")
+    query = "카카오" if key == "카카오택시" else merchant
+    search = "/import?" + urlencode({"scope": "all", "q": query})
+    parts.append(f"<p><a href='{esc(search)}'>가맹점 전체 카드 거래 검색</a></p></details>")
+    return "<div class='cleanup-refund-candidates'>" + "".join(parts) + "</div>"
 
 def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=None) -> str:
     """원결제 연결과 실제 기록 상태를 금융 판정 변경 없이 표시한다."""
