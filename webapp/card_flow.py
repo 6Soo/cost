@@ -392,7 +392,7 @@ def home_page(board):
             ".home-date{flex:0 0 auto;font-size:12.5px;color:var(--mut);white-space:nowrap}"
             ".home-date-short{display:none}"
             ".home-all{font-size:13px;margin:8px 0 0!important}"
-            "@media(max-width:759.98px){"
+            "@media(width < 760px){"
             ".home-main .page-hd{padding:20px 16px 6px;border-bottom:0;display:block}"
             ".home-main .page-hd h1{font-size:24px;line-height:1.2}"
             ".home-main .page-hd .synth,.home-main .page-hd .meta,.home-main .page-hd .act{display:none}"

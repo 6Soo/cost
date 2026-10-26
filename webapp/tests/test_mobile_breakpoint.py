@@ -26,8 +26,8 @@ def test_fractional_mobile_breakpoint_has_no_menu_gap(native):
         screen.set_content('<iframe style="width:759.25px;height:800px;border:0" srcdoc="' + html.escape(document, quote=True) + '"></iframe>')
         frame = screen.frames[1]
         media = frame.evaluate("[...document.styleSheets].flatMap(s=>[...s.cssRules]).filter(r=>r.type===CSSRule.MEDIA_RULE).map(r=>r.conditionText)")
-        assert any('759.98px' in condition for condition in media)
-        assert not any('759px' in condition for condition in media)
+        assert '(width < 760px)' in media
+        assert not any('max-width: 759' in condition for condition in media)
         assert frame.evaluate("matchMedia('(width < 760px)').matches")
         menu = frame.locator('#btn-menu' if native else '.site-menu-toggle')
         expect(menu).to_be_visible()
