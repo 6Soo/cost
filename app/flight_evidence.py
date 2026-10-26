@@ -9,7 +9,7 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v3-booking-date"
+PARSER_VERSION = "flight-evidence-v4-first-received"
 PROVIDER_DOMAINS = {"trip": ("trip.com", "trip.co.kr")}
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
@@ -66,6 +66,44 @@ def _booking_date_details(tokens):
 def _explicit_booking_date(tokens):
     return _booking_date_details(tokens)[:2]
 
+
+def _booking_refs(tokens):
+    return {_booking_ref(tokens[i:i + 2]) for i, token in enumerate(tokens)
+            if token.startswith('예약번호')} - {''}
+
+
+def _received_fact(message, source_digest):
+    """Mailbox reception milliseconds only; sender Date/Received text is not used."""
+    raw = str(message.get('internal_date') or '')
+    if not re.fullmatch(r'\d{12,13}', raw):
+        return None
+    try:
+        instant = datetime.datetime.fromtimestamp(int(raw) / 1000, datetime.timezone.utc)
+        day = instant.astimezone(datetime.timezone(datetime.timedelta(hours=9))).date()
+        if not 2000 <= day.year <= 2100:
+            return None
+    except (ValueError, OverflowError, OSError):
+        return None
+    return {'source_date': instant.date().isoformat(), 'timestamp': instant.isoformat(),
+            'timezone': 'UTC', 'card_day': day.isoformat(), 'source_digest': source_digest,
+            'meaning': 'first_received_mail_user_policy', 'source_kind': 'mailbox_internal_date'}
+
+
+def _with_first_received_day(booking, receipts):
+    # Explicit/conflicting dates take precedence. An itinerary conflict remains
+    # visible and blocks automatic card queries, but does not erase receipt history.
+    if booking.get('booking_date_status') != 'UNKNOWN' or not receipts:
+        return booking
+    first_time = min(fact['timestamp'] for fact in receipts)
+    first = sorted((fact for fact in receipts if fact['timestamp'] == first_time), key=_canonical)
+    result = dict(booking, reserved_on=first[0]['card_day'], booking_card_day=first[0]['card_day'],
+                  booking_date_status='FIRST_RECEIVED', booking_date_evidence=first)
+    result['source_digests'] = sorted(set(booking['source_digests']) |
+                                    {fact['source_digest'] for fact in receipts})
+    result['digest'] = hashlib.sha256(_canonical({'booking_digest': booking['digest'],
+        'status': 'FIRST_RECEIVED', 'facts': first, 'source_digests': result['source_digests']}).encode()).hexdigest()
+    return result
+
 def strip_invisible(text: str) -> str:
     return text.translate(_INVISIBLE)
 
@@ -79,8 +117,8 @@ def parse_flight_text(text: str) -> dict | None:
     booking_ref = _booking_ref(tokens)
     reserved_on, booking_date_status, date_facts, card_day = _booking_date_details(tokens)
     # A date from a multi-booking message cannot be attributed to its first reference.
-    refs = {_booking_ref(tokens[i:i + 2]) for i, token in enumerate(tokens) if token.startswith('예약번호')}
-    if len(refs - {''}) > 1:
+    refs = _booking_refs(tokens)
+    if len(refs) > 1:
         reserved_on, booking_date_status, card_day = '', 'CONFLICT', ''
     if not passengers and not headers and (cancellation_status == "NONE" or not booking_ref):
         return None
@@ -188,6 +226,7 @@ def collect_flight_evidence(mail_directories) -> dict:
     messages, _inventory = ota_mail.load_messages_from(directories)
     trip_domains = tuple(domain for bases in PROVIDER_DOMAINS.values() for domain in bases)
     grouped = collections.defaultdict(list)
+    receipts = collections.defaultdict(list)
     for message_id, message in messages.items():
         authenticated = ota_mail.authenticated_headers(message, trip_domains)
         if not authenticated:
@@ -195,6 +234,11 @@ def collect_flight_evidence(mail_directories) -> dict:
         provider = next(name for name, bases in PROVIDER_DOMAINS.items() if authenticated[1] in bases)
         subject = str((authenticated[0] or {}).get("subject") or "")
         body_text = ota_mail.message_text(message)
+        source_digest = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
+        refs = _booking_refs([" ".join(line.split()) for line in strip_invisible(body_text).splitlines()])
+        fact = _received_fact(message, source_digest)
+        if len(refs) == 1 and fact:
+            receipts[(provider, next(iter(refs)))].append(fact)
         parsed = parse_flight_text("Subject: " + subject + "\n" + body_text)
         if parsed:
             subject_status = _cancellation_status(["Subject: " + subject])
@@ -202,9 +246,10 @@ def collect_flight_evidence(mail_directories) -> dict:
                 parsed["cancellation_status"] = subject_status
         if not parsed or not parsed["booking_ref"]:
             continue
-        parsed["source_digest"] = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
+        parsed["source_digest"] = source_digest
         grouped[(provider, parsed["booking_ref"])].append(parsed)
-    result = {group_key: merge_booking_evidence(parts) for group_key, parts in grouped.items()}
+    result = {group_key: _with_first_received_day(merge_booking_evidence(parts), receipts[group_key])
+              for group_key, parts in grouped.items()}
     if stamps is not None:
         _MEMO.clear()
         _MEMO[memo_key] = result

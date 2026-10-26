@@ -145,7 +145,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             screen.get_by_label('탑승객 이름').fill('KIM ALPHA')
             screen.get_by_label('탑승객 이름').press('Enter')
             ticket = screen.locator('.fb-ticket').first
-            assert ticket.get_by_text('서울', exact=True).is_visible()
+            expect(ticket.get_by_text('서울', exact=True)).to_be_visible()
             assert ticket.get_by_text('도쿄', exact=True).is_visible()
             assert ticket.get_by_text('2026-11-10', exact=True).is_visible()
             assert ticket.get_by_text('SYN123', exact=True).is_visible()
