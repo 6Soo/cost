@@ -1107,10 +1107,10 @@ def _nav_region_inner(tab_id: str, query: str, kind: str = "",
         cls = "nv sel" if current else ("nv nv-arch" if archived_row else "nv")
         badge = (f"<span class='ct{' warn' if warn else ''}'>{count}</span>"
                  if count is not None else "")
+        icon_markup = f"<span class='nv-icon'>{icon}</span>" if icon else ""
         return (f"<li><a class='{cls}' href='{href}'"
                 f"{' aria-pressed=\"true\"' if current else ''}>"
-                f"{f'<span class=\"nv-icon\">{icon}</span>' if icon else ''}"
-            f"<span class='nm'>{label}</span>{badge}</a></li>")
+                f"{icon_markup}<span class='nm'>{label}</span>{badge}</a></li>")
 
     sections = []
     trips = board.live_trips(include_archived=True)
