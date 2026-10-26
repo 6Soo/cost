@@ -385,7 +385,7 @@ def _canonical(value):
 
 
 #: The modules whose logic decides the index. A saved index made by other code is never read.
-_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py',
+_LOGIC_FILES = ('webapp/ota_catalog.py', 'webapp/ota_catalog_sources_child.py', 'webapp/card_flow.py', 'webapp/ota_payment_review.py', 'app/ota_mail.py', 'app/ota_payments.py',
                 'app/ota_booking_context.py', 'app/ota_core_projection.py', 'app/toyoko_mail.py',
                 'app/ota_inference.py',
                 'app/classify.py', 'app/rules.py', 'app/reconciliation.py', 'app/ota_portal.py', 'app/ota_exact.py',
@@ -543,11 +543,44 @@ def _join_by_booking_number(rows):
             target[field].update(source[field])
 
 
+def _source_rows_in_child(board, sources, warnings):
+    """Parse large mail bundles outside the HTTP process's interpreter lock."""
+    import pickle
+    import subprocess
+    import sys
+    import tempfile
+    root = str(Path(__file__).resolve().parents[1])
+    bootstrap = ('import sys; sys.path.insert(0, sys.argv[1]); '
+                 'from webapp import ota_catalog_sources_child as child; child.run(*sys.argv[2:])')
+    with tempfile.TemporaryDirectory(prefix='ota-catalog-worker-', dir=Path(board.path).parent) as directory:
+        request, result = Path(directory) / 'request', Path(directory) / 'result'
+        request.write_bytes(pickle.dumps(sources, protocol=pickle.HIGHEST_PROTOCOL))
+        process = subprocess.Popen(
+            [sys.executable, '-I', '-c', bootstrap, root, str(board.path), str(request), str(result)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            process.communicate(timeout=900)
+        except subprocess.TimeoutExpired:
+            from .ota_payment_review import _stop_process_tree
+            _stop_process_tree(process.pid)
+            process.wait()
+            raise RuntimeError('OTA_CATALOG_SOURCE_TIMEOUT') from None
+        if process.returncode or not result.exists():
+            raise RuntimeError('OTA_CATALOG_SOURCE_WORKER_FAILED')
+        payload = pickle.loads(result.read_bytes())
+        if payload[0] != 'ok':
+            raise RuntimeError('OTA_CATALOG_SOURCE_WORKER_FAILED:' + payload[1])
+        warnings.extend(payload[2])
+        return payload[1]
+
+
 def _build_index(board, sources):
     from .card_flow import CardFlow
     from .history_policy import preserved_periods
     warnings = []
-    merged = _rows_from_sources(board, sources, warnings)
+    merged = (_source_rows_in_child(board, sources, warnings)
+              if getattr(board, '_catalog_source_process', False)
+              else _rows_from_sources(board, sources, warnings))
     flow = CardFlow(board)
     trips = _trip_context(board, flow)
     trip_by_id = {trip['tab_id']: trip for trip in trips}
@@ -780,8 +813,9 @@ def _index(board, sources, *, rebuild=False, allow_stale=False):
 
 
 def prewarm(board):
-    """Rebuilds the index once in the background at start. The mail parse it leaves in memory keeps later rebuilds fast."""
+    """Rebuild at startup, isolating source parsing from the HTTP interpreter."""
     try:
+        board._catalog_source_process = True
         _index(board, configured_sources(board), rebuild=True)
     except Exception:
         # The first visit builds it again and shows its own warning, so nothing is hidden here.

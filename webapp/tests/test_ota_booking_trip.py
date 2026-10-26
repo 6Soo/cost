@@ -65,6 +65,7 @@ def world(tmp_path, monkeypatch):
                         lambda self, tab: tab in VALID_TABS)
     sources = {'portal_databases': [portal], 'mail_directories': [], 'missing': []}
     yield board, sources, review_db
+    ota_payment_review.shutdown_snapshot_service(board)
     board.close()
 
 
