@@ -431,3 +431,5 @@
 **운영 반영:** 943개 추적 파일을 릴리스 archive와 대조했고 핵심 파일 7개의 blob 해시가 일치했다. `WebLedger-Board` 작업 정의와 8751 listener가 SHA `36f6cb3`를 가리키며 `/healthz`·`/readyz`는 200, 비인증 OTA API는 401이다. 기존 복원 검증 사본과 직전 릴리스 `4726412`를 복구 경로로 유지했다. 예약 작업 전·후 XML은 `D:/WebLedgerHost/config/board-task-before-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml` 및 `board-task-after-36f6cb32ac09805079e5ddb5641fe01032088fa7.xml`에 있다. DB·Google 원본 쓰기, 가져오기, 동기화는 없었다.
 
 **남은 수락:** 로그인 브라우저에서 OTA 화면 및 후보 선택 UI 스모크는 Aside 탭 연결이 응답하지 않아 `NOT_RUN`이다. 변경된 API의 비인증 권한 경계는 401로 확인했으나 인증된 화면 동작으로 대신하지 않는다. `V21-UI-ACCEPTANCE-01`은 PARTIAL 유지, `OZE-INCOME-DIAG-01`의 과거 표시 실패 원인은 ROOT_CAUSE_UNVERIFIED 유지다. 앞 절의 `4726412` 배포 기록은 당시 이력이며 현행 runtime은 이 절의 SHA다.
+
+**Paseo 임시 작업공간 보관:** `wks_d0ae2eefa2a81f33`을 Paseo 공식 `archive_workspace`로 보관했다. Paseo 응답은 `removedDirectory=false`였고, 남은 로컬 작업트리 경로는 삭제하지 않았다. 그 전에 브랜치 bundle, 추적 파일 변경 patch, 28개 미추적 스크래치 파일을 `.local-archive/paseo-worktree-28lt5mey-ota-review-scale-20261026-parent/`에 보존하고 미추적 파일 28개의 SHA-256을 원본과 대조했다. 스크래치 내용은 개인정보 후보 가능성이 있어 검토·삭제하지 않았다.
