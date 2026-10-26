@@ -5,6 +5,10 @@
 > 범위: 구현된 코드의 배포는 완료했지만, OZE 운영 원인 확정과 로그인 브라우저 수락은 미완료다. 운영 DB·Google 원본·실고객 자료는 변경하지 않았다.
 > 권위: [AGENTS.md](../AGENTS.md) → [진입점](COST_V3_START_HERE.md) → [현재 인계 §0.14](COST_V3_CURRENT_HANDOFF.md) → 본 READY 큐 → 각 상세 명세/금융 보호 규칙.
 
+## 신규 승인: 항공권 예약 확인 (2026-10-26)
+
+사용자가 기존 **'항공권 참가자 연결'**을 **'항공권 예약 확인'** 업무 보조 메뉴로 전면 전환하도록 승인했다. [전용 명세](flight-booking-verification-spec-20261026.md) `FLIGHT-VERIFY-DATA-01` → `FLIGHT-VERIFY-API-01` + `FLIGHT-VERIFY-CARD-01` → `FLIGHT-VERIFY-UI-01` 순서로 개발한다. **탑승객 이름 1개만 필수**로 검색, 항공권 근거·확정 카드 연결을 표시하고, 미연결이면 실제 예약일 당일 저장 카드 원행 전부를 후보로 표시한다. 예약일이 미확인이면 임의 날짜 후보 금지. 과거 참가자 연결 데이터·권한·정본은 보존하되 기본 화면에서 강요하지 않는다. **SPEC_ONLY / CODE_PENDING**. 이 요구가 기존 `FLIGHT-UX-COPY-01`의 메뉴 명칭·예약번호+tour_id 선입력보다 최신 정책이다.
+
 ## 1. PR 정리·기준선 (중복 개발 금지)
 
 | 구분 | GitHub 확인 상태 | 실행 원칙 |
