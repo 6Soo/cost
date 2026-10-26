@@ -1037,7 +1037,7 @@ def _nav_html(tab_id: str, query: str, kind: str = "", archived: str = "") -> st
                       f"<a href='/reserve-links'>{_icons.icon('link', 18)}<span class='nm'>예약 명단·여행 연결</span></a>")
         if flight_passenger_page.enabled():
             management += (f"<a href='/flight-passengers'>{_icons.icon('users', 18)}"
-                           "<span class='nm'>항공권 참가자 연결</span></a>")
+                           "<span class='nm'>항공권 예약 확인</span></a>")
         primary += (management
                     + f"<a href='/access/admin'>{_icons.icon('users', 18)}<span class='nm'>계정·권한 관리</span></a>"
                     + "</nav>")
