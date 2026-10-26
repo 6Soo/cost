@@ -466,10 +466,11 @@ def test_acceptance_06_blank_card_hint_groups_are_assigned_automatically_in_orde
 def test_acceptance_07_approved_delta_is_limited_to_its_full_edge_scope():
     base = event(provider="agoda", card_last4="2042", amount_krw=100000, amount="100000")
     rule = {"approved_by":"synthetic-owner", "active":True, "conditions":{
-        "provider":"agoda", "item":base["item"], "merchant_normalized":"trip.com",
+        "provider":"agoda", "item":base["item"], "merchant_normalized":"agoda.com",
         "issuer":"Bank A", "card_last4":"2042", "currency":"KRW", "event_type":"charge",
         "amount_delta_krw":-4000, "valid_from":"2026-09-01", "valid_to":"2026-09-30"}}
-    allowed = match([base], [card("delta-allowed", amount_krw=96000)], rules=[rule])[0]
+    allowed = match([base], [card("delta-allowed", amount_krw=96000,
+                                 merchant='AGODA.COM', merchant_normalized='agoda.com')], rules=[rule])[0]
     assert allowed["status"] == "MATCHED_AUTO"
     cases = [
         (event("wrong-provider", provider="booking", amount_krw=100000, amount="100000"), card("c1", amount_krw=96000, merchant="AGODA.COM", merchant_normalized="agoda.com")),

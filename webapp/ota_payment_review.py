@@ -1247,6 +1247,7 @@ def input_key_for(backend) -> str:
                    "reservation_links": _store_value(store, "reservation_links", {})},
         "matching": load_defaults(),
         "payment_parser": getattr(getattr(backend, 'payments', None), 'PARSER_VERSION', 1),
+        "payment_matcher": getattr(getattr(backend, 'payments', None), 'MATCHER_VERSION', 1),
         "passenger_index_schema": PASSENGER_SCHEMA,
         "flight_parser": flight_evidence.PARSER_VERSION,
         "guide_airfare": _guide_input_digest(backend.board),
@@ -1324,6 +1325,7 @@ def reconcile_for(backend) -> dict:
                   for event_id, link in links.items() if _link_transaction_id(link)},
         # In memory only: actions read it, the disk copy never carries it.
         "data": {"events": events, "transactions": transactions, "links": links, "results": results,
+                 "rules": backend.store.active_rules(),
                  "passengers": _passenger_index(backend.sources.get("mail_directories", [])),
                  "scheduled_card_ids": scheduled},
     }

@@ -17,6 +17,7 @@ from app.ota_matching_defaults import load_defaults
 
 _NO_ALLOCATION_SNAPSHOT = object()
 PARSER_VERSION = 7
+MATCHER_VERSION = 2
 
 
 class OtaSourcesError(ValueError):
@@ -947,7 +948,27 @@ def _strict_card_identity(event, row, rules=()):
     return True
 
 
+def provider_compatible(event, row, rules=()):
+    """Exclude other OTA brands before comparisons; Trip needs a related descriptor."""
+    from app.ota_matching_defaults import provider_for_merchant
+    provider = str(event.get('provider') or '').casefold()
+    if provider == 'toyoko':  # Hotel branch/stay matching is a separate contract.
+        return True
+    merchant = str(row.get('merchant_normalized') or row.get('merchant') or '').casefold()
+    known = provider_for_merchant(merchant)
+    if known and known != provider:
+        return False
+    if provider == 'trip':
+        aliases = load_defaults().get('provider_merchant_aliases', {}).get('trip', ())
+        return (_descriptor_matches(event, row, rules) or
+                any(re.search(rf'(?<!\w){re.escape(alias.casefold())}(?!\w)', merchant)
+                    for alias in aliases if alias))
+    return True
+
+
 def _has_corroborator(event, row, rules):
+    if not provider_compatible(event, row, rules):
+        return False
     hint = str(event.get("card_last4") or "")
     card = str(row.get("card_tail") or row.get("card_last4") or "")
     if hint and card == hint:
@@ -965,9 +986,9 @@ def _has_corroborator(event, row, rules):
     if (ota_payment and card_payment and ota_payment_scheme and
             ota_payment_scheme == card_payment_scheme and str(ota_payment) == str(card_payment)):
         return True
-    # 트립닷컴 결제는 가맹점 이름이 결제 대행사마다 달라서 날짜·금액·유일 후보로 판단한다(사용자 승인 2026-10-15).
+    # Trip's descriptor must be related even when matching card identity exists.
     if str(event.get("provider") or "").casefold() == "trip":
-        return True
+        return provider_compatible(event, row, rules)
     return _descriptor_matches(event, row, rules) or _rule_matches(event, row, rules)
 
 
@@ -977,6 +998,8 @@ def _eligible_cards(event, transactions, links=None, rules=None):
     expected_direction = "refund" if event.get("event_type") == "refund" else "purchase"
     eligible = []
     for row in transactions:
+        if not provider_compatible(event, row, rules or []):
+            continue
         if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
             continue
         if not _strict_card_identity(event, row, rules):
@@ -1009,6 +1032,8 @@ def pair_check(event, row, rules=None):
     rules = rules or []
     if row.get("duplicate_of") or row.get("parse_error") or row.get("conflict_reason"):
         return "row_flagged"
+    if not provider_compatible(event, row, rules):
+        return "provider"
     paid_on = event.get("paid_on")
     if not paid_on and portal_payment_date_required():
         return "payment_date_unknown"
@@ -1052,6 +1077,8 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     narrowed = []
     rejection_counts = Counter()
     for row in transactions:
+        if not provider_compatible(event, row, rules):
+            continue
         if row.get("duplicate_of"):
             rejection_counts["CARD_DUPLICATE"] += 1
             continue

@@ -46,17 +46,18 @@ def test_booking_without_card_hint_needs_an_approved_merchant_alias():
 
 def test_trip_without_card_hint_pairs_on_exact_amount_day_and_uniqueness_rules():
     trip = charge(provider='trip', card_last4=None)
-    assert ota_payments.pair_check(trip, row(merchant='임의 가맹점')) is None
+    assert ota_payments.pair_check(trip, row(merchant='임의 가맹점', merchant_normalized='임의 가맹점')) == 'provider'
+    assert ota_payments.pair_check(trip, row(merchant='Trip.com', merchant_normalized='trip.com')) is None
 
 
 def test_foreign_currency_must_match_exactly_and_allows_only_the_approved_one_day_gap():
     foreign = charge(provider='trip', card_last4=None, currency='JPY', amount=Decimal('34625'), amount_krw=None)
-    foreign_row = row(merchant='임의 가맹점', amount_krw=150000, foreign_currency='JPY', foreign_amount='34625')
+    foreign_row = row(merchant='Trip.com', merchant_normalized='trip.com', amount_krw=150000, foreign_currency='JPY', foreign_amount='34625')
     assert ota_payments.pair_check(foreign, foreign_row) is None
     assert ota_payments.pair_check(foreign, dict(foreign_row, approval_date='2026-04-30')) is None
     assert ota_payments.pair_check(foreign, dict(foreign_row, approval_date='2026-04-29')) == 'date'
     krw_day = charge(provider='trip', card_last4=None, paid_on='2026-05-01')
-    assert ota_payments.pair_check(krw_day, row(merchant='임의 가맹점', approval_date='2026-04-30')) == 'date'
+    assert ota_payments.pair_check(krw_day, row(merchant='Trip.com', merchant_normalized='trip.com', approval_date='2026-04-30')) == 'date'
 
 
 def gate_report(*matches, rules=(), unmatched=(), types=(), diagnoses=()):

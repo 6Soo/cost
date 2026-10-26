@@ -39,6 +39,7 @@ def unique_pairs(events, transactions, *, occupied=(), rules=()):
 
         def exact(e, row):
             return (e.get('card_last4') == event['card_last4'] and
+                    payments.provider_compatible(e, row, rules) and
                     payments._strict_card_identity(e, row) and payments._amount_matches(e, row, []))
 
         # 이미 기장한 카드도 유일성 검사에는 포함한다. 남는 후보만 골라 연결하지 않는다.

@@ -77,7 +77,7 @@ def test_uniqueness_counts_all_cards_bookings_and_real_duplicate_payments():
 def test_existing_links_dated_claims_and_explicit_holds_are_never_displaced():
     observation, row = fact(), eligible()
     assert ota_inference.unique_pairs([observation], [row], occupied={'card-a'}) == {}
-    dated = event(identity='dated', provider='trip')
+    dated = event(identity='dated', provider='agoda')
     assert ota_inference.unique_pairs([observation, dated], [row]) == {}
     report = ota_exact.apply_gate({'matches': []}, [row], events=[observation], rules=[],
                                   open_ids={'card-a'}, inference_excluded_ids={'card-a'})
@@ -87,3 +87,10 @@ def test_existing_links_dated_claims_and_explicit_holds_are_never_displaced():
 def test_policy_must_have_explicit_owner_approval(monkeypatch):
     monkeypatch.setattr(ota_inference, 'load_defaults', lambda: {'agoda_undated_unique_match': {'enabled': True}})
     assert ota_inference.unique_pairs([fact()], [eligible()]) == {}
+
+
+def test_undated_agoda_never_infers_a_trip_merchant_with_same_card_and_amount():
+    row = eligible()
+    row.update(merchant='Trip.com Tokyo JP', merchant_normalized='trip.com tokyo jp')
+    assert ota_inference.unique_pairs([fact()], [row]) == {}
+    assert ota_payments.match_ota_payment_events([fact()], [row])[0]['transaction_id'] is None

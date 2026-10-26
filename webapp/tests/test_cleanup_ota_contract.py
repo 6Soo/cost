@@ -171,3 +171,34 @@ def test_snapshot_read_exception_is_input_error_not_no_booking(context, monkeypa
     markup = card_flow.render_expense_cleanup(board, 'csrf')
     assert '오류' in markup and 'private source text' not in markup
     assert '예약 자료가 현재 검토 목록에 없습니다' not in markup
+
+
+def test_cleanup_filters_legacy_other_provider_rejects_and_shows_actual_amounts(context):
+    board, flow, tid, holder = context
+    candidates(holder, tid)
+    data = holder['current']['data']
+    data['transactions'] = [{'transaction_id': tid, 'merchant': 'Trip.com Tokyo JP', 'amount_krw': 85621}]
+    data['events'][0].update(amount='9737', currency='JPY', amount_krw=None)
+    data['events'].append(dict(data['events'][0], ota_event_id='other', provider='agoda', booking_ref='UNRELATED-AGODA'))
+    data['results'].append({'ota_event_id': 'other', 'status': 'HOLD_NO_CARD',
+                            'candidate_search': {'rejected': [{'transaction_id': tid, 'reason': 'AMOUNT_MISMATCH'}]}})
+    before = copy.deepcopy(holder['current'])
+    changes = board.conn.total_changes
+    markup = card_flow.render_expense_cleanup(board, 'csrf')
+    assert 'UNRELATED-AGODA' not in markup
+    assert '85,621원' in markup and '9,737 JPY' in markup
+    assert holder['current'] == before and board.conn.total_changes == changes
+
+
+def test_amount_mismatch_comparison_does_not_become_a_payment_candidate(context):
+    board, flow, tid, holder = context
+    candidates(holder, tid)
+    data = holder['current']['data']
+    data['events'][0].update(amount='100000', currency='KRW', amount_krw=100000)
+    data['transactions'] = [{'transaction_id': tid, 'merchant': 'Trip.com', 'amount_krw': 85621}]
+    data['results'][0].update(status='HOLD_AMOUNT_MISMATCH', reason='amount_differs',
+                              candidate_search={'rejected': [{'transaction_id': tid, 'reason': 'AMOUNT_MISMATCH'}]})
+    entries = card_flow._ota_entries_by_card(board)
+    assert entries[tid]['ota_status'] == 'UNLINKED'
+    assert all(' · 후보' not in note for note in entries[tid]['ota_notes'])
+    assert all('100,000원' in note and '85,621원' in note for note in entries[tid]['ota_notes'])

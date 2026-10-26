@@ -74,3 +74,44 @@ def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
         assert list(board.conn.iterdump()) == before
     finally:
         board.close()
+
+
+@pytest.mark.parametrize('scenario', ['full', 'partial', 'excess', 'manual', 'conflict', 'other_batch'])
+def test_classified_full_refund_without_trip_uses_refund_tab_but_keeps_protection(tmp_path, monkeypatch, scenario):
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'full-offset.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        monkeypatch.setattr(flow, 'ota_group_holds', lambda: {})
+        monkeypatch.setattr(flow, '_already_projected', lambda *_: False)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,AGODA_NICE-Agoda,625280,,,625280,2026-09-22,2026-09-23,A100,,매입\n' +
+            '국민,1234,domestic,purchase,AGODA_NICE-Agoda,625280,,,625280,2026-09-22,2026-09-23,A200,,매입\n').encode(), 'synthetic.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        original = next(r['transaction_id'] for r in rows if r['approval_number'] == '100')
+        refund = next(r['transaction_id'] for r in rows if r['approval_number'] == '200')
+        board.conn.execute("UPDATE transactions SET classification_state='classified',item='숙박비',display_tab_id='',trip_id=''")
+        amount = -400000 if scenario == 'partial' else -700000 if scenario == 'excess' else -625280
+        board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=?,original_approval_number='100' WHERE transaction_id=?", (amount, refund))
+        if scenario == 'manual':
+            source = board.conn.execute('SELECT source_hash FROM transactions WHERE transaction_id=?', (original,)).fetchone()[0]
+            board.conn.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)', (original, source, 'evidence_pending', 'manual hold'))
+        if scenario == 'conflict':
+            board.conn.execute("UPDATE transactions SET conflict_reason='source conflict' WHERE transaction_id=?", (original,))
+        if scenario == 'other_batch':
+            board.conn.execute('DELETE FROM import_batch_rows WHERE transaction_id=?', (original,))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        holds = flow.automatic_holds(batch)
+        preview = flow.pipeline.preview(batch, trip_validator=lambda _: False,
+                                        tab_validator=lambda t: t == 'refunds', additional_holds=holds)
+        selected = [r for r in preview['rows'] if r['transaction_id'] in (original, refund)]
+        if scenario == 'full':
+            assert len(selected) == 2 and all(not r.get('blocked') for r in selected)
+            assert all(r['display_tab_id'] == 'refunds' and r['trip_id'] == '' for r in selected)
+            assert {r['amount_krw'] for r in selected} == {625280, -625280}
+        else:
+            assert selected and all(r.get('blocked') for r in selected)
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
