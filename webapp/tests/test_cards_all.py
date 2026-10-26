@@ -289,7 +289,7 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
 
     with patch("webapp.ledger_board.current_role", return_value="owner"), patch(
         "webapp.ledger_board.live_trips",
-        return_value=[{"tab_id": "opaque-tab-1", "display_key": "0630_오제"}],
+        return_value=[{"tab_id": "T-A", "display_key": "0630_오제"}],
     ):
         result = cards_all.cards_all_page(
             {"year": ["2026"], "month": ["3"]}, db_path=card_db_path)
@@ -297,6 +297,8 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     assert "조회할 월 선택" in result
     assert "월별 카드 거래 확인" in result
     assert "카드 전체 내역" in result
+    assert "0630_오제" in result
+    assert "title='T-A'" in result
 
 
 def test_month_detail_empty_month(card_db_path):
