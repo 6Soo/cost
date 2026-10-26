@@ -1,3 +1,25 @@
+## 2026-10-27 페이지 전환 재개·프로세스 격리·실제 클릭 수락
+
+**현재 운영 SHA: `a079700a8f513c91e87b8e2e2f54d8a2d2897748`**, PR [#143](https://github.com/6Soo/cost/pull/143). 사용량 한도로 중단된 Paseo `31f49529-12a2-494d-9fac-94bdf1090e90`의 미커밋 변경을 인수했다. 앞선 #141 장부 행 읽기 공유와 #142 지출 미리보기 여행 검증 재사용은 이미 병합됐고 인수 시 운영은 `13dcf7d`였다. 아래 과거 배포/미측정 표기는 해당 시점 이력이다.
+
+시작 시 OTA 메일 해석이 HTTP 프로세스와 같은 Python 실행 잠금을 경쟁했다. 목록 원본 해석을 별도 자식 프로세스로 옮기고 board SQLite를 `mode=ro`/`query_only`/읽기 트랜잭션으로 열며 임시 교환 파일은 성공·시간 초과 시 정리한다. 중앙 대사 모드에서는 쓰이지 않는 legacy 예약 메일 색인 선행 생성을 생략한다. 저장 색인 코드 식별에 자식 모듈을 포함한다. 금융 판정·수동 결정·쓰기·권한·스키마 정책은 변경하지 않았다.
+
+표적 검증 `python -m pytest webapp/tests/test_navigation_read_performance.py webapp/tests/test_ota_catalog.py webapp/tests/test_ota_booking_trip.py -q`: **41 passed in 11.48s**. 직접/자식 해석 결과·경고 일치, 합성 board/portal dump 불변, 시간 초과 자식 종료·교환 파일 정리를 포함한다. 테스트 종료 전에 snapshot 서비스를 종료하도록 fixture를 보완했다. 이후 코드 식별 목록/설명 수정에는 불필요한 재검사를 하지 않았다. 독립 읽기 전용 검토(Inkling Small Free, HEAD `f73226c`)는 Critical/Important 미해결 문제 없음이었다. 전체 pytest/E2E·전체 재대사·실제 고객 기장/배정·Google 쓰기는 수행하지 않았다.
+
+배포 후 기존 Aside 탭에서 같은 메뉴를 실제 클릭하고 각 화면 제목·경로 및 Navigation Timing을 확인했다. 모두 HTTP 200이며 경로당 **1회 관찰**이다. 전환에는 자동화/관찰 대기가 포함되고 TTFB/DOM은 브라우저 측정이다. 최초 #139 이전과 호스트 부하·캐시가 같다는 통제 실험은 아니며, 카드 첫 클릭은 최초보다 느려 전체 화면의 일괄 개선을 주장하지 않는다.
+
+| 메뉴 | 최초 전환 | 최종 전환 | 최종 TTFB | 최종 DOM 준비 |
+| --- | ---: | ---: | ---: | ---: |
+| 카드 전체 내역 | 1.440초 | 3.391초 | 1.681초 | 1.930초 |
+| OTA 내역 | 16.795초 | 1.001초 | 0.494초 | 0.624초 |
+| 영수증 처리 | 0.791초 | 0.613초 | 0.145초 | 0.260초 |
+| 여행 장부 | 2.307초 | 2.269초 | 1.806초 | 1.911초 |
+| 지출 정리 | 23.768초 | 2.616초 | 2.210초 | 2.328초 |
+
+릴리스 957개 추적 파일의 Git blob이 모두 일치했다. 이전 `13dcf7d` 릴리스와 기존 검증된 백업/복원 경로를 보존했다. Board Running·단일 loopback listener·task/process/표식 SHA 일치, `/healthz`·`/readyz` 200 및 비인증 `/api/imports/ota` 401을 배포 시 한 번 확인했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-a079700a8f513c91e87b8e2e2f54d8a2d2897748.json`, 같은 SHA의 `release-audit-*.json`과 `D:/WebLedgerHost/config/board-task-before/after-*.xml`이다. 운영 DB 2개의 카드·장부·사용자 결정·연결 등 13개 표 내용/스키마 해시는 배포 전후 동일하다. 원문 없는 측정 및 보호 근거는 `.local-archive/navigation-resume-20261027/browser-after.json`과 `protection-before/after.json`에 보존했다.
+
+**현재 요청 범위 COMPLETE:** 중단된 최적화의 검토·병합·고정 SHA 배포·최소 운영 검사·다섯 메뉴 실제 클릭을 완료했다. 평균/백분위·모바일/200% 확대·기존 다른 PR 수락은 이번 검사 범위 밖이다. 이전 세션의 '배포 후 속도 미측정' 차단은 해소됐다. 무인 감시·전체 성능 최적화라는 새 과제로 확대하지 않는다.
+
 ## 2026-10-27 OTA 제공자 경계·금액 비교·전액 환불 보류 수정
 
 PR [#135](https://github.com/6Soo/cost/pull/135)을 병합하고 **`909e4ad4ffc3ca4786d61a8b01686101406c79c7`**을 운영에 배포했다. 타사 OTA는 금액 비교 전에 제외하며 Trip의 무관 가맹점 허용 예외를 관련 표기/기존 승인 별칭으로 제한했다. 정확 매칭·후보 검색·날짜 없는 추론·예정 결제 검증에 같은 경계를 적용한다. 이미 확정한 수동/고정 관계와 명시 날짜 전체 카드 탐색은 보존한다. 화면은 카드 청구액과 OTA 원문 금액/통화를 함께 표시하고, 금액 불일치 비교를 유효 결제 후보로 집계하지 않는다. matcher 버전은 snapshot input key에 포함한다.
