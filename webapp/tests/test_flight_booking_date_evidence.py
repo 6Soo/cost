@@ -13,7 +13,7 @@ def _part(day, digest, status="EXPLICIT_LABEL"):
 
 
 def test_accepts_only_explicit_booking_created_date_with_valid_calendar():
-    text = "예약번호: 123456789\n예약일: 2026-10-02\n출발일: 2026-10-27"
+    text = "예약번호: 123456789\nKIM\n(성)\nALPHA\n(이름)\n예약일: 2026-10-02\n출발일: 2026-10-27"
     got = evidence.parse_flight_text(text)
     assert got["reserved_on"] == "2026-10-02"
     assert got["booking_date_status"] == "EXPLICIT_LABEL"
