@@ -1,3 +1,15 @@
+## 2026-10-27 환불 검토의 가맹점 원결제 비교
+
+PR [#132](https://github.com/6Soo/cost/pull/132)을 병합하고 **`f5eb44ecfea39ed143cbbc9cf053ae75f87888c0`**을 운영에 배포했다. 미연결 환불에 같은 카드·가맹점의 선행 결제 후보를 날짜·금액·승인번호·기록 여부와 원문 링크로 표시한다. 금액이 다른 부분 환불 후보도 포함하고 카카오 택시의 가승인/선승인/실요금 표기 차이는 비교 검색에만 사용한다. 확정 연결과 검색 후보는 구별하며, 일반 항목/여행 보류 문구를 환불 설명에 반복하지 않는다. 가맹점 전체 검색 링크와 기본 펼침을 제공한다.
+
+사용자가 지정한 환불 2건과 비교 결제 2건은 운영 DB를 `mode=ro`로 조사했다. 같은 날짜·카드·가맹점의 동일 금액 결제 후보와, 가승인 취소에 대응할 수 있는 금액이 다른 실제 결제를 찾았다. 후자는 원문이 미매입 취소여서 부분 환불로 단정하지 않는다. 원승인번호가 없는 상태에서 금융 연결·차감·기장·보류 해제는 하지 않았다. 상세 원문/식별자는 Git에 올리지 않고 `.local-archive/refund-merchant-20261027/readonly-diagnosis.json`에 보존했다.
+
+표적 검사 `python -m pytest webapp/tests/test_cleanup_refund_display.py webapp/tests/test_expense_cleanup.py -q -k 'refund_display or merchant_comparison or refund_pair'`는 **8 passed, 24 deselected**였다. 기존 연결/기록 표시와 다른 카드·미래 결제 제외, 금액이 다른 가맹점 후보, 합성 DB 전체 dump 불변을 확인했다. 금융 matcher·쓰기·스키마는 변경하지 않았고 전체 회귀·대량 재처리는 생략했다. diff/조회 경계 검토와 Git whitespace 검사를 완료했다.
+
+릴리스 추적 파일 951개 모두 Git blob과 일치한다. `WebLedger-Board` Running, loopback listener 1개 및 task/process/표식 SHA 일치, health/ready 200·비인증 OTA API 401을 확인했다. 기존 `31296e5` 릴리스와 검증된 복원 근거를 재사용·보존하고 Board 작업 action의 SHA만 변경했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-f5eb44ecfea39ed143cbbc9cf053ae75f87888c0.json`, `release-audit-f5eb44ecfea39ed143cbbc9cf053ae75f87888c0.json` 및 같은 SHA의 before/after 작업 XML이다. 운영 DB/원본/Google 쓰기와 새 마이그레이션은 수행하지 않았다.
+
+**화면 수락은 PARTIAL:** 로그인 Aside 브라우저 reload는 navigation timeout, 같은 탭의 범위를 좁힌 재관찰은 `CDP command timeout: Page.enable`이었다. 최종 화면/375px은 `NOT_TESTED_TOOL_TIMEOUT`이며 health 응답을 화면 수락으로 해석하지 않는다. 브라우저·앱 재시작/복구/재설치와 반복 스모크는 하지 않았다. 다음 작업은 Aside가 응답할 때 `/import`의 첫 두 환불 카드에 후보/원문/검색 링크가 보이는지, 375px에서 넘치지 않는지만 확인한다. 실제 금융 연결은 추가 원승인/이용 근거 확인 전 계속 미확정이다.
+
 ## 2026-10-26 일별 카드 조회·모바일 경계 후속 배포
 
 **현재 운영 SHA는 `31296e5926e4a762aae29167f28c85d83317218b`다.** PR #129(`ea90b85`)는 항공권 상세의 직접 지정 날짜 필터와 owner 전용 `GET /api/cards/transactions/day`를 구현했다. 지정 날짜는 예약일/연결 근거로 확정하지 않는다. 읽기 전용 SQLite 트랜잭션에서 허용 필드·지문·총건수·커서 페이지를 계산하며, 원행 변경은 409로 거부한다. 취소/환불/중복/오류를 제외하지 않고 원행 여행 ID와 표시 여행 ID를 구분한다. 권위 있는 예약일이 없는 자동 후보 경로를 임의로 만들지 않았다.
