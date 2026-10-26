@@ -23,6 +23,8 @@
 5. **도구 접근 제약:** GitHub 병합만 가능하고 **Windows 운영 호스트에 실행 접근이 없는 세션이라면 병합을 배포로 가장하지 않는다.** 배포 가능한 에이전트/작업 환경에서 같은 작업 흐름을 계속 실행하도록 정확한 SHA·실행 명령·근거를 남기고 `DEPLOY_BLOCKED_NO_HOST_ACCESS`로 종료한다. 사용자가 '자동'이라고 했더라도 물리적 접근 없이 완료를 주장하지 않는다.
 6. **기존 대기 PR:** 새로운 작업 요청 때 현재 open PR의 관련성/충돌을 확인하되, 예전의 미검증 실코드 PR을 자동으로 일괄 병합하지 않는다. 안전한 개별 검증 후 필요 PR만 병합한다. 웹 UI 변경은 관련 Chromium/375px·데스크톱 확인이 가능하면 해당 경로만 검사하고, 전체 회귀를 매번 반복하지 않는다.
 
+> **최신 UI 테마 계약:** [통합 UI 명세 v1.3 §13](docs/card-all-transactions-and-ui-design-system-spec-v1.md)에서 우상단 해/초승달 단일 버튼으로 수동 라이트·다크 선택을 승인했다. 기존 시스템 테마만 허용하는 문구보다 최신 §13이 우선한다. `THEME-TOGGLE-01`은 구현·검증 전까지 미완료다.
+
 ## 단일 V3 구현 진입점
 
 **[COST V3 START HERE](docs/COST_V3_START_HERE.md)**가 활성 개발·정책 충돌·R0~R6 우선순위의 단일 목록이다. 상세 OTA는 [A 정책](docs/ota-card-reconciliation-policy-a-v3.md), 여행/AI/영문명은 [V3 기능 명세](docs/cost-v3-inference-ai-passenger-nm-test-architecture.md)만 사용한다. `docs/archive/` 구문과 이전 `ota-first-*` HOLD 규칙/과거 플레이북을 다음 작업으로 실행하지 않는다. 현재 배포 증거는 운영 기록과 별개다.
