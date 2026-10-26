@@ -7,7 +7,7 @@
 
 > 이 섹션은 다음 코드 PR의 **작성된 내용**을 기록한다. 테스트 실행·병합·운영 배포는 결과 확인 전까지 **NOT_TESTED / NOT_MERGED / NOT_DEPLOYED**이며 이전 §1의 원본 확보 부족을 자동으로 해소했다고 주장하지 않는다.
 
-**이번에 구현한 범위 (`FLIGHT-DATE-EXPLICIT-01`):**
+**이번에 구현한 범위 (`FLIGHT-DATE-EXPLICIT-01`, 코드 PR [#138](https://github.com/6Soo/cost/pull/138)):**
 
 - `app/flight_evidence.py`에 완전 일치하는 명시 예약일 라벨(`예약일`, `예약 완료 일시`, `Booking date`, `Booking created at` 등)과 정확한 ISO/한국식 달력 날짜만 제한적으로 추출하는 파서를 추가. 메일 수신일·발권일·출발일·일반 날짜·결제일은 추정하지 않는다. 유효하지 않은 날짜는 거절.
 - 여러 인증된 근거의 예약일이 일치하면 `reserved_on`과 `booking_date_status=EXPLICIT_LABEL`로 병합·지문 결속. 날짜가 둘 이상이거나 원본 자체가 충돌하면 `CONFLICT` 및 날짜 공란으로 자동 조회 차단. 날짜 변경 시 digest 변경. OTA 예약 조회의 기존 공급자 인증·예약번호 그룹핑을 재사용한다.
