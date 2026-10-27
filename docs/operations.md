@@ -1,6 +1,6 @@
 ## 2026-10-27 PR #155/#157 항공권 검색·다중 환불 UI 운영 반영
 
-최신 `main` 및 운영 런타임은 **`9374770ca543fb9f6831b95b398b6c0d7d35b986`**이다. 이 릴리스는 PR [#155](https://github.com/6Soo/cost/pull/155)의 검증된 탑승객 이름 구성 요소 검색과 PR [#157](https://github.com/6Soo/cost/pull/157)의 원승인번호 기준 1:N 취소·환불 확정 표시를 포함한다. #157의 확정 링크 표시는 실제 장부 기록·환급 완료·보류 해제를 뜻하지 않는다. 중복 PR #156은 닫았으며 그 고유 부분환불 합성 시나리오는 #157 테스트에 옮겼다.
+코드가 포함된 마지막 `main` merge SHA와 운영 런타임 SHA는 **`9374770ca543fb9f6831b95b398b6c0d7d35b986`**이다. 이후 PR #159 등 문서 전용 커밋으로 `main`이 전진했지만 실행 코드가 바뀌지 않아 운영 런타임은 이 SHA 그대로다. 이 릴리스는 PR [#155](https://github.com/6Soo/cost/pull/155)의 검증된 탑승객 이름 구성 요소 검색과 PR [#157](https://github.com/6Soo/cost/pull/157)의 원승인번호 기준 1:N 취소·환불 확정 표시를 포함한다. #157의 확정 링크 표시는 실제 장부 기록·환급 완료·보류 해제를 뜻하지 않는다. 중복 PR #156은 닫았으며 그 고유 부분환불 합성 시나리오는 #157 테스트에 옮겼다.
 
 - 표적 검사 `python -m pytest webapp/tests/test_cleanup_refund_display.py tests/card_pipeline/test_partial_refund.py -q`: **47 passed**. 합성 거래 두 건 환불의 부분 합계와 전액 상쇄, 같은 `original_id`, 건수/합계/순액 UI 및 DB dump 불변을 확인했다. 항공권 이름 검색 검사는 PR #155 시점 **2 passed, 9 deselected**였다. 전체 회귀는 실행하지 않았다.
 - 고정 릴리스 **964/964** 추적 파일 대조, 누락/추가/blob 불일치 0. 이전 운영 SHA `95c05343efe7695e915e42e8134b41ecc318d495`에서 교체했다. 복구 전제의 DB/열·원본 해시·복원 결합 검증과 백업/복원본 존재를 확인하고 기존 근거를 재사용했다. `WebLedger-Board` Running, 작업/프로세스 SHA 일치, loopback listener 1개, `/healthz` **200**, `/readyz` **200**, 비인증 보호 API **401**.
