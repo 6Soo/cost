@@ -52,6 +52,7 @@
 - 관측된 event/result/snapshot 필드에 근거해 예약관계·카드검증·여행귀속·내부기록·실제환급을 분리한다. 기존 공개 FieldSlot을 재사용하고 알 수 없는 값·누락/None·수동/exact/inferred·취소/stale·ID/금액통화를 정확히 보존한다. 원문에 없는 기장·환급확정·여행을 만들지 않고 기존 runtime helper에는 연결하지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 합성 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/ota_state_contract.py tests/card_pipeline/test_ota_state_contract.py`다. 실제 OTA 대사/배정/금융/Google 쓰기는 없다.
 - 첫 구현13 passed 보고 후 소스 검수에서 shape 기반 event/result/snapshot 추정이 status 의미를 바꾸고, 카드-OTA `core_link`를 내부기장 축으로 잘못 분류하는 문제를 발견했다. explicit kind/factory·core link evidence와 내부기장 분리·직접 reservation axis unknown key의 silent drop 방지·명확한 문서/추가 검사를 요청했다. 최초13 passed를 수락으로 확대하지 않으며 같은 구현자 수정본 알림 대기다. 아직 구현 commit/PR/배포하지 않았다.
+- **TEST_PASSED / REVIEWED（독립 OTA 기반）** — 수정본15 passed 후 Supervisor가 상위 View의 예약 축 전체 직렬화 누락을 보완하고 새 경계를 추가해 최종16 passed. `kind`를 호출자가 명시하고 result.status·snapshot freshness·reservation_link 상태를 분리한다. `core_link`는 projection evidence이고 내부기장 축은 비어 있다. 지원 값의 unknown/None/누락·ID/금액·수동/exact/inferred/stale·중첩 불변성·예약 추가필드 왕복을 확인했다. 기존 runtime에는 연결하지 않았다. 다음은 이 독립 기반의 PR·고정 배포·합성 스모크이며 이전 대기 상태는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
