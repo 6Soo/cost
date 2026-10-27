@@ -46,13 +46,17 @@
 - **COMPLETE / DEPLOYED（독립 거래 DTO 기반）** — PR #215, 코드 `77e2c0f`, main/운영 `179acb59dbe22dc28b982c8a2d16f5c7de8ed05c`. 최종13 passed·guard 차단0/삭제0·추적944 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 합성 import/roundtrip/입력변경 차단 스모크도 통과했다. 아래 검수 대기·미병합 문구는 과거 이력이며 현재는 수락·병합·배포 완료다. 기존 런타임에는 연결하지 않았고 전체 RF-002 완료가 아니다.
 - 검수에서 최초7/10 passed 이후 발견한 mutable 객체·public 생성·timezone/key 노출을 교정했다. 최종13 passed로 수락했으며 지원 domain에서 누락/None·unknown 상태/추가값·금액/통화/ID 왕복과 불변성을 확인했다. 미지원 객체·cycle은 원문 없는 오류로 거부한다. 실제 transactions 필드와 axis 목록을 대조했고 미래/runtime 필드는 extras로 보존한다. 전체 RF-002 채택이나 R0 운영 미확인 해소는 아니다.
 
-### 진행 중인 RF-002 OTA 상태 계약의 독립 기반
+### 완료한 RF-002 OTA 상태 계약의 독립 기반
 
 - 기준 main `d4718a8`（PR #216 문서 병합）, 브랜치 `refactor/rf002-ota-state-contract-20261028`의 같은 local workspace에서 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/ota_state_contract.py`, `tests/card_pipeline/test_ota_state_contract.py`만 작성한다. Supervisor가 branch/문서/PR/운영을 소유한다.
 - 관측된 event/result/snapshot 필드에 근거해 예약관계·카드검증·여행귀속·내부기록·실제환급을 분리한다. 기존 공개 FieldSlot을 재사용하고 알 수 없는 값·누락/None·수동/exact/inferred·취소/stale·ID/금액통화를 정확히 보존한다. 원문에 없는 기장·환급확정·여행을 만들지 않고 기존 runtime helper에는 연결하지 않는다.
-- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 합성 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/ota_state_contract.py tests/card_pipeline/test_ota_state_contract.py`다. 실제 OTA 대사/배정/금융/Google 쓰기는 없다.
-- 첫 구현13 passed 보고 후 소스 검수에서 shape 기반 event/result/snapshot 추정이 status 의미를 바꾸고, 카드-OTA `core_link`를 내부기장 축으로 잘못 분류하는 문제를 발견했다. explicit kind/factory·core link evidence와 내부기장 분리·직접 reservation axis unknown key의 silent drop 방지·명확한 문서/추가 검사를 요청했다. 최초13 passed를 수락으로 확대하지 않으며 같은 구현자 수정본 알림 대기다. 아직 구현 commit/PR/배포하지 않았다.
-- **TEST_PASSED / REVIEWED（독립 OTA 기반）** — 수정본15 passed 후 Supervisor가 상위 View의 예약 축 전체 직렬화 누락을 보완하고 새 경계를 추가해 최종16 passed. `kind`를 호출자가 명시하고 result.status·snapshot freshness·reservation_link 상태를 분리한다. `core_link`는 projection evidence이고 내부기장 축은 비어 있다. 지원 값의 unknown/None/누락·ID/금액·수동/exact/inferred/stale·중첩 불변성·예약 추가필드 왕복을 확인했다. 기존 runtime에는 연결하지 않았다. 다음은 이 독립 기반의 PR·고정 배포·합성 스모크이며 이전 대기 상태는 종료했다.
+- **COMPLETE / DEPLOYED（독립 OTA 기반）** — PR #217, 코드 `0ad04bd`, main/운영 `361d012d495f9a3a245e092933e4102967689642`. 최종16 passed·guard 차단0/삭제0·추적946 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변。배포본 합성 import/왕복·명시적 종류에 따른 상태 분리·입력 변경 차단·기장/환급확정 비창작 스모크 통과.
+- 검수에서 초기13/15 passed 이후의 shape 추정·core_link 오분류·상위 예약축 직렬화 누락을 교정했다. `kind`를 호출자가 명시하고 카드 status·snapshot freshness·예약관계 상태를 분리한다. `core_link`는 projection 근거이며 내부기장 축은 비어 있다. unknown/None/누락·ID/금액·수동/exact/inferred/stale·예약 추가필드·중첩 불변성을 확인했다. 기존 runtime 미연결이고 실제 대사·배정·기장·Google 쓰기는 없다.
+
+### 진행 중인 RF-002 실제 읽기 경로 채택 조사
+
+- 브랜치 `docs/rf002-ota-release-and-adoption-20261028`. 같은 local workspace의 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-master-20261027.md`만 수정한다. 가장 작은 실제 읽기 소비경계·입출력 shape·caller/authority/freshness·복사비용·합성 동등성 검사 범위를 소스 근거로 좁힌다.
+- **COMPLETE（소스 조사）** — 실제 caller의 freshness gate와 helper의 좁은 입력 shape를 대조했다. 전체 DTO freeze/thaw는 전량 복사를 늘리므로 채택하지 않는다. 다음 구현은 `project_card_ota_statuses` 실행 본문을 유지하고 필요한 필드를 별도 `TypedDict` 정적 읽기 계약으로 선언·입력 annotation에 연결하는 최소 범위다. 기존 금융/여행/Google 쓰기 authority는 그대로 유지한다. 이 문서전용 검수는 diff/참조/링크만 확인하며 테스트·빌드·브라우저·운영 재검사는 하지 않았다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -60,9 +64,9 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`179acb59dbe22dc28b982c8a2d16f5c7de8ed05c`**다. PR #215 RF-002 독립 거래 DTO 기반을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`361d012d495f9a3a245e092933e4102967689642`**다. PR #217 RF-002 독립 OTA 상태 계약을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일944개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 합성 DTO import/roundtrip/불변성 스모크 통과. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
+이번 근거: 추적 파일946개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 합성 OTA DTO import/roundtrip/상태분리 스모크 통과. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 

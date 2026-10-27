@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`361d012d495f9a3a245e092933e4102967689642`**, 2026-10-28 [PR #217](https://github.com/6Soo/cost/pull/217). RF-002 독립 OTA 상태/근거 DTO다. 호출자가 event/result/snapshot/projection 종류를 명시하고 예약관계·카드검증·여행·core-link 근거·환불근거를 분리한다. 내부 기장 상태는 만들지 않으며 기존 runtime에는 연결하지 않았다.
+
+- 최종 합성16 passed. 검수에서 모양 기반 의미 추정·core_link의 기장 오분류·예약 축 추가필드 누락을 교정했다. guard3파일·차단0·삭제0. 배포본 합성 import/왕복·명시적 종류에 따른 상태 분리·입력 변경 차단·기장/환급확정 비창작 스모크 통과.
+- 추적946개 blobs 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 이전 `179acb5`와 작업 XML·게이트·기존 복원 검증 사본 보존. 배포 후2DB/13표 내용·스키마 동일. DB/Google/원본/금융 상태 직접 쓰기·마이그레이션·대량 재처리 없음. 미연결 순수 adapter이므로 전체 회귀·브라우저는 생략했다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-361d012d495f9a3a245e092933e4102967689642.json`, 같은 SHA release-audit, `.local-archive/rf002-ota-contract-20261028/`의 보호 전후·`deployed-smoke.json`. 실제 읽기 경로 채택과 전체 RF-002 완료는 다음 단계이며 문서 갱신으로 재배포하지 않는다.
+
+## 직전 RF-002 거래 계약 릴리스
+
 **`179acb59dbe22dc28b982c8a2d16f5c7de8ed05c`**, 2026-10-28 [PR #215](https://github.com/6Soo/cost/pull/215). RF-002 거래 상태 DTO와 mapping adapter의 독립 기반이다. 원본/무결성/분류/사용자결정/revision을 분리하고 지원 값의 정확한 왕복·불변 snapshot을 제공한다. 기존 실행 경로에는 연결하지 않았으며 실제 금융·여행 정책 채택 완료가 아니다.
 
 - 최종 합성13 passed. 공개 생성자·중첩 가변 입력·bytearray·custom type/cycle·key/timezone 경계를 검수했다. guard3파일·차단0·삭제0. 배포본을 직접 import해 합성 원행의 왕복·입력 변경 차단·정확한 모듈 SHA 경로 스모크 통과.
