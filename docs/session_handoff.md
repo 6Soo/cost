@@ -84,6 +84,7 @@
 - PR #221 문서 병합 후 브랜치 `refactor/rf201-theme-control-token-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/site_theme.py`, `webapp/site_shell.py`만 작성한다. Supervisor가 branch/문서/PR/배포를 소유한다.
 - 버튼 소유 `site_theme.STYLE`에 `--shell-theme-control-size:44px`을 선언하고 두 파일의 해당 버튼 width/min-width/height/min-height만 동일44px fallback으로 연결한다. 색상/sidebar/타버튼/DOM/JS/테마정책은 변경하지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 기존 manual-theme/mobile-topbar 합성 브라우저 검사와 가능하면 익명 before/after computed metrics를 한 번 확인한다. 문자열 미러 신규 테스트는 만들지 않는다. 실제 고객 화면/자료는 사용하지 않고 실제 기기 수락으로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- webapp/site_theme.py webapp/site_shell.py`다. 운영은 `b3cabe8`이다.
+- **TEST_PASSED / REVIEWED** — 지정 두 파일의4개 치수 속성과44px token 선언에만 diff가 있음을 확인했다. 기존 manual-theme/mobile-topbar5 passed, 익명baseline/current CSS24조건（375/1280·light/dark·100/200%·combined/개별fallback）동일. 결합 스타일 크기는100%44×44/200%88×88px이고 버튼 개수/색도 같았다. diff check 통과, 실제 기기 미실행. 다음은 PR·고정 배포와 운영의 단일 버튼/토큰/크기 최소스모크다. 이전 대기는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
