@@ -74,7 +74,7 @@
 
 회귀 테스트 `webapp/tests/test_ota_card_evidence_relevance.py`는 합성 데이터로 (1) 결제일 미확인 건 숨김, (2) 카드 승인일과 무관한 날짜 건 숨김, (3) 동일 결제일의 유용한 통화 불일치 근거 유지의 3개 사례를 점검한다.
 
-**현재 상태:** 코드/테스트는 PR #152 브랜치에 올라갔으나, 이 세션에서 Python/pytest 실행 및 운영 Windows 호스트 접근은 하지 못했다. 따라서 **테스트 미실행·병합 미완료·운영 미배포** 상태이며 완료로 보고하지 않는다. 다음 단계는 PR CI 또는 연결 실행환경에서 표적 검사 실행, 독립 diff 검토, 병합 후 고정 SHA 운영 배포 및 해당 카드 화면에서 긴 무관 예약 목록이 사라졌는지 확인하는 것이다. 운영 데이터/예약/카드 연결/장부는 변경하지 않았다.
+**현재 상태:** PR #152는 `2762f0778c54babe54b17bc8414d49596c6f4bfc`로 `main`에 병합됐다. GitHub commit status/PR workflow 조회에서는 실행된 CI가 없었고, 이 세션에서 Python/pytest 실행 및 운영 Windows 호스트 접근은 하지 못했다. 따라서 **코드 병합 완료·테스트 미실행·운영 미배포** 상태다. 마지막 확인된 운영 SHA는 `4cd12adebad6ebcac110130803d35f589d1f8bb0`이며, 새 수정이 포함됐다고 간주하지 않는다. 다음 단계는 `python -m pytest webapp/tests/test_ota_card_evidence_relevance.py webapp/tests/test_expense_cleanup.py -q` 실행, 독립 diff 검토, 새 고정 SHA 운영 배포 및 실제 카드 화면에서 무관 예약 목록이 사라졌는지 확인하는 것이다. 운영 데이터/예약/카드 연결/장부는 변경하지 않았다.
 
 ## 1. 미결 작업 현황 (최신 코드·운영 이력과 분리)
 
