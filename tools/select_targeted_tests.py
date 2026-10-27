@@ -29,10 +29,10 @@ def select_targets(changed_paths, groups):
 
 def changed_paths(base):
     result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=ACMRD", f"{base}...HEAD"],
+        ["git", "diff", "--name-only", "-z", "--diff-filter=ACMRD", f"{base}...HEAD"],
         cwd=ROOT, check=True, capture_output=True, text=True,
     )
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    return [path for path in result.stdout.split('\0') if path]
 
 
 def main(argv=None):
@@ -44,18 +44,30 @@ def main(argv=None):
         impact_map = json.loads(MAP_PATH.read_text(encoding="utf-8"))
         if impact_map.get("schema") != "cost-test-impact-map-v1":
             raise ValueError("unsupported impact map schema")
-        targets, unknown = select_targets(changed_paths(args.base), impact_map["groups"])
+        paths = changed_paths(args.base)
+        document_paths = [p for p in paths if p.lower().endswith(('.md', '.tsv')) and
+                          (p.startswith('docs/') or '/' not in p)]
+        code_paths = [p for p in paths if p not in document_paths]
+        targets, unknown = select_targets(code_paths, impact_map["groups"])
+        if unknown:
+            targets = sorted(set(targets) | set(impact_map['safe_fallback_tests']))
+        for target in targets:
+            if not target.endswith('.py') or not (ROOT / target).resolve().is_relative_to(ROOT) or not (ROOT / target).is_file():
+                raise ValueError('invalid or missing pytest target: ' + target)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
         print(json.dumps({"status": "ERROR", "reason": str(exc)}, ensure_ascii=False))
         return 2
-    status = "UNKNOWN_IMPACT" if unknown else "SELECTED"
+    status = 'NO_CHANGES' if not paths else 'DOCS_ONLY' if not code_paths else "UNKNOWN_IMPACT" if unknown else "SELECTED"
     payload = {
         "status": status,
         "unknown_files": unknown,
+        "document_only_files": document_paths,
+        "fallback_selected": bool(unknown),
+        "tests_executed": False,
         "pytest_commands": [[sys.executable, "-m", "pytest", *targets, "-q"]] if targets else [],
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
-    return 2 if unknown or not targets else 0
+    return 2 if unknown or (code_paths and not targets) else 0
 
 
 if __name__ == "__main__":
