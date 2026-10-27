@@ -313,6 +313,7 @@ def test_month_detail_empty_month(card_db_path):
     """Empty month shows appropriate message."""
     html = cards_all._month_detail(2026, 1, [], None, False, 0)
     assert '이 달에 저장된 카드 거래가 없어' in html
+    assert '카드사 원본에도 없다는 뜻은 아니에요.' not in html
 
 
 def test_render_month_rows_time_handling(card_db_path):
