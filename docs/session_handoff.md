@@ -25,6 +25,13 @@
 - **COMPLETE / DEPLOYED（이번 묶음）** — PR #211, 코드 `b2d8a06`, main/운영 `f7df4bc29d4e9dc87b2f6ddd68b8853c7be9be3a`. 최종 합성6 passed·guard 차단0/삭제0·배포942 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 CLI도 exit0·정의 후보3,957·오류0이다. 독립 개발 도구/문서 변경이므로 전체 회귀와 브라우저는 생략했다. 근거는 `.local-archive/r0-boundary-baseline-20261028/`와 운영 기록이다.
 - 아래는 이번 묶음의 배정·검수 이력이다. 이전 “알림 대기”는 종료했고 두 구현자 결과를 검수·통합했다. R0 전체 완료를 뜻하지 않는다. 다음은 자료 본문을 읽지 않는 생산자/소비자 소스 참조 후보 조사다.
 
+### 진행 중인 RF-003 자료 참조 후보
+
+- PR #212 문서 갱신을 기준으로 `refactor/rf003-source-reference-candidates-20261028`에서 진행한다. 운영은 `f7df4bc`이며 문서 갱신 후 재배포하지 않았다.
+- 같은 호스트/기존 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）를 재사용했다. 소유 파일은 `tools/check_tracked_data.py`, `tests/test_tracked_data_guard.py`뿐이다. commit/PR/병합/운영은 Supervisor 소유다.
+- 추가 옵션 `--source-references`에서만 허용된 추적 Python 소스 AST와 Git 자료 경로 metadata를 대조한다. 고객 자료 본문·SQL·시크릿 출력 없이 명시적 읽기/쓰기/참조 후보를 기록하며 기존 기본 metadata-only·차단·보존 계약을 유지한다. 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
+- 상태 **IN_PROGRESS / NOT_VERIFIED**. 완료 알림 후 diff와 새 합성 경계 검사 근거를 검수한다. 다음 명령은 `git diff -- tools/check_tracked_data.py tests/test_tracked_data_guard.py`이며 이미 유효한 통과 검사를 반복하지 않는다. 실제 데이터 분류/삭제·Git 역사 재작성은 승인 범위에 없다.
+
 - 기준 main `503b0ff`（PR #210 문서 갱신）, 작업 브랜치 `refactor/r0-boundary-baseline-20261028`. 운영은 계속 `bff4ffd`이며 문서 때문에 재배포하지 않았다.
 - 같은 호스트 `srv__gxAHTF5BoWJ`, 기존 local workspace `wks_10a7846dab88369c` 재사용. 등록 프로필 없음·앞선 Anus/FreeRouter 구현/검증 실패·현재 AGY unavailable 확인 후 사용자 승인 마지막 후보 `codex/gpt-6-luna` low로 두 독립 작업을 배정했다.
 - RF-001 `46ede148-c8a7-43b9-b783-1a89a671be40`: `docs/specs/refactor-write-boundaries.md` 단독 작성. OTA backend persistence/audit·Google read·수동 여행 결정의 source chain과 OPEN_QUESTION 보완. 문서전용 검사만 허용.
