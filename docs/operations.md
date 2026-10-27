@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`179acb59dbe22dc28b982c8a2d16f5c7de8ed05c`**, 2026-10-28 [PR #215](https://github.com/6Soo/cost/pull/215). RF-002 거래 상태 DTO와 mapping adapter의 독립 기반이다. 원본/무결성/분류/사용자결정/revision을 분리하고 지원 값의 정확한 왕복·불변 snapshot을 제공한다. 기존 실행 경로에는 연결하지 않았으며 실제 금융·여행 정책 채택 완료가 아니다.
+
+- 최종 합성13 passed. 공개 생성자·중첩 가변 입력·bytearray·custom type/cycle·key/timezone 경계를 검수했다. guard3파일·차단0·삭제0. 배포본을 직접 import해 합성 원행의 왕복·입력 변경 차단·정확한 모듈 SHA 경로 스모크 통과.
+- 추적944개 blobs 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 이전 `44421df`와 작업 XML·게이트·기존 복원 검증 사본 보존. 배포 후2DB/13표 내용·스키마 동일. 고객 원본/DB/Google/금융 상태 직접 쓰기·마이그레이션·대량 재처리 없음. 런타임에 연결하지 않은 순수 모듈이므로 전체 회귀·브라우저는 생략했다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-179acb59dbe22dc28b982c8a2d16f5c7de8ed05c.json`, 같은 SHA release-audit, `.local-archive/rf002-transaction-contract-20261028/`의 고정 배포·보호 전후. RF-002 전체 채택·R0 미확인 운영 경계 해소로 확대하지 않는다. 다음 문서 전용 갱신으로 재배포하지 않는다.
+
+## 직전 RF-003 소스 참조 릴리스
+
 **`44421df083f6eb7447bbfe4dc0ad10e4fb4039ca`**, 2026-10-28 [PR #213](https://github.com/6Soo/cost/pull/213). RF-003 보호 도구에 선택적 소스 참조 조사를 추가했다. 기본 metadata-only preflight와 애플리케이션 런타임·스키마·금융 규칙은 유지한다.
 
 - 기존19개 보호 검사에 내부 symlink/scan0 경계를 추가했다. 확장 실행20 passed/1 fixture 준비 실패 후 fixture 교정·해당1 passed로21개 근거 확보. 미해결 assertion 실패 없음. guard3파일·차단0·삭제0. 배포본 CLI exit0: metadata942·소스504·정확참조99·source 오류0. 자료 본문·SQL·관계없는 문자열 비출력, 내부/외부 간접 경로 읽기 차단. 정적 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
