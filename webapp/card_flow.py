@@ -2951,6 +2951,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
+                 f"같은 원승인번호로 확정 연결된 취소·환불 {link['refund_count']}건",
                  f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
         if link['original_id'] in recorded and tid not in recorded:
             lines.append('원결제는 이미 기록됐으며 환불 기록은 보호 검사 후 처리합니다.')
