@@ -25,14 +25,18 @@
 - **COMPLETE / DEPLOYED（이번 묶음）** — PR #211, 코드 `b2d8a06`, main/운영 `f7df4bc29d4e9dc87b2f6ddd68b8853c7be9be3a`. 최종 합성6 passed·guard 차단0/삭제0·배포942 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 CLI도 exit0·정의 후보3,957·오류0이다. 독립 개발 도구/문서 변경이므로 전체 회귀와 브라우저는 생략했다. 근거는 `.local-archive/r0-boundary-baseline-20261028/`와 운영 기록이다.
 - 두 구현자 결과를 검수·통합했다. RF-001 소스 근거 커밋은 `1187954`이며 실제 Google sync CLI 호출·public/ADC 선택과 여행 검증기/change_log sink를 확인했다. RF-004 초기5 passed/CLI 파싱 오류를 최종 통과로 계산하지 않았고, 보완 후6 passed·staging/배포본 CLI exit0으로 수락했다. R0 전체 완료를 뜻하지 않는다.
 
-### 진행 중인 RF-003 자료 참조 후보
+### 완료한 RF-003 자료 참조 후보
 
-- PR #212 문서 갱신을 기준으로 `refactor/rf003-source-reference-candidates-20261028`에서 진행한다. 운영은 `f7df4bc`이며 문서 갱신 후 재배포하지 않았다.
+- **COMPLETE / DEPLOYED（선택적 참조 조사 범위）** — PR #213, 코드 `ef91e4a`, main/운영 `44421df083f6eb7447bbfe4dc0ad10e4fb4039ca`. 보호21개 검사 근거（20 passed 후 fixture 교정한 추가1 passed）·guard 차단0/삭제0·942 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 CLI도 metadata942·소스504·정확참조99·오류0, exit0이다. 근거는 `.local-archive/rf003-source-references-20261028/`와 운영 기록이다.
 - 같은 호스트/기존 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）를 재사용했다. 소유 파일은 `tools/check_tracked_data.py`, `tests/test_tracked_data_guard.py`뿐이다. commit/PR/병합/운영은 Supervisor 소유다.
 - 추가 옵션 `--source-references`에서만 허용된 추적 Python 소스 AST와 Git 자료 경로 metadata를 대조한다. 고객 자료 본문·SQL·시크릿 출력 없이 명시적 읽기/쓰기/참조 후보를 기록하며 기존 기본 metadata-only·차단·보존 계약을 유지한다. 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
-- 상태 **IN_PROGRESS / NOT_VERIFIED**. 완료 알림 후 diff와 새 합성 경계 검사 근거를 검수한다. 다음 명령은 `git diff -- tools/check_tracked_data.py tests/test_tracked_data_guard.py`이며 이미 유효한 통과 검사를 반복하지 않는다. 실제 데이터 분류/삭제·Git 역사 재작성은 승인 범위에 없다.
-- 첫 구현은 기존 보호 포함19 passed·기본 inventory exit0（942 metadata 항목）였다. 검수에서 일반 literal/Path-only 참조 누락, Path receiver와 내용 문자열의 I/O 대상 혼동, mode 검증·오류 summary·working-tree 출처 표시 부족을 확인해 보완 요청했다. 실제 `--source-references` 저장소 검증은 첫 보고에서 미실행이므로 성공으로 처리하지 않는다. 같은 구현자 수정본 알림 대기 중이며 아직 commit/PR/배포하지 않았다.
-- **TEST_PASSED / REVIEWED** — 수정본에서 정확한 literal 참조와 I/O 대상, 동적/잘못된 mode·일반 내용 문자열을 구분했다. Supervisor가 내부 symlink를 통한 자료 본문 접근 차단과 실제 scan0 집계를 보완했다. 확장 파일 실행20 passed/1 failed（추가 fixture의 기존 app 디렉터리 mkdir 오류）, fixture 교정 후 해당1 passed. 합계21개 검사 근거를 확보했으며 실패를 통과로 세지 않는다. CLI exit0: metadata942·소스504·정확참조99·오류0. 기본 보호/자료 본문 비읽기·source 원문 비출력·UNKNOWN/UNVERIFIED 유지 확인. 다음은 검수한 변경의 PR/고정 배포이며 앞선 알림 대기는 종료했다.
+- 검수에서 일반참조 누락·receiver/내용 문자열 혼동을 교정했고 Supervisor가 내부 symlink 차단·scan0 집계를 보완했다. 초기19 passed와 확장 fixture 준비 실패를 최종 통과로 과장하지 않는다. 실제 자료 분류/삭제·Git 역사 재작성은 실행하지 않았다. 동적 경로·간접 소비자·운영 활성 여부는 미확인이다.
+
+### 진행 중인 RF-005/109 운영 호출 지도
+
+- 브랜치 `docs/rf003-release-and-runtime-map-20261028`, 같은 local workspace에서 구현자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-runtime-catalog.md`만 작성한다. Supervisor는 상태/운영 기록과 PR을 소유한다. 문서전용이며 테스트·빌드·브라우저·재배포 없음.
+- Supervisor는 scheduler metadata에서 Board의 SHA 고정 start_web_ledger_host 참조와 SourceRefresh의 `tools/watch_review_source.ps1` 이름/저장소 cwd 참조를 확인했다. 원문 인자·비밀값은 출력하지 않았다. 담당자는 repo 안의 실제 호출·외부 dependency·쓰기/복구 게이트를 소스 경로/줄로 추적하며 repo 밖 파일/DB/설정은 읽지 않는다.
+- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 `git diff -- docs/specs/refactor-runtime-catalog.md`와 해당 소스 참조를 검수한다. 전체 의존성·운영 활성 안전을 확정하지 않는다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -40,9 +44,9 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`f7df4bc29d4e9dc87b2f6ddd68b8853c7be9be3a`**다. PR #211 독립 조사 도구·소스 경계 문서를 검수·병합·고정 배포했다. PR #193/#198/#200/#202~#209도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`44421df083f6eb7447bbfe4dc0ad10e4fb4039ca`**다. PR #213 RF-003 선택적 소스 참조 도구를 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일942개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 조사 CLI exit0·정의 후보3,957·오류0. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 직전 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
+이번 근거: 추적 파일942개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 CLI exit0·참조 후보99·오류0. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 

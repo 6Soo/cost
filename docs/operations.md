@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`44421df083f6eb7447bbfe4dc0ad10e4fb4039ca`**, 2026-10-28 [PR #213](https://github.com/6Soo/cost/pull/213). RF-003 보호 도구에 선택적 소스 참조 조사를 추가했다. 기본 metadata-only preflight와 애플리케이션 런타임·스키마·금융 규칙은 유지한다.
+
+- 기존19개 보호 검사에 내부 symlink/scan0 경계를 추가했다. 확장 실행20 passed/1 fixture 준비 실패 후 fixture 교정·해당1 passed로21개 근거 확보. 미해결 assertion 실패 없음. guard3파일·차단0·삭제0. 배포본 CLI exit0: metadata942·소스504·정확참조99·source 오류0. 자료 본문·SQL·관계없는 문자열 비출력, 내부/외부 간접 경로 읽기 차단. 정적 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
+- 추적942개 blob 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 직전 `f7df4bc`와 작업 XML·게이트·기존 검증 복원 사본 보존. 배포 후2DB/13표 내용·스키마 동일. DB/Google/원본/금융 상태 직접 쓰기·마이그레이션·대량 재처리 없음. 독립 도구 변경이므로 전체 회귀·브라우저는 생략했다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-44421df083f6eb7447bbfe4dc0ad10e4fb4039ca.json`, 같은 SHA release-audit, `.local-archive/rf003-source-references-20261028/`의 보호 전후·배포본 CLI 집계. 고객 자료 분류·운영 활성 여부 확정 및 전면 리팩터링 완료가 아니다. 이후 문서 변경으로 재배포하지 않는다.
+
+## 직전 RF-001/004 후속 릴리스
+
 **`f7df4bc29d4e9dc87b2f6ddd68b8853c7be9be3a`**, 2026-10-28 [PR #211](https://github.com/6Soo/cost/pull/211). RF-004 테스트 환경 정적 조사 CLI와 RF-001 간접 경계 소스 근거를 추가했다. 애플리케이션 런타임 구현·스키마·금융 규칙 변경은 없다.
 
 - 합성6 passed. staging 후 조사와 배포본 CLI 스모크 exit0: Python3.14.7, 추적 테스트 소스294개·정의 후보3,957개·오류0. pytest.ini 포함295개 중 환경 근거83·UNVERIFIED212이며 collection/실행 통과 수가 아니다. 전체 회귀·브라우저는 독립 개발 도구/문서 변경이므로 생략했다. 추적자료 guard4파일·차단0·삭제0.
