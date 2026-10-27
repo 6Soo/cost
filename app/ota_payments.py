@@ -17,7 +17,7 @@ from app.ota_matching_defaults import load_defaults
 
 _NO_ALLOCATION_SNAPSHOT = object()
 PARSER_VERSION = 7
-MATCHER_VERSION = 2
+MATCHER_VERSION = 3
 
 
 class OtaSourcesError(ValueError):
@@ -846,26 +846,44 @@ def _foreign_decimal(value):
     return Decimal(text.replace(',', ''))
 
 
-def _amount_matches(event, row, rules):
+def compare_payment_amount(event, row, rules=()):
+    """Compare amounts only in an evidenced common denomination.
+
+    KRW is the issuer's billed total (fees included); foreign payments use the
+    original foreign amount. A plausible FX rate is not payment evidence, and
+    neither estimates nor cash/points conversion rules can verify a card link.
+    This function never changes the source amounts or adds a tolerance.
+    """
     currency = str(event.get("currency") or "").upper()
     if currency == "KRW":
         target, actual = _event_amount(event), _card_amount(row)
         if target is None or actual is None:
-            return False
-        if event.get("event_type") == "refund":
-            return abs(actual) == target
-        return (actual > 0 and actual == target) or _approved_delta_match(event, row, rules or [])
+            return {"status": "UNKNOWN", "reason": "AMOUNT_EVIDENCE_REQUIRED"}
+        matched = (abs(actual) == target if event.get("event_type") == "refund" else
+                   (actual > 0 and actual == target) or _approved_delta_match(event, row, rules or []))
+        return {"status": "MATCH" if matched else "MISMATCH",
+                "reason": None if matched else "AMOUNT_MISMATCH"}
     if not currency:
-        return False
+        return {"status": "UNKNOWN", "reason": "AMOUNT_EVIDENCE_REQUIRED"}
+    card_currency = str(row.get("foreign_currency") or "").upper()
+    if card_currency in ("", "KRW"):
+        return {"status": "UNKNOWN", "reason": "FX_EVIDENCE_REQUIRED"}
+    if card_currency != currency:
+        return {"status": "MISMATCH", "reason": "CURRENCY_MISMATCH"}
     try:
         expected = abs(_foreign_decimal(event.get("amount")))
         signed_card_amount = _foreign_decimal(row.get("foreign_amount"))
         actual = abs(signed_card_amount)
-        return (str(row.get("foreign_currency") or "").upper() == currency and
-                expected.is_finite() and actual.is_finite() and expected == actual and
-                (event.get("event_type") == "refund" or signed_card_amount > 0))
+        matched = (expected.is_finite() and actual.is_finite() and expected == actual and
+                   (event.get("event_type") == "refund" or signed_card_amount > 0))
     except (InvalidOperation, TypeError, ValueError):
-        return False
+        return {"status": "UNKNOWN", "reason": "AMOUNT_EVIDENCE_REQUIRED"}
+    return {"status": "MATCH" if matched else "MISMATCH",
+            "reason": None if matched else "AMOUNT_MISMATCH"}
+
+
+def _amount_matches(event, row, rules):
+    return compare_payment_amount(event, row, rules)["status"] == "MATCH"
 
 
 def _approved_lag_match(event, row, rules):
@@ -1098,12 +1116,9 @@ def search_card_candidates(event, transactions, *, existing_links=None, rules=No
     candidates = []
     rejected = []
     for row in narrowed:
-        amount_matches = _amount_matches(event, row, rules)
-        if not amount_matches:
-            currency = str(event.get("currency") or "").upper()
-            reason = ("CURRENCY_MISMATCH" if currency not in ("", "KRW") and
-                      str(row.get("foreign_currency") or "").upper() != currency
-                      else "AMOUNT_MISMATCH")
+        comparison = compare_payment_amount(event, row, rules)
+        if comparison["status"] != "MATCH":
+            reason = comparison["reason"]
             rejection_counts[reason] += 1
             rejected.append({"transaction_id": row.get("transaction_id"), "reason": reason})
             continue
@@ -1707,12 +1722,25 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
                                    candidates=blocked_ids, reserved_card_ids=blocked_ids,
                                    reason="candidate_cards_reserved_by_existing_or_frozen_link"))
                 continue
-            wrong_amount = [row for row in transactions
+            comparison_cards = [row for row in transactions
                             if row.get("approval_date") == event.get("paid_on") and
                             _direction(row) == ("refund" if event.get("event_type") == "refund" else "purchase") and
                             row.get("transaction_id") not in claimed and
+                            not row.get("duplicate_of") and not row.get("parse_error") and
+                            not row.get("conflict_reason") and provider_compatible(event, row, rules) and
                             _strict_card_identity(event, row, rules) and
                             _has_corroborator(event, row, rules)]
+            comparisons = [(row, compare_payment_amount(event, row, rules)) for row in comparison_cards]
+            unknown_amount = [(row, comparison) for row, comparison in comparisons
+                              if comparison["status"] == "UNKNOWN"]
+            if unknown_amount:
+                reason = ("FX_EVIDENCE_REQUIRED" if any(comparison["reason"] == "FX_EVIDENCE_REQUIRED"
+                          for _, comparison in unknown_amount) else "AMOUNT_EVIDENCE_REQUIRED")
+                result.append(dict(event, status="HOLD_AMOUNT_UNVERIFIED", transaction_id=None,
+                                   candidates=[row["transaction_id"] for row, _ in unknown_amount],
+                                   reason=reason))
+                continue
+            wrong_amount = [row for row, comparison in comparisons if comparison["status"] == "MISMATCH"]
             status = "HOLD_AMOUNT_MISMATCH" if wrong_amount else "HOLD_NO_CARD"
             # 같은 금액·날짜·방향의 카드가 있어도 가맹점 별칭 승인이 없으면 연결하지 않는다. 사유를 따로 밝힌다.
             exact_direction = "refund" if event.get("event_type") == "refund" else "purchase"

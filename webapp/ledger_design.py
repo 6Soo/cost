@@ -309,11 +309,14 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .sum{display:flex;align-items:baseline;gap:28px;padding:11px 24px;border-bottom:1px solid var(--line);
  flex-wrap:wrap}
 .sum div{display:flex;align-items:baseline;gap:7px}
-.sum i{font-style:normal;font-size:12px;color:var(--mut)}
-.sum b{font-size:17px;font-weight:700;letter-spacing:-.012em}
+.sum i{font-style:normal;font-size:13px;color:var(--mut)}
+.sum b{font-size:clamp(20px,1.8vw,25px);font-weight:700;letter-spacing:-.012em}
+.sum .net-income{flex-wrap:wrap;gap:4px 8px}
+.sum .net-income small{font-size:12px;color:var(--mut);white-space:nowrap}
 .sum .n{margin-left:auto;font-size:12.5px;color:var(--mut)}
 
-.tw{padding:0 0 28px}
+.tw{padding:0 0 28px;overflow-x:auto;max-width:100%}
+#tbl{min-width:830px;font-size:14px}
 table{width:100%;table-layout:fixed;border-collapse:collapse}
 th,td{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);
  text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -326,7 +329,7 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
    to the content is not printed twice. */
 td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
 .party-line{display:flex;align-items:center;gap:6px;min-width:0}
-td.c-stay{white-space:nowrap;font-size:12.5px;color:var(--mut)}
+td.c-stay{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;overflow-wrap:break-word;padding:8px 10px}
 .party-copy{display:block;min-width:0;flex:1}
 .party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
 .category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
@@ -1651,6 +1654,13 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         + "</form>")
 
 
+def _net_income_summary(value, prefix=''):
+    label = prefix + '수입'
+    return (f"<div class='net-income'><i title='총수입 − 지출'>{ui_icons.icon('arrow-up-down')}{label}</i>"
+            f"<b aria-label='{label}, 총수입에서 지출을 뺀 금액'>{_money(value)}</b>"
+            "<small>총수입 − 지출</small></div>")
+
+
 def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None,
                   google_income=None) -> str:
     """The totals bar.
@@ -1670,16 +1680,16 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             if filtered is not None and whole is not None:
                 return (
                     f"<div class='sum tnum' id='sum'>{scope}"
-                    f"<div><i>{ui_icons.icon('book-open')}전체 수입</i><b>{_money(income)}</b></div>"
+                    f"<div><i>{ui_icons.icon('book-open')}전체 총수입</i><b>{_money(income)}</b></div>"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
-                    f"<div><i>{ui_icons.icon('arrow-up-down')}전체 차액</i><b>{_money(income - whole[1])}</b></div>"
+                    f"{_net_income_summary(income - whole[1], '전체 ')}"
                     f"<span class='n'>전체 수입 {count_in}건 · 전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
                 f"<div class='sum tnum' id='sum'>{scope}"
-                f"<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+                f"<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
-                f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
+                f"{_net_income_summary(income - expense)}"
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
         elif google_income.get('numeric_gap') or not google_income.get('verified'):
             income_status = ("<b class='warn'>합계 차이 있음</b>"
@@ -1709,20 +1719,19 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
     if filtered is None or whole is None:
         return (
-            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
             f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
-            f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
+            f"{_net_income_summary(income - expense)}"
             f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
         f"<div class='sum tnum' id='sum'>{scope}"
-        f"<div><i>전체 수입</i><b>{_money(wincome)}</b></div>"
+        f"<div><i>전체 총수입</i><b>{_money(wincome)}</b></div>"
         f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
-        f"<div><i>검색 결과 수입</i><b>{_money(fincome)}</b></div>"
+        f"<div><i>검색 결과 총수입</i><b>{_money(fincome)}</b></div>"
         f"<div><i>검색 결과 지출</i><b>{_money(fexpense)}</b></div>"
-        f"<div><i>검색 결과 차액</i>"
-        f"<b>{_money(fincome - fexpense)}</b></div>"
+        f"{_net_income_summary(fincome - fexpense, '검색 결과 ')}"
         f"<span class='n'>전체 수입 {winc}건 · 전체 지출 {wexp}건"
         f" · 검색 결과 수입 {finc}건 · 검색 결과 지출 {fexp}건</span></div>" + note)
 
@@ -2083,8 +2092,8 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # and content column takes whatever is left. The amount is the last column
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
-        "<colgroup><col style='width:108px'><col><col style='width:104px'>"
-        "<col style='width:150px'>"
+        "<colgroup><col style='width:108px'><col style='width:28%'><col style='width:104px'>"
+        "<col style='width:280px'>"
         "<col style='width:126px'></colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
