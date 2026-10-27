@@ -6,8 +6,48 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app import ota_mail
 from app.ota_store import OtaStore, is_store
 from tools.consolidate_ota_sources import database_digest
+
+
+def mail_input_error(directory):
+    """Validate explicit mail inputs before opening a writer; return only safe codes.
+
+    An empty responses list is empty input, not malformed mail. A nonempty batch
+    must contain only structurally valid messages; never silently skip bad rows.
+    Provider recognition is deliberately not required for raw evidence storage.
+    """
+    try:
+        if not directory.is_dir():
+            return 'OTA_STORE_MAIL_INPUT_INVALID'
+        paths = sorted(directory.glob('gmail*.json'))
+        if not paths:
+            return 'OTA_STORE_MAIL_NO_SUPPORTED_FILES'
+        for path in paths:
+            batch = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(batch, dict) or not isinstance(batch.get('responses'), list):
+                return 'OTA_STORE_MAIL_INPUT_INVALID'
+            for message in batch['responses']:
+                if (not isinstance(message, dict)
+                        or not isinstance(message.get('id'), str) or not message['id'].strip()
+                        or not isinstance(message.get('payload'), dict)):
+                    return 'OTA_STORE_MAIL_INPUT_INVALID'
+                headers = message['payload'].get('headers', [])
+                if not isinstance(headers, list) or any(
+                        not isinstance(header, dict)
+                        or not isinstance(header.get('name'), str)
+                        or not isinstance(header.get('value'), str) for header in headers):
+                    return 'OTA_STORE_MAIL_INPUT_INVALID'
+        messages, inventory = ota_mail.load_messages_from([directory])
+        if any(row.get('error') for row in inventory):
+            return 'OTA_STORE_MAIL_INPUT_INVALID'
+        if not messages:
+            return 'OTA_STORE_MAIL_NO_MESSAGES'
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        # Parser/IO exceptions may contain customer paths, IDs or body fragments.
+        return 'OTA_STORE_MAIL_INPUT_INVALID'
+    return None
 
 
 def main():
@@ -20,6 +60,10 @@ def main():
     parser.add_argument('--backup', type=Path, required=True)
     parser.add_argument('--report', type=Path, required=True)
     args = parser.parse_args()
+    for directory in args.mail_directory:
+        error = mail_input_error(directory)
+        if error:
+            parser.error(error)
     if not is_store(args.db):
         parser.error('기존 통합 OTA DB가 필요합니다')
     if args.backup.exists() or args.backup.resolve() == args.db.resolve():
