@@ -58,12 +58,19 @@
 - 브랜치 `docs/rf002-ota-release-and-adoption-20261028`. 같은 local workspace의 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-master-20261027.md`만 수정한다. 가장 작은 실제 읽기 소비경계·입출력 shape·caller/authority/freshness·복사비용·합성 동등성 검사 범위를 소스 근거로 좁힌다.
 - **COMPLETE（소스 조사）** — 실제 caller의 freshness gate와 helper의 좁은 입력 shape를 대조했다. 전체 DTO freeze/thaw는 전량 복사를 늘리므로 채택하지 않는다. 다음 구현은 `project_card_ota_statuses` 실행 본문을 유지하고 필요한 필드를 별도 `TypedDict` 정적 읽기 계약으로 선언·입력 annotation에 연결하는 최소 범위다. 기존 금융/여행/Google 쓰기 authority는 그대로 유지한다. 이 문서전용 검수는 diff/참조/링크만 확인하며 테스트·빌드·브라우저·운영 재검사는 하지 않았다.
 
-### 진행 중인 RF-002 OTA 상태 조회의 정적 읽기 계약
+### 완료한 RF-002 OTA 상태 조회의 정적 읽기 계약
 
 - PR #218 문서 병합 후 브랜치 `refactor/rf002-ota-status-read-contract-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/ota_status_read_contract.py`, 기존 `app/ota_core_projection.py`만 작성한다.
 - helper가 읽는 필드의 `TypedDict`와 입력 annotation만 연결하고 상태 계산 본문·순서·원본 identity·caller freshness는 유지한다. wrapper/factory·복사·원문변환·새 정책/쓰기 경로를 추가하지 않는다. 타입 선언은 runtime 검증/불변 snapshot을 제공하지 않는다.
-- **IN_PROGRESS / NOT_VERIFIED** — 기존 projection/golden/canonical 표적 검사, docstring 제외 실행 AST 동등성과 한 번의 합성 elapsed/peak 비교로 확인한다. implementation을 그대로 반복하는 신규 테스트는 만들지 않는다. 완료 알림 후 두 소유 파일 diff와 실제 근거를 검수한다. 운영은 `361d012`로 유지한다.
-- **TEST_PASSED / REVIEWED** — TypedDict 필드/nullable·iterable 범위와 helper diff 검수를 완료했다. 실행 본문 AST는 기준과 같고 표적3파일28 passed·compile/diff 통과. 합성1000결과+1000후보의 출력 동일; 30회 중앙값 baseline0.052944s/변경0.053033s, peak156,994/156,946B. 제품 지연 개선 근거가 아니며 wrapper/복사/정책 변화가 없다. 다음은 검수 코드의 PR/고정 배포·영향 스모크다. 이전 대기는 종료했다.
+- **COMPLETE / DEPLOYED（해당 읽기 계약）** — PR #219, 코드 `175c3a2`, main/운영 `42999afa15373014c35be9ee10fda308a6dd1e3c`. 표적3파일28 passed·compile/diff·본문AST동일. 합성1000결과+1000후보 출력 동일; 30회 중앙값 baseline0.052944s/변경0.053033s·peak156,994/156,946B. 제품 지연 개선 주장은 없다.
+- guard 차단0/삭제0·947 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 annotation 해석·exact/group/reservation/None 스모크 통과. 전체 회귀/브라우저는 실행본문 불변의 타입 변경이므로 생략했다. 근거는 `.local-archive/rf002-ota-status-read-20261028/`와 운영 기록이다.
+
+### 진행 중인 RF-002 거래 배치 조회의 정적 읽기 계약
+
+- 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/transaction_read_contract.py`, 기존 `app/review.py`, `app/__init__.py`만 작성한다. 현재 브랜치는 Supervisor 소유 `docs/rf002-ota-status-read-release-20261028`이며 구현자는 branch/commit/PR/운영을 변경하지 않는다.
+- 실제 `get_batch/_row_dict/_counts` 출력과 facade의 return annotation만 연결한다. SQL/실행본문·권한·금액/ID·상태 계산·원본 JSON·호출 순서를 유지하고 DTO 복사·cast/factory·새 runtimecall을 추가하지 않는다. 실제 출력 필드의 독립 축과 nullable 값·future state counts를 TypedDict로 명시한다.
+- **IN_PROGRESS / NOT_VERIFIED** — 합성 pipeline의 해당 배치/읽기 표적 검사·소유파일 compile·실행 AST 동일성을 한 번 확인한다. 기존28/16 passed는 반복하지 않는다. 완료 알림 후 세 파일 diff/실제 근거를 검수한다. 운영은 `42999af`다.
+- **TEST_PASSED / REVIEWED** — 합성pipeline 지정 범위3 passed/42 deselected, get_batch/_row_dict/_counts/facade의 실행 AST 동일·compile/diff 통과. Supervisor는 동적 count를 닫힌 TypedDict 대신 `dict[str,int]` alias로, 실제 출력 키는 required/nullable value로 교정해 compile을 확인했다. SQL/실행본문/원행/ID·금액/사용자결정/권한/반환 순서는 그대로이며 새 wrapper/복사/runtime 검증이 없다. 다음은 이 정적 계약의 PR·고정 배포/합성 스모크다. 이전 대기는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -71,9 +78,9 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`361d012d495f9a3a245e092933e4102967689642`**다. PR #217 RF-002 독립 OTA 상태 계약을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`42999afa15373014c35be9ee10fda308a6dd1e3c`**다. PR #219 OTA 상태 조회의 정적 구조 계약을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일946개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 합성 OTA DTO import/roundtrip/상태분리 스모크 통과. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
+이번 근거: 추적 파일947개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 annotation 해석·합성OTA 상태 스모크 통과. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 

@@ -26,6 +26,7 @@ from decimal import Decimal, InvalidOperation
 
 from .db import (CODE_INVALID_INPUT, CODE_NOT_FOUND, CODE_REVISION_CONFLICT,
                  CODE_SOURCE_CONFLICT, StoreError, canonical, decided_sql, utc_now)
+from .transaction_read_contract import BatchCountsRead, BatchRead, TransactionRowRead
 from .import_card import ParseError, ParsedRow, parse_card_file
 from .normalize import normalize_merchant
 
@@ -455,7 +456,7 @@ def _conflict_id(transaction_id: str, row_index: int, batch_id: str) -> str:
 
 # --------------------------------------------------------------- get_batch
 
-def get_batch(store, batch_id: str) -> dict:
+def get_batch(store, batch_id: str) -> BatchRead:
     """One batch's summary and rows, with the original cells attached."""
     found = store.conn.execute(
         "SELECT filename, content_sha256, byte_size, parser, received_at,"
@@ -484,7 +485,7 @@ def get_batch(store, batch_id: str) -> dict:
             "rows": [_row_dict(r) for r in rows]}
 
 
-def _row_dict(r) -> dict:
+def _row_dict(r) -> TransactionRowRead:
     return {
         "transaction_id": r[0], "source_hash": r[1], "issuer": r[2],
         "card_tail": r[3], "card_kind": r[4], "transaction_direction": r[5],
@@ -501,7 +502,7 @@ def _row_dict(r) -> dict:
     }
 
 
-def _counts(store, batch_id: str) -> dict:
+def _counts(store, batch_id: str) -> BatchCountsRead:
     rows = store.conn.execute(
         "SELECT classification_state, COUNT(*) FROM transactions"
         " WHERE transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?) GROUP BY classification_state", (batch_id,)).fetchall()
