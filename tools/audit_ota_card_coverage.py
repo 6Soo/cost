@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -18,7 +19,7 @@ if str(ROOT) not in sys.path:
 
 from app import ota_mail, ota_payments, ota_portal, ota_sources, ota_review
 from app.reconcile.observations import inspect_observations
-from app.reconcile.trace import build_coverage_report, pseudonym
+from app.reconcile.trace import build_coverage_report, pseudonym, safe_error_type
 
 
 def _read_rows(path, table):
@@ -33,13 +34,33 @@ def _read_rows(path, table):
 
 
 def _write_json(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with path.open('x', encoding='utf-8') as stream:
+        stream.write(value)
 
 
 def _write_jsonl(path, rows):
-    with path.open("w", encoding="utf-8", newline="\n") as stream:
-        for row in rows:
-            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    with path.open("x", encoding="utf-8", newline="\n") as stream:
+        stream.write(rows)
+
+
+def _output_destination(output_dir, inputs):
+    """Require a fresh directory disjoint from every input file or directory."""
+    destination = Path(output_dir).resolve()
+    if destination.anchor.startswith('\\\\'):
+        raise ValueError('LOCAL_OUTPUT_REQUIRED')
+    for value in inputs:
+        if value is None:
+            continue
+        source = Path(value).resolve()
+        protected = [source]
+        if not source.is_dir():
+            protected.extend(Path(str(source) + suffix) for suffix in ('-wal', '-shm', '-journal'))
+        for candidate in protected:
+            if (destination == candidate or destination in candidate.parents or candidate in destination.parents):
+                raise ValueError('OUTPUT_INPUT_OVERLAP')
+    if destination.exists():
+        raise ValueError('OUTPUT_ALREADY_EXISTS')
+    return destination
 
 
 def _source_digest(sources):
@@ -48,7 +69,7 @@ def _source_digest(sources):
         payload = json.dumps(stamps, sort_keys=True, separators=(",", ":"), default=str).encode()
         return hashlib.sha256(payload).hexdigest(), len(stamps)
     except Exception as exc:
-        return None, type(exc).__name__
+        return None, safe_error_type(type(exc).__name__)
 
 
 def _snapshot_summary(review_db):
@@ -68,7 +89,7 @@ def _snapshot_summary(review_db):
                 "stale": age > 150, "status": "SNAPSHOT_STALE" if age > 150 else "SNAPSHOT_FRESH"}
     except Exception as exc:
         return {"generation": None, "generated_at": None, "age_seconds": None,
-                "stale": None, "status": "SNAPSHOT_UNREADABLE_" + type(exc).__name__}
+                "stale": None, "status": "SNAPSHOT_UNREADABLE_" + safe_error_type(type(exc).__name__)}
 
 
 def _canonical_results(events, cards, user_links, frozen_groups):
@@ -84,6 +105,11 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
     data_path = Path(data_dir).resolve() if data_dir else board_path.parent
     mail_default = Path(os.environ.get("WEBLEDGER_OTA_MAIL_DIR", data_path / "ota-mail"))
     portal_default = ota_portal.evidence_path(data_path)
+    inputs = [board_path, review_db, manifest or ota_sources.manifest_path(data_path),
+              mail_default, portal_default]
+    if review_db:
+        inputs.append(Path(review_db).resolve().parent / 'ota-snapshot.json')
+    _output_destination(output_dir, inputs)
     failures = []
     try:
         sources = ota_sources.resolve_sources(data_path, mail_default=mail_default,
@@ -97,6 +123,12 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
         failures.append("SOURCE_MISSING:" + str(item.get("kind", "unknown")))
     for item in sources.get("diagnostics", ()):
         failures.append("SOURCE_DIAGNOSTIC")
+
+    for key in ('mail_directories', 'portal_databases', 'reference_documents'):
+        inputs.extend(sources.get(key) or ())
+        inputs.extend((sources.get('registered') or {}).get(key) or ())
+    inputs.extend((sources.get('manifest_path'), sources.get('unified_database')))
+    destination = _output_destination(output_dir, inputs)
 
     cards = _read_rows(board_path, "transactions")
     events = []
@@ -153,9 +185,9 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
     version, stamp_count = _source_digest(sources)
     summary["snapshot"] = {
         "captured_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "registered_input_version_sha256": version,
-        "registered_input_count": stamp_count if isinstance(stamp_count, int) else None,
-        "input_stamp_error": stamp_count if isinstance(stamp_count, str) else None,
+        "registered_input_version_sha256": version if isinstance(version, str) and re.fullmatch(r'[0-9a-f]{64}', version) else None,
+        "registered_input_count": stamp_count if type(stamp_count) is int and stamp_count >= 0 else None,
+        "input_stamp_error": safe_error_type(stamp_count) if isinstance(stamp_count, str) else None,
         **_snapshot_summary(review_db),
     }
     summary["privacy"] = {
@@ -166,9 +198,6 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
     }
     summary["run_mode"] = "READ_ONLY"
 
-    destination = Path(output_dir).resolve()
-    destination.mkdir(parents=True, exist_ok=True)
-    _write_jsonl(destination / "unmatched-cases.jsonl", cases)
     diff = []
     for event_id, legacy in legacy_links.items():
         event = next((item for item in events if str(item.get("ota_event_id")) == str(event_id)), None)
@@ -186,10 +215,19 @@ def audit(*, board_db, output_dir, data_dir=None, review_db=None, manifest=None)
             difference = "LEGACY_NEW_CORE_DISAGREEMENT"
         diff.append({"id": pseudonym(run_secret, "legacy", event_id), "difference": difference,
                      "user_pinned": str(event_id) in user_links})
-    _write_jsonl(destination / "legacy-diff.jsonl", diff)
-    _write_jsonl(destination / "reconciliation-diff.jsonl",
-                 summary.pop("reconciliation_divergences", []))
-    _write_json(destination / "coverage-summary.json", summary)
+    divergences = summary.pop("reconciliation_divergences", [])
+    # Serialize before creating anything. Exclusive creation preserves concurrent
+    # files. On I/O failure keep partial output for inspection; never delete it.
+    # The summary is published last and marks a fully written report set.
+    payloads = {name: ''.join(json.dumps(row, ensure_ascii=False, sort_keys=True) + '\n' for row in rows)
+                for name, rows in (('unmatched-cases.jsonl', cases), ('legacy-diff.jsonl', diff),
+                                   ('reconciliation-diff.jsonl', divergences))}
+    summary_text = json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + '\n'
+    _output_destination(output_dir, inputs)
+    destination.mkdir(parents=True, exist_ok=False)
+    for name, payload in payloads.items():
+        _write_jsonl(destination / name, payload)
+    _write_json(destination / "coverage-summary.json", summary_text)
     return summary
 
 
@@ -207,10 +245,10 @@ def main(argv=None):
         summary = audit(board_db=args.board_db, output_dir=args.output_dir,
                         data_dir=args.data_dir, review_db=args.review_db, manifest=args.manifest)
     except Exception as exc:
-        print(json.dumps({"status": "FAILED_READ_ONLY_AUDIT", "error_type": type(exc).__name__}))
+        print(json.dumps({"status": "FAILED_READ_ONLY_AUDIT", "error_type": safe_error_type(type(exc).__name__)}))
         return 2
     print(json.dumps({"status": summary["status"], "card_rows": summary["denominators"]["card_rows"],
-                      "ota_events": summary["ota_event_count"], "reports": str(Path(args.output_dir).resolve())}))
+                      "ota_events": summary["ota_event_count"], "reports": "LOCAL_OUTPUT_DIRECTORY"}))
     return 0 if summary["status"] == "COMPLETE_INPUTS" else 2
 
 
