@@ -124,6 +124,7 @@ def test_synthetic_browser_group_candidates_disabled_proposal_and_overflow(width
             body=render_import_section("synthetic-csrf")))
         page.route("http://localhost/api/imports/ota**", respond)
         page.goto("http://localhost/")
+        page.locator("#ota-review > summary").click()
         try:
             page.get_by_text("BOOK-PARTIAL", exact=True).wait_for()
         except Exception as error:
@@ -198,6 +199,7 @@ def test_synthetic_browser_submits_user_approved_alias_and_discount_selects():
                 route.fulfill(status=200, content_type="application/json", body='{"status":"approved"}')
         page.route("http://localhost/api/imports/ota**", respond)
         page.goto("http://localhost/")
+        page.locator("#ota-review > summary").click()
         proposal = page.locator('[data-proposal="alias-proposal-synthetic"]')
         proposal.get_by_label("규칙 저장").check()
         fields = proposal.locator(".ota-proposal-fields")
@@ -242,6 +244,7 @@ def test_synthetic_browser_submits_signed_lag_range_without_legacy_scalar():
                 route.fulfill(status=200, content_type="application/json", body='{"status":"approved"}')
         page.route("http://localhost/api/imports/ota**", respond)
         page.goto("http://localhost/")
+        page.locator("#ota-review > summary").click()
         proposal = page.locator('[data-proposal="lag-range-synthetic"]')
         proposal.get_by_label("\uaddc\uce59 \uc800\uc7a5").check()
         fields = proposal.locator(".ota-proposal-fields")

@@ -42,6 +42,7 @@ def test_late_preview_cannot_replace_the_current_card_selection():
               return response};""")
         try:
             page.goto('http://localhost/')
+            page.locator("#ota-review > summary").click()
             page.get_by_text('BOOK-SYN', exact=True).wait_for()
             page.locator('input[value="card-a-syn"]').check()
             with page.expect_request('**/preview'):

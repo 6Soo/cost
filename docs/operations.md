@@ -23,7 +23,7 @@
     - 수입 테이블 하단 `tfoot`: `수입 행 합계 (35건) 46,170,000원` 즉시 부착 확인.
     - 지출 테이블 중복 열 헤더: `colheadDisp: 'none'` 확인.
 - **콘솔 창 팝업 조치 및 메일 수집 로컬 의존성 진단:**
-  - `WebLedger-MailCollect` 예약 작업의 실행 파일을 `python.exe`에서 `pythonw.exe`로 교체하여 향후 어떤 cmd/콘솔 창도 뜨지 않도록 완전 비노출 조치 완료 (백업: `.local-archive/mail-console-hidden-20261027T211154/`).
+  - `WebLedger-MailCollect` 예약 작업의 실행 파일을 `python.exe`에서 `pythonw.exe`로 교체했다. 실행 파일 변경은 XML로 확인했으며 다음 예약 실행의 무창 동작·수집 성공 수락은 NOT_RUN (백업: `.local-archive/mail-console-hidden-20261027T211154/`).
   - Google Apps Script(`apps-script/GmailIngest.gs`)는 과거 `메일수집` 시트 탭 작성용이었으나 2026-07-22 지침으로 자동 수집이 OFF된 상태이며, 현재 운영은 DKIM/SPF 인증 헤더가 보존된 `format=full` 원문을 로컬 SQLite(`ota_store.db`)에 인덱싱하여 사용함. Drive를 통한 클라우드 비공개 원문 수집 초안(`apps-script/CloudMail.gs`)을 준비하고 인계함.
 
 ## 2026-10-27 항공권 검색 복구·열린 PR 전체 통합 (#184)

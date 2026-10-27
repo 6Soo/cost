@@ -1865,7 +1865,7 @@ def render_import_section(csrf: str) -> str:
   // Background updates wait while the reviewer has an unsaved choice; a finished save renders at once.
   function reviewing(){{
     const active=document.activeElement;
-    if(active&&root.contains(active)&&active.tagName!=='BODY')return true;
+    if(active&&root.contains(active)&&active.tagName!=='BODY'&&active!==root.querySelector(':scope > summary'))return true;
     return !!root.querySelector('.ota-card-row input:checked,.ota-proposal input[type=radio]:checked:not([value="once"]),.ota-proposal-fields:not([hidden])');
   }}
   function scheduleLoad(delay){{clearTimeout(loadTimer);loadTimer=setTimeout(loadSnapshot,delay);}}
@@ -1906,7 +1906,7 @@ def render_import_section(csrf: str) -> str:
   const autoOpen=location.hash==='#ota-review' || new URLSearchParams(location.search).has('transaction');
   if(autoOpen)root.open=true;
   root.addEventListener('toggle',()=>{{
-    if(root.open){{if(!shownOnce)loadSnapshot();}}
+    if(root.open){{loadSnapshot();}}
     else if(loadTimer){{clearTimeout(loadTimer);loadTimer=null;}}
   }});
   if(root.open)loadSnapshot();
