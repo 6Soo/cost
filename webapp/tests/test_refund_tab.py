@@ -95,11 +95,11 @@ def test_partial_refund_stays_with_its_trip_and_net_cost(pair):
     assert refund_tab.groups(pair.board) == []
 
 
-def test_same_approval_full_cancel_is_grouped_and_ambiguous_original_is_not(pair):
+def test_cancellation_own_approval_without_original_reference_is_not_a_confirmed_group(pair):
     conn = pair.board.conn
     conn.execute("UPDATE transactions SET original_approval_number='',approval_number='100',amount_krw=-1000000 WHERE transaction_id=?", (pair.refund,))
     conn.commit()
-    assert len(refund_tab.groups(pair.board)) == 1
+    assert refund_tab.groups(pair.board) == []
     conn.execute("UPDATE transactions SET approval_number='100' WHERE transaction_id=?", (pair.other,))
     conn.commit()
     assert refund_tab.groups(pair.board) == []

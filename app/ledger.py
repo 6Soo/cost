@@ -290,16 +290,37 @@ def _apply_refund_pairs(store, rows, ready, unresolved, trip_validator, tab_vali
     """
     from .partial_refund import refund_links
     by_id = {r["transaction_id"]: r for r in rows}
-    for refund_id, link in refund_links(store.conn, list(by_id)).items():
+    refund_ids = [r[0] for r in store.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    for refund_id, link in refund_links(store.conn, refund_ids).items():
         refund = by_id.get(refund_id)
         original = by_id.get(link["original_id"])
         if refund is None:
+            if original is not None and not original.get('already_booked'):
+                _block_pair([original], 'refund_group_incomplete',
+                            '연결된 취소가 이 접수 건에 없어 원결제를 함께 확인해야 합니다.', ready, unresolved)
             continue
         if original is None:
             _block_pair([refund], "refund_original_missing",
                         "환불의 원거래가 이 접수 건에 없어 함께 기록할 수 없어요", ready, unresolved)
             continue
         pair = [original, refund]
+        if link.get('inferred'):
+            # Displaying an inferred relation never authorizes ledger writes,
+            # inheritance of a trip/item, or cash-refund settlement.
+            net = {key: link[key] for key in ('gross_krw', 'net_krw', 'status', 'basis')}
+            net['refund_krw'] = link['refunds_total_krw']
+            net['inferred'] = True
+            for entry, role, counterpart in ((original, 'original', refund_id),
+                                              (refund, 'refund', link['original_id'])):
+                entry['refund_link'] = dict(net, role=role, counterpart_id=counterpart)
+                if not entry.get('already_booked'):
+                    if not entry.get('blocked') or entry['blocked'] in (
+                            'needs_review', 'item_missing', 'tab_no_longer_valid', 'trip_no_longer_valid'):
+                        _block_pair([entry], 'refund_inferred',
+                                    '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)',
+                                    ready, unresolved)
+            continue
         if link["status"] == "excess":
             _block_pair(pair, "refund_exceeds_original", "환불 합계가 원결제보다 커서 보류해요", ready, unresolved)
             continue
@@ -537,8 +558,10 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
             done = set(booked) | set(already) | {e["transaction_id"] for e in current["rows"] if e.get("already_booked")}
             for entry in current["rows"]:
                 link = entry.get("refund_link")
-                if link and not entry.get("blocked") and (
-                        (entry["transaction_id"] in done) != (link["counterpart_id"] in done)):
+                if (link and not link.get("inferred")
+                        and not str(link.get("basis") or "").endswith("_inferred")
+                        and not entry.get("blocked")
+                        and ((entry["transaction_id"] in done) != (link["counterpart_id"] in done))):
                     raise StoreError(CODE_PREVIEW_STALE,
                                      "환불과 원거래를 함께 기록하지 못해 취소했어요. 다시 확인해 주세요")
                 if link and link["role"] == "refund" and entry["transaction_id"] in booked:

@@ -515,7 +515,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         detail = _month_detail(year, selected_month, items, next_cursor,
                                has_more, month_total, trip_names=trip_names)
     else:
-        detail = ("<p class='card-all-prompt' role='status'>확인할 월을 선택해 줘.</p>")
+        detail = ''
 
     body = (
         CARD_ALL_STYLE

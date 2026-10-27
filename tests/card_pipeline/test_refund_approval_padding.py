@@ -13,7 +13,7 @@ def _connection():
             amount_krw INTEGER, duplicate_of TEXT, conflict_reason TEXT,
             parse_error TEXT, merchant_normalized TEXT,
             foreign_amount TEXT, foreign_currency TEXT,
-            approval_date TEXT, posting_date TEXT
+            approval_date TEXT, posting_date TEXT, merchant TEXT
         )
     """)
     return conn
@@ -103,7 +103,7 @@ def test_read_scope_reuses_global_links_and_invalidates_local_writes(monkeypatch
         assert len(scans) == 3
     # Outside a display scope, normal reads/commit validation do not use the memo.
     refund_links(conn, ['refund'])
-    assert len(scans) == 5
+    assert len(scans) == 4  # A fresh global analysis needs one numbered scan.
     conn.close()
 
 

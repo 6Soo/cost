@@ -13,13 +13,16 @@ def conn():
     db.execute("""CREATE TABLE transactions(transaction_id TEXT PRIMARY KEY, transaction_direction TEXT, issuer TEXT,
         card_tail TEXT, merchant_normalized TEXT, amount_krw INTEGER, foreign_amount TEXT, foreign_currency TEXT,
         approval_date TEXT, posting_date TEXT, approval_number TEXT, original_approval_number TEXT,
-        duplicate_of TEXT, conflict_reason TEXT, parse_error TEXT)""")
+        duplicate_of TEXT, conflict_reason TEXT, parse_error TEXT, merchant TEXT)""")
     return db
 
 
 def add(conn, tid, direction, amount, day, *, merchant='AGODA X', foreign='1,000.000', currency='JPY',
         number='', original='', card='1234'):
-    conn.execute("INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,'','')",
+    conn.execute("INSERT INTO transactions (transaction_id,transaction_direction,issuer,card_tail,"
+                 "merchant_normalized,amount_krw,foreign_amount,foreign_currency,approval_date,posting_date,"
+                 "approval_number,original_approval_number,duplicate_of,conflict_reason,parse_error) "
+                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL,'','')",
                  (tid, direction, 'KB', card, merchant, amount, foreign, currency, day, day, number, original))
 
 
