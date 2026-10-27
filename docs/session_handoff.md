@@ -124,6 +124,8 @@
 - main `926814a`, 브랜치 `feat/ota-queue-page-index-20261028`. 기존 구현자가 신규 `app/ota_queue_paging.py`, `tests/test_ota_queue_paging.py`만 작성한다. worker/GET 연결은 이 부품 검수 후 같은 브랜치에서 이어가며 독립 부품만 별도 릴리스하지 않는다.
 - worker용 stable singleton index와 bounded queue/provider/search/limit, generation/filter/limit/snapshot nonce에 바인딩한 HMAC cursor를 구현한다. 원문 ID/검색어는 cursor에 넣지 않고 page allowlist만 반환한다. 날짜 미상/중복·누락 ID는 버리거나 합치지 않는다. 금융 상태 재분류·solver/UI/실자료 쓰기는 금지한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 지정 두 파일과 합성 연속페이지/변조/세대·필터불일치/입력불변·출력제한 검사를 검수하고 worker/route 연결을 진행한다. 동시에 기존 summary의 새 세대 게시 후 aggregate-only ready 수락을 확인한다. 운영은 `bcb2b7c`다.
+- **INDEX_REVIEWED / ROUTE_IN_PROGRESS** — 초기18 passed 후 Supervisor가 missing/invalid provider의 전체목록 중복계수, amount 문자열 비수치값 노출, 검색 전체 hit-list 메모리를 보완해20 passed. 같은 구현자에게 이 두 파일 및 `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, 새 `webapp/tests/test_ota_queue_pages.py`만 소유권을 부여해 worker index/인증 events GET을 연결하도록 했다. index는 실제 snapshot generation과 lock 밖에서 준비하고 원자 게시한다. nonready/restored-before-rebuild page는409, GET에서 재계산하지 않는다. signing key는 메모리에만 두고 restart 이전 cursor는400이 가능하며 같은 process의 세대/필터불일치는409다. 부품만 별도 배포하지 않는다.
+- **SUMMARY_READY_ACCEPTED（기본 응답 범위）** — 기존 운영 `bcb2b7c`의 인증 GET200·765B·generation403·ready/authoritative, 큐 event/group 합계3,748（needs_action1,622/waiting820/missing1,112/completed194）·상태태그없음을 확인했다. singleton 집계이며 금융 기장·실제환급 완료가 아니다. 원문없는 근거 `.local-archive/ota-canonical-summary-20261028/auth-summary-smoke-ready.json`. 단일 GET 수락으로 제품p95는 주장하지 않는다. 이전 READY_ACCEPTANCE_PENDING은 이 기본응답에 한해 해소됐다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
