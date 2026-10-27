@@ -3054,12 +3054,12 @@ def render_expense_cleanup(board, csrf, *, page=1):
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     from app.partial_refund import refund_links, count_held_cancellations
     visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
-    refund_by_id = refund_links(board.conn, visible_refunds)
     # A displayed original may have cancellations on another cleanup page.
     # Resolve globally once so its status does not contradict the refund card.
     all_refund_ids = [row[0] for row in board.conn.execute(
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
     all_refund_links = refund_links(board.conn, all_refund_ids)
+    refund_by_id = {tid: all_refund_links[tid] for tid in visible_refunds if tid in all_refund_links}
     original_refunds = {}
     for refund_id, link in all_refund_links.items():
         original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
