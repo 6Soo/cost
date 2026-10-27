@@ -20,6 +20,8 @@
 | --- | --- |
 | 카드 날짜·중복·취소/환불·여행 기간·캐시/준비 숙박·확정 예외 | [금융·카드·여행 배정](specs/finance.md) |
 | OTA 근거·N:M·원본 충돌·카드 대사·중앙 색인 | [OTA 대사](specs/ota.md) |
+| 저장소 전면 리팩토링·디자인 통일·파일 감사·단계별 검증 | [전면 리팩토링 마스터](specs/refactor-master-20261027.md) · [전체 추적 파일 인벤토리](specs/refactor-file-inventory-20261027.tsv) |
+| OTA 대기열 축소·예약 그룹·서버 측 페이지네이션·성능 | [OTA 개선 구현 계약](specs/ota-review-queue-performance-20261027.md) |
 | Google 최종 정본·B:H 열·수입·사본 선택·권한·지출 대응 표시 | [Google 장부](specs/google-ledger.md) |
 | 여행 A→B 교정·사후 AI 질문·승인 규칙·참가자 명단 | [여행 교정·참가자](specs/participants.md) |
 | 카드 전체 내역·공통 테마·항공권 검색·모바일·아이콘 라이선스 | [화면·항공권·디자인](specs/ui.md) |
