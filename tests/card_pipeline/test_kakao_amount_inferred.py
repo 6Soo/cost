@@ -1,7 +1,7 @@
 """Synthetic Kakao same-card amount pairing; no production financial data."""
 import sqlite3
 
-from app.partial_refund import refund_links, refund_group, kakao_refund_candidates
+from app.partial_refund import refund_links, refund_group, _kakao_amount_links, read_only_scope
 
 
 def database():
@@ -34,15 +34,14 @@ def test_unique_kakao_names_differ_auto_pair_readonly():
     row(db,"pay","purchase","카카오T실요금_유페이",9800)
     row(db,"cancel","cancellation","카카오T가승인_유페이",-9800,day="2026-10-03")
     before=list(db.iterdump())
-    link=kakao_refund_candidates(db,{"cancel"})["cancel"]
+    link=_kakao_amount_links(db,set(),{"cancel"})["cancel"]
     assert link["original_id"]=="pay"
     assert link["basis"]=="kakao_same_card_exact_amount_inferred"
     assert link["net_krw"]==0 and link["refund_count"]==1
-    assert refund_group(db,"pay")==["pay"]
-    assert refund_links(db,["cancel"])=={}
-    from app.partial_refund import read_only_scope
+    assert refund_group(db,"pay")==["pay","cancel"]
+    assert refund_links(db,["cancel"])["cancel"]["original_id"]=="pay"
     with read_only_scope():
-        assert refund_links(db,["cancel"])=={}
+        assert refund_links(db,["cancel"])["cancel"]["original_id"]=="pay"
     assert list(db.iterdump())==before
 
 
@@ -51,12 +50,12 @@ def test_competing_originals_and_refunds_hold():
     row(db,"pay1","purchase","카카오택시",9800)
     row(db,"pay2","purchase","카카오쇼핑",9800)
     row(db,"cancel","cancellation","카카오T가승인",-9800)
-    assert kakao_refund_candidates(db,{"cancel"})=={}
+    assert _kakao_amount_links(db,set(),{"cancel"})=={}
     db2=database()
     row(db2,"pay","purchase","카카오택시",9800)
     row(db2,"r1","cancellation","카카오T가승인",-9800)
     row(db2,"r2","cancellation","카카오택시취소",-9800)
-    assert kakao_refund_candidates(db2,{"r1","r2"})=={}
+    assert _kakao_amount_links(db2,set(),{"r1","r2"})=={}
 
 
 def test_cross_card_non_kakao_and_future_payment_excluded():
@@ -65,7 +64,7 @@ def test_cross_card_non_kakao_and_future_payment_excluded():
     row(db,"nonkakao","purchase","일반택시",9800)
     row(db,"future","purchase","카카오택시",9800,day="2026-10-04")
     row(db,"cancel","cancellation","카카오T가승인",-9800)
-    assert kakao_refund_candidates(db,{"cancel"})=={}
+    assert _kakao_amount_links(db,set(),{"cancel"})=={}
 
 
 def test_trace_reports_existing_engine_without_writes_or_identifiers():
