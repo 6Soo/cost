@@ -108,6 +108,46 @@ def test_kakao_original_approval_reference_survives_name_change_without_writing(
         board.close()
 
 
+def test_kakao_multiple_refunds_share_one_original_and_are_confirmed(tmp_path):
+    """One purchase can have multiple partial cancellations even if merchant names differ."""
+    board = LedgerStore(tmp_path / 'multi-refund.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,카카오T일반택시(법인)_0,20000,,,20000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,5000,,,5000,2026-10-03,2026-10-04,A200,,매입\n' +
+            '국민,1234,domestic,purchase,유페이 승인취소,3000,,,3000,2026-10-04,2026-10-05,A300,,매입\n'
+        ).encode(), 'synthetic-multi-kakao.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        by_approval = {r['approval_number']: r['transaction_id'] for r in rows}
+        original = by_approval['100']
+        refunds = [by_approval['200'], by_approval['300']]
+        for tid, amount in zip(refunds, (-5000, -3000)):
+            board.conn.execute(
+                "UPDATE transactions SET transaction_direction='cancellation',amount_krw=?,"
+                "original_approval_number='100' WHERE transaction_id=?", (amount, tid))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        links = refund_links(board.conn, refunds)
+        assert set(links) == set(refunds)
+        for tid in refunds:
+            link = links[tid]
+            assert link['original_id'] == original
+            assert link['status'] == 'partial'
+            assert link['refund_count'] == 2
+            assert link['gross_krw'] == 20000
+            assert link['refunds_total_krw'] == -8000
+            assert link['net_krw'] == 12000
+            markup = _render_refund_evidence(board, tid, link)
+            assert "같은 원승인번호로 확정 연결된 취소·환불 2건" in markup
+            assert "원결제 연결 완료" in markup
+            assert "환불 합계 -8,000원" in markup
+            assert "순액 12,000원" in markup
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_kakao_taxi_aliases_are_diagnostic_only_and_exclude_other_services():
     from webapp.card_flow import _refund_merchant_key
     aliases = (
