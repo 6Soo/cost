@@ -245,7 +245,6 @@ def trip_income_html(tab_id: str) -> str:
             + (' open' if enabled() else '') + ">"
             "<summary><span class='sec-name'>"
             f"{ui_icons.icon('book-open')}수입</span>"
-            "<span class='tag tag-readonly'>정본 · 읽기 전용</span>"
             f"<span class='sec-badge'>{message}</span></summary>"
             f"<div class='income-body'>{body}{settings}</div></details>"
         )

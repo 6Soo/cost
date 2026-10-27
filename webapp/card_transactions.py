@@ -19,6 +19,46 @@ _DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATE_TIME_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$")
 
 
+def card_identity(issuer, kind, last4):
+    """Only an explicit last4 identifies a card; never recover a PAN's suffix."""
+    tail = str(last4 or '').strip()
+    if not re.fullmatch(r'[0-9]{4}', tail):
+        return {'card_key': 'missing', 'card_label': '식별 정보 없음'}
+    issuer, kind = str(issuer or '').strip(), str(kind or '').strip()
+    key = hashlib.sha256(json.dumps([issuer, kind, tail], ensure_ascii=True).encode()).hexdigest()[:24]
+    return {'card_key': key, 'card_label': ' · '.join(filter(None, [issuer, '•••• ' + tail, kind]))}
+
+
+def _filter_clause(*, unassigned=False, valid_trip_ids=(), card='', search=''):
+    clauses, params = [], []
+    if unassigned:
+        trips = sorted(set(valid_trip_ids or ()))
+        # Effective display destination precedes the stored trip. A dangling or
+        # unverified destination is unassigned even when its ID is nonempty.
+        target = "COALESCE(NULLIF(NULLIF(TRIM(display_tab_id),'unclassified'),''),NULLIF(TRIM(trip_id),''),'')"
+        if trips:
+            clauses.append(target + ' NOT IN (' + ','.join('?' for _ in trips) + ')')
+            params.extend(trips)
+    if card:
+        clauses.append('COST_CARD_KEY(issuer,card_kind,card_tail)=?')
+        params.append(card)
+    if search:
+        clauses.append("(instr(lower(COALESCE(merchant,'')),lower(?))>0 OR instr(lower(COALESCE(description,'')),lower(?))>0 OR instr(lower(COALESCE(item,'')),lower(?))>0)")
+        params.extend([search] * 3)
+    return ''.join(' AND (' + clause + ')' for clause in clauses), params
+
+
+def card_options(db_path=None):
+    conn = _connect(_resolve_card_db_path(db_path))
+    try:
+        options = {identity['card_key']: identity for issuer, kind, tail in conn.execute(
+            'SELECT DISTINCT issuer,card_kind,card_tail FROM transactions')
+            for identity in [card_identity(issuer, kind, tail)]}
+        return sorted(options.values(), key=lambda value: (value['card_key'] == 'missing', value['card_label']))
+    finally:
+        conn.close()
+
+
 class DaySourceChanged(ValueError):
     """The explicit date filter must restart after its source rows change."""
 
@@ -134,6 +174,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
     uri = path.as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
     conn.create_function("COST_VALID_USE_DATE", 1, lambda value: int(_valid_use_date(value)), deterministic=True)
+    conn.create_function('COST_CARD_KEY', 3, lambda issuer, kind, tail: card_identity(issuer, kind, tail)['card_key'], deterministic=True)
     return conn
 
 def _get_available_years(conn: sqlite3.Connection) -> List[int]:
@@ -141,7 +182,7 @@ def _get_available_years(conn: sqlite3.Connection) -> List[int]:
     cur = conn.cursor()
     cur.execute(f"SELECT DISTINCT substr(approval_date, 1, 4) FROM transactions WHERE {_VALID_DATE_SQL} ORDER BY 1")
     return [int(row[0]) for row in cur.fetchall()]
-def year_summary(db_path: Optional[str] = None, year: int = 2026) -> Dict[str, Any]:
+def year_summary(db_path: Optional[str] = None, year: int = 2026, **filters) -> Dict[str, Any]:
     """Get monthly transaction counts and undated count for a year.
 
     Undated count only includes truly null/empty/invalid approval_date values,
@@ -151,21 +192,22 @@ def year_summary(db_path: Optional[str] = None, year: int = 2026) -> Dict[str, A
     conn = _connect(resolved_path)
     try:
         cur = conn.cursor()
+        extra, filter_params = _filter_clause(**filters)
         months = {}
         for m in range(1, 13):
             cur.execute(
                 "SELECT COUNT(DISTINCT transaction_id) FROM transactions "
-                f"WHERE {_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?",
-                (str(year), f"{m:02d}"))
+                f"WHERE {_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?" + extra,
+                [str(year), f"{m:02d}", *filter_params])
             months[m] = cur.fetchone()[0] or 0
-        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})")
+        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})" + extra, filter_params)
         undated = cur.fetchone()[0] or 0
         return {"year": year, "months": months, "undated_count": undated}
     finally:
         conn.close()
 
 def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int = 1,
-                    cursor: Optional[str] = None, per_page: int = 100) -> Dict[str, Any]:
+                    cursor: Optional[str] = None, per_page: int = 100, **filters) -> Dict[str, Any]:
     """List transactions for a specific month with cursor pagination.
 
     Stable ordering: date ASC, time-bearing rows first, time ASC, ID ASC.
@@ -184,6 +226,9 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         cur = conn.cursor()
         params = [str(year), f"{month:02d}"]
         where = f"{_VALID_DATE_SQL} AND substr(approval_date, 1, 4) = ? AND substr(approval_date, 6, 2) = ?"
+        extra, filter_params = _filter_clause(**filters)
+        where += extra
+        params.extend(filter_params)
         if cursor:
             parts = cursor.split("|", 1)
             if len(parts) != 2:
@@ -202,7 +247,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         sql = (
             "SELECT transaction_id, approval_date, approval_number, amount_krw, "
             "foreign_amount, foreign_currency, merchant, description, classification_state, "
-            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision "
+            "classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
             "FROM transactions WHERE " + where +
             " ORDER BY substr(approval_date, 1, 10) ASC, "
             "CASE WHEN length(approval_date) = 10 THEN 1 ELSE 0 END ASC, "
@@ -214,7 +259,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab = r
             items.append({
                 "transaction_id": tid,
                 "use_date": adate or "",
@@ -228,6 +273,8 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
                 "classification_state": state,
                 "classification_source": src,
                 "trip_id": trip,
+                "display_tab_id": display_tab,
+                **card_identity(issuer, kind, tail),
                 "item": item,
                 "description_raw": raw,
                 "duplicate_of": dup,
@@ -246,7 +293,7 @@ def list_for_month(db_path: Optional[str] = None, year: int = 2026, month: int =
     finally:
         conn.close()
 
-def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100) -> Dict[str, Any]:
+def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Optional[str] = None, per_page: int = 100, **filters) -> Dict[str, Any]:
     """List undated transactions (null/empty/invalid approval_date only).
 
     Does NOT include transactions from other years with valid dates.
@@ -264,7 +311,9 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         # Only truly null/empty/invalid dates - NOT "NOT LIKE year-%".
         # The OR group must be parenthesized so a cursor filter cannot reopen it.
         where = f"NOT ({_VALID_DATE_SQL})"
-        cur.execute(f"SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE NOT ({_VALID_DATE_SQL})")
+        extra, params = _filter_clause(**filters)
+        where += extra
+        cur.execute('SELECT COUNT(DISTINCT transaction_id) FROM transactions WHERE ' + where, params)
         undated_total = cur.fetchone()[0] or 0
         if cursor:
             parts = cursor.split("|", 1)
@@ -281,7 +330,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         cur.execute(
             f"SELECT transaction_id, approval_date, approval_number, amount_krw, "
             f"foreign_amount, foreign_currency, merchant, description, classification_state, "
-            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision "
+            f"classification_source, trip_id, item, description_raw, duplicate_of, conflict_reason, revision, issuer,card_kind,card_tail,display_tab_id "
             f"FROM transactions WHERE {where} "
             f"ORDER BY transaction_id ASC LIMIT ?",
             params + [per_page + 1])
@@ -290,7 +339,7 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
         rows = rows[:per_page]
         items = []
         for r in rows:
-            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev = r
+            tid, adate, anumber, amt, famt, fcurr, merchant, desc, state, src, trip, item, raw, dup, conflict, rev, issuer,kind,tail,display_tab = r
             items.append({
                 "transaction_id": tid,
                 "approval_date": adate or "",
@@ -303,6 +352,8 @@ def undated_list(db_path: Optional[str] = None, year: int = 2026, cursor: Option
                 "classification_state": state,
                 "classification_source": src,
                 "trip_id": trip,
+                "display_tab_id": display_tab,
+                **card_identity(issuer, kind, tail),
                 "item": item,
                 "description_raw": raw,
                 "duplicate_of": dup,

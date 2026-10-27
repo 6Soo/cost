@@ -309,11 +309,14 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .sum{display:flex;align-items:baseline;gap:28px;padding:11px 24px;border-bottom:1px solid var(--line);
  flex-wrap:wrap}
 .sum div{display:flex;align-items:baseline;gap:7px}
-.sum i{font-style:normal;font-size:12px;color:var(--mut)}
-.sum b{font-size:17px;font-weight:700;letter-spacing:-.012em}
+.sum i{font-style:normal;font-size:13px;color:var(--mut)}
+.sum b{font-size:clamp(20px,1.8vw,25px);font-weight:700;letter-spacing:-.012em}
+.sum .net-income{flex-wrap:wrap;gap:4px 8px}
+.sum .net-income small{font-size:12px;color:var(--mut);white-space:nowrap}
 .sum .n{margin-left:auto;font-size:12.5px;color:var(--mut)}
 
-.tw{padding:0 0 28px}
+.tw{padding:0 0 28px;overflow-x:auto;max-width:100%}
+#tbl{min-width:830px;font-size:14px}
 table{width:100%;table-layout:fixed;border-collapse:collapse}
 th,td{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);
  text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -326,7 +329,7 @@ thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
    to the content is not printed twice. */
 td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
 .party-line{display:flex;align-items:center;gap:6px;min-width:0}
-td.c-stay{white-space:nowrap;font-size:12.5px;color:var(--mut)}
+td.c-stay{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;overflow-wrap:break-word;padding:8px 10px}
 .party-copy{display:block;min-width:0;flex:1}
 .party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
 .category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
@@ -596,6 +599,22 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
   .lst form[data-js-move] .btn{flex:0 0 76px;min-width:76px}
   .lg{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;
    background:var(--bg);font-size:12px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
+}
+.trip-copy-wrap{margin:24px 0 16px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+.trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
+.trip-copy-box .btn:hover{background:var(--hover)}
+.trip-copy-desc{font-size:13px;color:var(--mut)}
+.copy-status{font-size:13px;font-weight:500;margin-left:4px}
+.copy-status.success{color:var(--grn)}
+.copy-status.err{color:var(--bad)}
+.copy-status.loading{color:var(--ink)}
+@media(max-width:600px){
+ .trip-copy-wrap{margin:16px 8px;padding:12px}
+ .trip-copy-box{flex-direction:column;align-items:stretch;gap:8px}
+ .trip-copy-box .btn{width:100%;justify-content:center}
+ .trip-copy-desc{text-align:center}
+ .copy-status{text-align:center}
 }
 """
 
@@ -995,6 +1014,74 @@ document.addEventListener('keydown',function(e){
    var form=e.target;
    if(form.matches&&form.matches('form[data-js-save]')) clearFlags(form);
   },true);
+
+  // Trip tab expense copy button (contract: Google 7-column B:H TSV copy)
+  document.addEventListener('click',async function(e){
+   var btn=e.target.closest&&e.target.closest('#copy-trip-expenses,[data-copy-trip-tsv]');
+   if(!btn||btn.disabled) return;
+   var tab=btn.getAttribute('data-tab');
+   if(!tab) return;
+   var wrap=btn.closest('.trip-copy-wrap')||btn.parentNode;
+   var status=wrap&&wrap.querySelector('.copy-status');
+   btn.disabled=true;
+   try{
+    if(status){
+     status.textContent='복사 중...';
+     status.className='copy-status loading';
+    }
+    var filters=new URLSearchParams(location.search);
+    var params=new URLSearchParams();
+    ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
+    var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv?'+params.toString());
+    if(!res.ok){
+     var errJson=await res.json().catch(function(){return {};});
+     throw new Error(errJson.message||('복사 요청 실패 ('+res.status+')'));
+    }
+    var data=await res.json();
+    if(!data.tsv||data.row_count===0){
+     if(status){
+      status.textContent=data.held&&data.held.length?'복사 가능한 지출이 없습니다. '+data.held.length+'건의 날짜·금액·증빙을 확인해 주세요.':'지출 내역이 없습니다.';
+      status.className='copy-status';
+     }
+     return;
+    }
+    var textToCopy=data.tsv;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+     await navigator.clipboard.writeText(textToCopy);
+    }else{
+     var ta=document.createElement('textarea');
+     ta.value=textToCopy;
+     ta.style.position='fixed';
+     ta.style.opacity='0';
+     document.body.appendChild(ta);
+     ta.select();
+     try{if(!document.execCommand('copy')) throw new Error('클립보드 복사가 허용되지 않았습니다.');}
+     finally{document.body.removeChild(ta);}
+    }
+    try{
+     localStorage.setItem('gcopy-trip:'+tab,new Date().toLocaleString('ko-KR'));
+    }catch(err){}
+    if(status){
+     var countStr=data.row_count+'건';
+     var sumStr=data.total_krw?(' · '+Number(data.total_krw).toLocaleString('ko-KR')+'원'):'';
+     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.'+(data.held&&data.held.length?' 제외 '+data.held.length+'건: 날짜·금액·증빙 확인 필요':'');
+     status.className='copy-status success';
+    }
+   }catch(err){
+    if(status){
+     status.textContent='복사 실패: '+(err.message||'클립보드 접근 오류');
+     status.className='copy-status err';
+    }
+   }finally{
+    btn.disabled=false;
+    setTimeout(function(){
+     if(status&&status.classList.contains('success')){
+      status.textContent='';
+      status.className='copy-status';
+     }
+    },5000);
+   }
+  });
  })();
  """
 
@@ -1567,6 +1654,13 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         + "</form>")
 
 
+def _net_income_summary(value, prefix=''):
+    label = prefix + '수입'
+    return (f"<div class='net-income'><i title='총수입 − 지출'>{ui_icons.icon('arrow-up-down')}{label}</i>"
+            f"<b aria-label='{label}, 총수입에서 지출을 뺀 금액'>{_money(value)}</b>"
+            "<small>총수입 − 지출</small></div>")
+
+
 def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None,
                   google_income=None) -> str:
     """The totals bar.
@@ -1586,16 +1680,16 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
             if filtered is not None and whole is not None:
                 return (
                     f"<div class='sum tnum' id='sum'>{scope}"
-                    f"<div><i>{ui_icons.icon('book-open')}전체 수입</i><b>{_money(income)}</b></div>"
+                    f"<div><i>{ui_icons.icon('book-open')}전체 총수입</i><b>{_money(income)}</b></div>"
                     f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
                     f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
-                    f"<div><i>{ui_icons.icon('arrow-up-down')}전체 차액</i><b>{_money(income - whole[1])}</b></div>"
+                    f"{_net_income_summary(income - whole[1], '전체 ')}"
                     f"<span class='n'>전체 수입 {count_in}건 · 전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
                 f"<div class='sum tnum' id='sum'>{scope}"
-                f"<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+                f"<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
-                f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
+                f"{_net_income_summary(income - expense)}"
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
         elif google_income.get('numeric_gap') or not google_income.get('verified'):
             income_status = ("<b class='warn'>합계 차이 있음</b>"
@@ -1625,20 +1719,19 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
     if filtered is None or whole is None:
         return (
-            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+            f"<div class='sum tnum' id='sum'>{scope}<div><i>{ui_icons.icon('book-open')}총수입</i><b>{_money(income)}</b></div>"
             f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
-            f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
+            f"{_net_income_summary(income - expense)}"
             f"<span class='n'>수입 {len(incomes)}건 · 지출 {len(expenses)}건</span></div>" + note)
     fincome, fexpense, finc, fexp = filtered
     wincome, wexpense, winc, wexp = whole
     return (
         f"<div class='sum tnum' id='sum'>{scope}"
-        f"<div><i>전체 수입</i><b>{_money(wincome)}</b></div>"
+        f"<div><i>전체 총수입</i><b>{_money(wincome)}</b></div>"
         f"<div><i>전체 지출</i><b>{_money(wexpense)}</b></div>"
-        f"<div><i>검색 결과 수입</i><b>{_money(fincome)}</b></div>"
+        f"<div><i>검색 결과 총수입</i><b>{_money(fincome)}</b></div>"
         f"<div><i>검색 결과 지출</i><b>{_money(fexpense)}</b></div>"
-        f"<div><i>검색 결과 차액</i>"
-        f"<b>{_money(fincome - fexpense)}</b></div>"
+        f"{_net_income_summary(fincome - fexpense, '검색 결과 ')}"
         f"<span class='n'>전체 수입 {winc}건 · 전체 지출 {wexp}건"
         f" · 검색 결과 수입 {finc}건 · 검색 결과 지출 {fexp}건</span></div>" + note)
 
@@ -1999,8 +2092,8 @@ def _tables_html(incomes, expenses, *, selected, unclassified, move_back="/board
         # and content column takes whatever is left. The amount is the last column
         # and stays right-aligned, because a ledger is read by comparing the
         # amount column down, not across.
-        "<colgroup><col style='width:108px'><col><col style='width:104px'>"
-        "<col style='width:150px'>"
+        "<colgroup><col style='width:108px'><col style='width:28%'><col style='width:104px'>"
+        "<col style='width:280px'>"
         "<col style='width:126px'></colgroup>"
         "<thead><tr><th scope='col'>날짜</th><th scope='col'>거래처·내용</th>"
         "<th scope='col'>분류</th><th scope='col'>이용일</th>"
@@ -2387,6 +2480,62 @@ def _quarter_body(tab_id: str, message: str = "", error: str = "") -> str:
             f"<table><thead><tr><th>날짜</th><th>상호</th><th>금액</th></tr></thead><tbody>{waiting}</tbody></table></div>")
 
 
+def _is_trip_tab(tab_id: str) -> bool:
+    """True only for actual trip tabs. False for unclassified, refunds, and quarter tabs."""
+    if not tab_id or tab_id in ("unclassified", "refunds"):
+        return False
+    from app import quarter_tab
+    if quarter_tab.parse_tab(tab_id):
+        return False
+    return _selected_trip(tab_id) is not None
+
+
+def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
+    """Builds Google Sheets 7-column TSV (B:H) for the trip's expenses."""
+    if not _is_trip_tab(tab_id):
+        raise ValueError("INVALID_TRIP_TAB")
+    _, expenses, _, _ = _selected_rows(tab_id, query, kind)
+    return _trip_expense_tsv(tab_id, expenses)
+
+
+def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
+    from app.google_tsv import expense_tsv
+    rows = []
+    for row in expenses:
+        rows.append({
+            "transaction_id": row.get("source_event_id") or row.get("row_id"),
+            "status": "blocked" if row.get("blocked") else "ready",
+            "date": row.get("occurred_on"),
+            "payee": row.get("source_merchant") or row.get("description") or "",
+            "category": row.get("item"),
+            "period": row.get("service_period"),
+            "reservation_no": row.get("reservation_no"),
+            "evidence": {"카드": "card", "영수증": "receipt"}.get(row.get("evidence_type")),
+            "amount_krw": row.get("display_amount_krw", row.get("amount_krw")),
+        })
+    return {**expense_tsv(rows, layout="rev"), "tab_id": tab_id}
+
+
+def _trip_copy_html(tab_id: str, expenses: list) -> str:
+    """Renders the expense copy controls at the bottom of the trip tab only."""
+    if not _is_trip_tab(tab_id):
+        return ""
+    result = _trip_expense_tsv(tab_id, expenses)
+    count, total = result["row_count"], result["total_krw"]
+    held = f" · 확인 필요 {len(result['held'])}건 제외" if result["held"] else ""
+    return (
+        f"<section class='trip-copy-wrap' aria-label='지출내용 복사'>"
+        f"<div class='trip-copy-box'>"
+        f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}'>"
+        f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
+        f"</button>"
+        f"<span class='trip-copy-desc'>현재 표시된 지출을 Google 7열(B:H)로 복사합니다 ({count}건 · {_money(total)}{held})</span>"
+        f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
+        f"</div>"
+        f"</section>"
+    )
+
+
 def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
     """The rows this tab and filter show, and the unfiltered totals beside them.
 
@@ -2558,6 +2707,7 @@ def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = ""
                             move_back=back, match_annotations=matches)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
+            f"{_trip_copy_html(tab_id, expenses)}"
             f"</div>")
 
 
@@ -2586,7 +2736,8 @@ def rows_part(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     return (f"{_tables_html(incomes, expenses, selected=selected, unclassified=unclassified,
                             move_back=back, match_annotations=matches)}"
             f"{_mobile_html(incomes, expenses, selected=selected, unclassified=unclassified,
-                            move_back=back, match_annotations=matches)}")
+                            move_back=back, match_annotations=matches)}"
+            f"{_trip_copy_html(tab_id, expenses)}")
 
 
 def viewer_trips_html(trips) -> str:

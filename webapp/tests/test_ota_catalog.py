@@ -64,15 +64,17 @@ def data(tmp_path, monkeypatch):
     board.close()
 
 
-def test_all_and_unassigned_include_cancelled_unpaid_and_do_not_write(data):
+def test_all_preserves_cancelled_but_unassigned_is_actionable_and_does_not_write(data):
     board, sources = data
     before = board.conn.total_changes
     raw = sources['portal_databases'][0].read_bytes()
     result = ota_catalog.catalog(board, {}, sources=sources)
-    assert result['total'] == 3 and result['unassigned_count'] == 2
+    assert result['total'] == 3 and result['unassigned_count'] == 1 and result['excluded_count'] == 1
     pending = ota_catalog.catalog(board, {'state': ['unassigned']}, sources=sources)
     assert {(r['provider'], r['booking_ref']) for r in pending['rows']} == {
-        ('agoda', 'BOOK-2'), ('trip', 'BOOK-1')}
+        ('trip', 'BOOK-1')}
+    excluded = ota_catalog.catalog(board, {'state': ['excluded']}, sources=sources)
+    assert [r['booking_ref'] for r in excluded['rows']] == ['BOOK-2']
     assert sources['portal_databases'][0].read_bytes() == raw
     assert board.conn.total_changes == before
 
@@ -229,7 +231,7 @@ def test_saved_board_link_is_provider_safe_and_current(data):
     assert rows['trip', 'BOOK-1']['trips'] == []
     board.conn.execute("UPDATE board_rows SET display_tab_id='unclassified' WHERE row_id='one'")
     board.conn.commit()
-    result = ota_catalog.catalog(board, {'state': ['unassigned']}, sources=sources)
+    result = ota_catalog.catalog(board, {'state': ['excluded']}, sources=sources)
     assert any(r['booking_ref'] == 'BOOK-2' for r in result['rows'])
 
 
