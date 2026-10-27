@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`**, 2026-10-28 [PR #225](https://github.com/6Soo/cost/pull/225). 독립 순수 OTA queue classification/summary 모듈을 추가했다. freshness·경고·충돌·유효 identity와 알려진 성공 근거로만 대사 검토 완료를 분류하며 canonical/public_subset coverage와 singleton fallback을 명시한다. API/UI·solver·store에는 연결하지 않았다.
+
+- 지정 합성60 passed·compile/diff·staged guard 차단0/삭제0. 배포본 합성 complete/warning/stale duplicate/subset 스모크 통과. 합성10k 0.2368s/2,287,945B·100k 2.7025s/24,632,608B는 구현자 계측이며 제품 p95가 아니다. 국소 독립 모듈이므로 전체 회귀·브라우저는 생략했다.
+- 추적950개 blobs 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 직전 `d230e12`와 작업 XML·게이트·기존 검증 복원 사본을 보존했다. 배포 전후2DB/13표 내용·스키마 동일. 금융/Google/고객 원본 직접 쓰기·마이그레이션·대량 재처리는 실행하지 않았다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d.json`, 같은 SHA release-audit, `.local-archive/ota-queue-projection-20261028/`의 보호 전후. summary/events API·pagination·UI 및 성능 목표 달성은 미완료다. 문서 갱신으로 재배포하지 않는다.
+
+## 직전 RF-201 테마 버튼 릴리스
+
 **`d230e124b27f268de8e8e3812abe53885e5e2212`**, 2026-10-28 [PR #222](https://github.com/6Soo/cost/pull/222). 두 공통 스타일의 테마 버튼 크기를 `--shell-theme-control-size:44px`로 모았다. 각 소비의 fallback도44px이며 색상·우선권·DOM/JS·단일 아이콘 테마 동작은 유지한다.
 
 - manual-theme/mobile-topbar5 passed, 익명 baseline/current CSS24조건（375/1280px·light/dark·100/200%·결합/개별fallback）동일. 결합 스타일은44×44px/확대88×88px, 버튼 개수·색상도 동일. diff 검수·guard3파일 차단0/삭제0. 실제 기기 수락은 미실행이다.

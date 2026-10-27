@@ -108,13 +108,16 @@
 - **REVIEW_FIX_PENDING** — 구현자의 초기31 passed·compile/diff와 합성10k/100k 계측 보고를 수신했으나 최종 수락하지 않았다. 현재 파일 검수에서 명시적 `fresh=False` 미반영, 경고/충돌보다 대기 분기가 앞서는 우선순위, 잘못된 freshness metadata의 원문 반환, stale 중 duplicate 처리의 전역 gate 덮어쓰기를 확인했다. 같은 구현자에게 지정 두 파일의 회귀 검사와 보완을 요청했다. 완료에는 유효한 transaction identity도 요구한다. 보완 알림 후 파일·지정 테스트를 검수하며 API/UI 성능 완료나 운영 반영으로 보고하지 않는다.
 - **REVIEWED / RELEASE_PENDING** — 구현자 보완51 passed 후 Supervisor가 conflict evidence와 waiting/missing 상태의 우선순위9개 회귀를 추가해 지정60 passed·compile/diff를 확인했다. metadata는 JSON-safe primitive만 반환하고 fresh/enabled 부정·malformed envelope는 전역 auto_recheck, duplicate는 이를 덮지 않는다. 합성10k 0.2368s/2,287,945B·100k 2.7025s/24,632,608B는 구현자 계측이며 제품 p95가 아니다. 다음은 지정 두 코드 파일과 상태 기록만 commit/PR/병합하고 검증된 SHA를 배포한다. API/UI·pagination은 미구현 상태다.
 
+- **COMPLETE / DEPLOYED（순수 projection 범위）** — PR #225, 코드 `522e55e`, main/운영 `a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`. 지정60 passed·compile/diff·guard 차단0/삭제0·950 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변·배포본 합성 스모크 통과. 근거는 `.local-archive/ota-queue-projection-20261028/`와 운영 기록이다. 기존 API/UI에 연결하지 않았으므로 제품 성능 개선이나 전체 OTA 명세 완료가 아니다.
+- **NEXT_SOURCE_AUDIT_PENDING** — 기존 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`가 `docs/specs/ota-review-queue-performance-20261027.md`만 조사한다. canonical event/result 결합·worker precompute·last-good freshness·public sanitization·summary와 세대/필터 바인딩 cursor API의 가장 작은 연결 범위 및 수락 검사를 제시한다. 코드/테스트/브라우저/DB/배포는 실행하지 않는다. 완료 알림 후 해당 문서 diff/source 참조를 검수한다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`d230e124b27f268de8e8e3812abe53885e5e2212`**다. PR #222 테마 버튼 치수 토큰을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`**다. PR #225 독립 OTA queue projection을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
 이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
