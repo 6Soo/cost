@@ -9,11 +9,23 @@ import re
 from app import ota_mail
 
 
-PARSER_VERSION = "flight-evidence-v4-first-received"
+PARSER_VERSION = "flight-evidence-v5-flat-layout"
 PROVIDER_DOMAINS = {"trip": ("trip.com", "trip.co.kr")}
 
 _INVISIBLE = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, *range(0x202A, 0x202F)])
-_HEADER = re.compile(r"(가는편|오는편|\d구간|여정\s*\d)\s*:\s*(.+?)\s*-\s*(.+?)\s*(?:\|(.*))?")
+_HEADER = re.compile(
+    r"(가는편|오는편|\d+구간|여정\s*\d+|"
+    r"\d+(?=\s*:\s*[^:\n|]+?\s+-\s+[^:\n|]+?\s*\|\s*\d{4}년))"
+    r"\s*:\s*(.+?)\s*-\s*(.+?)\s*(?:\|(.*))?")
+_INLINE_HEADER = re.compile(
+    r"(?<!\d)((?:가는편|오는편|\d+구간|여정\s*\d+|\d+)\s*:\s*"
+    r"[^\n|:]+?\s+-\s+[^\n|:]+?\s*\|\s*\d{4}년\s*\d{1,2}월\s*\d{1,2}일)")
+_INLINE_PASSENGER = re.compile(
+    r"(?<![A-Za-z])([A-Za-z][A-Za-z .'\-]*?)\s*\(성\)\s*"
+    r"([A-Za-z][A-Za-z .'\-]*?)\s*\(이름\)")
+_INLINE_FLIGHT = re.compile(
+    r"(?<![A-Z0-9])([A-Z0-9]{2}\s?\d{1,4})\s*\|\s*"
+    r"(?:일반석|이코노미|비즈니스|퍼스트|Economy|Business|First)(?=\s|\||$)")
 _DATE = re.compile(r"(?:(\d{4})년\s*)?(\d{1,2})월\s*(\d{1,2})일")
 _NAME = re.compile(r"[A-Za-z가-힣][A-Za-z가-힣 .'\-]*")
 _TIME = re.compile(r"\d{1,2}:\d{2}")
@@ -108,9 +120,22 @@ def strip_invisible(text: str) -> str:
     return text.translate(_INVISIBLE)
 
 
+def _flight_tokens(text):
+    # Some archived text parts flatten every HTML block onto one line. Split only
+    # explicit provider labels; never infer names or dates from nearby prose.
+    text = strip_invisible(text)
+    text = re.sub(r"예약번호\s*[:：]?\s*(\d(?:[\d ]*\d)?)",
+                  lambda m: '\n예약번호\n' + m[1] + '\n', text)
+    text = _INLINE_HEADER.sub(lambda m: '\n' + m[1] + '\n', text)
+    text = _INLINE_PASSENGER.sub(
+        lambda m: '\n' + m[1].strip() + '\n(성)\n' + m[2].strip() + '\n(이름)\n', text)
+    text = text.replace('규정 조회', '\n규정 조회')
+    tokens = [" ".join(line.split()) for line in text.splitlines()]
+    return [token for token in tokens if token]
+
+
 def parse_flight_text(text: str) -> dict | None:
-    tokens = [" ".join(line.split()) for line in strip_invisible(text).splitlines()]
-    tokens = [token for token in tokens if token]
+    tokens = _flight_tokens(text)
     passengers = _passengers(tokens)
     headers = [i for i, token in enumerate(tokens) if _HEADER.fullmatch(token)]
     cancellation_status = _cancellation_status(tokens)
@@ -235,7 +260,7 @@ def collect_flight_evidence(mail_directories) -> dict:
         subject = str((authenticated[0] or {}).get("subject") or "")
         body_text = ota_mail.message_text(message)
         source_digest = hashlib.sha256(str(message_id).encode("utf-8")).hexdigest()
-        refs = _booking_refs([" ".join(line.split()) for line in strip_invisible(body_text).splitlines()])
+        refs = _booking_refs(_flight_tokens(body_text))
         fact = _received_fact(message, source_digest)
         if len(refs) == 1 and fact:
             receipts[(provider, next(iter(refs)))].append(fact)
@@ -302,18 +327,17 @@ def _date_on(text):
 
 
 def _segments(block):
-    points, flights = [], []
-    index = 0
-    while index < len(block):
-        token = block[index]
-        iata = _IATA.match(block[index + 1]) if index + 1 < len(block) and _TIME.fullmatch(token) else None
-        if iata:
-            points.append((token, iata.group(0)))
-            index += 2
-            continue
+    points = [(m[1], m[2]) for m in re.finditer(
+        r"(?<![\d:])(\d{1,2}:\d{2})\s*([A-Z]{3})(?![A-Za-z])", '\n'.join(block))]
+    flights = []
+    for token in block:
         if _FLIGHT.fullmatch(token):
-            flights.append(token.replace(" ", ""))
-        index += 1
+            flights.append(token.replace(' ', ''))
+        else:
+            # Seat-class delimiters identify the flight field without treating
+            # aircraft model numbers as flight numbers in flattened mail.
+            flights.extend(m[1].replace(' ', '') for m in _INLINE_FLIGHT.finditer(token)
+                           if any(ch.isalpha() for ch in m[1][:2]))
     if len(points) == 2 and len(flights) == 1:
         pairs = [(0, 1, 0)]
     elif len(points) >= 4 and len(points) % 2 == 0 and len(flights) == len(points) // 2:

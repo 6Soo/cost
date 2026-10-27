@@ -100,6 +100,52 @@ def test_empty_text_returns_none():
     assert parse_flight_text("  \n\n  ") is None
 
 
+def _flattened_confirmation():
+    return (
+        '예약번호 9000012345678901[합성] 예약 확인'
+        '1: 알파 - 베타 | 2031년 3월 10일'
+        '* 모든 출발·도착시간은 현지시간 기준입니다.'
+        '09:20AAA 합성공항 T1합성항공 ZZ101 | 일반석 | 보잉 737-800 | 기내식 불포함'
+        '11:00BBB 합성공항'
+        '2: 감마 - 알파 | 2031년 3월 20일'
+        '14:30CCC 합성공항 I합성항공 ZY202 | 일반석 | 에어버스 A330-300 | 기내식 불포함'
+        '16:00AAA 합성공항 T1규정 조회 및 취소·변경 요청'
+        'SYNTH\u00a0(성)\u00a0ALPHA\u00a0(이름)성인 항공권'
+    )
+
+
+def test_flattened_numbered_itinerary_keeps_explicit_names_reference_and_segments():
+    result = parse_flight_text(_flattened_confirmation())
+    assert result is not None
+    assert result['booking_ref'] == '9000012345678901'
+    assert result['passengers'] == [{'surname': 'SYNTH', 'given_name': 'ALPHA'}]
+    assert result['legs_complete'] is True
+    assert [leg['departure_on'] for leg in result['legs']] == ['2031-03-10', '2031-03-20']
+    assert [leg['segments'][0]['flight_number'] for leg in result['legs']] == ['ZZ101', 'ZY202']
+    assert result['legs'][0]['segments'][0]['departure_airport'] == 'AAA'
+    assert result['legs'][1]['segments'][0]['arrival_airport'] == 'AAA'
+
+
+def test_flattened_mail_collection_keeps_authentication_and_first_received_boundary(tmp_path):
+    import hashlib
+    import json
+    flight_evidence._MEMO.clear()
+    trusted = _trip_message('synthetic-trusted', _flattened_confirmation())
+    trusted.update(owner_collected=True, internal_date='1893456000000')
+    untrusted = _trip_message('synthetic-untrusted', _flattened_confirmation())
+    (tmp_path / 'gmail-flattened.json').write_text(
+        json.dumps({'responses': [trusted, untrusted]}), encoding='utf-8')
+
+    bookings = collect_flight_evidence([tmp_path])
+
+    assert len(bookings) == 1
+    result = bookings[('trip', '9000012345678901')]
+    assert result['source_digests'] == [hashlib.sha256(b'synthetic-trusted').hexdigest()]
+    assert result['booking_date_status'] == 'FIRST_RECEIVED'
+    assert result['passengers'] == [{'surname': 'SYNTH', 'given_name': 'ALPHA'}]
+    assert result['legs_complete'] is True
+
+
 def test_payment_notice_without_year_is_incomplete():
     text = "\n\n".join(["결제 완료 안내", "예약번호", REF, "가는편: 서울 - 삿포로", "6월 16일",
                        "오는편: 삿포로 - 서울", "6월 21일"] + _passenger_lines((("KIM", "ALPHA"),)))

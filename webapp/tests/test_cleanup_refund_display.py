@@ -124,6 +124,30 @@ def test_multiple_partial_refunds_share_one_confirmed_original_without_writes(tm
         board.close()
 
 
+def test_foreign_amount_link_displays_its_actual_basis_without_writes(tmp_path):
+    board = LedgerStore(tmp_path / 'foreign-basis.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,overseas,purchase,SYNTH HOTEL,14000,10,USD,14000,2026-10-01,2026-10-02,A100,,매입\n' +
+            '국민,1234,overseas,purchase,SYNTH HOTEL,13000,10,USD,13000,2026-10-03,2026-10-04,A200,,매입\n'
+        ).encode(), 'synthetic.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        refund = next(row['transaction_id'] for row in rows if row['approval_number'] == '200')
+        board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',"
+                           "amount_krw=-13000,original_approval_number='' WHERE transaction_id=?", (refund,))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        link = refund_links(board.conn, [refund])[refund]
+        assert link['basis'] == 'merchant_card_foreign_amount'
+        markup = _render_refund_evidence(board, refund, link)
+        assert '외화 금액·동일 카드 기준 원결제 연결 · 취소/환불 1건' in markup
+        assert '원승인번호 기준' not in markup
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
     board = LedgerStore(tmp_path / 'merchant.sqlite', seed_demo=False)
     try:
