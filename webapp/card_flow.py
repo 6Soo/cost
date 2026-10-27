@@ -3055,6 +3055,14 @@ def render_expense_cleanup(board, csrf, *, page=1):
     from app.partial_refund import refund_links, count_held_cancellations
     visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
     refund_by_id = refund_links(board.conn, visible_refunds)
+    # A displayed original may have cancellations on another cleanup page.
+    # Resolve globally once so its status does not contradict the refund card.
+    all_refund_ids = [row[0] for row in board.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    all_refund_links = refund_links(board.conn, all_refund_ids)
+    original_refunds = {}
+    for refund_id, link in all_refund_links.items():
+        original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
@@ -3089,7 +3097,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         if preview_row:
             blocked = preview_row.get('blocked')
             blocked_labels = {
-                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+                'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
                 'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
                 'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
@@ -3117,6 +3125,22 @@ def render_expense_cleanup(board, csrf, *, page=1):
         if snapshot_context and not snapshot_context.get('fresh'):
             if entry and isinstance(entry, dict) and entry.get('ota_status') in ('EXACT', 'INFERRED', 'USER_CONFIRMED'):
                 reason = '현재 OTA 연결 상태를 확인할 수 있습니다.'
+        # Reflect already-proven purchase/refund pairing on the original row,
+        # regardless of OTA snapshot freshness or the cancellation's page.
+        if tid not in cancellation_ids and tid in original_refunds:
+            pairs = original_refunds[tid]
+            example = pairs[0][1]
+            if example.get('status') == 'full':
+                reason = (f"원결제와 취소·환불 {example['refund_count']}건의 금액이 전액 상쇄됩니다."
+                          " OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다.")
+            elif example.get('status') == 'partial':
+                reason = (f"원결제에 취소·환불 {example['refund_count']}건 연결 · "
+                          f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
+            elif example.get('status') == 'excess':
+                reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
+            evidence += ("<p class='cleanup-finance-status'>"
+                         + esc("원결제·환불 대응은 확인됐으며 실제 장부 기록·환급 완료를 의미하지 않습니다.")
+                         + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
             link = refund_by_id.get(tid)
