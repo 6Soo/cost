@@ -56,7 +56,7 @@
 ### 진행 중인 RF-002 실제 읽기 경로 채택 조사
 
 - 브랜치 `docs/rf002-ota-release-and-adoption-20261028`. 같은 local workspace의 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-master-20261027.md`만 수정한다. 가장 작은 실제 읽기 소비경계·입출력 shape·caller/authority/freshness·복사비용·합성 동등성 검사 범위를 소스 근거로 좁힌다.
-- **IN_PROGRESS / NOT_VERIFIED** — DTO 왕복 복사를 억지로 추가하지 않고 source-based 채택/API 보완 범위를 조사한다. 기존 금융/여행/Google 쓰기 authority를 변경하지 않는다. 문서전용 diff/source 참조만 확인하고 테스트·빌드·브라우저·운영 재검사는 하지 않는다. 다음 명령은 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`다.
+- **COMPLETE（소스 조사）** — 실제 caller의 freshness gate와 helper의 좁은 입력 shape를 대조했다. 전체 DTO freeze/thaw는 전량 복사를 늘리므로 채택하지 않는다. 다음 구현은 `project_card_ota_statuses` 실행 본문을 유지하고 필요한 필드를 별도 `TypedDict` 정적 읽기 계약으로 선언·입력 annotation에 연결하는 최소 범위다. 기존 금융/여행/Google 쓰기 authority는 그대로 유지한다. 이 문서전용 검수는 diff/참조/링크만 확인하며 테스트·빌드·브라우저·운영 재검사는 하지 않았다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
