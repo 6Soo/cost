@@ -119,6 +119,12 @@
 - **REVIEWED / RELEASE_PENDING** — 구현자 지정29 passed·기존 보호5 passed 후 Supervisor가 누락 solver 필드의 source fallback 차단, source evidence conflict 보존, 세대 불일치 finite tag를 보완했다. 통합3파일73 passed/1 failed: 기존 partial-group fixture가 HOLD_NO_CARD이며 임시DB 정리 WinError32를 동반한다. 변경 전 운영 `a6f4abc`의 동일 단일 검사에서도 동일 실패를 재현했고 통과로 계산하지 않았다. 최종 신규 summary24 passed（추가7개 경계 포함）·compile/diff 통과. 다음은 지정3파일과 기록만 PR/정상병합/고정SHA배포하고 보호13표·health/auth·인증 summary 최소 읽기를 확인한다. 페이지/cursor/UI는 남아 있다.
 - **DEPLOYED / READY_ACCEPTANCE_PENDING** — PR #228, 코드 `b28202d`, main/운영 `bcb2b7cfbfc28e536f2727bda677268237ab248c`. 951 blobs 일치·실행 SHA·health/ready200·기존 및 summary 비인증API401·보호13표 동일. Aside 인증 summary200·477B는 현재 generation402/refreshing이며 summary없는 이전 persisted cache를 unavailable/counts=null/non-authoritative로 표시했다. 후속1회도 동일했고 ready 성능/정본 건수 수락은 아직 미실행이다. worker log의 안전 metadata에서 새 배포 후 refresh_start를 확인했으며 기존 child timeout900초를 변경하거나 강제 재대사하지 않았다. 다음 독립 paging 작업 중 새 세대 게시 후 summary 집계만 다시 확인한다. 근거 `.local-archive/ota-canonical-summary-20261028/` 및 운영 기록.
 
+### 진행 중인 OTA page index/cursor
+
+- main `926814a`, 브랜치 `feat/ota-queue-page-index-20261028`. 기존 구현자가 신규 `app/ota_queue_paging.py`, `tests/test_ota_queue_paging.py`만 작성한다. worker/GET 연결은 이 부품 검수 후 같은 브랜치에서 이어가며 독립 부품만 별도 릴리스하지 않는다.
+- worker용 stable singleton index와 bounded queue/provider/search/limit, generation/filter/limit/snapshot nonce에 바인딩한 HMAC cursor를 구현한다. 원문 ID/검색어는 cursor에 넣지 않고 page allowlist만 반환한다. 날짜 미상/중복·누락 ID는 버리거나 합치지 않는다. 금융 상태 재분류·solver/UI/실자료 쓰기는 금지한다.
+- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 지정 두 파일과 합성 연속페이지/변조/세대·필터불일치/입력불변·출력제한 검사를 검수하고 worker/route 연결을 진행한다. 동시에 기존 summary의 새 세대 게시 후 aggregate-only ready 수락을 확인한다. 운영은 `bcb2b7c`다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
