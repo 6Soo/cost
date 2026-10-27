@@ -255,6 +255,8 @@ def test_kakao_alias_review_shows_only_same_card_earlier_taxi_payments(tmp_path)
         evidence = _render_refund_evidence(store, refund, None)
         assert '카드 원본에 원승인번호가 없습니다' in evidence
         assert '취소 승인번호만으로 원결제를 확정하지 않습니다' in evidence
+        assert '동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다' in evidence
+        assert '가승인 해제는 실제 환급 완료와 다릅니다' in evidence
         assert list(store.conn.iterdump()) == before
     finally:
         store.close()
