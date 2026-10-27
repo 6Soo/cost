@@ -1553,12 +1553,12 @@ def render_import_section(csrf: str) -> str:
     """Return the opt-in OTA HOLD section embedded in the existing import page."""
     token = json.dumps(str(csrf))
     icons = json.dumps(_ICONS, ensure_ascii=False)
-    return f'''<section id="ota-review" aria-labelledby="ota-title" data-ota-review>
-<h2 id="ota-title" class="ota-title">{_icon("alert")}OTA 결제 보류 검토</h2>
+    return f'''<details id="ota-review" aria-labelledby="ota-title" data-ota-review>
+<summary id="ota-title" class="ota-title">{_icon("alert")}OTA 결제 보류 검토 · 펼쳐서 확인</summary>
 <div id="ota-status" role="status" aria-live="polite">보류 내역을 불러오고 있습니다.</div>
 <p id="ota-freshness" aria-live="polite"></p>
 <div id="ota-events"></div><div id="ota-proposals"></div>
-</section>
+</details>
 <style>
 #ota-review{{max-width:100%;min-width:0;overflow-wrap:anywhere;color:#1f2a24}}
 #ota-review *,#ota-review *::before,#ota-review *::after{{box-sizing:border-box;min-width:0}}
@@ -1898,7 +1898,15 @@ def render_import_section(csrf: str) -> str:
     }}catch(error){{freshness.textContent=error.message;scheduleLoad(30000);}}
     finally{{loading=false;}}
   }}
-  loadSnapshot();
+  // Loading thousands of OTA candidates on initial /import is unnecessary.
+  // The deep-link still opens the section for a directly requested transaction.
+  const autoOpen=location.hash==='#ota-review' || new URLSearchParams(location.search).has('transaction');
+  if(autoOpen)root.open=true;
+  root.addEventListener('toggle',()=>{{
+    if(root.open){{if(!shownOnce)loadSnapshot();}}
+    else if(loadTimer){{clearTimeout(loadTimer);loadTimer=null;}}
+  }});
+  if(root.open)loadSnapshot();
 }})();
 </script>'''
 
