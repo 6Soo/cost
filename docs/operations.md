@@ -1,3 +1,13 @@
+## 2026-10-27 수입 내역 미확인 행 노출 제외 수정·운영 배포 (#178)
+
+사용자 요청("미확인 행은 노출 안되도록 수정 및 배포")에 따라 구글 시트 템플릿의 빈 행으로 인해 수입 내역에 "날짜 미확인 | 이름 미확인 | 0원"이 반복 노출되던 문제를 수정하고 배포했다. [PR #178](https://github.com/6Soo/cost/pull/178)은 **`2f51cb208d411d1913546e9bdc16a3f319eaeb48`**로 정상 병합·운영 배포했다.
+
+- **원인·수정:** 구글 시트 수입 탭 템플릿의 수식 빈 행들이 H열 수식 계산값 0원으로 파싱되어 `owner_rows`에 수집되었고, `trip_income_html`에서 날짜와 이름이 모두 비어있는 행이 "날짜 미확인 | 이름 미확인 | 0원"으로 렌더링됐다. `webapp/google_ledger_page.py`에 `is_unconfirmed_income_row`를 추가하여 날짜와 이름(닉네임 포함)이 모두 미확인인 행을 화면 표시(`visible_rows`)에서 제외했다. 날짜나 이름 중 하나라도 있는 실제 거래 행은 정상 노출된다.
+- **회계 안전성:** 원본 스냅샷 데이터, DB, 구글 장부 쓰기는 전혀 없으며, 제외된 미확인 행은 금액이 0원이므로 장부 행 합계(`rows_total`)와 장부 집계(`sheet_total`) 대조 및 회계 검증(`numeric_gap`)에 영향이 없는 순수 표시 레벨의 읽기 전용 필터링이다.
+- **표적 검사:** `webapp/tests/test_trip_google_income.py`에 미확인 행 판정 단위 테스트 및 수입 내역 렌더링 제외 검증을 추가하여 **19 passed (0.82s)**.
+- **실운영 검증:** 실제 운영 snapshot/rows 파일(`D:/WebLedgerHost/data/google-authority/`)을 로드하여 캡처 이미지의 대상 여행 탭(`trip-540c75b3d376`, 1030_닛코)에서 기존에 노출되던 미확인 행 9건이 깨끗하게 제거되고 유효 수입 3건(8월6일 이수원 외 2, 8월16일 박주연, 8월30일 이혜선/김현숙)과 총액 8,014,000원이 정상 렌더링됨을 엔드투엔드로 확인했다.
+- **배포 보호:** 추적 파일 **968개 blob 일치**. 이전 운영 SHA `e3938533b4c5b5c770d4297e0989ba0d8a188358` 릴리스와 복원 검증 사본을 보존하고 Windows SHA 고정 절차로 교체했다. `WebLedger-Board` Running, task/process SHA 일치, 127.0.0.1:8751 단일 loopback listener, `/healthz` **200**, `/readyz` **200**, 비인증 보호 API **401**. 증거: `D:/WebLedgerHost/releases/release-audit-2f51cb208d411d1913546e9bdc16a3f319eaeb48.json`, `deploy-evidence-2f51cb208d411d1913546e9bdc16a3f319eaeb48.json` 및 task before/after XML.
+
 ## 2026-10-27 /import 진입 지연 후속 수정·배포 (#173)
 
 사용자가 `/import` 진입에 15초가 걸렸다고 보고해 후속 수정했다. [PR #173](https://github.com/6Soo/cost/pull/173)은 **`e3938533b4c5b5c770d4297e0989ba0d8a188358`**로 정상 병합·운영 배포했다. 기존 UI/환불 기능은 재구현하지 않았다.
