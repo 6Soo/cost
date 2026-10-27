@@ -222,7 +222,7 @@ def test_saved_revised_and_revoked_assignment_round_trip(world, monkeypatch):
     store = OtaReviewStore(review_db)
     assert store.booking_trip_rule('agoda', 'BOOK-3')['status'] == 'revoked'
     store.close()
-    listing = ota_catalog.catalog(board, {'state': ['unassigned']}, sources=sources)
+    listing = ota_catalog.catalog(board, {'state': ['excluded']}, sources=sources)
     assert any(r['booking_ref'] == 'BOOK-3' for r in listing['rows'])
 
 
@@ -276,9 +276,9 @@ def test_an_unverified_trip_covering_the_stay_does_not_block_the_one_verified_tr
                   {'tab_id': 'b', 'name': 'B', 'starts_on': '2026-09-02', 'ends_on': '2026-09-08', 'valid': True},
                   {'tab_id': 'c', 'name': 'C', 'starts_on': '2026-09-06', 'ends_on': '2026-09-12', 'valid': True}]
     stay = ('2026-09-03', '2026-09-07')
-    assert ota_catalog._period_trip(candidates, stay) == {'id': 'b', 'name': 'B', 'source': 'period'}
+    assert ota_catalog._automatic_trip(candidates, stay, nets={})['id'] == 'b'
     twin = {'tab_id': 'd', 'name': 'D', 'starts_on': '2026-09-02', 'ends_on': '2026-09-08', 'valid': True}
-    assert ota_catalog._period_trip(candidates + [twin], stay) is None
+    assert ota_catalog._automatic_trip(candidates + [twin], stay, nets={})['confidence'] == '낮음'
 
 
 def test_a_stored_stay_reaches_the_one_verified_trip_covering_it_even_after_a_rename():
@@ -292,3 +292,73 @@ def test_a_stored_stay_reaches_the_one_verified_trip_covering_it_even_after_a_re
     both = {'starts_on': '2026-07-04', 'ends_on': '2026-07-05', 'target_code': '0704_아키타'}
     assert CardFlow.booking_trip(flow, {}, both) == ''
     assert CardFlow.booking_trip(flow, {}, dict(both, target_code='0704_통영')) == 'trip-b'
+
+
+def test_preparation_and_ties_are_automatically_inferred_without_financial_writes(world, monkeypatch):
+    board, sources, _ = world
+    conn = sqlite3.connect(sources['portal_databases'][0])
+    conn.execute("INSERT INTO bookings VALUES (8,'agoda','PREP','lodging','합성 준비 숙박','2026-10-28','2026-10-30','confirmed')")
+    conn.commit()
+    conn.close()
+    raw = sources['portal_databases'][0].read_bytes()
+    before = board.conn.total_changes
+    entries = ota_catalog._build_index(board, sources)['entries']
+    entry = next(e for e in entries if e['booking_ref'] == 'PREP')
+    assert entry['trips'][0]['id'] == 'trip-x'
+    assert entry['trips'][0]['assignment_state'] == 'AUTO_INFERRED'
+    assert entry['trips'][0]['confidence'] == '낮음'
+    assert entry['candidates'][0]['relation'] == 'preparation'
+    assert '준비 숙박' in ota_catalog.render_detail(board, entry, csrf='tok')
+    assert '여행 수정' in ota_catalog.render_html(ota_catalog.catalog(board, {}, sources=sources), {})
+    assert board.conn.total_changes == before
+    assert sources['portal_databases'][0].read_bytes() == raw
+    twins = [dict(tab_id=tab, name=tab, starts_on='2026-10-30', ends_on='2026-11-05', valid=True)
+             for tab in ('a', 'b')]
+    result = ota_catalog._automatic_trip(twins, ('2026-11-01', '2026-11-02'), nets={})
+    assert result == ota_catalog._automatic_trip(list(reversed(twins)), ('2026-11-01', '2026-11-02'), nets={})
+    assert result['confidence'] == '낮음' and '동률' in result['basis']
+    assert ota_catalog._automatic_trip(twins, ('2026-10-28', '2026-10-29'), service=True, nets={}) is None
+
+
+def test_auto_assignment_preserves_revocation_cancelled_conflicts_and_manual_choice(world, monkeypatch):
+    board, sources, _ = world
+    original = ota_catalog._rows_from_sources
+    rows = original(board, sources, [])
+    base = dict(provider='agoda', labels={'숙박비'}, periods={('2026-10-31', '2026-11-02')},
+                statuses={'confirmed'}, portal_trips=set(), ledger_trips=set())
+    for ref in ('REVOKED', 'CONFLICT', 'CANCELLED', 'MANUAL'):
+        rows['agoda', ref] = {**base, 'booking_ref': ref}
+    rows['agoda', 'CONFLICT'] = {**rows['agoda', 'CONFLICT'], 'periods': {('2026-10-31', '2026-11-02'), ('2026-12-01', '2026-12-02')}}
+    rows['agoda', 'CANCELLED'] = {**rows['agoda', 'CANCELLED'], 'statuses': {'cancelled'}}
+    monkeypatch.setattr(ota_catalog, '_rows_from_sources', lambda *args: rows)
+    monkeypatch.setattr(ota_catalog, '_owner_rule_states', lambda: {
+        ('agoda', 'REVOKED'): {'status': 'revoked'},
+        ('agoda', 'MANUAL'): {'status': 'active', 'trip_tab_id': 'trip-y', 'trip_code': '1201_합성'}})
+    entries = {e['booking_ref']: e for e in ota_catalog._build_index(board, sources)['entries']}
+    for ref, reason in [('REVOKED', 'revoked'), ('CONFLICT', 'period_conflict'), ('CANCELLED', 'cancelled')]:
+        assert not entries[ref]['trips'] and entries[ref]['reason'] == reason
+    assert entries['MANUAL']['trips'][0]['id'] == 'trip-y'
+
+
+def test_owner_can_correct_automatic_trip_outside_period_with_explicit_basis(world, monkeypatch):
+    board, sources, review_db = world
+    monkeypatch.setattr(card_flow.CardFlow, 'trip_valid', lambda self, tab: True)
+    form = dict(provider='agoda', booking_ref='BOOK-3', trip_tab_id='trip-y',
+                basis='사용자가 여행 교정', expected_revision='0', allow_partial='1')
+    saved = ota_catalog._write_rule(board, sources, form, revoke=False)
+    assert saved['trip_tab_id'] == 'trip-y'
+    entry = ota_catalog._build_index(board, sources)['entries']
+    assert next(e for e in entry if e['booking_ref'] == 'BOOK-3')['trips'][0]['source'] == 'rule'
+    markup = ota_catalog.render_detail(board, ota_catalog._entry(board, sources, 'agoda', 'BOOK-3'), csrf='tok')
+    assert '<details open><summary>다른 여행으로 수정</summary>' in markup
+    assert "value='trip-y' checked" in markup
+
+
+def test_owner_can_assign_missing_period_only_with_explicit_correction(world, monkeypatch):
+    board, sources, _ = world
+    form = dict(provider='trip', booking_ref='BOOK-1', trip_tab_id='trip-x',
+                basis='메일 근거를 확인한 사용자 지정', expected_revision='0')
+    with pytest.raises(ota_catalog._Refused, match='NO_PERIOD'):
+        ota_catalog._write_rule(board, sources, form, revoke=False)
+    result = ota_catalog._write_rule(board, sources, {**form, 'allow_partial': '1'}, revoke=False)
+    assert result['trip_tab_id'] == 'trip-x'
