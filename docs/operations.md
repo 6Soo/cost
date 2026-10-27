@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`b3cabe8b38b2956381a8827327445cfa30b64c35`**, 2026-10-28 [PR #220](https://github.com/6Soo/cost/pull/220). 거래 batch/summary/row 반환 구조의 정적 타입 계약을 연결했다. 실제 출력 키는 required·nullable 값은 별도로 표현하고, counts는 미래 상태 문자열을 허용한다. SQL·조회/변환/집계 본문과 facade 동작은 그대로다.
+
+- 합성pipeline 표적3 passed/42 deselected·4함수 실행AST동일·compile/diff 통과. Supervisor가 required/nullable 구분과 열린 count alias를 교정했다. guard5파일·차단0/삭제0（이전 운영 기록 포함）. 배포본 annotation 해석·required 키·합성 fake-store 배치/금액/선행0 ID/nullable/미지 상태 counts 스모크 통과. 스모크의 DB 접근은 없다.
+- 추적948개 blobs 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 직전 `42999af`와 작업 XML·게이트·기존 복원 검증 사본 보존. 배포 후2DB/13표 내용·스키마 동일. 운영 DB/Google/원본/금융 상태 직접 쓰기·마이그레이션·대량 재처리 없음. 본문 불변의 정적 타입 변경이므로 전체 회귀·브라우저는 생략했다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-b3cabe8b38b2956381a8827327445cfa30b64c35.json`, 같은 SHA release-audit, `.local-archive/rf002-transaction-read-20261028/`의 보호 전후·`deployed-smoke.json`. 전체 RF-002 DTO/정책 채택과 실제 사례 수락 완료를 뜻하지 않는다. 문서 갱신으로 재배포하지 않는다.
+
+## 직전 RF-002 OTA 상태 읽기 릴리스
+
 **`42999afa15373014c35be9ee10fda308a6dd1e3c`**, 2026-10-28 [PR #219](https://github.com/6Soo/cost/pull/219). OTA 상태 helper의 입력 필드를 좁은 TypedDict 읽기 계약으로 명시했다. 실행 본문·상태 순서·caller freshness gate는 그대로이며 wrapper·snapshot 복사·정책 변경은 없다. 타입 선언은 runtime 검증이나 불변 snapshot을 제공하지 않는다.
 
 - 표적 projection/golden/canonical28 passed·compile/diff 통과, docstring 제외 실행 AST 동일. 합성1000결과+1000후보 출력 동일; 30회 중앙값 baseline0.052944s/변경0.053033s·peak156,994/156,946B. 제품 지연 개선을 주장하지 않는다. guard3파일·차단0/삭제0. 배포본 annotation 해석·exact/group/reservation 상태/None 스모크 통과.
