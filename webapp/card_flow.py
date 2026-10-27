@@ -216,7 +216,7 @@ def _link_diagnosis_label(reason):
         'reference_content_conflict': '참고 자료 내용 불일치 · 확인 필요',
         'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
         'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
-        'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
+        'snapshot_managed': '예약 근거는 이 거래의 상세 근거에서 바로 확인할 수 있습니다',
         'payment_date_unknown': '결제일 근거 없음 · 날짜 확인 필요',
         'card_identity': '카드 끝자리나 카드사가 맞지 않음 · 확인 필요',
         'provider': '예약 제공자와 카드 가맹점이 맞지 않음 · 연결 불가',
