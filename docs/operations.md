@@ -2,6 +2,15 @@
 
 ## 마지막 확인된 운영 코드
 
+**`af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`**, 2026-10-28 [PR #230](https://github.com/6Soo/cost/pull/230). canonical summary와 같은 join 행을 worker에서 분류·정렬해 메모리 index로 게시하고 인증된 `/api/imports/ota/events`는 기본 needs_action20개를 반환한다. HMAC cursor는 세대·snapshot·필터·limit에 묶인다. GET에서 재대사·분류·index 생성·후보 조회는 하지 않는다.
+
+- 통합 paging/route/summary/snapshot74 passed, 최종 페이지21 passed（조회 전 malformed query400 추가4개）, 기존 holds/cards/auth 선택2 passed. compile/diff·guard 차단0/삭제0. 기존 partial-group baseline 실패는 재실행하지 않았다. UI 미연결의 조회 변경이라 전체 회귀·UI 브라우저는 생략했다.
+- 추적954 blobs 일치·작업/프로세스SHA·단일loopback listener·health/ready200·기존/events 비인증401·보호13표 동일. 직전 `bcb2b7c`·task/gate·검증 복원 사본 보존. 금융/Google/원본 직접 쓰기·마이그레이션·대량 재처리는 실행하지 않았다.
+- 초기 Aside 인증 events GET409·138B·SNAPSHOT_NOT_READY（generation403/refreshing）를 확인했다. 실제 ready20개/cursor 연속 조회 수락은 새 세대 게시 후 확인한다. 합성100k precompute10.43s/page0.0026s/peak156,787,065B/payload6,034B는 제품p95가 아니다. q는선택index O(n)검색, index/key는메모리전용이고 restore 직후409·restart구cursor400이 가능하다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-af42ea097a9a9c9b242b0a630421b42ca8b7ff0d.json`, 같은SHA release-audit, `.local-archive/ota-queue-pages-20261028/` 보호 전후·aggregate-only GET. UI 및 제품 성능 수락은 남아 있다. 문서 갱신으로 재배포하지 않는다.
+
+## 직전 OTA canonical summary 릴리스
+
 **`bcb2b7cfbfc28e536f2727bda677268237ab248c`**, 2026-10-28 [PR #228](https://github.com/6Soo/cost/pull/228). Worker의 full canonical source/result를 보수적으로 결합해 queue summary를 미리 계산·세대와 함께 저장하고, 인증된 `/api/imports/ota/summary`는 저장 집계만 읽는다. 원본 경고·digest 변경·중복/누락/orphan 및 solver 필드 누락은 완료로 올리지 않는다. 기존 holds/lazy cards/POST 경계를 유지한다.
 
 - 통합 지정3파일73 passed/1 failed. partial-group fixture의 HOLD_NO_CARD 판정 차이와 임시DB WinError32는 변경 전 `a6f4abc`에서도 동일 단일검사로 재현했다. 실패를 통과로 계산하지 않았다. 최종 신규 summary24 passed·compile/diff·staged guard 차단0/삭제0. 전체 회귀·UI browser는 국소 조회 변경이며 UI 미변경이라 생략했다.

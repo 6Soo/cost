@@ -128,13 +128,16 @@
 - **SUMMARY_READY_ACCEPTED（기본 응답 범위）** — 기존 운영 `bcb2b7c`의 인증 GET200·765B·generation403·ready/authoritative, 큐 event/group 합계3,748（needs_action1,622/waiting820/missing1,112/completed194）·상태태그없음을 확인했다. singleton 집계이며 금융 기장·실제환급 완료가 아니다. 원문없는 근거 `.local-archive/ota-canonical-summary-20261028/auth-summary-smoke-ready.json`. 단일 GET 수락으로 제품p95는 주장하지 않는다. 이전 READY_ACCEPTANCE_PENDING은 이 기본응답에 한해 해소됐다.
 - **ROUTE_REVIEWED / RELEASE_PENDING** — 구현자5파일 연결을 검수했다. 통합 paging/route/summary/snapshot74 passed 후 Supervisor가 invalid filter/limit의 snapshot 조회 전400 경계4개를 추가해 페이지21 passed·compile/diff를 확인했다. 기존 holds/cards/auth 선택2 passed 근거를 재사용한다. 합성10k precompute0.813s/page0.0018s/peak15,683,865B/payload6,033B·100k10.43s/0.0026s/156,787,065B/6,034B는 제품p95가 아니다. q는O(n) 검색이고 query cache는 없다. index/key는메모리에만 보관, restore 후 재계산 전409이며 source scalar snapshot으로 입력mutation을 차단한다. 다음은 지정5파일과 기록만 PR/병합/배포하고 새 세대의20개 응답·cursor연속/거절·auth·보호13표를 확인한다. UI는 아직 미연결이다.
 
+- **DEPLOYED / PAGE_READY_ACCEPTANCE_PENDING** — PR #230, 코드 `deb9245`, main/운영 `af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`. 954 blobs 일치·health/ready200·실행SHA·단일listener·기존/events 비인증401·보호13표 동일. 초기 인증 events GET409/138B/SNAPSHOT_NOT_READY·generation403/refreshing을 확인했다. 실제 ready20개·다음cursor/거절 수락은 새세대 게시 후 Aside 읽기로 확인한다. 근거 `.local-archive/ota-queue-pages-20261028/`와 운영 기록.
+- **UI_SOURCE_AUDIT_PENDING** — 기존 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`는 `docs/specs/ota-review-queue-performance-20261027.md`만 소유한다. import OTA DOM/JS owner·접힘/lazy/poll/actions 재사용·minimal page와 상세폼 필드 gap·필요시 generation-bound lazy detail GET의 최소계약을 조사한다. 전체holds fetch 후client slice는 허용하지 않는다. 문서전용으로 테스트/브라우저/DB/배포를 하지 않는다. 완료 알림 후 문서 diff/source를 검수하고 UI 연결을 이어간다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`bcb2b7cfbfc28e536f2727bda677268237ab248c`**다. PR #228 canonical worker summary와 인증 GET을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`**다. PR #230 worker page index와 인증 events GET을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
 이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
