@@ -142,3 +142,46 @@ def test_mapping_picker_names_imported_trips_and_preserves_current_trip():
 ])
 def test_display_time_uses_seoul_minutes_and_safe_fallback(value, expected):
     assert page.format_display_time(value) == expected
+
+
+def test_is_unconfirmed_income_row():
+    # 완전히 빈 템플릿 행
+    assert page.is_unconfirmed_income_row({'date': None, 'name': None, 'nickname': None, 'amount': 0})
+    assert page.is_unconfirmed_income_row({'date': '', 'name': '', 'nickname': '', 'amount': 0})
+    assert page.is_unconfirmed_income_row({'date': '   ', 'name': '  ', 'nickname': ' ', 'amount': 0})
+    assert page.is_unconfirmed_income_row({'date': '날짜 미확인', 'name': '이름 미확인', 'nickname': '', 'amount': 0})
+    assert page.is_unconfirmed_income_row({'date': '-', 'name': '-', 'nickname': '-', 'amount': 0})
+
+    # 날짜나 이름/닉네임이 있는 실제 수입 행은 미확인이 아님
+    assert not page.is_unconfirmed_income_row({'date': '2026-08-06', 'name': '', 'nickname': '', 'amount': 1000})
+    assert not page.is_unconfirmed_income_row({'date': '', 'name': '이수원', 'nickname': '', 'amount': 1000})
+    assert not page.is_unconfirmed_income_row({'date': '', 'name': '', 'nickname': '닉네임', 'amount': 1000})
+    assert not page.is_unconfirmed_income_row({'date': '2026-08-06', 'name': '이수원', 'nickname': '닉네임', 'amount': 1000})
+
+
+def test_unconfirmed_income_rows_are_hidden_from_trip_income_display(income_context, monkeypatch):
+    snapshot, key = income_context
+    valid_row = {'row': 6, 'date': '2026-08-06', 'name': '이수원', 'nickname': '',
+                 'deposit': 1000000, 'balance': 2960000, 'extra': 0, 'amount': 3960000}
+    dummy_rows = [
+        {'row': 7, 'date': None, 'name': None, 'nickname': None,
+         'deposit': None, 'balance': None, 'extra': None, 'amount': 0},
+        {'row': 8, 'date': '', 'name': '', 'nickname': '',
+         'deposit': 0, 'balance': 0, 'extra': 0, 'amount': 0},
+        {'row': 9, 'date': '   ', 'name': '  ', 'nickname': '',
+         'deposit': None, 'balance': None, 'extra': None, 'amount': 0},
+    ]
+    detail = {'key': key, 'source': 'main', 'income': [valid_row] + dummy_rows, 'expense': []}
+    monkeypatch.setattr(page, 'owner_rows', lambda *a: detail)
+    snapshot['trips'][0]['copies']['main']['income'].update(
+        total=3960000, row_sum=3960000, sheet_total=3960000)
+
+    body = page.trip_income_html('trip-syn')
+    assert '이수원' in body
+    assert '3,960,000원' in body
+    assert '8월6일' in body
+    assert '날짜 미확인' not in body
+    assert '이름 미확인' not in body
+    assert "<td class='income-total'>0원</td>" not in body
+    # tbody에는 유효 행 1개만 노출되어야 한다 (thead 1행 + tbody 1행 = 총 2개의 tr)
+    assert body.count('<tr>') == 2

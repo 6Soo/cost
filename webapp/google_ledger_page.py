@@ -222,6 +222,15 @@ def transaction_date_sort_key(row):
     return True, ''
 
 
+def is_unconfirmed_income_row(row: dict) -> bool:
+    """날짜와 이름(닉네임 포함)이 모두 미확인인 수입 행 (템플릿 빈 행 등)."""
+    date_val = str(row.get('date') or '').strip()
+    has_date = bool(date_val and date_val not in ('날짜 미확인', '-', '미확인'))
+    person_val = str(row.get('name') or '').strip() or str(row.get('nickname') or '').strip()
+    has_person = bool(person_val and person_val not in ('이름 미확인', '-', '미확인'))
+    return not has_date and not has_person
+
+
 def trip_income_html(tab_id: str) -> str:
     """Read-only income for an explicitly linked COST trip, using current grants."""
     from . import ledger_board as board
@@ -286,13 +295,17 @@ def trip_income_html(tab_id: str) -> str:
         source_href = (f"https://docs.google.com/spreadsheets/d/{google_authority.SPREADSHEET_IDS[source]}"
                        f"/edit#range={quote(sheet_range, safe='')}")
         esc = lambda value: html.escape('' if value is None else str(value))
+        visible_rows = [
+            row for row in sorted(detail['income'], key=transaction_date_sort_key)
+            if not is_unconfirmed_income_row(row)
+        ]
         lines = ''.join(
             f"<tr><td class='income-date' title='{esc(row.get('date'))}'>{esc(format_transaction_date(row.get('date')))}</td>"
             f"<td class='income-person'>{esc(str(row.get('name') or '').strip() or row.get('nickname') or '이름 미확인')}</td>"
             + ''.join(f"<td class='income-breakdown'>{fmt_google_amount(row.get(field))}</td>"
                       for field in ('deposit', 'balance', 'extra'))
             + f"<td class='income-total'>{_money(row['amount'])}</td></tr>"
-            for row in sorted(detail['income'], key=transaction_date_sort_key))
+            for row in visible_rows)
         show_rows = income_verified and not numeric_gap
         table = ("<div class='google-income-scroll'><table><caption>수입 내역</caption>"
                  f"<thead><tr><th class='income-date'>{ui_icons.icon('calendar-days', 14)}거래일자</th>"
