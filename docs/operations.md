@@ -2,6 +2,16 @@
 
 ## 마지막 확인된 운영 코드
 
+**`94ed610fd5393c1ff2d4329ac4f7f301009e729a`**, 2026-10-28 [PR #233](https://github.com/6Soo/cost/pull/233), 코드 `63dd532`. 실제 `/import` 검토 패널을 canonical summary와 기본20건 페이지에 연결했다. 상세/카드 후보는 인라인 lazy 조회이며, 제안은20개씩 읽는다. worker private detail map과 제한된 그룹 순서 대응 근거는 같은 generation에 게시하고 인증 detail GET은 O(1)로 읽는다. 원문·카드 후보 목록·private map/signing key를 공개 snapshot이나 persistence에 추가하지 않는다.
+
+- 상세/UI/lazy/preview-race20 passed, 마지막 경합/세대/cursor3 passed, 기존 browser9 passed와4 subtests, 카드후보4 passed. 인접검사115 passed/2 failed 중 candidate browser fixture는 새 API 계약으로 교정 후4 passed; 기존 partial-group HOLD_NO_CARD/WinError32는 기준 `a6f4abc` 재현 근거를 유지하고 통과로 계산하지 않았다. compile/diff와 staged guard 차단0/삭제0. 전체 회귀는 국소 조회/UI 변경으로 생략했다.
+- 한국어 표시·미확인 집계·singleton fallback 안내·세대 불일치 폐기/재조회·필터 되돌림과 미저장 제안/예약 선택·늦은 polling 응답 보호를 검수했다. 합성375/1280·수동light/dark·200% reflow/키보드 focus와 실제 코어 preview/confirm/once/approve·원거래 불변을 검사했다. 실제 기기·제품p95·보류 solver 개선/전면 리팩터링 완료는 아니다.
+- 956 blobs 일치·작업/프로세스SHA·단일loopback listener·health/ready200·보호API401·2DB/13표 내용/스키마 동일. 직전 `af42ea0`와 task/gate·검증 복원 사본 보존. 금융/Google/원본 직접 쓰기·마이그레이션·대량 재처리는 하지 않았다.
+- 배포 전 `af42ea0`의 generation405 ready에서 첫/다음 페이지 각20개HTTP200을 확인했다. 배포 직후는 persisted405/refreshing이며 새 private index가 준비되기 전 화면의 대기 표시를 확인했다. **COMPLETE / READY_UI_ACCEPTED** — generation406 ready/fresh에서 첫/다음페이지HTTP200·각20개·같은세대·ID교집합0·첫응답7,658B, detail200/같은세대·제안200/0개를 확인했다. 실제UI도20DOM→다음20DOM·페이지변경·상세lazy/카드미조회·전체holds API호출없음·theme버튼1개를 수락했다. 문자열 탐지 신호는 실제JSON key 경로로 재확인해 비공개필드없음을 확인했으며, 미지원 Aside wait API로 중단된 초기 smoke 대신 `ready-smoke-final.txt`를 최종근거로 삼는다. 실제확정/테마변경 없이 임시탭을 닫았다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-94ed610fd5393c1ff2d4329ac4f7f301009e729a.json`, 같은SHA release-audit, `.local-archive/ota-paged-ui-20261028/` 보호 전후·aggregate-only smoke. 기존 사용자 미추적3경로와 stash를 보존했고 새 worktree를 만들지 않았다. 병행 인계 구현자 `26175585`는 같은 파일 중복 작성을 중지시켰고 이전 Supervisor에게 메시지/재개하지 않았다. 문서 후속만으로 재배포하지 않는다.
+
+## 직전 OTA page API 릴리스
+
 **`af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`**, 2026-10-28 [PR #230](https://github.com/6Soo/cost/pull/230). canonical summary와 같은 join 행을 worker에서 분류·정렬해 메모리 index로 게시하고 인증된 `/api/imports/ota/events`는 기본 needs_action20개를 반환한다. HMAC cursor는 세대·snapshot·필터·limit에 묶인다. GET에서 재대사·분류·index 생성·후보 조회는 하지 않는다.
 
 - 통합 paging/route/summary/snapshot74 passed, 최종 페이지21 passed（조회 전 malformed query400 추가4개）, 기존 holds/cards/auth 선택2 passed. compile/diff·guard 차단0/삭제0. 기존 partial-group baseline 실패는 재실행하지 않았다. UI 미연결의 조회 변경이라 전체 회귀·UI 브라우저는 생략했다.
