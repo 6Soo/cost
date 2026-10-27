@@ -10,5 +10,6 @@
 - 독립 검토: Paseo skill (`C:/Users/kkokk/.agents/skills/paseo/SKILL.md`)로 Inkling Small Free high 읽기 전용 검토. 앞선 승인 무료 모델 2개는 현재 제공 목록에 없어 다음 후보 사용. 중요 결함 없음. 테스트 실행·운영 자료 접근은 위임하지 않았다.
 - 원본 읽기 관찰: 메일 전용 추출 45.419초/예약210건. 금융 대사 성능과 구분한다. 원문/고객 이름은 보고서·Git에 복사하지 않았다.
 - 운영 전 기준: `.local-archive/flight-search-integration-20261027/protection-before.json` (2DB/13개 보호 표). 기존 복원 검증·이전 고정 릴리스 재사용 예정.
-- 상태: IMPLEMENTED / TARGETED_TEST_PASS / REVIEW_PASS. main 병합·배포·실제 이름 조회는 PENDING. 종료 조건은 SHA 고정 배포, health/ready·보호 API·실제 이름 검색·보호 표 대조, 운영 근거 기록이다.
+- 상태: **COMPLETE**. #184 병합·운영 `94c8e8c293d784da3886879ad024d3c5d12061a5` 배포, 관련7개 PR 전부 MERGED/열린PR0개. 979blob 일치·health/ready200·보호API401·2DB/13개 보호 표 동일. 실제 이름 검색 예약1건/여정2편/최초 메일 수신일·금융 미확정 안내, 지출 정리 표시를 확인했다. 운영 메일 색인 최초 생성67.77초이고 전체 OTA 대사 갱신 중에도 검색됐다. 증빙 문서만 추가 병합하며 앱 재배포는 생략한다.
+- 배포 보완: 첫 시도는 이전 SHA 불일치 `TASK_MISMATCH`로 서버 교체 전 중단. 현재 운영 #178 `2f51cb208d411d1913546e9bdc16a3f319eaeb48`의 정상 배포 증거 및 새 릴리스 조상 관계를 확인해 복구 기준을 바로잡고 공식 절차로 성공했다. 추가 권한·배포 인프라 변경 없이 진행했다.
 - 의도적 생략: 전체 pytest/E2E·대량 재대사·실제 장부/Google/참가자 쓰기. 변경 영향과 무관한 과거 개발 큐는 재실행하지 않는다.
