@@ -1,7 +1,7 @@
 ﻿# COST 미결 작업 및 항공권 예약일 해결 명세 (2026-10-27)
 
-> **정본 작업 큐:** 미완료 기능과 수락 대기만 관리한다. 역사적 구현 순서나 이전 상태표를 현재 TODO로 다시 실행하지 않는다. 2026-10-27 확인 기준 GitHub main `cb7c575c27f90791a3886f56aec3e0bcb6ebe7a7`. 원격 변경이 빈번하므로 실행 전에 항상 최신 main/open PR/운영 배포 SHA를 재조회한다.
-> 상위 안전 계약: `AGENTS.md`; 권위 있는 제품 설계: `COST_V3_START_HERE.md`, `flight-booking-verification-spec-20261026.md`; 실제 증거: `COST_V3_CURRENT_HANDOFF.md` 최신 §0.24, `operations.md` 최신 절. **명세 문서 작성/병합 ≠ 기능 구현/테스트/운영 배포.**
+> **정본 작업 큐:** 미완료 기능과 수락 대기만 관리한다. 역사적 구현 순서나 이전 상태표를 현재 TODO로 다시 실행하지 않는다. 2026-10-27 기준 GitHub `main`은 `7e0d9828ee85c98326f9ce9db556e2c1d0b270b2`; 실제 운영 코드는 `a9626059893a02931926ca009f9d04226ffd7e60`이며 그 뒤 문서 전용 커밋이 추가됐다. 원격 변경이 빈번하므로 실행 전에 항상 최신 main/open PR/운영 배포 SHA를 재조회한다.
+> 상위 안전 계약: `AGENTS.md`; 권위 있는 제품 설계: `COST_V3_START_HERE.md`, `flight-booking-verification-spec-20261026.md`; 실제 증거: `COST_V3_CURRENT_HANDOFF.md` 최신 운영 메모 및 §0.30, `operations.md` 첫 절. **명세 문서 작성/병합 ≠ 기능 구현/테스트/운영 배포.**
 
 ## 0.3 2026-10-27 사용자 후속 확정: 최초 메일 수신일
 
@@ -15,12 +15,12 @@
 | 지출 상태 조회 legacy 대사 제거 | COMPLETE | #147 병합, 최종 운영에도 포함. default 쓰기 검증 유지. |
 | 최초 인증 메일 수신일 fallback | COMPLETE | #148 병합 및 최종 운영에 포함. 200개 예약 중 FIRST_RECEIVED 16개·UNKNOWN 184개. 정상 대사476.56초 후 generation359/parser v4-first-received 게시. 소유자 이름검색 예약1개·수신일 표시1개·자동 날짜 조회 카드9/9건 실제 확인. 금융 확정/저장 없음. |
 | OTA 카드 후보 요청 중 원본 해석 제거 | COMPLETE | #149, 운영 `4cd12adebad6ebcac110130803d35f589d1f8bb0`; 표적 5 passed, 브라우저 재시도 1 passed, 독립 검토 통과. 실제 요청 665ms/409 및 갱신 안내. |
-| 런타임/금융 원본 보호 | COMPLETE(이번 배포 범위) | 962 blob 일치, task/process SHA, health/ready200·보호 API401, 2DB/13표 최초 기준선 동일. 금융 연결/기장/배정·Google 쓰기 없음. |
+| 런타임 배포 스모크 | COMPLETE | `a9626059893a02931926ca009f9d04226ffd7e60`, 963 blob 불일치 0, task/process SHA, health/ready200·보호 API401. 이번 배포의 DB 전후 diff는 수행하지 않음; 금융 연결/기장/배정·Google 쓰기 없음. |
 | 실제 터치 / 브라우저 200% 확대 | BLOCKED_EXTERNAL_ACCEPTANCE | 합성 뷰포트/CSS 확대 근거로 실제 기기 수락을 대신하지 않는다. |
 | 공급사 원본 예약 생성일 | 선택적 별도 근거 대기 | 최초 수신일 fallback은 사용자 승인으로 허용됐다. 생성일 근거가 없어도 fallback 구현을 차단하지 않는다. |
-| #108 | HOLD | 고유 diff 공백뿐인 기존 PR을 자동 병합하지 않는다. |
+| #108 | CLOSED | main-only 사용자 요청으로 소스 브랜치를 정리했고 GitHub가 PR을 자동 종료했다. 삭제 전 refs는 `.local-archive/branch-prune-20261027/before-main-only.bundle`에 보존. |
 
-최신 상세는 [현행 인계 §0.28](COST_V3_CURRENT_HANDOFF.md#028-2026-10-27-중단-세션-인수미결-통합-배포), [운영 기록](operations.md), [검사/배포 실행 계획](superpowers/plans/2026-10-27-pending-work-release.md)을 따른다. 아래 원본 자료 부재·미병합·도구 접근 불가 표시는 작성 당시 이력이며 현재 상태로 재사용하지 않는다.
+최신 상세는 [현행 인계 §0.30](COST_V3_CURRENT_HANDOFF.md#030-2026-10-27-카카오-환불-후보-보강-및-운영-배포), [운영 기록](operations.md) 첫 절, [검사/배포 실행 계획](superpowers/plans/2026-10-27-pending-work-release.md)을 따른다. 아래 원본 자료 부재·미병합·도구 접근 불가 표시는 작성 당시 이력이며 현재 상태로 재사용하지 않는다.
 
 ## 0. 2026-10-27 직접 코드 구현 결과 및 남은 의존성
 
