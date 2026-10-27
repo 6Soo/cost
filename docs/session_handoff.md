@@ -32,11 +32,11 @@
 - 추가 옵션 `--source-references`에서만 허용된 추적 Python 소스 AST와 Git 자료 경로 metadata를 대조한다. 고객 자료 본문·SQL·시크릿 출력 없이 명시적 읽기/쓰기/참조 후보를 기록하며 기존 기본 metadata-only·차단·보존 계약을 유지한다. 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
 - 검수에서 일반참조 누락·receiver/내용 문자열 혼동을 교정했고 Supervisor가 내부 symlink 차단·scan0 집계를 보완했다. 초기19 passed와 확장 fixture 준비 실패를 최종 통과로 과장하지 않는다. 실제 자료 분류/삭제·Git 역사 재작성은 실행하지 않았다. 동적 경로·간접 소비자·운영 활성 여부는 미확인이다.
 
-### 진행 중인 RF-005/109 운영 호출 지도
+### 완료한 RF-005/109 운영 호출 지도 보완
 
 - 브랜치 `docs/rf003-release-and-runtime-map-20261028`, 같은 local workspace에서 구현자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-runtime-catalog.md`만 작성한다. Supervisor는 상태/운영 기록과 PR을 소유한다. 문서전용이며 테스트·빌드·브라우저·재배포 없음.
 - Supervisor는 scheduler metadata에서 Board의 SHA 고정 start_web_ledger_host 참조와 SourceRefresh의 `tools/watch_review_source.ps1` 이름/저장소 cwd 참조를 확인했다. 원문 인자·비밀값은 출력하지 않았다. 담당자는 repo 안의 실제 호출·외부 dependency·쓰기/복구 게이트를 소스 경로/줄로 추적하며 repo 밖 파일/DB/설정은 읽지 않는다.
-- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 `git diff -- docs/specs/refactor-runtime-catalog.md`와 해당 소스 참조를 검수한다. 전체 의존성·운영 활성 안전을 확정하지 않는다.
+- **COMPLETE（이번 문서 범위） / R0 전체 PARTIAL** — Board launcher→run_candidate, SourceRefresh wrapper→collect/activate→bundle/config/status, 임시 복사본 DB probe·별도 복원 target·dry-run manifest의 소스 참조를 대조했다. 전달된 scheduler metadata와 source-only 근거를 분리했고, PR #213 이후 최종 SHA/health 미확인 문구는 이미 검증된 운영 기록 참조로 교정했다. 원문 인자·환경/인증·외부 호스트 코드·DB는 열지 않았다. diff/참조/링크만 확인하며 테스트·빌드·브라우저·재배포는 하지 않는다. 외부 wrapper 전체 동작·실제 SourceRefresh 활성 결과는 미확인이다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
