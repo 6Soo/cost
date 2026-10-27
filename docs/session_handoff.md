@@ -45,6 +45,7 @@
 - 기존 거래 원본/금액/통화/ID·사용자 결정·독립 상태 축과 알 수 없는 값·필드/누락/None을 보존한다. 새로운 금융·환급·기장·여행 정책을 계산하거나 런타임/DB/Google을 변경하지 않는다. 입력/출력 alias 오염·정확 roundtrip을 새 합성 검사로 확인한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/transaction_contract.py tests/card_pipeline/test_transaction_contract.py`다. 이번 독립 adapter는 전체 RF-002 계약 채택이나 R0 운영 미확인 해소를 뜻하지 않는다.
 - 최초 구현 합성7 passed 보고를 받았으나 검수에서 `deepcopy` fallback이 public `FieldSlot.value`로 bytearray/custom mutable 객체를 노출하는 불변성 결함을 확인했다. 같은 구현자에게 지원 domain/안전한 미지원 오류·직접 slot 생성·public 중첩 접근·순환 참조 경계를 보완하도록 요청했다. 실제 transactions 필드와 axis 목록을 소스 대조했고 알려지지 않은 필드는 extras로 보존한다. 아직 구현 commit/PR/운영 반영은 하지 않았으며 수정본 알림 대기 중이다.
+- 1차 보완10 passed: built-in container/bytearray 동결·generic 미지원 오류·cycle 거부·직접 FieldSlot 생성은 확인했다. 최종 검수에서 public Axis/View 직접 생성의 mutable 주입과 datetime/time의 custom mutable tzinfo, extras key alias가 남아 추가 보완을 요청했다. SQL/JSON 값과 정확한 str key 계약을 명확히 하고 public 생성 경계를 실제 방어하도록 지정했다. 새 경계 검사 결과 알림 대기이며 이전10 passed를 최종 수락으로 확대하지 않는다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
