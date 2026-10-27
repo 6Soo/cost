@@ -60,6 +60,25 @@ def test_name_search_needs_no_booking_number_or_tour_id():
     lookup.assert_called_once()
 
 
+def test_name_search_matches_one_verified_name_component_without_fuzzy_matching():
+    responses = {}
+    with patch.dict(os.environ, {page.FEATURE_FLAG: "1"}), patch(
+        "webapp.ota_payment_review.passenger_index_for", return_value=_index()
+    ):
+        for query in ("alpha", "alph"):
+            handler = Handler()
+            page.dispatch(
+                handler, urlsplit("/api/flight-passengers/name-search"),
+                is_owner=True, board=object(), csrf="synthetic-csrf",
+                raw=json.dumps({"name": query}).encode(),
+            )
+            responses[query] = handler.response
+    assert responses["alpha"][0] == 200
+    assert [row["booking_ref"] for row in responses["alpha"][1]["reservations"]] == ["SYNTH-100", "SYNTH-200"]
+    assert responses["alph"][0] == 200
+    assert responses["alph"][1]["reservations"] == []
+
+
 def test_name_search_does_not_guess_korean_transliteration_or_unverified_records():
     with patch("webapp.ota_payment_review.passenger_index_for", return_value=_index()):
         result = page._name_search(object(), "김알파")
