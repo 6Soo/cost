@@ -23,7 +23,7 @@ import threading
 import uuid
 from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlparse, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
@@ -4045,6 +4045,14 @@ class Handler(BaseHTTPRequestHandler):
         from . import card_flow
         if card_flow.dispatch(self, parsed, query=query, csrf=CSRF_TOKEN):
             return
+        if parsed.path.startswith("/api/tabs/") and parsed.path.endswith("/tsv"):
+            tab_id = unquote(parsed.path[len("/api/tabs/"):-len("/tsv")])
+            self._send_tab_tsv(tab_id, query)
+            return
+        if parsed.path == "/api/board/tsv":
+            tab_id = query.get("tab", [""])[0]
+            self._send_tab_tsv(tab_id, query)
+            return
         if parsed.path == "/cards/all":
             from . import cards_all
 
@@ -5407,6 +5415,20 @@ class Handler(BaseHTTPRequestHandler):
             "income_rows": sum(1 for r in out if r["row_kind"] == "income"),
             "expense_rows": sum(1 for r in out if r["row_kind"] != "income"),
         }, code=200)
+
+    def _send_tab_tsv(self, tab_id: str, query: dict = None) -> None:
+        """GET /api/tabs/{tab_id}/tsv or /api/board/tsv?tab={tab_id}"""
+        if not tab_id:
+            self._send_json({"code": "TAB_REQUIRED", "message": "여행 탭을 지정해 주세요."}, code=400)
+            return
+        from . import ledger_design
+        if not ledger_design._is_trip_tab(tab_id):
+            self._send_json({"code": "INVALID_TRIP_TAB", "message": "여행 탭이 아닙니다."}, code=400)
+            return
+        q = (query or {}).get("q", [""])[0] if query else ""
+        kind = (query or {}).get("kind", [""])[0] if query else ""
+        result = ledger_design.tsv_for_trip_expenses(tab_id, query=q, kind=kind)
+        self._send_json(result, code=200)
 
     def _send_row_lineage(self, row_id) -> None:
         """APP_SPEC 10: `GET /api/rows/{row_id}/lineage`.
