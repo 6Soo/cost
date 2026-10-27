@@ -102,8 +102,13 @@ def test_large_blob_and_renamed_protected_object_cannot_hide_as_source(repo):
     assert result['blocked_count'] == 2
 
 
-def test_deletion_only_is_reported_without_touching_original_worktree(repo):
+def test_protected_deletion_blocks_without_touching_original_worktree(repo, capsys):
     git(repo, 'rm', '--cached', '--', 'outputs/existing.sqlite')
     result = inspect(repo)
-    assert result['deleted_count'] == 1 and result['blocked_count'] == 0
+    assert result['deleted_count'] == 1 and result['blocked_count'] == 1
+    finding = next(x for x in result['files'] if x['status'] == 'DELETED')
+    assert 'PROTECTED_DELETION' in finding['risk_markers']
+    assert 'PROTECTED_PATH' in finding['risk_markers']
+    assert main(['--root', str(repo), '--json']) == 1
+    assert 'SYNTHETIC_SENTINEL' not in capsys.readouterr().out
     assert (repo / 'outputs/existing.sqlite').read_text(encoding='utf-8') == 'SYNTHETIC_SENTINEL'

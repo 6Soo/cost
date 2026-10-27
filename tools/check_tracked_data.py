@@ -109,9 +109,19 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY):
                       'sensitivity': 'UNASSESSED', 'risk_markers': markers,
                       'blocked': mode != 'inventory' and bool(markers),
                       'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
+    deleted_paths = sorted(set(baseline) - set(current))
+    for path in deleted_paths:
+        info = baseline[path]
+        markers = reasons(path, info, policy)
+        if markers:
+            files.append({'path': path, 'size': info['size'], 'status': 'DELETED',
+                          'sensitivity': 'UNASSESSED',
+                          'risk_markers': ['PROTECTED_DELETION', *markers],
+                          'blocked': mode != 'inventory',
+                          'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
     return {'schema_version': 1, 'mode': mode, 'base': base, 'metadata_only': True,
             'files': files, 'blocked_count': sum(x['blocked'] for x in files),
-            'deleted_count': len(set(baseline) - set(current)),
+            'deleted_count': len(deleted_paths),
             'limitations': ['No content scan or sensitivity clearance; embedded secrets require separate review.',
                             'Existing source data is preserved; this tool never deletes or rewrites history.']}
 
