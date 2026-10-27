@@ -79,11 +79,7 @@ def refund_group(conn, original_id: str) -> list:
     numbered = _number_links(conn)
     siblings = {tid for tid, link in numbered.items() if link["original_id"] == original_id}
     taken = {link["original_id"] for link in numbered.values()}
-    foreign = _foreign_links(conn, taken)
-    siblings.update(refund_id for refund_id, link in foreign.items()
-                    if link["original_id"] == original_id)
-    taken.update(link["original_id"] for link in foreign.values())
-    siblings.update(refund_id for refund_id, link in _kakao_amount_links(conn, taken).items()
+    siblings.update(refund_id for refund_id, link in _foreign_links(conn, taken).items()
                     if link["original_id"] == original_id)
     return [original_id] + sorted(siblings)
 
@@ -99,10 +95,7 @@ def refund_links(conn, transaction_ids) -> dict:
         return {tid: dict(link) for tid, link in analysis[0].items() if tid in wanted}
     links = _number_links(conn, ids)
     taken = {link["original_id"] for link in _number_links(conn).values()}
-    foreign = _foreign_links(conn, taken, set(ids))
-    links.update(foreign)
-    taken.update(link['original_id'] for link in foreign.values())
-    links.update(_kakao_amount_links(conn, taken, set(ids)))
+    links.update(_foreign_links(conn, taken, set(ids)))
     return links
 
 
@@ -240,13 +233,30 @@ def _foreign_links(conn, taken, requested=None) -> dict:
     return links
 
 
+def kakao_refund_candidates(conn, requested=None) -> dict:
+    memo = _READ_ANALYSIS.get()
+    key = ('kakao_candidates', conn, conn.total_changes,
+           conn.execute('PRAGMA data_version').fetchone()[0])
+    if memo is not None and key in memo:
+        candidates = memo[key]
+    else:
+        candidates = _kakao_refund_candidates(conn)
+        if memo is not None:
+            memo[key] = candidates
+    return {tid: dict(candidate) for tid, candidate in candidates.items()
+            if requested is None or tid in requested}
 
-def _kakao_amount_links(conn, taken, requested=None) -> dict:
+
+def _kakao_refund_candidates(conn) -> dict:
     """Unique same-card, exact-KRW Kakao pair when original approval is absent.
 
+    Display-only candidates. Never returned by refund_links/refund_group.
     This is an inferred pairing, not verification of cash settlement.
     Never consume an original already linked by authoritative approval number.
     """
+    numbered = _number_links(conn)
+    taken = {link["original_id"] for link in numbered.values()}
+    taken.update(link["original_id"] for link in _foreign_links(conn, taken).values())
     rows = conn.execute(
         "SELECT transaction_id,transaction_direction,issuer,card_tail,merchant,"
         " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),"
@@ -284,8 +294,6 @@ def _kakao_amount_links(conn, taken, requested=None) -> dict:
     for refund_id, purchase in possible.items():
         original_id = purchase[0]
         if counts[original_id] != 1:
-            continue
-        if requested is not None and refund_id not in requested:
             continue
         gross = purchase[3]
         links[refund_id] = {

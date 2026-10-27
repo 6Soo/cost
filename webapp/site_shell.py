@@ -38,10 +38,10 @@ STYLE = """
 
 /* Keep theme control inside the mobile navigation row, never above it. */
 .site-topbar>.site-theme-bar{margin-left:auto;padding:0;min-height:0;display:flex;align-items:center;background:transparent}
-.site-topbar #site-theme-toggle{width:40px!important;min-width:40px;height:40px;min-height:40px;padding:0!important}
+.site-topbar #site-theme-toggle{width:44px!important;min-width:44px;height:44px;min-height:44px;padding:0!important}
 @media(width < 760px){.site-topbar{width:100%;min-width:0;gap:10px}.site-topbar>span{flex:1 1 auto}.site-topbar>.site-theme-bar{flex:0 0 auto}}
 
-.site-topbar{display:none}.site-menu-toggle{font:inherit;min-height:44px;padding:8px 14px;cursor:pointer;
+.site-topbar{display:flex;justify-content:flex-end}.site-topbar>.site-menu-toggle,.site-topbar>span{display:none}@media(width < 760px){.site-topbar>.site-menu-toggle{display:inline-flex}.site-topbar>span{display:inline}}.site-menu-toggle{font:inherit;min-height:44px;padding:8px 14px;cursor:pointer;
  display:inline-flex;align-items:center;gap:8px}
 .site-menu-toggle .ic,.catalog-btn .ic,.header-button .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
 #nav .site-links a{display:flex;align-items:center;gap:8px}
@@ -191,7 +191,7 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
     if native:
         content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + site_theme.BUTTON, content, count=1)
         if not re.search(r'\bid=[\"\']btn-menu[\"\']', content):
-            content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + BUTTON, content, count=1)
+            content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + BUTTON.replace(site_theme.BUTTON, ''), content, count=1)
         body = opening[0]
     else:
         from .ledger_design import _nav_html

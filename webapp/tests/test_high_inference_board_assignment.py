@@ -13,7 +13,8 @@ def setup_case(*, source_trip="tour1", confidence="높음", override=False):
       posting_date TEXT, issuer TEXT, raw_row_json TEXT, trip_id TEXT,
       classification_source TEXT, classification_basis TEXT,
       transaction_direction TEXT, duplicate_of TEXT, conflict_reason TEXT,
-      parse_error TEXT, card_tail TEXT, approval_number TEXT)""")
+      parse_error TEXT, card_tail TEXT, approval_number TEXT,
+      original_approval_number TEXT)""")
     conn.execute("""CREATE TABLE board_rows (
       row_id TEXT, revision INTEGER, payload_json TEXT,
       row_kind TEXT, display_tab_id TEXT)""")
@@ -21,12 +22,12 @@ def setup_case(*, source_trip="tour1", confidence="높음", override=False):
     conn.execute("CREATE TABLE review_decisions(transaction_id TEXT)")
     conn.execute("CREATE TABLE transaction_review_holds(transaction_id TEXT)")
     conn.execute("CREATE TABLE transaction_company_exclusions(transaction_id TEXT, excluded INTEGER)")
-    conn.execute("INSERT INTO transactions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO transactions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                  ("tx1","테스트 항공","domestic","2026-10-01","2026-10-01",
                   "국민","{}",source_trip,"inference",
-                  "추론 배정 · "+confidence+" · 검증된 예약", "purchase",None,"","","1234","A1"))
+                  "추론 배정 · "+confidence+" · 검증된 예약", "purchase",None,"","","1234","A1",""))
     conn.execute("INSERT INTO board_rows VALUES(?,?,?,?,?)",
-                 ("b1",1,json.dumps({"item":"항공료"}),"expense",None))
+                 ("b1",1,json.dumps({"item":"항공료", "source_event_id":"tx1"}),"expense",None))
     if override:
         conn.execute("INSERT INTO board_manual_overrides VALUES(?,?)", ("b1","display_tab_id"))
     calls = []
@@ -52,4 +53,22 @@ def test_stale_trip_or_low_confidence_does_not_overwrite():
         conn,flow,calls=setup_case(**opts)
         assert assign_existing_local_expenses(flow)==0
         assert not calls
+        conn.close()
+
+
+def test_manual_hold_exclusion_and_financial_conflicts_preserved():
+    for statement in (
+        "INSERT INTO review_decisions VALUES('tx1')",
+        "INSERT INTO transaction_review_holds VALUES('tx1')",
+        "INSERT INTO transaction_company_exclusions VALUES('tx1',1)",
+        "UPDATE transactions SET duplicate_of='other'",
+        "UPDATE transactions SET conflict_reason='conflict'",
+        "UPDATE transactions SET parse_error='bad-source'",
+        "UPDATE board_rows SET display_tab_id='manually-assigned'",
+    ):
+        conn, flow, calls = setup_case()
+        conn.execute(statement)
+        before = list(conn.iterdump())
+        assert assign_existing_local_expenses(flow) == 0
+        assert calls == [] and list(conn.iterdump()) == before
         conn.close()

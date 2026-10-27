@@ -38,12 +38,8 @@ def inspect(conn, *, merchant, amount, day):
         exact_amount = [r for r in cards if r[2] == abs(signed)]
         same_merchant = [r for r in cards if merchant.casefold() in str(r[4] or "").casefold()]
         preceding = [r for r in exact_amount if r[3] and str(r[3])[:10] <= str(when)[:10]]
-        linked = None
-        try:
-            from app.partial_refund import refund_links
-            linked = refund_links(conn, [tid]).get(tid)
-        except ImportError:
-            pass
+        from app.partial_refund import refund_links
+        linked = refund_links(conn, [tid]).get(tid)
         results.append({
             "transaction_found": True, "matched_by_existing_engine": bool(linked),
             "original_reference_present": bool(str(original or "").strip()),
@@ -76,4 +72,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     main()
