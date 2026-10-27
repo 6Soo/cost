@@ -85,6 +85,45 @@ def test_one_original_can_have_multiple_confirmed_refunds_without_merchant_match
         board.close()
 
 
+def test_multiple_partial_refunds_share_one_confirmed_original_without_writes(tmp_path):
+    """Different merchant labels do not weaken one-to-many approval-number evidence."""
+    board = LedgerStore(tmp_path / 'multi-partial-refunds.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,카카오T일반택시(법인)_0,20000,,,20000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,5000,,,5000,2026-10-03,2026-10-04,A200,,매입\n' +
+            '국민,1234,domestic,purchase,유페이 승인취소,3000,,,3000,2026-10-04,2026-10-05,A300,,매입\n'
+        ).encode(), 'synthetic-multi-kakao.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        ids = {row['approval_number']: row['transaction_id'] for row in rows}
+        refunds = [ids['200'], ids['300']]
+        for tid, amount in zip(refunds, (-5000, -3000)):
+            board.conn.execute(
+                "UPDATE transactions SET transaction_direction='cancellation',amount_krw=?,"
+                "original_approval_number='100' WHERE transaction_id=?", (amount, tid))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+
+        links = refund_links(board.conn, refunds)
+
+        assert set(links) == set(refunds)
+        for link in links.values():
+            assert link['original_id'] == ids['100']
+            assert link['status'] == 'partial'
+            assert link['refund_count'] == 2
+            assert link['gross_krw'] == 20000
+            assert link['refunds_total_krw'] == -8000
+            assert link['net_krw'] == 12000
+        markup = _render_refund_evidence(board, refunds[0], links[refunds[0]])
+        assert '원승인번호 기준 원결제 확정 연결 · 취소/환불 2건' in markup
+        assert '환불 합계 -8,000원' in markup
+        assert '순액 12,000원' in markup
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
     board = LedgerStore(tmp_path / 'merchant.sqlite', seed_demo=False)
     try:
