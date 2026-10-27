@@ -188,7 +188,13 @@ class OtaSnapshotService:
         self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2))
         with self._lock:
             generation = (current or {}).get("generation", 0) + 1
-            self._current = {"key": key, "generation": generation, "generated_at": _now_iso(), **reconciled}
+            generated_at = _now_iso()
+            published = {"key": key, "generation": generation, "generated_at": generated_at, **reconciled}
+            queue_summary = reconciled.get("queue_summary") if isinstance(reconciled, dict) else None
+            if isinstance(queue_summary, dict):
+                published["queue_summary"] = {**queue_summary, "generation": generation,
+                                               "generated_at": generated_at}
+            self._current = published
             self._refreshing = False
             self._error = None
             self._failed_key = None
@@ -298,6 +304,8 @@ class OtaSnapshotService:
                     "generated_at": current["generated_at"], "public": current["public"],
                     "authority": current.get("authority"),
                     "results": current["results"], "links": current["links"]}
+        if isinstance(current.get("queue_summary"), dict):
+            document["queue_summary"] = current["queue_summary"]
         try:
             text = json.dumps(document, ensure_ascii=False, default=str)
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,5 +327,8 @@ class OtaSnapshotService:
         self._current = {"key": str(document["key"]), "generation": int(document.get("generation") or 1),
                          "generated_at": document.get("generated_at"), "public": document.get("public") or {},
                          "results": document.get("results") or [], "links": document.get("links") or {},
-                         "authority": document.get("authority"), "data": None}
+                         "authority": document.get("authority"),
+                         "queue_summary": document.get("queue_summary")
+                         if isinstance(document.get("queue_summary"), dict) else None,
+                         "data": None}
         self._first_ready.set()

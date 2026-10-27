@@ -116,6 +116,7 @@
 - PR #227 source audit 문서 병합 후 main `513b9bb`, 브랜치 `feat/ota-canonical-queue-summary-20261028`. 기존 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, 새 `webapp/tests/test_ota_queue_summary.py`만 소유한다. Supervisor가 git/문서/검수/배포를 소유한다.
 - worker에서 full canonical source/result를 중복·누락·orphan 보호 하에 결합하여 aggregate만 precompute/persist하고 `/api/imports/ota/summary`는 같은 세대 저장값만 읽는다. missing/ambiguous join과 manual/source 변경은 완료 차단, nonready는 완료 집계를 전역 auto_recheck로 표시하고 authoritative=false다. 기존 holds GET/cards lazy/POST 권한·금융 상태는 유지한다. events/cursor/UI는 이번 범위에 넣지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 지정3파일 diff와 합성 freshness/restore/auth/GET 계산0회/원본 불변 검사를 검수한다. 실제 DB/Google/고객 원본 쓰기·브라우저·운영 접근은 구현자에게 허용하지 않는다. 운영은 `a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`다.
+- **REVIEWED / RELEASE_PENDING** — 구현자 지정29 passed·기존 보호5 passed 후 Supervisor가 누락 solver 필드의 source fallback 차단, source evidence conflict 보존, 세대 불일치 finite tag를 보완했다. 통합3파일73 passed/1 failed: 기존 partial-group fixture가 HOLD_NO_CARD이며 임시DB 정리 WinError32를 동반한다. 변경 전 운영 `a6f4abc`의 동일 단일 검사에서도 동일 실패를 재현했고 통과로 계산하지 않았다. 최종 신규 summary24 passed（추가7개 경계 포함）·compile/diff 통과. 다음은 지정3파일과 기록만 PR/정상병합/고정SHA배포하고 보호13표·health/auth·인증 summary 최소 읽기를 확인한다. 페이지/cursor/UI는 남아 있다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 

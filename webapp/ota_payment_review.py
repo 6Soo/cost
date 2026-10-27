@@ -11,10 +11,12 @@ import json
 import os
 import re
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from . import ota_snapshot
+from app.ota_queue_projection import summarize_queue
 
 
 ROUTE_PREFIX = "/api/imports/ota"
@@ -1285,6 +1287,117 @@ def scheduled_card_settlements(sources, transactions, occupied):
     return sorted({str(fact["transaction_id"]) for fact in matches} - set(occupied))
 
 
+def _canonical_queue_summary(events, results, links) -> dict:
+    """Join worker-owned canonical rows one-to-one and retain ambiguous rows as unresolved units."""
+    source_counts, result_counts = {}, {}
+    for row in events:
+        identity = row.get("ota_event_id") if type(row) is dict else None
+        if type(identity) is str and identity.strip():
+            source_counts[identity] = source_counts.get(identity, 0) + 1
+    for row in results:
+        identity = row.get("ota_event_id") if type(row) is dict else None
+        if type(identity) is str and identity.strip():
+            result_counts[identity] = result_counts.get(identity, 0) + 1
+
+    result_by_id = {}
+    for index, row in enumerate(results):
+        identity = row.get("ota_event_id") if type(row) is dict else None
+        if (type(identity) is str and identity.strip() and
+                source_counts.get(identity) == 1 and result_counts.get(identity) == 1):
+            result_by_id[identity] = (index, row)
+
+    queue_rows, consumed = [], set()
+
+    def flagged(row, key):
+        value = row.get(key) if type(row) is dict else None
+        if value is None or value is False:
+            return False, False
+        if value is True:
+            return True, False
+        if type(value) is str:
+            return bool(value), False
+        return False, True
+
+    def evidence_state(source, result, identity):
+        changed = missing = review_warning = malformed = False
+        for row in (source, result):
+            for key in ("evidence_changed", "evidence_missing"):
+                value, bad = flagged(row, key)
+                malformed |= bad
+                if key == "evidence_changed":
+                    changed |= value
+                else:
+                    missing |= value
+            value, bad = flagged(row, "review_warning")
+            review_warning |= value
+            malformed |= bad
+        link = links.get(identity) if identity and type(links) is dict else None
+        if type(link) is dict:
+            value, bad = flagged(link, "evidence_changed")
+            changed |= value
+            malformed |= bad
+            value, bad = flagged(link, "evidence_missing")
+            missing |= value
+            malformed |= bad
+            stored_digest = link.get("source_digest")
+            source_digest = source.get("source_digest") if type(source) is dict else None
+            if (type(stored_digest) is str and stored_digest and
+                    type(source_digest) is str and source_digest and stored_digest != source_digest):
+                changed = True
+        review_warning |= changed or missing or malformed
+        return changed, missing, review_warning
+
+    for source in events:
+        identity = source.get("ota_event_id") if type(source) is dict else None
+        valid_id = type(identity) is str and bool(identity.strip())
+        unique = valid_id and source_counts.get(identity) == 1
+        joined = result_by_id.get(identity) if unique else None
+        if joined is not None:
+            result_index, result = joined
+            consumed.add(result_index)
+            row = dict(source)
+            row.update(result)
+            # Matching authority belongs to the solver, never a source fallback.
+            for key in ("status", "reason", "transaction_id"):
+                row[key] = result.get(key)
+            changed, missing, warning = evidence_state(source, result, identity)
+            source_evidence = source.get("evidence_status")
+            if (type(source_evidence) is str and
+                    source_evidence in ("conflict", "evidence_conflict", "refund_conflict")):
+                warning = True
+            row["evidence_changed"] = changed
+            row["evidence_missing"] = missing
+            row["review_warning"] = warning
+            queue_rows.append(row)
+            continue
+
+        row = dict(source) if type(source) is dict else {}
+        # Source facts alone never stand in for a solver result.
+        row.update(status=None, reason=None, transaction_id=None)
+        changed, missing, _ = evidence_state(source, None, identity if valid_id else None)
+        row["evidence_changed"] = changed
+        row["evidence_missing"] = missing
+        row["review_warning"] = True
+        queue_rows.append(row)
+
+    for index, result in enumerate(results):
+        if index in consumed:
+            continue
+        row = dict(result) if type(result) is dict else {}
+        identity = row.get("ota_event_id")
+        valid_id = type(identity) is str and bool(identity.strip())
+        changed, missing, _ = evidence_state(None, result, identity if valid_id else None)
+        row["evidence_changed"] = changed
+        row["evidence_missing"] = missing
+        row["review_warning"] = True
+        queue_rows.append(row)
+
+    return summarize_queue(queue_rows, {
+        "status": "ready", "stale": False, "refreshing": False,
+        "fresh": True, "enabled": True, "generation": 0,
+    }, coverage="canonical")
+
+
 def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
     data = backend._data()
@@ -1315,8 +1428,11 @@ def reconcile_for(backend) -> dict:
     except Exception:
         authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
     scheduled = scheduled_card_settlements(backend.sources, transactions, backend._occupied_cards(links, results))
+    queue_summary = _canonical_queue_summary(events, results, links)
+    public = public_snapshot(backend.snapshot_from(data, include_cards=False))
     return {
-        "public": public_snapshot(backend.snapshot_from(data, include_cards=False)),
+        "public": public,
+        "queue_summary": queue_summary,
         "authority": authority,
         "results": published,
         "links": {str(event_id): _link_transaction_id(link)
@@ -2034,6 +2150,133 @@ def _diagnostic_snapshot(backend):
     return public_snapshot(backend.snapshot(), include_cards=True), {"status": "ready", "stale": False}
 
 
+_QUEUE_NAMES = ("needs_action", "waiting_source", "evidence_missing", "auto_recheck",
+                "completed", "historical")
+_SNAPSHOT_STATES = ("loading", "ready", "refreshing", "error")
+
+
+def _stored_queue_summary_response(view):
+    """Sanitize a precomputed aggregate; never classify or scan events on the request path."""
+    status = view.get("status") if type(view.get("status")) is str else "unknown"
+    if status not in _SNAPSHOT_STATES:
+        status = "unknown"
+    current = view.get("current") if type(view.get("current")) is dict else None
+    summary = current.get("queue_summary") if current and type(current.get("queue_summary")) is dict else None
+    generation_value = view.get("generation")
+    generation = generation_value if type(generation_value) is int and generation_value >= 0 else None
+    generated_at = None
+    raw_generated_at = view.get("generated_at")
+    if type(raw_generated_at) is str:
+        try:
+            parsed_generated_at = datetime.fromisoformat(raw_generated_at)
+            utc_offset = parsed_generated_at.utcoffset()
+            if (parsed_generated_at.tzinfo is not None and
+                    utc_offset is not None and utc_offset.total_seconds() == 0):
+                generated_at = parsed_generated_at.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except (ValueError, OverflowError):
+            pass
+    stale_value, refreshing_value, fresh_value = (
+        view.get("stale"), view.get("refreshing"), view.get("fresh"))
+    stale = stale_value if type(stale_value) is bool else None
+    refreshing = refreshing_value if type(refreshing_value) is bool else None
+    fresh = fresh_value if type(fresh_value) is bool else None
+
+    state_tags = []
+    if status == "loading":
+        state_tags.append("SNAPSHOT_LOADING")
+    elif status == "error":
+        state_tags.append("SNAPSHOT_ERROR")
+    elif status == "refreshing":
+        state_tags.append("SNAPSHOT_REFRESHING")
+    elif status == "unknown":
+        state_tags.append("SNAPSHOT_STATE_UNKNOWN")
+    elif status == "ready":
+        if refreshing is True:
+            state_tags.append("SNAPSHOT_REFRESHING")
+        elif stale is not False or fresh is not True:
+            state_tags.append("SNAPSHOT_STALE")
+
+    counts = None
+    warning_count = None
+    coverage = "unavailable"
+    grouping = "unknown"
+    if summary is not None:
+        raw_counts = summary.get("counts_by_queue")
+        if type(raw_counts) is dict:
+            safe_counts = {}
+            valid = True
+            for queue in _QUEUE_NAMES:
+                bucket = raw_counts.get(queue)
+                if type(bucket) is not dict:
+                    valid = False
+                    break
+                event_count, group_count = bucket.get("event_count"), bucket.get("group_count")
+                if (type(event_count) is not int or event_count < 0 or
+                        type(group_count) is not int or group_count < 0):
+                    valid = False
+                    break
+                safe_counts[queue] = {"event_count": event_count, "group_count": group_count}
+            raw_warning_count = summary.get("warning_count")
+            if type(raw_warning_count) is not int or raw_warning_count < 0:
+                valid = False
+            raw_coverage = summary.get("coverage")
+            if type(raw_coverage) is not str or raw_coverage not in ("canonical", "public_subset"):
+                valid = False
+            if valid:
+                counts = safe_counts
+                warning_count = raw_warning_count
+                coverage = raw_coverage
+                grouping = "singleton_fallback" if summary.get("grouping") == "singleton_fallback" else "unknown"
+
+    if counts is None:
+        state_tags.append("QUEUE_SUMMARY_UNAVAILABLE")
+        summary_status = "unavailable"
+        counts_authoritative = False
+    else:
+        is_current = (status == "ready" and fresh is True and stale is False and
+                      refreshing is False and summary.get("counts_authoritative") is True and
+                      summary.get("snapshot_status") == "ready" and
+                      summary.get("fresh") is True and summary.get("stale") is False and
+                      summary.get("refreshing") is False and summary.get("enabled") is True and
+                      coverage == "canonical" and generation is not None and
+                      type(summary.get("generation")) is int and
+                      summary.get("generation") == generation and generated_at is not None and
+                      type(summary.get("generated_at")) is str and
+                      summary.get("generated_at") == generated_at)
+        if is_current:
+            summary_status = "ready"
+            counts_authoritative = True
+        else:
+            if not state_tags:
+                state_tags.append("QUEUE_SUMMARY_NOT_CURRENT")
+            total_events = sum(bucket["event_count"] for bucket in counts.values())
+            total_groups = sum(bucket["group_count"] for bucket in counts.values())
+            counts = {queue: {"event_count": 0, "group_count": 0} for queue in _QUEUE_NAMES}
+            counts["auto_recheck"] = {"event_count": total_events, "group_count": total_groups}
+            warning_count += 1
+            summary_status = "rechecking"
+            counts_authoritative = False
+
+    return {
+        "status": status,
+        "summary_status": summary_status,
+        "coverage": coverage,
+        "grouping": grouping,
+        "count_unit": {"event": "event_count", "group": "group_count"},
+        "generation": generation,
+        "generated_at": generated_at,
+        "fresh": fresh,
+        "stale": stale,
+        "refreshing": refreshing,
+        "enabled": True,
+        "counts_available": counts is not None,
+        "counts_authoritative": counts_authoritative,
+        "counts_by_queue": counts,
+        "warning_count": warning_count,
+        "state_tags": state_tags,
+    }
+
+
 def _event_diagnostic(snapshot, event_id, freshness):
     event = next((row for row in snapshot.get("events", [])
                   if str(row.get("ota_event_id") or "") == event_id), None)
@@ -2090,6 +2333,19 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
             return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "진단 자료를 읽을 수 없습니다.", 503)
         return True
     if raw is None:
+        if path == ROUTE_PREFIX + "/summary":
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            try:
+                view_of = getattr(backend, "snapshot_view", None)
+                if not callable(view_of):
+                    return _reply_error(handler, "OTA_SUMMARY_UNAVAILABLE",
+                                        "저장된 요약을 읽을 수 없습니다.", 503)
+                handler._send_json(_stored_queue_summary_response(view_of()))
+            except Exception:
+                return _reply_error(handler, "OTA_SUMMARY_UNAVAILABLE",
+                                    "저장된 요약을 읽을 수 없습니다.", 503)
+            return True
         cards_match = re.fullmatch(re.escape(ROUTE_PREFIX) + r"/cards/([^/]+)", path)
         if cards_match:
             if not _request_user(handler):
