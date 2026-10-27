@@ -76,6 +76,38 @@ def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
         board.close()
 
 
+def test_kakao_original_approval_reference_survives_name_change_without_writing(tmp_path):
+    """Same issuer/card + original reference is a review candidate, not automatic pairing."""
+    from webapp.card_flow import _refund_merchant_candidates_readonly
+    board = LedgerStore(tmp_path / 'kakao-ref.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,9800,,,9800,2026-10-03,2026-10-04,A200,,매입\n' +
+            '국민,9999,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오페이선물,30000,,,30000,2026-10-02,2026-10-03,A300,,매입\n'
+        ).encode(), 'synthetic.csv')['batch_id']
+        ids = {row['approval_number']: row['transaction_id']
+               for row in flow.pipeline.get_batch(batch)['rows'] if row['card_tail'] == '1234'}
+        refund = ids['200']
+        board.conn.execute(
+            "UPDATE transactions SET transaction_direction='cancellation',amount_krw=-9800,"
+            "original_approval_number='100' WHERE transaction_id=?", (refund,))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        _, candidates, count = _refund_merchant_candidates_readonly(board, refund)
+        assert count == 1
+        assert [item[0] for item in candidates] == [ids['100']]
+        html = _render_refund_merchant_candidates(board, refund)
+        assert "원승인번호 일치 · 확정 연결은 별도 검증" in html
+        assert "원승인번호 대조 · 가맹점 불일치" in html
+        assert ids['300'] not in html
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_kakao_taxi_aliases_are_diagnostic_only_and_exclude_other_services():
     from webapp.card_flow import _refund_merchant_key
     aliases = (
