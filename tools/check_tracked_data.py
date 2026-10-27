@@ -1,10 +1,15 @@
-"""RF-003 metadata-only inventory/preflight; never read tracked file contents.
+"""RF-003 metadata-only inventory/preflight with opt-in static source references.
 
 Sensitivity stays UNASSESSED. Path/format/size checks cannot detect secrets
 embedded in source. This command never deletes data or rewrites Git history.
+Use --source-references to scan only tracked Python under app/, webapp/, tools/,
+ledger/domain/, and known root launchers. It compares exact path literals with
+Git metadata paths; dynamic/indirect use remains UNKNOWN and UNVERIFIED.
+This is a candidate scan, not proof of active use or sensitivity safety.
 """
 from __future__ import annotations
 import argparse
+import ast
 from collections import Counter
 import fnmatch
 import json
@@ -13,6 +18,125 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / 'config' / 'tracked-data-policy.json'
+SOURCE_ROOTS = ('app/', 'webapp/', 'tools/', 'ledger/domain/')
+ROOT_LAUNCHERS = {'run_candidate.py'}
+
+
+def _source_candidates(entries):
+    return [path for path, info in entries.items()
+            if info['kind'] == 'blob' and path.endswith('.py')
+            and (path.startswith(SOURCE_ROOTS) or path in ROOT_LAUNCHERS)]
+
+
+def _path_literal(node, known):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in known:
+        return node.value
+    return None
+
+
+def _source_references(source, source_path, known):
+    tree = ast.parse(source, filename=source_path)
+    results = []
+    io_targets = {}
+
+    def literal(node):
+        return _path_literal(node, known)
+
+    def add_target(node, candidate):
+        target = literal(node)
+        if target is not None:
+            io_targets[id(node)] = (target, candidate)
+
+    def mode_candidate(mode_node, default_read=False):
+        if mode_node is None:
+            return 'READ_CANDIDATE' if default_read else 'REFERENCE'
+        if not isinstance(mode_node, ast.Constant) or not isinstance(mode_node.value, str):
+            return 'REFERENCE'
+        mode = mode_node.value
+        primary = [char for char in mode if char in 'rwax']
+        if len(primary) != 1 or any(char not in 'rwaxbt+' for char in mode):
+            return 'REFERENCE'
+        if len(set(mode)) != len(mode) or ('b' in mode and 't' in mode):
+            return 'REFERENCE'
+        return 'WRITE_CANDIDATE' if primary[0] in 'wax' or '+' in mode else 'READ_CANDIDATE'
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ''
+        if isinstance(func, ast.Name) and func.id == 'open':
+            path_node = node.args[0] if node.args else next(
+                (kw.value for kw in node.keywords if kw.arg == 'file'), None)
+            mode_node = node.args[1] if len(node.args) > 1 else next(
+                (kw.value for kw in node.keywords if kw.arg == 'mode'), None)
+            add_target(path_node, mode_candidate(mode_node, default_read=mode_node is None))
+        elif isinstance(func, ast.Attribute) and name in {
+                'open', 'read_text', 'read_bytes', 'write_text', 'write_bytes'}:
+            receiver = func.value
+            receiver_path = None
+            if isinstance(receiver, ast.Call) and receiver.args:
+                constructor = receiver.func.id if isinstance(receiver.func, ast.Name) else ''
+                if constructor in {'Path', 'PurePath', 'PurePosixPath', 'WindowsPath', 'PosixPath'}:
+                    receiver_path = receiver.args[0]
+            if name == 'open':
+                mode_node = node.args[0] if node.args else next(
+                    (kw.value for kw in node.keywords if kw.arg == 'mode'), None)
+                candidate = mode_candidate(mode_node, default_read=mode_node is None)
+            elif name in {'read_text', 'read_bytes'}:
+                candidate = 'READ_CANDIDATE'
+            else:
+                candidate = 'WRITE_CANDIDATE'
+            add_target(receiver_path, candidate)
+
+    # Preserve every exact path literal. Promote only AST nodes proven to be
+    # the target of a recognized file operation; content/other arguments stay REFERENCE.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in known:
+            target, candidate = io_targets.get(id(node), (node.value, 'REFERENCE'))
+            results.append({'source_path': source_path, 'line': node.lineno,
+                            'candidate': candidate, 'reason': 'EXACT_TRACKED_PATH_LITERAL',
+                            '_target': target})
+    return results
+
+
+def _add_source_references(root, entries, files):
+    """Opt-in read of approved tracked Python source only; data blobs stay unopened."""
+    by_path = {item['path']: item for item in files}
+    protected = {item['path'] for item in files if item['risk_markers']}
+    errors = []
+    candidates = _source_candidates(entries)
+    reference_count = 0
+    if not protected:
+        return errors, 0, 0
+    for source_path in candidates:
+        try:
+            candidate = (root / source_path).resolve(strict=True)
+            candidate.relative_to(root)
+            if candidate != (root / source_path).absolute():
+                raise ValueError('SOURCE_INDIRECT_PATH')
+            if not candidate.is_file():
+                raise ValueError('SOURCE_PATH_NOT_FILE')
+            text = candidate.read_text(encoding='utf-8-sig')
+            refs = _source_references(text, source_path, protected)
+        except (OSError, UnicodeError, ValueError, SyntaxError, RuntimeError) as exc:
+            if isinstance(exc, SyntaxError):
+                reason = 'SOURCE_PARSE_FAILED'
+            elif isinstance(exc, UnicodeError):
+                reason = 'SOURCE_READ_FAILED'
+            elif isinstance(exc, (ValueError, RuntimeError)):
+                reason = 'SOURCE_PATH_OUTSIDE_OR_MISSING'
+            else:
+                reason = 'SOURCE_READ_FAILED'
+            errors.append({'path': source_path, 'reason': reason})
+            continue
+        for ref in refs:
+            target = ref.pop('_target')
+            by_path[target].setdefault('source_references', []).append(ref)
+            reference_count += 1
+    for item in files:
+        item.setdefault('source_references', [])
+    return errors, len(candidates), reference_count
 
 
 def git(root, *args):
@@ -88,7 +212,7 @@ def reasons(path, info, policy):
     return result
 
 
-def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY):
+def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY, source_references=False):
     if mode not in ('inventory', 'staged', 'base'):
         raise ValueError('INVALID_MODE')
     policy = load_policy(policy_path)
@@ -119,10 +243,26 @@ def inspect(root=ROOT, *, mode='staged', base='HEAD', policy_path=POLICY):
                           'risk_markers': ['PROTECTED_DELETION', *markers],
                           'blocked': mode != 'inventory',
                           'producer': 'UNKNOWN', 'consumer': 'UNKNOWN', 'active_use': 'UNVERIFIED'})
-    return {'schema_version': 1, 'mode': mode, 'base': base, 'metadata_only': True,
+    source_errors, source_scanned, source_reference_count = (
+        _add_source_references(root, index(root), files) if source_references else ([], 0, 0)
+    )
+    source_scan_fields = ({
+        'source_references_enabled': True,
+        'source_scan_count': source_scanned,
+        'source_reference_count': source_reference_count,
+        'errors': source_errors,
+        'source_reference_provenance': {
+            'path_metadata': 'Git index',
+            'source_text': 'working tree',
+        },
+    } if source_references else {})
+    return {'schema_version': 1, 'mode': mode, 'base': base, 'metadata_only': not source_references,
+            **source_scan_fields,
             'files': files, 'blocked_count': sum(x['blocked'] for x in files),
             'deleted_count': len(deleted_paths),
             'limitations': ['No content scan or sensitivity clearance; embedded secrets require separate review.',
+                            'Exact static literals only; dynamic paths and indirect consumers remain UNKNOWN and UNVERIFIED.',
+                            'Source references read working-tree text while path metadata comes from the Git index; they are not a same-revision comparison.',
                             'Existing source data is preserved; this tool never deletes or rewrites history.']}
 
 
@@ -133,19 +273,27 @@ def main(argv=None):
     parser.add_argument('--base', default='HEAD', help='Explicit Git baseline; base mode compares HEAD to it')
     parser.add_argument('--policy', type=Path, default=POLICY)
     parser.add_argument('--json', action='store_true')
+    parser.add_argument('--source-references', action='store_true',
+                        help='opt in to exact data-path literal candidates in approved tracked Python source; dynamic use remains unverified')
     args = parser.parse_args(argv)
     try:
-        result = inspect(args.root.resolve(), mode=args.mode, base=args.base, policy_path=args.policy)
+        result = inspect(args.root.resolve(), mode=args.mode, base=args.base, policy_path=args.policy,
+                         source_references=args.source_references)
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(json.dumps({'status': 'ERROR', 'code': type(exc).__name__}))
         return 2
     if args.json:
         print(json.dumps(result, ensure_ascii=True, indent=2))
     else:
-        print(json.dumps({'mode': args.mode, 'files': len(result['files']),
-                          'blocked_count': result['blocked_count'], 'deleted_count': result['deleted_count'],
-                          'risk_counts': dict(Counter(r for x in result['files'] for r in x['risk_markers']))}))
-    return 1 if result['blocked_count'] else 0
+        summary = {'mode': args.mode, 'files': len(result['files']),
+                   'blocked_count': result['blocked_count'], 'deleted_count': result['deleted_count'],
+                   'risk_counts': dict(Counter(r for x in result['files'] for r in x['risk_markers']))}
+        if args.source_references:
+            summary.update({'source_scan_count': result['source_scan_count'],
+                            'source_reference_count': result['source_reference_count'],
+                            'source_error_count': len(result['errors'])})
+        print(json.dumps(summary))
+    return 2 if result.get('errors') else 1 if result['blocked_count'] else 0
 
 
 if __name__ == '__main__':
