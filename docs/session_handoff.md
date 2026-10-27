@@ -105,6 +105,8 @@
 - PR #224 문서 병합 후 브랜치 `feat/ota-queue-pure-projection-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/ota_queue_projection.py`, `tests/test_ota_queue_projection.py`만 작성한다. route/GET/UI/solver/store에는 연결하지 않는다.
 - 명시적 canonical/public_subset coverage·freshness·유효한 source 상태/근거·경고를 바탕으로 display queue만 계산한다. completed는 대사검토 범위이며 기장/실환급/여행 확정이 아니다. unknown/changed/missing/manual-warning·duplicate/missing identity와 stale 등은 완료로 올리지 않는다. 검증된 예약 그룹 계약 전에는 singleton fallback이며 input event를 버리거나 합치지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 원문/ID/금액이 없는 safe summary·event/group count·비authoritative 상태·입력불변성과 합성10k/100k precompute 비용을 확인한다. 금융/Google/고객 원본 쓰기와 실제 API 조회는 구현자에게 허용하지 않는다. 다음 명령은 완료 알림 후 `git diff -- app/ota_queue_projection.py tests/test_ota_queue_projection.py`다. 운영은 `d230e12`로 유지한다.
+- **REVIEW_FIX_PENDING** — 구현자의 초기31 passed·compile/diff와 합성10k/100k 계측 보고를 수신했으나 최종 수락하지 않았다. 현재 파일 검수에서 명시적 `fresh=False` 미반영, 경고/충돌보다 대기 분기가 앞서는 우선순위, 잘못된 freshness metadata의 원문 반환, stale 중 duplicate 처리의 전역 gate 덮어쓰기를 확인했다. 같은 구현자에게 지정 두 파일의 회귀 검사와 보완을 요청했다. 완료에는 유효한 transaction identity도 요구한다. 보완 알림 후 파일·지정 테스트를 검수하며 API/UI 성능 완료나 운영 반영으로 보고하지 않는다.
+- **REVIEWED / RELEASE_PENDING** — 구현자 보완51 passed 후 Supervisor가 conflict evidence와 waiting/missing 상태의 우선순위9개 회귀를 추가해 지정60 passed·compile/diff를 확인했다. metadata는 JSON-safe primitive만 반환하고 fresh/enabled 부정·malformed envelope는 전역 auto_recheck, duplicate는 이를 덮지 않는다. 합성10k 0.2368s/2,287,945B·100k 2.7025s/24,632,608B는 구현자 계측이며 제품 p95가 아니다. 다음은 지정 두 코드 파일과 상태 기록만 commit/PR/병합하고 검증된 SHA를 배포한다. API/UI·pagination은 미구현 상태다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
