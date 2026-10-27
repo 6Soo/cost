@@ -26,10 +26,14 @@ def next_action(row, preview=None, extra_hold=None):
         return action('중복 제외', '중복 내역 확인', '같은 거래가 이미 있어 추가로 기록하지 않습니다.', False)
     if row.get('company_excluded') or preview.get('excluded_from_company'):
         return action('회사 경비 제외', '제외 내역 보기', required=False)
-    if row.get('trip_name') == '환불':
-        return action('전액 환불', '환불 보기', required=False, target='/board?tab=refunds')
     if row.get('conflict_reason') or row.get('parse_error'):
         return action('원본 확인 필요', '원본 확인', row.get('conflict_reason') or row.get('parse_error'))
+    if preview.get('blocked') == 'refund_inferred' or (preview.get('refund_link') or {}).get('basis', '').endswith('_inferred'):
+        return action('환불 추론 연결', '환불 근거 확인',
+                      preview.get('reason') or '원결제 추론 연결은 별도 근거 검증 전 장부 기록을 보류합니다. 환급 완료 아님.',
+                      target=href + '#preview')
+    if row.get('trip_name') == '환불':
+        return action('전액 환불', '환불 보기', required=False, target='/board?tab=refunds')
     if preview.get('blocked') in ('refund_pair_partially_booked', 'refund_original_missing', 'refund_pair_incomplete', 'refund_pair_mismatch', 'refund_exceeds_original'):
         return action('환불 기록 확인 필요', '환불 기록 확인',
                       '원결제와 환불의 기록 상태를 함께 확인해 주세요. 일부만 기록돼 있거나 서로 맞지 않아 자동 반영하지 않습니다.',

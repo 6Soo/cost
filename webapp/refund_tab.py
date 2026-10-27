@@ -27,17 +27,9 @@ def groups(store):
     grouped = {}
     for refund_id, link in links.items():
         original = link['original_id']
-        grouped.setdefault(original, [sources[original]]).append(sources[refund_id])
-    purchases = {}
-    for r in records:
-        if r[9] == 'purchase' and r[2] > 0 and r[10] is None and not r[11] and not r[12] and r[7]:
-            purchases.setdefault((r[5], r[6], r[7]), []).append(r[0])
-    for r in records:
-        if r[9] != 'cancellation' or r[2] >= 0 or r[8] or r[10] is not None or r[11] or r[12]:
-            continue
-        matches = purchases.get((r[5], r[6], r[7]), [])
-        if len(matches) == 1:
-            grouped.setdefault(matches[0], [sources[matches[0]]]).append(sources[r[0]])
+        grouped.setdefault(original, [dict(sources[original], inferred=bool(link.get('inferred')),
+                                          refund_basis=link.get('basis') or 'original_approval_number')]
+                           ).append(sources[refund_id])
     from .history_policy import preserved_periods
     complete = [rows for rows in grouped.values()
                 if sum(r['amount_krw'] for r in rows) == 0
@@ -54,7 +46,7 @@ def _member_ids(store):
     from . import ledger_board as board
     saved = {r.get('source_event_id'): r for r in board._expense_rows()}
     return {r['transaction_id'] for group in groups(store)
-            if all(r['transaction_id'] in saved for r in group)
+            if not group[0].get('inferred') and all(r['transaction_id'] in saved for r in group)
             and sum(saved[r['transaction_id']]['amount_krw'] for r in group) == 0
             and len({saved[r['transaction_id']].get('display_tab_id') for r in group}) == 1
             for r in group}
@@ -79,6 +71,8 @@ def render(store, query='', kind=''):
     for group in visible:
         net = sum(r['amount_krw'] for r in group)
         title = '전액 환불' if net == 0 else '초과 환불 확인 필요' if net < 0 else '부분 환불'
+        if group[0].get('inferred'):
+            title = '원결제 추론 연결 · 기록 보류 · 환급 완료 아님'
         rows = []
         for index, source in enumerate([group[0]] + sorted(group[1:], key=lambda r: (
                 not bool(r['occurred_on']), r['occurred_on'], r['transaction_id']))):

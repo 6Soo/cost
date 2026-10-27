@@ -441,9 +441,7 @@ def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bo
                 f"<h2>{year}년 {month}월</h2>"
                 + ("<p>이 달에 조회 조건에 맞는 카드 거래가 없어.</p>" if filter_state else
                    "<p>이 달에 저장된 카드 거래가 없어.</p>")
-                +
-                "<p class='card-all-muted'>카드사 원본에도 없다는 뜻은 아니에요.</p>"
-                "</section>")
+                + "</section>")
     more = ""
     if has_more and cursor:
         href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "month": month,
@@ -585,7 +583,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         detail = _month_detail(year, selected_month, items, next_cursor,
                                has_more, month_total, trip_names=trip_names, filter_state=filter_state)
     else:
-        detail = ("<p class='card-all-prompt' role='status'>확인할 월을 선택해 줘.</p>")
+        detail = ''
 
     body = (
         CARD_ALL_STYLE

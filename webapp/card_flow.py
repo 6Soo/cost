@@ -1647,7 +1647,17 @@ class CardFlow:
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
         from app.partial_refund import refund_links
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
-        for refund, link in refund_links(self.board.conn, [r['transaction_id'] for r in rows]).items():
+        refund_ids = [r[0] for r in self.board.conn.execute(
+            "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+        batch_ids = {r['transaction_id'] for r in rows}
+        for refund, link in refund_links(self.board.conn, refund_ids).items():
+            if not {refund, link['original_id']} & batch_ids:
+                continue
+            if link.get('inferred'):
+                for member in (refund, link['original_id']):
+                    holds.setdefault(member, {'kind': 'refund_inferred',
+                        'reason': '원결제 추론 연결 · 별도 근거 검증 전 장부 기록 보류 (환급 완료 아님)'})
+                continue
             # A classified full offset belongs in refunds, so an automatic trip
             # request cannot block it. Persisted/manual/financial holds remain.
             if (link['status'] == 'full' and link['original_id'] not in booked_now
@@ -2828,7 +2838,7 @@ def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
     """Read-only Kakao taxi alias evidence; same card, bounded time, no auto-link."""
     from datetime import date, timedelta
     refund = board.conn.execute(
-        "SELECT issuer,card_tail,merchant,approval_date,amount_krw,approval_number,"
+        "SELECT issuer,card_tail,merchant,COALESCE(NULLIF(approval_date,''),posting_date),amount_krw,approval_number,"
         "original_approval_number FROM transactions WHERE transaction_id=?", (tid,)
     ).fetchone()
     if not refund:
@@ -2845,13 +2855,15 @@ def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
     # restriction, not evidence that a match outside this window is impossible.
     from_day = (day - timedelta(days=14)).isoformat()
     rows = board.conn.execute(
-        "SELECT transaction_id,batch_id,merchant,approval_date,amount_krw,"
+        "SELECT transaction_id,batch_id,merchant,COALESCE(NULLIF(approval_date,''),posting_date),amount_krw,"
         "approval_number,duplicate_of,conflict_reason,parse_error "
         "FROM transactions WHERE issuer=? AND card_tail=? "
         "AND transaction_direction='purchase' AND amount_krw>0 "
-        "AND substr(approval_date,1,10)>=? AND substr(approval_date,1,10)<=? "
+        "AND ((substr(COALESCE(NULLIF(approval_date,''),posting_date),1,10)>=? "
+        "AND substr(COALESCE(NULLIF(approval_date,''),posting_date),1,10)<=?) "
+        "OR (?!='' AND TRIM(approval_number)=?)) "
         "ORDER BY approval_date DESC,transaction_id",
-        (issuer, tail, from_day, day.isoformat()),
+        (issuer, tail, from_day, day.isoformat(), str(original or '').strip(), str(original or '').strip()),
     )
     # The issuer's original authorization reference outranks merchant labels.
     # A valid reference on the SAME card can survive a merchant-name change.
@@ -2977,10 +2989,14 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             (tid, link['original_id']))}
         title = ('환불 기록 완료' if len(recorded) == 2 else
                  '원결제 연결 완료 · 환불 기록 처리 대기')
+        if link.get('inferred'):
+            title = '원결제 추론 연결 · 장부 기록 보류 (환급 완료 아님)'
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
                  else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
                  if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
+                 else '동일 카드·가맹점·이용일·동액 기준 추론 연결 (정산 확정 아님)'
+                 if link.get('inferred')
                  else '원승인번호 기준 원결제 확정 연결')
         lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
@@ -3016,10 +3032,10 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             # Diagnose from the entire same-card statement without writing or
             # promoting similar merchant names to verified financial links.
             refund_row = board.conn.execute(
-                "SELECT issuer,card_tail FROM transactions WHERE transaction_id=?",
+                "SELECT issuer,card_tail,merchant FROM transactions WHERE transaction_id=?",
                 (tid,)).fetchone()
             if refund_row:
-                issuer, tail = refund_row
+                issuer, tail, refund_merchant = refund_row
                 original_matches = board.conn.execute(
                     "SELECT COUNT(*) FROM transactions WHERE transaction_direction='purchase'"
                     " AND issuer=? AND card_tail=? AND approval_number IS NOT NULL"
@@ -3031,7 +3047,10 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                     lines.append('취소 승인번호와 같은 구매 승인번호가 발견됐지만, 원승인번호 근거가 없어 자동 확정하지 않았습니다.')
                 else:
                     lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다. 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
-            lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
+            if refund_row and '카카오' in str(refund_merchant or ''):
+                lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
+            else:
+                lines.append('취소 원행과 실제 현금 환급 완료는 별도입니다. 원결제 근거를 확인해 주세요.')
     if not link:
         from app.partial_refund import kakao_refund_candidates
         candidate = kakao_refund_candidates(board.conn, {tid}).get(tid)
@@ -3156,6 +3175,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
             blocked_labels = {
                 'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
                 'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
+                'refund_inferred': '기록 보류: 원결제 추론 연결은 별도 근거 검증이 필요합니다. 환급 완료를 의미하지 않습니다.',
                 'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
                 'review_hold': '기록 보류: ' + str(preview_row.get('reason') or '검토 보류 사유를 확인해 주세요.'),
@@ -3167,7 +3187,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
             finance_label = ('이미 내부 장부에 기록됨' if preview_row.get('already_booked') else
                              blocked_labels.get(blocked, '내부 비용 기록 준비 가능' if not blocked else
                                                 '내부 비용 기록 보류: 금융 검토가 필요합니다.'))
-            evidence += ("<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>")
             if not blocked and not preview_row.get('already_booked'):
                 reason += ' · 내부 비용 기록 준비 가능'
             elif blocked:
@@ -3187,7 +3206,10 @@ def render_expense_cleanup(board, csrf, *, page=1):
         if tid not in cancellation_ids and tid in original_refunds:
             pairs = original_refunds[tid]
             example = pairs[0][1]
-            if example.get('status') == 'full':
+            if example.get('inferred'):
+                reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결 · 전액 상쇄 추정. '
+                          '별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.')
+            elif example.get('status') == 'full':
                 reason = (f"원결제와 취소·환불 {example['refund_count']}건의 금액이 전액 상쇄됩니다."
                           " OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다.")
             elif example.get('status') == 'partial':
@@ -3196,7 +3218,8 @@ def render_expense_cleanup(board, csrf, *, page=1):
             elif example.get('status') == 'excess':
                 reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
             evidence += ("<p class='cleanup-finance-status'>"
-                         + esc("원결제·환불 대응은 확인됐으며 실제 장부 기록·환급 완료를 의미하지 않습니다.")
+                         + esc("원결제·취소 원행은 각각 보존합니다. OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다. "
+                               "실제 장부 기록·환급 완료를 의미하지 않습니다.")
                          + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
@@ -3205,7 +3228,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 reason = '취소 거래의 원결제 연결을 확인할 수 없습니다. 원결제와 함께 확인하기 전에는 기록하지 않습니다.'
             else:
                 status = link.get('status')
-                if status == 'full':
+                if link.get('inferred'):
+                    reason = '원결제 추론 연결 · 전액 상쇄 추정. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
+                elif status == 'full':
                     reason = '취소·환불 금액이 원결제와 상쇄됩니다. 원결제와 환불을 함께 기록해야 합니다.'
                 elif status == 'partial':
                     reason = f'일부 환불이 확인됐습니다. 남은 금액 {link.get("net_krw")}원을 함께 확인해야 합니다.'
@@ -3214,6 +3239,10 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 else:
                     reason = '원결제 연결을 확인해야 하며 비용 기록을 보류합니다.'
             evidence = _render_refund_evidence(board, tid, link, held_cancellations=held_refunds)
+            if finance_label:
+                evidence += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
+            if preview_row and preview_row.get('blocked'):
+                reason += ' ' + finance_label
             # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
             review = (f"<details class='cleanup-review'><summary>원결제·취소 근거 자세히 보기</summary>{evidence}"
                       f"<p><a href='{esc(detail)}'>원결제 연결 자료 보기</a></p></details>")
@@ -3233,11 +3262,21 @@ def render_expense_cleanup(board, csrf, *, page=1):
                       f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
                       f"<input name='item' aria-label='비용 항목' value='{esc(item or '')}' placeholder='비용 항목'>"
                       "<button type='submit'>여행 수정</button><p class='cleanup-error' role='alert'></p></form></details>")
+        if tid not in cancellation_ids and finance_label:
+            review += "<p class='cleanup-finance-status'>" + esc(finance_label) + "</p>"
         protected = bool(held or conflict_reason or parse_error)
         label = ('원본 충돌' if conflict_reason else '파싱 오류' if parse_error else
                  '취소·환불 확인' if tid in cancellation_ids else
                  '보류 중' if held else '분류 필요' if not item else
                  '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '검토 필요')
+        if not protected and tid not in cancellation_ids and tid in original_refunds:
+            offset_link = original_refunds[tid][0][1]
+            if offset_link.get('inferred'):
+                label = '환불 추론 연결 · 기록 보류'
+            elif preview_row and preview_row.get('blocked'):
+                label = '기록 보류'
+            elif offset_link.get('status') == 'full':
+                label = '환불 상쇄 확인'
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"

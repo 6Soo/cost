@@ -301,10 +301,19 @@ def test_card_history_visual_contract_and_trip_display_names(card_db_path, monke
     assert "title='T-A'" in result
 
 
+def test_initial_month_prompt_removed_but_month_selection_remains_accessible(card_db_path):
+    result = cards_all.cards_all_page({'year': ['2026']}, db_path=card_db_path)
+    assert '확인할 월을 선택해 줘.' not in result
+    assert "class='card-all-prompt'" not in result
+    assert '조회할 월 선택' in result
+    assert 'aria-label=' in result and 'month=' in result
+
+
 def test_month_detail_empty_month(card_db_path):
     """Empty month shows appropriate message."""
     html = cards_all._month_detail(2026, 1, [], None, False, 0)
     assert '이 달에 저장된 카드 거래가 없어' in html
+    assert '카드사 원본에도 없다는 뜻은 아니에요.' not in html
 
 
 def test_render_month_rows_time_handling(card_db_path):

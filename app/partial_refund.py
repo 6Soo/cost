@@ -40,11 +40,9 @@ def read_only_scope():
 
 def _read_analysis(conn):
     memo = _READ_ANALYSIS.get()
-    if memo is None:
-        return None
     # Also discard display evidence after a local write or another connection's commit.
     key = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
-    if key not in memo:
+    if memo is None or key not in memo:
         numbered = _number_links(conn)
         taken = {link['original_id'] for link in numbered.values()}
         foreign = _foreign_links(conn, taken)
@@ -57,7 +55,12 @@ def _read_analysis(conn):
                         if tid not in foreign:
                             held[tid] = {'purchases': len(purchases[group]),
                                          'cancellations': len(refunds)}
-        memo[key] = ({**numbered, **foreign}, held)
+        taken.update(link['original_id'] for link in foreign.values())
+        inferred = _amount_inferred_links(conn, taken, occupied_refunds=set(numbered) | set(foreign))
+        result = ({**numbered, **foreign, **inferred}, held)
+        if memo is None:
+            return result
+        memo[key] = result
     return memo[key]
 
 
@@ -70,17 +73,9 @@ def _settings() -> dict:
 
 
 def refund_group(conn, original_id: str) -> list:
-    """The original followed by every clean cancellation paired with it by approval number or foreign amount."""
-    found = conn.execute("SELECT issuer, card_tail, approval_number FROM transactions"
-                         " WHERE transaction_id=?", (original_id,)).fetchone()
-    if found is None:
-        return [original_id]
-    # Use the same global uniqueness gate for group membership and row links.
-    numbered = _number_links(conn)
-    siblings = {tid for tid, link in numbered.items() if link["original_id"] == original_id}
-    taken = {link["original_id"] for link in numbered.values()}
-    siblings.update(refund_id for refund_id, link in _foreign_links(conn, taken).items()
-                    if link["original_id"] == original_id)
+    """The original and all linked cancellations, including display-only inference."""
+    siblings = {tid for tid, link in _read_analysis(conn)[0].items()
+                if link['original_id'] == original_id}
     return [original_id] + sorted(siblings)
 
 
@@ -89,14 +84,8 @@ def refund_links(conn, transaction_ids) -> dict:
     ids = [str(i) for i in transaction_ids]
     if not ids:
         return {}
-    analysis = _read_analysis(conn)
-    if analysis is not None:
-        wanted = set(ids)
-        return {tid: dict(link) for tid, link in analysis[0].items() if tid in wanted}
-    links = _number_links(conn, ids)
-    taken = {link["original_id"] for link in _number_links(conn).values()}
-    links.update(_foreign_links(conn, taken, set(ids)))
-    return links
+    wanted = set(ids)
+    return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items() if tid in wanted}
 
 
 def _number_links(conn, transaction_ids=None) -> dict:
@@ -128,24 +117,29 @@ def _number_links(conn, transaction_ids=None) -> dict:
     marks = ",".join("?" * len(numbers))
     candidates = conn.execute(
         "SELECT transaction_id, transaction_direction, issuer, card_tail, approval_number,"
-        " original_approval_number, amount_krw FROM transactions"
+        " original_approval_number, amount_krw, duplicate_of, conflict_reason, parse_error FROM transactions"
         f" WHERE (TRIM(COALESCE(approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ') IN ({marks})"
-        f" OR TRIM(COALESCE(original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ') IN ({marks})) AND {_CLEAN}",
+        f" OR TRIM(COALESCE(original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ') IN ({marks}))",
         numbers + numbers
     ).fetchall()
     purchases, cancels = {}, {}
-    for tid, direction, issuer_, tail_, approval, original, amount in candidates:
+    for tid, direction, issuer_, tail_, approval, original, amount, duplicate, conflict, error in candidates:
+        clean = duplicate is None and not conflict and not error
         if direction == 'purchase' and amount > 0 and str(approval or '').strip(" \t\n\v\f\r"):
-            purchases.setdefault((issuer_, tail_, str(approval).strip(" \t\n\v\f\r")), []).append((tid, amount))
-        elif direction == 'cancellation' and original and amount < 0:
+            purchases.setdefault((issuer_, tail_, str(approval).strip(" \t\n\v\f\r")), []).append((tid, amount, clean))
+        elif clean and direction == 'cancellation' and original and amount < 0:
             cancels.setdefault((issuer_, tail_, str(original).strip(" \t\n\v\f\r")), []).append((tid, amount))
     links = {}
     for refund_id, issuer, tail, original_no in refunds:
+        if not issuer or not tail:
+            continue
         key = (issuer, tail, str(original_no).strip(" \t\n\v\f\r"))
         originals = purchases.get(key, [])
         if len(originals) != 1:
             continue
-        original_id, gross = originals[0]
+        original_id, gross, clean = originals[0]
+        if not clean:
+            continue
         siblings = cancels.get(key, [])
         refund_total = sum(amount for _, amount in siblings)
         own = next(amount for tid, amount in siblings if tid == refund_id)
@@ -234,73 +228,95 @@ def _foreign_links(conn, taken, requested=None) -> dict:
 
 
 def kakao_refund_candidates(conn, requested=None) -> dict:
-    memo = _READ_ANALYSIS.get()
-    key = ('kakao_candidates', conn, conn.total_changes,
-           conn.execute('PRAGMA data_version').fetchone()[0])
-    if memo is not None and key in memo:
-        candidates = memo[key]
-    else:
-        candidates = _kakao_refund_candidates(conn)
-        if memo is not None:
-            memo[key] = candidates
-    return {tid: dict(candidate) for tid, candidate in candidates.items()
-            if requested is None or tid in requested}
+    """Compatibility view of the same inference used by links, groups and UI."""
+    return {tid: dict(link) for tid, link in _read_analysis(conn)[0].items()
+            if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
+            and (requested is None or tid in requested)}
 
 
 def _kakao_refund_candidates(conn) -> dict:
-    """Unique same-card, exact-KRW Kakao pair when original approval is absent.
+    return kakao_refund_candidates(conn)
 
-    Display-only candidates. Never returned by refund_links/refund_group.
-    This is an inferred pairing, not verification of cash settlement.
-    Never consume an original already linked by authoritative approval number.
+
+
+def _kakao_merchant_family(merchant):
+    """Bound taxi spelling variants; other Kakao services require identical labels."""
+    import re
+    compact = re.sub(r'[^0-9a-z가-힣]', '', str(merchant or '').casefold())
+    if (compact.startswith(('카카오t', '카카오택시', '카카오모빌리티택시'))
+            and not any(word in compact for word in ('대리', '주차', '바이크', '퀵'))):
+        return '카카오택시'
+    return compact
+
+
+def _kakao_amount_links(conn, taken, requested=None, *, occupied_refunds=()):
+    return {tid: link for tid, link in _amount_inferred_links(
+        conn, taken, requested, occupied_refunds=occupied_refunds).items()
+        if link['basis'] == 'kakao_same_card_exact_amount_inferred'}
+
+
+def _amount_inferred_links(conn, taken, requested=None, *, occupied_refunds=()):
+    """Read-only exact-KRW inference with bidirectional global uniqueness.
+
+    Identical merchants require the same use date. Kakao taxi spelling variants
+    may use the existing 14-day window. This is an inferred relation only,
+    never evidence of an actual cash refund. A purchase must not be consumed by
+    approval-number/foreign pairing. All possible edges participate in uniqueness
+    checks, including an ambiguous refund and an already consumed original.
+    A conflicted source cannot make its clean competitor look unique.
     """
-    numbered = _number_links(conn)
-    taken = {link["original_id"] for link in numbered.values()}
-    taken.update(link["original_id"] for link in _foreign_links(conn, taken).values())
     rows = conn.execute(
         "SELECT transaction_id,transaction_direction,issuer,card_tail,merchant,"
-        " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),"
-        " original_approval_number FROM transactions"
-        f" WHERE {_CLEAN} AND ((transaction_direction='purchase' AND amount_krw>0)"
-        " OR (transaction_direction='cancellation' AND amount_krw<0"
-        " AND TRIM(COALESCE(original_approval_number,''))=''))"
+        " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),original_approval_number,"
+        " duplicate_of,conflict_reason,parse_error,foreign_currency,foreign_amount,merchant_normalized"
+        " FROM transactions WHERE "
+        " ((transaction_direction='purchase' AND amount_krw>0) OR"
+        " (transaction_direction='cancellation' AND amount_krw<0"
+        " AND TRIM(COALESCE(original_approval_number,''),char(9)||char(10)||char(11)||char(12)||char(13)||' ')=''))"
     ).fetchall()
     purchases, refunds = [], []
-    for tid, direction, issuer, tail, merchant, amount, when, original in rows:
-        if not issuer or not tail or '카카오' not in str(merchant or ''):
+    for (tid, direction, issuer, tail, merchant, amount, raw_day, original,
+         duplicate, conflict, error, currency, foreign, normalized) in rows:
+        if not issuer or not tail or not merchant:
             continue
-        day = _day(when)
-        if day is None:
+        when = _day(raw_day)
+        if when is None:
             continue
-        record = (tid, issuer, tail, abs(amount), day)
+        clean = duplicate is None and not conflict and not error and not currency and not foreign
+        entry = (tid, issuer, tail, abs(amount), when, merchant, clean,
+                 str(normalized or merchant).strip())
         if direction == 'purchase':
-            if tid not in taken:
-                purchases.append(record)
-        else:
-            refunds.append(record)
-    possible = {}
-    for refund_id, issuer, tail, amount, day in refunds:
-        matches = [p for p in purchases
-                   if p[1:4] == (issuer, tail, amount)
-                   and 0 <= (day - p[4]).days <= 14]
-        if len(matches) == 1:
-            possible[refund_id] = matches[0]
-    # A purchase targeted by two different cancellations is not automatically
-    # paired by amount alone: no authoritative evidence of repeated refunds.
-    counts = {}
-    for row in possible.values():
-        counts[row[0]] = counts.get(row[0], 0) + 1
+            purchases.append(entry)
+        elif direction == 'cancellation':
+            refunds.append(entry)
+    candidates, collisions = {}, {}
+    for refund in refunds:
+        rid, issuer, tail, amount, when, merchant, clean, normalized = refund
+        matches = [p for p in purchases if p[1:4] == (issuer, tail, amount)
+                   and ((0 <= (when - p[4]).days <= 14
+                         and '카카오' in merchant and '카카오' in p[5])
+                        or (when == p[4] and normalized == p[7]))]
+        for purchase in matches:
+            collisions[purchase[0]] = collisions.get(purchase[0], 0) + 1
+        if len(matches) == 1 and clean:
+            purchase = matches[0]
+            kakao = '카카오' in merchant and '카카오' in purchase[5]
+            if kakao and _kakao_merchant_family(purchase[5]) != _kakao_merchant_family(merchant):
+                continue
+            candidates[rid] = (purchase, 'kakao_same_card_exact_amount_inferred' if kakao
+                               else 'same_card_merchant_day_exact_amount_inferred')
     links = {}
-    for refund_id, purchase in possible.items():
-        original_id = purchase[0]
-        if counts[original_id] != 1:
+    for refund_id, (purchase, basis) in candidates.items():
+        original_id, _, _, gross, _, merchant, clean, _ = purchase
+        if (not clean or original_id in taken or refund_id in occupied_refunds
+                or collisions[original_id] != 1
+                or (requested is not None and refund_id not in requested)):
             continue
-        gross = purchase[3]
         links[refund_id] = {
-            'original_id': original_id, 'gross_krw': gross,
-            'refund_krw': -gross, 'refunds_total_krw': -gross,
-            'net_krw': 0, 'status': 'full', 'refund_count': 1,
-            'basis': 'kakao_same_card_exact_amount_inferred',
+            'original_id': original_id, 'gross_krw': gross, 'refund_krw': -gross,
+            'refunds_total_krw': -gross, 'net_krw': 0,
+            'status': 'full', 'refund_count': 1,
+            'basis': basis, 'inferred': True,
         }
     return links
 
@@ -310,20 +326,4 @@ def count_held_cancellations(conn) -> dict:
 
     Among identical rows the purchase a cancellation undoes is unknown, so these are not recorded one by one. They wait
     as a count group until the statement's counts are checked."""
-    analysis = _read_analysis(conn)
-    if analysis is not None:
-        return {tid: dict(counts) for tid, counts in analysis[1].items()}
-    settings = _settings()
-    if not settings.get("enabled"):
-        return {}
-    taken = {link["original_id"] for link in _number_links(conn).values()}
-    purchases, cancels = _foreign_pool(conn, taken)
-    paired = _foreign_links(conn, taken)
-    held = {}
-    for key, refunds in cancels.items():
-        if not purchases.get(key):
-            continue
-        for refund_id, _amount, _when in refunds:
-            if refund_id not in paired:
-                held[refund_id] = {"purchases": len(purchases[key]), "cancellations": len(refunds)}
-    return held
+    return {tid: dict(counts) for tid, counts in _read_analysis(conn)[1].items()}
