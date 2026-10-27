@@ -14,6 +14,8 @@ the net is derived from them and never stored over either.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from functools import lru_cache
@@ -23,6 +25,40 @@ __all__ = ["count_held_cancellations", "refund_group", "refund_links"]
 
 _CLEAN = "duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
 _CONFIG = Path(__file__).resolve().parents[1] / "config" / "refund-pairing.json"
+_READ_ANALYSIS = ContextVar('refund_read_analysis', default=None)
+
+
+@contextmanager
+def read_only_scope():
+    """Reuse global refund evidence within one display, never across requests."""
+    token = _READ_ANALYSIS.set({})
+    try:
+        yield
+    finally:
+        _READ_ANALYSIS.reset(token)
+
+
+def _read_analysis(conn):
+    memo = _READ_ANALYSIS.get()
+    if memo is None:
+        return None
+    # Also discard display evidence after a local write or another connection's commit.
+    key = (conn, conn.total_changes, conn.execute('PRAGMA data_version').fetchone()[0])
+    if key not in memo:
+        numbered = _number_links(conn)
+        taken = {link['original_id'] for link in numbered.values()}
+        foreign = _foreign_links(conn, taken)
+        held = {}
+        if _settings().get('enabled'):
+            purchases, cancels = _foreign_pool(conn, taken)
+            for group, refunds in cancels.items():
+                if purchases.get(group):
+                    for tid, _amount, _when in refunds:
+                        if tid not in foreign:
+                            held[tid] = {'purchases': len(purchases[group]),
+                                         'cancellations': len(refunds)}
+        memo[key] = ({**numbered, **foreign}, held)
+    return memo[key]
 
 
 @lru_cache(maxsize=1)
@@ -53,6 +89,10 @@ def refund_links(conn, transaction_ids) -> dict:
     ids = [str(i) for i in transaction_ids]
     if not ids:
         return {}
+    analysis = _read_analysis(conn)
+    if analysis is not None:
+        wanted = set(ids)
+        return {tid: dict(link) for tid, link in analysis[0].items() if tid in wanted}
     links = _number_links(conn, ids)
     taken = {link["original_id"] for link in _number_links(conn).values()}
     links.update(_foreign_links(conn, taken, set(ids)))
@@ -198,6 +238,9 @@ def count_held_cancellations(conn) -> dict:
 
     Among identical rows the purchase a cancellation undoes is unknown, so these are not recorded one by one. They wait
     as a count group until the statement's counts are checked."""
+    analysis = _read_analysis(conn)
+    if analysis is not None:
+        return {tid: dict(counts) for tid, counts in analysis[1].items()}
     settings = _settings()
     if not settings.get("enabled"):
         return {}
