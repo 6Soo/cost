@@ -216,7 +216,7 @@ def _link_diagnosis_label(reason):
         'reference_content_conflict': '참고 자료 내용 불일치 · 확인 필요',
         'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
         'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
-        'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
+        'snapshot_managed': '예약 근거는 이 거래의 상세 근거에서 바로 확인할 수 있습니다',
         'payment_date_unknown': '결제일 근거 없음 · 날짜 확인 필요',
         'card_identity': '카드 끝자리나 카드사가 맞지 않음 · 확인 필요',
         'provider': '예약 제공자와 카드 가맹점이 맞지 않음 · 연결 불가',
@@ -2376,7 +2376,8 @@ def assign_existing_local_expenses(flow, *, failures=None):
     conn = flow.board.conn
     rows = conn.execute(
         "SELECT b.row_id,b.revision,b.payload_json,t.transaction_id,t.merchant,t.card_kind,"
-        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json"
+        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json,"
+        "t.trip_id,t.classification_source,t.classification_basis"
         " FROM board_rows b JOIN transactions t ON t.transaction_id=json_extract(b.payload_json,'$.source_event_id')"
         " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
@@ -2391,19 +2392,28 @@ def assign_existing_local_expenses(flow, *, failures=None):
     ).fetchall()
     local_items = {'식비','주유비','통행료','입장료','교통비','대중교통','택시비','주차비','현지경비','편의점'}
     assigned = 0
-    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw in rows:
+    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw, source_trip, source_kind, source_basis in rows:
         item = json.loads(payload).get('item')
-        if item not in local_items:
+        high_inference = (source_kind == 'inference'
+                          and str(source_basis or '').startswith('추론 배정 · 높음')
+                          and bool(source_trip))
+        if high_inference:
+            # Transfer only an already-classified, validated card assignment.
+            # Never infer a trip from free-text basis or create an authority.
+            trip = source_trip if flow.trip_valid(source_trip) else ''
+            basis = '자동 배정: 카드 원본의 검증된 높은 신뢰도 여행 귀속을 기존 장부에 반영'
+        elif item in local_items:
+            transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
+                               approval_date=day, posting_date=posted, issuer=issuer,
+                               transaction_direction='purchase', raw_row=json.loads(raw))
+            trip = _verified_local_trip(transaction, item, flow.retail_trip)
+            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
+        else:
             continue
-        transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
-                           approval_date=day, posting_date=posted, issuer=issuer,
-                           transaction_direction='purchase', raw_row=json.loads(raw))
-        trip = _verified_local_trip(transaction, item, flow.retail_trip)
         if not trip:
             continue
         try:
             previous_note = json.loads(payload).get('operator_note') or ''
-            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
             flow.board.save(row_id=row_id, expected_revision=revision,
                             client_request_id=f'cleanup-trip-{row_id}-{revision}-{trip}',
                             change_mode='rule_change', changes={'display_tab_id': trip,
@@ -3113,6 +3123,21 @@ def render_expense_cleanup(board, csrf, *, page=1):
                  "<p class='cleanup-evidence-none'>현재 예약 자료를 확인할 수 없어 예약 부재 여부를 판단하지 않았습니다.</p>")
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
+        # Classification confidence describes a proposal, not a persisted trip.
+        # Do not present an old high-confidence basis as an active assignment.
+        if (current_tab in (None, '', 'unclassified')
+                and source == 'inference'):
+            basis_row = board.conn.execute(
+                "SELECT classification_basis FROM transactions WHERE transaction_id=?",
+                (tid,)).fetchone()
+            basis_text = str(basis_row[0] or '') if basis_row else ''
+            if '추론 배정 · 높음' in basis_text:
+                reason = ('과거 추론 근거는 높음이지만 현재 여행 배정값이 비어 있습니다.'
+                          ' 유효한 여행을 자동 재검증할 때까지 배정 완료로 표시하지 않습니다.')
+                evidence += ("<p class='cleanup-finance-status'>"
+                             "추론 근거와 저장된 여행 배정이 불일치합니다. "
+                             "재분류 시 유효한 여행 ID가 검증되면 자동 배정합니다."
+                             "</p>")
         finance_label = ''
         preview_row = preview_by_card.get(str(tid))
         if preview_row:
