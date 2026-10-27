@@ -8,6 +8,58 @@ from collections import Counter, defaultdict
 
 from app import ota_payments
 
+PROVIDERS = frozenset(('agoda', 'trip', 'booking', 'klook', 'toyoko', 'unknown'))
+EVIDENCE_STATUSES = frozenset(('paid_verified', 'refund_verified', 'scheduled',
+    'reservation_only', 'unverified', 'observed', 'conflict', 'evidence_conflict', 'refund_conflict', 'unknown'))
+ENGINE_STATUSES = frozenset(('MATCHED_AUTO', 'MATCHED_USER', 'HOLD_AMBIGUOUS',
+    'HOLD_AMOUNT_MISMATCH', 'HOLD_AMOUNT_UNVERIFIED', 'HOLD_DATE_UNKNOWN',
+    'HOLD_EVIDENCE_CONFLICT', 'HOLD_GROUP_CHANGED', 'HOLD_NO_CARD', 'HOLD_PARTIAL_GROUP',
+    'NOT_CARD_CHARGE', 'PENDING_PAYMENT', 'RESERVATION_ONLY', 'NO_RESULT', 'UNKNOWN'))
+OBSERVATION_REASONS = frozenset(('SOURCE_UNREADABLE', 'SOURCE_MISSING', 'NO_PAYMENT_EVENT',
+    'SOURCE_CONFLICT', 'RAW_PAYLOAD_MISSING', 'PAYMENT_COMPONENT_MISSING_OR_UNVERIFIED',
+    'SOURCE_ID_COLLISION', 'POSSIBLE_SOURCE_COPY', 'PAYMENT_EVENT_CREATED',
+    'EVIDENCE_ROLE_MISSING', 'SOURCE_EVIDENCE_CONFLICT', 'BOOKING_IDENTITY_MISMATCH',
+    'BOOKING_AMOUNT_INVALID', 'PAID_TODAY_COMPONENT_MISSING', 'REFUND_STATUS_UNRESOLVED',
+    'CARD_HINT_MISSING_OR_INVALID', 'SERVICE_PERIOD_INVALID', 'PAYMENT_COMPONENT_AMOUNT_INVALID',
+    'PAYMENT_NOT_VERIFIED_UNKNOWN', 'PAYMENT_NOT_VERIFIED_UNVERIFIED',
+    'PAYMENT_NOT_VERIFIED_SCHEDULED', 'PAYMENT_NOT_VERIFIED_PROPERTY_COLLECT',
+    'PAYMENT_NOT_VERIFIED_CANCELLED', 'PAYMENT_NOT_VERIFIED_CONFLICT'))
+ERROR_TYPES = frozenset(('ValueError', 'TypeError', 'KeyError', 'OSError', 'FileNotFoundError',
+    'PermissionError', 'JSONDecodeError', 'UnicodeDecodeError', 'OperationalError',
+    'DatabaseError', 'IntegrityError', 'OtaSourcesError', 'SOURCE_READ_ERROR'))
+SOURCE_KINDS = ('mail_directory', 'portal_database', 'reference_document', 'unified_database')
+
+
+def finite(value, allowed):
+    """Never echo arbitrary source text, including malformed non-string values."""
+    return value if isinstance(value, str) and value in allowed else 'UNKNOWN'
+
+
+def safe_error_type(value):
+    return finite(value, ERROR_TYPES)
+
+
+def _count(value):
+    return value if type(value) is int and value >= 0 else 'UNKNOWN'
+
+
+def _reason_counts(values):
+    result = {}
+    for key, value in (values.items() if isinstance(values, dict) else ()):
+        key = finite(key, OBSERVATION_REASONS)
+        count = _count(value)
+        previous = result.get(key, 0)
+        result[key] = previous + count if type(previous) is int and type(count) is int else 'UNKNOWN'
+    return result
+
+
+def _diagnostic(value):
+    allowed = {'SOURCE_UNREADABLE', 'SOURCE_DIAGNOSTIC'} | set(ERROR_TYPES)
+    allowed.update('SOURCE_MISSING:' + kind for kind in SOURCE_KINDS)
+    for prefix in ('REVIEW_SOURCE_', 'LEGACY_MATCHER_', 'RECONCILIATION_ENGINE_'):
+        allowed.update(prefix + error for error in ERROR_TYPES)
+    return finite(value, allowed)
+
 
 def pseudonym(secret: bytes, namespace: str, value) -> str:
     """Create a report-local pseudonym; callers must not persist the secret."""
@@ -104,8 +156,8 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
             reasons.append("CANDIDATE_AMBIGUOUS")
         cases.append({
             "direction": "OTA_TO_CARD", "id": pseudonym(secret, "ota", eid),
-            "provider": str(event.get("provider") or "unknown"),
-            "evidence_status": str(event.get("evidence_status") or "unknown"),
+            "provider": finite(event.get("provider") or "unknown", PROVIDERS),
+            "evidence_status": finite(event.get("evidence_status") or "unknown", EVIDENCE_STATUSES),
             "candidate_count": len(candidates),
             "candidates": ([{"id": pseudonym(secret, "card", cid), "basis": basis,
                              "occupied": bool(occupied.get(cid))}
@@ -143,11 +195,11 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                                                for v in user_links.values() if isinstance(v, dict)}})
 
     reason_counts = Counter(reason for case in cases for reason in case["reasons"])
-    providers = Counter(str(event.get("provider") or "unknown") for event in events)
+    providers = Counter(finite(event.get("provider") or "unknown", PROVIDERS) for event in events)
     result_by_event = {str(row.get("ota_event_id")): row
                        for row in (reconciliation_results or ())
                        if row.get("ota_event_id") is not None}
-    result_statuses = Counter(str(row.get("status") or "UNKNOWN")
+    result_statuses = Counter(finite(row.get("status") or "UNKNOWN", ENGINE_STATUSES)
                               for row in result_by_event.values())
     reconciliation_divergences = []
     for event in events:
@@ -162,24 +214,32 @@ def build_coverage_report(*, events, cards, legacy_links=None, user_links=None,
                 "id": pseudonym(secret, "ota", event_id),
                 "legacy_link_present": bool(legacy_card),
                 "engine_link_present": bool(result_card),
-                "engine_status": str((result or {}).get("status") or "NO_RESULT"),
+                "engine_status": finite((result or {}).get("status") or "NO_RESULT", ENGINE_STATUSES),
                 "user_pinned": event_id in user_links,
             })
     collisions = defaultdict(set)
     for event in events:
         for source in event.get("source_ids", ()):
             collisions[str(source)].add(_event_id(event))
-    safe_observations = dict(observation_report or {})
+    observations = observation_report or {}
+    safe_observations = {key: _count(observations[key]) for key in (
+        'raw_mail_observations', 'raw_portal_observations', 'raw_observations',
+        'skipped_observation_count', 'portal_local_id_reuse_count', 'possible_source_copy_count')
+        if key in observations}
+    if 'skipped_reason_counts' in observations:
+        safe_observations['skipped_reason_counts'] = _reason_counts(observations['skipped_reason_counts'])
     safe_observations["skipped"] = [
         {"id": pseudonym(secret, "observation", item.get("source", "")),
-         "reason": item.get("reason"), "error_type": item.get("error_type")}
-        for item in (observation_report or {}).get("skipped", ())
+         "reason": ([finite(reason, OBSERVATION_REASONS) for reason in item['reason']]
+                    if isinstance(item.get('reason'), list) else finite(item.get('reason'), OBSERVATION_REASONS)),
+         "error_type": safe_error_type(item['error_type']) if item.get('error_type') is not None else None}
+        for item in observations.get("skipped", ()) if isinstance(item, dict)
     ]
     summary = {
         "status": "INCOMPLETE_SOURCE_SET" if source_diagnostics else "COMPLETE_INPUTS",
-        "source_diagnostics": list(source_diagnostics or ()),
+        "source_diagnostics": [_diagnostic(value) for value in source_diagnostics or ()],
         "observation_counts": safe_observations,
-        "denominators": {"card_rows": len(cards), "ota_observations": (observation_report or {}).get("raw_observations", 0),
+        "denominators": {"card_rows": len(cards), "ota_observations": _count(observations.get("raw_observations", 0)),
                          "verified_payment_events": sum(e.get("evidence_status") in ("paid_verified", "refund_verified") for e in events)},
         "ota_event_count": len(events),
         "provider_event_counts": dict(sorted(providers.items())),
