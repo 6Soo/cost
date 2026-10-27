@@ -1,6 +1,8 @@
+> **2026-10-27 최신 운영 상태:** PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 병합·배포 완료. PR #152의 Agoda 후보 표시 수정도 같은 릴리스에 포함됐다. release 963개 파일 blob 불일치 0, 작업/프로세스 SHA 일치, health/ready 200, 비인증 보호 API 401, 기존 로그인 지출 정리 화면 GET 확인. 실제 원승인번호 교차 가맹점 표시는 현재 보이는 후보 행에서 확인되지 않아 live 사례 수락으로 주장하지 않는다. 상세 결과·기준선 테스트 실패·리뷰 NOT_RUN은 [운영 기록](operations.md) 첫 절과 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)를 따른다. 운영 금융/장부/Google 쓰기는 하지 않았다.
+
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
-> **최신 재개 기준(2026-10-27):** 카드 거래의 무관한 Agoda 제외 후보 표시 수정은 **0.29절** 및 미결 명세를 따른다. 최신 실제 운영 SHA는 여전히 **0.28절의 `4cd12ade...`**이며 PR #152 병합 SHA는 아직 운영 배포됐다고 가정하지 않는다. 항공권 최초 수신일 정책·OTA 후보 읽기와 이전 운영 근거는 0.28절, 완료된 페이지 전환 작업은 0.27절을 따른다. 현재 승인 범위는 [미결 작업 큐](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)와 실제 최신 `main` SHA로 확인한다. 아래 이전 기준선·당시 미완료 표시는 해당 시점의 이력이며 새 요청과 무관한 작업을 자동 실행하지 않는다.
+> **최신 재개 기준(2026-10-27):** 최신 실제 운영 SHA는 **`a9626059893a02931926ca009f9d04226ffd7e60`**이다. PR #152 Agoda 후보 표시 수정과 PR #153 카카오 원승인번호 후보 보강이 같은 고정 릴리스에 포함된다. 배포·검사 근거는 이 문서의 최신 운영 상태와 [운영 기록](operations.md) 첫 절, [미결 작업 큐](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md) §0.5를 따른다. 아래 0.28절 및 이전 미완료 표시는 해당 시점의 이력이며 완료 작업을 재실행하지 않는다.
 > 새 채팅·새 PC·다른 모델은 이전 대화를 재요구하지 말고 이 문서, [COST V3 진입점](COST_V3_START_HERE.md), [COST AGENTS](../AGENTS.md), 아래 두 저장소의 최신 원격 상태만으로 재개한다.
 > 최신 사용자 승인 정책과 실제 코드·CI·배포 증거가 과거 요약보다 우선한다. 기준시각 이후의 커밋·배포·설정은 반드시 다시 조회한다.
 
@@ -8,7 +10,11 @@
 
 사용자가 제보한 2026-09-22 / 625,280원 Agoda 카드 화면에서 결제일 미확인 예약들의 JPY 금액·이용기간이 대량 노출되는 원인을 확인했다. `_index_ota_display_candidates`가 provider-compatible OTA 이벤트의 `candidate_search.rejected`를 카드별 역색인에 모두 넣었고, 후보 검색은 금액/통화 거절을 날짜 검사보다 먼저 기록했다. 숙박 기간이 없는 결제일을 대신하지 않도록 화면 표시 필터를 추가했다.
 
-PR [#152](https://github.com/6Soo/cost/pull/152) merged commit **`2762f0778c54babe54b17bc8414d49596c6f4bfc`**: `paid_on`과 카드 `approval_date`가 있고 동일 날짜/이미 승인된 날짜-lag 정책을 충족하는 제외 진단만 카드에 표시한다. 결제일 누락·무관한 날짜의 같은 공급자 거절 건은 숨긴다. 세 개의 합성 회귀 테스트를 추가했다. **테스트 미실행, 운영 미배포**: GitHub workflow/status 조회에서 검사 실행이 없었고 현재 연결은 Windows 런타임/pytest를 실행할 수 없다. 마지막 확인된 운영 SHA는 **`4cd12adebad6ebcac110130803d35f589d1f8bb0`**이다. 다음 재개 시 표적 pytest → 독립 diff 검토 → SHA 고정 배포/health·ready → 실제 Agoda 카드 화면 확인 순서로 처리한다. 운영 카드/예약/장부 데이터와 금융 연결은 수정하지 않았다. 상세는 [operations.md](operations.md) 첫 절 및 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md#05-2026-10-27-카드-거래의-무관한-agoda-제외-근거-노출-수정)에 기록한다.
+## 0.30 2026-10-27 카카오 환불 후보 보강 및 운영 배포
+
+PR #153을 `a9626059893a02931926ca009f9d04226ffd7e60`에 병합·배포했다. 같은 카드사의 원승인번호 일치 구매를 검토 후보로 더하지만 자동 연결·장부 처리는 하지 않는다. 표적 테스트, 기준 SHA에서도 재현된 인접 테스트 실패, 독립 검토 NOT_RUN, 런타임 스모크의 상세는 [운영 기록](operations.md)과 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)에 있다.
+
+PR [#152](https://github.com/6Soo/cost/pull/152) merged commit **`2762f0778c54babe54b17bc8414d49596c6f4bfc`**: `paid_on`과 카드 `approval_date`가 있고 동일 날짜/이미 승인된 날짜-lag 정책을 충족하는 제외 진단만 카드에 표시한다. 결제일 누락·무관한 날짜의 같은 공급자 거절 건은 숨긴다. PR #153과 함께 release **`a9626059893a02931926ca009f9d04226ffd7e60`**에 배포됐다. 후속 표적 검사에서 Agoda 근거 테스트는 통과했다. 인접 `test_expense_cleanup.py`의 2개 실패는 이전 기준 SHA에서도 재현됐고, 구체 결과와 런타임 스모크는 [operations.md](operations.md) 첫 절 및 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md#05-2026-10-27-카드-거래의-무관한-agoda-제외-근거-노출-수정)에 기록했다. 브라우저 스모크는 지출 정리 GET 경로만 확인했으며 2026-09-22 특정 Agoda 건의 실제 표시 수락은 **미확인**이다. 운영 카드 연결/예약/장부/금융 데이터는 변경하지 않았다.
 
 ## 0.28 2026-10-27 중단 세션 인수·미결 통합 배포
 

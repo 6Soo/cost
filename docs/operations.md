@@ -1,14 +1,25 @@
-## 2026-10-27 카드 거래의 무관한 Agoda 제외 후보 노출 수정 — main 병합, 운영 배포 대기
+## 2026-10-27 PR #153 카카오 환불 후보 보강 운영 배포
+
+PR [#153](https://github.com/6Soo/cost/pull/153)은 `a9626059893a02931926ca009f9d04226ffd7e60`에 `main` 병합되어 해당 SHA로 운영 배포됐다. 이 배포는 앞서 병합됐지만 아직 배포 전이던 #152의 Agoda 후보 표시 수정도 포함한다. #153은 같은 카드사·끝자리·14일 이내 원승인번호 일치 구매를 환불 화면의 검토 후보에 추가하고, 자동 금융 연결·장부 기록은 하지 않는다.
+
+- release 963개 추적 파일 Git blob 대조: **불일치 0**. 기존 `cost-spec-deploy-20261026-evidence.json`의 복원 검증 및 live-state 보존 근거를 재사용했고, 기존 운영 SHA `4cd12adebad6ebcac110130803d35f589d1f8bb0`에서 고정 교체했다.
+- `WebLedger-Board` 작업 인자와 loopback 프로세스가 새 SHA `a9626059893a02931926ca009f9d04226ffd7e60`로 일치하고 Running이다. `/healthz` **200**, `/readyz` **200**, 비인증 `/api/imports/ota` **401**.
+- 로그인 상태 기존 브라우저에서 GET `/import` 후 지출 정리 화면이 표시됐다(환불 후보 패널 8개, 후보 행 26개). 이 화면에 새 원승인번호 문구는 보이지 않아 live UI에서 해당 교차 가맹점 사례가 표시됐다고 주장하지 않는다. 후보 표시 동작은 합성 테스트로 확인했다.
+- #153 표적 테스트: **20 passed**, 인접 부분환불/환불 화면 보호: **35 passed**. #152 표적 묶음은 **26 passed, 2 failed**였으며, 실패한 `test_expense_cleanup.py` 두 검증은 기준 SHA `c71dbe5e0faef24fe517dcf082d6d5bcade18783`에서도 똑같이 재현됐다(**23 passed, 2 failed**). Agoda 후보 근거 테스트는 통과했고, 기준선에서 재현된 두 실패는 변경하지 않았다.
+- 독립 리뷰 경로 두 곳은 인증/Windows 셸 시작 오류로 **NOT_RUN**이다. 사용자가 2026-10-27 병합·배포를 명시 지시해 진행했으며, 이를 독립 리뷰 통과로 기록하지 않는다. 운영 환불 연결·금융 장부·Google 쓰기는 수행하지 않았다.
+
+---
+
+## 2026-10-27 카드 거래의 무관한 Agoda 제외 후보 노출 수정 — 최초 병합 인계 당시 운영 배포 대기 (현재 상태는 위 기록)
 
 PR [#152](https://github.com/6Soo/cost/pull/152) was merged to `main` as **`2762f0778c54babe54b17bc8414d49596c6f4bfc`**. It fixes the reverse-index display in `webapp/card_flow.py::_index_ota_display_candidates`: provider-only OTA rejected comparisons no longer appear against a card unless the OTA's actual `paid_on` and the card's `approval_date` are both present and same-day or within an already-approved date-lag policy. Stay dates are not treated as payment dates. The three new synthetic regressions cover missing payment date, unrelated date, and preserving same-day currency mismatch diagnostics. No matching, booking link, ledger, financial decision, or database behavior changed.
 
 **Verification/release status:**
 
 - GitHub commit status and PR workflow lookups returned no checks/workflow runs. No repository Actions workflow was found for this commit.
-- Python/pytest was **not run** in this session. Required focused command: `python -m pytest webapp/tests/test_ota_card_evidence_relevance.py webapp/tests/test_expense_cleanup.py -q`.
-- The last recorded production SHA remains **`4cd12adebad6ebcac110130803d35f589d1f8bb0`**. This merge commit is not assumed deployed.
-- The GitHub connector cannot access the Windows runtime/task scheduler, so fixed-SHA production deployment, health/ready checks, and owner screen acceptance are **PENDING**. Do not mark this fix as live until the deployed SHA is verified and the 2026-09-22 Agoda card no longer shows unrelated booking rows.
-- No live card, OTA reservation, ledger, or Google data was read or changed as part of this fix.
+- At this initial handoff, Python/pytest had **not been run** and the last recorded production SHA was **`4cd12adebad6ebcac110130803d35f589d1f8bb0`**. The focused test and later release evidence are recorded in the newer first section above.
+- At that point, the GitHub-only session could not access the Windows host, so deployment and owner-screen acceptance were pending. The current fixed-SHA release status is recorded above.
+- No live data was changed in the initial handoff; the later owner-screen smoke was GET-only, and no card connection, ledger, or Google write occurred.
 
 ---
 
