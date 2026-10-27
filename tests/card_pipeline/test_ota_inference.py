@@ -94,3 +94,24 @@ def test_undated_agoda_never_infers_a_trip_merchant_with_same_card_and_amount():
     row.update(merchant='Trip.com Tokyo JP', merchant_normalized='trip.com tokyo jp')
     assert ota_inference.unique_pairs([fact()], [row]) == {}
     assert ota_payments.match_ota_payment_events([fact()], [row])[0]['transaction_id'] is None
+
+
+@pytest.mark.parametrize('flag', ['parse_error', 'conflict_reason'])
+def test_broken_competing_original_blocks_inference_in_solver_and_card_gate(flag):
+    observation, row = fact(), eligible()
+    competitor = eligible(identity='synthetic-competitor', **{flag: 'synthetic-source-error'})
+    competitor['ota_inference_eligible'] = False
+    original = copy.deepcopy([observation, row, competitor])
+    assert ota_inference.unique_pairs([observation], [row, competitor]) == {}
+    result = ota_payments.match_ota_payment_events([observation], [row, competitor])[0]
+    assert result['transaction_id'] is None and result['status'] == 'HOLD_DATE_UNKNOWN'
+    report = ota_exact.apply_gate({'matches': []}, [row, competitor], events=[observation],
+                                  rules=[], open_ids={'card-a'})
+    assert report['matches'] == [] and report['inferred_matches'] == 0
+    assert [observation, row, competitor] == original
+
+
+def test_proven_duplicate_copy_does_not_count_as_another_original():
+    observation, row = fact(), eligible()
+    duplicate = eligible(identity='synthetic-copy', duplicate_of=row['transaction_id'])
+    assert ota_inference.unique_pairs([observation], [row, duplicate]) == {observation['ota_event_id']: row}

@@ -42,13 +42,15 @@ def unique_pairs(events, transactions, *, occupied=(), rules=()):
                     payments.provider_compatible(e, row, rules) and
                     payments._strict_card_identity(e, row) and payments._amount_matches(e, row, []))
 
-        # 이미 기장한 카드도 유일성 검사에는 포함한다. 남는 후보만 골라 연결하지 않는다.
+        # 이미 기장했거나 원문 오류가 있는 경쟁 원행도 유일성 검사에는 포함한다.
+        # 확인된 중복 사본만 제외하고, 남는 정상 후보만 골라 연결하지 않는다.
         cards = [row for row in transactions if payments._direction(row) == 'purchase' and
-                 not any(row.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason')) and exact(event, row)]
+                 not row.get('duplicate_of') and exact(event, row)]
         if len(cards) != 1:
             continue
         row = cards[0]
-        if row.get('ota_inference_eligible') is not True or row['transaction_id'] in occupied:
+        if (row.get('parse_error') or row.get('conflict_reason') or
+                row.get('ota_inference_eligible') is not True or row['transaction_id'] in occupied):
             continue
         claims = [e for e in events if e.get('provider') == 'agoda' and
                   e.get('event_type') == 'charge' and payments._event_is_paid(e) and exact(e, row)]
