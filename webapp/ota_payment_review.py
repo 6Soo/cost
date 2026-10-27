@@ -874,7 +874,7 @@ class CoreOtaPaymentBackend:
                                  selection_disabled_reason=(
                                      "같은 호텔·숙박기간의 후보지만 원문 금액이 달라 결제 연결은 확정할 수 없습니다."
                                      if candidate.get('basis') == 'HOTEL_BRANCH_AND_STAY_ONLY' else
-                                     "결제일이 확인되지 않아 OTA 예약 연결은 확정할 수 없습니다."
+                                     "OTA 결제일이 없어 결제 검증은 불가합니다. 동일 외화 금액은 후보 근거일 뿐입니다. 예약 관계는 아래 별도 미리보기에서 수동 확인할 수 있습니다."
                                      if date_status == "UNKNOWN" else
                                      "결제일이 맞지 않아 OTA 예약 연결은 확정할 수 없습니다.")))
                 visible_ids.add(transaction_id)
