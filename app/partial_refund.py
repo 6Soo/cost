@@ -57,7 +57,9 @@ def _read_analysis(conn):
                         if tid not in foreign:
                             held[tid] = {'purchases': len(purchases[group]),
                                          'cancellations': len(refunds)}
-        memo[key] = ({**numbered, **foreign}, held)
+        taken.update(link['original_id'] for link in foreign.values())
+        kakao = _kakao_amount_links(conn, taken)
+        memo[key] = ({**numbered, **foreign, **kakao}, held)
     return memo[key]
 
 
@@ -79,8 +81,12 @@ def refund_group(conn, original_id: str) -> list:
     numbered = _number_links(conn)
     siblings = {tid for tid, link in numbered.items() if link["original_id"] == original_id}
     taken = {link["original_id"] for link in numbered.values()}
-    siblings.update(refund_id for refund_id, link in _foreign_links(conn, taken).items()
+    foreign = _foreign_links(conn, taken)
+    siblings.update(refund_id for refund_id, link in foreign.items()
                     if link["original_id"] == original_id)
+    taken.update(link['original_id'] for link in foreign.values())
+    siblings.update(rid for rid, link in _kakao_amount_links(conn, taken).items()
+                    if link['original_id'] == original_id)
     return [original_id] + sorted(siblings)
 
 
@@ -95,7 +101,11 @@ def refund_links(conn, transaction_ids) -> dict:
         return {tid: dict(link) for tid, link in analysis[0].items() if tid in wanted}
     links = _number_links(conn, ids)
     taken = {link["original_id"] for link in _number_links(conn).values()}
-    links.update(_foreign_links(conn, taken, set(ids)))
+    foreign = _foreign_links(conn, taken, set(ids))
+    links.update(foreign)
+    # Reserve every globally foreign-linked original, not only displayed rows.
+    taken.update(link['original_id'] for link in _foreign_links(conn, taken).values())
+    links.update(_kakao_amount_links(conn, taken, set(ids)))
     return links
 
 
@@ -300,6 +310,60 @@ def _kakao_refund_candidates(conn) -> dict:
             'original_id': original_id, 'gross_krw': gross,
             'refund_krw': -gross, 'refunds_total_krw': -gross,
             'net_krw': 0, 'status': 'full', 'refund_count': 1,
+            'basis': 'kakao_same_card_exact_amount_inferred',
+        }
+    return links
+
+
+
+def _kakao_amount_links(conn, taken, requested=None):
+    """Infer an unambiguous Kakao reversal from exact KRW amount and card.
+
+    Both merchants must contain 카카오. This is an inferred relation only,
+    never evidence of an actual cash refund. A purchase must not be consumed by
+    approval-number/foreign pairing, and all competing purchases and cancellations
+    participate in uniqueness checks, not just the requested page.
+    """
+    rows = conn.execute(
+        "SELECT transaction_id,transaction_direction,issuer,card_tail,merchant,"
+        " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),original_approval_number"
+        f" FROM transactions WHERE {_CLEAN} AND "
+        " ((transaction_direction='purchase' AND amount_krw>0) OR"
+        " (transaction_direction='cancellation' AND amount_krw<0"
+        " AND TRIM(COALESCE(original_approval_number,''))=''))"
+    ).fetchall()
+    purchases, refunds = [], []
+    for tid, direction, issuer, tail, merchant, amount, raw_day, original in rows:
+        if not issuer or not tail or '카카오' not in str(merchant or ''):
+            continue
+        when = _day(raw_day)
+        if when is None:
+            continue
+        entry = (tid, issuer, tail, abs(amount), when)
+        if direction == 'purchase' and tid not in taken:
+            purchases.append(entry)
+        elif direction == 'cancellation':
+            refunds.append(entry)
+    candidates = {}
+    for refund in refunds:
+        rid, issuer, tail, amount, when = refund
+        matches = [p for p in purchases if p[1:4] == (issuer, tail, amount)
+                   and 0 <= (when - p[4]).days <= 14]
+        if len(matches) == 1:
+            candidates[rid] = matches[0]
+    # A purchase contested by multiple reversals must stay unlinked.
+    collisions = {}
+    for purchase in candidates.values():
+        collisions[purchase[0]] = collisions.get(purchase[0], 0) + 1
+    links = {}
+    for refund_id, purchase in candidates.items():
+        original_id, _, _, gross, _ = purchase
+        if collisions[original_id] != 1 or (requested is not None and refund_id not in requested):
+            continue
+        links[refund_id] = {
+            'original_id': original_id, 'gross_krw': gross, 'refund_krw': -gross,
+            'refunds_total_krw': -gross, 'net_krw': 0,
+            'status': 'full', 'refund_count': 1,
             'basis': 'kakao_same_card_exact_amount_inferred',
         }
     return links
