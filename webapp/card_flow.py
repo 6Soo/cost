@@ -2992,8 +2992,27 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
             title, lines = '확정 원결제 자료 미확인', ['원승인번호 또는 외화 금액 기준으로 자동 연결된 원결제가 없습니다. 아래 가맹점 검색 결과를 비교해 주세요.']
-        if row and not row[2]:
-            lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다.')
+        if row and not str(row[2] or '').strip():
+            # A card authorization cancellation is not proof of money returned.
+            # Diagnose from the entire same-card statement without writing or
+            # promoting similar merchant names to verified financial links.
+            refund_row = board.conn.execute(
+                "SELECT issuer,card_tail,approval_date,amount_krw FROM transactions WHERE transaction_id=?",
+                (tid,)).fetchone()
+            if refund_row:
+                issuer, tail, approval_day, refund_amount = refund_row
+                original_matches = board.conn.execute(
+                    "SELECT COUNT(*) FROM transactions WHERE transaction_direction='purchase'"
+                    " AND issuer=? AND card_tail=? AND approval_number IS NOT NULL"
+                    " AND TRIM(approval_number)!='' AND amount_krw>0"
+                    " AND duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
+                    " AND approval_number=(SELECT approval_number FROM transactions WHERE transaction_id=?)",
+                    (issuer, tail, tid)).fetchone()[0]
+                if original_matches:
+                    lines.append('취소 승인번호와 같은 구매 승인번호가 발견됐지만, 원승인번호 근거가 없어 자동 확정하지 않았습니다.')
+                else:
+                    lines.append('카드 원본에 원승인번호가 없고 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
+            lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
     return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
             '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' + comparison + '</details>')
