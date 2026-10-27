@@ -15,20 +15,19 @@ def tracked_paths(root: Path) -> list[Path]:
         if not item:
             continue
         rel = Path(item.decode("utf-8", "surrogateescape"))
-        if rel.parts and rel.parts[0].lower() in {"tools", "app", "webapp"} and rel.suffix.lower() in EXTENSIONS:
+        if rel.parts and rel.parts[0].lower() in {"tools", "app", "webapp", "tests"} and rel.suffix.lower() in EXTENSIONS:
             paths.append(root / rel)
         elif rel.name.lower() in {"run_candidate.py", "run_candidate.ps1", "start.cmd", "start.bat"}:
             paths.append(root / rel)
     return paths
 
 def safe_text(path: Path) -> str:
-    try: return path.read_text(encoding="utf-8", errors="replace")
-    except OSError: return ""
+    return path.read_text(encoding="utf-8-sig")
 
-def classify(path: Path, text: str) -> tuple[str, str, float]:
+def classify(path: Path, text: str, root: Path = ROOT) -> tuple[str, str, float]:
     rel = path.as_posix().lower()
     try:
-        rel = path.relative_to(ROOT).as_posix().lower()
+        rel = path.relative_to(root).as_posix().lower()
     except ValueError:
         pass
     low = text.lower()
@@ -38,24 +37,23 @@ def classify(path: Path, text: str) -> tuple[str, str, float]:
         return "HISTORICAL", "Historical naming/path evidence only; runtime use unverified", .55
     guarded = any(x in low for x in ("write_text(", "write_bytes(", "shutil.copy", "subprocess.run", "deploy", "delete", "unlink(", "commit(", "os.replace"))
     if guarded:
-        return "ACTIVE_WRITE_GUARDED", "Static write/deploy/process marker; invocation and safeguards require confirmation", .58
+        return "UNKNOWN", "Static marker only; invocation, write capability and safeguards unverified", .3
     if rel in {"run_candidate.py", "webapp/cli.py"} or rel.startswith("tools/"):
         return "UNKNOWN", "Entrypoint-like location; active operational use is not established by name", .4
     return "UNKNOWN", "No reliable runtime-use evidence in this file", .2
 
-def refs(path: Path, text: str) -> list[dict]:
+def refs(path: Path, text: str, root: Path = ROOT) -> list[dict]:
     out=[]
     for n,line in enumerate(text.splitlines(),1):
         if re.search(r"(?i)(entry.?point|scheduler|worker|deploy|rollback|subprocess|powershell|\.ps1|\.py)",line):
             # Emit only source location, never source text, arguments, or environment values.
-            out.append({"source":path.relative_to(ROOT).as_posix(),"line":n})
-            if len(out)>=40: break
+            out.append({"source":path.relative_to(root).as_posix(),"line":n})
     return out
 
-def static_dependencies(path: Path, text: str, known: set[str]) -> list[dict]:
+def static_dependencies(path: Path, text: str, known: set[str], root: Path = ROOT) -> list[dict]:
     """Return source locations for literal imports and tracked script-path mentions."""
     found = {}
-    rel = path.relative_to(ROOT).as_posix()
+    rel = path.relative_to(root).as_posix()
     if path.suffix.lower() == ".py":
         try:
             tree = ast.parse(text)
@@ -65,8 +63,17 @@ def static_dependencies(path: Path, text: str, known: set[str]) -> list[dict]:
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     modules = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    modules = [node.module]
+                elif isinstance(node, ast.ImportFrom):
+                    package = list(Path(rel).parent.parts)
+                    if node.level:
+                        if node.level > len(package):
+                            continue
+                        package = package[:len(package) - node.level + 1]
+                    else:
+                        package = []
+                    prefix = '.'.join(package + ([node.module] if node.module else []))
+                    modules = ([prefix] if prefix else []) + [
+                        '.'.join(filter(None, (prefix, alias.name))) for alias in node.names if alias.name != '*']
                 else:
                     continue
                 for module in modules:
@@ -84,14 +91,34 @@ def static_dependencies(path: Path, text: str, known: set[str]) -> list[dict]:
     return [{"target": target, "source": rel, "line": line} for target, line in sorted(found.items())]
 
 def build_catalog(root: Path = ROOT) -> dict:
+    root = root.resolve()
     entries=[]
-    paths = tracked_paths(root)
+    errors = []
+    try:
+        paths = tracked_paths(root)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return {"schema_version":1,"mode":"static_read_only","entries":[],
+                "errors":[{"code":"GIT_METADATA_ERROR","error_type":type(exc).__name__}],"open_questions":[]}
     known = {p.relative_to(root).as_posix() for p in paths}
     for path in paths:
-        text=safe_text(path)
-        category,reason,confidence=classify(path,text)
-        entries.append({"path":path.relative_to(root).as_posix(),"classification":category,"confidence":confidence,"evidence":reason,"references":refs(path,text),"dependencies":static_dependencies(path,text,known)})
-    return {"schema_version":1,"mode":"static_read_only","entries":entries,"open_questions":[
+        rel = path.relative_to(root).as_posix()
+        if not path.resolve().is_relative_to(root) or path.is_symlink():
+            errors.append({"path":rel,"code":"INDIRECT_SOURCE_PATH"})
+            continue
+        try:
+            text=safe_text(path)
+        except (OSError, UnicodeError) as exc:
+            errors.append({"path":rel,"code":"SOURCE_READ_ERROR","error_type":type(exc).__name__})
+            continue
+        if path.suffix.lower() == '.py':
+            try:
+                ast.parse(text)
+            except SyntaxError as exc:
+                errors.append({"path":rel,"code":"SYNTAX_ERROR","line":exc.lineno})
+        category,reason,confidence=classify(path,text,root)
+        entries.append({"path":rel,"classification":category,"confidence":confidence,"evidence":reason,
+                        "references":refs(path,text,root),"dependencies":static_dependencies(path,text,known,root)})
+    return {"schema_version":1,"mode":"static_read_only","entries":entries,"errors":errors,"open_questions":[
         "Which tracked scripts are actually invoked by the production Windows scheduler, launcher, deployment, or rollback process?",
         "What are the supported argument contracts and protected input/output paths for each operational entrypoint?",
         "Which apparent write-capable scripts are guarded by verified authorization, backup, and recovery procedures?"
@@ -106,5 +133,5 @@ def main(argv=None) -> int:
         from collections import Counter
         print(json.dumps({"count":len(catalog["entries"]),"classifications":dict(Counter(x["classification"] for x in catalog["entries"])),"open_questions":catalog["open_questions"]},ensure_ascii=False,indent=2))
     else: print(json.dumps(catalog,ensure_ascii=False,indent=2))
-    return 0
+    return 2 if catalog['errors'] else 0
 if __name__=="__main__": raise SystemExit(main())
