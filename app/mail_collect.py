@@ -19,7 +19,8 @@ API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 def build_query(after: str) -> str:
     senders = ' OR '.join(f'from:{domain}' for domain in SUPPLIER_DOMAINS)
     recipients = ' OR '.join(f'to:{address} OR cc:{address}' for address in ALWAYS_RECIPIENTS)
-    return f'after:{after.replace("-", "/")} ({senders} OR {recipients})'
+    # Toyoko Inn sender addresses vary; subject matching is a separate discovery path.
+    return f'after:{after.replace("-", "/")} ({senders} OR {recipients} OR subject:토요코인)'
 
 
 class GmailApi:

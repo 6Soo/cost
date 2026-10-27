@@ -1,6 +1,32 @@
 {
   "schema": "cost-test-impact-map-v1",
+  "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
+    {
+      "name": "financial-core",
+      "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]
+    },
+    {
+      "name": "google-readonly",
+      "paths": ["app/google_*.py", "webapp/google_*.py", "webapp/live_sync.py"],
+      "tests": ["tests/card_pipeline/test_google_tsv.py", "webapp/tests/test_google_ledger_page.py", "webapp/tests/test_google_viewer_http.py"]
+    },
+    {
+      "name": "authentication",
+      "paths": ["webapp/access_control.py", "webapp/ledger_board.py", "webapp/ops.py", "run_candidate.py"],
+      "tests": ["webapp/tests/test_access_control_phase7.py", "webapp/tests/test_income_card_boundary.py"]
+    },
+    {
+      "name": "mail-collection",
+      "paths": ["app/mail_collect.py", "app/toyoko_mail.py", "app/booking_evidence.py"],
+      "tests": ["tests/card_pipeline/test_mail_collect.py", "tests/card_pipeline/test_toyoko_mail.py"]
+    },
+    {
+      "name": "core-safety-net",
+      "paths": ["app/*.py", "webapp/*.py", "ledger/domain/*.py"],
+      "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"]
+    },
     {
       "name": "card-flow",
       "paths": ["webapp/card_flow.py", "webapp/card_actions.py", "webapp/ledger_store.py",
@@ -22,8 +48,8 @@
     {
       "name": "card-import",
       "paths": ["app/import_card.py", "app/card_*.py", "webapp/card_import*.py",
-                "webapp/tests/test_card_import.py", "tests/card_pipeline/test_card_pipeline.py"],
-      "tests": ["webapp/tests/test_card_import.py", "tests/card_pipeline/test_card_pipeline.py"]
+                "webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"],
+      "tests": ["webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"]
     },
     {
       "name": "test-selection",

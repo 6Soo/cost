@@ -23,6 +23,7 @@ def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     assert 'to:kew2000@hanmail.net' in query
     assert 'from:toyoko-inn.com' in query
     assert 'from:toyoko-inn.co.jp' in query
+    assert 'subject:토요코인' in query
     for domain in mail_collect.SUPPLIER_DOMAINS:
         assert f'from:{domain}' in query
 

@@ -6,16 +6,18 @@ from app import mail_collect, ota_payments, toyoko_mail
 
 
 def message(identity='synthetic-1', *, hotel='토요코인 울산삼산동', refs=('1234567',),
-            currency='원', amount=37000, cancelled=False, subtotal=True, day=1):
+            currency='원', amount=37000, cancelled=False, subtotal=True, day=1,
+            sender='reservation@wm.toyoko-inn.com', subject=None, extra=''):
     text = hotel + '\n숙박일:2026년 10월 1일 (목) 부터 2 박\n'
     for ref in refs:
         text += f'예약번호: {ref}\n숙박일:2026년 10월 1일 (목) 부터 2 박\n'
+        text += extra
         if subtotal:
             text += f'소계금액: {amount:,}{currency}\n'
     text += f'합계금액: {amount * len(refs):,}{currency}\n'
     return mail_collect.owner_record(identity, {
-        'From': 'reservation@wm.toyoko-inn.com',
-        'Subject': '토요코인 코퍼레이트 ' + ('취소 확인' if cancelled else '예약 확인'),
+        'From': sender,
+        'Subject': subject or ('토요코인 코퍼레이트 ' + ('취소 확인' if cancelled else '예약 확인')),
         'Date': f'Thu, {day:02d} Oct 2026 10:00:00 +0900'}, text)
 
 
@@ -59,7 +61,7 @@ def test_group_total_is_never_copied_to_each_room_and_cancellation_is_hotel_scop
     events = toyoko_mail.collect({m['id']: m for m in (active, other_hotel)})
     assert len(events) == 2
     ours = next(e for e in events if e['hotel_name'] == '토요코인 울산삼산동')
-    assert ours['reservation_status'] == 'confirmed'
+    assert ours['reservation_status'] == 'observed'
     assert len(toyoko_mail.search_candidates(ours, [card()])['candidates']) == 1
     cancelled = message('cancel', cancelled=True, day=2)
     after = toyoko_mail.collect({m['id']: m for m in (active, cancelled)})[0]
@@ -76,7 +78,34 @@ def test_cancelled_room_blocks_its_group_without_hiding_other_active_room():
     total = next(e for e in events if e['reservation_group_only'])
     assert total['reservation_status'] == 'cancelled'
     remaining = next(e for e in events if e['booking_numbers'] == ['2345678'])
-    assert remaining['reservation_status'] == 'confirmed'
+    assert remaining['reservation_status'] == 'observed'
+
+
+def test_subject_only_sender_variation_is_untrusted_reservation_evidence_only():
+    mail = message(sender='Toyoko Notifications <mailbox@unrelated.example>',
+        subject='토요코인 클럽 비즈니스 회원 숙박 예약 접수 확인',
+        extra='객실 타입: 금연 싱글\n투숙 인원: 1명\n1박째 금액: 37,000원\n')
+    event = toyoko_mail.collect({mail['id']: mail})[0]
+    assert event['booking_numbers'] == ['1234567']
+    assert event['service_period'] == {'starts_on':'2026-10-01', 'ends_on':'2026-10-03'}
+    assert event['reservation_status'] == 'observed'
+    assert event['payment_status'] == 'unknown' and event['paid_on'] is None
+    assert event['evidence_status'] == 'reservation_only'
+    assert event['evidence_kind'] == 'subject_only_unverified_reservation'
+    assert event['evidence_confidence'] == 'LOW'
+    assert event['room_facts'] == {'room_type':'금연 싱글', 'guest_count':1,
+        'nightly_amounts':[{'label':'1박째금액', 'amount':'37000', 'currency':'KRW'}]}
+    assert toyoko_mail.search_candidates(event, [card()])['candidates'][0]['resolution_allowed'] is False
+
+
+def test_unverified_cancellation_notice_does_not_override_reservation_status():
+    active = message('active')
+    notice = message('unverified-cancel', cancelled=True, day=2,
+                     sender='not-the-supplier@example.invalid')
+    event = toyoko_mail.collect({active['id']: active, notice['id']: notice})[0]
+    assert event['reservation_status'] == 'observed'
+    assert event['reported_reservation_status'] == 'cancelled'
+    assert toyoko_mail.search_candidates(event, [card()])['candidates']
 
 
 @pytest.mark.parametrize('guard', [dict(duplicate_of='old'), dict(parse_error='bad'),
