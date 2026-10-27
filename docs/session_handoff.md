@@ -93,6 +93,12 @@
 - **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트/DB 재검사를 하지 않는다. 실제 기기/200% 전체 수락이나 저장소 전수 완료로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`다.
 - **COMPLETE（소스 조사）** — Handler._send→wrap_document와 카드/Google/항공권/OTA/영수증·native ledger·fragment/auth/public/API 경로를 대조했다. 표본 범위에서 private 전체HTML 우회는 발견하지 못했고 기존 의도 예외를 새 작업으로 만들지 않는다. 동적 문서 전수·실제 기기/200% 수락은 미확인이다. 문서 diff/source 참조만 확인했다.
 
+### 진행 중인 OTA 대기열/페이지네이션 기준선
+
+- 기준 main `0512d80`（PR #223 문서 병합）, 브랜치 `refactor/ota-queue-baseline-20261028`. 같은 local workspace 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`가 `docs/specs/ota-review-queue-performance-20261027.md`만 작성한다. 기존 API/public allowlist·snapshot publish/freshness·summary/events/cursor 기존 구현 여부·순수 queue projection 입력을 소스에서 조사한다.
+- Supervisor의 인증 같은-origin GET8회 기준선:200·응답899,499B·같은세대1·공개이벤트1,072·카드후보map0. p50 205ms/표본p95 1,750ms이나 측정 중 refreshing/stale이므로 ready/warm 성능이나 server-only p95가 아니다. 공개목록 subset을 전체 정본 건수로 보고하지 않는다. 사용자 페이지 탐색/입력/테마와 금융/Google 상태를 바꾸지 않았다.
+- 원문 없이 알려진 status별 집계·경고 개수·bytes/time만 `.local-archive/ota-queue-baseline-20261028/current-api-baseline.json`에 보존했다. **SOURCE_AUDIT_PENDING** — 완료 알림 후 순수 queue/summary의 최소 구현 범위를 결정한다. 기존 solver·manual/exact link·원승인/복수환불·여행/금융 쓰기와 legacy route는 유지한다. 다음 명령은 `git diff -- docs/specs/ota-review-queue-performance-20261027.md`다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
