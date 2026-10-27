@@ -1,7 +1,7 @@
 # OTA-first verification plan
 
-1. Development runs targeted synthetic tests only. Core and UI writers have disjoint ownership.
-2. Coordinator alone runs operational verification locally, with SQLite mode=ro and query_only. No private source data is supplied to delegated agents.
+1. Development runs targeted synthetic tests only.
+2. Operational verification runs locally, with SQLite mode=ro and query_only.
 3. Before verification, record all operating transaction/user-confirmation/hold/ledger tables and all registered source file digests. Legacy exact baseline contains 200 unique card transactions and 734 ledger rows.
 4. Extract canonical OTA events from source evidence independently of card transactions. Build migration links only after event identity/source digest/provider/booking/amount/direction have been checked against the already verified legacy exact link. Preserve these links, do not recompute different cards.
 5. Verify all 200 bindings reproduced, incorrect replacements=0, global duplicate assignments=0. A failed parity gate forbids production authority cutover. Report genuine evidence gaps without making up payment dates or monetary events.

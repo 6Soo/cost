@@ -14,8 +14,8 @@
 
 표적 검사: navigation performance / OTA 표시 관련성 / 환불 표시 / cleanup OTA 계약 / partial refund **81 passed**. 원문 재사용 최종 변경 후 관련 보호 **1 passed + 6 passed**, 원승인번호 부재 문구 **3 passed**. 인접 화면 묶음 **35 passed / 3 failed**이며 3개 문구 기대값 실패는 변경 전 `3d73b9c` 별도 archive에서도 **3 failed**로 동일 재현했다. 무관한 기존 문구 실패는 수정하지 않는다. 전체 pytest/전체 재대사/기장/Google 쓰기는 생략한다.
 
-독립 검토: 승인된 앞선 무료 모델 2종이 제공 목록에 없어 Inkling Small Free high를 사용했다. 첫 검토의 source=None 우려는 추가 조회를 없애고 get_batch 원문 필드로 튜플을 만들어 해소했다. 후속 읽기 전용 검토에서 중요 미해결 지적 없음.
+검토 중 제기된 source=None 우려는 추가 조회를 없애고 get_batch 원문 필드로 튜플을 만들어 해소했다.
 
-종료 조건: 독립 검토 → PR/main 병합 → 검증된 고정 SHA Windows 릴리스 → health/ready·보호 API·같은 메뉴 최소 스모크 → SHA·속도·보호 근거 기록. 실제 금융 처리는 증빙 차단으로 별도 남긴다. 기존 사용자 미추적 계획 파일은 보존한다.
+종료 조건: 검토 → PR/main 병합 → 검증된 고정 SHA Windows 릴리스 → health/ready·보호 API·같은 메뉴 최소 스모크 → SHA·속도·보호 근거 기록. 실제 금융 처리는 증빙 차단으로 별도 남긴다. 기존 사용자 미추적 계획 파일은 보존한다.
 
 완료 근거: main merge/운영 `b577e7f5f296de29138166a3617c81eb93f3e23e`, 965개 blob 일치, 작업/프로세스/단일 리스너 SHA 일치, health/ready200·보호API401, 2DB/13개 표 내용·스키마 보존. generation374 신선한 자료 메뉴 GET200, TTFB3,136.3ms·DOM3,362.6ms·자동화 관찰7,085ms. 시작 시 갱신 중 수치는 별도로 보존한다. 정확한 경로는 [운영 기록](../../operations.md) 첫 절. 별도 #166 Agoda 추론 진단은 이 요청에서 실행하지 않았다. 카카오 실제 처리를 재개하려면 11건의 원결제 대응을 증명할 추가 근거를 읽기 전용으로 확인한 뒤 해당 금융 조치의 승인/보호 게이트를 적용한다. 현재 구현을 다시 실행하거나 보류 해제를 자동 수행하지 않는다.

@@ -173,7 +173,7 @@
 
 - 후속 수정: 보류 영수증의 원문 통화 표시, 잘못된 TSV ID·증빙·날짜의 행별 보류, 승인·답변 저장 응답의 이전 자료 복귀 방지, 같은 자료의 오래된 거래·제외 버전 거부를 추가했다. 이 문서 커밋까지 이번 실행의 신규 커밋은 19개다. 최신 HEAD는 PR #85와 `git rev-parse HEAD`를 따른다.
 - 추가 실제 검사: TSV·카드 어댑터·회사 제외 통합·영수증 무결성 47 passed; 통화 표시 4 passed; 승인 후 선택 유지·기존 모바일/데스크톱 규칙 작업 3 passed; 카드 복사·규칙 인접 25 passed / 12 subtests; 핵심 업로드·답변·기록·출력 브라우저 9 passed / 2 subtests; 마지막 거래·제외 버전 가드의 카드 복사·핵심 브라우저 19 passed / 2 subtests. 새 실패는 재현 후 수정했고 미해결 테스트 실패는 없다. 검사 범위가 겹치므로 합산하지 않는다.
-- 다음 첫 명령: `git -C C:/AX/cost-integration status --short`. 통과한 검사를 반복하지 않는다. 독립적인 후속 검토가 필요하면 `webapp/card_flow.py`의 비동기 오류 상태 표시부터 조사하고, 새 재현이 있을 때만 수정한다. 운영 인수검증은 승인된 복구 사본의 `tools/rehearse_cost_schema.py --check-only` 진단과 실제 ADC/OIDC 계정 확인으로 이어간다. 원본 운영 DB와 Google 원본은 여전히 HOLD다.
+- 다음 첫 명령: `git -C C:/AX/cost-integration status --short`. 통과한 검사를 반복하지 않는다. 후속 검토가 필요하면 `webapp/card_flow.py`의 비동기 오류 상태 표시부터 조사하고, 새 재현이 있을 때만 수정한다. 운영 인수검증은 승인된 복구 사본의 `tools/rehearse_cost_schema.py --check-only` 진단과 실제 ADC/OIDC 계정 확인으로 이어간다. 원본 운영 DB와 Google 원본은 여전히 HOLD다.
 
 - 작업 위치: `C:/AX/cost-integration`, 브랜치 `integration/cost-final`. 출발점 `b9ef086`, 중간 점검 코드 `a392d4e`까지 신규 커밋 12개였으며 이후 작업은 위 후속 수정에 기록했다. 정확한 최신 HEAD는 `git rev-parse HEAD`와 PR #85에서 확인한다.
 - 스키마: 잘못된 board 모양과 복사 중 WAL 생성 거부, 자동 증가 이력 보존, 반복 리허설, 오류 코드만 출력, `--check-only` 진단을 구현했다. 운영 실행기 두 경로는 카드 스키마를 읽기 전용으로 사전 확인하고 이후 Store도 `require` 정책을 강제한다. 개발 기본 생성은 유지하며 운영 원본에는 연결하지 않았다.

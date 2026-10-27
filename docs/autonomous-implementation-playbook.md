@@ -1,6 +1,6 @@
 # 이전 문서 — autonomous-implementation-playbook.md
 
-> **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 이전 멀티에이전트 병렬 구현 절차을 기록하던 파일이며, 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
+> **과거 구현·정책 기록입니다. 최신 COST V3 구현 지시가 아닙니다.** 현재 목표 정책과 다른 `HOLD`/자동배정/전체 검증 지시가 포함될 수 있습니다.
 
 - **공식 개발 진입점:** [COST V3 START HERE](COST_V3_START_HERE.md)
 - **최신 OTA–카드 A 정책과 R0~R6:** [OTA 대사 통합 명세](ota-card-reconciliation-policy-a-v3.md)

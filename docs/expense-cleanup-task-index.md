@@ -5,7 +5,6 @@
 ## NAV: 구현과 합성 검증 완료
 
 - 명세: [스크롤 메뉴](expense-cleanup-navigation-spec.md).
-- Luna medium 작업자가 구현했고 Supervisor가 실제 `/import`의 `site_shell.wrap_document()` 경계를 검토해 보완을 요청했다.
 - 모바일 공용 상단 메뉴를 고정한다. 장부 검색 막대도 고정하고 표 머리글은 실제 막대 높이 아래에 둔다. 데스크톱의 기존 독립 스크롤은 유지한다.
 - 표적 검사 `tests/test_ledger_navigation_scroll.py`: 3 passed.
 - Aside 합성 `/import`를 폭 390px의 같은 출처 iframe으로 확인했다. 스크롤 8509.6px에서 메뉴 막대 top=0, 버튼 top=8px이었다. 메뉴 열기 후 마스크와 expanded=true를 확인했고 Escape 후 닫힘과 마스크 숨김을 확인했다. 스크롤 위치는 유지됐다. 실제 모바일 기기 검증과 운영 배포는 하지 않았다.
