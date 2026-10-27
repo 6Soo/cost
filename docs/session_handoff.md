@@ -20,6 +20,15 @@
 
 기존 구현 묶음은 모두 검수·병합했으며 임시 worktree 공식 archive를 완료했다. 마지막3개는 고유커밋0·dirty0·미추적0·터미널0·무시 경로는 캐시만임을 확인했다. 공유 stash·사용자 미추적 자료는 보존했다. 다음 단계는 R0 미확인 경계의 소스 근거 보완이며, R1 DTO/전면 리팩터링 전체 완료나 실자료 수락을 뜻하지 않는다. 종료된 세션은 재개하지 않는다. 이번 배포/브라우저/보호 증거는 `.local-archive/refactor-runtime-release-20261028/` 및 [운영 기록](operations.md)에 있다.
 
+### 진행 중인 다음 R0 묶음
+
+- 기준 main `503b0ff`（PR #210 문서 갱신）, 작업 브랜치 `refactor/r0-boundary-baseline-20261028`. 운영은 계속 `bff4ffd`이며 문서 때문에 재배포하지 않았다.
+- 같은 호스트 `srv__gxAHTF5BoWJ`, 기존 local workspace `wks_10a7846dab88369c` 재사용. 등록 프로필 없음·앞선 Anus/FreeRouter 구현/검증 실패·현재 AGY unavailable 확인 후 사용자 승인 마지막 후보 `codex/gpt-6-luna` low로 두 독립 작업을 배정했다.
+- RF-001 `46ede148-c8a7-43b9-b783-1a89a671be40`: `docs/specs/refactor-write-boundaries.md` 단독 작성. OTA backend persistence/audit·Google read·수동 여행 결정의 source chain과 OPEN_QUESTION 보완. 문서전용 검사만 허용.
+- RF-004 `0ee2f107-8e89-40d3-be2b-42999b6550e3`: `tools/audit_test_environment.py`, `tests/test_test_environment_audit.py` 단독 작성. 소스만으로 테스트 환경 의존성 후보를 분류하며 실행 PASS/합성 안전성을 추정하지 않는다. 새 합성 테스트와 CLI summary만 검증한다.
+- 구현자는 branch 변경·commit·push·운영 접근·재귀 위임 없이 파일만 작성하고 완료 알림을 보낸다. Supervisor가 검수·통합한다. 완료 알림 대기 중이며 아직 산출물 통과를 주장하지 않는다.
+- 다음 명령: 알림 수신 후 `git diff -- docs/specs/refactor-write-boundaries.md`; 도구 결과는 `python -m pytest tests/test_test_environment_audit.py -q`, `python tools/audit_test_environment.py --summary`의 기존 실행 근거부터 검토하고 유효 결과를 반복하지 않는다. 변경 없는 운영 재배포·실자료 쓰기는 없다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
