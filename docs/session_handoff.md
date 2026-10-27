@@ -48,7 +48,7 @@
 
 ### 진행 중인 RF-002 OTA 상태 계약의 독립 기반
 
-- 브랜치 `docs/rf002-transaction-release-20261028`의 같은 local workspace에서 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/ota_state_contract.py`, `tests/card_pipeline/test_ota_state_contract.py`만 작성한다. Supervisor가 branch/문서/PR/운영을 소유한다.
+- 기준 main `d4718a8`（PR #216 문서 병합）, 브랜치 `refactor/rf002-ota-state-contract-20261028`의 같은 local workspace에서 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/ota_state_contract.py`, `tests/card_pipeline/test_ota_state_contract.py`만 작성한다. Supervisor가 branch/문서/PR/운영을 소유한다.
 - 관측된 event/result/snapshot 필드에 근거해 예약관계·카드검증·여행귀속·내부기록·실제환급을 분리한다. 기존 공개 FieldSlot을 재사용하고 알 수 없는 값·누락/None·수동/exact/inferred·취소/stale·ID/금액통화를 정확히 보존한다. 원문에 없는 기장·환급확정·여행을 만들지 않고 기존 runtime helper에는 연결하지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 합성 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/ota_state_contract.py tests/card_pipeline/test_ota_state_contract.py`다. 실제 OTA 대사/배정/금융/Google 쓰기는 없다.
 
