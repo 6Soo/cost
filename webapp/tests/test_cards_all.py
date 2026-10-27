@@ -477,6 +477,7 @@ def test_foreign_currency_display(card_db_path):
 
 
 def test_undated_page_has_total_and_next_cursor_without_overlap(monkeypatch):
+    monkeypatch.setattr(cards_all._ct, 'card_options', lambda **kwargs: [])
     first_page = [{"transaction_id": f"TX-{i:03}", "approval_date": "2026-02-30",
                    "merchant": f"M{i}", "amount_krw": i, "foreign_currency": "KRW"}
                   for i in range(100)]

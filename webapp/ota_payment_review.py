@@ -171,7 +171,7 @@ def _sanitize_card_row(source):
     if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
         block_reason = source["selection_disabled_reason"]
     if (not block_reason and source.get("candidate_rejection_reason") in
-            ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")):
+            ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "FX_EVIDENCE_REQUIRED", "AMOUNT_EVIDENCE_REQUIRED")):
         block_reason = _OTA_REASON[source["candidate_rejection_reason"]]
     row["selection_disabled"] = bool(source.get("selection_disabled") or block_reason)
     row["selection_disabled_reason"] = block_reason
@@ -221,7 +221,7 @@ def public_snapshot(snapshot, *, include_cards=False):
                 if not block_reason and source.get("selection_disabled_reason") in safe_reasons:
                     block_reason = source["selection_disabled_reason"]
                 if (not block_reason and source.get("candidate_rejection_reason") in
-                        ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")):
+                        ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH", "FX_EVIDENCE_REQUIRED", "AMOUNT_EVIDENCE_REQUIRED")):
                     block_reason = _OTA_REASON[source["candidate_rejection_reason"]]
                 row["selection_disabled"] = bool(source.get("selection_disabled") or block_reason)
                 row["selection_disabled_reason"] = block_reason
@@ -573,7 +573,7 @@ class CoreOtaPaymentBackend:
                 event_id = str(result.get("ota_event_id") or "")
                 event = canonical_by_id.get(event_id)
                 if (not event or result.get("status") not in
-                        ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH", "RESERVATION_ONLY") or
+                        ("HOLD_DATE_UNKNOWN", "HOLD_NO_CARD", "HOLD_AMOUNT_MISMATCH", "HOLD_AMOUNT_UNVERIFIED", "RESERVATION_ONLY") or
                         result.get("evidence_missing") or result.get("evidence_changed")):
                     continue
                 trace = candidate_search(event, transactions, existing_links=links, rules=rules)
@@ -905,9 +905,7 @@ class CoreOtaPaymentBackend:
                     "candidate_resolution_allowed": False,
                     "candidate_rejection_reason": reason,
                     "selection_disabled": True,
-                    "selection_disabled_reason": "카드 정보는 일부 맞지만 " +
-                    ("결제 금액이 다릅니다." if reason in ("AMOUNT_MISMATCH", "CURRENCY_MISMATCH")
-                     else "필수 연결 근거가 부족합니다."),
+                    "selection_disabled_reason": _OTA_REASON.get(reason, "필수 연결 근거가 부족합니다."),
                 }
                 existing = next((row for row in rows
                                  if str(row.get("transaction_id") or "") == transaction_id), None)

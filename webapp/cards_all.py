@@ -67,6 +67,11 @@ CARD_ALL_STYLE = """
 .card-all-page .card-all-table .amount{text-align:right;font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
 .card-all-page .card-all-table .use-datetime{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ca-muted)}
 .card-all-page .card-all-table .merchant{font-weight:700;overflow-wrap:anywhere}
+.card-all-page .card-all-table .merchant{max-width:240px;min-width:150px}
+.card-all-page .card-identity{display:block;font-size:12px;line-height:1.5;font-weight:500;color:var(--ca-muted);margin-top:4px}
+.card-all-page .card-all-filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;font-size:13px}
+.card-all-page .card-all-filters :is(input[type=search],select){min-height:42px;max-width:100%;padding:8px;border:1px solid var(--ca-border);border-radius:8px;background:var(--ca-paper);color:var(--ca-ink);font:inherit}
+.card-all-page .card-all-filters button{min-height:42px;padding:8px 14px;font:inherit}
 .card-all-page .card-all-table .trip{min-width:170px;overflow-wrap:anywhere}
 .card-all-page .card-all-trip-name{display:block;font-weight:700;line-height:1.4}
 .card-all-page .card-all-trip-name.unassigned{color:var(--ca-muted);font-weight:500}
@@ -94,6 +99,39 @@ def _first(query_params: dict | None, key: str, default=None):
     if not values:
         return default
     return values[0]
+
+
+def _filter_state(query_params):
+    state = {}
+    if _first(query_params, 'unassigned') == '1':
+        state['unassigned'] = '1'
+    for name in ('card', 'q'):
+        value = str(_first(query_params, name, '') or '').strip()[:200]
+        if value:
+            state[name] = value
+    return state
+
+
+def _hidden_filters(state):
+    return ''.join(f"<input type='hidden' name='{_esc(key)}' value='{_esc(value)}'>"
+                   for key, value in (state or {}).items())
+
+
+def _trip_context():
+    """Use the same schedule validation as card classification, without writes."""
+    from . import ledger_board
+    from .card_flow import CardFlow
+    from types import SimpleNamespace
+    store = ledger_board._active_store()
+    if store is None or ledger_board.current_role() != 'owner':
+        return {}, set()
+    trips = store.list_trips(include_archived=True)
+    # trip_valid needs only the board and its optional in-memory title cache.
+    # Avoid CardFlow.__init__: constructing a pipeline may initialize SQL schema.
+    flow = SimpleNamespace(board=store)
+    names = {str(trip['tab_id']): str(trip.get('display_key') or trip['tab_id']) for trip in trips}
+    valid = {str(trip['tab_id']) for trip in trips if CardFlow.trip_valid(flow, trip['tab_id'])}
+    return names, valid
 
 
 def _safe_int(raw, default, minimum: int, maximum: int):
@@ -280,10 +318,14 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
             if not date_text:
                 date_text = "날짜 확인 필요"
             merchant = str(item.get("merchant") or "").strip() or "가맹점 미상"
+            card_label = item.get('card_label') or '식별 정보 없음'
             amount = _format_amount(item.get("amount_krw"),
                                     item.get("foreign_amount"),
                                     item.get("foreign_currency"))
-            trip_id = str(item.get("trip_id") or "").strip()
+            destination = str(item.get('display_tab_id') or '').strip()
+            trip_id = destination if destination not in ('', 'unclassified') else str(item.get('trip_id') or '').strip()
+            if trip_id == 'unclassified' or item.get('trip_assignment_valid') is False:
+                trip_id = ''
             trip_name = (trip_names or {}).get(trip_id, trip_id)
             source = str(item.get("classification_source") or "").strip()
             if not trip_id:
@@ -303,7 +345,7 @@ def _render_month_rows(items: list[dict], include_detail_link: bool = True, *,
                 f"<td class='use-datetime'>{_esc(date_text)}</td>"
                 f"<td class='merchant' title='{_esc(merchant)}'>{_esc(merchant)}</td>"
                 f"<td class='amount'>{_esc(amount)}</td>"
-                f"<td class='trip'>{trip_markup} {_status_badges(item)} {link}</td>"
+                f"<td class='trip'>{trip_markup}<span class='card-identity' aria-label='카드 식별'>{_esc(card_label)}</span> {_status_badges(item)} {link}</td>"
                 f"</tr>")
     return "".join(rows)
 
@@ -324,7 +366,7 @@ def _transactions_table(items: list[dict], label: str, *,
         "</table></div>")
 
 
-def _month_grid(year: int, months: dict, selected_month: int | None) -> str:
+def _month_grid(year: int, months: dict, selected_month: int | None, *, filter_state=None) -> str:
     tiles: list[str] = []
     for month in range(1, 13):
         try:
@@ -333,9 +375,10 @@ def _month_grid(year: int, months: dict, selected_month: int | None) -> str:
             count = 0
         pressed = selected_month == month
         hidden = f"<input type='hidden' name='year' value='{year}'>"
+        hidden += _hidden_filters(filter_state)
         if not pressed:
             hidden += f"<input type='hidden' name='month' value='{month}'>"
-        label = f"{month}월 거래 {count}건"
+        label = f"{month}월 {'미배정 ' if (filter_state or {}).get('unassigned') else ''}거래 {count}건"
         if pressed:
             label += " (다시 누르면 닫힘)"
         tiles.append(
@@ -355,7 +398,7 @@ def _month_grid(year: int, months: dict, selected_month: int | None) -> str:
 
 def _undated_section(year: int, items: list[dict], count: int, *,
                      expanded: bool, cursor: str | None, has_more: bool,
-                     trip_names: dict[str, str] | None = None) -> str:
+                     trip_names: dict[str, str] | None = None, filter_state=None) -> str:
     heading = f"<h2>날짜 확인 필요 · {count:,}건</h2>"
     note = ("<p class='card-all-muted'>유효한 이용일이 없는 저장 원행이에요. "
             "연도 필터와 상관없이 확인할 수 있어요.</p>")
@@ -365,14 +408,14 @@ def _undated_section(year: int, items: list[dict], count: int, *,
                 "<p class='card-all-muted'>날짜 확인이 필요한 거래가 없어.</p>"
                 "</section>")
     if not expanded:
-        href = "/cards/all?" + urlencode({"year": year, "undated": "1"})
+        href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "undated": "1"})
         return (f"<section class='card-all-undated' aria-labelledby='undated-heading'>"
                 f"<div id='undated-heading'>{heading}</div>{note}"
                 f"<a class='card-all-link' href='{_esc(href)}'>날짜 확인 필요 목록 보기</a>"
                 "</section>")
     more = ""
     if has_more and cursor:
-        href = "/cards/all?" + urlencode({"year": year, "undated": "1",
+        href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "undated": "1",
                                          "undated_cursor": cursor})
         more = ("<div class='card-all-pagination'>"
                 f"<a class='card-all-link' href='{_esc(href)}'>다음 날짜 확인 필요 거래 100건 보기</a>"
@@ -384,39 +427,43 @@ def _undated_section(year: int, items: list[dict], count: int, *,
 
 
 def _month_detail(year: int, month: int, items: list[dict], cursor, has_more: bool,
-                  total: int, *, trip_names: dict[str, str] | None = None) -> str:
+                  total: int, *, trip_names: dict[str, str] | None = None, filter_state=None) -> str:
+    count_label = '미배정' if (filter_state or {}).get('unassigned') else '전체'
     if not items:
         if total:
-            start = "/cards/all?" + urlencode({"year": year, "month": month})
+            start = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "month": month})
             return ("<section class='card-all-detail'>"
-                    f"<h2>{year}년 {month}월 · 전체 {total:,}건</h2>"
+                    f"<h2>{year}년 {month}월 · {count_label} {total:,}건</h2>"
                     "<p class='card-all-muted'>이 위치에는 표시할 거래가 더 없어. "
                     f"<a class='card-all-link' href='{_esc(start)}'>처음부터 보기</a></p>"
                     "</section>")
         return ("<section class='card-all-detail card-all-empty'>"
                 f"<h2>{year}년 {month}월</h2>"
-                "<p>이 달에 저장된 카드 거래가 없어.</p>"
+                + ("<p>이 달에 조회 조건에 맞는 카드 거래가 없어.</p>" if filter_state else
+                   "<p>이 달에 저장된 카드 거래가 없어.</p>")
+                +
                 "<p class='card-all-muted'>카드사 원본에도 없다는 뜻은 아니에요.</p>"
                 "</section>")
     more = ""
     if has_more and cursor:
-        href = "/cards/all?" + urlencode({"year": year, "month": month,
+        href = "/cards/all?" + urlencode({**(filter_state or {}), "year": year, "month": month,
                                          "cursor": cursor})
         more = (f"<div class='card-all-pagination'>"
                 f"<a class='card-all-link' href='{_esc(href)}'>다음 100건 더 보기</a>"
                 "</div>")
     return (f"<section class='card-all-detail' aria-labelledby='month-heading'>"
-            f"<h2 id='month-heading'>{year}년 {month}월 · 전체 {total:,}건</h2>"
+            f"<h2 id='month-heading'>{year}년 {month}월 · {count_label} {total:,}건</h2>"
             f"{_transactions_table(items, f'{year}년 {month}월 거래', trip_names=trip_names)}"
             f"{more}</section>")
 
 
-def _year_form(year: int, years: list[int]) -> str:
+def _year_form(year: int, years: list[int], *, filter_state=None) -> str:
     options = "".join(
         f"<option value='{value}'{' selected' if value == year else ''}>"
         f"{value}년</option>" for value in years)
     return (
         "<form method='get' action='/cards/all' class='card-all-year'>"
+        f"{_hidden_filters(filter_state)}"
         "<label for='card-all-year'>연도</label>"
         "<select id='card-all-year' name='year' onchange='this.form.submit()'>"
         f"{options}</select>"
@@ -449,12 +496,18 @@ def _error_page(message: str) -> str:
 def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
     """카드 전체 내역 페이지를 그린다. 읽기만 수행한다."""
     year, selected_month, cursor, undated_cursor, show_undated = _request_params(query_params)
+    filter_state = _filter_state(query_params)
+    trip_names = {}
     card_db_path = db_path or _default_db_path()
     if not card_db_path:
         return _error_page("카드 원본 DB가 연결되지 않았어요. 운영 설정을 확인해 주세요.")
     try:
+        trip_names, valid_trip_ids = _trip_context() if filter_state.get('unassigned') else ({}, set())
+        filters = {'unassigned': filter_state.get('unassigned') == '1', 'valid_trip_ids': valid_trip_ids,
+                   'card': filter_state.get('card', ''), 'search': filter_state.get('q', '')}
         years = _available_years(card_db_path)
-        summary = _ct.year_summary(db_path=card_db_path, year=year)
+        summary = _ct.year_summary(db_path=card_db_path, year=year, **filters)
+        card_options = _ct.card_options(db_path=card_db_path)
         months = summary.get("months") or {}
 
         items: list[dict] = []
@@ -468,7 +521,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
                 month_total = 0
             result = _ct.list_for_month(db_path=card_db_path, year=year,
                                         month=selected_month, cursor=cursor,
-                                        per_page=PAGE_SIZE)
+                                        per_page=PAGE_SIZE, **filters)
             items = result.get("items") or []
             next_cursor = result.get("cursor")
             has_more = bool(result.get("has_more"))
@@ -480,7 +533,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         if show_undated:
             undated_result = _ct.undated_list(
                 db_path=card_db_path, year=year, cursor=undated_cursor,
-                per_page=UNDATED_PAGE_SIZE)
+                per_page=UNDATED_PAGE_SIZE, **filters)
             # 날짜 유효성의 권위는 API에 둔다. 무효한 달력 날짜도 API가
             # 날짜 확인 필요 목록으로 돌려줬다면 화면에서 제외하지 않는다.
             undated_items = undated_result.get("items") or []
@@ -499,7 +552,6 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
 
     # Only an already-authorized owner page resolves ledger display labels.
     # This never changes the stored trip_id, the card's classification, or access policy.
-    trip_names: dict[str, str] = {}
     try:
         from . import ledger_board as _board
         if (items or undated_items) and _board.current_role() == "owner":
@@ -509,11 +561,29 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
                 if isinstance(t, dict) and t.get("tab_id")
             }
     except (RuntimeError, AttributeError, TypeError):
-        trip_names = {}
+        pass
+
+    if filters['unassigned']:
+        for item in [*items, *undated_items]:
+            item['trip_assignment_valid'] = False
+    selected_card = filter_state.get('card', '')
+    options = "<option value=''>전체 카드</option>" + ''.join(
+        f"<option value='{_esc(option['card_key'])}'{' selected' if option['card_key'] == selected_card else ''}>{_esc(option['card_label'])}</option>"
+        for option in card_options)
+    filter_form = (
+        "<form method='get' action='/cards/all' class='card-all-filters'>"
+        + _hidden_filters({'year': year, **({'month': selected_month} if selected_month else {}),
+                           **({'undated': '1'} if show_undated else {})})
+        + f"<label><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
+        + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
+        + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류'></label>"
+        + "<button type='submit'>조회</button>"
+        + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
+        + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
 
     if selected_month is not None:
         detail = _month_detail(year, selected_month, items, next_cursor,
-                               has_more, month_total, trip_names=trip_names)
+                               has_more, month_total, trip_names=trip_names, filter_state=filter_state)
     else:
         detail = ("<p class='card-all-prompt' role='status'>확인할 월을 선택해 줘.</p>")
 
@@ -529,11 +599,12 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         f"<div class='card-all-stat'><span class='card-all-stat-label'>날짜 확인 필요</span><strong class='card-all-stat-value'>{undated_count:,}건</strong></div>"
         "</div></header>"
         "<div class='card-all-toolbar'><h2 class='card-all-toolbar-title'>조회할 월 선택</h2>"
-        f"{_year_form(year, years)}"
+        f"{_year_form(year, years, filter_state=filter_state)}"
         "</div>"
-        f"{_month_grid(year, months, selected_month)}"
+        f"{filter_form}"
+        f"{_month_grid(year, months, selected_month, filter_state=filter_state)}"
         f"{detail}"
-        f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names)}"
+        f"{_undated_section(year, undated_items, undated_count, expanded=show_undated, cursor=undated_next_cursor, has_more=undated_has_more, trip_names=trip_names, filter_state=filter_state)}"
         "</div>")
     fragment = _design.shell(
         "카드 전체 내역", tab_id="", heading="카드 전체 내역",
