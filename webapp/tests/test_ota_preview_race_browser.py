@@ -3,6 +3,7 @@ import json
 from playwright.sync_api import sync_playwright
 
 from webapp.ota_payment_review import render_import_section
+from webapp.tests.test_ota_payment_review_browser import _mock_queue_routes, _expand_queue_details
 
 
 def test_late_preview_cannot_replace_the_current_card_selection():
@@ -34,6 +35,7 @@ def test_late_preview_cannot_replace_the_current_card_selection():
         page.route('http://localhost/', lambda route: route.fulfill(
             content_type='text/html; charset=utf-8', body=render_import_section('csrf-syn')))
         page.route('http://localhost/api/imports/ota**', respond)
+        _mock_queue_routes(page, snapshot)
         page.add_init_script("""window.previewResponses=0;const realFetch=window.fetch;
             window.fetch=async(...args)=>{const response=await realFetch(...args);
               if(String(args[0]).endsWith('/preview')){const realJson=response.json.bind(response);
@@ -43,6 +45,7 @@ def test_late_preview_cannot_replace_the_current_card_selection():
         try:
             page.goto('http://localhost/')
             page.locator("#ota-review > summary").click()
+            _expand_queue_details(page)
             page.get_by_text('BOOK-SYN', exact=True).wait_for()
             page.locator('input[value="card-a-syn"]').check()
             with page.expect_request('**/preview'):
@@ -57,7 +60,7 @@ def test_late_preview_cannot_replace_the_current_card_selection():
             assert page.get_by_text('차이 22원', exact=True).count() == 1
             assert page.get_by_text('차이 11원', exact=True).count() == 0
             page.get_by_role('button', name='이 거래로 결제 연결 확정', exact=True).click()
-            page.get_by_text('사용자 확인 연결', exact=True).wait_for()
+            page.get_by_text('연결 확정 완료', exact=True).wait_for()
             assert len(confirms) == 1
             assert confirms[0]['transaction_id'] == 'card-b-syn'
             assert confirms[0]['preview_digest'] == 'digest-b-syn'

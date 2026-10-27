@@ -14,7 +14,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, unquote
 
 from . import ota_snapshot
 from app.ota_queue_projection import classify_event, summarize_queue
@@ -1011,6 +1011,13 @@ class CoreOtaPaymentBackend:
         """Read the current private queue index and freshness without exposing it in snapshots."""
         return snapshot_service(self.board).queue_page_context()
 
+    def queue_detail_context(self, event_id, generation):
+        return snapshot_service(self.board).queue_detail_context(event_id, generation)
+
+    def proposal_page_context(self, generation, *, limit=20, cursor=None):
+        return snapshot_service(self.board).proposal_page_context(
+            generation, limit=limit, cursor=cursor)
+
     def cards_for_event(self, event_id):
         """Return processed card rows for a single event, using the same logic as snapshot_from."""
         data, _snapshot = self._action_data()
@@ -1436,6 +1443,67 @@ def _canonical_queue_page_rows(queue_rows):
     return page_rows
 
 
+def _canonical_queue_detail_data(queue_rows, events, results, public, transactions=()):
+    """Build O(1) lookup data only for unambiguous canonical event identities."""
+    source_counts, result_counts, canonical_counts, public_counts = {}, {}, {}, {}
+    for rows, counts in ((events, source_counts), (results, result_counts),
+                         (queue_rows, canonical_counts),
+                         (public.get("events", []), public_counts)):
+        for row in rows:
+            identity = row.get("ota_event_id") if type(row) is dict else None
+            if type(identity) is str and identity.strip():
+                counts[identity] = counts.get(identity, 0) + 1
+    public_by_id = {}
+    for row in public.get("events", []):
+        identity = row.get("ota_event_id") if type(row) is dict else None
+        if type(identity) is str and identity.strip() and public_counts.get(identity) == 1:
+            public_by_id[identity] = row
+
+    canonical_by_id = {row.get("ota_event_id"): row for row in queue_rows
+                       if type(row) is dict and canonical_counts.get(row.get("ota_event_id")) == 1}
+    cards_by_id = {row.get("transaction_id"): row for row in transactions if type(row) is dict}
+    details, ambiguous = {}, set()
+    for row in queue_rows:
+        identity = row.get("ota_event_id") if type(row) is dict else None
+        if type(identity) is not str or not identity.strip():
+            continue
+        if (source_counts.get(identity, 0) > 1 or result_counts.get(identity, 0) > 1 or
+                canonical_counts.get(identity) != 1):
+            ambiguous.add(identity)
+            details.pop(identity, None)
+            continue
+        # Detail requires a unique source/result pair; a lone orphan or source-only row
+        # remains visible in the queue as unresolved but has no detail authority.
+        if source_counts.get(identity) != 1 or result_counts.get(identity) != 1:
+            continue
+        if identity in ambiguous:
+            continue
+        event = public_by_id.get(identity)
+        if event is None:
+            sanitized = public_snapshot({"events": [row], "proposals": []})
+            event = sanitized["events"][0] if sanitized["events"] else None
+        if event is not None:
+            event = dict(event)
+            group_ids = event.get("ota_group_ids") or ()
+            card_ids = event.get("card_group_ids") or ()
+            mapping = event.get("proposed_mapping") or {
+                peer_id: canonical_by_id[peer_id].get("transaction_id")
+                for peer_id in group_ids if peer_id in canonical_by_id}
+            pairs = []
+            for peer_id, card_id in mapping.items():
+                if (peer_id not in group_ids or card_id not in card_ids):
+                    continue
+                peer, card = canonical_by_id.get(peer_id, {}), cards_by_id.get(card_id, {})
+                pairs.append({"event_id": peer_id, "transaction_id": card_id,
+                              **{key: peer.get(key) for key in
+                                 ("booking_ref", "paid_on", "amount", "currency")},
+                              **{key: card.get(key) for key in
+                                 ("merchant", "approval_date", "amount_krw")}})
+            event["group_pairs"] = pairs
+            details[identity] = event
+    return details, frozenset(ambiguous)
+
+
 def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
     data = backend._data()
@@ -1470,10 +1538,14 @@ def reconcile_for(backend) -> dict:
     queue_summary = _canonical_queue_summary_rows(canonical_rows)
     queue_page_rows = _canonical_queue_page_rows(canonical_rows)
     public = public_snapshot(backend.snapshot_from(data, include_cards=False))
+    queue_detail_rows, queue_ambiguous_ids = _canonical_queue_detail_data(
+        canonical_rows, events, results, public, transactions)
     return {
         "public": public,
         "queue_summary": queue_summary,
         "queue_page_rows": queue_page_rows,
+        "queue_detail_rows": queue_detail_rows,
+        "queue_ambiguous_ids": queue_ambiguous_ids,
         "authority": authority,
         "results": published,
         "links": {str(event_id): _link_transaction_id(link)
@@ -1712,7 +1784,10 @@ def render_import_section(csrf: str) -> str:
 <summary id="ota-title" class="ota-title">{_icon("alert")}OTA 결제 보류 검토 · 펼쳐서 확인</summary>
 <div id="ota-status" role="status" aria-live="polite">보류 내역을 불러오고 있습니다.</div>
 <p id="ota-freshness" aria-live="polite"></p>
-<div id="ota-events"></div><div id="ota-proposals"></div>
+<div id="ota-queue-summary" aria-live="polite"></div>
+<div id="ota-queue-controls"><label>검토 분류<select id="ota-queue-filter"><option value="needs_action">확인 필요</option><option value="waiting_source">자료 갱신 대기</option><option value="evidence_missing">근거 부족</option><option value="auto_recheck">자동 재확인</option><option value="completed">연결 검토 완료</option><option value="historical">과거 기록</option></select></label><label>예약 제공자<input id="ota-provider-filter" maxlength="40"></label><label>검색<input id="ota-q-filter" maxlength="120"></label></div>
+<div id="ota-events"></div><nav id="ota-page-nav" aria-label="OTA 검토 페이지"><button type="button" id="ota-page-prev" disabled>이전</button><span id="ota-page-label"></span><button type="button" id="ota-page-next" disabled>다음</button></nav>
+<details id="ota-proposals-panel"><summary>검토 질문</summary><div id="ota-proposals"></div><button type="button" id="ota-proposals-prev" disabled>이전</button><button type="button" id="ota-proposals-next" disabled>다음</button></details>
 </details>
 <style>
 #ota-review{{max-width:100%;min-width:0;overflow-wrap:anywhere;color:#1f2a24}}
@@ -1724,6 +1799,10 @@ def render_import_section(csrf: str) -> str:
 #ota-review .ota-lead{{color:#5b6660;margin:0 0 12px}}
 #ota-review #ota-status{{padding:10px 12px;border-radius:8px;background:#f1f5f2;color:#33413a;font-size:14px}}
 #ota-review #ota-freshness{{color:#5b6660;font-size:13px}}
+#ota-review #ota-queue-controls,#ota-review #ota-page-nav{{display:flex;flex-wrap:wrap;align-items:center;gap:8px}}
+#ota-review #ota-queue-controls label{{display:flex;flex:1 1 180px;flex-direction:column;gap:4px}}
+#ota-review #ota-queue-controls input,#ota-review #ota-queue-controls select{{width:100%;max-width:100%;min-height:44px}}
+#ota-review .ota-queue-row>summary{{cursor:pointer;padding:12px 0;min-height:44px}}
 #ota-review .ota-event,#ota-review .ota-card-row,#ota-review .ota-proposal{{border:1px solid #dce3dd;border-radius:10px;background:#fff;padding:14px;margin:12px 0;box-shadow:0 1px 2px rgba(20,40,30,.06)}}
 #ota-review .ota-event{{border-left:4px solid #c7872b}}
 #ota-review .ota-event h3{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;font-size:16px;margin:0 0 10px;overflow-wrap:anywhere}}
@@ -1753,9 +1832,13 @@ def render_import_section(csrf: str) -> str:
 #ota-review button.ota-primary{{background:#2f7d56;border-color:#2f7d56;color:#fff}}
 #ota-review button:disabled{{opacity:.5;cursor:not-allowed}}
 #ota-review .ota-actions{{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}}
+#ota-review #ota-queue-controls{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}}
+#ota-review #ota-queue-controls label{{display:grid;gap:4px}}
+#ota-review .ota-queue-row{{border:1px solid var(--ota-line);border-radius:10px;padding:12px;margin:8px 0;background:var(--ota-bg)}}
+#ota-review .ota-queue-row>summary{{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
 #ota-review .ota-proposal-fields{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
 #ota-review [hidden]{{display:none!important}}
-@media(max-width:550px){{#ota-review{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:minmax(0,1fr)}}#ota-review .ota-actions button{{width:100%}}}}
+@media(max-width:550px){{#ota-review{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:minmax(0,1fr)}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
 
 /* 2026-10-27: use the same semantic shell tokens as expense cleanup. */
 #ota-review{{--ota-bg:var(--shell-paper,var(--paper,#fff));--ota-ink:var(--shell-ink,var(--ink,#18212c));--ota-muted:var(--shell-muted,var(--mut,#64748b));--ota-line:var(--shell-line,var(--line,#dce3dd));--ota-hover:var(--shell-hover,var(--hover,#edf2ee));--ota-warn:var(--shell-warn,#e5a146);--ota-warn-bg:var(--shell-warn-bg,var(--ota-hover));color:var(--ota-ink);border:1px solid var(--ota-line);border-radius:16px;background:var(--ota-bg);padding:20px;margin:20px 0}}
@@ -1789,7 +1872,7 @@ def render_import_section(csrf: str) -> str:
 #ota-review .ota-actions{{gap:10px;margin-top:12px}}
 #ota-review h4[role=button]{{min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;cursor:pointer}}
 #ota-review h4[role=button]:focus-visible{{outline:2px solid var(--shell-focus,#5595ef);outline-offset:2px}}
-@media(width < 760px){{#ota-review{{padding:12px;margin:14px 0}}#ota-review .ota-event,#ota-review .ota-card-row{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:1fr}}#ota-review .ota-actions button{{width:100%}}}}
+@media(width < 760px){{#ota-review{{padding:12px;margin:14px 0}}#ota-review .ota-event,#ota-review .ota-card-row{{padding:12px}}#ota-review .ota-facts,#ota-review .ota-card-facts,#ota-review .ota-proposal-fields{{grid-template-columns:1fr}}#ota-review .ota-actions button{{width:100%}}#ota-review #ota-queue-controls{{grid-template-columns:1fr}}}}
 </style>
 <script>
 (()=>{{
@@ -1801,15 +1884,9 @@ def render_import_section(csrf: str) -> str:
   const icon=name=>`<svg class="ota-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${{ICONS[name]||''}}</svg>`;
   const fact=(name,value)=>value===null||value===undefined||value===''?'':`<span>${{name}}: ${{esc(value)}}</span>`;
   const FACT_ICON={{'예약 제공자':'file','예약 번호':'tag','결제 구분':'layers','결제일':'calendar','결제 금액':'wallet','이용 기간':'calendar','항목':'tag','보류 이유':'alert','원본 근거':'shield','묶음 건수':'layers','배정 근거':'info'}};
-  async function call(path,payload){{
-    const options=payload===undefined?{{cache:'no-store'}}:{{method:'POST',headers:{{'Content-Type':'application/json','X-CSRF-Token':csrf}},body:JSON.stringify(payload)}};
-    const response=await fetch(path,options),data=await response.json();
-    if(!response.ok){{const error=Error(data.message||data.code||'요청을 처리하지 못했습니다.');error.code=data.code;throw error;}}
-    return data;
-  }}
-  function render(snapshot){{
+  function renderFull(snapshot,target){{
     const events=snapshot.events||[];
-    root.querySelector('#ota-events').innerHTML=events.length?events.map(event=>{{
+    target.innerHTML=events.length?events.map(event=>{{
       const eventId=esc(event.ota_event_id),amountKrw=Number(event.amount_krw??event.amount);
       const gap=card=>Number.isFinite(Number(card.amount_krw))&&Number.isFinite(amountKrw)?Math.abs(Number(card.amount_krw)-amountKrw):Infinity;
       const financialHoldReasons=['중복 거래라 선택할 수 없습니다.','거래 파싱 오류가 있어 선택할 수 없습니다.','거래 충돌이 있어 선택할 수 없습니다.'];
@@ -1832,22 +1909,21 @@ def render_import_section(csrf: str) -> str:
       const candidateCount = event.card_candidate_count || 0;
       const verdict=event.provider==='toyoko'?'예약 관계 후보와 결제 검증은 아래 별도 영역에서 확인합니다.':candidateCount?`연결 가능한 카드 후보 ${{candidateCount}}건이 있습니다. 펼치면 로드됩니다.`:'연결 가능한 카드 후보가 없습니다.';
       const ids=[...(event.ota_group_ids?.length?[['예약 거래 ID',event.ota_group_ids.join(', ')]]:[]),...(event.card_group_ids?.length?[['카드 거래 ID',event.card_group_ids.join(', ')]]:[])];
-      const proposedMapping=event.proposed_mapping&&Object.keys(event.proposed_mapping).length?event.proposed_mapping:Object.fromEntries(events.filter(row=>(event.ota_group_ids||[]).includes(row.ota_event_id)&&row.transaction_id).map(row=>[row.ota_event_id,row.transaction_id]));
-      const groupPairs=Object.entries(proposedMapping).filter(([eventId,transactionId])=>(event.ota_group_ids||[]).includes(eventId)&&(event.card_group_ids||[]).includes(transactionId)).map(([eventId,transactionId])=>{{const booking=events.find(row=>row.ota_event_id===eventId);const cardEvidence='카드 근거 상세 없음';return `<p data-group-pair="${{esc(eventId)}}:${{esc(transactionId)}}"><strong>${{esc(booking?.booking_ref||eventId)}}</strong> · 결제일 미상 · 금액 미확인 ↔ <strong>${{esc(transactionId)}}</strong> · ${{esc(cardEvidence)}}</p>`;}});
+      const groupPairs=(event.group_pairs||[]).map(pair=>`<p data-group-pair="${{esc(pair.event_id)}}:${{esc(pair.transaction_id)}}"><strong>${{esc(pair.booking_ref||pair.event_id)}}</strong> · ${{esc(pair.paid_on||'결제일 미상')}} · ${{esc(pair.amount??'금액 미확인')}} ${{esc(pair.currency||'')}} ↔ <strong>${{esc(pair.transaction_id)}}</strong> · ${{esc(pair.merchant||'가맹점 미확인')}} · ${{esc(pair.approval_date||'승인일 미상')}} · ${{pair.amount_krw==null?'금액 미확인':money(pair.amount_krw)}}</p>`);
       const renderCard=card=>{{
         const same=gap(card)===0,linked=card.already_linked_event_id,blocked=card.selection_disabled||linked||event.evidence_missing;
         const reason=card.selection_disabled?(card.selection_disabled_reason==='OTA_PAYMENT_DATE_UNKNOWN'?'\uacb0제일이 확인되지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason==='OTA_PAYMENT_DATE_MISMATCH'?'\uacb0제일이 맞지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason||'선택할 수 없습니다.'):linked?(card.already_linked_reason||'다른 예약에 연결됨'):event.evidence_missing?'기존 근거가 사라져 다시 선택할 수 없습니다.':'';
         return `<label class="ota-card-row"><input type="radio" name="ota-card-${{eventId}}" value="${{esc(card.transaction_id)}}" ${{blocked?'disabled':''}} aria-label="${{esc(card.issuer)}} ${{esc(card.merchant)}} ${{money(card.amount_krw)}} 선택"><span><strong class="ota-card-title">${{icon('card')}}${{esc(card.issuer||'카드')}} ·${{esc(card.approval_date||card.transaction_date||'날짜 없음')}}</strong>${{same?'<em class="ota-match">금액 일치</em>':''}}<span class="ota-card-facts">${{fact('가맹점',card.merchant)}}${{fact('원화 금액',money(card.amount_krw))}}${{fact('외화 금액',card.foreign_amount)}}${{fact('승인일',card.approval_date)}}${{fact('매입일',card.posting_date)}}${{fact('카드 끝 네 자리',card.card_tail)}}${{fact('카드 종류',card.card_kind)}}${{fact('승인 번호',card.approval_number||card.authorization_id)}}${{fact('거래 방향',label(DIRECTION_LABELS,card.transaction_direction||card.direction))}}${{fact('취소 상태',card.cancellation_status)}}${{fact('환불 상태',label(REFUND_LABELS,card.refund_status))}}${{fact('연결된 예약',card.already_linked_label)}}</span>${{reason?`<span class="ota-blocked">${{icon('lock')}}<span>${{esc(reason)}}</span></span>`:`<span class="ota-ok">${{icon('check')}}<span>선택 가능</span></span>`}}</span></label>`;
       }};
-      return `<article class="ota-event" data-event="${{eventId}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-overview">${{esc(amountText)}} · 카드 후보 ${{candidateCount}}건</p><p class="ota-verdict">${{esc(verdict)}}</p><details class="ota-more"><summary>예약·결제 근거 자세히 보기</summary><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div></details><details data-diagnostic="${{eventId}}"><summary>연결 근거와 금융 상태 보기</summary><pre>열면 현재 스냅샷에서 읽습니다.</pre></details>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}${{groupPairs.length?`<details class="ota-group-proposal"><summary>순서 대응 제안 ${{groupPairs.length}}건 보기</summary><p>이 대응은 개별 결제 근거가 아닌 정렬 순서 제안입니다. 예약별 연결을 확인한 뒤 묶음을 고정하세요.</p>${{groupPairs.join('')}}</details>`:''}}${{event.provider==='toyoko'?'':`<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 후보 <span class="ota-card-count">${{candidateCount}}</span>건</h4><div class="ota-cards" data-cards-loaded="false"><p class="ota-load-hint">카드를 펼치면 로드됩니다.</p></div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div>`}}</article>`;
+      return `<article class="ota-event" data-event="${{eventId}}" data-evidence-missing="${{event.evidence_missing?'true':'false'}}" data-amount-krw="${{esc(event.amount_krw??event.amount??'')}}"><h3>${{icon('alert')}}<span>${{esc(event.provider)}} · ${{esc(event.booking_ref)}}</span><span class="ota-chip">${{esc(label(STATUS_LABELS,event.status))}}</span></h3><p class="ota-overview">${{esc(amountText)}} · 카드 후보 ${{candidateCount}}건</p><p class="ota-verdict">${{esc(verdict)}}</p><details class="ota-more"><summary>예약·결제 근거 자세히 보기</summary><div class="ota-facts">${{facts.map(([name,value])=>`<div><strong>${{icon(FACT_ICON[name]||'info')}}${{esc(name)}}:</strong> <span class="ota-value">${{value===null||value===undefined||value===''?'자료 없음':esc(value)}}</span></div>`).join('')}}</div></details><details data-diagnostic="${{eventId}}"><summary>연결 근거와 금융 상태 보기</summary><pre>열면 현재 스냅샷에서 읽습니다.</pre></details>${{ids.length?`<details class="ota-ids"><summary>거래 ID 보기</summary>${{ids.map(([name,value])=>`<p><strong>${{esc(name)}}:</strong> ${{esc(value)}}</p>`).join('')}}</details>`:''}}${{groupPairs.length?`<details class="ota-group-proposal"><summary>순서 대응 제안 ${{groupPairs.length}}건 보기</summary><p>이 대응은 개별 결제 근거가 아닌 정렬 순서 제안입니다. 예약별 연결을 확인한 뒤 묶음을 고정하세요.</p>${{groupPairs.join('')}}</details>`:''}}${{event.provider==='toyoko'?'':`<h4>${{icon('card')}}결제일과 승인 규칙 범위의 카드 후보 <span class="ota-card-count">${{candidateCount}}</span>건</h4><div class="ota-cards" data-cards-loaded="false"><p class="ota-load-hint">카드를 펼치면 로드됩니다.</p></div><div class="ota-actions"><button type="button" data-preview="${{eventId}}" disabled>${{icon('scale')}}차이 미리 보기</button><button type="button" data-none="${{eventId}}">${{icon('lock')}}연결할 거래 없음 · 보류 유지</button></div><div id="ota-difference" data-difference-for="${{eventId}}"></div>`}}</article>`;
     }}).join(''):'<p>검토할 OTA 결제 보류가 없습니다.</p>';
     const orderGroups=new Map();
     events.filter(event=>((event.allocation_basis==='user_approved_stable_order'||event.allocation_basis==='user_confirmed_group_required')&&!event.group_order_frozen)||event.review_warning==='confirm_group_reallocation')
       .forEach(event=>{{const ids=[...(event.ota_group_ids||[])].sort(),replace=event.review_warning==='confirm_group_reallocation';if(ids.length>1)orderGroups.set(ids.join('|'),{{ids,replace,confirmable:(event.group_count?.ota===event.group_count?.cards)&&(event.matched_count??event.group_count?.ota)===event.group_count?.ota&&(!replace||Object.keys(event.proposed_mapping||{{}}).length===event.group_count?.ota)}});}});
-    if(orderGroups.size)root.querySelector('#ota-events').insertAdjacentHTML('beforeend',
+    if(orderGroups.size)target.insertAdjacentHTML('beforeend',
       [...orderGroups.values()].map(group=>`<div class="ota-actions"><p>순서 배정은 개별 결제 근거가 아닙니다. ${{group.replace?(group.confirmable?'구성이 달라졌습니다. 새 제안을 확인해야 합니다.':'구성이 달라져 완전한 대응을 만들 수 없습니다. 새 카드나 OTA 거래가 확인될 때까지 보류합니다.'):'확인 뒤 현재 순서 배정을 고정합니다.'}}</p><button type="button" data-freeze-group="${{esc(encodeURIComponent(JSON.stringify(group)))}}" ${{group.confirmable?'':'disabled'}}>${{icon('lock')}}${{group.replace?'새 순서 배정 검토 및 고정':'현재 순서 배정을 확인하고 고정'}}</button></div>`).join(''));
     for(const event of events.filter(item=>item.provider==='toyoko')){{
-      const article=root.querySelector(`.ota-event[data-event="${{esc(event.ota_event_id)}}"]`);if(!article)continue;
+      const article=target.querySelector(`.ota-event[data-event="${{esc(event.ota_event_id)}}"]`);if(!article)continue;
       const relation=event.reservation_link||{{}};
       const state=relation.status==='INFERRED'?'자동 추론 관계 · 결제 미검증':relation.status==='USER_CONFIRMED'?'사용자 확인 관계 · 결제 미검증':relation.status==='STALE'?'저장한 관계의 근거 변경 · 기존 선택 이력 유지, 재확인 필요':relation.status==='NEEDS_REVIEW'?'여러 후보 또는 근거 차이 · 사용자가 확인해야 합니다.':'예약 관계 미확인';
       const savedAmount=relation.amount_status==='MATCH'?'금액 일치':relation.amount_status==='MISMATCH'?'금액 차이':'금액 미확인';
@@ -1855,38 +1931,37 @@ def render_import_section(csrf: str) -> str:
       const optionBlock='<p>연결할 카드 후보를 로드합니다.</p><button type="button" data-load-reservation-candidates="'+esc(event.ota_event_id)+'">예약 카드 후보 로드</button>';
       article.insertAdjacentHTML('afterbegin','<section class="ota-reservation-link"><h4>예약 관계 확인 · 실제 결제 확정과 별도</h4><p>'+esc(state)+(event.reservation_group_only?' · 묶음 합계이며 개별 객실 확정은 아닙니다.':'')+'</p>'+savedText+optionBlock+'<div data-reservation-candidates-for="'+esc(event.ota_event_id)+'"></div><div data-reservation-preview-for="'+esc(event.ota_event_id)+'"></div></section>');
     }}
-    renderProposals(snapshot.proposals||[]);
-    bindEvents(snapshot);
+    bindEvents(snapshot,target);
   }}
   function renderProposals(proposals){{
-    root.querySelector('#ota-proposals').innerHTML=proposals.length?'<h3>'+icon('message')+'검토 질문</h3>'+proposals.map(p=>`<article class="ota-proposal" data-proposal="${{esc(p.proposal_id)}}" data-status="${{esc(p.status)}}"><p>${{esc(p.question||'이 연결을 규칙으로 저장할까요?')}}</p><p>상태: ${{p.status==='pending'?'답변 대기':esc(p.status)}}</p><label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="once" checked> 이번 건만</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="approve"> 규칙 저장</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="edit"> 조건 수정</label><div class="ota-proposal-fields" hidden><label>예약 제공자<input name="provider" value="${{esc(p.conditions?.provider||'')}}"></label><label>항목<input name="item" value="${{esc(p.conditions?.item||'')}}"></label><label>Rule currency<input name="currency" maxlength="3" value="${{esc(p.conditions?.currency||'KRW')}}"></label><label>Event type<select name="event_type"><option value="charge" ${{p.conditions?.event_type==='refund'?'':'selected'}}>charge</option><option value="refund" ${{p.conditions?.event_type==='refund'?'selected':''}}>refund</option></select></label><label>가맹점<input name="merchant_normalized" value="${{esc(p.conditions?.merchant_normalized||'')}}"></label><label>카드사<input name="issuer" value="${{esc(p.conditions?.issuer||'')}}"></label><label>카드 끝 네 자리<input name="card_last4" inputmode="numeric" maxlength="4" value="${{esc(p.conditions?.card_last4||'')}}"></label><label>허용 금액 차이<input name="amount_delta_krw" type="number" step="1" value="${{esc(p.conditions?.amount_delta_krw??'')}}"></label><label>허용 날짜 차이<input name="date_lag_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_days??'')}}"></label><label>Lag lower bound<input name="date_lag_min_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_min_days??'')}}"></label><label>Lag upper bound<input name="date_lag_max_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_max_days??'')}}"></label><label>규칙 종류<select name="rule_kind"><option value="narrow" ${{['provider_alias','issuer_alias'].includes(p.conditions?.rule_kind)?'':'selected'}}>좁은 조건 규칙</option><option value="provider_alias" ${{p.conditions?.rule_kind==='provider_alias'?'selected':''}}>가맹점 별칭 승인</option><option value="issuer_alias" ${{p.conditions?.rule_kind==='issuer_alias'?'selected':''}}>발급사 별칭 승인</option></select></label><label>OTA 발급사 이름<input name="event_issuer_alias" value="${{esc(p.conditions?.event_issuer_alias||'')}}"></label><label>가맹점 별칭<input name="alias" value="${{esc(p.conditions?.alias||p.conditions?.merchant_normalized||'')}}"></label><label>승인 근거 출처<input name="approval_source" value="user_review"></label><label>별칭 규칙 버전<input name="alias_version" type="number" min="1" step="1" value="1"></label><label>할인율 (1/10000 단위)<input name="discount_rate_bps" type="number" min="1" max="10000" step="1" value="${{esc(p.conditions?.discount_rate_bps??'')}}"></label><label>할인 한도 (원)<input name="discount_cap_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.discount_cap_krw??'')}}"></label><label>최소 결제 금액 (원)<input name="minimum_amount_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.minimum_amount_krw??'')}}"></label><label>원 단위 처리<select name="rounding_mode"><option value="floor">내림</option><option value="half_up">반올림</option><option value="ceiling">올림</option></select></label><label>결제 수단<input name="payment_method" value="${{esc(p.conditions?.payment_method||'')}}"></label><label>적용 시작일<input name="valid_from" type="date" value="${{esc(p.conditions?.valid_from||'')}}"></label><label>적용 종료일<input name="valid_to" type="date" value="${{esc(p.conditions?.valid_to||'')}}"></label></div><div class="ota-actions"><button type="button" data-answer="${{esc(p.proposal_id)}}">${{icon('check')}}제안에 답하기</button></div></article>`).join(''):'<p>대기 중인 제안이 없습니다.</p>';
+    root.querySelector('#ota-proposals').innerHTML=proposals.length?'<h3>'+icon('message')+'검토 질문</h3>'+proposals.map(p=>`<article class="ota-proposal" data-proposal="${{esc(p.proposal_id)}}" data-status="${{esc(p.status)}}"><p>${{esc(p.question||'이 연결을 규칙으로 저장할까요?')}}</p><p>상태: ${{p.status==='pending'?'답변 대기':esc(p.status)}}</p><label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="once" checked> 이번 건만</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="approve"> 규칙 저장</label> <label><input type="radio" name="proposal-${{esc(p.proposal_id)}}" value="edit"> 조건 수정</label><div class="ota-proposal-fields" hidden><label>예약 제공자<input name="provider" value="${{esc(p.conditions?.provider||'')}}"></label><label>항목<input name="item" value="${{esc(p.conditions?.item||'')}}"></label><label>규칙 통화<input name="currency" maxlength="3" value="${{esc(p.conditions?.currency||'KRW')}}"></label><label>거래 종류<select name="event_type"><option value="charge" ${{p.conditions?.event_type==='refund'?'':'selected'}}>결제</option><option value="refund" ${{p.conditions?.event_type==='refund'?'selected':''}}>환불</option></select></label><label>가맹점<input name="merchant_normalized" value="${{esc(p.conditions?.merchant_normalized||'')}}"></label><label>카드사<input name="issuer" value="${{esc(p.conditions?.issuer||'')}}"></label><label>카드 끝 네 자리<input name="card_last4" inputmode="numeric" maxlength="4" value="${{esc(p.conditions?.card_last4||'')}}"></label><label>허용 금액 차이<input name="amount_delta_krw" type="number" step="1" value="${{esc(p.conditions?.amount_delta_krw??'')}}"></label><label>허용 날짜 차이<input name="date_lag_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_days??'')}}"></label><label>날짜 차이 최솟값<input name="date_lag_min_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_min_days??'')}}"></label><label>날짜 차이 최댓값<input name="date_lag_max_days" type="number" min="-7" max="7" step="1" value="${{esc(p.conditions?.date_lag_max_days??'')}}"></label><label>규칙 종류<select name="rule_kind"><option value="narrow" ${{['provider_alias','issuer_alias'].includes(p.conditions?.rule_kind)?'':'selected'}}>좁은 조건 규칙</option><option value="provider_alias" ${{p.conditions?.rule_kind==='provider_alias'?'selected':''}}>가맹점 별칭 승인</option><option value="issuer_alias" ${{p.conditions?.rule_kind==='issuer_alias'?'selected':''}}>발급사 별칭 승인</option></select></label><label>OTA 발급사 이름<input name="event_issuer_alias" value="${{esc(p.conditions?.event_issuer_alias||'')}}"></label><label>가맹점 별칭<input name="alias" value="${{esc(p.conditions?.alias||p.conditions?.merchant_normalized||'')}}"></label><label>승인 근거 출처<input name="approval_source" value="user_review"></label><label>별칭 규칙 버전<input name="alias_version" type="number" min="1" step="1" value="1"></label><label>할인율 (1/10000 단위)<input name="discount_rate_bps" type="number" min="1" max="10000" step="1" value="${{esc(p.conditions?.discount_rate_bps??'')}}"></label><label>할인 한도 (원)<input name="discount_cap_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.discount_cap_krw??'')}}"></label><label>최소 결제 금액 (원)<input name="minimum_amount_krw" type="number" min="1" step="1" value="${{esc(p.conditions?.minimum_amount_krw??'')}}"></label><label>원 단위 처리<select name="rounding_mode"><option value="floor">내림</option><option value="half_up">반올림</option><option value="ceiling">올림</option></select></label><label>결제 수단<input name="payment_method" value="${{esc(p.conditions?.payment_method||'')}}"></label><label>적용 시작일<input name="valid_from" type="date" value="${{esc(p.conditions?.valid_from||'')}}"></label><label>적용 종료일<input name="valid_to" type="date" value="${{esc(p.conditions?.valid_to||'')}}"></label></div><div class="ota-actions"><button type="button" data-answer="${{esc(p.proposal_id)}}">${{icon('check')}}제안에 답하기</button></div></article>`).join(''):'<p>대기 중인 제안이 없습니다.</p>';
     root.querySelectorAll('.ota-proposal').forEach(proposal=>proposal.querySelectorAll('input[type=radio]').forEach(radio=>radio.addEventListener('change',()=>{{proposal.querySelector('.ota-proposal-fields').hidden=radio.value==='once'||!radio.checked;}})));
     root.querySelectorAll('[data-answer]').forEach(button=>button.addEventListener('click',async()=>{{
       const proposal=button.closest('[data-proposal]'),action=proposal.querySelector('input[type=radio]:checked').value,conditions={{}};
        if(action!=='once')proposal.querySelectorAll('.ota-proposal-fields input,.ota-proposal-fields select').forEach(field=>{{const rateSet=[...proposal.querySelectorAll('[name="discount_rate_bps"],[name="discount_cap_krw"],[name="minimum_amount_krw"],[name="payment_method"]')].some(item=>item.value.trim());if(field.value.trim()&&(field.name!=='rounding_mode'||rateSet))conditions[field.name]=field.type==='number'?Number(field.value):field.value.trim();}});
       if(conditions.date_lag_min_days!==undefined||conditions.date_lag_max_days!==undefined)delete conditions.date_lag_days;
        button.disabled=true;
-      try{{const result=await call('/api/imports/ota/proposal',{{proposal_id:button.dataset.answer,action,conditions,request_id:crypto.randomUUID()}});status.textContent=action==='once'?'규칙 저장 없이 이번 건만 처리했습니다.':action==='approve'?'검토한 조건으로 규칙을 저장했습니다.':'조건 수정을 위해 제안을 다시 열었습니다.';applyFresh(await call('/api/imports/ota'));}}
+      try{{const result=await call('/api/imports/ota/proposal',{{proposal_id:button.dataset.answer,action,conditions,request_id:crypto.randomUUID()}});status.textContent=action==='once'?'규칙 저장 없이 이번 건만 처리했습니다.':action==='approve'?'검토한 조건으로 규칙을 저장했습니다.':'조건 수정을 위해 제안을 다시 열었습니다.';await refreshQueueAfterAction();proposalCursorStack=[null];if(root.querySelector('#ota-proposals-panel').open)await loadProposals(null);}}
       catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
   }}
-  function bindEvents(snapshot){{
-    root.querySelectorAll('[data-diagnostic]').forEach(details=>details.addEventListener('toggle',async()=>{{
+  function bindEvents(snapshot,scope){{
+    scope.querySelectorAll('[data-diagnostic]').forEach(details=>details.addEventListener('toggle',async()=>{{
       if(!details.open||details.dataset.loaded)return;
       const output=details.querySelector('pre');output.textContent='로딩 중...';
-      try{{const result=await call(`/api/imports/ota/diagnostics/${{encodeURIComponent(details.dataset.diagnostic)}}`);output.textContent=JSON.stringify(result,null,2);details.dataset.loaded='true';}}
+      try{{const result=await get(`/api/imports/ota/diagnostics/${{encodeURIComponent(details.dataset.diagnostic)}}`);output.textContent=JSON.stringify(result,null,2);details.dataset.loaded='true';}}
       catch(error){{output.textContent=error.message;}}
     }}));
-    root.querySelectorAll('[data-freeze-group]').forEach(button=>button.addEventListener('click',async()=>{{
+    scope.querySelectorAll('[data-freeze-group]').forEach(button=>button.addEventListener('click',async()=>{{
       const payload=JSON.parse(decodeURIComponent(button.dataset.freezeGroup));
       if(!window.confirm(payload.replace?'이전 순서 배정을 대체하고 새 배정을 고정하시겠습니까?':'이 순서 배정을 고정하시겠습니까? 이전 배정은 되돌릴 수 없습니다.'))return;
       button.disabled=true;
       try{{
         await call('/api/imports/ota/group/confirm',{{event_ids:payload.ids,replace:payload.replace,request_id:crypto.randomUUID()}});
-        applyFresh(await call('/api/imports/ota'));status.textContent='순서 배정이 고정되었습니다.';
+        await refreshQueueAfterAction();status.textContent='순서 배정이 고정되었습니다.';
       }}catch(error){{status.textContent=error.message;button.disabled=false;}}
     }}));
-    root.querySelectorAll('.ota-event').forEach(eventCard=>{{
+    scope.querySelectorAll('.ota-event').forEach(eventCard=>{{
       // Reservation link preview
       const reservationButton=eventCard.querySelector('[data-reservation-preview]');
       if(reservationButton)reservationButton.addEventListener('click',async()=>{{
@@ -1905,12 +1980,7 @@ def render_import_section(csrf: str) -> str:
             const confirmButton=confirmEvent.currentTarget;confirmButton.disabled=true;
             try{{
               const saved=await call('/api/imports/ota/reservation/confirm',{{event_id:eventCard.dataset.event,transaction_id:select.value,preview_digest:preview.preview_digest,expected_revision:preview.expected_revision,request_id:crypto.randomUUID()}});
-              const snapshot=await call('/api/imports/ota'),updated=(snapshot.events||[]).find(item=>item.ota_event_id===eventCard.dataset.event);
-              if(updated){{
-                const savedCard={{}};
-                updated.reservation_link={{...(updated.reservation_link||{{}}),status:saved.status,transaction_id:saved.transaction_id,basis:saved.basis,amount_status:saved.amount_status,payment_verified:false,merchant:savedCard.merchant||updated.reservation_link?.merchant||'',approval_date:savedCard.approval_date||savedCard.posting_date||updated.reservation_link?.approval_date||'',amount_krw:savedCard.amount_krw??updated.reservation_link?.amount_krw}};
-              }}
-              applyFresh(snapshot);status.textContent='예약 관계 확정 완료. 화면이 갱신됩니다.';
+              await refreshQueueAfterAction();status.textContent='예약 관계 확정 완료. 화면이 갱신됩니다.';
             }}catch(error){{status.textContent=error.message;confirmButton.disabled=false;}}
           }});
         }}catch(error){{status.textContent=error.message;}}
@@ -1934,8 +2004,8 @@ def render_import_section(csrf: str) -> str:
         button.disabled=true;
         try{{const preview=await call('/api/imports/ota/preview',{{event_id:eventCard.dataset.event,transaction_id:selected.value,request_id:crypto.randomUUID()}});const target=eventCard.querySelector('[data-difference-for]');
           if(version!==selectionVersion||!selected.checked||!eventCard.isConnected)return;
-          target.innerHTML=`<div class="ota-preview"><strong>${{icon('scale')}}차이 ${{money(preview.difference_krw)}}</strong><p>OTA 금액: ${{money(preview.event_amount_krw)}} · 카드 금액: ${{money(preview.card_amount_krw)}}</p><button type="button" class="ota-primary" id="ota-confirm">${{icon('check')}}이 거래로 확정</button></div>`;
-          target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});applyFresh(await call('/api/imports/ota'));status.textContent='연결 확정 완료';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
+          target.innerHTML=`<div class="ota-preview"><strong>${{icon('scale')}}차이 ${{money(preview.difference_krw)}}</strong><p>OTA 금액: ${{money(preview.event_amount_krw)}} · 카드 금액: ${{money(preview.card_amount_krw)}}</p><button type="button" class="ota-primary" id="ota-confirm">${{icon('check')}}이 거래로 결제 연결 확정</button></div>`;
+          target.querySelector('#ota-confirm').addEventListener('click',async()=>{{const confirm=target.querySelector('#ota-confirm');confirm.disabled=true;try{{await call('/api/imports/ota/confirm',{{event_id:eventCard.dataset.event,transaction_id:selected.value,preview_digest:preview.preview_digest,request_id:crypto.randomUUID()}});await refreshQueueAfterAction();status.textContent='연결 확정 완료';}}catch(error){{status.textContent=error.message;confirm.disabled=false;}}}});
         }}catch(error){{if(version===selectionVersion&&eventCard.isConnected){{status.textContent=error.message;button.disabled=false;}}}}
       }});
       }}
@@ -1952,13 +2022,15 @@ def render_import_section(csrf: str) -> str:
             cardsContainer.dataset.loading='true';
             cardsContainer.innerHTML='<p class="ota-load-hint">카드 후보를 불러오는 중...</p>';
             try{{
-              const data=await call(`/api/imports/ota/cards/${{encodeURIComponent(eventCard.dataset.event)}}`);
+              const data=await get(`/api/imports/ota/cards/${{encodeURIComponent(eventCard.dataset.event)}}`);
               const rows=data.cards||[];
               const gap=card=>Number.isFinite(Number(card.amount_krw))&&Number.isFinite(Number(eventCard.dataset.amountKrw))?Math.abs(Number(card.amount_krw)-Number(eventCard.dataset.amountKrw)):Infinity;
               const financialHoldReasons=['중복 거래라 선택할 수 없습니다.','거래 파싱 오류가 있어 선택할 수 없습니다.','거래 충돌이 있어 선택할 수 없습니다.'];
-              const candidateRows=rows.filter(card=>!card.selection_disabled&&!card.already_linked_event_id);
+              const candidateRows=rows.filter(card=>!card.selection_disabled&&!card.already_linked_event_id).sort((a,b)=>gap(a)-gap(b));
               const reviewOnlyRows=rows.filter(card=>card.selection_disabled&&!card.already_linked_event_id);
               const linkedCards=rows.filter(card=>card.already_linked_event_id);
+              const exactCount=candidateRows.filter(card=>gap(card)===0).length;
+              eventCard.querySelector('.ota-verdict').textContent=exactCount?`결제 금액과 같은 카드 거래가 ${{exactCount}}건 있습니다.`:'결제 금액과 같은 카드 거래가 없습니다.';
               const renderCard=card=>{{
                 const same=gap(card)===0,linked=card.already_linked_event_id,blocked=card.selection_disabled||linked||eventCard.dataset.evidenceMissing==='true';
                 const reason=card.selection_disabled?(card.selection_disabled_reason==='OTA_PAYMENT_DATE_UNKNOWN'?'\uacb0제일이 확인되지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason==='OTA_PAYMENT_DATE_MISMATCH'?'\uacb0제일이 맞지 않아 OTA 연결을 확정할 수 없습니다.':card.selection_disabled_reason||'선택할 수 없습니다.'):linked?(card.already_linked_reason||'다른 예약에 연결됨'):eventCard.dataset.evidenceMissing==='true'?'기존 근거가 사라져 다시 선택할 수 없습니다.':'';
@@ -1985,7 +2057,7 @@ def render_import_section(csrf: str) -> str:
           loadReservationBtn.disabled=true;
           target.innerHTML='<p>예약 카드 후보를 불러오는 중...</p>';
           try{{
-            const data=await call(`/api/imports/ota/cards/${{encodeURIComponent(eventCard.dataset.event)}}`);
+            const data=await get(`/api/imports/ota/cards/${{encodeURIComponent(eventCard.dataset.event)}}`);
             const rows=data.cards||[];
             const gap=card=>Number.isFinite(Number(card.amount_krw))&&Number.isFinite(Number(eventCard.dataset.amountKrw))?Math.abs(Number(card.amount_krw)-Number(eventCard.dataset.amountKrw)):Infinity;
             const reservationCandidates=rows.filter(card=>card.reservation_candidate&&!card.already_linked_event_id);
@@ -2005,7 +2077,7 @@ def render_import_section(csrf: str) -> str:
               previewDiv.innerHTML=`<div class="ota-preview"><strong>예약 관계 미리보기</strong><p>숙소: ${{esc(preview.hotel_name||'자료 없음')}} · 기간: ${{esc(period)}}</p><p>예약 금액: ${{esc(preview.reservation_amount??'자료 없음')}} ${{esc(preview.reservation_currency||'')}}</p><p>카드 금액: ${{esc(cardNativeText)}} · 원화 ${{money(preview.card_amount_krw)}}</p><p>${{preview.amount_difference===null?'원문·카드 금액 차이를 계산할 수 없습니다.':'금액 차이: '+esc(preview.amount_difference)+' '+diffUnit}}</p><p>미리보기는 실제 확정 전 확인용입니다.</p><button type="button" class="ota-primary" data-reservation-confirm>예약 관계 확정</button></div>`;
               previewDiv.querySelector('[data-reservation-confirm]').addEventListener('click',async()=>{{
                 const saved=await call('/api/imports/ota/reservation/confirm',{{event_id:eventCard.dataset.event,transaction_id:select.value,preview_digest:preview.preview_digest,expected_revision:preview.expected_revision,request_id:crypto.randomUUID()}});
-                applyFresh(await call('/api/imports/ota'));
+                await refreshQueueAfterAction();
               }});
             }});
           }}catch(error){{target.innerHTML='<p style="color:red">로드 실패: '+esc(error.message)+'</p>';}}
@@ -2014,57 +2086,71 @@ def render_import_section(csrf: str) -> str:
       }}
     }});
   }}
-  const freshness=root.querySelector('#ota-freshness');
-  let loadTimer=null,loading=false,lastBody='',shownOnce=false,followUps=0;
-  const bodyOf=snapshot=>JSON.stringify([snapshot.events||[],snapshot.proposals||[]]);
-  // Background updates wait while the reviewer has an unsaved choice; a finished save renders at once.
-  function reviewing(){{
-    const active=document.activeElement;
-    if(active&&root.contains(active)&&active.tagName!=='BODY'&&active!==root.querySelector(':scope > summary'))return true;
-    return !!root.querySelector('.ota-card-row input:checked,.ota-proposal input[type=radio]:checked:not([value="once"]),.ota-proposal-fields:not([hidden])');
+  const freshness=root.querySelector('#ota-freshness'),summaryBox=root.querySelector('#ota-queue-summary');
+  let loadTimer=null,loading=false,shownOnce=false,summary=null,page=null,proposalPage=null,cursorStack=[null],proposalCursorStack=[null],requestVersion=0,qTimer=null,dirty=false;
+  const activeControllers=new Set();
+  const filterIds=['ota-queue-filter','ota-provider-filter','ota-q-filter'];
+  let appliedFilters=filterIds.map(id=>root.querySelector('#'+id).value);
+  function cancelRequests(){{requestVersion++;for(const controller of activeControllers)controller.abort();activeControllers.clear();}}
+  function readError(error){{return ({{SNAPSHOT_CHANGED:'자료가 갱신되었습니다. 최신 목록을 다시 확인하세요.',SNAPSHOT_NOT_READY:'자료 갱신을 기다리고 있습니다.',BAD_CURSOR:'페이지 정보가 만료되었습니다.',EVENT_ID_AMBIGUOUS:'거래 ID가 중복되어 처리할 수 없습니다.',EVENT_NOT_FOUND:'상세 근거가 없는 거래입니다.'}})[error.code]||error.message||'요청을 처리하지 못했습니다.';}}
+  async function call(path,payload,signal){{
+    const options=payload===undefined?{{cache:'no-store',signal}}:{{method:'POST',headers:{{'Content-Type':'application/json','X-CSRF-Token':csrf}},body:JSON.stringify(payload),signal}};
+    const response=await fetch(path,options);let data={{}};try{{data=await response.json();}}catch{{}}
+    if(!response.ok){{const error=Error(data.message||'요청을 처리하지 못했습니다.');error.code=data.code;error.status=response.status;throw error;}}return data;
   }}
-  function scheduleLoad(delay){{clearTimeout(loadTimer);loadTimer=setTimeout(loadSnapshot,delay);}}
-  // The server refreshes after an action in the background, so the reply right after it can still be the old snapshot.
-  function applyFresh(snapshot){{
-    render(snapshot);lastBody=bodyOf(snapshot);
-    followUps=6;
-    scheduleLoad((snapshot.status||'ready')!=='ready'?10000:2000);
+  function get(path,version=requestVersion){{const controller=new AbortController();activeControllers.add(controller);return call(path,undefined,controller.signal).finally(()=>activeControllers.delete(controller)).then(value=>{{if(version!==requestVersion||!root.open)throw Object.assign(Error('취소된 요청'),{{code:'OBSOLETE'}});return value;}});}}
+  function ignored(error){{return error.code==='OBSOLETE'||error.name==='AbortError';}}
+  function queryPath(base,params){{const query=new URLSearchParams();for(const [key,value] of Object.entries(params))if(value!==null&&value!==undefined&&value!=='')query.set(key,String(value));return base+'?'+query.toString();}}
+  function unsavedChoice(){{return dirty||!!root.querySelector('.ota-card-row input:checked,.ota-proposal input[type=radio]:checked:not([value="once"]),.ota-proposal-fields:not([hidden])');}}
+  function protectReviewChoice(){{if(!unsavedChoice())return false;freshness.textContent='저장하지 않은 선택을 유지합니다. 현재 검토를 마치거나 선택을 해제한 뒤 이동하세요.';return true;}}
+  root.addEventListener('input',event=>{{if(event.target.closest('.ota-proposal-fields,[data-reservation-candidates]'))dirty=true;}});
+  root.addEventListener('change',event=>{{if(event.target.closest('.ota-proposal-fields')||event.target.matches('[data-reservation-select]'))dirty=true;}});
+  function clearPage(message){{page=null;root.querySelector('#ota-events').textContent=message;root.querySelector('#ota-page-label').textContent='';root.querySelector('#ota-page-prev').disabled=true;root.querySelector('#ota-page-next').disabled=true;}}
+  function invalidateSnapshot(message){{cancelRequests();summary=null;cursorStack=[null];proposalCursorStack=[null];proposalPage=null;clearPage(message);root.querySelector('#ota-proposals').textContent=message;root.querySelector('#ota-proposals-prev').disabled=true;root.querySelector('#ota-proposals-next').disabled=true;freshness.textContent=message;scheduleLoad(1000);}}
+  function renderCounts(data){{
+    const labels={{needs_action:'확인 필요',waiting_source:'자료 갱신 대기',evidence_missing:'근거 부족',auto_recheck:'자동 재확인',completed:'연결 검토 완료',historical:'과거 기록'}};
+    const rows=Object.entries(labels).map(([name,title])=>{{const item=data.counts_by_queue?.[name];const available=item&&Number.isInteger(item.event_count)&&Number.isInteger(item.group_count);return `<span>${{title}}: ${{available?item.event_count+'건 / '+item.group_count+'묶음':'집계 미확인'}}</span>`;}}).join(' · ');
+    summaryBox.innerHTML=`<p>${{data.counts_authoritative===true?'현재 자료 기준 집계':'잠정 집계 · 최신 자료 확인 필요'}}${{data.grouping==='singleton_fallback'?' · 이벤트별 임시 단위(예약 그룹 수 아님)':''}}</p><p>${{rows}}</p><p>연결 검토 완료는 내부 기장이나 실제 환급 완료를 뜻하지 않습니다.</p>`;
   }}
-  async function loadSnapshot(){{
-    if(loading){{scheduleLoad(2000);return;}}
-    if(!root.open)return;
-    if(document.hidden){{scheduleLoad(10000);return;}}
-    loading=true;
-    try{{
-      const snapshot=await call('/api/imports/ota');
-      const state=snapshot.status||'ready';
-      const body=bodyOf(snapshot);
-      if(state==='loading'){{
-        freshness.textContent='OTA 자료를 확인하고 있습니다.';
-        scheduleLoad(8000);
-        return;
-      }}
-      if(body!==lastBody){{
-        if(reviewing()){{freshness.textContent='고르는 중인 항목이 있어 새 내용은 선택을 마친 뒤 반영합니다.';scheduleLoad(10000);return;}}
-        render(snapshot);lastBody=body;
-      }}
-      if(!shownOnce){{status.textContent='결제 보류 내역을 불러왔습니다.';shownOnce=true;}}
-      if(state==='ready'){{freshness.textContent='';}}
-      else if(state==='refreshing'){{freshness.textContent='새 자료를 확인하는 중입니다. 아래 내용은 직전에 확인한 결과입니다.';scheduleLoad(10000);}}
-      else{{freshness.textContent=snapshot.last_error?'새로 확인하지 못했습니다. 직전 확인 결과를 보여 드립니다.':'자료를 읽을 수 없습니다.';}}
-      if(followUps>0){{followUps--;scheduleLoad(2000);}}
-    }}catch(error){{freshness.textContent=error.message;scheduleLoad(30000);}}
-    finally{{loading=false;}}
+  const queueReasons={{EVENT_ID_MISSING:'거래 ID 없음',EVENT_ID_DUPLICATE:'거래 ID 중복',MALFORMED_EVENT:'거래 자료 오류',EVIDENCE_CHANGED:'근거 변경',EVIDENCE_MISSING:'근거 사라짐',REVIEW_WARNING:'검토 경고',STATUS_UNKNOWN:'상태 미확인',EVIDENCE_UNKNOWN:'근거 상태 미확인',PAYMENT_EVIDENCE_CONFLICT:'결제 근거 충돌',MATCHING_REVIEW_REQUIRED:'연결 검토 필요',PAYMENT_EVIDENCE_MISSING:'결제 근거 부족',SOURCE_OR_DATE_PENDING:'자료 또는 날짜 확인 대기',SCHEDULED_EVIDENCE_REVIEW:'예정 결제 확인 필요',PAYMENT_EVIDENCE_UNVERIFIED:'결제 근거 미검증',MATCH_REASON_UNKNOWN:'연결 근거 미확인',INFERRED_OR_GROUP_MATCH:'추론 또는 그룹 연결',PAYMENT_STATUS_UNVERIFIED:'결제 상태 미검증',TRANSACTION_ID_MISSING:'카드 거래 ID 없음',MATCHING_REVIEW_RESOLVED:'연결 검토 완료'}};
+  function rowLabel(item){{const event=item.event||{{}},id=event.ota_event_id;const codes=item.reason_codes||[],reason=codes.map(code=>queueReasons[code]||'추가 확인 필요').join(', ');const invalid=!id||codes.includes('EVENT_ID_MISSING')||codes.includes('EVENT_ID_DUPLICATE');const summaryText=[event.provider,event.booking_ref,event.paid_on,event.item,event.amount,event.currency,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');return `<details class="ota-queue-row" data-queue-detail data-event-id="${{esc(id||'')}}"><summary>${{summaryText||'OTA 거래'}}${{reason?` <span class="ota-chip">${{esc(reason)}}</span>`:''}}</summary>${{invalid?'<p>거래 ID가 없거나 중복되어 처리할 수 없습니다.</p>':'<div data-detail-body><button type="button" data-load-detail>검토 상세 보기</button></div>'}}</details>`;}}
+  function bindPageDetails(target,generation){{target.querySelectorAll('[data-load-detail]').forEach(button=>button.addEventListener('click',async()=>{{const row=button.closest('[data-queue-detail]'),body=row.querySelector('[data-detail-body]');button.disabled=true;const version=requestVersion;try{{const detail=await get(`/api/imports/ota/events/${{encodeURIComponent(row.dataset.eventId)}}?generation=${{encodeURIComponent(generation)}}`,version);if(detail.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(!body.isConnected)return;body.replaceChildren();renderFull({{events:[detail.event]}},body);}}catch(error){{if(ignored(error))return;if(error.status===409&&error.code!=='EVENT_ID_AMBIGUOUS'){{invalidateSnapshot(readError(error));return;}}body.textContent=readError(error);button.disabled=false;}}}}));}}
+  function renderPage(data){{page=data;const target=root.querySelector('#ota-events');target.innerHTML=(data.items||[]).map(rowLabel).join('')||'<p>이 페이지에 표시할 거래가 없습니다.</p>';bindPageDetails(target,data.generation);root.querySelector('#ota-page-prev').disabled=cursorStack.length<=1;root.querySelector('#ota-page-next').disabled=!data.next_cursor;root.querySelector('#ota-page-label').textContent=`${{(data.items||[]).length}}건 · 자료 버전 ${{data.generation}}`;}}
+  async function fetchPage(cursor=null,reset=false){{
+    if(!root.open||!summary||protectReviewChoice())return;
+    const version=requestVersion,generation=summary.generation;
+    try{{const data=await get(queryPath('/api/imports/ota/events',{{queue:appliedFilters[0],provider:appliedFilters[1].trim(),q:appliedFilters[2].trim(),limit:20,cursor}}),version);if(protectReviewChoice())return;if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(reset)cursorStack=[null];renderPage(data);}}
+    catch(error){{if(ignored(error))return;if(error.code==='BAD_CURSOR'&&cursor!==null){{cursorStack=[null];await fetchPage(null,true);return;}}if(error.status===409){{invalidateSnapshot(readError(error));return;}}clearPage('목록을 불러오지 못했습니다.');freshness.textContent=readError(error);}}
   }}
-  // Loading thousands of OTA candidates on initial /import is unnecessary.
-  // The deep-link still opens the section for a directly requested transaction.
-  const autoOpen=location.hash==='#ota-review' || new URLSearchParams(location.search).has('transaction');
-  if(autoOpen)root.open=true;
-  root.addEventListener('toggle',()=>{{
-    if(root.open){{loadSnapshot();}}
-    else if(loadTimer){{clearTimeout(loadTimer);loadTimer=null;}}
-  }});
-  if(root.open)loadSnapshot();
+  async function loadQueue(){{
+    if(loading||!root.open||document.hidden)return;if(unsavedChoice()){{scheduleLoad(10000);return;}}
+    loading=true;cancelRequests();const version=requestVersion;
+    try{{const data=await get('/api/imports/ota/summary',version);if(protectReviewChoice())return;const previousGeneration=summary?.generation;summary=data;renderCounts(data);const current=data.status==='ready'&&data.fresh===true&&data.stale===false&&data.refreshing===false;
+      if(!current){{invalidateSnapshot('최신 자료가 준비될 때까지 검토 목록을 표시하지 않습니다.');return;}}
+      if(previousGeneration!==data.generation){{cursorStack=[null];proposalCursorStack=[null];proposalPage=null;root.querySelector('#ota-proposals').replaceChildren();}}
+      freshness.textContent='';await fetchPage(cursorStack[cursorStack.length-1]||null,false);
+      if(summary&&root.querySelector('#ota-proposals-panel').open)await loadProposals(proposalCursorStack[proposalCursorStack.length-1]||null);
+      if(!shownOnce&&page){{status.textContent='연결 검토 목록을 불러왔습니다.';shownOnce=true;}}
+    }}catch(error){{if(!ignored(error))invalidateSnapshot(readError(error));}}finally{{loading=false;if(root.open&&summary)scheduleLoad(10000);}}
+  }}
+  function scheduleLoad(delay){{clearTimeout(loadTimer);loadTimer=setTimeout(loadQueue,delay);}}
+  async function refreshQueueAfterAction(){{dirty=false;root.querySelectorAll('.ota-card-row input:checked').forEach(input=>input.checked=false);root.querySelectorAll('.ota-proposal input[value="once"]').forEach(input=>input.checked=true);root.querySelectorAll('.ota-proposal-fields').forEach(fields=>fields.hidden=true);cursorStack=[null];await loadQueue();}}
+  root.querySelector('#ota-page-next').addEventListener('click',async()=>{{if(protectReviewChoice())return;if(page?.next_cursor){{const cursor=page.next_cursor;cancelRequests();cursorStack.push(cursor);await fetchPage(cursor);}}}});
+  root.querySelector('#ota-page-prev').addEventListener('click',async()=>{{if(protectReviewChoice())return;if(cursorStack.length>1){{cancelRequests();cursorStack.pop();await fetchPage(cursorStack[cursorStack.length-1]||null);}}}});
+  function changeFilters(){{if(protectReviewChoice()){{filterIds.forEach((id,index)=>root.querySelector('#'+id).value=appliedFilters[index]);return;}}appliedFilters=filterIds.map(id=>root.querySelector('#'+id).value);cancelRequests();cursorStack=[null];fetchPage(null,true);}}
+  root.querySelector('#ota-queue-filter').addEventListener('change',changeFilters);
+  for(const id of ['ota-provider-filter','ota-q-filter'])root.querySelector('#'+id).addEventListener('input',()=>{{clearTimeout(qTimer);qTimer=setTimeout(changeFilters,300);}});
+  async function loadProposals(cursor=null){{
+    if(!summary||!root.open||protectReviewChoice())return;const version=requestVersion,generation=summary.generation;
+    try{{const data=await get(queryPath('/api/imports/ota/proposals',{{generation,limit:20,cursor}}),version);if(protectReviewChoice())return;if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 질문을 다시 불러옵니다.');return;}}proposalPage=data;renderProposals(data.items||[]);root.querySelector('#ota-proposals-prev').disabled=proposalCursorStack.length<=1;root.querySelector('#ota-proposals-next').disabled=!data.next_cursor;}}
+    catch(error){{if(ignored(error))return;if(error.code==='BAD_CURSOR'&&cursor!==null){{proposalCursorStack=[null];await loadProposals(null);return;}}if(error.status===409){{invalidateSnapshot(readError(error));return;}}root.querySelector('#ota-proposals').textContent=readError(error);}}
+  }}
+  root.querySelector('#ota-proposals-panel').addEventListener('toggle',event=>{{if(event.currentTarget.open)loadProposals(proposalCursorStack[proposalCursorStack.length-1]||null);}});
+  root.querySelector('#ota-proposals-next').addEventListener('click',()=>{{if(protectReviewChoice())return;if(proposalPage?.next_cursor){{cancelRequests();proposalCursorStack.push(proposalPage.next_cursor);loadProposals(proposalPage.next_cursor);}}}});
+  root.querySelector('#ota-proposals-prev').addEventListener('click',()=>{{if(protectReviewChoice())return;if(proposalCursorStack.length>1){{cancelRequests();proposalCursorStack.pop();loadProposals(proposalCursorStack[proposalCursorStack.length-1]||null);}}}});
+  root.addEventListener('toggle',()=>{{if(root.open)loadQueue();else{{clearTimeout(loadTimer);clearTimeout(qTimer);loadTimer=qTimer=null;cancelRequests();}}}});
+  document.addEventListener('visibilitychange',()=>{{if(document.hidden){{clearTimeout(loadTimer);cancelRequests();}}else if(root.open)loadQueue();}});
+  const autoOpen=location.hash==='#ota-review'||new URLSearchParams(location.search).has('transaction');if(autoOpen)root.open=true;if(root.open)loadQueue();
 }})();
 </script>'''
 
@@ -2203,6 +2289,36 @@ def _queue_page_query(query: str) -> dict:
             raise ValueError
         kwargs["cursor"] = values["cursor"]
     return kwargs
+
+
+def _strict_generation_query(query: str, *, proposals=False) -> dict:
+    if (type(query) is not str or len(query) > 1600 or
+            re.search(r"%(?![0-9A-Fa-f]{2})", query)):
+        raise ValueError
+    pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True,
+                      encoding="utf-8", errors="strict", max_num_fields=3)
+    allowed = {"generation", "limit", "cursor"} if proposals else {"generation"}
+    values = {}
+    for key, value in pairs:
+        if key not in allowed or key in values:
+            raise ValueError
+        values[key] = value
+    raw_generation = values.get("generation")
+    if type(raw_generation) is not str or not re.fullmatch(r"[0-9]{1,16}", raw_generation, re.ASCII):
+        raise ValueError
+    result = {"generation": int(raw_generation)}
+    if proposals:
+        raw_limit = values.get("limit", "20")
+        if not re.fullmatch(r"[0-9]{1,2}", raw_limit, re.ASCII):
+            raise ValueError
+        result["limit"] = int(raw_limit)
+        if not 1 <= result["limit"] <= 20:
+            raise ValueError
+        if "cursor" in values:
+            if not values["cursor"]:
+                raise ValueError
+            result["cursor"] = values["cursor"]
+    return result
 
 
 def _queue_page_response(context, kwargs):
@@ -2460,6 +2576,66 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
             return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "진단 자료를 읽을 수 없습니다.", 503)
         return True
     if raw is None:
+        if path == ROUTE_PREFIX + "/proposals":
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            try:
+                params = _strict_generation_query(parsed.query, proposals=True)
+            except (ValueError, UnicodeError):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                context_of = getattr(backend, "proposal_page_context", None)
+                if not callable(context_of):
+                    raise ota_snapshot.SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+                result = context_of(params["generation"], limit=params["limit"],
+                                    cursor=params.get("cursor"))
+                handler._send_json(result)
+            except ota_snapshot.SnapshotReadError as exc:
+                message = ("스냅샷이 변경되었습니다. 처음부터 다시 불러와 주세요."
+                           if exc.status_code == 409 and exc.code == "SNAPSHOT_CHANGED"
+                           else "요청 cursor가 올바르지 않습니다." if exc.status_code == 400
+                           else "자료를 새로 확인하고 있습니다.")
+                return _reply_error(handler, exc.code, message, exc.status_code)
+            except Exception:
+                return _reply_error(handler, "OTA_PROPOSALS_UNAVAILABLE", "제안 목록을 읽을 수 없습니다.", 503)
+            return True
+        detail_match = re.fullmatch(re.escape(ROUTE_PREFIX) + r"/events/([^/]+)", path)
+        if detail_match:
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            encoded_id = detail_match.group(1)
+            if re.search(r"%(?![0-9A-Fa-f]{2})", encoded_id):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                event_id = unquote(encoded_id, encoding="utf-8", errors="strict")
+                params = _strict_generation_query(parsed.query)
+                if (not event_id or len(event_id) > 200 or
+                        re.search(r"[\x00-\x1f\x7f]", event_id)):
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                context_of = getattr(backend, "queue_detail_context", None)
+                if not callable(context_of):
+                    raise ota_snapshot.SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+                result = context_of(event_id, params["generation"])
+                if result.get("ambiguous") is True:
+                    return _reply_error(handler, "EVENT_ID_AMBIGUOUS",
+                                        "이 이벤트 ID가 중복되어 상세 자료를 안전하게 찾을 수 없습니다.", 409)
+                event = result.get("event")
+                if type(event) is not dict:
+                    return _reply_error(handler, "EVENT_NOT_FOUND", "이벤트를 찾을 수 없습니다.", 404)
+                handler._send_json({"event_id": event_id, "generation": result["generation"],
+                                    "event": event})
+            except ota_snapshot.SnapshotReadError as exc:
+                message = ("스냅샷이 변경되었습니다. 목록을 새로 불러와 주세요."
+                           if exc.code == "SNAPSHOT_CHANGED" else
+                           "자료를 새로 확인하고 있습니다." if exc.status_code == 409 else
+                           "요청 조건이 올바르지 않습니다.")
+                return _reply_error(handler, exc.code, message, exc.status_code)
+            except Exception:
+                return _reply_error(handler, "OTA_DETAIL_UNAVAILABLE", "상세 자료를 읽을 수 없습니다.", 503)
+            return True
         if path == ROUTE_PREFIX + "/events":
             if not _request_user(handler):
                 return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)

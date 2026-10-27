@@ -45,8 +45,14 @@ def test_browser_pending_candidates_can_be_retried_without_financial_writes():
             page.set_default_timeout(5000)
             def handle(route):
                 calls.append((route.request.url, route.request.method))
-                if '/cards/' not in route.request.url:
-                    route.fulfill(json=snapshot)
+                if route.request.url.endswith('/summary'):
+                    route.fulfill(json={'status': 'ready', 'fresh': True, 'stale': False,
+                        'refreshing': False, 'generation': 1, 'counts_by_queue': {}})
+                elif route.request.url.split('?')[0].endswith('/events'):
+                    route.fulfill(json={'generation': 1, 'items': [{'event': snapshot['events'][0]}],
+                                        'next_cursor': None})
+                elif '/events/' in route.request.url:
+                    route.fulfill(json={'generation': 1, 'event': snapshot['events'][0]})
                 elif sum('/cards/' in url for url, _ in calls) == 1:
                     route.fulfill(status=409, json={'code': 'OTA_SNAPSHOT_NOT_READY',
                                                    'message': 'Synthetic pending'})
@@ -55,6 +61,9 @@ def test_browser_pending_candidates_can_be_retried_without_financial_writes():
                         'merchant': 'Synthetic merchant', 'amount_krw': 12000}]})
             page.route('**/api/imports/ota**', handle)
             page.set_content('<base href="http://localhost/">' + review.render_import_section('synthetic'))
+            page.locator('#ota-review > summary').click()
+            page.locator('[data-queue-detail] > summary').click()
+            page.locator('[data-load-detail]').click()
             toggle = page.locator('.ota-event h4[role=button]')
             toggle.press('Enter')
             expect(page.locator('.ota-cards')).to_contain_text('예약 근거 갱신 중입니다.')
