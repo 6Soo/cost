@@ -2882,7 +2882,8 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
         parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
                      " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
                      " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다."
-                     " 카드사 원승인번호가 일치하면 이름이 달라도 근거 후보로 표시합니다.</p>")
+                     " 원승인번호와 같은 카드의 정상 원결제가 식별되면 가맹점명이 달라도 확정 연결합니다."
+                     " 한 원결제에 취소·환불이 여러 건인 것은 정상이며, 총 환불액과 잔액은 따로 검증합니다.</p>")
     if key == "카카오택시":
         inventory = _kakao_merchant_inventory_readonly(board)
         taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
@@ -2951,6 +2952,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
+                 f"원승인번호 기준 원결제 확정 연결 · 취소/환불 {link['refund_count']}건",
                  f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
         if link['original_id'] in recorded and tid not in recorded:
             lines.append('원결제는 이미 기록됐으며 환불 기록은 보호 검사 후 처리합니다.')
