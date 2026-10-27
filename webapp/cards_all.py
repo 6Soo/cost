@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 from . import card_transactions as _ct
 from . import ledger_design as _design
+from . import ui_icons
 
 DEFAULT_YEAR = 2026
 MIN_YEAR = 2000
@@ -575,7 +576,7 @@ def cards_all_page(query_params: dict, *, db_path: str | None = None) -> str:
         + f"<label><input type='checkbox' name='unassigned' value='1'{' checked' if filters['unassigned'] else ''}> 미배정만</label>"
         + f"<label>카드 <select name='card' aria-label='카드별 조회'>{options}</select></label>"
         + f"<label>검색 <input type='search' name='q' value='{_esc(filter_state.get('q', ''))}' placeholder='가맹점·내용·분류'></label>"
-        + "<button type='submit'>조회</button>"
+        + f"<button class='btn' type='submit'>{ui_icons.icon('search')}조회</button>"
         + f"<a class='card-all-link' href='/cards/all?{_esc(urlencode({'year': year, **({'month': selected_month} if selected_month else {})}))}'>필터 초기화</a></form>"
         + "<p class='card-all-muted'>미배정은 배정된 여행이 없거나 여행 일정 확인이 필요한 거래입니다. 같은 카드사·종류·끝자리의 카드는 저장된 정보만으로 구분할 수 없습니다.</p>")
 

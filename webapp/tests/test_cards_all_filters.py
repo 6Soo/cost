@@ -63,6 +63,8 @@ def test_page_filters_preserve_navigation_reset_cursor_and_render_masked_card(ca
     page = cards_all.cards_all_page(query, db_path=card_db_path)
     assert "data-tx-id='TX-A-02'" in page and "data-tx-id='TX-A-01'" not in page
     assert '미배정 1건' in page and '•••• 1234' in page and '카드 식별' in page
+    assert "class='btn' type='submit'" in page and "aria-hidden='true'" in page
+    assert '>조회</button>' in page and "<svg class='ic'" in page
     assert '같은 카드사·종류·끝자리' in page
     for form in re.findall(r'<form\b.*?</form>', page, re.S):
         if "action='/cards/all'" not in form:
