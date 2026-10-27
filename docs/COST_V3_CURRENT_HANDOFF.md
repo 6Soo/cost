@@ -1,3 +1,5 @@
+> **2026-10-27 채팅 종료 최신 결정:** [세션 종료·재개 지침](COST_SESSION_CLOSE_HANDOFF_20261027.md)이 같은 카드/원승인번호에 **1개 원결제 → 여러 취소·환불 각각 확정 연결**하는 사용자 최종 규칙과, 서로 중복된 OPEN PR #156/#157 조정·검증·배포 절차를 담는다. 과거 #153의 '원승인번호가 맞아도 후보' 안내는 이 확인된 관계에 대해서만 최신 규칙으로 대체된다. 원결제 자체 중복/원본 오류는 기존 보류, 확정 관계와 장부 기장/환급 완료는 별개다. **이번 인계는 문서 작업이며 #156/#157 미병합·미배포**. 새 세션은 이 링크부터 확인하고 현재 GitHub PR/운영 SHA를 다시 조회한다.
+
 > **2026-10-27 최신 상태:** PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 병합·운영 배포 완료. PR #152의 Agoda 후보 표시 수정도 같은 릴리스에 포함됐다. release 963개 파일 blob 불일치 0, 작업/프로세스 SHA 일치, health/ready 200, 비인증 보호 API 401, 로그인 지출 정리 GET 확인. 현재 로컬·원격은 `main`만 남겼다. 삭제 전 비-main refs는 `.local-archive/branch-prune-20261027/before-main-only.bundle`에 검증 보존했고, untracked 계획 파일도 보존했다. 상세 결과·기준선 테스트 실패·리뷰 NOT_RUN은 [운영 기록](operations.md) 첫 절과 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)를 따른다. 운영 금융/장부/Google 쓰기는 하지 않았다.
 
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
