@@ -26,7 +26,8 @@
 - 같은 호스트 `srv__gxAHTF5BoWJ`, 기존 local workspace `wks_10a7846dab88369c` 재사용. 등록 프로필 없음·앞선 Anus/FreeRouter 구현/검증 실패·현재 AGY unavailable 확인 후 사용자 승인 마지막 후보 `codex/gpt-6-luna` low로 두 독립 작업을 배정했다.
 - RF-001 `46ede148-c8a7-43b9-b783-1a89a671be40`: `docs/specs/refactor-write-boundaries.md` 단독 작성. OTA backend persistence/audit·Google read·수동 여행 결정의 source chain과 OPEN_QUESTION 보완. 문서전용 검사만 허용.
 - RF-004 `0ee2f107-8e89-40d3-be2b-42999b6550e3`: `tools/audit_test_environment.py`, `tests/test_test_environment_audit.py` 단독 작성. 소스만으로 테스트 환경 의존성 후보를 분류하며 실행 PASS/합성 안전성을 추정하지 않는다. 새 합성 테스트와 CLI summary만 검증한다.
-- 구현자는 branch 변경·commit·push·운영 접근·재귀 위임 없이 파일만 작성하고 완료 알림을 보낸다. Supervisor가 검수·통합한다. 완료 알림 대기 중이며 아직 산출물 통과를 주장하지 않는다.
+- 구현자는 branch 변경·commit·push·운영 접근·재귀 위임 없이 파일만 작성하고 완료 알림을 보낸다. Supervisor가 검수·통합한다. 첫 완료 보고 두 건을 수신했으나 검수 보완을 요청했으며 아직 산출물 통과를 주장하지 않는다.
+- RF-001 검수: adapter 초기화 줄 번호·preview의 읽기 전용 분기·명시 전달된 여행 검증기·`change_log` 감사 sink 근거를 보완하고 UTF-8 BOM을 제거하도록 요청했다. RF-004 검수: 최초5 passed는 초기 구현 근거일 뿐이다. 전체 Python 소스 대신 테스트 후보만 선택하고, 파일별 오류를 집계하며, 실제 pytest alias marker·환경 변수 접근/안전 metadata를 보완하도록 요청했다. 초기 CLI의 `PYTHON_PARSE_FAILED` 종료2는 성공이 아니다. 수정본 완료 알림 대기 중.
 - 다음 명령: 알림 수신 후 `git diff -- docs/specs/refactor-write-boundaries.md`; 도구 결과는 `python -m pytest tests/test_test_environment_audit.py -q`, `python tools/audit_test_environment.py --summary`의 기존 실행 근거부터 검토하고 유효 결과를 반복하지 않는다. 변경 없는 운영 재배포·실자료 쓰기는 없다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
