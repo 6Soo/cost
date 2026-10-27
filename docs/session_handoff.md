@@ -44,10 +44,7 @@
 - 같은 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/transaction_contract.py`, `tests/card_pipeline/test_transaction_contract.py`만 작성한다. 실제 런타임 경로에 연결하지 않는 순수 DTO·mapping 변환의 합성 계약부터 시작한다.
 - 기존 거래 원본/금액/통화/ID·사용자 결정·독립 상태 축과 알 수 없는 값·필드/누락/None을 보존한다. 새로운 금융·환급·기장·여행 정책을 계산하거나 런타임/DB/Google을 변경하지 않는다. 입력/출력 alias 오염·정확 roundtrip을 새 합성 검사로 확인한다.
 - **COMPLETE / DEPLOYED（독립 거래 DTO 기반）** — PR #215, 코드 `77e2c0f`, main/운영 `179acb59dbe22dc28b982c8a2d16f5c7de8ed05c`. 최종13 passed·guard 차단0/삭제0·추적944 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 합성 import/roundtrip/입력변경 차단 스모크도 통과했다. 아래 검수 대기·미병합 문구는 과거 이력이며 현재는 수락·병합·배포 완료다. 기존 런타임에는 연결하지 않았고 전체 RF-002 완료가 아니다.
-- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/transaction_contract.py tests/card_pipeline/test_transaction_contract.py`다. 이번 독립 adapter는 전체 RF-002 계약 채택이나 R0 운영 미확인 해소를 뜻하지 않는다.
-- 최초 구현 합성7 passed 보고를 받았으나 검수에서 `deepcopy` fallback이 public `FieldSlot.value`로 bytearray/custom mutable 객체를 노출하는 불변성 결함을 확인했다. 같은 구현자에게 지원 domain/안전한 미지원 오류·직접 slot 생성·public 중첩 접근·순환 참조 경계를 보완하도록 요청했다. 실제 transactions 필드와 axis 목록을 소스 대조했고 알려지지 않은 필드는 extras로 보존한다. 아직 구현 commit/PR/운영 반영은 하지 않았으며 수정본 알림 대기 중이다.
-- 1차 보완10 passed: built-in container/bytearray 동결·generic 미지원 오류·cycle 거부·직접 FieldSlot 생성은 확인했다. 최종 검수에서 public Axis/View 직접 생성의 mutable 주입과 datetime/time의 custom mutable tzinfo, extras key alias가 남아 추가 보완을 요청했다. SQL/JSON 값과 정확한 str key 계약을 명확히 하고 public 생성 경계를 실제 방어하도록 지정했다. 새 경계 검사 결과 알림 대기이며 이전10 passed를 최종 수락으로 확대하지 않는다.
-- **TEST_PASSED / REVIEWED（독립 기반）** — 최종13 passed 보고와 소스 검수를 수락했다. 공개 Axis/View 생성자는 mapping을 snapshot/검증하고, 정확한 str key 및 알려진 불변 timezone만 허용한다. mutable/미지원 객체·cycle은 원문 없는 오류로 거부하며 supported domain에서 누락/None·알 수 없는 상태/추가값·금액/통화/ID 왕복을 보존한다. 기본 재무/여행 정책과 런타임 경로에는 아직 연결하지 않았다. 다음은 이 독립 기반의 PR·고정 SHA 배포와 합성 import/roundtrip 스모크다. 앞선 알림 대기는 종료했다.
+- 검수에서 최초7/10 passed 이후 발견한 mutable 객체·public 생성·timezone/key 노출을 교정했다. 최종13 passed로 수락했으며 지원 domain에서 누락/None·unknown 상태/추가값·금액/통화/ID 왕복과 불변성을 확인했다. 미지원 객체·cycle은 원문 없는 오류로 거부한다. 실제 transactions 필드와 axis 목록을 대조했고 미래/runtime 필드는 extras로 보존한다. 전체 RF-002 채택이나 R0 운영 미확인 해소는 아니다.
 
 ### 진행 중인 RF-002 OTA 상태 계약의 독립 기반
 
