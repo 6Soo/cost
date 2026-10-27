@@ -38,6 +38,13 @@
 - Supervisor는 scheduler metadata에서 Board의 SHA 고정 start_web_ledger_host 참조와 SourceRefresh의 `tools/watch_review_source.ps1` 이름/저장소 cwd 참조를 확인했다. 원문 인자·비밀값은 출력하지 않았다. 담당자는 repo 안의 실제 호출·외부 dependency·쓰기/복구 게이트를 소스 경로/줄로 추적하며 repo 밖 파일/DB/설정은 읽지 않는다.
 - **COMPLETE（이번 문서 범위） / R0 전체 PARTIAL** — Board launcher→run_candidate, SourceRefresh wrapper→collect/activate→bundle/config/status, 임시 복사본 DB probe·별도 복원 target·dry-run manifest의 소스 참조를 대조했다. 전달된 scheduler metadata와 source-only 근거를 분리했고, PR #213 이후 최종 SHA/health 미확인 문구는 이미 검증된 운영 기록 참조로 교정했다. 원문 인자·환경/인증·외부 호스트 코드·DB는 열지 않았다. diff/참조/링크만 확인하며 테스트·빌드·브라우저·재배포는 하지 않는다. 외부 wrapper 전체 동작·실제 SourceRefresh 활성 결과는 미확인이다.
 
+### 진행 중인 RF-002 거래 상태 계약의 독립 기반
+
+- 기준 main `37cf912`（PR #214 문서 병합）, 브랜치 `refactor/rf002-transaction-state-contract-20261028`. 운영은 계속 `44421df`다. R0 정적 지도·보호·표적검사 기준선은 확보했으며 외부 운영 OPEN_QUESTION은 유지한다.
+- 같은 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/transaction_contract.py`, `tests/card_pipeline/test_transaction_contract.py`만 작성한다. 실제 런타임 경로에 연결하지 않는 순수 DTO·mapping 변환의 합성 계약부터 시작한다.
+- 기존 거래 원본/금액/통화/ID·사용자 결정·독립 상태 축과 알 수 없는 값·필드/누락/None을 보존한다. 새로운 금융·환급·기장·여행 정책을 계산하거나 런타임/DB/Google을 변경하지 않는다. 입력/출력 alias 오염·정확 roundtrip을 새 합성 검사로 확인한다.
+- **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/transaction_contract.py tests/card_pipeline/test_transaction_contract.py`다. 이번 독립 adapter는 전체 RF-002 계약 채택이나 R0 운영 미확인 해소를 뜻하지 않는다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
