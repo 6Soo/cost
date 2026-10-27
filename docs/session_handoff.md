@@ -100,6 +100,12 @@
 - 원문 없이 알려진 status별 집계·경고 개수·bytes/time만 `.local-archive/ota-queue-baseline-20261028/current-api-baseline.json`에 보존했다. **SOURCE_AUDIT_PENDING** — 완료 알림 후 순수 queue/summary의 최소 구현 범위를 결정한다. 기존 solver·manual/exact link·원승인/복수환불·여행/금융 쓰기와 legacy route는 유지한다. 다음 명령은 `git diff -- docs/specs/ota-review-queue-performance-20261027.md`다.
 - **SOURCE_AUDIT_REVIEWED** — 별도summary/events/cursor 미구현과 기존 lazy-card GET·worker freshness/last-good·public allowlist를 소스 대조했다. public 목록은 holds subset이므로 전체 canonical summary 입력과 구분하도록 교정했고 검증된 예약 그룹 계약 전에는 singleton fallback만 허용한다. 다음은 route/UI 미연결 순수 queue classification/summary이며 금융 상태 변경이나 완료/성능 개선을 주장하지 않는다.
 
+### 진행 중인 OTA 순수 queue/summary projection
+
+- PR #224 문서 병합 후 브랜치 `feat/ota-queue-pure-projection-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/ota_queue_projection.py`, `tests/test_ota_queue_projection.py`만 작성한다. route/GET/UI/solver/store에는 연결하지 않는다.
+- 명시적 canonical/public_subset coverage·freshness·유효한 source 상태/근거·경고를 바탕으로 display queue만 계산한다. completed는 대사검토 범위이며 기장/실환급/여행 확정이 아니다. unknown/changed/missing/manual-warning·duplicate/missing identity와 stale 등은 완료로 올리지 않는다. 검증된 예약 그룹 계약 전에는 singleton fallback이며 input event를 버리거나 합치지 않는다.
+- **IN_PROGRESS / NOT_VERIFIED** — 원문/ID/금액이 없는 safe summary·event/group count·비authoritative 상태·입력불변성과 합성10k/100k precompute 비용을 확인한다. 금융/Google/고객 원본 쓰기와 실제 API 조회는 구현자에게 허용하지 않는다. 다음 명령은 완료 알림 후 `git diff -- app/ota_queue_projection.py tests/test_ota_queue_projection.py`다. 운영은 `d230e12`로 유지한다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
