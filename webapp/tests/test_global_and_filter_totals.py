@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from webapp import ledger_board as board_mod
+from webapp import google_ledger_page, ledger_board as board_mod
 from webapp.ledger_store import LedgerStore
 
 ROW = "expense-demo-c1"
@@ -94,7 +94,7 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
         status, page = self._open(f"/board?tab={TAB}")
         self.assertEqual(status, 200)
         self.assertIn("저장되지 않은 변경 없음", page)
-        self.assertIn("마지막 저장", page)
+        self.assertIn("최근 저장", page)
 
     def test_the_last_save_time_comes_from_the_change_ledger(self):
         self._open(f"/api/rows/{ROW}/save",
@@ -102,18 +102,18 @@ class GlobalTopAreaTests(_Server, unittest.TestCase):
                     "operator_note": "기록", "change_mode": "exception",
                     "client_request_id": "top-1"}, "POST")
         _, page = self._open(f"/board?tab={TAB}")
-        m = re.search(r"마지막 저장 ([^<·]+)", page)
+        m = re.search(r"최근 저장 ([^<·]+)", page)
         self.assertIsNotNone(m)
         shown = m.group(1).strip()
         latest = self.store.conn.execute(
             "SELECT MAX(created_at) FROM board_revisions WHERE kind<>'conflict'"
         ).fetchone()[0]
-        self.assertIn(latest[:16], shown)
+        self.assertEqual(shown, google_ledger_page.format_display_time(latest))
 
     def test_a_ledger_with_no_save_says_so_rather_than_inventing_a_time(self):
         status, page = self._open("/board?tab=trip-demo-b")
         self.assertEqual(status, 200)
-        self.assertIn("마지막 저장", page)
+        self.assertIn("최근 저장", page)
 
     def test_the_shared_screens_carry_the_same_global_line(self):
         for path in ("/import", "/export", "/trips"):
@@ -178,22 +178,22 @@ class FilteredTotalsTests(_Server, unittest.TestCase):
 
     def test_an_unfiltered_tab_states_one_set_of_totals(self):
         body = self._summary()
-        self.assertIn(">수입<", body)
-        self.assertNotIn("전체 수입", body)
+        self.assertIn(">총수입<", body)
+        self.assertNotIn("전체 총수입", body)
         self.assertNotIn("검색 결과 수입", body)
 
     def test_a_filter_names_the_whole_and_the_result_separately(self):
         body = self._summary("호텔")
-        for label in ("전체 수입", "전체 지출", "검색 결과 수입",
-                      "검색 결과 지출", "검색 결과 차액"):
+        for label in ("전체 총수입", "전체 지출", "검색 결과 총수입",
+                      "검색 결과 지출", "검색 결과 수입"):
             self.assertIn(label, body)
 
     def test_a_filter_never_replaces_the_whole_total_with_the_result(self):
         whole = self._summary()
         filtered = self._summary("호텔")
-        w_income = re.search(r">수입<.*?<b>([\d,원]+)</b>", whole, re.S)
-        f_whole = re.search(r">전체 수입<.*?<b>([\d,원]+)</b>", filtered, re.S)
-        f_result = re.search(r">검색 결과 수입<.*?<b>([\d,원]+)</b>", filtered, re.S)
+        w_income = re.search(r">총수입</i><b>([\d,원]+)</b>", whole, re.S)
+        f_whole = re.search(r">전체 총수입</i><b>([\d,원]+)</b>", filtered, re.S)
+        f_result = re.search(r"검색 결과 수입</i><b[^>]*>([\d,원]+)</b>", filtered, re.S)
         self.assertIsNotNone(w_income)
         self.assertIsNotNone(f_whole)
         self.assertIsNotNone(f_result)
@@ -208,13 +208,13 @@ class FilteredTotalsTests(_Server, unittest.TestCase):
         status, page = self._open(
             f"/board?tab={TAB}&" + urlencode({"q": "호텔"}))
         self.assertEqual(status, 200)
-        self.assertIn("전체 수입", page)
+        self.assertIn("전체 총수입", page)
         self.assertIn("검색 결과 수입", page)
 
     def test_a_filter_that_matches_nothing_reports_zero_not_the_whole(self):
         body = self._summary("존재하지않는거래")
-        result = re.search(r">검색 결과 수입<.*?<b>([\d,원]+)</b>", body, re.S)
-        whole = re.search(r">전체 수입<.*?<b>([\d,원]+)</b>", body, re.S)
+        result = re.search(r"검색 결과 수입</i><b[^>]*>([\d,원]+)</b>", body, re.S)
+        whole = re.search(r">전체 총수입</i><b>([\d,원]+)</b>", body, re.S)
         self.assertIsNotNone(result)
         self.assertIsNotNone(whole)
         self.assertEqual(result.group(1), "0원")
@@ -254,7 +254,7 @@ class ManualExpenseEntryPointTests(_Server, unittest.TestCase):
         order = re.findall(
             r"<tbody class='grp'><tr><th scope='colgroup'[^>]*>([^<]*)<",
             page)
-        self.assertEqual(order, ["수입", "지출"])
+        self.assertEqual(order, ["수입 (COST 기록) ", "지출"])
 
     def test_the_button_reaches_the_manual_expense_screen(self):
         status, _ = self._open("/expense/new")

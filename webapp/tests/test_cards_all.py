@@ -414,6 +414,13 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
     from webapp import ledger_board, ledger_design, site_shell
     from playwright.sync_api import sync_playwright, expect
 
+    long_merchant = '합성 가맹점 ' * 18
+    with sqlite3.connect(card_db_path) as conn:
+        conn.execute("UPDATE transactions SET merchant=? WHERE transaction_id='TX-A-01'",
+                     (long_merchant,))
+        conn.commit()
+    conn.close()
+
     with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
             ledger_design, 'nav_region', return_value=''):
         def serve_page(route):
@@ -452,6 +459,9 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 page.goto('http://cost.test/cards/all?year=2026&month=3')
                 assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
                 assert page.locator("tr[data-tx-id='TX-A-01']").is_visible()
+                merchant_cell = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
+                assert merchant_cell.get_attribute('title') == long_merchant.strip()
+                assert '2026-03-05' in page.locator("tr[data-tx-id='TX-A-01']").inner_text()
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
                 assert page.get_by_role('link', name='상세 보기').count() == 3
