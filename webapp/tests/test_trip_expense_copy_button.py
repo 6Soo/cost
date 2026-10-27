@@ -4,6 +4,7 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -34,7 +35,7 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
 
     def test_is_trip_tab(self):
         self.assertTrue(design._is_trip_tab("trip-demo-a"))
-        self.assertTrue(design._is_trip_tab("2026-05-18_tokyo"))
+        self.assertFalse(design._is_trip_tab("2026-05-18_tokyo"))
         self.assertFalse(design._is_trip_tab("unclassified"))
         self.assertFalse(design._is_trip_tab("refunds"))
         self.assertFalse(design._is_trip_tab("quarter:2026:1"))
@@ -96,10 +97,33 @@ class TripExpenseCopyButtonTests(unittest.TestCase):
         self.assertNotIn("copy-trip-expenses", part_ref)
 
     def test_tsv_for_empty_trip(self):
-        res = design.tsv_for_trip_expenses("non-existent-trip-tab")
+        with self.assertRaisesRegex(ValueError, "INVALID_TRIP_TAB"):
+            design.tsv_for_trip_expenses("non-existent-trip-tab")
+        with patch.object(design, "_selected_rows", return_value=([], [], [], [])):
+            res = design.tsv_for_trip_expenses("trip-demo-a")
         self.assertEqual(res["row_count"], 0)
         self.assertEqual(res["total_krw"], 0)
         self.assertEqual(res["tsv"], "")
+
+    def test_export_preserves_values_and_holds_unsafe_rows(self):
+        base = dict(board.EXPENSES[0])
+        rows = [dict(base, source_event_id="valid", source_merchant="=FORMULA\tshop",
+                     evidence_type="영수증", amount_krw=-123, display_amount_krw=-123,
+                     reservation_no="", service_period="2026-04-09~2026-04-10")]
+        for identity, overrides in [
+            ("unknown", {"evidence_type": "현금"}),
+            ("date", {"occurred_on": "2026-02-30"}),
+            ("amount", {"amount_krw": 1.5}),
+            ("blocked", {"blocked": "manual hold"}),
+            ("duplicate", {}), ("duplicate", {}),
+        ]:
+            rows.append(dict(base, source_event_id=identity, **overrides))
+        result = design._trip_expense_tsv("trip-demo-a", rows)
+        self.assertEqual(result["row_count"], 1)
+        self.assertEqual(result["total_krw"], -123)
+        self.assertEqual(len(result["held"]), 6)
+        self.assertEqual(result["tsv"].strip().split("\t"), [
+            "2026-04-09", "'=FORMULA shop", "숙박비", "2026-04-09~2026-04-10", "", "영수증", "-123"])
 
 
 class TripExpenseCopyApiHttpTests(unittest.TestCase):
@@ -112,6 +136,7 @@ class TripExpenseCopyApiHttpTests(unittest.TestCase):
         self.store = board._active_store()
         self.access = access_control.attach_to_ledger_store(self.store)
         self.access.ensure_owner(OWNER)
+        self.access.create_account(user_id="copy-viewer", role=access_control.ROLE_VIEWER)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -138,7 +163,8 @@ class TripExpenseCopyApiHttpTests(unittest.TestCase):
             with urllib.request.urlopen(req) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            return exc.code, json.loads(exc.read().decode("utf-8"))
+            body = exc.read().decode("utf-8")
+            return exc.code, json.loads(body) if body.startswith("{") else {"message": body}
 
     def test_get_tsv_endpoint_success(self):
         status, data = self.get_json("/api/tabs/trip-demo-a/tsv")
@@ -159,6 +185,19 @@ class TripExpenseCopyApiHttpTests(unittest.TestCase):
         status, data = self.get_json("/api/tabs/unclassified/tsv")
         self.assertEqual(status, 400)
         self.assertEqual(data["code"], "INVALID_TRIP_TAB")
+
+    def test_export_filters_and_access_protection(self):
+        status, data = self.get_json("/api/tabs/trip-demo-a/tsv?q=does-not-match")
+        self.assertEqual((status, data["row_count"]), (200, 0))
+        status, data = self.get_json("/api/tabs/trip-demo-a/tsv?kind=in")
+        self.assertEqual((status, data["row_count"]), (200, 0))
+        for path in ("/api/tabs/trip-demo-a/tsv", "/api/board/tsv?tab=trip-demo-a"):
+            status, data = self.get_json(path, user="copy-viewer")
+            self.assertIn(status, (403, 404))
+            self.assertNotIn("tsv", data)
+            status, data = self.get_json(path, user="")
+            self.assertEqual(status, 401)
+            self.assertNotIn("tsv", data)
 
         status, data = self.get_json("/api/tabs/refunds/tsv")
         self.assertEqual(status, 400)
@@ -184,6 +223,8 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
                 "source_kind": "입력",
                 "source_event_id": "EV-COPY-1",
                 "source_merchant": "도쿄 라멘야",
+                "description": "도쿄 라멘야",
+                "evidence_type": "영수증",
             },
             client_request_id="exp-copy-e2e")
 
@@ -207,6 +248,9 @@ class TripExpenseCopyBrowserTests(LinkBrowserFixture):
         page.wait_for_function("() => document.getElementById('copy-status').textContent.includes('복사되었습니다')")
         self.assertIn("지출내용이 복사되었습니다", status.inner_text())
         self.assertIn("1건", status.inner_text())
+        clipboard = page.evaluate("navigator.clipboard.readText()")
+        self.assertEqual(clipboard.strip().split("\t"), [
+            "2026-06-02", "도쿄 라멘야", "식비", "", "", "영수증", "45000"])
 
         # 2. Visit unclassified tab: copy button must NOT be present
         page.goto(f"http://127.0.0.1:{self.port}/board?tab=unclassified")

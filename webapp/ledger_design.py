@@ -601,7 +601,7 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
 .trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
 .trip-copy-box .btn:hover{background:var(--hover)}
-.trip-copy-desc{font-size:13px;color:var(--muted)}
+.trip-copy-desc{font-size:13px;color:var(--mut)}
 .copy-status{font-size:13px;font-weight:500;margin-left:4px}
 .copy-status.success{color:var(--grn)}
 .copy-status.err{color:var(--bad)}
@@ -1026,7 +1026,10 @@ document.addEventListener('keydown',function(e){
      status.textContent='복사 중...';
      status.className='copy-status loading';
     }
-    var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv');
+    var filters=new URLSearchParams(location.search);
+    var params=new URLSearchParams();
+    ['q','kind'].forEach(function(key){if(filters.has(key)) params.set(key,filters.get(key));});
+    var res=await fetch('/api/tabs/'+encodeURIComponent(tab)+'/tsv?'+params.toString());
     if(!res.ok){
      var errJson=await res.json().catch(function(){return {};});
      throw new Error(errJson.message||('복사 요청 실패 ('+res.status+')'));
@@ -1034,7 +1037,7 @@ document.addEventListener('keydown',function(e){
     var data=await res.json();
     if(!data.tsv||data.row_count===0){
      if(status){
-      status.textContent='지출 내역이 없습니다.';
+      status.textContent=data.held&&data.held.length?'복사 가능한 지출이 없습니다. '+data.held.length+'건의 날짜·금액·증빙을 확인해 주세요.':'지출 내역이 없습니다.';
       status.className='copy-status';
      }
      return;
@@ -1049,8 +1052,8 @@ document.addEventListener('keydown',function(e){
      ta.style.opacity='0';
      document.body.appendChild(ta);
      ta.select();
-     document.execCommand('copy');
-     document.body.removeChild(ta);
+     try{if(!document.execCommand('copy')) throw new Error('클립보드 복사가 허용되지 않았습니다.');}
+     finally{document.body.removeChild(ta);}
     }
     try{
      localStorage.setItem('gcopy-trip:'+tab,new Date().toLocaleString('ko-KR'));
@@ -1058,7 +1061,7 @@ document.addEventListener('keydown',function(e){
     if(status){
      var countStr=data.row_count+'건';
      var sumStr=data.total_krw?(' · '+Number(data.total_krw).toLocaleString('ko-KR')+'원'):'';
-     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.';
+     status.textContent='지출내용이 복사되었습니다! ('+countStr+sumStr+') Google 시트에 붙여넣으세요.'+(data.held&&data.held.length?' 제외 '+data.held.length+'건: 날짜·금액·증빙 확인 필요':'');
      status.className='copy-status success';
     }
    }catch(err){
@@ -2475,50 +2478,49 @@ def _is_trip_tab(tab_id: str) -> bool:
     from app import quarter_tab
     if quarter_tab.parse_tab(tab_id):
         return False
-    return True
+    return _selected_trip(tab_id) is not None
 
 
 def tsv_for_trip_expenses(tab_id: str, query: str = "", kind: str = "") -> dict:
     """Builds Google Sheets 7-column TSV (B:H) for the trip's expenses."""
-    tab_id = urllib.parse.unquote(tab_id)
-    incomes, expenses, _, _ = _selected_rows(tab_id, query, kind)
-    lines = []
-    from app.google_tsv import _text
+    if not _is_trip_tab(tab_id):
+        raise ValueError("INVALID_TRIP_TAB")
+    _, expenses, _, _ = _selected_rows(tab_id, query, kind)
+    return _trip_expense_tsv(tab_id, expenses)
+
+
+def _trip_expense_tsv(tab_id: str, expenses: list) -> dict:
+    from app.google_tsv import expense_tsv
+    rows = []
     for row in expenses:
-        date = str(row.get("occurred_on") or "")
-        payee = str(row.get("source_merchant") or row.get("description") or "")
-        category = str(row.get("item") or "")
-        period = str(row.get("service_period") or "")
-        reservation_no = str(row.get("reservation_no") or "")
-        evidence = str(row.get("evidence_type") or row.get("source_kind") or "카드")
-        if evidence not in ("카드", "영수증"):
-            evidence = "카드"
-        amount = str(board._shown_amount(row) if hasattr(board, "_shown_amount") else row.get("amount_krw", 0))
-        cols = [date, _text(payee), _text(category), _text(period), _text(reservation_no), evidence, amount]
-        lines.append("\t".join(cols))
-    tsv_text = "\n".join(lines) + ("\n" if lines else "")
-    total_krw = sum(board._shown_amount(r) if hasattr(board, "_shown_amount") else r.get("amount_krw", 0) for r in expenses)
-    return {
-        "tab_id": tab_id,
-        "row_count": len(expenses),
-        "total_krw": total_krw,
-        "tsv": tsv_text,
-    }
+        rows.append({
+            "transaction_id": row.get("source_event_id") or row.get("row_id"),
+            "status": "blocked" if row.get("blocked") else "ready",
+            "date": row.get("occurred_on"),
+            "payee": row.get("source_merchant") or row.get("description") or "",
+            "category": row.get("item"),
+            "period": row.get("service_period"),
+            "reservation_no": row.get("reservation_no"),
+            "evidence": {"카드": "card", "영수증": "receipt"}.get(row.get("evidence_type")),
+            "amount_krw": row.get("display_amount_krw", row.get("amount_krw")),
+        })
+    return {**expense_tsv(rows, layout="rev"), "tab_id": tab_id}
 
 
 def _trip_copy_html(tab_id: str, expenses: list) -> str:
     """Renders the expense copy controls at the bottom of the trip tab only."""
     if not _is_trip_tab(tab_id):
         return ""
-    count = len(expenses)
-    total = sum(board._shown_amount(r) if hasattr(board, "_shown_amount") else r.get("amount_krw", 0) for r in expenses)
+    result = _trip_expense_tsv(tab_id, expenses)
+    count, total = result["row_count"], result["total_krw"]
+    held = f" · 확인 필요 {len(result['held'])}건 제외" if result["held"] else ""
     return (
         f"<section class='trip-copy-wrap' aria-label='지출내용 복사'>"
         f"<div class='trip-copy-box'>"
         f"<button type='button' class='btn btn-copy-tsv' id='copy-trip-expenses' data-tab='{board.esc(tab_id)}'>"
         f"{ui_icons.icon('copy', 16)}<span>지출내용 복사</span>"
         f"</button>"
-        f"<span class='trip-copy-desc'>Google 스프레드시트 7열(B:H) 양식으로 복사합니다 ({count}건 · {_money(total)})</span>"
+        f"<span class='trip-copy-desc'>현재 표시된 지출을 Google 7열(B:H)로 복사합니다 ({count}건 · {_money(total)}{held})</span>"
         f"<span class='copy-status' id='copy-status' role='status' aria-live='polite'></span>"
         f"</div>"
         f"</section>"
