@@ -49,6 +49,42 @@ def test_refund_display_separates_source_pair_and_recording(tmp_path, scenario, 
         board.close()
 
 
+def test_one_original_can_have_multiple_confirmed_refunds_without_merchant_match(tmp_path):
+    """Multiple clean cancellations share one original approval; only posting is separately gated."""
+    from app.partial_refund import refund_group
+    board = LedgerStore(tmp_path / 'multiple-refunds.sqlite', seed_demo=False)
+    try:
+        flow = CardFlow(board)
+        batch = flow.pipeline.receive((HEADER +
+            '국민,1234,domestic,purchase,유페이일반결제,25000,,,25000,2026-10-01,2026-10-02,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,10000,,,10000,2026-10-02,2026-10-03,A200,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T선승인,15000,,,15000,2026-10-03,2026-10-04,A300,,매입\n'
+        ).encode(), 'synthetic.csv')['batch_id']
+        rows = flow.pipeline.get_batch(batch)['rows']
+        ids = {row['approval_number']: row['transaction_id'] for row in rows}
+        for approval, amount in [('200', -10000), ('300', -15000)]:
+            board.conn.execute(
+                "UPDATE transactions SET transaction_direction='cancellation',amount_krw=?,"
+                "original_approval_number='100' WHERE transaction_id=?",
+                (amount, ids[approval]))
+        board.conn.commit()
+        before = list(board.conn.iterdump())
+        linked = refund_links(board.conn, [ids['200'], ids['300']])
+        assert set(linked) == {ids['200'], ids['300']}
+        assert {v['original_id'] for v in linked.values()} == {ids['100']}
+        assert {v['refund_count'] for v in linked.values()} == {2}
+        assert {v['refunds_total_krw'] for v in linked.values()} == {-25000}
+        assert {v['status'] for v in linked.values()} == {'full'}
+        assert set(refund_group(board.conn, ids['100'])) == set(ids.values())
+        html = _render_refund_evidence(board, ids['200'], linked[ids['200']])
+        assert '원승인번호 기준 원결제 확정 연결 · 취소/환불 2건' in html
+        assert '전액 상쇄' in html
+        assert 'cleanup-merchant-compare' not in html
+        assert list(board.conn.iterdump()) == before
+    finally:
+        board.close()
+
+
 def test_merchant_comparison_includes_partial_refunds_without_linking(tmp_path):
     board = LedgerStore(tmp_path / 'merchant.sqlite', seed_demo=False)
     try:
