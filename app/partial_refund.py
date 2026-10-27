@@ -79,7 +79,11 @@ def refund_group(conn, original_id: str) -> list:
     numbered = _number_links(conn)
     siblings = {tid for tid, link in numbered.items() if link["original_id"] == original_id}
     taken = {link["original_id"] for link in numbered.values()}
-    siblings.update(refund_id for refund_id, link in _foreign_links(conn, taken).items()
+    foreign = _foreign_links(conn, taken)
+    siblings.update(refund_id for refund_id, link in foreign.items()
+                    if link["original_id"] == original_id)
+    taken.update(link["original_id"] for link in foreign.values())
+    siblings.update(refund_id for refund_id, link in _kakao_amount_links(conn, taken).items()
                     if link["original_id"] == original_id)
     return [original_id] + sorted(siblings)
 
@@ -95,7 +99,10 @@ def refund_links(conn, transaction_ids) -> dict:
         return {tid: dict(link) for tid, link in analysis[0].items() if tid in wanted}
     links = _number_links(conn, ids)
     taken = {link["original_id"] for link in _number_links(conn).values()}
-    links.update(_foreign_links(conn, taken, set(ids)))
+    foreign = _foreign_links(conn, taken, set(ids))
+    links.update(foreign)
+    taken.update(link['original_id'] for link in foreign.values())
+    links.update(_kakao_amount_links(conn, taken, set(ids)))
     return links
 
 
@@ -230,6 +237,63 @@ def _foreign_links(conn, taken, requested=None) -> dict:
                 "status": "full" if net == 0 else "partial", "refund_count": 1,
                 "basis": "merchant_card_foreign_amount",
             }
+    return links
+
+
+
+def _kakao_amount_links(conn, taken, requested=None) -> dict:
+    """Unique same-card, exact-KRW Kakao pair when original approval is absent.
+
+    This is an inferred pairing, not verification of cash settlement.
+    Never consume an original already linked by authoritative approval number.
+    """
+    rows = conn.execute(
+        "SELECT transaction_id,transaction_direction,issuer,card_tail,merchant,"
+        " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),"
+        " original_approval_number FROM transactions"
+        f" WHERE {_CLEAN} AND ((transaction_direction='purchase' AND amount_krw>0)"
+        " OR (transaction_direction='cancellation' AND amount_krw<0"
+        " AND TRIM(COALESCE(original_approval_number,''))=''))"
+    ).fetchall()
+    purchases, refunds = [], []
+    for tid, direction, issuer, tail, merchant, amount, when, original in rows:
+        if not issuer or not tail or '카카오' not in str(merchant or ''):
+            continue
+        day = _day(when)
+        if day is None:
+            continue
+        record = (tid, issuer, tail, abs(amount), day)
+        if direction == 'purchase':
+            if tid not in taken:
+                purchases.append(record)
+        else:
+            refunds.append(record)
+    possible = {}
+    for refund_id, issuer, tail, amount, day in refunds:
+        matches = [p for p in purchases
+                   if p[1:4] == (issuer, tail, amount)
+                   and 0 <= (day - p[4]).days <= 14]
+        if len(matches) == 1:
+            possible[refund_id] = matches[0]
+    # A purchase targeted by two different cancellations is not automatically
+    # paired by amount alone: no authoritative evidence of repeated refunds.
+    counts = {}
+    for row in possible.values():
+        counts[row[0]] = counts.get(row[0], 0) + 1
+    links = {}
+    for refund_id, purchase in possible.items():
+        original_id = purchase[0]
+        if counts[original_id] != 1:
+            continue
+        if requested is not None and refund_id not in requested:
+            continue
+        gross = purchase[3]
+        links[refund_id] = {
+            'original_id': original_id, 'gross_krw': gross,
+            'refund_krw': -gross, 'refunds_total_krw': -gross,
+            'net_krw': 0, 'status': 'full', 'refund_count': 1,
+            'basis': 'kakao_same_card_exact_amount_inferred',
+        }
     return links
 
 
