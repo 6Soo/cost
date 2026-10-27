@@ -11,7 +11,9 @@ def _connection():
             transaction_id TEXT, transaction_direction TEXT, issuer TEXT,
             card_tail TEXT, approval_number TEXT, original_approval_number TEXT,
             amount_krw INTEGER, duplicate_of TEXT, conflict_reason TEXT,
-            parse_error TEXT
+            parse_error TEXT, merchant_normalized TEXT,
+            foreign_amount TEXT, foreign_currency TEXT,
+            approval_date TEXT, posting_date TEXT
         )
     """)
     return conn
@@ -19,7 +21,7 @@ def _connection():
 
 def _row(conn, id, direction, amount, approval="", original="", tail="1234"):
     conn.execute(
-        "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO transactions (transaction_id,transaction_direction,issuer,card_tail,approval_number,original_approval_number,amount_krw,duplicate_of,conflict_reason,parse_error) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (id, direction, "국민", tail, approval, original, amount, None, "", ""),
     )
 
