@@ -2376,7 +2376,8 @@ def assign_existing_local_expenses(flow, *, failures=None):
     conn = flow.board.conn
     rows = conn.execute(
         "SELECT b.row_id,b.revision,b.payload_json,t.transaction_id,t.merchant,t.card_kind,"
-        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json"
+        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json,"
+        "t.trip_id,t.classification_source,t.classification_basis"
         " FROM board_rows b JOIN transactions t ON t.transaction_id=json_extract(b.payload_json,'$.source_event_id')"
         " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
@@ -2391,19 +2392,28 @@ def assign_existing_local_expenses(flow, *, failures=None):
     ).fetchall()
     local_items = {'식비','주유비','통행료','입장료','교통비','대중교통','택시비','주차비','현지경비','편의점'}
     assigned = 0
-    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw in rows:
+    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw, source_trip, source_kind, source_basis in rows:
         item = json.loads(payload).get('item')
-        if item not in local_items:
+        high_inference = (source_kind == 'inference'
+                          and str(source_basis or '').startswith('추론 배정 · 높음')
+                          and bool(source_trip))
+        if high_inference:
+            # Transfer only an already-classified, validated card assignment.
+            # Never infer a trip from free-text basis or create an authority.
+            trip = source_trip if flow.trip_valid(source_trip) else ''
+            basis = '자동 배정: 카드 원본의 검증된 높은 신뢰도 여행 귀속을 기존 장부에 반영'
+        elif item in local_items:
+            transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
+                               approval_date=day, posting_date=posted, issuer=issuer,
+                               transaction_direction='purchase', raw_row=json.loads(raw))
+            trip = _verified_local_trip(transaction, item, flow.retail_trip)
+            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
+        else:
             continue
-        transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
-                           approval_date=day, posting_date=posted, issuer=issuer,
-                           transaction_direction='purchase', raw_row=json.loads(raw))
-        trip = _verified_local_trip(transaction, item, flow.retail_trip)
         if not trip:
             continue
         try:
             previous_note = json.loads(payload).get('operator_note') or ''
-            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
             flow.board.save(row_id=row_id, expected_revision=revision,
                             client_request_id=f'cleanup-trip-{row_id}-{revision}-{trip}',
                             change_mode='rule_change', changes={'display_tab_id': trip,
