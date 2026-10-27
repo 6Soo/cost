@@ -8,15 +8,58 @@ from app import booking_evidence, ota_mail
 
 DOMAINS = ('toyoko-inn.com', 'toyoko-inn.co.jp')
 REFERENCE = re.compile(r'예약\s*번호\s*[:：]\s*([0-9]{7,20})(?![0-9])')
+SUBJECT_KEYWORD = re.compile(r'토요코인|toyoko', re.I)
+
+
+def _headers(message):
+    return {h['name'].lower(): h['value'] for h in message.get('payload', {}).get('headers', [])}
 
 
 def _amounts(text, label):
     values = set()
-    for number, unit in re.findall(label + r'\s*[:：]\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(원|엔)', text):
-        number = Decimal(number.replace(',', ''))
-        if number > 0:
+    for number, unit in re.findall(label + r'\s*[:：]?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(원|엔)', text):
+        if ',' in number and not re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?', number):
+            continue
+        try:
+            number = Decimal(number.replace(',', ''))
+        except InvalidOperation:
+            continue
+        if number.is_finite() and number > 0:
             values.add(('KRW' if unit == '원' else 'JPY', str(number)))
     return values
+
+
+def _cancelled_subject(subject):
+    return bool(re.search(r'(?:취소\s*(?:확인|완료|접수)|취소\s*되었습니다|cancel(?:led|ed|lation\s+confirmed))',
+                          subject, re.I))
+
+
+def _room_facts(text):
+    room_type = ''
+    guests = None
+    for pattern in (r'(?:객실\s*타입|객실\s*종류|룸\s*타입)\s*[:：]\s*([^\r\n]{1,80})',
+                    r'(?:Room\s*type)\s*[:：]\s*([^\r\n]{1,80})'):
+        match = re.search(pattern, text, re.I)
+        if match:
+            room_type = match[1].strip()
+            break
+    match = re.search(r'(?:투숙\s*인원|인원)\s*[:：]\s*(\d+)\s*명?', text)
+    if match:
+        guests = int(match[1])
+    nightly = []
+    for label, number, unit in re.findall(
+            r'((?:\d+\s*박째\s*금액|박별\s*금액|1박\s*금액))\s*[:：]\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(원|엔)',
+            text):
+        if ',' in number and not re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?', number):
+            continue
+        try:
+            value = Decimal(number.replace(',', ''))
+        except InvalidOperation:
+            continue
+        if value.is_finite() and value > 0:
+            nightly.append({'label': re.sub(r'\s+', '', label),
+                            'amount': str(value), 'currency': 'KRW' if unit == '원' else 'JPY'})
+    return {'room_type': room_type, 'guest_count': guests, 'nightly_amounts': nightly}
 
 
 def collect(messages, inventory=()):
@@ -25,12 +68,15 @@ def collect(messages, inventory=()):
 
     groups = defaultdict(list)
     for message_id, message in sorted(messages.items()):
-        auth = ota_mail.authenticated_headers(message, DOMAINS)
-        if not auth:
+        raw_headers = _headers(message)
+        subject = raw_headers.get('subject', '')
+        if not SUBJECT_KEYWORD.search(subject):
             continue
-        headers, _ = auth
+        auth = ota_mail.authenticated_headers(message, DOMAINS)
+        # A subject hit can be retained as untrusted reservation evidence. It never
+        # passes through the payment parser or grants a card-link resolution.
+        headers = auth[0] if auth else raw_headers
         text = ota_mail.message_text(message)
-        subject = headers.get('subject', '')
         summary = booking_evidence.summarize(subject, booking_evidence._sent_day(headers), text)
         hotel = summary.get('hotel_name')
         markers = list(REFERENCE.finditer(text))
@@ -45,21 +91,24 @@ def collect(messages, inventory=()):
             order = 0
         common = {'hotel_name': hotel, 'sent': sent, 'order': (order, sent, message_id),
                   'source_id': 'mail:' + message_id, 'digest': core._digest(message),
-                  'cancelled': '취소' in subject}
+                  'cancelled': bool(auth and _cancelled_subject(subject)),
+                  'reported_cancelled': _cancelled_subject(subject),
+                  'source_trust': 'sender_domain' if auth else 'subject_only_unverified'}
         for index, marker in enumerate(markers):
             part = text[marker.start():markers[index + 1].start() if index + 1 < len(markers) else len(text)]
             detail = booking_evidence.summarize(subject, None, part)
             period = {k: detail[k] for k in ('starts_on', 'ends_on')}
             if not period['starts_on']:
                 period = {k: summary[k] for k in ('starts_on', 'ends_on')}
-            amounts = _amounts(part, '소계금액')
+            amounts = _amounts(part, r'소계\s*금액')
             if not amounts and len(references) == 1:
-                amounts = _amounts(text, '합계금액')
-            groups[(hotel_key, (marker[1],))].append(dict(common, period=period, amounts=amounts))
+                amounts = _amounts(text, r'합계\s*금액')
+            groups[(hotel_key, (marker[1],))].append(dict(common, period=period, amounts=amounts,
+                                                           room_facts=_room_facts(part)))
         if len(references) > 1:
             groups[(hotel_key, tuple(references))].append(dict(common,
                 period={k: summary[k] for k in ('starts_on', 'ends_on')},
-                amounts=_amounts(text, '합계금액')))
+                amounts=_amounts(text, r'합계\s*금액'), room_facts=_room_facts(text)))
 
     events = []
     for (hotel_key, references), observations in sorted(groups.items()):
@@ -85,9 +134,14 @@ def collect(messages, inventory=()):
                           and Decimal(value) == Decimal(value).to_integral_value() else None,
             'card_last4': None, 'card_issuer': None, 'item': '숙박비',
             'service_period': latest['period'] if latest['period']['starts_on'] else None,
-            'reservation_status': 'cancelled' if cancellations else 'confirmed',
+            'reservation_status': 'cancelled' if cancellations else 'observed',
+            'reported_reservation_status': 'cancelled' if latest['reported_cancelled'] else 'reservation_received',
             'payment_status': 'unknown', 'evidence_status': 'evidence_conflict' if after_cancel else 'reservation_only',
-            'evidence_kind': 'owner_reservation_mail', 'payment_event_id': None,
+            'evidence_kind': 'subject_only_unverified_reservation' if latest['source_trust'] == 'subject_only_unverified'
+                             else 'sender_domain_reservation_mail',
+            'evidence_confidence': 'LOW' if latest['source_trust'] == 'subject_only_unverified' else 'MEDIUM',
+            'source_trust': latest['source_trust'],
+            'room_facts': latest['room_facts'], 'payment_event_id': None,
             'source_ids': source_ids, 'identity_source_ids': [identity],
             'source_digest': core._digest(source_digests), 'source_digests': source_digests,
             'source_lineage_ids': [identity],
