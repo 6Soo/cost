@@ -1,16 +1,34 @@
 # 현재 상태와 남은 일
 
-기준: 2026-10-28 활성 세션 인수 및 여행 탭 지출 복사 검수·배포. 새 작업은 원격 main·관련 PR·필요한 운영 증거를 확인한 뒤 시작한다.
+기준: 2026-10-28 세션 `7c022586`의 승인 작업을 `2ac4764d`가 인수. main·병합·배포·현재 상태의 작성자는 인수 Supervisor 하나다. 중복 인수 세션은 읽기 전용 검수 후 종료했으며 이전 Supervisor는 재개하지 않았다.
 
-## 2026-10-27 전면 리팩토링 지시: 상세 설계만 작성 (SPEC_ONLY)
+## 현재 승인된 실행 큐
+
+최신 사용자 승인은 새 리팩터링/OTA 성능 명세의 단계별 구현과 중단된 임시 구현의 검수·통합·배포·공식 보관이다. 지정 위임 순서는 Anus Free Auto → OpenRouter Free Router → AGY Gemini 3.8 medium → AGY Opus 4.6 thinking → GPT-6 Luna low였다. 기존 위임과 변경을 재사용했으며 Opus/일부 Codex 한도 및 Free Router 제공자 오류 이력이 있다. 아래 미완료 항목을 과거 완료 기능과 구별한다.
+
+| 작업 | 현재 근거 / 다음 작업 |
+| --- | --- |
+| Trip.com 통화 비교·카드 필터·장부 표시 | **COMPLETE / DEPLOYED** — PR #200, 코드 `8e5eb76`, 병합·운영 `44e1e6bb90105e5d65c1b954f0c9808f4266b407`. 190 passed, 인접 125 passed/2 failed. 같은 127개 묶음에서 기준 main `0b9ebf4`도 동일 2 failed: 부분 그룹 fixture HOLD_NO_CARD와 후속 스키마 준비 오류. 실패를 통과로 계산하지 않았다. 운영 925 blobs 일치·health/ready200·보호API401·13표 동일, 실제 필터와 여행 복사 버튼 확인. worktree 고유커밋0·dirty0·터미널0·잔여 임시는 합성DB만임을 확인하고 `wks_7bc6650d01ff72da` 공식 archive 완료. |
+| 카카오 환불 실제 경로 | **TEST_PASSED / NOT_MERGED** — 기존 worktree 커밋 `e8819b1`, 원승인/외화/추론·UI·장부보호 178 passed. 기존 PR #193과 중복 및 승인된 추론 범위를 검수한 후 단일 PR로 통합. 금융/원본/Google 실자료 쓰기 없음. |
+| RF-001 쓰기 경계 | **R0 PARTIAL / TEST_PASSED** — `24d5418` + `74f0757`. SQL 원문 비출력·root/읽기/구문 오류 JSON·대표6경로 정적 근거. 4 passed, 기본6파일 CLI 성공, diff check 성공. 런타임/간접 audit 경계는 미확인으로 명시. 다음: 해당 3파일 PR 검수·병합. |
+| RF-001 엔트리포인트 지도 | **NOT_READY** — `rf001-inventory-20261028`의 기존 `webapp/ledger_board.py` +12줄은 R0 정적 지도 범위를 벗어난 미완성 API 분기다. 보존하되 main 통합 금지. 정적 도구/합성 검사로 과제를 완료해야 한다. |
+| RF-003 자료 보호 | **NOT_READY** — 기존 worktree의 미추적 정책/도구/테스트 3개 보존. 정책 JSON 문법·staged 목록/차단 exit code·경로 오탐 등을 검수·수정한 후 합성 repo로 확인. 현재 보호 도구가 작동한다고 주장하지 않는다. |
+| RF-004 테스트 영향도 | **NOT_IMPLEMENTED** — 전용 worktree의 신규 완료 커밋 없음. 안전 기본 검사와 누락 모듈 매핑 구현 필요. |
+| RF-005/109 의존성 후보 | **R0 PARTIAL / NOT_READY** — `176cdef`, 기존 4 passed 보고. 읽기 전용 검수에서 상대 import·외부 root·ACTIVE 쓰기 분류·문서/범위 오류 확인. 수정 후 합성 검사 필요. 실제 릴리스/복구 통합 완료가 아니다. |
+| Toyoko 메일 | **CODE_WRITTEN / NOT_VERIFIED** — 전용 worktree의 parser/collector 및 대응 테스트 4개 dirty 보존. 인증·취소·원문 충돌 보호 검수/검사 후 commit 필요. |
+| 여행 귀속 계약 조사 | **NOT_IMPLEMENTED** — 전용 worktree HEAD `1deb4cb`, 신규 도구 커밋 없음. `tools/audit_trip_assignment_contract.py`와 대응 합성 검사 소유권으로 재개할 항목. |
+
+진행 구현자들의 closed 알림을 수신했으며 종료 세션은 임의 재개하지 않는다. 미완료 worktree를 완료로 보관하거나 변경을 버리지 않는다. 다음 단계는 위 NOT_READY/R0 항목의 검수·구현이며, 전면 리팩터링 전체 완료나 실자료 수락을 뜻하지 않는다. 배포/브라우저/보호 증거는 `.local-archive/refactor-review-20261028/` 및 [운영 기록](operations.md)에 보존한다.
+
+## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`b8603980aabee7143f0481a8751c0c6b4a210044`**다. [PR #198](https://github.com/6Soo/cost/pull/198)의 여행 탭 하단 지출 복사를 독립 검수·보완 후 고정 배포했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`44e1e6bb90105e5d65c1b954f0c9808f4266b407`**다. [PR #200](https://github.com/6Soo/cost/pull/200)을 검수 후 고정 배포했다. [PR #198](https://github.com/6Soo/cost/pull/198)의 여행 하단 지출 복사도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일921개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 실제 여행 탭 하단 버튼·7열 출력28건·비여행 버튼0개 확인. 세부 경로는 [운영 기록](operations.md)에 있다.
+이번 근거: 추적 파일925개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 실제 미배정·카드·검색 필터/월 상세·여행 복사 버튼·수입 계산 안내·페이지 가로넘침 없음 확인 후 원래 화면 복귀. 세부 경로는 [운영 기록](operations.md)에 있다.
 
 ## 2026-10-28 활성 세션 인수 상태
 
