@@ -9,10 +9,13 @@
 import hashlib
 import json
 import os
+import secrets
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from app.ota_queue_paging import build_queue_index
 
 SCHEMA = "ota-snapshot-v1"
 CHECK_SECONDS = 60
@@ -56,6 +59,7 @@ class OtaSnapshotService:
         self._retry_seconds = retry_seconds
         self._first_wait = first_wait_seconds
         self._on_published = on_published
+        self._queue_page_signing_key = secrets.token_bytes(32)
         self._first_ready = threading.Event()
         self._lock = threading.Lock()
         self._wake = threading.Event()
@@ -176,6 +180,15 @@ class OtaSnapshotService:
         started = self._clock()
         try:
             reconciled = self._reconcile_fn()
+            with self._lock:
+                next_generation = (self._current or {}).get("generation", 0) + 1
+            page_rows = reconciled.get("queue_page_rows") if type(reconciled) is dict else None
+            page_index = None
+            if type(page_rows) is list:
+                page_index = build_queue_index(
+                    page_rows, generation=next_generation,
+                    snapshot_nonce=secrets.token_urlsafe(24),
+                    signing_key=self._queue_page_signing_key)
         except Exception as exc:
             with self._lock:
                 self._refreshing = False
@@ -189,7 +202,11 @@ class OtaSnapshotService:
         with self._lock:
             generation = (current or {}).get("generation", 0) + 1
             generated_at = _now_iso()
-            published = {"key": key, "generation": generation, "generated_at": generated_at, **reconciled}
+            published = {"key": key, "generation": generation, "generated_at": generated_at,
+                         **{name: value for name, value in reconciled.items()
+                            if name != "queue_page_rows"}}
+            if page_index is not None:
+                published["_queue_page_index"] = page_index
             queue_summary = reconciled.get("queue_summary") if isinstance(reconciled, dict) else None
             if isinstance(queue_summary, dict):
                 published["queue_summary"] = {**queue_summary, "generation": generation,
@@ -235,12 +252,28 @@ class OtaSnapshotService:
             status = "refreshing"
         else:
             status = "ready"
-        public = {key: value for key, value in (current or {}).items() if key != "data"}
+        public = {key: value for key, value in (current or {}).items()
+                  if key not in ("data", "_queue_page_index", "queue_page_rows")}
         return {"status": status, "stale": not fresh, "refreshing": refreshing,
                 "generation": current["generation"] if current else 0,
                 "generated_at": current["generated_at"] if current else None,
                 "snapshot_key": current["key"][:12] if current else None,
                 "last_error": error, "fresh": fresh, "current": public or None}
+
+    def queue_page_context(self):
+        """Return the private in-memory index with a freshness envelope for the read-only route."""
+        view = self.view()
+        with self._lock:
+            current = self._current
+            index = current.get("_queue_page_index") if current else None
+            matches_view = (current is not None and
+                            current.get("generation") == view.get("generation"))
+        return {
+            "index": index if matches_view else None,
+            "status": view.get("status"), "generation": view.get("generation"),
+            "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
+            "stale": view.get("stale"), "refreshing": view.get("refreshing"),
+        }
 
     def checked_key(self):
         """The input fingerprint the worker last read. Read only; never computes anything."""

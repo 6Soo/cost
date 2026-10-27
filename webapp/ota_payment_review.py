@@ -14,9 +14,12 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import parse_qsl
 
 from . import ota_snapshot
-from app.ota_queue_projection import summarize_queue
+from app.ota_queue_projection import classify_event, summarize_queue
+from app.ota_queue_paging import QUEUES as OTA_QUEUE_NAMES
+from app.ota_queue_paging import PagingError, QueueIndex, build_queue_index, list_queue_page
 
 
 ROUTE_PREFIX = "/api/imports/ota"
@@ -1004,6 +1007,10 @@ class CoreOtaPaymentBackend:
         """The request path: the last reconciled snapshot and its status, without computing anything."""
         return snapshot_service(self.board).view()
 
+    def queue_page_context(self):
+        """Read the current private queue index and freshness without exposing it in snapshots."""
+        return snapshot_service(self.board).queue_page_context()
+
     def cards_for_event(self, event_id):
         """Return processed card rows for a single event, using the same logic as snapshot_from."""
         data, _snapshot = self._action_data()
@@ -1288,7 +1295,12 @@ def scheduled_card_settlements(sources, transactions, occupied):
 
 
 def _canonical_queue_summary(events, results, links) -> dict:
-    """Join worker-owned canonical rows one-to-one and retain ambiguous rows as unresolved units."""
+    """Summarize the one-to-one canonical join; ambiguous rows remain unresolved units."""
+    return _canonical_queue_summary_rows(_canonical_queue_rows(events, results, links))
+
+
+def _canonical_queue_rows(events, results, links):
+    """Join worker-owned canonical rows once; never guess through duplicate or missing IDs."""
     source_counts, result_counts = {}, {}
     for row in events:
         identity = row.get("ota_event_id") if type(row) is dict else None
@@ -1392,10 +1404,36 @@ def _canonical_queue_summary(events, results, links) -> dict:
         row["review_warning"] = True
         queue_rows.append(row)
 
+    return queue_rows
+
+
+def _canonical_queue_summary_rows(queue_rows) -> dict:
     return summarize_queue(queue_rows, {
         "status": "ready", "stale": False, "refreshing": False,
         "fresh": True, "enabled": True, "generation": 0,
     }, coverage="canonical")
+
+
+def _canonical_queue_page_rows(queue_rows):
+    """Classify the same canonical rows and reduce events to the page input allowlist."""
+    counts = {}
+    for row in queue_rows:
+        event_id = row.get("ota_event_id") if type(row) is dict else None
+        if type(event_id) is str and event_id.strip():
+            counts[event_id] = counts.get(event_id, 0) + 1
+    freshness = {"status": "ready", "stale": False, "refreshing": False,
+                 "fresh": True, "enabled": True, "generation": 0}
+    page_rows = []
+    for row in queue_rows:
+        event_id = row.get("ota_event_id") if type(row) is dict else None
+        result = classify_event(row, freshness, duplicate_identity=(
+            type(event_id) is str and bool(event_id.strip()) and counts.get(event_id, 0) > 1))
+        event = {key: row.get(key) for key in (
+            "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+            "item", "amount", "currency", "status", "merchant")}
+        page_rows.append({"queue": result["queue"],
+                          "reason_codes": result["reason_codes"], "event": event})
+    return page_rows
 
 
 def reconcile_for(backend) -> dict:
@@ -1428,11 +1466,14 @@ def reconcile_for(backend) -> dict:
     except Exception:
         authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
     scheduled = scheduled_card_settlements(backend.sources, transactions, backend._occupied_cards(links, results))
-    queue_summary = _canonical_queue_summary(events, results, links)
+    canonical_rows = _canonical_queue_rows(events, results, links)
+    queue_summary = _canonical_queue_summary_rows(canonical_rows)
+    queue_page_rows = _canonical_queue_page_rows(canonical_rows)
     public = public_snapshot(backend.snapshot_from(data, include_cards=False))
     return {
         "public": public,
         "queue_summary": queue_summary,
+        "queue_page_rows": queue_page_rows,
         "authority": authority,
         "results": published,
         "links": {str(event_id): _link_transaction_id(link)
@@ -2121,6 +2162,92 @@ def _reply_error(handler, code: str, message: str, status: int) -> bool:
     return True
 
 
+def _queue_page_query(query: str) -> dict:
+    """Parse a small strict query; reject duplicate/unknown keys without echoing input."""
+    if (type(query) is not str or len(query) > 2048 or
+            re.search(r"%(?![0-9A-Fa-f]{2})", query)):
+        raise ValueError
+    pairs = parse_qsl(query, keep_blank_values=True, strict_parsing=True,
+                      encoding="utf-8", errors="strict", max_num_fields=5)
+    allowed = {"queue", "provider", "q", "limit", "cursor"}
+    values = {}
+    for key, value in pairs:
+        if key not in allowed or key in values:
+            raise ValueError
+        values[key] = value
+    queue = values.get("queue", "needs_action")
+    if queue not in OTA_QUEUE_NAMES:
+        raise ValueError
+    kwargs = {"queue": queue}
+    if "provider" in values:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", values["provider"], re.ASCII):
+            raise ValueError
+        kwargs["provider"] = values["provider"]
+    if "q" in values:
+        normalized_q = values["q"].strip().casefold()
+        if (not normalized_q or len(normalized_q) > 120 or
+                re.search(r"[\x00-\x1f\x7f]", normalized_q)):
+            raise ValueError
+        kwargs["q"] = values["q"]
+    if "limit" in values:
+        raw_limit = values["limit"]
+        if not re.fullmatch(r"[0-9]{1,3}", raw_limit, re.ASCII):
+            raise ValueError
+        kwargs["limit"] = int(raw_limit)
+        if not 1 <= kwargs["limit"] <= 100:
+            raise ValueError
+    else:
+        kwargs["limit"] = 20
+    if "cursor" in values:
+        if not values["cursor"]:
+            raise ValueError
+        kwargs["cursor"] = values["cursor"]
+    return kwargs
+
+
+def _queue_page_response(context, kwargs):
+    index = context.get("index") if type(context) is dict else None
+    raw_status = context.get("status") if type(context) is dict else None
+    ready = (type(context) is dict and type(index) is QueueIndex and
+             type(raw_status) is str and raw_status == "ready" and context.get("fresh") is True and
+             context.get("stale") is False and context.get("refreshing") is False and
+             type(context.get("generation")) is int and context.get("generation") >= 0 and
+             index._generation == context.get("generation"))
+    if not ready:
+        envelope = {
+            "status": raw_status if type(raw_status) is str and
+                      raw_status in ("loading", "ready", "refreshing", "error") else "unknown",
+            "generation": context.get("generation") if type(context) is dict and
+                          type(context.get("generation")) is int and context.get("generation") >= 0 else None,
+            "fresh": context.get("fresh") if type(context) is dict and type(context.get("fresh")) is bool else None,
+            "stale": context.get("stale") if type(context) is dict and type(context.get("stale")) is bool else None,
+            "refreshing": context.get("refreshing") if type(context) is dict and type(context.get("refreshing")) is bool else None,
+        }
+        raise _PageNotReady(envelope)
+    page = list_queue_page(index, **kwargs)
+    generated_at = context.get("generated_at")
+    if type(generated_at) is not str or len(generated_at) > 40:
+        generated_at = None
+    else:
+        try:
+            parsed = datetime.fromisoformat(generated_at)
+            offset = parsed.utcoffset()
+            if parsed.tzinfo is None or offset is None or offset.total_seconds() != 0:
+                generated_at = None
+            else:
+                generated_at = parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+        except (ValueError, OverflowError):
+            generated_at = None
+    return {**page, "snapshot": {"status": "ready", "generation": context["generation"],
+                                  "generated_at": generated_at,
+                                  "fresh": True, "stale": False, "refreshing": False}}
+
+
+class _PageNotReady(Exception):
+    def __init__(self, envelope):
+        self.envelope = envelope
+
+
 def _request_user(handler) -> str:
     """Who is asking, for the review record. A handler may state it; otherwise the request's own session.
 
@@ -2333,6 +2460,29 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
             return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "진단 자료를 읽을 수 없습니다.", 503)
         return True
     if raw is None:
+        if path == ROUTE_PREFIX + "/events":
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            try:
+                kwargs = _queue_page_query(parsed.query)
+            except (ValueError, UnicodeError):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                context_of = getattr(backend, "queue_page_context", None)
+                if not callable(context_of):
+                    raise _PageNotReady({"status": "unknown", "generation": None,
+                                         "fresh": None, "stale": None, "refreshing": None})
+                response = _queue_page_response(context_of(), kwargs)
+                handler._send_json(response)
+            except _PageNotReady as exc:
+                handler._send_json({"code": "SNAPSHOT_NOT_READY", "snapshot": exc.envelope}, 409)
+            except PagingError as exc:
+                message = ("스냅샷이 변경되었습니다. 첫 페이지부터 다시 요청해 주세요."
+                           if exc.status_code == 409 else "요청 cursor가 올바르지 않습니다.")
+                return _reply_error(handler, exc.code, message, exc.status_code)
+            except Exception:
+                return _reply_error(handler, "OTA_PAGE_UNAVAILABLE", "페이지 자료를 읽을 수 없습니다.", 503)
+            return True
         if path == ROUTE_PREFIX + "/summary":
             if not _request_user(handler):
                 return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
