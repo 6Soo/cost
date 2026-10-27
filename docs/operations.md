@@ -2,6 +2,15 @@
 
 ## 마지막 확인된 운영 코드
 
+**`bcb2b7cfbfc28e536f2727bda677268237ab248c`**, 2026-10-28 [PR #228](https://github.com/6Soo/cost/pull/228). Worker의 full canonical source/result를 보수적으로 결합해 queue summary를 미리 계산·세대와 함께 저장하고, 인증된 `/api/imports/ota/summary`는 저장 집계만 읽는다. 원본 경고·digest 변경·중복/누락/orphan 및 solver 필드 누락은 완료로 올리지 않는다. 기존 holds/lazy cards/POST 경계를 유지한다.
+
+- 통합 지정3파일73 passed/1 failed. partial-group fixture의 HOLD_NO_CARD 판정 차이와 임시DB WinError32는 변경 전 `a6f4abc`에서도 동일 단일검사로 재현했다. 실패를 통과로 계산하지 않았다. 최종 신규 summary24 passed·compile/diff·staged guard 차단0/삭제0. 전체 회귀·UI browser는 국소 조회 변경이며 UI 미변경이라 생략했다.
+- 추적951 blobs 일치, 작업/프로세스SHA·단일loopback listener·health/ready200·기존 및 summary 비인증API401·보호13표 동일. 직전 `a6f4abc`와 task/gate·검증 복원 사본 보존. 금융/Google/원본 직접 쓰기·마이그레이션·대량 재처리는 실행하지 않았다.
+- 초기 Aside 인증 GET200·477B, generation402는 refreshing 중이며 이전 persisted snapshot에 summary가 없어 unavailable/counts=null/non-authoritative를 반환했다. 이는 새 canonical 집계의 ready 수락이나 제품 성능 측정이 아니다. Aside의 직접 로컬파일 저장은 경로 제한으로 거부되어 응답의 안전한 집계 필드만 Supervisor 셸로 보존했다. 사용자 페이지 탐색·입력·테마 변경 없음.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-bcb2b7cfbfc28e536f2727bda677268237ab248c.json`, 같은 SHA release-audit, `.local-archive/ota-canonical-summary-20261028/` 보호 전후 및 aggregate-only GET 기록. 페이지/cursor/UI와 ready 성능 수락은 남아 있다. 문서 갱신으로 재배포하지 않는다.
+
+## 직전 OTA 순수 queue projection 릴리스
+
 **`a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`**, 2026-10-28 [PR #225](https://github.com/6Soo/cost/pull/225). 독립 순수 OTA queue classification/summary 모듈을 추가했다. freshness·경고·충돌·유효 identity와 알려진 성공 근거로만 대사 검토 완료를 분류하며 canonical/public_subset coverage와 singleton fallback을 명시한다. API/UI·solver·store에는 연결하지 않았다.
 
 - 지정 합성60 passed·compile/diff·staged guard 차단0/삭제0. 배포본 합성 complete/warning/stale duplicate/subset 스모크 통과. 합성10k 0.2368s/2,287,945B·100k 2.7025s/24,632,608B는 구현자 계측이며 제품 p95가 아니다. 국소 독립 모듈이므로 전체 회귀·브라우저는 생략했다.
