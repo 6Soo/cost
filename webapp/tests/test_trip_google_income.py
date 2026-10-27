@@ -183,5 +183,5 @@ def test_unconfirmed_income_rows_are_hidden_from_trip_income_display(income_cont
     assert '날짜 미확인' not in body
     assert '이름 미확인' not in body
     assert "<td class='income-total'>0원</td>" not in body
-    # tbody에는 유효 행 1개만 노출되어야 한다 (thead 1행 + tbody 1행 = 총 2개의 tr)
+    # thead 1행 + tbody 1행 = 총 2개의 <tr> (tfoot은 class='income-foot-row')
     assert body.count('<tr>') == 2

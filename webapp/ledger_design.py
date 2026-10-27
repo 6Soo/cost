@@ -173,26 +173,41 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
 .main-wrap .sum{align-items:center;padding-top:16px;padding-bottom:16px}
 .main-wrap .sum .scope{width:100%;font-size:12px;color:var(--mut);margin-bottom:-16px}
 .main-wrap #tbl td:first-child,.main-wrap #tbl th:first-child{padding-left:0}
-.income-sync{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--mut);font-size:12px;margin:0 0 16px}
-.income-status{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.income-sync{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--mut);font-size:12px}
+.income-status{font-size:14px;color:var(--mut);display:flex;align-items:center;gap:8px}
 @media(width < 760px){.main-wrap .act{justify-content:flex-start;flex-basis:100%}.main-wrap .lst .li{padding-left:0;padding-right:0}}
-#trip-income{margin:12px 0}
+#trip-income{margin:12px 0 20px}
 #trip-income h2{display:flex;align-items:center;gap:8px;font-size:18px;line-height:1.5;margin-bottom:8px}
 #trip-income>.muted{font-size:13px;line-height:1.6;margin-bottom:12px}
-#google-trip-income{padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg);font-size:14px}
-#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-size:16px;font-weight:600;color:var(--ink);list-style:none}
-#google-trip-income summary::after{content:'▾';margin-left:auto}
+#google-trip-income{padding:0 0 16px;border-bottom:1px solid var(--line);background:transparent;font-size:14px}
+#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;font-size:15px;font-weight:600;color:var(--ink);list-style:none}
+#google-trip-income summary::-webkit-details-marker{display:none}
+#google-trip-income summary::after{content:'▾';margin-left:auto;font-size:12px;color:var(--mut)}
 #google-trip-income:not([open]) summary::after{content:'▸'}
-#google-trip-income p{line-height:1.7;margin:8px 0 12px}
+#google-trip-income .sec-name{display:inline-flex;align-items:center;gap:6px}
+#google-trip-income .sec-badge{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);margin-left:12px}
+#google-trip-income .income-body{padding:8px 0 4px}
+#google-trip-income p{line-height:1.6;margin:6px 0 10px}
 #google-trip-income .google-income-help{font-size:12.5px;color:var(--mut);margin-bottom:0}
-#google-trip-income .btn{margin:0 8px 12px 0;min-height:36px}
-#google-trip-income .google-income-scroll{overflow-x:auto;margin:4px 0 16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
-#google-trip-income table{font-size:13px;min-width:700px}
-#google-trip-income caption{padding:10px 14px;text-align:left;font-weight:600}
-#google-trip-income td,#google-trip-income th{padding:10px 14px;white-space:nowrap}
-#google-trip-income td:nth-child(n+4),#google-trip-income th:nth-child(n+4){text-align:right;font-variant-numeric:tabular-nums}
-#google-trip-income .income-total{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}
+#google-trip-income .btn{margin:0 8px 6px 0;height:28px;font-size:12px;padding:0 10px}
+#google-trip-income .google-income-scroll{overflow-x:auto;margin:6px 0 12px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+#google-trip-income table{font-size:13px;min-width:700px;width:100%;border-collapse:collapse}
+#google-trip-income caption{padding:8px 12px;text-align:left;font-weight:600}
+#google-trip-income td,#google-trip-income th{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#google-trip-income thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);font-size:12.5px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
+#google-trip-income tfoot td{height:36px;background:var(--bg);font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 10px}
+#google-trip-income td.income-breakdown,#google-trip-income th.income-breakdown{text-align:right;font-variant-numeric:tabular-nums}
+#google-trip-income .income-total{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 #google-trip-income th .ic{width:14px;height:14px;vertical-align:-2px;margin-right:4px}
+.tag-readonly{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);border-radius:4px;color:var(--mut);background:var(--surface-muted);font-weight:500;vertical-align:middle}
+.income-discrepancy-alert{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:8px 0 10px;background:#FEF3F2;color:var(--neg);border:1px solid #FECDCA;border-radius:8px;font-size:13px;font-weight:600}
+@media(prefers-color-scheme:dark){
+ .income-discrepancy-alert{background:#450A0A;color:#FCA5A5;border-color:#7F1D1D}
+}
+.income-meta-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;margin-top:6px}
+.income-meta-info{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}
+.income-meta-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.income-warning{color:var(--warn);font-weight:500}
 @media(width < 760px){
  #google-trip-income .google-income-scroll{overflow:visible}
  #google-trip-income table{min-width:0;width:100%;table-layout:fixed}
@@ -200,8 +215,9 @@ a.work-action:hover{background:var(--hover);border-color:var(--grn)}
  #google-trip-income .income-date{width:26%;white-space:normal;overflow-wrap:anywhere}
  #google-trip-income .income-person{width:32%;white-space:normal;overflow-wrap:anywhere}
  #google-trip-income .income-total{width:42%;overflow:visible;text-overflow:clip;font-size:12px}
- #google-trip-income td,#google-trip-income th{padding:10px 5px}
- #google-trip-income caption{padding:10px 5px}
+ #google-trip-income td,#google-trip-income th{padding:0 5px}
+ #google-trip-income caption{padding:8px 5px}
+ .income-meta-bar{flex-direction:column;align-items:flex-start}
 }
 .main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 24px;font-size:12px;line-height:1.6}
 .main-wrap .s-main{font-size:14px;line-height:1.5}
@@ -326,6 +342,7 @@ tbody.grp th{height:30px;background:var(--bg);font-size:12.5px;font-weight:600;c
  border-bottom:1px solid var(--line)}
 tbody.grp td{height:30px;background:var(--bg);text-align:right}
 tbody.grp .btn{height:24px;font-size:12px}
+tbody.colhead{display:none}
 tr[data-id]{cursor:pointer}
 tr[data-id]:hover{background:var(--hover)}
 tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
@@ -1550,7 +1567,8 @@ def _bar_html(query: str, kind: str, tab_id: str, archived: str = "") -> str:
         + "</form>")
 
 
-def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None) -> str:
+def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_income_count=None,
+                  google_income=None) -> str:
     """The totals bar.
 
     DETAILED 12.2: with a filter on, the whole total and the result total get
@@ -1558,9 +1576,41 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
     `filtered` is (income, expense, count_income, count_expense) for the rows
     the filter left visible; `whole` is the same for the unfiltered tab.
     """
-    income = sum(board._shown_amount(r) for r in incomes)
     expense = sum(board._shown_amount(r) for r in expenses)
     scope = "<span class='scope'>기록된 거래</span>"
+
+    if google_income and not incomes and recorded_income_count in (0, -1):
+        if google_income.get('show_rows'):
+            income = google_income['amount']
+            count_in = google_income['count']
+            if filtered is not None and whole is not None:
+                return (
+                    f"<div class='sum tnum' id='sum'>{scope}"
+                    f"<div><i>{ui_icons.icon('book-open')}전체 수입</i><b>{_money(income)}</b></div>"
+                    f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
+                    f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
+                    f"<div><i>{ui_icons.icon('arrow-up-down')}전체 차액</i><b>{_money(income - whole[1])}</b></div>"
+                    f"<span class='n'>전체 수입 {count_in}건 · 전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
+            return (
+                f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div><i>{ui_icons.icon('book-open')}수입</i><b>{_money(income)}</b></div>"
+                f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
+                f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
+                f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
+        elif google_income.get('numeric_gap'):
+            return (
+                f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div><i>{ui_icons.icon('book-open')}수입</i><b class='warn'>합계 차이 있음</b></div>"
+                f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
+                f"<span class='n'>지출 {len(expenses)}건</span></div>")
+        elif not google_income.get('verified'):
+            return (
+                f"<div class='sum tnum' id='sum'>{scope}"
+                f"<div><i>{ui_icons.icon('book-open')}수입</i><b>확인 필요</b></div>"
+                f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
+                f"<span class='n'>지출 {len(expenses)}건</span></div>")
+
+    income = sum(board._shown_amount(r) for r in incomes)
     note = ""
     if not incomes and recorded_income_count in (0, -1):
         if filtered is not None and whole is not None:
@@ -2468,8 +2518,12 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
                 sum(board._shown_amount(r) for r in rows_ex),
                 len(rows_in), len(rows_ex))
 
+    from .google_ledger_page import get_trip_income_summary
+    google_income = get_trip_income_summary(tab_id)
+
     if not query:
-        return _summary_html(whole_income, whole_expense, recorded_income_count=recorded_income_count)
+        return _summary_html(whole_income, whole_expense, recorded_income_count=recorded_income_count,
+                             google_income=google_income)
     # DETAILED 12.2: a filter separates the names; the whole total stays whole.
     needle = query.strip()
     shown_in = [r for r in whole_income if _matches(r, needle)]
@@ -2478,7 +2532,8 @@ def summary_part(tab_id: str, kind: str = "", query: str = "") -> str:
         shown_in, shown_ex,
         recorded_income_count=recorded_income_count,
         filtered=totals(shown_in, shown_ex),
-        whole=totals(whole_income, whole_expense))
+        whole=totals(whole_income, whole_expense),
+        google_income=google_income)
 
 
 def rows_region(tab_id: str, query: str = "", kind: str = "", selected: str = "",
