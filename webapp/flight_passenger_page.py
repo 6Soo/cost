@@ -129,7 +129,7 @@ def _page(csrf):
 @media(max-width:600px){#flight-booking-page{margin:18px auto;padding:0 12px 36px}.fb-grid{grid-template-columns:minmax(0,1fr)}.fb-panel{padding:14px}#flight-booking-page form{display:grid}#flight-booking-page h1{font-size:22px}}
 
 /* Flight reservation detail: hero, evidence summary and compact directional itinerary. */
-.fb-ticket{border:0;background:transparent;padding:0;margin-top:22px}
+.fb-ticket{border:0;background:transparent;padding:0;margin-top:22px;container-type:inline-size}
 .fb-hero{position:relative;isolation:isolate;overflow:hidden;border-radius:22px 22px 0 0;padding:25px 28px 32px;background:linear-gradient(115deg,#f8fbff 8%,#deecfe 100%);color:#142441}
 .fb-hero .fb-status{background:#fff;color:#1261bb;border-color:#dceafa;padding:7px 12px}
 .fb-eyebrow{font-size:14px;font-weight:650;color:#66768e}
@@ -153,6 +153,9 @@ def _page(csrf):
 .fb-flight-facts{border-top:1px solid var(--line);padding-top:15px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.fb-flight-facts .fb-field{padding:0 8px;border-right:1px solid var(--line)}.fb-flight-facts .fb-field:last-child{border:0}.fb-flight-facts .fb-field strong{font-size:15px}
 @media(prefers-color-scheme:dark){.fb-hero{background:linear-gradient(110deg,#193452,#203f65);color:var(--ink)}.fb-hero .fb-status{background:#254866;color:#c9e3ff}.fb-hero-subtitle,.fb-eyebrow{color:#c5d8ed}.fb-summary,.fb-flight-card{box-shadow:none}.fb-flight-bar{background:#213f5d}.fb-return .fb-flight-bar{background:#20493f}.fb-flight-number{background:#2d557d;color:#c6e4ff}.fb-return .fb-flight-number{background:#205c4c;color:#b9efdf}.fb-icon{background:#234e7b;color:#a7d9ff}}
 @media(max-width:600px){.fb-hero{padding:18px 16px 22px}.fb-hero-plane{font-size:58px;right:9px;top:47px}.fb-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:7px}.fb-summary-item{grid-column:span 2!important;padding:10px 9px;border-bottom:1px solid var(--line)}.fb-summary-item:last-child{border:0}.fb-icon{width:37px;height:37px;flex-basis:37px}.fb-flight-card{padding:9px 10px 15px}.fb-flight-bar{gap:8px}.fb-flight-title{font-size:16px}.fb-flight-date{font-size:12px}.fb-flight-number{padding:4px 9px}.fb-route{grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:4px;padding:17px 3px}.fb-route-arrow{font-size:23px}.fb-flight-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fb-flight-facts .fb-field:nth-child(even){border:0}}
+.fb-flight-number,.fb-airport-code{box-sizing:border-box;max-width:100%;overflow-wrap:anywhere}
+.fb-heading>div{min-width:0;overflow-wrap:anywhere}.fb-heading-icon{flex-shrink:0}
+@container(max-width:280px){.fb-route{grid-template-columns:minmax(0,1fr);padding:12px 0}.fb-route-arrow{transform:rotate(90deg)}.fb-summary{padding:4px}.fb-summary-item{padding:8px 2px;gap:6px}.fb-flight-facts{grid-template-columns:minmax(0,1fr)}.fb-flight-facts .fb-field{border:0}.fb-flight-bar{padding:7px;gap:5px}.fb-flight-number{margin-left:0}.fb-hero{padding:14px 10px}.fb-hero h3{padding-right:0!important}.fb-heading{gap:8px}}
 </style></head><body><main id="flight-booking-page">
 <h1>항공권 예약 확인</h1><p class="fb-muted">탑승객 이름으로 항공권 예약과 연결된 카드 결제 내역을 확인합니다.</p>
 <p class="fb-muted">이 조회는 예약·결제나 실제 탑승 여부를 확정하지 않습니다.</p>
