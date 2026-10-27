@@ -5,9 +5,9 @@
 
 ## 현재 OTA 자료 연결
 
-메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. OTA 매칭의 새로운 목표 계약은 [COST V3 진입점](../docs/COST_V3_START_HERE.md)과 [OTA A 정책](../docs/ota-card-reconciliation-policy-a-v3.md)을 따른다. 과거 OTA 조사·실측 수치는 [운영 기록](../docs/operations.md)에서 해당 시점별로 확인한다.
+메일·포털·과거 조사 자료는 운영 `ota-sources.json`에 등록해 함께 조회한다. 자료 내용 변경을 감지하고 미연결 사유를 구분하는 수정까지 적용했다. OTA 매칭의 새로운 목표 계약은 [COST V3 진입점](../docs/COST_V3_START_HERE.md)과 [OTA A 정책](../docs/specs/ota.md#src-docs-ota-card-reconciliation-policy-a-v3-md)을 따른다. 과거 OTA 조사·실측 수치는 [운영 기록](../docs/operations.md)에서 해당 시점별로 확인한다.
 
-현재 웹 장부는 운영 SQLite, 실제 카드 파일 처리, Google 로그인과 권한 검사, 장부 편집·입금 배분·XLSX 출력을 연결한다. 과거 합성 데모만 존재한다는 설명은 현재 코드에 맞지 않는다. 운영 상태는 [운영 문서](../docs/operations.md), 처리 구조는 [구조 문서](../docs/architecture.md)를 따른다.
+현재 웹 장부는 운영 SQLite, 실제 카드 파일 처리, Google 로그인과 권한 검사, 장부 편집·입금 배분·XLSX 출력을 연결한다. 과거 합성 데모만 존재한다는 설명은 현재 코드에 맞지 않는다. 운영 상태는 [운영 문서](../docs/operations.md), 처리 구조는 [구조 문서](../docs/specs/platform.md#src-docs-architecture-md)를 따른다.
 
 ## 개발 서버
 
