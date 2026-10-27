@@ -1561,6 +1561,8 @@ def render_import_section(csrf: str) -> str:
 </details>
 <style>
 #ota-review{{max-width:100%;min-width:0;overflow-wrap:anywhere;color:#1f2a24}}
+#ota-review:not([open]){{padding:12px 16px}}
+#ota-review>summary{{cursor:pointer;list-style:revert;min-height:44px;align-items:center}}
 #ota-review *,#ota-review *::before,#ota-review *::after{{box-sizing:border-box;min-width:0}}
 #ota-review .ota-icon{{width:1em;height:1em;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.125em}}
 #ota-review .ota-title{{display:flex;align-items:center;gap:8px;margin:0 0 6px}}
@@ -1875,6 +1877,7 @@ def render_import_section(csrf: str) -> str:
   }}
   async function loadSnapshot(){{
     if(loading){{scheduleLoad(2000);return;}}
+    if(!root.open)return;
     if(document.hidden){{scheduleLoad(10000);return;}}
     loading=true;
     try{{
