@@ -2962,6 +2962,8 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
+                 else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
+                 if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
                  else '원승인번호 기준 원결제 확정 연결')
         lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
