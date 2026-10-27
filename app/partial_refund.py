@@ -42,11 +42,12 @@ def refund_group(conn, original_id: str) -> list:
     issuer, tail, original_no = found
     siblings = set()
     # An empty approval number names nothing; matching on it would pull in every blank cancellation.
-    if original_no:
+    if str(original_no or '').strip():
         siblings.update(tid for (tid,) in conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'"
-            f" AND issuer=? AND card_tail=? AND original_approval_number=? AND amount_krw<0 AND {_CLEAN}",
-            (issuer, tail, original_no)).fetchall())
+            f" AND issuer=? AND card_tail=? AND TRIM(COALESCE(original_approval_number,''))=?"
+            f" AND amount_krw<0 AND {_CLEAN}",
+            (issuer, tail, str(original_no).strip())).fetchall())
     taken = {link["original_id"] for link in _number_links(conn).values()}
     siblings.update(refund_id for refund_id, link in _foreign_links(conn, taken).items()
                     if link["original_id"] == original_id)
