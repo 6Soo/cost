@@ -44,6 +44,7 @@
 - 같은 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）가 새 `app/transaction_contract.py`, `tests/card_pipeline/test_transaction_contract.py`만 작성한다. 실제 런타임 경로에 연결하지 않는 순수 DTO·mapping 변환의 합성 계약부터 시작한다.
 - 기존 거래 원본/금액/통화/ID·사용자 결정·독립 상태 축과 알 수 없는 값·필드/누락/None을 보존한다. 새로운 금융·환급·기장·여행 정책을 계산하거나 런타임/DB/Google을 변경하지 않는다. 입력/출력 alias 오염·정확 roundtrip을 새 합성 검사로 확인한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 source diff와 새 테스트 근거를 검수한다. 다음 명령은 `git diff -- app/transaction_contract.py tests/card_pipeline/test_transaction_contract.py`다. 이번 독립 adapter는 전체 RF-002 계약 채택이나 R0 운영 미확인 해소를 뜻하지 않는다.
+- 최초 구현 합성7 passed 보고를 받았으나 검수에서 `deepcopy` fallback이 public `FieldSlot.value`로 bytearray/custom mutable 객체를 노출하는 불변성 결함을 확인했다. 같은 구현자에게 지원 domain/안전한 미지원 오류·직접 slot 생성·public 중첩 접근·순환 참조 경계를 보완하도록 요청했다. 실제 transactions 필드와 axis 목록을 소스 대조했고 알려지지 않은 필드는 extras로 보존한다. 아직 구현 commit/PR/운영 반영은 하지 않았으며 수정본 알림 대기 중이다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
