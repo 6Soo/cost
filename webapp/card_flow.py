@@ -3011,7 +3011,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                 if original_matches:
                     lines.append('취소 승인번호와 같은 구매 승인번호가 발견됐지만, 원승인번호 근거가 없어 자동 확정하지 않았습니다.')
                 else:
-                    lines.append('카드 원본에 원승인번호가 없고 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
+                    lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다. 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
             lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
     return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
