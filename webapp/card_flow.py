@@ -3084,6 +3084,21 @@ def render_expense_cleanup(board, csrf, *, page=1):
                  "<p class='cleanup-evidence-none'>현재 예약 자료를 확인할 수 없어 예약 부재 여부를 판단하지 않았습니다.</p>")
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
+        # Classification confidence describes a proposal, not a persisted trip.
+        # Do not present an old high-confidence basis as an active assignment.
+        if (current_tab in (None, '', 'unclassified')
+                and source == 'inference'):
+            basis_row = board.conn.execute(
+                "SELECT classification_basis FROM transactions WHERE transaction_id=?",
+                (tid,)).fetchone()
+            basis_text = str(basis_row[0] or '') if basis_row else ''
+            if '추론 배정 · 높음' in basis_text:
+                reason = ('과거 추론 근거는 높음이지만 현재 여행 배정값이 비어 있습니다.'
+                          ' 유효한 여행을 자동 재검증할 때까지 배정 완료로 표시하지 않습니다.')
+                evidence += ("<p class='cleanup-finance-status'>"
+                             "추론 근거와 저장된 여행 배정이 불일치합니다. "
+                             "재분류 시 유효한 여행 ID가 검증되면 자동 배정합니다."
+                             "</p>")
         finance_label = ''
         preview_row = preview_by_card.get(str(tid))
         if preview_row:
