@@ -33,7 +33,7 @@
 - **표적 검사 통과:**
   - 수입 유닛 및 권한/검증 테스트: `python -m pytest webapp/tests/test_trip_google_income.py webapp/tests/test_income_summary_display.py webapp/tests/test_ledger_display_updates.py webapp/tests/test_mobile_income.py` -> **34 passed (4.34s)**
   - 브라우저 E2E 테스트(Playwright 375px/1280px Light/Dark, 불일치 경고): `python -m pytest webapp/tests/test_trip_google_income_browser.py webapp/tests/test_ledger_display_browser.py` -> **4 passed (10.85s)**
-- **진행 단계:** PR 생성 및 자동 병합·운영 배포 준비 완료.
+- **진행 단계:** **COMPLETE**. PR #187 정상 병합 및 운영 `84e602ee76f4b50a072e43520af3cd886cebb423` 배포 완료. 980개 blob 일치, health/ready 200, 보호 API 401, 2DB/13개 보호 표 해시 동일 (`unchanged: true`). 운영 실시간 화면 (`trip-46d817cfb8c2`) 수입 35건(46,170,000원)·지출 81건(6,989,884원)·차액(39,180,116원) 상단 바 통합, tfoot 부착, 중복 지출 헤더 제거 확인 완료.
 
 ## 추가 사용자 요청: 콘솔 창 비노출
 
