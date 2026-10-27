@@ -79,6 +79,12 @@
 - **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트 재검사·시각 변경은 하지 않는다. 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`를 검수한다. 실제 모바일/200%/모든 화면 수락을 주장하지 않는다.
 - **COMPLETE（소스 조사）** — 공통 색상과 단일 토글이 이미 통합돼 있음을 소스/기존 검사에 대조했다. wrap_document는 전체 STYLE와 root palette를 함께 삽입하고 fragment는 유지한다. 다음 최소 구현은 두 파일의 테마 버튼44px 반복을 공통 CSS 토큰으로 모으는 범위로 결정했다. token owner/fallback/기존 computed-size 검사 근거를 master에 기록했다. 문서 diff/source 참조만 검수했고 운영·브라우저를 다시 확인하지 않았다.
 
+### 진행 중인 RF-201 테마 버튼 치수 토큰
+
+- PR #221 문서 병합 후 브랜치 `refactor/rf201-theme-control-token-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/site_theme.py`, `webapp/site_shell.py`만 작성한다. Supervisor가 branch/문서/PR/배포를 소유한다.
+- 버튼 소유 `site_theme.STYLE`에 `--shell-theme-control-size:44px`을 선언하고 두 파일의 해당 버튼 width/min-width/height/min-height만 동일44px fallback으로 연결한다. 색상/sidebar/타버튼/DOM/JS/테마정책은 변경하지 않는다.
+- **IN_PROGRESS / NOT_VERIFIED** — 기존 manual-theme/mobile-topbar 합성 브라우저 검사와 가능하면 익명 before/after computed metrics를 한 번 확인한다. 문자열 미러 신규 테스트는 만들지 않는다. 실제 고객 화면/자료는 사용하지 않고 실제 기기 수락으로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- webapp/site_theme.py webapp/site_shell.py`다. 운영은 `b3cabe8`이다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.
