@@ -1,5 +1,6 @@
 """Synthetic Git repositories only; no customer or operating paths."""
 import json
+from pathlib import Path
 import subprocess
 import pytest
 from tools.check_tracked_data import inspect, load_policy, main
@@ -112,3 +113,130 @@ def test_protected_deletion_blocks_without_touching_original_worktree(repo, caps
     assert main(['--root', str(repo), '--json']) == 1
     assert 'SYNTHETIC_SENTINEL' not in capsys.readouterr().out
     assert (repo / 'outputs/existing.sqlite').read_text(encoding='utf-8') == 'SYNTHETIC_SENTINEL'
+
+
+def test_source_reference_candidates_are_opt_in_exact_and_contextual(repo, capsys):
+    data_path = 'outputs/new.json'
+    write(repo, data_path, '{"sentinel":"PRIVATE_DATA_SENTINEL"}')
+    second_path = 'outputs/second.json'
+    write(repo, second_path)
+    source = """\
+from pathlib import Path
+bare = 'outputs/new.json'
+Path('outputs/new.json')
+Path('outputs/new.json').write_text('outputs/second.json')
+open('outputs/new.json', 'maybe')
+open('outputs/new.json', MODE)
+open('outputs/new.json')
+unrelated = 'prefix outputs/new.json suffix'
+message = 'unrelated sentinel SOURCE_SENTINEL'
+"""
+    write(repo, 'app/reader.py', source)
+
+    default = inspect(repo)
+    assert default['metadata_only'] is True
+    assert 'source_references' not in default['files'][0]
+    assert 'PRIVATE_DATA_SENTINEL' not in json.dumps(default)
+
+    result = inspect(repo, source_references=True)
+    assert result['metadata_only'] is False
+    finding = next(item for item in result['files'] if item['path'] == data_path)
+    refs = finding['source_references']
+    candidates = [ref['candidate'] for ref in refs]
+    assert candidates.count('REFERENCE') == 4
+    assert candidates.count('WRITE_CANDIDATE') == 1
+    assert candidates.count('READ_CANDIDATE') == 1
+    second = next(item for item in result['files'] if item['path'] == second_path)
+    assert [ref['candidate'] for ref in second['source_references']] == ['REFERENCE']
+    assert all(ref['source_path'] == 'app/reader.py' for ref in refs)
+    assert all(ref['reason'] == 'EXACT_TRACKED_PATH_LITERAL' for ref in refs)
+    rendered = json.dumps(result)
+    assert 'PRIVATE_DATA_SENTINEL' not in rendered
+    assert 'SOURCE_SENTINEL' not in rendered
+    assert 'DATA_PATH' not in rendered
+    assert finding['producer'] == 'UNKNOWN' and finding['consumer'] == 'UNKNOWN'
+    assert finding['active_use'] == 'UNVERIFIED'
+    assert result['source_reference_provenance'] == {
+        'path_metadata': 'Git index', 'source_text': 'working tree'
+    }
+
+    assert main(['--root', str(repo)]) == 1
+    summary = capsys.readouterr().out
+    assert data_path not in summary
+    assert 'SOURCE_SENTINEL' not in summary
+
+
+def test_source_scan_aggregates_parse_and_external_symlink_errors(repo, tmp_path, capsys):
+    write(repo, 'outputs/new.json')
+    write(repo, 'app/good.py', "open('outputs/new.json', 'r')\n")
+    write(repo, 'app/bad.py', 'def broken(:\n')
+    outside = tmp_path.parent / f'{tmp_path.name}-outside.py'
+    outside.write_text("open('outputs/new.json', 'w')\n", encoding='utf-8')
+    link = repo / 'tools' / 'linked.py'
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    git(repo, 'add', '--', 'tools/linked.py')
+    read_error = repo / 'app' / 'read-error.py'
+    read_error.write_bytes(b'\xff')
+    git(repo, 'add', '--', 'app/read-error.py')
+
+    # The default metadata-only path must not parse/read tracked source.
+    default = inspect(repo)
+    assert default['metadata_only'] is True
+    assert 'errors' not in default
+    result = inspect(repo, source_references=True)
+    assert result['blocked_count'] == 2  # protected data plus changed symlink metadata
+    assert result['errors'] == [
+        {'path': 'app/bad.py', 'reason': 'SOURCE_PARSE_FAILED'},
+        {'path': 'app/read-error.py', 'reason': 'SOURCE_READ_FAILED'},
+        {'path': 'tools/linked.py', 'reason': 'SOURCE_PATH_OUTSIDE_OR_MISSING'},
+    ]
+    finding = next(item for item in result['files'] if item['path'] == 'outputs/new.json')
+    assert [ref['candidate'] for ref in finding['source_references']] == ['READ_CANDIDATE']
+    assert main(['--root', str(repo), '--source-references']) == 2
+    summary = json.loads(capsys.readouterr().out)
+    assert summary['source_error_count'] == 3
+    assert summary['source_reference_count'] == 1
+    assert 'errors' not in summary
+    assert 'outputs/new.json' not in json.dumps(summary)
+
+
+def test_source_bom_is_accepted_and_error_cli_is_safe(repo, capsys):
+    write(repo, 'outputs/new.json')
+    write(repo, 'app/bom.py', "open('outputs/new.json', 'r')\n")
+    (repo / 'app' / 'bom.py').write_text(
+        "\ufeffopen('outputs/new.json', 'r')\n", encoding='utf-8'
+    )
+    git(repo, 'add', '--', 'app/bom.py')
+    write(repo, 'app/bad.py', 'SOURCE_SECRET def broken(:')
+    result = main(['--root', str(repo), '--source-references', '--json'])
+    assert result == 2
+    output = capsys.readouterr().out
+    assert 'SOURCE_SECRET' not in output
+    assert 'SOURCE_PARSE_FAILED' in output
+    assert 'outputs/new.json' in output
+
+
+def test_internal_source_symlink_cannot_read_data_blob(repo, monkeypatch):
+    write(repo, 'outputs/new.json', 'PRIVATE_DATA_NOT_SOURCE')
+    link = repo / 'app' / 'linked.py'
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(repo / 'outputs/new.json')
+    git(repo, 'add', '--', 'app/linked.py')
+    original_read = Path.read_text
+
+    def guarded_read(path, *args, **kwargs):
+        assert path.resolve() != (repo / 'outputs/new.json').resolve()
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', guarded_read)
+    result = inspect(repo, source_references=True)
+    assert result['errors'] == [
+        {'path': 'app/linked.py', 'reason': 'SOURCE_PATH_OUTSIDE_OR_MISSING'}
+    ]
+
+
+def test_source_scan_count_is_zero_when_no_targets_need_scanning(repo):
+    write(repo, 'app/safe.py', 'def safe(): pass\n')
+    result = inspect(repo, source_references=True)
+    assert result['source_scan_count'] == 0

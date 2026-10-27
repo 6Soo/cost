@@ -23,16 +23,16 @@
 ### 완료한 RF-001/004 후속 묶음
 
 - **COMPLETE / DEPLOYED（이번 묶음）** — PR #211, 코드 `b2d8a06`, main/운영 `f7df4bc29d4e9dc87b2f6ddd68b8853c7be9be3a`. 최종 합성6 passed·guard 차단0/삭제0·배포942 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. 배포본 CLI도 exit0·정의 후보3,957·오류0이다. 독립 개발 도구/문서 변경이므로 전체 회귀와 브라우저는 생략했다. 근거는 `.local-archive/r0-boundary-baseline-20261028/`와 운영 기록이다.
-- 아래는 이번 묶음의 배정·검수 이력이다. 이전 “알림 대기”는 종료했고 두 구현자 결과를 검수·통합했다. R0 전체 완료를 뜻하지 않는다. 다음은 자료 본문을 읽지 않는 생산자/소비자 소스 참조 후보 조사다.
+- 두 구현자 결과를 검수·통합했다. RF-001 소스 근거 커밋은 `1187954`이며 실제 Google sync CLI 호출·public/ADC 선택과 여행 검증기/change_log sink를 확인했다. RF-004 초기5 passed/CLI 파싱 오류를 최종 통과로 계산하지 않았고, 보완 후6 passed·staging/배포본 CLI exit0으로 수락했다. R0 전체 완료를 뜻하지 않는다.
 
-- 기준 main `503b0ff`（PR #210 문서 갱신）, 작업 브랜치 `refactor/r0-boundary-baseline-20261028`. 운영은 계속 `bff4ffd`이며 문서 때문에 재배포하지 않았다.
-- 같은 호스트 `srv__gxAHTF5BoWJ`, 기존 local workspace `wks_10a7846dab88369c` 재사용. 등록 프로필 없음·앞선 Anus/FreeRouter 구현/검증 실패·현재 AGY unavailable 확인 후 사용자 승인 마지막 후보 `codex/gpt-6-luna` low로 두 독립 작업을 배정했다.
-- RF-001 `46ede148-c8a7-43b9-b783-1a89a671be40`: `docs/specs/refactor-write-boundaries.md` 단독 작성. OTA backend persistence/audit·Google read·수동 여행 결정의 source chain과 OPEN_QUESTION 보완. 문서전용 검사만 허용.
-- RF-004 `0ee2f107-8e89-40d3-be2b-42999b6550e3`: `tools/audit_test_environment.py`, `tests/test_test_environment_audit.py` 작성·검수 완료. 테스트 소스만 선택하고 오류를 파일별 집계한다. pytest alias/decorator·환경변수 별칭과 안전 metadata·BOM·외부 symlink 차단을 확인했다. Supervisor가 environ alias `.get()`과 클래스 marker를 보완한 뒤 새 테스트 파일6 passed. staging 후 CLI exit0: Python3.14.7, 추적 테스트 후보파일294, 함수/메서드 후보3,957, 환경 단서 있는 파일83, UNVERIFIED212（pytest.ini 포함 전체295）, 오류0. 정적 후보이며 collection/실행 PASS/합성 안전성 증거가 아니다.
-- 구현자는 branch 변경·commit·push·운영 접근·재귀 위임 없이 파일만 작성하고 완료 알림을 보낸다. Supervisor가 검수·통합한다. 첫 완료 보고 두 건을 수신했으나 검수 보완을 요청했으며 아직 산출물 통과를 주장하지 않는다.
-- RF-001 검수: adapter 초기화 줄 번호·preview의 읽기 전용 분기·명시 전달된 여행 검증기·`change_log` 감사 sink 근거를 보완하고 UTF-8 BOM을 제거하도록 요청했다. RF-004 검수: 최초5 passed는 초기 구현 근거일 뿐이다. 전체 Python 소스 대신 테스트 후보만 선택하고, 파일별 오류를 집계하며, 실제 pytest alias marker·환경 변수 접근/안전 metadata를 보완하도록 요청했다. 초기 CLI의 `PYTHON_PARSE_FAILED` 종료2는 성공이 아니다. 수정본 완료 알림 대기 중.
-- RF-001 수정본 검수 완료, 커밋 `1187954`。소스 대조에서 `tools/google_authority_sync.py:55-76`의 실제 sync 호출과 public/ADC 선택을 추가로 찾아 문서의 “호출자 없음” 주장을 교정했다. 로컬 여행 검증기·revision/replay·change_log 및 Google 로컬 읽기/상위 sync의 소스 경계는 확인했다. 호스트의 활성 factory/scheduler/fetcher 설정과 실제 자료 상태는 계속 미확인이다. 문서 diff/source 참조만 확인했고 테스트·빌드·DB·배포는 실행하지 않았다. RF-004 수정본 완료 알림은 계속 대기한다.
-- 다음 단계: 두 산출물의 검수와 표적 검사를 완료했다. 이번 branch의 소유 파일만 commit/PR/main 정상 병합하고 검증 SHA를 기록한다. 코드 테스트의 유효 통과 근거는 반복하지 않는다. 기존 사용자 미추적3경로·stash와 운영 원본을 보존한다. R0 전체 완료와 개별 실자료 수락은 계속 별개다.
+### 진행 중인 RF-003 자료 참조 후보
+
+- PR #212 문서 갱신을 기준으로 `refactor/rf003-source-reference-candidates-20261028`에서 진행한다. 운영은 `f7df4bc`이며 문서 갱신 후 재배포하지 않았다.
+- 같은 호스트/기존 local workspace의 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`（Luna low）를 재사용했다. 소유 파일은 `tools/check_tracked_data.py`, `tests/test_tracked_data_guard.py`뿐이다. commit/PR/병합/운영은 Supervisor 소유다.
+- 추가 옵션 `--source-references`에서만 허용된 추적 Python 소스 AST와 Git 자료 경로 metadata를 대조한다. 고객 자료 본문·SQL·시크릿 출력 없이 명시적 읽기/쓰기/참조 후보를 기록하며 기존 기본 metadata-only·차단·보존 계약을 유지한다. 후보만으로 producer/consumer/active_use·민감도 안전을 확정하지 않는다.
+- 상태 **IN_PROGRESS / NOT_VERIFIED**. 완료 알림 후 diff와 새 합성 경계 검사 근거를 검수한다. 다음 명령은 `git diff -- tools/check_tracked_data.py tests/test_tracked_data_guard.py`이며 이미 유효한 통과 검사를 반복하지 않는다. 실제 데이터 분류/삭제·Git 역사 재작성은 승인 범위에 없다.
+- 첫 구현은 기존 보호 포함19 passed·기본 inventory exit0（942 metadata 항목）였다. 검수에서 일반 literal/Path-only 참조 누락, Path receiver와 내용 문자열의 I/O 대상 혼동, mode 검증·오류 summary·working-tree 출처 표시 부족을 확인해 보완 요청했다. 실제 `--source-references` 저장소 검증은 첫 보고에서 미실행이므로 성공으로 처리하지 않는다. 같은 구현자 수정본 알림 대기 중이며 아직 commit/PR/배포하지 않았다.
+- **TEST_PASSED / REVIEWED** — 수정본에서 정확한 literal 참조와 I/O 대상, 동적/잘못된 mode·일반 내용 문자열을 구분했다. Supervisor가 내부 symlink를 통한 자료 본문 접근 차단과 실제 scan0 집계를 보완했다. 확장 파일 실행20 passed/1 failed（추가 fixture의 기존 app 디렉터리 mkdir 오류）, fixture 교정 후 해당1 passed. 합계21개 검사 근거를 확보했으며 실패를 통과로 세지 않는다. CLI exit0: metadata942·소스504·정확참조99·오류0. 기본 보호/자료 본문 비읽기·source 원문 비출력·UNKNOWN/UNVERIFIED 유지 확인. 다음은 검수한 변경의 PR/고정 배포이며 앞선 알림 대기는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
