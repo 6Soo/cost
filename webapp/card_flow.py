@@ -2826,7 +2826,14 @@ def _refund_merchant_candidates_readonly(board, tid: str, *, max_rows=10):
         "ORDER BY approval_date DESC,transaction_id",
         (issuer, tail, from_day, day.isoformat()),
     )
-    candidates = [row for row in rows if _refund_merchant_key(row[2]) == key]
+    # The issuer's original authorization reference outranks merchant labels.
+    # A valid reference on the SAME card can survive a merchant-name change.
+    # Still a read-only review candidate: it never triggers a financial link.
+    candidates = [
+        row for row in rows
+        if _refund_merchant_key(row[2]) == key
+        or (original and row[5] and str(original).strip() == str(row[5]).strip())
+    ]
     def rank(row):
         same_approval = bool(original and row[5] and str(original) == str(row[5]))
         same_amount = row[4] == abs(amount or 0)
@@ -2874,7 +2881,8 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
     if key == "카카오택시":
         parts.append("<p class='cleanup-evidence-meta'>카카오T 가승인·선승인·일반택시·유페이 표기를"
                      " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
-                     " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다.</p>")
+                     " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다."
+                     " 카드사 원승인번호가 일치하면 이름이 달라도 근거 후보로 표시합니다.</p>")
     if key == "카카오택시":
         inventory = _kakao_merchant_inventory_readonly(board)
         taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
@@ -2903,11 +2911,14 @@ def _render_refund_merchant_candidates(board, tid: str) -> str:
                 "SELECT transaction_id FROM ledger_entries WHERE transaction_id IN (" + marks + ")",
                 ids)}
         for cid, batch, name, date, gross, number, duplicate, conflict, error in candidates:
-            flags = ["같은 카드", "가맹점명 동일" if name == merchant else "표기 변형",
+            alias_match = _refund_merchant_key(name) == key
+            flags = ["같은 카드",
+                     "가맹점명 동일" if name == merchant else
+                     "표기 변형" if alias_match else "원승인번호 대조 · 가맹점 불일치",
                      "금액 일치" if gross == abs(amount or 0) else "금액 차이",
                      "장부 기록 있음" if cid in existing else "장부 미기록"]
-            if original and number and str(original) == str(number):
-                flags.append("원승인번호 일치")
+            if original and number and str(original).strip() == str(number).strip():
+                flags.append("원승인번호 일치 · 확정 연결은 별도 검증")
             if duplicate or conflict or error:
                 flags.append("중복·원본 오류")
             link = "/import?" + urlencode({"batch": batch, "transaction": cid})
