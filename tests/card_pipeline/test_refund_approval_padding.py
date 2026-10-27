@@ -50,6 +50,8 @@ def test_trim_collision_is_ambiguous_and_never_auto_links():
     _row(conn, "refund", "cancellation", -20000, original="100")
     before = list(conn.iterdump())
     assert refund_links(conn, ["refund"]) == {}
+    assert refund_group(conn, "purchase-a") == ["purchase-a"]
+    assert refund_group(conn, "purchase-b") == ["purchase-b"]
     assert list(conn.iterdump()) == before
     conn.close()
 
@@ -59,4 +61,15 @@ def test_missing_original_reference_does_not_link():
     _row(conn, "purchase", "purchase", 20000, approval="100")
     _row(conn, "refund", "cancellation", -20000, original="   ")
     assert refund_links(conn, ["refund"]) == {}
+    conn.close()
+
+
+def test_tab_and_newline_padding_uses_same_sql_and_python_keys():
+    conn = _connection()
+    _row(conn, "purchase", "purchase", 20000, approval="\t100\n")
+    _row(conn, "refund", "cancellation", -5000, original="\r100\t")
+    before = list(conn.iterdump())
+    assert refund_links(conn, ["refund"])["refund"]["net_krw"] == 15000
+    assert refund_group(conn, "purchase") == ["purchase", "refund"]
+    assert list(conn.iterdump()) == before
     conn.close()
