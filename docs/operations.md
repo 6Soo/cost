@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`d230e124b27f268de8e8e3812abe53885e5e2212`**, 2026-10-28 [PR #222](https://github.com/6Soo/cost/pull/222). 두 공통 스타일의 테마 버튼 크기를 `--shell-theme-control-size:44px`로 모았다. 각 소비의 fallback도44px이며 색상·우선권·DOM/JS·단일 아이콘 테마 동작은 유지한다.
+
+- manual-theme/mobile-topbar5 passed, 익명 baseline/current CSS24조건（375/1280px·light/dark·100/200%·결합/개별fallback）동일. 결합 스타일은44×44px/확대88×88px, 버튼 개수·색상도 동일. diff 검수·guard3파일 차단0/삭제0. 실제 기기 수락은 미실행이다.
+- 추적948개 blobs 일치, 작업/프로세스 SHA 일치·단일 loopback listener, health/ready200·보호API401. 직전 `b3cabe8`와 작업 XML·게이트·기존 복원 검증 사본 보존. 배포 후2DB/13표 내용·스키마 동일. Aside 인증 탭의 같은-origin GET200에서 token기본44px·8개 소비·테마버튼1개 확인. 사용자 페이지를 탐색/새로고침하거나 입력·테마를 바꾸지 않았고 고객 본문은 보고서에 기록하지 않았다.
+- 근거: `D:/WebLedgerHost/releases/deploy-evidence-d230e124b27f268de8e8e3812abe53885e5e2212.json`, 같은 SHA release-audit, `.local-archive/rf201-theme-control-20261028/`의 보호 전후·`deployed-render-smoke.json`. 국소 CSS token 추출이므로 전체 회귀는 생략했다. 원본/Google/금융 상태 직접 쓰기·마이그레이션·대량 재처리 없음. 전체 RF-201/202 완료나 실제 기기·200% 전체 화면 수락이 아니다. 문서 갱신으로 재배포하지 않는다.
+
+## 직전 RF-002 거래 읽기 릴리스
+
 **`b3cabe8b38b2956381a8827327445cfa30b64c35`**, 2026-10-28 [PR #220](https://github.com/6Soo/cost/pull/220). 거래 batch/summary/row 반환 구조의 정적 타입 계약을 연결했다. 실제 출력 키는 required·nullable 값은 별도로 표현하고, counts는 미래 상태 문자열을 허용한다. SQL·조회/변환/집계 본문과 facade 동작은 그대로다.
 
 - 합성pipeline 표적3 passed/42 deselected·4함수 실행AST동일·compile/diff 통과. Supervisor가 required/nullable 구분과 열린 count alias를 교정했다. guard5파일·차단0/삭제0（이전 운영 기록 포함）. 배포본 annotation 해석·required 키·합성 fake-store 배치/금액/선행0 ID/nullable/미지 상태 counts 스모크 통과. 스모크의 DB 접근은 없다.

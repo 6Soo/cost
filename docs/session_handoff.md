@@ -79,12 +79,19 @@
 - **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트 재검사·시각 변경은 하지 않는다. 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`를 검수한다. 실제 모바일/200%/모든 화면 수락을 주장하지 않는다.
 - **COMPLETE（소스 조사）** — 공통 색상과 단일 토글이 이미 통합돼 있음을 소스/기존 검사에 대조했다. wrap_document는 전체 STYLE와 root palette를 함께 삽입하고 fragment는 유지한다. 다음 최소 구현은 두 파일의 테마 버튼44px 반복을 공통 CSS 토큰으로 모으는 범위로 결정했다. token owner/fallback/기존 computed-size 검사 근거를 master에 기록했다. 문서 diff/source 참조만 검수했고 운영·브라우저를 다시 확인하지 않았다.
 
-### 진행 중인 RF-201 테마 버튼 치수 토큰
+### 완료한 RF-201 테마 버튼 치수 토큰
 
 - PR #221 문서 병합 후 브랜치 `refactor/rf201-theme-control-token-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/site_theme.py`, `webapp/site_shell.py`만 작성한다. Supervisor가 branch/문서/PR/배포를 소유한다.
 - 버튼 소유 `site_theme.STYLE`에 `--shell-theme-control-size:44px`을 선언하고 두 파일의 해당 버튼 width/min-width/height/min-height만 동일44px fallback으로 연결한다. 색상/sidebar/타버튼/DOM/JS/테마정책은 변경하지 않는다.
-- **IN_PROGRESS / NOT_VERIFIED** — 기존 manual-theme/mobile-topbar 합성 브라우저 검사와 가능하면 익명 before/after computed metrics를 한 번 확인한다. 문자열 미러 신규 테스트는 만들지 않는다. 실제 고객 화면/자료는 사용하지 않고 실제 기기 수락으로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- webapp/site_theme.py webapp/site_shell.py`다. 운영은 `b3cabe8`이다.
-- **TEST_PASSED / REVIEWED** — 지정 두 파일의4개 치수 속성과44px token 선언에만 diff가 있음을 확인했다. 기존 manual-theme/mobile-topbar5 passed, 익명baseline/current CSS24조건（375/1280·light/dark·100/200%·combined/개별fallback）동일. 결합 스타일 크기는100%44×44/200%88×88px이고 버튼 개수/색도 같았다. diff check 통과, 실제 기기 미실행. 다음은 PR·고정 배포와 운영의 단일 버튼/토큰/크기 최소스모크다. 이전 대기는 종료했다.
+- **COMPLETE / DEPLOYED（해당 토큰）** — PR #222, 코드 `72781a6`, main/운영 `d230e124b27f268de8e8e3812abe53885e5e2212`. 지정 두 파일의4개 치수/44px 선언만 검수했다. 기존 manual-theme/mobile-topbar5 passed·익명CSS24조건 동일（375/1280·light/dark·100/200%·combined/개별fallback）. 결합44×44/확대88×88px·개수·색 동일. 실제 기기 미실행이고 전체 RF-201 완료가 아니다.
+- guard 차단0/삭제0·948 blobs 일치·실행 SHA·health/ready200·보호API401·보호13표 불변. Aside 같은-origin GET200에서 token44px·8소비·단일버튼 확인, 사용자 페이지 탐색/입력/테마 변경 없음. 근거는 `.local-archive/rf201-theme-control-20261028/`와 운영 기록이다. 국소 token 추출로 전체 회귀는 생략했다.
+
+### 진행 중인 RF-202 공통 shell 응답 경로 조사
+
+- 현재 브랜치 `docs/rf201-theme-control-release-20261028`, 같은 local workspace 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`가 `docs/specs/refactor-master-20261027.md`만 작성한다. 이미 통합된 wrapper/단일 테마를 재구현하지 않는다.
+- HTTP HTML 응답 writer→wrap_document→주요 private renderer의 source 경로와 auth/public/API/fragment 예외를 매핑한다. 실제 우회가 있을 때만 최소1개 후보를 제시하고 native nav/main 소유권·URL/폼/JS/ID·테마 아이콘1개를 보존한다.
+- **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트/DB 재검사를 하지 않는다. 실제 기기/200% 전체 수락이나 저장소 전수 완료로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`다.
+- **COMPLETE（소스 조사）** — Handler._send→wrap_document와 카드/Google/항공권/OTA/영수증·native ledger·fragment/auth/public/API 경로를 대조했다. 표본 범위에서 private 전체HTML 우회는 발견하지 못했고 기존 의도 예외를 새 작업으로 만들지 않는다. 동적 문서 전수·실제 기기/200% 수락은 미확인이다. 문서 diff/source 참조만 확인했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -92,9 +99,9 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`b3cabe8b38b2956381a8827327445cfa30b64c35`**다. PR #220 거래 배치 조회의 정적 구조 계약을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`d230e124b27f268de8e8e3812abe53885e5e2212`**다. PR #222 테마 버튼 치수 토큰을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 배포본 annotation/required키/합성 배치 조회 스모크 통과. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
+이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 
