@@ -1597,16 +1597,18 @@ def _summary_html(incomes, expenses, *, filtered=None, whole=None, recorded_inco
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<div><i>{ui_icons.icon('arrow-up-down')}차액</i><b>{_money(income - expense)}</b></div>"
                 f"<span class='n'>수입 {count_in}건 · 지출 {len(expenses)}건</span></div>")
-        elif google_income.get('numeric_gap'):
+        elif google_income.get('numeric_gap') or not google_income.get('verified'):
+            income_status = ("<b class='warn'>합계 차이 있음</b>"
+                             if google_income.get('numeric_gap') else "<b>확인 필요</b>")
+            income_notice = f"<div><i>{ui_icons.icon('book-open')}수입</i>{income_status}</div>"
+            if filtered is not None and whole is not None:
+                return (
+                    f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
+                    f"<div><i>{ui_icons.icon('credit-card')}전체 지출</i><b>{_money(whole[1])}</b></div>"
+                    f"<div class='filtered-total'><i>검색 결과 지출</i><b>{_money(filtered[1])}</b></div>"
+                    f"<span class='n'>전체 지출 {whole[3]}건 · 검색 결과 지출 {filtered[3]}건</span></div>")
             return (
-                f"<div class='sum tnum' id='sum'>{scope}"
-                f"<div><i>{ui_icons.icon('book-open')}수입</i><b class='warn'>합계 차이 있음</b></div>"
-                f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
-                f"<span class='n'>지출 {len(expenses)}건</span></div>")
-        elif not google_income.get('verified'):
-            return (
-                f"<div class='sum tnum' id='sum'>{scope}"
-                f"<div><i>{ui_icons.icon('book-open')}수입</i><b>확인 필요</b></div>"
+                f"<div class='sum tnum' id='sum'>{scope}{income_notice}"
                 f"<div><i>{ui_icons.icon('credit-card')}지출</i><b>{_money(expense)}</b></div>"
                 f"<span class='n'>지출 {len(expenses)}건</span></div>")
 
