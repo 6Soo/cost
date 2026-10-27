@@ -117,6 +117,7 @@
 - worker에서 full canonical source/result를 중복·누락·orphan 보호 하에 결합하여 aggregate만 precompute/persist하고 `/api/imports/ota/summary`는 같은 세대 저장값만 읽는다. missing/ambiguous join과 manual/source 변경은 완료 차단, nonready는 완료 집계를 전역 auto_recheck로 표시하고 authoritative=false다. 기존 holds GET/cards lazy/POST 권한·금융 상태는 유지한다. events/cursor/UI는 이번 범위에 넣지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 완료 알림 후 지정3파일 diff와 합성 freshness/restore/auth/GET 계산0회/원본 불변 검사를 검수한다. 실제 DB/Google/고객 원본 쓰기·브라우저·운영 접근은 구현자에게 허용하지 않는다. 운영은 `a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`다.
 - **REVIEWED / RELEASE_PENDING** — 구현자 지정29 passed·기존 보호5 passed 후 Supervisor가 누락 solver 필드의 source fallback 차단, source evidence conflict 보존, 세대 불일치 finite tag를 보완했다. 통합3파일73 passed/1 failed: 기존 partial-group fixture가 HOLD_NO_CARD이며 임시DB 정리 WinError32를 동반한다. 변경 전 운영 `a6f4abc`의 동일 단일 검사에서도 동일 실패를 재현했고 통과로 계산하지 않았다. 최종 신규 summary24 passed（추가7개 경계 포함）·compile/diff 통과. 다음은 지정3파일과 기록만 PR/정상병합/고정SHA배포하고 보호13표·health/auth·인증 summary 최소 읽기를 확인한다. 페이지/cursor/UI는 남아 있다.
+- **DEPLOYED / READY_ACCEPTANCE_PENDING** — PR #228, 코드 `b28202d`, main/운영 `bcb2b7cfbfc28e536f2727bda677268237ab248c`. 951 blobs 일치·실행 SHA·health/ready200·기존 및 summary 비인증API401·보호13표 동일. Aside 인증 summary200·477B는 현재 generation402/refreshing이며 summary없는 이전 persisted cache를 unavailable/counts=null/non-authoritative로 표시했다. 후속1회도 동일했고 ready 성능/정본 건수 수락은 아직 미실행이다. worker log의 안전 metadata에서 새 배포 후 refresh_start를 확인했으며 기존 child timeout900초를 변경하거나 강제 재대사하지 않았다. 다음 독립 paging 작업 중 새 세대 게시 후 summary 집계만 다시 확인한다. 근거 `.local-archive/ota-canonical-summary-20261028/` 및 운영 기록.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -124,7 +125,7 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`a6f4abc12f23ff2fdc50c7a26f4f26ce1dfd7b6d`**다. PR #225 독립 OTA queue projection을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`bcb2b7cfbfc28e536f2727bda677268237ab248c`**다. PR #228 canonical worker summary와 인증 GET을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
 이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
