@@ -1,4 +1,4 @@
-> **2026-10-27 최신 운영 상태:** PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 병합·배포 완료. PR #152의 Agoda 후보 표시 수정도 같은 릴리스에 포함됐다. release 963개 파일 blob 불일치 0, 작업/프로세스 SHA 일치, health/ready 200, 비인증 보호 API 401, 기존 로그인 지출 정리 화면 GET 확인. 실제 원승인번호 교차 가맹점 표시는 현재 보이는 후보 행에서 확인되지 않아 live 사례 수락으로 주장하지 않는다. 상세 결과·기준선 테스트 실패·리뷰 NOT_RUN은 [운영 기록](operations.md) 첫 절과 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)를 따른다. 운영 금융/장부/Google 쓰기는 하지 않았다.
+> **2026-10-27 최신 상태:** PR #153은 `a9626059893a02931926ca009f9d04226ffd7e60`에 병합·운영 배포 완료. PR #152의 Agoda 후보 표시 수정도 같은 릴리스에 포함됐다. release 963개 파일 blob 불일치 0, 작업/프로세스 SHA 일치, health/ready 200, 비인증 보호 API 401, 로그인 지출 정리 GET 확인. 현재 로컬·원격은 `main`만 남겼다. 삭제 전 비-main refs는 `.local-archive/branch-prune-20261027/before-main-only.bundle`에 검증 보존했고, untracked 계획 파일도 보존했다. 상세 결과·기준선 테스트 실패·리뷰 NOT_RUN은 [운영 기록](operations.md) 첫 절과 [미결 명세 §0.5](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)를 따른다. 운영 금융/장부/Google 쓰기는 하지 않았다.
 
 # COST V3 — CURRENT HANDOFF / RESUME FROM GITHUB
 
