@@ -47,6 +47,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         body=json.dumps(diagnostic, ensure_ascii=False))))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 details = page.locator('[data-diagnostic="synthetic-diagnostic-event"]')
                 details.locator("summary").click()
                 details.locator("pre").get_by_text('"HOLD_DATE_UNKNOWN"').wait_for()
@@ -79,6 +80,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     body=json.dumps(snapshot, ensure_ascii=False)))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 event = page.locator('[data-event="synthetic-amount-event"]')
                 event.get_by_text("SYNTHETIC-AMOUNT-BOOKING", exact=False).first.wait_for()
                 self.assertIn("\uC81C\uC678\uD55C \uCE74\uB4DC \uD6C4\uBCF4: 1\uAC74", event.inner_text())
@@ -113,6 +115,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     body=json.dumps(snapshot, ensure_ascii=False)))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 event = page.locator('[data-event="synthetic-undated-event"]')
                 event.get_by_text("SYNTHETIC-UNCONFIRMED-BOOKING", exact=False).first.wait_for()
                 card = event.locator(".ota-card-row")
@@ -152,6 +155,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     body=json.dumps(snapshot, ensure_ascii=False)))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 pair = page.locator(".ota-group-proposal").first
                 pair.locator("summary").click()
                 text = pair.inner_text()
@@ -192,6 +196,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     body=json.dumps(snapshot, ensure_ascii=False)))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 page.get_by_text("SYNTHETIC-BOOKING-A", exact=False).first.wait_for()
                 event = page.locator('[data-event="synthetic-event-a"]')
                 self.assertEqual(event.locator(".ota-card-row").count(), 3)
@@ -230,6 +235,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     body=json.dumps(current["body"], ensure_ascii=False)))
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
                 body = page.locator("#ota-events").inner_text()
                 self.assertIn("맞는 카드 거래 없음", body)
@@ -250,6 +256,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 current["body"] = snapshot([5000, 90121])
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
+                page.locator("#ota-review > summary").click()
                 page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
                 self.assertIn("금액 일치", page.locator(".ota-card-row").nth(0).inner_text())
                 self.assertIn("결제 금액과 같은 카드 거래가 1건 있습니다", page.locator("#ota-events").inner_text())
@@ -295,6 +302,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             body=json.dumps(snapshot, ensure_ascii=False)))
                         page.set_content("<base href='http://localhost/'>" +
                                          ota_payment_review.render_import_section("token-synth"))
+                        page.locator("#ota-review > summary").click()
                         page.get_by_text("BOOK-BROWSER", exact=True).wait_for()
                         visible_rows = page.locator(".ota-event > .ota-cards > .ota-card-row")
                         self.assertEqual(visible_rows.count(), 1)
@@ -379,6 +387,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             page_errors = []
                             page.on("pageerror", lambda error: page_errors.append(str(error)))
                             page.goto(f"http://127.0.0.1:{server.server_port}/import")
+                            page.locator("#ota-review > summary").click()
                             try:
                                 page.get_by_text("BOOK-SYNTH-001", exact=True).wait_for()
                             except Exception as error:
@@ -544,6 +553,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         page = browser.new_page(viewport={"width": 1440, "height": 900})
                         page.set_default_timeout(8000)
                         page.goto(f"http://127.0.0.1:{server.server_port}/import")
+                        page.locator("#ota-review > summary").click()
                         try:
                             page.get_by_text("BOOKSYNTHA001", exact=True).wait_for(timeout=40000)
                         except Exception as error:
