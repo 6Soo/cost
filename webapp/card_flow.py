@@ -2563,6 +2563,31 @@ def _index_ota_display_candidates(current: dict) -> dict:
             return '금액 미확인'
         return value + ('원' if currency == 'KRW' else ' ' + (currency or '통화 미확인'))
 
+    def rejected_pair_is_relevant(event, card, rules):
+        """Do not project provider-only rejects as if they were card-specific evidence.
+
+        Rejected amount/currency comparisons are meaningful in this screen only when
+        a real payment date ties the OTA event to this card posting. A stay period is
+        not a payment date and must never be used as a substitute here.
+        """
+        paid_on = str(event.get('paid_on') or '')[:10]
+        approval_date = str(card.get('approval_date') or '')[:10]
+        if not paid_on or not approval_date:
+            return False
+        if paid_on == approval_date:
+            return True
+        try:
+            from datetime import date
+            date.fromisoformat(paid_on)
+            date.fromisoformat(approval_date)
+            from app.ota_payments import _approved_lag_match, _foreign_day_lag_match
+            dated_event = dict(event, paid_on=paid_on)
+            dated_card = dict(card, approval_date=approval_date)
+            return (_approved_lag_match(dated_event, dated_card, rules) or
+                    _foreign_day_lag_match(dated_event, dated_card))
+        except (TypeError, ValueError):
+            return False
+
     indexed = {}
     seen = set()
     for result in [*(current.get('results') or ()), *(data.get('results') or ())]:
@@ -2586,8 +2611,15 @@ def _index_ota_display_candidates(current: dict) -> dict:
                     identity, why = str(value or ''), result.get('reason')
                 if identity:
                     card = cards.get(identity)
+                    rules = data.get('rules') or ()
                     if (card and result.get('status') not in ('MATCHED_AUTO', 'MATCHED_USER')
-                            and not provider_compatible(event, card, data.get('rules') or ())):
+                            and not provider_compatible(event, card, rules)):
+                        continue
+                    # Search diagnostics intentionally retain broad rejected counts, but
+                    # the card UI must not attach every same-provider rejection to every
+                    # card. Keep exclusions only when the actual payment date (not the
+                    # lodging period) is a supported temporal match for this card.
+                    if kind == '제외' and not rejected_pair_is_relevant(event, card or {}, rules):
                         continue
                     reason = ('결제일 확인 필요' if why == 'payment_date_unknown' else
                               OTA_REASON.get(str(why), _link_diagnosis_label(why)) if why else '')
