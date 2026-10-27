@@ -323,7 +323,7 @@ def _confirmed_card_index(board, passenger_index):
 
 
 def _name_search(board, name, *, offset=0, revision=None):
-    """Read the already-verified fresh passenger index without requiring tour ID."""
+    """Search verified original-name tokens without requiring tour ID or full name."""
     from .ota_payment_review import passenger_index_for
     query = _name_key(name)
     if not query:
@@ -342,7 +342,8 @@ def _name_search(board, name, *, offset=0, revision=None):
             if not isinstance(person, dict):
                 continue
             full_name = ' '.join((str(person.get('surname') or ''), str(person.get('given_name') or ''))).strip()
-            if _name_key(full_name) != query:
+            original_name_tokens = _name_key(full_name)
+            if any(token not in original_name_tokens for token in query):
                 continue
             legs = []
             for leg in evidence.get('legs') or []:
