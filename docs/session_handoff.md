@@ -128,16 +128,16 @@
 - **SUMMARY_READY_ACCEPTED（기본 응답 범위）** — 기존 운영 `bcb2b7c`의 인증 GET200·765B·generation403·ready/authoritative, 큐 event/group 합계3,748（needs_action1,622/waiting820/missing1,112/completed194）·상태태그없음을 확인했다. singleton 집계이며 금융 기장·실제환급 완료가 아니다. 원문없는 근거 `.local-archive/ota-canonical-summary-20261028/auth-summary-smoke-ready.json`. 단일 GET 수락으로 제품p95는 주장하지 않는다. 이전 READY_ACCEPTANCE_PENDING은 이 기본응답에 한해 해소됐다.
 - **ROUTE_REVIEWED / RELEASE_PENDING** — 구현자5파일 연결을 검수했다. 통합 paging/route/summary/snapshot74 passed 후 Supervisor가 invalid filter/limit의 snapshot 조회 전400 경계4개를 추가해 페이지21 passed·compile/diff를 확인했다. 기존 holds/cards/auth 선택2 passed 근거를 재사용한다. 합성10k precompute0.813s/page0.0018s/peak15,683,865B/payload6,033B·100k10.43s/0.0026s/156,787,065B/6,034B는 제품p95가 아니다. q는O(n) 검색이고 query cache는 없다. index/key는메모리에만 보관, restore 후 재계산 전409이며 source scalar snapshot으로 입력mutation을 차단한다. 다음은 지정5파일과 기록만 PR/병합/배포하고 새 세대의20개 응답·cursor연속/거절·auth·보호13표를 확인한다. UI는 아직 미연결이다.
 
-- **DEPLOYED / PAGE_READY_ACCEPTANCE_PENDING** — PR #230, 코드 `deb9245`, main/운영 `af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`. 954 blobs 일치·health/ready200·실행SHA·단일listener·기존/events 비인증401·보호13표 동일. 초기 인증 events GET409/138B/SNAPSHOT_NOT_READY·generation403/refreshing을 확인했다. 실제 ready20개·다음cursor/거절 수락은 새세대 게시 후 Aside 읽기로 확인한다. 근거 `.local-archive/ota-queue-pages-20261028/`와 운영 기록.
-- **UI_SOURCE_AUDIT_PENDING** — 기존 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`는 `docs/specs/ota-review-queue-performance-20261027.md`만 소유한다. import OTA DOM/JS owner·접힘/lazy/poll/actions 재사용·minimal page와 상세폼 필드 gap·필요시 generation-bound lazy detail GET의 최소계약을 조사한다. 전체holds fetch 후client slice는 허용하지 않는다. 문서전용으로 테스트/브라우저/DB/배포를 하지 않는다. 완료 알림 후 문서 diff/source를 검수하고 UI 연결을 이어간다.
+- **COMPLETE / PAGE_READY_ACCEPTED** — PR #230 코드 `deb9245`, 당시 main/운영 `af42ea0`의 954 blobs·health/ready200·실행SHA·단일listener·비인증401·보호13표를 확인했다. 초기403/refreshing의409 이후 generation405 ready에서 인증 첫/다음 각20개HTTP200을 수락해 기존 pending을 해소했다. 현재 배포는 아래 PR #233이며 과거 배포를 반복하지 않는다.
+- **COMPLETE（소스 조사）** — 문서 담당자의 `docs/specs/ota-review-queue-performance-20261027.md` 조사와 실제 source를 검수해 PR #232로 병합했다. 전체holds client slice를 피하고 generation-bound detail GET이 필요한 gap을 확인했으며, 그 구현/검증/배포는 아래 PR #233 묶음에서 완료했다.
 
 ### OTA paged UI/detail 검수 및 릴리스
 
 - PR #232 source audit 병합 후 main `4802a02`, 브랜치 `feat/ota-paged-review-ui-20261028`. 기존 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, 새 `webapp/tests/test_ota_queue_detail.py`, 새 `webapp/tests/test_ota_queue_ui_browser.py`, 기존 `webapp/tests/test_ota_payment_review_browser.py`만 소유한다. Supervisor는 문서/git/검수/배포를 맡는다.
 - worker의 같은 세대 private detail map 및 인증 generation-bound 단일event GET을 추가하고, 실제 render_import_section을 summary+20건페이지로 연결한다. 상세/카드는 펼칠 때만 읽고 전체holds GET/client slice를 금지한다. 기존수동/예약/그룹/규칙제안 controls·unsaved선택·닫힘pollstop·단일theme를 보존한다. 규칙제안은 bounded cache read 등 최소기능보존 계약을 선택하며 미완료는 숨기지 않는다.
-- **REVIEWED / RELEASE_PENDING** — 이전 Supervisor `4e49282a`의 로그·실제 diff를 대조해 인수했다. 동시에 이어진 구현자 `26175585`의 동일 파일 작성이 확인되어 해당 세션만 interrupt하고 변경을 합쳐 검수했다. 이전 Supervisor에게 메시지/재개하지 않았다. 한국어 문구·집계 미확인·세대 불일치 폐기/재조회·필터 되돌리기·제안/예약 입력 및 늦은 polling 응답의 미저장 선택 보호를 보완했다. 그룹 순서 대응의 예약/카드 근거는 worker의 제한 projection으로 보존하고 후보는 lazy GET으로 유지한다.
+- **COMPLETE / DEPLOYED / READY_UI_ACCEPTED** — PR #233 코드 `63dd532`, main/운영 `94ed610fd5393c1ff2d4329ac4f7f301009e729a`. 956 blobs·실행SHA·health/ready200·비인증401·보호13표 불변. 이전 Supervisor `4e49282a`의 로그·실제 diff를 대조해 인수했다. 동시에 이어진 구현자 `26175585`의 동일 파일 작성이 확인되어 해당 세션만 interrupt하고 변경을 합쳐 검수했다. 이전 Supervisor에게 메시지/재개하지 않았다. 한국어 문구·집계 미확인·세대 불일치 폐기/재조회·필터 되돌리기·제안/예약 입력 및 늦은 polling 응답의 미저장 선택 보호를 보완했다. 그룹 순서 대응의 예약/카드 근거는 worker의 제한 projection으로 보존하고 후보는 lazy GET으로 유지한다.
 - 실제 검사: 상세/UI/lazy/preview-race 20 passed, 마지막 경합/세대/cursor 3 passed, 기존 브라우저 9 passed 및 4 subtests, 카드 후보 경계 4 passed. 인접 page/summary/snapshot/actions/legacy 115 passed/2 failed 중 후보 browser fixture는 새 조회 계약으로 교정 후 통과했다. 나머지 partial-group HOLD_NO_CARD/임시DB WinError32는 운영 기록에 이미 기준 `a6f4abc` 재현 근거가 있는 기존 실패이며 통과로 계산하지 않고 범위를 확대하지 않는다. compile/diff 통과. 실제 기기와 제품 p95·보류 solver 개선 완료는 아니다.
-- 배포 전 기존 운영 `af42ea0` 인증 조회에서 generation405 ready/fresh 및 첫/다음 페이지 각20개 HTTP200을 확인했다. 고객 원문/ID는 출력하지 않았다. 다음: staged 자료 guard → commit/PR/정상 병합 → SHA 고정 배포 → 보호13표/health/ready/인증 및 영향 경로 최소 수락. 금융/Google/원본 직접 쓰기·마이그레이션·실제 확정은 하지 않는다.
+- 배포 전 기존 운영 `af42ea0` 인증 조회에서 generation405 ready/fresh 및 첫/다음 페이지 각20개 HTTP200을 확인했다. 고객 원문/ID는 출력하지 않았다. 배포 및 보호 검사와 generation406 ready 수락을 완료했다. 인증 첫/다음20개HTTP200·같은세대·교집합0·detail200/비공개키없음·제안200/0개, 실제20DOM→다음20DOM·상세lazy/카드미조회·전체holds미호출·theme1개를 확인했다. 근거 `.local-archive/ota-paged-ui-20261028/ready-smoke-final.txt`와 운영기록. 이번 UI/detail 묶음에 남은 필수 검사는 없다. 다음 독립 단계는 승인 명세의 예약 그룹 projection/보류 solver 보강이며 이번 완료로 확대하지 않는다. 금융/Google/원본 직접 쓰기·마이그레이션·실제 확정은 하지 않는다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -145,9 +145,9 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`**다. PR #230 worker page index와 인증 events GET을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`94ed610fd5393c1ff2d4329ac4f7f301009e729a`**다. PR #233 paged UI와 generation-bound lazy detail/proposal GET을 검수·병합·고정 배포했다. 기존 병합 기능도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일948개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
+이번 근거: 추적 파일956개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 운영HTML GET200·token44px/8소비/단일버튼 스모크 통과, 사용자 페이지/입력/테마 변경 없음. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시 수락은 `bff4ffd` 근거다. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 
