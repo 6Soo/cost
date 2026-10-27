@@ -1,5 +1,7 @@
 # COST — 현재 세션 인수 (2026-10-27)
 
+> **카카오/진입 지연 최신 인수:** PR #167 운영 `b577e7f` 배포. [운영 기록](operations.md) 첫 절과 [현재 작업](superpowers/plans/2026-10-27-card-review-latency.md)을 따른다. 카카오 잔여 11건은 원승인번호/원결제 대응 증빙 부재로 실제 처리 차단. generation374 신선한 자료에서 메뉴 HTTP200·TTFB3.14초·DOM3.36초 수락 완료. 별도 #166 Agoda 자동화 진단은 이 작업에서 수행하지 않았다.
+
 > **현재 재개:** #163 항공권 파서·환불 문구 수정은 병합·운영 배포됐다. [현재 미결표](COST_PENDING_WORK_AND_FLIGHT_BOOKING_DATE_20261027.md)와 [운영 근거](operations.md) 첫 절을 우선한다. 아래2026-10-24 SHA와 상태는 역사적 이력이다. 기존 사용자 미추적 계획 파일은 보존한다. 실제 장부/원본/Google 쓰기는 수행하지 않았다.
 
 > **최신 재개 상태는 [COST V3 CURRENT HANDOFF](COST_V3_CURRENT_HANDOFF.md)가 우선합니다.** 이 파일은 짧은 세션 안내이며 이전 장문의 세션/운영 기록은 [2026-10-23 보관 전문](archive/ota-legacy-20261023/session_handoff.md)에 보존했습니다. 이전 TODO를 자동 재실행하지 마세요.
