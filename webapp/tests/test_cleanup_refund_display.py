@@ -83,10 +83,10 @@ def test_kakao_original_approval_reference_survives_name_change_without_writing(
     try:
         flow = CardFlow(board)
         batch = flow.pipeline.receive((HEADER +
-            '국민,1234,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\\n' +
-            '국민,1234,domestic,purchase,카카오T가승인_유페이,9800,,,9800,2026-10-03,2026-10-04,A200,,매입\\n' +
-            '국민,9999,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\\n' +
-            '국민,1234,domestic,purchase,카카오페이선물,30000,,,30000,2026-10-02,2026-10-03,A300,,매입\\n'
+            '국민,1234,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오T가승인_유페이,9800,,,9800,2026-10-03,2026-10-04,A200,,매입\n' +
+            '국민,9999,domestic,purchase,유페이 일반 결제,16000,,,16000,2026-10-02,2026-10-03,A100,,매입\n' +
+            '국민,1234,domestic,purchase,카카오페이선물,30000,,,30000,2026-10-02,2026-10-03,A300,,매입\n'
         ).encode(), 'synthetic.csv')['batch_id']
         ids = {row['approval_number']: row['transaction_id']
                for row in flow.pipeline.get_batch(batch)['rows'] if row['card_tail'] == '1234'}
