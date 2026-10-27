@@ -73,3 +73,56 @@ def test_tab_and_newline_padding_uses_same_sql_and_python_keys():
     assert refund_group(conn, "purchase") == ["purchase", "refund"]
     assert list(conn.iterdump()) == before
     conn.close()
+
+
+def test_read_scope_reuses_global_links_and_invalidates_local_writes(monkeypatch):
+    from app import partial_refund
+    conn = _connection()
+    _row(conn, 'purchase', 'purchase', 20000, approval='100')
+    _row(conn, 'refund', 'cancellation', -5000, original='100')
+    expected = refund_links(conn, ['refund'])
+    scans = []
+    original = partial_refund._number_links
+    monkeypatch.setattr(partial_refund, '_number_links',
+                        lambda *a, **kw: (scans.append(1), original(*a, **kw))[1])
+    before = list(conn.iterdump())
+    with partial_refund.read_only_scope():
+        assert refund_links(conn, ['refund']) == expected
+        assert refund_links(conn, ['purchase']) == {}
+        assert partial_refund.count_held_cancellations(conn) == {}
+        assert len(scans) == 1
+        assert list(conn.iterdump()) == before
+        changed_copy = refund_links(conn, ['refund'])
+        changed_copy['refund']['net_krw'] = 0
+        assert refund_links(conn, ['refund']) == expected
+        conn.execute("UPDATE transactions SET amount_krw=-6000 WHERE transaction_id='refund'")
+        assert refund_links(conn, ['refund'])['refund']['net_krw'] == 14000
+        assert len(scans) == 2
+    with partial_refund.read_only_scope():
+        assert refund_links(conn, ['refund'])['refund']['net_krw'] == 14000
+        assert len(scans) == 3
+    # Outside a display scope, normal reads/commit validation do not use the memo.
+    refund_links(conn, ['refund'])
+    assert len(scans) == 5
+    conn.close()
+
+
+def test_read_scope_invalidates_another_connection_commit(tmp_path):
+    from app import partial_refund
+    source = _connection()
+    _row(source, 'purchase', 'purchase', 20000, approval='100')
+    _row(source, 'refund', 'cancellation', -5000, original='100')
+    source.commit()
+    conn = sqlite3.connect(tmp_path / 'refund.sqlite')
+    source.backup(conn)
+    source.close()
+    writer = sqlite3.connect(tmp_path / 'refund.sqlite')
+    try:
+        with partial_refund.read_only_scope():
+            assert refund_links(conn, ['refund'])['refund']['net_krw'] == 15000
+            writer.execute("UPDATE transactions SET amount_krw=-6000 WHERE transaction_id='refund'")
+            writer.commit()
+            assert refund_links(conn, ['refund'])['refund']['net_krw'] == 14000
+    finally:
+        writer.close()
+        conn.close()
