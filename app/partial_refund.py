@@ -65,11 +65,17 @@ def refund_links(conn, transaction_ids) -> dict:
 
 
 def _number_links(conn, transaction_ids=None) -> dict:
-    """{refund_transaction_id: link} for cancellations that name an approval number."""
+    """Link all clean cancellations to exactly one verified purchase by card and approval.
+
+    Card feeds occasionally pad an approval reference with outer whitespace.
+    Normalize only that padding, never fuzzy-match or change a digit. All clean
+    original purchases participate in ambiguity detection before linking.
+    """
     if transaction_ids is None:
         refunds = conn.execute(
             "SELECT transaction_id, issuer, card_tail, original_approval_number FROM transactions"
-            f" WHERE transaction_direction='cancellation' AND original_approval_number!='' AND amount_krw<0 AND {_CLEAN}"
+            f" WHERE transaction_direction='cancellation' AND TRIM(COALESCE(original_approval_number,''))!=''"
+            f" AND amount_krw<0 AND {_CLEAN}"
         ).fetchall()
     else:
         ids = [str(i) for i in transaction_ids]
@@ -79,30 +85,33 @@ def _number_links(conn, transaction_ids=None) -> dict:
         refunds = conn.execute(
             "SELECT transaction_id, issuer, card_tail, original_approval_number FROM transactions"
             f" WHERE transaction_id IN ({marks}) AND transaction_direction='cancellation'"
-            f" AND original_approval_number!='' AND amount_krw<0 AND {_CLEAN}", ids).fetchall()
+            f" AND TRIM(COALESCE(original_approval_number,''))!='' AND amount_krw<0 AND {_CLEAN}", ids
+        ).fetchall()
     if not refunds:
         return {}
-    numbers = sorted({original_no for _, _, _, original_no in refunds})
+    numbers = sorted({str(original_no).strip() for _, _, _, original_no in refunds})
     marks = ",".join("?" * len(numbers))
-    # One scan for all candidates; a scan per refund made the card pages crawl.
     candidates = conn.execute(
         "SELECT transaction_id, transaction_direction, issuer, card_tail, approval_number,"
         " original_approval_number, amount_krw FROM transactions"
-        f" WHERE (approval_number IN ({marks}) OR original_approval_number IN ({marks})) AND {_CLEAN}",
-        numbers + numbers).fetchall()
+        f" WHERE (TRIM(COALESCE(approval_number,'')) IN ({marks})"
+        f" OR TRIM(COALESCE(original_approval_number,'')) IN ({marks})) AND {_CLEAN}",
+        numbers + numbers
+    ).fetchall()
     purchases, cancels = {}, {}
     for tid, direction, issuer_, tail_, approval, original, amount in candidates:
-        if direction == 'purchase' and amount > 0:
-            purchases.setdefault((issuer_, tail_, approval), []).append((tid, amount))
+        if direction == 'purchase' and amount > 0 and str(approval or '').strip():
+            purchases.setdefault((issuer_, tail_, str(approval).strip()), []).append((tid, amount))
         elif direction == 'cancellation' and original and amount < 0:
-            cancels.setdefault((issuer_, tail_, original), []).append((tid, amount))
+            cancels.setdefault((issuer_, tail_, str(original).strip()), []).append((tid, amount))
     links = {}
     for refund_id, issuer, tail, original_no in refunds:
-        originals = purchases.get((issuer, tail, original_no), [])
+        key = (issuer, tail, str(original_no).strip())
+        originals = purchases.get(key, [])
         if len(originals) != 1:
             continue
         original_id, gross = originals[0]
-        siblings = cancels.get((issuer, tail, original_no), [])
+        siblings = cancels.get(key, [])
         refund_total = sum(amount for _, amount in siblings)
         own = next(amount for tid, amount in siblings if tid == refund_id)
         net = gross + refund_total
