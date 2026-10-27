@@ -108,6 +108,29 @@ def test_unverified_cancellation_notice_does_not_override_reservation_status():
     assert toyoko_mail.search_candidates(event, [card()])['candidates']
 
 
+@pytest.mark.parametrize('malformed', [
+    None,
+    {'payload': None},
+    {'payload': {'headers': None}},
+    {'payload': {'headers': ['invalid']}},
+    {'payload': {'headers': [{'name': 'Subject'}]}},
+    {'payload': {'headers': [{'name': 5, 'value': 'x'}]}},
+    {'payload': {'headers': [{'name': 'Subject', 'value': None}]}},
+])
+def test_malformed_message_headers_are_skipped_without_aborting_collection(malformed):
+    valid = message('valid')
+    messages = {'malformed': malformed, valid['id']: valid}
+    events = toyoko_mail.collect(messages)
+    assert events and all('malformed' not in event['source_ids'][0] for event in events)
+
+
+def test_authenticated_toyoko_message_is_retained_without_brand_in_subject():
+    mail = message(subject='Reservation received')
+    events = toyoko_mail.collect({mail['id']: mail})
+    assert len(events) == 1
+    assert events[0]['source_trust'] == 'sender_domain'
+
+
 @pytest.mark.parametrize('guard', [dict(duplicate_of='old'), dict(parse_error='bad'),
                                   dict(conflict_reason='collision'), dict(ota_review_held=True),
                                   dict(transaction_direction='refund'), dict(refund_status='refund_pending'),

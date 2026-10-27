@@ -12,7 +12,21 @@ SUBJECT_KEYWORD = re.compile(r'토요코인|toyoko', re.I)
 
 
 def _headers(message):
-    return {h['name'].lower(): h['value'] for h in message.get('payload', {}).get('headers', [])}
+    if not isinstance(message, dict):
+        return None
+    payload = message.get('payload')
+    if not isinstance(payload, dict):
+        return None
+    headers = payload.get('headers')
+    if not isinstance(headers, list):
+        return None
+    result = {}
+    for header in headers:
+        if (not isinstance(header, dict) or not isinstance(header.get('name'), str)
+                or not isinstance(header.get('value'), str)):
+            return None
+        result[header['name'].lower()] = header['value']
+    return result
 
 
 def _amounts(text, label):
@@ -69,15 +83,20 @@ def collect(messages, inventory=()):
     groups = defaultdict(list)
     for message_id, message in sorted(messages.items()):
         raw_headers = _headers(message)
+        if raw_headers is None:
+            continue
         subject = raw_headers.get('subject', '')
-        if not SUBJECT_KEYWORD.search(subject):
+        if not isinstance(subject, str):
             continue
         auth = ota_mail.authenticated_headers(message, DOMAINS)
+        if not auth and not SUBJECT_KEYWORD.search(subject):
+            continue
         # A subject hit can be retained as untrusted reservation evidence. It never
         # passes through the payment parser or grants a card-link resolution.
         headers = auth[0] if auth else raw_headers
         text = ota_mail.message_text(message)
-        summary = booking_evidence.summarize(subject, booking_evidence._sent_day(headers), text)
+        parse_subject = subject if SUBJECT_KEYWORD.search(subject) else '토요코인 예약 확인'
+        summary = booking_evidence.summarize(parse_subject, booking_evidence._sent_day(headers), text)
         hotel = summary.get('hotel_name')
         markers = list(REFERENCE.finditer(text))
         if not hotel or not markers:
@@ -96,7 +115,7 @@ def collect(messages, inventory=()):
                   'source_trust': 'sender_domain' if auth else 'subject_only_unverified'}
         for index, marker in enumerate(markers):
             part = text[marker.start():markers[index + 1].start() if index + 1 < len(markers) else len(text)]
-            detail = booking_evidence.summarize(subject, None, part)
+            detail = booking_evidence.summarize(parse_subject, None, part)
             period = {k: detail[k] for k in ('starts_on', 'ends_on')}
             if not period['starts_on']:
                 period = {k: summary[k] for k in ('starts_on', 'ends_on')}
