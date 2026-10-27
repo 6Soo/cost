@@ -77,6 +77,7 @@
 - 같은 local workspace에서 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-master-20261027.md`만 수정한다. 현재 Supervisor 브랜치는 `docs/rf002-transaction-read-release-20261028`이다. 마스터가 허용한 독립 토큰 조사이며 기존 RF-002 금융/OTA 경계를 변경하지 않는다.
 - site_theme/site_shell/ledger_design의 이미 통합된 토큰·shell/theme owner를 소스와 기존 검사에 대조하고 실제 중복/누락만 찾는다. 기존 표시 값을 유지하는 최소 토큰 정리 후보 하나와 영향 페이지/필수 검사를 제시한다. 수동 테마 아이콘1개·기존 URL/DOM을 유지한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트 재검사·시각 변경은 하지 않는다. 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`를 검수한다. 실제 모바일/200%/모든 화면 수락을 주장하지 않는다.
+- **COMPLETE（소스 조사）** — 공통 색상과 단일 토글이 이미 통합돼 있음을 소스/기존 검사에 대조했다. wrap_document는 전체 STYLE와 root palette를 함께 삽입하고 fragment는 유지한다. 다음 최소 구현은 두 파일의 테마 버튼44px 반복을 공통 CSS 토큰으로 모으는 범위로 결정했다. token owner/fallback/기존 computed-size 검사 근거를 master에 기록했다. 문서 diff/source 참조만 검수했고 운영·브라우저를 다시 확인하지 않았다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
