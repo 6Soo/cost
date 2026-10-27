@@ -1,3 +1,31 @@
+## 2026-10-27 여행 장부 수입·지출 화면 통합·운영 배포 (#187)
+
+[PR #187](https://github.com/6Soo/cost/pull/187)을 정상 병합하고 운영 **`84e602ee76f4b50a072e43520af3cd886cebb423`**로 배포했다. 이전 세션의 Gemini 3.8 Flash High 위임 구현 및 검증 결과를 인수하여 진행했다.
+
+- **원인·수정:** 여행 장부 화면에서 분리되어 있던 Google 정본 수입 영역과 지출 영역의 시각 언어(테마 토큰, 타이포그래피, 패딩, 테두리)를 일원화했다.
+  - 상단 요약 바(`#sum`)에 수입, 지출, 차액을 함께 통합 계산·표시하되, 수입 불일치(`numeric_gap`) 또는 미검증 시 가공의 차액을 조작하지 않고 정직하게 `수입 합계 차이 있음` 안내만 표시.
+  - 지출 테이블 상단 및 카테고리 소계 직후 반복 삽입되던 중복 3중 열 헤더(`tbody.colhead`)를 CSS `display:none` 처리하여 시각적 중복을 제거하고 DOM 검증 계약은 보존.
+  - 수입 테이블 하단에 `<tfoot>`을 배치하여 `수입 행 합계 ({N}건)` 및 총액을 행 데이터에 즉시 부착.
+  - 불필요한 `<details class='income-detail'>` 중첩을 걷어내고 일관된 메타데이터 바(`.income-meta-bar`)로 평탄화.
+  - 장부-행 불일치 발생 시 접힌 상세 안에 숨기지 않고 상단 `role='alert'` 배너로 즉시 노출.
+- **검사:**
+  - 수입 유닛 및 권한/검증 테스트: `webapp/tests/test_trip_google_income.py` 외 3개 파일 **34 passed (4.34s)**.
+  - 브라우저 E2E 테스트: `webapp/tests/test_trip_google_income_browser.py` 외 1개 파일 (1280px 데스크톱 및 375px 모바일, 라이트/다크 모드 전체, 불일치 배너 회계 안전성 검증) **4 passed (10.85s)**.
+- **배포 보호:**
+  - 추적 파일 **980개 blob 일치**, 이전 운영 SHA `94c8e8c293d784da3886879ad024d3c5d12061a5`에서 교체.
+  - `WebLedger-Board` Running, task/process SHA 일치, 127.0.0.1:8751 단일 loopback listener, `/healthz` **200**, `/readyz` **200**, 비인증 보호 API **401**.
+  - 배포 전후 2DB/13개 보호 표 내용·스키마 해시 **완전 일치 (`unchanged: true`)**.
+  - 근거: `D:/WebLedgerHost/releases/release-audit-84e602ee76f4b50a072e43520af3cd886cebb423.json`, `deploy-evidence-84e602ee76f4b50a072e43520af3cd886cebb423.json`.
+- **운영 실제 화면 검증 COMPLETE:**
+  - Aside를 통해 운영 대상 장부(`https://ledger.foresttour.kr/board?tab=trip-46d817cfb8c2`) 실시간 확인:
+    - `#sum`: `수입 46,170,000원`, `지출 6,989,884원`, `차액 39,180,116원` (`수입 35건 · 지출 81건`) 정상 통합 노출.
+    - 수입 헤더: `수입`, `정본 · 읽기 전용`, `수입 46,170,000원`.
+    - 수입 테이블 하단 `tfoot`: `수입 행 합계 (35건) 46,170,000원` 즉시 부착 확인.
+    - 지출 테이블 중복 열 헤더: `colheadDisp: 'none'` 확인.
+- **콘솔 창 팝업 조치 및 메일 수집 로컬 의존성 진단:**
+  - `WebLedger-MailCollect` 예약 작업의 실행 파일을 `python.exe`에서 `pythonw.exe`로 교체하여 향후 어떤 cmd/콘솔 창도 뜨지 않도록 완전 비노출 조치 완료 (백업: `.local-archive/mail-console-hidden-20261027T211154/`).
+  - Google Apps Script(`apps-script/GmailIngest.gs`)는 과거 `메일수집` 시트 탭 작성용이었으나 2026-07-22 지침으로 자동 수집이 OFF된 상태이며, 현재 운영은 DKIM/SPF 인증 헤더가 보존된 `format=full` 원문을 로컬 SQLite(`ota_store.db`)에 인덱싱하여 사용함. Drive를 통한 클라우드 비공개 원문 수집 초안(`apps-script/CloudMail.gs`)을 준비하고 인계함.
+
 ## 2026-10-27 항공권 검색 복구·열린 PR 전체 통합 (#184)
 
 [PR #184](https://github.com/6Soo/cost/pull/184)을 정상 병합하고 운영 **`94c8e8c293d784da3886879ad024d3c5d12061a5`**로 배포했다. #172/#174/#176/#177/#179/#180/#183 모두 MERGED, 병합 직후 열린 PR0건이다. 이전 에이전트 `2b2ca7be-a0ee-402d-a9c8-84be15b392de`의 마지막 사용자 승인 범위를 이어서 수행했다.
