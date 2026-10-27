@@ -36,8 +36,9 @@
 
 ### FLIGHT-VERIFY-API-01: 이름 단일 입력으로 예약 검색
 
-- 제안 엔드포인트: `POST /api/flight-bookings/search` (조회 전용이지만 실명 URL 노출 방지 목적), 입력 `{name:string}`. owner·CSRF와 서버측 검색 제한, 응답 `Cache-Control:no-store`, 결과 수 제한/페이징/정렬(최근 관련 여정 우선) 및 불완전 근거 상태 반환.
+- 구현 엔드포인트: `POST /api/flight-passengers/name-search` (조회 전용이지만 실명 URL 노출 방지 목적), 입력 `{name:string}`. owner·CSRF와 서버측 검색 제한, 응답 `Cache-Control:no-store`, 결과 수 제한/페이징/정렬(최근 관련 여정 우선) 및 불완전 근거 상태 반환.
 - `name` 외 필수 입력 없음. 최소 2자/최대 100자 등 합성 검증된 입력 제한을 적용하되 영문 짧은 합법 이름을 부당히 막지 않는다. 이름의 한국어 ↔ 영어 대응이 확인되지 않았다면 **'한글 이름으로 확인 가능한 예약 데이터 없음'**을 반환할 수 있어야 한다. 검색 0건 vs 검증된 원본 없음/동기화 실패/권한 차단 분리.
+- 이름 매칭은 검증된 성·이름의 영숫자 토큰을 NFKC/casefold로 정규화하고 순서를 무시한다. 입력이 한 구성요소여도 그 토큰이 원본 이름의 **완전한 토큰과 일치**하면 검색한다. 부분 문자열, 로마자 변환, 원본에서 띄어 쓴 구성요소의 임의 결합은 하지 않는다. 따라서 새로고침된 검증 색인에 해당 완전 토큰이 없으면 정상적인 0건 결과이며, 색인 미사용/갱신 실패 상태와 구분해야 한다.
 - 예시 응답 필드: `reservations:[{booking_key,booking_ref,passenger_names,airline,segments,reserved_on:{date,provenance,semantics},issued_on,paid_on,cancellation_status,source_status,card_link_count}]`. 실제 증명 가능한 필드만 사용. `booking_key`는 식별 가능하고 서버 검증 가능한 불투명 키, 기존 `booking_ref`만으로 다른 공급자/같은 번호가 합쳐지지 않게 한다.
 - 예약 상세 조회도 동일 owner·세대·원본 digest 확인. 이름만으로 반환된 카드가 다른 사용자에게 노출되지 않도록 owner 판정을 매 요청 서버에서 수행한다.
 

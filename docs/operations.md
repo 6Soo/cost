@@ -1,3 +1,15 @@
+## 2026-10-27 PR #155/#157 항공권 검색·다중 환불 UI 운영 반영
+
+최신 `main` 및 운영 런타임은 **`9374770ca543fb9f6831b95b398b6c0d7d35b986`**이다. 이 릴리스는 PR [#155](https://github.com/6Soo/cost/pull/155)의 검증된 탑승객 이름 구성 요소 검색과 PR [#157](https://github.com/6Soo/cost/pull/157)의 원승인번호 기준 1:N 취소·환불 확정 표시를 포함한다. #157의 확정 링크 표시는 실제 장부 기록·환급 완료·보류 해제를 뜻하지 않는다. 중복 PR #156은 닫았으며 그 고유 부분환불 합성 시나리오는 #157 테스트에 옮겼다.
+
+- 표적 검사 `python -m pytest webapp/tests/test_cleanup_refund_display.py tests/card_pipeline/test_partial_refund.py -q`: **47 passed**. 합성 거래 두 건 환불의 부분 합계와 전액 상쇄, 같은 `original_id`, 건수/합계/순액 UI 및 DB dump 불변을 확인했다. 항공권 이름 검색 검사는 PR #155 시점 **2 passed, 9 deselected**였다. 전체 회귀는 실행하지 않았다.
+- 고정 릴리스 **964/964** 추적 파일 대조, 누락/추가/blob 불일치 0. 이전 운영 SHA `95c05343efe7695e915e42e8134b41ecc318d495`에서 교체했다. 복구 전제의 DB/열·원본 해시·복원 결합 검증과 백업/복원본 존재를 확인하고 기존 근거를 재사용했다. `WebLedger-Board` Running, 작업/프로세스 SHA 일치, loopback listener 1개, `/healthz` **200**, `/readyz` **200**, 비인증 보호 API **401**.
+- 로그인 Aside에서 `/import` 소유자 화면이 표시됐다. 이번 1:N 문구는 화면 스냅샷에서 보이지 않아 실제 사례의 문구 표시 수락은 **NOT_CONFIRMED**다. 실제 환불/거래 상세를 펼치거나 원행·장부·Google을 변경하지 않았다.
+- 항공권 검색은 앞선 SHA `95c0534` 운영 화면에서 소스 갱신 완료 후 읽기 전용으로 확인했다. 최신 관측 색인 generation 369 / `flight-evidence-v4-first-received`의 입력 키가 스냅샷과 일치했지만, 화면은 **검색 결과 없음 / 카드 0건**을 반환했다. 원문 이름을 기록하지 않은 로컬 점검에서도 검색어에 대응하는 exact token이 현재 검증 색인에 없었다. 따라서 검색 로직 배포는 확인했지만 첨부된 항공권의 실제 결과 수락은 **PARTIAL**이며, 원본 메일 수집 또는 파싱 범위는 미확인이다. 이 증거만으로 fuzzy matching이나 로마자 변환을 추가하지 않는다.
+- PR #156은 부분환불 사례를 #157의 합성 테스트로 보존한 뒤 중복으로 닫았다. 로컬·원격 브랜치는 `main`만 남겼다. 삭제 전 refs bundle `.local-archive/branch-prune-20261027/followup-refs-before-main-only-20261027.bundle` 검증 완료, SHA-256 `C113C062EF2CBF40754A4963B9E84D3232AFBE9B25E664CED72E2D32B4FC4B07`. 기존 미추적 작업 계획 파일도 보존했다.
+
+---
+
 ## 2026-10-27 PR #153 카카오 환불 후보 보강 운영 배포
 
 PR [#153](https://github.com/6Soo/cost/pull/153)은 `a9626059893a02931926ca009f9d04226ffd7e60`에 `main` 병합되어 해당 SHA로 운영 배포됐다. 이 배포는 앞서 병합됐지만 아직 배포 전이던 #152의 Agoda 후보 표시 수정도 포함한다. #153은 같은 카드사·끝자리·14일 이내 원승인번호 일치 구매를 환불 화면의 검토 후보에 추가하고, 자동 금융 연결·장부 기록은 하지 않는다.
