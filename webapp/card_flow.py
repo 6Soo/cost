@@ -3232,6 +3232,10 @@ def render_expense_cleanup(board, csrf, *, page=1):
                  '취소·환불 확인' if tid in cancellation_ids else
                  '보류 중' if held else '분류 필요' if not item else
                  '여행 배정 필요' if current_tab in (None, '', 'unclassified') else '검토 필요')
+        if tid not in cancellation_ids and tid in original_refunds:
+            offset_link = original_refunds[tid][0][1]
+            if offset_link.get('status') == 'full':
+                label = '환불 상쇄 확인'
         items.append(
             f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
             f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
