@@ -166,8 +166,11 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             ticket = screen.locator('.fb-ticket').first
             expect(ticket.get_by_text('서울', exact=True)).to_be_visible()
             assert ticket.get_by_text('도쿄', exact=True).is_visible()
-            assert ticket.get_by_text('2026-11-10', exact=True).is_visible()
+            assert ticket.locator('.fb-flight-date').filter(has_text='2026-11-10').is_visible()
             assert ticket.get_by_text('SYN123', exact=True).is_visible()
+            expect(ticket.locator('.fb-summary-item')).to_have_count(5)
+            expect(ticket.locator('.fb-flight-card')).to_have_count(1)
+            assert ticket.locator('.fb-route-stop').count() == 2
             assert ticket.get_by_text('Synthetic Airline', exact=True).is_visible()
             assert ticket.get_by_role('link', name='카드 원행 상세 보기').get_attribute('href') == '/board?row=card-synthetic'
             assert ticket.get_by_text('결제 근거와 카드 원행의 금액·통화 차이 또는 미확인 항목이 있습니다. 원본을 대조해 주세요.').is_visible()
@@ -186,7 +189,9 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
                 assert screen.get_by_role('heading', name='항공권 예약 확인', exact=True).is_visible()
             screen.set_viewport_size({'width': 760, 'height': 812})
             screen.evaluate('document.documentElement.style.zoom="200%"')
-            assert screen.evaluate('document.documentElement.scrollWidth <= innerWidth')
+            # CSS zoom may round document scrollWidth up by one device pixel.
+            assert screen.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+            assert screen.locator(".fb-ticket").evaluate_all('(items)=>items.every(e=>e.getBoundingClientRect().right<=innerWidth)')
             assert ticket.get_by_role('link', name='참가자 연결 정보 열기').is_visible()
         finally:
             browser.close()
