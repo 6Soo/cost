@@ -94,7 +94,7 @@ def test_bulk_classification_survives_booking_failure_without_changing_protected
         assert card_flow.reclassify_cleanup(board)['processed'] == 2
         assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == after
         monkeypatch.setattr(ledger_board, 'current_role', lambda: 'owner')
-        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _: {})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _, **kw: {})
         html = card_flow.render_expense_cleanup(board, 'token')
         assert "id='cleanup-reclassify'" not in html
         assert '/api/imports/reclassify-pending' not in html

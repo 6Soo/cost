@@ -1636,7 +1636,11 @@ class CardFlow:
             elif not row.get('display_tab_id') or row['display_tab_id'] == 'unclassified':
                 if not quarter_costs.destination(row) and not local_expense_without_trip(row):
                     holds.setdefault(tid, {'kind': 'trip_needed', 'reason': '예약 이용일과 숙소를 확인하고 여행을 선택해 주세요.'})
-            source = self.board.conn.execute('SELECT issuer,card_tail,approval_number,posting_date,foreign_amount,foreign_currency,transaction_kind,approval_date FROM transactions WHERE transaction_id=?', (tid,)).fetchone()
+            # get_batch already read these raw fields for every row. Reuse the
+            # same read instead of a SQL round trip for each transaction.
+            source = tuple(row.get(field) for field in (
+                'issuer', 'card_tail', 'approval_number', 'posting_date',
+                'foreign_amount', 'foreign_currency', 'transaction_kind', 'approval_date'))
             if self._already_projected(source, dict(row, occurred_on=row.get('approval_date') or row.get('posting_date')),
                                        projection_index):
                 holds[tid] = {'kind': 'existing_ledger', 'reason': '장부에 이미 기록되어 추가로 기록하지 않습니다.'}
@@ -2490,7 +2494,7 @@ def cleanup_total(board) -> int:
     return _cleanup_card_count(board) + unassigned
 
 
-def _ota_entries_by_card(board) -> dict:
+def _ota_entries_by_card(board, *, transaction_ids=None) -> dict:
     """카드 거래 ID -> 중앙 OTA 스냅샷에서 투영한 OTA 상태/근거/후보/스냅샷 신선도.
 
     기존 ota_catalog._index의 단일 card_matches만 소비하던 방식을 대체해,
@@ -2524,7 +2528,10 @@ def _ota_entries_by_card(board) -> dict:
 
     # Stale evidence may explain what was seen before, but cannot establish a current link.
     statuses, generation, _ = project_card_ota_statuses(current) if is_fresh else ({}, None, {})
-    entries = _index_ota_display_candidates(current)
+    wanted = None if transaction_ids is None else set(map(str, transaction_ids))
+    entries = _index_ota_display_candidates(current, transaction_ids=wanted)
+    if wanted is not None:
+        statuses = {tid: status for tid, status in statuses.items() if tid in wanted}
     snapshot = {'generation': generation, 'fresh': bool(is_fresh),
                 'status': snapshot_status, 'enabled': True}
     result = {tid: {'ota_status': statuses.get(tid, 'UNLINKED') if is_fresh else 'UNKNOWN',
@@ -2542,7 +2549,7 @@ def _ota_entries_by_card(board) -> dict:
     return result
 
 
-def _index_ota_display_candidates(current: dict) -> dict:
+def _index_ota_display_candidates(current: dict, *, transaction_ids=None) -> dict:
     """카드 ID별 OTA 후보와 거절 이유를 전부 모으는 화면 전용 역색인."""
     data = current.get('data') or {}
     events = {str(row.get('ota_event_id') or ''): row for row in data.get('events') or ()}
@@ -2590,6 +2597,7 @@ def _index_ota_display_candidates(current: dict) -> dict:
 
     indexed = {}
     seen = set()
+    wanted = None if transaction_ids is None else set(map(str, transaction_ids))
     for result in [*(current.get('results') or ()), *(data.get('results') or ())]:
         if not isinstance(result, dict):
             continue
@@ -2609,6 +2617,8 @@ def _index_ota_display_candidates(current: dict) -> dict:
                         why = 'payment_date_unknown'
                 else:
                     identity, why = str(value or ''), result.get('reason')
+                if wanted is not None and identity not in wanted:
+                    continue
                 if identity:
                     card = cards.get(identity)
                     rules = data.get('rules') or ()
@@ -2650,7 +2660,7 @@ def _index_ota_display_candidates(current: dict) -> dict:
         reserved_ids = [*reserved_ids, reservation.get('transaction_id')]
         for value in reserved_ids:
             identity = str(value or '')
-            if identity:
+            if identity and (wanted is None or identity in wanted):
                 indexed.setdefault(identity, [])
     return indexed
 
@@ -2982,6 +2992,8 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
             title, lines = '확정 원결제 자료 미확인', ['원승인번호 또는 외화 금액 기준으로 자동 연결된 원결제가 없습니다. 아래 가맹점 검색 결과를 비교해 주세요.']
+        if row and not row[2]:
+            lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다.')
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
     return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
             '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' + comparison + '</details>')
@@ -3017,7 +3029,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
     ledger_offset = max(0, offset - card_total)
     ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
     items = []
-    ota_by_card = _ota_entries_by_card(board)
+    ota_by_card = _ota_entries_by_card(board, transaction_ids=[row[0] for row in rows_card])
     snapshot_context = ota_by_card.get('__snapshot_status__', {})
     # Reuse the exact display snapshot for write guards and each read-only preview.
     # This prevents an extra held-snapshot read or a matcher run on the GET path.

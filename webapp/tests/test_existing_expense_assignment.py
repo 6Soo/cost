@@ -88,7 +88,7 @@ def test_cancelled_charge_is_a_reconciliation_case_not_a_category_question(tmp_p
         board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-5000,item='' ")
         board.conn.commit()
         before=board.conn.execute('SELECT * FROM transactions').fetchall()
-        monkeypatch.setattr(card_flow,'_ota_entries_by_card',lambda _: {})
+        monkeypatch.setattr(card_flow,'_ota_entries_by_card',lambda _, **kw: {})
         assert card_flow._cleanup_card_breakdown(board)=={'protected':1}
         html=card_flow.render_expense_cleanup(board,'token')
         assert '취소·환불 확인' in html and '원결제 근거가 필요' in html
