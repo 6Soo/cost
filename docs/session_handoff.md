@@ -1,6 +1,6 @@
 # 현재 상태와 남은 일
 
-기준: 2026-10-28 세션 `7c022586`의 승인 작업을 `2ac4764d`가 인수. main·병합·배포·현재 상태의 작성자는 인수 Supervisor 하나다. 중복 인수 세션은 읽기 전용 검수 후 종료했으며 이전 Supervisor는 재개하지 않았다.
+기준: 2026-10-28 세션 `7c022586` → `2ac4764d`의 승인 작업을 현재 Supervisor가 인수했다. 이전 계정 한도 종료 기록과 실제 파일·배포 evidence를 대조했으며 이전 Supervisor에게 메시지하거나 재개하지 않았다. main·병합·배포·현재 상태 작성자는 현재 Supervisor 하나다.
 
 ## 현재 승인된 실행 큐
 
@@ -9,16 +9,16 @@
 | 작업 | 현재 근거 / 다음 작업 |
 | --- | --- |
 | Trip.com 통화 비교·카드 필터·장부 표시 | **COMPLETE / DEPLOYED** — PR #200, 코드 `8e5eb76`, 병합·운영 `44e1e6bb90105e5d65c1b954f0c9808f4266b407`. 190 passed, 인접 125 passed/2 failed. 같은 127개 묶음에서 기준 main `0b9ebf4`도 동일 2 failed: 부분 그룹 fixture HOLD_NO_CARD와 후속 스키마 준비 오류. 실패를 통과로 계산하지 않았다. 운영 925 blobs 일치·health/ready200·보호API401·13표 동일, 실제 필터와 여행 복사 버튼 확인. worktree 고유커밋0·dirty0·터미널0·잔여 임시는 합성DB만임을 확인하고 `wks_7bc6650d01ff72da` 공식 archive 완료. |
-| 카카오 환불 실제 경로 | **TEST_PASSED / NOT_MERGED** — 기존 worktree 커밋 `e8819b1`, 원승인/외화/추론·UI·장부보호 178 passed. 기존 PR #193과 중복 및 승인된 추론 범위를 검수한 후 단일 PR로 통합. 금융/원본/Google 실자료 쓰기 없음. |
-| RF-001 쓰기 경계 | **R0 PARTIAL / TEST_PASSED** — `24d5418` + `74f0757`. SQL 원문 비출력·root/읽기/구문 오류 JSON·대표6경로 정적 근거. 4 passed, 기본6파일 CLI 성공, diff check 성공. 런타임/간접 audit 경계는 미확인으로 명시. 다음: 해당 3파일 PR 검수·병합. |
-| RF-001 엔트리포인트 지도 | **NOT_READY** — `rf001-inventory-20261028`의 기존 `webapp/ledger_board.py` +12줄은 R0 정적 지도 범위를 벗어난 미완성 API 분기다. 보존하되 main 통합 금지. 정적 도구/합성 검사로 과제를 완료해야 한다. |
-| RF-003 자료 보호 | **NOT_READY** — 기존 worktree의 미추적 정책/도구/테스트 3개 보존. 정책 JSON 문법·staged 목록/차단 exit code·경로 오탐 등을 검수·수정한 후 합성 repo로 확인. 현재 보호 도구가 작동한다고 주장하지 않는다. |
-| RF-004 테스트 영향도 | **NOT_IMPLEMENTED** — 전용 worktree의 신규 완료 커밋 없음. 안전 기본 검사와 누락 모듈 매핑 구현 필요. |
-| RF-005/109 의존성 후보 | **R0 PARTIAL / NOT_READY** — `176cdef`, 기존 4 passed 보고. 읽기 전용 검수에서 상대 import·외부 root·ACTIVE 쓰기 분류·문서/범위 오류 확인. 수정 후 합성 검사 필요. 실제 릴리스/복구 통합 완료가 아니다. |
-| Toyoko 메일 | **CODE_WRITTEN / NOT_VERIFIED** — 전용 worktree의 parser/collector 및 대응 테스트 4개 dirty 보존. 인증·취소·원문 충돌 보호 검수/검사 후 commit 필요. |
-| 여행 귀속 계약 조사 | **NOT_IMPLEMENTED** — 전용 worktree HEAD `1deb4cb`, 신규 도구 커밋 없음. `tools/audit_trip_assignment_contract.py`와 대응 합성 검사 소유권으로 재개할 항목. |
+| 카카오 환불 실제 경로 | **COMPLETE / DEPLOYED（코드 범위）** — PR #193 병합 `819c4ba`, 운영 `bff4ffd`. 선행178 passed와 최신 main 통합 후29+6+117+26 passed. 실제 추론2묶음의 기장 보류/환급 미완료 표시 확인. 원승인 없는 실제11건의 확정 연결·환급 수락은 별개다. |
+| RF-001 쓰기 경계 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #202 병합. SQL 원문 비출력·오류 JSON·대표6경로 지도, 4 passed. 간접 persistence/audit·권한 체인은 `refactor-write-boundaries.md`의 OPEN_QUESTION으로 남음. 다음: 주입 backend·Google read·여행 수동 결정 경계를 소스에서 연결한다. |
+| RF-001 엔트리포인트 지도 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #204 병합, 정적 AST 호출/route 후보·소유 모듈 지도, 3 passed. 미완성 API 분기는 main에 넣지 않고 `.local-archive/refactor-review-20261028/rf001-unfinished-api.patch`로 보존. 실제 runtime activation·간접 call target 증명은 아직 아님. |
+| RF-003 자료 보호 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #203 병합, 합성 repo16 passed. 정책 JSON·staged 차단 exit code·경로 검증 보완. Git 메타데이터 inventory이며 기존 고객 파일 내용의 민감도·운영 소비자 분류와 배포 allowlist 완료는 아님. |
+| RF-004 테스트 영향도 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #205 병합, 7 passed. 핵심 매핑·미매칭 안전 최소 검사와 실패 코드 유지. 모든 OS/실DB/전체 collection 기준선 완료로 확대하지 않는다. |
+| RF-005/109 의존성 후보 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #206 병합, 8 passed. 상대 import·외부 root·오류·읽기/쓰기 후보 분류 수정. 실제 호스트 호출 전체 수락·배포 entrypoint 통합은 남음. |
+| Toyoko 메일 | **COMPLETE / DEPLOYED（코드 범위）** — PR #207/#208, 최종 `570978b`. 제목 탐색·낮은 신뢰와 인증 경로 분리·불량 헤더 격리. 105+6 passed, 통합42 passed, 추가 회귀8 passed. 운영 실메일 재수집·고객 예약 개별 수락은 미실행. |
+| 여행 귀속 계약 조사 | **R0 PARTIAL / TOOL_DEPLOYED** — PR #209, `764c82d`, 5 passed. Google authority·기간·수동 우선 정의 위치와 합성 AST 경계 확인. 위치 발견은 동작 검증/실자료 원인 확정이 아니다. |
 
-진행 구현자들의 closed 알림을 수신했으며 종료 세션은 임의 재개하지 않는다. 미완료 worktree를 완료로 보관하거나 변경을 버리지 않는다. 다음 단계는 위 NOT_READY/R0 항목의 검수·구현이며, 전면 리팩터링 전체 완료나 실자료 수락을 뜻하지 않는다. 배포/브라우저/보호 증거는 `.local-archive/refactor-review-20261028/` 및 [운영 기록](operations.md)에 보존한다.
+기존 구현 묶음은 모두 검수·병합했으며 임시 worktree 공식 archive를 완료했다. 마지막3개는 고유커밋0·dirty0·미추적0·터미널0·무시 경로는 캐시만임을 확인했다. 공유 stash·사용자 미추적 자료는 보존했다. 다음 단계는 R0 미확인 경계의 소스 근거 보완이며, R1 DTO/전면 리팩터링 전체 완료나 실자료 수락을 뜻하지 않는다. 종료된 세션은 재개하지 않는다. 이번 배포/브라우저/보호 증거는 `.local-archive/refactor-runtime-release-20261028/` 및 [운영 기록](operations.md)에 있다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
@@ -26,15 +26,15 @@
 
 ## 마지막 확인된 릴리스
 
-운영 코드 SHA는 **`44e1e6bb90105e5d65c1b954f0c9808f4266b407`**다. [PR #200](https://github.com/6Soo/cost/pull/200)을 검수 후 고정 배포했다. [PR #198](https://github.com/6Soo/cost/pull/198)의 여행 하단 지출 복사도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
+운영 코드 SHA는 **`bff4ffde1ef7bb381f0b3da611f78a7dda5e2d1b`**다. PR #193/#202~#209 검수·병합 후 고정 배포 evidence를 인수했고 사후 검증을 완료했다. PR #198/#200도 보존했다. 문서 커밋을 앱 배포 SHA로 표시하지 않는다.
 
-이번 근거: 추적 파일925개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 실제 미배정·카드·검색 필터/월 상세·여행 복사 버튼·수입 계산 안내·페이지 가로넘침 없음 확인 후 원래 화면 복귀. 세부 경로는 [운영 기록](operations.md)에 있다.
+이번 근거: 추적 파일940개 blob 일치, 작업/프로세스 SHA 일치, 단일 loopback listener, health/ready200·보호API401, 2DB/13개 보호 표 내용·스키마 동일. 실제 환불121묶음·추론2묶음의 보류/환급 미완료 표시·검토 링크·가로넘침 없음 확인 후 원래 화면 복귀. 세부 검사·기존 실패·근거 경로는 [운영 기록](operations.md)에 있다. 추가 수집·금융/Google 직접 쓰기 없음.
 
 ## 2026-10-28 활성 세션 인수 상태
 
 - **COMPLETE — 여행 탭 지출 복사:** 세션 `af475563`의 사용자 최신 요구는 각 여행별 탭 하단에만 복사 기능 제공이다. 코드 `a3e0316`을 검수하고 `75aa984`에서 공통 TSV 검증·실제 여행 확인·필터 일치·복사 실패 처리를 보완했다. 알 수 없는 증빙을 카드로 바꾸지 않고 잘못된 날짜/금액·중복·보류 건은 제외 수를 알린다. PR #198 병합 및 위 SHA 운영 배포 완료.
 - 실제 검사: 복사·수입 브라우저·live-sync 59 passed, 4 subtests passed. 최종 API/공통 TSV/adapter 28 passed. 합성 실제 클립보드의 7열·부호·증빙, 비로그인401·viewer 거부 확인. 전체 회귀는 국소 읽기·클립보드 변경이므로 생략. 운영 DB·Google·원본 쓰기 및 운영 클립보드 변경 없음.
-- **WAITING — 세션 `f69464f4` (Cost V35):** 완료 인계 알림을 요청했고 병합·배포 단일 작성자를 인수 세션으로 지정했다. 완료 보고는 아직 도착하지 않았다. 통화 비교 worktree 등의 미커밋 변경을 임의 통합하지 않았다. 다음 단계는 해당 완료 알림 수신 후 최신 요구·커밋·실제 검사를 검수하는 것이다. 별도 PR #193도 이번 배포에 포함하지 않았다.
+- **COMPLETE — 이전 Cost V35 인계:** 중단 구현은 Trip.com/카카오/Toyoko/여행 감사로 분리 검수·보완해 위 PR과 릴리스에 통합했다. 이전 세션 알림 대기는 종료했으며 임시 workspace 공식 보관을 마쳤다. 개별 실자료 미결은 아래에서 별도 유지한다.
 - 배포/보호/브라우저 근거는 `.local-archive/session-review-20261028/` 및 운영 릴리스 감사 JSON에 보존한다. 기존 미추적 파일·stash·다른 worktree는 보존했다.
 
 ## 완료한 주요 흐름
@@ -53,7 +53,7 @@
 | 항목 | 현재 근거·다음 경계 |
 | --- | --- |
 | 카카오 미연결 취소11건 | 모두 원승인번호가 없다. 기존 후보/진단 표시는 배포됐지만 자동 금융 연결로 승격하지 않는다. 원결제 대응을 증명하는 카드사/가맹점 근거가 필요하다. |
-| 별도 코드 PR #193 | 문서 정리 중 열린 [카카오 금액 추론·환불 표시 PR](https://github.com/6Soo/cost/pull/193). 작성자는 connector-only 환경에서 **UNTESTED**로 보고했다. 아직 main/운영 반영 근거가 없으며 표적 검사·금융/장부 보호 비교가 필요하다. 이번 문서 정리에 포함해 병합하거나 실제11건 해결로 보고하지 않는다. |
+| PR #193 이후 실제 수락 | [카카오 금액 추론·환불 표시 PR](https://github.com/6Soo/cost/pull/193)은 이제 검수·병합·배포됐다. 원승인 없는 실제11건의 확정 연결/실제 환급 해결을 의미하지 않는다. 추론 표시와 기장 보류를 보존한다. |
 | Agoda 미연결 취소3건 | 원승인번호가 없으며 원문 외화 대조 근거도 부족하다. 기존 연결73건과 구별한다. 임의 상쇄·기장 금지. |
 | Agoda 20,532 JPY 등 자동 추론 | 기존 자동 추론 게이트가 있다. 특정 사례의 실패 원인·자동 해결 완료는 보관 근거로 확인되지 않았다. 인증·원문 금액/통화·끝자리·기간·전역 유일성·보류/기장 상태를 읽기 전용으로 진단해야 한다. 날짜 창작·수동확인을 자동화 성공으로 보고하지 않는다. |
 | 파라타항공 취소·과거 여행 귀속·항목 팝업 | 진단 코드/표시 보완과 개별 실자료 원인 해결을 구별한다. 사례별 최종 수락 근거가 없으면 미확인으로 둔다. 옛 감사표의 미병합 상태는 현재 PR 상태가 아니다. |
