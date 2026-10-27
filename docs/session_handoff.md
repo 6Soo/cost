@@ -91,6 +91,7 @@
 - 현재 브랜치 `docs/rf201-theme-control-release-20261028`, 같은 local workspace 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`가 `docs/specs/refactor-master-20261027.md`만 작성한다. 이미 통합된 wrapper/단일 테마를 재구현하지 않는다.
 - HTTP HTML 응답 writer→wrap_document→주요 private renderer의 source 경로와 auth/public/API/fragment 예외를 매핑한다. 실제 우회가 있을 때만 최소1개 후보를 제시하고 native nav/main 소유권·URL/폼/JS/ID·테마 아이콘1개를 보존한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 문서전용 source/diff 참조 조사이며 테스트·빌드·브라우저·호스트/DB 재검사를 하지 않는다. 실제 기기/200% 전체 수락이나 저장소 전수 완료로 확대하지 않는다. 다음 명령은 완료 알림 후 `git diff -- docs/specs/refactor-master-20261027.md`다.
+- **COMPLETE（소스 조사）** — Handler._send→wrap_document와 카드/Google/항공권/OTA/영수증·native ledger·fragment/auth/public/API 경로를 대조했다. 표본 범위에서 private 전체HTML 우회는 발견하지 못했고 기존 의도 예외를 새 작업으로 만들지 않는다. 동적 문서 전수·실제 기기/200% 수락은 미확인이다. 문서 diff/source 참조만 확인했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
