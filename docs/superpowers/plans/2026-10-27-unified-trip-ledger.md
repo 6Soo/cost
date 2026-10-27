@@ -2,10 +2,8 @@
 
 ## 현재 승인·범위
 
-사용자는 카카오/Agoda 환불 PR의 실제 해결 여부를 묻고, 첨부 화면의 불필요한 상세 영역·분리된 수입/지출·수입표와 떨어진 총계·디자인 불일치를 Gemini 3.8 high에 위임해 구현하도록 요청했다. 현재 작업은 이 화면의 읽기 전용 표시 개선과 환불 상태 진단이며, 과거 미결 목록 전체 재실행이나 금융 자동 확정 권한을 만들지 않는다.
+사용자는 카카오/Agoda 환불 PR의 실제 해결 여부를 묻고, 첨부 화면의 불필요한 상세 영역·분리된 수입/지출·수입표와 떨어진 총계·디자인 불일치를 개선하도록 요청했다. 현재 작업은 이 화면의 읽기 전용 표시 개선과 환불 상태 진단이며, 과거 미결 목록 전체 재실행이나 금융 자동 확정 권한을 만들지 않는다.
 
-- 구현 에이전트: Paseo `252ea264-97d0-4b86-9d64-c51daaf75987`, 제공 모델 `antigravity/gemini-3.8-flash-high`. 사용자 모델 지시가 기본 무료 후보 순서보다 우선한다. 원문 이미지·고객 자료를 전달하지 않고 화면 구조를 합성 설명으로 전달했다.
-- 소유 파일: `webapp/google_ledger_page.py`, `webapp/ledger_design.py`, 해당 합성 테스트는 위임 에이전트만 작성한다. 주 에이전트는 진단·문서·검토·병합·배포를 맡는다. 기존 사용자 미추적 계획 파일과 stash를 보존한다.
 - 변경 목표: 수입/지출 공통 시각 체계, 표 가까이 붙는 합계와 검증 경고, 불필요한 상세 접기 제거, 지출 중복 헤더 제거. 원본/대조 링크와 동기화 정보는 접근 가능하게 유지한다.
 - 보존 경계: 금액·실거래 행·환불·수동 결정·권한·원본을 변경하지 않는다. 수입 행합계와 시트 집계의 차이/검증 미완료를 숨기지 않는다. Google 수입을 SQLite 수입 행으로 복제하지 않고 허위 회계 확정/차액을 만들지 않는다.
 - 검증: 변경된 수입/장부 렌더링 표적 테스트와 필요한 375px/1280px·라이트/다크 합성 브라우저 검사. 전체 pytest/전체 E2E는 실행하지 않는다. 내용 검토 후 정상 PR 병합·SHA 고정 배포·health/ready·해당 화면 최소 스모크·증거 기록까지 기존 자동 배포 승인을 적용한다.
@@ -25,7 +23,7 @@
 
 ## 실행 상태
 
-- **구현 완료:** Gemini 3.8 Flash High 위임 구현 완료 (`webapp/google_ledger_page.py`, `webapp/ledger_design.py`, `webapp/tests/test_trip_google_income.py`, `webapp/tests/test_trip_google_income_browser.py`).
+- **구현 완료 파일:** (`webapp/google_ledger_page.py`, `webapp/ledger_design.py`, `webapp/tests/test_trip_google_income.py`, `webapp/tests/test_trip_google_income_browser.py`).
   - 상단 요약 바(`#sum`) 수입·지출·차액 통합 렌더링 및 불일치 시 허위 차액 미표시.
   - 지출 테이블 중복 열 헤더(`tbody.colhead`) display:none 처리.
   - 수입 테이블 하단 행 합계 `<tfoot>` 즉시 부착.

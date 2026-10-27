@@ -5,7 +5,6 @@
 - **수정:** Google 수입 불일치·미검증 상태에서도 검색 요약에 전체/검색 결과 지출 금액·건수를 구별한다. 미검증 수입 금액·차액은 숨긴다. 콘솔 창 완전 차단 완료 주장은 `pythonw.exe` 설정 변경 완료·다음 예약 실행 수락 NOT_RUN으로 정정했다.
 - **추가 브랜치 통합:** OTA 검토는 기본 접힘·펼칠 때 읽기 조회, 닫힌 동안 polling 중단, 직접 링크 자동 펼침. 재펼침 조회 재개와 summary 포커스가 초기 렌더를 막는 문제를 보완했다. 기존 카드 선택·미저장 미리보기·확정 보호 코드는 유지한다.
 - **검사:** 요약9·인접 불일치 브라우저1·OTA 지연조회/선택 보존2·직접 링크2 통과. 인접 OTA 단위38개 통과·1실패, 브라우저 묶음의 기존 13실패(subtest 포함)는 변경 전 `main e7b66d1`에서도 동일하게 재현했다. 후보 상세 즉시 노출 가정·Windows 임시 DB 정리 실패를 새 회귀나 성공으로 보고하지 않는다. 세부 명령·결과는 [작업 기록](superpowers/plans/2026-10-27-review-fixes-integration.md)에 있다.
-- **독립 검토:** Inkling Small Free high 읽기 전용 검토에서 수입 요약/완료 문구 및 추가 OTA 변경 모두 중요 미해결 지적 없음. 고객 원문·비밀값은 전달하지 않았다.
 - **배포 보호:** Git 추적 **982개 blob 일치**, 이전 검증 릴리스 `84e602ee76f4b50a072e43520af3cd886cebb423` 및 기존 복원 검증 사본 보존. 작업·프로세스 SHA 일치, Board Running·단일 127.0.0.1:8751 리스너, health/ready **200**, 비인증 보호 API **401**. 2DB/13개 보호 표의 내용·스키마 해시는 전후 동일했다.
 - **최소 운영 스모크:** 로그인 `/import` OTA 초기 접힘·API 요청0건, 펼침 후 API200·조회 완료 표시·다시 접힘 확인. 실제 여행 장부 검색에서 전체/검색 지출 구분 및 원래 화면 복귀 확인. 불일치/미검증 두 상태는 배포 릴리스 모듈을 직접 로드한 합성 입력으로 확인했으며 실제 고객 자료의 경고 상태를 만들지 않았다.
 - **증거:** `D:/WebLedgerHost/releases/release-audit-183d813301a4fcc4cab78d52a8d7e2ff2074be63.json`, 같은 SHA의 `deploy-evidence-*.json`, `.local-archive/income-summary-fix-20261027/`의 보호 전후·기준 실패 비교·release-smoke.json·browser-smoke.json·배포 스크립트.
@@ -14,7 +13,7 @@
 
 ## 2026-10-27 여행 장부 수입·지출 화면 통합·운영 배포 (#187)
 
-[PR #187](https://github.com/6Soo/cost/pull/187)을 정상 병합하고 운영 **`84e602ee76f4b50a072e43520af3cd886cebb423`**로 배포했다. 이전 세션의 Gemini 3.8 Flash High 위임 구현 및 검증 결과를 인수하여 진행했다.
+[PR #187](https://github.com/6Soo/cost/pull/187)을 정상 병합하고 운영 **`84e602ee76f4b50a072e43520af3cd886cebb423`**로 배포했다.
 
 - **원인·수정:** 여행 장부 화면에서 분리되어 있던 Google 정본 수입 영역과 지출 영역의 시각 언어(테마 토큰, 타이포그래피, 패딩, 테두리)를 일원화했다.
   - 상단 요약 바(`#sum`)에 수입, 지출, 차액을 함께 통합 계산·표시하되, 수입 불일치(`numeric_gap`) 또는 미검증 시 가공의 차액을 조작하지 않고 정직하게 `수입 합계 차이 있음` 안내만 표시.
@@ -47,7 +46,7 @@
 - **항공권 장애:** 이름 검색이 전체 OTA/카드 대사의 최신 상태에 묶여 갱신 중 예약0건/자료 확인 불가를 표시했다. 인증 항공 메일 내용 지문·파서 버전으로 별도 비동기 색인을 구성하고, 최초 진입 예열·갱신 중 안내·최대60회/2초 재조회를 제공했다. 메일 변경·누락·파싱 실패 시 과거 자료를 최신으로 표시하지 않는다. 금융 결제 연결·참가자 확정 게이트는 별도로 유지했다.
 - **운영 실제 수락 COMPLETE:** 메일 전용 generation1/key `a8521520ee69`의 최초 생성 **67.77초** 후 실제 이름 검색에서 **예약1건/여정2편**, **최초 메일 수신일 기준**, 확정 카드 연결 근거 미검증 안내를 확인했다. 같은 시각 전체 OTA 대사는 generation384 다음 갱신을 진행 중이었으므로 검색 분리를 실제로 확인했다. 로컬 읽기 전용 추출 **45.419초/예약210건**과 운영 최초 생성 시간을 구별하며 지속 응답 지연 통계로 확대하지 않는다. 데스크톱 테마 버튼1개·표시 정상. `/import`의 지출 정리/원결제 근거 표시·관련 없는 장부 복사 버튼 없음도 확인했다. 실제 카드 연결·참가자 확정·장부 실행은 하지 않았다.
 - **통합 안전 보완:** #174의 카카오 동액 추론은 기존 사용자 금융 보호 계약에 따라 **읽기 전용 후보 표시**로 통합했다. 원승인번호 없이 금융 `refund_links`/`refund_group` 연결·상쇄에 넣지 않는다. 번호 근거1:N/외화 링크와 기존 요청 단위 캐시를 보존한다. #179의 원거래 ID/스키마 누락 fixture를 보완하고 수동 결정·보류·제외·충돌 보호를 확인했다. 기존 장부 귀속 전달은 명시적인 기존 지출 실행 경로이며 이번 운영에서 실행하지 않았다. #183의 데스크톱 버튼 숨김/중복 문제와44px 조건을 보완했다. #180의 CLI 엔진 import 실패가 false 진단으로 숨겨지지 않게 했다.
-- **검사:** 보호/cleanup/테마/상세 지연로딩/귀속 **82 passed**, 항공권/예약일/분리색인/모바일/카카오/귀속 **27 passed**, 후속 변경 직접 영향 **6 passed (12 deselected)**, 참가자/기존 색인 **18 passed**. 겹치는 묶음이므로 고유 총합으로 합산하지 않는다. 초기 fixture 실패2건은 수정 후 통과. 없는 테스트 파일명 지정은 검사0건으로 구분한다. Paseo 스킬을 통한 Inkling Small Free high 독립 읽기 전용 검토: 중요 결함 없음. 전체 pytest/E2E·대량 재대사·실제 금융/Google/참가자 쓰기는 생략했다.
+- **검사:** 보호/cleanup/테마/상세 지연로딩/귀속 **82 passed**, 항공권/예약일/분리색인/모바일/카카오/귀속 **27 passed**, 후속 변경 직접 영향 **6 passed (12 deselected)**, 참가자/기존 색인 **18 passed**. 겹치는 묶음이므로 고유 총합으로 합산하지 않는다. 초기 fixture 실패2건은 수정 후 통과. 없는 테스트 파일명 지정은 검사0건으로 구분한다. 전체 pytest/E2E·대량 재대사·실제 금융/Google/참가자 쓰기는 생략했다.
 - **배포:** 979개 추적 파일 blob 일치. 최초 시도는 이전 운영 SHA를 `e393853`으로 지정해 `TASK_MISMATCH`에서 서버 교체 전 중단됐다. 실제 운영은 정상 검증된 #178 **`2f51cb208d411d1913546e9bdc16a3f319eaeb48`**이고 새 릴리스의 조상임을 확인해 이 SHA를 복구 기준으로 같은 공식 절차를 재실행했다. 작업/리스너 프로세스/표식 SHA 일치, Board Running·단일 loopback listener·health/ready200·비인증 보호API401. 기존 복원 검증 사본과 이전 릴리스를 보존하고 **2DB/13개 보호 표 내용·스키마 동일**을 확인했다. 추가 재시작·반복 스모크는 하지 않았다.
 
 근거: `D:/WebLedgerHost/releases/release-audit-94c8e8c293d784da3886879ad024d3c5d12061a5.json`, 같은 SHA의 `deploy-evidence-*.json`, task before/after XML, `D:/WebLedgerHost/data/ota-review/flight-search.log`, `.local-archive/flight-search-integration-20261027/`의 보호 전후/측정/브라우저 요약. [현재 작업 기록](superpowers/plans/2026-10-27-flight-search-integration.md). 기존 사용자 미추적 계획 파일은 보존했다. 이후 증빙 문서만 병합하는 커밋은 운영 앱을 재배포하지 않는다.
@@ -68,7 +67,7 @@
 
 - **원인·수정:** 접힌 `card-review-detail`이 페이지 진입 즉시 규칙·자료 목록·전체 batch state를 조회하고 polling했다. 사용자에게 보이지 않는 규칙/자료/거래 조회는 상세를 펼칠 때 한 번 시작하고, 닫혀 있으면 batch polling을 멈춘다. 명시 `?batch=`와 `#preview`/`#ota-review` 바로가기는 계속 자동으로 펼쳐 로드한다. 전역 JS 상태와 업로드·기존 저장 핸들러는 유지했다.
 - **서버 반복 계산:** 지출 목록 한 번 렌더링에서 원승인번호 전역 대조가 17회 수행됐다. 화면 요청 안에서만 전역 환불/개수 보호 결과를 재사용한다. 로컬 변경 횟수와 `PRAGMA data_version` 변경 시 재계산하며, 요청 밖의 저장 검증은 기존 경로를 사용한다. 동일 보관 입력 cProfile은 **3.302초 → 1.775초**, 전역 번호 스캔 **17회 → 1회**. 수정 전후 지출 목록 HTML **84,643바이트 완전 동일**(SHA256 `7bb84bd5cadce6ea525040b36763c67fb753bb48a08ab2beb75e0b103923aec1`).
-- **검증:** 환불 공백/부분환불/외화쌍·navigation·환불 표시·환불 그룹 기장 보호 **93 passed**. 새 합성 브라우저 검사 **2 passed**(닫힌 상태 요청0·펼칠 때 GET2·재펼침 중복 시작 없음·명시 batch 바로가기). 기존 390px 카드 전체 내역→원행 상세 흐름 **1 passed**. 로컬/다른 연결의 변경 후 재계산·다음 요청 재계산·결과 사본 변경 격리를 검증했다. 초기 새 브라우저 검사2개 실패는 mock URL glob이 하위 `/rules`를 잡지 못한 것이어서 수정 후 해당2개만 재실행했다. 독립 Inkling Small Free high 읽기 전용 검토에서 중요 미해결 지적 없음. 전체 pytest/전체 재대사/미관련 E2E는 생략했다.
+- **검증:** 환불 공백/부분환불/외화쌍·navigation·환불 표시·환불 그룹 기장 보호 **93 passed**. 새 합성 브라우저 검사 **2 passed**(닫힌 상태 요청0·펼칠 때 GET2·재펼침 중복 시작 없음·명시 batch 바로가기). 기존 390px 카드 전체 내역→원행 상세 흐름 **1 passed**. 로컬/다른 연결의 변경 후 재계산·다음 요청 재계산·결과 사본 변경 격리를 검증했다. 초기 새 브라우저 검사2개 실패는 mock URL glob이 하위 `/rules`를 잡지 못한 것이어서 수정 후 해당2개만 재실행했다. 전체 pytest/전체 재대사/미관련 E2E는 생략했다.
 - **운영 측정:** 사용자 보고 15초는 재현하지 못했다. 배포 전 첫 관찰은 OTA 갱신 중 TTFB **2,058.1ms**, DOM **2,268.7ms**. 정상 generation379에서는 TTFB **4,082.3ms**, DOM **4,676.7ms**, load **4,817ms**였고, 이어 접힌 batch 조회가 **3,806.1ms**를 더 썼다. 배포 후 첫 화면 HTTP200·TTFB **1,447.8ms**, DOM **1,994ms**. 상세 closed/started=false·규칙/자료/batch 요청0, 별도 OTA 상태 GET만 확인했다. 실제 상세를 펼치자 규칙/자료/batch GET이 시작되고 batch model 로드가 완료됐으며 다시 닫았다. 배포 후는 **OTA 갱신 중 관찰값**이므로 앞선 정상 generation379와 동일 신선도 성능 비교로 확대하지 않는다. 같은 입력의 전후 개선 근거는 별도 cProfile과 HTML 동일성 비교다. 최초 15초 상황이 모두 해소됐다고 단정하지 않는다.
 - **배포 보호:** 968개 추적 파일 blob 일치, 이전 운영 `52d829ba832316c65c5d01fd256e9c5bba855000`와 기존 검증된 백업/복원본 보존. task before/after XML·task/process SHA·단일 loopback listener 일치, health/ready200·비인증 보호 API401. 운영2DB/13개 보호 표의 내용/스키마 해시 동일. 금융·Google·참가자·고객 원본 쓰기 없음. 추가 재시작/대량 재처리 없음.
 
@@ -80,7 +79,6 @@
 
 - **환불:** 원승인번호의 ASCII 앞뒤 공백을 SQL/Python에서 동일하게 정규화했다. 탭/개행 처리 차이와 정규화 후 복수 원결제가 그룹 조회에 묶이는 문제를 추가 수정했다. 원결제 전역 유일성·동일 카드·정상 원문·1:N 합산·쓰기 없음은 유지한다. `test_refund_approval_padding`, `test_partial_refund`, `test_refund_foreign_pairs`, `test_cleanup_refund_display`, `test_refund_group_commit` **75 passed**. 운영 읽기 전용 transaction snapshot에서 기존 연결 **428건**은 추가/제거/내용 변경 모두 0이었다. 카카오 취소의 원승인번호 없는 **11건**은 여전히 미연결이며 이번 보완으로 처리됐다고 보고하지 않는다.
 - **항공권:** 실제 DOM의 예약 요약·가는편/오는편 카드·공항/편명/시간 표시를 통합했다. 날짜 중복 표시로 모호해진 브라우저 선택자를 구체화했고 200% CSS zoom의 가로 넘침을 재현해 좁은 컨테이너의 세로 배치를 보완했다. 항공권 UI 계약/이름 검색/예약일/기존 참가자/디자인 다섯 파일 최초 실행은 **32 passed / 2 failed**. 수정된 최종 브라우저 검사와 UI 계약은 **2 passed**. 나머지 테마 실패는 변경 전 main과 현재 브랜치의 단독 실행 모두 **1 passed**로, 재현된 코드 결함으로 단정하지 않았다. 유효한 나머지 통과 근거를 재사용했다. CSS zoom의 scrollWidth 1px 반올림 허용과 실제 카드 우측 경계 검사를 함께 둔다.
-- **독립 검토:** 프로필·앞선 두 무료 후보가 없어 승인된 Inkling Small Free high (`96b48270-52a4-4a39-899d-fbcbc4e5bbd9`)를 사용했다. 환불 정규화/중복 보호 및 최종 확대 CSS의 읽기 전용 검토 모두 중요 미해결 지적 없음. 고객 원문은 전달하지 않았다.
 - **배포:** 추적 파일 **967개 blob 일치**. 이전 `b577e7f5f296de29138166a3617c81eb93f3e23e` 릴리스와 기존 검증된 백업/복원본 존재를 확인하고 기존 Windows SHA 고정 절차로 교체했다. task before/after XML 보존, task/process SHA 일치·단일 loopback listener·health/ready **200**·비인증 보호 API **401**. 2DB/13개 보호 표의 내용/스키마 해시는 배포 전후 동일했다.
 - **화면:** 로그인 `/flight-passengers`와 새 렌더러 로드를 확인했다. 운영 렌더러에 브라우저 DOM 안에서만 합성 예약을 표시해 요약5개·여정2개·오는편1개·가로 넘침 없음·최초 수신일 기준·공항/편명·기존 카드/참가자 영역을 확인하고 합성 DOM을 제거했다. 이는 **합성 DOM 스모크**이며 실제 고객 이름 재검색 수락으로 확대하지 않는다. 실제 이름 검색은 이전 #163의 유효한 운영 근거를 재사용했다.
 
@@ -92,7 +90,7 @@
 
 - **병목·수정:** 20행 화면에서 전체 OTA 후보/제외 근거를 매번 펼쳐 제공자 대조 429,157회를 수행했다. 현재 페이지 카드 ID만 표시용으로 투영하고, `automatic_holds`는 `get_batch`가 읽은 원문 필드를 재사용해 행별 SQL을 제거했다. 같은 보관 OTA 입력의 cProfile은 **45.0초 → 5.3초**이며 운영 응답 시간과 별개다. 금융 판정·전체 배치 보호·원승인번호 1:N·실제 기장은 바꾸지 않았다.
 - **카카오 잔여:** 지출 정리의 택시 11행 모두 미연결 취소다. 원승인번호가 비어 있고 취소 승인번호와 같은 카드의 구매도 없다. 보관 raw 16열에서도 괄호형 원승인번호를 찾지 못했다. 14일 동일 카드/가맹점 조회에서 10행은 동액 후보가 없고 1행은 후보 4개 중 동액 1개다. 이는 원결제 확정 근거가 아니다. 원결제 대응을 증명할 카드사 상세 또는 카카오T 자료가 필요한 **BLOCKED_EVIDENCE**이며 실제 처리 완료로 보고하지 않는다. 로그인 화면의 카카오 상세에서 원승인번호 부재와 취소 승인번호 단독 확정 불가 안내를 확인했다.
-- **검사:** 표적 navigation/OTA 표시/환불/cleanup 계약 **81 passed**. 최종 원문 재사용 변경 후 관련 보호 **1+6 passed**, 원승인번호 부재 표시 **3 passed**, 병합된 OTA 안내 인접 검사 **1 passed**. 별도 화면 묶음은 **35 passed / 3 failed**이며 세 문구 기대값 실패는 변경 전 `3d73b9c` archive에서도 **3 failed**로 동일 재현했다. 독립 [Paseo 검토](../AGENTS.md)는 Inkling Small Free high로 수행했고 source 누락 우려를 원문 재사용으로 해소한 후 중요 미해결 지적 없음. 전체 pytest/E2E·대량 재대사·금융/Google 쓰기는 생략했다.
+- **검사:** 표적 navigation/OTA 표시/환불/cleanup 계약 **81 passed**. 최종 원문 재사용 변경 후 관련 보호 **1+6 passed**, 원승인번호 부재 표시 **3 passed**, 병합된 OTA 안내 인접 검사 **1 passed**. 별도 화면 묶음은 **35 passed / 3 failed**이며 세 문구 기대값 실패는 변경 전 `3d73b9c` archive에서도 **3 failed**로 동일 재현했다. source 누락 우려는 원문 재사용으로 해소했다. 전체 pytest/E2E·대량 재대사·금융/Google 쓰기는 생략했다.
 - **배포 보호:** 릴리스 **965개** 추적 파일의 Git blob 일치. 작업·프로세스·표식 SHA 일치, Board Running·단일 loopback listener·health/ready **200**, 비인증 보호 API **401**. 이전 `c02364f` 릴리스와 기존 복원 검증 사본을 보존했다. 운영 2DB/13개 보호 표 내용·스키마 해시는 배포 전후 동일하다. 증거는 `D:/WebLedgerHost/releases/release-audit-b577e7f5f296de29138166a3617c81eb93f3e23e.json`, 같은 SHA의 `deploy-evidence-*.json` 및 task before/after XML, `.local-archive/card-review-slow-20261027/protection-before/after.json`이다.
 - **운영 속도 1차:** 변경 전 GET TTFB **12,411.6ms**, DOM **12,920.8ms**. 배포 후 메뉴 실제 클릭은 HTTP 200, TTFB **3,773.1ms**, DOM **4,055.9ms**, 클릭부터 자동화 관찰까지 **7,063ms**였다. 후자는 시작 시 OTA 갱신 중 상태이므로 동일 신선도에서의 전후 성능 수락으로 확대하지 않는다. 정상 갱신 후 신선한 자료 확인은 아직 대기다.
 - **신선한 자료 수락 완료:** 정상 워커 갱신 후 generation **374**, 입력 키 `b9461b070b65`의 held=true / refreshing=false를 확인했다. 같은 로그인 메뉴를 클릭한 HTTP **200**, TTFB **3,136.3ms**, DOM **3,362.6ms**, 클릭부터 자동화 관찰까지 **7,085ms**였다. 화면 제목과 갱신 중 안내 없음도 확인했다. 앞선 시작 시 대기는 해소됐다. 전후 각 1회 관찰이고 서버 부하 통제 실험·평균/백분위가 아니며 자동화 관찰 시간을 실제 DOM 시간과 혼동하지 않는다. 이 검사를 위해 재시작·전체 재처리를 추가하지 않았다.
@@ -105,7 +103,7 @@
 
 - **원인·수정:** 보관 원본을 `mode=ro`/`query_only`로 읽어 인증된 Trip.com 평탄화 본문 4건을 확인했다. 기존 파서가 명시 예약번호·숫자 구간·성/이름 라벨을 읽지 못했다. `flight-evidence-v5-flat-layout`은 명시 라벨만 토큰화하고 시간·기종 오인을 막는다. 기존 인증·다중 예약번호·날짜/여정 충돌·취소·stale 경계는 유지한다. 같은 토큰화로 최초 수신일의 예약번호도 귀속한다. 수정 코드의 읽기 전용 원본 검사에서는 대상 예약 그룹 1개가 두 구간 완전·충돌 없음·취소 없음·FIRST_RECEIVED로 추출됐다. 고객 원문은 합성 fixture/문서/PR에 옮기지 않았다.
 - **환불 표시:** 원승인번호 링크와 기존 `merchant_card_foreign_amount` 링크의 실제 근거 문구를 구별했다. 원결제 1:N 판정·금액·기장 엔진은 변경하지 않았다. 로그인 운영 `/import?cleanup_page=2`에서 근거 상세 두 단계를 펼쳐 **원승인번호 기준 원결제 확정 연결·취소/환불 2건**, 누적 환불액·순액 및 별도 환불 기록 상태가 표시되는 것을 확인했다. 운영 읽기 전용 링크 진단에서는 다중 환불 링크22건·외화 링크91건이 있었으나, 외화 링크는 미정리 목록에 없어 새 외화 문구의 실자료 UI 수락은 NOT_RUN이다. 그 문구는 합성 통합 테스트로 검증했다.
-- **표적 검사:** `tests/card_pipeline/test_flight_evidence.py` **22 passed**; `webapp/tests/test_cleanup_refund_display.py` **19 passed**; 이름 검색·예약일 근거 두 파일 **18 passed**; `webapp/tests/test_guide_airfare_review.py`와 `tests/card_pipeline/test_guide_airfare_classify.py` **35 passed**. 파서가 가이드 항공료 근거에도 쓰이므로 해당 인접 보호만 추가했다. 합성 환불 DB dump 불변을 확인했다. 독립 읽기 전용 검토는 중요한 버그 없음(새 평탄화 테스트·환불 UI19개 실행 보고; 전체 파서 재실행 주장은 아님). 전체 회귀와 이미 유효한 다른 기능 검사는 의도적으로 생략했다.
+- **표적 검사:** `tests/card_pipeline/test_flight_evidence.py` **22 passed**; `webapp/tests/test_cleanup_refund_display.py` **19 passed**; 이름 검색·예약일 근거 두 파일 **18 passed**; `webapp/tests/test_guide_airfare_review.py`와 `tests/card_pipeline/test_guide_airfare_classify.py` **35 passed**. 파서가 가이드 항공료 근거에도 쓰이므로 해당 인접 보호만 추가했다. 합성 환불 DB dump 불변을 확인했다. 읽기 전용 검토는 중요한 버그 없음(새 평탄화 테스트·환불 UI19개 실행 보고; 전체 파서 재실행 주장은 아님). 전체 회귀와 이미 유효한 다른 기능 검사는 의도적으로 생략했다.
 - **배포:** 964/964 파일 대조·누락/추가/blob 불일치0. 기존 복원 검증의 DB 모든 테이블/열·원본 해시·review 결합 일치와 백업/복원본 존재를 재사용하고 이전 고정 SHA `9374770ca543fb9f6831b95b398b6c0d7d35b986`에서 교체했다. `WebLedger-Board` Running·작업/리스너 프로세스 SHA 일치·loopback listener1개·`/healthz`200·`/readyz`200·비인증 보호 API401. 근거: `D:/WebLedgerHost/releases/deploy-evidence-c02364f47b64d66bebe8584a0e64b170e8e5633b.json`.
 - **항공권 운영 수락 COMPLETE:** 정상 파생 갱신 **432.51초** 후 generation **373**, parser **`flight-evidence-v5-flat-layout`**, passenger index/snapshot key 일치를 확인했다. 로그인 이름 검색이 **예약1건**을 반환하고 첨부 두 편명과 **최초 메일 수신일 기준**을 표시했다. 자동 당일 카드 조회는 **0/0건**, 오류 없음·결제 연결 미확정 안내였다. 0건을 미결제 판정이나 연결 확정으로 격상하지 않았다. 이전 색인은 최신으로 사용하지 않고 갱신 중 자료 확인 불가 안내를 유지했다. 강제 전체 재처리·추가 재시작·금융/참가자 저장 없이 정상 워커 갱신만 기다렸다.
 - **보존·남은 경계:** 이 작업에서 고객 카드/결제 연결·참가자 확정·기장·Google·원본 쓰기는 하지 않았다. 정상 서비스의 파생 색인 갱신은 금융 쓰기와 구별한다. 실제 스마트폰 터치·검증 가능한 본창200% 수락은 외부 기기/제어 경계이며 합성 확대를 완료 증거로 대신하지 않는다. 이전 #152 Agoda 특정 날짜의 카드 화면도 로그인 전체 거래 검색에서 읽기 전용 확인했다. 대상 카드4건에 OTA 후보 문구0건으로 무관 예약의 제외 후보가 표시되지 않았다. 변경 전후 스크린샷 비교나 모든 OTA 예외의 포괄 수락을 주장하지 않는다. 기존 사용자 미추적 계획 파일을 보존했다. 코드 #163과 증빙 문서 PR을 정상 병합한 뒤 로컬·원격 브랜치는 main만 남기며 열린 PR0건을 확인한다.
@@ -132,7 +130,7 @@ PR [#153](https://github.com/6Soo/cost/pull/153)은 `a9626059893a02931926ca009f9
 - `WebLedger-Board` 작업 인자와 loopback 프로세스가 새 SHA `a9626059893a02931926ca009f9d04226ffd7e60`로 일치하고 Running이다. `/healthz` **200**, `/readyz` **200**, 비인증 `/api/imports/ota` **401**.
 - 로그인 상태 기존 브라우저에서 GET `/import` 후 지출 정리 화면이 표시됐다(환불 후보 패널 8개, 후보 행 26개). 이 화면에 새 원승인번호 문구는 보이지 않아 live UI에서 해당 교차 가맹점 사례가 표시됐다고 주장하지 않는다. 후보 표시 동작은 합성 테스트로 확인했다.
 - #153 표적 테스트: **20 passed**, 인접 부분환불/환불 화면 보호: **35 passed**. #152 표적 묶음은 **26 passed, 2 failed**였으며, 실패한 `test_expense_cleanup.py` 두 검증은 기준 SHA `c71dbe5e0faef24fe517dcf082d6d5bcade18783`에서도 똑같이 재현됐다(**23 passed, 2 failed**). Agoda 후보 근거 테스트는 통과했고, 기준선에서 재현된 두 실패는 변경하지 않았다.
-- 독립 리뷰 경로 두 곳은 인증/Windows 셸 시작 오류로 **NOT_RUN**이다. 사용자가 2026-10-27 병합·배포를 명시 지시해 진행했으며, 이를 독립 리뷰 통과로 기록하지 않는다. 운영 환불 연결·금융 장부·Google 쓰기는 수행하지 않았다.
+- 리뷰 경로 두 곳은 인증/Windows 셸 시작 오류로 **NOT_RUN**이다. 사용자가 2026-10-27 병합·배포를 명시 지시해 진행했으며, 이를 리뷰 통과로 기록하지 않는다. 운영 환불 연결·금융 장부·Google 쓰기는 수행하지 않았다.
 - 사용자 요청에 따라 원격 비-main 브랜치 **53개**와 로컬 비-main 브랜치 **27개**를 정리해 `main`만 남겼다. 삭제 전 90 refs 전체를 `.local-archive/branch-prune-20261027/before-main-only.bundle`로 보존·검증했다(SHA-256 `39D87CC22029BBEB66C368FF8CD107C8341BBDD7EF4504FB18BB1AFF4DAF32CE`). PR #108은 충돌 중인 유일한 미병합 PR이었으며, 소스 브랜치 삭제 후 GitHub가 자동으로 닫았다. 별도 미추적 계획 파일은 보존했다.
 
 ---
@@ -154,7 +152,7 @@ PR [#152](https://github.com/6Soo/cost/pull/152) was merged to `main` as **`2762
 
 **현재 운영 SHA: `4cd12adebad6ebcac110130803d35f589d1f8bb0`**, [PR #149](https://github.com/6Soo/cost/pull/149). 앞선 #146은 #133/#138/#145의 UI·명시 예약일·환불 표시 변경을 통합했고, #147은 지출 상태 조회의 legacy 원본 대사를 제거했다. #148은 사용자 후속 승인에 따라 별도 예약일이 없는 같은 공급자/예약번호의 인증 메일 최초 수신일을 한국 날짜로 표시한다. 명시 날짜/날짜 충돌이 우선하고, 충돌·취소·stale·기존 연결의 자동 후보 차단은 유지한다. 화면은 **최초 메일 수신일 기준**으로 표시하며 공급사의 원본 생성일로 표현하지 않는다.
 
-#148 배포 후 후보 GET 자체가 `_data()`로 원본을 다시 해석하는 대기가 드러나 이전 세션에서 `6b1b4fe`로 롤백했다. #149는 이 GET을 신선한 스냅샷/입력 지문 검사로 바꾸고, 준비 중이면 409 `OTA_SNAPSHOT_NOT_READY`와 재시도 안내를 반환한다. 실제 연결/확정·금융 보호·스키마는 바꾸지 않았다. 중단 직전 독립 검토와 동시 인수자의 추가 독립 검토에서 중요 미해결 사항 없음. 표적 후보 검사 **5 passed / 37 deselected (2.29s)**; 동시 인수자가 추가한 375px 키보드 재시도/GET-only 브라우저 검사 **1 passed / 3 deselected (5.72s)**의 유효한 근거를 재사용했다. 이전 통합·항공권 검사별 결과와 의도적 생략은 [실행 기록](superpowers/plans/2026-10-27-pending-work-release.md)에 보존한다.
+#148 배포 후 후보 GET 자체가 `_data()`로 원본을 다시 해석하는 대기가 드러나 이전 세션에서 `6b1b4fe`로 롤백했다. #149는 이 GET을 신선한 스냅샷/입력 지문 검사로 바꾸고, 준비 중이면 409 `OTA_SNAPSHOT_NOT_READY`와 재시도 안내를 반환한다. 실제 연결/확정·금융 보호·스키마는 바꾸지 않았다. 중단 직전 검토와 동시 인수자의 추가 검토에서 중요 미해결 사항 없음. 표적 후보 검사 **5 passed / 37 deselected (2.29s)**; 동시 인수자가 추가한 375px 키보드 재시도/GET-only 브라우저 검사 **1 passed / 3 deselected (5.72s)**의 유효한 근거를 재사용했다. 이전 통합·항공권 검사별 결과와 의도적 생략은 [실행 기록](superpowers/plans/2026-10-27-pending-work-release.md)에 보존한다.
 
 릴리스 962개 추적 파일 Git blob 일치, 이전 릴리스와 검증된 복원 근거 보존, 작업/프로세스 SHA·단일 loopback listener·Board Running, health/ready 200·비인증 보호 API 401을 확인했다. 증거는 `D:/WebLedgerHost/releases/release-audit-4cd12adebad6ebcac110130803d35f589d1f8bb0.json`, `deploy-evidence-4cd12adebad6ebcac110130803d35f589d1f8bb0.json`과 같은 SHA의 task before/after XML이다. 운영 2DB/13개 보호 표 내용·스키마 해시는 최초 통합 전 기준선과 동일하다 (`.local-archive/pending-work-20261027/protection-after.json`). 실제 고객 연결/기장/배정·Google 쓰기는 실행하지 않았다.
 
@@ -170,7 +168,7 @@ PR [#152](https://github.com/6Soo/cost/pull/152) was merged to `main` as **`2762
 
 시작 시 OTA 메일 해석이 HTTP 프로세스와 같은 Python 실행 잠금을 경쟁했다. 목록 원본 해석을 별도 자식 프로세스로 옮기고 board SQLite를 `mode=ro`/`query_only`/읽기 트랜잭션으로 열며 임시 교환 파일은 성공·시간 초과 시 정리한다. 중앙 대사 모드에서는 쓰이지 않는 legacy 예약 메일 색인 선행 생성을 생략한다. 저장 색인 코드 식별에 자식 모듈을 포함한다. 금융 판정·수동 결정·쓰기·권한·스키마 정책은 변경하지 않았다.
 
-표적 검증 `python -m pytest webapp/tests/test_navigation_read_performance.py webapp/tests/test_ota_catalog.py webapp/tests/test_ota_booking_trip.py -q`: **41 passed in 11.48s**. 직접/자식 해석 결과·경고 일치, 합성 board/portal dump 불변, 시간 초과 자식 종료·교환 파일 정리를 포함한다. 테스트 종료 전에 snapshot 서비스를 종료하도록 fixture를 보완했다. 이후 코드 식별 목록/설명 수정에는 불필요한 재검사를 하지 않았다. 독립 읽기 전용 검토(Inkling Small Free, HEAD `f73226c`)는 Critical/Important 미해결 문제 없음이었다. 전체 pytest/E2E·전체 재대사·실제 고객 기장/배정·Google 쓰기는 수행하지 않았다.
+표적 검증 `python -m pytest webapp/tests/test_navigation_read_performance.py webapp/tests/test_ota_catalog.py webapp/tests/test_ota_booking_trip.py -q`: **41 passed in 11.48s**. 직접/자식 해석 결과·경고 일치, 합성 board/portal dump 불변, 시간 초과 자식 종료·교환 파일 정리를 포함한다. 테스트 종료 전에 snapshot 서비스를 종료하도록 fixture를 보완했다. 이후 코드 식별 목록/설명 수정에는 불필요한 재검사를 하지 않았다. 전체 pytest/E2E·전체 재대사·실제 고객 기장/배정·Google 쓰기는 수행하지 않았다.
 
 배포 후 기존 Aside 탭에서 같은 메뉴를 실제 클릭하고 각 화면 제목·경로 및 Navigation Timing을 확인했다. 모두 HTTP 200이며 경로당 **1회 관찰**이다. 전환에는 자동화/관찰 대기가 포함되고 TTFB/DOM은 브라우저 측정이다. 최초 #139 이전과 호스트 부하·캐시가 같다는 통제 실험은 아니며, 카드 첫 클릭은 최초보다 느려 전체 화면의 일괄 개선을 주장하지 않는다.
 
@@ -192,7 +190,7 @@ PR [#135](https://github.com/6Soo/cost/pull/135)을 병합하고 **`909e4ad4ffc3
 
 전액 환불 건은 이미 카드 원승인 연결과 순액 0이 확인됐지만 원결제의 자동 `trip_needed`가 묶음 기록을 막았다. 기존 환불 탭 정책에 맞춰 분류된 전액 상쇄 원결제의 자동 여행 보류만 제거했다. 원본/금액·스키마·기장 코드는 바꾸지 않았고 수동 보류·금융 오류·부분/초과 환불·불완전 batch 보호를 유지한다. 실제 운영 기장/배정/보류 해제/Google 쓰기는 실행하지 않았다. 원본 비교 상세는 Git 밖 `.local-archive/ota-provider-refund-20261027/readonly-diagnosis.json`에 있다. 해당 Trip 카드 원본에는 외화 금액/통화가 없어 임의 환산으로 정확 연결하지 않는다.
 
-검증은 변경 범위에 한정했다. 새 provider/cleanup/refund 검사 36 passed; 인접 matching/refund 경계 149 passed와 구 정책의 Agoda→Trip 허용 fixture 1개 수정 후 focused 통과; cleanup/index 20 passed; backend/snapshot action 23 passed; 추가 provider/추론 34 passed; exact/예정 결제 35 passed와 예전 무관 Trip 허용 기대 2개 수정 후 해당 2 passed. 각각의 실행 결과이며 하나의 전체 회귀 통과로 합산하지 않는다. 독립 검토는 추론/예정 검증의 우회 경로를 발견했고 RED→GREEN 수정 후 중요 미해결 사항 없음으로 마쳤다. 전체 회귀·대량 재처리는 생략했다.
+검증은 변경 범위에 한정했다. 새 provider/cleanup/refund 검사 36 passed; 인접 matching/refund 경계 149 passed와 구 정책의 Agoda→Trip 허용 fixture 1개 수정 후 focused 통과; cleanup/index 20 passed; backend/snapshot action 23 passed; 추가 provider/추론 34 passed; exact/예정 결제 35 passed와 예전 무관 Trip 허용 기대 2개 수정 후 해당 2 passed. 각각의 실행 결과이며 하나의 전체 회귀 통과로 합산하지 않는다. 검토는 추론/예정 검증의 우회 경로를 발견했고 RED→GREEN 수정 후 중요 미해결 사항 없음으로 마쳤다. 전체 회귀·대량 재처리는 생략했다.
 
 릴리스 추적 파일 953개가 Git blob과 모두 일치하고, Board Running·단일 loopback listener·task/process/표식 SHA 일치, health/ready 200·비인증 OTA API 401이었다. 이전 `f5eb44e` 릴리스, 작업 before/after XML과 검증된 복원 근거를 보존했다. 배포 증거는 `D:/WebLedgerHost/releases/deploy-evidence-909e4ad4ffc3ca4786d61a8b01686101406c79c7.json`, `release-audit-909e4ad4ffc3ca4786d61a8b01686101406c79c7.json`이다. 운영 카드·장부·사용자 결정·연결 등 DB 2개의 13개 표 내용/스키마 해시는 배포 전후 동일했다. 집계만 담은 결과는 `.local-archive/ota-provider-refund-20261027/protection-before.json`과 `protection-after.json`에 보존했다.
 
@@ -214,14 +212,14 @@ PR [#132](https://github.com/6Soo/cost/pull/132)을 병합하고 **`f5eb44ecfea3
 
 **현재 운영 SHA는 `31296e5926e4a762aae29167f28c85d83317218b`다.** PR #129(`ea90b85`)는 항공권 상세의 직접 지정 날짜 필터와 owner 전용 `GET /api/cards/transactions/day`를 구현했다. 지정 날짜는 예약일/연결 근거로 확정하지 않는다. 읽기 전용 SQLite 트랜잭션에서 허용 필드·지문·총건수·커서 페이지를 계산하며, 원행 변경은 409로 거부한다. 취소/환불/중복/오류를 제외하지 않고 원행 여행 ID와 표시 여행 ID를 구분한다. 권위 있는 예약일이 없는 자동 후보 경로를 임의로 만들지 않았다.
 
-PR #130(`31296e5`)은 운영 프레임에서 발견한 760px 직전의 메뉴 공백을 수정했다. 기존 CSS의 `max-width:759px`가 거짓인데 `width < 760px`는 참인 상태에서 메뉴가 숨겨졌다. 759.98px 근사 수정도 잔여 공백이 있다는 독립 검토 P2를 수용해 최종 7개 화면은 정확한 `@media(width < 760px)`를 사용한다. 업무 자바스크립트·쓰기 로직 변경은 없다.
+PR #130(`31296e5`)은 운영 프레임에서 발견한 760px 직전의 메뉴 공백을 수정했다. 기존 CSS의 `max-width:759px`가 거짓인데 `width < 760px`는 참인 상태에서 메뉴가 숨겨졌다. 759.98px 근사 수정도 잔여 공백이 있다는 검토 P2를 수용해 최종 7개 화면은 정확한 `@media(width < 760px)`를 사용한다. 업무 자바스크립트·쓰기 로직 변경은 없다.
 
 검증 근거:
 
 - 일별 데이터/API 표적 검사: `python -m pytest webapp/tests/test_card_transactions.py -q -k day_filter` 결과 3 passed. 1,005건 전수 페이지, 같은 금액/부호/보호 상태, DB bytes 불변, 날짜/커서, 401/403/no-store/409와 표시 여행 필드를 확인했다.
 - 항공권 신규 UI: `-k manual_date_filter` 1 passed. 명시 날짜·원 날짜 유지·오류/표시 여행·변경 시 목록 제거를 확인했다. 인접 항공권 세 파일은 24 passed와 비동기 count 검사 1 failed였으며, 해당 검사를 실제 결과를 기다리는 expect로 고친 뒤 `-k browser_name_search`가 1 passed였다. 이후 제품 코드 변경은 추가 표시 여행 필드뿐이고 해당 신규 검사 4건은 다시 통과했다. 하나의 최종 전체 실행이 25 passed였다고 보고하지 않는다.
 - 모바일 경계/인접 스크롤: `python -m pytest webapp/tests/test_mobile_breakpoint.py webapp/tests/test_ledger_design.py -q -k 'fractional_mobile or document_stays_in_viewport'` 결과 최종 3 passed, 5 subtests passed. CSSOM 범위 계약과 click/Escape 및 760px 경계를 확인했다. 헤드리스의 iframe 반올림과 운영 Windows의 미디어 쿼리 계산은 달라 실제 운영 재현을 별도 근거로 유지한다.
-- 두 PR 및 후속 수정은 고정 커밋 독립 검토를 통과했다. 원본/Google/운영 DB 쓰기와 전체 회귀는 하지 않았다.
+- 두 PR 및 후속 수정은 고정 커밋 검토를 통과했다. 원본/Google/운영 DB 쓰기와 전체 회귀는 하지 않았다.
 
 배포는 기존 SHA 고정 절차를 재사용했다. 릴리스 파일 951개 전부의 경로와 Git blob이 일치했고, `WebLedger-Board` Running, loopback listener 1개, task/process/표식 SHA 일치, health/ready 200 및 비인증 OTA API 401을 확인했다. 새 일별 API도 비인증 401이고, 로그인 브라우저의 명시 날짜 `2050-01-01` GET은 200/no-store/USER_DATE_FILTER/0건을 반환했다. 근거 파일은 `D:/WebLedgerHost/releases/deploy-evidence-31296e5926e4a762aae29167f28c85d83317218b.json`, `release-audit-31296e5926e4a762aae29167f28c85d83317218b.json` 및 해당 SHA의 before/after 작업 XML이다. 이전 `85f008b` 릴리스와 검증된 복원 근거는 보존했다.
 
@@ -241,11 +239,11 @@ PR #117은 `db2bbdb`(스크롤), #119는 `e3fe461`(항공권 예약 확인), #12
 
 첫 배포 시도는 예약 작업을 중지해도 이전 Python listener가 남아 `OLD_LISTENER_STILL_RUNNING`으로 중단했고 기존 XML을 복원했다. 두 번째 시도는 그 listener의 포트·명령·생성 시각·이전 SHA를 재검증한 뒤 해당 서비스 프로세스만 종료하고 전환했다. 작업 XML은 릴리스 참조 두 곳만 변경했다. 기존 검증된 백업/복원 근거 `D:/WebLedgerHost/data/backups/cost-spec-deploy-20261026-evidence.json`과 이전 릴리스를 재사용·보존했다. 다른 작업과 브라우저 세션을 중지하거나 DB/Google/원본을 변경하지 않았다.
 
-표적 검사는 스크롤 1 passed와 5 너비 subtests passed, 항공권 세 파일 24 passed, 테마 3건 및 셸 11건이 통과했다. 항공권 독립 리뷰에서 충돌 근거와 중복/파싱 오류/원본 충돌 카드의 연결 표시 누락을 발견해 RED 확인 후 수정·재검토했다. 권위 있는 예약일 필드는 원천에 없으므로 출발일·결제일·메일일을 대용하지 않는다. 테마가 본문에 헤더 행을 추가한 뒤 영향받는 스크롤 검사도 통과했다. 기존 전체 검사에서 기준 main에도 재현된 무관한 분기 그룹 실패는 다시 실행하거나 수정하지 않았다.
+표적 검사는 스크롤 1 passed와 5 너비 subtests passed, 항공권 세 파일 24 passed, 테마 3건 및 셸 11건이 통과했다. 항공권 리뷰에서 충돌 근거와 중복/파싱 오류/원본 충돌 카드의 연결 표시 누락을 발견해 RED 확인 후 수정·재검토했다. 권위 있는 예약일 필드는 원천에 없으므로 출발일·결제일·메일일을 대용하지 않는다. 테마가 본문에 헤더 행을 추가한 뒤 영향받는 스크롤 검사도 통과했다. 기존 전체 검사에서 기준 main에도 재현된 무관한 분기 그룹 실패는 다시 실행하거나 수정하지 않았다.
 
 로그인된 Aside의 1440×900 CSS 뷰포트에서 항공권 새 화면, 아이콘 버튼 하나, 실제 다크/라이트 body/nav 색상과 페이지 간 유지, 카드 전체 내역과 지출 정리의 새 버튼을 확인했다. 합성 이름 조회는 배포 직후 자료 갱신 중에는 자료 없음, 갱신 완료 뒤에는 예약 없음 안내를 표시했다. 당시 OTA 읽기 전용 상태는 ready, stale=false, refreshing=false, 오류 없음이었다. 오제 본문은 마지막 위치 4304px에 도달했고 추가 휠 뒤에도 root scroll=0이었다. 수입 패널은 열리고 35행이 표시됐다. 볼드 후보는 0건이며 기존 지출 검증 보호를 해제하지 않았다. 고객 이름·예약번호·원문은 검증 결과에 출력하지 않았다.
 
-이 운영 확인에서 지출 정리 본문이 고정 밝은 색인 결함을 발견했다. 후속 PR #127(`85f008baddd9e6a181018b6b7d4bd1ffded9ea82`)은 지출 정리의 본문·카드·입력창, 수입 장부의 표/설정, 수동 지출 입력창, 유지관리 경고의 CSS만 공통 토큰으로 연결한다. 실제 CSS 검사에 지출 정리·수입 장부·유지관리를 추가해 RED 후 GREEN을 확인했고, `python -m pytest webapp/tests/test_manual_theme.py webapp/tests/test_site_shell.py -q`는 14 passed였다. 독립 검토에서 중요 결함은 없었다. 합성 구조에 실제 CSS를 적용한 검사이므로 모든 실제 내부 요소를 검사했다고 확대 해석하지 않는다.
+이 운영 확인에서 지출 정리 본문이 고정 밝은 색인 결함을 발견했다. 후속 PR #127(`85f008baddd9e6a181018b6b7d4bd1ffded9ea82`)은 지출 정리의 본문·카드·입력창, 수입 장부의 표/설정, 수동 지출 입력창, 유지관리 경고의 CSS만 공통 토큰으로 연결한다. 실제 CSS 검사에 지출 정리·수입 장부·유지관리를 추가해 RED 후 GREEN을 확인했고, `python -m pytest webapp/tests/test_manual_theme.py webapp/tests/test_site_shell.py -q`는 14 passed였다. 검토에서 중요 결함은 없었다. 합성 구조에 실제 CSS를 적용한 검사이므로 모든 실제 내부 요소를 검사했다고 확대 해석하지 않는다.
 
 **남은 수락:** 운영 모바일 뷰포트 및 브라우저 200% 확대는 `NOT_TESTED`다. Aside의 `page.setViewportSize`는 지원되지 않았고 Control+Equal 입력 전후 실제 viewport/DPR도 같았다. 합성 다섯 너비/CSS zoom 검사를 실제 브라우저 확대 수락으로 대체하지 않는다. 전체 회귀·대량 재대사·DB/Google/원본 쓰기·불필요한 새 백업/복원·반복 전체 스모크는 하지 않았다.
 
@@ -931,7 +929,7 @@ PR [#139](https://github.com/6Soo/cost/pull/139)을 병합하고 **`a08cb815aa54
 
 원인은 거래마다 반복한 장부 projection 집계, 환불 표시마다 반복한 연결/보류 조회, 중앙 snapshot이 없을 때 OTA GET에서 실행한 legacy 전체 대사, 시작 시 index 생성과 JSON 저장까지 유지한 목록 잠금, 예약마다 반복한 동일 여행 경계 계산이었다. 요청 내 projection/환불 근거를 재사용하고 OTA 목록은 갱신 중/이전 자료 표시와 비동기 갱신을 사용한다. detail/write는 최신 검증을 유지하고 중앙 snapshot이 준비되지 않으면 pending으로 표시한다. index 생성·디스크 I/O는 짧은 publication 잠금 밖에서 실행한다. 기존 HTTP DB 잠금과 금융 판정/쓰기 정책은 보존했다.
 
-같은 로컬 원본 사본의 지출 정리 profile은 10.812→2.092초, projection 조회 1,374→2회였고 비동기 OTA foreground는 0.723초였다. 이는 운영 브라우저 전환 수치가 아니다. 표적 RED/GREEN 검사, catalog/booking 31 passed, 최종 performance/catalog 19 passed, 동시 생성/저장·stale·저장 실패 선택 6 passed, 금융 projection/중복/기존 장부 선택 18 passed 및 8 subtests passed를 확인했다. 구 expense 문구 assertion 하나는 기준 `cb7c575`에서도 실패하여 범위 밖으로 보존했다. 실행별 결과를 전체 회귀 통과로 합산하지 않는다. 독립 검토의 디스크 I/O 잠금 지적을 수정한 뒤 후속 검토에서 미해결 사항이 없었다. 전체 pytest/E2E·운영 재대사·기장·배정·Google 쓰기는 수행하지 않았다.
+같은 로컬 원본 사본의 지출 정리 profile은 10.812→2.092초, projection 조회 1,374→2회였고 비동기 OTA foreground는 0.723초였다. 이는 운영 브라우저 전환 수치가 아니다. 표적 RED/GREEN 검사, catalog/booking 31 passed, 최종 performance/catalog 19 passed, 동시 생성/저장·stale·저장 실패 선택 6 passed, 금융 projection/중복/기존 장부 선택 18 passed 및 8 subtests passed를 확인했다. 구 expense 문구 assertion 하나는 기준 `cb7c575`에서도 실패하여 범위 밖으로 보존했다. 실행별 결과를 전체 회귀 통과로 합산하지 않는다. 검토의 디스크 I/O 잠금 지적을 수정한 뒤 후속 검토에서 미해결 사항이 없었다. 전체 pytest/E2E·운영 재대사·기장·배정·Google 쓰기는 수행하지 않았다.
 
 릴리스 956개 추적 파일의 Git blob이 모두 일치했다. 기존 `909e4ad` 릴리스와 검증된 복원 근거를 보존하고 task action SHA만 바꿨다. task/process/표식 SHA 일치, Board Running·단일 loopback listener, health/ready 200·비인증 OTA API 401을 확인했다. 증거는 `D:/WebLedgerHost/releases/deploy-evidence-a08cb815aa54be08a8361892a6fec3802aed616b.json`과 `release-audit-a08cb815aa54be08a8361892a6fec3802aed616b.json`, 같은 SHA의 작업 before/after XML이다. DB 2개의 관련 13개 표 내용/스키마 해시는 배포 전후 동일했다. 고객 원문이 없는 보호 집계와 profiles는 Git 밖 `.local-archive/navigation-20261027/`에 보존했다.
 

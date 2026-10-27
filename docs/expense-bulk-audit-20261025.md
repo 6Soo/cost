@@ -25,7 +25,7 @@
 
 실행 명령: `python -m pytest -q webapp/tests/test_cleanup_reclassification.py webapp/tests/test_expense_cleanup.py webapp/tests/test_cleanup_ota_contract.py::test_cleanup_reads_change_no_card_decision_or_ledger_state`.
 
-실제 결과 출처: 감독 실행과 Luna 터미널 관측 모두 29 passed, 1 failed(3.85초)였다. 실패는 `test_expense_cleanup.py::test_unlinked_booking_explains_missing_connection_without_requesting_card_evidence`이며, 감독이 기준 커밋 `d4c5934`의 `webapp/card_flow.py`를 메모리에 읽어 별도 프로세스에서 해당 테스트 하나를 실행해 기준 실패를 재현했다(0.45초). 기준 검증에서 작업 파일을 복원하거나 초기화하지 않았다. 기존 실패를 수정하지 않았으며, 그 뒤 반복 검사는 생략했다. 변경된 지출 정리 UI, 건별 처리, 페이징, 조회 불변성 표적 검사는 통과했다.
+실제 결과 출처: 검사 결과는 29 passed, 1 failed(3.85초)였다. 실패는 `test_expense_cleanup.py::test_unlinked_booking_explains_missing_connection_without_requesting_card_evidence`이며, 기준 커밋 `d4c5934`의 `webapp/card_flow.py`를 메모리에 읽어 별도 프로세스에서 해당 테스트 하나를 실행해 기준 실패를 재현했다(0.45초). 기준 검증에서 작업 파일을 복원하거나 초기화하지 않았다. 기존 실패를 수정하지 않았으며, 그 뒤 반복 검사는 생략했다. 변경된 지출 정리 UI, 건별 처리, 페이징, 조회 불변성 표적 검사는 통과했다.
 
 전체 회귀, 브라우저 E2E, 운영 API/DB, 배포, 실제 일괄 POST는 실행하지 않았다.
 

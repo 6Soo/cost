@@ -20,7 +20,7 @@
 | [ota-matching-terms.md](ota-matching-terms.md) | 결제일 exact gate·날짜 규칙 | 구형 규칙 |
 | [ota-matching-rule-defaults.md](ota-matching-rule-defaults.md) | 업체별 매칭 defaults 제안·계약 | 구형 설계/역사 |
 | [ota_mail.md](ota_mail.md) | OTA 메일 조사·검증 진행 기록 | 과거 실행 |
-| [autonomous-implementation-playbook.md](autonomous-implementation-playbook.md) | 예전 멀티에이전트 작업 지시 | 실행 금지/역사 |
+| [autonomous-implementation-playbook.md](autonomous-implementation-playbook.md) | 예전 구현 작업 지시 | 실행 금지/역사 |
 | [autonomous-cycle-checkpoint.md](autonomous-cycle-checkpoint.md) | 이전 에이전트 누적 체크포인트 | 실행 금지/역사 |
 | [architecture.md](architecture.md) | 구형 패키지/정본 설명 | 구형 구조 |
 | [session_handoff.md](session_handoff.md) | 정리 이전 누적 인계 | 과거 이력 |

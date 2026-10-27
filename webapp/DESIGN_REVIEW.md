@@ -41,10 +41,6 @@ card_flow.py는 카드 업로드, 기존 규칙 분류, 질문 답변, 규칙 �
 
 1440×900, 1920×1080, 390×844에서 합성 자료로 실제 브라우저 화면을 캡처하고 직접 확인했다. 모두 가로 넘침이 없었고 편집 패널의 저장 버튼이 화면 안에 있었다. 카드 질문 25개 중 한 페이지 20개를 유지하며 첫 질문만 펼쳐 표시했고, 접힌 질문도 펼쳐 수정할 수 있었다. 이미지와 측정 결과는 `C:/AX/cost-ui-work/20261005/visual`에 보존했다.
 
-## 위임과 통합
-
-PC 테이블과 상세 패널·거래 전환, 모바일 요약 목록·카드 검토·홈 화면을 구현했다. 코드와 합성 자료만 담은 별도 사본에서 병렬 구현했고 같은 파일의 작업 범위를 나눴다. GPT-5.6 Sol High Web은 기존 HTML·CSS 유지, 고정 원문 접기, 현재 값으로 상태 표시, 카드 검토와 장부 저장 책임 유지라는 설계 판단을 검토했다. 총괄은 두 결과를 직접 비교·통합하고 통신 실패 보호, 날짜 잘림, 수기 지출 버튼 접근성과 테스트 정리 문제를 보완했다.
-
 ## 운영 반영
 
 2026-10-05 운영 복구 사본과 별도 복원 검증을 마친 뒤 기존 서버 재시작 절차로 반영했다. 마지막 화면 정리까지 반영한 복구 사본은 `D:/WebLedgerHost/data/backups/operational-20261005T045848742545Z`다. 모든 DB 테이블과 열·원행, 원본 파일 해시와 복원된 입력 연결이 일치했다. 로컬 상태·준비 응답과 공개 서버 상태 응답은 모두 200이었다.
@@ -92,7 +88,7 @@ UI 1차 안정화 완료 — 동결. 모바일 수기 지출 진입, 편집 foot
 
 코드와 합성 자료만 담은 별도 사본에서 작업하고 경계 검사와 모바일 브라우저 검사를 수행했다. 제품 diff와 합성 검사 결과를 검토했다.
 
-직접 실행 증거는 `C:/AX/cost-ui-work/20261005-stabilize/`에 보존했다. `baseline-geometry.json`은 변경 전 모바일 링크 부재와 힌트 측정이며, `final-geometry-confirmed/results.json`은 통합 코드의 열 가지 화면 크기 결과다. `visual/`에는 합성 화면 캡처가 있다. 운영 원본이나 비밀값은 위임 자료에 포함하지 않았다.
+직접 실행 증거는 `C:/AX/cost-ui-work/20261005-stabilize/`에 보존했다. `baseline-geometry.json`은 변경 전 모바일 링크 부재와 힌트 측정이며, `final-geometry-confirmed/results.json`은 통합 코드의 열 가지 화면 크기 결과다. `visual/`에는 합성 화면 캡처가 있다.
 
 최종 실행 결과는 `final-related-ui.log`, `store-card-corrected.log`, `final-breakpoints-confirmed.log`, `final-full-regression.log`에 보존했다. 기존 시작 실패는 `baseline-startup.log`, 변경 전 넓은 검사 결과는 `full-web-baseline.log`, 추가 실패의 개별 재현은 `extra-baseline-isolated.log`로 대조할 수 있다. sqlite 연결 ResourceWarning도 출력됐으며 원인 조사는 이번 범위에서 수행하지 않았다.
 

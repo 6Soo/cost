@@ -13,7 +13,6 @@
 - `test_ota_payment_review.py`: **38 passed, 1 failed**. 실패는 Windows 임시 DB 정리 잠금이며 기준 main의 해당 검사에서도 **1 failed**로 재현했다.
 - `test_ota_payment_review_browser.py`: **5 passed, 10 failed**(subtest 포함). 기준 main은 **3 passed, 동일 10 failed**. 추가 통과2개는 새 지연조회 검사다. 실패는 기존 후보 상세의 즉시 노출 가정 및 임시 DB 정리 문제이며 수정 범위로 확대하지 않았다.
 - `test_ota_preview_race_browser.py` + `test_ota_matching_defaults_browser.py`: **2 passed, 3 failed**; 기준 main도 **2 passed, 동일 3 failed**. 기존 접힌 예약 근거의 가시성 기대에서 실패한다. 이번 지연조회 동작에 맞춰 테스트의 최상위 OTA 영역만 명시적으로 연다.
-- 독립 검토: Paseo `d962e5f6-865e-41a6-bfb8-77cb1d0dccc1`, Inkling Small Free high, 읽기 전용. 수입 요약·완료 문구 및 추가 OTA 변경 모두 중요 미해결 지적 없음. 프로필0개·앞선 승인 모델 부재로 해당 승인 후보 사용.
 
 ## 실행 상태
 
