@@ -58,6 +58,13 @@
 - 브랜치 `docs/rf002-ota-release-and-adoption-20261028`. 같은 local workspace의 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`（Luna low）가 `docs/specs/refactor-master-20261027.md`만 수정한다. 가장 작은 실제 읽기 소비경계·입출력 shape·caller/authority/freshness·복사비용·합성 동등성 검사 범위를 소스 근거로 좁힌다.
 - **COMPLETE（소스 조사）** — 실제 caller의 freshness gate와 helper의 좁은 입력 shape를 대조했다. 전체 DTO freeze/thaw는 전량 복사를 늘리므로 채택하지 않는다. 다음 구현은 `project_card_ota_statuses` 실행 본문을 유지하고 필요한 필드를 별도 `TypedDict` 정적 읽기 계약으로 선언·입력 annotation에 연결하는 최소 범위다. 기존 금융/여행/Google 쓰기 authority는 그대로 유지한다. 이 문서전용 검수는 diff/참조/링크만 확인하며 테스트·빌드·브라우저·운영 재검사는 하지 않았다.
 
+### 진행 중인 RF-002 OTA 상태 조회의 정적 읽기 계약
+
+- PR #218 문서 병합 후 브랜치 `refactor/rf002-ota-status-read-contract-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/ota_status_read_contract.py`, 기존 `app/ota_core_projection.py`만 작성한다.
+- helper가 읽는 필드의 `TypedDict`와 입력 annotation만 연결하고 상태 계산 본문·순서·원본 identity·caller freshness는 유지한다. wrapper/factory·복사·원문변환·새 정책/쓰기 경로를 추가하지 않는다. 타입 선언은 runtime 검증/불변 snapshot을 제공하지 않는다.
+- **IN_PROGRESS / NOT_VERIFIED** — 기존 projection/golden/canonical 표적 검사, docstring 제외 실행 AST 동등성과 한 번의 합성 elapsed/peak 비교로 확인한다. implementation을 그대로 반복하는 신규 테스트는 만들지 않는다. 완료 알림 후 두 소유 파일 diff와 실제 근거를 검수한다. 운영은 `361d012`로 유지한다.
+- **TEST_PASSED / REVIEWED** — TypedDict 필드/nullable·iterable 범위와 helper diff 검수를 완료했다. 실행 본문 AST는 기준과 같고 표적3파일28 passed·compile/diff 통과. 합성1000결과+1000후보의 출력 동일; 30회 중앙값 baseline0.052944s/변경0.053033s, peak156,994/156,946B. 제품 지연 개선 근거가 아니며 wrapper/복사/정책 변화가 없다. 다음은 검수 코드의 PR/고정 배포·영향 스모크다. 이전 대기는 종료했다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.

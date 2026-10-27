@@ -41,14 +41,16 @@ def project_canonical_candidate_period_assignments(
 # OTA 상태/사유 라벨은 ota_payment_review와 동일하게 유지한다.
 from app.ota_labels import OTA_STATUS as _OTA_STATUS
 from app.ota_labels import OTA_REASON as _OTA_REASON
+from app.ota_status_read_contract import OtaStatusSnapshotRead
 
 
-def project_card_ota_statuses(current: Optional[Dict[str, Any]]) -> Tuple[Dict[str, str], Optional[int], Dict[str, Any]]:
-    """Pure helper: extract OTA link statuses from a fresh canonical snapshot.
+def project_card_ota_statuses(current: Optional[OtaStatusSnapshotRead]) -> Tuple[Dict[str, str], Optional[int], Dict[str, Any]]:
+    """Pure helper: project OTA link statuses from the caller-gated snapshot.
 
     Args:
-        current: The canonical snapshot dict with keys 'generation', 'results', 'data'.
-                 If None or not fresh, returns empty statuses.
+        current: Canonical status-read shape with optional 'generation', 'results',
+                 and 'data.results'. Callers apply their freshness gate; this helper
+                 does not inspect freshness. If None, returns empty statuses.
 
     Returns:
         Tuple of (statuses_by_transaction_id, generation, reconciliation_dict).
