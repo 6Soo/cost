@@ -7,8 +7,11 @@
 메모리에만 있고, 재시작 뒤에는 워커가 한 번 다시 대사해 채운다. 그 전까지는 행동을 받지 않는다.
 """
 import hashlib
+import base64
+import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -24,6 +27,52 @@ RETRY_SECONDS = 60
 RETRY_CAP_SECONDS = 900
 FIRST_WAIT_SECONDS = 3
 WORKER_NAME = "ota-snapshot"
+_CURSOR_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z", re.ASCII)
+
+
+class SnapshotReadError(ValueError):
+    """Finite read-only snapshot error safe to translate to an HTTP response."""
+
+    def __init__(self, code, status_code):
+        self.code = code
+        self.status_code = status_code
+        super().__init__(code)
+
+
+def _proposal_cursor_encode(key, generation, offset, limit):
+    payload = json.dumps({"v": 1, "g": generation, "o": offset, "l": limit},
+                         separators=(",", ":"), sort_keys=True).encode("ascii")
+    left = base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+    signature = hmac.new(key, left.encode("ascii"), hashlib.sha256).digest()
+    right = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    return left + "." + right
+
+
+def _proposal_cursor_decode(key, token, generation, limit):
+    if type(token) is not str or len(token) > 512 or token.count(".") != 1:
+        raise SnapshotReadError("BAD_CURSOR", 400)
+    left, right = token.split(".")
+    try:
+        if not _CURSOR_CHARS.fullmatch(left) or not _CURSOR_CHARS.fullmatch(right):
+            raise ValueError
+        payload_bytes = base64.b64decode(left + "=" * (-len(left) % 4), altchars=b"-_", validate=True)
+        signature = base64.b64decode(right + "=" * (-len(right) % 4), altchars=b"-_", validate=True)
+        if (base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii") != left or
+                base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii") != right or
+                not hmac.compare_digest(signature, hmac.new(key, left.encode("ascii"), hashlib.sha256).digest())):
+            raise ValueError
+        payload = json.loads(payload_bytes.decode("ascii"))
+        if (type(payload) is not dict or set(payload) != {"v", "g", "o", "l"} or
+                type(payload["v"]) is not int or payload["v"] != 1 or
+                type(payload["g"]) is not int or payload["g"] < 0 or
+                type(payload["o"]) is not int or payload["o"] < 0 or
+                type(payload["l"]) is not int or not 1 <= payload["l"] <= 20):
+            raise ValueError
+    except Exception:
+        raise SnapshotReadError("BAD_CURSOR", 400) from None
+    if payload["g"] != generation or payload["l"] != limit:
+        raise SnapshotReadError("SNAPSHOT_CHANGED", 409)
+    return payload["o"]
 
 
 def _now_iso():
@@ -189,6 +238,17 @@ class OtaSnapshotService:
                     page_rows, generation=next_generation,
                     snapshot_nonce=secrets.token_urlsafe(24),
                     signing_key=self._queue_page_signing_key)
+            detail_map = reconciled.get("queue_detail_rows") if type(reconciled) is dict else None
+            if type(detail_map) is not dict:
+                detail_map = {}
+            else:
+                detail_map = dict(detail_map)
+            ambiguous_ids = reconciled.get("queue_ambiguous_ids", ()) if type(reconciled) is dict else ()
+            if type(ambiguous_ids) not in (list, tuple, set, frozenset):
+                ambiguous_ids = ()
+            else:
+                ambiguous_ids = frozenset(value for value in ambiguous_ids
+                                          if type(value) is str and value.strip())
         except Exception as exc:
             with self._lock:
                 self._refreshing = False
@@ -204,9 +264,11 @@ class OtaSnapshotService:
             generated_at = _now_iso()
             published = {"key": key, "generation": generation, "generated_at": generated_at,
                          **{name: value for name, value in reconciled.items()
-                            if name != "queue_page_rows"}}
+                            if name not in ("queue_page_rows", "queue_detail_rows", "queue_ambiguous_ids")}}
             if page_index is not None:
                 published["_queue_page_index"] = page_index
+            published["_queue_detail_map"] = detail_map
+            published["_queue_ambiguous_ids"] = ambiguous_ids
             queue_summary = reconciled.get("queue_summary") if isinstance(reconciled, dict) else None
             if isinstance(queue_summary, dict):
                 published["queue_summary"] = {**queue_summary, "generation": generation,
@@ -253,7 +315,9 @@ class OtaSnapshotService:
         else:
             status = "ready"
         public = {key: value for key, value in (current or {}).items()
-                  if key not in ("data", "_queue_page_index", "queue_page_rows")}
+                  if key not in ("data", "_queue_page_index", "_queue_detail_map",
+                                 "_queue_ambiguous_ids", "queue_page_rows", "queue_detail_rows",
+                                 "queue_ambiguous_ids")}
         return {"status": status, "stale": not fresh, "refreshing": refreshing,
                 "generation": current["generation"] if current else 0,
                 "generated_at": current["generated_at"] if current else None,
@@ -274,6 +338,52 @@ class OtaSnapshotService:
             "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
             "stale": view.get("stale"), "refreshing": view.get("refreshing"),
         }
+
+    def queue_detail_context(self, event_id, expected_generation):
+        """O(1) detail lookup from the current private map, guarded by exact freshness/generation."""
+        view = self.view()
+        with self._lock:
+            current = self._current
+            fresh = self._fresh_locked()
+            if (current is None or not fresh or self._refreshing or self._error or
+                    current.get("data") is None or current.get("_queue_page_index") is None):
+                raise SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+            if current.get("generation") != expected_generation:
+                raise SnapshotReadError("SNAPSHOT_CHANGED", 409)
+            if current.get("generation") != view.get("generation"):
+                raise SnapshotReadError("SNAPSHOT_CHANGED", 409)
+            ambiguous = event_id in current.get("_queue_ambiguous_ids", ())
+            detail = current.get("_queue_detail_map", {}).get(event_id)
+            return {"generation": current["generation"], "event": detail,
+                    "ambiguous": ambiguous}
+
+    def proposal_page_context(self, expected_generation, *, limit=20, cursor=None):
+        """Read one bounded slice from the already-sanitized public proposal snapshot."""
+        view = self.view()
+        with self._lock:
+            current = self._current
+            fresh = self._fresh_locked()
+            if (current is None or not fresh or self._refreshing or self._error or
+                    current.get("data") is None or current.get("_queue_page_index") is None):
+                raise SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+            generation = current.get("generation")
+            if generation != expected_generation or generation != view.get("generation"):
+                raise SnapshotReadError("SNAPSHOT_CHANGED", 409)
+            if type(limit) is not int or not 1 <= limit <= 20:
+                raise SnapshotReadError("INVALID_QUERY", 400)
+            offset = 0 if cursor is None else _proposal_cursor_decode(
+                self._queue_page_signing_key, cursor, generation, limit)
+            public = current.get("public")
+            proposals = public.get("proposals") if type(public) is dict else None
+            if type(proposals) is not list:
+                proposals = []
+            items = proposals[offset:offset + limit]
+            next_offset = offset + len(items)
+            next_cursor = (_proposal_cursor_encode(self._queue_page_signing_key,
+                                                    generation, next_offset, limit)
+                           if next_offset < len(proposals) else None)
+            return {"generation": generation, "items": items,
+                    "next_cursor": next_cursor, "total_count": len(proposals)}
 
     def checked_key(self):
         """The input fingerprint the worker last read. Read only; never computes anything."""

@@ -131,6 +131,14 @@
 - **DEPLOYED / PAGE_READY_ACCEPTANCE_PENDING** — PR #230, 코드 `deb9245`, main/운영 `af42ea097a9a9c9b242b0a630421b42ca8b7ff0d`. 954 blobs 일치·health/ready200·실행SHA·단일listener·기존/events 비인증401·보호13표 동일. 초기 인증 events GET409/138B/SNAPSHOT_NOT_READY·generation403/refreshing을 확인했다. 실제 ready20개·다음cursor/거절 수락은 새세대 게시 후 Aside 읽기로 확인한다. 근거 `.local-archive/ota-queue-pages-20261028/`와 운영 기록.
 - **UI_SOURCE_AUDIT_PENDING** — 기존 문서 담당자 `46ede148-c8a7-43b9-b783-1a89a671be40`는 `docs/specs/ota-review-queue-performance-20261027.md`만 소유한다. import OTA DOM/JS owner·접힘/lazy/poll/actions 재사용·minimal page와 상세폼 필드 gap·필요시 generation-bound lazy detail GET의 최소계약을 조사한다. 전체holds fetch 후client slice는 허용하지 않는다. 문서전용으로 테스트/브라우저/DB/배포를 하지 않는다. 완료 알림 후 문서 diff/source를 검수하고 UI 연결을 이어간다.
 
+### OTA paged UI/detail 검수 및 릴리스
+
+- PR #232 source audit 병합 후 main `4802a02`, 브랜치 `feat/ota-paged-review-ui-20261028`. 기존 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 `webapp/ota_payment_review.py`, `webapp/ota_snapshot.py`, 새 `webapp/tests/test_ota_queue_detail.py`, 새 `webapp/tests/test_ota_queue_ui_browser.py`, 기존 `webapp/tests/test_ota_payment_review_browser.py`만 소유한다. Supervisor는 문서/git/검수/배포를 맡는다.
+- worker의 같은 세대 private detail map 및 인증 generation-bound 단일event GET을 추가하고, 실제 render_import_section을 summary+20건페이지로 연결한다. 상세/카드는 펼칠 때만 읽고 전체holds GET/client slice를 금지한다. 기존수동/예약/그룹/규칙제안 controls·unsaved선택·닫힘pollstop·단일theme를 보존한다. 규칙제안은 bounded cache read 등 최소기능보존 계약을 선택하며 미완료는 숨기지 않는다.
+- **REVIEWED / RELEASE_PENDING** — 이전 Supervisor `4e49282a`의 로그·실제 diff를 대조해 인수했다. 동시에 이어진 구현자 `26175585`의 동일 파일 작성이 확인되어 해당 세션만 interrupt하고 변경을 합쳐 검수했다. 이전 Supervisor에게 메시지/재개하지 않았다. 한국어 문구·집계 미확인·세대 불일치 폐기/재조회·필터 되돌리기·제안/예약 입력 및 늦은 polling 응답의 미저장 선택 보호를 보완했다. 그룹 순서 대응의 예약/카드 근거는 worker의 제한 projection으로 보존하고 후보는 lazy GET으로 유지한다.
+- 실제 검사: 상세/UI/lazy/preview-race 20 passed, 마지막 경합/세대/cursor 3 passed, 기존 브라우저 9 passed 및 4 subtests, 카드 후보 경계 4 passed. 인접 page/summary/snapshot/actions/legacy 115 passed/2 failed 중 후보 browser fixture는 새 조회 계약으로 교정 후 통과했다. 나머지 partial-group HOLD_NO_CARD/임시DB WinError32는 운영 기록에 이미 기준 `a6f4abc` 재현 근거가 있는 기존 실패이며 통과로 계산하지 않고 범위를 확대하지 않는다. compile/diff 통과. 실제 기기와 제품 p95·보류 solver 개선 완료는 아니다.
+- 배포 전 기존 운영 `af42ea0` 인증 조회에서 generation405 ready/fresh 및 첫/다음 페이지 각20개 HTTP200을 확인했다. 고객 원문/ID는 출력하지 않았다. 다음: staged 자료 guard → commit/PR/정상 병합 → SHA 고정 배포 → 보호13표/health/ready/인증 및 영향 경로 최소 수락. 금융/Google/원본 직접 쓰기·마이그레이션·실제 확정은 하지 않는다.
+
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
 사용자 지시에 따라 [아키텍처·UI·데이터·운영 전면 리팩토링 마스터](specs/refactor-master-20261027.md), [917개 추적 파일 경로 인벤토리](specs/refactor-file-inventory-20261027.tsv), [OTA 보류 대기열/성능 계약](specs/ota-review-queue-performance-20261027.md)을 추가했다. 전체 Git 트리 메타데이터와 핵심 코드 횡단 표본 감사에 기반한 **구현 가능한 에이전트 백로그**다. 각 파일 개별 함수의 전수 코드 감사 완료를 뜻하지 않으며, 후속 RF-001 코드/호출 경로·데이터 감사가 우선이다. 이번 PR은 DOCS_ONLY: 런타임 변경·pytest·운영 재배포·실자료 수락은 없다. 문서 작성 시점 이후의 활성 PR 및 운영 릴리스는 매번 최신 재조회하고, 기존 완료 작업을 반복하지 않는다.

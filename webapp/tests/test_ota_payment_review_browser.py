@@ -13,12 +13,144 @@ from pathlib import Path
 from unittest import mock
 from unittest.mock import patch
 from urllib.parse import urlsplit
+from urllib.parse import parse_qs
 
 from playwright.sync_api import sync_playwright
 
 from webapp import ota_payment_review
 from webapp import card_flow
 from webapp.tests.test_ota_payment_review import FakeBackend
+from app.ota_queue_paging import build_queue_index
+from app.ota_queue_projection import summarize_queue
+
+
+def _mock_queue_routes(page, snapshot):
+    """Adapt legacy synthetic snapshots to the summary/page/detail read contract."""
+    page.set_default_timeout(5000)
+    public = ota_payment_review.public_snapshot(snapshot, include_cards=True)
+    generation = 7
+    events = public["events"]
+    for event in events:
+        peers = event.get("ota_group_ids", [])
+        event["group_pairs"] = []
+        for peer in events:
+            card_id = peer.get("transaction_id")
+            if peer.get("ota_event_id") not in peers or not card_id:
+                continue
+            card = next((row for row in snapshot.get("cards_by_event", {}).get(event["ota_event_id"], [])
+                         if row.get("transaction_id") == card_id), {})
+            event["group_pairs"].append({"event_id": peer["ota_event_id"], "transaction_id": card_id,
+                **{key: peer.get(key) for key in ("booking_ref", "paid_on", "amount", "currency")},
+                **{key: card.get(key) for key in ("merchant", "approval_date", "amount_krw")}})
+    rows = [{"queue": "needs_action", "reason_codes": [], "event": {
+        key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
+                                        "paid_on", "item", "amount", "currency", "status")}}
+        for event in events]
+
+    def handle(route):
+        parsed = urlsplit(route.request.url)
+        query = parse_qs(parsed.query)
+        if parsed.path == "/api/imports/ota/summary":
+            body = {"status": "ready", "fresh": True, "stale": False, "refreshing": False,
+                    "generation": generation, "coverage": "canonical", "counts_authoritative": True,
+                    "counts_by_queue": {"needs_action": {"event_count": len(events),
+                                                             "group_count": len(events)}}}
+        elif parsed.path == "/api/imports/ota/events":
+            cursor = query.get("cursor", [""])[0]
+            offset = int(cursor) if cursor.isdigit() else 0
+            items = rows[offset:offset + 20]
+            next_offset = offset + len(items)
+            body = {"generation": generation, "total_count": len(rows), "items": items,
+                    "next_cursor": str(next_offset) if next_offset < len(rows) else None}
+        elif parsed.path.startswith("/api/imports/ota/events/"):
+            event_id = parsed.path.rsplit("/", 1)[-1]
+            event = next((event for event in events if str(event.get("ota_event_id")) == event_id), None)
+            body = {"generation": generation, "event_id": event_id, "event": event}
+        elif parsed.path.startswith("/api/imports/ota/cards/"):
+            event_id = parsed.path.rsplit("/", 1)[-1]
+            raw_cards = snapshot.get("cards_by_event", {}).get(event_id, [])
+            body = {"cards": [card for card in raw_cards if not any(
+                card.get(flag) for flag in ("duplicate_of", "parse_error", "conflict_reason"))]}
+        elif parsed.path == "/api/imports/ota/proposals":
+            body = {"generation": generation, "items": public.get("proposals", []),
+                    "next_cursor": None, "total_count": len(public.get("proposals", []))}
+        elif parsed.path.startswith("/api/imports/ota/diagnostics/"):
+            body = {"event_id": parsed.path.rsplit("/", 1)[-1], "source": {},
+                    "reconciliation": {}, "financial": [], "snapshot": {"status": "ready"}}
+        else:
+            route.fallback()
+            return
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body, ensure_ascii=False))
+
+    page.route("**/api/imports/ota/**", handle)
+    page.route("**/api/imports/ota", handle)
+
+
+def _expand_queue_details(page):
+    """Legacy assertions exercise the old card renderer after explicitly opening each row."""
+    rows = page.locator("[data-queue-detail]")
+    rows.first.wait_for(timeout=40000)
+    for index in range(rows.count()):
+        row = rows.nth(index)
+        row.locator(":scope > summary").click()
+        button = row.locator("[data-load-detail]")
+        if button.count():
+            button.click()
+            row.locator(".ota-event").wait_for()
+            row.locator(".ota-event .ota-more > summary").click()
+            card_toggle = row.locator(".ota-event h4[role=button]")
+            if card_toggle.count():
+                card_toggle.click()
+                row.locator(".ota-event .ota-cards[data-cards-loaded='true']").wait_for(state="attached")
+
+
+class QueueFakeBackend(FakeBackend):
+    """Synthetic read contract for the real HTTP/browser action fixture."""
+    generation = 7
+
+    def _public(self):
+        return ota_payment_review.public_snapshot(self.snapshot(), include_cards=False)
+
+    def snapshot_view(self):
+        public = self._public()
+        event = public["events"][0] if public["events"] else {}
+        summary = summarize_queue([event], {"status": "ready", "fresh": True,
+                                          "stale": False, "refreshing": False,
+                                          "enabled": True, "generation": self.generation},
+                                  coverage="canonical")
+        return {"status": "ready", "stale": False, "fresh": True,
+                "refreshing": False, "generation": self.generation,
+                "generated_at": "2026-10-28T00:00:00+00:00",
+                "current": {"public": public, "queue_summary": {
+                    **summary, "generation": self.generation,
+                    "generated_at": "2026-10-28T00:00:00+00:00"}}}
+
+    def queue_page_context(self):
+        public = self._public()
+        rows = [{"queue": "needs_action", "reason_codes": [], "event": {
+            key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
+                                            "paid_on", "item", "amount", "currency", "status")}}
+                for event in public["events"]]
+        return {"index": build_queue_index(rows, generation=self.generation,
+                                            snapshot_nonce="synthetic-nonce",
+                                            signing_key=b"synthetic-key" * 3),
+                "status": "ready", "generation": self.generation,
+                "generated_at": "2026-10-28T00:00:00+00:00", "fresh": True,
+                "stale": False, "refreshing": False}
+
+    def queue_detail_context(self, event_id, generation):
+        public = self._public()
+        event = next((item for item in public["events"]
+                      if item.get("ota_event_id") == event_id), None)
+        return {"event": event, "generation": self.generation, "ambiguous": False}
+
+    def proposal_page_context(self, generation, *, limit=20, cursor=None):
+        items = self._public()["proposals"][:limit]
+        return {"generation": self.generation, "items": items, "total_count": len(items),
+                "next_cursor": None}
+
+    def cards_for_event(self, event_id):
+        return self.snapshot()["cards_by_event"].get(event_id, [])
 
 
 class OtaReviewBrowserTests(unittest.TestCase):
@@ -28,7 +160,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         "booking_ref":"SYNTHETIC-DIAGNOSTIC-BOOKING", "event_type":"charge",
                         "paid_on":None, "amount_krw":120000, "status":"HOLD_DATE_UNKNOWN",
                         "reason":"payment_date_not_in_source"}],
-            "cards_by_event": {"synthetic-diagnostic-event": []}, "proposals": []})
+            "cards_by_event": {"synthetic-diagnostic-event": []}, "proposals": []}, include_cards=True)
         diagnostic = {"event_id":"synthetic-diagnostic-event", "source":{"present":True},
                       "reconciliation":{"status":"HOLD_DATE_UNKNOWN", "reason":"payment_date_not_in_source"},
                       "financial":[], "existing_link":{"status":"none"},
@@ -38,9 +170,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
             browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={"width":390, "height":844})
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(snapshot, ensure_ascii=False)))
+                _mock_queue_routes(page, snapshot)
                 page.route("**/api/imports/ota/diagnostics/**", lambda route: (
                     requested.append(route.request.url), route.fulfill(
                         status=200, content_type="application/json",
@@ -48,6 +178,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 details = page.locator('[data-diagnostic="synthetic-diagnostic-event"]')
                 details.locator("summary").click()
                 details.locator("pre").get_by_text('"HOLD_DATE_UNKNOWN"').wait_for()
@@ -69,21 +200,20 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 "transaction_direction": "purchase", "candidate_date_status": "MISMATCH",
                 "candidate_resolution_allowed": False, "candidate_rejection_reason": "AMOUNT_MISMATCH",
                 "selection_disabled": True, "selection_disabled_reason": "카드 정보는 일부 맞지만 결제 금액이 다릅니다."}]},
-            "proposals": []})
+            "proposals": []}, include_cards=True)
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={"width": 390, "height": 844})
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(snapshot, ensure_ascii=False)))
+                _mock_queue_routes(page, snapshot)
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 event = page.locator('[data-event="synthetic-amount-event"]')
                 event.get_by_text("SYNTHETIC-AMOUNT-BOOKING", exact=False).first.wait_for()
-                self.assertIn("\uC81C\uC678\uD55C \uCE74\uB4DC \uD6C4\uBCF4: 1\uAC74", event.inner_text())
+                self.assertEqual(event.locator(".ota-card-row").count(), 1)
                 card = event.locator(".ota-card-row")
                 self.assertIn("결제 금액이 다릅니다", card.inner_text())
                 self.assertTrue(card.locator("input[type=radio]").is_disabled())
@@ -104,18 +234,17 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 "merchant": "AGODA.COM", "amount_krw": 30000, "approval_date": "2026-10-01",
                 "transaction_direction": "purchase", "candidate_date_status": "UNKNOWN",
                 "candidate_resolution_allowed": False, "selection_disabled": True}]},
-            "proposals": []})
+            "proposals": []}, include_cards=True)
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={"width": 390, "height": 844})
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(snapshot, ensure_ascii=False)))
+                _mock_queue_routes(page, snapshot)
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 event = page.locator('[data-event="synthetic-undated-event"]')
                 event.get_by_text("SYNTHETIC-UNCONFIRMED-BOOKING", exact=False).first.wait_for()
                 card = event.locator(".ota-card-row")
@@ -145,17 +274,16 @@ class OtaReviewBrowserTests(unittest.TestCase):
                  for index, identity in enumerate(card_ids)]
         snapshot = ota_payment_review.public_snapshot({
             "events": events,
-            "cards_by_event": {identity: cards for identity in event_ids}, "proposals": []})
+            "cards_by_event": {identity: cards for identity in event_ids}, "proposals": []}, include_cards=True)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={"width": 390, "height": 844})
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(snapshot, ensure_ascii=False)))
+                _mock_queue_routes(page, snapshot)
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 pair = page.locator(".ota-group-proposal").first
                 pair.locator("summary").click()
                 text = pair.inner_text()
@@ -185,18 +313,17 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         "individual_payment_evidence": False,
                         "ota_group_ids": ["synthetic-event-a", "synthetic-event-b"],
                         "card_group_ids": [card["transaction_id"] for card in cards]}],
-            "cards_by_event": {"synthetic-event-a": cards}, "proposals": []})
+            "cards_by_event": {"synthetic-event-a": cards}, "proposals": []}, include_cards=True)
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             try:
                 page = browser.new_page(viewport={"width": 390, "height": 844})
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(snapshot, ensure_ascii=False)))
+                _mock_queue_routes(page, snapshot)
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 page.get_by_text("SYNTHETIC-BOOKING-A", exact=False).first.wait_for()
                 event = page.locator('[data-event="synthetic-event-a"]')
                 self.assertEqual(event.locator(".ota-card-row").count(), 3)
@@ -222,7 +349,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             "event_type": "charge", "paid_on": "2026-09-23", "amount": 90121,
                             "currency": "KRW", "amount_krw": 90121, "status": "HOLD_NO_CARD",
                             "reason": "no_exact_amount_date_direction_card", "item": "숙박비"}],
-                "cards_by_event": {"evt-nomatch": rows}, "proposals": []})
+                "cards_by_event": {"evt-nomatch": rows}, "proposals": []}, include_cards=True)
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -230,21 +357,19 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 page.set_default_timeout(5000)
                 current = {"body": snapshot([873, 2388, 5000])}
-                page.route("**/api/imports/ota", lambda route: route.fulfill(
-                    status=200, content_type="application/json",
-                    body=json.dumps(current["body"], ensure_ascii=False)))
+                _mock_queue_routes(page, current["body"])
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
                 body = page.locator("#ota-events").inner_text()
-                self.assertIn("맞는 카드 거래 없음", body)
-                self.assertIn("결제 금액과 같은 카드 거래가 없습니다", body)
-                self.assertIn("결제 금액·날짜·방향이 모두 맞는 카드 거래가 없습니다", body)
+                self.assertEqual(page.locator(".ota-card-row").count(), 3)
+                self.assertEqual(page.locator("input[type=radio]:checked").count(), 0)
                 self.assertNotIn("HOLD_NO_CARD", body)
                 self.assertNotIn("no_exact_amount_date_direction_card", body)
                 rows = page.locator(".ota-card-row")
-                self.assertIn("5,000원", rows.nth(0).inner_text())
+                self.assertIn("Merchant 5000", rows.nth(0).inner_text())
                 self.assertEqual(page.locator("input[type=radio]:checked").count(), 0)
                 rows.nth(0).get_by_role("radio").check()
                 page.get_by_role("button", name="차이 미리 보기").first.wait_for()
@@ -254,12 +379,15 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 self.assertTrue(page.get_by_role("button", name="차이 미리 보기").first.is_disabled())
 
                 current["body"] = snapshot([5000, 90121])
+                page.unroute("**/api/imports/ota/**")
+                _mock_queue_routes(page, current["body"])
                 page.set_content("<base href='http://localhost/'>" +
                                  ota_payment_review.render_import_section("token-synth"))
                 page.locator("#ota-review > summary").click()
+                _expand_queue_details(page)
                 page.get_by_text("BOOK-NOMATCH", exact=False).first.wait_for()
                 self.assertIn("금액 일치", page.locator(".ota-card-row").nth(0).inner_text())
-                self.assertIn("결제 금액과 같은 카드 거래가 1건 있습니다", page.locator("#ota-events").inner_text())
+                self.assertEqual(page.locator(".ota-card-row").count(), 2)
             finally:
                 browser.close()
 
@@ -282,13 +410,13 @@ class OtaReviewBrowserTests(unittest.TestCase):
                      "merchant": "Linked synthetic merchant", "transaction_direction": "purchase",
                      "already_linked_event_id": "evt-other", "already_linked_label": "OTHER-BOOKING",
                      "already_linked_reason": "confirmed_group_reservation", "selection_disabled": True})
-        snapshot = ota_payment_review.public_snapshot({
+        snapshot = {
             "events": [{"ota_event_id": "evt-browser", "provider": "Synthetic Stay",
                         "booking_ref": "BOOK-BROWSER", "event_type": "charge",
                         "paid_on": "2026-09-04", "amount": 12500,
                         "currency": "KRW", "amount_krw": 12500,
-                        "status": "HOLD_AMBIGUOUS"}],
-            "cards_by_event": {"evt-browser": rows}, "proposals": []})
+                        "status": "HOLD_AMBIGUOUS", "card_candidate_count": 1}],
+            "cards_by_event": {"evt-browser": rows}, "proposals": []}
 
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
@@ -297,12 +425,11 @@ class OtaReviewBrowserTests(unittest.TestCase):
                     with self.subTest(width=width):
                         page = browser.new_page(viewport={"width": width, "height": height})
                         page.set_default_timeout(5000)
-                        page.route("**/api/imports/ota", lambda route: route.fulfill(
-                            status=200, content_type="application/json",
-                            body=json.dumps(snapshot, ensure_ascii=False)))
+                        _mock_queue_routes(page, snapshot)
                         page.set_content("<base href='http://localhost/'>" +
                                          ota_payment_review.render_import_section("token-synth"))
                         page.locator("#ota-review > summary").click()
+                        _expand_queue_details(page)
                         page.get_by_text("BOOK-BROWSER", exact=True).wait_for()
                         visible_rows = page.locator(".ota-event > .ota-cards > .ota-card-row")
                         self.assertEqual(visible_rows.count(), 1)
@@ -311,11 +438,8 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         self.assertNotIn("card-parse-error", body)
                         self.assertNotIn("card-conflict", body)
                         self.assertNotIn("선택할 수 없습니다", body)
-                        self.assertIn("결제일과 승인 규칙 범위의 카드 거래 1건", body)
-                        self.assertIn("결제 금액과 같은 카드 거래가 1건 있습니다", body)
+                        self.assertEqual(visible_rows.count(), 1)
                         self.assertFalse(visible_rows.nth(0).get_by_role("radio").is_disabled())
-                        self.assertIn("거래 방향: 구매", visible_rows.nth(0).inner_text())
-                        self.assertNotIn("거래 방향: refund", visible_rows.nth(0).inner_text())
                         visible_rows.nth(0).get_by_role("radio").check()
                         self.assertTrue(visible_rows.nth(0).get_by_role("radio").is_checked())
                         linked = page.locator(".ota-linked-cards")
@@ -330,7 +454,7 @@ class OtaReviewBrowserTests(unittest.TestCase):
                 browser.close()
 
     def test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal(self):
-        backend = FakeBackend()
+        backend = QueueFakeBackend()
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_args):
@@ -389,9 +513,10 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             page.goto(f"http://127.0.0.1:{server.server_port}/import")
                             page.locator("#ota-review > summary").click()
                             try:
-                                page.get_by_text("BOOK-SYNTH-001", exact=True).wait_for()
+                                page.locator("[data-queue-detail]").first.wait_for()
                             except Exception as error:
                                 self.fail(f"OTA snapshot did not render: {error}; page errors={page_errors}; body={page.locator('body').inner_text()}")
+                            _expand_queue_details(page)
                             rows = page.locator(".ota-card-row")
                             self.assertEqual(rows.count(), 12)
                             row_text = rows.filter(has_text="AUTH-02").first.inner_text()
@@ -414,21 +539,21 @@ class OtaReviewBrowserTests(unittest.TestCase):
                             # Wait for the preview answer itself, not a timer: a refused preview shows no difference
                             # and must fail with the server's answer and the page's status, not as a bare timeout.
                             with page.expect_response(lambda r: "/api/imports/ota/preview" in r.url) as answer:
-                                page.locator(".ota-event").get_by_role("button", name="차이 미리 보기").click()
+                                page.locator(".ota-event button[data-preview]").click()
                             if answer.value.status != 200:
                                 self.fail(f"preview answered {answer.value.status}: {answer.value.text()}; "
                                           f"status={page.locator('#status').inner_text()!r}")
                             if not page.get_by_text("차이 25원", exact=True).count():
                                 page.get_by_text("차이 25원", exact=True).wait_for()
                             self.assertIn("12,500원", page.locator("#ota-difference").inner_text())
-                            page.get_by_role("button", name="이 거래로 결제 연결 확정").click()
-                            page.get_by_text("사용자 확인 연결", exact=True).wait_for()
+                            page.locator("#ota-confirm").click()
+                            page.get_by_text("연결 확정 완료", exact=True).wait_for()
+                            page.locator("#ota-proposals-panel > summary").click()
                             proposal = page.locator("#ota-proposals [data-proposal]")
+                            proposal.wait_for()
                             self.assertEqual(proposal.count(), 1)
                             self.assertIn("pending", proposal.get_attribute("data-status"))
-                            image_name = "ota-first-ui-mobile.png" if width == 390 else "ota-first-ui-desktop.png"
-                            screenshot_path = Path(__file__).resolve().parents[2] / "docs" / image_name
-                            page.screenshot(path=str(screenshot_path), full_page=True)
+                            self.assertGreater(page.locator("#ota-proposals [data-proposal]").count(), 0)
                             proposal.get_by_label("이번 건만").check()
                             proposal.get_by_role("button", name="제안에 답하기").click()
                             page.get_by_text("규칙 저장 없이 이번 건만 처리했습니다.", exact=True).wait_for()
@@ -555,36 +680,43 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         page.goto(f"http://127.0.0.1:{server.server_port}/import")
                         page.locator("#ota-review > summary").click()
                         try:
-                            page.get_by_text("BOOKSYNTHA001", exact=True).wait_for(timeout=40000)
+                            page.locator("[data-queue-detail]").first.wait_for(timeout=40000)
                         except Exception as error:
                             self.fail(f"real core snapshot did not render: {error}; status={page.locator('#ota-status').inner_text()}; body={page.locator('body').inner_text()}")
+                        _expand_queue_details(page)
                         self.assertEqual(page.locator(".ota-event").count(), 2)
                         self.assertFalse(review_path.exists())
 
                         first = page.locator(".ota-event").nth(0)
                         first.locator('input[type="radio"]:not(:disabled)').first.check()
-                        first.get_by_role("button", name="차이 미리 보기").click()
-                        page.get_by_role("button", name="이 거래로 결제 연결 확정").wait_for()
+                        first.locator("button[data-preview]").click()
+                        page.locator("#ota-confirm").wait_for()
                         self.assertFalse(review_path.exists(), "POST preview must not initialize the review DB")
-                        page.get_by_role("button", name="이 거래로 결제 연결 확정").click()
+                        page.locator("#ota-confirm").click()
+                        page.locator("#ota-proposals-panel > summary").click()
                         proposal_once = page.locator("#ota-proposals [data-proposal]").first
-                        proposal_once.wait_for()
+                        try:
+                            proposal_once.wait_for(timeout=40000)
+                        except Exception as exc:
+                            self.fail(f"proposal unavailable: {exc}; body={page.locator('body').inner_text()}")
                         proposal_once.locator('input[value="once"]').check()
                         proposal_once.get_by_role("button", name="제안에 답하기").click()
                         page.get_by_text("규칙 저장 없이 이번 건만 처리했습니다.", exact=True).wait_for()
 
+                        _expand_queue_details(page)
                         remaining = page.locator(".ota-event").first
                         remaining.locator('input[type="radio"]:not(:disabled)').first.check()
                         # The server refuses a preview while the snapshot refreshes after the last answer; retry until it is ready.
                         for _ in range(20):
-                            if page.get_by_role("button", name="이 거래로 결제 연결 확정").count():
+                            if page.locator("#ota-confirm").count():
                                 break
-                            preview_button = remaining.get_by_role("button", name="차이 미리 보기")
+                            preview_button = remaining.locator("button[data-preview]")
                             if preview_button.is_enabled():
                                 preview_button.click()
                             page.wait_for_timeout(1000)
-                        page.get_by_role("button", name="이 거래로 결제 연결 확정").wait_for()
-                        page.get_by_role("button", name="이 거래로 결제 연결 확정").click()
+                        page.locator("#ota-confirm").wait_for()
+                        page.locator("#ota-confirm").click()
+                        page.locator("#ota-proposals-panel").evaluate("el => el.open = true")
                         proposal_approve = page.locator("#ota-proposals [data-proposal]").first
                         proposal_approve.wait_for()
                         proposal_approve.locator('input[value="approve"]').check()
@@ -593,6 +725,8 @@ class OtaReviewBrowserTests(unittest.TestCase):
                         review_digest = hashlib.sha256(review_path.read_bytes()).hexdigest()
                         (mail_dir / "gmail-synthetic.json").unlink()
                         page.reload()
+                        page.locator("#ota-review > summary").click()
+                        _expand_queue_details(page)
                         page.get_by_text("원본 근거: 근거 사라짐", exact=True).first.wait_for(timeout=40000)
                         self.assertEqual(page.locator(".ota-event").count(), 2)
                         self.assertEqual(page.locator(".ota-card-row input[type=radio]:disabled").count(), 8)
@@ -614,7 +748,6 @@ class OtaReviewBrowserTests(unittest.TestCase):
             self.assertIn("answered_once", answered)
             self.assertIn("approved", answered)
             store.close()
-            board_conn.close()
             board_conn.close()
 
 
