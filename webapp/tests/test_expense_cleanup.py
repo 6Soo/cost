@@ -44,7 +44,7 @@ def test_unlinked_booking_explains_missing_connection_without_requesting_card_ev
         tid = rows[0]['transaction_id']
         board.conn.execute("UPDATE transactions SET merchant='AGODA.COM' WHERE transaction_id=?", (tid,))
         board.conn.commit()
-        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _board: {'__snapshot_status__': {'fresh': True, 'status': 'ready'}})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _board, **kw: {'__snapshot_status__': {'fresh': True, 'status': 'ready'}})
         before = tuple(board.conn.execute("SELECT * FROM transactions WHERE transaction_id=?", (tid,)).fetchone())
 
         markup = render_expense_cleanup(board, 'token')
@@ -542,7 +542,7 @@ def test_cleanup_cards_hide_per_row_ai_inputs_and_protect_held_rows(tmp_path, mo
 
 def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, monkeypatch):
     from webapp.card_flow import _cleanup_card_breakdown
-    monkeypatch.setattr('webapp.card_flow._ota_entries_by_card', lambda _: {})
+    monkeypatch.setattr('webapp.card_flow._ota_entries_by_card', lambda _, **kw: {})
 
     monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
     board = LedgerStore(tmp_path / 'cleanup-counts.sqlite', seed_demo=False)

@@ -61,3 +61,29 @@ def test_rejected_candidate_on_same_payment_date_remains_visible_for_review():
     assert "SYNTHETIC-AGODA-BOOKING" in notes[0]
     assert "제외" in notes[0]
     assert "625,280원" in notes[0]
+
+
+def test_page_filter_preserves_notes_without_checking_hidden_cards(monkeypatch):
+    from copy import deepcopy
+    from webapp import card_flow
+    snapshot = _snapshot(paid_on="2026-09-22")
+    visible = snapshot['data']['transactions'][0]['transaction_id']
+    hidden = dict(snapshot['data']['transactions'][0], transaction_id='synthetic-hidden')
+    snapshot['data']['transactions'].append(hidden)
+    result = snapshot['data']['results'][0]
+    result['candidate_search']['rejected'].append({'transaction_id': hidden['transaction_id']})
+    result['reserved_card_ids'] = [visible, hidden['transaction_id']]
+    before = deepcopy(snapshot)
+    expected = _index_ota_display_candidates(snapshot)[visible]
+    original = __import__('app.ota_payments', fromlist=['provider_compatible']).provider_compatible
+    calls = []
+    def compatible(event, card, rules):
+        calls.append(card['transaction_id'])
+        return original(event, card, rules)
+    monkeypatch.setattr('app.ota_payments.provider_compatible', compatible)
+    assert _index_ota_display_candidates(snapshot, transaction_ids=[visible]) == {visible: expected}
+    assert calls == [visible]
+    calls.clear()
+    assert _index_ota_display_candidates(snapshot, transaction_ids=[]) == {}
+    assert not calls
+    assert snapshot == before

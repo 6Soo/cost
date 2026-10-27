@@ -108,7 +108,7 @@ def test_cleanup_reuses_trip_validation_and_revalidates_next_render(tmp_path, mo
         monkeypatch.setattr(CardFlow, 'trip_valid', trip_valid)
         monkeypatch.setattr(Pipeline, 'preview', preview)
         monkeypatch.setattr(CardFlow, 'ota_group_holds', lambda _: {})
-        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _: {})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _, **kw: {})
         before = list(store.conn.iterdump())
         card_flow.render_expense_cleanup(store, 'synthetic')
         assert observed == [[True] * 8, [True] * 8]
@@ -275,6 +275,8 @@ def test_automatic_holds_reads_projection_once_and_next_call_observes_new_ledger
         assert board.conn.execute('SELECT * FROM transactions ORDER BY transaction_id').fetchall() == source
         scans = [q for q in queries if 'SUM(revision)' in q and 'FROM board_rows' in q]
         assert len(scans) == 2  # One snapshot per call, with fresh next-call state.
+        # get_batch contains the raw projection fields; no extra source SELECT.
+        assert not any('SELECT issuer,card_tail,approval_number,posting_date' in q for q in queries)
     finally:
         board.close()
 
@@ -289,7 +291,7 @@ def test_cleanup_shares_unlinked_refund_count_check_for_the_display(tmp_path, mo
         flow = CardFlow(board)
         flow.pipeline.receive(CARD + CARD.splitlines(keepends=True)[1].replace(b'A123', b'A124'), 'refunds.csv')
         board.conn.execute("UPDATE transactions SET transaction_direction='cancellation',amount_krw=-37000")
-        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _: {})
+        monkeypatch.setattr(card_flow, '_ota_entries_by_card', lambda _, **kw: {})
         monkeypatch.setattr(CardFlow, 'ota_group_holds', lambda _: {})
         checks = []
         original = partial_refund.count_held_cancellations

@@ -252,6 +252,9 @@ def test_kakao_alias_review_shows_only_same_card_earlier_taxi_payments(tmp_path)
         assert '카카오페이' in html  # Full inventory is visible, not a taxi match.
         assert ids['300'] not in html and ids['400'] not in html and ids['600'] not in html
         assert 'cleanup-merchant-compare' in html and '원결제 연결은 미확정' in html
+        evidence = _render_refund_evidence(store, refund, None)
+        assert '카드 원본에 원승인번호가 없습니다' in evidence
+        assert '취소 승인번호만으로 원결제를 확정하지 않습니다' in evidence
         assert list(store.conn.iterdump()) == before
     finally:
         store.close()
