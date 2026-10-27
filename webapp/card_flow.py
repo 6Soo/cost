@@ -2997,10 +2997,10 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             # Diagnose from the entire same-card statement without writing or
             # promoting similar merchant names to verified financial links.
             refund_row = board.conn.execute(
-                "SELECT issuer,card_tail,approval_date,amount_krw FROM transactions WHERE transaction_id=?",
+                "SELECT issuer,card_tail FROM transactions WHERE transaction_id=?",
                 (tid,)).fetchone()
             if refund_row:
-                issuer, tail, approval_day, refund_amount = refund_row
+                issuer, tail = refund_row
                 original_matches = board.conn.execute(
                     "SELECT COUNT(*) FROM transactions WHERE transaction_direction='purchase'"
                     " AND issuer=? AND card_tail=? AND approval_number IS NOT NULL"
