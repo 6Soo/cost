@@ -63,6 +63,7 @@
 - PR #218 문서 병합 후 브랜치 `refactor/rf002-ota-status-read-contract-20261028`. 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/ota_status_read_contract.py`, 기존 `app/ota_core_projection.py`만 작성한다.
 - helper가 읽는 필드의 `TypedDict`와 입력 annotation만 연결하고 상태 계산 본문·순서·원본 identity·caller freshness는 유지한다. wrapper/factory·복사·원문변환·새 정책/쓰기 경로를 추가하지 않는다. 타입 선언은 runtime 검증/불변 snapshot을 제공하지 않는다.
 - **IN_PROGRESS / NOT_VERIFIED** — 기존 projection/golden/canonical 표적 검사, docstring 제외 실행 AST 동등성과 한 번의 합성 elapsed/peak 비교로 확인한다. implementation을 그대로 반복하는 신규 테스트는 만들지 않는다. 완료 알림 후 두 소유 파일 diff와 실제 근거를 검수한다. 운영은 `361d012`로 유지한다.
+- **TEST_PASSED / REVIEWED** — TypedDict 필드/nullable·iterable 범위와 helper diff 검수를 완료했다. 실행 본문 AST는 기준과 같고 표적3파일28 passed·compile/diff 통과. 합성1000결과+1000후보의 출력 동일; 30회 중앙값 baseline0.052944s/변경0.053033s, peak156,994/156,946B. 제품 지연 개선 근거가 아니며 wrapper/복사/정책 변화가 없다. 다음은 검수 코드의 PR/고정 배포·영향 스모크다. 이전 대기는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
