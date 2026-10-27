@@ -16,15 +16,18 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SYMBOLS = {
-    "CardFlow.trip_valid": ("webapp/card_flow.py", "CardFlow", "trip_valid"),
-    "CardFlow.retail_trip": ("webapp/card_flow.py", "CardFlow", "retail_trip"),
-    "CardFlow.tab_valid": ("webapp/card_flow.py", "CardFlow", "tab_valid"),
-    "CardFlow.booking_trip": ("webapp/card_flow.py", "CardFlow", "booking_trip"),
-    "Google authority": ("app/google_authority.py", None, "build_trip_view"),
-    "period and manual precedence": ("webapp/card_flow.py", "CardFlow", "trip_valid"),
-    "card use date": ("app/reconciliation.py", None, "card_use_date"),
-    "OTA service-period precedence": ("webapp/card_flow.py", "CardFlow", "booking_trip"),
-    "stay-period selection": ("app/reconciliation.py", None, "stay_trip"),
+    "CardFlow.trip_valid": ("webapp/card_flow.py", "CardFlow", "trip_valid", "class"),
+    "CardFlow.retail_trip": ("webapp/card_flow.py", "CardFlow", "retail_trip", "class"),
+    "CardFlow.tab_valid": ("webapp/card_flow.py", "CardFlow", "tab_valid", "class"),
+    "CardFlow.booking_trip": ("webapp/card_flow.py", "CardFlow", "booking_trip", "class"),
+    "Google authority": ("app/google_authority.py", None, "build_trip_view", "module"),
+    "manual precedence": ("webapp/card_flow.py", "CardFlow", "sync_ledger_rows", "class"),
+    "existing decision precedence": ("app/classify.py", None, "_classify_transaction", "module"),
+    "trip period closure": ("app/reconciliation.py", None, "open_trip_end", "module"),
+    "Google open-end closure": ("app/google_authority.py", None, "_close_open_ends", "module"),
+    "card use date": ("app/reconciliation.py", None, "card_use_date", "module"),
+    "OTA service-period precedence": ("webapp/card_flow.py", "CardFlow", "booking_trip", "class"),
+    "stay-period selection": ("app/reconciliation.py", None, "stay_trip", "module"),
 }
 
 TEST_HINTS = {
@@ -69,16 +72,18 @@ def _read_source(relative: str) -> tuple[str | None, dict | None]:
     return source, None
 
 
-def _definitions(tree: ast.AST, owner: str | None, symbol: str) -> list[int]:
-    found = []
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == symbol:
-            if owner is None:
-                found.append(node.lineno)
-        elif isinstance(node, ast.ClassDef) and node.name == owner:
-            found.extend(n.lineno for n in node.body
-                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == symbol)
-    return sorted(found)
+def _definitions(tree: ast.AST, owner: str | None, symbol: str, scope: str) -> list[int]:
+    if scope == "module":
+        body = tree.body
+    elif scope == "class" and owner:
+        owners = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == owner]
+        if len(owners) != 1:
+            return []
+        body = owners[0].body
+    else:
+        return []
+    return sorted(node.lineno for node in body
+                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == symbol)
 
 
 def _test_evidence(label: str) -> dict:
@@ -100,18 +105,18 @@ def _test_evidence(label: str) -> dict:
 
 def audit() -> dict:
     entries = []
-    for label, (path, owner, symbol) in SYMBOLS.items():
+    for label, (path, owner, symbol, scope) in SYMBOLS.items():
         source, error = _read_source(path)
         if error:
             entries.append({"topic": label, "path": path, **error})
             continue
         try:
-            lines = _definitions(ast.parse(source), owner, symbol)
+            lines = _definitions(ast.parse(source), owner, symbol, scope)
         except (SyntaxError, ValueError):
             lines = []
-        entries.append({"topic": label, "status": "SOURCE_LOCATED" if lines else "OPEN_QUESTION",
+        entries.append({"topic": label, "status": "SOURCE_LOCATED" if len(lines) == 1 else "OPEN_QUESTION",
                         "path": path, "symbol": f"{owner + '.' if owner else ''}{symbol}",
-                        "lines": lines,
+                        "lines": lines, "scope": scope,
                         "note": "Definition location only; behavior and real-data cause are not established."})
     tests = {label: _test_evidence(label) for label in TEST_HINTS}
     return {"schema": "trip-assignment-contract-audit-v1", "mode": "source-only-ast",
