@@ -216,7 +216,7 @@ def _link_diagnosis_label(reason):
         'reference_content_conflict': '참고 자료 내용 불일치 · 확인 필요',
         'registered_source_missing': '등록된 근거 자료 없음 · 확인 필요',
         'source_read_failed': '근거 자료 읽기 실패 · 확인 필요',
-        'snapshot_managed': '예약 근거는 아래 OTA 검토에서 확인해 주세요',
+        'snapshot_managed': '예약 근거는 이 거래의 상세 근거에서 바로 확인할 수 있습니다',
         'payment_date_unknown': '결제일 근거 없음 · 날짜 확인 필요',
         'card_identity': '카드 끝자리나 카드사가 맞지 않음 · 확인 필요',
         'provider': '예약 제공자와 카드 가맹점이 맞지 않음 · 연결 불가',
@@ -2376,7 +2376,8 @@ def assign_existing_local_expenses(flow, *, failures=None):
     conn = flow.board.conn
     rows = conn.execute(
         "SELECT b.row_id,b.revision,b.payload_json,t.transaction_id,t.merchant,t.card_kind,"
-        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json"
+        "t.approval_date,t.posting_date,t.issuer,t.raw_row_json,"
+        "t.trip_id,t.classification_source,t.classification_basis"
         " FROM board_rows b JOIN transactions t ON t.transaction_id=json_extract(b.payload_json,'$.source_event_id')"
         " WHERE b.row_kind='expense' AND b.display_tab_id IS NULL"
         " AND t.transaction_direction='purchase' AND COALESCE(t.duplicate_of,'')=''"
@@ -2391,19 +2392,28 @@ def assign_existing_local_expenses(flow, *, failures=None):
     ).fetchall()
     local_items = {'식비','주유비','통행료','입장료','교통비','대중교통','택시비','주차비','현지경비','편의점'}
     assigned = 0
-    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw in rows:
+    for row_id, revision, payload, tid, merchant, kind, day, posted, issuer, raw, source_trip, source_kind, source_basis in rows:
         item = json.loads(payload).get('item')
-        if item not in local_items:
+        high_inference = (source_kind == 'inference'
+                          and str(source_basis or '').startswith('추론 배정 · 높음')
+                          and bool(source_trip))
+        if high_inference:
+            # Transfer only an already-classified, validated card assignment.
+            # Never infer a trip from free-text basis or create an authority.
+            trip = source_trip if flow.trip_valid(source_trip) else ''
+            basis = '자동 배정: 카드 원본의 검증된 높은 신뢰도 여행 귀속을 기존 장부에 반영'
+        elif item in local_items:
+            transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
+                               approval_date=day, posting_date=posted, issuer=issuer,
+                               transaction_direction='purchase', raw_row=json.loads(raw))
+            trip = _verified_local_trip(transaction, item, flow.retail_trip)
+            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
+        else:
             continue
-        transaction = dict(transaction_id=tid, merchant=merchant, card_kind=kind,
-                           approval_date=day, posting_date=posted, issuer=issuer,
-                           transaction_direction='purchase', raw_row=json.loads(raw))
-        trip = _verified_local_trip(transaction, item, flow.retail_trip)
         if not trip:
             continue
         try:
             previous_note = json.loads(payload).get('operator_note') or ''
-            basis = f'자동 추론: 원문 국가와 이용일 {day}이 검증된 여행 기간에 속함. 확신 정도: 중간.'
             flow.board.save(row_id=row_id, expected_revision=revision,
                             client_request_id=f'cleanup-trip-{row_id}-{revision}-{trip}',
                             change_mode='rule_change', changes={'display_tab_id': trip,
@@ -2963,6 +2973,8 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
                  '원결제 연결 완료 · 환불 기록 처리 대기')
         basis = ('외화 금액·동일 카드 기준 원결제 연결'
                  if link.get('basis') == 'merchant_card_foreign_amount'
+                 else '카카오 포함 가맹점·동일 카드·동액 기준 추론 연결 (정산 확정 아님)'
+                 if link.get('basis') == 'kakao_same_card_exact_amount_inferred'
                  else '원승인번호 기준 원결제 확정 연결')
         lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
@@ -2993,8 +3005,32 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
             title, lines = '원결제 후보의 대응 확인 필요', ['원결제 후보는 있지만 날짜·점유·환불 조건을 충족하는 연결은 확인되지 않았습니다.']
         else:
             title, lines = '확정 원결제 자료 미확인', ['원승인번호 또는 외화 금액 기준으로 자동 연결된 원결제가 없습니다. 아래 가맹점 검색 결과를 비교해 주세요.']
-        if row and not row[2]:
-            lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다.')
+        if row and not str(row[2] or '').strip():
+            # A card authorization cancellation is not proof of money returned.
+            # Diagnose from the entire same-card statement without writing or
+            # promoting similar merchant names to verified financial links.
+            refund_row = board.conn.execute(
+                "SELECT issuer,card_tail FROM transactions WHERE transaction_id=?",
+                (tid,)).fetchone()
+            if refund_row:
+                issuer, tail = refund_row
+                original_matches = board.conn.execute(
+                    "SELECT COUNT(*) FROM transactions WHERE transaction_direction='purchase'"
+                    " AND issuer=? AND card_tail=? AND approval_number IS NOT NULL"
+                    " AND TRIM(approval_number)!='' AND amount_krw>0"
+                    " AND duplicate_of IS NULL AND conflict_reason='' AND parse_error=''"
+                    " AND approval_number=(SELECT approval_number FROM transactions WHERE transaction_id=?)",
+                    (issuer, tail, tid)).fetchone()[0]
+                if original_matches:
+                    lines.append('취소 승인번호와 같은 구매 승인번호가 발견됐지만, 원승인번호 근거가 없어 자동 확정하지 않았습니다.')
+                else:
+                    lines.append('카드 원본에 원승인번호가 없습니다. 취소 승인번호만으로 원결제를 확정하지 않습니다. 동일 카드에서 취소 승인번호로 식별되는 구매도 없습니다.')
+            lines.append('카카오T 가승인 해제는 실제 환급 완료와 다릅니다. 원본 결제 참조가 확보되면 자동 재대사됩니다.')
+    if not link:
+        from app.partial_refund import kakao_refund_candidates
+        candidate = kakao_refund_candidates(board.conn, {tid}).get(tid)
+        if candidate:
+            lines.append('동일 카드·카카오 포함 가맹점·동액의 원결제 후보 1건이 있습니다. 원승인번호 근거가 없어 금융 연결·상쇄·환급 완료로 확정하지 않습니다.')
     comparison = _render_refund_merchant_candidates(board, tid) if not link else ''
     return ("<details class='cleanup-evidence cleanup-refund'><summary>" + esc(title) +
             '</summary><ul>' + ''.join('<li>' + esc(line) + '</li>' for line in lines) + '</ul>' + comparison + '</details>')
@@ -3054,7 +3090,15 @@ def render_expense_cleanup(board, csrf, *, page=1):
         "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")}
     from app.partial_refund import refund_links, count_held_cancellations
     visible_refunds = [row[0] for row in rows_card if row[0] in cancellation_ids]
-    refund_by_id = refund_links(board.conn, visible_refunds)
+    # A displayed original may have cancellations on another cleanup page.
+    # Resolve globally once so its status does not contradict the refund card.
+    all_refund_ids = [row[0] for row in board.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    all_refund_links = refund_links(board.conn, all_refund_ids)
+    refund_by_id = {tid: all_refund_links[tid] for tid in visible_refunds if tid in all_refund_links}
+    original_refunds = {}
+    for refund_id, link in all_refund_links.items():
+        original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
@@ -3084,12 +3128,27 @@ def render_expense_cleanup(board, csrf, *, page=1):
                  "<p class='cleanup-evidence-none'>현재 예약 자료를 확인할 수 없어 예약 부재 여부를 판단하지 않았습니다.</p>")
                 if source == 'booking_evidence_needed' or _is_ota_row({'merchant': merchant}) else ''
             )
+        # Classification confidence describes a proposal, not a persisted trip.
+        # Do not present an old high-confidence basis as an active assignment.
+        if (current_tab in (None, '', 'unclassified')
+                and source == 'inference'):
+            basis_row = board.conn.execute(
+                "SELECT classification_basis FROM transactions WHERE transaction_id=?",
+                (tid,)).fetchone()
+            basis_text = str(basis_row[0] or '') if basis_row else ''
+            if '추론 배정 · 높음' in basis_text:
+                reason = ('과거 추론 근거는 높음이지만 현재 여행 배정값이 비어 있습니다.'
+                          ' 유효한 여행을 자동 재검증할 때까지 배정 완료로 표시하지 않습니다.')
+                evidence += ("<p class='cleanup-finance-status'>"
+                             "추론 근거와 저장된 여행 배정이 불일치합니다. "
+                             "재분류 시 유효한 여행 ID가 검증되면 자동 배정합니다."
+                             "</p>")
         finance_label = ''
         preview_row = preview_by_card.get(str(tid))
         if preview_row:
             blocked = preview_row.get('blocked')
             blocked_labels = {
-                'trip_no_longer_valid': '기록 보류: 배정된 여행이 현재 유효하지 않습니다.',
+                'trip_no_longer_valid': '기록 보류: 이 거래에 저장된 여행 배정 ID가 현재 활성 여행 목록에서 유효하지 않습니다. 여행 삭제·보관·동기화 변경 여부를 확인해야 합니다.',
                 'refund_pair_incomplete': '기록 보류: 원결제와 환불을 함께 확인해야 합니다.',
                 'source_conflict': '기록 보류: 카드 원본 간 충돌을 확인해야 합니다.',
                 'duplicate_possible': '기록 보류: 중복 가능성이 있어 확인이 필요합니다.',
@@ -3117,6 +3176,22 @@ def render_expense_cleanup(board, csrf, *, page=1):
         if snapshot_context and not snapshot_context.get('fresh'):
             if entry and isinstance(entry, dict) and entry.get('ota_status') in ('EXACT', 'INFERRED', 'USER_CONFIRMED'):
                 reason = '현재 OTA 연결 상태를 확인할 수 있습니다.'
+        # Reflect already-proven purchase/refund pairing on the original row,
+        # regardless of OTA snapshot freshness or the cancellation's page.
+        if tid not in cancellation_ids and tid in original_refunds:
+            pairs = original_refunds[tid]
+            example = pairs[0][1]
+            if example.get('status') == 'full':
+                reason = (f"원결제와 취소·환불 {example['refund_count']}건의 금액이 전액 상쇄됩니다."
+                          " OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다.")
+            elif example.get('status') == 'partial':
+                reason = (f"원결제에 취소·환불 {example['refund_count']}건 연결 · "
+                          f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
+            elif example.get('status') == 'excess':
+                reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
+            evidence += ("<p class='cleanup-finance-status'>"
+                         + esc("원결제·환불 대응은 확인됐으며 실제 장부 기록·환급 완료를 의미하지 않습니다.")
+                         + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
         if tid in cancellation_ids:
             link = refund_by_id.get(tid)
@@ -3336,7 +3411,7 @@ if(j.ota_reconciliation?.enabled&&!j.ota_reconciliation.fresh){const notice=docu
 const held=j.rows.filter(r=>r.review_hold);const holdNames={cancelled:'취소·환불 관리',refund_pending:'환불 확인 대기',user_hold:'사용자 보류',evidence_pending:'예약·결제 확인 대기'};el('holds').innerHTML=held.length?'<details><summary>취소·환불과 보류 '+held.length+'건 · 일반 비용 기록에서 제외</summary>'+held.map(r=>'<article><strong>'+esc(holdNames[r.review_hold.kind])+'</strong><p>'+esc(r.merchant)+' · '+money(r.amount_krw)+'</p>'+(evidence(r)?'<p class="small">'+esc(evidence(r))+'</p>':'')+'<p>'+esc(r.review_hold.reason)+'</p><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__확인 후 수정</button></article>').join('')+'</details>':'';
 const asked=j.rows.filter(r=>j.preview.rows.find(p=>p.transaction_id===r.transaction_id)?.next_action?.required&&!r.duplicate_of&&r.transaction_id!==editing);const pages=Math.max(1,Math.ceil(asked.length/PAGE_SIZE));if(page>=pages)page=pages-1;const slice=asked.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE);const ed=editing?j.rows.find(r=>r.transaction_id===editing&&!r.duplicate_of):null;
 el('questions').innerHTML=(ed?'<article><h2>'+esc(j.preview.rows.find(r=>r.transaction_id===ed.transaction_id)?.next_action?.label||'거래 수정')+' · '+esc(ed.merchant)+'</h2><p class="small">'+esc(j.preview.rows.find(r=>r.transaction_id===ed.transaction_id)?.next_action?.reason||'')+'</p>'+answerForm(j,ed)+'</article>':'')+slice.map((r,i)=>'<details class="review-item"'+(i===0?' open':'')+'><summary><span class="ri-date">'+esc(r.approval_date||r.posting_date)+(r.approval_date?'':' (매입일)')+'</span><h2>'+esc(r.merchant)+'</h2><span class="amount">'+money(r.amount_krw)+'</span>'+(evidence(r)?'<span class="ri-flag">'+esc(evidence(r))+'</span>':'')+'</summary><div class="ri-body"><p class="small">'+esc(r.conflict_reason||r.parse_error||r.classification_basis)+'</p>'+answerForm(j,r)+'</div></details>').join('')+(pages>1?'<nav><p class="small">확인하거나 수정할 '+asked.length+'건을 '+PAGE_SIZE+'건씩 봅니다 · '+(page+1)+'/'+pages+'페이지</p><button type="button" id="prevpage"'+(page?'':' disabled')+'>__ICON_CHEVRON_LEFT__이전 20건</button> <button type="button" id="nextpage"'+(page+1<pages?'':' disabled')+'>다음 20건__ICON_CHEVRON_RIGHT__</button></nav>':'');
-const groups=(j.refund_groups||[]).map(g=>g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p=j.preview;el('preview').className='';el('preview').innerHTML=groups+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+'<h2>거래 처리 결과</h2><p>기록 완료 '+p.rows.filter(r=>r.already_booked).length+'건 · 확인할 거래 '+p.rows.filter(r=>r.next_action?.required).length+'건</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({user_exception:'사용자 예외',guide_airfare_evidence:'대장 항공권 근거'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'추론 배정')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 확인 필요')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>'+[...new Set(p.rows.filter(r=>!r.blocked&&!j.rows.some(x=>x.transaction_id===r.transaction_id&&x.item==='분기 기타비용')).map(r=>r.display_tab_id).filter(Boolean))].map(t=>'<p><button type="button" data-google-copy="'+esc(t)+'">__ICON_COPY__'+esc(j.trips.find(x=>x.id===t)?.name||'여행')+' 구글 지출 7열 복사</button></p>').join('');
+const groups=(j.refund_groups||[]).map(g=>g.error?'<p class=small>환불 쌍 확인 필요: '+esc(g.message)+'</p>':'<div class="refund-group"><h2>환불 쌍</h2><p>원결제 '+money(g.gross_krw)+' · 환불 '+money(g.refund_krw)+' · 순액 '+money(g.net_krw)+'</p><p>항목 '+esc(g.item)+' · 여행 '+esc(g.trip_name||'미배정')+'</p><button type="button" data-group-commit="'+esc(g.original_id)+'" data-digest="'+esc(g.digest)+'" '+(g.recordable&&g.rows.some(r=>!r.already_booked)?'':'disabled')+'>__ICON_CHECK__이 환불 쌍 '+g.rows.length+'건만 장부에 기록</button>'+(g.recordable?'':'<p class=small>'+esc(g.reason)+'</p>')+'</div>').join('');const p=j.preview;el('preview').className='';el('preview').innerHTML=groups+p.rows.filter(r=>r.excluded_from_company).map(r=>'<p>회사 경비 제외: '+esc(r.merchant)+' · '+money(r.amount_krw)+' <button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button></p>').join('')+'<h2>거래 처리 결과</h2><p>기록 완료 '+p.rows.filter(r=>r.already_booked).length+'건 · 확인할 거래 '+p.rows.filter(r=>r.next_action?.required).length+'건</p><table><thead><tr><th><button type="button" data-review-date>거래일·가맹점</button></th><th>항목</th><th>금액</th><th>여행</th><th>수정</th></tr></thead><tbody>'+reviewRows(j).map(r=>'<tr><td><span class="pv-label">거래일·가맹점</span>'+esc(reviewDate(r))+'<br><span class="review-icon">'+reviewIcon(r)+'</span>'+esc(r.merchant)+(reviewLabel(r)?'<br><span class="review-state">'+esc(reviewLabel(r))+'</span>':'')+'</td><td><span class="pv-label">항목</span><span class="review-icon">'+(reviewIcons[r.item]||reviewIcons.merchant)+'</span>'+esc(r.item)+((r.booking_ref||r.service_period)?'<br><span class=small>OTA 예약 근거 · '+esc([r.booking_ref,r.service_period].filter(Boolean).join(' · '))+'</span>':'')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<br><span class=small>'+esc({user_exception:'사용자 예외',guide_airfare_evidence:'대장 항공권 근거'}[j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source]||'추론 배정')+'</span>':'')+'</td><td class="review-money"><span class="pv-label">금액</span>'+money(r.amount_krw)+'</td><td><span class="pv-label">여행</span>'+esc((j.quarter_targets||[]).find(t=>t.transaction_ids.includes(r.transaction_id))?.name||j.trips.find(t=>t.id===r.display_tab_id)?.name||'여행 확인 필요')+(['inference','user_exception','guide_airfare_evidence'].includes(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_source)?'<details><summary>배정 근거</summary>'+esc(j.rows.find(x=>x.transaction_id===r.transaction_id)?.classification_basis)+'</details>':'')+'</td><td><button type="button" data-edit="'+esc(r.transaction_id)+'">__ICON_PENCIL__'+esc(r.next_action?.required?r.next_action.label:'수정')+'</button><p class=small>'+esc(r.next_action?.reason||'')+'</p>'+(r.excluded_from_company?'<button type="button" data-company-restore="'+esc(r.transaction_id)+'">__ICON_ROTATE__회사 경비 제외 되돌리기</button>':'')+'</td></tr>').join('')+'</tbody></table><p id="review-empty"'+(reviewRows(j).length?' hidden':'')+'>조회 조건에 맞는 거래가 없습니다.</p>';
 document.querySelectorAll('[data-group-commit]').forEach(b=>b.hidden=true);el('preview').insertAdjacentHTML('beforeend',(j.quarter_targets||[]).map(t=>'<section class="quarter-copy"><h2>'+esc(t.name)+'</h2><p class="small">여행 외 비용 · '+t.transaction_ids.length+'건 · 원본과 기록 상태는 그대로 유지합니다.</p>'+(t.available?'<a href="'+esc(t.href)+'" target="_blank" rel="noopener noreferrer">Google 분기 원본 열기</a><p><button type="button" data-google-copy="'+esc(t.id)+'">__ICON_COPY__'+esc(t.name)+' 지출 7열 복사</button></p>':'<p role="status">'+esc(t.reason)+'</p>')+'</section>').join(''));
 document.querySelector('[data-review-date]').onclick=()=>{el('review-date').open=true;el('review-date').scrollIntoView({block:'center'});};
 document.querySelectorAll('form[data-index]').forEach(f=>f.onsubmit=async e=>{e.preventDefault();const r=model.rows[Number(f.dataset.index)],v=new FormData(f),batch=model.batch_id,generation=batchGeneration,button=f.querySelector('button');if(button.disabled)return;button.disabled=true;try{const j=await call('/api/imports/'+model.batch_id+'/decision',mutationBody(f,{transaction_id:r.transaction_id,revision:r.revision,item:v.get('item'),description:v.get('description'),display_tab_id:v.get('display_tab_id'),note:v.get('note'),reuse_rule:v.has('reuse_rule'),resolve_hold:v.has('resolve_hold')}),{'Content-Type':'application/json'});if(model.batch_id!==batch||batchGeneration!==generation)return;if(j.trip_move_learning?.status==='opened'){location.assign(j.trip_move_learning.url);return}if(editing===r.transaction_id)editing='';if(!j.refresh_required)render(j);el('status').textContent=j.refresh_required?'답변은 저장됐습니다. 화면 갱신에 실패했으니 자료를 다시 선택해 결과를 확인해 주세요.':'답변을 적용했습니다. 검사를 통과한 거래는 자동 반영했습니다.'}catch(e){if(model.batch_id===batch&&batchGeneration===generation)el('status').textContent=e.message}finally{button.disabled=false}})

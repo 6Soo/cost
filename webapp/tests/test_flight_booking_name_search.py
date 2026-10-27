@@ -51,7 +51,7 @@ class Handler:
 
 
 def test_name_search_needs_no_booking_number_or_tour_id():
-    with patch("webapp.ota_payment_review.passenger_index_for", return_value=_index()) as lookup:
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=_index()) as lookup:
         found = page._name_search(object(), "  alpha / KIM ")
     assert [row["booking_ref"] for row in found["reservations"]] == ["SYNTH-100", "SYNTH-200"]
     assert found["reservations"][0]["source_verified"] is True
@@ -63,7 +63,7 @@ def test_name_search_needs_no_booking_number_or_tour_id():
 def test_name_search_matches_one_verified_name_component_without_fuzzy_matching():
     responses = {}
     with patch.dict(os.environ, {page.FEATURE_FLAG: "1"}), patch(
-        "webapp.ota_payment_review.passenger_index_for", return_value=_index()
+        "webapp.flight_booking_index.passenger_index_for", return_value=_index()
     ):
         for query in ("alpha", "alph"):
             handler = Handler()
@@ -80,7 +80,7 @@ def test_name_search_matches_one_verified_name_component_without_fuzzy_matching(
 
 
 def test_name_search_does_not_guess_korean_transliteration_or_unverified_records():
-    with patch("webapp.ota_payment_review.passenger_index_for", return_value=_index()):
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=_index()):
         result = page._name_search(object(), "김알파")
         assert result['reservations'] == [] and result['source_status'] == 'VERIFIED'
         assert not page._name_search(object(), "PARK BETA")["reservations"][0]["cancelled"]
@@ -89,7 +89,7 @@ def test_name_search_does_not_guess_korean_transliteration_or_unverified_records
 def test_owner_only_post_search_csrf_and_old_assignment_route_stays():
     assert page.owns_route("/api/flight-passengers/assign")
     with patch.dict(os.environ, {page.FEATURE_FLAG: "1"}), patch(
-        "webapp.ota_payment_review.passenger_index_for", return_value=_index()
+        "webapp.flight_booking_index.passenger_index_for", return_value=_index()
     ):
         handler = Handler()
         assert page.dispatch(
@@ -138,7 +138,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
     from playwright.sync_api import sync_playwright, expect
     from webapp import site_shell
 
-    with patch('webapp.ota_payment_review.passenger_index_for', return_value=_index()):
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=_index()):
         result = page._name_search(object(), 'KIM ALPHA')
     result['reservations'][0]['linked_cards'] = [{'merchant': 'Synthetic Airline', 'amount_krw': 13000,
         'currency': 'KRW', 'amount_status': 'MISMATCH', 'currency_status': 'MATCH',
@@ -155,6 +155,10 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
             def respond(route):
                 payload = json.loads(route.request.post_data)
                 requests.append(payload)
+                if len(requests) == 1:
+                    route.fulfill(content_type='application/json', body=json.dumps(
+                        {'reservations': [], 'source_status': 'LOADING'}))
+                    return
                 first = payload.get('offset', 0) == 0
                 batch = {**result, 'reservations': result['reservations'][:1] if first else result['reservations'][1:],
                          'next_offset': 100 if first else None, 'total': 2}
@@ -200,7 +204,7 @@ def test_browser_name_search_renders_verified_itinerary_and_secondary_participan
 def test_browser_manual_date_filter_keeps_explicit_date_and_refuses_mixed_revisions():
     from playwright.sync_api import sync_playwright, expect
     from webapp import site_shell
-    with patch('webapp.ota_payment_review.passenger_index_for', return_value=_index()):
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=_index()):
         result = page._name_search(object(), 'KIM ALPHA')
     result['reservations'] = result['reservations'][:1]
     with patch('webapp.ledger_design._nav_html', return_value='<aside id="nav"></aside>'):
@@ -263,7 +267,7 @@ def test_confirmed_cards_require_fresh_matching_manual_payment_evidence():
 
     def search(snapshot, fresh=True):
         board = SimpleNamespace(_ota_snapshot_service=SimpleNamespace(held=lambda: ({'data': snapshot}, fresh)))
-        with patch('webapp.ota_payment_review.passenger_index_for', return_value=evidence):
+        with patch('webapp.flight_booking_index.passenger_index_for', return_value=evidence):
             return page._name_search(board, 'KIM ALPHA')['reservations'][0]
 
     booking = search(data)
@@ -295,7 +299,7 @@ def test_confirmed_cards_require_fresh_matching_manual_payment_evidence():
 
 def test_search_pages_all_matches_and_refuses_changed_source_revision():
     evidence = {f'SYNTH-{i:04d}': deepcopy(_index()['SYNTH-100']) for i in range(1001)}
-    with patch('webapp.ota_payment_review.passenger_index_for', return_value=evidence):
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value=evidence):
         first = page._name_search(object(), 'KIM ALPHA')
         rows = list(first['reservations'])
         offset = first['next_offset']
@@ -314,7 +318,7 @@ def test_search_pages_all_matches_and_refuses_changed_source_revision():
 
 
 def test_no_current_evidence_and_secondary_participant_view_have_explicit_states():
-    with patch('webapp.ota_payment_review.passenger_index_for', return_value={}):
+    with patch('webapp.flight_booking_index.passenger_index_for', return_value={}):
         assert page._name_search(object(), 'KIM ALPHA')['source_status'] == 'UNAVAILABLE'
     with patch.dict(os.environ, {page.FEATURE_FLAG: '1'}):
         handler = Handler()

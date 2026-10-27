@@ -1331,7 +1331,7 @@ def reconcile_for(backend) -> dict:
     }
 
 
-def _passenger_index(mail_directories) -> dict:
+def _passenger_index(mail_directories, *, strict=False) -> dict:
     """booking ref -> the flight passengers the authenticated Trip.com mail names.
 
     Display evidence only: the booker and payer are never in this list, and a
@@ -1341,6 +1341,8 @@ def _passenger_index(mail_directories) -> dict:
     try:
         evidence = flight_evidence.collect_flight_evidence(mail_directories)
     except Exception:
+        if strict:
+            raise
         return {}
     index = {}
     for (provider, booking_ref), found in evidence.items():
@@ -1498,9 +1500,10 @@ def snapshot_service(board):
 
 def shutdown_snapshot_service(board) -> None:
     """Stop the board's worker and wait for it. Idempotent; called on server exit and by tests."""
-    service = getattr(board, "_ota_snapshot_service", None)
-    if service is not None:
-        service.stop()
+    for name in ('_ota_snapshot_service', '_flight_booking_service'):
+        service = getattr(board, name, None)
+        if service is not None:
+            service.stop()
 
 
 def _stop_quietly(service) -> None:

@@ -233,6 +233,78 @@ def _foreign_links(conn, taken, requested=None) -> dict:
     return links
 
 
+def kakao_refund_candidates(conn, requested=None) -> dict:
+    memo = _READ_ANALYSIS.get()
+    key = ('kakao_candidates', conn, conn.total_changes,
+           conn.execute('PRAGMA data_version').fetchone()[0])
+    if memo is not None and key in memo:
+        candidates = memo[key]
+    else:
+        candidates = _kakao_refund_candidates(conn)
+        if memo is not None:
+            memo[key] = candidates
+    return {tid: dict(candidate) for tid, candidate in candidates.items()
+            if requested is None or tid in requested}
+
+
+def _kakao_refund_candidates(conn) -> dict:
+    """Unique same-card, exact-KRW Kakao pair when original approval is absent.
+
+    Display-only candidates. Never returned by refund_links/refund_group.
+    This is an inferred pairing, not verification of cash settlement.
+    Never consume an original already linked by authoritative approval number.
+    """
+    numbered = _number_links(conn)
+    taken = {link["original_id"] for link in numbered.values()}
+    taken.update(link["original_id"] for link in _foreign_links(conn, taken).values())
+    rows = conn.execute(
+        "SELECT transaction_id,transaction_direction,issuer,card_tail,merchant,"
+        " amount_krw,COALESCE(NULLIF(approval_date,''),posting_date),"
+        " original_approval_number FROM transactions"
+        f" WHERE {_CLEAN} AND ((transaction_direction='purchase' AND amount_krw>0)"
+        " OR (transaction_direction='cancellation' AND amount_krw<0"
+        " AND TRIM(COALESCE(original_approval_number,''))=''))"
+    ).fetchall()
+    purchases, refunds = [], []
+    for tid, direction, issuer, tail, merchant, amount, when, original in rows:
+        if not issuer or not tail or '카카오' not in str(merchant or ''):
+            continue
+        day = _day(when)
+        if day is None:
+            continue
+        record = (tid, issuer, tail, abs(amount), day)
+        if direction == 'purchase':
+            if tid not in taken:
+                purchases.append(record)
+        else:
+            refunds.append(record)
+    possible = {}
+    for refund_id, issuer, tail, amount, day in refunds:
+        matches = [p for p in purchases
+                   if p[1:4] == (issuer, tail, amount)
+                   and 0 <= (day - p[4]).days <= 14]
+        if len(matches) == 1:
+            possible[refund_id] = matches[0]
+    # A purchase targeted by two different cancellations is not automatically
+    # paired by amount alone: no authoritative evidence of repeated refunds.
+    counts = {}
+    for row in possible.values():
+        counts[row[0]] = counts.get(row[0], 0) + 1
+    links = {}
+    for refund_id, purchase in possible.items():
+        original_id = purchase[0]
+        if counts[original_id] != 1:
+            continue
+        gross = purchase[3]
+        links[refund_id] = {
+            'original_id': original_id, 'gross_krw': gross,
+            'refund_krw': -gross, 'refunds_total_krw': -gross,
+            'net_krw': 0, 'status': 'full', 'refund_count': 1,
+            'basis': 'kakao_same_card_exact_amount_inferred',
+        }
+    return links
+
+
 def count_held_cancellations(conn) -> dict:
     """{cancellation_id: counts} for identical cancellations left over while identical purchases exist.
 

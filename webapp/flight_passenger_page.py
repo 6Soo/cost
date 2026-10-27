@@ -299,18 +299,25 @@ text(participant,'summary','참가자 연결 정보');
 text(participant,'p','기존 참가자 연결 기능에서 예약 명단과 비교하고 COST 내부 연결을 확인할 수 있습니다.','fb-muted');
 const link=text(participant,'a','참가자 연결 정보 열기');link.href='/flight-passengers?view=participants';card.append(participant);
 return card}
+let refreshAttempts=0,refreshTimer=null;
 async function loadBookings(reset){
 if(reset){resultRoot.replaceChildren();nextOffset=null;sourceRevision=null;more.hidden=true}
 submit.disabled=true;more.disabled=true;status.textContent='항공권 예약 내역을 찾고 있습니다.';
 try{
 const response=await fetch('/api/flight-passengers/name-search',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':CSRF},body:JSON.stringify({name:searchName,offset:reset?0:nextOffset,revision:reset?null:sourceRevision}),cache:'no-store'});
 const data=await response.json();if(!response.ok)throw new Error(({'INVALID_NAME':'탑승객 이름을 확인해 주세요.','CSRF_REQUIRED':'페이지를 새로고침한 뒤 다시 조회해 주세요.','FEATURE_DISABLED':'현재 이용할 수 없습니다.','STORE_UNAVAILABLE':'항공권 원본 자료를 불러올 수 없습니다.','SOURCE_CHANGED':'항공권 자료가 변경됐습니다. 이름을 다시 조회해 주세요.'})[data.code]||'항공권 조회에 실패했습니다.');
+if(data.source_status==='LOADING'){
+ status.textContent='항공권 메일 자료를 갱신하고 있습니다. 잠시 후 다시 조회합니다.';
+ if(refreshAttempts++<60)refreshTimer=setTimeout(()=>loadBookings(true),2000);
+ else status.textContent='항공권 메일 자료를 갱신하고 있습니다. 잠시 후 예약 조회를 눌러 주세요.';
+ return;
+}
 for(const booking of data.reservations||[])resultRoot.append(showBooking(booking));
 sourceRevision=data.revision;nextOffset=data.next_offset??null;more.hidden=nextOffset===null;
 const count=resultRoot.querySelectorAll('.fb-ticket').length;
 status.textContent=data.source_status==='UNAVAILABLE'?'최근 항공권 자료를 확인할 수 없습니다. 최신 수집 상태를 확인해 주세요.':count?'확인된 항공권 예약 '+(data.total??count)+'건 중 '+count+'건을 표시합니다. 같은 이름의 예약은 예약번호와 여정을 각각 확인해 주세요.':'이 이름으로 확인된 항공권 예약이 없습니다. 영문 표기를 확인해 주세요.';
 }catch(error){status.textContent=error.message;more.hidden=true}finally{submit.disabled=false;more.disabled=false}}
-form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;searchName=form.elements.name.value.trim();loadBookings(true)});
+form.addEventListener('submit',e=>{e.preventDefault();if(submit.disabled)return;clearTimeout(refreshTimer);refreshAttempts=0;searchName=form.elements.name.value.trim();loadBookings(true)});
 more.addEventListener('click',()=>{if(nextOffset!==null&&!more.disabled)loadBookings(false)});
 </script></body></html>""".replace('__CSRF__', token)
 
@@ -397,13 +404,13 @@ def _confirmed_card_index(board, passenger_index):
 
 def _name_search(board, name, *, offset=0, revision=None):
     """Search verified original-name tokens without requiring tour ID or full name."""
-    from .ota_payment_review import passenger_index_for
+    from .flight_booking_index import passenger_index_for, source_status
     query = _name_key(name)
     if not query:
         raise ValueError('INVALID_NAME')
     if type(offset) is not int or offset < 0 or offset > 1000000 or offset and not revision:
         raise ValueError('INVALID_CURSOR')
-    index = passenger_index_for(board, require_fresh=True)
+    index = passenger_index_for(board)
     cards = _confirmed_card_index(board, index)
     results = []
     fingerprints = []
@@ -445,7 +452,7 @@ def _name_search(board, name, *, offset=0, revision=None):
     return {'reservations': results[offset:end], 'truncated': len(results) > end,
             'next_offset': end if len(results) > end else None, 'total': len(results),
             'revision': current_revision, 'source_status': 'VERIFIED' if any(
-                isinstance(row, dict) and row.get('source_digests') for row in index.values()) else 'UNAVAILABLE'}
+                isinstance(row, dict) and row.get('source_digests') for row in index.values()) else source_status(board)}
 
 
 def _passenger_evidence(board, booking_ref):
@@ -567,6 +574,8 @@ def dispatch(handler, parsed, *, is_owner, board, raw=None, csrf='', query=None,
         return True
     query = query or parse_qs(getattr(parsed, 'query', '') or '')
     if parsed.path == ROUTES[0] and raw is None:
+        from .flight_booking_index import prewarm
+        prewarm(board)
         handler._send(_legacy_page(csrf) if query.get('view') == ['participants'] else _page(csrf))
         return True
     if parsed.path == ROUTES[1] and raw is None:

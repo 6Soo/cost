@@ -68,7 +68,7 @@ def test_name_search_exposes_verified_date_only_and_preserves_manual_fallback():
             "cancellation_status": "NONE",
         },
     }
-    with patch("webapp.ota_payment_review.passenger_index_for", return_value=index), patch(
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), patch(
         "webapp.flight_passenger_page._confirmed_card_index", return_value={}):
         res = page._name_search(object(), "KIM ALPHA")
     assert res["total"] == 2
