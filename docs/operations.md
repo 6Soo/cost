@@ -1,3 +1,17 @@
+## 2026-10-27 카드 거래의 무관한 Agoda 제외 후보 노출 수정 — main 병합, 운영 배포 대기
+
+PR [#152](https://github.com/6Soo/cost/pull/152) was merged to `main` as **`2762f0778c54babe54b17bc8414d49596c6f4bfc`**. It fixes the reverse-index display in `webapp/card_flow.py::_index_ota_display_candidates`: provider-only OTA rejected comparisons no longer appear against a card unless the OTA's actual `paid_on` and the card's `approval_date` are both present and same-day or within an already-approved date-lag policy. Stay dates are not treated as payment dates. The three new synthetic regressions cover missing payment date, unrelated date, and preserving same-day currency mismatch diagnostics. No matching, booking link, ledger, financial decision, or database behavior changed.
+
+**Verification/release status:**
+
+- GitHub commit status and PR workflow lookups returned no checks/workflow runs. No repository Actions workflow was found for this commit.
+- Python/pytest was **not run** in this session. Required focused command: `python -m pytest webapp/tests/test_ota_card_evidence_relevance.py webapp/tests/test_expense_cleanup.py -q`.
+- The last recorded production SHA remains **`4cd12adebad6ebcac110130803d35f589d1f8bb0`**. This merge commit is not assumed deployed.
+- The GitHub connector cannot access the Windows runtime/task scheduler, so fixed-SHA production deployment, health/ready checks, and owner screen acceptance are **PENDING**. Do not mark this fix as live until the deployed SHA is verified and the 2026-09-22 Agoda card no longer shows unrelated booking rows.
+- No live card, OTA reservation, ledger, or Google data was read or changed as part of this fix.
+
+---
+
 ## 2026-10-27 미결 UI 통합·항공권 수신일·OTA 후보 읽기 수정
 
 **현재 운영 SHA: `4cd12adebad6ebcac110130803d35f589d1f8bb0`**, [PR #149](https://github.com/6Soo/cost/pull/149). 앞선 #146은 #133/#138/#145의 UI·명시 예약일·환불 표시 변경을 통합했고, #147은 지출 상태 조회의 legacy 원본 대사를 제거했다. #148은 사용자 후속 승인에 따라 별도 예약일이 없는 같은 공급자/예약번호의 인증 메일 최초 수신일을 한국 날짜로 표시한다. 명시 날짜/날짜 충돌이 우선하고, 충돌·취소·stale·기존 연결의 자동 후보 차단은 유지한다. 화면은 **최초 메일 수신일 기준**으로 표시하며 공급사의 원본 생성일로 표현하지 않는다.
