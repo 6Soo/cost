@@ -23,6 +23,7 @@ from .import_card import ParsedFile, ParsedRow, ParseError, parse_card_file
 from .ledger import commit, preview
 from .review import get_batch, receive, save_decision
 from .rules import list_rules, normalize_rule, rule_matches, save_rule
+from .transaction_read_contract import BatchRead
 
 __all__ = ["Pipeline", "Store", "StoreError", "ParseError",
            "receive", "classify_batch", "get_batch", "save_decision",
@@ -50,7 +51,7 @@ class Pipeline:
     def classify_batch(self, batch_id: str, *, trip_resolver=None, review_from=None, transaction_ids=None) -> dict:
         return classify_batch(self.store, batch_id, trip_resolver=trip_resolver,review_from=review_from, transaction_ids=transaction_ids)
 
-    def get_batch(self, batch_id: str) -> dict:
+    def get_batch(self, batch_id: str) -> BatchRead:
         return get_batch(self.store, batch_id)
 
     def save_decision(self, transaction_id: str, expected_revision: int, **kwargs) -> dict:

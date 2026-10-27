@@ -70,6 +70,7 @@
 - 같은 local workspace 구현자 `0ee2f107-8e89-40d3-be2b-42999b6550e3`가 새 `app/transaction_read_contract.py`, 기존 `app/review.py`, `app/__init__.py`만 작성한다. 현재 브랜치는 Supervisor 소유 `docs/rf002-ota-status-read-release-20261028`이며 구현자는 branch/commit/PR/운영을 변경하지 않는다.
 - 실제 `get_batch/_row_dict/_counts` 출력과 facade의 return annotation만 연결한다. SQL/실행본문·권한·금액/ID·상태 계산·원본 JSON·호출 순서를 유지하고 DTO 복사·cast/factory·새 runtimecall을 추가하지 않는다. 실제 출력 필드의 독립 축과 nullable 값·future state counts를 TypedDict로 명시한다.
 - **IN_PROGRESS / NOT_VERIFIED** — 합성 pipeline의 해당 배치/읽기 표적 검사·소유파일 compile·실행 AST 동일성을 한 번 확인한다. 기존28/16 passed는 반복하지 않는다. 완료 알림 후 세 파일 diff/실제 근거를 검수한다. 운영은 `42999af`다.
+- **TEST_PASSED / REVIEWED** — 합성pipeline 지정 범위3 passed/42 deselected, get_batch/_row_dict/_counts/facade의 실행 AST 동일·compile/diff 통과. Supervisor는 동적 count를 닫힌 TypedDict 대신 `dict[str,int]` alias로, 실제 출력 키는 required/nullable value로 교정해 compile을 확인했다. SQL/실행본문/원행/ID·금액/사용자결정/권한/반환 순서는 그대로이며 새 wrapper/복사/runtime 검증이 없다. 다음은 이 정적 계약의 PR·고정 배포/합성 스모크다. 이전 대기는 종료했다.
 
 ## 2026-10-27 전면 리팩토링 명세 작성 이력 (작성 당시 SPEC_ONLY)
 
