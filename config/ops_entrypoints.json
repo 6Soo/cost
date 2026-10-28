@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "entrypoints": [
+    {"path": "tools/verify_lightweight_runtime.py", "guard": "read_only", "source_data": false},
+    {"path": "tools/run_lightweight_deployment.ps1", "guard": "maintenance", "source_data": false},
+    {"path": "tools/deploy_lightweight.py", "guard": "maintenance", "source_data": false},
+    {"path": "tools/sync_runtime_requirements.py", "guard": "maintenance", "source_data": false}
+  ]
+}

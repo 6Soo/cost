@@ -16,6 +16,7 @@ import os
 import sqlite3
 import sys
 import threading
+import argparse
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -154,7 +155,19 @@ def failed_checks(status):
     return failed
 
 
-def main():
+def main(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--live',action='store_true',help='explicitly enable protected live read-only verification')
+    args=parser.parse_args(argv)
+    if not args.live:
+        from tools.runtime_preflight import check
+        result=check()
+        print(json.dumps(result,ensure_ascii=False))
+        return result
+    if os.environ.get('COST_ALLOW_LIVE_RUNTIME')!='1':
+        result={'status':'BLOCKED','checks':['live_feature_flag_required']}
+        print(json.dumps(result))
+        return result
     host=Path('D:/WebLedgerHost')
     db=host/'data/board.sqlite'
     config=json.loads((host/'config/real-review.json').read_text(encoding='utf-8-sig'))
