@@ -1,6 +1,6 @@
 # 2026-10-28 병합 후 기존 AGODA 환불 카드 미정리 재현·수정
 
-- 상태: **CODE_WRITTEN / TESTS_ADDED_NOT_EXECUTED / PR_NOT_DEPLOYED / PROD_DB_NOT_CHECKED**
+- 상태: **CODE_REVIEWED / TARGETED_83_AND_ADJACENT_38_PASSED / PR_NOT_DEPLOYED / OWNER_APPLY_NOT_RUN**
 - 현상: 사용자 지출정리에서 2026-09-22 AGODA NICE-Agoda +625,280 / -625,280 원결제·취소가 여전히 각각 카드로 나온다. 카카오 미연결 10건은 별도 외부 원결제 증빙 문제다.
 - GitHub 확인: PR #295는 2026-10-28 19:23 KST에 main merge (SHA `496cbbe9778e002bc4265f28b50da704d28f042c`). 마지막으로 별도 운영 수락된 Board SHA는 이전 인계에서 `9f6eec7`; 최신 생산 SHA·고객 DB는 이 감사에서 확인할 수 없다.
 
