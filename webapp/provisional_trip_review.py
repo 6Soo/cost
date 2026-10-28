@@ -13,6 +13,8 @@ FILTERS = {
     "provisional": "t.classification_source='inference' AND COALESCE(t.trip_id,'')!=''",
     "unassigned": "COALESCE(t.trip_id,'')=''",
     "manual": "t.classification_source='user_decision'",
+    "authority_questions": "t.classification_source='authority_review' AND NOT EXISTS "
+                           "(SELECT 1 FROM review_decisions d WHERE d.transaction_id=t.transaction_id)",
 }
 
 
@@ -44,9 +46,11 @@ def read_page(flow, batch_id, *, offset=0, state="all", generation=""):
         "(SELECT 1 FROM import_batch_rows b WHERE b.batch_id=? AND b.transaction_id=c.subject)", (batch_id,)).fetchone()
     fields = ("transaction_id", "source_hash", "revision", "merchant", "approval_date", "item",
               "description", "trip_id", "display_tab_id", "classification_source", "classification_basis")
+    limit_offset = "" if state == "authority_questions" else " LIMIT 20 OFFSET ?"
+    params = (batch_id,) if state == "authority_questions" else (batch_id, offset)
     values = conn.execute("SELECT " + ",".join("t." + field for field in fields) + where +
-                          " ORDER BY COALESCE(t.approval_date,''),t.transaction_id LIMIT 20 OFFSET ?",
-                          (batch_id, offset)).fetchall()
+                          " ORDER BY COALESCE(t.approval_date,''),t.transaction_id" + limit_offset,
+                          params).fetchall()
     from app.review import correction_protection_reason
     items = []
     for value in values:
@@ -76,7 +80,12 @@ def read_page(flow, batch_id, *, offset=0, state="all", generation=""):
         row.pop("source_hash")
         row.update(decision=decision, protected=bool(protection),
                    can_propose=row["classification_source"] == "user_decision" and not protection and target in trip_ids)
+        if state == "authority_questions" and decision.get("status") != "CONFLICT_REVIEW":
+            continue
         items.append(row)
+    if state == "authority_questions":
+        total = len(items)
+        items = items[offset:offset + 20]
     return {"items": items, "total": total, "offset": offset, "has_more": offset + 20 < total,
             "generation": token, "trips": [{"id": trip["trip_id"], "name": trip["display_key"]} for trip in trips],
             "metrics": {"reviewed_provisional": measured[0], "corrected_provisional": measured[1],
@@ -152,7 +161,7 @@ def render(csrf):
     return """<details id="provisional-trip-review"><summary>잠정 여행 배정 · 검토와 교정</summary>
 <p>여행 배정과 결제·환불 확정은 별도입니다. 보류 사유는 유지됩니다.</p>
 <label>카드 자료 <select data-trip-batch></select></label>
-<label>검토 상태 <select data-trip-state><option value="all">전체</option><option value="provisional">자동 잠정</option><option value="unassigned">미배정·충돌</option><option value="manual">사용자 확정</option></select></label>
+<label>검토 상태 <select data-trip-state><option value="all">전체</option><option value="provisional">자동 잠정</option><option value="unassigned">미배정·충돌</option><option value="authority_questions">질문 필요</option><option value="manual">사용자 확정</option></select></label>
 <p data-trip-message role="status"></p><ol data-trip-items></ol>
 <button type="button" data-trip-prev>이전 20건</button><button type="button" data-trip-next>다음 20건</button>
 <button type="button" data-trip-propose>선택한 교정으로 제한 규칙 제안</button><div data-trip-proposals></div>
