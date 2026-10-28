@@ -18,6 +18,10 @@
 - 로컬근거: `.local-archive/all-pending-20261028/refund-evidence-summary.json`, `original-card-recovery-summary.json`, `additional-card-recovery-summary.json`, `responsive-production.json`, `drive-readonly-access.json`, `cloud-release-reviewed/`이다. 원문·개인식별자·인증값·실제계정/프로젝트/폴더ID를 추적문서에 넣지 않는다.
 - 다음정확한행동: 새 전용 AppsScript/Drive 증거폴더 생성과Google권한·전용Drive읽기ADC 연결을 승인/완료하면 [전환순서](specs/cloud-mail-cutover.md#검토-가능한-배포전환-순서)의 새 빈패키지 생성부터 진행한다. 초기전체탐색→읽기미리보기→검증백업/복원·단일작성자→승인된원문적재→보호표/반복불변→후속예약수집/Drive전달을 모두 수락한 뒤에만 기존Gmail직접수집을중지한다. 외부근거/권한이 없는현재단계에서 할 수 있는 안전한 구현·검수는 완료했다.
 
+## 2026-10-28 신규 여행별 항공권 예약 조회 (SPEC_ONLY)
+
+[출발 여행 귀속·여행 탭 항공권 조회 명세](specs/trip-flight-booking-overview-20261028.md)를 작성했다. 연속 여행 시 귀국일이 첫 여행을 초과해도 **최초 출발 여행에 예약 전체를 귀속**, 기존 확정 회계 관계/사용자 결정을 우선 재사용하고 수입·지출과 독립된 항공권 목록을 같은 여행에서 확인한다. **명세 작성만 완료:** 코드/테스트/운영 배포·실자료 수락은 미실행이다. 기존 ALL 작업의 완료 상태를 변경하지 않는다.
+
 ## 2026-10-28 전체 진행 재지시 — 현재 실행 큐
 
 사용자가 “모두 진행하라니까 왜 자꾸 다음작업을 남겨?”라고 지시했다. 기존 승인 요구를 작은 읽기/UI 묶음으로 축소해 종료한 판단을 정정한다. 완료 구현은 재실행하지 않고 실제 남은 대사·귀속·보류 축소·성능·수락까지 이어간다. 이 큐를 종료 전에 확인하고 실행 가능한 항목이 있으면 계속한다. 과거 ACTIVE/RUNNING 표시는 실행 큐가 아니다.
