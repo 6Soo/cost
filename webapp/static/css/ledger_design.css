@@ -1,0 +1,522 @@
+
+@font-face{
+ font-family:"Pretendard Variable";
+ src:url("/assets/fonts/PretendardVariable.woff2") format("woff2-variations"),
+     url("/assets/fonts/PretendardVariable.woff2") format("woff2");
+ font-weight:100 900;font-style:normal;font-display:swap;
+}
+*{box-sizing:border-box}
+:root{
+ --bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;
+ --line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;
+ --sel:#ECF5EF;--grn:#1C7A52;--grn-dk:#166444;--grn-lt:#F1F7F3;
+ --warn:#B54708;--neg:#B42318;--bad:#B42318;
+ --text-muted:#94A3B8;--surface-muted:#F1F5F9;
+}
+/* Dark theme (B안) - system preference only, no manual toggle */
+@media (prefers-color-scheme: dark) {
+ :root{
+  --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
+  --line2:#1E293B;--line-strong:#475569;--hover:#334155;--focus:#3B82F6;
+  --sel:#1C7A52;--grn:#22C55E;--grn-dk:#16A34A;--grn-lt:#14532D;
+  --warn:#F59E0B;--neg:#EF4444;--bad:#EF4444;
+  --text-muted:#64748B;--surface-muted:#334155;
+ }
+}
+@media(prefers-color-scheme:dark){
+:root{
+ --bg:#0F172A;--paper:#1E293B;--ink:#F8FAFC;--mut:#94A3B8;--line:#334155;
+ --line2:#334155;--line-strong:#475569;--hover:#334155;--focus:#93C5FD;
+ --sel:#1E3A5F;--grn:#1C7A52;--grn-dk:#A7F3D0;--grn-hover:#166444;--grn-lt:#14532D;
+ --warn:#FBBF24;--neg:#FDA4AF;--bad:#FDA4AF;
+}
+}
+html,body{height:100%}
+/* Keep the ledger shell inside the viewport. Only its nav and main panes scroll. */
+body:has(>.app){overflow:hidden}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font:400 14px/1.5 "Pretendard Variable","Pretendard",system-ui,-apple-system,
+   "Segoe UI",Roboto,"Malgun Gothic",Apple SD Gothic Neo,sans-serif;
+ word-break:keep-all;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+.tnum{font-variant-numeric:tabular-nums}
+h1,h2,p{margin:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
+ box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
+.synth{display:inline-block;font-size:11.5px;line-height:17px;padding:0 7px;border:1px solid var(--line);
+ border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
+
+.app{display:flex;height:100dvh;min-height:0;overflow:hidden}
+.work-menu{padding:12px 24px;border-bottom:1px solid var(--line);background:var(--paper)}
+.work-menu h2{font-size:14px;margin:0 0 8px}
+.work-actions{display:flex;flex-wrap:wrap;gap:8px}
+.work-action{flex:1 1 170px;min-width:0;padding:10px 12px;border:1px solid var(--line);
+ border-radius:8px;color:var(--ink);text-decoration:none;overflow-wrap:anywhere;
+ display:flex;align-items:flex-start;gap:8px}
+.work-action>span{flex:1 1 auto;min-width:0}
+.work-action strong,.work-action small{display:block}
+.work-action small{font-size:12px;color:var(--mut);margin-top:3px}
+a.work-action:hover{background:var(--hover);border-color:var(--grn)}
+.nav .work-menu{padding:10px 12px;flex:none}
+.nav .work-actions{display:grid;grid-template-columns:1fr}
+.nav .work-action{padding:8px 10px;font-size:12px}
+.nav .work-action small{display:none}
+.income-note{padding:0 24px 12px;color:var(--mut);font-size:12.5px}
+.main-wrap{max-width:1180px;padding:24px;margin:0 auto}
+.main-wrap .page-hd{padding:0 0 20px}
+.main-wrap .page-hd>div:first-child{min-width:0}
+.main-wrap .bar,.main-wrap .sum{padding-left:0;padding-right:0}
+.main-wrap .status:empty{display:none}
+.main-wrap .status,.main-wrap .income-note{padding-left:0;padding-right:0}
+.main-wrap #global-state,.main-wrap #live-status-wrap{padding-left:0!important;padding-right:0!important}
+.main-wrap .act{flex:1 1 420px;justify-content:flex-end;max-width:100%}
+.main-wrap .period,.main-wrap .meta>span,.main-wrap .sum i{display:inline-flex;align-items:center;gap:6px}
+.main-wrap .meta .btn{height:28px;font-size:12px}
+.main-wrap .sum{align-items:center;padding-top:16px;padding-bottom:16px}
+.main-wrap .sum .scope{width:100%;font-size:12px;color:var(--mut);margin-bottom:-16px}
+.main-wrap #tbl td:first-child,.main-wrap #tbl th:first-child{padding-left:0}
+.income-sync{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;color:var(--mut);font-size:12px}
+.income-status{font-size:14px;color:var(--mut);display:flex;align-items:center;gap:8px}
+@media(width < 760px){.main-wrap .act{justify-content:flex-start;flex-basis:100%}.main-wrap .lst .li{padding-left:0;padding-right:0}}
+#trip-income{margin:12px 0 20px}
+#trip-income h2{display:flex;align-items:center;gap:8px;font-size:18px;line-height:1.5;margin-bottom:8px}
+#trip-income>.muted{font-size:13px;line-height:1.6;margin-bottom:12px}
+#google-trip-income{padding:0 0 16px;border-bottom:1px solid var(--line);background:transparent;font-size:14px}
+#google-trip-income summary{display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer;font-size:15px;font-weight:600;color:var(--ink);list-style:none}
+#google-trip-income summary::-webkit-details-marker{display:none}
+#google-trip-income summary::after{content:'▾';margin-left:auto;font-size:12px;color:var(--mut)}
+#google-trip-income:not([open]) summary::after{content:'▸'}
+#google-trip-income .sec-name{display:inline-flex;align-items:center;gap:6px}
+#google-trip-income .sec-badge{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink);margin-left:12px}
+#google-trip-income .income-body{padding:8px 0 4px}
+#google-trip-income p{line-height:1.6;margin:6px 0 10px}
+#google-trip-income .google-income-help{font-size:12.5px;color:var(--mut);margin-bottom:0}
+#google-trip-income .btn{margin:0 8px 6px 0;height:28px;font-size:12px;padding:0 10px}
+#google-trip-income .google-income-scroll{overflow-x:auto;margin:6px 0 12px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+#google-trip-income table{font-size:13px;min-width:700px;width:100%;border-collapse:collapse}
+#google-trip-income caption{padding:8px 12px;text-align:left;font-weight:600}
+#google-trip-income td,#google-trip-income th{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#google-trip-income thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);font-size:12.5px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
+#google-trip-income tfoot td{height:36px;background:var(--bg);font-weight:600;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:0 10px}
+#google-trip-income td.income-breakdown,#google-trip-income th.income-breakdown{text-align:right;font-variant-numeric:tabular-nums}
+#google-trip-income .income-total{white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+#google-trip-income th .ic{width:14px;height:14px;vertical-align:-2px;margin-right:4px}
+.tag-readonly{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);border-radius:4px;color:var(--mut);background:var(--surface-muted);font-weight:500;vertical-align:middle}
+.income-discrepancy-alert{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:8px 0 10px;background:#FEF3F2;color:var(--neg);border:1px solid #FECDCA;border-radius:8px;font-size:13px;font-weight:600}
+@media(prefers-color-scheme:dark){
+ .income-discrepancy-alert{background:#450A0A;color:#FCA5A5;border-color:#7F1D1D}
+}
+.income-meta-bar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 14px;margin-top:6px}
+.income-meta-info{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px}
+.income-meta-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.income-warning{color:var(--warn);font-weight:500}
+@media(width < 760px){
+ #google-trip-income .google-income-scroll{overflow:visible}
+ #google-trip-income table{min-width:0;width:100%;table-layout:fixed}
+ #google-trip-income .income-breakdown{display:none}
+ #google-trip-income .income-date{width:26%;white-space:normal;overflow-wrap:anywhere}
+ #google-trip-income .income-person{width:32%;white-space:normal;overflow-wrap:anywhere}
+ #google-trip-income .income-total{width:42%;overflow:visible;text-overflow:clip;font-size:12px}
+ #google-trip-income td,#google-trip-income th{padding:0 5px}
+ #google-trip-income caption{padding:8px 5px}
+ .income-meta-bar{flex-direction:column;align-items:flex-start}
+}
+.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 24px;font-size:12px;line-height:1.6}
+.main-wrap .s-main{font-size:14px;line-height:1.5}
+.main-wrap .s-sub{font-size:12.5px;line-height:1.5;margin-top:3px}
+.main-wrap #tbl td:last-child,.main-wrap #tbl th:last-child{padding-right:24px}
+@media(width < 760px){.main-wrap{padding:16px 16px 20px;max-width:none}}
+@media(width < 760px){#google-trip-income{padding:10px 12px}.main-wrap #global-state,.main-wrap #live-status-wrap{padding:0 16px}}
+@media(width < 760px){.main-wrap .sum{gap:10px 18px}.main-wrap .sum .scope{margin-bottom:-4px}.main-wrap .page-hd{padding-bottom:14px}}
+@media(width < 760px){
+ .work-menu{padding:10px 16px}
+ .work-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+ .work-action{padding:9px 10px;font-size:13px}
+ .income-note{padding:0 16px 12px}
+}
+.nav{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);
+ display:flex;flex-direction:column;min-height:0;overflow:auto}
+.nav-hd{padding:18px 16px 14px}
+.nav-hd a.brand{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;text-align:center}
+.nav-hd .brand img{width:20px;height:20px;margin:0;flex:0 0 auto}
+.brand{font-size:15.5px;font-weight:700;letter-spacing:-.01em}
+.brand small{display:block;font-size:11.5px;font-weight:400;color:var(--mut);margin-top:3px}
+a.brand{display:block;color:inherit;text-decoration:none;border-radius:6px}
+a.brand:hover{background:var(--hover)}
+a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.nav-sec{padding:12px 16px 6px;font-size:11px;font-weight:600;color:var(--mut);letter-spacing:.05em}
+.site-links{display:grid;gap:4px;margin:0;padding:8px 12px}
+.site-links a{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px;
+ border-radius:6px;text-decoration:none;color:inherit}
+.site-links a:hover{background:var(--hover)}
+.site-links a[aria-current=page]{background:var(--sel);font-weight:600}
+.site-links .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-q{margin:0 12px 6px}
+.nav-q input{width:100%;height:32px;border:1px solid var(--line-strong);border-radius:7px;
+ background:var(--paper);padding:0 8px;font-size:13px}
+.nav-list{list-style:none;margin:0;padding:0 8px}
+.nv{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 8px;
+ border:0;border-left:2px solid transparent;border-radius:7px;background:transparent;
+ font-size:14px;font-weight:400;text-align:left;cursor:pointer;color:var(--ink);text-decoration:none}
+.nv:hover{background:var(--hover)}
+.nv[aria-pressed="true"],.nv.sel{background:var(--sel);border-left-color:var(--grn);font-weight:600}
+.nv .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The refund icon is its own aligned element, never fused to label text. */
+.nv .nv-icon{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;color:var(--mut)}
+.nv .nv-icon .ic{width:18px;height:18px;display:block;flex:none}
+.nv.sel .nv-icon{color:var(--grn)}
+.nv .ct{flex:0 0 auto;margin-left:8px;font-size:12px;color:var(--mut);white-space:nowrap}
+.nv .ct.warn{color:var(--warn)}
+.nav-arch .nm{color:var(--mut)}
+.nav-toggle{border-left:2px solid transparent;margin:0 8px;max-width:calc(100% - 16px)}
+.nav-toggle .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-toggle .ct{flex:0 0 auto}
+.nav-toggle[aria-expanded="true"]{background:var(--hover)}
+.arch-row{display:flex;align-items:center;gap:6px}
+.arch-row .nv{flex:1 1 auto}
+.arch-restore{margin:0;display:flex}
+.arch-restore .btn,.arch-view{height:28px;padding:0 8px;font-size:12px;font-weight:500}
+.arch-view{margin-left:6px}
+.page-body{padding:0 0 28px}
+#q-go{height:32px}
+#q-clear{height:32px}
+.nav-ft{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);
+ font-size:11.5px;color:var(--mut);line-height:1.6}
+#live-nav{display:flex;flex-direction:column;flex:1 0 auto}
+#previous-trips{margin-top:auto;padding:12px 8px;border-top:1px solid var(--line)}
+#previous-trips>summary{cursor:pointer;min-height:44px;list-style:none}
+#previous-trips[open]>summary>span:first-child{transform:rotate(90deg)}
+.nav-mask{display:none}
+
+.main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--paper)}
+.page-hd{display:flex;align-items:flex-start;gap:16px;padding:22px 24px 16px;
+ border-bottom:1px solid var(--line)}
+.page-hd h1{font-size:21px;font-weight:700;letter-spacing:-.018em;line-height:1.25}
+.period{font-size:13px;color:var(--mut);margin-top:3px}
+.meta{font-size:12.5px;color:var(--mut);margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.meta a{color:var(--mut)}
+.act{margin-left:auto;display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid var(--line);
+ flex-wrap:wrap}
+#q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line-strong);border-radius:7px;
+ padding:0 8px;background:var(--paper)}
+#kind{height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
+ padding:0 6px;font-weight:500}
+.crumb{font-size:12.5px;color:var(--mut)}
+.status{padding:7px 24px;font-size:12.5px;color:var(--grn);border-bottom:1px solid var(--line2);
+ min-height:30px}
+.status.hint{color:var(--mut)}
+.status.err{color:var(--neg)}
+
+.sum{display:flex;align-items:baseline;gap:28px;padding:11px 24px;border-bottom:1px solid var(--line);
+ flex-wrap:wrap}
+.sum div{display:flex;align-items:baseline;gap:7px}
+.sum i{font-style:normal;font-size:13px;color:var(--mut)}
+.sum b{font-size:clamp(20px,1.8vw,25px);font-weight:700;letter-spacing:-.012em}
+.sum .net-income{flex-wrap:wrap;gap:4px 8px}
+.sum .net-income small{font-size:12px;color:var(--mut);white-space:nowrap}
+.sum .n{margin-left:auto;font-size:12.5px;color:var(--mut)}
+
+.tw{padding:0 0 28px;overflow-x:auto;max-width:100%}
+#tbl{min-width:830px;font-size:14px}
+table{width:100%;table-layout:fixed;border-collapse:collapse}
+th,td{padding:0 10px;height:36px;border-bottom:1px solid var(--line2);
+ text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+thead th{position:sticky;top:0;z-index:2;height:32px;background:var(--paper);
+ font-size:12.5px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line);
+ box-shadow:0 1px 0 var(--line)}
+/* 거래처·내용: the counterparty and the content share one cell, so the amount sits
+   against the line that explains it. The first line is what the row is, the
+   second is who it was with, and both are the row's own values: a merchant equal
+   to the content is not printed twice. */
+td.c-party{white-space:normal;line-height:1.35;padding:0 6px}
+.party-line{display:flex;align-items:center;gap:6px;min-width:0}
+td.c-stay{white-space:normal;overflow:visible;text-overflow:clip;font-size:13px;line-height:1.6;overflow-wrap:break-word;padding:8px 10px}
+.party-copy{display:block;min-width:0;flex:1}
+.party-line>svg,.ota-icon{flex:none;width:18px;height:18px;object-fit:contain;color:var(--muted,#718096)}
+.category-line{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.category-line>svg{flex:none;color:var(--muted,#718096)}
+.mobile-party .t{min-width:0;flex:1}
+.s-main{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;
+ white-space:nowrap}
+.s-sub{display:block;font-size:11.5px;color:var(--mut);overflow:hidden;
+ text-overflow:ellipsis;white-space:nowrap}
+td.c-note{font-size:13px;color:var(--mut)}
+td.c-amt{font-weight:600}
+tbody.grp th{height:30px;background:var(--bg);font-size:12.5px;font-weight:600;color:var(--mut);
+ border-bottom:1px solid var(--line)}
+tbody.grp td{height:30px;background:var(--bg);text-align:right}
+tbody.grp .btn{height:24px;font-size:12px}
+tbody.colhead{display:none}
+tr[data-id]{cursor:pointer}
+tr[data-id]:hover{background:var(--hover)}
+tr[data-id]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+.google-match-candidate td{font-weight:700}
+.google-match-candidate .m-row,.google-match-candidate .party-line{font-weight:700}
+.num{text-align:right}
+.a-in{color:var(--grn);font-weight:500}
+.a-ex{font-weight:500}
+.a-neg{color:var(--neg);font-weight:500}
+.tag{display:inline-block;font-size:11px;line-height:17px;padding:0 6px;border:1px solid var(--line);
+ border-radius:6px;color:var(--mut);font-weight:500}
+.tag.in{border-color:#CFE3D7;background:var(--grn-lt);color:var(--grn-dk)}
+/* Waiting and cancelled are said in words, not by colour alone, and both come
+   from the row itself: no travel assigned, or a cancellation in the source. */
+.tag.wait{border-color:#E8D8B4;background:#FBF4E6;color:var(--warn)}
+.tag.cancel{text-decoration:line-through}
+.empty td{color:var(--mut);text-align:center;height:64px}
+.psel{height:30px;width:132px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
+ font-size:12.5px;padding:0 4px}
+.lst{display:none}
+
+#panel-slot{display:flex;min-height:0}
+.panel{width:400px;flex:0 0 400px;background:var(--paper);border-left:1px solid var(--line);
+ display:flex;flex-direction:column;min-height:0}
+.panel:focus{outline:none}
+.p-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
+ padding:16px 18px;border-bottom:1px solid var(--line)}
+.p-hd h2{font-size:15px;font-weight:700}
+.p-amt{font-size:21px;font-weight:700;letter-spacing:-.018em;margin-top:2px}
+/* The save form is a flex child of .panel, so it has to pass the column on.
+   Without this .p-bd grows to its content height, stops being a scroller and
+   pushes the 저장/취소 footer past the panel bottom, where it cannot be
+   reached on a short viewport. */
+.panel form{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+.p-bd{padding:18px;overflow:auto;flex:1 1 auto;min-height:0}
+/* The source identifier, the revision and the source kind are a support answer,
+   not a working day. They are folded away by default and one click away, and the
+   values themselves are unchanged: this moves them, it does not tidy them. */
+.p-src{margin:0 0 15px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.p-src>summary{cursor:pointer;padding:7px 10px;font-size:12px;color:var(--mut);
+ list-style:none;user-select:none}
+.p-src>summary::-webkit-details-marker{display:none}
+.p-src>summary::after{content:" 더보기";color:var(--grn-dk)}
+.p-src[open]>summary::after{content:" 접기"}
+.p-src[open]>summary{border-bottom:1px solid var(--line2)}
+.p-src .p-sub{margin:0;padding:9px 10px;line-height:1.7}
+.p-sub{font-size:12.5px;color:var(--mut);margin-bottom:14px;word-break:break-all}
+.f{margin-bottom:15px}
+.f label{display:block;font-size:12px;font-weight:500;color:var(--mut);margin-bottom:6px}
+.f input,.f select,.f textarea{width:100%;height:38px;border:1px solid var(--line-strong);
+ border-radius:7px;padding:0 9px;background:var(--paper);font-weight:500}
+.f textarea{height:auto;min-height:64px;padding:8px;resize:vertical}
+.f input[readonly],.f select[disabled]{background:var(--bg);color:var(--mut)}
+.f .err{color:var(--neg);font-size:12.5px;margin-top:6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.src{font-size:12px;color:var(--mut);background:var(--bg);border:1px solid var(--line);
+ border-radius:8px;padding:12px;line-height:1.7}
+.p-links{display:flex;flex-wrap:wrap;gap:12px;margin-top:14px;font-size:12.5px}
+.p-links a{color:var(--grn-dk)}
+.sect{margin:0;padding:20px 24px;border-bottom:1px solid var(--line)}
+.sect h2{font-size:16px;font-weight:700;margin-bottom:10px}
+/* The actual-source preview. Cards rather than a table, at every width: it
+   holds a source locator, which is long and has no spaces to break on, and a
+   table would either overflow sideways on a phone or clip the one value a
+   reader needs to check against the original. A card cannot overflow that way. */
+.src-preview{margin:0.75rem 0;padding:12px 16px;border:1px solid var(--line);
+ border-radius:8px;background:var(--bg)}
+.src-preview h2{font-size:15px;font-weight:700;margin-bottom:6px}
+.src-hd{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.src-hd h2{margin-bottom:0}
+.src-list{list-style:none;margin:0;padding:0}
+.src-row{border-top:1px solid var(--line2);padding:8px 0}
+.src-row:first-child{border-top:0}
+.src-line{display:flex;gap:8px;margin:0 0 2px;font-size:13px;align-items:baseline}
+.src-line span{flex:0 0 4.5em;color:var(--mut);font-size:12px}
+.src-line b{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.src-line code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+ font-size:12px;overflow-wrap:anywhere}
+@media (width < 760px){
+ .src-line{flex-wrap:wrap}
+ .src-line span{flex:0 0 100%}
+}
+.sect h3{font-size:14px;font-weight:600;margin:18px 0 8px}
+.sect p{margin:0 0 8px;font-size:13.5px}
+.sect .kv{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--mut)}
+.sect .kv b{color:var(--ink);font-weight:600}
+.card2{border:1px solid var(--line);border-radius:8px;padding:16px;margin:0 0 12px}
+.card2 h3{font-size:15px;font-weight:700;margin:0 0 6px}
+.hist{width:100%;font-size:13px}
+.hist th,.hist td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line2);height:auto}
+.hist th{background:var(--bg);font-size:12px;color:var(--mut);font-weight:600}
+.inline{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:10px}
+.inline .f{margin:0;min-width:180px;flex:1 1 180px}
+.alloc{width:100%;table-layout:fixed;border-collapse:collapse}
+.alloc th,.alloc td{padding:6px 8px;border-bottom:1px solid var(--line2);height:auto;
+ text-align:left;vertical-align:middle}
+.alloc th{font-size:12px;font-weight:600;color:var(--mut);background:var(--bg)}
+.page-body table.alloc input,.page-body table.alloc select{
+ width:100%;min-width:0;max-width:100%;height:32px}
+@media (width < 760px){
+ /* one allocation becomes a labelled field instead of a squeezed row */
+ .alloc,.alloc tbody,.alloc tr,.alloc td{display:block;width:100%}
+ .alloc thead{display:none}
+ .alloc tr{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0 0 10px}
+ .alloc td{border-bottom:0;display:grid;grid-template-columns:96px 1fr;gap:10px;
+  align-items:center;padding:4px 0}
+ .alloc td::before{content:attr(data-label);font-size:12px;color:var(--mut)}
+ .page-body table.alloc input,.page-body table.alloc select{min-width:0;font-size:16px}
+}
+
+/* The row and trip screens keep their own markup. These rules only make that
+   markup look like the rest of the app; they do not change what it means. */
+.page-body h2{font-size:18px;font-weight:700;margin:0 0 12px}
+.page-body h3{font-size:14px;font-weight:600;margin:18px 0 8px}
+.page-body p{margin:0 0 8px}
+.page-body .muted{color:var(--mut);font-size:13px}
+.page-body ul{margin:0 0 12px;padding-left:18px}
+.page-body li{margin:0 0 4px}
+.page-body label{display:inline-block;font-size:12px;color:var(--mut);margin:0 6px 4px 0}
+.page-body input:not([type=radio]):not([type=checkbox]),.page-body select{
+ width:auto;min-width:220px;max-width:100%;height:34px;padding:0 8px;
+ border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-weight:500}
+.page-body input[type=radio],.page-body input[type=checkbox]{
+ width:18px;height:18px;min-width:0;max-width:18px;margin:0;padding:0;
+ accent-color:var(--grn);flex:0 0 auto}
+/* the label is the target, so the whole row is comfortable to tap */
+.opt{display:inline-flex;align-items:center;gap:8px;min-height:44px;
+ margin:0 18px 0 0;padding:0 8px 0 0;cursor:pointer;white-space:nowrap}
+.qgroup{margin:0 0 20px;padding:0 0 18px;border-bottom:1px solid var(--line2)}
+.qgroup:last-of-type{border-bottom:0;padding-bottom:0}
+.qgroup p{margin:0 0 6px}
+.page-body textarea{min-width:320px;min-height:64px;padding:8px;
+ border:1px solid var(--line-strong);border-radius:7px}
+.page-body button,.page-body a.btn{
+ height:34px;padding:0 12px;margin:6px 6px 0 0;border:1px solid var(--line-strong);
+ border-radius:7px;background:var(--paper);font-size:14px;font-weight:600;
+ cursor:pointer;text-decoration:none;display:inline-flex;align-items:center}
+.page-body .card{border:1px solid var(--line);border-radius:8px;padding:16px;margin:0 0 12px}
+.page-body table{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.page-body td,.page-body th{border-bottom:1px solid var(--line2);height:auto;padding:7px 10px}
+.page-body a{color:var(--grn-dk)}
+@media (width < 760px){
+ .page-body input,.page-body select,.page-body textarea{min-width:0;width:100%;font-size:16px}
+ .page-body button,.page-body a.btn{height:44px;width:100%;justify-content:center}
+}
+.p-ft{display:flex;align-items:center;gap:6px;padding:12px 18px;border-top:1px solid var(--line);
+ background:var(--paper)}
+/* 저장/취소 carry the panel footer and stay equal. The two walking buttons are
+   shown only when there is a row to walk to, and they keep their width so the
+   footer does not reflow as the position beside them changes. */
+.p-ft .btn{flex:1 1 auto;min-width:0}
+.p-ft .p-nav{flex:0 0 auto;padding:0 9px;font-weight:500}
+.p-count{flex:0 0 auto;font-size:11.5px;color:var(--mut);white-space:nowrap;
+ padding:0 2px}
+/* The save and cancel shortcuts are printed on the buttons, so the keyboard
+   path is discoverable without a manual (DETAILED_CONTRACT 12.3). */
+.kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+ line-height:1;padding:2px 4px;margin:0 1px;border:1px solid var(--line);
+ border-radius:5px;background:var(--bg);color:var(--mut);font-weight:600}
+/* A field the server refused is marked with text and a symbol, never by
+   colour alone, and it is the first thing a screen reader reaches. */
+.f-err{border-color:var(--bad)!important;box-shadow:0 0 0 2px rgba(180,35,24,.18)}
+.f-flag{display:block;font-size:12px;font-weight:600;color:var(--bad);
+ margin-top:4px}
+.f-flag::before{content:"A0 "}
+@media (max-width:390px){
+ .kbd{display:none}
+}
+
+.btn{height:32px;padding:0 10px;border:1px solid var(--line-strong);border-radius:7px;
+ background:var(--paper);font-size:13.5px;font-weight:600;cursor:pointer;color:var(--ink);
+ white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--grn);border-color:var(--grn);color:#fff}
+.btn.primary:hover{background:var(--grn-hover,var(--grn-dk))}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn[disabled]:hover{background:var(--paper)}
+/* 작은 선형 아이콘: 문구 왼쪽 16px, 장식은 클릭을 부모 버튼에 전달한다. */
+.btn .ic,.page-body button .ic,.page-body a.btn .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+.nv .ic,.site-links a .ic{width:18px;height:18px;flex:0 0 auto;pointer-events:none}
+.work-action .ic{width:16px;height:16px;flex:0 0 auto;pointer-events:none}
+.work-action{transition:border-color .15s,background .15s}
+@media(prefers-reduced-motion:reduce){
+ .work-action,.btn,.nv{transition:none}
+}
+.icon{width:32px;height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
+ cursor:pointer;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center}
+.icon .ic{width:18px;height:18px;pointer-events:none}
+#btn-menu{display:none;font-size:15px}
+[hidden]{display:none!important}
+
+@media (max-width:1099px){
+.panel{position:fixed;top:0;right:0;bottom:0;z-index:30;width:min(400px,100%);
+  box-shadow:-10px 0 28px rgba(16,24,40,.10)}
+}
+@media (width < 760px){
+ #btn-menu{display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center}
+ /* The bar is inside #main, the page's own scrollport. Keep the menu control
+    with that scrollport so long expense lists do not strand navigation. */
+ .bar{position:sticky;top:0;z-index:3;background:var(--paper)}
+ .tw thead th{top:var(--mobile-bar-height,0px)}
+ .nav{position:fixed;top:0;left:0;bottom:0;z-index:45;transform:translateX(-100%);
+  transition:transform .18s ease;border-right:1px solid var(--line)}
+ .nav.open{transform:none}
+ .nav-mask{display:block;position:fixed;inset:0;z-index:44;background:rgba(16,24,40,.38)}
+ .nav-mask[hidden]{display:none!important}
+ .tw{display:none}
+ .lst{display:block;padding-bottom:24px}
+ .panel{top:0;left:0;right:0;width:auto;z-index:60;border-left:0}
+ .btn{height:44px;padding:0 14px}
+ .icon{width:44px;height:44px}
+ .psel{height:44px;width:100%}
+ .page-hd{padding:13px 16px 11px;flex-wrap:wrap;gap:8px}
+ .page-hd h1{font-size:20px}
+ .page-hd .meta{display:none}
+ .period{font-size:12.5px}
+ .act{margin-left:auto;width:auto}
+ .act .btn{height:40px;padding:0 10px;font-size:13.5px}
+  .bar{padding:8px 16px;gap:8px}
+  #q{flex:1 1 0;min-width:0;width:auto;max-width:none;height:40px}
+  #kind{flex:0 0 96px;min-width:0;height:40px}
+  .bar .crumb{display:none}
+  #q,#kind,.psel,.f input,.f select,.f textarea,.nav-q input{font-size:16px}
+  .status{padding:8px 16px;font-size:12.5px}
+  .sum{padding:12px 16px;gap:16px}
+  .sum .n{margin-left:0}
+  .p-bd{padding:16px}
+  .p-ft{padding:12px 16px;position:sticky;bottom:0;background:var(--paper)}
+   .lst{overflow-x:hidden}
+   .nv{min-height:44px}
+   a.brand{min-height:44px;display:flex;align-items:center}
+  .li{width:100%;max-width:100%;min-height:64px;display:flex;flex-direction:column;
+   align-items:stretch;justify-content:center;gap:4px;padding:10px 16px;
+   border:0;border-bottom:1px solid var(--line2);background:transparent;appearance:none;-webkit-appearance:none;text-align:left;cursor:pointer;
+   overflow:hidden}
+  .li .m-row{display:flex;align-items:center;gap:8px;min-width:0}
+  .li .d{font-size:12.5px;color:var(--mut);white-space:nowrap;flex:0 0 auto}
+  .li .m-cat{font-size:13px;font-weight:600;flex:0 1 auto;min-width:0;overflow:hidden;
+   text-overflow:ellipsis;white-space:nowrap}
+  .li .t{flex:1 1 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+  .li .mobile-party .t{white-space:normal;overflow:visible;text-overflow:clip}
+  .li .a{margin-left:auto;flex:0 0 auto;white-space:nowrap;font-size:15px;font-weight:600}
+  .li .tag{flex:0 0 auto}
+  .li[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--grn)}
+  .li.pend{white-space:normal;padding-top:12px;padding-bottom:4px}
+  .lst form[data-js-move]{display:flex;gap:8px;align-items:center;padding:0 16px 12px;
+   border-bottom:1px solid var(--line2);max-width:100%}
+  .lst form[data-js-move] .psel{flex:1 1 0;min-width:0;margin-top:0}
+  .lst form[data-js-move] .btn{flex:0 0 76px;min-width:76px}
+  .lg{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;
+   background:var(--bg);font-size:12px;font-weight:600;color:var(--mut);border-bottom:1px solid var(--line)}
+}
+.trip-copy-wrap{margin:24px 0 16px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:8px}
+.trip-copy-box{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.trip-copy-box .btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 14px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);font-size:13.5px;font-weight:600;color:var(--ink);cursor:pointer;white-space:nowrap}
+.trip-copy-box .btn:hover{background:var(--hover)}
+.trip-copy-desc{font-size:13px;color:var(--mut)}
+.copy-status{font-size:13px;font-weight:500;margin-left:4px}
+.copy-status.success{color:var(--grn)}
+.copy-status.err{color:var(--bad)}
+.copy-status.loading{color:var(--ink)}
+@media(max-width:600px){
+ .trip-copy-wrap{margin:16px 8px;padding:12px}
+ .trip-copy-box{flex-direction:column;align-items:stretch;gap:8px}
+ .trip-copy-box .btn{width:100%;justify-content:center}
+ .trip-copy-desc{text-align:center}
+ .copy-status{text-align:center}
+}

@@ -17,6 +17,14 @@
 
 통합은 변경 축별 직렬 PR로 수행하고 작업자 구현/테스트·Supervisor 수락·병합·실제 배포를 따로 기록한다. R0/R1 기존 PARTIAL 및 외부 근거 미확인을 완료로 승격하지 않는다. 각 작업 완료 후 마스터의 의존성과 최신 소스를 대조해 다음 준비 항목을 바로 배정한다.
 
+### 첫 병렬 결과 검수와 연속 배정
+
+- RF-004 추출 모듈별 기능 검사 매핑은 PR #260, 코드 `52df69d`, main `afedabd`로 병합했다. 선택기8 passed·staged guard 차단0/삭제0. 런타임 변경이 없어 Board 재배포/재시작하지 않았다.
+- RF-201/202 장부 자산 추출은 **TEST_PASSED / SUPERVISOR_REVIEWED**다. 작업자 `958ce31`→`4a94ace`→`73368af`를 검수했고, 미소비 토큰/새 palette·미사용 API·폰트 캐시 동작 변경을 제거했다. 최종은 기존 STYLE/SCRIPT만 import 시 읽는 CSS/JS 파일로 분리한다. Supervisor가 공개 기준 `2384cfd` 모듈을 별도 실행해 STYLE32,235B·SCRIPT21,055B와 생성 HTML의 정확한 동일성을 확인했다(문자 수와 byte 수를 구별). 자산5/인접55 passed 근거를 재사용한다. source-theme 검사4 passed/2 failed는 같은 기준 실패이며, source 파일 읽기 결합만 런타임 상수로 바꾸고 단언은 보존했다. 아직 이 상태를 배포 완료로 보고하지 않는다.
+- RF-103 카드 표시 교정은 빈 dict/필수키/None/불확실성의 원래 계약을 복원한 `38b78ed`까지 검수했고 draft PR #261로 분리했다. 표적45 passed·변경 없는 환불 코어150 passed. Supervisor 추가64 passed+28 subtests/6 failed이며, 실패6개는 기준 `2384cfd`의 원래 card_flow로 같은 ID/원인이 재현됐다. 새 쿼리 추출 `5bbc83a`는 조회→UI 의존과 작업자 전용 baseline SHA를 교정 중이다.
+- RF-101은 초기 금액 Decimal→int 변환과 동적 메서드 우회를 거부하고 `496fe23` 교정을 받았다. RF-102는 전역 fallback/분기 문구/불필요한 여행 선조회와 원래 동적 호출 보존을 교정 중이다. 이 두 묶음은 아직 Supervisor 최종 수락/병합/배포 전이다.
+- 자산 담당자는 다음 독립 묶음으로 기존 real_review_ui의 정적 문서 분리를, 카드 담당자는 읽기 쿼리 분리를 이어 수행한다. 새로운 금융 정책·보험/여행 항공권 기능은 추가하지 않는다. PEND-04는 브라우저 탭 소멸로 로컬 runner가 멈춘 사실을 확인하고 기존 수집 상태에서 복구했다. 운영 원문 적재·스케줄 전환은 아직 미실행이다.
+
 ## 2026-10-28 Travel INS → COST 보험가입 명단 연동 감사 (SPEC_ONLY)
 
 양쪽 실제 코드 분석 내용을 [보험 명단 수신·운영 DB·여행별 참가자 조회 구현 명세](specs/insurance-participant-integration-20261028.md)에 추가했다. 기존 COST 수신기/참가자 전용 SQLite/owner 전용 `/participants`/Google 수입 대조는 구현됨. Travel INS `tools/payment_pause.py`에서 필수 `confirmation_reference` 누락과 미지원 `owner_attested` 전달로 실제 `finish_registration` 호출이 실패할 수 있는 **미수정 P0 결함**, 웹 `WEBLEDGER_PARTICIPANT_DB`와 로컬 전달기의 파일 동일성 **운영 미확인 P0**, 보험사 확인 후 공통 전달 흐름과 여행별 보험 참가자 표시 **부분 구현/미구현**을 각각 기록했다. 이번 커밋은 문서만 수정한다. 운영 참가자 DB·보험/금융 원본·기존 완료 작업은 변경하지 않고, 테스트·배포·실자료 수락은 수행하지 않았다.

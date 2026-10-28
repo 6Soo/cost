@@ -63,8 +63,8 @@
     },
     {
       "name": "ledger-design-assets",
-      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py"],
-      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/static/css/ledger_design.css", "webapp/static/js/ledger_design.js", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py"],
+      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
     },
     {
       "name": "card-evidence-rendering",
