@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 숲나들e Gmail 원문과 상시 수집
+
+- [PR #243](https://github.com/6Soo/cost/pull/243), 수집 작업 고정 릴리스 `3b8bf15581289ec83f1202a3bf11e62cafe53eb5`: forest.go.kr/foresttrip.go.kr 발신 검색 추가. 표적 9 passed, 957 blobs 일치와 배포본 query smoke 통과. WebLedger-MailCollect의 WorkingDirectory를 변경하고 기존 실행 파일·인자·계정·state 및 활성 상태를 보존했다. 이전 작업 XML·릴리스는 복구용으로 유지한다. Board는 아래 f7c27c2를 유지하며 이 변경으로 재시작하지 않았다.
+- 기존 계정의 Gmail API full 메시지 47건을 전 페이지 수집했다. 본래 헤더·MIME·internalDate를 로컬 원문으로 보존했다. Aside Gmail 검색은 sync 준비 시간 초과로 실패했으며 기존 읽기 전용 API 설정을 사용했다. 신규 인증·비밀 변경은 없었다.
+- 운영과 분리한 DB에서 47건 신규 적재·동일 입력 재적재 전체표 해시 불변, 별도 복원본 integrity/해시 일치를 확인했다. MailCollect 단일 작성자 게이트에서 검증 백업 후 운영 원문을 적재했다. 메시지는 3,226→3,273, 예약·예약증거·포털·카탈로그 행 불변, 스키마 불변이며 전체표 해시 변화는 원문 저장 6개 표에 한정됐다. 수집 작업 활성 복구를 확인했다.
+- Gmail 본문은 47건 strict UTF-8 성공·대체문자 0이나 46건에 외부 본문 프레임이 있다. 프레임 내용 확인과 숲나들e 예약 파싱/표시는 아직 미완료다. 모든 메일의 인증 통과·예약 생성·결제 연결·여행 배정을 주장하지 않는다. 이전 다음메일 원문 4건과 Gmail 47건을 출처별로 구분한다.
+- 로컬 근거: `.local-archive/cost-v34-resume-20261028/`의 gmail-forest-collection/preflight/preview/production/body 관련 집계, 검증 백업·복원본, mail-task-before-recurring-deploy.xml, mail-collector-deploy-summary.json. 고객 원문·계정·경로/ID는 Git에 추가하지 않았다.
+
 ## 마지막 확인된 운영 코드
 
 **`f7c27c240576e4fa0bb1dfa8f053cb7a4c451332`**, 2026-10-28. 분류자 Cost V34의 요구를 재개해 [PR #237](https://github.com/6Soo/cost/pull/237)의 Agoda 경쟁 원문 오류 유일성 보호, [PR #238](https://github.com/6Soo/cost/pull/238)의 명시 메일 입력 0건/잘못된 형식 쓰기 전 거부, [PR #239](https://github.com/6Soo/cost/pull/239)의 진단 출력 유한 코드·기존 파일 보존, [PR #240](https://github.com/6Soo/cost/pull/240)의 카드 검색 공통 버튼·아이콘 및 화면 수락 보완을 병합·고정 배포했다.
