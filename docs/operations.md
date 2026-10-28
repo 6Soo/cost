@@ -241,3 +241,11 @@ diff·링크·현재/과거 구분·실제 문서 참조 경로만 확인한다.
 - [옛 경로별 위치](history/README.md#옛-경로-찾기): 통합 전 파일명으로 검색.
 
 과거 기록의 운영 SHA·미구현·HOLD는 해당 시점의 근거다. 현재 런타임 또는 새 개발 권한으로 해석하지 않는다. 콘솔 창 다음 예약 실행 수락은 여전히 NOT_RUN이다.
+
+## 2026-10-28 전용 클라우드 수집 실제 초기화
+
+- 사용자 승인 아래 기존 전용 프로젝트를 재사용했다. 최초 Gmail 403 accessNotConfigured를 Gmail v1 고급 서비스 manifest로 수정했고 원격 소스/manifest 일치를 확인했다. PR #256 main d37b33c, Node20·인증 Python14 passed. 기존 importer32/browser3의 통과 근거를 재사용했다.
+- Apps Script 초기화는 13:57:18 시작, 261.337초 정상 완료. 14:07 상태 조회에서 configured=true·원문76·last_complete=null·트리거1을 확인했다. 소유자/비공개 검증도 통과했다. 초기 전체탐색은 완료되지 않았다.
+- 별도 host Drive readonly 인증은 Google 미확인 앱 동의 화면에서 사용자 직접 동의 대기다. 전용 ADC는 아직 없으며 기존 인증 파일을 덮지 않았다. 사용자에게 필요한 실제 인증만 요청했다.
+- 기존 Gmail 예약 수집은 유지했다. 호스트 원문 적재·DB 변경·금융/여행 결정·최종 Google 장부 쓰기·작업 전환·Board 재시작은 수행하지 않았다. 백업/복원 게이트는 실제 적재 직전에 새로 적용한다. 전체 전환 완료로 보고하지 않는다.
+- 로컬 근거는 Git 제외 all-pending-20261028의 cloud-live-deployment-evidence.json·cloud-status-initial.txt다. 소유자/프로젝트/폴더 ID와 OAuth 원문은 게시하지 않는다.
