@@ -4,20 +4,75 @@ from __future__ import annotations
 from datetime import date
 
 POLICY_VERSION = "provisional-trip-v1"
+MANUAL_STATES = {"USER_CONFIRMED", "MANUAL_UNASSIGNED", "MANUAL_HOLD", "MANUAL_EXCLUDED"}
 
 
-def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None,
-                         financial_hold=False, confidence_gap=1):
-    """Rank candidate records against authoritative trips without mutating input.
+def canonical_trip_periods(trips):
+    """Apply the shared open-end rule and discard invalid/non-authoritative trips."""
+    rows = [dict(t) for t in trips if t.get("trip_id")]
+    rows.sort(key=lambda t: str(t.get("starts_on") or ""))
+    from .reconciliation import open_trip_end
+    for index, trip in enumerate(rows):
+        if trip.get("ends_on"):
+            continue
+        following = next((other.get("starts_on") for other in rows[index + 1:]
+                          if other.get("starts_on") and other.get("starts_on") > trip.get("starts_on", "")), None)
+        trip["ends_on"] = open_trip_end(trip.get("starts_on"), following)
+    return {str(t["trip_id"]): t for t in rows
+            if t.get("enabled") is not False and t.get("valid") is not False
+            and not t.get("conflict") and not t.get("period_conflict")
+            and _valid_period(t, None)}
 
-    Candidate records accept ``trip_id``, ``score``, ``basis`` and optional
-    ``service_period``. Trip records require ``trip_id``, ``starts_on`` and
-    ``ends_on`` (empty end date means open through the day before next trip).
-    """
-    if manual_trip_id:
-        return _decision("USER_CONFIRMED", manual_trip_id, "사용자 여행 결정 보호", ())
-    by_id = {str(t.get("trip_id")): t for t in trips if t.get("trip_id")}
-    valid = []
+
+def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
+    """Build the shared decision DTO after an existing authority resolver validates the trip."""
+    candidate = {"trip_id": str(trip_id), "basis": str(basis), "confidence": confidence}
+    return _decision("AUTO_PROVISIONAL", str(trip_id), candidate["basis"], [candidate], confidence)
+
+
+def propose_correction_pattern(corrections):
+    """Create an inactive, transaction-scoped suggestion from repeated owner corrections."""
+    rows = [dict(row) for row in corrections if row.get("owner_approved") is True
+            and row.get("merchant_normalized") and row.get("trip_id")
+            and row.get("service_start") and row.get("service_end")]
+    signatures = {(r["merchant_normalized"], r["trip_id"], r["service_start"], r["service_end"])
+                  for r in rows}
+    if len(rows) < 2 or len(signatures) != 1:
+        return {"status": "NO_PROPOSAL", "active": False, "corrections": len(rows)}
+    merchant, trip_id, start, end = next(iter(signatures))
+    return {"status": "PENDING_OWNER_APPROVAL", "active": False, "scope": {
+        "merchant_normalized": merchant, "trip_id": trip_id,
+        "service_start": start, "service_end": end}, "corrections": len(rows)}
+
+
+def approve_correction_pattern(proposal, *, approved_by):
+    """Return an active exact-scope pattern only after an explicit owner approval."""
+    if (not approved_by or not isinstance(proposal, dict)
+            or proposal.get("status") != "PENDING_OWNER_APPROVAL"
+            or proposal.get("active") is not False):
+        raise ValueError("OWNER_APPROVAL_REQUIRED")
+    scope = proposal.get("scope") or {}
+    if set(scope) != {"merchant_normalized", "trip_id", "service_start", "service_end"}:
+        raise ValueError("INVALID_CORRECTION_SCOPE")
+    try:
+        start, end = date.fromisoformat(scope["service_start"]), date.fromisoformat(scope["service_end"])
+    except (TypeError, ValueError):
+        raise ValueError("INVALID_CORRECTION_SCOPE") from None
+    if end < start:
+        raise ValueError("INVALID_CORRECTION_SCOPE")
+    return {"status": "APPROVED", "active": True, "approved_by": str(approved_by),
+            "scope": dict(scope), "policy_version": POLICY_VERSION}
+
+
+def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None, manual_status=None,
+                         financial_hold=False):
+    """Validate, deduplicate by trip, then rank candidates without mutating input."""
+    if manual_status in MANUAL_STATES:
+        return _decision(manual_status, manual_trip_id or "", "사용자 결정 보호", ())
+    if manual_trip_id is not None:
+        return _decision("USER_CONFIRMED", str(manual_trip_id or ""), "사용자 여행 결정 보호", ())
+    by_id = canonical_trip_periods(trips)
+    grouped = {}
     for raw in candidates:
         candidate = dict(raw)
         trip_id = str(candidate.get("trip_id") or "")
@@ -28,43 +83,47 @@ def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None,
             score = int(candidate.get("score", 0))
         except (TypeError, ValueError):
             continue
-        valid.append({"trip_id": trip_id, "score": score,
-                      "basis": str(candidate.get("basis") or "근거 부족"),
-                      "service_period": candidate.get("service_period")})
+        group = grouped.setdefault(trip_id, {"trip_id": trip_id, "score": score,
+            "basis": set(), "confidence": candidate.get("confidence", "낮음"),
+            "service_period": candidate.get("service_period")})
+        group["score"] = max(group["score"], score)
+        basis = str(candidate.get("basis") or "근거 부족")
+        group["basis"].add(basis)
+    valid = [{**group, "evidence_count": len(group["basis"]),
+              "basis": " · ".join(sorted(group["basis"])[:3])} for group in grouped.values()]
     if not valid:
-        return _decision("FINANCIAL_HOLD" if financial_hold else "UNASSIGNED_NO_VALID_TRIP", "",
-                         "금융 보류" if financial_hold else "유효한 여행 후보 없음", ())
+        status = "FINANCIAL_HOLD" if financial_hold else "UNASSIGNED_NO_VALID_TRIP"
+        return _decision(status, "", "금융 보류" if financial_hold else "유효한 여행 후보 없음", ())
     valid.sort(key=lambda c: (-c["score"], c["trip_id"]))
-    top = valid[0]
-    alternatives = tuple(valid[:3])
+    alternatives = valid[:3]
     if financial_hold:
         return _decision("FINANCIAL_HOLD", "", "금융 보류: 여행 후보는 참고 정보", alternatives)
-    if len(valid) > 1 and top["score"] - valid[1]["score"] < confidence_gap:
-        return _decision("CONFLICT_REVIEW", "", "최상위 여행 후보가 충분히 구분되지 않음", alternatives)
+    if len(valid) > 1 and valid[0]["score"] == valid[1]["score"]:
+        return _decision("CONFLICT_REVIEW", "", "최상위 여행 후보 동률", alternatives)
+    top = valid[0]
     return _decision("AUTO_PROVISIONAL", top["trip_id"], top["basis"], alternatives,
-                     confidence="낮음" if top["score"] < 50 else "중간")
+                     confidence=top["confidence"])
 
 
-def ota_service_period_candidate(event, trips, *, score=60):
-    """Return one candidate per authoritative trip overlapping OTA service dates."""
+def ota_service_period_candidate(event, trips, *, score=0):
+    """Return candidates where verified OTA service dates overlap canonical trip periods."""
     period = event.get("service_period") or {}
-    start, end = period.get("starts_on"), period.get("ends_on")
     try:
-        service_start, service_end = date.fromisoformat(start), date.fromisoformat(end)
-    except (TypeError, ValueError):
+        start, end = date.fromisoformat(period["starts_on"]), date.fromisoformat(period["ends_on"])
+    except (KeyError, TypeError, ValueError):
         return []
-    if service_end < service_start or event.get("service_period_conflict"):
+    if end < start or event.get("service_period_conflict") or event.get("period_conflict"):
         return []
     result = []
-    for trip in trips:
+    for trip in canonical_trip_periods(trips).values():
         try:
             trip_start = date.fromisoformat(trip["starts_on"])
             trip_end = date.fromisoformat(trip["ends_on"]) if trip.get("ends_on") else None
         except (KeyError, TypeError, ValueError):
             continue
-        if trip_start <= service_end and (trip_end is None or service_start <= trip_end):
-            result.append({"trip_id": str(trip.get("trip_id") or ""), "score": score,
-                           "basis": "OTA 확인 이용기간과 여행 기간 일치",
+        if trip_start <= end and (trip_end is None or start <= trip_end):
+            result.append({"trip_id": str(trip["trip_id"]), "score": score,
+                           "confidence": "낮음", "basis": "OTA 확인 이용기간과 여행 기간 일치",
                            "service_period": dict(period)})
     return result
 

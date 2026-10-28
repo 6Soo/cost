@@ -34,7 +34,7 @@ from .reconciliation import (CONFIRMED_STATUSES, GUIDE_AIRFARE_ORIGIN, OTA_MAIL_
                              OWNER_AUTHORIZED_INFERENCE_ORIGIN, OWNER_BOOKING_ORIGIN, OWNER_COUNTRY_EXCEPTION_ORIGIN,
                              PERIOD_OTA_ORIGIN)
 from .rules import rule_matches, is_booking_or_online
-from .provisional_assignment import POLICY_VERSION
+from .provisional_assignment import provisional_trip_decision
 
 __all__ = ["classify_transaction", "classify_batch", "CLEAR_PATTERNS",
            "STATE_NEEDS_REVIEW", "STATE_CLASSIFIED"]
@@ -179,10 +179,8 @@ def classify_transaction(transaction: dict, *, rules: list,
                     display_tab_id=target,trip_id=target,rule_id=rule.get('rule_id',''))
     if rule.get('origin') == 'automatic-trip-priority':
         # 여행 후보만 보완한다. 현재 적용되는 업종/사용자 규칙의 항목과 설명은 유지한다.
-        decision = {'status': 'AUTO_PROVISIONAL', 'trip_id': target,
-                    'reason': inference['basis'], 'confidence': inference['confidence'],
-                    'candidates': [{'trip_id': target, 'basis': inference['basis']}],
-                    'policy_version': POLICY_VERSION}
+        decision = provisional_trip_decision(target, basis=inference['basis'],
+                                             confidence=inference['confidence'])
         return dict(verdict, classification_state=STATE_CLASSIFIED, classification_source='inference',
                     classification_basis='추론 배정 · 낮음 · ' + inference['basis'],
                     item=verdict.get('item') or rule['effects']['item'],
