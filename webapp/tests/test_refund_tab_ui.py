@@ -3,14 +3,15 @@
 Verifies:
 1. Pure projection: assemble_refund_groups, filter_refund_groups.
 2. Pure HTML assembly: line, card, summary, tab rendering.
-3. Signed amounts formatting (positive, negative, zero).
+3. Decimal, float, int signed amounts formatting and None/missing error parity.
 4. Missing/None fields handling (date fallback, unassigned trips, escaping).
-5. 1:N cancellation links and inferred status preservation.
+5. 1:N cancellation links, identity preservation, and inferred status.
 6. Exact equivalence between baseline 22e134b refund_tab AST and current implementation.
 """
 from __future__ import annotations
 
 import ast
+from decimal import Decimal
 from pathlib import Path
 import subprocess
 from typing import Any, Dict
@@ -51,11 +52,13 @@ def baseline_refund_tab_ast():
     return ns
 
 
-def test_assemble_refund_groups_1_to_n_and_sorting():
+def test_assemble_refund_groups_1_to_n_and_sorting_and_identity():
+    ref1_dict = {"transaction_id": "ref1", "merchant": "Agoda", "amount_krw": -40000, "occurred_on": "2026-10-02", "item": "숙소"}
+    ref2_dict = {"transaction_id": "ref2", "merchant": "Agoda", "amount_krw": -60000, "occurred_on": "2026-10-03", "item": "숙소"}
     sources = {
         "orig1": {"transaction_id": "orig1", "merchant": "Agoda", "amount_krw": 100000, "occurred_on": "2026-10-01", "item": "숙소"},
-        "ref1": {"transaction_id": "ref1", "merchant": "Agoda", "amount_krw": -40000, "occurred_on": "2026-10-02", "item": "숙소"},
-        "ref2": {"transaction_id": "ref2", "merchant": "Agoda", "amount_krw": -60000, "occurred_on": "2026-10-03", "item": "숙소"},
+        "ref1": ref1_dict,
+        "ref2": ref2_dict,
         # An unlinked refund
         "ref_unlinked": {"transaction_id": "ref_unlinked", "merchant": "Other", "amount_krw": -20000, "occurred_on": "2026-10-04", "item": "기타"},
         # Incomplete (partial) group: sum != 0
@@ -77,7 +80,26 @@ def test_assemble_refund_groups_1_to_n_and_sorting():
     assert g[0]["amount_krw"] == 100000
     assert g[0]["inferred"] is False
     assert g[0]["refund_basis"] == "original_approval_number"
-    assert {r["transaction_id"] for r in g[1:]} == {"ref1", "ref2"}
+    # Object identity of refund row must be preserved (not copied)
+    assert g[1] is ref1_dict
+    assert g[2] is ref2_dict
+
+
+def test_assemble_refund_groups_missing_keys_contract():
+    # If original transaction is missing in sources, KeyError is raised
+    sources = {"ref1": {"transaction_id": "ref1", "amount_krw": -5000, "occurred_on": "2026-10-01"}}
+    links = {"ref1": {"original_id": "orig_missing"}}
+    with pytest.raises(KeyError):
+        refund_tab_ui.assemble_refund_groups(sources, links)
+
+    # If amount_krw is missing in source, KeyError is raised during sum
+    sources_no_amount = {
+        "orig1": {"transaction_id": "orig1", "occurred_on": "2026-10-01"},
+        "ref1": {"transaction_id": "ref1", "occurred_on": "2026-10-02"},
+    }
+    links = {"ref1": {"original_id": "orig1"}}
+    with pytest.raises(KeyError):
+        refund_tab_ui.assemble_refund_groups(sources_no_amount, links)
 
 
 def test_assemble_refund_groups_preserved_periods_exclusion():
@@ -110,7 +132,7 @@ def test_filter_refund_groups():
     # Empty query matches all
     assert refund_tab_ui.filter_refund_groups(all_groups, query="") == all_groups
 
-    # Kind == 'in' clears all
+    # Kind == 'in' clears all after evaluating
     assert refund_tab_ui.filter_refund_groups(all_groups, kind="in") == []
 
     # Query merchant
@@ -122,6 +144,11 @@ def test_filter_refund_groups():
     # Query saved description
     saved = {"tx1": {"description": "특별한 커피"}}
     assert refund_tab_ui.filter_refund_groups(all_groups, query="특별한", saved=saved) == [g1]
+
+    # Query evaluation accesses transaction_id; missing transaction_id raises KeyError even if kind == 'in'
+    bad_group = [[{"merchant": "M", "item": "I", "occurred_on": "2026-10-01"}]]
+    with pytest.raises(KeyError):
+        refund_tab_ui.filter_refund_groups(bad_group, query="X", kind="in", saved={})
 
 
 def test_render_refund_line_signed_amounts_and_escaping():
@@ -149,12 +176,33 @@ def test_render_refund_line_signed_amounts_and_escaping():
         "item": "식비",
     }
     saved_row = {"row_id": "row-456", "item": "재정의 항목", "display_tab_id": "t1"}
-    line_ref = refund_tab_ui.render_refund_line(ref_src, index=1, row=saved_row, trip_name="2026 도쿄")
+    line_ref = refund_tab_ui.render_refund_line(ref_src, index=1, row=saved_row, trip="2026 도쿄")
     assert "환불 · 날짜 확인 필요" in line_ref
     assert "<strong>-25,000원</strong>" in line_ref
     assert "재정의 항목" in line_ref
     assert "장부 기록됨 · 2026 도쿄" in line_ref
     assert "<a href='/row?id=row-456&amp;back=%2Fboard%3Ftab%3Drefunds'>자료 검토</a>" in line_ref
+
+    # Decimal amount formatting contract
+    dec_src = {
+        "transaction_id": "ref2",
+        "merchant": "환전",
+        "amount_krw": Decimal("-1234567"),
+        "occurred_on": "2026-10-02",
+        "item": "환전",
+    }
+    line_dec = refund_tab_ui.render_refund_line(dec_src, index=1, row=None)
+    assert "<strong>-1,234,567원</strong>" in line_dec
+
+    # None amount raises TypeError identically to f'{None:,}원'
+    none_amount_src = dict(orig_src, amount_krw=None)
+    with pytest.raises(TypeError):
+        refund_tab_ui.render_refund_line(none_amount_src, index=0)
+
+    # None merchant raises AttributeError identically to html.escape(None)
+    none_merchant_src = dict(orig_src, merchant=None)
+    with pytest.raises(AttributeError):
+        refund_tab_ui.render_refund_line(none_merchant_src, index=0)
 
 
 def test_render_refund_card_titles_and_inferred():
@@ -189,6 +237,14 @@ def test_render_refund_card_titles_and_inferred():
     ]
     card_inferred = refund_tab_ui.render_refund_card(g_inferred)
     assert "<h2>원결제 추론 연결 · 기록 보류 · 환급 완료 아님 · 순액 0원</h2>" in card_inferred
+
+    # 5. Decimal net amount in card
+    g_dec = [
+        {"transaction_id": "o", "amount_krw": Decimal("10000.5"), "occurred_on": "2026-10-01", "merchant": "M", "item": "I"},
+        {"transaction_id": "r", "amount_krw": Decimal("-10000.5"), "occurred_on": "2026-10-02", "merchant": "M", "item": "I"},
+    ]
+    card_dec = refund_tab_ui.render_refund_card(g_dec)
+    assert "<h2>전액 환불 · 순액 0.0원</h2>" in card_dec
 
 
 def test_render_refund_summary_and_empty_tab():
