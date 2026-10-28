@@ -160,6 +160,8 @@ def parse_cli_args(argv=None):
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument('--preflight',action='store_true',help='run metadata-only preflight without opening runtime data')
     mode.add_argument('--live',action='store_true',help='run the legacy live read-only verification (default)')
+    parser.add_argument('--oauth-file',help='optional secret path for metadata-only preflight')
+    parser.add_argument('--session-secret-file',help='optional secret path for metadata-only preflight')
     return parser.parse_args(argv)
 
 
@@ -167,7 +169,7 @@ def main(argv=None):
     args=parse_cli_args(argv)
     if args.preflight:
         from tools.runtime_preflight import check
-        result=check()
+        result=check(oauth_file=args.oauth_file,session_secret_file=args.session_secret_file)
         print(json.dumps(result,ensure_ascii=False))
         result['ok']=result['status']=='READY'
         return result
