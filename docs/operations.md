@@ -1,11 +1,22 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 숲나들e 예약 안내 관측 표시
+
+- **최종 READY_UI_ACCEPTED（419세대）:** 실제 `/import`에서 첫20DOM·다음20DOM·페이지 변경·인라인 상세1개·카드 후보 미조회1개·theme1을 확인하고 임시 탭을 닫았다. 숲나들e needs_action/provider=forest API200·총46/첫20개·전원 발신 미검증 표시/RESERVATION_ONLY·금액/결제일/예약번호 없음, detail200·이용기간 미확정·카드 미연결을 수락했다. 미검증 evidence는 보수적으로 needs_action이며 evidence_missing 필터0은 누락이 아니다.419세대 실제 사건/그룹3,794/3,794·축소0이다. 원문·금융/Google 확정·테마 변경·카드 후보 조회는 하지 않았다. 세 번째 정상 계산은400.27초에 완료됐고 후속 동일key/held를 확인했다. 근거는 로컬 final-ui-report/final-forest-report와 post-ui-observation 보호13표 불변이다.
+
+- [PR #246](https://github.com/6Soo/cost/pull/246), 코드 `8ef9566`, 최종 Board 고정 `787f00c05d0d0c46254ce6b448260eebdb93a01b`(아래 예약 그룹 포함). 기존 보관 메일에서 숲나들e 예약/결제 안내를 비금전 예약 관측으로 읽는다. 발신 도메인 경계를 검사하고 인증 미충족을 화면에 표시하며 예약번호/금액/이용기간/결제일은 생성하지 않는다. 추적 ID를 예약번호로 쓰거나 다른 안내의 취소를 전파하지 않는다.
+- 합성 forest/toyoko39 passed·최종 발신 표시6 passed·compile/diff·staged guard 차단0/삭제0. 기존 보관47건 로컬 재생에서 안내46건·발신검증0/미검증46·RESERVATION_ONLY46·카드연결/생성 금액/예약번호/기간0·원문 해시 불변. 고유 예약46건이나 실제 결제 검증을 뜻하지 않는다. 누락된 예약 식별·금액·기간 확정에는 신뢰할 수 있는 추가 확인서가 필요하다.
+- 962 Git blobs 일치·작업/프로세스SHA·단일 loopback listener·health/ready200·기존/summary/events/groups 비인증401·보호13표 내용/스키마 동일. 이전 `271f7e8`·task/gate·검증된 복구 사본을 유지했다. 원문 재적재·금융/Google 쓰기·스키마 변경·대량 재처리·메일 수집 작업 변경은 하지 않았다. 배포 중 남은 이전 release의 계산 자식은 부모 서버 부재·release/PID 계보를 확인한 뒤 해당 두 프로세스만 정리했고 현재 계산은 유지했다.
+- **초기 배포 확인（이력）:** 새 worker가 계산 중일 때 인증 summary200/generation416/refreshing·groups409/SNAPSHOT_NOT_READY를 확인했다. 강제 재대사나900초 제한 변경은 하지 않았다. 실기기·전체 제품p95는 미확인이다. 근거는 해당 SHA release/deploy audit, 로컬 protection-forest-notice-before/after·forest-notice-preview-summary 및 Aside forest-deploy-smoke다.
+- **READY_API_ACCEPTED（417세대）/ 아래419세대에서 UI 수락:** ready/fresh summary200·첫/다음 groups200 각20개·중복0·첫14,770B·detail200·private 필드없음, 검증된 그룹의 members200/같은세대/1개/preview1을 확인했다. 같은 세대의 브라우저 인증 왕복20회 표본p95는 summary191ms/groups213ms다. summary 예비150ms 목표는 미달이며 server-only/전체 제품SLA 수치가 아니다. 저장된418세대 집계는 사건3,794/그룹3,794로 실제 축소0이다. API 검증은 그룹 축소·보류 해결 완료를 뜻하지 않는다.
+- 화면 수락 시 입력 key가 `8c629d33668e`→`db2767d1a932`(10:10:18)→`0c297902b27f`(10:17:26)로 바뀌어 정상 갱신 대기를 확인했다.417/418 계산은408.85/423.32초에 완료됐으며 금융13표는 화면 확인 후에도 불변이다. 정상 MailCollect 마지막 실행10:09:25/결과0은 확인했으나 각 key 변경의 전체 원인을 단정하지 않는다. 공개 legacy holds의 forest0은 기존 subset 계약이며 새 canonical queue 검증과 구분한다. API 최종 근거는 로컬 `aside-final-read-smoke.json`, `aside-member-smoke.json`이다.
+
 ## 2026-10-28 검증된 OTA 예약 그룹
 
 - [PR #245](https://github.com/6Soo/cost/pull/245), 코드 `9be1479`, Board 고정 `271f7e827b7697d55a9eeaa38bdb53af709e68ad`. producer의 검증된 포털 출처만 예약 컨테이너로 묶고 기존 결제/환불 사건·ID·금액·수동 상태는 유지한다. 같은 세대의 summary/group/member index를 worker에서 계산한다. 목록/구성원 최대20개·미리보기 최대3개, singleton 직접 상세와 중복/누락 ID 차단, private provenance 공개/저장 제외를 연결했다.
 - 지정 route/snapshot/group64 passed(구현자 근거 검수), queue browser8 passed, 기존 payment browser9 passed 및4 subtests, 금융/권한 인접74 passed. HTTP 플래그 UI2 failed 중 모바일1개는 분리한 `ccc2e40`에서도 동일 timeout을 재현했다. 실패를 통과로 계산하지 않았고 범위 밖 수정은 하지 않았다. compile/diff·staged guard 차단0/삭제0.
 - 960 Git blobs 일치·작업/프로세스SHA·단일 loopback listener·health/ready200·비인증 기존/summary/events/groups401·보호13표 내용/스키마 동일. 이전 `f7c27c2`와 task/gate·검증된 복원 사본을 보존했다. 금융/Google/원문 직접 쓰기·마이그레이션·대량 재처리는 하지 않았다. MailCollect 고정 SHA는 `3b8bf15`로 유지한다.
-- **DEPLOYED / READY_ACCEPTANCE_PENDING:** 최초 인증 summary200은 generation416/refreshing, groups는409/SNAPSHOT_NOT_READY다. 새 private index가 준비되기 전 대기 표시가 유지된다. ready 그룹 UI·실기기·제품p95는 미확인이다. 로컬 근거 `.local-archive/cost-v34-resume-20261028/`의 protection-groups-before/after, release/deploy audit 및 Aside `artifacts/ota-groups-20261028/initial-smoke.json`.
+- **초기 배포 확인（이력）:** 최초 인증 summary200은 generation416/refreshing, groups는409/SNAPSHOT_NOT_READY다. 새 private index가 준비되기 전 대기 표시가 유지된다. 초기 ready UI 대기는 위419세대 수락으로 해소했다. 실기기·전체 제품p95는 미확인이다. 로컬 근거 `.local-archive/cost-v34-resume-20261028/`의 protection-groups-before/after, release/deploy audit 및 Aside `artifacts/ota-groups-20261028/initial-smoke.json`.
 - **Gmail 조사 정정:** 앞선 '46 iframe이 실제 본문' 추정은 응답 script 대조로 철회했다. iframe은 target URL 없는 열람 추적 코드다. 원래 Gmail HTML에 객실/날짜 문장이 있으며 원문 자체 분석으로 전환했다. 다른 공급자 정렬이 없는 DKIM pass만으로 숲나들e 인증 통과를 주장하지 않는다.
 
 ## 2026-10-28 숲나들e Gmail 원문과 상시 수집
@@ -16,7 +27,7 @@
 - Gmail 본문은 47건 strict UTF-8 성공·대체문자 0이나 46건에 외부 본문 프레임이 있다. 프레임 내용 확인과 숲나들e 예약 파싱/표시는 아직 미완료다. 모든 메일의 인증 통과·예약 생성·결제 연결·여행 배정을 주장하지 않는다. 이전 다음메일 원문 4건과 Gmail 47건을 출처별로 구분한다.
 - 로컬 근거: `.local-archive/cost-v34-resume-20261028/`의 gmail-forest-collection/preflight/preview/production/body 관련 집계, 검증 백업·복원본, mail-task-before-recurring-deploy.xml, mail-collector-deploy-summary.json. 고객 원문·계정·경로/ID는 Git에 추가하지 않았다.
 
-## 마지막 확인된 운영 코드
+## 직전 확인된 운영 코드
 
 **`f7c27c240576e4fa0bb1dfa8f053cb7a4c451332`**, 2026-10-28. 분류자 Cost V34의 요구를 재개해 [PR #237](https://github.com/6Soo/cost/pull/237)의 Agoda 경쟁 원문 오류 유일성 보호, [PR #238](https://github.com/6Soo/cost/pull/238)의 명시 메일 입력 0건/잘못된 형식 쓰기 전 거부, [PR #239](https://github.com/6Soo/cost/pull/239)의 진단 출력 유한 코드·기존 파일 보존, [PR #240](https://github.com/6Soo/cost/pull/240)의 카드 검색 공통 버튼·아이콘 및 화면 수락 보완을 병합·고정 배포했다.
 

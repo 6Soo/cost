@@ -1,7 +1,7 @@
 # OTA 검토 대기열·그룹화·페이지네이션·대사 성능 구현 명세
 
 - 작성: 2026-10-27
-- 상태: **SPEC_ONLY / TEST_NOT_RUN / NO_RUNTIME_CHANGE**
+- 상태: **PARTIAL_IMPLEMENTED / TARGETED_TESTED / DEPLOYED** — summary/페이지/인라인 상세와 검증된 포털 예약 그룹을 배포했다. 실제 보류 감소·전체 성능 목표·실기기 수락은 미완료다. 최신 SHA/검증/미결은 [현재 상태](../session_handoff.md)와 [운영 기록](../operations.md)이 우선한다. 아래 source baseline은 조사 당시 이력이다.
 - 연결: [전면 리팩토링 마스터](refactor-master-20261027.md), [OTA 금융/정본 정책](ota.md), [운영 기록](../operations.md)
 - 목적: 접힘/지연 조회는 이미 있는 기능이다. 이번 범위는 **과도한 미결 수 자체를 줄이고, 서버가 필요한 목록만 전달하며, 동일 예약의 다수 이벤트를 한 카드로 묶는 것**이다.
 
