@@ -12,6 +12,140 @@ from webapp.tests.test_card_flow import CARD
 
 
 class CardFlowBrowserTests(unittest.TestCase):
+    def test_cleanup_filters_save_stale_empty_and_responsive_browser_contract(self):
+        from webapp.card_flow import CardFlow
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,
+                {'WEBLEDGER_UNIFIED_DB':'1', 'WEBLEDGER_CARD_FLOW':'1', 'WEBLEDGER_REVIEW_FROM':''}):
+            previous = ledger_board._STORE
+            ledger_board.bind_access(None)
+            server = ledger_board.serve(port=0, db_path=Path(directory)/'cleanup-browser.sqlite',
+                                        with_worker=False, seed_demo=False)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                board = server.card_store
+                flow = CardFlow(board)
+                trip = board.create_trip(starts_on='2026-08-01', ends_on='2026-08-03',
+                    destination='Synthetic cleanup trip', client_request_id='cleanup-browser-trip')['tab_id']
+                header = ('Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,'
+                          'Date,Post Date,Authorization Code,Cancel,Status\n')
+                rows = []
+                for i in range(24):
+                    line = (f'국민,1234,domestic,purchase,Synthetic cleanup {i},5000,,,5000,'
+                            f'2026-10-03,2026-10-04,CLEAN{i:04d},,매입\n')
+                    batch = flow.pipeline.receive((header + line).encode('utf-8'),
+                                                  f'synthetic-cleanup-{i}.csv')['batch_id']
+                    rows.extend(flow.pipeline.get_batch(batch)['rows'])
+                ids = [row['transaction_id'] for row in rows]
+                board.conn.execute(
+                    "UPDATE transactions SET classification_state='classified',item='식비',display_tab_id=? "
+                    "WHERE transaction_id IN (" + ','.join('?' for _ in ids) + ')', (trip, *ids))
+                board.conn.execute("UPDATE transactions SET item='' WHERE transaction_id=?", (ids[0],))
+                board.conn.execute("UPDATE transactions SET display_tab_id='unclassified' WHERE transaction_id=?",
+                                   (ids[1],))
+                board.conn.execute(
+                    'INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)',
+                    (ids[2], rows[2]['source_hash'], 'evidence_pending', 'synthetic protected row'))
+                board.conn.commit()
+                base = f'http://127.0.0.1:{server.server_address[1]}'
+
+                with patch.object(CardFlow, 'trip_valid', autospec=True,
+                                  side_effect=lambda instance, identity: identity == trip), \
+                     sync_playwright() as api:
+                    browser = api.chromium.launch(headless=True)
+                    try:
+                        page = browser.new_page(viewport={'width':390,'height':844}, color_scheme='light')
+                        page.set_default_timeout(5000)
+                        response = page.goto(base + '/import#expense-cleanup')
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(page.request.get(base + '/import?cleanup_reason=bad').status, 400)
+                        self.assertEqual(page.request.get(base + '/import?cleanup_reason=no_item&cleanup_reason=no_trip').status, 400)
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 20)
+                        self.assertIn('전체 24건', page.locator('#expense-cleanup').inner_text())
+
+                        for reason, expected, expected_count in (
+                                ('no_item', ids[0], 1), ('no_trip', ids[1], 1),
+                                ('protected', ids[2], 1)):
+                            page.goto(base + '/import?cleanup_reason=' + reason + '#expense-cleanup')
+                            self.assertEqual(page.locator(".cleanup-breakdown a[aria-current='page']").count(), 1)
+                            self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), expected_count, reason)
+                            self.assertEqual(page.locator("#expense-cleanup .cleanup-row").first.get_attribute(
+                                'data-transaction'), expected)
+
+                        response = page.goto(base + '/import?cleanup_reason=other_review#expense-cleanup')
+                        self.assertEqual(response.status, 200, page.locator('body').inner_text())
+                        self.assertIn('기타 검토', page.locator('#expense-cleanup').inner_text())
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 20)
+                        self.assertIn('21건 중 1~20건 표시', page.locator('#expense-cleanup').inner_text())
+                        page.get_by_role('link', name='다음 20건').click()
+                        self.assertIn('cleanup_reason=other_review', page.url)
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 1)
+                        self.assertIn('21건 중 21~21건 표시', page.locator('#expense-cleanup').inner_text())
+
+                        board.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=?', (ids[2],))
+                        board.conn.commit()
+                        page.goto(base + '/import?cleanup_reason=protected#expense-cleanup')
+                        self.assertIn('보류·오류 거래가 없습니다.', page.locator('#expense-cleanup').inner_text())
+                        self.assertEqual(page.locator('#expense-cleanup .cleanup-row').count(), 0)
+
+                        page.goto(base + '/import?cleanup_reason=no_trip#expense-cleanup')
+                        item = page.locator("[data-transaction='" + ids[1] + "']")
+                        item.locator('.cleanup-review summary').click()
+                        item.locator("select[name=display_tab_id]").select_option(trip)
+                        item.locator("input[name=item]").fill('식비')
+                        old_revision = item.get_attribute('data-revision')
+                        board.conn.execute('UPDATE transactions SET revision=revision+1 WHERE transaction_id=?',
+                                           (ids[1],))
+                        board.conn.commit()
+                        item.locator('button[type=submit]').click()
+                        page.wait_for_function("id => !!document.querySelector('[data-transaction=\"'+id+'\"] .cleanup-error')?.textContent",
+                                               arg=ids[1])
+                        self.assertIn('cleanup_reason=no_trip', page.url)
+
+                        page.reload()
+                        item = page.locator("[data-transaction='" + ids[1] + "']")
+                        self.assertNotEqual(item.get_attribute('data-revision'), old_revision)
+                        item.locator('.cleanup-review summary').click()
+                        item.locator("select[name=display_tab_id]").select_option(trip)
+                        item.locator("input[name=item]").fill('식비')
+                        item.locator('button[type=submit]').click()
+                        page.wait_for_url('**/import?cleanup_reason=no_trip#expense-cleanup')
+                        page.get_by_text('여행 미배정 거래가 없습니다.', exact=True).wait_for()
+                        self.assertIn('전체 23건', page.locator('#expense-cleanup').inner_text())
+
+                        response = page.goto(base + '/import?cleanup_reason=other_review#expense-cleanup')
+                        self.assertEqual(response.status, 200, page.locator('body').inner_text())
+                        self.assertIn('기타 검토', page.locator('#expense-cleanup').inner_text())
+                        other_link = page.locator(".cleanup-breakdown a[href*='other_review']")
+                        box = other_link.first.bounding_box()
+                        self.assertGreaterEqual(box['height'], 44)
+                        other_link.first.focus()
+                        page.keyboard.press('Enter')
+                        page.wait_for_url('**cleanup_reason=other_review#expense-cleanup')
+                        self.assertEqual(page.locator(".cleanup-breakdown a[aria-current='page']").count(), 1)
+
+                        toggle = page.locator('#site-theme-toggle')
+                        self.assertEqual(toggle.count(), 1)
+                        for theme in ('light', 'dark'):
+                            if page.locator('html').get_attribute('data-theme') != theme:
+                                toggle.click()
+                            self.assertEqual(page.locator('html').get_attribute('data-theme'), theme)
+                            for width in (320, 375, 390):
+                                page.set_viewport_size({'width':width,'height':844})
+                                self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                            page.evaluate("document.documentElement.style.zoom='200%'")
+                            page.set_viewport_size({'width':390,'height':844})
+                            self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), 390)
+                            page.evaluate("document.documentElement.style.zoom='100%'")
+                        self.assertEqual(board.conn.execute(
+                            "SELECT COUNT(*) FROM ledger_entries WHERE transaction_id=?", (ids[1],)).fetchone()[0], 1)
+                    finally:
+                        browser.close()
+            finally:
+                server.shutdown(); server.server_close(); server.card_store.close()
+                thread.join(timeout=3); ledger_board.bind_store(previous)
+
     def test_browser_duplicate_card_never_reaches_expense_copy(self):
         from webapp.card_flow import CardFlow
 

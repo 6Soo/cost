@@ -571,7 +571,7 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         board.conn.commit()
 
         assert _cleanup_card_breakdown(board) == {
-            'no_item': 1, 'no_trip': 1, 'protected': 2,
+            'no_item': 1, 'no_trip': 1, 'protected': 1, 'other_review': 1,
         }
         assert cleanup_total(board) == 5
         html = render_expense_cleanup(board, 'token')
@@ -579,7 +579,8 @@ def test_cleanup_shows_reason_counts_without_hiding_unposted_expenses(tmp_path, 
         assert '항목 미분류 1건' in html
         assert '여행 미배정 2건' in html
         assert '기록 대기' not in html
-        assert '보류·오류 2건' in html
+        assert '보류·오류 1건' in html
+        assert '기타 검토 1건' in html
     finally:
         ledger_board.bind_store(None)
         board.close()
