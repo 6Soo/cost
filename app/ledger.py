@@ -34,15 +34,50 @@ def recordable_rows(rows):
                  if not row.get('blocked') and not row.get('already_booked')}.values())
 
 
-def _ready_rows(store, batch_id: str, review_from=None):
-    return store.conn.execute(
-        "SELECT transaction_id, source_hash, merchant, amount_krw,"
+def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full_refunds=False):
+    """Keep ordinary previews scoped to their file; expand only verified zero-net
+    refund groups for the automatic recorder. Inferred links are never expanded.
+    """
+    columns = (
+        "transaction_id, source_hash, merchant, amount_krw,"
         " COALESCE(NULLIF(approval_date,''),posting_date), transaction_direction, item, description,"
         " display_tab_id, trip_id, revision, " + decided_sql() + ", classification_state,"
-        " conflict_reason, parse_error, duplicate_of FROM transactions WHERE classification_state!='preserved' AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
+        " conflict_reason, parse_error, duplicate_of"
+    )
+    eligible = (
+        "classification_state!='preserved'"
         " AND (? IS NULL OR COALESCE(NULLIF(approval_date,''),posting_date)=''"
         " OR COALESCE(NULLIF(approval_date,''),posting_date)>=?)"
-        " ORDER BY transaction_id", (batch_id,review_from,review_from)).fetchall()
+    )
+    rows = list(store.conn.execute(
+        "SELECT " + columns + " FROM transactions WHERE " + eligible +
+        " AND transaction_id IN (SELECT transaction_id FROM import_batch_rows WHERE batch_id=?)"
+        " ORDER BY transaction_id", (review_from, review_from, batch_id)).fetchall())
+    if not include_verified_full_refunds:
+        return rows
+    from .partial_refund import refund_links, refund_group
+    current_ids = {row[0] for row in rows}
+    refund_ids = [r[0] for r in store.conn.execute(
+        "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+    links = refund_links(store.conn, refund_ids)
+    extra = set()
+    for refund_id, link in links.items():
+        if link.get('inferred') or link['status'] != 'full' or link['net_krw'] != 0:
+            continue
+        if refund_id in current_ids or link['original_id'] in current_ids:
+            extra.update(refund_group(store.conn, link['original_id']))
+    extra.difference_update(current_ids)
+    # Only ever use actual imported originals. Never construct synthetic money rows.
+    # Bounded SQL parameters work even when a source batch has thousands of rows.
+    for start in range(0, len(extra), 400):
+        chunk = sorted(extra)[start:start + 400]
+        marks = ",".join("?" for _ in chunk)
+        rows.extend(store.conn.execute(
+            "SELECT " + columns + " FROM transactions WHERE " + eligible +
+            " AND transaction_id IN (" + marks + ")"
+            " AND EXISTS (SELECT 1 FROM import_batch_rows r WHERE r.transaction_id=transactions.transaction_id)"
+            " ORDER BY transaction_id", (review_from, review_from, *chunk)).fetchall())
+    return sorted(rows, key=lambda row: row[0])
 
 
 def _decision_rows(store, batch_id: str):
@@ -81,7 +116,8 @@ def _recording_guard(*, source_hash, state, conflict_reason, parse_error,
 
 def preview(store, batch_id: str, *, trip_validator=None,
              tab_validator=None, review_from=None, entry_metadata=None,
-             additional_holds=None, group_original=None) -> dict:
+             additional_holds=None, group_original=None,
+             include_verified_full_refunds=False) -> dict:
     """What a commit right now would do. Read only; writes nothing.
 
     `ready` is the count that would be booked. `unresolved` is held back, and
@@ -102,7 +138,22 @@ def preview(store, batch_id: str, *, trip_validator=None,
     if found is None:
         raise StoreError(CODE_NOT_FOUND, "없는 접수 건이에요")
 
+    source_rows = _ready_rows(store, batch_id, review_from,
+                              include_verified_full_refunds=include_verified_full_refunds)
     decisions = _decision_rows(store, batch_id)
+    if include_verified_full_refunds:
+        # A counterpart may have a user decision in another import batch.
+        batch_ids = {r[0] for r in store.conn.execute(
+            "SELECT transaction_id FROM import_batch_rows WHERE batch_id=?", (batch_id,))}
+        for external in (r[0] for r in source_rows if r[0] not in batch_ids):
+            decision = store.conn.execute(
+                "SELECT d.revision,d.item,d.description,d.display_tab_id,d.note "
+                "FROM review_decisions d WHERE d.transaction_id=? "
+                "AND d.revision=(SELECT MAX(revision) FROM review_decisions "
+                "WHERE transaction_id=?)", (external, external)).fetchone()
+            if decision:
+                decisions[external] = dict(zip(
+                    ('revision','item','description','display_tab_id','note'), decision))
     from .company_expenses import states
     exclusions = states(store.conn)
     from .review_holds import active_holds
@@ -120,7 +171,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
     # GIL hand-off, and a preview of ~1000 rows was dominated by those hand-offs.
     booked_dates = dict(store.conn.execute("SELECT transaction_id,occurred_on FROM ledger_entries"))
     booked_ids = set(booked_dates)
-    for row in _ready_rows(store, batch_id, review_from):
+    for row in source_rows:
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
          direction, item, description, tab, trip_id, revision, decided,
          state, conflict_reason, parse_error, duplicate_of) = row
@@ -137,6 +188,12 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "already_booked": transaction_id in booked_ids,
             "duplicate_of": duplicate_of or "",
         }
+        if include_verified_full_refunds and transaction_id not in batch_ids:
+            source = store.conn.execute(
+                "SELECT batch_id FROM import_batch_rows WHERE transaction_id=? "
+                "ORDER BY batch_id LIMIT 1", (transaction_id,)).fetchone()
+            if source:
+                entry["source_batch_id"] = source[0]
         exclusion = exclusions.get(transaction_id)
         entry['exclusion_revision'] = exclusion['revision'] if exclusion else 0
         entry['excluded_from_company'] = bool(exclusion and exclusion['excluded'])
@@ -218,7 +275,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
     }
     result["digest"] = preview_digest(result)
     if group_original is not None:
-        return scope_group(store, result, group_original)
+        return scope_group(store, result, group_original,
+                           require_verified_zero=include_verified_full_refunds)
     return result
 
 
@@ -236,7 +294,8 @@ def group_members(store, original_id: str) -> list:
     return members
 
 
-def scope_group(store, result: dict, original_id: str) -> dict:
+def scope_group(store, result: dict, original_id: str,
+                *, require_verified_zero=False) -> dict:
     """One refund group's rows taken from a whole-batch preview. Writes nothing.
 
     The group is decided by the database, so a group cannot be shrunk by the
@@ -244,6 +303,15 @@ def scope_group(store, result: dict, original_id: str) -> dict:
     booked; a group that is held as a whole comes back `recordable: False`.
     """
     members = group_members(store, original_id)
+    if require_verified_zero:
+        from .partial_refund import refund_links
+        links = refund_links(store.conn, members[1:])
+        if (not links or len(links) != len(members) - 1
+                or any(link.get('inferred') or link['status'] != 'full'
+                       or link['net_krw'] != 0 or link['original_id'] != original_id
+                       for link in links.values())):
+            raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                             "원승인번호로 검증된 전액 상쇄 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
     if any(member not in by_id for member in members):
         raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
@@ -435,7 +503,8 @@ def preview_digest(result: dict) -> str:
              "booking_ref": r.get("booking_ref"),
              "service_period": r.get("service_period"),
              "ota_evidence": r.get("ota_evidence"),
-             "refund_link": r.get("refund_link")}
+             "refund_link": r.get("refund_link"),
+             **({"source_batch_id": r["source_batch_id"]} if r.get("source_batch_id") else {})}
             for r in result.get("rows", [])
             if not r.get("blocked")
         ],
@@ -467,7 +536,8 @@ def _check_refund_groups(store, rows) -> None:
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
            *, projection=None, trip_validator=None, tab_validator=None,review_from=None,
-           entry_metadata=None, additional_holds=None, group_original=None, automatic_record=False) -> dict:
+           entry_metadata=None, additional_holds=None, group_original=None,
+           automatic_record=False, include_verified_full_refunds=False) -> dict:
     """Book the previewed rows, exactly once, atomically.
 
     `projection` is called inside the same transaction for each booked row, so a
@@ -494,6 +564,10 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     scope = {"batch_id": batch_id, "digest": preview_digest_value}
     if automatic_record:
         scope['automatic_record'] = True
+    if include_verified_full_refunds:
+        if not automatic_record:
+            raise StoreError(CODE_INVALID_INPUT, "검증된 환불 묶음 확장은 자동 기록 전용입니다")
+        scope['include_verified_full_refunds'] = True
     if group_original is not None:
         scope["group"] = str(group_original)
     payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()
@@ -504,7 +578,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     current = preview(store, batch_id, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
-                      group_original=group_original)
+                      group_original=group_original,
+                      include_verified_full_refunds=include_verified_full_refunds)
     if current["digest"] != preview_digest_value:
         raise StoreError(CODE_PREVIEW_STALE,
                          "미리보기 이후에 답변이 달라졌어요. 다시 확인해 주세요")
@@ -540,20 +615,22 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                     " description, display_tab_id, trip_id, amount_krw, merchant,"
                     " occurred_on, transaction_direction, source_hash,"
                     " committed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (transaction_id, batch_id, entry["item"], entry["description"],
+                    (transaction_id, entry.get("source_batch_id", batch_id),
+                     entry["item"], entry["description"],
                      entry["display_tab_id"], entry.get("trip_id", ""),
                      entry["amount_krw"], entry["merchant"], entry["occurred_on"],
                      entry["transaction_direction"], entry["source_hash"], now))
                 booked.append(transaction_id)
                 store.log_change("ledger.booked", transaction_id,
-                                 {"batch_id": batch_id, "item": entry["item"],
+                                 {"batch_id": entry.get("source_batch_id", batch_id),
+                                  "item": entry["item"],
                                   "amount_krw": entry["amount_krw"],
                                   "source_hash": entry["source_hash"]})
                 if projection is not None:
                     if not callable(projection):
                         raise StoreError(CODE_INVALID_INPUT,
                                          "게시 함수가 아니에요")
-                    projection(dict(entry, batch_id=batch_id, now=now))
+                    projection(dict(entry, batch_id=entry.get("source_batch_id", batch_id), now=now))
             # 이미 기록된 행은 보류 표시가 있어도 기록된 상태로 본다. 짝을 맞출 때 기준이 된다.
             done = set(booked) | set(already) | {e["transaction_id"] for e in current["rows"] if e.get("already_booked")}
             for entry in current["rows"]:

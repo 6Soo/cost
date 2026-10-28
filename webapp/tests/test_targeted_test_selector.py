@@ -26,6 +26,31 @@ def test_selector_maps_changes_and_marks_unclassified_files_unknown():
     assert unknown == ["new/feature.py"]
 
 
+def test_selector_supports_recursive_globs_and_rejects_unsafe_patterns():
+    assert SELECTOR.path_matches("tools/check.py", "tools/**/check.py")
+    assert SELECTOR.path_matches("tools/deep/nested/check.py", "tools/**/check.py")
+    assert SELECTOR.path_matches("webapp/deep/module.py", "webapp/**/*.py")
+    assert SELECTOR.path_matches("webapp/module.py", "webapp/**/*.py")
+    assert SELECTOR.path_matches("legacy_tools/check.py", "*legacy*")
+    try:
+        SELECTOR.path_matches("anything.py", "../**/*.py")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("parent traversal pattern must fail closed")
+
+
+def test_impact_map_validation_rejects_missing_groups_and_unsafe_targets():
+    import pytest
+    with pytest.raises(ValueError):
+        SELECTOR.validate_impact_map({"schema": "cost-test-impact-map-v1", "groups": [],
+                                      "safe_fallback_tests": ["tests/safe.py"]})
+    with pytest.raises(ValueError):
+        SELECTOR.validate_impact_map({"schema": "cost-test-impact-map-v1",
+            "groups": [{"name": "bad", "paths": ["src/*.py"], "tests": ["../test.py"]}],
+            "safe_fallback_tests": ["tests/safe.py"]})
+
+
 def test_selector_does_not_report_success_when_no_paths_match():
     targets, unknown = SELECTOR.select_targets(["README.md"], [])
 
@@ -91,6 +116,39 @@ def test_missing_target_is_structured_error(monkeypatch, tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)['status'] == 'ERROR'
 
 
+def test_real_selector_cli_reports_unknown_impact_in_synthetic_git_repo(tmp_path):
+    import json
+    import subprocess
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    subprocess.run(['git', '-C', str(repo), 'init', '-q'], check=True)
+    (repo / 'tools').mkdir()
+    (repo / 'config').mkdir()
+    script = repo / 'tools' / 'select_targeted_tests.py'
+    script.write_text(SCRIPT.read_text(encoding='utf-8'), encoding='utf-8')
+    (repo / 'config' / 'test-impact-map.json').write_text(json.dumps({
+        'schema': 'cost-test-impact-map-v1',
+        'groups': [{'name': 'synthetic', 'paths': ['known.py'], 'tests': ['tests/safe.py']}],
+        'safe_fallback_tests': ['tests/safe.py'],
+    }), encoding='utf-8')
+    (repo / 'tests').mkdir()
+    (repo / 'tests' / 'safe.py').write_text('def test_safe(): pass\n', encoding='utf-8')
+    subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(repo), '-c', 'user.name=Synthetic', '-c',
+                    'user.email=synthetic@example.invalid', 'commit', '-qm', 'initial'], check=True)
+    base = subprocess.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'], check=True,
+                          capture_output=True, text=True).stdout.strip()
+    (repo / 'unmapped.py').write_text('VALUE = 1\n', encoding='utf-8')
+    subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(repo), 'commit', '-qm', 'change'], check=True)
+    proc = subprocess.run([__import__('sys').executable, str(script), '--base', base], cwd=repo,
+                          check=False, capture_output=True, text=True)
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 2
+    assert payload['status'] == 'UNKNOWN_IMPACT'
+    assert payload['unknown_files'] == ['unmapped.py']
+
+
 def test_extracted_runtime_modules_keep_their_feature_contract_tests():
     import json
 
@@ -109,3 +167,16 @@ def test_extracted_runtime_modules_keep_their_feature_contract_tests():
         targets, unknown = SELECTOR.select_targets([path], config['groups'])
         assert unknown == [], path
         assert expected in targets, path
+
+
+def test_rf001_call_map_paths_have_a_specific_test_target():
+    import json
+
+    config = json.loads(SELECTOR.MAP_PATH.read_text(encoding='utf-8'))
+    targets, unknown = SELECTOR.select_targets([
+        'config/refactor-call-map.json',
+        'tools/refactor_call_map.py',
+        'tests/test_refactor_call_map.py',
+    ], config['groups'])
+    assert unknown == []
+    assert 'tests/test_refactor_call_map.py' in targets

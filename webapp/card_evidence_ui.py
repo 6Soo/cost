@@ -187,6 +187,7 @@ def render_refund_merchant_candidates(
                      " 비교 후보로 묶었습니다. 카카오페이·선물·대리·주차는 택시 거래로 합치지 않습니다."
                      " 가승인 해제와 실제 요금/부분 환불은 별개이므로 확정 연결하지 않습니다."
                      " 원승인번호와 같은 카드의 정상 원결제가 식별되면 가맹점명이 달라도 확정 연결합니다."
+                     " 유페이 일반결제는 택시 결제의 후보일 수 있어 보여 주되, 가맹점 동일성이나 실제 환급을 확정하지 않습니다."
                      " 한 원결제에 취소·환불이 여러 건인 것은 정상이며, 총 환불액과 잔액은 따로 검증합니다.</p>")
         inventory = kakao_inventory or []
         taxi_count = sum(item["count"] for item in inventory if item["family"] == "카카오택시")
@@ -210,9 +211,13 @@ def render_refund_merchant_candidates(
         existing = set(existing_ledger_ids) if existing_ledger_ids else set()
         for cid, batch, name, date, gross, number, duplicate, conflict, error in candidates:
             alias_match = refund_merchant_key(name) == key
+            upay_proxy = (key == "카카오택시" and
+                          str(name or "").replace(" ", "").startswith("유페이"))
             flags = ["같은 카드",
                      "가맹점명 동일" if name == merchant else
-                     "표기 변형" if alias_match else "원승인번호 대조 · 가맹점 불일치",
+                     "표기 변형" if alias_match else
+                     "유페이 결제중계 후보 · 동일 서비스 확인 필요" if upay_proxy else
+                     "원승인번호 대조 · 가맹점 불일치",
                      "금액 일치" if gross == abs(amount or 0) else "금액 차이",
                      "장부 기록 있음" if cid in existing else "장부 미기록"]
             if original and number and str(original).strip() == str(number).strip():
@@ -232,7 +237,8 @@ def render_refund_merchant_candidates(
                          f" {len(candidates)}건 표시. 전체 거래 검색에서 추가 확인해 주세요.</p>")
     else:
         parts.append("<p>최근 14일 내 같은 카드·가맹점 표기 후보가 없습니다."
-                     " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요.</p>")
+                     " 더 오래된 승인과 다른 카드 거래는 전체 거래 검색에서 확인해 주세요."
+                     " 결제중계 가맹점과 원승인번호를 확인하기 전에는 연결을 확정하지 않습니다.</p>")
     query = "카카오" if key == "카카오택시" else merchant
     search = "/import?" + urlencode({"scope": "all", "q": query})
     parts.append(f"<p><a href='{esc(search)}'>가맹점명으로 전체 카드 거래 검색</a></p></details>")

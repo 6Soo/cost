@@ -1629,7 +1629,7 @@ class CardFlow:
             except Exception:
                 return {'saved': True, 'refresh_required': True}
 
-    def automatic_holds(self, batch_id):
+    def automatic_holds(self, batch_id, *, include_verified_full_refunds=False):
         from app import quarter_costs
         holds = dict(self.ota_group_holds())
         rows = self.pipeline.get_batch(batch_id)['rows']
@@ -1653,8 +1653,9 @@ class CardFlow:
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+        verified_links = refund_links(self.board.conn, refund_ids)
         batch_ids = {r['transaction_id'] for r in rows}
-        for refund, link in refund_links(self.board.conn, refund_ids).items():
+        for refund, link in verified_links.items():
             if not {refund, link['original_id']} & batch_ids:
                 continue
             if link.get('inferred'):
@@ -1688,6 +1689,28 @@ class CardFlow:
             members = {r['transaction_id'] for r in group}
             if not members & ids:
                 continue
+            if include_verified_full_refunds:
+                # A verified, exactly zero-net group may span several source
+                # files. The ledger preview pulls EVERY member and commits
+                # them atomically. Never treat inferred or held groups as safe.
+                refunds_in_group = members & set(refund_ids)
+                trusted_full = bool(refunds_in_group) and all(
+                    (rid in verified_links
+                     and not verified_links[rid].get('inferred')
+                     and verified_links[rid].get('status') == 'full'
+                     and verified_links[rid].get('net_krw') == 0)
+                    for rid in refunds_in_group)
+                allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
+                if (trusted_full and not members & set(active)
+                        and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
+                                for tid in members)):
+                    # Verified full offsets are always booked to the refund
+                    # tab; trip/classification placeholders should not prevent
+                    # the ledger's own source and authority checks.
+                    for tid in members & ids:
+                        if holds.get(tid, {}).get('kind') in ('trip_needed', 'classification_needed'):
+                            holds.pop(tid)
+                    continue
             if not members <= ids or members & (blocking | set(active)):
                 for tid in members & ids:
                     holds.setdefault(tid, {'kind': 'refund_group_incomplete', 'reason': '원결제와 모든 환불을 함께 확인해야 합니다.'})
@@ -1704,7 +1727,8 @@ class CardFlow:
 
     def _auto_record_locked(self, batch_id, *, include_state=True):
         from app import auto_record_policy, quarter_tab
-        # Only batches collected after activation are recorded. Older rows keep their recorded state.
+        # The policy accepts every real imported batch, including historical ones.
+        # The existence guard still blocks invalid batch IDs.
         if not auto_record_policy.batch_is_new(self.pipeline.store.conn, batch_id):
             if not include_state:
                 return {'auto_recorded': 0}
@@ -1713,7 +1737,8 @@ class CardFlow:
             return state
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=None, entry_metadata=self.preview_metadata(),
-                       additional_holds=self.automatic_holds(batch_id))
+                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=True),
+                       include_verified_full_refunds=True)
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
         applied = 0
@@ -2029,8 +2054,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     maintenance_paths = ('/maintenance/expense-bulk',
                          '/api/maintenance/expense-bulk/preview',
                          '/api/maintenance/expense-bulk/apply')
+    refund_pair_route = parsed.path.startswith('/api/maintenance/refund-pair/')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
-                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths):
+                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths
+                            or refund_pair_route):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2040,8 +2067,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     try:
-        from . import expense_bulk_maintenance
+        from . import expense_bulk_maintenance, refund_cleanup_action
         if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
+            return True
+        if refund_cleanup_action.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
             return True
         if parsed.path == '/cards':
             # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
@@ -2078,11 +2107,18 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler._send(card_catalog.render_html(card_catalog.catalog(board, query or {}), query or {}, csrf=csrf))
             elif parsed.path == '/import':
                 body = page(csrf)
+                from . import card_cleanup_queries
+                reason_values = (query or {}).get('cleanup_reason') or ['all']
+                cleanup_reason = reason_values[0] if len(reason_values) == 1 else None
+                if cleanup_reason not in card_cleanup_queries.REASONS:
+                    handler._send('잘못된 지출 정리 필터입니다.', 400)
+                    return True
                 try:
-                    cleanup_page = int(((query or {}).get('cleanup_page') or ['1'])[0])
-                except (TypeError, ValueError):
+                    raw_page = ((query or {}).get('cleanup_page') or ['1'])[0]
+                    cleanup_page = int(raw_page) if raw_page.isdigit() and len(raw_page) <= 7 else 1
+                except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
-                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page)
+                cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
                 body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
                 body = body.replace('</main>', '</details></main>', 1)
                 if ota_payment_review.enabled():
@@ -2261,10 +2297,34 @@ document.querySelectorAll('.cleanup-form').forEach(form=>form.addEventListener('
       body:JSON.stringify({csrf:csrf,expected_revision:Number(item.dataset.revision),client_request_id:crypto.randomUUID().replace(/-/g,''),change_mode:'exception',display_tab_id:select.value})});
   try{const response=await request;const result=await response.json().catch(()=>({}));
     if(!response.ok)throw Error(result.message||'저장하지 못했어요');
-    item.remove();const counter=document.getElementById('cleanup-count'),left=document.querySelectorAll('.cleanup-row').length;
-    const total=Math.max(0,Number(counter.dataset.total||0)-1);counter.dataset.total=String(total);counter.textContent=total+'건';
-    if(!left)document.querySelector('.cleanup-list').innerHTML='<li class="muted">'+(total?'이 페이지를 정리했습니다. 다음 항목을 보려면 새로고침해 주세요.':'정리할 지출이 없습니다.')+'</li>';
+    location.reload();
   }catch(err){button.disabled=false;error.textContent=err.message}
+}));
+document.querySelectorAll('#expense-cleanup .cleanup-refund-action').forEach(button=>button.addEventListener('click',async()=>{
+  const tool=button.closest('.cleanup-refund-tool'),message=tool.querySelector('.cleanup-refund-status');
+  const base='/api/maintenance/refund-pair/'+encodeURIComponent(button.dataset.original);
+  const post=async (action,payload)=>{
+    const response=await fetch(base+'/'+action,{method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},
+      body:JSON.stringify(payload),cache:'no-store'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw Error(data.message||data.code||'환불 묶음을 처리하지 못했어요');
+    return data;
+  };
+  button.disabled=true;message.textContent='이 원결제·취소 묶음의 금융 보호 조건을 확인하고 있어요.';
+  try{
+    const preview=await post('preview',{});
+    if(!preview.recordable)throw Error(preview.message||preview.reason||'기록할 수 없는 묶음입니다');
+    message.textContent=preview.members+'건 중 '+preview.to_book+'건 기록 가능 · 순액 '+preview.net_krw.toLocaleString()+'원';
+    if(!window.confirm('원결제·취소 '+preview.members+'건의 순액 '
+         +preview.net_krw.toLocaleString()+'원을 확인했어. 미기록 '
+         +preview.to_book+'건을 함께 장부에 기록할까? 실제 카드사 환급 완료 판단과는 별개야.')){
+      button.disabled=false;return;
+    }
+    const result=await post('apply',{digest:preview.digest,request_id:crypto.randomUUID().replace(/-/g,'')});
+    message.textContent=result.message||'처리했습니다. 목록을 새로 불러옵니다.';
+    window.location.reload();
+  }catch(error){button.disabled=false;message.textContent=error.message||'기록 처리 중 오류가 발생했어요';}
 }));
 })();"""
 
@@ -2288,14 +2348,17 @@ def _cleanup_card_where():
     )
 
 
-def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0):
+def _cleanup_card_items(board, *, limit=_CLEANUP_PAGE_SIZE, offset=0, reason='all'):
     """장부에 아직 없는 카드 거래를 한 페이지씩 읽는다. 충돌 거래도 숨기지 않고 검토 대상으로 보여 준다."""
+    from . import card_cleanup_queries
     return board.conn.execute(
         "SELECT t.transaction_id, MIN(r.batch_id), COALESCE(NULLIF(t.approval_date,''),t.posting_date), t.merchant,"
         " t.amount_krw, t.item, t.classification_source, t.display_tab_id, t.revision,"
         " EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id),"
         " t.conflict_reason, t.parse_error" + _cleanup_card_where() +
-        " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+        card_cleanup_queries.card_reason_filter(reason) +
+        " GROUP BY t.transaction_id ORDER BY 3 DESC,t.transaction_id LIMIT ? OFFSET ?",
+        card_cleanup_queries.card_reason_params(reason) + (limit, offset)).fetchall()
 
 
 def _cleanup_card_count(board):
@@ -2442,19 +2505,22 @@ def assign_existing_local_expenses(flow, *, failures=None):
 
 
 def _cleanup_card_breakdown(board):
-    """정리할 일의 종류를 분리하되 장부 미기록 거래는 모두 합계에 남긴다."""
-    categories = (
-        "CASE WHEN t.transaction_direction='cancellation' OR COALESCE(t.conflict_reason,'')!='' OR COALESCE(t.parse_error,'')!=''"
-        " OR EXISTS(SELECT 1 FROM transaction_review_holds h WHERE h.transaction_id=t.transaction_id)"
-        " THEN 'protected' WHEN COALESCE(t.item,'')='' THEN 'no_item'"
-        " WHEN COALESCE(t.display_tab_id,'') IN ('','unclassified') THEN 'no_trip'"
-        " ELSE 'protected' END"
-    )
+    """Return mutually exclusive counts from the canonical cleanup reason classifier."""
+    from .card_cleanup_queries import card_reason_sql
+    categories = card_reason_sql()
     rows = board.conn.execute(
         "SELECT status, COUNT(*) FROM (SELECT DISTINCT t.transaction_id, " + categories +
         " AS status" + _cleanup_card_where() + ") GROUP BY status"
     ).fetchall()
     return dict(rows)
+
+
+def _cleanup_counts(board):
+    card = _cleanup_card_breakdown(board)
+    ledger = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    card['no_trip'] = card.get('no_trip', 0) + ledger
+    card['all'] = sum(card.get(reason, 0) for reason in ('no_item', 'no_trip', 'protected', 'other_review'))
+    return card
 
 
 def _cleanup_unassigned_where():
@@ -2775,7 +2841,7 @@ def _render_refund_evidence(board, tid: str, link: dict, *, held_cancellations=N
 
 @read_scope.scoped
 @refund_read_only_scope()
-def render_expense_cleanup(board, csrf, *, page=1):
+def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
     """지출 정리 맨 위의 한 목록. 카드 거래 확인(A)과 장부 미배정 지출(B)을 같은 방식으로 여행을 지정한다."""
     from . import ledger_board, ota_catalog
     if ledger_board.current_role() != 'owner':
@@ -2791,18 +2857,33 @@ def render_expense_cleanup(board, csrf, *, page=1):
                     if not t.get('deleted') and not t.get('archived') and trip_valid(t['tab_id'])),
                    key=lambda t: t.get('starts_on') or '', reverse=True)
     options = card_cleanup_ui.render_cleanup_trip_options(trips, esc=esc)
-    card_total = _cleanup_card_count(board)
+    from . import card_cleanup_queries
+    if reason not in card_cleanup_queries.REASONS:
+        reason = 'all'
+    selected_reason = reason
+    counts = _cleanup_counts(board)
+    all_total = counts['all']
     card_breakdown = _cleanup_card_breakdown(board)
-    ledger_total = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
-    total = card_total + ledger_total
+    ledger_all = board.conn.execute("SELECT COUNT(*)" + _cleanup_unassigned_where()).fetchone()[0]
+    card_total = _cleanup_card_count(board)
+    if selected_reason == 'all':
+        filtered_card_total, ledger_total = card_total, ledger_all
+    elif selected_reason == 'no_trip':
+        filtered_card_total = card_breakdown.get('no_trip', 0)
+        ledger_total = ledger_all
+    else:
+        filtered_card_total = card_breakdown.get(selected_reason, 0)
+        ledger_total = 0
+    total = filtered_card_total + ledger_total
     pages = max(1, (total + _CLEANUP_PAGE_SIZE - 1) // _CLEANUP_PAGE_SIZE)
     page = min(max(1, int(page or 1)), pages)
     offset = (page - 1) * _CLEANUP_PAGE_SIZE
-    card_offset = min(offset, card_total)
-    card_limit = max(0, min(_CLEANUP_PAGE_SIZE, card_total - card_offset)) if offset < card_total else 0
-    rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset) if card_limit else []
-    ledger_offset = max(0, offset - card_total)
-    ledger_limit = _CLEANUP_PAGE_SIZE - len(rows_card)
+    card_offset = min(offset, filtered_card_total)
+    card_limit = max(0, min(_CLEANUP_PAGE_SIZE, filtered_card_total - card_offset)) if offset < filtered_card_total else 0
+    rows_card = _cleanup_card_items(board, limit=card_limit, offset=card_offset, reason=selected_reason) if card_limit else []
+    ledger_offset = max(0, offset - filtered_card_total)
+    ledger_limit = (_CLEANUP_PAGE_SIZE - len(rows_card)
+                    if selected_reason in ('all', 'no_trip') else 0)
     items = []
     ota_by_card = _ota_entries_by_card(board, transaction_ids=[row[0] for row in rows_card])
     snapshot_context = ota_by_card.get('__snapshot_status__', {})
@@ -2837,6 +2918,7 @@ def render_expense_cleanup(board, csrf, *, page=1):
         original_refunds.setdefault(link['original_id'], []).append((refund_id, link))
     held_refunds = (count_held_cancellations(board.conn)
                     if any(tid not in refund_by_id for tid in visible_refunds) else set())
+    visible_card_ids = {row[0] for row in rows_card}
     for tid, batch, day, merchant, amount, item, source, current_tab, revision, held, conflict_reason, parse_error in rows_card:
         detail = '/import?batch=' + str(batch) + '&transaction=' + str(tid)
         entry = ota_by_card.get(tid)
@@ -3013,6 +3095,19 @@ def render_expense_cleanup(board, csrf, *, page=1):
             amount=amount,
             reason=reason,
             review=review,
+            refund_group_original=(
+                (refund_by_id[tid]['original_id'] if tid in refund_by_id else tid)
+                if ((tid in refund_by_id
+                     and refund_by_id[tid]['original_id'] not in visible_card_ids
+                     and not refund_by_id[tid].get('inferred')
+                     and refund_by_id[tid].get('status') == 'full'
+                     and refund_by_id[tid].get('net_krw') == 0)
+                    or (tid in original_refunds and original_refunds[tid]
+                        and all(not link.get('inferred') and link.get('status') == 'full'
+                                and link.get('net_krw') == 0
+                                for _, link in original_refunds[tid])))
+                else ""
+            ),
         )
         items.append(card_cleanup_ui.render_cleanup_card_row(card_row, esc=esc))
     ledger = board.conn.execute(
@@ -3032,17 +3127,44 @@ def render_expense_cleanup(board, csrf, *, page=1):
         items.append(card_cleanup_ui.render_cleanup_ledger_row(ledger_row, esc=esc))
     body = ''.join(items) or card_cleanup_ui.render_cleanup_empty()
     note = card_cleanup_ui.render_cleanup_snapshot_note(snapshot_context, esc=esc)
-    nav = card_cleanup_ui.render_cleanup_pagination(page, pages, total)
-    breakdown = card_cleanup_ui.render_cleanup_breakdown(card_breakdown, ledger_total)
+    nav = ''
+    if pages > 1:
+        query_prefix = '' if selected_reason == 'all' else '&cleanup_reason=' + selected_reason
+        previous = (f"<a href='/import?cleanup_page={page - 1}{query_prefix}#expense-cleanup'>이전 20건</a>"
+                    if page > 1 else '<span>이전 20건</span>')
+        following = (f"<a href='/import?cleanup_page={page + 1}{query_prefix}#expense-cleanup'>다음 20건</a>"
+                     if page < pages else '<span>다음 20건</span>')
+        nav = (f"<nav class='cleanup-pages'><p class='muted'>{total}건 중 {min((page-1)*20+1,total)}~{min(page*20,total)}건 · {page}/{pages}페이지</p>"
+               f"{previous} · {following}</nav>")
+    labels = [('all', '전체', counts['all']), ('no_item', '항목 미분류', counts.get('no_item', 0)),
+              ('no_trip', '여행 미배정', counts.get('no_trip', 0)), ('protected', '보류·오류', counts.get('protected', 0))]
+    if counts.get('other_review', 0):
+        labels.append(('other_review', '기타 검토', counts['other_review']))
+    chips = []
+    for key, label, count in labels:
+        query_part = '' if key == 'all' else '?cleanup_reason=' + key
+        current = " aria-current='page'" if key == selected_reason else ''
+        chips.append(f"<a href='/import{query_part}#expense-cleanup'{current}>{label} {count:,}건</a>")
+    breakdown = (f"<p class='cleanup-filter-total'>{esc(dict((key, label) for key, label, _ in labels).get(selected_reason, '전체'))} "
+                 f"{total:,}건 중 {min((page-1)*20+1,total) if total else 0}~{min(page*20,total)}건 표시</p>"
+                 "<nav class='cleanup-breakdown' aria-label='지출 정리 상태 필터'>" + ''.join(chips) + '</nav>')
+    if total == 0:
+        empty_labels = dict((key, label) for key, label, _ in labels)
+        body = f"<li class='muted'>{empty_labels.get(selected_reason, '지출')} 거래가 없습니다.</li>"
     script_html = CLEANUP_SCRIPT.replace('__CSRF__', json.dumps(csrf))
     return card_cleanup_ui.render_cleanup_section(
-        total=total,
+        total=all_total,
         breakdown_html=breakdown,
         note_html=note,
         options_html=options,
         body_html=body,
         nav_html=nav,
         script_html=script_html,
+        style_html=card_cleanup_ui.CLEANUP_STYLE +
+        "<style>#expense-cleanup .cleanup-breakdown a{display:inline-flex;align-items:center;min-height:44px;padding:7px 12px;border:1px solid var(--shell-line);border-radius:999px;background:var(--shell-hover);color:inherit;text-decoration:none}"
+        "#expense-cleanup .cleanup-breakdown a[aria-current='page']{border:2px solid var(--shell-accent);font-weight:750}"
+        "#expense-cleanup .cleanup-breakdown a:focus-visible{outline:3px solid var(--shell-accent);outline-offset:2px}"
+        "#expense-cleanup .cleanup-filter-total{font-weight:700;margin:8px 0}</style>",
     )
 
 

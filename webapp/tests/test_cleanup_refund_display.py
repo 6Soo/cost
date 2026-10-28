@@ -200,7 +200,7 @@ def test_kakao_original_approval_reference_survives_name_change_without_writing(
         assert [item[0] for item in candidates] == [ids['100']]
         html = _render_refund_merchant_candidates(board, refund)
         assert "원승인번호 일치 · 확정 연결은 별도 검증" in html
-        assert "원승인번호 대조 · 가맹점 불일치" in html
+        assert "유페이 결제중계 후보 · 동일 서비스 확인 필요" in html
         assert ids['300'] not in html
         assert list(board.conn.iterdump()) == before
     finally:

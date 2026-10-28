@@ -3,6 +3,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "ota-queue-telemetry",
+      "paths": ["app/ota_queue_telemetry.py", "tools/benchmark_ota_queue.py", "tests/test_ota_queue_telemetry.py"],
+      "tests": ["tests/test_ota_queue_telemetry.py", "webapp/tests/test_ota_queue_summary.py", "webapp/tests/test_ota_queue_pages.py", "webapp/tests/test_ota_queue_detail.py"]
+    },
+    {
       "name": "cloud-mail-ingestion",
       "paths": ["app/cloud_mail.py", "tests/card_pipeline/test_cloud_mail.py"],
       "tests": ["tests/card_pipeline/test_cloud_mail.py", "tests/card_pipeline/test_mail_collect.py"]
@@ -26,6 +31,16 @@
       "name": "runtime-requirements",
       "paths": ["requirements.txt", "webapp/requirements.txt", "tools/sync_runtime_requirements.py", "tests/test_sync_runtime_requirements.py"],
       "tests": ["tests/test_sync_runtime_requirements.py", "webapp/tests/test_platform_start.py", "webapp/tests/test_ops_safety.py"]
+    },
+    {
+      "name": "targeted-verification-gate",
+      "paths": ["tools/run_targeted_checks.py", "tests/test_run_targeted_checks.py"],
+      "tests": ["tests/test_run_targeted_checks.py"]
+    },
+    {
+      "name": "refactor-call-map",
+      "paths": ["tools/refactor_call_map.py", "config/refactor-call-map.json", "tests/test_refactor_call_map.py", "tools/audit_write_boundaries.py", "tools/runtime_dependency_catalog.py"],
+      "tests": ["tests/test_refactor_call_map.py"]
     },
     {
       "name": "financial-core",
@@ -144,8 +159,8 @@
     {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
-                "webapp/tests/test_targeted_test_selector.py"],
-      "tests": ["webapp/tests/test_targeted_test_selector.py"]
+                "webapp/tests/test_targeted_test_selector.py", "tools/run_targeted_checks.py", "tests/test_run_targeted_checks.py"],
+      "tests": ["webapp/tests/test_targeted_test_selector.py", "tests/test_run_targeted_checks.py", "tests/test_refactor_call_map.py"]
     }
   ]
 }

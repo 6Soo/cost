@@ -5,6 +5,23 @@
      url("/assets/fonts/PretendardVariable.woff2") format("woff2");
  font-weight:100 900;font-style:normal;font-display:swap;
 }
+.participant-trip-panel{margin:16px 0;border:1px solid var(--line-strong);border-radius:12px;background:var(--paper);color:var(--ink);overflow:hidden}
+.participant-trip-panel>summary{min-height:48px;padding:12px 16px;display:flex;align-items:center;cursor:pointer;font-weight:700}
+.participant-trip-content{padding:12px 16px;border-top:1px solid var(--line)}
+.participant-income-scroll{overflow:auto;max-width:100%}
+.participant-income-scroll table{width:100%;border-collapse:collapse;min-width:620px}
+.participant-income-scroll th,.participant-income-scroll td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.participant-income-scroll button,.participant-trip-panel button,.participant-trip-panel .btn{min-height:44px}
+.participant-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:0;list-style:none}
+.participant-cards li{min-height:52px;padding:10px;border:1px solid var(--line-strong);border-radius:10px;background:var(--paper);display:flex;align-items:center;gap:10px;touch-action:pan-y}
+.participant-cards strong{flex:1}.participant-cards li[draggable=true]{cursor:grab}
+.participant-insurance-cell.participant-drop-target{outline:3px solid var(--focus);outline-offset:-3px;background:var(--hover)}
+.participant-keyboard-link{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px}
+.participant-keyboard-link label{display:grid;gap:5px}.participant-keyboard-link select{min-height:44px;max-width:100%}
+.participant-trip-search{display:flex;gap:8px;align-items:end;margin:8px 0}.participant-trip-search input{min-height:44px}
+.participant-row-connect{min-height:44px;margin-left:6px}
+@media(prefers-color-scheme:dark){.participant-trip-panel{background:var(--paper);color:var(--ink)}}
+@media(max-width:600px){.participant-trip-content{padding:10px 8px}.participant-cards{grid-template-columns:1fr}.participant-trip-search,.participant-keyboard-link{align-items:stretch;flex-direction:column}.participant-keyboard-link select{width:100%}}
 *{box-sizing:border-box}
 :root{
  --bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;
@@ -45,6 +62,23 @@ h1,h2,p{margin:0}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 input:focus,select:focus,textarea:focus{border-color:var(--focus)!important;
  box-shadow:0 0 0 3px rgba(34,102,245,.12);outline:none}
+/* Shared components also style their established ledger consumers. */
+.ui-form,.arch-restore{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.ui-card,.refund-card{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0;background:var(--paper)}
+.ui-card__heading,.refund-card h2{font-size:16px;line-height:1.5}
+.refund-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;padding:10px 0;border-top:1px solid var(--line)}
+.refund-line span{overflow-wrap:anywhere}.refund-line strong{white-space:nowrap}
+.ui-state,.status{display:flex;align-items:flex-start;gap:8px;min-width:0;padding:10px 12px;border:1px solid var(--line);
+ border-radius:8px;background:var(--paper);color:var(--mut);line-height:1.55;overflow-wrap:anywhere}
+.ui-state[hidden]{display:none!important}
+.ui-state--error,.status.err,.f-msg.err,.copy-status.err{color:var(--neg);border-color:color-mix(in srgb,var(--neg) 35%,var(--line));background:color-mix(in srgb,var(--neg) 7%,var(--paper))}
+.ui-state--stale,.cleanup-snapshot-stale{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 38%,var(--line));background:color-mix(in srgb,var(--warn) 8%,var(--paper))}
+.ui-state--loading,.cleanup-snapshot-loading,.copy-status.loading{color:var(--mut)}
+.ui-state[aria-busy=true]::before,.cleanup-snapshot-loading::before{content:"";width:14px;height:14px;display:inline-block;vertical-align:middle;flex:0 0 14px;margin:2px 6px 0 0;border:2px solid currentColor;
+ border-right-color:transparent;border-radius:50%;animation:ui-state-spin .8s linear infinite}
+@keyframes ui-state-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.ui-state[aria-busy=true]::before,.cleanup-snapshot-loading::before{animation:none;border-right-color:currentColor}}
+@media(max-width:480px){.refund-line{grid-template-columns:minmax(0,1fr)}.refund-line strong{font-size:18px}}
 .synth{display:inline-block;font-size:11.5px;line-height:17px;padding:0 7px;border:1px solid var(--line);
  border-radius:6px;color:var(--mut);margin-left:8px;vertical-align:2px}
 
@@ -199,7 +233,7 @@ a.brand:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .meta a{color:var(--mut)}
 .act{margin-left:auto;display:flex;gap:8px;flex:0 0 auto;flex-wrap:wrap}
 .bar{display:flex;align-items:center;gap:10px;padding:10px 24px;border-bottom:1px solid var(--line);
- flex-wrap:wrap}
+ flex-wrap:wrap;min-width:0}
 #q{height:32px;width:280px;max-width:52vw;border:1px solid var(--line-strong);border-radius:7px;
  padding:0 8px;background:var(--paper)}
 #kind{height:32px;border:1px solid var(--line-strong);border-radius:7px;background:var(--paper);
@@ -513,10 +547,29 @@ tr[aria-selected="true"]{background:var(--sel);box-shadow:inset 2px 0 0 var(--gr
 .copy-status.success{color:var(--grn)}
 .copy-status.err{color:var(--bad)}
 .copy-status.loading{color:var(--ink)}
+.participant-trip-panel{margin:16px 0;border:1px solid var(--line-strong);border-radius:12px;background:var(--paper);color:var(--ink);overflow:hidden}
+.participant-trip-panel>summary{min-height:48px;padding:12px 16px;display:flex;align-items:center;cursor:pointer;font-weight:700}
+.participant-trip-content{padding:12px 16px;border-top:1px solid var(--line)}
+.participant-income-scroll{overflow:auto;max-width:100%}
+.participant-income-scroll table{width:100%;border-collapse:collapse;min-width:620px}
+.participant-income-scroll th,.participant-income-scroll td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.participant-income-scroll button,.participant-trip-panel button,.participant-trip-panel .btn{min-height:44px}
+.participant-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;padding:0;list-style:none}
+.participant-cards li{min-height:52px;padding:10px;border:1px solid var(--line-strong);border-radius:10px;background:var(--paper);display:flex;align-items:center;gap:10px;touch-action:pan-y}
+.participant-cards strong{flex:1}.participant-cards li[draggable=true]{cursor:grab}
+.participant-insurance-cell.participant-drop-target{outline:3px solid var(--focus);outline-offset:-3px;background:var(--hover)}
+.participant-keyboard-link{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:12px}
+.participant-keyboard-link label{display:grid;gap:5px}.participant-keyboard-link select{min-height:44px;max-width:100%}
+.participant-trip-search{display:flex;gap:8px;align-items:end;margin:8px 0}.participant-trip-search input{min-height:44px}
+.participant-row-connect{min-height:44px;margin-left:6px}
+@media(prefers-color-scheme:dark){.participant-trip-panel{background:var(--paper);color:var(--ink)}}
 @media(max-width:600px){
  .trip-copy-wrap{margin:16px 8px;padding:12px}
  .trip-copy-box{flex-direction:column;align-items:stretch;gap:8px}
  .trip-copy-box .btn{width:100%;justify-content:center}
  .trip-copy-desc{text-align:center}
  .copy-status{text-align:center}
+ .participant-trip-content{padding:10px 8px}.participant-cards{grid-template-columns:1fr}
+ .participant-trip-search,.participant-keyboard-link{align-items:stretch;flex-direction:column}
+ .participant-keyboard-link select{width:100%}
 }

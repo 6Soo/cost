@@ -12,6 +12,7 @@ This module is strictly read-only and independent of UI presentation:
 from __future__ import annotations
 
 from datetime import date, timedelta
+import re
 from typing import Any, Callable
 
 
@@ -58,12 +59,19 @@ def refund_merchant_candidates_readonly(
         "ORDER BY approval_date DESC,transaction_id",
         (issuer, tail, from_day, day.isoformat(), str(original or '').strip(), str(original or '').strip()),
     )
-    # The issuer's original authorization reference outranks merchant labels.
-    # A valid reference on the SAME card can survive a merchant-name change.
-    # Still a read-only review candidate: it never triggers a financial link.
+    # Kakao T taxi charges sometimes appear under a UPay settlement label.
+    # UPay is a *comparison candidate*, never a verified taxi identity or
+    # authority to write a money link. Same card and time are required above.
+    def upay_review_only(name):
+        compact = re.sub(r"[^0-9a-z가-힣]", "", str(name or "").casefold())
+        return (compact.startswith("유페이") and
+                ("일반결제" in compact or "택시" in compact or "승인" in compact))
+
+    # Issuer original approval reference outranks any merchant spelling.
     candidates = [
         row for row in rows
         if merchant_key_fn(row[2]) == key
+        or (key == "카카오택시" and upay_review_only(row[2]))
         or (original and row[5] and str(original).strip() == str(row[5]).strip())
     ]
     def rank(row):
@@ -71,7 +79,9 @@ def refund_merchant_candidates_readonly(
         same_amount = row[4] == abs(amount or 0)
         same_day = str(row[3])[:10] == day.isoformat()
         healthy = not (row[6] or row[7] or row[8])
-        return (same_approval, healthy, same_day, same_amount, str(row[3]))
+        # Exact amount is more actionable than mere day proximity, but both
+        # are just *review* evidence without an issuer authorization reference.
+        return (same_approval, healthy, same_amount, same_day, str(row[3]))
     candidates.sort(key=rank, reverse=True)
     return refund, candidates[:max_rows], len(candidates)
 

@@ -1,5 +1,7 @@
 # 여행 탭 통합: 보험 확정 참가자명단 × Google 수입 대조 (기획 결정 2026-10-28)
 
+> **현재 구현 대조(2026-10-28 18:30):** [실제 코드 상태](implementation-status-audit-20261028.md). `app/participant_roster.py`·`app/participant_income.py::reconcile/save_decision`·owner-only `/participants`는 **구현됨**. 그러나 여행 `ledger_design.py`의 '보험 등록' 가상 열, 수입→보험→지출 재배치, drag/drop+모바일 동일 연결 API는 **미구현**. PIR-01~06은 별도 SPEC_ONLY이며 기존 수신/대조 코어의 중복 개발은 금지한다.
+
 - 상태: **SPEC_ONLY / 미구현 / 테스트·운영 미실행**
 - 우선순위: P0 제품 정책, P1 통합 UI 구현
 - 위치: 실제 COST 여행 탭. 화면 콘텐츠 순서 **수입내용 → 보험가입내역 → 지출내용**. 항공권 예약은 별도 접기·펼치기 보조 영역으로 유지.
