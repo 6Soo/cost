@@ -6,7 +6,17 @@ from pathlib import Path
 from threading import Lock
 
 from app import flight_evidence, ota_sources
-from . import ota_snapshot
+from . import flight_booking_projection, ota_snapshot
+
+# Facade re-exports of pure projection, normalization, and query helpers
+from .flight_booking_projection import (
+    load_cached_passenger_data,
+    normalize_name_tokens,
+    project_booking_reservation,
+    project_itinerary_leg,
+    query_booking_reservations,
+    resolve_flight_sources_key,
+)
 
 _CREATE_LOCK = Lock()
 
@@ -27,12 +37,7 @@ def _sources(board):
 
 
 def _key(sources):
-    directories = sources.get('mail_directories') or []
-    if not directories or any(not Path(p).exists() for p in directories):
-        raise ValueError('FLIGHT_MAIL_UNAVAILABLE')
-    return ota_snapshot.digest({'parser': flight_evidence.PARSER_VERSION,
-                                'directories': list(map(str, directories)),
-                                'mail': ota_sources.mail_stamps(directories)})
+    return resolve_flight_sources_key(sources, parser_version=flight_evidence.PARSER_VERSION)
 
 
 def service_for(board):
@@ -54,14 +59,14 @@ def service_for(board):
 
         def build():
             sources, key = observed['sources'], observed['key']
-            try:
-                saved = json.loads(path.read_text(encoding='utf-8'))
-            except (OSError, ValueError):
-                saved = {}
-            if (saved.get('schema') == PASSENGER_SCHEMA and saved.get('key') == key
-                    and saved.get('parser') == flight_evidence.PARSER_VERSION
-                    and isinstance(saved.get('passengers'), dict)):
-                passengers = saved['passengers']
+            cached = load_cached_passenger_data(
+                path,
+                expected_key=key,
+                schema=PASSENGER_SCHEMA,
+                parser_version=flight_evidence.PARSER_VERSION,
+            )
+            if cached is not None:
+                passengers = cached
             else:
                 passengers = _passenger_index(sources['mail_directories'], strict=True)
             # Never publish a parse spanning a changed collection or source configuration.
@@ -109,3 +114,18 @@ def source_status(board):
     except (OSError, ValueError, TypeError, AttributeError, ota_sources.OtaSourcesError):
         pass
     return 'UNAVAILABLE'
+
+
+def search_reservations(board, name, *, cards=None, offset=0, limit=100, revision=None):
+    """Facade to query and project booking reservations for the active board."""
+    index = passenger_index_for(board)
+    status = source_status(board)
+    return query_booking_reservations(
+        index,
+        name,
+        cards=cards,
+        offset=offset,
+        limit=limit,
+        revision=revision,
+        fallback_status=status,
+    )
