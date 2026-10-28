@@ -162,3 +162,24 @@ def test_kakao_upay_on_same_card_is_a_review_candidate_not_a_payment_link(tmp_pa
         assert ids["400"] not in html
     finally:
         board.close()
+
+
+def test_cardflow_automatic_record_uses_cross_batch_verified_pair(tmp_path, monkeypatch):
+    """The real CardFlow recording path must not stop after displaying the pair."""
+    monkeypatch.setenv("WEBLEDGER_UNIFIED_DB", "1")
+    board, flow, original_batch, _, original, refund = _separate_batches(tmp_path)
+    try:
+        monkeypatch.setattr(flow, "ota_group_holds", lambda: {})
+        monkeypatch.setattr(flow, "_already_projected", lambda *a, **kw: False)
+        monkeypatch.setattr(flow, "preview_metadata", lambda: lambda _: {})
+        result = flow._auto_record_locked(original_batch, include_state=False)
+        assert result["auto_recorded"] == 2
+        posted = set(row[0] for row in board.conn.execute(
+            "SELECT transaction_id FROM ledger_entries"))
+        assert posted == {original, refund}
+        card_rows = set(row[0] for row in board.conn.execute(
+            "SELECT row_id FROM board_rows WHERE row_id LIKE 'card-%'"))
+        assert card_rows == {"card-" + original, "card-" + refund}
+        assert flow._auto_record_locked(original_batch, include_state=False)["auto_recorded"] == 0
+    finally:
+        board.close()
