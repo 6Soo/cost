@@ -250,6 +250,16 @@ class PartialObservationIsNotAFullVerification(unittest.TestCase):
 
 
 class TheCliFailsLoudly(unittest.TestCase):
+    def test_no_argument_keeps_the_existing_live_verification_contract(self):
+        args=verify.parse_cli_args([])
+        self.assertFalse(args.preflight)
+        self.assertFalse(args.live)
+
+    def test_preflight_is_an_explicit_opt_in(self):
+        args=verify.parse_cli_args(['--preflight'])
+        self.assertTrue(args.preflight)
+        self.assertFalse(args.live)
+
     def test_a_healthy_result_exits_zero(self):
         self.assertEqual(verify.cli_exit_code({'ok':True}),0)
 

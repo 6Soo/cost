@@ -8,7 +8,7 @@ def fixture_root(tmp_path: Path) -> Path:
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "ops_entrypoints.json").write_text(json.dumps({
         "schema_version": 1,
-        "entrypoints": [{"path": "tools/read.py", "guard": "read_only", "source_data": False}],
+        "entrypoints": [{"path": "tools/read.py", "guard": "read_only", "source_contents_included": False}],
     }), encoding="utf-8")
     return tmp_path
 
@@ -24,10 +24,10 @@ def test_preflight_requires_absolute_data_root_and_feature_flags_stay_out():
 def test_preflight_classifies_duplicate_and_source_paths(tmp_path):
     root = fixture_root(tmp_path)
     manifest = json.loads((root / "config" / "ops_entrypoints.json").read_text())
-    manifest["entrypoints"].append({"path": "TOOLS/READ.PY", "guard": "unknown", "source_data": True})
+    manifest["entrypoints"].append({"path": "TOOLS/READ.PY", "guard": "unknown", "source_contents_included": True})
     (root / "config" / "ops_entrypoints.json").write_text(json.dumps(manifest), encoding="utf-8")
     result = check(root, env={"COST_DATA_ROOT": "C:/synthetic"})
-    assert {"duplicate_entrypoint", "unclassified_guard", "source_data_not_excluded"} <= set(result["checks"])
+    assert {"duplicate_entrypoint", "unclassified_guard", "source_contents_not_excluded"} <= set(result["checks"])
 
 
 def test_preflight_detects_secret_env_presence_without_disclosing_value(tmp_path):
@@ -36,10 +36,10 @@ def test_preflight_detects_secret_env_presence_without_disclosing_value(tmp_path
     assert "sentinel" not in json.dumps(result)
 
 
-def test_live_and_preflight_cli_flags_conflict():
+def test_preflight_parser_has_explicit_mode():
     try:
-        validate_args(["--live", "--preflight"])
+        validate_args(["--unknown-mode"])
     except SystemExit as exc:
         assert exc.code == 2
     else:
-        raise AssertionError("conflicting invocation accepted")
+        raise AssertionError("unknown invocation accepted")

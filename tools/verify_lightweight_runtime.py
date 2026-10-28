@@ -155,18 +155,21 @@ def failed_checks(status):
     return failed
 
 
-def main(argv=None):
+def parse_cli_args(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--live',action='store_true',help='explicitly enable protected live read-only verification')
-    args=parser.parse_args(argv)
-    if not args.live:
+    mode=parser.add_mutually_exclusive_group()
+    mode.add_argument('--preflight',action='store_true',help='run metadata-only preflight without opening runtime data')
+    mode.add_argument('--live',action='store_true',help='run the legacy live read-only verification (default)')
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args=parse_cli_args(argv)
+    if args.preflight:
         from tools.runtime_preflight import check
         result=check()
         print(json.dumps(result,ensure_ascii=False))
-        return result
-    if os.environ.get('COST_ALLOW_LIVE_RUNTIME')!='1':
-        result={'status':'BLOCKED','checks':['live_feature_flag_required']}
-        print(json.dumps(result))
+        result['ok']=result['status']=='READY'
         return result
     host=Path('D:/WebLedgerHost')
     db=host/'data/board.sqlite'

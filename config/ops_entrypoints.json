@@ -1,9 +1,24 @@
 {
   "schema_version": 1,
   "entrypoints": [
-    {"path": "tools/verify_lightweight_runtime.py", "guard": "read_only", "source_data": false},
-    {"path": "tools/run_lightweight_deployment.ps1", "guard": "maintenance", "source_data": false},
-    {"path": "tools/deploy_lightweight.py", "guard": "maintenance", "source_data": false},
-    {"path": "tools/sync_runtime_requirements.py", "guard": "maintenance", "source_data": false}
+    {"path": "tools/verify_lightweight_runtime.py", "guard": "read_only", "source_contents_included": false,
+     "cli": {"default": "legacy_live_read_only", "options": ["--live", "--preflight"]},
+     "canonical": true,
+     "aliases": ["tools/run_lightweight_verification.ps1", "tools/run_lightweight_finalize.ps1"],
+     "callers": ["tools/run_lightweight_verification.ps1", "tools/run_lightweight_finalize.ps1"]},
+    {"path": "tools/run_lightweight_deployment.ps1", "guard": "maintenance", "source_contents_included": false,
+     "aliases": []},
+    {"path": "tools/deploy_lightweight.py", "guard": "maintenance", "source_contents_included": false,
+     "authorization_env": "WEBLEDGER_MAINTENANCE=LIGHTWEIGHT"},
+    {"path": "tools/deploy_reserve_candidate.py", "guard": "maintenance", "source_contents_included": false,
+     "authorization_env": "WEBLEDGER_MAINTENANCE=RESERVE_CANDIDATE", "options": ["--rollback"]},
+    {"path": "tools/deploy_reserve_navigation.py", "guard": "maintenance", "source_contents_included": false,
+     "authorization_env": "WEBLEDGER_MAINTENANCE scoped by positional prefix"},
+    {"path": "tools/deploy_reserve_trips.py", "guard": "protected_write", "source_contents_included": false,
+     "authorization_env": "not present in entrypoint; backup/rehearsal checks inside", "options": []},
+    {"path": "tools/prepare_cloud_mail_release.py", "guard": "isolated_output", "source_contents_included": false,
+     "required_option": "--output", "existing_output": "refused"},
+    {"path": "tools/sync_runtime_requirements.py", "guard": "maintenance", "source_contents_included": false,
+     "write_option": "--write", "default": "check_only"}
   ]
 }

@@ -14,10 +14,7 @@ MANIFEST = ROOT / "config" / "ops_entrypoints.json"
 def validate_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true", help="metadata-only checks; default")
-    parser.add_argument("--live", action="store_true", help="explicitly request the protected live verifier")
     args = parser.parse_args(argv)
-    if args.live and args.preflight:
-        parser.error("--live and --preflight cannot be combined")
     return args
 
 
@@ -26,7 +23,7 @@ def check(root: Path = ROOT, *, env: dict[str, str] | None = None) -> dict:
     env = os.environ if env is None else env
     problems: list[str] = []
     try:
-        manifest = json.loads((root / "config" / "ops_entrypoints.json").read_text(encoding="utf-8"))
+        manifest = json.loads((root / "config" / "ops_entrypoints.json").read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {"status": "BLOCKED", "checks": ["manifest_unavailable"]}
     entries = manifest.get("entrypoints") if isinstance(manifest, dict) else None
@@ -42,10 +39,19 @@ def check(root: Path = ROOT, *, env: dict[str, str] | None = None) -> dict:
         if path in seen:
             problems.append("duplicate_entrypoint")
         seen.add(path)
-        if item.get("guard") not in {"read_only", "maintenance"}:
+        if item.get("guard") not in {"read_only", "maintenance", "protected_write", "isolated_output"}:
             problems.append("unclassified_guard")
-        if item.get("source_data") is not False:
-            problems.append("source_data_not_excluded")
+        if item.get("source_contents_included") is not False:
+            problems.append("source_contents_not_excluded")
+    canonical = {item.get("path") for item in entries if isinstance(item, dict) and item.get("canonical") is True}
+    for item in entries:
+        if isinstance(item, dict):
+            for alias in item.get("aliases", []):
+                alias_path = Path(alias)
+                if alias_path.is_absolute() or ".." in alias_path.parts or not (root / alias_path).is_file():
+                    problems.append("alias_path_invalid")
+                if item.get("path") not in canonical or alias not in item.get("callers", []):
+                    problems.append("duplicate_entrypoint_not_converged")
     data_root = env.get("COST_DATA_ROOT", "").strip()
     if not data_root:
         problems.append("data_root_unset")
@@ -63,15 +69,6 @@ def check(root: Path = ROOT, *, env: dict[str, str] | None = None) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = validate_args(argv)
-    if args.live:
-        if os.environ.get("COST_ALLOW_LIVE_RUNTIME") != "1":
-            print(json.dumps({"status": "BLOCKED", "checks": ["live_feature_flag_required"]}))
-            return 2
-        result = check()
-        if result["status"] != "READY":
-            print(json.dumps(result))
-            return 2
-        return 0
     result = check()
     print(json.dumps(result))
     return 0 if result["status"] == "READY" else 2
