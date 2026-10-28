@@ -103,6 +103,24 @@ def test_output_is_minimal_json_safe_and_input_is_not_mutated():
     assert json.dumps(source, sort_keys=True) == before
 
 
+def test_group_members_are_bounded_allowlisted_and_input_independent():
+    rows = [{"queue":"needs_action", "reason_codes":[], "event":{
+        "ota_event_id":"group-primary", "provider":"agoda", "status":"HOLD_NO_CARD",
+        "group_members":[{"ota_event_id":"charge", "event_type":"charge", "amount":"30000",
+                          "currency":"KRW", "source_digest":"PRIVATE", "raw_source":"PRIVATE"},
+                         {"ota_event_id":"refund", "event_type":"refund", "amount":"5000",
+                          "currency":"KRW", "reservation_identity_attestation":{"identity":"PRIVATE"}}],
+        "source_digest":"PRIVATE", "reservation_identity_attestation":{"identity":"PRIVATE"}}}]
+    index = build_queue_index(rows, generation=2, snapshot_nonce="group-nonce", signing_key=KEY)
+    rows[0]["event"]["group_members"][0]["amount"] = "mutated"
+    page = list_queue_page(index, limit=20)
+    members = page["items"][0]["event"]["group_members"]
+    assert [member["event_type"] for member in members] == ["charge", "refund"]
+    assert members[0]["amount"] == "30000"
+    encoded = json.dumps(page)
+    assert "PRIVATE" not in encoded and "raw_source" not in encoded
+
+
 def test_index_discards_arbitrary_object_values_without_calling_repr_or_str():
     class HostileValue:
         def __repr__(self):

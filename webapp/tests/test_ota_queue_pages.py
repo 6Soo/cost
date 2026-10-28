@@ -190,13 +190,113 @@ def test_events_get_auth_cursor_filter_generation_and_snapshot_failures_are_fini
         assert "index" not in json.dumps(response)
 
 
+def test_groups_route_is_authenticated_limited_and_keeps_member_details_private_until_lazy_get():
+    rows = []
+    for n in range(23):
+        event = {"ota_event_id":f"group-{n:02}", "provider":"agoda",
+                 "booking_ref":f"BOOK-{n}", "event_type":"charge", "paid_on":"2026-09-10",
+                 "amount":1000, "currency":"KRW", "status":"HOLD_AMBIGUOUS",
+                 "group_members":[{"ota_event_id":f"member-{n}-charge", "event_type":"charge",
+                                    "amount":1000, "currency":"KRW", "status":"HOLD_AMBIGUOUS"},
+                                   {"ota_event_id":f"member-{n}-refund", "event_type":"refund",
+                                    "amount":200, "currency":"KRW", "status":"HOLD_EVIDENCE_CONFLICT"}],
+                 "source_digest":"PRIVATE", "reservation_identity_attestation":{"identity":"PRIVATE"}}
+        rows.append({"queue":"needs_action", "reason_codes":["HOLD_AMBIGUOUS"], "event":event})
+    context = ready_context(rows)
+
+    class GroupBackend(PageBackend):
+        def queue_group_context(self):
+            self.calls.append("group_context")
+            return context
+
+    backend = GroupBackend(context)
+    assert dispatch("/api/imports/ota/groups?limit=21", backend)[0] == 400
+    assert dispatch("/api/imports/ota/groups", backend, user="")[0] == 403
+    status, first = dispatch("/api/imports/ota/groups?limit=20", backend)
+    assert status == 200 and len(first["items"]) == 20
+    assert first["next_cursor"]
+    serialized = json.dumps(first)
+    assert "PRIVATE" not in serialized and "reservation_identity_attestation" not in serialized
+    assert len(first["items"][0]["event"]["group_members"]) == 2
+    status, second = dispatch("/api/imports/ota/groups?limit=20&cursor=" + first["next_cursor"], backend)
+    assert status == 200 and len(second["items"]) == 3
+    ids = [item["event"]["ota_event_id"] for item in first["items"] + second["items"]]
+    assert ids == [f"group-{n:02}" for n in range(23)]
+
+
+def test_large_group_member_pages_are_bounded_complete_private_and_generation_bound():
+    from webapp.ota_payment_review import _canonical_queue_projection
+    source_rows = []
+    count = 1003
+    for number in range(count):
+        source_rows.append({
+            "ota_event_id":f"large-member-{number:04}", "provider":"agoda",
+            "booking_ref":"SYNTH-LARGE", "event_type":"refund" if number % 3 == 0 else "charge",
+            "paid_on":"2026-10-01", "amount":100 + number, "currency":"KRW",
+            "status":"HOLD_EVIDENCE_CONFLICT" if number % 3 == 0 else "HOLD_DATE_UNKNOWN",
+            "evidence_status":"conflict" if number % 3 == 0 else "paid_verified",
+            "reservation_identity_attestation":{"provider":"agoda", "identity":"opaque-synthetic",
+                "identity_status":"verified", "evidence_status":"verified", "source_status":"verified",
+                "source_lineage_id":"synthetic-lineage", "evidence_link_ids":["link"]},
+            "_portal_reservation_provenance":{"provider":"agoda", "identity":"opaque-synthetic",
+                "source_digest":"PRIVATE-DIGEST", "source_lineage_id":"synthetic-lineage"},
+        })
+    page_rows, groups, summary, member_rows = _canonical_queue_projection(source_rows)
+    assert len(groups) == 1 and groups[0]["event"]["group_total_count"] == count
+    assert len(groups[0]["event"]["group_members"]) == 3
+    assert summary["verified_group_count"] == 1 and summary["singleton_fallback_count"] == 0
+    group_id = groups[0]["event"]["group_id"]
+    member_index = build_queue_index(member_rows[group_id], generation=17,
+                                     snapshot_nonce="large-group-members", signing_key=KEY)
+    list_index = build_queue_index(groups, generation=17,
+                                   snapshot_nonce="large-group-list", signing_key=KEY)
+
+    class MembersBackend(PageBackend):
+        def queue_group_context(self):
+            return {"index":list_index, "status":"ready", "generation":17,
+                    "generated_at":"2026-10-28T00:00:00+00:00", "fresh":True,
+                    "stale":False, "refreshing":False}
+
+        def queue_group_members_context(self, requested_id, generation):
+            self.calls.append((requested_id, generation))
+            return {"index":member_index, "status":"ready", "generation":17,
+                    "generated_at":"2026-10-28T00:00:00+00:00", "fresh":True,
+                    "stale":False, "refreshing":False}
+
+    backend = MembersBackend({})
+    status, listing = dispatch("/api/imports/ota/groups?limit=20", backend)
+    assert status == 200 and len(listing["items"]) == 1
+    card = listing["items"][0]["event"]
+    assert len(card["group_members"]) <= 3 and card["group_total_count"] == count
+    assert "PRIVATE-DIGEST" not in json.dumps(listing)
+    assert not backend.calls
+
+    seen = []
+    cursor = None
+    while True:
+        query = f"generation=17&limit=20" + ("&cursor=" + cursor if cursor else "")
+        status, body = dispatch(f"/api/imports/ota/groups/{group_id}/members?{query}", backend)
+        assert status == 200
+        items = body["items"]
+        assert 0 < len(items) <= 20
+        seen.extend(item["event"]["ota_event_id"] for item in items)
+        assert "PRIVATE-DIGEST" not in json.dumps(body)
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    assert len(seen) == count and len(set(seen)) == count
+    assert set(seen) == {f"large-member-{number:04}" for number in range(count)}
+    assert dispatch(f"/api/imports/ota/groups/{group_id}/members?generation=18&limit=20", backend)[0] == 409
+    assert dispatch(f"/api/imports/ota/groups/{group_id}/members?generation=17&limit=21", backend)[0] == 400
+
+
 def test_snapshot_worker_builds_index_at_publication_and_hides_private_state(tmp_path):
     rows = route_rows(3)
     service = OtaSnapshotService(
         key_fn=lambda: "synthetic-input-key",
         reconcile_fn=lambda: {"public": {"events": []}, "results": [], "links": {},
                               "data": {"events": ["private"]}, "queue_summary": {"x": 1},
-                              "queue_page_rows": rows},
+                              "queue_page_rows": rows, "queue_group_rows": rows},
         persist_path=tmp_path / "snapshot.json", start=False)
     service.check_now()
     view = service.view()
@@ -206,18 +306,23 @@ def test_snapshot_worker_builds_index_at_publication_and_hides_private_state(tmp
     context = service.queue_page_context()
     assert context["index"]._generation == view["generation"] == 1
     assert context["status"] == "ready"
+    group_context = service.queue_group_context()
+    assert group_context["index"]._generation == view["generation"]
     persisted = (tmp_path / "snapshot.json").read_text(encoding="utf-8")
     assert "_queue_page_index" not in persisted
     assert "queue_page_rows" not in persisted
+    assert "queue_group_rows" not in persisted
+    assert "_queue_group_index" not in persisted
     assert "signing_key" not in persisted
 
     restored = OtaSnapshotService(
         key_fn=lambda: "synthetic-input-key",
         reconcile_fn=lambda: {"public": {}, "results": [], "links": {}, "data": {},
-                              "queue_page_rows": rows},
+                              "queue_page_rows": rows, "queue_group_rows": rows},
         persist_path=tmp_path / "snapshot.json", start=False)
     before_rebuild = restored.queue_page_context()
     assert before_rebuild["index"] is None
+    assert restored.queue_group_context()["index"] is None
     assert before_rebuild["status"] == "refreshing"
     restored_status, restored_error = dispatch(
         "/api/imports/ota/events", PageBackend(before_rebuild))
@@ -227,6 +332,33 @@ def test_snapshot_worker_builds_index_at_publication_and_hides_private_state(tmp
     after_rebuild = restored.queue_page_context()
     assert after_rebuild["status"] == "ready"
     assert after_rebuild["index"]._generation == view["generation"] + 1
+    assert restored.queue_group_context()["index"]._generation == view["generation"] + 1
+
+
+def test_real_portal_producer_solver_worker_keeps_private_attestation_only_in_memory(tmp_path):
+    from app.ota_payments import build_ota_payment_events, match_ota_payment_events
+    from tests.card_pipeline.test_ota_portal import portal_database
+    source_path = portal_database(tmp_path / "producer-worker.sqlite")
+    events = build_ota_payment_events({"portal_databases":[source_path]})
+    results = match_ota_payment_events(events, [])
+    private_fields = ("reservation_identity_attestation", "_portal_reservation_provenance")
+    assert events and all(all(key in result for key in private_fields) for result in results)
+    persisted_path = tmp_path / "producer-worker-snapshot.json"
+    service = OtaSnapshotService(
+        key_fn=lambda:"synthetic-real-producer-key",
+        reconcile_fn=lambda:{"public":{"events":[], "proposals":[]}, "results":results,
+                             "links":{}, "data":{"events":events}},
+        persist_path=persisted_path, start=False)
+    service.check_now()
+    assert all(all(key in row for key in private_fields) for row in service._current["results"])
+    public_results = service.view()["current"]["results"]
+    assert all(not any(key in row for key in private_fields) for row in public_results)
+    text = persisted_path.read_text(encoding="utf-8")
+    assert all(key not in text for key in private_fields)
+    document = json.loads(text)
+    assert len(document["results"]) == len(results)
+    assert all(row.get("source_digest") for row in document["results"])
+    assert all(row.get("source_lineage_ids") for row in document["results"])
 
 
 def test_failed_refresh_retains_prior_index_but_route_freshness_gate_blocks_it():

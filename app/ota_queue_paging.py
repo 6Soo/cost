@@ -1,9 +1,9 @@
 """Pure in-memory paging index for worker-prepared OTA queue rows.
 
 The shape follows ``docs/specs/ota-review-queue-performance-20261027.md`` §5,
-§8 and §11. Callers build this once per snapshot. The index retains bounded
-scalar snapshots and search text, never merges reservation/payment groups,
-and does not classify events.
+§8 and §11. Callers build event or worker-prepared reservation-group indexes
+once per snapshot. This module only freezes allowlisted scalar page rows; it
+does not infer reservation identity, merge payment events, or classify events.
 Without ``q``, selection is indexed and slicing is O(page size); ``q`` scans
 the selected precomputed positions (O(n) per request) without a query cache.
 Only page items are serialized. This component does not provide HTTP/auth,
@@ -279,6 +279,29 @@ def _serialize_event(event: dict[str, Any], *, include_search: bool = False) -> 
         out["amount"] = None
     status = event.get("status")
     out["status"] = status if type(status) is str and status in _STATUSES else "UNKNOWN_STATUS"
+    detail_available = event.get("detail_available")
+    if type(detail_available) is bool:
+        out["detail_available"] = detail_available
+    group_id = event.get("group_id")
+    if type(group_id) is str and re.fullmatch(r"[a-f0-9]{64}", group_id, re.ASCII):
+        out["group_id"] = group_id
+    total_members = event.get("group_total_count")
+    if type(total_members) is int and 0 <= total_members <= 2_147_483_647:
+        out["group_total_count"] = total_members
+    members = event.get("group_members")
+    if type(members) is list and len(members) <= 3:
+        safe_members = []
+        for member in members:
+            if type(member) is not dict:
+                continue
+            safe = _serialize_event(member)
+            row = {key: safe.get(key) for key in (
+                "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+                "item", "amount", "currency", "status")}
+            available = member.get("detail_available")
+            row["detail_available"] = available if type(available) is bool else False
+            safe_members.append(row)
+        out["group_members"] = safe_members
     if include_search:
         out["merchant"] = _bounded_text(event.get("merchant"), 160)
     return out

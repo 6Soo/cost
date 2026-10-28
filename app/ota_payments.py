@@ -352,6 +352,20 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
         if fact.get("provider") != "agoda" or fact.get("booking_number") != booking:
             outcome("BOOKING_IDENTITY_MISMATCH")
             continue
+        # Private, domain-separated reservation identity. It is derived only
+        # after the record evidence roles, observed/conflict state, payload hash,
+        # provider and explicit booking binding have all passed above. The
+        # database locator and local record ID never leave this opaque digest.
+        reservation_identity = _digest([
+            "ota-reservation-identity-v1", "agoda", str(source_lineage_id),
+            str(record_id), digest, booking])
+        reservation_attestation = {
+            "provider": "agoda", "identity": reservation_identity,
+            "identity_status": "verified", "evidence_status": "verified",
+            "source_status": "verified",
+            "evidence_link_ids": ["portal-record:" + reservation_identity],
+            "source_lineage_id": source_lineage_id,
+        }
         components = [component for component in fact.get("price_components", []) or []
                       if component.get("kind") == "paid_today"]
         amounts = ota_portal.price_amounts(fact)
@@ -429,6 +443,11 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
                 "source_binding_ids": sorted(set(fact.get("source_binding_ids") or [])),
                 "evidence_kind": "portal_payment_claim",
                 "verified_portal_snapshot": fact.get('evidence_format') == 'agoda-aside-v1',
+                "_portal_reservation_provenance": {
+                    "provider": "agoda", "identity": reservation_identity,
+                    "source_digest": digest, "source_lineage_id": source_lineage_id,
+                },
+                "reservation_identity_attestation": dict(reservation_attestation),
             }
             event["ota_event_id"] = _event_id(event["identity_source_ids"])
             events.append(event)
@@ -478,6 +497,11 @@ def _portal_events(databases, *, source_lineage_ids=None, extraction_outcomes=No
                          "observation_ids":["obs_" + _digest([source_lineage_id, str(record_id),
                              component_index, "portal_refund_claim", "refund"])],
                          "source_binding_ids":[], "evidence_kind":"portal_refund_claim"}
+                event["_portal_reservation_provenance"] = {
+                    "provider": "agoda", "identity": reservation_identity,
+                    "source_digest": digest, "source_lineage_id": source_lineage_id,
+                }
+                event["reservation_identity_attestation"] = dict(reservation_attestation)
                 event["ota_event_id"] = _event_id(event["identity_source_ids"])
                 events.append(event)
     return _collapse_portal_source_copies(events)
@@ -507,6 +531,18 @@ def _combine_evidence(group, *, conflict=False):
                                           for lineage in event.get("source_lineage_ids", []) if lineage})
     item["observation_ids"] = sorted({identity for event in group
                                       for identity in event.get("observation_ids", [])})
+    provenances = [event.get("_portal_reservation_provenance") for event in group]
+    if (not conflict and provenances and all(isinstance(value, dict) for value in provenances)
+            and all(value == provenances[0] for value in provenances)):
+        item["_portal_reservation_provenance"] = dict(provenances[0])
+        attestations = [event.get("reservation_identity_attestation") for event in group]
+        if all(value == attestations[0] and isinstance(value, dict) for value in attestations):
+            item["reservation_identity_attestation"] = dict(attestations[0])
+        else:
+            item.pop("reservation_identity_attestation", None)
+    else:
+        item.pop("_portal_reservation_provenance", None)
+        item.pop("reservation_identity_attestation", None)
     if conflict:
         item["evidence_status"] = "evidence_conflict"
     item["ota_event_id"] = _event_id(item.get("identity_source_ids") or item["source_ids"])

@@ -65,6 +65,30 @@ def test_canonical_reconcile_summary_uses_full_join_not_public_holds_subset():
     assert payload['public']['events'][0]['ota_event_id'] == 'hold'
 
 
+def test_verified_portal_reservation_groups_count_events_and_groups_with_worst_member_queue():
+    def verified(identity, **changes):
+        attestation = {"provider":"agoda", "identity":"opaque-record-group",
+                       "identity_status":"verified", "evidence_status":"verified",
+                       "source_status":"verified", "source_lineage_id":"stable-lineage",
+                       "evidence_link_ids":["link"]}
+        row = source(identity, provider="agoda", reservation_identity_attestation=attestation,
+                     _portal_reservation_provenance={"provider":"agoda", "identity":"opaque-record-group",
+                         "source_digest":"private", "source_lineage_id":"stable-lineage"}, **changes)
+        return row
+    queue_rows = ota_payment_review._canonical_queue_rows(
+        [verified("charge", event_type="charge"), verified("refund", event_type="refund")],
+        [result("charge"), result("refund", status="HOLD_EVIDENCE_CONFLICT",
+                                  reason="refund_not_verified")], {})
+    summary = ota_payment_review._canonical_queue_group_summary(queue_rows)
+    assert counts(summary)['needs_action'] == {'event_count': 1, 'group_count': 1}
+    assert counts(summary)['completed'] == {'event_count': 1, 'group_count': 0}
+    groups = ota_payment_review._canonical_queue_group_rows(queue_rows)
+    assert len(groups) == 1
+    assert {member['event_type'] for member in groups[0]['event']['group_members']} == {'charge', 'refund'}
+    assert groups[0]['queue'] == 'needs_action'
+    assert 'private' not in json.dumps(groups)
+
+
 def test_exact_join_preserves_source_warnings_and_detects_digest_change_without_mutation():
     events = [source('a'), source('b', evidence_missing=True),
               source('c', source_digest='current')]

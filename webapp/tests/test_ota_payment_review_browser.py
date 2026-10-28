@@ -46,6 +46,14 @@ def _mock_queue_routes(page, snapshot):
         key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
                                         "paid_on", "item", "amount", "currency", "status")}}
         for event in events]
+    for row in rows:
+        event = row["event"]
+        group_id = hashlib.sha256(str(event.get("ota_event_id")).encode()).hexdigest()
+        event["group_id"] = group_id
+        event["group_total_count"] = 1
+        event["group_members"] = [{key:event.get(key) for key in (
+            "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+            "item", "amount", "currency", "status")} | {"detail_available":True}]
 
     def handle(route):
         parsed = urlsplit(route.request.url)
@@ -55,13 +63,22 @@ def _mock_queue_routes(page, snapshot):
                     "generation": generation, "coverage": "canonical", "counts_authoritative": True,
                     "counts_by_queue": {"needs_action": {"event_count": len(events),
                                                              "group_count": len(events)}}}
-        elif parsed.path == "/api/imports/ota/events":
+        elif parsed.path == "/api/imports/ota/groups":
             cursor = query.get("cursor", [""])[0]
             offset = int(cursor) if cursor.isdigit() else 0
             items = rows[offset:offset + 20]
             next_offset = offset + len(items)
             body = {"generation": generation, "total_count": len(rows), "items": items,
                     "next_cursor": str(next_offset) if next_offset < len(rows) else None}
+        elif parsed.path.startswith("/api/imports/ota/groups/") and parsed.path.endswith("/members"):
+            group_id = parsed.path.split("/")[-2]
+            row = next(item for item in rows if item["event"]["group_id"] == group_id)
+            body = {"generation":generation, "total_count":1, "items":[{
+                "queue":"needs_action", "reason_codes":[], "event":{
+                    key:row["event"].get(key) for key in (
+                        "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+                        "item", "amount", "currency", "status") } | {"detail_available":True}}],
+                "next_cursor":None}
         elif parsed.path.startswith("/api/imports/ota/events/"):
             event_id = parsed.path.rsplit("/", 1)[-1]
             event = next((event for event in events if str(event.get("ota_event_id")) == event_id), None)
@@ -94,6 +111,7 @@ def _expand_queue_details(page):
         row = rows.nth(index)
         row.locator(":scope > summary").click()
         button = row.locator("[data-load-detail]")
+        button.first.wait_for()
         if button.count():
             button.click()
             row.locator(".ota-event").wait_for()
@@ -131,12 +149,40 @@ class QueueFakeBackend(FakeBackend):
             key: event.get(key) for key in ("ota_event_id", "provider", "booking_ref", "event_type",
                                             "paid_on", "item", "amount", "currency", "status")}}
                 for event in public["events"]]
+        for row in rows:
+            event = row["event"]
+            event["group_id"] = hashlib.sha256(str(event.get("ota_event_id")).encode()).hexdigest()
+            event["group_total_count"] = 1
+            event["group_members"] = [{key:event.get(key) for key in (
+                "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+                "item", "amount", "currency", "status")} | {"detail_available":True}]
         return {"index": build_queue_index(rows, generation=self.generation,
                                             snapshot_nonce="synthetic-nonce",
                                             signing_key=b"synthetic-key" * 3),
                 "status": "ready", "generation": self.generation,
                 "generated_at": "2026-10-28T00:00:00+00:00", "fresh": True,
                 "stale": False, "refreshing": False}
+
+    def queue_group_context(self):
+        return self.queue_page_context()
+
+    def queue_group_members_context(self, group_id, generation):
+        public = self._public()
+        rows = []
+        for event in public["events"]:
+            if hashlib.sha256(str(event.get("ota_event_id")).encode()).hexdigest() != group_id:
+                continue
+            member = {key:event.get(key) for key in (
+                "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+                "item", "amount", "currency", "status")}
+            member["detail_available"] = True
+            rows.append({"queue":"needs_action", "reason_codes":[], "event":member})
+        return {"index":build_queue_index(rows, generation=generation,
+                    snapshot_nonce="synthetic-members-nonce",
+                    signing_key=b"synthetic-key"*3),
+                "status":"ready", "generation":generation, "fresh":True,
+                "stale":False, "refreshing":False,
+                "generated_at":"2026-10-28T00:00:00+00:00"}
 
     def queue_detail_context(self, event_id, generation):
         public = self._public()

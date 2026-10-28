@@ -28,6 +28,16 @@ RETRY_CAP_SECONDS = 900
 FIRST_WAIT_SECONDS = 3
 WORKER_NAME = "ota-snapshot"
 _CURSOR_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z", re.ASCII)
+_RESERVATION_PRIVATE_FIELDS = frozenset((
+    "reservation_identity_attestation", "_portal_reservation_provenance"))
+
+
+def _public_results(results):
+    """Copy solver result rows while hiding only the new reservation-private fields."""
+    if type(results) is not list:
+        return results
+    return [{key: value for key, value in row.items() if key not in _RESERVATION_PRIVATE_FIELDS}
+            if type(row) is dict else row for row in results]
 
 
 class SnapshotReadError(ValueError):
@@ -238,6 +248,21 @@ class OtaSnapshotService:
                     page_rows, generation=next_generation,
                     snapshot_nonce=secrets.token_urlsafe(24),
                     signing_key=self._queue_page_signing_key)
+            group_rows = reconciled.get("queue_group_rows") if type(reconciled) is dict else None
+            group_index = (build_queue_index(
+                group_rows, generation=next_generation,
+                snapshot_nonce=secrets.token_urlsafe(24),
+                signing_key=self._queue_page_signing_key) if type(group_rows) is list else None)
+            member_rows = reconciled.get("queue_group_member_rows") if type(reconciled) is dict else None
+            member_indexes = {}
+            if type(member_rows) is dict:
+                for group_id, rows in member_rows.items():
+                    if (type(group_id) is str and re.fullmatch(r"[a-f0-9]{64}", group_id, re.ASCII)
+                            and type(rows) is list):
+                        member_indexes[group_id] = build_queue_index(
+                            rows, generation=next_generation,
+                            snapshot_nonce=secrets.token_urlsafe(24),
+                            signing_key=self._queue_page_signing_key)
             detail_map = reconciled.get("queue_detail_rows") if type(reconciled) is dict else None
             if type(detail_map) is not dict:
                 detail_map = {}
@@ -264,9 +289,16 @@ class OtaSnapshotService:
             generated_at = _now_iso()
             published = {"key": key, "generation": generation, "generated_at": generated_at,
                          **{name: value for name, value in reconciled.items()
-                            if name not in ("queue_page_rows", "queue_detail_rows", "queue_ambiguous_ids")}}
+                            if name not in ("queue_page_rows", "queue_group_rows", "queue_group_member_rows",
+                                            "queue_detail_rows", "queue_ambiguous_ids")}}
             if page_index is not None:
                 published["_queue_page_index"] = page_index
+            if group_index is not None:
+                published["_queue_group_index"] = group_index
+                published["_queue_group_rows_internal"] = reconciled.get("queue_group_rows", [])
+            if page_index is not None:
+                published["_queue_page_rows_internal"] = reconciled.get("queue_page_rows", [])
+            published["_queue_group_member_indexes"] = member_indexes
             published["_queue_detail_map"] = detail_map
             published["_queue_ambiguous_ids"] = ambiguous_ids
             queue_summary = reconciled.get("queue_summary") if isinstance(reconciled, dict) else None
@@ -315,9 +347,13 @@ class OtaSnapshotService:
         else:
             status = "ready"
         public = {key: value for key, value in (current or {}).items()
-                  if key not in ("data", "_queue_page_index", "_queue_detail_map",
+                  if key not in ("data", "_queue_page_index", "_queue_group_index", "_queue_group_rows_internal",
+                                 "_queue_page_rows_internal",
+                                 "_queue_group_member_indexes", "_queue_detail_map",
                                  "_queue_ambiguous_ids", "queue_page_rows", "queue_detail_rows",
                                  "queue_ambiguous_ids")}
+        if "results" in public:
+            public["results"] = _public_results(public["results"])
         return {"status": status, "stale": not fresh, "refreshing": refreshing,
                 "generation": current["generation"] if current else 0,
                 "generated_at": current["generated_at"] if current else None,
@@ -334,10 +370,43 @@ class OtaSnapshotService:
                             current.get("generation") == view.get("generation"))
         return {
             "index": index if matches_view else None,
+            "rows": current.get("_queue_page_rows_internal") if current and matches_view else None,
             "status": view.get("status"), "generation": view.get("generation"),
             "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
             "stale": view.get("stale"), "refreshing": view.get("refreshing"),
         }
+
+    def queue_group_context(self):
+        """Return the worker-prepared reservation group index for this generation."""
+        view = self.view()
+        with self._lock:
+            current = self._current
+            index = current.get("_queue_group_index") if current else None
+            matches_view = current is not None and current.get("generation") == view.get("generation")
+        return {"index": index if matches_view else None,
+                "rows": current.get("_queue_group_rows_internal") if current and matches_view else None,
+                "status": view.get("status"), "generation": view.get("generation"),
+                "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
+                "stale": view.get("stale"), "refreshing": view.get("refreshing"),
+                "summary": current.get("queue_summary") if current and matches_view else None}
+
+    def queue_group_members_context(self, group_id, expected_generation):
+        """Return a generation-bound private member index, without scanning members."""
+        view = self.view()
+        with self._lock:
+            current = self._current
+            if (current is None or not self._fresh_locked() or self._refreshing or self._error or
+                    current.get("data") is None):
+                raise SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+            generation = current.get("generation")
+            if generation != expected_generation or generation != view.get("generation"):
+                raise SnapshotReadError("SNAPSHOT_CHANGED", 409)
+            index = current.get("_queue_group_member_indexes", {}).get(group_id)
+            if index is None:
+                raise SnapshotReadError("GROUP_NOT_FOUND", 404)
+            return {"index": index, "generation": generation,
+                    "status":"ready", "fresh":True, "stale":False, "refreshing":False,
+                    "generated_at":current.get("generated_at")}
 
     def queue_detail_context(self, event_id, expected_generation):
         """O(1) detail lookup from the current private map, guarded by exact freshness/generation."""
@@ -446,9 +515,12 @@ class OtaSnapshotService:
         document = {"schema": SCHEMA, "key": current["key"], "generation": current["generation"],
                     "generated_at": current["generated_at"], "public": current["public"],
                     "authority": current.get("authority"),
-                    "results": current["results"], "links": current["links"]}
+                    "results": _public_results(current["results"]), "links": current["links"]}
         if isinstance(current.get("queue_summary"), dict):
             document["queue_summary"] = current["queue_summary"]
+        if isinstance(document.get("public"), dict) and isinstance(document["public"].get("results"), list):
+            document["public"] = {**document["public"],
+                                  "results": _public_results(document["public"]["results"])}
         try:
             text = json.dumps(document, ensure_ascii=False, default=str)
             self._persist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -467,8 +539,11 @@ class OtaSnapshotService:
             return
         if not isinstance(document, dict) or document.get("schema") != SCHEMA or not document.get("key"):
             return
+        public = document.get("public") or {}
+        if isinstance(public, dict) and isinstance(public.get("results"), list):
+            public = {**public, "results": _public_results(public["results"])}
         self._current = {"key": str(document["key"]), "generation": int(document.get("generation") or 1),
-                         "generated_at": document.get("generated_at"), "public": document.get("public") or {},
+                         "generated_at": document.get("generated_at"), "public": public,
                          "results": document.get("results") or [], "links": document.get("links") or {},
                          "authority": document.get("authority"),
                          "queue_summary": document.get("queue_summary")
