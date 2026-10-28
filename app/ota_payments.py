@@ -12,11 +12,11 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app import ota_mail, ota_portal
-from app.ota_matching_defaults import load_defaults
+from app.ota_matching_defaults import load_defaults, provider_resolution_scope
 
 
 _NO_ALLOCATION_SNAPSHOT = object()
-PARSER_VERSION = 7
+PARSER_VERSION = 8
 MATCHER_VERSION = 3
 
 
@@ -137,9 +137,11 @@ def _parse_mail_events(directories):
         event["ota_event_id"] = _event_id(event["identity_source_ids"])
         events[event["ota_event_id"]] = ota_booking_context.attach(
             event, context.get((event['provider'], event['booking_ref']), ()))
-    from app import forest_mail, toyoko_mail
+        from app.ota_mail_reservation_identity import attest
+        attest(events[event['ota_event_id']], message, text)
+    from app import forest_mail, forest_payment_mail, toyoko_mail
     return (list(events.values()) + toyoko_mail.collect(messages, inventory)
-            + forest_mail.collect(messages, inventory))
+            + forest_mail.collect(messages, inventory) + forest_payment_mail.collect(messages, inventory))
 
 
 def _trip_japanese_paid_stay(message, headers, text):
@@ -544,6 +546,8 @@ def _combine_evidence(group, *, conflict=False):
     else:
         item.pop("_portal_reservation_provenance", None)
         item.pop("reservation_identity_attestation", None)
+    from app.ota_mail_reservation_identity import combine
+    combine(item, group, conflict=conflict)
     if conflict:
         item["evidence_status"] = "evidence_conflict"
     item["ota_event_id"] = _event_id(item.get("identity_source_ids") or item["source_ids"])
@@ -1024,6 +1028,17 @@ def provider_compatible(event, row, rules=()):
 def _has_corroborator(event, row, rules):
     if not provider_compatible(event, row, rules):
         return False
+    if event.get('provider') == 'forest' and event.get('evidence_kind') == 'authenticated_forest_pg_card_receipt':
+        # NICE's labelled credit-card approval and the issuer import's
+        # approval_number are the same card-approval namespace. Do not treat a
+        # merchant order number or an arbitrary authorization field as one.
+        return (event.get('authorization_scheme') == 'issuer_card_approval'
+                and bool(row.get('issuer'))
+                and bool(re.fullmatch(r'[0-9]{4}', str(row.get('card_tail') or '')))
+                and row.get('approval_date') == event.get('paid_on')
+                and _card_amount(row) == _event_amount(event)
+                and bool(event.get('approval_number'))
+                and str(event['approval_number']).strip() == str(row.get('approval_number') or '').strip())
     hint = str(event.get("card_last4") or "")
     card = str(row.get("card_tail") or row.get("card_last4") or "")
     if hint and card == hint:
@@ -1109,6 +1124,7 @@ def pair_check(event, row, rules=None):
     return None
 
 
+@provider_resolution_scope()
 def search_card_candidates(event, transactions, *, existing_links=None, rules=None,
                            max_comparisons=250000):
     """Find evidence-based diagnostic candidates without promoting them to matches.
@@ -1391,6 +1407,7 @@ def _card_identity(row):
             _direction(row))
 
 
+@provider_resolution_scope()
 def match_ota_payment_events(events, transactions, *, existing_links=None, rules=None,
                              frozen_groups=None):
     """검증된 OTA 이벤트와 카드 행을 입력 변경 없이 전역 일대일 대조한다."""

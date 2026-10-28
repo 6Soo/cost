@@ -39,7 +39,7 @@ _SUCCESS_REASONS = ('unique_exact_evidence', 'approved_delta_rule',
 _VERIFIED_EVIDENCE = ('paid_verified', 'refund_verified')
 _KNOWN_EVIDENCE = _VERIFIED_EVIDENCE + (
     'scheduled', 'unknown', 'not_card_charge', 'conflict', 'evidence_conflict',
-    'refund_conflict', 'paid_unverified', 'refund_unverified',
+    'refund_conflict', 'paid_unverified', 'refund_unverified', 'reservation_only',
 )
 _WAITING_STATUSES = ('PENDING_PAYMENT', 'HOLD_DATE_UNKNOWN', 'HOLD_NO_CARD')
 _MISSING_STATUSES = ('RESERVATION_ONLY', 'HOLD_AMOUNT_UNVERIFIED')

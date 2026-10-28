@@ -142,3 +142,25 @@ def test_municipal_merchant_is_only_a_low_confidence_candidate_from_explicit_add
     assert ota_payments.search_card_candidates(event, [dict(card, merchant='다른군청')])['candidates'] == []
     event.pop('operator_region')
     assert ota_payments.search_card_candidates(event, [card])['candidates'] == []
+
+
+def test_common_forest_merchant_keeps_unknown_facility_and_never_confirms_payment():
+    mail = body_notice('2026-10-05 합성자연휴양림 가상실 객실 예약완료')
+    event, = forest_mail.collect({mail['id']: mail})
+    card = {'transaction_id': 'common-forest-card', 'merchant': '국립자연휴양림',
+            'approval_date': '2026-10-01', 'amount_krw': 30000, 'transaction_direction': 'purchase'}
+    candidate, = ota_payments.search_card_candidates(event, [card])['candidates']
+    assert candidate['basis'] == 'FOREST_PROVIDER_AND_OBSERVED_DATE'
+    assert candidate['branch_status'] == 'UNKNOWN' and candidate['confidence'] == 'LOW'
+    assert candidate['amount_status'] == 'UNKNOWN' and not candidate['resolution_allowed']
+    generic, = ota_payments.search_card_candidates(event, [dict(card, merchant='휴양시설 결제')])['candidates']
+    assert generic['branch_status'] == 'UNKNOWN' and not generic['resolution_allowed']
+    assert ota_payments.search_card_candidates(event, [dict(card, reservation_refund_blocked=True)])['candidates'] == []
+    assert ota_payments.search_card_candidates(event, [dict(card, merchant='산림조합')])['candidates'] == []
+
+
+def test_explicit_subject_room_is_used_when_body_does_not_state_a_service_date():
+    mail = body_notice('결제기한 2026년 10월 02일', subject='합성자연휴양림 가상실 예약신청 후 결제 안내')
+    event, = forest_mail.collect({mail['id']: mail})
+    assert event['hotel_name'] == '합성자연휴양림' and event['room_name'] == '가상실'
+    assert event['service_period'] is None

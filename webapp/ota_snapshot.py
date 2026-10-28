@@ -29,7 +29,7 @@ FIRST_WAIT_SECONDS = 3
 WORKER_NAME = "ota-snapshot"
 _CURSOR_CHARS = re.compile(r"[A-Za-z0-9_-]+\Z", re.ASCII)
 _RESERVATION_PRIVATE_FIELDS = frozenset((
-    "reservation_identity_attestation", "_portal_reservation_provenance"))
+    "reservation_identity_attestation", "_portal_reservation_provenance", "_mail_reservation_provenance"))
 
 
 def _public_results(results):

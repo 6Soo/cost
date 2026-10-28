@@ -48,8 +48,10 @@ def test_browser_pending_candidates_can_be_retried_without_financial_writes():
                 if route.request.url.endswith('/summary'):
                     route.fulfill(json={'status': 'ready', 'fresh': True, 'stale': False,
                         'refreshing': False, 'generation': 1, 'counts_by_queue': {}})
-                elif route.request.url.split('?')[0].endswith('/events'):
-                    route.fulfill(json={'generation': 1, 'items': [{'event': snapshot['events'][0]}],
+                elif route.request.url.split('?')[0].endswith('/groups'):
+                    event = dict(snapshot['events'][0], group_total_count=1,
+                                 group_members=[dict(snapshot['events'][0], detail_available=True)])
+                    route.fulfill(json={'generation': 1, 'items': [{'event': event}],
                                         'next_cursor': None})
                 elif '/events/' in route.request.url:
                     route.fulfill(json={'generation': 1, 'event': snapshot['events'][0]})

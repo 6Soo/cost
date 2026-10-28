@@ -50,11 +50,15 @@ def relation_digest(event, transaction):
     event_fields = ('ota_event_id', 'provider', 'event_type', 'booking_ref', 'hotel_name',
                     'service_period', 'amount', 'currency', 'reservation_status',
                     'evidence_status', 'reservation_group_only')
+    if event.get('provider') == 'forest':
+        event_fields += ('room_name', 'source_digest', 'operator_region')
     card_fields = ('transaction_id', 'source_hash', 'merchant', 'merchant_normalized',
                    'amount_krw', 'foreign_amount', 'foreign_currency', 'currency',
                    'approval_date', 'posting_date', 'card_id', 'card_tail', 'issuer',
                    'transaction_direction', 'direction', 'duplicate_of', 'parse_error',
                    'conflict_reason', 'ota_review_held', 'refund_status', 'cancellation_status',
                    'already_linked_event_id')
+    if event.get('provider') == 'forest':
+        card_fields += ('reservation_refund_blocked',)
     return _digest({'event': {key: event.get(key) for key in event_fields},
                     'transaction': {key: transaction.get(key) for key in card_fields}})

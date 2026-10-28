@@ -11,7 +11,7 @@ _NOTICE = re.compile(r'예약\s*(?:완료|취소|안내)|결제\s*(?:완료|기�
 _DAY = r'\d{4}-\d{2}-\d{2}'
 
 
-def _facts(text):
+def _facts(text, subject=''):
     # This is the service date in the provider's room-reservation sentence,
     # not the unrelated payment-deadline date elsewhere in the mail.
     stays = set()
@@ -36,6 +36,10 @@ def _facts(text):
     conflict = (len(stays) > 1 or len(refs) > 1 or len(amounts) > 1
                 or bool(re.search(r'체크\s*(?:인|아웃)|check[ -]*(?:in|out)', text, re.I) and not period))
     day, facility, room = next(iter(stays)) if len(stays) == 1 else (None, '', '')
+    if not facility and not stays:
+        title = re.match(r'^(.{1,70}?자연휴양림)\s+(.{1,100}?)\s+예약', subject)
+        if title:
+            facility, room = title[1].strip(), title[2].strip()
     if period and day and period['starts_on'] != day:
         conflict = True
     return {'hotel_name': facility, 'room_name': room,
@@ -82,7 +86,7 @@ def collect(messages, inventory=()):
             continue
         # These are already collected mailbox records. Authentication describes
         # the mail, while financial authority stays with the card ledger.
-        facts = _facts(ota_mail.message_text(message))
+        facts = _facts(ota_mail.message_text(message), subject)
         cancelled = bool(re.search(r'예약\s*취소', subject))
         source_id = 'mail:' + message_id
         digest = core._digest(message)
@@ -141,12 +145,16 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         merchant = re.sub(r'\W', '', row.get('merchant') or row.get('merchant_normalized') or '').casefold()
         facility_match = facility in merchant
         municipality_match = bool(region and (region + '청') in merchant)
-        if not facility_match and not municipality_match:
+        # A common forest merchant names the provider, not the specific room.
+        # Retain it as a visibly uncertain relationship candidate only.
+        provider_match = (merchant == '자연휴양림' or '휴양시설' in merchant or merchant.startswith(
+            ('국립자연휴양림', '자연휴양림관리', '숲나들e', '한국산림복지진흥원')))
+        if not facility_match and not municipality_match and not provider_match:
             continue
         result['comparisons'] += 1
         if result['comparisons'] > max_comparisons:
             return dict(result, status='SEARCH_LIMIT_EXCEEDED', candidates=[])
-        if (any(row.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason', 'ota_review_held'))
+        if (any(row.get(k) for k in ('duplicate_of', 'parse_error', 'conflict_reason', 'ota_review_held', 'reservation_refund_blocked'))
                 or core._direction(row) != 'purchase' or not core._strict_card_identity(event, row)
                 or row.get('refund_status') in ('refund_pending', 'refund_requested', 'refunded', 'refund_completed')):
             continue
@@ -166,7 +174,9 @@ def search_candidates(event, transactions, *, max_comparisons=250000):
         amount_status = 'UNKNOWN' if expected is None else 'MATCH' if value == Decimal(str(expected)) else 'MISMATCH'
         result['candidates'].append({'transaction_id': row.get('transaction_id'),
             'date_status': 'UNKNOWN', 'resolution_allowed': False,
-            'basis': 'FOREST_FACILITY_AND_OBSERVED_DATE' if facility_match else 'FOREST_MUNICIPALITY_AND_OBSERVED_DATE',
+            'basis': ('FOREST_FACILITY_AND_OBSERVED_DATE' if facility_match else
+                      'FOREST_MUNICIPALITY_AND_OBSERVED_DATE' if municipality_match else
+                      'FOREST_PROVIDER_AND_OBSERVED_DATE'),
             'amount_status': amount_status, 'branch_status': 'MATCH' if facility_match else 'UNKNOWN',
             'confidence': 'LOW' if not facility_match or amount_status != 'MATCH' else 'MEDIUM'})
     result['status'] = 'CANDIDATES_FOUND' if result['candidates'] else 'NO_CANDIDATE'

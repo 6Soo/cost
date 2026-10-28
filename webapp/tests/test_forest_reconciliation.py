@@ -1,5 +1,6 @@
 """Synthetic forest mail through the read-only worker/card/detail boundary."""
 import json
+import pytest
 
 from app import forest_mail, ota_payments
 from app.ota_review import OtaReviewStore
@@ -8,6 +9,7 @@ from webapp import ota_catalog, ota_payment_review
 from webapp.card_flow import CardFlow
 from webapp.ledger_store import LedgerStore
 from webapp.tests.test_card_flow import CARD
+from webapp.tests.test_ota_payment_review import primed
 
 
 def test_worker_candidates_detail_and_trip_suggestion_preserve_manual_financial_state(tmp_path, monkeypatch):
@@ -72,6 +74,62 @@ def test_trip_suggestions_do_not_use_cancelled_or_conflicting_evidence(monkeypat
     assert all('travel_suggestion' not in e for e in events)
 
 
+def test_forest_relationship_confirmation_is_separate_idempotent_and_preserves_manual_assignment(tmp_path, monkeypatch):
+    monkeypatch.setenv('WEBLEDGER_CARD_SCHEMA_POLICY', 'create')
+    monkeypatch.setenv('WEBLEDGER_UNIFIED_DB', '1')
+    board = LedgerStore(tmp_path / 'board.sqlite', seed_demo=False)
+    review_path = tmp_path / 'review.sqlite'
+    OtaReviewStore(review_path).close()
+    maildir = tmp_path / 'mail'
+    maildir.mkdir()
+    mail = body_notice('2026-10-05 합성자연휴양림 가상실 객실 예약완료')
+    path = maildir / 'gmail-test.json'
+    path.write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
+    CardFlow(board).pipeline.receive(CARD.replace('합성상점'.encode(), '국립자연휴양림'.encode()), 'synthetic.csv')
+    board.conn.execute("UPDATE transactions SET approval_date='2026-10-01',"
+                       "trip_id='manual-trip-B',display_tab_id='manual-trip-B',classification_source='manual'")
+    board.conn.commit()
+    backend = ota_payment_review.CoreOtaPaymentBackend(board, str(review_path), read_only=False,
+        payments=ota_payments, store_type=OtaReviewStore, sources={'mail_directories': [str(maildir)]})
+    before = board.conn.total_changes
+    try:
+        primed(board, backend)
+        data = backend._data()
+        event, = data[0]
+        result, = data[3]
+        assert result['reservation_link']['status'] == 'NEEDS_REVIEW'
+        candidate, = result['candidate_search']['candidates']
+        tid = candidate['transaction_id']
+        assert candidate['branch_status'] == 'UNKNOWN' and not candidate['resolution_allowed']
+        preview = backend.reservation_preview(event['ota_event_id'], tid)
+        assert preview['payment_verified'] is False and preview['amount_difference'] is None
+        confirmed = backend.reservation_confirm(event['ota_event_id'], tid, preview['preview_digest'],
+            expected_revision=0, request_id='synthetic-forest-confirm', user='synthetic-owner')
+        replay = backend.reservation_confirm(event['ota_event_id'], tid, preview['preview_digest'],
+            expected_revision=0, request_id='synthetic-forest-confirm', user='synthetic-owner')
+        assert confirmed == replay and confirmed['status'] == 'USER_CONFIRMED'
+        assert confirmed['payment_verified'] is False
+        updated = backend._data()
+        assert updated[3][0]['status'] == 'RESERVATION_ONLY'
+        assert updated[3][0]['reservation_link']['status'] == 'USER_CONFIRMED'
+        assert backend.store.links() == {}
+        assert board.conn.total_changes == before
+        assert tuple(board.conn.execute('SELECT trip_id,classification_source FROM transactions').fetchone()) == ('manual-trip-B', 'manual')
+        # A new room in the same facility cannot inherit the old user relation.
+        mail['payload']['body'] = {'content': '2026-10-05 합성자연휴양림 다른실 객실 예약완료'}
+        path.write_text(json.dumps({'responses': [mail]}), encoding='utf-8')
+        stale = backend._data()
+        assert stale[0][0]['ota_event_id'] == event['ota_event_id']
+        assert stale[3][0]['reservation_link']['status'] == 'STALE'
+        assert backend.store.reservation_links()[event['ota_event_id']]['transaction_id'] == tid
+        with pytest.raises((ota_payment_review.InvalidReviewInput, ota_payment_review.OtaSnapshotNotReady,
+                            ota_payment_review.StalePreviewError)):
+            backend.preview(event['ota_event_id'], tid)
+    finally:
+        backend.close()
+        board.close()
+
+
 def test_browser_displays_forest_service_day_auth_metadata_and_trip_candidate():
     from urllib.parse import urlsplit
     from playwright.sync_api import sync_playwright
@@ -115,6 +173,6 @@ def test_browser_displays_forest_service_day_auth_metadata_and_trip_candidate():
             assert '합성자연휴양림' in text and '가상실' in text
             assert '퇴실일 미확인' in text and '합성 여행' in text
             assert 'DKIM 통과 기록 없음' in text and '발신 미검증' not in text
-            assert detail.locator('[data-cards-loaded="false"]').count() == 1
+            assert detail.locator('[data-load-reservation-candidates]').count() == 1
         finally:
             browser.close()
