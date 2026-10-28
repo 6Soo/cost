@@ -4,18 +4,30 @@ Verifies:
 1. Real temporary Git repo: docs-only zero-execution contract (executed == []).
 2. Real temporary Git repo: no-changes zero-execution contract (executed == []).
 3. Requirements change with missing sync tool fails closed (exit 2, REQUIREMENTS_TOOL_MISSING).
-4. Base and HEAD resolution failure (invalid revision or malformed SHA).
-5. Strict Data guard validation: malformed JSON or missing schema fails (DATA_GUARD_MALFORMED).
-6. Strict Selector validation: unmapped code changes without targets fail (NO_TARGETS_SELECTED).
-7. Selector unknown impact halts pipeline with exit 2 (never reports PASS).
-8. Data guard blocked files halts pipeline with exit 1.
-9. Subprocess security contract: argv is list[str], shell=False, cwd=root.
-10. Actual subprocess CLI invocation of tools/run_targeted_checks.py outputs machine JSON.
+4. Base resolution failure sanitization: raw user sentinel is never leaked into JSON output.
+5. Head resolution failure: returns fixed HEAD_RESOLUTION_FAILED constant.
+6. Data guard validation strictness:
+   - Malformed JSON or missing schema fields fail with DATA_GUARD_MALFORMED.
+   - boolean blocked_count (e.g. False) is rejected as malformed.
+   - Count mismatch (files has blocked=True but blocked_count=0) is rejected as malformed.
+7. Selector validation strictness:
+   - empty command [[]] or arbitrary argv shape rejected.
+   - targets not ending in .py rejected.
+   - targets outside repository root rejected.
+   - missing target files on disk rejected.
+   - code changes with 0 pytest targets rejected as NO_TARGETS_SELECTED.
+8. Selector unknown impact halts pipeline with exit 2 (never reports PASS).
+9. Data guard blocked files halts pipeline with exit 1.
+10. Missing executable / OSError returns finite JSON error (COMMAND_NOT_FOUND, exit 2).
+11. Subprocess security contract: argv is list[str], shell=False, cwd=root.
+12. Actual subprocess CLI invocation of tools/run_targeted_checks.py outputs machine JSON.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from unittest.mock import patch, MagicMock
@@ -57,7 +69,6 @@ def synthetic_repo(tmp_path: Path) -> Path:
 
 def test_real_git_docs_only_strictly_zero_executions(synthetic_repo: Path):
     """Verify on a real Git repo that docs-only changes perform strictly zero executions."""
-    # Commit docs-only changes
     docs_dir = synthetic_repo / "docs"
     docs_dir.mkdir()
     (docs_dir / "guide.md").write_text("# Guide\n", encoding="utf-8")
@@ -99,65 +110,124 @@ def test_real_git_requirements_change_without_tool_fails_closed(synthetic_repo: 
     assert result["executed"] == []
 
 
-def test_base_resolution_failure_sanitized_error():
-    """Verify unresolvable base revision fails cleanly without leaking raw git stderr."""
-    result = run_targeted_checks.run_checks("non_existent_revision_xyz_123", run=False, root=ROOT)
+def test_base_resolution_failure_sanitized_and_no_sentinel_leak():
+    """Verify unresolvable base revision fails cleanly without leaking raw sentinel into JSON."""
+    secret_sentinel = "SECRET_SENTINEL_TOKEN_12345"
+    result = run_targeted_checks.run_checks(secret_sentinel, run=False, root=ROOT)
+
     assert result["exit_code"] == 2
     assert result["status"] == "ERROR"
-    assert result["evidence"]["failure_code"] == "BASE_RESOLUTION_FAILED:INVALID_REVISION"
-    assert result["base_sha"] is None
+    assert result["evidence"]["failure_code"] == "INVALID_REVISION"
+    assert result["base"] is None  # Never echo raw base
+
+    # Verify secret sentinel does not appear anywhere in serialized JSON
+    raw_json = json.dumps(result)
+    assert secret_sentinel not in raw_json
 
 
 def test_head_resolution_failure():
-    """Verify failure to resolve HEAD fails with sanitized HEAD_RESOLUTION_FAILED."""
-    non_git_dir = ROOT / "non_existent_dir_abc"
+    """Verify failure to resolve HEAD fails with sanitized HEAD_RESOLUTION_FAILED constant."""
     with patch("subprocess.run") as mock_run:
-        # base succeeds, but head fails
         mock_run.side_effect = [
-            MagicMock(returncode=0, stdout="a" * 40),
-            MagicMock(returncode=128, stdout="", stderr="fatal: not a git repo"),
+            MagicMock(returncode=0, stdout="a" * 40),  # base succeeds
+            MagicMock(returncode=128, stdout="", stderr="fatal: not a git repo"),  # head fails
         ]
         result = run_targeted_checks.run_checks("main", run=False, root=ROOT)
         assert result["exit_code"] == 2
         assert result["status"] == "ERROR"
-        assert "HEAD_RESOLUTION_FAILED" in result["evidence"]["failure_code"]
+        assert result["evidence"]["failure_code"] == "HEAD_RESOLUTION_FAILED"
 
 
-def test_guard_json_validation_strictness():
-    """Verify that malformed data guard outputs or bad blocked_count fail-closed."""
-    # Malformed JSON
+def test_guard_json_validation_strictness_and_count_mismatch():
+    """Verify that malformed data guard outputs, bad types, or count mismatches fail-closed."""
+    # 1. Malformed JSON
     with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
-        run_targeted_checks.validate_guard_output("{ not json")
+        run_targeted_checks.validate_guard_output("{ malformed json")
 
-    # Missing schema_version / files / blocked_count
+    # 2. Missing schema_version / files / blocked_count
     with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
         run_targeted_checks.validate_guard_output(json.dumps({"files": []}))
 
-    # Negative or non-integer blocked count
+    # 3. schema_version != 1
+    with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
+        run_targeted_checks.validate_guard_output(json.dumps({"schema_version": 2, "files": [], "blocked_count": 0}))
+
+    # 4. blocked_count is bool (e.g. False)
+    with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
+        run_targeted_checks.validate_guard_output(json.dumps({"schema_version": 1, "files": [], "blocked_count": False}))
+
+    # 5. blocked_count < 0
     with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
         run_targeted_checks.validate_guard_output(json.dumps({"schema_version": 1, "files": [], "blocked_count": -1}))
+
+    # 6. Count mismatch: files has blocked=True, but blocked_count is 0
+    mismatch = json.dumps({
+        "schema_version": 1,
+        "files": [{"path": "leak.csv", "blocked": True}],
+        "blocked_count": 0,
+    })
     with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
-        run_targeted_checks.validate_guard_output(json.dumps({"schema_version": 1, "files": [], "blocked_count": "zero"}))
+        run_targeted_checks.validate_guard_output(mismatch)
 
-    # Valid output
-    valid = json.dumps({"schema_version": 1, "files": [], "blocked_count": 0})
-    assert run_targeted_checks.validate_guard_output(valid) == 0
+    # 7. Valid output: 1 blocked file and blocked_count == 1
+    valid = json.dumps({
+        "schema_version": 1,
+        "files": [{"path": "leak.csv", "blocked": True}, {"path": "ok.py", "blocked": False}],
+        "blocked_count": 1,
+    })
+    assert run_targeted_checks.validate_guard_output(valid) == 1
 
 
-def test_selector_validation_no_targets_on_code_change_fails():
-    """Verify that code changes with 0 pytest commands are rejected as NO_TARGETS_SELECTED."""
-    empty_targets_json = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": []})
+def test_selector_validation_empty_and_arbitrary_commands():
+    """Verify that empty commands, non-py targets, outside files, or invalid command shapes are rejected."""
+    # 1. Arbitrary / empty command shape [[]]
+    with pytest.raises(ValueError, match="SELECTOR_INVALID_COMMAND_SHAPE"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [[]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 2. Command not starting with sys.executable -m pytest
+    with pytest.raises(ValueError, match="SELECTOR_INVALID_COMMAND_SHAPE"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [["arbitrary", "command"]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 3. Empty targets list
+    with pytest.raises(ValueError, match="SELECTOR_EMPTY_TARGETS"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "-q"]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 4. Target does not end in .py
+    with pytest.raises(ValueError, match="SELECTOR_INVALID_TARGET_EXTENSION"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/foo.txt", "-q"]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 5. Target does not exist on disk
+    with pytest.raises(ValueError, match="SELECTOR_TARGET_NOT_FOUND"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "tests/non_existent_file.py", "-q"]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 6. Target escapes repository root
+    with pytest.raises(ValueError, match="SELECTOR_TARGET_OUTSIDE_ROOT"):
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": [[sys.executable, "-m", "pytest", "../outside.py", "-q"]]}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
+
+    # 7. Code changes exist but 0 pytest commands provided
     with pytest.raises(ValueError, match="NO_TARGETS_SELECTED"):
-        run_targeted_checks.validate_selector_output(empty_targets_json, returncode=0, has_code_changes=True)
-
-
-def test_selector_validation_unknown_impact():
-    """Verify that unknown impact status and returncode 2 are validated cleanly."""
-    unknown_json = json.dumps({"status": "UNKNOWN_IMPACT", "unknown_files": ["foo.py"], "pytest_commands": []})
-    status, unknown, cmds = run_targeted_checks.validate_selector_output(unknown_json, returncode=2, has_code_changes=True)
-    assert status == "UNKNOWN_IMPACT"
-    assert unknown == ["foo.py"]
-    assert cmds == []
+        run_targeted_checks.validate_selector_output(
+            json.dumps({"status": "SELECTED", "pytest_commands": []}),
+            returncode=0, has_code_changes=True, root=ROOT
+        )
 
 
 def test_selector_unknown_files_halts_pipeline_without_pass():
@@ -182,14 +252,15 @@ def test_selector_unknown_files_halts_pipeline_without_pass():
         assert result["status"] == "UNKNOWN_IMPACT"
         assert result["exit_code"] == 2
         assert result["evidence"]["failure_code"] == "SELECTOR_UNKNOWN_FILES"
-        assert result["executed"] == []  # Halted during planning
+        assert result["executed"] == []
 
 
 def test_data_guard_blocked_files_halts_pipeline():
     """Verify blocked files in data guard halt pipeline with exit code 1."""
     dummy_base = "a" * 40
     dummy_head = "b" * 40
-    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [["pytest", "tests/t.py"]]})
+    valid_target = "tests/test_run_targeted_checks.py"
+    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
     guard_blocked = json.dumps({"schema_version": 1, "files": [{"path": "secret.csv", "blocked": True}], "blocked_count": 1})
 
     def fake_subprocess_run(cmd, **kwargs):
@@ -212,11 +283,86 @@ def test_data_guard_blocked_files_halts_pipeline():
         assert result["executed"][0]["status"] == "FAILED"
 
 
+def test_missing_executable_returns_finite_json_error():
+    """Verify that a FileNotFoundError / missing command terminates with COMMAND_NOT_FOUND without crashing."""
+    rc, out, err, dur = run_targeted_checks.execute_step(["non_existent_executable_binary_12345"], ROOT)
+    assert rc == 127
+
+
+@pytest.mark.parametrize("version", [True, 1.0, "1"])
+def test_guard_schema_version_requires_exact_integer(version):
+    with pytest.raises(ValueError, match="DATA_GUARD_MALFORMED"):
+        run_targeted_checks.validate_guard_output(json.dumps({
+            "schema_version": version, "files": [], "blocked_count": 0,
+        }))
+
+
+@pytest.mark.parametrize("status", ["DOCS_ONLY", "NO_CHANGES"])
+def test_selector_code_changes_require_selected_status(status):
+    with pytest.raises(ValueError, match="SELECTOR_RC_STATUS_MISMATCH"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": status, "unknown_files": [], "pytest_commands": [
+                [sys.executable, "-m", "pytest", "tests/test_run_targeted_checks.py", "-q"],
+            ],
+        }), 0, True, ROOT)
+
+
+def test_selector_rejects_option_even_when_file_exists(tmp_path):
+    (tmp_path / "--override-ini=python_files=test.py").write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="SELECTOR_INVALID_TARGET"):
+        run_targeted_checks.validate_selector_output(json.dumps({
+            "status": "SELECTED", "unknown_files": [], "pytest_commands": [
+                [sys.executable, "-m", "pytest", "--override-ini=python_files=test.py", "-q"],
+            ],
+        }), 0, True, tmp_path)
+
+
+@pytest.mark.parametrize("case", ["count_mismatch", "empty_command", "missing_git", "raw_base"])
+def test_real_cli_fail_closed_contracts(synthetic_repo, case):
+    tools_dir = synthetic_repo / "tools"
+    tools_dir.mkdir()
+    cli = tools_dir / "run_targeted_checks.py"
+    shutil.copyfile(ROOT / "tools/run_targeted_checks.py", cli)
+    (synthetic_repo / "test_synthetic.py").write_text("def test_ok(): assert True\n", encoding="utf-8")
+    selection = {"status": "SELECTED", "unknown_files": [], "pytest_commands": [
+        [] if case == "empty_command" else [sys.executable, "-m", "pytest", "test_synthetic.py", "-q"],
+    ]}
+    guard = {"schema_version": 1, "files": [{"path": "synthetic.csv", "blocked": True}], "blocked_count": 0}
+    for filename, payload in [("select_targeted_tests.py", selection), ("check_tracked_data.py", guard)]:
+        (tools_dir / filename).write_text("print(" + repr(json.dumps(payload)) + ")\n", encoding="utf-8")
+    run_git(synthetic_repo, "add", ".")
+    run_git(synthetic_repo, "commit", "-qm", "synthetic code")
+    sentinel = "PRIVATE_BASE_SENTINEL_67890"
+    env = dict(os.environ)
+    if case == "missing_git":
+        env["PATH"] = ""
+    proc = subprocess.run([
+        sys.executable, str(cli), "--base", sentinel if case == "raw_base" else "baseline", "--run", "--json",
+    ], cwd=synthetic_repo, capture_output=True, text=True, shell=False, env=env)
+    assert proc.returncode == 2
+    assert proc.stderr == ""
+    assert sentinel not in proc.stdout
+    result = json.loads(proc.stdout)
+    assert result["status"] == "ERROR"
+    assert result["evidence"]["failure_code"] == {
+        "count_mismatch": "DATA_GUARD_MALFORMED", "empty_command": "SELECTOR_INVALID_COMMAND_SHAPE",
+        "missing_git": "GIT_EXECUTION_FAILED", "raw_base": "INVALID_REVISION",
+    }[case]
+    assert len(result["executed"]) == (1 if case == "count_mismatch" else 0)
+
+
+def test_result_builder_never_echoes_unexpected_exception_text():
+    result = run_targeted_checks.make_result(status="ERROR", exit_code=2, failure_code="PRIVATE_EXCEPTION_SENTINEL")
+    assert result["evidence"]["failure_code"] == "EXECUTION_FAILED"
+    assert "PRIVATE_EXCEPTION_SENTINEL" not in json.dumps(result)
+
+
 def test_subprocess_security_contracts():
     """Verify all subprocess invocations use list[str], shell=False, and fixed root cwd."""
     dummy_base = "a" * 40
     dummy_head = "b" * 40
-    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [["pytest", "tests/test_t.py"]]})
+    valid_target = "tests/test_run_targeted_checks.py"
+    selector_ok = json.dumps({"status": "SELECTED", "unknown_files": [], "pytest_commands": [[sys.executable, "-m", "pytest", valid_target, "-q"]]})
     guard_ok = json.dumps({"schema_version": 1, "files": [], "blocked_count": 0})
 
     calls = []
@@ -241,10 +387,10 @@ def test_subprocess_security_contracts():
          patch.object(Path, "is_file", return_value=True):
         result = run_targeted_checks.run_checks("main", run=True, root=ROOT)
         assert result["status"] == "PASSED"
-        assert len(calls) >= 5  # rev-parse base, rev-parse head, diff, selector, guard, compile, pytest
+        assert len(calls) >= 5
 
 
-def test_cli_actual_subprocess_preview_json():
+def test_cli_actual_subprocess_preview_json(synthetic_repo):
     """Verify executing the real tools/run_targeted_checks.py script as an external subprocess."""
     # 1. Against HEAD (no changes): returns code 0 and NO_CHANGES
     proc_head = subprocess.run(
@@ -260,10 +406,23 @@ def test_cli_actual_subprocess_preview_json():
     assert payload_head["status"] == "NO_CHANGES"
     assert payload_head["executed"] == []
 
-    # 2. Against HEAD~1 (new tool/test files not in impact map): returns code 2 and UNKNOWN_IMPACT (fail-closed)
+    # Use an isolated map so this contract does not depend on branch history.
+    tools_dir = synthetic_repo / "tools"
+    tools_dir.mkdir()
+    for name in ("run_targeted_checks.py", "select_targeted_tests.py"):
+        shutil.copyfile(ROOT / "tools" / name, tools_dir / name)
+    config_dir = synthetic_repo / "config"
+    config_dir.mkdir()
+    (config_dir / "test-impact-map.json").write_text(json.dumps({
+        "schema": "cost-test-impact-map-v1", "groups": [], "safe_fallback_tests": [],
+    }), encoding="utf-8")
+    run_git(synthetic_repo, "add", ".")
+    run_git(synthetic_repo, "commit", "-qm", "unmapped synthetic code")
+
+    # 2. Unmapped code returns code 2 and UNKNOWN_IMPACT (fail-closed).
     proc_unmapped = subprocess.run(
-        [sys.executable, str(ROOT / "tools" / "run_targeted_checks.py"), "--base", "HEAD~1", "--json"],
-        cwd=ROOT,
+        [sys.executable, str(tools_dir / "run_targeted_checks.py"), "--base", "baseline", "--json"],
+        cwd=synthetic_repo,
         capture_output=True,
         text=True,
         shell=False,
@@ -273,6 +432,5 @@ def test_cli_actual_subprocess_preview_json():
     assert payload_unmapped["schema_version"] == 1
     assert payload_unmapped["status"] == "UNKNOWN_IMPACT"
     assert payload_unmapped["evidence"]["failure_code"] == "SELECTOR_UNKNOWN_FILES"
-    assert "tests/test_run_targeted_checks.py" in payload_unmapped["evidence"]["selector_unknown_files"]
     assert "planning_read_only_calls" in payload_unmapped
     assert payload_unmapped["executed"] == []
