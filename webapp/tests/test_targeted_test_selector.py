@@ -109,3 +109,16 @@ def test_extracted_runtime_modules_keep_their_feature_contract_tests():
         targets, unknown = SELECTOR.select_targets([path], config['groups'])
         assert unknown == [], path
         assert expected in targets, path
+
+
+def test_rf001_call_map_paths_have_a_specific_test_target():
+    import json
+
+    config = json.loads(SELECTOR.MAP_PATH.read_text(encoding='utf-8'))
+    targets, unknown = SELECTOR.select_targets([
+        'config/refactor-call-map.json',
+        'tools/refactor_call_map.py',
+        'tests/test_refactor_call_map.py',
+    ], config['groups'])
+    assert unknown == []
+    assert 'tests/test_refactor_call_map.py' in targets
