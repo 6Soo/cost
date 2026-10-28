@@ -78,7 +78,7 @@ def test_one_original_can_have_multiple_confirmed_refunds_without_merchant_match
         assert set(refund_group(board.conn, ids['100'])) == set(ids.values())
         html = _render_refund_evidence(board, ids['200'], linked[ids['200']])
         assert '원승인번호 기준 원결제 확정 연결 · 취소/환불 2건' in html
-        assert '전액 상쇄' in html
+        assert '전액 상쇄' not in html
         assert 'cleanup-merchant-compare' not in html
         assert list(board.conn.iterdump()) == before
     finally:

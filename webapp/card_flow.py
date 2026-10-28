@@ -2769,7 +2769,7 @@ def _build_refund_evidence_content(board, tid: str, link: dict, *, held_cancella
                  else '동일 카드·가맹점·이용일·동액 기준 추론 연결 (정산 확정 아님)'
                  if link.get('inferred')
                  else '원승인번호 기준 원결제 확정 연결')
-        lines = [{'full': '전액 상쇄', 'partial': '부분 환불',
+        lines = [{'full': '순액 0원', 'partial': '부분 환불',
                   'excess': '환불 합계가 원결제를 초과해 기록을 보류합니다.'}.get(link['status'], '연결 상태 확인 필요'),
                  f"{basis} · 취소/환불 {link['refund_count']}건",
                  f"원결제 {link['gross_krw']:,}원 · 환불 합계 {link['refunds_total_krw']:,}원 · 순액 {link['net_krw']:,}원"]
@@ -3002,18 +3002,17 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             pairs = original_refunds[tid]
             example = pairs[0][1]
             if example.get('inferred'):
-                reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결 · 전액 상쇄 추정. '
+                reason = ('원결제와 취소의 동일 카드·동액 기준 추론 연결. '
                           '별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.')
             elif example.get('status') == 'full':
-                reason = (f"원결제와 취소·환불 {example['refund_count']}건의 금액이 전액 상쇄됩니다."
-                          " OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다.")
+                reason = f"원결제와 취소·환불 {example['refund_count']}건의 금액을 함께 확인할 수 있습니다."
             elif example.get('status') == 'partial':
                 reason = (f"원결제에 취소·환불 {example['refund_count']}건 연결 · "
                           f"순액 {example['net_krw']:,}원. OTA 상태는 별도로 확인합니다.")
             elif example.get('status') == 'excess':
                 reason = '원결제보다 환불 합계가 커서 금액 충돌 상태입니다.'
             evidence += ("<p class='cleanup-finance-status'>"
-                         + esc("원결제·취소 원행은 각각 보존합니다. OTA 예약 연결 상태와 금융 상쇄 상태는 별개입니다. "
+                         + esc("원결제·취소 원행은 각각 보존합니다. OTA 예약 연결 상태와 금융 기록은 별개입니다. "
                                "실제 장부 기록·환급 완료를 의미하지 않습니다.")
                          + "</p>")
         # 취소/환불 거래: refund pair 상태별 상세 구분
@@ -3024,9 +3023,9 @@ def render_expense_cleanup(board, csrf, *, page=1, reason='all'):
             else:
                 status = link.get('status')
                 if link.get('inferred'):
-                    reason = '원결제 추론 연결 · 전액 상쇄 추정. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
+                    reason = '원결제 추론 연결. 별도 근거 검증 전 장부 기록 보류 · 환급 완료 아님.'
                 elif status == 'full':
-                    reason = '취소·환불 금액이 원결제와 상쇄됩니다. 원결제와 환불을 함께 기록해야 합니다.'
+                    reason = '취소·환불 금액을 원결제와 함께 기록해야 합니다.'
                 elif status == 'partial':
                     reason = f'일부 환불이 확인됐습니다. 남은 금액 {link.get("net_krw")}원을 함께 확인해야 합니다.'
                 elif status == 'excess':

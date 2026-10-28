@@ -311,7 +311,7 @@ def scope_group(store, result: dict, original_id: str,
                        or link['net_krw'] != 0 or link['original_id'] != original_id
                        for link in links.values())):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
-                             "원승인번호로 검증된 전액 상쇄 묶음만 이 화면에서 기록할 수 있어요")
+                             "원승인번호로 검증된 원결제·환불 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
     if any(member not in by_id for member in members):
         raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,

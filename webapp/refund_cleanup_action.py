@@ -33,7 +33,7 @@ def _group_context(board, original_id):
                    or link.get("status") != "full" or link.get("net_krw") != 0
                    for link in links.values())):
         raise StoreError("REFUND_LINK_NOT_VERIFIED",
-                         "추론 연결이거나 전액 상쇄가 아닌 거래는 자동 기록하지 않습니다")
+                         "추론 연결이거나 순액 0원이 아닌 거래는 자동 기록하지 않습니다")
 
     # Source provenance and the complete member set are determined on the server.
     batch = board.conn.execute(

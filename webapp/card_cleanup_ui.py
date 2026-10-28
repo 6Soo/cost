@@ -230,7 +230,7 @@ def render_cleanup_card_row(
         f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}"
         + ("<div class='cleanup-refund-tool'>"
            f"<button type='button' class='cleanup-refund-action' "
-           f"data-original='{esc(row.refund_group_original)}'>전액 상쇄 묶음 기록</button>"
+           f"data-original='{esc(row.refund_group_original)}'>원결제·환불 묶음 기록</button>"
            "<p class='cleanup-refund-status' role='status'></p></div>"
            if row.refund_group_original else "")
         + "</li>"

@@ -755,8 +755,8 @@ def test_cleanup_refund_pair_full_offset_shows_linked_pending_when_unrecorded(tm
         # 원결제 ID 표시 확인
         assert purchase_tid not in refund_section
 
-        # full 상태 표시 확인
-        assert '전액 상쇄' in refund_section
+        # full 상태의 상세 안내 문구는 표시하지 않는다.
+        assert '전액 상쇄' not in refund_section
 
         # 원결제 거래 행도 확인
         purchase_section = html.split(f"data-transaction='{purchase_tid}'", 1)[1]

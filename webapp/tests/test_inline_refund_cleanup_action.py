@@ -79,7 +79,8 @@ def test_existing_full_refund_is_actionable_inline_but_get_remains_read_only(con
     start = list(board.conn.iterdump())
     html = card_flow.render_expense_cleanup(board, "synthetic-csrf")
     assert f"data-original='{original}'" in html
-    assert "전액 상쇄 묶음 기록" in html
+    assert "원결제·환불 묶음 기록" in html
+    assert "전액 상쇄" not in html
     assert list(board.conn.iterdump()) == start
     status, preview = _post(board, original, "preview")
     assert status == 200
