@@ -2054,8 +2054,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
     maintenance_paths = ('/maintenance/expense-bulk',
                          '/api/maintenance/expense-bulk/preview',
                          '/api/maintenance/expense-bulk/apply')
+    refund_pair_route = parsed.path.startswith('/api/maintenance/refund-pair/')
     if not enabled() or not ((parsed.path == '/' and raw is None) or parsed.path in ('/cards', '/import', '/api/imports')
-                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths):
+                            or parsed.path.startswith('/api/imports/') or parsed.path in maintenance_paths
+                            or refund_pair_route):
         return False
     from .ledger_board import _active_store
     from app import StoreError, ParseError
@@ -2065,8 +2067,10 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
         handler._send_json({'code':'STORE_UNBOUND','message':'장부를 열 수 없습니다'}, 503)
         return True
     try:
-        from . import expense_bulk_maintenance
+        from . import expense_bulk_maintenance, refund_cleanup_action
         if expense_bulk_maintenance.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
+            return True
+        if refund_cleanup_action.dispatch(handler, parsed, board=board, raw=raw, csrf=csrf):
             return True
         if parsed.path == '/cards':
             # 카드 내역은 카드 검토의 "모든 자료" 범위로 합쳤다. 오래된 링크도 같은 화면으로 보낸다.
