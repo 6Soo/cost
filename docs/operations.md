@@ -279,3 +279,8 @@ PR #263/#265~#270/#272의 저장소·보드·카드·검토 문서 책임 분리
 ## 2026-10-28 RF 통합 후보 배포 실패와 복귀
 
 후보535b6dd3178758a5a442eb6a8e7b0d60517a5cb3(1018 blobs 일치)는 배포 entrypoint OWNER_UI_ROLLED_BACK으로 종료했다. 이전 검증 b54ca37c068ae8e830220652fe91978821978231 작업 인자·health/ready200 복귀와 보호13표 불변을 확인했다. 성공 배포로 계산하지 않는다. 후보 시작 로그가 없고 포괄 catch로 최초 원인이 감춰져 작업 시작/준비 단계 진단을 진행한다. 원문/금융/여행/Google 쓰기 없음.
+
+
+## 2026-10-28 RF 통합 후보 재검증 배포 성공
+
+535b6dd3178758a5a442eb6a8e7b0d60517a5cb3 재배포 성공:1018 blobs 일치,실행SHA·단일listener·health/ready200·보호API401·보호13표 불변. 이전 b54ca37 복구점 보존. 최초 실패/복귀 기록 유지. IgnoreNew 종료 상태 확인과 준비 대기/실패단계 기록을 보완한 로컬 observed 실행기를 사용했고 호스트 원래 배포기는 미변경. 최초 원인을 확정하지 않는다. 호스트 동일 SHA deploy-evidence 및 .local-archive/refactor-parallel-20261028/protection-before.json/after.json 근거. PR280/281은 이 릴리스 뒤의 검수 병합이며 아직 미포함. 원문/금융/여행/Google 쓰기 없음.
