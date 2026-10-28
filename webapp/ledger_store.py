@@ -56,6 +56,15 @@ from .ledger_store_audit import (
     owns_outbox_id,
     source_fact_digest,
 )
+from .ledger_store_idempotency import (
+    check_revision_conflict,
+    match_allocation_save_request,
+    match_board_revert_request,
+    match_board_save_request,
+    match_rule_apply_request,
+    match_rule_lifecycle_request,
+    verify_correction_reused_request,
+)
 from .ledger_store_allocation_validation import (
     SaveError,
     allocation_request_matches,
@@ -663,18 +672,17 @@ class LedgerStore:
             ).fetchone()
             if existing:
                 stored = json.loads(existing[0])
-                if stored["row_id"] != row_id:
-                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-                if stored.get("expected_revision") == expected_revision:
-                    return stored["result"]
-                status = self.revert_status(row_id)
-                want_changes = ({"revert": status["target_revision"]}
-                                if status["revertible"] else None)
-                if stored.get("changes") != want_changes:
-                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-                return stored["result"]
-            if current["revision"] != expected_revision:
-                raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+                def _get_want_changes():
+                    status = self.revert_status(row_id)
+                    return ({"revert": status["target_revision"]}
+                            if status["revertible"] else None)
+                return match_board_revert_request(
+                    stored,
+                    row_id=row_id,
+                    expected_revision=expected_revision,
+                    get_want_changes_fn=_get_want_changes,
+                )
+            check_revision_conflict(current["revision"], expected_revision)
             status = self.revert_status(row_id)
             if not status["revertible"]:
                 raise SaveError("INVALID_VALUE", status["reason"])
@@ -960,7 +968,7 @@ class LedgerStore:
             " WHERE client_request_id=?", (client_request_id,)).fetchone()
         if row is None:
             return None
-        if row[0] != operation or json.loads(row[1]) != request:
+        if not match_rule_lifecycle_request(row[0], row[1], operation, request):
             raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
         return json.loads(row[2])
 
@@ -1269,7 +1277,7 @@ class LedgerStore:
                 "SELECT request_json, result_json FROM rule_apply_requests"
                 " WHERE client_request_id=?", (client_request_id,)).fetchone()
             if existing:
-                if json.loads(existing[0]) != request:
+                if not match_rule_apply_request(existing[0], request):
                     raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
                 return json.loads(existing[1])
             preview = self.get_preview(preview_id)
@@ -2975,9 +2983,13 @@ class LedgerStore:
             ).fetchone()
             if existing:
                 stored = json.loads(existing[0])
-                if stored["row_id"] != row_id or stored["expected_revision"] != expected_revision or stored["changes"] != changes or stored["change_mode"] != change_mode:
-                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-                return stored["result"]
+                return match_board_save_request(
+                    stored,
+                    row_id=row_id,
+                    expected_revision=expected_revision,
+                    changes=changes,
+                    change_mode=change_mode,
+                )
             # SPEC_REFINEMENT 19.3 puts row saving last, and only when even the
             # minimum headroom is gone: a save is never reported as a success it
             # did not achieve. The reservation happens inside `_begin_write`
@@ -2989,8 +3001,7 @@ class LedgerStore:
             current = self.get_row(row_id)
             if current is None:
                 raise SaveError("INVALID_VALUE", "없는 행이에요")
-            if current["revision"] != expected_revision:
-                raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+            check_revision_conflict(current["revision"], expected_revision)
             if (current["row_kind"] == "income" and row_id in self.split_source_ids()
                     and any(f != "occurred_on" for f in changes)):
                 raise SaveError("FIELD_READ_ONLY", "배분된 입금은 배분 편집에서 원금과 함께 조정해 주세요")
@@ -3683,9 +3694,12 @@ class LedgerStore:
                 (client_request_id,),
             ).fetchone()
             if existing:
-                if (existing[0] != corrected_amount_krw
-                        or (existing[1] or None) != (corrected_occurred_on or None)):
-                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                verify_correction_reused_request(
+                    existing[0],
+                    existing[1],
+                    corrected_amount_krw,
+                    corrected_occurred_on,
+                )
                 stored = self.conn.execute(
                     "SELECT result_json FROM board_requests WHERE client_request_id=?",
                     (client_request_id,),
@@ -3699,8 +3713,7 @@ class LedgerStore:
                 return {"row_id": row_id, "revision": existing[2],
                         "corrected_amount_krw": existing[0],
                         "corrected_occurred_on": existing[1], "reused": True}
-            if current["revision"] != expected_revision:
-                raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+            check_revision_conflict(current["revision"], expected_revision)
             new_revision = current["revision"] + 1
             date_value = corrected_occurred_on or None
             correction_id = f"corr-{client_request_id}"
@@ -5308,16 +5321,16 @@ class LedgerStore:
             ).fetchone()
             if existing:
                 stored = json.loads(existing[0])
-                if (self._normalize_plan_for_compare(stored.get("plan"))
-                        != self._normalize_plan_for_compare(list(allocations or []))
-                        or stored.get("new_principal") != (new_principal or None)):
-                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-                return stored["result"]
+                return match_allocation_save_request(
+                    stored,
+                    allocations=allocations,
+                    new_principal=new_principal,
+                    normalize_plan_fn=self._normalize_plan_for_compare,
+                )
             source = self.get_row(source_row_id)
             if source is None or source["row_kind"] != "income":
                 raise SaveError("INVALID_VALUE", "없는 수입 행이에요")
-            if source["revision"] != expected_source_revision:
-                raise SaveError("EDIT_CONFLICT", "다른 저장이 먼저 됐어요. 최신 값을 보고 다시 저장해 주세요")
+            check_revision_conflict(source["revision"], expected_source_revision)
             updated_source = dict(source)
             if new_principal is not None:
                 if source.get("source_kind") != "직접 입력":
