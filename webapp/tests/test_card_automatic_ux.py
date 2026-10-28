@@ -81,6 +81,38 @@ def test_automatic_endpoint_keeps_csrf_and_read_only_get(flow):
     assert h.result[0]==200
     assert f.board.conn.execute('SELECT COUNT(*) FROM board_rows').fetchone()[0]==0
 
+
+def test_classification_save_is_complete_when_ledger_needs_a_trip_and_replay_is_safe(flow):
+    f, batch, _ = flow
+    row = next(r for r in f.pipeline.get_batch(batch)['rows'] if r['amount_krw'] == 89891)
+    source = f.board.conn.execute(
+        'SELECT source_hash,amount_krw,approval_date,approval_number FROM transactions WHERE transaction_id=?',
+        (row['transaction_id'],)).fetchone()
+    body = json.dumps(dict(transaction_id=row['transaction_id'], revision=row['revision'],
+        item='소모품비', display_tab_id='unclassified', request_id='classification-without-trip')).encode()
+
+    class Handler:
+        headers = {'X-CSRF-Token': 'csrf'}
+        def _send_json(self, value, status=200):
+            self.result = (status, value)
+
+    for _ in range(2):
+        handler = Handler()
+        dispatch(handler, urlparse('/api/imports/' + batch + '/decision'), raw=body, csrf='csrf')
+        status, response = handler.result
+        assert status == 200 and response['saved']
+        assert response['classification_state'] == 'classified'
+        assert response['ledger_recording']['status'] == 'held'
+        assert response['ledger_recording']['code'] == 'NOT_RECORDED'
+    saved = next(r for r in f.pipeline.get_batch(batch)['rows'] if r['transaction_id'] == row['transaction_id'])
+    assert saved['classification_state'] == 'classified' and saved['item'] == '소모품비'
+    assert saved['classification_source'] == 'user_decision'
+    assert f.board.conn.execute('SELECT COUNT(*) FROM review_decisions').fetchone()[0] == 1
+    assert f.board.conn.execute('SELECT COUNT(*) FROM ledger_entries').fetchone()[0] == 0
+    assert source == f.board.conn.execute(
+        'SELECT source_hash,amount_krw,approval_date,approval_number FROM transactions WHERE transaction_id=?',
+        (row['transaction_id'],)).fetchone()
+
 def test_mobile_catalog_automatically_records_and_opens_exact_transaction(flow):
     f, batch, _ = flow
     previous = ledger_board._STORE

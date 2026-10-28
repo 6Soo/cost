@@ -15,9 +15,10 @@ TRIPS = [
 ]
 
 
-def test_low_evidence_unique_authoritative_trip_is_provisional():
+def test_low_evidence_unique_authoritative_trip_is_classified_without_confirmation():
     result = rank_trip_candidates([{"trip_id": "A", "score": 1, "basis": "날짜 근접"}], trips=TRIPS)
-    assert (result["status"], result["trip_id"], result["confidence"]) == ("AUTO_PROVISIONAL", "A", "낮음")
+    assert (result["status"], result["trip_id"], result["confidence"]) == ("CLASSIFIED", "A", "낮음")
+    assert result['assignment_source'] == 'automatic'
 
 
 def test_equal_top_candidates_are_held_for_review():
@@ -30,6 +31,8 @@ def test_equal_top_candidates_are_held_for_review():
 def test_manual_choice_and_financial_hold_are_protected():
     candidate = [{"trip_id": "A", "score": 99}]
     assert rank_trip_candidates(candidate, trips=TRIPS, manual_trip_id="B")["trip_id"] == "B"
+    manual = rank_trip_candidates(candidate, trips=TRIPS, manual_trip_id="B", manual_status="USER_CONFIRMED")
+    assert manual['status'] == 'CLASSIFIED' and manual['assignment_source'] == 'manual'
     held = rank_trip_candidates(candidate, trips=TRIPS, financial_hold=True)
     assert held["status"] == "FINANCIAL_HOLD" and held["trip_id"] == ""
     assert held["candidates"][0]["trip_id"] == "A"

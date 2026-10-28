@@ -497,7 +497,7 @@ class CardFlowTests(unittest.TestCase):
         }
         self.assertEqual(
             _review_evidence_labels(row, {'booking_match':True}),
-            ['예약 근거 있음', '여행 배정 확인 권장'],
+            ['예약 근거 있음'],
         )
 
     def test_ota_merchant_classification_uses_approved_shared_nice_alias(self):
@@ -516,7 +516,7 @@ class CardFlowTests(unittest.TestCase):
         }
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_uncertain':True}),
-            ['메일 있음 · 연결 확인 필요', '분류 확인 권장'],
+            ['메일 있음 · 연결 확인 필요', '분류 근거 필요'],
         )
 
     def test_review_evidence_labels_separate_cancellation_mail_from_refund_status(self):
@@ -541,28 +541,28 @@ class CardFlowTests(unittest.TestCase):
         # 메일이 없다고 말하지 않는다.
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True}),
-            ['예약 근거 확인 필요', '분류 확인 권장'],
+            ['예약 근거 확인 필요', '분류 근거 필요'],
         )
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True,
                                           'link_diagnosis':'no_exact_payment_evidence'}),
-            ['결제 근거 미확인 · 연결 필요', '분류 확인 권장'],
+            ['결제 근거 미확인 · 연결 필요', '분류 근거 필요'],
         )
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True,
                                           'link_diagnosis':'multiple_real_transactions_same_amount'}),
-            ['동액 거래 여러 건 · 구분 필요', '분류 확인 권장'],
+            ['동액 거래 여러 건 · 구분 필요', '분류 근거 필요'],
         )
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True,
                                           'link_diagnosis':'no_exact_payment_evidence',
                                           'reference_only':'reference_only'}),
-            ['결제 근거 미확인 · 연결 필요', '참고 자료만 있음 · 검증 필요', '분류 확인 권장'],
+            ['결제 근거 미확인 · 연결 필요', '참고 자료만 있음 · 검증 필요', '분류 근거 필요'],
         )
         self.assertEqual(
             _review_evidence_labels(row, {'mail_link_absent':True,
                                           'source_diagnostic':'registered_source_missing'}),
-            ['등록된 근거 자료 없음 · 확인 필요', '분류 확인 권장'],
+            ['등록된 근거 자료 없음 · 확인 필요', '분류 근거 필요'],
         )
 
     def test_review_evidence_labels_do_not_warn_again_after_user_decision(self):

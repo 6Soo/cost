@@ -1,5 +1,16 @@
 # 현재 상태와 남은 일
 
+## 2026-10-29 현재 사용자 요청 — 자동분류 완료와 환불쌍
+
+- 현재 직접 승인 범위는 취소·환불 미분류 원인 수정·검증·배포, 사례 36건을 바탕으로 가맹점별 예외가 아닌 공통 규칙을 구현하는 것, 그리고 별도 확정/미확정 단계를 없애는 것이다. 최신 계약은 [금융 명세](specs/finance.md#자동분류-완료-계약-2026-10-29)다. 과거 RF/PA 큐 전체를 재실행하지 않는다. 새 승인 작업 ID는 만들지 않는다.
+- 후속 담당 `16089281-ddee-44a0-8f5e-1572550ad28b`가 기존 `C:/AX/cost`를 재사용한다. 이전 부모에게 메시지·재개 없음. 인계 family의 자식/결과 이벤트는 0개이며 새 위임 없음. 기존 사용자 미추적 파일·stash는 보존한다.
+- 인수 HEAD `68ef66b7b58b5733ca5532688fed893bc0cdc0fb`는 원격 main보다 3커밋 앞서며, `8ddee29` 환불쌍 분류 저장·`04a2958` 예약 여행 추론·`68ef66b` 답변 재사용 규칙이 이미 실제 고정 배포됐음을 호스트/local deploy-evidence에서 확인했다. 코드 배포를 36건 실자료 해결 완료로 해석하지 않는다.
+- 구현·검증: 분류 완료 DTO/화면을 `CLASSIFIED`와 자동·수동 출처로 통합하고 추가 확정 요구를 제거했다. 분류가 이미 저장됐는데 내부 기록이 `NOT_RECORDED`이면 전체 API를 409로 반환하던 오류를 고쳐 `saved=true`·`classification_state=classified`와 별도 `ledger_recording=held`를 반환한다. 기록 보류 중에는 다른 거래의 재분류/자동 기록을 실행하지 않는다. 수동 결정·환불·원본·권한 보호는 유지한다.
+- 실제 검사: 최초 표적39 passed/64 deselected, 환불·자동 기록·여행 통합62 passed/1 failed, 후속 변경의 자동 기록·교정21 passed, 결정 API·여행 이동·근거10 passed/84 deselected, OTA 권한/공개자료6 passed/33 deselected, 낮은 신뢰도 브라우저 교정1 passed. 최신 여행 화면 browser는21개 묶음에도 포함되며 별도 브라우저에서 분류 완료/추가 확인창 없음·4폭·확대 검증을 수행했다. 변경 Python9개 compile·diff·현재 로컬 문서 링크 누락0.
+- 기존 실패: `test_refund_group_commit.py::RefundGroupCommitTests::test_group_route_books_only_the_pair_and_repeats_are_noops`의 새로운 요청 ID+이전 미리보기 재전송 오류는 변경 전 `68ef66b`에서 동일 `KeyError: result` 재현. 미리보기 만료 보호를 약화해 통과시키지 않았다. 근거 `.local-archive/automatic-classification-20261029/baseline-refund-retry.txt`. 과거 브라우저 fixture의 숨겨진 배치·폐기된 수동 기록 버튼/문구는 현재 계약에 맞게 교정 후 통과했다.
+- 남은 실행: 기존3커밋 포함 PR 정상 병합→검증된 SHA 고정 배포/신선 백업·별도 복원/health/ready·보호 API·13표 불변→완료 SHA 기록. 운영 일괄 재처리·Google 자동 쓰기는 실행하지 않는다.
+- 별도 필수 대기 없음. 공통 규칙의 아직 논의되지 않은 업무 의미를 임의로 정하지 않으며 기존 업종·현지 사용 기본 규칙을 재사용한다. 실제 대기/외부 자료가 확인되면 그 건만 기록한다.
+
 ## 계정 전환 후 통합 검수 (2026-10-28)
 
 후속 담당은 `a8dba9f3-3e50-4a26-b113-ab754767883e`다. 이전 담당에게 메시지를 보내거나 재개하지 않는다. 잠정 배정 최종 `494761842aa6da982133a8548edc660b9d11b65a`를 최신 main `9c7580d8d12e869dc23dee8f3f822033d28389d2`에 정상 통합했다. 통합본 새 화면·금융 보호 226 passed, 권한·환불·우선배정·OTA 페이지/스냅샷 227 passed, 변경 Python 12개 compile 및 diff 검사 통과. 선택기 미매핑0, metadata guard 차단0/삭제0. 실제 브라우저 검사는 합성 자료를 사용하며 운영 실자료 수락과 구별한다.
