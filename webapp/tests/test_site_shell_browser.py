@@ -9,6 +9,38 @@ from webapp.tests.test_reserve_link_browser import LinkBrowserFixture
 
 
 class SiteShellBrowserTests(LinkBrowserFixture):
+    def test_theme_keyboard_motion_and_responsive_contract(self):
+        for width in (320, 390, 760, 1024, 1440):
+            with self.subTest(width=width):
+                page, base = self.prepare_pages(width)
+                page.goto(base + '/board')
+                self.assertLessEqual(page.evaluate('document.documentElement.scrollWidth'), width)
+                toggle = page.locator('#site-theme-toggle')
+                self.assertEqual(toggle.count(), 1)
+                before = page.locator('html').get_attribute('data-theme')
+                toggle.focus()
+                page.keyboard.press('Enter')
+                after = page.locator('html').get_attribute('data-theme')
+                self.assertNotEqual(before, after)
+                self.assertEqual(toggle.get_attribute('aria-label'),
+                                 '라이트모드로 전환' if after == 'dark' else '다크모드로 전환')
+                self.assertEqual(page.evaluate('''() => {
+                  const t=document.querySelector('#site-theme-toggle').getBoundingClientRect();
+                  return t.width >= 44 && t.height >= 44;
+                }'''), True)
+
+    def test_theme_override_and_reduced_motion(self):
+        page, base = self.prepare_pages(390)
+        page.emulate_media(color_scheme='dark', reduced_motion='reduce')
+        page.goto(base + '/board')
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'dark')
+        self.assertEqual(page.locator('#site-theme-toggle').evaluate(
+            "el => getComputedStyle(el).transitionDuration"), '0s')
+        page.locator('#site-theme-toggle').click()
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'light')
+        page.reload()
+        self.assertEqual(page.locator('html').get_attribute('data-theme'), 'light')
+
     def test_sidebar_appearance_stays_the_same_between_ledger_and_cards(self):
         for width in (390, 1440):
             with self.subTest(width=width):
