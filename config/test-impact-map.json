@@ -87,6 +87,21 @@
       "tests": ["webapp/tests/test_card_refund_query.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_refund_inference_runtime.py"]
     },
     {
+      "name": "ledger-allocation-validation",
+      "paths": ["webapp/ledger_store_allocation_validation.py", "webapp/tests/test_ledger_store_allocation_validation.py"],
+      "tests": ["webapp/tests/test_ledger_store_allocation_validation.py", "webapp/tests/test_income_bank.py", "webapp/tests/test_ledger_store.py"]
+    },
+    {
+      "name": "ledger-schema",
+      "paths": ["webapp/ledger_store_schema.py", "webapp/tests/test_ledger_store_schema.py"],
+      "tests": ["webapp/tests/test_ledger_store_schema.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_income_bank.py"]
+    },
+    {
+      "name": "card-cleanup-presentation",
+      "paths": ["webapp/card_cleanup_ui.py", "webapp/tests/test_card_cleanup_ui.py"],
+      "tests": ["webapp/tests/test_card_cleanup_ui.py", "webapp/tests/test_cleanup_ota_contract.py", "webapp/tests/test_cleanup_original_refund_status_contract.py"]
+    },
+    {
       "name": "card-ota-projection",
       "paths": ["webapp/card_ota_projection.py", "webapp/tests/test_card_ota_projection.py"],
       "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]
