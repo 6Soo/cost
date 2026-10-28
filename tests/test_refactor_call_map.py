@@ -76,3 +76,44 @@ def test_http_dispatch_methods_are_entrypoints_even_without_decorators(tmp_path)
         'class Handler:\n    def do_GET(self):\n        self.service()\n    def service(self): pass\n'}))
     assert any(r['symbol'] == 'Handler.do_GET' for r in result['routes'])
     assert any(c.get('target') == 'webapp/api.py:Handler.service' for c in result['calls'])
+
+
+def test_store_assignment_in_one_function_does_not_resolve_another_function(tmp_path):
+    from tools.refactor_call_map import build_map
+    root = repository(tmp_path, {
+        'webapp/ledger_store.py': 'class LedgerStore:\n    def save(self): pass\n',
+        'webapp/api.py': (
+            'def _active_store(): pass\n'
+            'def first():\n    store = _active_store()\n    store.save()\n'
+            'def second():\n    store.save()\n'
+        ),
+    })
+    result = build_map(root)
+    second = next(c for c in result['calls'] if c['source'] == 'webapp/api.py:second')
+    assert second['status'] == 'OPEN_QUESTION'
+    assert 'target' not in second
+
+
+def test_annotated_assignment_call_is_indexed_once(tmp_path):
+    from tools.refactor_call_map import build_map
+    result = build_map(repository(tmp_path, {
+        'app/api.py': 'def run(): pass\ndef handler():\n    value: object = run()\n',
+    }))
+    calls = [c for c in result['calls'] if c['call'] == 'run']
+    assert len(calls) == 1
+
+
+def test_limit_output_preserves_valid_json_under_utf8_byte_cap():
+    from tools.refactor_call_map import truncate_to_limit
+    result = {
+        'schema': 'rf001-call-map/v1',
+        'mode': 'static_ast_only',
+        'code_sha': 'a' * 40,
+        'files': [{'path': '가나다' * 100, 'symbols': 1} for _ in range(50)],
+        'symbols': [], 'calls': [], 'routes': [], 'effects': [], 'errors': [],
+        'limitations': [],
+    }
+    limited = truncate_to_limit(result, limit=512)
+    encoded = json.dumps(limited, ensure_ascii=False, indent=2).encode('utf-8')
+    assert len(encoded) <= 512
+    assert json.loads(encoded.decode('utf-8'))['truncated'] is True

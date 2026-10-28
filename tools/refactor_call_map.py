@@ -27,7 +27,7 @@ LIMITATIONS = [
     'Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.',
     'No literal values, SQL text, function bodies or application imports are emitted.',
     'Static candidates are not promoted to actual permissions or active status.',
-    'Output size capped at 1 MiB; full graph requires rerun without --summary.',
+    'With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.',
 ]
 
 # Known store patterns for dynamic dispatch resolution.
@@ -95,11 +95,20 @@ class Index(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node):
-        # Track annotated assignments: store: LedgerStore = ...
+        # Visit the value exactly once and track simple annotated aliases.
         if isinstance(node.target, ast.Name):
             var_name = node.target.id
             if node.value:
-                self.visit(node.value)
+                if isinstance(node.value, ast.Call):
+                    func_name = dotted(node.value.func)
+                    if func_name in STORE_PATTERNS:
+                        self.assignments[var_name] = STORE_PATTERNS[func_name]
+                elif isinstance(node.value, ast.Name):
+                    name = node.value.id
+                    if name in STORE_PATTERNS:
+                        self.assignments[var_name] = STORE_PATTERNS[name]
+                    elif name in self.assignments:
+                        self.assignments[var_name] = self.assignments[name]
         self.generic_visit(node)
 
     def visit_ClassDef(self, node):
@@ -111,6 +120,10 @@ class Index(ast.NodeVisitor):
         self.scope.pop()
 
     def visit_FunctionDef(self, node):
+        previous_assignments = self.assignments
+        # A nested function can close over its enclosing function's locals;
+        # unrelated functions must never inherit one another's assignments.
+        self.assignments = dict(previous_assignments) if self.functions else {}
         self.scope.append(node.name)
         symbol = '.'.join(self.scope)
         self.nodes.append({'path': self.path, 'symbol': symbol, 'line': node.lineno,
@@ -128,6 +141,7 @@ class Index(ast.NodeVisitor):
             self.visit(statement)
         self.functions.pop()
         self.scope.pop()
+        self.assignments = previous_assignments
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
@@ -171,8 +185,10 @@ def resolve_store_method(call_name, assignments, module_paths, symbols):
         candidate = f'{target_path}:{store_class.split(".")[-1]}.{method}'
         if candidate in symbols:
             return candidate
-    # Check STORE_PATTERNS for direct calls like _active_store().method()
-    if receiver in STORE_PATTERNS:
+    # Only the known module-level access-store singleton is safe to resolve
+    # without a local assignment. Generic names such as "store" and "board"
+    # are resolved only when their assignments were observed in this scope.
+    if receiver == '_ACCESS':
         store_class = STORE_PATTERNS[receiver]
         if store_class == 'webapp.ledger_store.LedgerStore':
             target_path = 'webapp/ledger_store.py'
@@ -282,19 +298,38 @@ def build_map(root=ROOT):
 
 
 def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
-    """Truncate JSON output to size limit by removing less critical fields."""
+    """Return valid JSON data within the byte limit, compacting oversized maps."""
     import copy
     obj = copy.deepcopy(obj)
-    # First, try removing calls details (keep counts)
-    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
-        obj['calls'] = [{'status': c['status']} for c in obj['calls']]
-    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
-        obj['symbols'] = [{'path': s['path'], 'symbol': s['symbol']} for s in obj['symbols']]
-    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
-        obj['effects'] = [{'kind': e['kind'], 'status': e['status'], 'table': e.get('table')} for e in obj['effects']]
-    if len(json.dumps(obj, ensure_ascii=False).encode('utf-8')) > limit:
-        obj['routes'] = [{'path': r['path'], 'symbol': r['symbol']} for r in obj['routes']]
-    return obj
+    if len(json.dumps(obj, ensure_ascii=False, indent=2).encode('utf-8')) <= limit:
+        return obj
+
+    counts = obj.get('counts')
+    if not isinstance(counts, dict):
+        counts = {key: len(obj.get(key, [])) for key in
+                  ('files', 'symbols', 'calls', 'routes', 'effects', 'errors')}
+    compact = {
+        'schema': obj.get('schema', 'rf001-call-map/v1'),
+        'mode': obj.get('mode', 'static_ast_only'),
+        'code_sha': obj.get('code_sha'),
+        'truncated': True,
+        'counts': counts,
+    }
+    call_status = obj.get('call_status')
+    if call_status is None and isinstance(obj.get('calls'), list):
+        call_status = dict(Counter(c.get('status', 'UNKNOWN') for c in obj['calls']))
+    if call_status:
+        compact['call_status'] = call_status
+    if obj.get('errors'):
+        compact['errors'] = obj['errors'][:20]
+    compact['limitations'] = ['Graph details omitted to satisfy the UTF-8 byte limit.']
+    if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
+        compact = {'schema': compact['schema'], 'mode': compact['mode'],
+                   'code_sha': compact['code_sha'], 'truncated': True,
+                   'counts': counts}
+    if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
+        raise ValueError('output_limit_too_small')
+    return compact
 
 
 def summary(result):
@@ -312,12 +347,10 @@ def main(argv=None):
     parser.add_argument('--limit-output', action='store_true', help='Enforce 1 MiB output limit')
     args = parser.parse_args(argv)
     result = build_map(args.root)
+    payload = summary(result) if args.summary else result
     if args.limit_output:
-        result = truncate_to_limit(result)
-    output = json.dumps(summary(result) if args.summary else result, ensure_ascii=False, indent=2)
-    if args.limit_output and len(output.encode('utf-8')) > MAX_OUTPUT_BYTES:
-        # Final truncation if still over limit
-        output = output[:MAX_OUTPUT_BYTES] + '\n... [TRUNCATED]'
+        payload = truncate_to_limit(payload)
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
     print(output)
     return 2 if result['errors'] else 0
 
