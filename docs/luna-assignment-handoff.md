@@ -1,6 +1,6 @@
 ﻿# Luna assignment handoff — PA scope
 
-Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`. Latest PA-05 implementation: `3cf62b6d9c6196b731b86d600f0327fb7e9db460`.
+Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`. Latest PA-05 guard implementation: `e9a0f2f44907e629a9afab4bb9df912a511073d9`; protection regression tests: `e1a29aab41838cb8629a6e1a3c729bb85a51a323`.
 
 ## Acceptance state
 
@@ -8,12 +8,12 @@ Base implementation: `393b540b6cc5a72fb3f8a11110f92fe7f26bb724`. Latest PA-05 im
 - PA-02: PARTIAL ACCEPTANCE. Common ranker validates canonical trip periods, groups evidence by trip, preserves manual/financial holds, and sends equal top scores to review. No confidence margin was invented.
 - PA-03: CODE_WRITTEN / TEST_PASSED. `app.ota_inference.provisional_trip_decisions` calls the common candidate generator/ranker for verified service periods without changing `unique_pairs` or payment solver results. UI consumer wiring remains Supervisor-owned.
 - PA-04: DEFERRED to UI owners. Caller passes current authoritative trips and persisted manual state.
-- PA-05: CODE_WRITTEN / TEST_PASSED for exact-source proposal and persistence. Distinct owner corrections produce a deterministic pending DTO. Approval revalidates latest transaction revision, source hash, manual trip/item, conflict/duplicate status and current trip authority, then saves one `inferred_assignment` rule per source hash through existing `app.rules.save_rule` and writes approval to existing append-only `change_log` in one savepoint. Replays are idempotent. Rules preserve the existing ban on merchant-wide trip effects. Pending proposal storage and authenticated owner authorization remain caller/API responsibilities; the helper's `approved_by` field is audit metadata, not an authorization check.
+- PA-05: TEST_PASSED for exact-source proposal, approval and protected persistence. Approval rechecks latest revision/source hash/manual trip/item and authoritative trip, calls the shared review protection checker for current parse errors, cancellation/refund direction/kind, duplicate/conflict, review holds and company exclusion, and independently rejects duplicate transaction IDs or source hashes in forged proposal contents. Rules and append-only approval audit roll back together on save failure while an outer transaction remains intact. Existing merchant-wide trip-effect ban remains. Pending proposal storage and authenticated owner/CSRF authorization remain caller/API responsibilities; `approved_by` is audit metadata, not an authorization check. No customer ledger, bulk reclassification or operational writes were used.
 - PA-06: PARTIAL. Synthetic 10k/100k benchmark and targeted tests only; no runtime/real-data/DB/Google/browser/production validation.
 
 ## Verification
 
-`python -m pytest tests/card_pipeline/test_provisional_assignment.py tests/card_pipeline/test_ota_inference.py tests/card_pipeline/test_history_recovery.py tests/card_pipeline/test_booking_mail.py tests/card_pipeline/test_rule_proposals.py -q` at `3cf62b6d9c6196b731b86d600f0327fb7e9db460` — **110 passed**.
+`python -m pytest tests/card_pipeline/test_provisional_assignment.py tests/card_pipeline/test_ota_inference.py tests/card_pipeline/test_history_recovery.py tests/card_pipeline/test_booking_mail.py tests/card_pipeline/test_rule_proposals.py -q` at `e1a29aab41838cb8629a6e1a3c729bb85a51a323` — **120 passed**. Added synthetic checks for each persisted hold class, parse error, cancellation/refund direction and kind, company exclusion, stale owner revision, forged duplicate transaction/source references, and second-rule failure with outer-transaction preservation.
 
 Earlier synthetic benchmark: 10k 0.061179s; 100k 0.621966s before OTA decision wiring. This is not a production baseline.
 
