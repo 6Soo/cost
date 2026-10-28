@@ -165,13 +165,13 @@ def test_merchant_markup_is_escaped_and_original_text_is_preserved():
 
         def handle_starttag(self, tag, attrs):
             attrs = dict(attrs)
-            if tag == "td" and attrs.get("class") == "merchant":
+            if tag == "span" and attrs.get("class") == "merchant-name":
                 self.in_merchant = True
             if tag in ("script", "img") or any(name.lower().startswith("on") for name, _ in attrs.items()):
                 self.active_markup.append((tag, attrs))
 
         def handle_endtag(self, tag):
-            if tag == "td" and self.in_merchant:
+            if tag == "span" and self.in_merchant:
                 self.in_merchant = False
 
         def handle_data(self, data):
@@ -255,7 +255,9 @@ def test_month_detail_renderer_basic(card_db_path):
     assert '가맹점명' in html
     assert '금액' in html
     assert '배정된 여행' in html
-    assert '상세 보기' in html
+    assert "<th scope='col' class='detail-cell'>상세</th>" in html
+    assert "colspan='5'" in html
+    assert "aria-label='상세 보기'" in html
     # Transaction data
     assert 'MERCURE' in html
     assert 'LAWSON' in html
@@ -418,11 +420,14 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
     with sqlite3.connect(card_db_path) as conn:
         conn.execute("UPDATE transactions SET merchant=? WHERE transaction_id='TX-A-01'",
                      (long_merchant,))
+        conn.execute("UPDATE transactions SET merchant='합성 숙박업체 ' || merchant, classification_state='needs_review', trip_id=?, display_tab_id='', classification_source='auto_inferred' WHERE transaction_id='TX-A-01'",
+                     ('SYNTHETIC-TRIP',))
         conn.commit()
     conn.close()
 
     with patch.object(ledger_board, 'current_role', return_value='owner'), patch.object(
-            ledger_design, 'nav_region', return_value=''):
+            ledger_design, 'nav_region', return_value=''), patch.object(
+            ledger_board, 'live_trips', return_value=[{'tab_id': 'SYNTHETIC-TRIP', 'display_key': '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'}]):
         def serve_page(route):
             parsed = urlsplit(route.request.url)
             query = parse_qs(parsed.query)
@@ -444,7 +449,6 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 page.emulate_media(color_scheme='light')
                 expect(page.locator(':root')).to_have_css('--shell-bg', '#F8FAFC')
                 assert page.get_by_role('heading', name='카드 전체 내역').is_visible()
-
                 march = page.locator("[data-month='3']")
                 march.focus()
                 march.press('Enter')
@@ -460,11 +464,19 @@ def test_browser_cards_all_fits_required_viewports_with_system_theme(card_db_pat
                 assert page.get_by_role('heading', name='2026년 3월 · 전체 3건').is_visible()
                 assert page.locator("tr[data-tx-id='TX-A-01']").is_visible()
                 merchant_cell = page.locator("tr[data-tx-id='TX-A-01'] td.merchant")
-                assert merchant_cell.get_attribute('title') == long_merchant.strip()
+                assert merchant_cell.get_attribute('title').endswith(long_merchant.strip())
                 assert '2026-03-05' in page.locator("tr[data-tx-id='TX-A-01']").inner_text()
                 assert page.locator("tr[data-tx-id='TX-A-02']").is_visible()
                 assert page.locator("tr[data-tx-id='TX-B-01']").is_visible()
                 assert page.get_by_role('link', name='상세 보기').count() == 3
+                tx_row = page.locator("tr[data-tx-id='TX-A-01']")
+                assert tx_row.locator('td.trip .card-all-trip-name').inner_text() == '합성 여행 이름이 매우 긴 샘플 여행 2026 여름 휴가 일정'
+                assert tx_row.locator('td.trip .card-all-trip-source').inner_text() == '추정 배정'
+                assert tx_row.locator('td.merchant .card-identity').count() == 1
+                assert tx_row.locator('td.amount-cell .card-all-badge').count() >= 1
+                assert tx_row.locator('td.trip .card-identity, td.trip .card-all-badge').count() == 0
+                assert tx_row.locator('td.detail-cell a').get_attribute('href') == '/board?row=card-TX-A-01'
+                assert page.get_by_role('columnheader', name='상세').is_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 first_month = page.locator("[data-month='1']")
                 assert first_month.is_visible()
