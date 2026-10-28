@@ -6,6 +6,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.error import HTTPError
@@ -164,6 +165,61 @@ class SignedSessionHttpTests(unittest.TestCase):
                         self.assertNotIn('합성 호텔', body)
                     elif path.startswith('/api/'):
                         self.assertEqual(json.loads(body)['total'], 2)
+
+    def test_trip_flight_booking_route_uses_signed_trip_visibility_and_snapshot(self):
+        route_store = board._active_store()
+        trip = route_store.create_trip(starts_on="2026-11-07", ends_on="2026-11-10",
+            destination="합성도시", client_request_id="synthetic-trip-flight")
+        evidence = {"source_digests": ["synthetic-digest"], "digest": "synthetic-digest",
+            "passengers": [{"surname": "SYNTH", "given_name": "PERSON"}],
+            "legs": [{"label": "가는편", "departure_on": "2026-11-07", "segments": [
+                {"departure_airport": "ICN", "arrival_airport": "FUK", "flight_number": "SYN123"}]}],
+            "cancellation_status": "NONE", "booking_date_status": "FIRST_RECEIVED",
+            "reserved_on": "2026-05-04"}
+        initial_service = SimpleNamespace(display_context=lambda: (
+            {"data": {"passengers": {"SYNTH-PNR": evidence}}},
+            {"fresh": True, "generation": "synthetic-flight-generation"}))
+        route_store._flight_booking_service = None
+        with patch.dict(os.environ, {"WEBLEDGER_OTA_REVIEW_DB": ""}), patch(
+                "webapp.flight_booking_index.prewarm", side_effect=lambda target:
+                setattr(target, "_flight_booking_service", initial_service)) as warm:
+            path = f"/api/trips/{trip['tab_id']}/flight-bookings"
+            status, body, _ = self.request(path, cookie=self.cookie(OWNER))
+            self.assertEqual(status, 200, body)
+            self.assertEqual(warm.call_count, 1)
+            listing = json.loads(body)
+            self.assertEqual(listing["total_bookings"], 1)
+            self.assertEqual(listing["items"][0]["assignment_status"], "AUTO_INFERRED")
+            self.assertNotIn("SYNTH PERSON", body)
+            key = listing["items"][0]["booking_key"]
+            service = route_store._flight_booking_service
+            route_store._flight_booking_service = SimpleNamespace(display_context=lambda: (
+                {"data": {"passengers": {"SYNTH-PNR": evidence}}},
+                {"fresh": True, "generation": "synthetic-next-generation"}))
+            status, _, _ = self.request(path + "?booking_key=" + key +
+                "&generation=" + listing["source_generation"], cookie=self.cookie(OWNER))
+            self.assertEqual(status, 409)
+            route_store._flight_booking_service = service
+            status, body, _ = self.request(path + "?booking_key=" + key +
+                "&generation=" + listing["source_generation"], cookie=self.cookie(OWNER))
+            self.assertEqual(status, 200, body)
+            detail = json.loads(body)
+            self.assertEqual(detail["item"]["passengers"], ["SYNTH PERSON"])
+            self.assertEqual(detail["item"]["booking_date_label"], "최초 메일 수신일 기준 2026-05-04")
+
+            status, body, _ = self.request(path, cookie=self.cookie(VIEWER))
+            self.assertEqual(status, 404)
+            self.assertNotIn("SYNTH-PNR", body)
+            status, _, _ = self.request(path)
+            self.assertEqual(status, 401)
+            status, _, _ = self.request(path, cookie=self.cookie(OWNER), payload={})
+            self.assertEqual(status, 405)
+
+        with patch("webapp.ledger_design.page", return_value="<main>synthetic board</main>") as page:
+            status, _, _ = self.request("/board?tab=" + trip["tab_id"] + "&participant_page=2",
+                                        cookie=self.cookie(OWNER))
+            self.assertEqual(status, 200)
+            self.assertEqual(page.call_args.kwargs["participant_query"]["participant_page"], ["2"])
 
     def test_signed_owner_binary_upload_preserves_bytes_and_denies_other_roles(self):
         from webapp.tests.test_receipt_review import PNG
