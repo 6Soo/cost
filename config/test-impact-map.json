@@ -3,6 +3,11 @@
   "safe_fallback_tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_ota_exact_gate.py", "webapp/tests/test_priority_trip_assignment.py", "webapp/tests/test_access_control_phase7.py", "tests/card_pipeline/test_google_tsv.py"],
   "groups": [
     {
+      "name": "verified-release-entrypoint",
+      "paths": ["tools/deploy_verified_release.ps1", "tools/switch_verified_release.ps1", "tools/verify_protected_release_state.py", "tests/test_verified_release.py"],
+      "tests": ["tests/test_verified_release.py", "webapp/tests/test_ops_safety.py"]
+    },
+    {
       "name": "source-audit-entrypoint",
       "paths": ["tools/cost_audit.py", "tools/audit_test_environment.py", "tests/test_cost_audit.py", "tests/test_test_environment_audit.py"],
       "tests": ["tests/test_cost_audit.py", "tests/test_test_environment_audit.py", "tests/test_runtime_dependency_catalog.py"]
