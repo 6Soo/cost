@@ -30,29 +30,26 @@ from . import ledger_board as board
 from .ledger_store_records import (
     ALLOCATION_ROW_EDITABLE,
     _row_to_record,
-    allocation_row_to_dict,
-    build_allocation_display_row,
-    build_remainder_display_row,
-    calculate_display_amount,
-    calculate_display_occurred_on,
-    calculate_split_remainder,
-    count_visible_rows,
+    allocation_dict,
+    allocation_display_row,
+    allocation_history_projection,
     deserialize_row_record,
+    fetch_active_allocations,
+    fetch_active_tab_allocations,
+    fetch_allocation_row,
+    fetch_board_row,
+    fetch_conflict_note,
+    fetch_conflicting_row_ids,
+    fetch_corrections,
+    fetch_history_rows,
+    fetch_latest_allocation_history_row,
+    fetch_latest_correction,
+    fetch_split_source_ids,
+    fetch_tab_board_rows,
+    fetch_visible_row_counts,
     format_correction_record,
     format_history_entry,
-    project_allocation_history,
-    project_record,
-    read_active_allocations,
-    read_allocation,
-    read_board_row,
-    read_conflicting_row_ids,
-    read_corrections,
-    read_history,
-    read_latest_allocation_history,
-    read_latest_correction,
-    read_row_conflict,
-    read_split_source_ids,
-    read_tab_rows,
+    remainder_display_row,
 )
 from .operator_ledger import LedgerError, OperatorLedger
 from .space_guard import SpaceRefused, reserve
@@ -858,17 +855,34 @@ class LedgerStore:
             self.conn.close()
 
     def get_row(self, row_id: str):
-        return read_board_row(self.conn, row_id)
+        row = fetch_board_row(self.conn, row_id)
+        if row is None:
+            return None
+        return deserialize_row_record(row_id, row[0], row[1], row[2], row[3])
 
     def list_tab_rows(self, tab_id: str | None):
-        return read_tab_rows(
-            self.conn,
-            tab_id=tab_id,
-            split_source_ids=self.split_source_ids(),
-            get_row_fn=self.get_row,
-            split_remainder_fn=self.split_remainder,
-            display_occurred_on_fn=self.display_occurred_on,
-        )
+        split = self.split_source_ids()
+        rows = fetch_tab_board_rows(self.conn, tab_id)
+        out = []
+        for row_id, kind, display, revision, payload_json in rows:
+            if row_id in split:
+                continue
+            out.append(deserialize_row_record(row_id, kind, display, revision, payload_json))
+        alloc_rows = fetch_active_tab_allocations(self.conn, tab_id)
+        for raw in alloc_rows:
+            alloc = self._allocation_dict(raw)
+            source = self.get_row(alloc["source_row_id"])
+            if source is None:
+                continue
+            out.append(self._allocation_display_row(alloc, source))
+        if tab_id is None:
+            for source_id in sorted(split):
+                source = self.get_row(source_id)
+                if source is None:
+                    continue
+                if self.split_remainder(source_id) != 0:
+                    out.append(self._remainder_display_row(source))
+        return out
 
     def visible_row_count(self) -> int:
         """Count rows shown across existing tabs without loading their payloads.
@@ -877,11 +891,12 @@ class LedgerStore:
         nonzero, its unassigned remainder. Deleted or missing tabs are not
         displayed by the board, so their ordinary rows are not counted.
         """
-        return count_visible_rows(
-            self.conn,
-            split_source_ids=self.split_source_ids(),
-            has_nonzero_remainder_fn=lambda sid: self.get_row(sid) is not None and self.split_remainder(sid) != 0,
+        ordinary, allocations = fetch_visible_row_counts(self.conn)
+        remainders = sum(
+            self.get_row(source_id) is not None and self.split_remainder(source_id) != 0
+            for source_id in self.split_source_ids()
         )
+        return ordinary + allocations + remainders
 
     def record_conflict(self, *, row_id: str, expected_revision: int,
                         attempted: dict, client_request_id: str = "",
@@ -941,14 +956,15 @@ class LedgerStore:
         later successful save therefore clears it, which is the only way it
         should clear.
         """
-        return read_row_conflict(self.conn, row_id)
+        return fetch_conflict_note(self.conn, row_id)
 
     def conflicting_row_ids(self) -> set:
         """Every row whose newest ledger event is a conflict note."""
-        return read_conflicting_row_ids(self.conn)
+        return fetch_conflicting_row_ids(self.conn)
 
     def list_history(self, row_id: str):
-        return read_history(self.conn, row_id)
+        rows, has_extended = fetch_history_rows(self.conn, row_id)
+        return [format_history_entry(r, has_extended) for r in rows]
 
     def _latest_entry(self, row_id: str):
         history = self.list_history(row_id)
@@ -4068,28 +4084,34 @@ class LedgerStore:
 
 
     def _latest_correction(self, row_id: str):
-        return read_latest_correction(self.conn, row_id)
+        return fetch_latest_correction(self.conn, row_id)
 
     def display_amount(self, row: dict) -> int:
         """Current display amount: latest bank correction wins, else stored amount."""
-        correction = self._latest_correction(row["row_id"]) if row.get("source_kind") == "은행" else None
-        return calculate_display_amount(row, correction)
+        if row.get("source_kind") != "은행":
+            return row["amount_krw"]
+        correction = self._latest_correction(row["row_id"])
+        return correction[1] if correction else row["amount_krw"]
 
     def display_occurred_on(self, row: dict) -> str:
         """Current display date: latest bank date correction wins, else stored date."""
-        correction = self._latest_correction(row["row_id"]) if row.get("source_kind") == "은행" else None
-        return calculate_display_occurred_on(row, correction)
+        if row.get("source_kind") != "은행":
+            return row["occurred_on"]
+        correction = self._latest_correction(row["row_id"])
+        if correction and correction[2]:
+            return correction[2]
+        return row["occurred_on"]
 
     def projected(self, row: dict) -> dict:
         """R05: 화면·합계·출력이 함께 쓰는 현재 장부 투영."""
-        return project_record(
-            row,
-            display_amount_krw=self.display_amount(row),
-            display_occurred_on=self.display_occurred_on(row),
-        )
+        out = dict(row)
+        out["display_amount_krw"] = self.display_amount(row)
+        out["display_occurred_on"] = self.display_occurred_on(row)
+        return out
 
     def list_corrections(self, row_id: str):
-        return read_corrections(self.conn, row_id)
+        rows, has_extended = fetch_corrections(self.conn, row_id)
+        return [format_correction_record(r, has_extended) for r in rows]
 
     @staticmethod
     def _normalize_plan_for_compare(plan) -> list:
@@ -5327,39 +5349,35 @@ class LedgerStore:
             return stored["result"]
 
     def _allocation_dict(self, row) -> dict:
-        return allocation_row_to_dict(row)
+        return allocation_dict(row)
 
     def active_allocations(self, source_row_id: str) -> list:
-        return read_active_allocations(self.conn, source_row_id)
+        rows = fetch_active_allocations(self.conn, source_row_id)
+        return [self._allocation_dict(r) for r in rows]
 
     def split_source_ids(self) -> set:
-        return read_split_source_ids(self.conn)
+        return fetch_split_source_ids(self.conn)
 
     def split_remainder(self, source_row_id: str) -> int:
         source = self.get_row(source_row_id)
         if source is None:
             return 0
-        return calculate_split_remainder(
-            source,
-            display_amount_krw=self.display_amount(source),
-            active_allocations=self.active_allocations(source_row_id),
-        )
+        reflected = self.display_amount(source)
+        return reflected - sum(a["amount_krw"] for a in self.active_allocations(source_row_id))
 
     def _allocation_display_row(self, alloc: dict, source: dict) -> dict:
-        return build_allocation_display_row(
-            alloc, source, display_occurred_on=self.display_occurred_on(source)
-        )
+        shown_date = self.display_occurred_on(source)
+        return allocation_display_row(alloc, source, shown_date)
 
     def _remainder_display_row(self, source: dict) -> dict:
-        return build_remainder_display_row(
-            source,
-            remainder_krw=self.split_remainder(source["row_id"]),
-            display_occurred_on=self.display_occurred_on(source),
-        )
+        remainder = self.split_remainder(source["row_id"])
+        shown_date = self.display_occurred_on(source)
+        return remainder_display_row(source, remainder, shown_date)
 
     def get_allocation(self, allocation_id: str):
         """Get a single allocation by ID."""
-        return read_allocation(self.conn, allocation_id)
+        row = fetch_allocation_row(self.conn, allocation_id)
+        return self._allocation_dict(row) if row else None
 
     def _normalize_allocation_row_changes(self, changes):
         if not isinstance(changes, dict) or not changes:
@@ -5392,10 +5410,17 @@ class LedgerStore:
                 raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
         return normalized
 
-    _allocation_history_projection = staticmethod(project_allocation_history)
+    _allocation_history_projection = staticmethod(allocation_history_projection)
 
     def _latest_allocation_history(self, allocation_id):
-        return read_latest_allocation_history(self.conn, allocation_id)
+        row = fetch_latest_allocation_history_row(self.conn, allocation_id)
+        if row is None:
+            return None
+        return {
+            "id": row[0], "prev": json.loads(row[1]), "new": json.loads(row[2]),
+            "event_id": row[3], "client_request_id": row[4],
+            "reverts_event_id": row[5],
+        }
 
     def _allocation_revert_changes(self, allocation):
         history = self._latest_allocation_history(allocation["allocation_id"])
@@ -5681,8 +5706,11 @@ class LedgerStore:
         )
 
     def get_allocation_display(self, allocation_id: str):
-        alloc = self.get_allocation(allocation_id)
-        if alloc is None or not alloc["active"]:
+        row = fetch_allocation_row(self.conn, allocation_id)
+        if row is None:
+            return None
+        alloc = self._allocation_dict(row)
+        if not alloc["active"]:
             return None
         source = self.get_row(alloc["source_row_id"])
         if source is None:
