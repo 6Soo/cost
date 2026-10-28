@@ -537,6 +537,8 @@ class ParticipantIncomePageTests(unittest.TestCase):
                 if income_table.count() == 0:
                     self.fail('Google 수입 표가 렌더되지 않음: ' + page.locator('#google-trip-income').inner_text())
                 self.assertEqual(income_table.count(), 1)
+                self.assertEqual(page.locator('#participant-trip-panel table').count(), 0)
+                self.assertEqual(page.locator('.trip-flight').count(), 1)
                 target = income_table.locator('.participant-insurance-cell').last
                 self.assertEqual(target.count(), 1)
                 row_ref = target.get_attribute('data-income-ref')

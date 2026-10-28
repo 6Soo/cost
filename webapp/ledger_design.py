@@ -1623,6 +1623,8 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     google_income_html = trip_income_html(
         tab_id, income_offset=participant_controls.get("income_offset", 0),
         participant_search=participant_controls.get("search", ""))
+    from .trip_flight_ui import render_trip_flights
+    flight_html = render_trip_flights(tab_id) if _is_trip_tab(tab_id) else ""
     panel = ""
     if selected:
         panel = panel_part(selected, back=back, error=error, message=message,
@@ -1648,6 +1650,7 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{_participant_trip_panel(tab_id, participant_controls)}"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
+        f"{flight_html}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
         "<span class='meta live-ok' id='live-status' hidden></span></p>"
         "</div></main>")
