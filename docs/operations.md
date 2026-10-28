@@ -1,5 +1,15 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-29 PR #312 미분류 카드 자동추론과 203건 재분석·실제 적용
+
+- **코드·배포 COMPLETE:** [PR #312](https://github.com/6Soo/cost/pull/312), 운영 고정 `a1b1dcaf21d5398ed3519a402191d0129173a6f7`, 검수 소스 `f11b447e8970934985bf4f953801edc078762d71`와 merge tree 동일. 업종→서비스 용도→현지경비/기타경비 공통 규칙과 실제 여행의 최선 후보·동률 해소를 마지막 분류 단계로 연결했다. OTA 자료 읽기 실패도 비용 미분류로 남기지 않으며 미래 업로드에 같은 코드를 사용한다. 확정 단계를 추가하지 않는다.
+- **사용자 의도 오인 정정 COMPLETE:** 사용자는 미배정으로 정한 적이 없다고 명시했다. 분류 이력·override 표시·기본 빈 여행만으로 수동 미배정이라고 간주하던 해석을 폐기했다. 203건을 재대조한 결과 실제 유효 여행 복원187건(현재 장부1·최근 저장31·기존 장부155), 기존 환불 탭11건, 새 여행 추론5건이었다. 현재 장부의 유효 여행은 날짜 추론보다 우선한다. 실제로 지정된 여행·항목은 보존하고 빈 필드에만 근거를 복원/추론한다. 과거 결정/override를 삭제하거나 자동 추론을 새 사용자 교정으로 학습하지 않는다.
+- **실자료 적용 COMPLETE:** SHA 고정 `tools/apply_card_classification.ps1`에서 Board/SourceRefresh 정지·프로세스 검증→신선 전체 백업·별도 복원→운영 사본 미리보기와 현재 digest 일치→원자 분류→원본/사용자/금융 링크 보호→재실행 변경0→서비스 복구를 실제 수행했다.441건의 분류/배정을 보완했다. 미분류 구매195→0, 취소/환불 포함 전체 미분류226→0, 여행 미배정377→0. 앞서 제외했던203건도 실제 반영됐음을 백업과 live 자료로 재대조했다. 해당203건의 기존 비용 항목·source hash·금액·이용일/매입일은 그대로다.
+- **데이터 보호:** 새 장부 행0·새 금융 연결0·Google 쓰기0·스키마 변경0. 기존 장부 행에는 비어 있던 분류/여행 필드만 보완했다. 과거 결정·override·보류·회사 제외와 원본 필드를 보호했다. 코드 전환만 했을 때13개 보호 표 불변을 확인했고, 별도 승인된 실제 분류 후에는 분류 대상3표의 허용 필드 외 원본/사용자 값 불변 및 나머지 금융/사용자10표 내용·스키마 동일을 확인했다. 실제 은행 환급·Google 반영을 창작하지 않는다.
+- **검증:** 표적/금융/업로드/교정60 passed, 최신 추론/복원18 passed, 인접 bulk 포함22 passed, API/근거10 passed. 실행 간 중복이 있으므로 합산 전체 회귀가 아니다. 변경 Python8 compile·PowerShell parse0·diff/문서 링크·metadata guard12파일 차단0/삭제0. 미래 업로드·근거 부족·동률·빈 기본값/이력·기존 배정·부분환불·수동 항목·금액/링크 보호·rollback·재실행을 검사했다. 기존 old-digest+새 request 환불 재전송 실패는 이전 기준에서 재현된 별도 미결이며 금융 보호를 약화하지 않았다. 과거의 무관한 전체 HTML reload 금지 assertion은 해당 bulk 컨트롤 부재 검사로 교정했다. 전체 회귀는 이 변경의 영향 경계 밖이어서 반복하지 않았다.
+- **운영 수락:**1,097 Git blobs 일치·task/process 고정SHA·단일 loopback listener·health/ready200·비인증 trip-review/OTA 등 보호API401. 실제 적용 후 Board/SourceRefresh 모두 Running. 직전 `b75c37887c354255f0bf877eb8d1e47451c9684d` 코드 복구점과 새 전체 백업/별도 복원 사본을 보존했다.
+- **증거:** 코드 `D:/WebLedgerHost/releases/deploy-evidence-a1b1dcaf21d5398ed3519a402191d0129173a6f7.json`와 release-audit, 적용 `D:/WebLedgerHost/data/backups/card-classification-20261029T040917088/`의 backup-restore/preview/applied/repeat-preview/post-verification/financial-relations-verification JSON. 적용은 `APPLIED`, 재실행은 `to_classify=0`,203건 재대조는187/11/5·원본/항목 불변으로 PASS다. 고객 원문·거래 ID를 Git/보고서에 넣지 않았다. 문서 후속 기록만으로 재배포·서버 재시작하지 않는다.
+
 ## 2026-10-29 PR #310 자동분류 완료·환불쌍 저장 배포
 
 - [PR #310](https://github.com/6Soo/cost/pull/310)을 `b75c37887c354255f0bf877eb8d1e47451c9684d`로 정상 병합·고정 배포했다. 검수 소스 `a1b5af2da158d6016f62c150171a91e78599852c`와 merge tree가 동일하다. 인계의 기존 `8ddee29` 환불쌍 분류 저장·`04a2958` 여행 authority 추론·`68ef66b` 답변 재사용을 함께 main에 통합했다.
