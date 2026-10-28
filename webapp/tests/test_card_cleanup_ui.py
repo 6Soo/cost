@@ -2,9 +2,8 @@
 
 Verifies:
 1. Pure HTML assembly helpers (options, breakdown, note, review, rows, pagination, section).
-2. DTO and Mapping input compatibility.
-3. Escaping integrity and integer amount formatting.
-4. Exact equivalence between baseline 2384cfd render_expense_cleanup AST and current implementation.
+2. None/falsey/numeric input preservation and escaping integrity (no 'None' string leakage).
+3. Exact equivalence between baseline 2384cfd render_expense_cleanup AST and current implementation.
 """
 from __future__ import annotations
 
@@ -81,7 +80,6 @@ def test_render_cleanup_snapshot_note():
 def test_render_cleanup_card_review_branches():
     # Cancellation branch
     rev_cancel = card_cleanup_ui.render_cleanup_card_review(
-        tid="c1",
         detail="/import?batch=1&transaction=c1",
         is_cancellation=True,
         evidence="<evidence-block />",
@@ -92,7 +90,6 @@ def test_render_cleanup_card_review_branches():
 
     # Conflict / parse error branch
     rev_conflict = card_cleanup_ui.render_cleanup_card_review(
-        tid="c2",
         detail="/import?batch=1&transaction=c2",
         is_cancellation=False,
         evidence="",
@@ -102,7 +99,6 @@ def test_render_cleanup_card_review_branches():
     assert "원본 충돌 · 금액 충돌" in rev_conflict
 
     rev_parse = card_cleanup_ui.render_cleanup_card_review(
-        tid="c3",
         detail="/import?batch=1&transaction=c3",
         is_cancellation=False,
         evidence="",
@@ -112,7 +108,6 @@ def test_render_cleanup_card_review_branches():
 
     # Held branch
     rev_held = card_cleanup_ui.render_cleanup_card_review(
-        tid="c4",
         detail="/import?batch=1&transaction=c4",
         is_cancellation=False,
         evidence="<p>근거</p>",
@@ -123,7 +118,6 @@ def test_render_cleanup_card_review_branches():
 
     # Normal form branch
     rev_norm = card_cleanup_ui.render_cleanup_card_review(
-        tid="c5",
         detail="/import?batch=1&transaction=c5",
         is_cancellation=False,
         evidence="",
@@ -137,8 +131,41 @@ def test_render_cleanup_card_review_branches():
     assert "<p class='cleanup-finance-status'>내부 비용 기록 준비 가능</p>" in rev_norm
 
 
-def test_render_cleanup_card_row_dto_and_mapping():
-    dto = card_cleanup_ui.CleanupCardRow(
+def test_render_cleanup_card_row_preserves_none_and_falsey():
+    """Verify that None/empty values do NOT produce 'None' in markup."""
+    row = card_cleanup_ui.CleanupCardRow(
+        tid=None,
+        batch=None,
+        revision=1,
+        held=False,
+        merchant=None,
+        current_tab=None,
+        protected=False,
+        label="검토 필요",
+        day=None,
+        amount=None,
+        reason=None,
+        review="<details></details>",
+    )
+    html = card_cleanup_ui.render_cleanup_card_row(row)
+    assert "data-transaction=''" in html
+    assert "data-transaction='None'" not in html
+    assert "data-batch=''" in html
+    assert "data-batch='None'" not in html
+    assert "data-merchant=''" in html
+    assert "data-merchant='None'" not in html
+    assert "data-current-tab=''" in html
+    assert "data-current-tab='None'" not in html
+    assert "<strong></strong>" in html
+    assert "<small> · 카드 결제</small>" in html
+    assert "<small>None · 카드 결제</small>" not in html
+    assert "0원" in html
+    assert "<p class='cleanup-reason'></p>" in html
+    assert "<p class='cleanup-reason'>None</p>" not in html
+
+
+def test_render_cleanup_card_row_numeric_and_special_chars():
+    row = card_cleanup_ui.CleanupCardRow(
         tid="tx-100",
         batch="b-1",
         revision=2,
@@ -149,67 +176,36 @@ def test_render_cleanup_card_row_dto_and_mapping():
         label="보류 중",
         day="2026-10-01",
         amount=15400,
-        reason="보류 사유 확인",
+        reason="보류 사유 & 근거",
         review="<details class='test'></details>",
     )
-    html_dto = card_cleanup_ui.render_cleanup_card_row(dto)
-    assert "data-transaction='tx-100'" in html_dto
-    assert "data-revision='2'" in html_dto
-    assert "data-held='1'" in html_dto
-    assert "스타벅스 &lt;강남&gt;" in html_dto
-    assert "cleanup-badge cleanup-badge-protected" in html_dto
-    assert "15,400원" in html_dto
-
-    # Mapping compatibility
-    mapping_data = {
-        "tid": "tx-100",
-        "batch": "b-1",
-        "revision": 2,
-        "held": False,
-        "merchant": "스타벅스",
-        "current_tab": None,
-        "protected": False,
-        "label": "검토 필요",
-        "day": "2026-10-01",
-        "amount": 5000,
-        "reason": "검토 사유",
-        "review": "",
-    }
-    html_map = card_cleanup_ui.render_cleanup_card_row(mapping_data)
-    assert "data-held='0'" in html_map
-    assert "cleanup-badge-protected" not in html_map
-    assert "5,000원" in html_map
+    html = card_cleanup_ui.render_cleanup_card_row(row)
+    assert "data-transaction='tx-100'" in html
+    assert "data-revision='2'" in html
+    assert "data-held='1'" in html
+    assert "스타벅스 &lt;강남&gt;" in html
+    assert "cleanup-badge cleanup-badge-protected" in html
+    assert "15,400원" in html
+    assert "보류 사유 &amp; 근거" in html
 
 
-def test_render_cleanup_ledger_row_dto_and_mapping():
-    dto = card_cleanup_ui.CleanupLedgerRow(
-        row_id="row-1",
-        revision=3,
-        merchant_or_desc="현금 지출 <식비>",
-        occurred_on="2026-10-02",
-        item="식비",
-        amount_krw=35000,
+def test_render_cleanup_ledger_row_preserves_none_and_falsey():
+    """Verify that None/empty fields in ledger row do NOT leak 'None' strings."""
+    row = card_cleanup_ui.CleanupLedgerRow(
+        row_id=None,
+        revision=1,
+        merchant_or_desc=None,
+        occurred_on=None,
+        item=None,
+        amount_krw=None,
     )
-    html_dto = card_cleanup_ui.render_cleanup_ledger_row(dto)
-    assert "data-row-id='row-1'" in html_dto
-    assert "data-revision='3'" in html_dto
-    assert "현금 지출 &lt;식비&gt;" in html_dto
-    assert "2026-10-02 · 식비" in html_dto
-    assert "35,000원" in html_dto
-
-    mapping_data = {
-        "row_id": "row-2",
-        "revision": 1,
-        "merchant_or_desc": "택시비",
-        "occurred_on": None,
-        "item": None,
-        "amount_krw": 8000,
-    }
-    html_map = card_cleanup_ui.render_cleanup_ledger_row(mapping_data)
-    assert "data-row-id='row-2'" in html_map
-    assert "택시비" in html_map
-    assert "항목 없음" in html_map
-    assert "8,000원" in html_map
+    html = card_cleanup_ui.render_cleanup_ledger_row(row)
+    assert "data-row-id=''" in html
+    assert "data-row-id='None'" not in html
+    assert "<strong></strong>" in html
+    assert "<strong>None</strong>" not in html
+    assert "<small> · 항목 없음</small>" in html
+    assert "0원" in html
 
 
 def test_render_cleanup_pagination():
@@ -267,16 +263,17 @@ def test_baseline_equivalence_render_expense_cleanup(baseline_cleanup_ast, tmp_p
             "INSERT INTO transaction_review_holds(transaction_id,source_hash,kind,reason) VALUES (?,?,?,?)",
             (rows[1]["transaction_id"], rows[1]["source_hash"], "evidence_pending", "receipt check"),
         )
-        # Add unassigned ledger expenditure
+        # Add unassigned ledger expenditure with None values
         payload = json.dumps({
             "row_id": "exp-1",
             "row_kind": "expense",
             "display_tab_id": None,
             "revision": 1,
-            "occurred_on": "2026-09-30",
+            "occurred_on": None,
             "amount_krw": 12000,
-            "item": "교통비",
-            "source_merchant": "직접 입력",
+            "item": None,
+            "source_merchant": None,
+            "description": None,
         })
         store.conn.execute(
             "INSERT INTO board_rows (row_id, row_kind, revision, payload_json) VALUES ('exp-1', 'expense', 1, ?)",

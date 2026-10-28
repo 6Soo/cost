@@ -2954,7 +2954,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
                 reason += ' ' + finance_label
             # 환불에 일반 항목/여행 보류 문구를 덮어씌우지 않는다.
             review = card_cleanup_ui.render_cleanup_card_review(
-                tid=str(tid),
                 detail=detail,
                 is_cancellation=True,
                 evidence=evidence,
@@ -2962,17 +2961,15 @@ def render_expense_cleanup(board, csrf, *, page=1):
             )
         elif conflict_reason or parse_error:
             review = card_cleanup_ui.render_cleanup_card_review(
-                tid=str(tid),
                 detail=detail,
                 is_cancellation=False,
                 evidence=evidence,
-                conflict_reason=str(conflict_reason or ''),
-                parse_error=str(parse_error or ''),
+                conflict_reason=conflict_reason,
+                parse_error=parse_error,
                 esc=esc,
             )
         elif held:
             review = card_cleanup_ui.render_cleanup_card_review(
-                tid=str(tid),
                 detail=detail,
                 is_cancellation=False,
                 evidence=evidence,
@@ -2981,12 +2978,11 @@ def render_expense_cleanup(board, csrf, *, page=1):
             )
         else:
             review = card_cleanup_ui.render_cleanup_card_review(
-                tid=str(tid),
                 detail=detail,
                 is_cancellation=False,
                 evidence=evidence,
-                reason=str(reason or ''),
-                item=str(item or ''),
+                reason=reason,
+                item=item,
                 esc=esc,
             )
         if tid not in cancellation_ids and finance_label:
@@ -3005,16 +3001,16 @@ def render_expense_cleanup(board, csrf, *, page=1):
             elif offset_link.get('status') == 'full':
                 label = '환불 상쇄 확인'
         card_row = card_cleanup_ui.CleanupCardRow(
-            tid=str(tid),
-            batch=str(batch),
-            revision=int(revision),
-            held=bool(held),
-            merchant=str(merchant),
+            tid=tid,
+            batch=batch,
+            revision=revision,
+            held=held,
+            merchant=merchant,
             current_tab=current_tab,
             protected=protected,
             label=label,
             day=day,
-            amount=amount or 0,
+            amount=amount,
             reason=reason,
             review=review,
         )
@@ -3026,9 +3022,9 @@ def render_expense_cleanup(board, csrf, *, page=1):
     for row_id, revision, payload in ledger:
         record = json.loads(payload)
         ledger_row = card_cleanup_ui.CleanupLedgerRow(
-            row_id=str(row_id),
-            revision=int(revision),
-            merchant_or_desc=str(record.get('source_merchant') or record.get('description') or '지출'),
+            row_id=row_id,
+            revision=revision,
+            merchant_or_desc=record.get('source_merchant') or record.get('description') or '지출',
             occurred_on=record.get('occurred_on'),
             item=record.get('item'),
             amount_krw=record.get('amount_krw') or 0,
@@ -3048,19 +3044,6 @@ def render_expense_cleanup(board, csrf, *, page=1):
         nav_html=nav,
         script_html=script_html,
     )
-
-
-# Presentation facades for expense cleanup UI helpers
-CleanupCardRow = card_cleanup_ui.CleanupCardRow
-CleanupLedgerRow = card_cleanup_ui.CleanupLedgerRow
-render_cleanup_card_review = card_cleanup_ui.render_cleanup_card_review
-render_cleanup_card_row = card_cleanup_ui.render_cleanup_card_row
-render_cleanup_ledger_row = card_cleanup_ui.render_cleanup_ledger_row
-render_cleanup_trip_options = card_cleanup_ui.render_cleanup_trip_options
-render_cleanup_breakdown = card_cleanup_ui.render_cleanup_breakdown
-render_cleanup_snapshot_note = card_cleanup_ui.render_cleanup_snapshot_note
-render_cleanup_pagination = card_cleanup_ui.render_cleanup_pagination
-render_cleanup_section = card_cleanup_ui.render_cleanup_section
 
 
 def page(csrf):

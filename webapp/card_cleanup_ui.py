@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import html
-from typing import Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 def default_esc(value: object) -> str:
@@ -91,29 +91,29 @@ CLEANUP_STYLE = (
 @dataclass(frozen=True)
 class CleanupCardRow:
     """Presentation DTO for a single card transaction row in expense cleanup."""
-    tid: str
-    batch: str
-    revision: int
-    held: bool
-    merchant: str
-    current_tab: str | None
+    tid: Any
+    batch: Any
+    revision: Any
+    held: Any
+    merchant: Any
+    current_tab: Any
     protected: bool
-    label: str
-    day: str | None
-    amount: int | float
-    reason: str
-    review: str
+    label: Any
+    day: Any
+    amount: Any
+    reason: Any
+    review: Any
 
 
 @dataclass(frozen=True)
 class CleanupLedgerRow:
     """Presentation DTO for an unassigned ledger expenditure row in expense cleanup."""
-    row_id: str
-    revision: int
-    merchant_or_desc: str
-    occurred_on: str | None
-    item: str | None
-    amount_krw: int | float
+    row_id: Any
+    revision: Any
+    merchant_or_desc: Any
+    occurred_on: Any
+    item: Any
+    amount_krw: Any
 
 
 def render_cleanup_trip_options(
@@ -161,16 +161,15 @@ def render_cleanup_snapshot_note(
 
 def render_cleanup_card_review(
     *,
-    tid: str,
-    detail: str,
+    detail: object,
     is_cancellation: bool,
-    evidence: str,
-    conflict_reason: str = "",
-    parse_error: str = "",
+    evidence: object,
+    conflict_reason: object = None,
+    parse_error: object = None,
     held: bool = False,
-    reason: str = "",
-    item: str = "",
-    finance_label: str = "",
+    reason: object = None,
+    item: object = None,
+    finance_label: object = None,
     esc: Callable[[object], str] = default_esc,
 ) -> str:
     """Assemble the <details class='cleanup-review'> section for a card transaction."""
@@ -207,81 +206,39 @@ def render_cleanup_card_review(
 
 
 def render_cleanup_card_row(
-    row: CleanupCardRow | Mapping[str, object],
+    row: CleanupCardRow,
     *,
     esc: Callable[[object], str] = default_esc,
 ) -> str:
     """Assemble <li> HTML for a single card transaction row."""
-    if isinstance(row, Mapping):
-        tid = row["tid"]
-        batch = row["batch"]
-        revision = row["revision"]
-        held = row["held"]
-        merchant = row["merchant"]
-        current_tab = row.get("current_tab")
-        protected = row["protected"]
-        label = row["label"]
-        day = row.get("day")
-        amount = row["amount"]
-        reason = row["reason"]
-        review = row["review"]
-    else:
-        tid = row.tid
-        batch = row.batch
-        revision = row.revision
-        held = row.held
-        merchant = row.merchant
-        current_tab = row.current_tab
-        protected = row.protected
-        label = row.label
-        day = row.day
-        amount = row.amount
-        reason = row.reason
-        review = row.review
-
-    badge_class = " cleanup-badge-protected" if protected else ""
+    badge_class = " cleanup-badge-protected" if row.protected else ""
     return (
-        f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(tid)}' data-batch='{esc(batch)}'"
-        f" data-revision='{int(revision)}' data-held='{1 if held else 0}' data-merchant='{esc(merchant)}'"
-        f" data-current-tab='{esc(current_tab or '')}'>"
+        f"<li class='cleanup-row' data-kind='card' data-transaction='{esc(row.tid)}' data-batch='{esc(row.batch)}'"
+        f" data-revision='{int(row.revision)}' data-held='{1 if row.held else 0}' data-merchant='{esc(row.merchant)}'"
+        f" data-current-tab='{esc(row.current_tab or '')}'>"
         f"<div class='cleanup-card-head'><h3>카드 거래</h3>"
-        f"<span class='cleanup-badge{badge_class}'>{label}</span></div>"
+        f"<span class='cleanup-badge{badge_class}'>{row.label}</span></div>"
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
-        f"<div class='cleanup-title'><strong>{esc(merchant)}</strong><small>{esc(day or '')} · 카드 결제</small></div></div>"
-        f"<div class='cleanup-amount'>{int(amount or 0):,}원</div>"
-        f"<p class='cleanup-reason'>{esc(reason)}</p>{review}</li>"
+        f"<div class='cleanup-title'><strong>{esc(row.merchant)}</strong><small>{esc(row.day or '')} · 카드 결제</small></div></div>"
+        f"<div class='cleanup-amount'>{int(row.amount or 0):,}원</div>"
+        f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}</li>"
     )
 
 
 def render_cleanup_ledger_row(
-    row: CleanupLedgerRow | Mapping[str, object],
+    row: CleanupLedgerRow,
     *,
     esc: Callable[[object], str] = default_esc,
 ) -> str:
     """Assemble <li> HTML for an unassigned ledger expenditure row."""
-    if isinstance(row, Mapping):
-        row_id = row["row_id"]
-        revision = row["revision"]
-        merchant_or_desc = row["merchant_or_desc"]
-        occurred_on = row.get("occurred_on")
-        item = row.get("item")
-        amount_krw = row["amount_krw"]
-    else:
-        row_id = row.row_id
-        revision = row.revision
-        merchant_or_desc = row.merchant_or_desc
-        occurred_on = row.occurred_on
-        item = row.item
-        amount_krw = row.amount_krw
-
     return (
-        f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row_id)}' data-revision='{int(revision)}'>"
+        f"<li class='cleanup-row' data-kind='ledger' data-row-id='{esc(row.row_id)}' data-revision='{int(row.revision)}'>"
         "<div class='cleanup-card-head'><h3>여행 지정</h3>"
         "<span class='cleanup-badge'>여행 미배정</span></div>"
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
-        f"<div class='cleanup-title'><strong>{esc(merchant_or_desc)}</strong>"
-        f"<small>{esc(occurred_on or '')} · {esc(item or '항목 없음')}</small></div></div>"
-        f"<div class='cleanup-amount'>{int(amount_krw or 0):,}원</div>"
+        f"<div class='cleanup-title'><strong>{esc(row.merchant_or_desc)}</strong>"
+        f"<small>{esc(row.occurred_on or '')} · {esc(row.item or '항목 없음')}</small></div></div>"
+        f"<div class='cleanup-amount'>{int(row.amount_krw or 0):,}원</div>"
         f"<form class='cleanup-form'><select name='display_tab_id' aria-label='여행 선택'><option value=''>여행 선택</option></select>"
         "<button type='submit'>여행 지정</button><p class='cleanup-error' role='alert'></p></form></li>"
     )
