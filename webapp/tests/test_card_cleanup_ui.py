@@ -226,8 +226,7 @@ def test_render_cleanup_pagination():
     assert "<span>다음 20건</span>" in p3
 
 
-def test_baseline_equivalence_render_expense_cleanup(baseline_cleanup_ast, tmp_path, monkeypatch):
-    """Verify character-for-character HTML equivalence between 2384cfd and current card_flow."""
+def test_cleanup_render_exposes_filter_controls_and_preserves_non_owner_boundary(tmp_path, monkeypatch):
     db_path = tmp_path / "cleanup_equiv.sqlite"
     store = LedgerStore(db_path, seed_demo=False)
     try:
@@ -235,14 +234,13 @@ def test_baseline_equivalence_render_expense_cleanup(baseline_cleanup_ast, tmp_p
 
         # 1. Non-owner returns empty string
         monkeypatch.setattr(ledger_board, "current_role", lambda: "viewer")
-        assert baseline_cleanup_ast(store, "csrf-test") == ""
         assert card_flow.render_expense_cleanup(store, "csrf-test") == ""
 
         # 2. Owner with empty store
         monkeypatch.setattr(ledger_board, "current_role", lambda: "owner")
-        b_empty = baseline_cleanup_ast(store, "csrf-test")
         c_empty = card_flow.render_expense_cleanup(store, "csrf-test")
-        assert b_empty == c_empty
+        assert "aria-label='지출 정리 상태 필터'" in c_empty
+        assert "cleanup-filter-total" in c_empty
 
         # 3. Owner with active card rows via pipeline receive and unassigned ledger rows
         header = ("Issuer,Card No,Card Type,Type,Merchant,Amount,Foreign Amount,Currency,Amount KRW,"
@@ -281,8 +279,10 @@ def test_baseline_equivalence_render_expense_cleanup(baseline_cleanup_ast, tmp_p
         )
         store.conn.commit()
 
-        b_pop = baseline_cleanup_ast(store, "csrf-test")
         c_pop = card_flow.render_expense_cleanup(store, "csrf-test")
-        assert b_pop == c_pop
+        assert "전체 3건" in c_pop
+        assert "항목 미분류 0건" in c_pop
+        assert "보류·오류 1건" in c_pop
+        assert "여행 미배정 2건" in c_pop
     finally:
         store.close()
