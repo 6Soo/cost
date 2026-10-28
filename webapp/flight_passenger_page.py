@@ -418,7 +418,7 @@ def _name_search(board, name, *, offset=0, revision=None):
     cards = _confirmed_card_index(board, index)
     return query_booking_reservations(
         index,
-        name,
+        query_tokens=query,
         cards=cards,
         offset=offset,
         revision=revision,

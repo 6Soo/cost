@@ -10,7 +10,7 @@ Strictly in-memory and presentation-only:
 - No file IO, database connections, or network access
 - Preserves date priorities (EXPLICIT_LABEL > FIRST_RECEIVED > CONFLICT/UNKNOWN)
 - Preserves cancellation status, conflict status, and source digest lineage
-- Preserves linked_cards identity without copy coercion
+- Preserves linked_cards value and identity exactly without copy coercion
 """
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 import unicodedata
+
+_OMITTED = object()
 
 
 def normalize_name_tokens(value: object) -> tuple[str, ...]:
@@ -41,13 +43,13 @@ def project_booking_reservation(
     evidence: Mapping[str, Any],
     passenger_name: str,
     *,
-    linked_cards: Any = None,
+    linked_cards: Any = _OMITTED,
     provider: str = 'trip',
 ) -> dict[str, Any]:
     """Project verified booking evidence into canonical reservation DTO.
 
     Preserves explicit dates and FIRST_RECEIVED KST dates, while blanking out
-    dates during CONFLICT or UNKNOWN statuses. Preserves linked_cards identity.
+    dates during CONFLICT or UNKNOWN statuses. Preserves linked_cards value/identity.
     """
     legs = [project_itinerary_leg(leg) for leg in evidence.get('legs') or []]
     booking_date_status = evidence.get('booking_date_status', 'UNKNOWN')
@@ -59,7 +61,7 @@ def project_booking_reservation(
         'cancelled': evidence.get('cancellation_status', 'NONE') != 'NONE',
         'conflict': bool(evidence.get('conflict')),
         'source_verified': True,
-        'linked_cards': [] if linked_cards is None else linked_cards,
+        'linked_cards': [] if linked_cards is _OMITTED else linked_cards,
         'provider': provider,
         'reserved_on': evidence.get('reserved_on') if date_verified else '',
         'booking_card_day': evidence.get('booking_card_day') if date_verified else '',
@@ -70,8 +72,9 @@ def project_booking_reservation(
 
 def query_booking_reservations(
     index: Mapping[str, Any],
-    query_name: str,
+    query_name: str = '',
     *,
+    query_tokens: tuple[str, ...] | None = None,
     cards: Mapping[str, Any] | None = None,
     offset: int = 0,
     limit: int = 100,
@@ -80,7 +83,10 @@ def query_booking_reservations(
     name_key_fn: Any = normalize_name_tokens,
 ) -> dict[str, Any]:
     """Filter, project, sort, and paginate verified reservations matching name tokens."""
-    query = name_key_fn(query_name)
+    if query_tokens is not None:
+        query = query_tokens
+    else:
+        query = name_key_fn(query_name)
     if not query:
         raise ValueError('INVALID_NAME')
     if type(offset) is not int or offset < 0 or offset > 1000000 or (offset and not revision):

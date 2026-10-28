@@ -403,3 +403,56 @@ def test_baseline_equivalence_with_main_ed48263(baseline_name_search_fn):
         with patch("webapp.flight_booking_index.passenger_index_for", return_value={}), \
              patch("webapp.flight_booking_index.source_status", return_value="UNAVAILABLE"):
             assert baseline_name_search_fn(board, "KIM") == flight_passenger_page._name_search(board, "KIM")
+
+
+def test_fail_on_second_query_normalization(monkeypatch):
+    """Ensure query name normalization happens exactly once and is not re-computed inside the helper."""
+    board = SimpleNamespace(path="board.sqlite")
+    index = _synthetic_index()
+
+    calls = []
+    def counting_name_key(val):
+        calls.append(val)
+        if len([c for c in calls if c == "alpha kim"]) > 1:
+            raise AssertionError("Query name normalized more than once!")
+        return flight_booking_projection.normalize_name_tokens(val)
+
+    monkeypatch.setattr(flight_passenger_page, "_name_key", counting_name_key)
+
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), \
+         patch("webapp.flight_passenger_page._confirmed_card_index", return_value={}):
+        res = flight_passenger_page._name_search(board, "alpha kim")
+        assert res["total"] == 3
+        # "alpha kim" was normalized exactly once
+        assert calls.count("alpha kim") == 1
+
+
+def test_cards_ref_to_none_identity_and_value_preserved(baseline_name_search_fn, monkeypatch):
+    """cards.get returning None or a specific object must be preserved exactly without coercion."""
+    index = _synthetic_index()
+    board = SimpleNamespace(path="board.sqlite")
+    specific_list = [{"transaction_id": "tx1"}]
+    cards_map = {
+        "SYNTH-100": None,           # explicitly mapped to None
+        "SYNTH-200": specific_list,  # mapped to specific object
+    }
+
+    monkeypatch.setattr(flight_passenger_page, "_confirmed_card_index", lambda b, idx: cards_map)
+    monkeypatch.setitem(baseline_name_search_fn.__globals__, "_confirmed_card_index", lambda b, idx: cards_map)
+
+    with patch("webapp.flight_booking_index.passenger_index_for", return_value=index), \
+         patch("webapp.flight_booking_index.source_status", return_value="VERIFIED"):
+
+        base_res = baseline_name_search_fn(board, "alpha kim")
+        curr_res = flight_passenger_page._name_search(board, "alpha kim")
+
+        # Compare baseline vs current
+        assert base_res == curr_res
+        # SYNTH-100's linked_cards must be None in both
+        assert curr_res["reservations"][1]["booking_ref"] == "SYNTH-100"
+        assert curr_res["reservations"][1]["linked_cards"] is None
+        assert base_res["reservations"][1]["linked_cards"] is None
+        # SYNTH-200's linked_cards must preserve exact identity in both
+        assert curr_res["reservations"][0]["booking_ref"] == "SYNTH-200"
+        assert curr_res["reservations"][0]["linked_cards"] is specific_list
+        assert base_res["reservations"][0]["linked_cards"] is specific_list
