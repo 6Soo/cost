@@ -52,7 +52,7 @@ def _bounded_content(client, file_id):
     return content
 
 
-def sync(client, directory, *, folder_id, expected_account, apply=False):
+def sync(client, directory, *, folder_id, expected_account, apply=False, batch_size=None, batch_offset=0):
     """Validate a private folder's manifest and all new originals before appending.
 
     `client.list_files` must enumerate every page; metadata must contain id, name,
@@ -60,6 +60,15 @@ def sync(client, directory, *, folder_id, expected_account, apply=False):
     including label/history metadata that may differ on a later cloud retrieval.
     """
     if not isinstance(folder_id, str) or not _FILE_ID.fullmatch(folder_id) or not expected_account:
+        raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
+    if batch_size is not None:
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or not (1 <= batch_size <= 100):
+            raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
+    if not isinstance(batch_offset, int) or isinstance(batch_offset, bool) or batch_offset < 0:
+        raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
+    if batch_size is None and batch_offset > 0:
+        raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
+    if apply and batch_offset > 0:
         raise CloudMailError("CLOUD_MAIL_CONFIG_INVALID")
     folder = client.folder(folder_id)
     if (not isinstance(folder, dict) or folder.get("id") != folder_id
@@ -94,7 +103,7 @@ def sync(client, directory, *, folder_id, expected_account, apply=False):
     if not directory.is_dir():
         raise CloudMailError("CLOUD_MAIL_LOCAL_DIRECTORY_REQUIRED")
     known = stored_ids(directory)
-    pending, total_bytes = [], 0
+    new_candidates = []
     for message_id, entry in manifest["messages"].items():
         if not isinstance(message_id, str) or not _ID.fullmatch(message_id) or not isinstance(entry, dict):
             raise CloudMailError("CLOUD_MAIL_MANIFEST_INVALID")
@@ -110,6 +119,31 @@ def sync(client, directory, *, folder_id, expected_account, apply=False):
             raise CloudMailError("CLOUD_MAIL_DIGEST_REQUIRED")
         if message_id in known:
             continue
+        target = directory / f"gmail-cloud-{message_id}.json"
+        # A file containing some other ID is not permission to replace that file.
+        if target.exists():
+            raise CloudMailError("CLOUD_MAIL_LOCAL_CONFLICT")
+        new_candidates.append((message_id, file, digest, target))
+
+    enumeration_complete = (
+        manifest.get("query") is None
+        and isinstance(manifest.get("last_complete"), str)
+    )
+    if apply and batch_size is not None and not enumeration_complete:
+        raise CloudMailError("CLOUD_MAIL_ENUMERATION_INCOMPLETE")
+
+    total_new = len(new_candidates)
+    if batch_size is None:
+        selected_candidates = new_candidates
+        selected = total_new
+        remaining_new = 0
+    else:
+        selected_candidates = new_candidates[batch_offset : batch_offset + batch_size]
+        selected = len(selected_candidates)
+        remaining_new = max(0, total_new - (batch_offset + selected))
+
+    pending, total_bytes = [], 0
+    for message_id, file, digest, target in selected_candidates:
         content = _bounded_content(client, file["id"])
         total_bytes += len(content)
         if total_bytes > _MAX_TOTAL:
@@ -117,11 +151,8 @@ def sync(client, directory, *, folder_id, expected_account, apply=False):
         if hashlib.sha256(content).hexdigest() != digest:
             raise CloudMailError("CLOUD_MAIL_DIGEST_MISMATCH")
         _original(content, message_id)
-        target = directory / f"gmail-cloud-{message_id}.json"
-        # A file containing some other ID is not permission to replace that file.
-        if target.exists():
-            raise CloudMailError("CLOUD_MAIL_LOCAL_CONFLICT")
         pending.append((target, content))
+
     appended = 0
     if apply:
         for target, content in pending:
@@ -140,11 +171,21 @@ def sync(client, directory, *, folder_id, expected_account, apply=False):
                 os.unlink(temporary)
         # Retry a prior failed transactional import even when files already exist.
         sync_unified_store(directory)
-    return {"mode": "APPLY" if apply else "DRY_RUN", "indexed": len(manifest["messages"]),
-            "existing": len(manifest["messages"].keys() & known), "new": len(pending),
-            "appended": appended, "download_bytes": total_bytes,
-            "enumeration_complete": manifest.get("query") is None
-            and isinstance(manifest.get("last_complete"), str)}
+
+    result = {
+        "mode": "APPLY" if apply else "DRY_RUN",
+        "indexed": len(manifest["messages"]),
+        "existing": len(manifest["messages"].keys() & known),
+        "new": total_new,
+        "appended": appended,
+        "download_bytes": total_bytes,
+        "enumeration_complete": enumeration_complete,
+    }
+    if batch_size is not None:
+        result["selected"] = selected
+        result["remaining_new"] = remaining_new
+        result["batch_offset"] = batch_offset
+    return result
 
 
 class DriveClient:
@@ -217,10 +258,13 @@ def main(argv=None):
     parser.add_argument("--folder-id", required=True)
     parser.add_argument("--account", required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--batch-offset", type=int, default=0)
     args = parser.parse_args(argv)
     try:
         result = sync(DriveClient(), args.directory, folder_id=args.folder_id,
-                      expected_account=args.account, apply=args.apply)
+                      expected_account=args.account, apply=args.apply,
+                      batch_size=args.batch_size, batch_offset=args.batch_offset)
     except CloudMailError as error:
         print(json.dumps({"status": "ERROR", "code": str(error)}))
         return 1
