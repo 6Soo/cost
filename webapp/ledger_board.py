@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_read_projection, board_render_helpers, read_scope, ui_icons
+from . import board_export_helpers, board_read_projection, board_render_helpers, read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -1224,9 +1224,7 @@ def layout(title: str, body: str) -> str:
 def tabs_html(selected: str, query: str = "") -> str:
     expenses = _expense_rows()
     items = []
-    for t in live_trips():
-        if query and query not in (t["display_key"] + t["destination"]):
-            continue
+    for t in board_export_helpers.filter_trips(live_trips(), query=query):
         cls = "tab sel" if t["tab_id"] == selected else "tab"
         totals = _trip_totals(t["tab_id"])
         items.append(
@@ -1246,7 +1244,7 @@ def tabs_html(selected: str, query: str = "") -> str:
             items.append(f"<div class='muted'>보관된 여행</div>{links}")
     unc = [r for r in expenses if r["display_tab_id"] is None]
     unc_total = sum(_shown_amount(r) for r in unc)
-    if not query or query in "분류대기":
+    if board_export_helpers.is_unclassified_matched(query):
         cls = "tab sel" if selected == "unclassified" else "tab"
         items.append(
             f"<a class='{cls}' href='/board?tab=unclassified'>"
@@ -1843,46 +1841,43 @@ def export_page() -> str:
     # rendered at all in that state rather than showing its empty form.
     review_note = ""
     if _active_store() is not None:
+        trip_counts = board_export_helpers.export_trip_counts(
+            live_trips(include_archived=True),
+            list_tab_rows_fn=_active_store().list_tab_rows,
+        )
         lines = []
-        for t in live_trips(include_archived=True):
-            rows = _active_store().list_tab_rows(t["tab_id"])
-            inc = sum(1 for r in rows if r["row_kind"] == "income")
-            exp = sum(1 for r in rows if r["row_kind"] == "expense")
-            lines.append(
-                f"<li>{esc(t['display_key'])}: 수입 {inc}행 · 지출 {exp}행"
-                + (" (보관)" if t["archived"] else "") + "</li>")
-        unc = _active_store().list_tab_rows(None)
-        unc_inc = sum(1 for r in unc if r["row_kind"] == "income")
-        unc_exp = sum(1 for r in unc if r["row_kind"] != "income")
-        lines.append(f"<li>분류대기: 수입 {unc_inc}행 · 지출 {unc_exp}행 (출력에 들어가지 않아요)</li>")
+        for tc in trip_counts:
+            if tc["tab_id"] is None:
+                lines.append(f"<li>분류대기: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행 (출력에 들어가지 않아요)</li>")
+            else:
+                lines.append(
+                    f"<li>{esc(tc['display_key'])}: 수입 {tc['income_count']}행 · 지출 {tc['expense_count']}행"
+                    + (" (보관)" if tc["archived"] else "") + "</li>"
+                )
         counts = f"<ul>{''.join(lines)}</ul>"
         # APP_SPEC 8 asks the dialog to state the 검토필요 and 충돌 row counts.
         # Both are read off the ledger: a row needs a person when it has no trip
         # or no recorded classification basis, and it is in conflict when the
         # row's newest ledger event is a conflict note.
-        review_total = 0
-        conflict_total = 0
-        per_tab = []
-        for t in live_trips(include_archived=True):
-            trows = _active_store().list_tab_rows(t["tab_id"])
-            n_review = sum(1 for r in trows if row_needs_review(r))
-            n_conflict = sum(1 for r in trows if row_has_conflict(r))
-            review_total += n_review
-            conflict_total += n_conflict
-            if n_review or n_conflict:
-                per_tab.append(
-                    f"<li>{esc(t['display_key'])}: 검토필요 {n_review}행"
-                    + (f" · 충돌 {n_conflict}행" if n_conflict else "")
-                    + "</li>")
-        n_unc_review = sum(1 for r in unc if row_needs_review(r))
-        n_unc_conflict = sum(1 for r in unc if row_has_conflict(r))
+        rc_summary = board_export_helpers.export_review_conflict_counts(
+            live_trips(include_archived=True),
+            list_tab_rows_fn=_active_store().list_tab_rows,
+            row_needs_review_fn=row_needs_review,
+            row_has_conflict_fn=row_has_conflict,
+        )
         review_note = (
             "<p class='muted'>검토필요 {review}행 · 충돌 {conflict}행"
             "이 포함됩니다. 출력해도 분류는 바뀌지 않습니다."
-            "</p>").format(review=review_total + n_unc_review,
-                           conflict=conflict_total + n_unc_conflict)
-        if per_tab:
-            review_note += f"<ul class='muted'>{''.join(per_tab)}</ul>"
+            "</p>").format(review=rc_summary["review_total"],
+                           conflict=rc_summary["conflict_total"])
+        if rc_summary["per_tab"]:
+            per_tab_lis = "".join(
+                f"<li>{esc(pt['display_key'])}: 검토필요 {pt['review_count']}행"
+                + (f" · 충돌 {pt['conflict_count']}행" if pt['conflict_count'] else "")
+                + "</li>"
+                for pt in rc_summary["per_tab"]
+            )
+            review_note += f"<ul class='muted'>{per_tab_lis}</ul>"
         try:
             importing = _active_store().conn.execute(
                 "SELECT 1 FROM card_import_batches "
