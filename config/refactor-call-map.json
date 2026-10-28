@@ -1,18 +1,24 @@
 ﻿{
   "schema": "rf001-call-map/v1",
   "mode": "static_ast_only",
-  "code_sha": "3afc1d793fc9dd132103b147c40b91b93656821e",
+  "code_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
+  "base_sha": "80d50f4e715ecb7e1aed0e442aaa8af5fc1880f1",
+  "working_tree_dirty": true,
   "counts": {
-    "files": 652,
-    "symbols": 9221,
-    "calls": 92991,
+    "files": 691,
+    "symbols": 9558,
+    "calls": 95304,
     "routes": 38,
-    "effects": 6216,
-    "errors": 0
+    "effects": 6326,
+    "errors": 0,
+    "permission_signals": 0,
+    "repositories": 1081,
+    "services": 169,
+    "tables": 2265
   },
   "call_status": {
-    "OPEN_QUESTION": 74099,
-    "STATIC_CANDIDATE": 18892
+    "OPEN_QUESTION": 76108,
+    "STATIC_CANDIDATE": 19196
   },
   "routes": [
     {
@@ -126,13 +132,13 @@
     {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_GET",
-      "line": 3972,
+      "line": 3328,
       "status": "STATIC_CANDIDATE"
     },
     {
       "path": "webapp/ledger_board.py",
       "symbol": "Handler.do_POST",
-      "line": 4365,
+      "line": 3712,
       "status": "STATIC_CANDIDATE"
     },
     {
@@ -247,12 +253,16 @@
   "errors": [],
   "limitations": [
     "Static syntax only; no runtime, authorization, or production-use proof.",
-    "code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.",
+    "base_sha identifies repository HEAD; working_tree_dirty says whether tracked inputs differ from HEAD.",
     "Only tracked Python in runtime_dependency_catalog candidate paths is read.",
     "Route decorators, HTTP tuples and do_METHOD dispatchers are candidates; route literals are omitted.",
     "Only lexical functions, explicit imports, and direct self methods resolve.",
     "Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.",
     "No literal values, SQL text, function bodies or application imports are emitted.",
+    "Permission decorators and names are signals only; no authorization is inferred.",
+    "Repositories and services count matching callable symbols (including tests), not unique components or runtime roles.",
+    "Table rows count SQL findings; the same table can appear multiple times and is not a schema inventory.",
+    "With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.",
     "Summary omits graph details; rerun without --summary for all locations."
   ]
 }

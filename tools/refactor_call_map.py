@@ -20,13 +20,15 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MiB limit for config artifact
 LIMITATIONS = [
     'Static syntax only; no runtime, authorization, or production-use proof.',
-    'code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.',
+    'base_sha identifies repository HEAD; working_tree_dirty says whether tracked inputs differ from HEAD.',
     'Only tracked Python in runtime_dependency_catalog candidate paths is read.',
     'Route decorators, HTTP tuples and do_METHOD dispatchers are candidates; route literals are omitted.',
     'Only lexical functions, explicit imports, and direct self methods resolve.',
     'Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.',
     'No literal values, SQL text, function bodies or application imports are emitted.',
-    'Static candidates are not promoted to actual permissions or active status.',
+    'Permission decorators and names are signals only; no authorization is inferred.',
+    'Repositories and services count matching callable symbols (including tests), not unique components or runtime roles.',
+    'Table rows count SQL findings; the same table can appear multiple times and is not a schema inventory.',
     'With --limit-output, oversized graph details are omitted; rerun without that flag for the full graph.',
 ]
 
@@ -58,6 +60,7 @@ class Index(ast.NodeVisitor):
         self.nodes = []
         self.calls = []
         self.routes = []
+        self.permission_signals = []
         self.imports = {}
         self.assignments = {}  # variable -> inferred type/module
 
@@ -136,6 +139,13 @@ class Index(ast.NodeVisitor):
             if name.split('.')[-1] in {'get', 'post', 'put', 'patch', 'delete', 'route'}:
                 self.routes.append({'path': self.path, 'symbol': symbol, 'line': decorator.lineno,
                                     'status': 'STATIC_CANDIDATE'})
+        signal_names = ('login', 'owner', 'csrf', 'auth', 'permission', 'access', 'require_')
+        signals = [dotted(d.func if isinstance(d, ast.Call) else d)
+                   for d in node.decorator_list]
+        signals = [name for name in signals if any(token in name.lower() for token in signal_names)]
+        if signals:
+            self.permission_signals.append({'path': self.path, 'symbol': symbol,
+                'line': node.lineno, 'signals': signals, 'status': 'OPEN_QUESTION'})
         self.functions.append(symbol)
         for statement in node.body:
             self.visit(statement)
@@ -214,12 +224,19 @@ def build_map(root=ROOT):
     root = Path(root).resolve()
     result = {'schema': 'rf001-call-map/v1', 'mode': 'static_ast_only',
               'files': [], 'symbols': [], 'calls': [], 'routes': [], 'effects': [],
+              'permission_signals': [], 'repositories': [], 'services': [], 'tables': [],
               'errors': [], 'limitations': LIMITATIONS}
     try:
-        result['code_sha'] = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'],
+        result['base_sha'] = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'],
             capture_output=True, text=True, check=True).stdout.strip()
+        result['code_sha'] = result['base_sha']  # Backward-compatible alias for the base revision.
+        diff = subprocess.run(['git', '-C', str(root), 'status', '--porcelain', '--untracked-files=no'],
+            capture_output=True, text=True, check=True).stdout
+        result['working_tree_dirty'] = bool(diff.strip())
     except subprocess.CalledProcessError:
+        result['base_sha'] = None
         result['code_sha'] = None
+        result['working_tree_dirty'] = None
     try:
         paths = sorted(p for p in tracked_paths(root) if p.suffix == '.py')
     except (OSError, subprocess.CalledProcessError):
@@ -248,12 +265,26 @@ def build_map(root=ROOT):
         result['files'].append({'path': rel, 'symbols': len(index.nodes)})
         result['symbols'].extend(index.nodes)
         result['routes'].extend(index.routes)
+        result['permission_signals'].extend(index.permission_signals)
+        for symbol in index.nodes:
+            name = symbol['symbol'].lower()
+            path_name = rel.lower()
+            role = ('repositories' if any(token in name + '/' + path_name for token in ('repo', 'repository', 'dao', 'store'))
+                    else 'services' if any(token in name + '/' + path_name for token in ('service', 'use_case'))
+                    else None)
+            if role:
+                result[role].append({'path': rel, 'symbol': symbol['symbol'],
+                    'line': symbol['line'], 'status': 'STATIC_CANDIDATE'})
         for finding in analyze_source(source, rel)['findings']:
             if finding['kind'] not in {'sql_unknown', 'sql_write', 'sql_read_or_other', 'write_like_call'}:
                 continue
             owners = [n for n in index.nodes if n['line'] <= finding['line'] <= n['end_line']]
             owner = max(owners, key=lambda n: n['line'])['symbol'] if owners else '<module>'
             result['effects'].append(dict(finding, path=rel, owner=f'{rel}:{owner}'))
+            if finding.get('table'):
+                result['tables'].append({'path': rel, 'line': finding['line'],
+                    'owner': f'{rel}:{owner}', 'table': finding['table'],
+                    'verb': finding.get('verb'), 'status': finding['status']})
     symbols = {f"{n['path']}:{n['symbol']}" for n in result['symbols']}
     for rel, index in indexes.items():
         for raw in index.calls:
@@ -294,6 +325,9 @@ def build_map(root=ROOT):
             if name.split('.')[0] in {'subprocess', 'requests', 'httpx', 'urllib', 'socket', 'smtplib'}:
                 result['effects'].append({'path': rel, 'line': call['line'], 'owner': call['source'],
                     'call': name, 'kind': 'external_candidate', 'status': 'OPEN_QUESTION'})
+    for key in ('routes', 'permission_signals', 'repositories', 'services', 'tables', 'effects'):
+        result[key].sort(key=lambda item: (item.get('path', ''), item.get('line', 0),
+                                           item.get('symbol', item.get('owner', ''))))
     return result
 
 
@@ -307,11 +341,14 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
     counts = obj.get('counts')
     if not isinstance(counts, dict):
         counts = {key: len(obj.get(key, [])) for key in
-                  ('files', 'symbols', 'calls', 'routes', 'effects', 'errors')}
+                  ('files', 'symbols', 'calls', 'routes', 'effects', 'errors',
+                   'permission_signals', 'repositories', 'services', 'tables')}
     compact = {
         'schema': obj.get('schema', 'rf001-call-map/v1'),
         'mode': obj.get('mode', 'static_ast_only'),
         'code_sha': obj.get('code_sha'),
+        'base_sha': obj.get('base_sha'),
+        'working_tree_dirty': obj.get('working_tree_dirty'),
         'truncated': True,
         'counts': counts,
     }
@@ -326,6 +363,8 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
     if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
         compact = {'schema': compact['schema'], 'mode': compact['mode'],
                    'code_sha': compact['code_sha'], 'truncated': True,
+                   'base_sha': compact.get('base_sha'),
+                   'working_tree_dirty': compact.get('working_tree_dirty'),
                    'counts': counts}
     if len(json.dumps(compact, ensure_ascii=False, indent=2).encode('utf-8')) > limit:
         raise ValueError('output_limit_too_small')
@@ -334,7 +373,9 @@ def truncate_to_limit(obj, limit=MAX_OUTPUT_BYTES):
 
 def summary(result):
     return {'schema': result['schema'], 'mode': result['mode'], 'code_sha': result['code_sha'],
-            'counts': {key: len(result[key]) for key in ('files', 'symbols', 'calls', 'routes', 'effects', 'errors')},
+            'base_sha': result['base_sha'], 'working_tree_dirty': result['working_tree_dirty'],
+            'counts': {key: len(result[key]) for key in ('files', 'symbols', 'calls', 'routes', 'effects', 'errors',
+                'permission_signals', 'repositories', 'services', 'tables')},
             'call_status': dict(Counter(c['status'] for c in result['calls'])),
             'routes': result['routes'], 'errors': result['errors'],
             'limitations': result['limitations'] + ['Summary omits graph details; rerun without --summary for all locations.']}
