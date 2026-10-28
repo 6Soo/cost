@@ -35,7 +35,7 @@
 | RF-103 | running | 카드 근거·환불 query·OTA 투영·cleanup PR #261/#268/#269/#276 검수/병합/배포. 여행 authority/decision/background 전체 수락은 남음. |
 | RF-104 | running | 중앙 대사·예약 그룹/페이지·증분 성능 기존 구현 재사용. 전체 consumer의 같은 세대/링크/trace 수락을 대조하고 solver를 재구현하지 않는다. |
 | RF-105 | blocked | PR #295 `496cbbe` 운영 배포 완료. 1,051 tracked blobs 일치, task/process SHA 고정, listener 1개, health/ready 200, 보호 API 401, 새 백업·별도 복원 검증과 보호 13표 불변. owner 화면은 AUTH_REQUIRED로 승인된 단일 환불 그룹 적용 미실행. 실제 관측 그룹은 같은 import batch이므로 교차 배치 실행 증거로 표현하지 않는다. 환불/금융 표적 74 passed; 넓은 검사 실패 13건은 ba74ab8에서도 동일 node ID로 재현. PR #297 개별 그룹 UI/API는 e1a6c7b로 병합했으며 운영 배포 여부는 아래 최신 진행 기록을 따른다. |
-| RF-106 | running | 검색 projection PR #286/ab85215 병합. Supervisor71 passed·selector8. query 정규화1회·IO 전 검증·lazy status·linked_cards None/identity·revision 보존. 운영 배포 대기. |
+| RF-106 | complete | PR #286의 공통 항공권 근거/검색 projection은322ef3f 및후속c1bf76ce에 배포됐다. source의(provider,booking_ref)→공통 collect→검색/guide/index 소비를 확인했고 추출 전후 핵심4파일 변경0. 보관 인증 근거210건의149질의·stale/cursor447건 읽기 전용 shadow가9f6eec7과동일, 원본/입력불변. 표적106 passed와 아래 수정browser2 passed, 최초수신일/index11 passed. 외부 예약 checkout 통합1 skip은 미실행으로 별도 보존하며 실제 사람/카드 연결을 수락한 것으로 표현하지 않는다. 명시일/최초수신일·시차·왕복·취소/변경·권한은 해당 표적으로 확인했다. |
 | RF-107 | running | provider schema/masking PR #289/d1180f1 병합. 필수 signature·ConfigError 동일성·기존 순수/저장소/service AST 동일, Supervisor135 passed/105subtests. 전체 adapter 수렴은 남음. |
 | RF-108 | pending | schema/additive/복원/snapshot 기존 기반 재사용. 쿼리 plan·P95·메모리 측정 후 최적화. 실제 DB migration은 별도 게이트. |
 | RF-109 | running | runtime catalog 정적741후보(UNKNOWN379/TEST_FIXTURE359/HISTORICAL3) 확인. tools/cost_audit.py는 기존 환경·runtime·call-map·write-boundary·tracked-data 진단5개의 읽기 전용 공통 진입점이며 기본PREVIEW, 명시적 --run과 고정 인자만 허용한다. writer/collection/임의 인자 차단·종료코드 보존 포함 표적24 passed. 운영 호출·전체 guard 분류와 write CLI 수렴은 남음. |
@@ -43,7 +43,7 @@
 | RF-202 | running | 공통 셸 조립 PR #277/자산 PR #282 배포. URL/DOM·테마1개 보존. 전체 화면 수락과 구별한다. |
 | RF-203 | running | 검토 문서 PR #265·guidance16검사·template byte 동일성 배포. 전체 폼/지출 컴포넌트 채택 수락은 남음. |
 | RF-204 | running | 기존 OTA/환불/항공권 정보 구조 개선 재사용. 전체 동일 상태/인라인 근거/접근성 수락은 남음. |
-| RF-205 | running | 기존 responsive/keyboard/theme 근거와 RF-201 합성 baseline matrix 재사용. 인증 운영 화면·실기기 포괄 수락은 미실행. |
+| RF-205 | running | 기존 responsive/keyboard/theme 근거와 RF-201 합성 baseline matrix 재사용. 항공권의 낡은 OS색상전환 assertion1실패를 최신 단일 수동 아이콘 계약으로 교정하고 실제 예약/기존 참가자2화면×8폭·200%·키보드·수동선택 유지 browser2 passed. 초기106pass/1fail과 교정후2pass를 구별한다. 인증 운영 화면·실기기 포괄 수락은 미실행. |
 | RF-301 | running | requirements 단일 생성/검증 PR #283/9f6eec7 배포. 선언5개 동일·기본 읽기·원자적 mirror.51검사+selector8. 환경/비밀/feature flag 전체 정리는 남음. |
 | RF-302 | running | 기존 관측·OTA 성능 근거 재사용. 공통 request/snapshot/rule/fingerprint·단계 지연 및5경로 p50/p95/bytes/memory 전체 수락은 남음. |
 | RF-303 | complete | PR #293 merged as 355eaea5c8476f153bc43ff5320b572f7fb27c4f. Fail-closed schema/selector validation, sanitized errors, preview/run separation and self-impact mapping accepted. Supervisor: 31 tests passed; preview PREVIEW with executed=[]; --run PASSED (guard blocked_count 0, py_compile, targeted pytest). Operating deploy is grouped after the remaining approved integrations. |
