@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlsplit
 
 from .classification_rules import (SYNTHETIC_MODE_NOTE, dialog_state_label,
                                    question_view, reason_label)
-from . import board_export_helpers, board_learning_dialog, board_read_projection, board_render_helpers, read_scope, ui_icons
+from . import board_export_helpers, board_http_shapes, board_learning_dialog, board_read_projection, board_render_helpers, read_scope, ui_icons
 
 CSRF_TOKEN = secrets.token_hex(16)
 
@@ -2015,39 +2015,7 @@ def detail_page(row_id: str, edit: bool = False) -> str:
               "<p><a href='/board'>목록으로</a></p></div>")))
 
 
-STATUS_FOR_CODE = {
-    # The first block is the vocabulary of DETAILED_CONTRACT 4.3.
-    "AUTH_REQUIRED": 401,
-    "ACTION_FORBIDDEN": 403,
-    "RESOURCE_NOT_FOUND": 404,
-    "TEMPORARILY_UNAVAILABLE": 503,
-    "INTERNAL_ERROR": 500,
-    # Phase 6 provider configuration.
-    "PROVIDER_CONFIG_UNBOUND": 503,
-    "EDIT_CONFLICT": 409,
-    "REQUEST_ID_REUSED": 409,
-    # An export naming an assignee whose origin was never recorded. Refused whole
-    # rather than produced with a marker on the sheet.
-    "ASSIGNEE_UNCONFIRMED": 409,
-    "FIELD_READ_ONLY": 422,
-    "INVALID_VALUE": 422,
-    "TARGET_NOT_ASSIGNABLE": 422,
-    "CSRF_REQUIRED": 403,
-    "PREVIEW_STALE": 409,
-    "REFUND_PAIR_PARTIALLY_BOOKED": 409,
-    "REFUND_GROUP_INCOMPLETE": 409,
-    "DELETE_PREVIEW_STALE": 409,
-    "RULE_FIELD_NOT_ALLOWED": 422,
-    "RULE_EFFECT_FORBIDDEN": 422,
-    "RULE_SCOPE_INCOMPLETE": 422,
-    "RULE_CONDITION_TYPE": 422,
-    "RULE_OPERATOR_NOT_ALLOWED": 422,
-    "RULE_TEMPLATE_FORBIDDEN": 422,
-    "RULE_SUPERSEDED": 409,
-    "RULE_ONE_OFF": 422,
-    "DIALOG_STALE": 409,
-    "DIALOG_CLOSED": 409,
-}
+STATUS_FOR_CODE = board_http_shapes.STATUS_FOR_CODE
 
 
 def _login_entry_body(has_login: bool) -> str:
@@ -2198,110 +2166,40 @@ class Handler(BaseHTTPRequestHandler):
             _REQUEST_STORE.reset(token)
 
     def _send(self, text: str, code: int = 200) -> None:
-        from . import site_shell
-        from . import social_preview
+        from . import site_shell, social_preview
         text = social_preview.decorate(text)
         if not ACCESS_ENFORCEMENT or current_request_session() is not None:
             text = site_shell.wrap_document(text, self.path, status=code)
-        # `no-store` on every HTML answer. The board is a live ledger: a browser
-        # or proxy that may reuse a page or a fragment would show a stale ledger
-        # and call it current, and the cross-screen change check compares against
-        # the same database, so a cached copy would make the two disagree.
-        data = text.encode("utf-8")
-        try:
-            self.send_response(code)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
-        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
-            self.close_connection = True
+        board_http_shapes.send_html(self, text, code=code)
 
     # ------------------------------------------------- the session cookie
     def _platform_probe(self, path: str) -> tuple[int, dict]:
-        """Answer a platform probe: no auth, no data, a real answer either way.
-
-        `/healthz` never fails while the process is running, which is what a
-        restart policy needs. `/readyz` fails when the working database is
-        missing or has no schema, so a platform stops sending traffic to a
-        process that cannot answer a request -- and the reason is named in a
-        fixed vocabulary rather than by its output.
-        """
-        body = {"ok": True, "probe": path.lstrip("/")}
         if path == "/healthz":
-            return 200, body
-        problems = []
+            return 200, {"ok": True, "probe": "healthz"}
         try:
             store = _active_store()
         except NameError:  # pragma: no cover - the board always binds one
             store = None
-        db_path = os.environ.get("WEBLEDGER_DB", "")
-        if store is None:
-            problems.append("store_not_bound")
-        else:
-            db_path = str(getattr(store, "path", db_path))
-            try:
-                conn = store.conn
-                tables = {r[0] for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'")}
-            except Exception:  # noqa: BLE001 - an unusable store is not ready
-                tables = set()
-                problems.append("database_unreadable")
-            for required in ("board_rows", "trip_tabs"):
-                if required not in tables:
-                    problems.append(f"missing_table:{required}")
-        body["ok"] = not problems
-        if problems:
-            body["problems"] = sorted(problems)
-        return (200 if body["ok"] else 503), body
+        return board_http_shapes.ready_probe(
+            store, db_path=os.environ.get("WEBLEDGER_DB", "")
+        )
 
     def _cookies(self):
-        """The request's cookies, parsed once per request.
-
-        `BaseHTTPRequestHandler.headers` is an `email.message.Message`, which
-        keeps repeated headers, so a second `Cookie` line is appended rather
-        than replacing the first. A client can send two, and reading only the
-        first would let it hide a cookie from the check.
-        """
-        jar = http.cookies.SimpleCookie()
-        try:
-            for raw in self.headers.get_all("Cookie") or []:
-                jar.load(raw)
-        except (AttributeError, http.cookies.CookieError):
-            return {}
-        return jar
+        return board_http_shapes.parse_cookies(self.headers)
 
     def _oidc_flow(self):
         """The connected Google flow, or None when the deployment has none."""
         return _OIDC
 
     def _auth_redirect(self, location: str, cookie: str | None = None) -> None:
-        self.send_response(303)
-        self.send_header("Location", location)
-        if cookie:
-            self.send_header("Set-Cookie", cookie)
-        # A redirect that carries a session must never be cached.
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.end_headers()
+        board_http_shapes.send_redirect(self, location, cookie=cookie)
 
     def _auth_page(self, title: str, body: str, code: int = 200,
                    refusal: str = "") -> None:
-        # The refusal code is rendered as a data attribute so a support answer
-        # can name it without reading the server log, and so a route can be
-        # checked for the specific refusal it is meant to produce.
-        marker = f'<p data-refusal="{refusal}"></p>' if refusal else ""
         from . import social_preview
-        data = (f"<!doctype html><html lang='ko'><head><meta charset=utf-8><title>{title}</title>"
-                f"{social_preview.META}</head><body>{marker}{body}</body></html>").encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.end_headers()
-        self.wfile.write(data)
+        board_http_shapes.send_auth_page(
+            self, title, body, code=code, refusal=refusal, meta_header=social_preview.META
+        )
 
     def _auth_routes(self, query) -> bool:
         """`/auth/login`, `/auth/callback` and `/access/logout`.
@@ -2384,87 +2282,34 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _send_bytes(self, body: bytes, content_type: str) -> None:
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "public, max-age=604800")
-        self.end_headers()
-        self.wfile.write(body)
+        board_http_shapes.send_bytes(self, body, content_type)
 
     def _refuse_amount(self, is_form: bool, payload: dict,
                          row_id: str = "") -> None:
-        if is_form:
-            self._send_form_error("INVALID_VALUE", "금액은 정수 원화로 입력해 주세요",
-                                  payload, str(payload.get("return_to") or ""),
-                                  row_id)
-            return
-        self._send_json({"code": "INVALID_VALUE", "field": "amount_krw",
-                         "message": "금액은 정수 원화로 입력해 주세요"}, code=422)
+        board_http_shapes.refuse_amount(
+            self, is_form, payload, row_id=row_id,
+            send_form_error_fn=self._send_form_error,
+            send_json_fn=self._send_json,
+        )
 
     def _send_form_error(self, code: str, message: str, payload: dict,
                          return_to: str, row_id: str = "") -> None:
-        """Answer a refused plain form post with the screen, in HTML.
-
-        The typed values are rendered back into the form, escaped, and the
-        answer carries the refusal status. Nothing typed is put in a URL, a
-        referrer or a log. The JSON contract is untouched: only a form post
-        without the JSON content type reaches this method.
-        """
         from . import ledger_design
-
-        target = local_path(return_to) or "/board"
-        parts = urlsplit(target)
-        query = parse_qs(parts.query)
-        row_id = row_id or ""
-        tab = query.get("tab", [""])[0] or ""
-        if row_id and not tab:
-            _kind, found = find_row(row_id)
-            if found is not None:
-                tab = found.get("display_tab_id") or ""
-        if tab not in ("unclassified", "refunds") and tab not in valid_tab_ids():
-            # The row's own trip is gone, or the URL asked for one that never
-            # existed. Fall back to a trip that does, and to 분류대기 when the
-            # store has none, rather than to a hard-coded example id.
-            tab = default_board_tab()
-        draft = {}
-        if row_id and payload:
-            kind, current = find_row(row_id)
-            if current is not None:
-                allowed, _fixed = editable_fields(
-                    kind, current.get("source_kind", ""),
-                    bool(current.get("is_allocation")))
-                for key, value in payload.items():
-                    if key not in allowed:
-                        continue
-                    if value is None or isinstance(value, (str, int, float)):
-                        draft[key] = "" if value is None else str(value)
-        fragment = ledger_design.page(
-            tab, query.get("q", [""])[0], query.get("kind", [""])[0],
-            row_id, error=f"{code}: {message}",
-            archived=query.get("arch", [""])[0], draft=draft, back=target)
-        body = ledger_design.render(fragment).encode("utf-8")
-        self.send_response(STATUS_FOR_CODE.get(code, 422))
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Referrer-Policy", "no-referrer")
-        self.end_headers()
-        self.wfile.write(body)
+        board_http_shapes.send_form_error(
+            self, code, message, payload, return_to, row_id=row_id,
+            local_path_fn=local_path,
+            find_row_fn=find_row,
+            valid_tab_ids_fn=valid_tab_ids,
+            default_tab_fn=default_board_tab,
+            editable_fields_fn=editable_fields,
+            status_map=STATUS_FOR_CODE,
+            page_fn=ledger_design.page,
+            render_fn=ledger_design.render,
+        )
 
     def _send_json(self, value: dict, code: int = 200,
                    extra_headers: dict | None = None) -> None:
-        data = json.dumps(value, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        # Default no-store, so a ledger answer cannot be served from a cache. A
-        # caller may still override it, and the health probes do not need to
-        # change: a liveness answer holds no ledger data either way.
-        self.send_header("Cache-Control", "no-store")
-        for header_name, header_value in (extra_headers or {}).items():
-            self.send_header(header_name, header_value)
-        self.end_headers()
-        self.wfile.write(data)
+        board_http_shapes.send_json(self, value, code=code, extra_headers=extra_headers)
 
     # ------------------------------------------------------- Phase 7 access
     def _phase7_refuse(self, exc) -> None:
@@ -3791,12 +3636,9 @@ class Handler(BaseHTTPRequestHandler):
                 # Validate year parameter
                 year_str = q.get("year", ["2026"])[0]
                 try:
-                    year = int(year_str)
-                except (TypeError, ValueError):
-                    self._send_json({"code": "INVALID_VALUE", "message": "year must be an integer"}, code=400)
-                    return
-                if year < 2000 or year > 2100:
-                    self._send_json({"code": "INVALID_VALUE", "message": "year out of range"}, code=400)
+                    year = board_http_shapes.validate_year(year_str)
+                except ValueError as exc:
+                    self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
                     return
 
                 # Validate month parameter if present
@@ -3804,24 +3646,18 @@ class Handler(BaseHTTPRequestHandler):
                 month_str = q.get("month", [None])[0]
                 if month_str is not None:
                     try:
-                        month = int(month_str)
-                    except (TypeError, ValueError):
-                        self._send_json({"code": "INVALID_VALUE", "message": "month must be an integer"}, code=400)
-                        return
-                    if month < 1 or month > 12:
-                        self._send_json({"code": "INVALID_VALUE", "message": "month must be 1-12"}, code=400)
+                        month = board_http_shapes.validate_month(month_str)
+                    except ValueError as exc:
+                        self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
                         return
 
                 # Validate cursor format if present
                 cursor = q.get("cursor", [None])[0]
                 if cursor is not None:
-                    parts = cursor.split("|", 1)
-                    if len(parts) != 2 or not parts[0] or not parts[1]:
-                        self._send_json({"code": "INVALID_VALUE", "message": "invalid cursor format"}, code=400)
-                        return
-                    c_date, c_id = parts
-                    if not (c_date and c_date[0:4].isdigit() and len(c_date) >= 10):
-                        self._send_json({"code": "INVALID_VALUE", "message": "invalid cursor date"}, code=400)
+                    try:
+                        board_http_shapes.validate_cursor(cursor)
+                    except ValueError as exc:
+                        self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
                         return
 
                 # Get the card DB path from the active store (request-bound)
@@ -3881,7 +3717,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 5 * 1024 * 1024:
+        if length > board_http_shapes.MAX_CONTENT_LENGTH:
             self._send_json({"code": "TOO_LARGE", "message": "요청이 너무 커요"}, code=413)
             return
         content_type = self.headers.get("Content-Type") or ""
@@ -3898,16 +3734,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         def read_payload():
-            if "application/json" in content_type:
-                try:
-                    return json.loads(raw.decode("utf-8") or "{}")
-                except (ValueError, UnicodeDecodeError):
-                    raise SaveError("INVALID_VALUE", "요청을 읽을 수 없어요")
-            try:
-                form = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
-            except UnicodeDecodeError:
-                raise SaveError("INVALID_VALUE", "요청을 읽을 수 없어요")
-            return {k: (v if len(v) > 1 else v[0]) for k, v in form.items()}
+            return board_http_shapes.parse_request_payload(content_type, raw)
 
         def check_csrf(payload):
             token = payload.get("csrf") or self.headers.get("X-CSRF-Token") or ""
