@@ -67,6 +67,11 @@
       "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
     },
     {
+      "name": "card-catalog-assets",
+      "paths": ["webapp/card_catalog.py", "webapp/card_catalog_assets.py", "webapp/static/css/card_catalog.css", "webapp/static/js/card_catalog.js", "webapp/tests/test_card_catalog_assets.py"],
+      "tests": ["webapp/tests/test_card_catalog_assets.py", "webapp/tests/test_cards_all_filters.py", "webapp/tests/test_ota_reserve_ui_theme.py"]
+    },
+    {
       "name": "real-review-template",
       "paths": ["webapp/real_review_ui.py", "webapp/real_review_assets.py", "webapp/static/templates/real_review.html", "webapp/tests/test_real_review_assets.py"],
       "tests": ["webapp/tests/test_real_review_assets.py", "webapp/tests/test_board_source_preview.py", "webapp/tests/test_review_guidance.py"]
