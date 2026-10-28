@@ -101,6 +101,54 @@ def test_existing_full_refund_is_actionable_inline_but_get_remains_read_only(con
     assert f"data-transaction='{refund}'" not in again
 
 
+def test_inline_apply_retry_is_idempotent(context):
+    board, original, refund, _ = context
+    _, preview = _post(board, original, "preview")
+    request = {"digest": preview["digest"], "request_id": "owner-retry-request-001"}
+    first_status, first = _post(board, original, "apply", request)
+    before = list(board.conn.iterdump())
+    second_status, second = _post(board, original, "apply", request)
+    assert first_status == 200
+    assert second_status == 409
+    assert second["code"] == "PREVIEW_STALE"
+    assert first["applied"] == 2
+    assert list(board.conn.iterdump()) == before
+    assert board.conn.execute(
+        "SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries WHERE transaction_id IN (?,?)",
+        (original, refund),
+    ).fetchone() == (2, 0)
+
+
+def test_inline_apply_rolls_back_partial_write_failure(context, monkeypatch):
+    board, original, refund, _ = context
+    _, preview = _post(board, original, "preview")
+    before = list(board.conn.iterdump())
+    original_execute = board.conn.execute
+    ledger_inserts = 0
+
+    class FailingConnection:
+        def execute(self, sql, params=()):
+            nonlocal ledger_inserts
+            if sql.lstrip().upper().startswith("INSERT INTO LEDGER_ENTRIES"):
+                ledger_inserts += 1
+                if ledger_inserts == 2:
+                    raise RuntimeError("synthetic second-row failure")
+            return original_execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(original_execute.__self__, name)
+
+    monkeypatch.setattr(board, "conn", FailingConnection())
+    with pytest.raises(RuntimeError, match="synthetic second-row failure"):
+        _post(
+            board, original, "apply",
+            {"digest": preview["digest"], "request_id": "owner-rollback-request-001"},
+        )
+    board.conn = original_execute.__self__
+    assert list(board.conn.iterdump()) == before
+    assert board.conn.execute("SELECT COUNT(*) FROM ledger_entries").fetchone()[0] == 0
+
+
 def test_unconfirmed_group_cannot_commit_and_requires_token(context, monkeypatch):
     board, original, refund, unrelated = context
     monkeypatch.setattr(ledger_board, "current_role", lambda: "viewer")
@@ -124,7 +172,7 @@ def test_refund_money_guards_still_block_inline_action(context, scenario):
     elif scenario == "manual_hold":
         h = board.conn.execute("SELECT source_hash FROM transactions WHERE transaction_id=?", (refund,)).fetchone()[0]
         board.conn.execute("INSERT INTO transaction_review_holds VALUES (?,?,?,?)",
-                           (refund, h, "manual_hold", "operator stop"))
+                           (refund, h, "evidence_pending", "operator stop"))
     else:
         board.conn.execute("UPDATE transactions SET amount_krw=-700000 WHERE transaction_id=?", (refund,))
     board.conn.commit()
