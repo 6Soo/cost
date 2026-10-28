@@ -9,6 +9,81 @@ from webapp import ota_payment_review, site_shell
 
 
 class OtaQueueUiBrowserTests(unittest.TestCase):
+    def test_group_card_keeps_charge_refund_members_and_fetches_each_detail_lazily(self):
+        requested = []
+        members = [
+            {"ota_event_id":"charge-original", "provider":"agoda", "booking_ref":"BOOK-SYNTH",
+             "event_type":"charge", "paid_on":None, "amount":"30000", "currency":"KRW",
+             "status":"HOLD_DATE_UNKNOWN"},
+            {"ota_event_id":"refund-partial", "provider":"agoda", "booking_ref":"BOOK-SYNTH",
+             "event_type":"refund", "paid_on":"2026-10-03", "amount":"5000", "currency":"KRW",
+             "status":"HOLD_EVIDENCE_CONFLICT"},
+        ]
+
+        def route(route):
+            url = urlsplit(route.request.url)
+            requested.append(url.path)
+            if url.path.endswith("/summary"):
+                body = {"status":"ready", "fresh":True, "stale":False, "refreshing":False,
+                        "generation":4, "counts_authoritative":True,
+                        "counts_by_queue":{"needs_action":{"event_count":2,"group_count":1}}}
+            elif url.path.endswith("/groups"):
+                body = {"generation":4, "items":[{"queue":"needs_action",
+                    "reason_codes":["PAYMENT_EVIDENCE_CONFLICT"], "event":{
+                        "ota_event_id":"charge-original", "provider":"agoda", "booking_ref":"BOOK-SYNTH",
+                        "event_type":"charge", "status":"HOLD_DATE_UNKNOWN",
+                        "group_id":"a"*64, "group_total_count":2,
+                        "group_members":[{**member, "detail_available":True} for member in members]}}],
+                    "next_cursor":None}
+            elif "/groups/" in url.path and url.path.endswith("/members"):
+                body = {"generation":4, "total_count":2, "next_cursor":None,
+                        "items":[{"queue":"needs_action", "reason_codes":[],
+                                  "event":{**member, "detail_available":True}} for member in members]}
+            elif url.path.startswith("/api/imports/ota/groups/"):
+                event_id = url.path.split("/")[-2]
+                event = next(row["event"] for row in rows if row["event"]["ota_event_id"] == event_id)
+                body = {"generation":7,"total_count":1,"items":[{"queue":"needs_action","reason_codes":[],"event":event}],"next_cursor":None}
+            elif url.path.startswith("/api/imports/ota/events/"):
+                event_id = url.path.rsplit("/", 1)[-1]
+                body = {"generation":4, "event_id":event_id,
+                        "event":{**next(item for item in members if item["ota_event_id"] == event_id),
+                                 "evidence_missing":True}}
+            elif url.path.startswith("/api/imports/ota/cards/"):
+                body = {"cards":[]}
+            else:
+                route.fulfill(status=404, body='{}')
+                return
+            route.fulfill(json=body)
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width":390,"height":844})
+                page.route("**/api/imports/ota/**", route)
+                page.set_content("<base href='http://localhost/'>" +
+                                 ota_payment_review.render_import_section("synthetic-csrf"))
+                page.locator("#ota-review > summary").click()
+                card = page.locator("#ota-events > [data-queue-detail]").first
+                card.wait_for()
+                self.assertEqual(sum("/members" in path for path in requested), 0)
+                card.locator("summary").click()
+                page.locator('[data-load-detail="charge-original"]').wait_for()
+                self.assertIn("30000", card.inner_text())
+                self.assertIn("5000", card.inner_text())
+                self.assertEqual(page.locator("[data-event]").count(), 0)
+                self.assertEqual(sum("/members" in path for path in requested), 1)
+                card.locator('[data-load-detail="charge-original"]').click()
+                page.locator('[data-event="charge-original"]').wait_for()
+                self.assertEqual(page.locator('[data-event="charge-original"] [data-cards-loaded="false"]').count(), 1)
+                card.locator('[data-load-detail="refund-partial"]').click()
+                page.locator('[data-event="refund-partial"]').wait_for()
+                self.assertIn("HOLD_EVIDENCE_CONFLICT", [member["status"] for member in members])
+                self.assertEqual(requested.count("/api/imports/ota/groups"), 1)
+                self.assertEqual(sum(path.startswith("/api/imports/ota/events/") for path in requested), 2)
+                self.assertTrue(all(path != "/api/imports/ota" for path in requested))
+            finally:
+                browser.close()
+
     def test_bounded_pages_filters_details_lazy_cards_and_no_full_snapshot(self):
         requested = []
         rows = []
@@ -17,6 +92,8 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                      "booking_ref": f"BOOK-{n:02}", "event_type": "charge",
                      "paid_on": "2026-10-01", "item": "Synthetic stay",
                      "amount": 12000, "currency": "KRW", "status": "HOLD_AMBIGUOUS"}
+            event["group_members"] = [{**event, "detail_available":True}]
+            event["group_total_count"] = 1
             rows.append({"queue": "needs_action", "reason_codes": [], "event": event})
 
         def route(route):
@@ -27,13 +104,15 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 body = {"status": "ready", "fresh": True, "stale": False,
                         "refreshing": False, "generation": 7, "coverage": "canonical",
                         "counts_authoritative": True,
-                        "counts_by_queue": {"needs_action": {"event_count": 45, "group_count": 45}}}
-            elif url.path == "/api/imports/ota/events":
+                        "counts_by_queue": {"needs_action": {"event_count": 45, "group_count": 45}},
+                        "verified_group_count": 0, "singleton_fallback_count": 45}
+            elif url.path == "/api/imports/ota/groups":
                 cursor = query.get("cursor", [""])[0]
                 start = 20 if cursor == "cursor-20" else 40 if cursor == "cursor-40" else 0
                 body = {"generation": 7, "total_count": 45, "items": rows[start:start + 20],
                         "next_cursor": "cursor-20" if start == 0 else
-                        "cursor-40" if start == 20 else None}
+                        "cursor-40" if start == 20 else None,
+                        "singleton_fallback_count":45, "verified_group_count":0}
             elif url.path.startswith("/api/imports/ota/events/"):
                 event_id = url.path.rsplit("/", 1)[-1]
                 event = next(row["event"] for row in rows
@@ -84,7 +163,7 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 self.assertTrue(any(path.startswith("/api/imports/ota/events/") for path in requested))
                 page.locator("#ota-q-filter").fill("BOOK-20")
                 page.wait_for_timeout(450)
-                self.assertGreaterEqual(requested.count("/api/imports/ota/events"), 4)
+                self.assertGreaterEqual(requested.count("/api/imports/ota/groups"), 4)
             finally:
                 browser.close()
 
@@ -102,9 +181,12 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
             requested.append(path)
             if path.endswith("/summary"):
                 body = summary
-            elif path == "/api/imports/ota/events":
+            elif path == "/api/imports/ota/groups":
                 body = {"generation": 1, "items": [{"queue": "needs_action", "reason_codes": [],
-                         "event": event}], "next_cursor": None}
+                         "event": {**event, "group_members":[{**event, "detail_available":True}], "group_total_count":1}}], "next_cursor": None,
+                        "singleton_fallback_count":1, "verified_group_count":0}
+            elif "/members" in path:
+                body = {"generation":1,"total_count":1,"items":[{"queue":"needs_action","reason_codes":[],"event":{**event,"detail_available":True}}],"next_cursor":None}
             elif path.endswith("/theme-event"):
                 body = {"generation": 1, "event_id": "theme-event", "event": {
                     **event, "card_candidate_count": 1, "candidate_count": 1}}
@@ -151,7 +233,7 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                                        'open': page.locator('#ota-review').evaluate('el => el.open'),
                                        'text': page.locator('#ota-review').inner_text()}))
                     self.assertNotIn("0건", page.locator("#ota-queue-summary").inner_text())
-                    if page.locator('[data-load-detail]').count():
+                    if not page.locator("[data-event='theme-event']").count():
                         page.locator("[data-queue-detail] > summary").click()
                         page.locator("[data-load-detail]").click()
                     page.locator("[data-event='theme-event']").wait_for()
@@ -182,7 +264,7 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                                  ota_payment_review.render_import_section("csrf"))
                 page.locator("#ota-review > summary").click()
                 page.locator("#ota-freshness").filter(has_text="최신 자료").wait_for()
-                self.assertNotIn("/api/imports/ota/events", paths)
+                self.assertNotIn("/api/imports/ota/groups", paths)
                 self.assertIn("집계 미확인", page.locator("#ota-queue-summary").inner_text())
                 self.assertNotIn("0건", page.locator("#ota-queue-summary").inner_text())
             finally:
@@ -195,6 +277,9 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
             "event_type": "charge", "paid_on": "2026-10-01", "item": "Stay",
             "amount": 10, "currency": "KRW", "status": "HOLD_AMBIGUOUS"}}
             for i in range(21)]
+        for entry in entries:
+            entry["event"]["group_members"] = [{**entry["event"], "detail_available":True}]
+            entry["event"]["group_total_count"] = 1
 
         def handler(route):
             parsed = urlsplit(route.request.url)
@@ -204,13 +289,15 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 body = {"status": "ready", "fresh": True, "stale": False,
                         "refreshing": False, "generation": 2, "coverage": "canonical",
                         "counts_authoritative": True, "counts_by_queue": {}}
-            elif parsed.path == "/api/imports/ota/events" and query.get("cursor"):
+            elif parsed.path == "/api/imports/ota/groups" and query.get("cursor"):
                 route.fulfill(status=400, content_type="application/json",
                               body='{"code":"BAD_CURSOR"}')
                 return
-            elif parsed.path == "/api/imports/ota/events":
+            elif parsed.path == "/api/imports/ota/groups":
                 body = {"generation": 2, "total_count": 21, "items": entries[:20],
                         "next_cursor": "broken-cursor"}
+            elif parsed.path.startswith("/api/imports/ota/groups/"):
+                body = {"generation":2,"total_count":1,"items":[entries[0]],"next_cursor":None}
             elif parsed.path.endswith("/events/evt-0"):
                 body = {"generation": 2, "event_id": "evt-0", "event": {
                     **entries[0]["event"], "card_candidate_count": 1}}
@@ -236,7 +323,7 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 page.locator("#ota-page-next").click()
                 page.locator('[data-event-id="evt-0"]').wait_for()
                 page.wait_for_timeout(100)
-                self.assertEqual(sum("/api/imports/ota/events?" in value for value in requests), 3, requests)
+                self.assertEqual(sum("/api/imports/ota/groups?" in value for value in requests), 3, requests)
                 row = page.locator('[data-event-id="evt-0"]')
                 row.locator(":scope > summary").click()
                 row.locator("[data-load-detail]").click()
@@ -271,10 +358,12 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 body = {"status": "ready", "fresh": True, "stale": False,
                         "refreshing": False, "generation": 4, "coverage": "canonical",
                         "counts_authoritative": True, "counts_by_queue": {}}
-            elif parsed.path == "/api/imports/ota/events":
+            elif parsed.path == "/api/imports/ota/groups":
                 body = {"generation": 4, "total_count": 1, "items": [
-                    {"queue": "needs_action", "reason_codes": [], "event": event}],
+                    {"queue": "needs_action", "reason_codes": [], "event": {**event,"group_members":[{**event, "detail_available":True}],"group_total_count":1}}],
                     "next_cursor": None}
+            elif parsed.path.startswith("/api/imports/ota/groups/"):
+                body = {"generation":4,"total_count":1,"items":[{"queue":"needs_action","reason_codes":[],"event":{**event,"detail_available":True}}],"next_cursor":None}
             elif parsed.path.endswith("/events/evt-action"):
                 body = {"generation": 4, "event_id": "evt-action",
                         "event": {**event, "card_candidate_count": 1}}
@@ -347,8 +436,9 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                     pending.append(route)
                     return
                 body = summary
-            elif path.endswith('/events'):
-                body = {"generation": 1, "items": [{"event": event}], "next_cursor": None}
+            elif path.endswith('/groups'):
+                body = {"generation": 1, "items": [{"event": {**event, "group_members":[{**event, "detail_available":True}], "group_total_count":1}}], "next_cursor": None,
+                        "singleton_fallback_count":1, "verified_group_count":0}
             elif '/events/' in path:
                 body = {"generation": 1, "event": event}
             else:
@@ -392,7 +482,7 @@ class OtaQueueUiBrowserTests(unittest.TestCase):
                 body = {"status": "ready", "fresh": True, "stale": False,
                         "refreshing": False, "generation": state['generation'],
                         "counts_by_queue": None, "counts_authoritative": False}
-            elif path.endswith('/events'):
+            elif path.endswith('/groups'):
                 state['generation'] = 2
                 body = {"generation": 2, "items": [{"event": {
                     "ota_event_id": "current", "booking_ref": "CURRENT"}}], "next_cursor": None}

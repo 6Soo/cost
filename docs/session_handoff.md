@@ -1,5 +1,13 @@
 # 현재 상태와 남은 일
 
+## 2026-10-28 Cost V41 인계 후 검수
+
+- Supervisor `a61ba8ab-9186-43aa-af75-aede3adbb9e8`가 이전 `77d8365a`와 `0623c63d`의 로그·작업 트리를 대조했다. 이전 에이전트에 메시지/재개하지 않았다. 예약 그룹 후속 구현자 `622a8dd8`는 idle이며 Git/통합/배포는 Supervisor가 이어받는다. 사용자 미추적 파일과 기존 stash를 보존한다.
+- **예약 그룹 REVIEWED / RELEASE_PENDING:** 검증된 포털 출처 attestation만 그룹화하고 원래 금융 이벤트·ID·금액·환불·수동 결정을 보존한다. worker에서 동일 세대 summary/group/member index를 게시하며 그룹 목록·구성원은 최대20개, 목록 미리보기는 최대3개다. private attestation은 공개 snapshot/persistence에서 제외한다. singleton은 event detail을 직접 읽고 중복/누락 ID는 상세를 차단한다.
+- 구현자의 지정 route/snapshot/group 검사64 passed 근거를 재사용했다. Supervisor는 browser fixture의 detail_available와 그룹 펼침의 비동기 계약을 교정했고 queue UI8 passed, 기존 결제 browser9 passed 및4 subtests를 확인했다. 금융/권한 인접74 passed, 기존 HTTP 플래그 표시2 failed; 그 중 모바일1개는 기준 `ccc2e40` 분리 archive에서도 동일 timeout을 재현했다. 실패를 통과로 계산하지 않는다. compile/diff 통과. 전체 회귀·실기기·제품 p95는 미실행이다.
+- **Gmail 조사 정정 / 원문 파싱 계속:** 46개 iframe의 query와 응답 script를 확인한 결과 예약 본문이 아니라 열람 추적 코드이며 target URL도 없다. 앞선 '외부 프레임이 실제 본문' 추정은 철회한다. 원래 Gmail HTML에는 객실·숙박 시작일 문장이 있다. 예약번호/결제금액 표시는 확인되지 않으므로 결제·예약 관계를 확정하지 않는다. 외부 추적 코드를 더 수집하지 않고 원래 HTML의 날짜/시설/객실 문장을 로컬에서 분석한다. 원문47건 재적재와 수집기 재배포는 하지 않는다.
+- 로컬 근거는 `.local-archive/cost-v34-resume-20261028/`와 Aside `artifacts/forest-gmail-resume/`다. 원문/계정/예약 ID는 Git·보고서에 추가하지 않는다. 다음: 예약 그룹 지정 파일만 commit/PR/정상병합/검증 SHA 배포·보호 비교 후, Gmail 예약 근거의 안전 추출을 이어간다.
+
 ## 2026-10-28 Cost V34 분류자 전체 요구 재개
 
 사용자가 지시한 분류자 세션은 **Cost V34**, `bf7c2051-cd25-4f4c-892a-7884b16c858f`다. 기존 세션 자체는 인수 후 보관했으며 아래 새 실행이 요구사항을 이어받는다. 완료된 코드를 재구현하지 않고 각 요구의 실제 미결·수락 공백을 확인한다. Supervisor가 Git/통합/배포/본 문서를 단독 소유한다.

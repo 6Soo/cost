@@ -10,6 +10,7 @@ import importlib
 import json
 import os
 import re
+import secrets
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -20,6 +21,7 @@ from . import ota_snapshot
 from app.ota_queue_projection import classify_event, summarize_queue
 from app.ota_queue_paging import QUEUES as OTA_QUEUE_NAMES
 from app.ota_queue_paging import PagingError, QueueIndex, build_queue_index, list_queue_page
+from app.ota_reservation_groups import project_reservation_groups
 
 
 ROUTE_PREFIX = "/api/imports/ota"
@@ -1011,6 +1013,12 @@ class CoreOtaPaymentBackend:
         """Read the current private queue index and freshness without exposing it in snapshots."""
         return snapshot_service(self.board).queue_page_context()
 
+    def queue_group_context(self):
+        return snapshot_service(self.board).queue_group_context()
+
+    def queue_group_members_context(self, group_id, generation):
+        return snapshot_service(self.board).queue_group_members_context(group_id, generation)
+
     def queue_detail_context(self, event_id, generation):
         return snapshot_service(self.board).queue_detail_context(event_id, generation)
 
@@ -1439,8 +1447,99 @@ def _canonical_queue_page_rows(queue_rows):
             "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
             "item", "amount", "currency", "status", "merchant")}
         page_rows.append({"queue": result["queue"],
-                          "reason_codes": result["reason_codes"], "event": event})
+                          "reason_codes": result["reason_codes"], "warning": result["warning"],
+                          "event": event})
     return page_rows
+
+
+def _canonical_queue_projection(queue_rows):
+    """Classify each canonical row and attest/group it once for worker outputs."""
+    page_rows = _canonical_queue_page_rows(queue_rows)
+    projected = project_reservation_groups(queue_rows)
+    return _canonical_queue_group_projection(queue_rows, page_rows, projected)
+
+
+def _canonical_queue_group_projection(queue_rows, page_rows, projected):
+    priority = {name: index for index, name in enumerate(OTA_QUEUE_NAMES)}
+    groups, member_indexes = [], {}
+    event_id_counts = {}
+    for row in queue_rows:
+        event_id = row.get("ota_event_id") if type(row) is dict else None
+        if type(event_id) is str and event_id.strip():
+            event_id_counts[event_id] = event_id_counts.get(event_id, 0) + 1
+    for group in projected["groups"]:
+        members = []
+        for index in group["member_indices"]:
+            if index >= len(queue_rows):
+                continue
+            public_event = dict(page_rows[index]["event"])
+            public_event["queue"] = page_rows[index]["queue"]
+            members.append(public_event)
+        if not members:
+            continue
+        primary = min(members, key=lambda item: (
+            priority.get(item["queue"], 0), str(item.get("paid_on") or ""),
+            str(item.get("ota_event_id") or "")))
+        group_queue = min((item["queue"] for item in members), key=lambda name: priority[name])
+        event = {key: primary.get(key) for key in (
+            "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+            "item", "amount", "currency", "status", "merchant")}
+        group_id = (ota_snapshot.digest({"group_member_indices": group["member_indices"],
+                                         "event_ids": [member.get("ota_event_id") for member in members]})
+                    if group.get("verified") is True else None)
+        member_rows = []
+        for index in group["member_indices"]:
+            member = page_rows[index]
+            event_id = member["event"].get("ota_event_id")
+            member_rows.append({
+                "queue": member["queue"], "reason_codes": member["reason_codes"],
+                "event": {**member["event"], "detail_available": (
+                    type(event_id) is str and bool(event_id.strip()) and event_id_counts.get(event_id) == 1)},
+            })
+        if group_id is not None:
+            member_indexes[group_id] = member_rows
+            event["group_id"] = group_id
+        event["group_total_count"] = len(member_rows)
+        event["group_members"] = [{key: member.get(key) for key in (
+            "ota_event_id", "provider", "booking_ref", "event_type", "paid_on",
+            "item", "amount", "currency", "status")} | {
+                "detail_available": type(member.get("ota_event_id")) is str and
+                event_id_counts.get(member.get("ota_event_id")) == 1}
+            for member in members[:3]]
+        reasons = sorted({code for index in group["member_indices"]
+                          for code in page_rows[index]["reason_codes"]})
+        groups.append({"queue": group_queue, "reason_codes": reasons, "event": event})
+
+    counts = {queue: {"event_count": 0, "group_count": 0} for queue in OTA_QUEUE_NAMES}
+    for row in page_rows:
+        counts[row["queue"]]["event_count"] += 1
+    for row in groups:
+        counts[row["queue"]]["group_count"] += 1
+    summary = {"coverage":"canonical", "grouping":"producer_attested_reservation_identity",
+               "snapshot_status":"ready", "stale":False, "refreshing":False,
+               "fresh":True, "enabled":True, "generation":0,
+               "counts_authoritative":True, "counts_by_queue":counts,
+               "warning_count":sum(bool(row["warning"]) for row in page_rows),
+               "state_tags":[], "verified_group_count":projected["verified_group_count"],
+               "singleton_fallback_count":projected["singleton_fallback_count"]}
+    # Keep the event queue index available for the established /events route.
+    # The UI labels unverified singleton rows as temporary event units; they
+    # are never promoted to an attested reservation group.
+    return page_rows, groups, summary, member_indexes
+
+
+def _canonical_queue_group_rows(queue_rows):
+    """Compatibility wrapper for callers that need only group rows."""
+    page_rows = _canonical_queue_page_rows(queue_rows)
+    projected = project_reservation_groups(queue_rows)
+    return _canonical_queue_group_projection(queue_rows, page_rows, projected)[1]
+
+
+def _canonical_queue_group_summary(queue_rows):
+    """Compatibility wrapper for callers that need only the group summary."""
+    page_rows = _canonical_queue_page_rows(queue_rows)
+    projected = project_reservation_groups(queue_rows)
+    return _canonical_queue_group_projection(queue_rows, page_rows, projected)[2]
 
 
 def _canonical_queue_detail_data(queue_rows, events, results, public, transactions=()):
@@ -1535,8 +1634,8 @@ def reconcile_for(backend) -> dict:
         authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
     scheduled = scheduled_card_settlements(backend.sources, transactions, backend._occupied_cards(links, results))
     canonical_rows = _canonical_queue_rows(events, results, links)
-    queue_summary = _canonical_queue_summary_rows(canonical_rows)
-    queue_page_rows = _canonical_queue_page_rows(canonical_rows)
+    queue_page_rows, queue_group_rows, queue_summary, queue_group_member_rows = (
+        _canonical_queue_projection(canonical_rows))
     public = public_snapshot(backend.snapshot_from(data, include_cards=False))
     queue_detail_rows, queue_ambiguous_ids = _canonical_queue_detail_data(
         canonical_rows, events, results, public, transactions)
@@ -1544,6 +1643,8 @@ def reconcile_for(backend) -> dict:
         "public": public,
         "queue_summary": queue_summary,
         "queue_page_rows": queue_page_rows,
+        "queue_group_rows": queue_group_rows,
+        "queue_group_member_rows": queue_group_member_rows,
         "queue_detail_rows": queue_detail_rows,
         "queue_ambiguous_ids": queue_ambiguous_ids,
         "authority": authority,
@@ -2110,16 +2211,20 @@ def render_import_section(csrf: str) -> str:
   function renderCounts(data){{
     const labels={{needs_action:'확인 필요',waiting_source:'자료 갱신 대기',evidence_missing:'근거 부족',auto_recheck:'자동 재확인',completed:'연결 검토 완료',historical:'과거 기록'}};
     const rows=Object.entries(labels).map(([name,title])=>{{const item=data.counts_by_queue?.[name];const available=item&&Number.isInteger(item.event_count)&&Number.isInteger(item.group_count);return `<span>${{title}}: ${{available?item.event_count+'건 / '+item.group_count+'묶음':'집계 미확인'}}</span>`;}}).join(' · ');
-    summaryBox.innerHTML=`<p>${{data.counts_authoritative===true?'현재 자료 기준 집계':'잠정 집계 · 최신 자료 확인 필요'}}${{data.grouping==='singleton_fallback'?' · 이벤트별 임시 단위(예약 그룹 수 아님)':''}}</p><p>${{rows}}</p><p>연결 검토 완료는 내부 기장이나 실제 환급 완료를 뜻하지 않습니다.</p>`;
+    const verified=Number.isInteger(data.verified_group_count)?data.verified_group_count:null;const fallback=Number.isInteger(data.singleton_fallback_count)?data.singleton_fallback_count:null;const groupLabel=verified!==null&&fallback!==null?(verified>0?`검증된 예약 묶음 ${{verified}}개 · 이벤트 임시 단위 ${{fallback}}개`:`검증된 예약 묶음 없음 · 이벤트 임시 단위 ${{fallback}}개`):'예약 그룹 상태 미확인';
+    summaryBox.innerHTML=`<p>${{data.counts_authoritative===true?'현재 자료 기준 집계':'잠정 집계 · 최신 자료 확인 필요'}} · ${{groupLabel}}</p><p>${{rows}}</p><p>연결 검토 완료는 내부 기장이나 실제 환급 완료를 뜻하지 않습니다.</p>`;
   }}
   const queueReasons={{EVENT_ID_MISSING:'거래 ID 없음',EVENT_ID_DUPLICATE:'거래 ID 중복',MALFORMED_EVENT:'거래 자료 오류',EVIDENCE_CHANGED:'근거 변경',EVIDENCE_MISSING:'근거 사라짐',REVIEW_WARNING:'검토 경고',STATUS_UNKNOWN:'상태 미확인',EVIDENCE_UNKNOWN:'근거 상태 미확인',PAYMENT_EVIDENCE_CONFLICT:'결제 근거 충돌',MATCHING_REVIEW_REQUIRED:'연결 검토 필요',PAYMENT_EVIDENCE_MISSING:'결제 근거 부족',SOURCE_OR_DATE_PENDING:'자료 또는 날짜 확인 대기',SCHEDULED_EVIDENCE_REVIEW:'예정 결제 확인 필요',PAYMENT_EVIDENCE_UNVERIFIED:'결제 근거 미검증',MATCH_REASON_UNKNOWN:'연결 근거 미확인',INFERRED_OR_GROUP_MATCH:'추론 또는 그룹 연결',PAYMENT_STATUS_UNVERIFIED:'결제 상태 미검증',TRANSACTION_ID_MISSING:'카드 거래 ID 없음',MATCHING_REVIEW_RESOLVED:'연결 검토 완료'}};
-  function rowLabel(item){{const event=item.event||{{}},id=event.ota_event_id;const codes=item.reason_codes||[],reason=codes.map(code=>queueReasons[code]||'추가 확인 필요').join(', ');const invalid=!id||codes.includes('EVENT_ID_MISSING')||codes.includes('EVENT_ID_DUPLICATE');const summaryText=[event.provider,event.booking_ref,event.paid_on,event.item,event.amount,event.currency,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');return `<details class="ota-queue-row" data-queue-detail data-event-id="${{esc(id||'')}}"><summary>${{summaryText||'OTA 거래'}}${{reason?` <span class="ota-chip">${{esc(reason)}}</span>`:''}}</summary>${{invalid?'<p>거래 ID가 없거나 중복되어 처리할 수 없습니다.</p>':'<div data-detail-body><button type="button" data-load-detail>검토 상세 보기</button></div>'}}</details>`;}}
-  function bindPageDetails(target,generation){{target.querySelectorAll('[data-load-detail]').forEach(button=>button.addEventListener('click',async()=>{{const row=button.closest('[data-queue-detail]'),body=row.querySelector('[data-detail-body]');button.disabled=true;const version=requestVersion;try{{const detail=await get(`/api/imports/ota/events/${{encodeURIComponent(row.dataset.eventId)}}?generation=${{encodeURIComponent(generation)}}`,version);if(detail.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(!body.isConnected)return;body.replaceChildren();renderFull({{events:[detail.event]}},body);}}catch(error){{if(ignored(error))return;if(error.status===409&&error.code!=='EVENT_ID_AMBIGUOUS'){{invalidateSnapshot(readError(error));return;}}body.textContent=readError(error);button.disabled=false;}}}}));}}
+  function rowLabel(item){{const event=item.event||{{}},members=Array.isArray(event.group_members)?event.group_members:[],id=event.ota_event_id,total=Number.isInteger(event.group_total_count)?event.group_total_count:(members.length||1);const codes=item.reason_codes||[],reason=codes.map(code=>queueReasons[code]||'추가 확인 필요').join(', ');const preview=members.map(member=>[member.event_type,member.paid_on,member.amount,member.currency,STATUS_LABELS[member.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ')).join(' | ');const summaryText=[event.provider,event.booking_ref,`${{total}}건`,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');const memberButton=event.group_id?`<button type="button" data-load-group-members="${{esc(event.group_id)}}" data-cursor="">구성원 보기</button>`:id&&members[0]?.detail_available===true?`<button type="button" data-load-detail="${{esc(id)}}">원본 사건 검토</button>`:`<p>사건 ID 누락 또는 중복으로 상세를 열 수 없습니다.</p>`;const details=`<div data-group-members>${{memberButton}}<div data-detail-body></div></div>`;return `<details class="ota-queue-row" data-queue-detail data-event-id="${{esc(id||'')}}" data-group-id="${{esc(event.group_id||'')}}"><summary>${{summaryText||'OTA 예약 그룹'}}${{reason?` <span class="ota-chip">${{esc(reason)}}</span>`:''}}</summary><div class="ota-group-preview">${{preview?`<p>${{preview}}</p>`:''}}<p>미리보기 ${{members.length}} / 전체 ${{total}} 사건</p>${{details}}</div></details>`;}}
+  function renderGroupMembers(container,data,generation,groupId){{const rows=(data.items||[]).map(item=>{{const event=item.event||{{}},id=event.ota_event_id,label=[event.event_type,event.paid_on,event.amount,event.currency,STATUS_LABELS[event.status]||'상태 확인 필요'].filter(value=>value!==null&&value!==undefined&&value!=='').map(esc).join(' · ');const detail=id&&event.detail_available===true?`<button type="button" data-load-detail="${{esc(id)}}">원본 사건 검토</button>`:'<p>사건 ID 누락 또는 중복으로 상세를 열 수 없습니다.</p>';return `<section class="ota-group-member"><p>${{label}}</p>${{detail}}<div data-detail-body></div></section>`;}}).join('');const cursor=data.next_cursor||'';container.innerHTML=rows+`<p>${{data.items?.length||0}}건 · 전체 ${{data.total_count}}건</p>${{cursor?`<button type="button" data-load-group-members="${{esc(groupId)}}" data-cursor="${{esc(cursor)}}">다음 사건</button>`:''}}`;bindEventDetails(container,generation);container.querySelectorAll('[data-load-group-members]').forEach(button=>button.addEventListener('click',()=>loadGroupMembers(button,container,generation)));}}
+  async function loadGroupMembers(button,container,generation){{button.disabled=true;const groupId=button.dataset.loadGroupMembers,cursor=button.dataset.cursor||null;try{{const data=await get(queryPath(`/api/imports/ota/groups/${{encodeURIComponent(groupId)}}/members`,{{generation,limit:20,cursor}}));if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}renderGroupMembers(container,data,generation,groupId);}}catch(error){{if(!ignored(error)){{container.textContent=readError(error);button.disabled=false;if(error.status===409)invalidateSnapshot(readError(error));}}}}}}
+  function bindEventDetails(target,generation){{target.querySelectorAll('[data-load-detail]').forEach(button=>button.addEventListener('click',async()=>{{const eventId=button.dataset.loadDetail,body=button.closest('.ota-group-member')?.querySelector('[data-detail-body]')||button.parentElement.querySelector('[data-detail-body]')||button.closest('[data-group-members]')?.querySelector('[data-detail-body]')||button.parentElement.nextElementSibling;button.disabled=true;try{{const detail=await get(`/api/imports/ota/events/${{encodeURIComponent(eventId)}}?generation=${{encodeURIComponent(generation)}}`);if(detail.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(body?.isConnected)renderFull({{events:[detail.event]}},body);}}catch(error){{if(!ignored(error)){{body.textContent=readError(error);button.disabled=false;if(error.status===409&&error.code!=='EVENT_ID_AMBIGUOUS')invalidateSnapshot(readError(error));}}}}}}));}}
+  function bindPageDetails(target,generation){{target.querySelectorAll('.ota-queue-row').forEach(group=>group.addEventListener('toggle',()=>{{if(!group.open||group.dataset.loaded==='true')return;const button=group.querySelector('[data-load-group-members]');if(button){{group.dataset.loaded='true';loadGroupMembers(button,group.querySelector('[data-group-members]'),generation);}}}}));bindEventDetails(target,generation);}}
   function renderPage(data){{page=data;const target=root.querySelector('#ota-events');target.innerHTML=(data.items||[]).map(rowLabel).join('')||'<p>이 페이지에 표시할 거래가 없습니다.</p>';bindPageDetails(target,data.generation);root.querySelector('#ota-page-prev').disabled=cursorStack.length<=1;root.querySelector('#ota-page-next').disabled=!data.next_cursor;root.querySelector('#ota-page-label').textContent=`${{(data.items||[]).length}}건 · 자료 버전 ${{data.generation}}`;}}
   async function fetchPage(cursor=null,reset=false){{
     if(!root.open||!summary||protectReviewChoice())return;
     const version=requestVersion,generation=summary.generation;
-    try{{const data=await get(queryPath('/api/imports/ota/events',{{queue:appliedFilters[0],provider:appliedFilters[1].trim(),q:appliedFilters[2].trim(),limit:20,cursor}}),version);if(protectReviewChoice())return;if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(reset)cursorStack=[null];renderPage(data);}}
+    try{{const data=await get(queryPath('/api/imports/ota/groups',{{queue:appliedFilters[0],provider:appliedFilters[1].trim(),q:appliedFilters[2].trim(),limit:20,cursor}}),version);if(protectReviewChoice())return;if(data.generation!==generation){{invalidateSnapshot('자료가 갱신되어 최신 목록을 다시 불러옵니다.');return;}}if(reset)cursorStack=[null];renderPage(data);}}
     catch(error){{if(ignored(error))return;if(error.code==='BAD_CURSOR'&&cursor!==null){{cursorStack=[null];await fetchPage(null,true);return;}}if(error.status===409){{invalidateSnapshot(readError(error));return;}}clearPage('목록을 불러오지 못했습니다.');freshness.textContent=readError(error);}}
   }}
   async function loadQueue(){{
@@ -2359,6 +2464,25 @@ def _queue_page_response(context, kwargs):
                                   "fresh": True, "stale": False, "refreshing": False}}
 
 
+def _queue_group_page_response(context, kwargs):
+    """Page worker-prepared groups while retaining temporary singleton units."""
+    response = _queue_page_response(context, kwargs)
+    summary = context.get("summary") if type(context) is dict else None
+    if type(summary) is dict:
+        for name in ("verified_group_count", "singleton_fallback_count"):
+            value = summary.get(name)
+            if type(value) is int and value >= 0:
+                response[name] = value
+    response["grouping"] = (summary.get("grouping") if type(summary) is dict and
+                             summary.get("grouping") in ("producer_attested_reservation_identity",
+                                                          "singleton_fallback") else "unknown")
+    response["fallback_status"] = ("verified_groups_present"
+                                    if response.get("verified_group_count", 0) > 0 else
+                                    "all_singleton_fallback"
+                                    if response.get("singleton_fallback_count") is not None else "unknown")
+    return response
+
+
 class _PageNotReady(Exception):
     def __init__(self, envelope):
         self.envelope = envelope
@@ -2441,6 +2565,8 @@ def _stored_queue_summary_response(view):
 
     counts = None
     warning_count = None
+    verified_group_count = None
+    singleton_fallback_count = None
     coverage = "unavailable"
     grouping = "unknown"
     if summary is not None:
@@ -2462,14 +2588,23 @@ def _stored_queue_summary_response(view):
             raw_warning_count = summary.get("warning_count")
             if type(raw_warning_count) is not int or raw_warning_count < 0:
                 valid = False
+            raw_verified_groups = summary.get("verified_group_count")
+            raw_fallback_groups = summary.get("singleton_fallback_count")
+            if raw_verified_groups is not None and (type(raw_verified_groups) is not int or raw_verified_groups < 0):
+                valid = False
+            if raw_fallback_groups is not None and (type(raw_fallback_groups) is not int or raw_fallback_groups < 0):
+                valid = False
             raw_coverage = summary.get("coverage")
             if type(raw_coverage) is not str or raw_coverage not in ("canonical", "public_subset"):
                 valid = False
             if valid:
                 counts = safe_counts
                 warning_count = raw_warning_count
+                verified_group_count = raw_verified_groups
+                singleton_fallback_count = raw_fallback_groups
                 coverage = raw_coverage
-                grouping = "singleton_fallback" if summary.get("grouping") == "singleton_fallback" else "unknown"
+                grouping = (summary.get("grouping") if summary.get("grouping") in
+                            ("singleton_fallback", "producer_attested_reservation_identity") else "unknown")
 
     if counts is None:
         state_tags.append("QUEUE_SUMMARY_UNAVAILABLE")
@@ -2516,6 +2651,8 @@ def _stored_queue_summary_response(view):
         "counts_authoritative": counts_authoritative,
         "counts_by_queue": counts,
         "warning_count": warning_count,
+        "verified_group_count": verified_group_count,
+        "singleton_fallback_count": singleton_fallback_count,
         "state_tags": state_tags,
     }
 
@@ -2598,6 +2735,66 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 return _reply_error(handler, exc.code, message, exc.status_code)
             except Exception:
                 return _reply_error(handler, "OTA_PROPOSALS_UNAVAILABLE", "제안 목록을 읽을 수 없습니다.", 503)
+            return True
+        if path == ROUTE_PREFIX + "/groups":
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            try:
+                kwargs = _queue_page_query(parsed.query)
+                if kwargs["limit"] > 20:
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                context_of = getattr(backend, "queue_group_context", None)
+                if not callable(context_of):
+                    raise _PageNotReady({"status":"unknown", "generation":None,
+                                         "fresh":None, "stale":None, "refreshing":None})
+                context = context_of()
+                handler._send_json(_queue_group_page_response(context, kwargs))
+            except _PageNotReady as exc:
+                handler._send_json({"code":"SNAPSHOT_NOT_READY", "snapshot":exc.envelope}, 409)
+            except PagingError as exc:
+                message = ("스냅샷이 변경되었습니다. 첫 페이지부터 다시 요청해 주세요."
+                           if exc.status_code == 409 else "요청 cursor가 올바르지 않습니다.")
+                return _reply_error(handler, exc.code, message, exc.status_code)
+            except Exception:
+                return _reply_error(handler, "OTA_GROUPS_UNAVAILABLE", "예약 그룹을 읽을 수 없습니다.", 503)
+            return True
+        group_members_match = re.fullmatch(re.escape(ROUTE_PREFIX) + r"/groups/([a-f0-9]{64})/members", path)
+        if group_members_match:
+            if not _request_user(handler):
+                return _reply_error(handler, "ACCESS_REQUIRED", "로그인이 필요합니다.", 403)
+            try:
+                params = _strict_generation_query(parsed.query, proposals=True)
+                if params["limit"] > 20:
+                    raise ValueError
+            except (ValueError, UnicodeError):
+                return _reply_error(handler, "INVALID_QUERY", "요청 조건이 올바르지 않습니다.", 400)
+            try:
+                context_of = getattr(backend, "queue_group_members_context", None)
+                if not callable(context_of):
+                    raise ota_snapshot.SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+                context = context_of(group_members_match.group(1), params["generation"])
+                index = context.get("index") if type(context) is dict else None
+                if (type(index) is not QueueIndex or context.get("status") != "ready" or
+                        context.get("fresh") is not True or context.get("stale") is not False or
+                        context.get("refreshing") is not False or
+                        context.get("generation") != params["generation"] or
+                        index._generation != params["generation"]):
+                    raise ota_snapshot.SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+                page = list_queue_page(index, limit=params["limit"], cursor=params.get("cursor"))
+                handler._send_json({**page, "group_id":group_members_match.group(1),
+                                    "snapshot":{"status":"ready", "generation":params["generation"]}})
+            except PagingError as exc:
+                return _reply_error(handler, exc.code, "그룹 사건 페이지 요청이 만료되었거나 올바르지 않습니다.",
+                                    exc.status_code)
+            except ota_snapshot.SnapshotReadError as exc:
+                return _reply_error(handler, exc.code, "자료 버전이 변경되었거나 아직 준비되지 않았습니다.",
+                                    exc.status_code)
+            except Exception:
+                return _reply_error(handler, "OTA_GROUP_MEMBERS_UNAVAILABLE",
+                                    "그룹 사건 페이지를 읽을 수 없습니다.", 503)
             return True
         detail_match = re.fullmatch(re.escape(ROUTE_PREFIX) + r"/events/([^/]+)", path)
         if detail_match:
