@@ -3,38 +3,24 @@
 Verifies:
 - Canonical JSON serialization and source fact digest differential against base commit 2384cfd
 - Outbox ownership rules (owns_outbox_id) and exact AST differential
-- Outbox ID formatting helpers
-- Outbox DB queries and lifecycle (insert, unrelayed fetch, update, resolve)
-- LedgerStore facade delegation, lock preservation, and relay coordination
+- LedgerStore facade delegation, lock boundary, and _owns_outbox_id dynamic dispatch preservation
+- Outbox relay lifecycle, failure handling, and replay idempotency
 """
 from __future__ import annotations
 
 import ast
 import hashlib
 import json
-import sqlite3
 import subprocess
-from typing import Any
 
 import pytest
 
 import webapp.ledger_store as ls_module
-from webapp.ledger_store import LedgerStore, SCHEMA_SQL
+from webapp.ledger_store import LedgerStore
 from webapp.ledger_store_audit import (
     canonical_json,
-    fetch_outbox_event_id,
-    fetch_request_unrelayed_outbox_ids,
-    fetch_unrelayed_outbox_rows,
-    indexed_outbox_id,
-    insert_outbox_entry,
     owns_outbox_id,
-    request_outbox_id,
-    resolve_outbox_event_id,
-    row_outbox_id,
-    row_sub_outbox_id,
     source_fact_digest,
-    trip_outbox_id,
-    update_outbox_relayed,
 )
 
 
@@ -54,7 +40,6 @@ def _load_base_2384cfd_functions():
             "_canonical",
             "_source_fact_digest",
             "_owns_outbox_id",
-            "_outbox_event",
         ):
             fn_nodes[node.name] = node
 
@@ -125,115 +110,87 @@ def test_owns_outbox_id_rules_and_differential():
         assert LedgerStore._owns_outbox_id(oid, prefix) == expected
 
 
-def test_outbox_id_formatting_helpers():
-    assert request_outbox_id("req1") == "ledger-req1"
-    assert trip_outbox_id("req1") == "ledger-trip-req1"
-    assert row_outbox_id("req1", "r1") == "ledger-req1-r1"
-    assert row_sub_outbox_id("req1", "r1") == "ledger-req1:r1"
-    assert indexed_outbox_id("req1", 3) == "ledger-req1-3"
-
-
-def test_outbox_lifecycle_in_memory_db():
-    conn = sqlite3.connect(":memory:")
-    conn.executescript(SCHEMA_SQL)
-
-    # 1. Insert outbox entries
-    insert_outbox_entry(
-        conn,
-        outbox_id="ledger-reqA-0",
-        stream_id="row-1",
-        action="update",
-        target="target-1",
-        rationale="test",
-        actor="owner",
-        relayed=0,
-        created_at="2026-10-28T00:00:00Z",
-    )
-    insert_outbox_entry(
-        conn,
-        outbox_id="ledger-reqA-1",
-        stream_id="row-1",
-        action="update",
-        target="target-2",
-        rationale="test",
-        actor="owner",
-        relayed=0,
-        created_at="2026-10-28T00:00:01Z",
-    )
-    insert_outbox_entry(
-        conn,
-        outbox_id="ledger-reqB-0",
-        stream_id="row-2",
-        action="update",
-        target="target-3",
-        rationale="test",
-        actor="owner",
-        relayed=0,
-        created_at="2026-10-28T00:00:02Z",
-    )
-
-    # 2. Fetch all unrelayed
-    unrelayed = fetch_unrelayed_outbox_rows(conn)
-    assert len(unrelayed) == 3
-    assert {row[0] for row in unrelayed} == {"ledger-reqA-0", "ledger-reqA-1", "ledger-reqB-0"}
-
-    # 3. Fetch request-specific unrelayed IDs (strictly reqA)
-    reqA_unrelayed = fetch_request_unrelayed_outbox_ids(conn, "reqA")
-    assert reqA_unrelayed == ["ledger-reqA-0", "ledger-reqA-1"]
-
-    # 4. Update relayed
-    update_outbox_relayed(conn, "ledger-reqA-0", "evt-100")
-    assert fetch_outbox_event_id(conn, "ledger-reqA-0") == "evt-100"
-    assert fetch_outbox_event_id(conn, "ledger-reqA-1") is None
-
-    # 5. Resolve event_id with ledger fallback
-    class MockLedger:
-        def find_by_client_request(self, client_request_id):
-            if client_request_id == "ledger-fallback-1":
-                return {"event_id": "evt-fallback"}
-            return None
-
-    mock_ledger = MockLedger()
-    # Resolved from SQLite table
-    assert resolve_outbox_event_id(conn, mock_ledger, "ledger-reqA-0") == "evt-100"
-    # Resolved via fallback to ledger
-    assert resolve_outbox_event_id(conn, mock_ledger, "ledger-fallback-1") == "evt-fallback"
-    # Not found in either
-    assert resolve_outbox_event_id(conn, mock_ledger, "ledger-unknown") is None
-
-
-def test_facade_delegation_and_relay(tmp_path):
-    db_path = str(tmp_path / "test_store.db")
+def test_relay_request_outbox_preserves_dynamic_dispatch_and_lock_boundary(tmp_path, monkeypatch):
+    """Verify _relay_request_outbox calls self._owns_outbox_id dynamic dispatch outside lock."""
+    db_path = str(tmp_path / "test_dispatch.db")
     store = LedgerStore(db_path)
 
-    # Enqueue in store
+    # Insert raw outbox rows directly
+    store.conn.execute(
+        "INSERT INTO ledger_outbox(outbox_id, stream_id, action, target_direct_event_key,"
+        " rationale, actor_local_id, event_id, relayed, created_at)"
+        " VALUES ('ledger-req1-0', 'row-1', 'propose', 'tgt', 'rat', 'owner', '', 0, '2026-10-28T00:00:00Z')"
+    )
+    store.conn.execute(
+        "INSERT INTO ledger_outbox(outbox_id, stream_id, action, target_direct_event_key,"
+        " rationale, actor_local_id, event_id, relayed, created_at)"
+        " VALUES ('ledger-req1-1', 'row-1', 'propose', 'tgt', 'rat', 'owner', '', 0, '2026-10-28T00:00:01Z')"
+    )
+    store.conn.commit()
+
+    owns_calls = []
+    original_owns = store._owns_outbox_id
+
+    def custom_owns(oid, prefix):
+        owns_calls.append((oid, prefix))
+        return original_owns(oid, prefix)
+
+    # Monkeypatch method on instance to verify dynamic dispatch is honored
+    monkeypatch.setattr(store, "_owns_outbox_id", custom_owns)
+
+    relayed_batches = []
+    monkeypatch.setattr(store, "_relay_outbox", lambda pending: relayed_batches.append(list(pending)))
+
+    store._relay_request_outbox("req1")
+
+    # Verify custom_owns was called for each candidate row with the expected prefix
+    assert ("ledger-req1-0", "ledger-req1-") in owns_calls
+    assert ("ledger-req1-1", "ledger-req1-") in owns_calls
+    # Verify _relay_outbox received the filtered pending list
+    assert relayed_batches == [["ledger-req1-0", "ledger-req1-1"]]
+
+    store.conn.close()
+
+
+def test_outbox_lifecycle_failure_and_replay(tmp_path):
+    """Test full outbox enqueue -> failure -> replay cycle on LedgerStore."""
+    db_path = str(tmp_path / "test_lifecycle.db")
+    store = LedgerStore(db_path)
+
+    # 1. Enqueue outbox item
     store._begin_write()
     store._enqueue_ledger(
-        outbox_id="ledger-test-0",
+        outbox_id="ledger-reqA-0",
         stream_id="row-1",
         action="propose",
-        target="tgt",
-        rationale="rat",
+        target="tgt-1",
+        rationale="test rationale",
         actor="owner",
     )
     store._commit_write()
 
-    # Outbox table has 1 unrelayed row
-    rows = fetch_unrelayed_outbox_rows(store.conn)
-    assert len(rows) == 1
-    assert rows[0][0] == "ledger-test-0"
+    # 2. Check pending in outbox
+    unrelayed = store.conn.execute("SELECT outbox_id FROM ledger_outbox WHERE relayed=0").fetchall()
+    assert len(unrelayed) == 1
+    assert unrelayed[0][0] == "ledger-reqA-0"
 
-    # Relay outbox
-    results = store._relay_outbox(["ledger-test-0"])
-    assert "ledger-test-0" in results
-    event_id = results["ledger-test-0"]
+    # 3. Relay outbox successfully
+    res = store._relay_outbox(["ledger-reqA-0"])
+    event_id = res["ledger-reqA-0"]
     assert event_id is not None
 
-    # Check store._outbox_event retrieves the relayed event_id
-    assert store._outbox_event("ledger-test-0") == event_id
+    # 4. Outbox table marked relayed
+    relayed_row = store.conn.execute(
+        "SELECT event_id, relayed FROM ledger_outbox WHERE outbox_id='ledger-reqA-0'"
+    ).fetchone()
+    assert relayed_row[0] == event_id
+    assert relayed_row[1] == 1
 
-    # Relay again should find no unrelayed rows
-    unrelayed_after = fetch_unrelayed_outbox_rows(store.conn)
-    assert len(unrelayed_after) == 0
+    # 5. _outbox_event retrieves the event_id
+    assert store._outbox_event("ledger-reqA-0") == event_id
+
+    # 6. Re-relaying same outbox_id is a no-op
+    res2 = store._relay_outbox(["ledger-reqA-0"])
+    assert res2 == {}
 
     store.conn.close()

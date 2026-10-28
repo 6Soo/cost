@@ -53,19 +53,8 @@ from .ledger_store_records import (
 )
 from .ledger_store_audit import (
     canonical_json,
-    fetch_outbox_event_id,
-    fetch_request_unrelayed_outbox_ids,
-    fetch_unrelayed_outbox_rows,
-    indexed_outbox_id,
-    insert_outbox_entry,
     owns_outbox_id,
-    request_outbox_id,
-    resolve_outbox_event_id,
-    row_outbox_id,
-    row_sub_outbox_id,
     source_fact_digest,
-    trip_outbox_id,
-    update_outbox_relayed,
 )
 from .ledger_store_allocation_validation import (
     SaveError,
@@ -3479,8 +3468,12 @@ class LedgerStore:
     _owns_outbox_id = staticmethod(owns_outbox_id)
 
     def _relay_request_outbox(self, request_id: str) -> None:
+        prefix = "ledger-" + request_id + "-"
         with self._lock:
-            pending = fetch_request_unrelayed_outbox_ids(self.conn, request_id)
+            rows = self.conn.execute(
+                "SELECT outbox_id FROM ledger_outbox WHERE relayed=0").fetchall()
+        pending = [row[0] for row in rows
+                   if self._owns_outbox_id(row[0], prefix)]
         if pending:
             self._relay_outbox(pending)
 
@@ -5880,35 +5873,38 @@ class LedgerStore:
                 target_direct_event_key=target, rationale=rationale,
                 actor_local_id=actor, client_request_id=outbox_id)
             # 기존 화면의 event_id 조회용 호환 기록이다. 전달 작업은 만들지 않는다.
-            insert_outbox_entry(
-                self.conn,
-                outbox_id=outbox_id,
-                stream_id=stream_id,
-                action=action,
-                target=target,
-                rationale=rationale,
-                actor=actor,
-                event_id=event['event_id'],
-                relayed=1,
-                created_at=_utc_now(),
-            )
+            self.conn.execute(
+                'INSERT OR IGNORE INTO ledger_outbox(outbox_id,stream_id,action,'
+                'target_direct_event_key,rationale,actor_local_id,event_id,relayed,created_at)'
+                ' VALUES (?,?,?,?,?,?,?,1,?)',
+                (outbox_id,stream_id,action,target,rationale,actor,event['event_id'],_utc_now()))
             return
-        insert_outbox_entry(
-            self.conn,
-            outbox_id=outbox_id,
-            stream_id=stream_id,
-            action=action,
-            target=target,
-            rationale=rationale,
-            actor=actor,
-            event_id="",
-            relayed=0,
-            created_at=_utc_now(),
+        self.conn.execute(
+            "INSERT OR IGNORE INTO ledger_outbox(outbox_id, stream_id, action,"
+            " target_direct_event_key, rationale, actor_local_id,"
+            " event_id, relayed, created_at)"
+            " VALUES (?,?,?,?,?,?,'',0,?)",
+            (outbox_id, stream_id, action, target, rationale, actor, _utc_now()),
         )
 
     def _relay_outbox(self, outbox_ids=None) -> dict:
         """COMMIT 뒤 내구성 기록에서 별도 DB로 동일 payload를 복제한다."""
-        rows = fetch_unrelayed_outbox_rows(self.conn, outbox_ids)
+        if outbox_ids is None:
+            rows = self.conn.execute(
+                "SELECT outbox_id, stream_id, action, target_direct_event_key,"
+                " rationale, actor_local_id FROM ledger_outbox WHERE relayed=0"
+            ).fetchall()
+        else:
+            rows = []
+            for oid in dict.fromkeys(outbox_ids):
+                row = self.conn.execute(
+                    "SELECT outbox_id, stream_id, action, target_direct_event_key,"
+                    " rationale, actor_local_id FROM ledger_outbox"
+                    " WHERE outbox_id=? AND relayed=0",
+                    (oid,),
+                ).fetchone()
+                if row:
+                    rows.append(row)
         results = {}
         for oid, stream_id, action, target, rationale, actor in rows:
             try:
@@ -5922,7 +5918,10 @@ class LedgerStore:
                 results[oid] = None
                 continue
             try:
-                update_outbox_relayed(self.conn, oid, event_id)
+                self.conn.execute(
+                    "UPDATE ledger_outbox SET event_id=?, relayed=1 WHERE outbox_id=?",
+                    (event_id, oid),
+                )
             except Exception:
                 results[oid] = None
                 continue
@@ -5932,7 +5931,18 @@ class LedgerStore:
         return results
 
     def _outbox_event(self, outbox_id: str):
-        return resolve_outbox_event_id(self.conn, self.ledger, outbox_id)
+        row = self.conn.execute(
+            "SELECT event_id FROM ledger_outbox WHERE outbox_id=? AND relayed=1",
+            (outbox_id,),
+        ).fetchone()
+        if row and row[0]:
+            return row[0]
+        found = None
+        try:
+            found = self.ledger.find_by_client_request(outbox_id)
+        except Exception:
+            found = None
+        return found["event_id"] if found else None
 
     def _finalize_board_request(self, client_request_id: str):
         row = self.conn.execute(
