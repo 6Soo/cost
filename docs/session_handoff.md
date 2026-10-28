@@ -1,5 +1,22 @@
 # 현재 상태와 남은 일
 
+## 2026-10-28 사용자 재지시 — 전면 리팩토링 병렬 실구현
+
+최신 지시: Supervisor는 단일 백필 대기에 매달리지 않고 **AGY Gemini 3.8 Flash Medium** 작업자에게 대량 구현을 병렬 위임한다. 실행 정본은 [리팩토링 마스터](specs/refactor-master-20261027.md)이며 아래 기존 완료 구현은 재사용한다. 별도 SPEC_ONLY 항공권/보험 명세를 이번 지시만으로 새 기능 구현에 포함하지 않는다. 기존 PEND-04 클라우드 전환도 승인 범위 안에서 계속 수행한다.
+
+- 시작 SHA `2384cfd`, 열린 PR 없음, 사용자 미추적 5경로 보존. 지정 모델의 실제 ID `antigravity/gemini-3.8-flash-medium`과 full-access 실행 가능을 확인했다. 기존 무료 우선순서보다 최신 사용자 지정이 우선한다.
+- 각 작업자는 별도 Paseo worktree의 단독 작성자이며 운영 데이터/인증/고객 원문을 읽거나 수정하지 않는다. Supervisor만 통합·공통 기록·PR·배포·운영 검증을 수행한다. 작업자 재위임·push·PR·배포는 하지 않는다.
+
+| 작업 | 단독 작성자 / 파일 소유권 | 상태·완료 기준 |
+| --- | --- | --- |
+| RF-101 저장소 읽기·투영 책임 추출 | `bf74bc49-d0d8-41be-886e-3255dca226fe`, `ledger_store.py`와 새 읽기 모듈·독립 테스트 | IMPLEMENTING. 실제 소비경계 연결, façade/반환값/스키마·쓰기·revision·감사 보존, 표적 검사·커밋 후 Supervisor 검수. 전체 RF-101 완료와 구별한다. |
+| RF-102 보드 읽기·표시 책임 추출 | `98cc885f-5d8c-4c99-8d5e-01ccfe57a6ea`, `ledger_board.py`와 새 투영/표시 모듈·독립 테스트 | IMPLEMENTING. 기존 HTTP/권한/CSRF/session/lock·public 심볼 보존, 실제 호출 연결과 합성 동등성. |
+| RF-201/202 장부 자산 책임 분리 | `995ccfb3-16d8-4dfe-82fd-65ca02fc4091`, `ledger_design.py`와 새 자산 모듈/경로·독립 테스트 | IMPLEMENTING. CSS/JS·생성 HTML/asset bytes·로드 순서 보존. 기존 44px 토큰/단일 theme 재구현 금지. |
+| RF-103 카드 OTA·환불 근거 표시 분리 | `bce73f79-9de8-4f22-8c1e-04ab8ab6efd1`, `card_flow.py`와 새 근거 renderer·독립 테스트 | IMPLEMENTING. 금융 판단과 뷰 분리, 1:N·추론 보류·환급 미완료·escaping·기존 호출 계약 보존. |
+| PEND-04 기존 클라우드 전환 | Supervisor, 기존 all-pending 로컬 실행기 | BACKFILL_RUNNING. 마지막 소스 원격 일치 확인, 819건에서 재개. 전체 탐색→백업/복원·단일 작성자→원문 적재/반복 불변→worker·예약 수집·전달 전환 순서 유지. |
+
+통합은 변경 축별 직렬 PR로 수행하고 작업자 구현/테스트·Supervisor 수락·병합·실제 배포를 따로 기록한다. R0/R1 기존 PARTIAL 및 외부 근거 미확인을 완료로 승격하지 않는다. 각 작업 완료 후 마스터의 의존성과 최신 소스를 대조해 다음 준비 항목을 바로 배정한다.
+
 ## 2026-10-28 Travel INS → COST 보험가입 명단 연동 감사 (SPEC_ONLY)
 
 양쪽 실제 코드 분석 내용을 [보험 명단 수신·운영 DB·여행별 참가자 조회 구현 명세](specs/insurance-participant-integration-20261028.md)에 추가했다. 기존 COST 수신기/참가자 전용 SQLite/owner 전용 `/participants`/Google 수입 대조는 구현됨. Travel INS `tools/payment_pause.py`에서 필수 `confirmation_reference` 누락과 미지원 `owner_attested` 전달로 실제 `finish_registration` 호출이 실패할 수 있는 **미수정 P0 결함**, 웹 `WEBLEDGER_PARTICIPANT_DB`와 로컬 전달기의 파일 동일성 **운영 미확인 P0**, 보험사 확인 후 공통 전달 흐름과 여행별 보험 참가자 표시 **부분 구현/미구현**을 각각 기록했다. 이번 커밋은 문서만 수정한다. 운영 참가자 DB·보험/금융 원본·기존 완료 작업은 변경하지 않고, 테스트·배포·실자료 수락은 수행하지 않았다.
