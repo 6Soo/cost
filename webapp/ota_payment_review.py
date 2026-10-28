@@ -1344,9 +1344,12 @@ def input_key_for(backend) -> str:
     """Every input a reconciliation reads, from one backend. Source files are keyed by content, never by size or time."""
     from app import ota_sources, flight_evidence
     from app.ota_matching_defaults import load_defaults
+    from app.provisional_assignment import POLICY_VERSION
     store = backend.store
     return ota_snapshot.digest({
         "schema": ota_snapshot.SCHEMA,
+        "provisional_trip_policy": POLICY_VERSION,
+        "trip_authority_rows": backend.board.list_trips() if callable(getattr(backend.board, 'list_trips', None)) else [],
         "sources": ota_sources.source_stamps(backend.sources),
         "transactions": backend._transactions(),
         "review": {"links": _store_value(store, "links", {}),
@@ -1695,7 +1698,8 @@ def _provisional_trip_decisions(backend, events, transactions, results):
     from app.ota_inference import provisional_trip_decisions
     from .provisional_trip_review import authoritative_trips
     from .card_flow import CardFlow
-    if not any(event.get('verified_portal_snapshot') is True for event in events):
+    if not any(event.get('verified_portal_snapshot') is True or
+               event.get('evidence_kind') == 'authenticated_payment_mail' for event in events):
         return {}
     board = getattr(backend, 'board', None)
     if not callable(getattr(board, 'list_trips', None)):

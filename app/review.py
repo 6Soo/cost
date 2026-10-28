@@ -656,6 +656,9 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
                  int(bool(reuse_rule)), now))
             # The source columns are not touched here, and cannot be: this
             # statement names item, description, tab, trip and revision only.
+            previous_attribution = store.conn.execute(
+                "SELECT trip_id,classification_source FROM transactions WHERE transaction_id=?",
+                (transaction_id,)).fetchone()
             store.conn.execute(
                 "UPDATE transactions SET item=?, description=?, display_tab_id=?,"
                 " trip_id=?, classification_state='classified',"
@@ -666,6 +669,12 @@ def save_decision(store, transaction_id: str, expected_revision: int, *,
             store.log_change("transaction.decided", transaction_id,
                              {"revision": revision, "source_hash": found[1],
                               "item": item, "trip_id": trip})
+            if previous_attribution[1] == 'inference':
+                from .provisional_assignment import POLICY_VERSION
+                store.log_change('trip_assignment.reviewed', transaction_id,
+                    {'revision': revision, 'source_hash': found[1],
+                     'previous_trip_id': previous_attribution[0] or '', 'selected_trip_id': trip,
+                     'changed': (previous_attribution[0] or '') != trip, 'policy_version': POLICY_VERSION})
             if resolve_hold:
                 store.conn.execute('DELETE FROM transaction_review_holds WHERE transaction_id=? AND source_hash=?',
                                    (transaction_id,found[1]))

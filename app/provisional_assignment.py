@@ -16,7 +16,7 @@ def canonical_trip_periods(trips):
     for raw in trips:
         trip = dict(raw)
         period_flags = set(trip.get("flags") or trip.get("period_flags") or ())
-        if (not trip.get("trip_id") or trip.get("enabled") is False
+        if (not trip.get("trip_id") or trip.get("archived") or trip.get("deleted") or trip.get("enabled") is False
                 or trip.get("valid") is False or trip.get("conflict")
                 or trip.get("period_conflict")
                 or period_flags & {"PERIOD_START_MISSING", "PERIOD_START_MISMATCH",

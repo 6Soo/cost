@@ -15,10 +15,15 @@ def provisional_trip_decisions(events, trips, *, manual_decisions=None):
     result = {}
     for event in events:
         identity = str(event.get('ota_event_id') or '')
+        authenticated_mail = (event.get('evidence_kind') == 'authenticated_payment_mail'
+                              and re.fullmatch(r'[0-9a-f]{64}', str(event.get('source_digest') or '')))
+        verified_period_source = (event.get('verified_portal_snapshot') is True
+                                  or authenticated_mail)
         # Only verified reservation periods can create a trip candidate. This
         # path never modifies payment status, booking links, or settlement IDs.
-        if (not identity or event.get('verified_portal_snapshot') is not True
-                or event.get('reservation_status') not in ('confirmed', 'completed')
+        if (not identity or not verified_period_source
+                or event.get('reservation_status') not in (
+                    ('confirmed', 'completed', 'observed') if authenticated_mail else ('confirmed', 'completed'))
                 or event.get('service_period_conflict') or event.get('period_conflict')):
             continue
         candidates = ota_service_period_candidate(event, trips)
@@ -30,7 +35,8 @@ def provisional_trip_decisions(events, trips, *, manual_decisions=None):
         result[identity] = rank_trip_candidates(
             candidates, trips=trips,
             manual_status=manual_status, manual_trip_id=manual_trip_id,
-            financial_hold=refund or event.get('financial_hold') is True)
+            financial_hold=refund or event.get('financial_hold') is True
+                or bool(event.get('evidence_changed') or event.get('evidence_missing')))
     return result
 
 
