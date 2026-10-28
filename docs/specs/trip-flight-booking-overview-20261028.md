@@ -5,6 +5,7 @@
 - 대상 화면: 실제 여행 탭 /board?tab=<COST trip tab ID>
 - 목적: 기존 여행 탭의 수입·지출은 그대로 두고, 해당 여행에 귀속된 항공권 예약/탑승객/왕복 여정을 추가 조회한다.
 - 관련 정책: [현재 상태](../session_handoff.md), [여행·금융](finance.md), [항공권 UI](ui.md), [참가자](participants.md), [전면 리팩토링](refactor-master-20261027.md).
+- **후속 연결 정책(2026-10-28):** [보험 명단 참가자 연동·여행 탭 조회 명세](insurance-participant-integration-20261028.md). 항공권은 예약/탑승객 조회, 보험 명단은 별도 참가자 저장소/owner 권한의 조회이다. 동일 이름만으로 보험 가입·항공권 승객·입금을 한 사람으로 확정하지 않는다. 두 영역은 서로 다른 read-only projection으로 개발한다.
 
 ## 1. 제품 결정
 
