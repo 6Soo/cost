@@ -1,0 +1,62 @@
+from webapp import participant_trip_panel as panel
+
+
+def sample_state(count=25):
+    rows = [{"ref": f"main|synthetic|{i + 6}", "row": i + 6,
+             "name": f"payer-{i}", "nickname": "", "amount": 1000 + i,
+             "cells": {"B": "2026-10-28"}} for i in range(count)]
+    people = [{"participant_id": f"person-{i}", "display_name": f"person {i}",
+               "active": True, "state": "confirmed"} for i in range(count)]
+    return {"trip_id": "trip-synthetic", "configured": True,
+            "input_fingerprint": "synthetic-fingerprint", "income_rows": rows,
+            "participants": [], "unlinked_income": rows,
+            "counts": {"roster_confirmed": count, "linked": 0,
+                       "unlinked_income_rows": count},
+            "google": {"available": True},
+            "roster": {"scope": "partial", "participants": people}}
+
+
+def test_projection_is_bounded_to_twenty_for_both_lists():
+    projected = panel.project(sample_state())
+    assert len(projected["rows"]) == 20
+    assert len(projected["participants"]) == 20
+    assert projected["rows_more"] and projected["participants_more"]
+    second = panel.project(sample_state(), income_offset=20, participant_offset=20)
+    assert [row["row"] for row in second["rows"]] == [26, 27, 28, 29, 30]
+    assert len(second["participants"]) == 5
+
+
+def test_virtual_projection_keeps_source_rows_and_amounts_unchanged():
+    state = sample_state(2)
+    before = [(row["ref"], row["amount"], dict(row["cells"])) for row in state["income_rows"]]
+    html = panel.render(state, csrf="synthetic-csrf")
+    after = [(row["ref"], row["amount"], dict(row["cells"])) for row in state["income_rows"]]
+    assert after == before
+    assert "<th>보험 등록</th>" in html
+    assert "미연결 · 보험 미가입을 뜻하지 않음" in html
+    assert "1000원" not in html
+
+
+def test_names_are_escaped_and_links_require_the_reconciliation_fingerprint():
+    state = sample_state(1)
+    state["roster"]["participants"][0]["display_name"] = "<script>alert(1)</script>"
+    html = panel.render(state, csrf="synthetic-csrf")
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "action='/api/participants/link'" in html
+    assert "name='input_fingerprint' value='synthetic-fingerprint'" in html
+    assert "name='csrf' value='synthetic-csrf'" in html
+
+
+def test_unavailable_source_does_not_become_zero_or_unlinked():
+    state = sample_state(1)
+    state["google"]["available"] = False
+    html = panel.render(state)
+    assert "수입 자료 확인 필요" in html
+    assert "미연결 · 보험 미가입을 뜻하지 않음" not in html
+
+
+def test_row_identity_is_canonical_source_sheet_row():
+    rows = [{"row": 9}]
+    result = panel.attach_row_refs(rows, source="archive", sheet="synthetic-tab")
+    assert result[0]["participant_income_ref"] == "archive|synthetic-tab|9"

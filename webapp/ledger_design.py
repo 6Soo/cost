@@ -1587,7 +1587,7 @@ def _selected_rows(tab_id: str, query: str = "", kind: str = ""):
 @read_scope.scoped
 def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
          error: str = "", message: str = "", archived: str = "",
-         draft: dict = None, back: str = "") -> str:
+         draft: dict = None, back: str = "", participant_query: dict = None) -> str:
     """The main ledger screen in the new design."""
     if _STORE_missing():
         return board.layout("웹 장부", "<div class='body'><p>저장소가 연결되지 않았어요.</p></div>")
@@ -1616,6 +1616,11 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     else:
         status = ("<p class='status hint' id='status' role='status' aria-live='polite'></p>")
     back = back or ("/board?" + state_query(tab_id, query, kind, archived))
+    participant_state = None
+    from . import participant_trip_panel as participant_panel
+    participant_controls = (participant_panel.controls_from_query(participant_query or {})
+                            if board.current_role() == "owner" else {})
+    google_income_html = trip_income_html(tab_id)
     panel = ""
     if selected:
         panel = panel_part(selected, back=back, error=error, message=message,
@@ -1636,8 +1641,9 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
         f"{summary_part(tab_id, kind, query)}"
         f"</div>"
         f"<section id='trip-income' aria-label='여행 수입 · COST 기록'>"
-        f"{trip_income_html(tab_id)}"
+        f"{google_income_html}"
         f"</section>"
+        f"{_participant_trip_panel(tab_id, participant_controls)}"
         f"{_source_preview_html(trip)}"
         f"{rows_region(tab_id, query, kind, selected, archived, back)}"
         "<p class='meta' id='live-status-wrap' aria-live='polite'>"
@@ -1646,6 +1652,18 @@ def page(tab_id: str, query: str = "", kind: str = "", selected: str = "",
     return (f"<div class='app'>"
             f"{_nav_html(tab_id, query, kind, archived)}{main}"
             f"<div id='panel-slot'>{panel}</div></div>")
+
+
+def _participant_trip_panel(tab_id: str, controls: dict) -> str:
+    """Owner-only projection. Viewer HTML never receives participant names."""
+    if board.current_role() != "owner" or not _selected_trip(tab_id):
+        return ""
+    from . import participant_trip_panel
+    return participant_trip_panel.shell(trip_id=tab_id)
+
+
+def _participant_trip_state(tab_id: str):
+    return None
 
 
 def panel_part(row_id: str, *, back: str = "/board", error: str = "",
