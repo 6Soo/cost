@@ -165,6 +165,15 @@ def correction_protection_reason(store, transaction_id: str, source_hash: str) -
         "WHERE transaction_id=? AND source_hash=?", (transaction_id, source_hash)).fetchone()
     if exclusion and exclusion[0]:
         return "COMPANY_EXCLUDED"
+    refund = store.conn.execute(
+        "SELECT 1 FROM transactions original JOIN transactions refund "
+        "ON refund.issuer=original.issuer AND refund.card_tail=original.card_tail "
+        "AND refund.original_approval_number=original.approval_number "
+        "WHERE original.transaction_id=? AND COALESCE(original.approval_number,'')!='' "
+        "AND (refund.transaction_direction IN ('cancellation','refund') OR refund.amount_krw<0) LIMIT 1",
+        (transaction_id,)).fetchone()
+    if refund:
+        return "ORIGINAL_WITH_REFUND"
     return ""
 
 

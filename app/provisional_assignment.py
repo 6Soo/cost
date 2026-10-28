@@ -47,6 +47,32 @@ def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
     return _decision("AUTO_PROVISIONAL", str(trip_id), candidate["basis"], [candidate], confidence)
 
 
+def card_trip_candidates(transaction, trips, *, nets=None):
+    """Share the existing locality/date/net ordering, leaving semantic ties tied.
+
+    Scores encode ordinal policy order, not a fabricated probability or margin.
+    Booking service dates must be resolved by the caller before this fallback.
+    """
+    authoritative = canonical_trip_periods(trips)
+    try:
+        day = date.fromisoformat(transaction.get("approval_date") or "")
+    except (TypeError, ValueError):
+        return []
+    merchant = str(transaction.get("merchant") or "").casefold()
+    ranked = []
+    for identity, trip in authoritative.items():
+        start = date.fromisoformat(trip["starts_on"])
+        end = date.fromisoformat(trip["ends_on"]) if trip.get("ends_on") else day
+        distance = max((start - day).days, (day - end).days, 0)
+        named = bool(trip.get("destination") and str(trip["destination"]).casefold() in merchant)
+        rank = (not named, distance, -(nets or {}).get(identity, 0))
+        ranked.append((rank, identity, distance, named))
+    order = sorted({entry[0] for entry in ranked}, reverse=True)
+    return [{"trip_id": identity, "score": order.index(rank), "confidence": "낮음",
+             "basis": ("가맹점 지역명 일치 · " if named else "") + f"카드 이용일과 여행 기간 거리 {distance}일"}
+            for rank, identity, distance, named in ranked]
+
+
 def propose_correction_pattern(corrections):
     """Build an inactive proposal from the latest distinct owner corrections."""
     latest = {}

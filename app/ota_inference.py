@@ -24,9 +24,12 @@ def provisional_trip_decisions(events, trips, *, manual_decisions=None):
         candidates = ota_service_period_candidate(event, trips)
         refund = event.get('event_type') == 'refund' or event.get('refund_status') in (
             'refund_pending', 'refund_requested', 'refunded', 'refund_completed')
+        manual = manual_decisions.get(identity)
+        manual_status = manual.get('status') if isinstance(manual, dict) else manual
+        manual_trip_id = manual.get('trip_id') if isinstance(manual, dict) else None
         result[identity] = rank_trip_candidates(
             candidates, trips=trips,
-            manual_status=manual_decisions.get(identity),
+            manual_status=manual_status, manual_trip_id=manual_trip_id,
             financial_hold=refund or event.get('financial_hold') is True)
     return result
 

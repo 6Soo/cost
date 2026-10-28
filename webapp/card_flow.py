@@ -791,12 +791,13 @@ class CardFlow:
                 occurred = date.fromisoformat(day)
             except (ValueError, TypeError):
                 continue
-            def rank(trip):
-                start, end = date.fromisoformat(trip['starts_on']), date.fromisoformat(trip['ends_on'])
-                distance = max((start - occurred).days, (occurred - end).days, 0)
-                named = bool(trip.get('destination') and trip['destination'] in (merchant or ''))
-                return (not named, distance, -nets.get(trip['tab_id'], 0), start, trip['tab_id'])
-            trip = min(trips, key=rank)
+            from app.provisional_assignment import card_trip_candidates, rank_trip_candidates
+            canonical = [dict(trip, trip_id=trip['tab_id']) for trip in trips]
+            decision = rank_trip_candidates(card_trip_candidates(
+                {'merchant': merchant, 'approval_date': day}, canonical, nets=nets), trips=canonical)
+            if decision['status'] != 'AUTO_PROVISIONAL':
+                continue
+            trip = next(trip for trip in trips if trip['tab_id'] == decision['trip_id'])
             basis = ('AUTO_INFERRED: 실제 여행 후보 중 가맹점 지역명과 카드 이용일의 기간 근접도로 우선 배정. '
                      '확신 정도: 낮음. 카드 이용일을 예약 이용일로 확정하지 않았으며 예약번호와 결제 연결은 미확정입니다.')
             rules.append({'conditions': {'merchant_normalized': normalize_merchant(merchant),
@@ -2097,6 +2098,9 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 handler._send_json({'code': 'MAINTENANCE_FLOW_REQUIRED',
                                     'message': '일괄 정리는 안전한 유지관리 미리보기 경로가 준비될 때까지 사용할 수 없습니다.'}, 410)
             return True
+        from . import provisional_trip_review
+        if provisional_trip_review.dispatch(handler, parsed, query=query or {}, raw=raw, csrf=csrf, board=board):
+            return True
         flow = CardFlow(board)
         parts = parsed.path.strip('/').split('/')
         if raw is None:
@@ -2119,7 +2123,7 @@ def dispatch(handler, parsed, query=None, raw=None, csrf=''):
                 except (TypeError, ValueError, AttributeError):
                     cleanup_page = 1
                 cleanup = render_expense_cleanup(board, csrf, page=cleanup_page, reason=cleanup_reason)
-                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
+                body = body.replace('<h1>지출 정리</h1>', '<h1>지출 정리</h1>' + cleanup + provisional_trip_review.render(csrf) + "<details id='card-review-detail'><summary>카드 파일 추가 · 자료별 상세 검토</summary>", 1)
                 body = body.replace('</main>', '</details></main>', 1)
                 if ota_payment_review.enabled():
                     body = body.replace('</body>', ota_payment_review.render_import_section(csrf) + '</body>')
