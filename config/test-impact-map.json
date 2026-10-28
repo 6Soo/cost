@@ -107,6 +107,11 @@
       "tests": ["webapp/tests/test_card_ota_projection.py", "webapp/tests/test_ota_card_evidence_relevance.py", "tests/card_pipeline/test_trip_currency_comparison.py"]
     },
     {
+      "name": "ledger-audit-rules",
+      "paths": ["webapp/ledger_store_audit.py", "webapp/tests/test_ledger_store_audit.py"],
+      "tests": ["webapp/tests/test_ledger_store_audit.py", "webapp/tests/test_ledger_store.py", "webapp/tests/test_income_bank.py", "webapp/tests/test_refund_group_commit.py"]
+    },
+    {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
                 "webapp/tests/test_targeted_test_selector.py"],
