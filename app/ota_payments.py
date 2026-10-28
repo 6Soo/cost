@@ -137,8 +137,9 @@ def _parse_mail_events(directories):
         event["ota_event_id"] = _event_id(event["identity_source_ids"])
         events[event["ota_event_id"]] = ota_booking_context.attach(
             event, context.get((event['provider'], event['booking_ref']), ()))
-    from app import toyoko_mail
-    return list(events.values()) + toyoko_mail.collect(messages, inventory)
+    from app import forest_mail, toyoko_mail
+    return (list(events.values()) + toyoko_mail.collect(messages, inventory)
+            + forest_mail.collect(messages, inventory))
 
 
 def _trip_japanese_paid_stay(message, headers, text):
@@ -1699,7 +1700,7 @@ def match_ota_payment_events(events, transactions, *, existing_links=None, rules
         if not _event_is_paid(event):
             if event.get("evidence_status") in ("conflict", "evidence_conflict", "refund_conflict"):
                 status = "HOLD_EVIDENCE_CONFLICT"
-            elif event.get('provider') == 'toyoko' and event.get('event_type') == 'reservation':
+            elif event.get('provider') in ('toyoko', 'forest') and event.get('event_type') == 'reservation':
                 status = 'RESERVATION_ONLY'
             else:
                 status = ("PENDING_PAYMENT" if event.get("event_type") == "scheduled_charge" or

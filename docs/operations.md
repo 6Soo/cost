@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 검증된 OTA 예약 그룹
+
+- [PR #245](https://github.com/6Soo/cost/pull/245), 코드 `9be1479`, Board 고정 `271f7e827b7697d55a9eeaa38bdb53af709e68ad`. producer의 검증된 포털 출처만 예약 컨테이너로 묶고 기존 결제/환불 사건·ID·금액·수동 상태는 유지한다. 같은 세대의 summary/group/member index를 worker에서 계산한다. 목록/구성원 최대20개·미리보기 최대3개, singleton 직접 상세와 중복/누락 ID 차단, private provenance 공개/저장 제외를 연결했다.
+- 지정 route/snapshot/group64 passed(구현자 근거 검수), queue browser8 passed, 기존 payment browser9 passed 및4 subtests, 금융/권한 인접74 passed. HTTP 플래그 UI2 failed 중 모바일1개는 분리한 `ccc2e40`에서도 동일 timeout을 재현했다. 실패를 통과로 계산하지 않았고 범위 밖 수정은 하지 않았다. compile/diff·staged guard 차단0/삭제0.
+- 960 Git blobs 일치·작업/프로세스SHA·단일 loopback listener·health/ready200·비인증 기존/summary/events/groups401·보호13표 내용/스키마 동일. 이전 `f7c27c2`와 task/gate·검증된 복원 사본을 보존했다. 금융/Google/원문 직접 쓰기·마이그레이션·대량 재처리는 하지 않았다. MailCollect 고정 SHA는 `3b8bf15`로 유지한다.
+- **DEPLOYED / READY_ACCEPTANCE_PENDING:** 최초 인증 summary200은 generation416/refreshing, groups는409/SNAPSHOT_NOT_READY다. 새 private index가 준비되기 전 대기 표시가 유지된다. ready 그룹 UI·실기기·제품p95는 미확인이다. 로컬 근거 `.local-archive/cost-v34-resume-20261028/`의 protection-groups-before/after, release/deploy audit 및 Aside `artifacts/ota-groups-20261028/initial-smoke.json`.
+- **Gmail 조사 정정:** 앞선 '46 iframe이 실제 본문' 추정은 응답 script 대조로 철회했다. iframe은 target URL 없는 열람 추적 코드다. 원래 Gmail HTML에 객실/날짜 문장이 있으며 원문 자체 분석으로 전환했다. 다른 공급자 정렬이 없는 DKIM pass만으로 숲나들e 인증 통과를 주장하지 않는다.
+
 ## 2026-10-28 숲나들e Gmail 원문과 상시 수집
 
 - [PR #243](https://github.com/6Soo/cost/pull/243), 수집 작업 고정 릴리스 `3b8bf15581289ec83f1202a3bf11e62cafe53eb5`: forest.go.kr/foresttrip.go.kr 발신 검색 추가. 표적 9 passed, 957 blobs 일치와 배포본 query smoke 통과. WebLedger-MailCollect의 WorkingDirectory를 변경하고 기존 실행 파일·인자·계정·state 및 활성 상태를 보존했다. 이전 작업 XML·릴리스는 복구용으로 유지한다. Board는 아래 f7c27c2를 유지하며 이 변경으로 재시작하지 않았다.
