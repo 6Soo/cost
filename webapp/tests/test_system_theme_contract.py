@@ -5,12 +5,16 @@
 import re
 from pathlib import Path
 
-LEDGER = "webapp/ledger_design.py"
+from webapp import ledger_design
+
+
+def _ledger_source() -> str:
+    """Runtime content of ledger_design styles and scripts."""
+    return ledger_design.STYLE + "\n" + ledger_design.SCRIPT
 
 
 def test_token_palette_light_a_and_dark_b_in_ledger_design():
-    with open(LEDGER, "r", encoding="utf-8", errors="ignore") as f:
-        css = f.read()
+    css = _ledger_source()
     # Light A token presence (spec §4.2)
     assert "--bg:#F8FAFC" in css, "light A page bg missing"
     assert "--ink:#0F172A" in css, "light A primary text missing"
@@ -27,8 +31,7 @@ def test_token_palette_light_a_and_dark_b_in_ledger_design():
 
 
 def test_no_manual_toggle_or_localstorage_in_css():
-    with open(LEDGER, "r", encoding="utf-8", errors="ignore") as f:
-        css = f.read()
+    css = _ledger_source()
     lower = css.lower()
     assert "localstorage" not in lower, "manual localStorage theme storage found"
     assert "toggle" not in lower or "class=\"toggle\"" not in lower, "manual toggle selector found"
@@ -37,8 +40,7 @@ def test_no_manual_toggle_or_localstorage_in_css():
 
 
 def test_common_selectors_use_token_variables():
-    with open(LEDGER, "r", encoding="utf-8", errors="ignore") as f:
-        css = f.read()
+    css = _ledger_source()
     # Syntactic: core common selectors reference tokens, not hardcoded hex only
     checks = [
         ("body background", r"body\{[^}]*background:var\(--bg\)"),
@@ -52,8 +54,7 @@ def test_common_selectors_use_token_variables():
 
 def test_synthetic_light_dark_dynamic_switch_by_media():
     # Synthetic fixture: media query defines different palette; no JS toggle needed.
-    with open(LEDGER, "r", encoding="utf-8", errors="ignore") as f:
-        css = f.read()
+    css = _ledger_source()
     light_bg = css.find("--bg:#F8FAFC")
     dark_bg = css.find("--bg:#0F172A")
     assert light_bg >= 0 and dark_bg > light_bg, "light/dark token ordering wrong for dynamic switch"
@@ -80,7 +81,7 @@ def test_synthetic_site_shell_theme_mobile_and_keyboard_accessibility():
 
 
 def test_synthetic_dark_palette_keeps_focus_and_status_contrast():
-    css = Path(LEDGER).read_text(encoding="utf-8")
+    css = _ledger_source()
     dark = css.split("@media(prefers-color-scheme:dark)", 1)[1].split("\n}", 1)[0]
     assert "--focus:#93C5FD" in dark
     assert "--grn-dk:#A7F3D0" in dark
