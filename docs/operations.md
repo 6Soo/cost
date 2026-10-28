@@ -291,3 +291,31 @@ PR #263/#265~#270/#272의 저장소·보드·카드·검토 문서 책임 분리
 main/운영9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e 고정 배포 완료(PR #280~#285 포함). 이전 검증535b6dd 보존. requirements51·HTTP98·멱등성66/3subtests·selector8과 기존 개별 동등성 근거 재사용.1,034 Git blob 일치·작업/프로세스SHA·단일loopback listener·health/ready200·OTA 보호API401·보호13표 전후 불변, data guard base 차단0/삭제0. 기존 검증 백업/별도 복원 근거 재사용. 원문/금융/수동 여행/Google 결정 쓰기·마이그레이션 없음. 운영 인증 화면·실기기 수락 및 전체 RF 완료와 구별한다. 호스트 동일SHA release-audit/deploy-evidence와 로컬 protection-before/after.json이 근거다. 항공권 PR #286 이후와 PEND04 실제 클라우드 전환은 이 배포에 미포함이다.
 
 초기 generation5 기록의 새 한글 문구가 PowerShell 기본 파이프에서 ASCII 물음표로 바뀐 것을 발견했다. 기존 문서는 보존됐으며 해당 새 운영 절과 현재 큐를 UTF-8로 복구했다. 코드/금융/원문 데이터 변경과 관련 없는 문서 인코딩 교정이다.
+
+
+## 2026-10-28 후속 검수 릴리스 322ef3f 배포
+
+322ef3f62ec3ec631f551b8b805ccb848e65feb1 고정 배포 완료(PR #286/#288/#289/#290 포함).1,041 blobs 일치·task/processSHA·단일loopback listener·health/ready200·OTA 보호API401·보호13표 내용/스키마 불변. 이전9f6eec7 복구점과 기존 검증 백업/별도 복원 보존. 항공권71·변경 검증70/3subtests·provider135/105subtests·토큰 인접20/1deselected와 작업자 baseline CSS matrix4검사 근거 재사용. 원문/금융/수동 여행/Google 쓰기·마이그레이션 없음. PEND04 bounded CLI PR #291은9c3a88b 별도 전달 릴리스로1041blob 검증 후 읽기 전용 전체 preview를 시작했으며 원문 적재/작업 전환은 아직 미실행이다. 호스트 동일SHA deploy-evidence/release-audit 및 로컬 protection-before/after.json이 배포 근거다.
+
+## 2026-10-28 PR #295 운영 배포와 단일 환불 적용 대기
+
+PR [#295](https://github.com/6Soo/cost/pull/295)은 `496cbbe9778e002bc4265f28b50da704d28f042c`로 정상 병합·운영 배포했다. 릴리스 파일 1,051개가 Git blob과 일치하고 task/process SHA, loopback listener 1개, health/ready 200, 보호 API 401을 확인했다. 새 백업·별도 복원 검증이 통과했고 배포 전후 보호 테이블 13개는 동일하다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-496cbbe9778e002bc4265f28b50da704d28f042c.json`과 `.local-archive/refactor-parallel-20261028/protection-before.json`, `protection-after.json`이다.
+
+사용자는 검증된 단일 환불 그룹만 적용하도록 승인했다. Aside owner 화면은 AUTH_REQUIRED여서 미리보기·적용은 수행하지 않았다. 정상 owner 로그인 뒤 정확히 승인된 두 행만 대상으로 하고 다른 분류·기록·여행 배정이 없음을 확인한 경우에만 적용한다. 관측한 두 행은 같은 import batch이므로 교차 배치 경로의 운영 실행 근거가 아니다. 운영 장부·고객 원문·Google 장부에는 쓰지 않았다.
+
+환불·금융 표적 74개 통과 근거를 재사용했다. 넓은 검사 묶음의 실패 13개 node ID는 기준 SHA ba74ab8에서도 모두 실패했으며 통과로 간주하지 않는다. 상세 기록은 `.local-archive/refactor-parallel-20261028/pr295-review.json`에 있다.
+
+<!-- integration-progress-start -->
+## 2026-10-28 최신 병합·정리 진행
+
+- 사용자 최신 지시로 검증된 PR·브랜치 통합과 운영 코드 배포를 진행한다. 금융 데이터 적용은 기존 단일 환불 그룹 승인과 정상 owner 인증 범위다.
+- PR #297 `e1a6c7b`, RF 통합 PR #298 `fe12cf4`, 지출 필터 PR #299 `ad11701` 정상 병합. 환불 83개·인접 보호 38개, RF 통합 99개와 26 subtests, 최종 필터/환불 통합 21개를 각각 통과했다. 서로 다른 검사를 합산해 전체 회귀로 표현하지 않는다.
+- 로컬 병합 브랜치 97개 정리, 원격 병합 브랜치 93. 모든 삭제 대상 커밋은 `refs/archive/20261028/`에 보존하고 main·사용 중 브랜치·stash는 보존한다.
+- 별도 원본 이력인 로컬 6개·원격 명세 8개는 과거 버전을 main에 다시 합치지 않고 `refs/archive/20261028/historical/` 및 검증된 `historical-branches.bundle`에 보관했다. 미병합 이력을 병합 완료로 표현하지 않는다. 옛 rf102 통합 공간의 변경 문서 2개도 `450f626` checkpoint와 파일 사본으로 보존했다.
+- 통합·사용 종료 작업 공간 11개 공식 보관 및 디렉터리 제거 확인. 정리 처리 중 0개. RF201의 최초 API 300초 시간 초과는 공식 CLI 재확인 후 디렉터리 제거까지 확인해 해소했다. 검증이 끝난 임시 baseline worktree 2개도 보관 참조를 남기고 정상 제거했다. 활성 작업 공간과 미커밋 자료는 보존한다.
+- 운영 확인 SHA: `61211012a0bbd250ab5e5fa6b629e3af9e672324`. 후속 PR #300은 `61211012a0bbd250ab5e5fa6b629e3af9e672324`로 병합했으며 실제 배포 완료 여부는 호스트 deploy-evidence를 따른다. RF 사전 점검·공통 UI·검사 게이트는 검증된 하위 묶음이며 전체 RF 완료가 아니다.
+- 다른 세션의 사용자 명시 선택인 “명세 대기 기능까지 모두 포함”이 질문 이벤트와 응답 전달 `ab4efea4-875b-400e-82ad-7e0aa69a5a69`로 확인됐다. 추가 기능의 코드 구현·정상 검증 배포에 적용하며 실제 금융/여행/명단/보험/Google 쓰기 게이트를 확대하지 않는다. 기존 managed run의 27개 ID는 유지하고 추가 명세 작업은 별도 작업자 근거와 대조한다.
+- 로컬 근거: `.local-archive/merge-cleanup-20261028/`의 refs/workspaces/progress 기록. 금융 적용은 AUTH_REQUIRED로 미실행이다.
+- 참가자·항공 bundle `43588d9`(항공 `0cd571f` 포함)와 OTA `53d25fe`는 PR #300으로 통합했다. 통합 347 passed/31 subtests·인접 34 passed·선택기 48 passed. 기존 signed-session 6건과 폐기 Google/고정 자산 기준 26건 실패는 main `ad117015`에서 동일 재현했으며 통과에 포함하지 않는다. 데이터 guard 차단0·선택기 미매핑0·변경 Python20개 컴파일·diff 검사 통과. 잠정 배정 PA UI/API는 기존 부모 `4c407a16`가 단독 작성하며 새 작업 공간·유료 모델 전환 없이 이어간다.
+- PR #300 고정 SHA `61211012` 배포는 1,077 blobs 불일치0·fresh backup/별도 복원·task/process SHA·loopback listener1·health/ready200·보호 API401·보호13표 전후 불변으로 수락했다. 근거는 `D:/WebLedgerHost/releases/deploy-evidence-61211012a0bbd250ab5e5fa6b629e3af9e672324.json`이다. 문서 후속 병합만으로 재배포하지 않는다.
+<!-- integration-progress-end -->
