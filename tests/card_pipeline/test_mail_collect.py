@@ -23,9 +23,35 @@ def test_query_always_includes_the_kew2000_recipient_and_the_supplier_domains():
     assert 'to:kew2000@hanmail.net' in query
     assert 'from:toyoko-inn.com' in query
     assert 'from:toyoko-inn.co.jp' in query
+    assert 'from:forest.go.kr' in query
+    assert 'from:foresttrip.go.kr' in query
     assert 'subject:토요코인' in query
     for domain in mail_collect.SUPPLIER_DOMAINS:
         assert f'from:{domain}' in query
+
+
+def test_query_preserves_always_collected_recipients_and_after_boundary():
+    query = mail_collect.build_query('2026-10-02')
+    assert query.startswith('after:2026/10/02 (')
+    assert 'to:kew2000@hanmail.net OR cc:kew2000@hanmail.net' in query
+    assert 'to:kew2000@daum.net OR cc:kew2000@daum.net' in query
+    assert query.endswith('subject:토요코인)')
+
+
+def test_collect_keeps_two_day_overlap_and_state_query(tmp_path):
+    (tmp_path / 'collection.json').write_text(json.dumps({
+        'before': '2026-10-05', 'message_ids': ['seen-id'], 'account': 'owner@example.com'
+    }), encoding='utf-8')
+    client = FakeGmail([])
+
+    mail_collect.collect(client, tmp_path, datetime(2026, 10, 15, 9, 0))
+
+    assert client.queries == [mail_collect.build_query('2026-10-03')]
+    state = json.loads((tmp_path / 'collection.json').read_text(encoding='utf-8'))
+    assert state['account'] == 'owner@example.com'
+    assert state['after'] == '2026-10-03'
+    assert state['query'] == client.queries[0]
+    assert state['message_ids'] == ['seen-id']
 
 
 def test_owner_raw_mail_decodes_declared_charset_and_keeps_original():
