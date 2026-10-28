@@ -81,6 +81,11 @@ CLEANUP_STYLE = (
     "#expense-cleanup .cleanup-pages{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid var(--shell-line);padding:12px 0}"
     "#expense-cleanup .cleanup-pages a{min-height:44px;display:inline-flex;align-items:center;padding:8px 12px;border:1px solid var(--shell-line);border-radius:9px}"
     "#expense-cleanup .cleanup-evidence-none{font-size:13px;color:var(--shell-muted);margin:6px 0 0}"
+    "#expense-cleanup .cleanup-refund-action{display:inline-flex;align-items:center;justify-content:center;"
+    "min-height:44px;margin-top:12px;padding:9px 14px;border:1px solid var(--shell-accent);"
+    "border-radius:10px;background:var(--shell-hover);color:var(--shell-accent);font-weight:750;cursor:pointer}"
+    "#expense-cleanup .cleanup-refund-action:disabled{opacity:.55;cursor:wait}"
+    "#expense-cleanup .cleanup-refund-status{font-size:13px;margin:8px 0;overflow-wrap:anywhere}"
     "@media(max-width:550px){#expense-cleanup .cleanup-row{padding:16px}"
     "#expense-cleanup .cleanup-info{flex-wrap:wrap}"
     "}"
@@ -103,6 +108,7 @@ class CleanupCardRow:
     amount: Any
     reason: Any
     review: Any
+    refund_group_original: str = ""
 
 
 @dataclass(frozen=True)
@@ -221,7 +227,13 @@ def render_cleanup_card_row(
         f"<div class='cleanup-info'><span class='cleanup-receipt-icon' aria-hidden='true'>▤</span>"
         f"<div class='cleanup-title'><strong>{esc(row.merchant)}</strong><small>{esc(row.day or '')} · 카드 결제</small></div></div>"
         f"<div class='cleanup-amount'>{int(row.amount or 0):,}원</div>"
-        f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}</li>"
+        f"<p class='cleanup-reason'>{esc(row.reason)}</p>{row.review}"
+        + ("<div class='cleanup-refund-tool'>"
+           f"<button type='button' class='cleanup-refund-action' "
+           f"data-original='{esc(row.refund_group_original)}'>전액 상쇄 묶음 기록</button>"
+           "<p class='cleanup-refund-status' role='status'></p></div>"
+           if row.refund_group_original else "")
+        + "</li>"
     )
 
 

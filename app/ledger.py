@@ -275,7 +275,8 @@ def preview(store, batch_id: str, *, trip_validator=None,
     }
     result["digest"] = preview_digest(result)
     if group_original is not None:
-        return scope_group(store, result, group_original)
+        return scope_group(store, result, group_original,
+                           require_verified_zero=include_verified_full_refunds)
     return result
 
 
@@ -293,7 +294,8 @@ def group_members(store, original_id: str) -> list:
     return members
 
 
-def scope_group(store, result: dict, original_id: str) -> dict:
+def scope_group(store, result: dict, original_id: str,
+                *, require_verified_zero=False) -> dict:
     """One refund group's rows taken from a whole-batch preview. Writes nothing.
 
     The group is decided by the database, so a group cannot be shrunk by the
@@ -301,6 +303,15 @@ def scope_group(store, result: dict, original_id: str) -> dict:
     booked; a group that is held as a whole comes back `recordable: False`.
     """
     members = group_members(store, original_id)
+    if require_verified_zero:
+        from .partial_refund import refund_links
+        links = refund_links(store.conn, members[1:])
+        if (not links or len(links) != len(members) - 1
+                or any(link.get('inferred') or link['status'] != 'full'
+                       or link['net_krw'] != 0 or link['original_id'] != original_id
+                       for link in links.values())):
+            raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
+                             "원승인번호로 검증된 전액 상쇄 묶음만 이 화면에서 기록할 수 있어요")
     by_id = {row["transaction_id"]: row for row in result["rows"]}
     if any(member not in by_id for member in members):
         raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
@@ -554,7 +565,7 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if automatic_record:
         scope['automatic_record'] = True
     if include_verified_full_refunds:
-        if not automatic_record or group_original is not None:
+        if not automatic_record:
             raise StoreError(CODE_INVALID_INPUT, "검증된 환불 묶음 확장은 자동 기록 전용입니다")
         scope['include_verified_full_refunds'] = True
     if group_original is not None:

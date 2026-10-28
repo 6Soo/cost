@@ -19,12 +19,72 @@ def select_targets(changed_paths, groups):
         normalized = path.replace("\\", "/").removeprefix("./")
         matched = False
         for group in groups:
-            if any(fnmatch.fnmatchcase(normalized, pattern) for pattern in group["paths"]):
+            if any(path_matches(normalized, pattern) for pattern in group["paths"]):
                 selected.update(group["tests"])
                 matched = True
         if not matched:
             unknown.append(normalized)
     return sorted(selected), sorted(set(unknown))
+
+
+def path_matches(path, pattern):
+    """Match repository-relative POSIX paths, with ** spanning directories."""
+    normalized = pattern.replace("\\", "/").removeprefix("./")
+    if ".." in Path(normalized).parts or normalized.startswith("/"):
+        raise ValueError("invalid impact path pattern")
+    if "**" not in normalized:
+        return fnmatch.fnmatchcase(path, normalized)
+    import re
+    expression = "^"
+    index = 0
+    while index < len(normalized):
+        if normalized.startswith("**/", index):
+            expression += "(?:.*/)?"
+            index += 3
+        elif normalized.startswith("**", index):
+            expression += ".*"
+            index += 2
+        elif normalized[index] == "*":
+            expression += "[^/]*"
+            index += 1
+        elif normalized[index] == "?":
+            expression += "[^/]"
+            index += 1
+        else:
+            expression += re.escape(normalized[index])
+            index += 1
+    expression += "$"
+    return re.match(expression, path) is not None
+
+
+def validate_impact_map(data):
+    if not isinstance(data, dict) or data.get("schema") != "cost-test-impact-map-v1":
+        raise ValueError("unsupported impact map schema")
+    groups = data.get("groups")
+    fallback = data.get("safe_fallback_tests")
+    if not isinstance(groups, list) or not groups or not isinstance(fallback, list) or not fallback:
+        raise ValueError("impact map groups and safe fallback are required")
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("name"), str):
+            raise ValueError("invalid impact group")
+        paths, tests = group.get("paths"), group.get("tests")
+        if not isinstance(paths, list) or not paths or not isinstance(tests, list) or not tests:
+            raise ValueError("impact group paths and tests are required")
+        for pattern in paths:
+            if not isinstance(pattern, str) or not pattern:
+                raise ValueError("invalid impact path pattern")
+            path_matches("synthetic/path.py", pattern)
+        for target in tests:
+            validate_test_target(target)
+    for target in fallback:
+        validate_test_target(target)
+
+
+def validate_test_target(target):
+    if (not isinstance(target, str) or not target.endswith(".py")
+            or "\\" in target or Path(target).is_absolute()
+            or ".." in Path(target).parts or not target.startswith(("tests/", "webapp/tests/"))):
+        raise ValueError("invalid pytest target")
 
 
 def changed_paths(base):
@@ -42,8 +102,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         impact_map = json.loads(MAP_PATH.read_text(encoding="utf-8"))
-        if impact_map.get("schema") != "cost-test-impact-map-v1":
-            raise ValueError("unsupported impact map schema")
+        validate_impact_map(impact_map)
         paths = changed_paths(args.base)
         document_paths = [p for p in paths if p.lower().endswith(('.md', '.tsv')) and
                           (p.startswith('docs/') or '/' not in p)]
@@ -51,8 +110,10 @@ def main(argv=None):
         targets, unknown = select_targets(code_paths, impact_map["groups"])
         if unknown:
             targets = sorted(set(targets) | set(impact_map['safe_fallback_tests']))
-        for target in targets:
-            if not target.endswith('.py') or not (ROOT / target).resolve().is_relative_to(ROOT) or not (ROOT / target).is_file():
+        all_targets = set(impact_map["safe_fallback_tests"])
+        all_targets.update(target for group in impact_map["groups"] for target in group["tests"])
+        for target in all_targets:
+            if not (ROOT / target).resolve().is_relative_to(ROOT) or not (ROOT / target).is_file():
                 raise ValueError('invalid or missing pytest target: ' + target)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as exc:
         print(json.dumps({"status": "ERROR", "reason": str(exc)}, ensure_ascii=False))

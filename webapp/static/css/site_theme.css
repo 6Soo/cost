@@ -9,3 +9,4 @@ body.site-standalone{background:var(--shell-bg);color:var(--shell-ink)}
 #site-theme-toggle:focus-visible{outline:2px solid var(--shell-focus);outline-offset:2px}
 #site-theme-toggle .ic{width:22px;height:22px;display:block;pointer-events:none}
 html[data-theme=dark] [data-theme-icon=light],html:not([data-theme=dark]) [data-theme-icon=dark]{display:none}
+@media(prefers-reduced-motion:reduce){#site-theme-toggle{transition:none;scroll-behavior:auto}}

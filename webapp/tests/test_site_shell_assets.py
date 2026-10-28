@@ -65,3 +65,15 @@ def test_css_cascade_order_and_tokens_preserved():
     assert "@media(prefers-reduced-motion:reduce)" in shell_part
     assert "--bg:var(--shell-bg)" in theme_part
     assert "#site-theme-toggle" in theme_part
+
+
+def test_shared_components_alias_live_ledger_and_review_consumers():
+    css = Path("webapp/static/css/ledger_design.css").read_text(encoding="utf-8")
+    assert ".ui-form,.arch-restore" in css
+    assert ".bar{display:flex" in css  # Existing GET filter form
+    assert ".ui-card,.refund-card" in css
+    assert ".ui-state,.status" in css
+    assert ".ui-state--error,.status.err,.f-msg.err,.copy-status.err" in css
+    assert ".ui-state--stale,.cleanup-snapshot-stale" in css
+    assert ".ui-state--loading,.cleanup-snapshot-loading,.copy-status.loading" in css
+    assert "prefers-reduced-motion:reduce){.ui-state[aria-busy=true]::before,.cleanup-snapshot-loading::before" in css
