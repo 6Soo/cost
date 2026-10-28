@@ -67,6 +67,11 @@
       "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_assets.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
     },
     {
+      "name": "real-review-template",
+      "paths": ["webapp/real_review_ui.py", "webapp/real_review_assets.py", "webapp/static/templates/real_review.html", "webapp/tests/test_real_review_assets.py"],
+      "tests": ["webapp/tests/test_real_review_assets.py", "webapp/tests/test_board_source_preview.py", "webapp/tests/test_review_guidance.py"]
+    },
+    {
       "name": "card-evidence-rendering",
       "paths": ["webapp/card_evidence*.py", "webapp/card_refund_ui.py", "webapp/tests/test_card_evidence*.py", "webapp/tests/test_card_refund_ui*.py"],
       "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_cleanup_original_refund_status_contract.py", "webapp/tests/test_refund_inference_runtime.py"]
