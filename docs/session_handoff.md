@@ -8,7 +8,7 @@
 - runId: `e0197439-1c34-4348-a14d-7a870c3d69b5`.
 - Supervisor: `3cebc37b-17d7-4b47-9689-a2bf6f50a01c`, generation **5**, workspace `C:/AX/cost`.
 - 운영 SHA: **9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e**. 최신 검수 main은 **d1180f1**(PR #286/#287/#288/#289 포함)이며 아직 운영과 다르다.
-- 현재 브랜치 `refactor/rf201-tokens-reviewed-20261028`: geometry 토큰/검사·UTF-8 문서 교정 PR 준비. 미수락 작업과 사용자 변경은 보존한다.
+- 당시 로컬 branch checkpoint는 `refactor/rf201-tokens-reviewed-20261028`였다. 해당 토큰 변경은 이제 PR **#290 병합 완료**. 실제 로컬 작업자/현재 branch 재확인은 별도 필요.
 
 ## 승인 전체 ID와 실제 수락 경계
 
@@ -19,7 +19,7 @@
 | PEND-01 | blocked | 원결제 또는 명시 결제 증명 부재. 기존 진단 완료, 금융 연결을 창작하지 않는다. 아래 외부 자료 차단 참조. |
 | PEND-02 | complete | 합성 browser3 passed와 운영 Aside 4조건·20행·넘침0의 확대/키보드/오류·재조회 수락. 물리적 모바일 검사는 아니다. |
 | PEND-03 | complete | 클라우드 수집/가져오기 PR #256/d37b33c 및 전용 수집기 배포. 수집20/인증14·importer32/browser3 근거 재사용. 실제 전환은 PEND-04. |
-| PEND-04 | running | 인증과 전체탐색3,704건 완료. 총294,501,933B가 기존100MiB 안전한도를 넘어 한도를 유지한 선택적 batch_size1..100·preview offset·미완료 batch apply 차단을 구현, Supervisor cloud/mail/selector51 passed. PR 준비. 원문 적재·작업 전환은 아직 미실행. |
+| PEND-04 | running · **code_merged** | 전용 클라우드 수집/전수 탐색 3,704건·약281MiB는 기존 검사 근거. **#291/9c3a88b 병합 완료**: 1..100 배치, metadata 전체 선검증, 미완료 배치 apply 금지, Supervisor51 passed. **운영 원문 배치 적재·writer 전환·Gmail 예약작업 교체는 여전히 미실행**. Windows 단독 작성/백업·복원/보호13표 사전게이트 유지. |
 | RF-001 | waiting_child | 기존 쓰기/간접호출 지도 재사용. 보드 작업자는 두 번 초기화 실패/error·activeTurn없음·clean을 확인했다. 실제 미진행 과제를 기존 저장소 작업자에게 이전해 순차 구현한다. |
 | RF-002 | pending | 좁은 OTA 읽기 계약은175c3a2에서 이미 채택됨을 확인, 중복 구현하지 않았다. helper 실행 AST 동일·golden/canonical27 passed·입력 불변. 전체 상태 소비 수락은 부분 완료. |
 | RF-003 | pending | 기존 tracked-data inventory/guard 재사용. 전체 producer/consumer와 배포 원본 제외 수락은 남음. 기존 자료 삭제/역사 재작성 금지. |
@@ -34,7 +34,7 @@
 | RF-107 | running | provider schema/masking PR #289/d1180f1 병합. 필수 signature·ConfigError 동일성·기존 순수/저장소/service AST 동일, Supervisor135 passed/105subtests. 전체 adapter 수렴은 남음. |
 | RF-108 | pending | schema/additive/복원/snapshot 기존 기반 재사용. 쿼리 plan·P95·메모리 측정 후 최적화. 실제 DB migration은 별도 게이트. |
 | RF-109 | pending | runtime catalog 정적616후보·8검사 재사용. 활성 호출/인자·guard 분류와 중복 CLI 수렴은 부분 완료. |
-| RF-201 | running | 자산 배포, geometry 단일 소유2559ef7 및 실제 CSS zoom/baseline 검사8798569 회수. 작업자 전체4 passed(99.88초), Supervisor 인접20 passed/1 deselected. native/standalone·8폭·양테마·CSS1/2배는 합성 수락이며 실기기 검사가 아니다. PR 준비. |
+| RF-201 | running · **subtask_merged** | #290/322ef3f 병합: 공통 geometry/터치 토큰, 8폭·양테마·CSS100/200% 합성 matrix4 passed, Supervisor20 passed/1 deselected. 공통 palette bridge 유지, 터치 높이44px. **전체 디자인 시스템·실물 모바일 수락은 미완료**. 운영 SHA 재검증 필요. |
 | RF-202 | running | 공통 셸 조립 PR #277/자산 PR #282 배포. URL/DOM·테마1개 보존. 전체 화면 수락과 구별한다. |
 | RF-203 | running | 검토 문서 PR #265·guidance16검사·template byte 동일성 배포. 전체 폼/지출 컴포넌트 채택 수락은 남음. |
 | RF-204 | pending | 기존 OTA/환불/항공권 정보 구조 개선 재사용. 전체 동일 상태/인라인 근거/접근성 수락은 남음. |
