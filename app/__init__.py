@@ -68,21 +68,25 @@ class Pipeline:
     # ledger
     def preview(self, batch_id: str, *, trip_validator=None,
                 tab_validator=None, review_from=None,
-                entry_metadata=None, additional_holds=None, group_original=None) -> dict:
+                entry_metadata=None, additional_holds=None, group_original=None,
+                include_verified_full_refunds=False) -> dict:
         return preview(self.store, batch_id, trip_validator=trip_validator,
                        tab_validator=tab_validator,review_from=review_from,
                        entry_metadata=entry_metadata, additional_holds=additional_holds,
-                       group_original=group_original)
+                       group_original=group_original,
+                       include_verified_full_refunds=include_verified_full_refunds)
 
     def commit(self, batch_id: str, preview_digest: str, request_id: str,
                *, projection=None, trip_validator=None,
                tab_validator=None,review_from=None,
-               entry_metadata=None, additional_holds=None, group_original=None, automatic_record=False) -> dict:
+               entry_metadata=None, additional_holds=None, group_original=None,
+               automatic_record=False, include_verified_full_refunds=False) -> dict:
         return commit(self.store, batch_id, preview_digest, request_id,
                       projection=projection, trip_validator=trip_validator,
                       tab_validator=tab_validator,review_from=review_from,
                       entry_metadata=entry_metadata, additional_holds=additional_holds,
-                      group_original=group_original, automatic_record=automatic_record)
+                      group_original=group_original, automatic_record=automatic_record,
+                      include_verified_full_refunds=include_verified_full_refunds)
 
     # history
     def changes(self, subject: str = "") -> list:

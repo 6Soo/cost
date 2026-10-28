@@ -1629,7 +1629,7 @@ class CardFlow:
             except Exception:
                 return {'saved': True, 'refresh_required': True}
 
-    def automatic_holds(self, batch_id):
+    def automatic_holds(self, batch_id, *, include_verified_full_refunds=False):
         from app import quarter_costs
         holds = dict(self.ota_group_holds())
         rows = self.pipeline.get_batch(batch_id)['rows']
@@ -1653,8 +1653,9 @@ class CardFlow:
         booked_now = {r[0] for r in self.board.conn.execute('SELECT transaction_id FROM ledger_entries')}
         refund_ids = [r[0] for r in self.board.conn.execute(
             "SELECT transaction_id FROM transactions WHERE transaction_direction='cancellation'")]
+        verified_links = refund_links(self.board.conn, refund_ids)
         batch_ids = {r['transaction_id'] for r in rows}
-        for refund, link in refund_links(self.board.conn, refund_ids).items():
+        for refund, link in verified_links.items():
             if not {refund, link['original_id']} & batch_ids:
                 continue
             if link.get('inferred'):
@@ -1688,6 +1689,28 @@ class CardFlow:
             members = {r['transaction_id'] for r in group}
             if not members & ids:
                 continue
+            if include_verified_full_refunds:
+                # A verified, exactly zero-net group may span several source
+                # files. The ledger preview pulls EVERY member and commits
+                # them atomically. Never treat inferred or held groups as safe.
+                refunds_in_group = members & set(refund_ids)
+                trusted_full = bool(refunds_in_group) and all(
+                    (rid in verified_links
+                     and not verified_links[rid].get('inferred')
+                     and verified_links[rid].get('status') == 'full'
+                     and verified_links[rid].get('net_krw') == 0)
+                    for rid in refunds_in_group)
+                allowed_holds = {'trip_needed', 'classification_needed', 'existing_ledger'}
+                if (trusted_full and not members & set(active)
+                        and all(holds.get(tid, {}).get('kind') in (None, *allowed_holds)
+                                for tid in members)):
+                    # Verified full offsets are always booked to the refund
+                    # tab; trip/classification placeholders should not prevent
+                    # the ledger's own source and authority checks.
+                    for tid in members & ids:
+                        if holds.get(tid, {}).get('kind') in ('trip_needed', 'classification_needed'):
+                            holds.pop(tid)
+                    continue
             if not members <= ids or members & (blocking | set(active)):
                 for tid in members & ids:
                     holds.setdefault(tid, {'kind': 'refund_group_incomplete', 'reason': '원결제와 모든 환불을 함께 확인해야 합니다.'})
@@ -1704,7 +1727,8 @@ class CardFlow:
 
     def _auto_record_locked(self, batch_id, *, include_state=True):
         from app import auto_record_policy, quarter_tab
-        # Only batches collected after activation are recorded. Older rows keep their recorded state.
+        # The policy accepts every real imported batch, including historical ones.
+        # The existence guard still blocks invalid batch IDs.
         if not auto_record_policy.batch_is_new(self.pipeline.store.conn, batch_id):
             if not include_state:
                 return {'auto_recorded': 0}
@@ -1713,7 +1737,8 @@ class CardFlow:
             return state
         options = dict(trip_validator=self.trip_valid, tab_validator=self.tab_valid,
                        review_from=None, entry_metadata=self.preview_metadata(),
-                       additional_holds=self.automatic_holds(batch_id))
+                       additional_holds=self.automatic_holds(batch_id, include_verified_full_refunds=True),
+                       include_verified_full_refunds=True)
         preview = self.pipeline.preview(batch_id, **options)
         from app.ledger import recordable_rows
         applied = 0
