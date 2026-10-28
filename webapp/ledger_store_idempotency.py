@@ -1,11 +1,12 @@
 """Pure revision conflict and request idempotency comparison rules for LedgerStore.
 
 Extracted under RF-101 (Store decomposition revision & idempotency boundary).
-Preserves exact execution semantics, error codes, Korean messages, and
-comparison criteria of the original store.
+Preserves exact execution semantics, error codes, Korean messages, KeyError contracts,
+lazy evaluation, and short-circuit decode order of the original store.
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, Optional
 
 from .ledger_store_allocation_validation import SaveError
@@ -33,12 +34,15 @@ def match_board_save_request(
     change_mode: str,
     save_error_cls: type[Exception] = SaveError,
 ) -> dict:
-    """Match a stored board save request against incoming arguments for idempotency."""
+    """Match a stored board save request against incoming arguments for idempotency.
+
+    Preserves exact [] indexing contract: raises KeyError if a required key is missing.
+    """
     if (
-        stored.get("row_id") != row_id
-        or stored.get("expected_revision") != expected_revision
-        or stored.get("changes") != changes
-        or stored.get("change_mode") != change_mode
+        stored["row_id"] != row_id
+        or stored["expected_revision"] != expected_revision
+        or stored["changes"] != changes
+        or stored["change_mode"] != change_mode
     ):
         raise save_error_cls("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
     return stored["result"]
@@ -49,15 +53,24 @@ def match_board_revert_request(
     *,
     row_id: str,
     expected_revision: int,
-    want_changes: Optional[dict],
+    get_want_changes_fn: Optional[Callable[[], Optional[dict]]] = None,
+    want_changes: Optional[dict] = None,
     save_error_cls: type[Exception] = SaveError,
 ) -> dict:
-    """Match a stored revert row request against expected target revision and changes."""
-    if stored.get("row_id") != row_id:
+    """Match a stored revert row request against expected target revision and changes.
+
+    Preserves exact evaluation and lazy evaluation:
+    - stored["row_id"] uses [] indexing
+    - if row_id mismatches or expected_revision matches, get_want_changes_fn is never invoked
+    """
+    if stored["row_id"] != row_id:
         raise save_error_cls("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
     if stored.get("expected_revision") == expected_revision:
         return stored["result"]
-    if stored.get("changes") != want_changes:
+    expected_changes = (
+        get_want_changes_fn() if get_want_changes_fn is not None else want_changes
+    )
+    if stored.get("changes") != expected_changes:
         raise save_error_cls("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
     return stored["result"]
 
@@ -97,31 +110,30 @@ def verify_correction_reused_request(
 
 
 def match_rule_lifecycle_request(
-    operation: str,
     stored_operation: str,
-    stored_request: dict,
+    stored_request_json: str,
+    operation: str,
     request: dict,
-    stored_result: dict,
-    *,
-    save_error_cls: type[Exception] = SaveError,
-) -> dict:
-    """Match a stored rule lifecycle request against operation and payload."""
-    if stored_operation != operation or stored_request != request:
-        raise save_error_cls("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-    return stored_result
+) -> bool:
+    """Return True if stored rule lifecycle request matches, False otherwise.
+
+    Short-circuits: does not call json.loads if operation mismatches.
+    Never decodes result JSON.
+    """
+    if stored_operation != operation:
+        return False
+    return json.loads(stored_request_json) == request
 
 
 def match_rule_apply_request(
-    stored_request: dict,
+    stored_request_json: str,
     request: dict,
-    stored_result: dict,
-    *,
-    save_error_cls: type[Exception] = SaveError,
-) -> dict:
-    """Match a stored rule apply request against payload."""
-    if stored_request != request:
-        raise save_error_cls("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
-    return stored_result
+) -> bool:
+    """Return True if stored rule apply request matches, False otherwise.
+
+    Compares request payload before result JSON is decoded.
+    """
+    return json.loads(stored_request_json) == request
 
 
 __all__ = [

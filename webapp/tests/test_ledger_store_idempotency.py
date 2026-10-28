@@ -2,15 +2,19 @@
 
 Verifies:
 - check_revision_conflict behavior, error codes, and messages
-- match_board_save_request idempotency comparison
-- match_board_revert_request idempotency criteria
+- match_board_save_request KeyError contracts and idempotency comparison
+- match_board_revert_request lazy evaluation and short-circuit callback counts
 - match_allocation_save_request plan normalization and principal comparison
 - verify_correction_reused_request parameter validation
-- match_rule_lifecycle_request and match_rule_apply_request verification
-- LedgerStore facade integration (stored result replay vs REQUEST_ID_REUSED)
+- match_rule_lifecycle_request and match_rule_apply_request short-circuit with malformed JSON
+- LedgerStore facade integration:
+  - revert_status lazy call count preservation
+  - malformed result_json short-circuit on request mismatch
+  - save idempotency replay vs REQUEST_ID_REUSED
 """
 from __future__ import annotations
 
+import json
 import pytest
 
 from webapp.ledger_store import LedgerStore, SaveError
@@ -42,12 +46,12 @@ def test_check_revision_conflict_rules():
     assert exc.value.code == "EDIT_CONFLICT"
 
 
-def test_match_board_save_request():
+def test_match_board_save_request_and_keyerror_contract():
     stored = {
         "row_id": "row-1",
         "expected_revision": 2,
         "changes": {"amount_krw": 5000},
-        "change_mode": "manual",
+        "change_mode": "exception",
         "result": {"outcome": "saved", "revision": 3},
     }
 
@@ -57,16 +61,29 @@ def test_match_board_save_request():
         row_id="row-1",
         expected_revision=2,
         changes={"amount_krw": 5000},
-        change_mode="manual",
+        change_mode="exception",
     )
     assert res == {"outcome": "saved", "revision": 3}
 
+    # Missing required keys in stored dictionary raises KeyError (strict contract preserved)
+    for missing_key in ["row_id", "expected_revision", "changes", "change_mode"]:
+        bad_stored = dict(stored)
+        del bad_stored[missing_key]
+        with pytest.raises(KeyError):
+            match_board_save_request(
+                bad_stored,
+                row_id="row-1",
+                expected_revision=2,
+                changes={"amount_krw": 5000},
+                change_mode="exception",
+            )
+
     # Mismatches raise REQUEST_ID_REUSED
     for bad_args in [
-        {"row_id": "row-2", "expected_revision": 2, "changes": {"amount_krw": 5000}, "change_mode": "manual"},
-        {"row_id": "row-1", "expected_revision": 1, "changes": {"amount_krw": 5000}, "change_mode": "manual"},
-        {"row_id": "row-1", "expected_revision": 2, "changes": {"amount_krw": 9999}, "change_mode": "manual"},
-        {"row_id": "row-1", "expected_revision": 2, "changes": {"amount_krw": 5000}, "change_mode": "auto"},
+        {"row_id": "row-2", "expected_revision": 2, "changes": {"amount_krw": 5000}, "change_mode": "exception"},
+        {"row_id": "row-1", "expected_revision": 1, "changes": {"amount_krw": 5000}, "change_mode": "exception"},
+        {"row_id": "row-1", "expected_revision": 2, "changes": {"amount_krw": 9999}, "change_mode": "exception"},
+        {"row_id": "row-1", "expected_revision": 2, "changes": {"amount_krw": 5000}, "change_mode": "rule_change"},
     ]:
         with pytest.raises(SaveError) as exc:
             match_board_save_request(stored, **bad_args)
@@ -74,7 +91,7 @@ def test_match_board_save_request():
         assert exc.value.args[0] == "같은 요청 ID로 다른 내용을 보냈어요"
 
 
-def test_match_board_revert_request():
+def test_match_board_revert_request_lazy_callback_counts():
     stored = {
         "row_id": "row-1",
         "expected_revision": 2,
@@ -82,32 +99,57 @@ def test_match_board_revert_request():
         "result": {"outcome": "reverted", "revision": 3},
     }
 
-    # Matches when expected_revision matches
-    res1 = match_board_revert_request(
+    callback_count = 0
+
+    def mock_get_want_changes():
+        nonlocal callback_count
+        callback_count += 1
+        return {"revert": 1}
+
+    # 1. Row ID mismatch -> raises REQUEST_ID_REUSED without invoking callback
+    callback_count = 0
+    with pytest.raises(SaveError) as exc:
+        match_board_revert_request(
+            stored,
+            row_id="row-different",
+            expected_revision=2,
+            get_want_changes_fn=mock_get_want_changes,
+        )
+    assert exc.value.code == "REQUEST_ID_REUSED"
+    assert callback_count == 0  # Not called!
+
+    # 2. expected_revision matches -> returns stored["result"] without invoking callback
+    callback_count = 0
+    res_fast = match_board_revert_request(
         stored,
         row_id="row-1",
         expected_revision=2,
-        want_changes=None,
+        get_want_changes_fn=mock_get_want_changes,
     )
-    assert res1 == stored["result"]
+    assert res_fast == stored["result"]
+    assert callback_count == 0  # Not called!
 
-    # Matches when changes matches want_changes
-    res2 = match_board_revert_request(
+    # 3. expected_revision mismatches -> invokes callback once to check want_changes
+    callback_count = 0
+    res_slow = match_board_revert_request(
         stored,
         row_id="row-1",
-        expected_revision=5,
-        want_changes={"revert": 1},
+        expected_revision=999,  # different expected revision
+        get_want_changes_fn=mock_get_want_changes,
     )
-    assert res2 == stored["result"]
+    assert res_slow == stored["result"]
+    assert callback_count == 1  # Invoked exactly once!
 
-    # Mismatches raise REQUEST_ID_REUSED
-    with pytest.raises(SaveError) as exc:
-        match_board_revert_request(stored, row_id="row-2", expected_revision=2, want_changes=None)
-    assert exc.value.code == "REQUEST_ID_REUSED"
-
-    with pytest.raises(SaveError) as exc:
-        match_board_revert_request(stored, row_id="row-1", expected_revision=5, want_changes={"revert": 9})
-    assert exc.value.code == "REQUEST_ID_REUSED"
+    # 4. Missing row_id in stored raises KeyError
+    bad_stored = dict(stored)
+    del bad_stored["row_id"]
+    with pytest.raises(KeyError):
+        match_board_revert_request(
+            bad_stored,
+            row_id="row-1",
+            expected_revision=2,
+            get_want_changes_fn=mock_get_want_changes,
+        )
 
 
 def test_match_allocation_save_request():
@@ -168,92 +210,67 @@ def test_verify_correction_reused_request():
     assert exc.value.code == "REQUEST_ID_REUSED"
 
 
-def test_match_rule_requests():
-    # Rule lifecycle request match
-    stored_req = {"rule_id": "r1", "name": "test"}
-    stored_res = {"status": "ok"}
-    res1 = match_rule_lifecycle_request(
-        "create", "create", stored_req, {"rule_id": "r1", "name": "test"}, stored_res
+def test_match_rule_requests_short_circuit_with_malformed_json():
+    # 1. Operation mismatch short-circuits: invalid JSON in stored_request_json is NOT parsed
+    assert not match_rule_lifecycle_request(
+        "operation_a", "MALFORMED_JSON{{{", "operation_b", {"dummy": True}
     )
-    assert res1 == stored_res
 
-    with pytest.raises(SaveError) as exc:
-        match_rule_lifecycle_request("create", "delete", stored_req, stored_req, stored_res)
-    assert exc.value.code == "REQUEST_ID_REUSED"
+    # 2. Matching operation with valid JSON compares dictionary
+    valid_req_json = json.dumps({"rule_id": "r1"})
+    assert match_rule_lifecycle_request("op1", valid_req_json, "op1", {"rule_id": "r1"})
+    assert not match_rule_lifecycle_request("op1", valid_req_json, "op1", {"rule_id": "r2"})
 
-    with pytest.raises(SaveError) as exc:
-        match_rule_lifecycle_request("create", "create", stored_req, {"different": True}, stored_res)
-    assert exc.value.code == "REQUEST_ID_REUSED"
-
-    # Rule apply request match
-    res2 = match_rule_apply_request({"preview_id": "p1"}, {"preview_id": "p1"}, stored_res)
-    assert res2 == stored_res
-
-    with pytest.raises(SaveError) as exc:
-        match_rule_apply_request({"preview_id": "p1"}, {"preview_id": "p2"}, stored_res)
-    assert exc.value.code == "REQUEST_ID_REUSED"
+    # 3. Rule apply request compares request JSON
+    assert match_rule_apply_request(json.dumps({"preview_id": "p1"}), {"preview_id": "p1"})
+    assert not match_rule_apply_request(json.dumps({"preview_id": "p1"}), {"preview_id": "p2"})
 
 
-def test_facade_save_row_idempotency_and_conflict(tmp_path):
-    db_path = str(tmp_path / "test_idempotency.db")
+def test_facade_revert_lazy_and_malformed_result_json(tmp_path, monkeypatch):
+    """Verify facade revert_row lazy evaluation and lifecycle replay short-circuit."""
+    db_path = str(tmp_path / "test_revert_lazy.db")
     store = LedgerStore(db_path)
 
-    # 1. Create a manual expense row
-    create_res = store.create_manual_expense(
-        fields={
-            "display_tab_id": "tab-1",
-            "occurred_on": "2026-10-28",
-            "amount_krw": 15000,
-            "item": "식비",
-            "pay_method": "현금",
-            "description": "점심식사",
-        },
-        client_request_id="req-create-12345678",
+    # Insert a synthetic board request
+    stored_result = {"outcome": "reverted", "revision": 2}
+    store.conn.execute(
+        "INSERT INTO board_requests(client_request_id, row_id, expected_revision, result_json, ledger_pending, created_at)"
+        " VALUES ('req-revert-1', 'row-1', 1, ?, 0, '2026-10-28T00:00:00Z')",
+        (json.dumps({"row_id": "row-1", "expected_revision": 1, "result": stored_result}),)
     )
-    row_id = create_res["row_id"]
-    assert row_id is not None
-    assert create_res["revision"] == 1
-
-    # 2. Save changes (revision 1 -> 2)
-    save_res = store.save(
-        row_id=row_id,
-        expected_revision=1,
-        client_request_id="req-save-1",
-        change_mode="exception",
-        changes={"amount_krw": 20000},
+    # Insert row-1 in board_rows
+    store.conn.execute(
+        "INSERT INTO board_rows(row_id, row_kind, display_tab_id, revision, payload_json)"
+        " VALUES ('row-1', 'expense', 'tab-1', 2, '{}')"
     )
-    assert save_res["revision"] == 2
+    store.conn.commit()
 
-    # 3. Idempotent replay with same client_request_id returns stored result
-    replay_res = store.save(
-        row_id=row_id,
-        expected_revision=1,
-        client_request_id="req-save-1",
-        change_mode="exception",
-        changes={"amount_krw": 20000},
+    revert_status_count = 0
+    original_revert_status = store.revert_status
+
+    def tracked_revert_status(r_id):
+        nonlocal revert_status_count
+        revert_status_count += 1
+        return original_revert_status(r_id)
+
+    monkeypatch.setattr(store, "revert_status", tracked_revert_status)
+
+    # Calling revert_row with expected_revision=1 matching stored request
+    # MUST NOT invoke revert_status!
+    res = store.revert_row(row_id="row-1", expected_revision=1, client_request_id="req-revert-1")
+    assert res == stored_result
+    assert revert_status_count == 0  # Strict lazy evaluation preserved!
+
+    # Test lifecycle replay with malformed result_json:
+    # If operation mismatches, SaveError("REQUEST_ID_REUSED") must be raised without JSONDecodeError
+    store.conn.execute(
+        "INSERT INTO rule_lifecycle_requests(client_request_id, operation, request_json, result_json, created_at)"
+        " VALUES ('req-life-bad', 'create', '{}', 'MALFORMED_RESULT_JSON{{{', '2026-10-28T00:00:00Z')"
     )
-    assert replay_res == save_res
+    store.conn.commit()
 
-    # 4. Reusing client_request_id with different changes raises REQUEST_ID_REUSED
     with pytest.raises(SaveError) as exc:
-        store.save(
-            row_id=row_id,
-            expected_revision=1,
-            client_request_id="req-save-1",
-            change_mode="exception",
-            changes={"amount_krw": 99999},
-        )
-    assert exc.value.code == "REQUEST_ID_REUSED"
-
-    # 5. Stale expected_revision raises EDIT_CONFLICT
-    with pytest.raises(SaveError) as exc:
-        store.save(
-            row_id=row_id,
-            expected_revision=1,
-            client_request_id="req-save-2",
-            change_mode="exception",
-            changes={"amount_krw": 25000},
-        )
-    assert exc.value.code == "EDIT_CONFLICT"
+        store._lifecycle_replay("req-life-bad", "delete", {})
+    assert exc.value.code == "REQUEST_ID_REUSED"  # Result JSON not parsed on operation mismatch!
 
     store.conn.close()

@@ -672,14 +672,15 @@ class LedgerStore:
             ).fetchone()
             if existing:
                 stored = json.loads(existing[0])
-                status = self.revert_status(row_id)
-                want_changes = ({"revert": status["target_revision"]}
-                                if status["revertible"] else None)
+                def _get_want_changes():
+                    status = self.revert_status(row_id)
+                    return ({"revert": status["target_revision"]}
+                            if status["revertible"] else None)
                 return match_board_revert_request(
                     stored,
                     row_id=row_id,
                     expected_revision=expected_revision,
-                    want_changes=want_changes,
+                    get_want_changes_fn=_get_want_changes,
                 )
             check_revision_conflict(current["revision"], expected_revision)
             status = self.revert_status(row_id)
@@ -967,13 +968,9 @@ class LedgerStore:
             " WHERE client_request_id=?", (client_request_id,)).fetchone()
         if row is None:
             return None
-        return match_rule_lifecycle_request(
-            operation,
-            row[0],
-            json.loads(row[1]),
-            request,
-            json.loads(row[2]),
-        )
+        if not match_rule_lifecycle_request(row[0], row[1], operation, request):
+            raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+        return json.loads(row[2])
 
     def _store_lifecycle_request(self, client_request_id: str, operation: str,
                                  request: dict, result: dict, created_at: str) -> None:
@@ -1280,11 +1277,9 @@ class LedgerStore:
                 "SELECT request_json, result_json FROM rule_apply_requests"
                 " WHERE client_request_id=?", (client_request_id,)).fetchone()
             if existing:
-                return match_rule_apply_request(
-                    json.loads(existing[0]),
-                    request,
-                    json.loads(existing[1]),
-                )
+                if not match_rule_apply_request(existing[0], request):
+                    raise SaveError("REQUEST_ID_REUSED", "같은 요청 ID로 다른 내용을 보냈어요")
+                return json.loads(existing[1])
             preview = self.get_preview(preview_id)
             if preview is None:
                 raise SaveError("INVALID_VALUE", "없는 미리보기예요")
