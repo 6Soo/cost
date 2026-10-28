@@ -1727,7 +1727,8 @@ class CardFlow:
 
     def _auto_record_locked(self, batch_id, *, include_state=True):
         from app import auto_record_policy, quarter_tab
-        # Only batches collected after activation are recorded. Older rows keep their recorded state.
+        # The policy accepts every real imported batch, including historical ones.
+        # The existence guard still blocks invalid batch IDs.
         if not auto_record_policy.batch_is_new(self.pipeline.store.conn, batch_id):
             if not include_state:
                 return {'auto_recorded': 0}
