@@ -89,3 +89,23 @@ def test_missing_target_is_structured_error(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(SELECTOR, 'changed_paths', lambda _: ['synthetic.py'])
     assert SELECTOR.main(['--base', 'synthetic']) == 2
     assert json.loads(capsys.readouterr().out)['status'] == 'ERROR'
+
+
+def test_extracted_runtime_modules_keep_their_feature_contract_tests():
+    import json
+
+    config = json.loads(SELECTOR.MAP_PATH.read_text(encoding='utf-8'))
+    cases = {
+        'webapp/ledger_store_read.py': 'webapp/tests/test_ledger_store.py',
+        'webapp/ledger_store_records.py': 'webapp/tests/test_refund_group_commit.py',
+        'webapp/board_read_projection.py': 'webapp/tests/test_ledger_server_store_isolation.py',
+        'webapp/board_render_helpers.py': 'webapp/tests/test_ledger_board.py',
+        'webapp/ledger_design_assets.py': 'webapp/tests/test_ledger_design.py',
+        'webapp/ledger_assets.py': 'webapp/tests/test_manual_theme.py',
+        'webapp/card_evidence_ui.py': 'webapp/tests/test_cleanup_refund_display.py',
+        'webapp/card_refund_ui.py': 'webapp/tests/test_refund_inference_runtime.py',
+    }
+    for path, expected in cases.items():
+        targets, unknown = SELECTOR.select_targets([path], config['groups'])
+        assert unknown == [], path
+        assert expected in targets, path

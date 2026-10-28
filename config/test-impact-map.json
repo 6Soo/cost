@@ -52,6 +52,26 @@
       "tests": ["webapp/tests/test_card_import.py", "tests/card_pipeline/test_pipeline.py"]
     },
     {
+      "name": "ledger-store-boundaries",
+      "paths": ["webapp/ledger_store*.py", "webapp/tests/test_ledger_store*.py"],
+      "tests": ["webapp/tests/test_ledger_store.py", "webapp/tests/test_income_card_boundary.py", "webapp/tests/test_refund_group_commit.py"]
+    },
+    {
+      "name": "board-read-boundaries",
+      "paths": ["webapp/ledger_board.py", "webapp/board_*.py", "webapp/tests/test_board_*.py"],
+      "tests": ["webapp/tests/test_ledger_board.py", "webapp/tests/test_ledger_server_store_isolation.py", "webapp/tests/test_access_control_phase7.py"]
+    },
+    {
+      "name": "ledger-design-assets",
+      "paths": ["webapp/ledger_design*.py", "webapp/ledger_assets.py", "webapp/tests/test_ledger_design*.py", "webapp/tests/test_ledger_assets*.py"],
+      "tests": ["webapp/tests/test_ledger_design.py", "webapp/tests/test_ledger_design_state.py", "webapp/tests/test_manual_theme.py", "webapp/tests/test_mobile_topbar_theme_inline.py"]
+    },
+    {
+      "name": "card-evidence-rendering",
+      "paths": ["webapp/card_evidence*.py", "webapp/card_refund_ui.py", "webapp/tests/test_card_evidence*.py", "webapp/tests/test_card_refund_ui*.py"],
+      "tests": ["webapp/tests/test_card_flow.py", "webapp/tests/test_cleanup_refund_display.py", "webapp/tests/test_cleanup_original_refund_status_contract.py", "webapp/tests/test_refund_inference_runtime.py"]
+    },
+    {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
                 "webapp/tests/test_targeted_test_selector.py"],
