@@ -34,7 +34,7 @@
     },
     {
       "name": "refactor-call-map",
-      "paths": ["tools/refactor_call_map.py", "config/refactor-call-map.json", "tests/test_refactor_call_map.py"],
+      "paths": ["tools/refactor_call_map.py", "config/refactor-call-map.json", "tests/test_refactor_call_map.py", "tools/audit_write_boundaries.py", "tools/runtime_dependency_catalog.py"],
       "tests": ["tests/test_refactor_call_map.py"]
     },
     {
@@ -154,8 +154,8 @@
     {
       "name": "test-selection",
       "paths": ["tools/select_targeted_tests.py", "config/test-impact-map.json",
-                "webapp/tests/test_targeted_test_selector.py"],
-      "tests": ["webapp/tests/test_targeted_test_selector.py"]
+                "webapp/tests/test_targeted_test_selector.py", "tools/run_targeted_checks.py", "tests/test_run_targeted_checks.py"],
+      "tests": ["webapp/tests/test_targeted_test_selector.py", "tests/test_run_targeted_checks.py", "tests/test_refactor_call_map.py"]
     }
   ]
 }
