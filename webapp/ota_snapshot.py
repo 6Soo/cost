@@ -15,10 +15,12 @@ import re
 import secrets
 import threading
 import time
+import tracemalloc
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.ota_queue_paging import build_queue_index
+from app.ota_queue_telemetry import append_sample, fingerprint, payload_bytes, stage_sample, summarize_samples
 
 SCHEMA = "ota-snapshot-v1"
 CHECK_SECONDS = 60
@@ -129,6 +131,7 @@ class OtaSnapshotService:
         self._refreshing = False
         self._checks = 0
         self._error = None
+        self._telemetry_samples = []
         self._failed_key = None
         self._failed_at = None
         self._failures = 0
@@ -237,17 +240,30 @@ class OtaSnapshotService:
             self._refreshing = True
         self._log("refresh_start", key=key[:12], generation=(current or {}).get("generation", 0))
         started = self._clock()
+        tracing_before = tracemalloc.is_tracing()
+        if not tracing_before:
+            tracemalloc.start()
         try:
+            reconcile_started = time.perf_counter()
             reconciled = self._reconcile_fn()
+            telemetry_samples = list(reconciled.get("telemetry_samples", ())) if type(reconciled) is dict else []
+            telemetry_samples = append_sample(telemetry_samples, stage_sample(
+                "reconcile", (time.perf_counter() - reconcile_started) * 1000,
+                row_count=len(reconciled.get("queue_page_rows", ())) if type(reconciled) is dict else 0))
+            _, memory_peak_bytes = tracemalloc.get_traced_memory()
             with self._lock:
                 next_generation = (self._current or {}).get("generation", 0) + 1
             page_rows = reconciled.get("queue_page_rows") if type(reconciled) is dict else None
             page_index = None
             if type(page_rows) is list:
+                index_started = time.perf_counter()
                 page_index = build_queue_index(
                     page_rows, generation=next_generation,
                     snapshot_nonce=secrets.token_urlsafe(24),
                     signing_key=self._queue_page_signing_key)
+                telemetry_samples = append_sample(telemetry_samples, stage_sample(
+                    "queue_index_build", (time.perf_counter() - index_started) * 1000,
+                    row_count=len(page_rows)))
             group_rows = reconciled.get("queue_group_rows") if type(reconciled) is dict else None
             group_index = (build_queue_index(
                 group_rows, generation=next_generation,
@@ -282,7 +298,11 @@ class OtaSnapshotService:
                 self._failed_at = self._clock()
                 self._error = {"code": type(exc).__name__, "message": str(exc)[:200], "at": _now_iso()}
             self._log("refresh_failed", key=key[:12], code=type(exc).__name__, message=str(exc)[:200])
+            if not tracing_before:
+                tracemalloc.stop()
             return
+        if not tracing_before:
+            tracemalloc.stop()
         self._log("refresh_done", key=key[:12], seconds=round(self._clock() - started, 2))
         with self._lock:
             generation = (current or {}).get("generation", 0) + 1
@@ -305,6 +325,21 @@ class OtaSnapshotService:
             if isinstance(queue_summary, dict):
                 published["queue_summary"] = {**queue_summary, "generation": generation,
                                                "generated_at": generated_at}
+            self._telemetry_samples = (self._telemetry_samples + telemetry_samples)[-128:]
+            metrics = summarize_samples(self._telemetry_samples)
+            metrics["query_plan"] = {"kind": "read_only_explain",
+                                     "samples": metrics.get("query_plan", {}).get("samples", 0)}
+            published["telemetry"] = {
+                "stages": metrics,
+                "input_fingerprint": fingerprint(key),
+                "rule_fingerprint": (reconciled.get("rule_fingerprint")
+                                     if type(reconciled.get("rule_fingerprint")) is str and
+                                     len(reconciled.get("rule_fingerprint")) == 64 else None),
+                "memory_peak_bytes": memory_peak_bytes,
+            }
+            published["telemetry"]["snapshot_bytes"] = payload_bytes({
+                "generation": generation, "queue_summary": published.get("queue_summary"),
+                "public": published.get("public")})
             self._current = published
             self._refreshing = False
             self._error = None
@@ -364,7 +399,8 @@ class OtaSnapshotService:
                 "generation": current["generation"] if current else 0,
                 "generated_at": current["generated_at"] if current else None,
                 "snapshot_key": current["key"][:12] if current else None,
-                "last_error": error, "fresh": fresh, "current": public or None}
+                "last_error": error, "fresh": fresh, "current": public or None,
+                "telemetry": current.get("telemetry") if current else None}
 
     def queue_page_context(self):
         """Return the private in-memory index with a freshness envelope for the read-only route."""
@@ -380,6 +416,14 @@ class OtaSnapshotService:
             "status": view.get("status"), "generation": view.get("generation"),
             "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
             "stale": view.get("stale"), "refreshing": view.get("refreshing"),
+            "telemetry": view.get("telemetry"),
+            "summary": ({**current.get("queue_summary"),
+                         "snapshot_status": view.get("status"),
+                         "fresh": view.get("fresh"), "stale": view.get("stale"),
+                         "refreshing": view.get("refreshing"),
+                         "input_fingerprint": (current.get("telemetry") or {}).get("input_fingerprint"),
+                         "rule_fingerprint": (current.get("telemetry") or {}).get("rule_fingerprint")}
+                        if current and matches_view and type(current.get("queue_summary")) is dict else None),
         }
 
     def queue_group_context(self):
@@ -394,7 +438,14 @@ class OtaSnapshotService:
                 "status": view.get("status"), "generation": view.get("generation"),
                 "generated_at": view.get("generated_at"), "fresh": view.get("fresh"),
                 "stale": view.get("stale"), "refreshing": view.get("refreshing"),
-                "summary": current.get("queue_summary") if current and matches_view else None}
+                "summary": ({**current.get("queue_summary"),
+                             "snapshot_status": view.get("status"),
+                             "fresh": view.get("fresh"), "stale": view.get("stale"),
+                             "refreshing": view.get("refreshing"),
+                             "input_fingerprint": (current.get("telemetry") or {}).get("input_fingerprint"),
+                             "rule_fingerprint": (current.get("telemetry") or {}).get("rule_fingerprint")}
+                            if current and matches_view and type(current.get("queue_summary")) is dict else None),
+                "telemetry": current.get("telemetry") if current and matches_view else None}
 
     def queue_group_members_context(self, group_id, expected_generation):
         """Return a generation-bound private member index, without scanning members."""
@@ -430,7 +481,16 @@ class OtaSnapshotService:
             ambiguous = event_id in current.get("_queue_ambiguous_ids", ())
             detail = current.get("_queue_detail_map", {}).get(event_id)
             return {"generation": current["generation"], "event": detail,
-                    "ambiguous": ambiguous}
+                    "ambiguous": ambiguous,
+                    "summary": ({**current.get("queue_summary"),
+                                 "snapshot_status": view.get("status"),
+                                 "fresh": view.get("fresh"), "stale": view.get("stale"),
+                                 "refreshing": view.get("refreshing"),
+                                 "input_fingerprint": (current.get("telemetry") or {}).get("input_fingerprint"),
+                                 "rule_fingerprint": (current.get("telemetry") or {}).get("rule_fingerprint")}
+                                if type(current.get("queue_summary")) is dict else None),
+                    "telemetry": current.get("telemetry"),
+                    "generated_at": current.get("generated_at")}
 
     def proposal_page_context(self, expected_generation, *, limit=20, cursor=None):
         """Read one bounded slice from the already-sanitized public proposal snapshot."""
@@ -524,6 +584,8 @@ class OtaSnapshotService:
                     "results": _public_results(current["results"]), "links": current["links"]}
         if isinstance(current.get("queue_summary"), dict):
             document["queue_summary"] = current["queue_summary"]
+        if isinstance(current.get("telemetry"), dict):
+            document["telemetry"] = current["telemetry"]
         if isinstance(document.get("public"), dict) and isinstance(document["public"].get("results"), list):
             document["public"] = {**document["public"],
                                   "results": _public_results(document["public"]["results"])}
@@ -554,5 +616,7 @@ class OtaSnapshotService:
                          "authority": document.get("authority"),
                          "queue_summary": document.get("queue_summary")
                          if isinstance(document.get("queue_summary"), dict) else None,
+                         "telemetry": document.get("telemetry")
+                         if isinstance(document.get("telemetry"), dict) else None,
                          "data": None}
         self._first_ready.set()

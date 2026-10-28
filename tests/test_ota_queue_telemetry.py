@@ -49,13 +49,15 @@ def test_snapshot_metadata_drops_keys_timestamps_payload_and_arbitrary_text():
                                        "snapshot_key": "SENTINEL_KEY", "generated_at": "SENTINEL_TIME",
                                        "events": ["SENTINEL_EVENT"]})
     assert metadata == {"status": "ready", "generation": 3,
-                        "stale": False, "refreshing": False, "fresh": True}
+                        "stale": False, "refreshing": False, "fresh": True,
+                        "input_fingerprint": None, "rule_fingerprint": None}
     assert "SENTINEL" not in json.dumps(metadata)
 
 
 def test_trace_marks_same_generation_summary_page_detail_complete_without_identity_fields():
     envelope = {"status": "ready", "generation": 7, "fresh": True,
-                "stale": False, "refreshing": False}
+                "stale": False, "refreshing": False,
+                "input_fingerprint": "a" * 64, "rule_fingerprint": "b" * 64}
     trace = build_read_trace(summary={**envelope, "snapshot_key": "SENTINEL_KEY"},
                              page={**envelope, "event_id": "SENTINEL_EVENT",
                                    "reason_codes": ["MATCHING_REVIEW_RESOLVED"]},
@@ -74,7 +76,8 @@ def test_trace_marks_same_generation_summary_page_detail_complete_without_identi
 ])
 def test_trace_downgrades_mixed_or_stale_summary_page_lineage(page_changes):
     envelope = {"status": "ready", "generation": 7, "fresh": True,
-                "stale": False, "refreshing": False}
+                "stale": False, "refreshing": False,
+                "input_fingerprint": "a" * 64, "rule_fingerprint": "b" * 64}
     trace = build_read_trace(summary=envelope,
                              page={**envelope, **page_changes,
                                    "reason_codes": ["MATCHING_REVIEW_RESOLVED"]})
@@ -84,7 +87,8 @@ def test_trace_downgrades_mixed_or_stale_summary_page_lineage(page_changes):
 
 def test_trace_sanitizes_malformed_reason_codes_and_rejects_private_sample_fields():
     envelope = {"status": "ready", "generation": 1, "fresh": True,
-                "stale": False, "refreshing": False}
+                "stale": False, "refreshing": False,
+                "input_fingerprint": "a" * 64, "rule_fingerprint": "b" * 64}
     trace = build_read_trace(summary=envelope,
                              page={**envelope, "reason_codes": ["SENTINEL_PRIVATE_REASON", "valid"]})
     assert trace["trace_status"] == "complete"

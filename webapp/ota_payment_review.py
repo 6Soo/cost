@@ -1,4 +1,4 @@
-"""Opt-in, isolated UI for reviewing OTA payment holds.
+﻿"""Opt-in, isolated UI for reviewing OTA payment holds.
 
 The backend is deliberately injected. Its snapshot operation must be read-only;
 write methods must persist only in the separately configured OTA review store.
@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import time
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,8 @@ from urllib.parse import parse_qsl, unquote
 
 from . import ota_snapshot
 from app.ota_queue_projection import classify_event, summarize_queue
+from app.ota_queue_telemetry import (append_sample, build_read_trace, fingerprint,
+                                     payload_bytes, stage_sample, summarize_samples)
 from app.ota_queue_paging import QUEUES as OTA_QUEUE_NAMES
 from app.ota_queue_paging import PagingError, QueueIndex, build_queue_index, list_queue_page
 from app.ota_reservation_groups import project_reservation_groups
@@ -484,6 +487,7 @@ class CoreOtaPaymentBackend:
         # leaves a missing file untouched. Its write methods initialize lazily.
         self.store = store_type(self.review_path)
         self.read_only = read_only
+        self._ota_telemetry_samples = []
 
     @classmethod
     def from_host(cls, board, *, read_only):
@@ -518,6 +522,12 @@ class CoreOtaPaymentBackend:
     def _transactions(self):
         lock = getattr(self.board, "_lock", None)
         with lock if lock is not None else nullcontext():
+            plan_started = time.perf_counter()
+            plan = self.board.conn.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM transactions").fetchall()
+            self._ota_telemetry_samples = append_sample(self._ota_telemetry_samples,
+                stage_sample("query_plan", (time.perf_counter() - plan_started) * 1000,
+                             row_count=len(plan)))
             cursor = self.board.conn.execute("SELECT * FROM transactions")
             columns = [column[0] for column in cursor.description or ()]
             rows = cursor.fetchall()
@@ -548,9 +558,17 @@ class CoreOtaPaymentBackend:
 
     @provider_resolution_scope()
     def _data(self):
+        started = time.perf_counter()
         events = self.payments.build_ota_payment_events(self.sources)
+        self._ota_telemetry_samples = append_sample(self._ota_telemetry_samples,
+            stage_sample("source_parse", (time.perf_counter() - started) * 1000,
+                         row_count=len(events)))
         _forest_trip_suggestions(self.board, events)
+        started = time.perf_counter()
         transactions = self._transactions()
+        self._ota_telemetry_samples = append_sample(self._ota_telemetry_samples,
+            stage_sample("card_read", (time.perf_counter() - started) * 1000,
+                         row_count=len(transactions)))
         stored_events = self._stored_manual_events()
         manual_links, id_crosswalk = _manual_link_crosswalk(
             events, self.store.links(), stored_events,
@@ -591,6 +609,7 @@ class CoreOtaPaymentBackend:
         # complete transaction set for reservation candidate search and display.
         solver_transactions = [row for row in transactions
                               if str(row.get("transaction_id") or "") not in reservation_card_ids]
+        started = time.perf_counter()
         try:
             results = self.payments.match_ota_payment_events(
                 events, solver_transactions, existing_links=links, rules=rules,
@@ -600,6 +619,9 @@ class CoreOtaPaymentBackend:
                 raise
             results = self.payments.match_ota_payment_events(
                 events, solver_transactions, existing_links=links, rules=rules)
+        self._ota_telemetry_samples = append_sample(self._ota_telemetry_samples,
+            stage_sample("solver", (time.perf_counter() - started) * 1000,
+                         row_count=len(results)))
         result_ids = {str(result.get("ota_event_id")): index for index, result in enumerate(results)}
         for event_id in stale_manual_ids:
             index = result_ids.get(event_id)
@@ -1656,7 +1678,9 @@ def _canonical_queue_detail_data(queue_rows, events, results, public, transactio
 
 def reconcile_for(backend) -> dict:
     """The full reconciliation through one backend. The caller owns the backend's lifetime."""
+    started = time.perf_counter()
     data = backend._data()
+    telemetry = list(getattr(backend, "_ota_telemetry_samples", ()))
     events, transactions, links, results = data
     from . import guide_airfare_review
     try:
@@ -1684,12 +1708,24 @@ def reconcile_for(backend) -> dict:
     except Exception:
         authority = {"state": "unavailable", "digest": "", "error": "summary_failed"}
     scheduled = scheduled_card_settlements(backend.sources, transactions, backend._occupied_cards(links, results))
+    projection_started = time.perf_counter()
     canonical_rows = _canonical_queue_rows(events, results, links)
     queue_page_rows, queue_group_rows, queue_summary, queue_group_member_rows = (
         _canonical_queue_projection(canonical_rows))
+    telemetry = append_sample(telemetry, stage_sample("projection",
+        (time.perf_counter() - projection_started) * 1000, row_count=len(canonical_rows)))
     public = public_snapshot(backend.snapshot_from(data, include_cards=False))
     queue_detail_rows, queue_ambiguous_ids = _canonical_queue_detail_data(
         canonical_rows, events, results, public, transactions)
+    from app.ota_matching_defaults import load_defaults
+    rule_fingerprint = fingerprint({
+        "parser": getattr(getattr(backend, "payments", None), "PARSER_VERSION", 1),
+        "matcher": getattr(getattr(backend, "payments", None), "MATCHER_VERSION", 1),
+        "matching_defaults": load_defaults(),
+        "active_rules": getattr(getattr(backend, "store", None), "active_rules", lambda: [])(),
+    })
+    telemetry = append_sample(telemetry, stage_sample("reconcile",
+        (time.perf_counter() - started) * 1000, row_count=len(events) + len(results)))
     return {
         "public": public,
         "queue_summary": queue_summary,
@@ -1698,6 +1734,8 @@ def reconcile_for(backend) -> dict:
         "queue_group_member_rows": queue_group_member_rows,
         "queue_detail_rows": queue_detail_rows,
         "queue_ambiguous_ids": queue_ambiguous_ids,
+        "telemetry_samples": telemetry,
+        "rule_fingerprint": rule_fingerprint,
         "authority": authority,
         "results": published,
         "links": {str(event_id): _link_transaction_id(link)
@@ -2506,7 +2544,10 @@ def _queue_page_response(context, kwargs):
             "refreshing": context.get("refreshing") if type(context) is dict and type(context.get("refreshing")) is bool else None,
         }
         raise _PageNotReady(envelope)
+    page_started = time.perf_counter()
     page = list_queue_page(index, **kwargs)
+    page_sample = stage_sample("page_serialize", (time.perf_counter() - page_started) * 1000,
+                               row_count=len(page.get("items", ())), byte_count=payload_bytes(page))
     generated_at = context.get("generated_at")
     if type(generated_at) is not str or len(generated_at) > 40:
         generated_at = None
@@ -2520,9 +2561,27 @@ def _queue_page_response(context, kwargs):
                 generated_at = parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
         except (ValueError, OverflowError):
             generated_at = None
-    return {**page, "snapshot": {"status": "ready", "generation": context["generation"],
-                                  "generated_at": generated_at,
-                                  "fresh": True, "stale": False, "refreshing": False}}
+    telemetry = context.get("telemetry") if type(context.get("telemetry")) is dict else {}
+    fingerprints = {key: telemetry.get(key) for key in ("input_fingerprint", "rule_fingerprint")}
+    snapshot = {"status": "ready", "generation": context["generation"],
+                "generated_at": generated_at, "fresh": True, "stale": False,
+                "refreshing": False, **fingerprints}
+    summary_meta = context.get("summary") if type(context.get("summary")) is dict else {}
+    summary_envelope = {"status": summary_meta.get("snapshot_status"),
+                        "generation": summary_meta.get("generation"),
+                        "fresh": summary_meta.get("fresh"), "stale": summary_meta.get("stale"),
+                        "refreshing": summary_meta.get("refreshing")}
+    for key in ("input_fingerprint", "rule_fingerprint"):
+        summary_envelope[key] = summary_meta.get(key)
+    reason_codes = [code for row in page.get("items", ())
+                    for code in row.get("reason_codes", ())][:32]
+    trace = build_read_trace(summary=summary_envelope,
+                             page={**snapshot, "reason_codes": reason_codes},
+                             sample=page_sample)
+    if trace["trace_status"] != "complete":
+        raise PagingError("SNAPSHOT_CHANGED", 409)
+    return {**page, "snapshot": snapshot, "telemetry_sample": page_sample,
+            "trace": trace, "summary_generation": summary_meta.get("generation")}
 
 
 def _queue_group_page_response(context, kwargs):
@@ -2696,6 +2755,14 @@ def _stored_queue_summary_response(view):
             summary_status = "rechecking"
             counts_authoritative = False
 
+    telemetry = view.get("telemetry") if type(view.get("telemetry")) is dict else {}
+    stages = telemetry.get("stages") if type(telemetry.get("stages")) is dict else {}
+    safe_stages = {name: {field: value for field, value in metric.items()
+                          if field in ("samples", "p50_ms", "p95_ms", "rows", "bytes") and
+                          type(value) in (int, float) and value >= 0}
+                   for name, metric in stages.items() if name in
+                   ("source_parse", "card_read", "solver", "projection", "reconcile",
+                    "snapshot_publish", "page_serialize", "query_plan") and type(metric) is dict}
     return {
         "status": status,
         "summary_status": summary_status,
@@ -2714,6 +2781,13 @@ def _stored_queue_summary_response(view):
         "warning_count": warning_count,
         "verified_group_count": verified_group_count,
         "singleton_fallback_count": singleton_fallback_count,
+        "telemetry": {"stages": safe_stages,
+                      "input_fingerprint": telemetry.get("input_fingerprint")
+                      if type(telemetry.get("input_fingerprint")) is str and len(telemetry.get("input_fingerprint")) == 64 else None,
+                      "rule_fingerprint": telemetry.get("rule_fingerprint")
+                      if type(telemetry.get("rule_fingerprint")) is str and len(telemetry.get("rule_fingerprint")) == 64 else None,
+                      "snapshot_bytes": telemetry.get("snapshot_bytes")
+                      if type(telemetry.get("snapshot_bytes")) is int and telemetry.get("snapshot_bytes") >= 0 else None},
         "state_tags": state_tags,
     }
 
@@ -2876,6 +2950,7 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 context_of = getattr(backend, "queue_detail_context", None)
                 if not callable(context_of):
                     raise ota_snapshot.SnapshotReadError("SNAPSHOT_NOT_READY", 409)
+                detail_started = time.perf_counter()
                 result = context_of(event_id, params["generation"])
                 if result.get("ambiguous") is True:
                     return _reply_error(handler, "EVENT_ID_AMBIGUOUS",
@@ -2883,8 +2958,26 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 event = result.get("event")
                 if type(event) is not dict:
                     return _reply_error(handler, "EVENT_NOT_FOUND", "이벤트를 찾을 수 없습니다.", 404)
+                telemetry = result.get("telemetry") if type(result.get("telemetry")) is dict else {}
+                summary = result.get("summary") if type(result.get("summary")) is dict else {}
+                sample = stage_sample("detail_read", (time.perf_counter() - detail_started) * 1000,
+                                      row_count=1, byte_count=payload_bytes(event))
+                summary_envelope = {"status": summary.get("snapshot_status"),
+                    "generation": summary.get("generation"), "fresh": summary.get("fresh"),
+                    "stale": summary.get("stale"), "refreshing": summary.get("refreshing"),
+                    "input_fingerprint": telemetry.get("input_fingerprint"),
+                    "rule_fingerprint": telemetry.get("rule_fingerprint")}
+                detail_envelope = {"status": "ready", "generation": result["generation"],
+                    "fresh": True, "stale": False, "refreshing": False,
+                    "input_fingerprint": telemetry.get("input_fingerprint"),
+                    "rule_fingerprint": telemetry.get("rule_fingerprint")}
+                trace = build_read_trace(summary=summary_envelope,
+                    page={**detail_envelope, "reason_codes": []}, detail=detail_envelope, sample=sample)
+                if trace["trace_status"] != "complete":
+                    return _reply_error(handler, "SNAPSHOT_CHANGED",
+                                        "요약과 상세 스냅샷 버전이 일치하지 않습니다.", 409)
                 handler._send_json({"event_id": event_id, "generation": result["generation"],
-                                    "event": event})
+                                    "event": event, "trace": trace, "telemetry_sample": sample})
             except ota_snapshot.SnapshotReadError as exc:
                 message = ("스냅샷이 변경되었습니다. 목록을 새로 불러와 주세요."
                            if exc.code == "SNAPSHOT_CHANGED" else
@@ -2925,7 +3018,14 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
                 if not callable(view_of):
                     return _reply_error(handler, "OTA_SUMMARY_UNAVAILABLE",
                                         "저장된 요약을 읽을 수 없습니다.", 503)
-                handler._send_json(_stored_queue_summary_response(view_of()))
+                summary_started = time.perf_counter()
+                summary_response = _stored_queue_summary_response(view_of())
+                summary_response["telemetry_sample"] = stage_sample(
+                    "summary_read", (time.perf_counter() - summary_started) * 1000,
+                    row_count=sum(bucket.get("event_count", 0) for bucket in
+                                  (summary_response.get("counts_by_queue") or {}).values()),
+                    byte_count=payload_bytes(summary_response))
+                handler._send_json(summary_response)
             except Exception:
                 return _reply_error(handler, "OTA_SUMMARY_UNAVAILABLE",
                                     "저장된 요약을 읽을 수 없습니다.", 503)
@@ -3027,3 +3127,5 @@ def dispatch(handler, parsed, *, raw=None, csrf="", backend) -> bool:
     except Exception:
         return _reply_error(handler, "OTA_REVIEW_UNAVAILABLE", "검토 요청을 처리하지 못했습니다.", 503)
     return True
+
+
