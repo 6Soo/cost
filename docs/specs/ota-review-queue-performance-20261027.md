@@ -19,6 +19,8 @@ Board `9d5ddd5`의426세대 ready/fresh에서3,799사건→3,222그룹(577개/15
 
 후속 운영에서 summary/page/detail GET마다 worker를 깨워 478MB 원본 지문과 카드 원장을 반복 읽는 경로를 확인했다. 일반 읽기는 기존60초 검사 주기를 공유하고 최초 미검사 상태만 즉시 깨운다. 계산 중 읽기는 추가 검사를 예약하지 않는다. 명시 `request_check()`와 쓰기 직전 입력 키 검증은 즉시 실행을 유지한다. 조회 burst·주기 경계·명시 검사·세대 변경·snapshot/action/page/detail 보호89 passed로 확인했다.
 
+> **2026-10-28 정책 갱신:** [여행 우선 잠정 귀속과 사후 교정](provisional-assignment-review-first-20261028.md). 기존 페이지네이션/예약 그룹/금융 큐 상태는 유지하되 **90일 등 연령 기준으로 미해결을 자동 보관·숨김·완료 처리하는 제안은 사용자 거부**. 결제 원본과 무관하게 유효한 여행 단서가 있다면 `AUTO_PROVISIONAL` 여행 귀속을 제안/적용하고 사용자 검토를 받는다. OTA 결제 완료·환불 확정으로의 상태 승격은 기존 엄격한 증빙을 따라야 한다.
+
 ## 1. 확인된 현재 코드
 
 - webapp/ota_payment_review.py::CoreOtaPaymentBackend.snapshot_from은 결과 전체를 순회해 HOLD, 수동 연결 변경, 예약 관계 등 조건별 이벤트를 화면용 holds에 담는다. 정상 MATCHED 전부를 보여주는 구조는 아니다.
