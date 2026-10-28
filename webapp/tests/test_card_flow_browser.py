@@ -796,7 +796,7 @@ class CardFlowBrowserTests(unittest.TestCase):
     def test_low_confidence_assignment_is_editable_and_does_not_require_approval_to_preview(self):
         from app import Pipeline
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,
-                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1'}):
+                {'WEBLEDGER_UNIFIED_DB':'1','WEBLEDGER_CARD_FLOW':'1','WEBLEDGER_REVIEW_FROM':''}):
             ledger_board.bind_access(None)
             server=ledger_board.serve(port=0,db_path=Path(directory)/'board.sqlite',with_worker=False,seed_demo=False)
             pipe=Pipeline(server.card_store.conn)
@@ -814,15 +814,18 @@ class CardFlowBrowserTests(unittest.TestCase):
                     browser=api.chromium.launch(headless=True)
                     page=browser.new_page(viewport={'width':390,'height':844})
                     page.on('pageerror',lambda e:errors.append(str(e)))
-                    page.goto(f'http://127.0.0.1:{server.server_address[1]}/import')
-                    page.get_by_text('비용 항목 확인 권장',exact=True).wait_for()
-                    self.assertTrue(page.get_by_role('button',name='미리본 1건을 장부에 기록').is_enabled())
-                    self.assertEqual(page.locator('#preview').get_by_text('추론 배정',exact=True).count(),1)
-                    page.locator('#preview summary').click()
-                    self.assertIn('공통 경비 추론',page.locator('#preview details').inner_text())
-                    page.locator('form[data-index] input[name=item]').fill('사무용품비')
-                    page.get_by_role('button',name='답변 저장하고 다시 분류').click()
-                    page.wait_for_function("document.querySelector('#preview').innerText.includes('사무용품비')")
+                    page.goto(f'http://127.0.0.1:{server.server_address[1]}/import?batch={batch}')
+                    form = page.locator('form[data-index]').first
+                    form.wait_for(state='attached')
+                    self.assertEqual(page.get_by_text('비용 항목 확인 권장',exact=True).count(),0)
+                    self.assertEqual(pipe.get_batch(batch)['rows'][0]['classification_state'],'classified')
+                    self.assertFalse(pipe.get_batch(batch)['rows'][0]['decided'])
+                    if not form.is_visible():
+                        page.locator('#questions summary').first.click()
+                    form.locator('input[name=item]').fill('사무용품비')
+                    with page.expect_response(lambda response: response.url.endswith('/decision') and response.request.method == 'POST') as saved:
+                        form.get_by_role('button',name='저장하고 자동 반영').click()
+                    self.assertEqual(saved.value.status,200,saved.value.json())
                     pipe.classify_batch(batch)
                     actual=pipe.get_batch(batch)['rows'][0]
                     self.assertTrue(actual['decided'])

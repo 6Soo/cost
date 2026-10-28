@@ -84,12 +84,12 @@ def _public_period(value):
 
 def _public_trip_decision(value):
     if not isinstance(value, dict) or value.get('status') not in {
-            'AUTO_PROVISIONAL', 'USER_CONFIRMED', 'MANUAL_UNASSIGNED', 'MANUAL_HOLD',
+            'CLASSIFIED', 'MANUAL_UNASSIGNED', 'MANUAL_HOLD',
             'MANUAL_EXCLUDED', 'FINANCIAL_HOLD', 'CONFLICT_REVIEW', 'UNASSIGNED_NO_VALID_TRIP'}:
         return None
     return {key: str(value.get(key) or '')[:limit] for key, limit in (
         ('status', 40), ('trip_id', 160), ('trip_name', 160), ('reason', 500),
-        ('confidence', 20), ('policy_version', 60))}
+        ('confidence', 20), ('assignment_source', 20), ('policy_version', 60))}
 
 
 def _forest_trip_suggestions(board, events):
@@ -2147,7 +2147,7 @@ def render_import_section(csrf: str) -> str:
         facts.push(['발신 인증 참고',event.mail_authentication]);
         if(event.service_period_semantics==='start_only')facts.push(['이용일 해석','입실일 확인 · 퇴실일 미확인']);
         if(event.travel_suggestion)facts.push(['여행 후보',event.travel_suggestion]);
-        if(event.provisional_assignment)facts.push(['여행 배정', (event.provisional_assignment.trip_name||'여행 검토 필요')+' · '+(event.provisional_assignment.status==='AUTO_PROVISIONAL'?'자동 잠정 · 검토 필요':event.provisional_assignment.status==='USER_CONFIRMED'?'사용자 결정 유지':event.provisional_assignment.reason)+' · 결제·환불 확정과 별도']);
+        if(event.provisional_assignment)facts.push(['여행 배정', (event.provisional_assignment.trip_name||'여행 검토 필요')+' · '+(event.provisional_assignment.status==='CLASSIFIED'?'분류 완료':event.provisional_assignment.reason)+' · 결제·환불 확정과 별도']);
         facts.push(['카드 후보 기준','시설명·지자체 또는 공통 휴양림 가맹점과 메일 발송·이용일 인접(7일) · 공통 가맹점/지자체는 시설 미확인 · 결제 미확정']);
       }}
       if(event.reservation_status==='cancelled')facts.push(['예약 상태','취소됨']);

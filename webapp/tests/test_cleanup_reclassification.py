@@ -7,6 +7,39 @@ from webapp.ledger_store import LedgerStore
 from webapp.tests.test_expense_cleanup import card_rows
 
 
+def test_booked_authority_review_is_synced_to_single_authoritative_trip(tmp_path, monkeypatch):
+    board = LedgerStore(tmp_path / 'authority-sync.sqlite', seed_demo=False)
+    try:
+        flow, batch, rows = card_rows(board, 1)
+        trip = board.create_trip(starts_on='2026-10-01', ends_on='2026-10-05',
+                                 destination='합성', client_request_id='authority-sync-trip')
+        tid = rows[0]['transaction_id']
+        board.conn.execute(
+            "UPDATE transactions SET classification_state='needs_review',"
+            "classification_source='authority_review',classification_basis='보류',"
+            "item='숙박비',display_tab_id='',trip_id='' WHERE transaction_id=?", (tid,))
+        board.conn.execute(
+            "INSERT INTO ledger_entries(transaction_id,batch_id,item,description,display_tab_id,trip_id,"
+            "amount_krw,merchant,occurred_on,transaction_direction,source_hash,committed_at) "
+            "SELECT transaction_id,batch_id,item,description,?, ?,amount_krw,merchant,approval_date,"
+            "transaction_direction,source_hash,'2026-10-29' FROM transactions WHERE transaction_id=?",
+            (trip['tab_id'], trip['tab_id'], tid),
+        )
+        board.conn.commit()
+        monkeypatch.setattr(flow, 'trip_valid', lambda target: target == trip['tab_id'])
+        inferred, conflicts = card_flow._sync_booked_authority_inferences(flow)
+        assert (inferred, conflicts) == (1, 0)
+        assert board.conn.execute(
+            "SELECT classification_state,classification_source,display_tab_id,trip_id "
+            "FROM transactions WHERE transaction_id=?", (tid,)).fetchone() == (
+                'classified', 'inference', trip['tab_id'], trip['tab_id'])
+        assert board.conn.execute(
+            "SELECT display_tab_id,trip_id FROM ledger_entries WHERE transaction_id=?", (tid,)
+        ).fetchone() == (trip['tab_id'], trip['tab_id'])
+    finally:
+        board.close()
+
+
 def test_booking_warmup_allows_snapshot_worker_to_check_inputs(tmp_path, monkeypatch):
     import threading
     from types import SimpleNamespace

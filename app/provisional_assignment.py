@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 
-POLICY_VERSION = "provisional-trip-v1"
+POLICY_VERSION = "automatic-classification-v2"
 MANUAL_STATES = {"USER_CONFIRMED", "MANUAL_UNASSIGNED", "MANUAL_HOLD", "MANUAL_EXCLUDED"}
 
 
@@ -44,7 +44,7 @@ def canonical_trip_periods(trips):
 def provisional_trip_decision(trip_id, *, basis, confidence="낮음"):
     """Build the shared decision DTO after an existing authority resolver validates the trip."""
     candidate = {"trip_id": str(trip_id), "basis": str(basis), "confidence": confidence}
-    return _decision("AUTO_PROVISIONAL", str(trip_id), candidate["basis"], [candidate], confidence)
+    return _decision("CLASSIFIED", str(trip_id), candidate["basis"], [candidate], confidence)
 
 
 def card_trip_candidates(transaction, trips, *, nets=None):
@@ -204,9 +204,13 @@ def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None, manual_st
                          financial_hold=False):
     """Validate, deduplicate by trip, then rank candidates without mutating input."""
     if manual_status in MANUAL_STATES:
-        return _decision(manual_status, manual_trip_id or "", "사용자 결정 보호", ())
+        if manual_status == "USER_CONFIRMED":
+            return _decision("CLASSIFIED" if manual_trip_id else "MANUAL_UNASSIGNED",
+                             manual_trip_id or "", "사용자 결정 보호", (), source="manual")
+        return _decision(manual_status, manual_trip_id or "", "사용자 결정 보호", (), source="manual")
     if manual_trip_id is not None:
-        return _decision("USER_CONFIRMED", str(manual_trip_id or ""), "사용자 여행 결정 보호", ())
+        return _decision("CLASSIFIED" if manual_trip_id else "MANUAL_UNASSIGNED",
+                         str(manual_trip_id or ""), "사용자 여행 결정 보호", (), source="manual")
     by_id = canonical_trip_periods(trips)
     grouped = {}
     for raw in candidates:
@@ -237,7 +241,7 @@ def rank_trip_candidates(candidates, *, trips=(), manual_trip_id=None, manual_st
     if len(valid) > 1 and valid[0]["score"] == valid[1]["score"]:
         return _decision("CONFLICT_REVIEW", "", "최상위 여행 후보 동률", alternatives)
     top = valid[0]
-    return _decision("AUTO_PROVISIONAL", top["trip_id"], top["basis"], alternatives,
+    return _decision("CLASSIFIED", top["trip_id"], top["basis"], alternatives,
                      confidence=top["confidence"])
 
 
@@ -279,8 +283,9 @@ def _valid_period(trip, service_period):
         return False
 
 
-def _decision(status, trip_id, reason, candidates, confidence="낮음"):
+def _decision(status, trip_id, reason, candidates, confidence="낮음", *, source="automatic"):
     return {"status": status, "trip_id": trip_id, "reason": reason,
+            "assignment_source": source,
             "confidence": confidence, "candidates": list(candidates),
             "policy_version": POLICY_VERSION}
 

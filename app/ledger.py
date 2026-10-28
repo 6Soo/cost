@@ -41,7 +41,7 @@ def _ready_rows(store, batch_id: str, review_from=None, *, include_verified_full
     columns = (
         "transaction_id, source_hash, merchant, amount_krw,"
         " COALESCE(NULLIF(approval_date,''),posting_date), transaction_direction, item, description,"
-        " display_tab_id, trip_id, revision, " + decided_sql() + ", classification_state,"
+        " display_tab_id, trip_id, revision, " + decided_sql() + ", classification_state, classification_source,"
         " conflict_reason, parse_error, duplicate_of"
     )
     eligible = (
@@ -174,7 +174,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
     for row in source_rows:
         (transaction_id, source_hash, merchant, amount_krw, approval_date,
          direction, item, description, tab, trip_id, revision, decided,
-         state, conflict_reason, parse_error, duplicate_of) = row
+         state, classification_source, conflict_reason, parse_error, duplicate_of) = row
         decision = decisions.get(transaction_id)
         entry = {
             "transaction_id": transaction_id, "source_hash": source_hash,
@@ -188,6 +188,7 @@ def preview(store, batch_id: str, *, trip_validator=None,
             "already_booked": transaction_id in booked_ids,
             "duplicate_of": duplicate_of or "",
         }
+        entry["classification_source"] = classification_source or ""
         if include_verified_full_refunds and transaction_id not in batch_ids:
             source = store.conn.execute(
                 "SELECT batch_id FROM import_batch_rows WHERE transaction_id=? "
@@ -500,6 +501,8 @@ def preview_digest(result: dict) -> str:
              "occurred_on": r["occurred_on"],
              "item": r["item"], "description": r["description"],
              "display_tab_id": r["display_tab_id"], "trip_id": r["trip_id"],
+             "already_booked": bool(r.get("already_booked")),
+             "classification_source": r.get("classification_source", ""),
              "booking_ref": r.get("booking_ref"),
              "service_period": r.get("service_period"),
              "ota_evidence": r.get("ota_evidence"),
@@ -532,6 +535,28 @@ def _check_refund_groups(store, rows) -> None:
         if not booked and 0 < len(ready_members) < len(members):
             raise StoreError(CODE_REFUND_GROUP_INCOMPLETE,
                              "환불 묶음을 모두 함께 기록할 수 없어 기록하지 않았어요. 묶인 거래를 함께 확인해 주세요")
+
+
+def _persist_verified_refund_classification(store, entry, transaction_id: str) -> None:
+    """Persist the refund-tab classification applied by a verified pair preview."""
+    link = entry.get("refund_link") or {}
+    if (link.get("inferred") or link.get("status") != "full"
+            or link.get("net_krw") != 0 or entry.get("transaction_id") != transaction_id):
+        return
+    current = store.conn.execute(
+        "SELECT classification_source FROM transactions WHERE transaction_id=?",
+        (transaction_id,),
+    ).fetchone()
+    if not current or str(current[0] or "").startswith("user_") or current[0] == "preserved":
+        return
+    store.conn.execute(
+        "UPDATE transactions SET classification_state='classified',"
+        " classification_source='refund_original',"
+        " classification_basis=?, item=?, description=?, display_tab_id='refunds',"
+        " trip_id='', revision=revision+1 WHERE transaction_id=?",
+        (f"검증된 원결제·환불 묶음 · 원거래 {link['counterpart_id']}",
+         entry.get("item") or "", entry.get("description") or "", transaction_id),
+    )
 
 
 def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
@@ -571,7 +596,27 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
     if group_original is not None:
         scope["group"] = str(group_original)
     payload_sha = hashlib.sha256(canonical(scope).encode("utf-8")).hexdigest()
-    replay = store.replay_request(request_id, "commit", payload_sha)
+    try:
+        replay = store.replay_request(request_id, "commit", payload_sha)
+    except StoreError as exc:
+        if exc.code != "REQUEST_ID_REUSED":
+            raise
+        probe = preview(store, batch_id, trip_validator=trip_validator,
+                        tab_validator=tab_validator, review_from=review_from,
+                        entry_metadata=entry_metadata, additional_holds=additional_holds,
+                        group_original=group_original,
+                        include_verified_full_refunds=include_verified_full_refunds)
+        if (probe["digest"] == preview_digest_value
+                and probe.get("rows")
+                and all(row.get("already_booked") for row in probe["rows"])):
+            import json
+            stored = store.conn.execute(
+                "SELECT response_json FROM requests WHERE request_id=? AND scope='commit'",
+                (request_id,),
+            ).fetchone()
+            if stored:
+                return json.loads(stored[0])
+        raise
     if replay is not None:
         return replay
 
@@ -631,6 +676,8 @@ def commit(store, batch_id: str, preview_digest_value: str, request_id: str,
                         raise StoreError(CODE_INVALID_INPUT,
                                          "게시 함수가 아니에요")
                     projection(dict(entry, batch_id=entry.get("source_batch_id", batch_id), now=now))
+                if group_original is not None:
+                    _persist_verified_refund_classification(store, entry, transaction_id)
             # 이미 기록된 행은 보류 표시가 있어도 기록된 상태로 본다. 짝을 맞출 때 기준이 된다.
             done = set(booked) | set(already) | {e["transaction_id"] for e in current["rows"] if e.get("already_booked")}
             for entry in current["rows"]:

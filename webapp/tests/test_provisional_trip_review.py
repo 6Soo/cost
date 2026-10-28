@@ -43,10 +43,12 @@ def confirm_two(flow, trip, rows):
 def test_bounded_read_generation_and_source_identity_are_preserved(setup_review):
     flow, trip, batch, rows = setup_review
     before = flow.board.conn.execute('SELECT transaction_id,source_hash,amount_krw,revision FROM transactions').fetchall()
-    page = review.read_page(flow, batch, state='provisional')
+    page = review.read_page(flow, batch, state='automatic')
     assert page['total'] == 23 and len(page['items']) == 20 and page['has_more']
-    assert all(row['decision']['trip_id'] == trip and row['decision']['status'] == 'AUTO_PROVISIONAL'
+    assert all(row['decision']['trip_id'] == trip and row['decision']['status'] == 'CLASSIFIED'
                for row in page['items'])
+    assert all(row['decision']['assignment_source'] == 'automatic' for row in page['items'])
+    assert not any(row['decided'] for row in flow.pipeline.get_batch(batch)['rows'])
     assert 'source_hash' not in page['items'][0]
     following = review.read_page(flow, batch, offset=20, generation=page['generation'])
     assert len(following['items']) == 3 and not following['has_more']
@@ -61,16 +63,22 @@ def test_no_get_assignment_and_manual_choice_survives_hold(setup_review):
     flow, trip, batch, rows = setup_review
     ids = confirm_two(flow, trip, rows)
     flow.board.conn.execute("UPDATE transactions SET trip_id='',display_tab_id='' WHERE transaction_id=?", (rows[2]['transaction_id'],))
+    flow.board.conn.execute("UPDATE transactions SET classification_state='needs_review',item='' WHERE transaction_id=?",
+                           (rows[3]['transaction_id'],))
     flow.board.conn.execute('INSERT INTO transaction_review_holds VALUES (?,?,?,?)',
                             (ids[0], rows[0]['source_hash'], 'evidence_pending', 'synthetic'))
     page = review.read_page(flow, batch)
     indexed = {row['transaction_id']: row for row in page['items']}
     if rows[2]['transaction_id'] not in indexed:
         indexed.update({row['transaction_id']: row for row in review.read_page(flow, batch, offset=20)['items']})
-    assert indexed[ids[0]]['decision']['status'] == 'USER_CONFIRMED'
+    if rows[3]['transaction_id'] not in indexed:
+        indexed.update({row['transaction_id']: row for row in review.read_page(flow, batch, offset=20)['items']})
+    assert indexed[ids[0]]['decision']['status'] == 'CLASSIFIED'
+    assert indexed[ids[0]]['decision']['assignment_source'] == 'manual'
     assert indexed[ids[0]]['decision']['trip_id'] == trip
     assert indexed[ids[0]]['protected'] and not indexed[ids[0]]['can_propose']
     assert indexed[rows[2]['transaction_id']]['decision']['status'] == 'UNASSIGNED_NO_VALID_TRIP'
+    assert indexed[rows[3]['transaction_id']]['decision']['status'] == 'CONFLICT_REVIEW'
     assert flow.board.conn.execute('SELECT trip_id FROM transactions WHERE transaction_id=?',
                                    (rows[2]['transaction_id'],)).fetchone()[0] == ''
 
@@ -221,7 +229,7 @@ def test_worker_ota_decision_is_sanitized_and_never_changes_payment_identity(set
     original = deepcopy(event)
     decisions = ota._provisional_trip_decisions(SimpleNamespace(board=flow.board), [event], [], [])
     assert decisions['synthetic-ota']['trip_id'] == trip
-    assert decisions['synthetic-ota']['status'] == 'AUTO_PROVISIONAL'
+    assert decisions['synthetic-ota']['status'] == 'CLASSIFIED'
     assert event == original
     public = ota.public_snapshot({'events':[dict(event, provisional_assignment=dict(
         decisions['synthetic-ota'], unknown_customer_payload='SENTINEL'))]})['events'][0]
@@ -279,6 +287,9 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 root.locator('summary').first.click()
                 root.locator('[data-trip-items] li').nth(19).wait_for()
                 assert root.locator('[data-trip-items] li').count() == 20
+                assert '분류 완료' in root.inner_text()
+                assert '자동 잠정' not in root.inner_text()
+                assert '사용자 확정' not in root.inner_text()
                 root.locator('[data-trip-next]').click()
                 page.wait_for_function("document.querySelectorAll('[data-trip-items] li').length===3")
                 root.locator('[data-trip-state]').select_option('manual')
@@ -292,7 +303,7 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 root.locator('[data-trip-proposals] article button').click()
                 page.wait_for_function("document.querySelector('[data-trip-message]').textContent.includes('제한 규칙을 저장')")
                 assert board.conn.execute('SELECT COUNT(*) FROM cost_classification_rules').fetchone()[0] == 2
-                root.locator('[data-trip-state]').select_option('provisional')
+                root.locator('[data-trip-state]').select_option('automatic')
                 root.locator('[data-trip-items] li').nth(19).wait_for()
                 row = root.locator('[data-trip-items] li').first
                 identity = row.get_attribute('data-transaction')
@@ -304,10 +315,12 @@ def test_real_browser_owner_review_paging_pending_approval_and_hold(tmp_path, mo
                 form = root.locator('[data-trip-items] li form').filter(
                     has=page.locator('button[type=submit]:enabled')).first
                 changed_id = form.locator('..').get_attribute('data-transaction')
-                page.once('dialog', lambda dialog: dialog.accept())
+                dialogs = []
+                page.on('dialog', lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
                 with page.expect_response(lambda response: response.url.endswith('/decision') and response.request.method == 'POST') as saved:
                     form.locator('button[type=submit]').click()
                 assert saved.value.status == 200
+                assert dialogs == []
                 assert board.conn.execute('SELECT classification_source FROM transactions WHERE transaction_id=?',
                                            (changed_id,)).fetchone()[0] == 'user_decision'
                 assert board.conn.execute("SELECT COUNT(*) FROM change_log WHERE kind='trip_assignment.reviewed'").fetchone()[0] == 3
