@@ -2,6 +2,14 @@
 
 ## 마지막 확인된 운영 코드
 
+**`f7c27c240576e4fa0bb1dfa8f053cb7a4c451332`**, 2026-10-28. 분류자 Cost V34의 요구를 재개해 [PR #237](https://github.com/6Soo/cost/pull/237)의 Agoda 경쟁 원문 오류 유일성 보호, [PR #238](https://github.com/6Soo/cost/pull/238)의 명시 메일 입력 0건/잘못된 형식 쓰기 전 거부, [PR #239](https://github.com/6Soo/cost/pull/239)의 진단 출력 유한 코드·기존 파일 보존, [PR #240](https://github.com/6Soo/cost/pull/240)의 카드 검색 공통 버튼·아이콘 및 화면 수락 보완을 병합·고정 배포했다.
+
+- 실제 검사: 금융 표적/인접 170 passed(일부 통화 검사 중복 포함), 메일 적재 18 passed, 진단 출력 52 passed, 카드/장부 81 passed, 수입 통합 21 passed 및 3 subtests, 수동 테마/날짜·가맹점 비중첩/375·1280·200% 보완 browser 1 passed. Supervisor는 diff·기존 보호 검사 근거를 검수했고 유효한 검사를 반복하지 않았다. 실기기·제품 p95는 NOT_RUN이다.
+- 먼저 `6386e354cdf2f1bbb263b5569cb3a4e2fbae96b2`로 PR #237을 배포하고 956 blobs·health/ready200·보호 API401·실행SHA·단일 listener·13표 불변을 확인했다. 이후 현재 SHA의 957 blobs·같은 운영 경계·13표 내용/스키마 동일을 확인했다. 복구 사본/복원 검증 근거와 직전 task/gate를 보존했다. 초기 후보 archive 완료 전 preflight는 audit 파일 부재로 쓰기 없이 중단됐으며 archive 완료 후 정상 배포했다.
+- Aside 인증 `/cards/all` GET200에서 공통 조회 버튼·SVG 아이콘·테마버튼1개를 확인했다. 실제 원문/금융/Google/여행 결정 쓰기·스키마 변경·대량 재처리는 하지 않았다. 보관4건이 인증 메일이 아닌 UI 캡처라는 사실을 확인했으며 이를 Gmail 입력으로 위장하지 않았다.
+- 실제 카드 취소 읽기 전용 대조: Agoda 76건 중 확정73/미연결3, 카카오39건 중 확정28/추론1/미연결10. 두 공급자의 미연결건은 모두 원승인번호가 없다. 이 집계는 원결제 부재나 실제 환급 완료를 뜻하지 않는다. SQLite `mode=ro`/`query_only=ON`, `total_changes=0`. 기존 “카카오 미연결11”은 이 조회에서 10이며 코드/실자료 시점 차이를 보존한다.
+- 근거: 각 SHA의 `D:/WebLedgerHost/releases/release-audit-<SHA>.json`, `deploy-evidence-<SHA>.json`, `.local-archive/cost-v34-resume-20261028/`의 보호 전후·읽기 진단 집계. 예약 그룹 runtime은 별도 진행 중이며 이 릴리스에 포함하지 않았다. 아래 PR #233은 직전 완료 릴리스 이력이다.
+
 **`94ed610fd5393c1ff2d4329ac4f7f301009e729a`**, 2026-10-28 [PR #233](https://github.com/6Soo/cost/pull/233), 코드 `63dd532`. 실제 `/import` 검토 패널을 canonical summary와 기본20건 페이지에 연결했다. 상세/카드 후보는 인라인 lazy 조회이며, 제안은20개씩 읽는다. worker private detail map과 제한된 그룹 순서 대응 근거는 같은 generation에 게시하고 인증 detail GET은 O(1)로 읽는다. 원문·카드 후보 목록·private map/signing key를 공개 snapshot이나 persistence에 추가하지 않는다.
 
 - 상세/UI/lazy/preview-race20 passed, 마지막 경합/세대/cursor3 passed, 기존 browser9 passed와4 subtests, 카드후보4 passed. 인접검사115 passed/2 failed 중 candidate browser fixture는 새 API 계약으로 교정 후4 passed; 기존 partial-group HOLD_NO_CARD/WinError32는 기준 `a6f4abc` 재현 근거를 유지하고 통과로 계산하지 않았다. compile/diff와 staged guard 차단0/삭제0. 전체 회귀는 국소 조회/UI 변경으로 생략했다.
