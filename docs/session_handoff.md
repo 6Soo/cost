@@ -7,7 +7,7 @@
 
 - runId: `e0197439-1c34-4348-a14d-7a870c3d69b5`.
 - Supervisor: `3cebc37b-17d7-4b47-9689-a2bf6f50a01c`, generation **5**, workspace `C:/AX/cost`.
-- 운영 SHA: **9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e**. 최신 검수 main은 **d1180f1**(PR #286/#287/#288/#289 포함)이며 아직 운영과 다르다.
+- 마지막으로 별도 운영 수락이 기록된 Board SHA: **9f6eec7a66be1fae7ee4b8d761c5c4e81d070b1e**. 그 뒤 GitHub main은 **9c3a88b**(#290/#291 포함)까지 병합됐다. 운영 프로세스가 그 SHA로 바뀌었다는 증거는 없다. 과거 generation5 검수 main **d1180f1**은 작성 당시 기록으로 보존한다.
 - 당시 로컬 branch checkpoint는 `refactor/rf201-tokens-reviewed-20261028`였다. 해당 토큰 변경은 이제 PR **#290 병합 완료**. 실제 로컬 작업자/현재 branch 재확인은 별도 필요.
 
 ## 승인 전체 ID와 실제 수락 경계
