@@ -1,5 +1,13 @@
 # 운영 기록과 실행 경계
 
+## 2026-10-28 미결 근거·반응형 검수와 클라우드 전환 준비
+
+- 코드 `85817d1`은 전용 `cloud-mail/CloudMail.gs`, 명시 scope manifest, Drive 읽기·새 원문만 추가하는 `app/cloud_mail.py`, 분리 배포 준비 도구와 합성 검사를 추가했다. 기존 `apps-script/CloudMail.gs` 사용자 초안의 바이트/미추적 상태는 보존했다. 원문 전체·소유/비공개·SHA-256·부분재개·반복불변·원자적 무덮어쓰기·기존 importer 재시도·타 트리거/스키마/비관련 표 보존을검사했다. Node18 passed, cloud23+기존mail9=32 passed, 실제펼친 긴본문/카드·375/1280·두테마·100/200% CSSzoom·키보드·members409재조회/400오류 최종browser3 passed. UI제품코드/금융solver는 변경하지 않았다.
+- 기존AppsScript를 별도폴더로clasp pull한 결과 CloudMail은미배포이고 기존GmailIngest자동수집은OFF다. 새 수집기는 기존 장부 프로젝트의 권한을 넓히지 않도록 **별도 프로젝트용 패키지로만 준비**했다. Windows Drive읽기ADC probe는`DefaultCredentialsError`다. 새 프로젝트/Drive폴더/권한·운영원문적재는 별도게이트를 통과하지 않아 아직미실행이며 기존Windows수집/Board를유지했다. 이는클라우드전환완료가아니다. [실행/복구 절차](specs/cloud-mail-cutover.md)를 기록했다.
+- 실제운영Aside1425px·light/dark·100/200% CSSzoom4조건에서 각20행·문서가로넘침0·테마1개를 확인하고 기존테마를복원했다. Aside의viewport변경API는지원되지않아 물리적모바일/운영모바일viewport로과장하지않는다. 모바일viewport는위합성브라우저375px검사다.
+- 환불추가읽기진단: 카카오39취소중29연결/10미연결, Agoda76중73/3, Trip카드취소전체186중171/15. Trip15중원승인번호12건의대응원결제는DB·보관원본8개·추가로컬628파일중고유카드파일1개에서발견되지않았다. 이전Trip1수치는특정사례로전체수치와구분한다. 원본/고객결정/금융/Google/예약작업쓰기는0이다. 로컬근거는`.local-archive/all-pending-20261028/`의집계파일이며 개인정보/원문은추적하지않는다.
+- 이새경로는활성화전이므로 기존운영Board`9d5ddd5`·수집기`e15fd5e`를유지한다. Board동작을바꾸지않는선택형수집경로/테스트/문서추가를이유로Board재시작·재배포·전체회귀는하지않았다. 코드병합/합성검증·패키지준비와실제인증/클라우드활성화·원문적재/스케줄전환을구분한다.
+
 ## 2026-10-28 전체 대사·성능 최종 운영 수락
 
 - [PR #250](https://github.com/6Soo/cost/pull/250)의 전체 대사 구현과 [PR #251](https://github.com/6Soo/cost/pull/251)의 조회 반복 검사 제한을 병합했다. 최종 Board 고정 SHA는 `9d5ddd521272acdebb294357d18a763d89ccfc60`, 수집기는 `e15fd5e2ab03ebf493cd90b24b3b6eeebfe2281d`다. 968 추적 blobs 일치·task/프로세스 SHA·단일 loopback listener·health/ready200·기존/summary/events/groups 비인증401의 배포 근거를 확인했다. 검증된 복구 사본과 이전 릴리스를 보존했다.
