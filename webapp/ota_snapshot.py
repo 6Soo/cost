@@ -331,9 +331,15 @@ class OtaSnapshotService:
     def view(self):
         """What a request sees now. Never computes; `status` tells the screen what it is looking at."""
         self.ensure_started()
-        if self._autostart:
-            # Never wait here: the request holds the store lock. The worker is woken, and the
-            # screen shows loading or refreshing until the next result is published.
+        with self._lock:
+            check_due = (not self._refreshing and
+                         (self._checked_at is None or
+                          self._clock() - self._checked_at >= self._check_seconds))
+        if self._autostart and check_due:
+            # Reads share the worker's normal check interval. Waking it for
+            # every summary/page/detail GET repeatedly hashes all source files
+            # and reads the ledger while the request also needs the store lock.
+            # Explicit request_check() and action-time key validation stay eager.
             self.request_check(wait_seconds=0)
         with self._lock:
             current, fresh, refreshing, error = self._current, self._fresh_locked(), self._refreshing, self._error

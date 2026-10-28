@@ -53,6 +53,43 @@ class OtaSnapshotServiceTests(unittest.TestCase):
         self.assertEqual(view["status"], "ready")
         self.assertEqual(view["generation"], 1)
 
+    def test_read_burst_waits_for_normal_check_interval_but_explicit_check_still_wakes(self):
+        clock = FakeClock()
+        svc, counter, state = service(["k1"], clock=clock)
+        svc.check_now()
+        state["key"] = "k1"
+        svc._autostart = True
+        with mock.patch.object(svc, 'ensure_started'):
+            for _ in range(100):
+                self.assertEqual(svc.view()['status'], 'ready')
+                svc.queue_page_context()
+                svc.queue_group_context()
+            self.assertFalse(svc._wake.is_set())
+            self.assertEqual(counter['reconcile'], 1)
+            # A review action can still request an immediate check.
+            svc.request_check()
+            self.assertTrue(svc._wake.is_set())
+            svc._wake.clear()
+            clock.now += svc._check_seconds
+            svc.view()
+            self.assertTrue(svc._wake.is_set())
+            svc._wake.clear()
+            state['key'] = 'k2'
+            svc.check_now()
+            self.assertEqual(svc.view()['generation'], 2)
+            self.assertFalse(svc._wake.is_set())
+
+    def test_unchecked_reads_wake_but_reads_during_refresh_do_not_queue_another_check(self):
+        svc, _, _ = service(['k1'])
+        svc._autostart = True
+        with mock.patch.object(svc, 'ensure_started'):
+            self.assertEqual(svc.view()['status'], 'loading')
+            self.assertTrue(svc._wake.is_set())
+            svc._wake.clear()
+            svc._refreshing = True
+            svc.view()
+            self.assertFalse(svc._wake.is_set())
+
     def test_a_changed_input_key_refreshes_exactly_once(self):
         svc, counter, state = service(["k1"])
         svc.check_now()
