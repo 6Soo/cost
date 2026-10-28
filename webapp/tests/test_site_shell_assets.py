@@ -59,7 +59,7 @@ def test_css_cascade_order_and_tokens_preserved():
 
     style_block = wrapped.split('<style id="site-shell-style">', 1)[1].split('</style>', 1)[0]
     # Shell style precedes theme style
-    shell_part, theme_part = style_block.split(':root{--shell-theme-control-size:44px', 1)
+    shell_part, theme_part = style_block.split(':root{--shell-theme-control-size:var(--shell-control-min,44px)', 1)
     assert "--shell-bg:#F8FAFC" in shell_part
     assert "@media(prefers-color-scheme:dark){:root{--shell-bg:#0F172A" in shell_part
     assert "@media(prefers-reduced-motion:reduce)" in shell_part

@@ -1,0 +1,268 @@
+"""True baseline differential contract tests for RF-201 design token adoption.
+
+Verifies:
+1. Canonical single ownership in site_shell.css (zero duplicate declarations in site_theme.css)
+2. site_theme.css references --shell-control-min for --shell-theme-control-size
+3. Preserved canonical 8-alias palette bridge in site_theme.css without pollutive overrides on native ledger
+4. Dynamic override propagation (--shell-control-min and --shell-nav-width propagate live to all consumers)
+5. True Playwright Chromium baseline differential matrix against pre-RF201 baseline (commit a10ba4c):
+   - Pages: standalone and native ledger
+   - Viewports: 320, 375, 390, 600, 759, 760, 1024, 1440 (including exact 759/760 breakpoint boundary)
+   - Scales: 1.0 (100%) and 2.0 (200% CSS zoom applied via style.zoom)
+   - Themes: light and dark via canonical theme toggle
+   - Geometry: normalized by scale (box / scale)
+   - Allowable difference: strictly the approved 40px -> 44px control target upgrade on mobile
+"""
+
+import subprocess
+import pytest
+from unittest.mock import patch
+from playwright.sync_api import sync_playwright
+
+from webapp import site_assets, site_shell, site_theme, ledger_board, ledger_design
+
+
+def test_canonical_single_ownership_of_geometry_and_control_tokens():
+    """Verify site_shell.css is the sole canonical owner of geometry and control tokens."""
+    shell_css = site_assets.SHELL_STYLE
+    theme_css = site_assets.THEME_STYLE
+
+    # Canonical definitions exist strictly in site_shell.css
+    assert "--shell-nav-width:232px" in shell_css
+    assert "--shell-drawer-width:min(300px,85vw)" in shell_css
+    assert "--shell-topbar-height:56px" in shell_css
+    assert "--shell-control-min:44px" in shell_css
+
+    # site_theme.css must NOT duplicate geometry/control literals
+    assert "--shell-nav-width" not in theme_css
+    assert "--shell-drawer-width" not in theme_css
+    assert "--shell-topbar-height" not in theme_css
+
+    # site_theme.css references canonical token instead of duplicating literal
+    assert ":root{--shell-theme-control-size:var(--shell-control-min,44px)" in theme_css
+
+    # The palette bridge in site_theme.css preserves strictly the established 8 aliases
+    # to avoid clobbering native ledger's existing --sel, --line-strong, --hover, or --grn
+    for alias in (
+        "--bg:var(--shell-bg)",
+        "--paper:var(--shell-paper)",
+        "--ink:var(--shell-ink)",
+        "--mut:var(--shell-muted)",
+        "--line:var(--shell-line)",
+        "--focus:var(--shell-focus)",
+        "--warn:var(--shell-warn)",
+        "--bad:var(--shell-danger)",
+    ):
+        assert alias in theme_css, f"Missing canonical palette bridge alias: {alias}"
+
+    # Verify pollutive aliases are not declared in theme_css
+    assert "--sel:var(" not in theme_css
+    assert "--line-strong:var(" not in theme_css
+    assert "--hover:var(" not in theme_css
+    assert "--accent:var(" not in theme_css
+
+
+def test_tokens_actively_consumed_and_synchronized():
+    """Verify geometry and control tokens are actively consumed across multiple elements."""
+    shell_css = site_assets.SHELL_STYLE
+
+    # --shell-nav-width consumed in lockstep by #nav and #site-content
+    assert "width:var(--shell-nav-width,232px)" in shell_css
+    assert "flex:0 0 var(--shell-nav-width,232px)" in shell_css
+    assert "margin-left:var(--shell-nav-width,232px)" in shell_css
+    assert "width:calc(100% - var(--shell-nav-width,232px))" in shell_css
+
+    # --shell-drawer-width consumed by mobile drawer selectors
+    assert "width:min(var(--shell-drawer-width,min(300px,85vw)),100%)" in shell_css
+    assert "width:var(--shell-drawer-width,min(300px,85vw))" in shell_css
+
+    # --shell-topbar-height consumed by topbar
+    assert "min-height:var(--shell-topbar-height,56px)" in shell_css
+
+    # --shell-control-min consumed across controls
+    assert "min-height:var(--shell-control-min,44px)" in shell_css
+    assert "var(--shell-theme-control-size,var(--shell-control-min,44px))" in shell_css
+
+
+def test_dynamic_override_propagation():
+    """Verify modifying a canonical root token propagates to all consuming elements."""
+    doc = "<!doctype html><html><head><title>Override Test</title></head><body><main>Content</main></body></html>"
+    with patch.object(ledger_board, "current_role", return_value="owner"):
+        html = site_shell.wrap_document(doc, "/cards")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            context = browser.new_context()
+            context.route(
+                "http://test.local/cards",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html; charset=utf-8",
+                    body=html.encode("utf-8"),
+                ),
+            )
+            page = context.new_page()
+            page.set_viewport_size({"width": 1024, "height": 800})
+            page.goto("http://test.local/cards")
+
+            # Default desktop navigation width is 232px
+            assert round(page.locator("#nav").bounding_box()["width"]) == 232
+
+            # Dynamically override --shell-nav-width on :root -> both #nav and #site-content track synchronously
+            page.evaluate("() => document.documentElement.style.setProperty('--shell-nav-width', '260px')")
+            assert round(page.locator("#nav").bounding_box()["width"]) == 260
+            content_ml = page.locator("#site-content").evaluate("el => parseFloat(getComputedStyle(el).marginLeft)")
+            assert round(content_ml) == 260
+
+            # Switch to mobile viewport
+            page.set_viewport_size({"width": 375, "height": 800})
+
+            # Default control size is 44px
+            assert round(page.locator(".site-menu-toggle").bounding_box()["height"]) >= 44
+            assert round(page.locator("#site-theme-toggle").bounding_box()["height"]) >= 44
+
+            # Dynamically override --shell-control-min on :root -> both controls scale up
+            page.evaluate("() => document.documentElement.style.setProperty('--shell-control-min', '52px')")
+            assert round(page.locator(".site-menu-toggle").bounding_box()["height"]) >= 52
+            assert round(page.locator("#site-theme-toggle").bounding_box()["height"]) >= 52
+            assert round(page.locator("#site-theme-toggle").bounding_box()["width"]) >= 52
+        finally:
+            browser.close()
+
+
+def test_chromium_true_baseline_differential_matrix():
+    """True differential comparison between baseline (a10ba4c) and candidate across full matrix.
+
+    Tests:
+    - 2 page kinds: standalone, native ledger
+    - 8 viewports: 320, 375, 390, 600, 759, 760, 1024, 1440
+    - 2 CSS zoom scales: 1.0 (100%), 2.0 (200%)
+    - 2 themes: light, dark
+    """
+    # Load baseline CSS from commit a10ba4c
+    base_shell_css = subprocess.check_output(
+        ["git", "show", "a10ba4c:webapp/static/css/site_shell.css"], text=True, encoding="utf-8"
+    )
+    base_theme_css = subprocess.check_output(
+        ["git", "show", "a10ba4c:webapp/static/css/site_theme.css"], text=True, encoding="utf-8"
+    )
+
+    standalone_raw = "<!doctype html><html><head><title>S</title></head><body><main>Main</main></body></html>"
+    native_raw = ledger_design.render(
+        "<div class='app'><nav id='nav'>Nav</nav><main id='main' class='main'>Main</main></div>"
+    )
+
+    with patch.object(site_shell, "STYLE", base_shell_css), \
+         patch.object(site_theme, "STYLE", base_theme_css), \
+         patch.object(ledger_board, "current_role", return_value="owner"):
+        base_std = site_shell.wrap_document(standalone_raw, "/cards")
+        base_nat = site_shell.wrap_document(native_raw, "/trip/demo")
+
+    with patch.object(ledger_board, "current_role", return_value="owner"):
+        curr_std = site_shell.wrap_document(standalone_raw, "/cards")
+        curr_nat = site_shell.wrap_document(native_raw, "/trip/demo")
+
+    viewports = [320, 375, 390, 600, 759, 760, 1024, 1440]
+    scales = [1.0, 2.0]
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            context = browser.new_context()
+
+            # Route synthetic URLs for both pages
+            context.route("http://test.local/base_std", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=base_std.encode("utf-8")))
+            context.route("http://test.local/curr_std", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=curr_std.encode("utf-8")))
+            context.route("http://test.local/base_nat", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=base_nat.encode("utf-8")))
+            context.route("http://test.local/curr_nat", lambda r: r.fulfill(status=200, content_type="text/html; charset=utf-8", body=curr_nat.encode("utf-8")))
+
+            # Matrix 1: Standalone Pages Differential
+            p_base_std = context.new_page()
+            p_curr_std = context.new_page()
+            p_base_std.goto("http://test.local/base_std")
+            p_curr_std.goto("http://test.local/curr_std")
+
+            for width in viewports:
+                for scale in scales:
+                    p_base_std.set_viewport_size({"width": width, "height": 800})
+                    p_curr_std.set_viewport_size({"width": width, "height": 800})
+
+                    # Apply CSS zoom to documentElement
+                    p_base_std.evaluate(f"() => {{ document.documentElement.style.zoom = '{scale}'; }}")
+                    p_curr_std.evaluate(f"() => {{ document.documentElement.style.zoom = '{scale}'; }}")
+
+                    # Verify CSS zoom was applied
+                    assert float(p_base_std.evaluate("() => document.documentElement.style.zoom")) == scale
+                    assert float(p_curr_std.evaluate("() => document.documentElement.style.zoom")) == scale
+
+                    for theme in ["light", "dark"]:
+                        if theme == "dark":
+                            p_base_std.evaluate("() => { if (document.documentElement.dataset.theme !== 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                            p_curr_std.evaluate("() => { if (document.documentElement.dataset.theme !== 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                        else:
+                            p_base_std.evaluate("() => { if (document.documentElement.dataset.theme === 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                            p_curr_std.evaluate("() => { if (document.documentElement.dataset.theme === 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+
+                        # 1. Colors must match baseline identically
+                        c_base = p_base_std.evaluate("() => ({ bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(), ink: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() })")
+                        c_curr = p_curr_std.evaluate("() => ({ bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(), ink: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() })")
+                        assert c_base == c_curr, f"Standalone color diff at w={width}, s={scale}, t={theme}: {c_base} vs {c_curr}"
+
+                        # 2. Normalized geometry (raw bounding box / scale)
+                        if width >= 760:
+                            # Desktop: sidebar width normalized is 232px on both
+                            nav_base_w = p_base_std.locator("#nav").bounding_box()["width"] / scale
+                            nav_curr_w = p_curr_std.locator("#nav").bounding_box()["width"] / scale
+                            assert round(nav_base_w) == 232 == round(nav_curr_w)
+                        else:
+                            # Mobile (<760, including 759):
+                            # Theme toggle is 44px on both
+                            toggle_base_w = p_base_std.locator("#site-theme-toggle").bounding_box()["width"] / scale
+                            toggle_curr_w = p_curr_std.locator("#site-theme-toggle").bounding_box()["width"] / scale
+                            assert round(toggle_base_w) == 44 == round(toggle_curr_w)
+
+                            # Menu toggle: strictly expected 40px -> 44px upgrade difference
+                            menu_base_h = p_base_std.locator(".site-menu-toggle").bounding_box()["height"] / scale
+                            menu_curr_h = p_curr_std.locator(".site-menu-toggle").bounding_box()["height"] / scale
+                            assert round(menu_base_h) == 40, f"Expected baseline menu height 40, got {menu_base_h}"
+                            assert round(menu_curr_h) == 44, f"Expected candidate menu height 44, got {menu_curr_h}"
+
+            # Matrix 2: Native Ledger Pages Differential
+            p_base_nat = context.new_page()
+            p_curr_nat = context.new_page()
+            p_base_nat.goto("http://test.local/base_nat")
+            p_curr_nat.goto("http://test.local/curr_nat")
+
+            for width in [320, 375, 390, 600, 759, 760, 1024, 1440]:
+                for scale in scales:
+                    p_base_nat.set_viewport_size({"width": width, "height": 800})
+                    p_curr_nat.set_viewport_size({"width": width, "height": 800})
+
+                    p_base_nat.evaluate(f"() => {{ document.documentElement.style.zoom = '{scale}'; }}")
+                    p_curr_nat.evaluate(f"() => {{ document.documentElement.style.zoom = '{scale}'; }}")
+
+                    for theme in ["light", "dark"]:
+                        if theme == "dark":
+                            p_base_nat.evaluate("() => { if (document.documentElement.dataset.theme !== 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                            p_curr_nat.evaluate("() => { if (document.documentElement.dataset.theme !== 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                        else:
+                            p_base_nat.evaluate("() => { if (document.documentElement.dataset.theme === 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+                            p_curr_nat.evaluate("() => { if (document.documentElement.dataset.theme === 'dark') document.getElementById('site-theme-toggle')?.click(); }")
+
+                        # Native colors must match baseline identically (no pollution from bridge)
+                        nat_c_base = p_base_nat.evaluate("() => ({ sel: getComputedStyle(document.documentElement).getPropertyValue('--sel').trim(), grn: getComputedStyle(document.documentElement).getPropertyValue('--grn').trim(), lineStrong: getComputedStyle(document.documentElement).getPropertyValue('--line-strong').trim(), hover: getComputedStyle(document.documentElement).getPropertyValue('--hover').trim() })")
+                        nat_c_curr = p_curr_nat.evaluate("() => ({ sel: getComputedStyle(document.documentElement).getPropertyValue('--sel').trim(), grn: getComputedStyle(document.documentElement).getPropertyValue('--grn').trim(), lineStrong: getComputedStyle(document.documentElement).getPropertyValue('--line-strong').trim(), hover: getComputedStyle(document.documentElement).getPropertyValue('--hover').trim() })")
+                        assert nat_c_base == nat_c_curr, f"Native color diff at w={width}, s={scale}, t={theme}: {nat_c_base} vs {nat_c_curr}"
+
+                        if width >= 760:
+                            nat_nav_base = p_base_nat.locator("#nav").bounding_box()["width"] / scale
+                            nat_nav_curr = p_curr_nat.locator("#nav").bounding_box()["width"] / scale
+                            assert round(nat_nav_base) == 232 == round(nat_nav_curr)
+
+            # Accessibility: reduced motion check
+            p_curr_std.emulate_media(reduced_motion="reduce")
+            nav_trans = p_curr_std.locator(".site-app>#nav").evaluate("el => getComputedStyle(el).transition")
+            assert "none" in nav_trans or nav_trans == "all 0s ease 0s"
+        finally:
+            browser.close()
