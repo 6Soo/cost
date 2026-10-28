@@ -44,17 +44,18 @@ def test_sender_domain_boundaries(sender):
     assert forest_mail.collect({message['id']: message}) == []
 
 
-def test_unverified_cancellation_never_cancels_another_observation():
+def test_collected_cancellation_is_used_without_cancelling_another_observation():
     active = notice('active')
     cancel = notice('unverified-cancel', '숲나들e 예약취소 안내')
     cancel.pop('owner_collected', None)
     before = json.dumps([active, cancel], sort_keys=True)
     events = forest_mail.collect({m['id']: m for m in [active, cancel]})
     assert len(events) == 2
-    assert {e['reservation_status'] for e in events} == {'observed'}
-    untrusted = next(e for e in events if e['source_trust'] == 'unverified_sender')
-    assert untrusted['reported_reservation_status'] == 'cancelled'
-    assert '발신 미검증' in untrusted['item']
+    assert events[0]['reservation_status'] == 'observed'
+    cancelled = next(e for e in events if e['reservation_status'] == 'cancelled')
+    assert cancelled['reported_reservation_status'] == 'cancelled'
+    assert all(e['source_trust'] == 'collected_sender_domain' for e in events)
+    assert all('발신 미검증' not in e['item'] for e in events)
     assert json.dumps([active, cancel], sort_keys=True) == before
 
 
@@ -62,3 +63,82 @@ def test_nonreservation_and_malformed_notices_are_ignored():
     unrelated = notice(subject='숲나들e 개인정보 이용 안내')
     malformed = {'payload': {'headers': [{'name': 'From', 'value': None}]}}
     assert forest_mail.collect({'one': unrelated, 'two': malformed, 'three': {}}) == []
+
+
+def body_notice(body, **kwargs):
+    message = notice(**kwargs)
+    message['payload']['body'] = {'content': body}
+    message.pop('owner_collected', None)  # Gmail full records need not carry this flag.
+    return message
+
+
+def test_extracts_provider_service_sentence_and_keeps_checkout_unknown():
+    mail = body_notice('고객님께서 요청 하신 2026-10-05 합성자연휴양림 [산림동]가상실,4인실 객실이 예약되었습니다. '
+                       '\n결제기한 2026년 10월 02일 23시까지\n'
+                       '<iframe src="https://example.invalid/?예약번호=123456"></iframe>')
+    original = json.dumps(mail, sort_keys=True)
+    event, = forest_mail.collect({mail['id']: mail})
+    assert event['hotel_name'] == '합성자연휴양림'
+    assert event['room_name'] == '[산림동]가상실,4인실'
+    assert event['service_period'] == {'starts_on': '2026-10-05', 'ends_on': None}
+    assert event['service_period_semantics'] == 'start_only'
+    assert event['booking_ref'] is None and event['paid_on'] is None
+    assert event['amount_krw'] is None and not ota_payments._event_is_paid(event)
+    assert 'DKIM 통과 기록 없음' in event['mail_authentication']
+    assert json.dumps(mail, sort_keys=True) == original
+
+
+def test_explicit_fields_are_read_without_granting_payment_authority():
+    mail = body_notice('예약번호: SYN-1234\n결제금액: 30,000원\n'
+                       '체크인: 2026-10-05\n체크아웃: 2026-10-07')
+    event, = forest_mail.collect({mail['id']: mail})
+    assert event['booking_ref'] == 'SYN-1234' and event['amount_krw'] == 30000
+    assert event['service_period']['ends_on'] == '2026-10-07'
+    result, = ota_payments.match_ota_payment_events([event], [])
+    assert result['status'] == 'RESERVATION_ONLY' and result['transaction_id'] is None
+
+
+def test_conflicting_body_facts_block_candidates_and_never_merge_observations():
+    mail = body_notice('2026-10-05 합성자연휴양림 가상실 객실 예약완료\n'
+                       '2026-10-06 합성자연휴양림 다른실 객실 예약완료\n'
+                       '결제금액: 30,000원\n결제금액: 40,000원')
+    event, = forest_mail.collect({mail['id']: mail})
+    assert event['service_period_conflict'] and event['amount_krw'] is None
+    result, = ota_payments.match_ota_payment_events([event], [])
+    assert result['status'] == 'HOLD_EVIDENCE_CONFLICT'
+    assert forest_mail.search_candidates(event, [])['candidates'] == []
+
+
+def test_facility_date_candidates_preserve_amount_uncertainty_and_financial_holds():
+    mail = body_notice('2026-10-05 합성자연휴양림 가상실 객실 예약완료\n결제금액: 30,000원')
+    event, = forest_mail.collect({mail['id']: mail})
+    card = {'transaction_id': 'synthetic-card', 'merchant': '합성자연휴양림',
+            'approval_date': '2026-10-01', 'amount_krw': 30000, 'transaction_direction': 'purchase'}
+    trace = ota_payments.search_card_candidates(event, [card])
+    assert trace['candidates'][0]['amount_status'] == 'MATCH'
+    assert trace['candidates'][0]['resolution_allowed'] is False
+    assert ota_payments.search_card_candidates(event, [card], existing_links={event['ota_event_id']: 'pin'})['status'] == 'USER_PINNED'
+    mismatch = ota_payments.search_card_candidates(event, [dict(card, amount_krw=40000)])
+    assert mismatch['candidates'][0]['amount_status'] == 'MISMATCH'
+    for change in ({'duplicate_of': 'original'}, {'ota_review_held': True}, {'parse_error': 'invalid'},
+                   {'refund_status': 'refunded'}, {'transaction_direction': 'refund'},
+                   {'foreign_currency': 'JPY'}, {'merchant': '다른자연휴양림'},
+                   {'approval_date': '2025-01-01'}):
+        assert ota_payments.search_card_candidates(event, [dict(card, **change)])['candidates'] == []
+    event['reservation_status'] = 'cancelled'
+    assert ota_payments.search_card_candidates(event, [card])['candidates'] == []
+
+
+def test_municipal_merchant_is_only_a_low_confidence_candidate_from_explicit_address():
+    mail = body_notice('2026-10-05 합성자연휴양림 가상실 객실 예약완료\n충북 가상군 산림로 1')
+    event, = forest_mail.collect({mail['id']: mail})
+    card = {'transaction_id': 'municipal-card', 'merchant': '가상군청',
+            'approval_date': '2026-10-01', 'amount_krw': 30000, 'transaction_direction': 'purchase'}
+    trace = ota_payments.search_card_candidates(event, [card])
+    candidate, = trace['candidates']
+    assert candidate['branch_status'] == 'UNKNOWN' and candidate['confidence'] == 'LOW'
+    assert candidate['basis'] == 'FOREST_MUNICIPALITY_AND_OBSERVED_DATE'
+    assert not candidate['resolution_allowed']
+    assert ota_payments.search_card_candidates(event, [dict(card, merchant='다른군청')])['candidates'] == []
+    event.pop('operator_region')
+    assert ota_payments.search_card_candidates(event, [card])['candidates'] == []
