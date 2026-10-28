@@ -33,6 +33,11 @@
       "tests": ["tests/test_run_targeted_checks.py"]
     },
     {
+      "name": "refactor-call-map",
+      "paths": ["tools/refactor_call_map.py", "config/refactor-call-map.json", "tests/test_refactor_call_map.py"],
+      "tests": ["tests/test_refactor_call_map.py"]
+    },
+    {
       "name": "financial-core",
       "paths": ["app/db.py", "app/ledger.py", "app/classify.py", "app/reconciliation.py", "app/partial_refund.py", "app/decisions.py", "webapp/refund_tab.py"],
       "tests": ["tests/card_pipeline/test_partial_refund.py", "tests/card_pipeline/test_pipeline.py", "webapp/tests/test_refund_group_commit.py"]

@@ -1,0 +1,258 @@
+﻿{
+  "schema": "rf001-call-map/v1",
+  "mode": "static_ast_only",
+  "code_sha": "3afc1d793fc9dd132103b147c40b91b93656821e",
+  "counts": {
+    "files": 652,
+    "symbols": 9221,
+    "calls": 92991,
+    "routes": 38,
+    "effects": 6216,
+    "errors": 0
+  },
+  "call_status": {
+    "OPEN_QUESTION": 74099,
+    "STATIC_CANDIDATE": 18892
+  },
+  "routes": [
+    {
+      "path": "app/mail_collect.py",
+      "symbol": "authorize.Handler.do_GET",
+      "line": 203,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tests/card_pipeline/test_reservation_authority.py",
+      "symbol": "_Handler.do_GET",
+      "line": 40,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/authorize_cloud_mail_drive.py",
+      "symbol": "main.Callback.do_GET",
+      "line": 101,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/run_synthetic_preview.py",
+      "symbol": "preview_server.PreviewHandler.do_GET",
+      "line": 123,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_GET",
+      "line": 243,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_POST",
+      "line": 261,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_PUT",
+      "line": 329,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_DELETE",
+      "line": 333,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_PATCH",
+      "line": 337,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_OPTIONS",
+      "line": 341,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review.py",
+      "symbol": "_ReviewHandler.do_HEAD",
+      "line": 345,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_GET",
+      "line": 134,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_HEAD",
+      "line": 145,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_POST",
+      "line": 148,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_PUT",
+      "line": 151,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_PATCH",
+      "line": 154,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_DELETE",
+      "line": 157,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "tools/serve_review_entry.py",
+      "symbol": "_EntryHandler.do_OPTIONS",
+      "line": 160,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/ledger_board.py",
+      "symbol": "Handler.do_GET",
+      "line": 3972,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/ledger_board.py",
+      "symbol": "Handler.do_POST",
+      "line": 4365,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_kpi",
+      "line": 44,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_queue",
+      "line": 45,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_detail",
+      "line": 46,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_gates",
+      "line": 47,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_history",
+      "line": 48,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_propose_form",
+      "line": 49,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "WebApp.handle_api_propose",
+      "line": 52,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "make_handler.Handler.do_GET",
+      "line": 220,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/server.py",
+      "symbol": "make_handler.Handler.do_POST",
+      "line": 223,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review.py",
+      "symbol": "_local_review_request.Handler.do_POST",
+      "line": 238,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review.py",
+      "symbol": "_local_review_request.Handler.do_GET",
+      "line": 247,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review.py",
+      "symbol": "OtaPaymentReviewTests.test_negative_lag_approve_and_edit_over_real_http.Handler.do_POST",
+      "line": 595,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review_browser.py",
+      "symbol": "OtaReviewBrowserTests.test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal.Handler.do_GET",
+      "line": 525,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review_browser.py",
+      "symbol": "OtaReviewBrowserTests.test_mobile_and_desktop_can_select_preview_confirm_and_answer_pending_proposal.Handler.do_POST",
+      "line": 535,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review_browser.py",
+      "symbol": "OtaReviewBrowserTests.test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve.Handler.do_GET",
+      "line": 697,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_ota_payment_review_browser.py",
+      "symbol": "OtaReviewBrowserTests.test_real_core_adapter_store_and_board_readonly_through_confirm_once_and_approve.Handler.do_POST",
+      "line": 704,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_passenger_cross_repo_integration.py",
+      "symbol": "test_real_reservation_route_http_adapter_cost_confirmation_and_stale_reconfirm.CostHandler.do_GET",
+      "line": 67,
+      "status": "STATIC_CANDIDATE"
+    },
+    {
+      "path": "webapp/tests/test_passenger_cross_repo_integration.py",
+      "symbol": "test_real_reservation_route_http_adapter_cost_confirmation_and_stale_reconfirm.CostHandler.do_POST",
+      "line": 75,
+      "status": "STATIC_CANDIDATE"
+    }
+  ],
+  "errors": [],
+  "limitations": [
+    "Static syntax only; no runtime, authorization, or production-use proof.",
+    "code_sha identifies base HEAD; analysis reads tracked working files, including staged edits.",
+    "Only tracked Python in runtime_dependency_catalog candidate paths is read.",
+    "Route decorators, HTTP tuples and do_METHOD dispatchers are candidates; route literals are omitted.",
+    "Only lexical functions, explicit imports, and direct self methods resolve.",
+    "Dynamic receivers, inheritance, rebinding, callbacks, generated SQL and middleware remain OPEN_QUESTION.",
+    "No literal values, SQL text, function bodies or application imports are emitted.",
+    "Summary omits graph details; rerun without --summary for all locations."
+  ]
+}
