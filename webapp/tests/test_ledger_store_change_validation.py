@@ -2,15 +2,21 @@
 
 Verifies:
 - Differential output and exception behavior compared to base commit 2384cfd
+- Zero presentation/UI layer imports (no ledger_board reverse import in pure validator)
+- Display tab callback short-circuiting and call count (0 calls when tab unchanged)
+- Evaluation and error precedence ordering differential
+- Facade constants rebinding dynamic injection (CARD_EDITABLE/READONLY/INCOME_EDITABLE)
 - Card/manual expense readonly and editable field rules
 - Bank and direct income editable rules and linked direct protections
 - Amount int/bool/float/Decimal and date format validations
 - Tab assignment and income_kind validations
 - KeyError contract on missing 'row_kind'
 - Dynamic dispatch via LedgerStore facade (self._validate monkeypatch preservation)
+- End-to-end LedgerStore.save() protection with tab validation
 """
 from __future__ import annotations
 
+import ast
 import decimal
 import subprocess
 from typing import Any
@@ -42,14 +48,15 @@ def _load_base_2384cfd_validate():
     src = p.stdout
 
     # Extract the exact _validate method and compile it standalone
-    import ast
     tree = ast.parse(src)
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == '_validate':
+        if isinstance(node, ast.FunctionDef) and node.name == "_validate":
             break
 
     # Construct standalone wrapper
     ns = {
+        "__name__": "webapp.ledger_store",
+        "__package__": "webapp",
         "CARD_READONLY": CARD_READONLY,
         "CARD_EDITABLE": CARD_EDITABLE,
         "INCOME_EDITABLE": INCOME_EDITABLE,
@@ -87,6 +94,164 @@ class DummyStoreWithConn:
                 return self.rows
 
         return MockConn(self)
+
+
+def test_zero_presentation_dependency_in_change_validation_module():
+    """Verify that ledger_store_change_validation has ZERO imports of ledger_board."""
+    import inspect
+    import webapp.ledger_store_change_validation as mod
+
+    source = inspect.getsource(mod)
+    tree = ast.parse(source)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert "ledger_board" not in alias.name, f"Forbidden import found: {alias.name}"
+        elif isinstance(node, ast.ImportFrom):
+            assert node.module is not None
+            assert "ledger_board" not in node.module, f"Forbidden import-from found: {node.module}"
+
+
+def test_display_tab_callback_short_circuit_and_call_count():
+    """Verify display_tab validation callback is lazy: called iff display_tab_id in changes."""
+    tab_calls = []
+
+    def mock_tab_validator(target):
+        tab_calls.append(target)
+        if target == "invalid-tab":
+            raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
+
+    current = {"row_kind": "expense", "source_kind": "직접 입력"}
+
+    # 1. When display_tab_id is NOT in changes: callback count is exactly 0
+    validate_row_changes(
+        current,
+        {"item": "새 항목", "amount_krw": 1000},
+        validate_display_tab_fn=mock_tab_validator,
+    )
+    assert len(tab_calls) == 0
+
+    # 2. When display_tab_id IS in changes: callback is invoked once with value
+    validate_row_changes(
+        current,
+        {"display_tab_id": "valid-tab"},
+        validate_display_tab_fn=mock_tab_validator,
+    )
+    assert tab_calls == ["valid-tab"]
+
+    # 3. Invalid tab triggers TARGET_NOT_ASSIGNABLE
+    with pytest.raises(SaveError) as exc:
+        validate_row_changes(
+            current,
+            {"display_tab_id": "invalid-tab"},
+            validate_display_tab_fn=mock_tab_validator,
+        )
+    assert exc.value.code == "TARGET_NOT_ASSIGNABLE"
+
+
+def test_validation_error_precedence_ordering_differential():
+    """Verify exact evaluation and error precedence ordering matching base 2384cfd."""
+    base_validate = _load_base_2384cfd_validate()
+    dummy = DummyStoreWithConn()
+
+    current_card = {
+        "row_id": "r-1",
+        "row_kind": "expense",
+        "source_kind": "카드",
+    }
+
+    # Precedence 1: Read-only field error fires before display_tab validation
+    tab_calls = []
+
+    def mock_tab_val(target):
+        tab_calls.append(target)
+        raise SaveError("TARGET_NOT_ASSIGNABLE", "tab error")
+
+    # If both read-only field and invalid display_tab_id are passed:
+    with pytest.raises(SaveError) as exc_base:
+        base_validate(dummy, current_card, {"amount_krw": 500, "display_tab_id": "bad-tab"})
+    with pytest.raises(SaveError) as exc_new:
+        validate_row_changes(
+            current_card,
+            {"amount_krw": 500, "display_tab_id": "bad-tab"},
+            validate_display_tab_fn=mock_tab_val,
+        )
+    assert exc_new.value.code == exc_base.value.code == "FIELD_READ_ONLY"
+    assert len(tab_calls) == 0, "tab validator must NOT be called if field check fails earlier"
+
+    # Precedence 2: Tab validation fires before amount int validation
+    current_manual = {
+        "row_id": "r-2",
+        "row_kind": "expense",
+        "source_kind": "직접 입력",
+    }
+    with pytest.raises(SaveError) as exc_base:
+        base_validate(dummy, current_manual, {"display_tab_id": "invalid-tab-xyz", "amount_krw": 12.34})
+    with pytest.raises(SaveError) as exc_new:
+        validate_row_changes(
+            current_manual,
+            {"display_tab_id": "invalid-tab-xyz", "amount_krw": 12.34},
+            validate_display_tab_fn=mock_tab_val,
+        )
+    assert exc_new.value.code == exc_base.value.code == "TARGET_NOT_ASSIGNABLE"
+
+    # Precedence 3: Amount int validation fires before date format validation
+    def dummy_tab_ok(t):
+        pass
+
+    with pytest.raises(SaveError) as exc_base:
+        base_validate(dummy, current_manual, {"amount_krw": "not-int", "occurred_on": "bad-date"})
+    with pytest.raises(SaveError) as exc_new:
+        validate_row_changes(
+            current_manual,
+            {"amount_krw": "not-int", "occurred_on": "bad-date"},
+            validate_display_tab_fn=dummy_tab_ok,
+        )
+    assert exc_new.value.code == exc_base.value.code == "INVALID_VALUE"
+    assert exc_new.value.args[0] == exc_base.value.args[0] == "금액은 정수 원화로 입력해 주세요"
+
+    # Precedence 4: Date format validation fires before income_kind validation
+    current_income = {
+        "row_id": "r-3",
+        "row_kind": "income",
+        "source_kind": "직접 입력",
+    }
+    with pytest.raises(SaveError) as exc_base:
+        base_validate(dummy, current_income, {"occurred_on": "bad-date", "income_kind": "bad-kind"})
+    with pytest.raises(SaveError) as exc_new:
+        validate_row_changes(
+            current_income,
+            {"occurred_on": "bad-date", "income_kind": "bad-kind"},
+            validate_display_tab_fn=dummy_tab_ok,
+        )
+    assert exc_new.value.code == exc_base.value.code == "INVALID_VALUE"
+    assert exc_new.value.args[0] == exc_base.value.args[0] == "날짜 형식이 달라요"
+
+
+def test_facade_constants_rebinding_preserved(tmp_path, monkeypatch):
+    """Verify that monkeypatching facade CARD_EDITABLE / CARD_READONLY dynamically alters validation."""
+    db_path = str(tmp_path / "test_rebind.db")
+    store = LedgerStore(db_path)
+
+    current_card = {
+        "row_id": "r-card-1",
+        "row_kind": "expense",
+        "source_kind": "카드",
+    }
+
+    # Normally 'item' is editable for card
+    store._validate(current_card, {"item": "정상 항목"})
+
+    # Rebind CARD_EDITABLE on facade module to remove 'item'
+    monkeypatch.setattr(ls_module, "CARD_EDITABLE", ("display_tab_id", "description"))
+
+    # Now 'item' should be rejected by store._validate as INVALID_VALUE
+    with pytest.raises(SaveError) as exc:
+        store._validate(current_card, {"item": "새 항목"})
+    assert exc.value.code == "INVALID_VALUE"
+
+    store.conn.close()
 
 
 def test_card_expense_validation_differential():
@@ -263,6 +428,50 @@ def test_occurred_on_and_income_kind_validations():
         validate_row_changes(current_income, {"income_kind": good_kind})
 
 
+def test_facade_save_tab_validation_protection(tmp_path):
+    """End-to-end save protection verifying tab validation and rejection."""
+    db_path = str(tmp_path / "test_save_tab.db")
+    store = LedgerStore(db_path)
+
+    created = store.create_manual_expense(
+        fields={
+            "display_tab_id": "tab-1",
+            "occurred_on": "2026-10-28",
+            "amount_krw": 10000,
+            "item": "식비",
+            "pay_method": "현금",
+            "description": "메모",
+        },
+        client_request_id="req-tab-save-1",
+    )
+    row_id = created["row_id"]
+
+    # 1. Invalid display_tab_id raises TARGET_NOT_ASSIGNABLE
+    with pytest.raises(SaveError) as exc:
+        store.save(
+            row_id=row_id,
+            expected_revision=1,
+            client_request_id="req-tab-save-2",
+            change_mode="exception",
+            changes={"display_tab_id": "totally-invalid-tab-id-999"},
+        )
+    assert exc.value.code == "TARGET_NOT_ASSIGNABLE"
+    assert "배정할 수 없는 여행이에요" in str(exc.value)
+
+    # 2. Saving changes without display_tab_id succeeds and doesn't query tab
+    res = store.save(
+        row_id=row_id,
+        expected_revision=1,
+        client_request_id="req-tab-save-3",
+        change_mode="exception",
+        changes={"item": "수정된 식비"},
+    )
+    assert res["outcome"] == "saved"
+    assert res["revision"] == 2
+
+    store.conn.close()
+
+
 def test_keyerror_contract_and_facade_dynamic_dispatch(tmp_path, monkeypatch):
     """Verify KeyError contract on missing row_kind and facade dynamic dispatch."""
     # 1. Missing row_kind in current raises KeyError
@@ -282,7 +491,6 @@ def test_keyerror_contract_and_facade_dynamic_dispatch(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store, "_validate", tracked_validate)
 
-    # Create row
     created = store.create_manual_expense(
         fields={
             "display_tab_id": "tab-1",

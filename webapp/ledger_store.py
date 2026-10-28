@@ -2900,10 +2900,23 @@ class LedgerStore:
             except Exception:
                 return set()
 
+        def _validate_display_tab(target: Any) -> None:
+            from . import ledger_board as board
+            from app import quarter_tab
+            from app.ledger import REFUND_TAB
+
+            valid = board.valid_tab_ids() | {None, REFUND_TAB}
+            if target not in valid and not quarter_tab.parse_tab(target):
+                raise SaveError("TARGET_NOT_ASSIGNABLE", "배정할 수 없는 여행이에요")
+
         validate_row_changes(
             current,
             changes,
+            card_editable=CARD_EDITABLE,
+            card_readonly=CARD_READONLY,
+            income_editable=INCOME_EDITABLE,
             get_linked_direct_ids_fn=_get_linked_direct,
+            validate_display_tab_fn=_validate_display_tab,
             valid_date_fn=_valid_date,
             save_error_cls=SaveError,
         )
