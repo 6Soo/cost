@@ -24,23 +24,18 @@ from app.google_authority import SnapshotError
 from . import ledger_board as board
 from . import read_scope, ui_icons
 
-from .ledger_design_assets import (
-    CSS_DIR,
-    FONT_DIR,
-    FONT_FAMILY,
-    JS_DIR,
-    OTA_ASSETS,
-    OTA_DIR,
-    SCRIPT,
-    SCRIPT_BYTES,
-    STATIC_ASSETS,
-    STYLE,
-    STYLE_BYTES,
-    css_asset,
-    js_asset,
-    ota_asset,
-    static_asset,
-)
+FONT_DIR = Path(__file__).resolve().parent / "static" / "fonts"
+OTA_DIR = Path(__file__).resolve().parent / "static" / "ota"
+OTA_ASSETS = {"agoda.png": "image/png", "trip.png": "image/png"}
+
+
+def ota_asset(name):
+    if not isinstance(name, str) or name not in OTA_ASSETS:
+        return None
+    path = OTA_DIR / name
+    if not path.is_file() or path.resolve().parent != OTA_DIR.resolve():
+        return None
+    return path.read_bytes(), OTA_ASSETS[name]
 
 
 def _category_icon(row):
@@ -66,6 +61,15 @@ def _merchant_icon(row):
                 "alt='' aria-hidden='true' loading='lazy' decoding='async'>")
     return ui_icons.icon('receipt', size=16)
 
+# Explicit allowlist. A name that is not a key here is refused, whatever it
+# contains, so traversal, absolute paths and encoded separators cannot resolve.
+STATIC_ASSETS = {
+    "PretendardVariable.woff2": "font/woff2",
+    "OFL.txt": "text/plain; charset=utf-8",
+}
+
+FONT_FAMILY = "Pretendard Variable"
+
 # Stored values stay English; the screen shows the Korean the app already uses.
 INCOME_KIND_LABELS = {
     "deposit": "예약금",
@@ -75,6 +79,21 @@ INCOME_KIND_LABELS = {
 
 # Buttons and rows keep the values the existing tests and the export already use.
 MONEY = "{:,}원"
+
+
+def static_asset(name: str):
+    """Return (bytes, content_type) for an allowed asset, or None."""
+    if not isinstance(name, str) or name not in STATIC_ASSETS:
+        return None
+    path = FONT_DIR / name
+    if path.parent.resolve() != FONT_DIR.resolve():
+        return None
+    if not path.is_file():
+        return None
+    return path.read_bytes(), STATIC_ASSETS[name]
+
+
+from .ledger_design_assets import STYLE, SCRIPT
 
 
 # ----------------------------------------------------------------- fragments
