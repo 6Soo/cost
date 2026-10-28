@@ -108,15 +108,40 @@ def test_inline_apply_retry_is_idempotent(context):
     first_status, first = _post(board, original, "apply", request)
     before = list(board.conn.iterdump())
     second_status, second = _post(board, original, "apply", request)
-    assert first_status == 200
-    assert second_status == 409
-    assert second["code"] == "PREVIEW_STALE"
+    assert first_status == second_status == 200
     assert first["applied"] == 2
+    assert second["applied"] == 2
     assert list(board.conn.iterdump()) == before
     assert board.conn.execute(
         "SELECT COUNT(*),SUM(amount_krw) FROM ledger_entries WHERE transaction_id IN (?,?)",
         (original, refund),
     ).fetchone() == (2, 0)
+
+
+def test_inline_apply_same_request_id_with_changed_digest_conflicts(context):
+    board, original, _, _ = context
+    _, preview = _post(board, original, "preview")
+    first = {"digest": preview["digest"], "request_id": "owner-scope-conflict-001"}
+    assert _post(board, original, "apply", first)[0] == 200
+    changed = {"digest": "f" * 64, "request_id": first["request_id"]}
+    status, result = _post(board, original, "apply", changed)
+    assert status == 409
+    assert result["code"] == "REQUEST_ID_REUSED"
+
+
+def test_inline_apply_new_request_id_with_old_digest_is_stale(context):
+    board, original, _, _ = context
+    _, preview = _post(board, original, "preview")
+    assert _post(
+        board, original, "apply",
+        {"digest": preview["digest"], "request_id": "owner-first-request-002"},
+    )[0] == 200
+    status, result = _post(
+        board, original, "apply",
+        {"digest": preview["digest"], "request_id": "owner-new-request-003"},
+    )
+    assert status == 409
+    assert result["code"] == "PREVIEW_STALE"
 
 
 def test_inline_apply_rolls_back_partial_write_failure(context, monkeypatch):

@@ -112,16 +112,6 @@ def dispatch(handler, parsed, *, board, raw=None, csrf=""):
                     or not re.fullmatch("[a-zA-Z0-9_-]{12,96}", request_id)):
                 handler._send_json({"code": "INVALID_INPUT"}, 422)
                 return True
-            if digest != result["digest"]:
-                handler._send_json(
-                    {"code": "PREVIEW_STALE", "message": "자료가 변경됐습니다. 다시 미리보기를 확인해 주세요."}, 409
-                )
-                return True
-            if not result.get("recordable"):
-                handler._send_json(
-                    {"code": "REFUND_RECORD_HELD", "message": summary["message"]}, 409
-                )
-                return True
             committed = flow.pipeline.commit(
                 batch, digest, request_id,
                 projection=flow.project,
