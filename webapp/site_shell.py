@@ -168,11 +168,14 @@ const close=({restoreFocus=false}={})=>{nav.classList.remove('open');if(mask)mas
  nav.addEventListener('scroll',()=>{try{sessionStorage.setItem('cost-nav-scroll',String(nav.scrollTop))}catch{}})}catch{}
 })();"""
 
-BUTTON = ('<header class="site-topbar"><button type="button" class="site-menu-toggle" '
-          'aria-label="전체 메뉴 열기" aria-controls="nav" aria-expanded="false">'
-          + ui_icons.icon("menu") +
-          '메뉴</button>'
-          '<span>COST 업무 메뉴</span>' + site_theme.BUTTON + '</header>')
+MENU_TOGGLE = ('<button type="button" class="site-menu-toggle" '
+               'aria-label="전체 메뉴 열기" aria-controls="nav" aria-expanded="false">'
+               + ui_icons.icon("menu") +
+               '메뉴</button>'
+               '<span>COST 업무 메뉴</span>')
+
+TOPBAR_NAVIGATION = '<header class="site-topbar">' + MENU_TOGGLE + '</header>'
+BUTTON = '<header class="site-topbar">' + MENU_TOGGLE + site_theme.BUTTON + '</header>'
 
 
 def wrap_document(document: str, path: str, *, status: int = 200) -> str:
@@ -191,7 +194,7 @@ def wrap_document(document: str, path: str, *, status: int = 200) -> str:
     if native:
         content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + site_theme.BUTTON, content, count=1)
         if not re.search(r'\bid=[\"\']btn-menu[\"\']', content):
-            content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + BUTTON.replace(site_theme.BUTTON, ''), content, count=1)
+            content = re.sub(r'(<main\b[^>]*>)', lambda m: m[1] + TOPBAR_NAVIGATION, content, count=1)
         body = opening[0]
     else:
         from .ledger_design import _nav_html

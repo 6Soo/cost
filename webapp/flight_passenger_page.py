@@ -37,10 +37,14 @@ def _send(handler, body, status=200):
     handler._send_json(body, status)
 
 
-def _legacy_page(csrf):
+def _escape_csrf_json(csrf):
     # Keep untrusted token text inside the script string, even when it contains
     # an HTML script terminator.
-    token = json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
+    return json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
+
+
+def _legacy_page(csrf):
+    token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang='ko'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'><title>항공권 참가자 후보</title>
 <style>
 :root{--bg:#F8FAFC;--paper:#FFFFFF;--ink:#0F172A;--mut:#475569;--line:#E2E8F0;--line2:#F1F5F9;--line-strong:#D0D5DD;--hover:#F8FAFC;--focus:#2266F5;--sel:#ECF5EF;--grn:#1C7A52;--warn:#B54708;--neg:#B42318;--bad:#B42318}
@@ -106,7 +110,7 @@ catch(error){status.textContent=error.message}finally{searchButton.disabled=fals
 
 
 def _page(csrf):
-    token = json.dumps(str(csrf or ''), ensure_ascii=True).replace('<', r'\u003c')
+    token = _escape_csrf_json(csrf)
     return """<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>항공권 예약 확인</title>
 <style>
 :root{--bg:#f8fafc;--paper:#fff;--ink:#0f172a;--mut:#475569;--line:#e2e8f0;--hover:#f1f5f9;--focus:#2563eb;--good:#047857;--warn:#a16207}
