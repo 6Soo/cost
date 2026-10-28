@@ -183,4 +183,3 @@ test('pause removes only this collector trigger and preserves evidence and other
   assert.equal(h.triggers.length,1);assert.equal(h.triggers[0].getHandlerFunction(),'unrelated-synthetic-handler');
   assert.equal(h.files.get('gmail-a1.json').content,original);
 });
-
