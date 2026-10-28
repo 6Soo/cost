@@ -15,14 +15,22 @@ def _day(value: Any) -> date | None:
 def outbound_departure(booking: Mapping[str, Any]) -> str:
     """Return earliest actual segment departure, independent of leg ordering."""
     dates = []
+    labeled_outbound = []
     for leg in booking.get("legs") or []:
         if not isinstance(leg, Mapping):
             continue
+        label = "".join(str(leg.get("label") or "").split()).casefold()
+        leg_dates = []
         for segment in leg.get("segments") or []:
             if isinstance(segment, Mapping) and _day(segment.get("departure_on")):
-                dates.append(str(segment["departure_on"])[:10])
+                leg_dates.append(str(segment["departure_on"])[:10])
         if _day(leg.get("departure_on")):
-            dates.append(str(leg["departure_on"])[:10])
+            leg_dates.append(str(leg["departure_on"])[:10])
+        dates.extend(leg_dates)
+        if label.startswith("가는") and leg_dates:
+            labeled_outbound.extend(leg_dates)
+    if labeled_outbound:
+        return min(labeled_outbound)
     return min(dates) if dates else ""
 
 
