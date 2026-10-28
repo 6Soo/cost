@@ -2167,18 +2167,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, text: str, code: int = 200) -> None:
         from . import site_shell, social_preview
-        board_http_shapes.send_html(
-            self, text, code=code,
-            wrap_document_fn=site_shell.wrap_document,
-            decorate_fn=social_preview.decorate,
-            access_enforcement=ACCESS_ENFORCEMENT,
-            has_session=current_request_session() is not None,
-        )
+        text = social_preview.decorate(text)
+        if not ACCESS_ENFORCEMENT or current_request_session() is not None:
+            text = site_shell.wrap_document(text, self.path, status=code)
+        board_http_shapes.send_html(self, text, code=code)
 
     # ------------------------------------------------- the session cookie
     def _platform_probe(self, path: str) -> tuple[int, dict]:
-        return board_http_shapes.platform_probe(
-            path, store=_active_store(), db_path=os.environ.get("WEBLEDGER_DB", "")
+        if path == "/healthz":
+            return 200, {"ok": True, "probe": "healthz"}
+        try:
+            store = _active_store()
+        except NameError:  # pragma: no cover - the board always binds one
+            store = None
+        return board_http_shapes.ready_probe(
+            store, db_path=os.environ.get("WEBLEDGER_DB", "")
         )
 
     def _cookies(self):
@@ -3631,25 +3634,31 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 q = parse_qs(parsed.query)
                 # Validate year parameter
+                year_str = q.get("year", ["2026"])[0]
                 try:
-                    year = board_http_shapes.validate_year_param(q.get("year", ["2026"])[0])
+                    year = board_http_shapes.validate_year(year_str)
                 except ValueError as exc:
                     self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
                     return
 
                 # Validate month parameter if present
-                try:
-                    month = board_http_shapes.validate_month_param(q.get("month", [None])[0])
-                except ValueError as exc:
-                    self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
-                    return
+                month = None
+                month_str = q.get("month", [None])[0]
+                if month_str is not None:
+                    try:
+                        month = board_http_shapes.validate_month(month_str)
+                    except ValueError as exc:
+                        self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
+                        return
 
                 # Validate cursor format if present
-                try:
-                    cursor = board_http_shapes.validate_cursor_param(q.get("cursor", [None])[0])
-                except ValueError as exc:
-                    self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
-                    return
+                cursor = q.get("cursor", [None])[0]
+                if cursor is not None:
+                    try:
+                        board_http_shapes.validate_cursor(cursor)
+                    except ValueError as exc:
+                        self._send_json({"code": "INVALID_VALUE", "message": str(exc)}, code=400)
+                        return
 
                 # Get the card DB path from the active store (request-bound)
                 card_db_path = _get_card_db_path()
@@ -3707,9 +3716,8 @@ class Handler(BaseHTTPRequestHandler):
 
         parsed = urlparse(self.path)
         parts = parsed.path.strip("/").split("/")
-        try:
-            length = board_http_shapes.check_content_length(self.headers)
-        except ValueError:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > board_http_shapes.MAX_CONTENT_LENGTH:
             self._send_json({"code": "TOO_LARGE", "message": "요청이 너무 커요"}, code=413)
             return
         content_type = self.headers.get("Content-Type") or ""

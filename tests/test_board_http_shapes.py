@@ -3,8 +3,9 @@
 Ensures:
 1. webapp.board_http_shapes has zero import coupling to ledger_board.
 2. Exact parity with baseline commit 2384cfd for HTTP input parsing, cookie extraction,
-   content length check, parameter validation, platform probe, and response envelopes.
-3. Handler HTTP facade methods delegate cleanly and preserve all status/headers.
+   parameter validation, platform probe (/healthz early return without store access),
+   and response envelopes.
+3. Handler HTTP facade methods delegate cleanly and preserve all status/headers and call sequence.
 4. Synthetic HTTP tests verifying anonymous, owner, nonowner, and CSRF protection behavior.
 """
 from __future__ import annotations
@@ -13,6 +14,7 @@ import ast
 from email.message import Message
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,19 +65,15 @@ def test_status_for_code_parity_with_baseline():
     assert ledger_board.STATUS_FOR_CODE == baseline_status
 
 
-def test_cookie_parsing_various_headers():
-    # 1. Empty or None
-    assert not board_http_shapes.parse_cookies(None)
-    assert not board_http_shapes.parse_cookies({})
-
-    # 2. Single cookie header
+def test_cookie_parsing_parity_with_baseline():
+    # 1. Normal headers with single Cookie
     msg = Message()
     msg["Cookie"] = "webledger_session=sess-123; other=val"
     jar = board_http_shapes.parse_cookies(msg)
     assert jar["webledger_session"].value == "sess-123"
     assert jar["other"].value == "val"
 
-    # 3. Repeated Cookie headers (email.message.Message allows multiple headers)
+    # 2. Repeated Cookie headers
     msg2 = Message()
     msg2.add_header("Cookie", "first=1")
     msg2.add_header("Cookie", "second=2")
@@ -83,28 +81,10 @@ def test_cookie_parsing_various_headers():
     assert jar2["first"].value == "1"
     assert jar2["second"].value == "2"
 
-    # 4. Malformed cookie returns empty dict gracefully
-    msg3 = Message()
-    msg3["Cookie"] = "invalid cookie = string ; ; = =="
-    # SimpleCookie handles or fails safely
-    res = board_http_shapes.parse_cookies(msg3)
-    assert isinstance(res, (dict, type(jar2)))
-
-
-def test_content_length_validation():
-    # Normal
-    msg = Message()
-    msg["Content-Length"] = "1024"
-    assert board_http_shapes.check_content_length(msg) == 1024
-
-    # Missing
-    assert board_http_shapes.check_content_length(Message()) == 0
-
-    # Over 5MB limit
-    msg_large = Message()
-    msg_large["Content-Length"] = str(6 * 1024 * 1024)
-    with pytest.raises(ValueError, match="TOO_LARGE"):
-        board_http_shapes.check_content_length(msg_large)
+    # 3. Object without get_all raises AttributeError -> returns empty dict
+    class NoGetAll:
+        pass
+    assert board_http_shapes.parse_cookies(NoGetAll()) == {}
 
 
 def test_payload_parsing_json_and_form():
@@ -132,59 +112,83 @@ def test_payload_parsing_json_and_form():
     assert exc_info.value.code == "INVALID_VALUE"
 
 
-def test_card_param_validators():
-    # Year
-    assert board_http_shapes.validate_year_param(None) == 2026
-    assert board_http_shapes.validate_year_param("2025") == 2025
+def test_card_param_validators_exact_baseline():
+    # Year: requires integer string, rejects None, checks range 2000-2100
+    assert board_http_shapes.validate_year("2026") == 2026
+    assert board_http_shapes.validate_year("2025") == 2025
     with pytest.raises(ValueError, match="year must be an integer"):
-        board_http_shapes.validate_year_param("invalid")
+        board_http_shapes.validate_year(None)
+    with pytest.raises(ValueError, match="year must be an integer"):
+        board_http_shapes.validate_year("invalid")
     with pytest.raises(ValueError, match="year out of range"):
-        board_http_shapes.validate_year_param("1999")
+        board_http_shapes.validate_year("1999")
     with pytest.raises(ValueError, match="year out of range"):
-        board_http_shapes.validate_year_param("2101")
+        board_http_shapes.validate_year("2101")
 
-    # Month
-    assert board_http_shapes.validate_month_param(None) is None
-    assert board_http_shapes.validate_month_param("5") == 5
+    # Month: requires integer string 1-12
+    assert board_http_shapes.validate_month("1") == 1
+    assert board_http_shapes.validate_month("12") == 12
     with pytest.raises(ValueError, match="month must be an integer"):
-        board_http_shapes.validate_month_param("abc")
+        board_http_shapes.validate_month(None)
+    with pytest.raises(ValueError, match="month must be an integer"):
+        board_http_shapes.validate_month("abc")
     with pytest.raises(ValueError, match="month must be 1-12"):
-        board_http_shapes.validate_month_param("0")
+        board_http_shapes.validate_month("0")
     with pytest.raises(ValueError, match="month must be 1-12"):
-        board_http_shapes.validate_month_param("13")
+        board_http_shapes.validate_month("13")
 
-    # Cursor
-    assert board_http_shapes.validate_cursor_param(None) is None
-    assert board_http_shapes.validate_cursor_param("2026-05-01|c123") == "2026-05-01|c123"
+    # Cursor: format validation
+    assert board_http_shapes.validate_cursor("2026-05-01|c123") == "2026-05-01|c123"
     with pytest.raises(ValueError, match="invalid cursor format"):
-        board_http_shapes.validate_cursor_param("20260501c123")
+        board_http_shapes.validate_cursor("20260501c123")
     with pytest.raises(ValueError, match="invalid cursor format"):
-        board_http_shapes.validate_cursor_param("|")
+        board_http_shapes.validate_cursor("|")
     with pytest.raises(ValueError, match="invalid cursor format"):
-        board_http_shapes.validate_cursor_param("2026-05-01|")
+        board_http_shapes.validate_cursor("2026-05-01|")
     with pytest.raises(ValueError, match="invalid cursor date"):
-        board_http_shapes.validate_cursor_param("bad-date|c123")
+        board_http_shapes.validate_cursor("bad-date|c123")
 
 
-def test_platform_probe_parity_with_baseline(tmp_path: Path):
-    baseline_handler_cls = _load_baseline_symbols()["Handler"]
+def test_platform_probe_call_order_and_early_return():
+    """Verify /healthz returns 200 without touching store or raising on store error."""
+    # Create a dummy handler to test _platform_probe
+    class ProbeHandler(ledger_board.Handler):
+        def __init__(self):
+            pass
 
-    # 1. /healthz
-    code1, body1 = board_http_shapes.platform_probe("/healthz", store=None)
-    assert code1 == 200
-    assert body1 == {"ok": True, "probe": "healthz"}
+    handler = ProbeHandler()
 
-    # 2. /readyz without store
-    code2, body2 = board_http_shapes.platform_probe("/readyz", store=None)
-    assert code2 == 503
-    assert body2["ok"] is False
-    assert "store_not_bound" in body2["problems"]
+    # /healthz must return 200 without calling _active_store()
+    # Even if _active_store raises an exception, health probe succeeds
+    orig_active = ledger_board._active_store
+    try:
+        def poison_store():
+            raise RuntimeError("Should not be called for healthz")
+        ledger_board._active_store = poison_store
 
-    # 3. /readyz with valid store
+        code, body = handler._platform_probe("/healthz")
+        assert code == 200
+        assert body == {"ok": True, "probe": "healthz"}
+    finally:
+        ledger_board._active_store = orig_active
+
+    # /readyz with store=None returns 503 store_not_bound
+    try:
+        ledger_board._active_store = lambda: None
+        code, body = handler._platform_probe("/readyz")
+        assert code == 503
+        assert body["ok"] is False
+        assert "store_not_bound" in body["problems"]
+    finally:
+        ledger_board._active_store = orig_active
+
+
+def test_ready_probe_with_valid_and_missing_tables(tmp_path: Path):
+    # Valid store
     store = ledger_store.LedgerStore(tmp_path / "probe.sqlite", seed_demo=True)
-    code3, body3 = board_http_shapes.platform_probe("/readyz", store=store)
-    assert code3 == 200
-    assert body3 == {"ok": True, "probe": "readyz"}
+    code, body = board_http_shapes.ready_probe(store)
+    assert code == 200
+    assert body == {"ok": True, "probe": "readyz"}
 
 
 class DummyHandler:
@@ -222,21 +226,13 @@ def test_send_json_envelope():
 
 def test_send_html_envelope():
     handler = DummyHandler("/board")
-    board_http_shapes.send_html(
-        handler,
-        "<p>내용</p>",
-        code=200,
-        decorate_fn=lambda t: f"<!--decorated-->{t}",
-        wrap_document_fn=lambda t, p, status: f"<shell path='{p}'>{t}</shell>",
-        access_enforcement=False,
-        has_session=False,
-    )
+    board_http_shapes.send_html(handler, "<p>내용</p>", code=200)
     assert handler.status_code == 200
     assert ("Content-Type", "text/html; charset=utf-8") in handler.headers
     assert ("Cache-Control", "no-store") in handler.headers
     assert handler.headers_ended
     body = handler.wfile.getvalue().decode("utf-8")
-    assert "<shell path='/board'><!--decorated--><p>내용</p></shell>" == body
+    assert body == "<p>내용</p>"
 
 
 def test_send_bytes_and_redirect_and_auth_page():
@@ -263,6 +259,7 @@ def test_send_bytes_and_redirect_and_auth_page():
     assert h3.status_code == 403
     assert ("Content-Type", "text/html; charset=utf-8") in h3.headers
     assert ("Cache-Control", "no-store") in h3.headers
+    assert ("Referrer-Policy", "no-referrer") in h3.headers
     body = h3.wfile.getvalue().decode("utf-8")
     assert "<title>로그인 안내</title>" in body
     assert '<p data-refusal="AUTH_REFUSED"></p>' in body
@@ -311,10 +308,10 @@ class SyntheticServerClient:
         headers: Optional[Dict[str, str]] = None,
         body: bytes = b"",
     ) -> Tuple[int, Dict[str, str], bytes]:
-        raw_headers = headers or {}
-        header_lines = [f"{k}: {v}\r\n" for k, v in raw_headers.items()]
+        raw_headers = dict(headers or {})
         if body and "Content-Length" not in raw_headers:
-            header_lines.append(f"Content-Length: {len(body)}\r\n")
+            raw_headers["Content-Length"] = str(len(body))
+        header_lines = [f"{k}: {v}\r\n" for k, v in raw_headers.items()]
         raw_req = f"{command} {path} HTTP/1.1\r\n" + "".join(header_lines) + "\r\n"
         input_stream = io.BytesIO(raw_req.encode("utf-8") + body)
         output_stream = io.BytesIO()
@@ -379,6 +376,22 @@ def test_synthetic_http_probes_and_anonymous_requests(tmp_path: Path):
     # 3. Anonymous /rules without case_id -> 404
     code, headers, body = client.request("GET", "/rules")
     assert code == 404
+
+
+def test_synthetic_http_post_content_length_limit(tmp_path: Path):
+    store = ledger_store.LedgerStore(tmp_path / "len_test.sqlite", seed_demo=True)
+    client = SyntheticServerClient(store)
+
+    # Content-Length exceeding 5MB -> 413 TOO_LARGE
+    code, headers, body = client.request(
+        "POST",
+        "/api/income",
+        headers={"Content-Length": str(6 * 1024 * 1024)},
+        body=b"",
+    )
+    assert code == 413
+    data = json.loads(body.decode("utf-8"))
+    assert data.get("code") == "TOO_LARGE"
 
 
 def test_synthetic_http_owner_required_route_protection(tmp_path: Path):

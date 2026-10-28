@@ -11,6 +11,9 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
+# Maximum allowed Content-Length for request bodies (5MB)
+MAX_CONTENT_LENGTH: int = 5 * 1024 * 1024
+
 # Standard HTTP status mapping for error codes
 STATUS_FOR_CODE: Dict[str, int] = {
     # The first block is the vocabulary of DETAILED_CONTRACT 4.3.
@@ -56,29 +59,12 @@ def parse_cookies(headers: Any) -> Any:
     first would let it hide a cookie from the check.
     """
     jar = http.cookies.SimpleCookie()
-    if headers is None:
-        return jar
     try:
-        getter = getattr(headers, "get_all", None)
-        raw_list = getter("Cookie") if callable(getter) else headers.get("Cookie")
-        if isinstance(raw_list, str):
-            raw_list = [raw_list]
-        for raw in (raw_list or []):
+        for raw in headers.get_all("Cookie") or []:
             jar.load(raw)
     except (AttributeError, http.cookies.CookieError):
         return {}
     return jar
-
-
-def check_content_length(headers: Any, max_bytes: int = 5 * 1024 * 1024) -> int:
-    """Validate Content-Length header against maximum byte limit.
-
-    Returns the integer length, or raises ValueError("TOO_LARGE") if it exceeds max_bytes.
-    """
-    length = int(headers.get("Content-Length") or 0) if headers else 0
-    if length > max_bytes:
-        raise ValueError("TOO_LARGE")
-    return length
 
 
 def parse_request_payload(content_type: str, raw: bytes) -> dict:
@@ -100,27 +86,19 @@ def parse_request_payload(content_type: str, raw: bytes) -> dict:
     return {k: (v if len(v) > 1 else v[0]) for k, v in form.items()}
 
 
-def validate_year_param(
-    year_str: Optional[str],
-    default: int = 2026,
-    min_year: int = 2000,
-    max_year: int = 2100,
-) -> int:
+def validate_year(year_str: Any) -> int:
     """Validate year parameter for card transaction queries."""
-    val = default if year_str is None else year_str
     try:
-        year = int(val)
+        year = int(year_str)
     except (TypeError, ValueError):
         raise ValueError("year must be an integer")
-    if year < min_year or year > max_year:
+    if year < 2000 or year > 2100:
         raise ValueError("year out of range")
     return year
 
 
-def validate_month_param(month_str: Optional[str]) -> Optional[int]:
+def validate_month(month_str: Any) -> int:
     """Validate month parameter for card transaction queries."""
-    if month_str is None:
-        return None
     try:
         month = int(month_str)
     except (TypeError, ValueError):
@@ -130,10 +108,8 @@ def validate_month_param(month_str: Optional[str]) -> Optional[int]:
     return month
 
 
-def validate_cursor_param(cursor: Optional[str]) -> Optional[str]:
+def validate_cursor(cursor: str) -> str:
     """Validate cursor parameter format ('date|id') for card transaction queries."""
-    if cursor is None:
-        return None
     parts = cursor.split("|", 1)
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError("invalid cursor format")
@@ -143,18 +119,9 @@ def validate_cursor_param(cursor: Optional[str]) -> Optional[str]:
     return cursor
 
 
-def platform_probe(path: str, *, store: Any, db_path: str = "") -> Tuple[int, dict]:
-    """Answer a platform probe: no auth, no data, a real answer either way.
-
-    `/healthz` never fails while the process is running, which is what a
-    restart policy needs. `/readyz` fails when the working database is
-    missing or has no schema, so a platform stops sending traffic to a
-    process that cannot answer a request -- and the reason is named in a
-    fixed vocabulary rather than by its output.
-    """
-    body = {"ok": True, "probe": path.lstrip("/")}
-    if path == "/healthz":
-        return 200, body
+def ready_probe(store: Any, db_path: str = "") -> Tuple[int, dict]:
+    """Answer the /readyz platform probe based on working database and schema readiness."""
+    body: Dict[str, Any] = {"ok": True, "probe": "readyz"}
     problems = []
     if store is None:
         problems.append("store_not_bound")
@@ -194,21 +161,8 @@ def send_json(
     handler.wfile.write(data)
 
 
-def send_html(
-    handler: Any,
-    text: str,
-    code: int = 200,
-    *,
-    wrap_document_fn: Optional[Callable[[str, str, int], str]] = None,
-    decorate_fn: Optional[Callable[[str], str]] = None,
-    access_enforcement: bool = False,
-    has_session: bool = False,
-) -> None:
-    """Send HTML response envelope with social preview decoration and site shell."""
-    if decorate_fn is not None:
-        text = decorate_fn(text)
-    if (not access_enforcement or has_session) and wrap_document_fn is not None:
-        text = wrap_document_fn(text, getattr(handler, "path", "/"), status=code)
+def send_html(handler: Any, text: str, code: int = 200) -> None:
+    """Encode and write HTML response body with no-store headers."""
     data = text.encode("utf-8")
     try:
         handler.send_response(code)
@@ -221,37 +175,24 @@ def send_html(
         handler.close_connection = True
 
 
-def send_bytes(
-    handler: Any,
-    body: bytes,
-    content_type: str,
-    cache_control: str = "public, max-age=604800",
-) -> None:
+def send_bytes(handler: Any, body: bytes, content_type: str) -> None:
     """Send binary response envelope with caching header."""
     handler.send_response(200)
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Cache-Control", cache_control)
+    handler.send_header("Cache-Control", "public, max-age=604800")
     handler.end_headers()
     handler.wfile.write(body)
 
 
-def send_redirect(
-    handler: Any,
-    location: str,
-    cookie: Optional[str] = None,
-    code: int = 303,
-    cache_control: str = "no-store",
-    referrer_policy: str = "no-referrer",
-) -> None:
+def send_redirect(handler: Any, location: str, cookie: Optional[str] = None) -> None:
     """Send HTTP redirect envelope."""
-    handler.send_response(code)
+    handler.send_response(303)
     handler.send_header("Location", location)
     if cookie:
         handler.send_header("Set-Cookie", cookie)
-    handler.send_header("Cache-Control", cache_control)
-    if referrer_policy:
-        handler.send_header("Referrer-Policy", referrer_policy)
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Referrer-Policy", "no-referrer")
     handler.end_headers()
 
 
